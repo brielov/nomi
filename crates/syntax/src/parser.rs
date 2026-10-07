@@ -87,6 +87,8 @@ pub enum SyntaxErrorKind {
     ExpectedType,
     /// A pattern.
     ExpectedPattern,
+    /// An expression.
+    ExpectedExpression,
     /// A name joined to a wildcard, as in `_unused`.
     NamedWildcard,
     /// A token that must start its line follows other code on that line.

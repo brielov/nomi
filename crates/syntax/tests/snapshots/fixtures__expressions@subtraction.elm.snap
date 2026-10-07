@@ -1,0 +1,26 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/subtraction.elm
+---
+ExprFragment@0..12
+  OperatorChain@0..11
+    NameExpr@0..1
+      LowerIdent@0..1 "a"
+    Whitespace@1..2 " "
+    Op@2..3
+      Minus@2..3 "-"
+    Whitespace@3..4 " "
+    LiteralExpr@4..5
+      Int@4..5 "1"
+    Whitespace@5..6 " "
+    Op@6..7
+      Operator@6..7 "+"
+    Whitespace@7..8 " "
+    NameExpr@8..9
+      LowerIdent@8..9 "a"
+    Op@9..10
+      Minus@9..10 "-"
+    LiteralExpr@10..11
+      Int@10..11 "1"
+  Newline@11..12 "\n"

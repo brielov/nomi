@@ -1,0 +1,22 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/multiline.elm
+---
+ExprFragment@0..14
+  OperatorChain@0..13
+    CallExpr@0..7
+      NameExpr@0..1
+        LowerIdent@0..1 "f"
+      Newline@1..2 "\n"
+      Whitespace@2..6 "    "
+      NameExpr@6..7
+        LowerIdent@6..7 "x"
+    Newline@7..8 "\n"
+    Whitespace@8..10 "  "
+    Op@10..11
+      Operator@10..11 "+"
+    Whitespace@11..12 " "
+    NameExpr@12..13
+      LowerIdent@12..13 "y"
+  Newline@13..14 "\n"

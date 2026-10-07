@@ -1,0 +1,20 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/negative_argument.elm
+---
+ExprFragment@0..8
+  CallExpr@0..7
+    NameExpr@0..1
+      LowerIdent@0..1 "f"
+    Whitespace@1..2 " "
+    NegateExpr@2..4
+      Minus@2..3 "-"
+      LiteralExpr@3..4
+        Int@3..4 "1"
+    Whitespace@4..5 " "
+    NegateExpr@5..7
+      Minus@5..6 "-"
+      NameExpr@6..7
+        LowerIdent@6..7 "x"
+  Newline@7..8 "\n"

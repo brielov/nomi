@@ -1,0 +1,15 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/qualified_access.elm
+---
+ExprFragment@0..12
+  FieldAccessExpr@0..11
+    NameExpr@0..7
+      Qualifier@0..4
+        UpperIdent@0..3 "Foo"
+        Dot@3..4 "."
+      LowerIdent@4..7 "bar"
+    Dot@7..8 "."
+    LowerIdent@8..11 "baz"
+  Newline@11..12 "\n"

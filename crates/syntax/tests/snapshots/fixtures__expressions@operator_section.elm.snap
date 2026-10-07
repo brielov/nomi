@@ -1,0 +1,18 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/operator_section.elm
+---
+ExprFragment@0..6
+  ParenExpr@0..5
+    LParen@0..1 "("
+    OperatorChain@1..4
+      Missing@1..1
+      Op@1..2
+        Operator@1..2 "+"
+      Whitespace@2..3 " "
+      LiteralExpr@3..4
+        Int@3..4 "1"
+    RParen@4..5 ")"
+  Newline@5..6 "\n"
+error 1..2: ExpectedExpression

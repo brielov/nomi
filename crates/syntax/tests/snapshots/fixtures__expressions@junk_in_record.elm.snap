@@ -1,0 +1,23 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/junk_in_record.elm
+---
+ExprFragment@0..12
+  RecordExpr@0..11
+    LBrace@0..1 "{"
+    Whitespace@1..2 " "
+    Field@2..7
+      LowerIdent@2..3 "a"
+      Whitespace@3..4 " "
+      Eq@4..5 "="
+      Whitespace@5..6 " "
+      LiteralExpr@6..7
+        Int@6..7 "1"
+    Whitespace@7..8 " "
+    Error@8..9
+      RBracket@8..9 "]"
+    Whitespace@9..10 " "
+    RBrace@10..11 "}"
+  Newline@11..12 "\n"
+error 8..9: Expected(RBrace)

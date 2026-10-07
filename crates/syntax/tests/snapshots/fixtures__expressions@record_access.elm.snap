@@ -1,0 +1,22 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/record_access.elm
+---
+ExprFragment@0..12
+  FieldAccessExpr@0..11
+    RecordExpr@0..9
+      LBrace@0..1 "{"
+      Whitespace@1..2 " "
+      Field@2..7
+        LowerIdent@2..3 "a"
+        Whitespace@3..4 " "
+        Eq@4..5 "="
+        Whitespace@5..6 " "
+        LiteralExpr@6..7
+          Int@6..7 "1"
+      Whitespace@7..8 " "
+      RBrace@8..9 "}"
+    Dot@9..10 "."
+    LowerIdent@10..11 "a"
+  Newline@11..12 "\n"

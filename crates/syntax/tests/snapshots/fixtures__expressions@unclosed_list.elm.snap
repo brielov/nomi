@@ -1,0 +1,13 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/unclosed_list.elm
+---
+ExprFragment@0..4
+  ListExpr@0..3
+    LBracket@0..1 "["
+    Whitespace@1..2 " "
+    NameExpr@2..3
+      LowerIdent@2..3 "a"
+  Newline@3..4 "\n"
+error 4..4: Expected(RBracket)

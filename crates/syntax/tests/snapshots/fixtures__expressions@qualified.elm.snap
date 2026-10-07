@@ -1,0 +1,27 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/qualified.elm
+---
+ExprFragment@0..32
+  CallExpr@0..31
+    NameExpr@0..8
+      Qualifier@0..5
+        UpperIdent@0..4 "List"
+        Dot@4..5 "."
+      LowerIdent@5..8 "map"
+    Whitespace@8..9 " "
+    NameExpr@9..19
+      Qualifier@9..15
+        UpperIdent@9..14 "Maybe"
+        Dot@14..15 "."
+      UpperIdent@15..19 "Just"
+    Whitespace@19..20 " "
+    NameExpr@20..31
+      Qualifier@20..28
+        UpperIdent@20..23 "Foo"
+        Dot@23..24 "."
+        UpperIdent@24..27 "Bar"
+        Dot@27..28 "."
+      LowerIdent@28..31 "baz"
+  Newline@31..32 "\n"

@@ -1,0 +1,15 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/missing_operand.elm
+---
+ExprFragment@0..4
+  OperatorChain@0..3
+    NameExpr@0..1
+      LowerIdent@0..1 "a"
+    Whitespace@1..2 " "
+    Op@2..3
+      Operator@2..3 "+"
+    Missing@3..3
+  Newline@3..4 "\n"
+error 4..4: ExpectedExpression

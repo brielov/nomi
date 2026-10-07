@@ -158,6 +158,8 @@ syntax_kinds! {
         TypeFragment,
         /// The root of [`crate::parse_pattern`].
         PatternFragment,
+        /// The root of [`crate::parse_expr`].
+        ExprFragment,
         ModuleHeader,
         ModuleName,
         EffectFields,
@@ -209,6 +211,7 @@ syntax_kinds! {
         LiteralExpr,
         NameExpr,
         OperatorFunction,
+        TupleConstructorExpr,
         NegateExpr,
         CallExpr,
         OperatorChain,

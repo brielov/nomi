@@ -1,0 +1,13 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/glsl_access.elm
+---
+ExprFragment@0..12
+  CallExpr@0..11
+    GlslExpr@0..9
+      Glsl@0..9 "[glsl| |]"
+    AccessorExpr@9..11
+      Dot@9..10 "."
+      LowerIdent@10..11 "a"
+  Newline@11..12 "\n"

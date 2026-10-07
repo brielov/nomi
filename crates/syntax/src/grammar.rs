@@ -2,6 +2,7 @@
 //! elm and elm-format accept, legacy syntax included; the validation pass
 //! flags what a given tool rejects. `elm.ungram` describes the trees.
 
+mod expressions;
 mod module;
 mod patterns;
 mod types;
@@ -25,6 +26,11 @@ pub fn parse_type(text: &str) -> Parse {
 /// Parses a pattern on its own. Every line may start at column 0.
 pub fn parse_pattern(text: &str) -> Parse {
     parse_fragment(text, K::PatternFragment, patterns::pattern)
+}
+
+/// Parses an expression on its own. Every line may start at column 0.
+pub fn parse_expr(text: &str) -> Parse {
+    parse_fragment(text, K::ExprFragment, expressions::expr)
 }
 
 fn parse_fragment(text: &str, root: K, rule: fn(&mut Parser<'_>)) -> Parse {

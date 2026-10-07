@@ -1,0 +1,15 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/operator_function_access.elm
+---
+ExprFragment@0..6
+  FieldAccessExpr@0..5
+    OperatorFunction@0..3
+      LParen@0..1 "("
+      Op@1..2
+        Operator@1..2 "+"
+      RParen@2..3 ")"
+    Dot@3..4 "."
+    LowerIdent@4..5 "a"
+  Newline@5..6 "\n"

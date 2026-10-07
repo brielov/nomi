@@ -1,0 +1,15 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/field_access.elm
+---
+ExprFragment@0..16
+  FieldAccessExpr@0..15
+    FieldAccessExpr@0..10
+      NameExpr@0..5
+        LowerIdent@0..5 "model"
+      Dot@5..6 "."
+      LowerIdent@6..10 "user"
+    Dot@10..11 "."
+    LowerIdent@11..15 "name"
+  Newline@15..16 "\n"

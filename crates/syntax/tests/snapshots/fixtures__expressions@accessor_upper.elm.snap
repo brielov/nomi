@@ -1,0 +1,14 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/accessor_upper.elm
+---
+ExprFragment@0..7
+  NameExpr@0..1
+    LowerIdent@0..1 "f"
+  Whitespace@1..2 " "
+  Error@2..6
+    Dot@2..3 "."
+    UpperIdent@3..6 "Foo"
+  Newline@6..7 "\n"
+error 2..3: Unexpected

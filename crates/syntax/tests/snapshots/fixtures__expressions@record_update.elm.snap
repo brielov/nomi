@@ -1,0 +1,32 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/record_update.elm
+---
+ExprFragment@0..21
+  RecordUpdateExpr@0..20
+    LBrace@0..1 "{"
+    Whitespace@1..2 " "
+    LowerIdent@2..3 "r"
+    Whitespace@3..4 " "
+    Pipe@4..5 "|"
+    Whitespace@5..6 " "
+    Field@6..11
+      LowerIdent@6..7 "a"
+      Whitespace@7..8 " "
+      Eq@8..9 "="
+      Whitespace@9..10 " "
+      LiteralExpr@10..11
+        Int@10..11 "1"
+    Comma@11..12 ","
+    Whitespace@12..13 " "
+    Field@13..18
+      LowerIdent@13..14 "b"
+      Whitespace@14..15 " "
+      Eq@15..16 "="
+      Whitespace@16..17 " "
+      LiteralExpr@17..18
+        Int@17..18 "2"
+    Whitespace@18..19 " "
+    RBrace@19..20 "}"
+  Newline@20..21 "\n"

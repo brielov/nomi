@@ -207,10 +207,14 @@ AliasPattern =
 
 // Expressions
 
+ExprFragment =
+  Expr
+
 Expr =
   LiteralExpr
 | NameExpr
 | OperatorFunction
+| TupleConstructorExpr
 | NegateExpr
 | CallExpr
 | OperatorChain
@@ -237,6 +241,12 @@ NameExpr =
 OperatorFunction =
   '(' Op ')'
 
+// elm-format's legacy `(,) a b`.
+TupleConstructorExpr =
+  '(' ',' ','* ')'
+
+// The operand must touch the '-'. After an argument, a '-' with space
+// before it and none after starts a NegateExpr argument: `f -1`.
 NegateExpr =
   '-' Expr
 
@@ -264,9 +274,11 @@ RecordExpr =
 RecordUpdateExpr =
   '{' 'lower_ident' '|' Field (',' Field)* '}'
 
+// elm-format also takes ':'.
 Field =
-  'lower_ident' '=' Expr
+  'lower_ident' ('=' | ':') Expr
 
+// The '.' touches the expression and the name.
 FieldAccessExpr =
   Expr '.' 'lower_ident'
 

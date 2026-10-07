@@ -139,7 +139,7 @@ Goal: one lossless, tolerant parser used by every consumer, which accepts exactl
 - [x] **1.6** `syntax: module header, imports and exposing`, including `port module` and `effect module … where { … }`. **Check:** tree snapshot fixtures, as for every grammar step.
 - [x] **1.7** `syntax: types`.
 - [x] **1.8** `syntax: patterns`.
-- [ ] **1.9** `syntax: atoms and operator chains`.
+- [x] **1.9** `syntax: atoms and operator chains`.
   - Literals, variables and qualified names.
   - Records, record update, field access and accessors.
   - Tuples, lists, unit and parentheses.

@@ -1,0 +1,18 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/missing_equals.elm
+---
+ExprFragment@0..8
+  RecordExpr@0..7
+    LBrace@0..1 "{"
+    Whitespace@1..2 " "
+    Field@2..5
+      LowerIdent@2..3 "a"
+      Whitespace@3..4 " "
+      LiteralExpr@4..5
+        Int@4..5 "1"
+    Whitespace@5..6 " "
+    RBrace@6..7 "}"
+  Newline@7..8 "\n"
+error 4..5: Expected(Eq)
