@@ -1,0 +1,41 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/hex_escapes.elm
+---
+elm, application:
+  41..43 Lexical(UnknownEscape) "\\x"
+  57..59 Lexical(UnknownEscape) "\\x"
+  68..70 Lexical(UnknownEscape) "\\x"
+  78..80 Lexical(UnknownEscape) "\\x"
+  100..102 Lexical(UnknownEscape) "\\x"
+  108..110 Lexical(UnknownEscape) "\\x"
+  114..116 Lexical(UnknownEscape) "\\x"
+  126..128 Lexical(UnknownEscape) "\\x"
+  138..140 Lexical(UnknownEscape) "\\x"
+  151..153 Lexical(UnknownEscape) "\\x"
+elm, package:
+  41..43 Lexical(UnknownEscape) "\\x"
+  57..59 Lexical(UnknownEscape) "\\x"
+  68..70 Lexical(UnknownEscape) "\\x"
+  78..80 Lexical(UnknownEscape) "\\x"
+  100..102 Lexical(UnknownEscape) "\\x"
+  108..110 Lexical(UnknownEscape) "\\x"
+  114..116 Lexical(UnknownEscape) "\\x"
+  126..128 Lexical(UnknownEscape) "\\x"
+  138..140 Lexical(UnknownEscape) "\\x"
+  151..153 Lexical(UnknownEscape) "\\x"
+elm, kernel package:
+  41..43 Lexical(UnknownEscape) "\\x"
+  57..59 Lexical(UnknownEscape) "\\x"
+  68..70 Lexical(UnknownEscape) "\\x"
+  78..80 Lexical(UnknownEscape) "\\x"
+  100..102 Lexical(UnknownEscape) "\\x"
+  108..110 Lexical(UnknownEscape) "\\x"
+  114..116 Lexical(UnknownEscape) "\\x"
+  126..128 Lexical(UnknownEscape) "\\x"
+  138..140 Lexical(UnknownEscape) "\\x"
+  151..153 Lexical(UnknownEscape) "\\x"
+elm-format:
+  126..134 Lexical(InvalidUnicodeCodePoint) "\\x400000"
+  151..169 Lexical(InvalidUnicodeCodePoint) "\\xFFFFFFFFFFFFFFFF"

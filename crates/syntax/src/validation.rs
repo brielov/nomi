@@ -48,6 +48,7 @@ pub fn validate(parse: &Parse, tool: Tool) -> Vec<SyntaxError> {
             strings_spanning_lines(&root, &mut errors);
             comment_tabs(&root, &mut errors);
             operator_chars(&root, &mut errors);
+            hex_escapes(&root, &mut errors);
             elm(&root, source, &mut errors);
         }
         Tool::ElmFormat => {
@@ -55,6 +56,7 @@ pub fn validate(parse: &Parse, tool: Tool) -> Vec<SyntaxError> {
                 last_import(&module, &mut errors);
             }
             dot_dot_operators(&root, &mut errors);
+            hex_characters(&root, &mut errors);
             bare_carriage_returns(&root, &mut errors);
         }
     }
@@ -422,6 +424,64 @@ fn operator_chars(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
                 E::Lexical(LexErrorKind::InvalidToken),
                 TextRange::at(start, TextSize::of(c)),
             );
+        }
+    }
+}
+
+/// The `\x` escapes of string and character literals, each with its
+/// digits.
+fn hex_escapes_in(token: &SyntaxToken) -> impl Iterator<Item = (TextRange, &str)> {
+    let text = token.text();
+    let start = token.text_range().start();
+    let mut i = 0;
+    std::iter::from_fn(move || {
+        while let Some(at) = text[i..].find('\\').map(|at| i + at) {
+            i = at + 2;
+            if text.as_bytes().get(at + 1) == Some(&b'x') {
+                let digits = text[i..]
+                    .find(|c: char| !c.is_ascii_hexdigit())
+                    .map_or(&text[i..], |end| &text[i..i + end]);
+                let range = TextRange::at(start + TextSize::of(&text[..at]), TextSize::new(2));
+                return Some((range, digits));
+            }
+        }
+        None
+    })
+}
+
+fn literals(root: &SyntaxNode) -> impl Iterator<Item = SyntaxToken> {
+    (root.descendants_with_tokens())
+        .filter_map(|e| e.into_token())
+        .filter(|t| matches!(t.kind(), K::String | K::MultilineString | K::Char))
+}
+
+/// elm knows no `\x` escape.
+fn hex_escapes(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
+    for token in literals(root) {
+        for (range, _) in hex_escapes_in(&token) {
+            push(errors, E::Lexical(LexErrorKind::UnknownEscape), range);
+        }
+    }
+}
+
+/// elm-format reads a character's `\x` digits into a wrapping 64-bit
+/// integer, and its character type holds only what comes out of that
+/// non-negative and, masked to 26 bits, below `0x400000`. Strings take
+/// any digits.
+fn hex_characters(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
+    for token in literals(root).filter(|t| t.kind() == K::Char) {
+        for (range, digits) in hex_escapes_in(&token) {
+            let value = (digits.chars())
+                .filter_map(|c| c.to_digit(16))
+                .fold(0_i64, |v, d| v.wrapping_mul(16).wrapping_add(i64::from(d)));
+            if value < 0 || value & 0x3FF_FFFF >= 0x40_0000 {
+                let end = range.end() + TextSize::of(digits);
+                push(
+                    errors,
+                    E::Lexical(LexErrorKind::InvalidUnicodeCodePoint),
+                    TextRange::new(range.start(), end),
+                );
+            }
         }
     }
 }

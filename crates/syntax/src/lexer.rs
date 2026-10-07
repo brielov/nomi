@@ -350,6 +350,12 @@ impl<'a> Lexer<'a> {
         match byte {
             b'n' | b'r' | b't' | b'"' | b'\'' | b'\\' => self.offset += 1,
             b'u' => self.unicode_escape(start),
+            // elm-format's Haskell-style `\x41`; validation reports it
+            // for elm, and the characters elm-format can't hold.
+            b'x' => {
+                self.offset += 1;
+                self.consume_while(|byte| byte.is_ascii_hexdigit());
+            }
             _ => {
                 self.offset += self.scalar_width(self.offset);
                 self.error(LexErrorKind::UnknownEscape, start, self.offset);

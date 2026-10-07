@@ -296,6 +296,7 @@ Zinggi/elm-game-resources@2.0.1
 Zinggi/elm-glsl-generator@1.0.0
 abadi199/elm-creditcard@10.0.2
 abadi199/elm-input-extra@5.2.6
+abadi199/intl-phone-input@2.0.3
 abinayasudhir/elm-select@1.3.0
 abinayasudhir/elm-treeview@1.0.1
 abinayasudhir/html-parser@1.0.3

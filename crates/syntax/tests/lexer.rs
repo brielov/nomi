@@ -290,6 +290,11 @@ fn unterminated_literals_and_odd_characters() {
         [LexErrorKind::UnterminatedMultilineString]
     );
     assert_eq!(errors("\"\\q\" '\\n'"), [LexErrorKind::UnknownEscape]);
+    assert_eq!(errors(r#""\xzz" '\x41' '\x'"#), []);
+    assert_eq!(
+        errors(r"'\xg'"),
+        [LexErrorKind::CharacterLength { characters: 2 }]
+    );
     assert_eq!(errors(r#""\n\r\t\"\'\\" '\t'"#), []);
     assert_eq!(errors("\"a\\"), [LexErrorKind::UnterminatedString]);
     assert_eq!(errors("{- {- -}"), [LexErrorKind::UnterminatedBlockComment]);
