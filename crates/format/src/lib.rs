@@ -10,7 +10,8 @@
 mod block;
 #[cfg_attr(not(test), expect(dead_code))]
 mod structure;
-#[cfg_attr(not(test), expect(dead_code))]
+// Lowering builds it from plan 2.4, and tests use only part of it.
+#[expect(dead_code)]
 mod tree;
 
 use nomi_syntax::{Tool, parse_module, validate};
