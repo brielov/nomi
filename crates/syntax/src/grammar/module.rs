@@ -2,7 +2,7 @@
 //! declarations that follow.
 
 use super::declarations::declarations;
-use super::{expect_indented, module_name, parenthesized_op, skip_junk};
+use super::{at_parenthesized_op, expect_indented, module_name, parenthesized_op, skip_junk};
 use crate::SyntaxKind as K;
 use crate::parser::{Parser, SyntaxErrorKind};
 
@@ -179,7 +179,7 @@ fn exposed(p: &mut Parser<'_>) {
         K::LParen => {
             let m = p.start();
             p.bump();
-            if matches!(p.current(), K::Operator | K::Minus | K::ColonColon) {
+            if at_parenthesized_op(p) {
                 p.check_indented();
                 parenthesized_op(p);
             } else {

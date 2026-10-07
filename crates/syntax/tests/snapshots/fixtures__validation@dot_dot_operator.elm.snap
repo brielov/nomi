@@ -1,0 +1,14 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/dot_dot_operator.elm
+---
+elm, application:
+  35..60 UnexpectedInfix "infix left 0 (..) = range"
+elm, package:
+  35..60 UnexpectedInfix "infix left 0 (..) = range"
+elm, kernel package:
+elm-format:
+  26..28 DotDotOperator ".."
+  49..51 DotDotOperator ".."
+  71..73 DotDotOperator ".."

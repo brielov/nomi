@@ -44,6 +44,7 @@ pub fn validate(parse: &Parse, tool: Tool) -> Vec<SyntaxError> {
             if let Some(module) = ast::Module::cast(root.clone()) {
                 last_import(&module, &mut errors);
             }
+            dot_dot_operators(&root, &mut errors);
         }
     }
     if let Some(fragment) = ast::ExpressionsFragment::cast(root) {
@@ -330,6 +331,15 @@ fn last_import(module: &ast::Module, errors: &mut Vec<SyntaxError>) {
     }
     let end = module.syntax().text_range().end();
     push(errors, E::ImportWithoutNewline, TextRange::empty(end));
+}
+
+/// elm-format's operators leave out `..`, which elm reads as one.
+fn dot_dot_operators(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
+    for node in root.descendants().filter(|n| n.kind() == K::Op) {
+        if let Some(dots) = token(&node, K::DotDot) {
+            push(errors, E::DotDotOperator, dots.text_range());
+        }
+    }
 }
 
 /// elm-format reads each expression of a code block after the first only

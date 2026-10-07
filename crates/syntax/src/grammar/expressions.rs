@@ -4,7 +4,8 @@
 use super::definitions::value;
 use super::patterns::{at_pattern_atom, pattern, pattern_atom};
 use super::{
-    at_aligned, expect_indented, expect_part, parenthesized_op, qualified_name, skip_junk,
+    at_aligned, at_parenthesized_op, expect_indented, expect_part, parenthesized_op,
+    qualified_name, skip_junk,
 };
 use crate::SyntaxKind as K;
 use crate::parser::{CompletedMarker, Parser, SyntaxErrorKind};
@@ -352,7 +353,7 @@ fn paren(p: &mut Parser<'_>) -> K {
         p.bump();
         return K::UnitExpr;
     }
-    if matches!(p.current(), K::Operator | K::Minus | K::ColonColon) && p.nth(1) == K::RParen {
+    if at_parenthesized_op(p) && p.nth(1) == K::RParen {
         p.check_indented();
         parenthesized_op(p);
         p.bump();

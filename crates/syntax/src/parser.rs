@@ -164,6 +164,8 @@ pub enum SyntaxErrorKind {
     /// An operator starting with `.` right after an operand, as in
     /// `model.=count`: a field access gone wrong.
     JoinedDotOperator,
+    /// `..` as an operator, as in `exposing (a, (..))`, which elm takes.
+    DotDotOperator,
     /// An operator starting with `.`, which elm reads as a field
     /// accessor, as in `40 .+ 2`.
     DotOperator,
