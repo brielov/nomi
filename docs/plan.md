@@ -118,7 +118,7 @@ This is plain JS in `runtime/` with no npm dependencies, tested with `node --tes
 
 Goal: one lossless, tolerant parser used by every consumer, which accepts exactly what each upstream tool accepts.
 
-- [ ] **1.1** `base: text ranges, FileId and LineIndex`. Converts between bytes, (line, column) and UTF-16. The column unit stays a parameter until 1.17 settles it. **Check:** property tests round-trip.
+- [x] **1.1** `base: text ranges, FileId and LineIndex`. Converts between bytes, (line, column) and UTF-16. The column unit stays a parameter until 1.17 settles it. **Check:** property tests round-trip.
 - [ ] **1.2** `base: diagnostic model`. Code, title, severity, spans, message document and fixes; no renderer yet. **Check:** unit tests.
 - [ ] **1.3** `syntax: token and node kinds`. One kind per distinct token, the rowan language, and a first `syntax/elm.ungram`. **Check:** kinds round-trip.
 - [ ] **1.4** `syntax: lexer`. Salvaged from the old lexer. It covers:
