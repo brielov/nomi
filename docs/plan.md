@@ -87,7 +87,7 @@ Goal: an empty workspace whose rules are enforced by tooling, with oracles and c
   - `xtask oracle fetch` installs the binaries under `~/.cache/nomi-dev/`.
 
   **Check:** both are idempotent, and `xtask oracle versions` prints every pin.
-- [ ] **0.7** `xtask: pin and fetch the corpus` (D3).
+- [x] **0.7** `xtask: pin and fetch the corpus` (D3).
   - `corpus/packages.toml` lists every registry package at its latest version, with the hash from its `endpoint.json`.
   - `corpus/apps.toml` pins exosphere, liascript, docspell and elm-3d-scene by commit, taken from the old browser manifest, together with docspell's code-generation step and the hash of its output.
   - Sources live in `~/.cache/nomi-dev/corpus/` and never enter the repo.

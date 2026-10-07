@@ -1,6 +1,7 @@
 //! Repository automation, run as `cargo xtask <command>`.
 
 mod checks;
+mod corpus;
 mod download;
 mod oracle;
 mod references;
@@ -32,6 +33,21 @@ enum Command {
         #[command(subcommand)]
         command: OracleCommand,
     },
+    /// Real-world Elm code that the parity suites run over.
+    Corpus {
+        #[command(subcommand)]
+        command: CorpusCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum CorpusCommand {
+    /// Re-pin corpus/packages.toml from the live registry.
+    Pin,
+    /// Download and verify every pinned package and app.
+    Fetch,
+    /// Count what is pinned and fetched.
+    Stats,
 }
 
 #[derive(Debug, Subcommand)]
@@ -52,6 +68,13 @@ fn main() -> ExitCode {
             OracleCommand::Fetch => oracle::fetch(&root(), &r),
             OracleCommand::Versions => oracle::versions(&r),
         }),
+        Command::Corpus { command } => match command {
+            CorpusCommand::Pin => corpus::packages::pin(&root()),
+            CorpusCommand::Fetch => {
+                corpus::packages::fetch(&root()).and_then(|()| corpus::apps::fetch(&root()))
+            }
+            CorpusCommand::Stats => corpus::stats(&root()),
+        },
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

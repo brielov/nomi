@@ -1,0 +1,58 @@
+# Real applications compiled by the corpus suites (docs/plan.md D3, step
+# 0.7). Each is pinned by commit and tree hash, with the hash of its
+# elm.json. Pins come from brielov/nomi@8e2b540:conformance/corpus/browser/manifest.toml.
+
+[[app]]
+name = "exosphere"
+git = "https://gitlab.com/exosphere/exosphere.git"
+commit = "5d7c1416a9d3fdb6e00e3321f6cf553cab9198eb"
+tree = "30a0b9736f2d2c4ddc670c216745cbdd6e01f1f5"
+root = "."
+entries = ["src/Exosphere.elm"]
+manifest-sha256 = "2fa08793a2afb7b7b0a83271c34a5b4cc75a697f81ce08b4f15061cfeb2e7ee7"
+
+[[app]]
+name = "liascript"
+git = "https://github.com/LiaScript/LiaScript.git"
+commit = "4fcae5abec087a3d88c9b652f866715120cc50a1"
+tree = "b7dee368376489b068076c76c68ddcb6bf7d6542"
+root = "."
+entries = ["src/elm/Main.elm"]
+manifest-sha256 = "629f34652d478e4f8f0bce129212106ff833204b0310640f5ba80702b3022d36"
+
+[[app]]
+name = "docspell"
+git = "https://github.com/eikek/docspell.git"
+commit = "ea8420ab8fff59e23e1978f9bf8bcf72398d11a8"
+tree = "c75caa7e5a6099c3d41d6f84cc80b0f3ba38dc35"
+root = "modules/webapp"
+entries = ["src/main/elm/Main.elm"]
+manifest-sha256 = "d7d99c2ae03a7e594f36bf8d807e267313895eb8ef9a41008b0c4f8e67813fac"
+
+# Docspell's API modules are generated from its OpenAPI spec by an sbt
+# plugin. This runs once per checkout; the output tree is pinned by the
+# hash of its sha256sum-style listing.
+[app.prepare]
+sbt-task = "webapp/openapiCodegen"
+input = "modules/restapi/src/main/resources/docspell-openapi.yml"
+input-sha256 = "2ef02f4249531917292622d4bcce771facdcd391b7ff6ba8b8d6708e8631bb1d"
+output = "modules/webapp/target/elm-src"
+files = 130
+output-sha256 = "283005a1af9ccf61034799d9cc05a58fd78fc2efbbf5c1a7db21c5ea1469b27b"
+sbt-launcher = { url = "https://repo.maven.apache.org/maven2/org/scala-sbt/sbt-launch/1.11.7/sbt-launch-1.11.7.jar", sha256 = "f92a2095ac75008764fe3b2b793ffe624c4fbef5bfd9b0022e4bc2daf668c651" }
+
+# Eclipse Temurin 21.0.12+8, from github.com/adoptium/temurin21-binaries.
+[app.prepare.jdk]
+linux-aarch64 = { url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B8/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.12_8.tar.gz", sha256 = "eba38e871b02d407897bfe017ea35352dfc1420ef6d2112425b0c67325ca509d" }
+linux-x86_64 = { url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B8/OpenJDK21U-jdk_x64_linux_hotspot_21.0.12_8.tar.gz", sha256 = "e4446ff06a276155697597cc0f1b15da004ff083f4964a35271ecee567177370" }
+macos-aarch64 = { url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B8/OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12_8.tar.gz", sha256 = "021d629349ebc12a409faa517b837ec80ceee8f58a5ac85c788ecad07ca6881c" }
+macos-x86_64 = { url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B8/OpenJDK21U-jdk_x64_mac_hotspot_21.0.12_8.tar.gz", sha256 = "6b85c260eea574a995eacd0b3ee23c8042aa93b23a08e6478edafca0a0333d7f" }
+
+[[app]]
+name = "elm-3d-scene"
+git = "https://github.com/ianmackenzie/elm-3d-scene.git"
+commit = "785538573dcc2cc280a7b20bc137434ff0813d7a"
+tree = "288d00b8d958993e7ce137f73d2f57994b1f7223"
+root = "examples"
+entries = ["LightingAndShadows.elm"]
+manifest-sha256 = "0648b337cf04fc8d77e2e5030baaf5a937e6f3a7b0e213aec2ed6877e8e132d3"

@@ -13,6 +13,11 @@ const LIMIT: u64 = 256 * 1024 * 1024;
 
 pub fn get(url: &str) -> Result<Vec<u8>> {
     eprintln!("    downloading {url}");
+    get_quiet(url)
+}
+
+/// [`get`] without the progress line, for bulk downloads.
+pub fn get_quiet(url: &str) -> Result<Vec<u8>> {
     let mut response = agent()
         .get(url)
         .call()
@@ -27,16 +32,19 @@ pub fn get(url: &str) -> Result<Vec<u8>> {
 
 /// Uses the system's trust store, so machines behind a TLS-inspecting proxy
 /// work too; the pinned hash, not TLS, is what vouches for the bytes.
-fn agent() -> ureq::Agent {
+fn agent() -> &'static ureq::Agent {
     use ureq::tls::{RootCerts, TlsConfig};
-    ureq::Agent::config_builder()
-        .tls_config(
-            TlsConfig::builder()
-                .root_certs(RootCerts::PlatformVerifier)
-                .build(),
-        )
-        .build()
-        .new_agent()
+    static AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
+    AGENT.get_or_init(|| {
+        ureq::Agent::config_builder()
+            .tls_config(
+                TlsConfig::builder()
+                    .root_certs(RootCerts::PlatformVerifier)
+                    .build(),
+            )
+            .build()
+            .new_agent()
+    })
 }
 
 pub fn sha256(bytes: &[u8]) -> String {

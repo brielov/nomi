@@ -26,39 +26,53 @@ pub fn sync(root: &Path, refs: &References) -> Result<()> {
 }
 
 fn sync_one(dir: &Path, source: &Source) -> Result<()> {
-    let url = format!("https://github.com/{}", source.repo);
+    let label = format!("reference/{} {}", source.name, source.tag);
+    checkout(
+        dir,
+        &format!("https://github.com/{}", source.repo),
+        &source.commit,
+        &label,
+    )
+}
+
+/// Puts the git repository at `dir` on `commit`, fetching only that commit.
+/// Refuses to touch a tree with local changes.
+pub fn checkout(dir: &Path, url: &str, commit: &str, label: &str) -> Result<()> {
     if !dir.join(".git").exists() {
         std::fs::create_dir_all(dir)?;
         git(dir, &["init", "--quiet"])?;
-        git(dir, &["remote", "add", "origin", &url])?;
-    } else if head(dir).as_deref() == Some(source.commit.as_str()) && clean(dir)? {
-        eprintln!(
-            "  reference/{} is at {} ({})",
-            source.name,
-            source.tag,
-            short(&source.commit)
-        );
-        return Ok(());
+        git(dir, &["remote", "add", "origin", url])?;
     } else if !clean(dir)? {
-        bail!("it has local changes; commit, stash or remove them first");
+        bail!(
+            "{} has local changes; commit, stash or remove them first",
+            dir.display()
+        );
+    } else if head(dir).as_deref() == Some(commit) {
+        eprintln!("  {label} is at {}", short(commit));
+        return Ok(());
     } else {
-        git(dir, &["remote", "set-url", "origin", &url])?;
+        git(dir, &["remote", "set-url", "origin", url])?;
     }
-    eprintln!(
-        "  reference/{}: fetching {} ({})",
-        source.name,
-        source.tag,
-        short(&source.commit)
-    );
-    git(
-        dir,
-        &["fetch", "--quiet", "--depth", "1", "origin", &source.commit],
-    )?;
-    git(dir, &["checkout", "--quiet", "--detach", &source.commit])?;
-    if head(dir).as_deref() != Some(source.commit.as_str()) {
-        bail!("checkout did not land on {}", source.commit);
+    eprintln!("  {label}: fetching {}", short(commit));
+    git(dir, &["fetch", "--quiet", "--depth", "1", "origin", commit])?;
+    git(dir, &["checkout", "--quiet", "--detach", commit])?;
+    if head(dir).as_deref() != Some(commit) {
+        bail!("checkout did not land on {commit}");
     }
     Ok(())
+}
+
+/// The hash of `HEAD`'s tree, which pins the checked-out files exactly.
+pub fn tree(dir: &Path) -> Result<String> {
+    let out = Command::new("git")
+        .args(["rev-parse", "HEAD^{tree}"])
+        .current_dir(dir)
+        .output()
+        .context("running git rev-parse")?;
+    if !out.status.success() {
+        bail!("git rev-parse HEAD^{{tree}} failed in {}", dir.display());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
 fn short(commit: &str) -> &str {
