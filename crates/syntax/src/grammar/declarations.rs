@@ -4,7 +4,7 @@
 use super::definitions::value;
 use super::expressions::expr;
 use super::patterns::{at_pattern_atom, pattern_atom};
-use super::types::{at_type, type_, type_atom};
+use super::types::{at_type_argument, type_, type_atom};
 use super::{at_parenthesized_op, expect_indented, expect_part, parenthesized_op, skip_junk};
 use crate::SyntaxKind as K;
 use crate::parser::{Marker, Parser, SyntaxErrorKind};
@@ -35,6 +35,7 @@ fn declaration(p: &mut Parser<'_>) {
     }
     let m = p.start();
     if p.at(K::DocComment) {
+        p.anchor();
         p.bump();
         if p.at(K::Eof) {
             p.error(SyntaxErrorKind::ExpectedDeclaration);
@@ -79,7 +80,6 @@ fn declaration(p: &mut Parser<'_>) {
 /// `type alias Name a = Type`.
 fn type_alias(p: &mut Parser<'_>, m: Marker) {
     p.bump();
-    p.note_unindented();
     p.bump_as(K::AliasKw);
     type_head(p);
     if expect_part(p, K::Eq) {
@@ -105,7 +105,7 @@ fn custom_type(p: &mut Parser<'_>, m: Marker) {
 /// The name of a type being declared and its parameters.
 fn type_head(p: &mut Parser<'_>) {
     expect_indented(p, K::UpperIdent);
-    while p.at(K::LowerIdent) && p.at_indented() {
+    while p.at(K::LowerIdent) && p.at_indented_strictly() {
         let param = p.start();
         p.bump();
         param.complete(p, K::TypeParam);
@@ -121,7 +121,7 @@ fn variant(p: &mut Parser<'_>) {
     }
     let m = p.start();
     p.bump();
-    while at_type(p) {
+    while at_type_argument(p) {
         type_atom(p);
     }
     m.complete(p, K::Variant);
@@ -156,7 +156,6 @@ fn infix(p: &mut Parser<'_>, m: Marker) {
         .into_iter()
         .find(|&kind| p.nth_at_contextual(0, kind))
         .expect("at_infix checked the associativity");
-    p.note_unindented();
     p.bump_as(associativity);
     // Upstream reads a single digit, then expects `(`.
     if p.at(K::Int) && !matches!(p.current_text().as_bytes(), [b'0'..=b'9']) {

@@ -10,34 +10,53 @@ mod patterns;
 mod types;
 
 use crate::SyntaxKind as K;
-use crate::parser::{Parse, Parser, SyntaxErrorKind};
+use crate::parser::{Layout, Parse, Parser, SyntaxErrorKind};
 
 /// Parses a whole module.
 pub fn parse_module(text: &str) -> Parse {
-    let mut p = Parser::new(text);
-    module::module(&mut p);
-    p.finish()
+    parse_layouts(text, module::module)
 }
 
 /// Parses declarations with no header or imports. elm-format reads an
 /// Elm code block in a doc comment this way first.
 pub fn parse_declarations(text: &str) -> Parse {
-    let mut p = Parser::new(text);
-    let m = p.start();
-    declarations::declarations(&mut p);
-    m.complete(&mut p, K::DeclarationsFragment);
-    p.finish()
+    parse_layouts(text, |p| {
+        let m = p.start();
+        declarations::declarations(p);
+        m.complete(p, K::DeclarationsFragment);
+    })
 }
 
 /// Parses expressions, each starting a line. elm-format reads an Elm code
 /// block in a doc comment this way if it holds no declarations, before
 /// trying a whole module.
 pub fn parse_expressions(text: &str) -> Parse {
+    parse_layouts(text, |p| {
+        let m = p.start();
+        expressions::expressions(p);
+        m.complete(p, K::ExpressionsFragment);
+    })
+}
+
+/// Parses with [`Layout::Strict`], whose errors and trees suit unfinished
+/// code, and if that fails, again with [`Layout::Loose`]: a text that
+/// parses cleanly so is one elm-format takes, and its unindented tokens
+/// are left for elm's validation.
+fn parse_layouts(text: &str, rule: fn(&mut Parser<'_>)) -> Parse {
     let mut p = Parser::new(text);
-    let m = p.start();
-    expressions::expressions(&mut p);
-    m.complete(&mut p, K::ExpressionsFragment);
-    p.finish()
+    rule(&mut p);
+    let strict = p.finish();
+    if strict.errors().is_empty() {
+        return strict;
+    }
+    let mut p = Parser::with_layout(text, Layout::Loose);
+    rule(&mut p);
+    let loose = p.finish();
+    if loose.errors().is_empty() {
+        loose
+    } else {
+        strict
+    }
 }
 
 /// Parses a type on its own, such as one from a package's `docs.json`.
@@ -74,7 +93,6 @@ fn expect_indented(p: &mut Parser<'_>, kind: K) -> bool {
         p.error(SyntaxErrorKind::Expected(kind));
         return false;
     }
-    p.note_unindented();
     p.bump_symbol(kind);
     true
 }
@@ -86,9 +104,9 @@ fn expect_indented(p: &mut Parser<'_>, kind: K) -> bool {
 fn expect_part(p: &mut Parser<'_>, kind: K) -> bool {
     if !p.at_symbol(kind) {
         p.error(SyntaxErrorKind::Expected(kind));
-        if p.at_indented() {
+        if p.at_indented_strictly() {
             let m = p.start();
-            while p.at_indented() && !p.at_symbol(kind) {
+            while p.at_indented_strictly() && !p.at_symbol(kind) {
                 p.bump();
             }
             m.complete(p, K::Error);
@@ -97,7 +115,6 @@ fn expect_part(p: &mut Parser<'_>, kind: K) -> bool {
             return false;
         }
     }
-    p.note_unindented();
     p.bump_symbol(kind);
     true
 }
@@ -169,7 +186,6 @@ fn qualified_name(p: &mut Parser<'_>, last: &[K]) {
 fn module_name(p: &mut Parser<'_>) {
     let m = p.start();
     if p.at(K::UpperIdent) {
-        p.note_unindented();
         p.bump();
         while p.at(K::Dot) && p.nth_is_joined(0) && p.nth(1) == K::UpperIdent && p.nth_is_joined(1)
         {
@@ -185,12 +201,12 @@ fn module_name(p: &mut Parser<'_>) {
 /// Wraps the continuation tokens before the next of `stops` in one
 /// [`K::Error`] node, with one `error`.
 fn skip_junk(p: &mut Parser<'_>, error: SyntaxErrorKind, stops: &[K]) {
-    if !p.at_indented() || stops.contains(&p.current()) {
+    if !p.at_indented_strictly() || stops.contains(&p.current()) {
         return;
     }
     p.error(error);
     let m = p.start();
-    while p.at_indented() && !stops.contains(&p.current()) {
+    while p.at_indented_strictly() && !stops.contains(&p.current()) {
         p.bump();
     }
     m.complete(p, K::Error);

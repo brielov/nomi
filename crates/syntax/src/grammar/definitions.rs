@@ -2,7 +2,7 @@
 //! the top level.
 
 use super::expressions::expr;
-use super::patterns::{at_pattern_atom, pattern_atom};
+use super::patterns::{at_pattern_argument, pattern_atom};
 use super::types::type_;
 use super::{expect_indented, expect_part};
 use crate::SyntaxKind as K;
@@ -14,7 +14,6 @@ pub(super) fn value(p: &mut Parser<'_>) {
     let column = p.current_column();
     if p.nth_at_symbol(1, K::Colon) {
         let m = p.start();
-        p.note_unindented();
         p.bump();
         expect_indented(p, K::Colon);
         type_(p);
@@ -31,9 +30,8 @@ pub(super) fn value(p: &mut Parser<'_>) {
 
 fn definition(p: &mut Parser<'_>) {
     let m = p.start();
-    p.note_unindented();
     p.bump();
-    while at_pattern_atom(p) {
+    while at_pattern_argument(p) {
         pattern_atom(p);
     }
     if expect_part(p, K::Eq) {

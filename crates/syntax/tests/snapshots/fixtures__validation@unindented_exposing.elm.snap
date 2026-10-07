@@ -1,0 +1,15 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/unindented_exposing.elm
+---
+elm, application:
+  21..22 ExpectedIndent "("
+  27..27 NoDeclarations ""
+elm, package:
+  21..22 ExpectedIndent "("
+  27..27 NoDeclarations ""
+elm, kernel package:
+  21..22 ExpectedIndent "("
+  27..27 NoDeclarations ""
+elm-format:

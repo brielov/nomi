@@ -27,9 +27,9 @@ use crate::{SyntaxKind, SyntaxNode};
 pub struct Parse {
     green: GreenNode,
     errors: Vec<SyntaxError>,
-    /// Tokens elm wants indented that elm-format takes anywhere. Only the
-    /// parser knows the indentation context, so it records them for
-    /// [`crate::validate`].
+    /// Tokens consumed though not indented, which elm rejects and
+    /// elm-format takes. Only the parser knows the indentation context, so
+    /// it records them for [`crate::validate`].
     pub(crate) unindented: Vec<TextRange>,
     /// Indentation checks a token passed at [`FAR_COLUMN`] or further
     /// right, where a release that keeps columns in 16 bits sees another
@@ -269,12 +269,30 @@ pub(crate) struct Parser<'t> {
     /// Where a token starts that its block placed by alignment, such as a
     /// case branch's first token. It counts as indented.
     anchor: Option<TextSize>,
+    layout: Layout,
     unindented: Vec<TextRange>,
     far: Vec<FarCheck>,
 }
 
+/// Which continuations must be indented to belong to the construct being
+/// parsed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Layout {
+    /// Every one, as elm wants. Where a token isn't, the construct ends,
+    /// which recovers well from unfinished code.
+    Strict,
+    /// Only arguments, as elm-format wants (`indented` in its
+    /// `Parse/Helpers.hs`): a token any further rule must take, such as
+    /// the body after `=`, may sit anywhere.
+    Loose,
+}
+
 impl<'t> Parser<'t> {
     pub(crate) fn new(text: &'t str) -> Parser<'t> {
+        Parser::with_layout(text, Layout::Strict)
+    }
+
+    pub(crate) fn with_layout(text: &'t str, layout: Layout) -> Parser<'t> {
         Parser {
             text,
             lexer: Lexer::new(text),
@@ -288,6 +306,7 @@ impl<'t> Parser<'t> {
             gave_up: false,
             min_column: 1,
             anchor: None,
+            layout,
             unindented: Vec::new(),
             far: Vec::new(),
         }
@@ -462,9 +481,19 @@ impl<'t> Parser<'t> {
         self.current_column() == 0
     }
 
-    /// Whether the current token is indented enough to continue the
-    /// construct being parsed, or is the anchor. The end never is.
+    /// Whether the current token continues the construct being parsed:
+    /// it is indented enough, or is the anchor, or the layout is
+    /// [`Layout::Loose`]. The end never does.
     pub(crate) fn at_indented(&mut self) -> bool {
+        let indented = self.at_indented_strictly();
+        indented || (self.layout == Layout::Loose && !self.at(SyntaxKind::Eof))
+    }
+
+    /// Whether the current token is indented enough to continue the
+    /// construct being parsed, or is the anchor, whatever the layout:
+    /// before an argument, and where recovery decides what to skip. The
+    /// end never is.
+    pub(crate) fn at_indented_strictly(&mut self) -> bool {
         let Some(a) = self.nth_token(0) else {
             return false;
         };
@@ -507,16 +536,6 @@ impl<'t> Parser<'t> {
         result
     }
 
-    /// Records a continuation token that isn't indented. Only elm minds:
-    /// elm-format checks indentation only where it decides what a token
-    /// belongs to, and parsing goes on as if it were.
-    pub(crate) fn note_unindented(&mut self) {
-        if !self.at(SyntaxKind::Eof) && !self.at_indented() {
-            let range = self.current_range();
-            self.unindented.push(range);
-        }
-    }
-
     /// Consumes the current token as its own kind.
     pub(crate) fn bump(&mut self) {
         let kind = self.current();
@@ -527,6 +546,12 @@ impl<'t> Parser<'t> {
     /// [`SyntaxKind::AliasKw`].
     pub(crate) fn bump_as(&mut self, kind: SyntaxKind) {
         assert!(!self.at(SyntaxKind::Eof), "bumped past the end");
+        if let Some(a) = self.nth_token(0)
+            && a.column < self.min_column
+            && self.anchor != Some(a.token.range.start())
+        {
+            self.unindented.push(a.token.range);
+        }
         while let Some(Ahead { token, .. }) = self.ahead.pop_front() {
             self.consumed.push(token);
             if !token.kind.is_trivia() {

@@ -1546,6 +1546,7 @@ professortX/date-format@1.0.0
 professortX/elm-visualization@1.0.1
 prozacchiwawa/elm-codepage-437@1.0.1
 prozacchiwawa/elm-json-codec@3.3.1
+prozacchiwawa/elm-keccak@2.0.0
 prozacchiwawa/elm-urlbase64@1.0.6
 pzp1997/assoc-list@1.0.0
 r-k-b/complex@1.1.0

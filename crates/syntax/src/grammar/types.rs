@@ -6,10 +6,17 @@ use crate::parser::{CompletedMarker, Parser, SyntaxErrorKind};
 
 /// Whether a type starts here and continues the construct being parsed.
 pub(super) fn at_type(p: &mut Parser<'_>) -> bool {
-    matches!(
-        p.current(),
-        K::UpperIdent | K::LowerIdent | K::LParen | K::LBrace
-    ) && p.at_indented()
+    starts_type(p.current()) && p.at_indented()
+}
+
+/// Whether another argument starts here, which must be indented in either
+/// layout.
+pub(super) fn at_type_argument(p: &mut Parser<'_>) -> bool {
+    starts_type(p.current()) && p.at_indented_strictly()
+}
+
+fn starts_type(kind: K) -> bool {
+    matches!(kind, K::UpperIdent | K::LowerIdent | K::LParen | K::LBrace)
 }
 
 /// A whole type, arrows included. `a -> b -> c` nests to the right.
@@ -50,7 +57,7 @@ fn applied_type(p: &mut Parser<'_>) -> CompletedMarker {
         }
         _ => return type_atom(p),
     };
-    while at_type(p) {
+    while at_type_argument(p) {
         type_atom(p);
     }
     m.complete(p, kind)
@@ -100,16 +107,14 @@ fn paren_type(p: &mut Parser<'_>) -> CompletedMarker {
     let mut kind = K::ParenType;
     loop {
         if p.at(K::RParen) {
-            p.note_unindented();
             p.bump();
             break;
         }
         if p.at(K::Comma) {
-            p.note_unindented();
             p.bump();
             kind = K::TupleType;
             type_(p);
-        } else if p.at_indented() {
+        } else if p.at_indented_strictly() {
             skip_junk(
                 p,
                 SyntaxErrorKind::Expected(K::RParen),
@@ -128,13 +133,11 @@ fn record_type(p: &mut Parser<'_>) -> CompletedMarker {
     let m = p.start();
     p.bump();
     if p.at(K::RBrace) {
-        p.note_unindented();
         p.bump();
         return m.complete(p, K::RecordType);
     }
     if p.at(K::LowerIdent) && p.nth_at_symbol(1, K::Pipe) {
         let extension = p.start();
-        p.note_unindented();
         p.bump();
         expect_indented(p, K::Pipe);
         extension.complete(p, K::RecordExtension);
@@ -142,15 +145,13 @@ fn record_type(p: &mut Parser<'_>) -> CompletedMarker {
     field_type(p);
     loop {
         if p.at(K::RBrace) {
-            p.note_unindented();
             p.bump();
             break;
         }
         if p.at(K::Comma) {
-            p.note_unindented();
             p.bump();
             field_type(p);
-        } else if p.at_indented() {
+        } else if p.at_indented_strictly() {
             skip_junk(
                 p,
                 SyntaxErrorKind::Expected(K::RBrace),
@@ -172,10 +173,8 @@ fn field_type(p: &mut Parser<'_>) {
         return;
     }
     let m = p.start();
-    p.note_unindented();
     p.bump();
     if p.at_symbol(K::Eq) {
-        p.note_unindented();
         p.bump_symbol(K::Eq);
     } else {
         expect_indented(p, K::Colon);

@@ -2,7 +2,7 @@
 //! chains stay flat; precedence is resolved after canonicalization.
 
 use super::definitions::value;
-use super::patterns::{at_pattern_atom, pattern, pattern_atom};
+use super::patterns::{at_pattern_argument, at_pattern_atom, pattern, pattern_atom};
 use super::{
     at_aligned, at_parenthesized_op, expect_indented, expect_part, parenthesized_op,
     qualified_name, skip_junk,
@@ -195,8 +195,10 @@ fn let_decl(p: &mut Parser<'_>) {
 fn lambda(p: &mut Parser<'_>) -> CompletedMarker {
     let m = p.start();
     p.bump();
-    if at_pattern_atom(p) {
-        while at_pattern_atom(p) {
+    // elm-format wants every parameter indented, the first too.
+    if at_pattern_argument(p) {
+        pattern_atom(p);
+        while at_pattern_argument(p) {
             pattern_atom(p);
         }
     } else {
@@ -248,12 +250,13 @@ fn at_negated(p: &mut Parser<'_>) -> bool {
 }
 
 /// An argument, including `-x` after space, which elm reads as a negated
-/// argument rather than a subtraction: `f -1` is `f (-1)`.
+/// argument rather than a subtraction: `f -1` is `f (-1)`. It must be
+/// indented in either layout.
 fn at_argument(p: &mut Parser<'_>) -> bool {
     if p.at(K::Minus) {
-        p.at_indented() && !p.nth_is_joined(0) && at_negated(p)
+        !p.nth_is_joined(0) && at_negated(p) && p.at_indented_strictly()
     } else {
-        at_atom(p)
+        starts_atom_here(p) && p.at_indented_strictly()
     }
 }
 
@@ -266,12 +269,15 @@ fn negate(p: &mut Parser<'_>) -> CompletedMarker {
 
 /// Whether an atom starts here and continues the construct being parsed.
 fn at_atom(p: &mut Parser<'_>) -> bool {
-    let starts = if p.at(K::Dot) {
+    starts_atom_here(p) && p.at_indented()
+}
+
+fn starts_atom_here(p: &mut Parser<'_>) -> bool {
+    if p.at(K::Dot) {
         p.nth(1) == K::LowerIdent && p.nth_is_joined(1)
     } else {
         starts_atom(p.current())
-    };
-    starts && p.at_indented()
+    }
 }
 
 /// Whether `kind` starts an atom, a `.field` accessor aside.
@@ -348,19 +354,16 @@ fn field_access(p: &mut Parser<'_>, target: CompletedMarker) -> CompletedMarker 
 fn paren(p: &mut Parser<'_>) -> K {
     p.bump();
     if p.at(K::RParen) {
-        p.note_unindented();
         p.bump();
         return K::UnitExpr;
     }
     if at_parenthesized_op(p) && p.nth(1) == K::RParen {
-        p.note_unindented();
         parenthesized_op(p);
         p.bump();
         return K::OperatorFunction;
     }
     if p.at(K::Comma) && at_tuple_constructor(p) {
         while p.at(K::Comma) {
-            p.note_unindented();
             p.bump();
         }
         p.bump();
@@ -370,16 +373,14 @@ fn paren(p: &mut Parser<'_>) -> K {
     let mut kind = K::ParenExpr;
     loop {
         if p.at(K::RParen) {
-            p.note_unindented();
             p.bump();
             break;
         }
         if p.at(K::Comma) {
-            p.note_unindented();
             p.bump();
             kind = K::TupleExpr;
             expr(p);
-        } else if p.at_indented() {
+        } else if p.at_indented_strictly() {
             skip_junk(
                 p,
                 SyntaxErrorKind::Expected(K::RParen),
@@ -410,15 +411,13 @@ fn list(p: &mut Parser<'_>) -> K {
     }
     loop {
         if p.at(K::RBracket) {
-            p.note_unindented();
             p.bump();
             break;
         }
         if p.at(K::Comma) {
-            p.note_unindented();
             p.bump();
             expr(p);
-        } else if p.at_indented() {
+        } else if p.at_indented_strictly() {
             skip_junk(
                 p,
                 SyntaxErrorKind::Expected(K::RBracket),
@@ -436,13 +435,11 @@ fn list(p: &mut Parser<'_>) -> K {
 fn record(p: &mut Parser<'_>) -> K {
     p.bump();
     if p.at(K::RBrace) {
-        p.note_unindented();
         p.bump();
         return K::RecordExpr;
     }
     let mut kind = K::RecordExpr;
     if p.at(K::LowerIdent) && p.nth_at_symbol(1, K::Pipe) {
-        p.note_unindented();
         p.bump();
         expect_indented(p, K::Pipe);
         kind = K::RecordUpdateExpr;
@@ -450,15 +447,13 @@ fn record(p: &mut Parser<'_>) -> K {
     field(p);
     loop {
         if p.at(K::RBrace) {
-            p.note_unindented();
             p.bump();
             break;
         }
         if p.at(K::Comma) {
-            p.note_unindented();
             p.bump();
             field(p);
-        } else if p.at_indented() {
+        } else if p.at_indented_strictly() {
             skip_junk(
                 p,
                 SyntaxErrorKind::Expected(K::RBrace),
@@ -480,10 +475,8 @@ fn field(p: &mut Parser<'_>) {
         return;
     }
     let m = p.start();
-    p.note_unindented();
     p.bump();
     if p.at_symbol(K::Colon) {
-        p.note_unindented();
         p.bump_symbol(K::Colon);
     } else {
         expect_indented(p, K::Eq);

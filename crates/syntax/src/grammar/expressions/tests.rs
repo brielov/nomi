@@ -9,14 +9,17 @@ use crate::parser::{DEPTH_LIMIT, Parse};
 fn top_level(text: &str) -> Parse {
     let mut p = Parser::new(text);
     let m = p.start();
+    p.anchor();
     p.bump();
     p.bump();
     expr(&mut p);
     if !p.at(K::Eof) {
         let rest = p.start();
-        while !p.at(K::Eof) {
-            p.bump();
-        }
+        p.with_min_column(0, |p| {
+            while !p.at(K::Eof) {
+                p.bump();
+            }
+        });
         rest.complete(&mut p, K::Error);
     }
     m.complete(&mut p, K::ExprFragment);

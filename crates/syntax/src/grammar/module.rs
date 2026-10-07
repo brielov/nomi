@@ -11,6 +11,8 @@ pub(super) fn module(p: &mut Parser<'_>) {
     if !p.at_fresh_line() {
         p.error(SyntaxErrorKind::ExpectedFreshLine);
     }
+    // Each part of the module starts at the margin.
+    p.anchor();
     let has_header = at_header(p);
     if has_header {
         header(p);
@@ -20,6 +22,7 @@ pub(super) fn module(p: &mut Parser<'_>) {
     // unless imports follow it.
     // skip_junk leaves each of these at a fresh line.
     if p.at(K::DocComment) && (has_header || p.nth(1) == K::ImportKw) {
+        p.anchor();
         p.bump();
         skip_junk(p, SyntaxErrorKind::Unexpected, &[]);
     }
@@ -95,11 +98,11 @@ fn effect_field(p: &mut Parser<'_>) {
 /// `import Name as Alias exposing (…)`.
 fn import(p: &mut Parser<'_>) {
     let m = p.start();
+    p.anchor();
     p.bump();
     module_name(p);
     if p.at(K::AsKw) {
         let alias = p.start();
-        p.note_unindented();
         p.bump();
         expect_indented(p, K::UpperIdent);
         alias.complete(p, K::ImportAlias);
@@ -119,11 +122,9 @@ fn at_exposing_list(p: &mut Parser<'_>) -> bool {
 fn exposing_list(p: &mut Parser<'_>) {
     let m = p.start();
     if p.at(K::ExposingKw) {
-        p.note_unindented();
         p.bump();
     }
     if p.at(K::LParen) {
-        p.note_unindented();
         p.bump();
         exposed_items(p, true);
         closing_paren(p);
@@ -139,7 +140,6 @@ fn exposing_list(p: &mut Parser<'_>) {
 /// comma is skipped.
 fn exposed_items(p: &mut Parser<'_>, parenthesized: bool) {
     if p.at(K::DotDot) {
-        p.note_unindented();
         p.bump();
         return;
     }
@@ -148,7 +148,7 @@ fn exposed_items(p: &mut Parser<'_>, parenthesized: bool) {
         if p.at(K::Comma) && p.at_indented() {
             p.bump();
             exposed(p);
-        } else if parenthesized && p.at_indented() && !p.at(K::RParen) {
+        } else if parenthesized && p.at_indented_strictly() && !p.at(K::RParen) {
             p.error_and_bump(SyntaxErrorKind::Expected(K::RParen));
         } else {
             break;
@@ -180,7 +180,6 @@ fn exposed(p: &mut Parser<'_>) {
             let m = p.start();
             p.bump();
             if at_parenthesized_op(p) {
-                p.note_unindented();
                 parenthesized_op(p);
             } else {
                 p.error(SyntaxErrorKind::Expected(K::Op));
@@ -202,7 +201,6 @@ fn exposed_variants(p: &mut Parser<'_>) {
     let m = p.start();
     p.bump();
     if p.at(K::DotDot) {
-        p.note_unindented();
         p.bump();
     } else {
         expect_indented(p, K::UpperIdent);

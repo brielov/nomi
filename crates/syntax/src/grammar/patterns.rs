@@ -7,7 +7,17 @@ use crate::parser::{CompletedMarker, Parser, SyntaxErrorKind};
 /// Whether a pattern that needs no parentheses as an argument starts here
 /// and continues the construct being parsed.
 pub(super) fn at_pattern_atom(p: &mut Parser<'_>) -> bool {
-    let starts = match p.current() {
+    starts_pattern_atom(p) && p.at_indented()
+}
+
+/// Whether another argument starts here, which must be indented in either
+/// layout.
+pub(super) fn at_pattern_argument(p: &mut Parser<'_>) -> bool {
+    starts_pattern_atom(p) && p.at_indented_strictly()
+}
+
+fn starts_pattern_atom(p: &mut Parser<'_>) -> bool {
+    match p.current() {
         K::LowerIdent
         | K::UpperIdent
         | K::Underscore
@@ -21,8 +31,7 @@ pub(super) fn at_pattern_atom(p: &mut Parser<'_>) -> bool {
         | K::LBrace => true,
         K::Minus => at_negative_literal(p),
         _ => false,
-    };
-    starts && p.at_indented()
+    }
 }
 
 fn at_negative_literal(p: &mut Parser<'_>) -> bool {
@@ -65,7 +74,7 @@ fn applied_pattern(p: &mut Parser<'_>) -> CompletedMarker {
     }
     let m = p.start();
     qualified_name(p, &[K::UpperIdent]);
-    while at_pattern_atom(p) {
+    while at_pattern_argument(p) {
         pattern_atom(p);
     }
     m.complete(p, K::ConstructorPattern)
@@ -112,7 +121,6 @@ pub(super) fn pattern_atom(p: &mut Parser<'_>) -> CompletedMarker {
 fn paren_pattern(p: &mut Parser<'_>) -> K {
     p.bump();
     if p.at(K::RParen) {
-        p.note_unindented();
         p.bump();
         return K::UnitPattern;
     }
@@ -120,16 +128,14 @@ fn paren_pattern(p: &mut Parser<'_>) -> K {
     let mut kind = K::ParenPattern;
     loop {
         if p.at(K::RParen) {
-            p.note_unindented();
             p.bump();
             break;
         }
         if p.at(K::Comma) {
-            p.note_unindented();
             p.bump();
             kind = K::TuplePattern;
             pattern(p);
-        } else if p.at_indented() {
+        } else if p.at_indented_strictly() {
             skip_junk(
                 p,
                 SyntaxErrorKind::Expected(K::RParen),
@@ -151,15 +157,13 @@ fn list_pattern(p: &mut Parser<'_>) -> K {
     }
     loop {
         if p.at(K::RBracket) {
-            p.note_unindented();
             p.bump();
             break;
         }
         if p.at(K::Comma) {
-            p.note_unindented();
             p.bump();
             pattern(p);
-        } else if p.at_indented() {
+        } else if p.at_indented_strictly() {
             skip_junk(
                 p,
                 SyntaxErrorKind::Expected(K::RBracket),
@@ -181,15 +185,13 @@ fn record_pattern(p: &mut Parser<'_>) -> K {
     }
     loop {
         if p.at(K::RBrace) {
-            p.note_unindented();
             p.bump();
             break;
         }
         if p.at(K::Comma) {
-            p.note_unindented();
             p.bump();
             field_pattern(p);
-        } else if p.at_indented() {
+        } else if p.at_indented_strictly() {
             skip_junk(
                 p,
                 SyntaxErrorKind::Expected(K::RBrace),
@@ -210,7 +212,6 @@ fn field_pattern(p: &mut Parser<'_>) {
         return;
     }
     let m = p.start();
-    p.note_unindented();
     p.bump();
     m.complete(p, K::FieldPattern);
 }
