@@ -1,0 +1,121 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/operator_definition.elm
+---
+Module@0..123
+  ModuleHeader@0..22
+    ModuleKw@0..6 "module"
+    Whitespace@6..7 " "
+    ModuleName@7..8
+      UpperIdent@7..8 "M"
+    Whitespace@8..9 " "
+    ExposingList@9..22
+      ExposingKw@9..17 "exposing"
+      Whitespace@17..18 " "
+      LParen@18..19 "("
+      DotDot@19..21 ".."
+      RParen@21..22 ")"
+  Newline@22..23 "\n"
+  Newline@23..24 "\n"
+  ValueDecl@24..73
+    Signature@24..49
+      OperatorName@24..28
+        LParen@24..25 "("
+        Op@25..27
+          Operator@25..27 "=>"
+        RParen@27..28 ")"
+      Whitespace@28..29 " "
+      Colon@29..30 ":"
+      Whitespace@30..31 " "
+      FunctionType@31..49
+        TypeVar@31..32
+          LowerIdent@31..32 "a"
+        Whitespace@32..33 " "
+        Arrow@33..35 "->"
+        Whitespace@35..36 " "
+        FunctionType@36..49
+          TypeVar@36..37
+            LowerIdent@36..37 "b"
+          Whitespace@37..38 " "
+          Arrow@38..40 "->"
+          Whitespace@40..41 " "
+          TupleType@41..49
+            LParen@41..42 "("
+            Whitespace@42..43 " "
+            TypeVar@43..44
+              LowerIdent@43..44 "a"
+            Comma@44..45 ","
+            Whitespace@45..46 " "
+            TypeVar@46..47
+              LowerIdent@46..47 "b"
+            Whitespace@47..48 " "
+            RParen@48..49 ")"
+    Newline@49..50 "\n"
+    Definition@50..73
+      OperatorName@50..54
+        LParen@50..51 "("
+        Op@51..53
+          Operator@51..53 "=>"
+        RParen@53..54 ")"
+      Whitespace@54..55 " "
+      VarPattern@55..56
+        LowerIdent@55..56 "a"
+      Whitespace@56..57 " "
+      VarPattern@57..58
+        LowerIdent@57..58 "b"
+      Whitespace@58..59 " "
+      Eq@59..60 "="
+      Newline@60..61 "\n"
+      Whitespace@61..65 "    "
+      TupleExpr@65..73
+        LParen@65..66 "("
+        Whitespace@66..67 " "
+        NameExpr@67..68
+          LowerIdent@67..68 "a"
+        Comma@68..69 ","
+        Whitespace@69..70 " "
+        NameExpr@70..71
+          LowerIdent@70..71 "b"
+        Whitespace@71..72 " "
+        RParen@72..73 ")"
+  Newline@73..74 "\n"
+  Newline@74..75 "\n"
+  ValueDecl@75..122
+    Definition@75..122
+      OperatorName@75..78
+        LParen@75..76 "("
+        Op@76..77
+          Minus@76..77 "-"
+        RParen@77..78 ")"
+      Whitespace@78..79 " "
+      Eq@79..80 "="
+      Newline@80..81 "\n"
+      Whitespace@81..85 "    "
+      LetExpr@85..122
+        LetKw@85..88 "let"
+        Newline@88..89 "\n"
+        Whitespace@89..97 "        "
+        LetValue@97..107
+          Definition@97..107
+            OperatorName@97..101
+              LParen@97..98 "("
+              Op@98..100
+                ColonColon@98..100 "::"
+              RParen@100..101 ")"
+            Whitespace@101..102 " "
+            VarPattern@102..103
+              LowerIdent@102..103 "x"
+            Whitespace@103..104 " "
+            Eq@104..105 "="
+            Whitespace@105..106 " "
+            NameExpr@106..107
+              LowerIdent@106..107 "x"
+        Newline@107..108 "\n"
+        Whitespace@108..112 "    "
+        InKw@112..114 "in"
+        Newline@114..115 "\n"
+        Whitespace@115..119 "    "
+        NameExpr@119..122
+          LowerIdent@119..122 "sub"
+  Newline@122..123 "\n"

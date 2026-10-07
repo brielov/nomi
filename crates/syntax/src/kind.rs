@@ -181,6 +181,7 @@ syntax_kinds! {
         ValueDecl,
         Signature,
         Definition,
+        OperatorName,
         DestructureDecl,
         TypeAliasDecl,
         CustomTypeDecl,

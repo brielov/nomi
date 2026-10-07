@@ -1,7 +1,7 @@
 //! Expressions, such as `List.map .name model.users ++ [ -1 ]`. Operator
 //! chains stay flat; precedence is resolved after canonicalization.
 
-use super::definitions::value;
+use super::definitions::{at_value_name, value};
 use super::patterns::{at_pattern_argument, at_pattern_atom, pattern, pattern_atom};
 use super::{
     at_aligned, at_parenthesized_op, expect_indented, expect_part, parenthesized_op,
@@ -176,7 +176,7 @@ fn let_expr(p: &mut Parser<'_>) -> CompletedMarker {
 /// `name args = body`, maybe with a signature, or `( a, b ) = pair`.
 fn let_decl(p: &mut Parser<'_>) {
     let m = p.start();
-    if p.at(K::LowerIdent) {
+    if at_value_name(p) {
         value(p);
         m.complete(p, K::LetValue);
     } else {

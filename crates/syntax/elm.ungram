@@ -89,11 +89,16 @@ Decl =
 ValueDecl =
   'doc_comment'? Signature? Definition
 
+// The name is one of the two; a token in an alternative gets no accessor.
 Signature =
-  'lower_ident' ':' Type
+  'lower_ident'? OperatorName? ':' Type
 
 Definition =
-  'lower_ident' Pattern* '=' Expr
+  'lower_ident'? OperatorName? Pattern* '=' Expr
+
+// elm-format's legacy `(=>) a b = …`, which elm rejects.
+OperatorName =
+  '(' Op ')'
 
 DestructureDecl =
   'doc_comment'? Pattern '=' Expr

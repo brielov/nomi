@@ -113,6 +113,7 @@ fn elm(root: &SyntaxNode, source: Source, errors: &mut Vec<SyntaxError>) {
                 }
             }
             K::ModuleHeader => header(&node, errors),
+            K::OperatorName => push(errors, E::OperatorDefinition, trimmed(&node)),
             K::InfixDecl => joined_precedence(&node, errors),
             K::ExposingList
                 if token(&node, K::ExposingKw).is_none() || token(&node, K::LParen).is_none() =>

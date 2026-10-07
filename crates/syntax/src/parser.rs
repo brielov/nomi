@@ -144,6 +144,8 @@ pub enum SyntaxErrorKind {
     // Found by [`crate::validate`]: the grammar takes these, a tool doesn't.
     /// A top-level `( a, b ) = pair`. elm wants a name.
     DestructureDeclaration,
+    /// elm-format's legacy operator definition, as in `(=>) a b = …`.
+    OperatorDefinition,
     /// A definition named differently from the signature above it.
     DefinitionNameMismatch,
     /// The legacy `(,)` tuple constructor.

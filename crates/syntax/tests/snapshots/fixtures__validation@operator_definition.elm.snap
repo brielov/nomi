@@ -1,0 +1,21 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/operator_definition.elm
+---
+elm, application:
+  24..28 OperatorDefinition "(=>)"
+  50..54 OperatorDefinition "(=>)"
+  75..78 OperatorDefinition "(-)"
+  97..101 OperatorDefinition "(::)"
+elm, package:
+  24..28 OperatorDefinition "(=>)"
+  50..54 OperatorDefinition "(=>)"
+  75..78 OperatorDefinition "(-)"
+  97..101 OperatorDefinition "(::)"
+elm, kernel package:
+  24..28 OperatorDefinition "(=>)"
+  50..54 OperatorDefinition "(=>)"
+  75..78 OperatorDefinition "(-)"
+  97..101 OperatorDefinition "(::)"
+elm-format:

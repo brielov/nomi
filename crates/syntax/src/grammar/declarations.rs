@@ -1,7 +1,7 @@
 //! Top-level declarations: values, custom types, type aliases, ports and
 //! infix declarations, each with the doc comment above it.
 
-use super::definitions::value;
+use super::definitions::{at_value_name, value};
 use super::expressions::expr;
 use super::patterns::{at_pattern_atom, pattern_atom};
 use super::types::{at_type_argument, type_, type_atom};
@@ -53,7 +53,7 @@ fn declaration(p: &mut Parser<'_>) {
         K::TypeKw => custom_type(p, m),
         K::PortKw => port(p, m),
         K::LowerIdent if at_infix(p) => infix(p, m),
-        K::LowerIdent => {
+        _ if at_value_name(p) => {
             value(p);
             m.complete(p, K::ValueDecl);
         }

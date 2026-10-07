@@ -1145,6 +1145,10 @@ impl AstNode for Signature {
 }
 
 impl Signature {
+    pub fn operator_name(&self) -> Option<OperatorName> {
+        support::child(&self.syntax)
+    }
+
     pub fn ty(&self) -> Option<Type> {
         support::child(&self.syntax)
     }
@@ -1178,6 +1182,10 @@ impl AstNode for Definition {
 }
 
 impl Definition {
+    pub fn operator_name(&self) -> Option<OperatorName> {
+        support::child(&self.syntax)
+    }
+
     pub fn patterns(&self) -> AstChildren<Pattern> {
         support::children(&self.syntax)
     }
@@ -1192,6 +1200,39 @@ impl Definition {
 
     pub fn eq_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Eq)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct OperatorName {
+    pub(super) syntax: SyntaxNode,
+}
+
+impl AstNode for OperatorName {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::OperatorName
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        Self::can_cast(syntax.kind()).then_some(OperatorName { syntax })
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+
+impl OperatorName {
+    pub fn op(&self) -> Option<Op> {
+        support::child(&self.syntax)
+    }
+
+    pub fn l_paren_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::LParen)
+    }
+
+    pub fn r_paren_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::RParen)
     }
 }
 
@@ -3099,6 +3140,7 @@ pub fn has_view(kind: SyntaxKind) -> bool {
         || InfixDecl::can_cast(kind)
         || Signature::can_cast(kind)
         || Definition::can_cast(kind)
+        || OperatorName::can_cast(kind)
         || TypeParam::can_cast(kind)
         || Variant::can_cast(kind)
         || TypeFragment::can_cast(kind)
