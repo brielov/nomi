@@ -1,0 +1,12 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/no_declarations.elm
+---
+elm, application:
+  57..57 NoDeclarations ""
+elm, package:
+  57..57 NoDeclarations ""
+elm, kernel package:
+  57..57 NoDeclarations ""
+elm-format:

@@ -41,7 +41,7 @@ fn declaration_fragments_follow_the_same_rules() {
 
 #[test]
 fn ranges_leave_out_leading_comments() {
-    let text = "module M exposing (..)\n\n-- note\ninfix left 6 (+) = add\n";
+    let text = "module M exposing (..)\n\n-- note\ninfix left 6 (+) = add\n\nadd = a\n";
     let parse = parse_module(text);
     let errors = validate(&parse, ELM);
     assert_eq!(errors.len(), 1);

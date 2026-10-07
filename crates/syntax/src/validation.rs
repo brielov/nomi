@@ -104,6 +104,7 @@ fn elm(root: &SyntaxNode, source: Source, errors: &mut Vec<SyntaxError>) {
     if let Some(module) = ast::Module::cast(root.clone()) {
         effects(&module, source, errors);
         infixes(&module, source, errors);
+        declarations(&module, errors);
     }
 }
 
@@ -259,6 +260,19 @@ fn infixes(module: &ast::Module, source: Source, errors: &mut Vec<SyntaxError>) 
             push(errors, E::UnexpectedInfix, trimmed(decl.syntax()));
         }
         leading &= is_infix;
+    }
+}
+
+/// Upstream reads at least one declaration besides the infixes, and
+/// reports a module without one at its end (`Parse/Module.hs`,
+/// `chompDecls`).
+fn declarations(module: &ast::Module, errors: &mut Vec<SyntaxError>) {
+    if module
+        .decls()
+        .all(|decl| matches!(decl, ast::Decl::InfixDecl(_)))
+    {
+        let end = module.syntax().text_range().end();
+        push(errors, E::NoDeclarations, TextRange::empty(end));
     }
 }
 

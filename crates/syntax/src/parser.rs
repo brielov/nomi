@@ -153,6 +153,8 @@ pub enum SyntaxErrorKind {
     /// An infix declaration outside a kernel package, or after another
     /// declaration.
     UnexpectedInfix,
+    /// A module without a value, type, type alias or port declaration.
+    NoDeclarations,
     /// An expression of a code block, after the first, starting with
     /// something other than a letter or `_`.
     ExpectedLetterStart,
