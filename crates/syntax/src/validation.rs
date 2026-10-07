@@ -40,7 +40,11 @@ pub fn validate(parse: &Parse, tool: Tool) -> Vec<SyntaxError> {
             }));
             elm(&root, source, &mut errors);
         }
-        Tool::ElmFormat => {}
+        Tool::ElmFormat => {
+            if let Some(module) = ast::Module::cast(root.clone()) {
+                last_import(&module, &mut errors);
+            }
+        }
     }
     if let Some(fragment) = ast::ExpressionsFragment::cast(root) {
         code_block(&fragment, &mut errors);
@@ -274,6 +278,27 @@ fn declarations(module: &ast::Module, errors: &mut Vec<SyntaxError>) {
         let end = module.syntax().text_range().end();
         push(errors, E::NoDeclarations, TextRange::empty(end));
     }
+}
+
+/// elm-format reads a fresh line after every import (`imports` in its
+/// `Parse/Module.hs`), so the file can't end on the last import's line.
+fn last_import(module: &ast::Module, errors: &mut Vec<SyntaxError>) {
+    let Some(import) = module.imports().last() else {
+        return;
+    };
+    let mut next = import.syntax().last_token();
+    while let Some(token) = next {
+        if token.kind() == K::Newline {
+            return;
+        }
+        next = token.next_token().filter(|t| t.kind().is_trivia());
+        if next.is_none() && token.next_token().is_some() {
+            // Code follows on the same line: the grammar's concern.
+            return;
+        }
+    }
+    let end = module.syntax().text_range().end();
+    push(errors, E::ImportWithoutNewline, TextRange::empty(end));
 }
 
 /// elm-format reads each expression of a code block after the first only
