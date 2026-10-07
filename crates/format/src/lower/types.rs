@@ -1,11 +1,12 @@
 //! Types, after upstream's `Parse/Type.hs`.
 
-use nomi_syntax::SyntaxKind;
 use nomi_syntax::ast::{self, AstNode};
 
 use super::cursor::Cursor;
-use super::{VALID, c, commas, lower_name, range, separated, start, surround, token, upper_ref};
-use crate::tree::{C0Eol, Comment, ForceMultiline, Lower, Pair, Sequence, Type, TypeConstructor};
+use super::{
+    VALID, c, commas, lower_name, pair, range, sectioned, separated, start, surround, upper_ref,
+};
+use crate::tree::{C0Eol, Comment, ForceMultiline, Type, TypeConstructor};
 
 pub(super) fn ty(cx: &mut Cursor, node: &ast::Type) -> Type {
     match node {
@@ -103,8 +104,7 @@ fn function(cx: &mut Cursor, node: &ast::FunctionType) -> Type {
     }
 }
 
-/// `{ base | field : type, … }`; upstream's `record`, its fields a
-/// `sectionedGroup`.
+/// `{ base | field : type, … }`; upstream's `record`.
 fn record(cx: &mut Cursor, node: &ast::RecordType) -> Type {
     let close = node.r_brace_token().expect(VALID);
     let base = node.record_extension().map(|extension| {
@@ -113,47 +113,18 @@ fn record(cx: &mut Cursor, node: &ast::RecordType) -> Type {
         let post = cx.take(start(&extension.pipe_token().expect(VALID)));
         c((pre, post), lower_name(&name))
     });
-    let commas = commas(node.syntax());
-    let mut leading = Vec::new();
-    let mut fields = Vec::new();
-    for (i, field) in node.field_types().enumerate() {
-        let pre = cx.take(range(field.syntax()).start());
-        let pair = pair(cx, &field);
-        let eol = cx.eol(range(field.syntax()));
-        let next = commas.get(i).copied().unwrap_or_else(|| start(&close));
-        let before_next = cx.take(next);
-        fields.push(c(
-            (std::mem::replace(&mut leading, before_next), pre, eol),
-            pair,
-        ));
-    }
-    // With no fields, upstream reads the comments inside as trailing.
-    let trailing = if fields.is_empty() {
-        cx.take(start(&close))
-    } else {
-        leading
-    };
+    let (fields, trailing) = sectioned(
+        cx,
+        node.syntax(),
+        node.field_types(),
+        &close,
+        |cx, field| pair(cx, field.syntax(), &field.ty().expect(VALID), ty),
+    );
     Type::Record {
         base,
-        fields: Sequence(fields),
+        fields,
         trailing,
         force_multiline: ForceMultiline(cx.multiline(range(node.syntax()))),
-    }
-}
-
-/// `name : type`, or the legacy `name = type`; upstream's `pair`.
-fn pair(cx: &mut Cursor, field: &ast::FieldType) -> Pair<Lower, Type> {
-    let name = field.lower_ident_token().expect(VALID);
-    let separator = token(field.syntax(), SyntaxKind::Colon)
-        .or_else(|| token(field.syntax(), SyntaxKind::Eq))
-        .expect(VALID);
-    let key = c(cx.take(start(&separator)), lower_name(&name));
-    let value = field.ty().expect(VALID);
-    let value = c(cx.take(range(value.syntax()).start()), ty(cx, &value));
-    Pair {
-        key,
-        value,
-        force_multiline: ForceMultiline(cx.multiline(range(field.syntax()))),
     }
 }
 

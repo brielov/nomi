@@ -5,7 +5,7 @@
 //! Decoding does the same, so `"\u{D835}\u{DC00}"` stays two surrogates
 //! and the `\x` escapes elm-format still reads come out as it reads them.
 
-use nomi_syntax::{SyntaxKind, SyntaxNode};
+use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
 use super::{VALID, significant};
 use crate::tree::{FloatRepr, IntRepr, LiteralValue, StringRepr};
@@ -15,15 +15,34 @@ use crate::tree::{FloatRepr, IntRepr, LiteralValue, StringRepr};
 pub(super) fn literal(node: &SyntaxNode) -> LiteralValue {
     let mut tokens = significant(node);
     let mut token = tokens.next().expect(VALID);
-    let negate = token.kind() == SyntaxKind::Minus;
-    if negate {
+    if token.kind() == SyntaxKind::Minus {
         token = tokens.next().expect(VALID);
+        return negative(unsigned(&token));
     }
+    unsigned(&token)
+}
+
+/// Whether `node` is a number, which a `-` touching it negates.
+pub(super) fn is_number(node: &SyntaxNode) -> bool {
+    let token = significant(node).next().expect(VALID);
+    matches!(token.kind(), SyntaxKind::Int | SyntaxKind::Float)
+}
+
+/// A number, negated; upstream's `num`, which reads the `-` itself.
+pub(super) fn negative(value: LiteralValue) -> LiteralValue {
+    match value {
+        LiteralValue::Int(value, repr) => LiteralValue::Int(value.wrapping_neg(), repr),
+        LiteralValue::Float(value, repr) => LiteralValue::Float(-value, repr),
+        other => panic!("{VALID}: a number, not {other:?}"),
+    }
+}
+
+fn unsigned(token: &SyntaxToken) -> LiteralValue {
     let text = token.text();
     match token.kind() {
         SyntaxKind::Int => {
             let (value, repr) = int(text);
-            LiteralValue::Int(if negate { value.wrapping_neg() } else { value }, repr)
+            LiteralValue::Int(value, repr)
         }
         SyntaxKind::Float => {
             let value: f64 = text.parse().expect(VALID);
@@ -32,7 +51,7 @@ pub(super) fn literal(node: &SyntaxNode) -> LiteralValue {
             } else {
                 FloatRepr::Decimal
             };
-            LiteralValue::Float(if negate { -value } else { value }, repr)
+            LiteralValue::Float(value, repr)
         }
         SyntaxKind::Char => match decode(&text[1..text.len() - 1])[..] {
             [c] => LiteralValue::Char(c),

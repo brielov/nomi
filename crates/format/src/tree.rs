@@ -245,7 +245,7 @@ pub(crate) enum Expr {
     /// The first clause, each `else if` with comments before it, and the
     /// `else` body with comments before it.
     If(Box<IfClause>, Vec<C1<IfClause>>, Box<C1<Expr>>),
-    /// The declarations, comments before `in`, and the body.
+    /// The declarations, comments after `in`, and the body.
     Let(Vec<LetDeclaration>, Comments, Box<Expr>),
     /// The subject with comments around it, whether `case … of` breaks,
     /// and the branches.

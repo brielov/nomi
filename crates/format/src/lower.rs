@@ -9,20 +9,23 @@
 //! a bug and panics.
 
 mod cursor;
+mod definitions;
+mod expressions;
 mod header;
 mod literal;
 mod patterns;
 mod types;
 
 use std::collections::BTreeMap;
+use std::iter::successors;
 
 use nomi_base::{TextRange, TextSize};
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
 use crate::tree::{
-    C0Eol, C2, Commented, Docs, Lower, Module, Namespace, Sequence, TopLevelStructure, Upper,
-    UpperRef,
+    C0Eol, C2, Commented, Comments, Docs, ForceMultiline, Lower, Module, Namespace, Pair, Sequence,
+    Symbol, TopLevelStructure, Upper, UpperRef,
 };
 use cursor::Cursor;
 
@@ -73,8 +76,8 @@ pub(crate) fn module(root: &SyntaxNode, text: &str) -> Module {
     }
 
     // Declarations lower from plan 2.7; until then the comments between
-    // their types and patterns go unused, and lowering those on their own
-    // checks them over every module.
+    // their types, patterns and expressions go unused, and lowering those
+    // on their own checks them over every module.
     let mut stack = vec![root.clone()];
     while let Some(node) = stack.pop() {
         if let Some(ty) = ast::Type::cast(node.clone()) {
@@ -83,6 +86,9 @@ pub(crate) fn module(root: &SyntaxNode, text: &str) -> Module {
         } else if let Some(pattern) = ast::Pattern::cast(node.clone()) {
             let _ = cx.take(range(&node).start());
             patterns::pattern(&mut cx, &pattern);
+        } else if let Some(expr) = ast::Expr::cast(node.clone()) {
+            let _ = cx.take(range(&node).start());
+            expressions::expr(&mut cx, &expr);
         } else {
             let children: Vec<_> = node.children().collect();
             stack.extend(children.into_iter().rev());
@@ -119,19 +125,34 @@ fn upper_name(token: &SyntaxToken) -> Upper {
     Upper(token.text().to_owned())
 }
 
-/// The name in `node`, after the qualifier `node` may have.
-fn upper_ref(node: &SyntaxNode, qualifier: Option<ast::Qualifier>) -> UpperRef {
-    let namespace: Namespace = qualifier.map_or_else(Vec::new, |q| {
+/// The modules a qualifier names; none without one.
+fn namespace(qualifier: Option<ast::Qualifier>) -> Namespace {
+    qualifier.map_or_else(Vec::new, |q| {
         q.syntax()
             .children_with_tokens()
             .filter_map(|e| e.into_token())
             .filter(|t| t.kind() == SyntaxKind::UpperIdent)
             .map(|t| upper_name(&t))
             .collect()
-    });
+    })
+}
+
+/// The name in `node`, after the qualifier `node` may have.
+fn upper_ref(node: &SyntaxNode, qualifier: Option<ast::Qualifier>) -> UpperRef {
     (
-        namespace,
+        namespace(qualifier),
         upper_name(&token(node, SyntaxKind::UpperIdent).expect(VALID)),
+    )
+}
+
+/// An operator, as its token spells it.
+fn symbol(op: &ast::Op) -> Symbol {
+    Symbol(
+        significant(op.syntax())
+            .next()
+            .expect(VALID)
+            .text()
+            .to_owned(),
     )
 }
 
@@ -164,6 +185,60 @@ fn surround<N: AstNode, T>(
             c((pre, post), value)
         })
         .collect()
+}
+
+/// The comma-separated `items` of `node`, each with the comments before
+/// the comma before it, after that comma, and ending its line, and the
+/// comments before `close`; upstream's `sectionedGroup`.
+fn sectioned<N: AstNode, T>(
+    cx: &mut Cursor,
+    node: &SyntaxNode,
+    items: impl Iterator<Item = N>,
+    close: &SyntaxToken,
+    mut lower: impl FnMut(&mut Cursor, &N) -> T,
+) -> (Sequence<T>, Comments) {
+    let commas = commas(node);
+    let mut leading = Vec::new();
+    let mut terms = Vec::new();
+    for (i, item) in items.enumerate() {
+        let pre = cx.take(range(item.syntax()).start());
+        let value = lower(cx, &item);
+        let eol = cx.eol(range(item.syntax()));
+        let next = commas.get(i).copied().unwrap_or_else(|| start(close));
+        let before_next = cx.take(next);
+        terms.push(c(
+            (std::mem::replace(&mut leading, before_next), pre, eol),
+            value,
+        ));
+    }
+    // With no items, upstream reads the comments inside as trailing.
+    let trailing = if terms.is_empty() {
+        cx.take(start(close))
+    } else {
+        leading
+    };
+    (Sequence(terms), trailing)
+}
+
+/// `name : value` in `field`, or `name = value`; upstream's `pair`, which
+/// takes either separator.
+fn pair<N: AstNode, T>(
+    cx: &mut Cursor,
+    field: &SyntaxNode,
+    value: &N,
+    lower: impl FnOnce(&mut Cursor, &N) -> T,
+) -> Pair<Lower, T> {
+    let name = token(field, SyntaxKind::LowerIdent).expect(VALID);
+    let separator = token(field, SyntaxKind::Colon)
+        .or_else(|| token(field, SyntaxKind::Eq))
+        .expect(VALID);
+    let key = c(cx.take(start(&separator)), lower_name(&name));
+    let value = c(cx.take(range(value.syntax()).start()), lower(cx, value));
+    Pair {
+        key,
+        value,
+        force_multiline: ForceMultiline(cx.multiline(range(field))),
+    }
 }
 
 /// `terms` with `separators` between them, like `a -> b -> c`: each term
@@ -204,9 +279,14 @@ fn significant(node: &SyntaxNode) -> impl Iterator<Item = SyntaxToken> {
 /// From the first to the last token of `node` that is not trivia; a
 /// node's own range takes in the trivia before it.
 fn range(node: &SyntaxNode) -> TextRange {
-    let mut tokens = significant(node);
-    let first = tokens.next().expect(VALID).text_range();
-    let last = tokens.last().map_or(first, |t| t.text_range());
+    let edge = |token, step: fn(&SyntaxToken) -> Option<SyntaxToken>| {
+        successors(token, step)
+            .find(|t| !t.kind().is_trivia())
+            .expect(VALID)
+            .text_range()
+    };
+    let first = edge(node.first_token(), SyntaxToken::next_token);
+    let last = edge(node.last_token(), SyntaxToken::prev_token);
     first.cover(last)
 }
 
