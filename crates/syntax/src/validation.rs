@@ -113,6 +113,7 @@ fn elm(root: &SyntaxNode, source: Source, errors: &mut Vec<SyntaxError>) {
                 }
             }
             K::ModuleHeader => header(&node, errors),
+            K::InfixDecl => joined_precedence(&node, errors),
             K::ExposingList
                 if token(&node, K::ExposingKw).is_none() || token(&node, K::LParen).is_none() =>
             {
@@ -166,6 +167,19 @@ fn trimmed(node: &SyntaxNode) -> TextRange {
 }
 
 /// The first direct child token of `kind`.
+/// elm reads the associativity as a keyword, which no digit may follow
+/// (`Parse/Module.hs`, `infix_`); elm-format reads its characters.
+fn joined_precedence(node: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
+    let precedence = token(node, K::Int);
+    let previous = precedence.as_ref().and_then(|t| t.prev_token());
+    if let (Some(precedence), Some(previous)) = (precedence, previous)
+        && matches!(previous.kind(), K::LeftKw | K::RightKw | K::NonKw)
+    {
+        let range = TextRange::new(previous.text_range().start(), precedence.text_range().end());
+        push(errors, E::BadPrecedence, range);
+    }
+}
+
 fn token(node: &SyntaxNode, kind: K) -> Option<SyntaxToken> {
     node.children_with_tokens()
         .filter_map(|e| e.into_token())

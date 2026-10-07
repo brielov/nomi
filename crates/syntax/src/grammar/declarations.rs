@@ -142,21 +142,46 @@ fn port(p: &mut Parser<'_>, m: Marker) {
 /// them out of place, so the grammar takes them where no value could be:
 /// `infix left 5`, an associativity then a precedence.
 fn at_infix(p: &mut Parser<'_>) -> bool {
-    p.nth_at_contextual(0, K::InfixKw)
-        && [K::LeftKw, K::RightKw, K::NonKw]
-            .into_iter()
-            .any(|kind| p.nth_at_contextual(1, kind))
-        && p.nth(2) == K::Int
+    if !p.nth_at_contextual(0, K::InfixKw) {
+        return false;
+    }
+    match associativity(p, 1) {
+        Some(Associativity::Spelled) => p.nth(2) == K::Int,
+        Some(Associativity::Joined) => p.nth(2) == K::LParen,
+        None => false,
+    }
+}
+
+enum Associativity {
+    Spelled,
+    /// Joined to its precedence, as in `right0`, which elm-format reads
+    /// by its characters; validation reports it for elm.
+    Joined,
+}
+
+fn associativity(p: &mut Parser<'_>, n: usize) -> Option<Associativity> {
+    let kinds = [K::LeftKw, K::RightKw, K::NonKw];
+    if kinds.into_iter().any(|kind| p.nth_at_contextual(n, kind)) {
+        return Some(Associativity::Spelled);
+    }
+    let text = p.nth_text(n)?;
+    let joined = kinds.into_iter().any(|kind| {
+        text.strip_prefix(kind.text().expect("a keyword"))
+            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
+    });
+    (p.nth(n) == K::LowerIdent && joined).then_some(Associativity::Joined)
 }
 
 /// `infix left 5 (+) = add`.
 fn infix(p: &mut Parser<'_>, m: Marker) {
     p.bump_as(K::InfixKw);
-    let associativity = [K::LeftKw, K::RightKw, K::NonKw]
+    let kinds = [K::LeftKw, K::RightKw, K::NonKw];
+    let text = p.current_text();
+    let kind = kinds
         .into_iter()
-        .find(|&kind| p.nth_at_contextual(0, kind))
+        .find(|kind| text.starts_with(kind.text().expect("a keyword")))
         .expect("at_infix checked the associativity");
-    p.bump_as(associativity);
+    p.bump_prefix_as(kind);
     // Upstream reads a single digit, then expects `(`.
     if p.at(K::Int) && !matches!(p.current_text().as_bytes(), [b'0'..=b'9']) {
         p.error(SyntaxErrorKind::BadPrecedence);

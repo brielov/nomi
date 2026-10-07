@@ -24004,6 +24004,7 @@ kernel_infix / delete ' ' at 350
 kernel_infix / delete ' ' at 39
 kernel_infix / delete ' ' at 61
 kernel_infix / delete ' ' at 79
+kernel_infix / delete ' ' at 85
 kernel_infix / delete ' ' at 92
 kernel_infix / delete '"' at 270
 kernel_infix / delete '(' at 113

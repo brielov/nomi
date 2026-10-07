@@ -1,0 +1,16 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/joined_precedence.elm
+---
+elm, application:
+  29..52 UnexpectedInfix "infix right0 (<|) = apL"
+  35..41 BadPrecedence "right0"
+  53..74 UnexpectedInfix "infix non 4 (==) = eq"
+elm, package:
+  29..52 UnexpectedInfix "infix right0 (<|) = apL"
+  35..41 BadPrecedence "right0"
+  53..74 UnexpectedInfix "infix non 4 (==) = eq"
+elm, kernel package:
+  35..41 BadPrecedence "right0"
+elm-format:

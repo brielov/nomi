@@ -189,7 +189,9 @@ pub enum SyntaxErrorKind {
     ImportWithoutNewline,
     /// Whitespace inside an operator's parentheses, as in `( + )`.
     SpacedOperator,
-    /// An infix precedence other than one decimal digit, such as `10`.
+    /// An infix precedence other than one decimal digit, such as `10`, or
+    /// one joined to its associativity, as in `right0`, which elm-format
+    /// takes.
     BadPrecedence,
     /// An operator starting with `.` right after an operand that takes
     /// field accesses, as in `model.=count`: a field access gone wrong.
@@ -396,6 +398,11 @@ impl<'t> Parser<'t> {
         self.nth_token(n).map_or(SyntaxKind::Eof, |a| a.token.kind)
     }
 
+    /// The `n`th significant token's text, if there is one.
+    pub(crate) fn nth_text(&mut self, n: usize) -> Option<&'t str> {
+        self.nth_token(n).map(|a| &self.text[a.token.range])
+    }
+
     /// Whether the `n`th token ahead is the lower identifier spelling the
     /// contextual keyword `kind`.
     pub(crate) fn nth_at_contextual(&mut self, n: usize, kind: SyntaxKind) -> bool {
@@ -429,19 +436,34 @@ impl<'t> Parser<'t> {
     pub(crate) fn bump_symbol(&mut self, kind: SyntaxKind) {
         debug_assert!(self.at_symbol(kind));
         if !self.at(kind) {
-            let (i, a) = self.nth_ahead(0).expect("at a symbol");
-            let len = TextSize::of(kind.text().expect("a symbol has a fixed text"));
-            let cut = a.token.range.start() + len;
-            self.ahead.truncate(i + 1);
-            self.ahead[i].token = Token {
-                kind,
-                range: TextRange::new(a.token.range.start(), cut),
-            };
-            self.lexer.rewind(cut, a.lex_errors as usize);
-            // Operators are ASCII, so bytes are columns.
-            self.lexer_column = a.column + u32::from(len);
+            self.split(kind);
         }
         self.bump();
+    }
+
+    /// Consumes the start of the current token as `kind`, whose fixed,
+    /// ASCII text it spells, and lexes the rest again.
+    pub(crate) fn bump_prefix_as(&mut self, kind: SyntaxKind) {
+        let text = self.current_text();
+        debug_assert!(kind.text().is_some_and(|t| text.starts_with(t)));
+        if kind.text() != Some(text) {
+            self.split(kind);
+        }
+        self.bump_as(kind);
+    }
+
+    fn split(&mut self, kind: SyntaxKind) {
+        let (i, a) = self.nth_ahead(0).expect("at a token");
+        let len = TextSize::of(kind.text().expect("a fixed text"));
+        let cut = a.token.range.start() + len;
+        self.ahead.truncate(i + 1);
+        self.ahead[i].token = Token {
+            kind,
+            range: TextRange::new(a.token.range.start(), cut),
+        };
+        self.lexer.rewind(cut, a.lex_errors as usize);
+        // The text is ASCII, so bytes are columns.
+        self.lexer_column = a.column + u32::from(len);
     }
 
     /// Whether the `n`th token ahead directly follows the token before
