@@ -1,0 +1,2 @@
+# Sources and fixtures are LF everywhere; formatter goldens depend on it.
+* text=auto eol=lf
