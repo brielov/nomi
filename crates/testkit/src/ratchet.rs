@@ -27,6 +27,9 @@ pub struct Suite {
     dir: PathBuf,
     passing: BTreeSet<String>,
     hashes: BTreeMap<String, String>,
+    update: bool,
+    /// How to rerun the suite so it records newly passing cases.
+    command: String,
 }
 
 /// What the oracle produced for one case.
@@ -71,11 +74,21 @@ impl Suite {
             Err(_) => BTreeMap::new(),
         };
         Suite {
-            name,
             dir,
             passing,
             hashes,
+            update: std::env::var(UPDATE_VAR).is_ok_and(|v| v == "1"),
+            command: format!("cargo xtask ratchet {name}"),
+            name,
         }
+    }
+
+    /// For a suite xtask runs itself rather than as a test target: `record`
+    /// replaces [`UPDATE_VAR`], and `command` records newly passing cases.
+    pub fn run_by(mut self, command: &str, record: bool) -> Suite {
+        self.command = command.to_owned();
+        self.update = record;
+        self
     }
 
     pub fn name(&self) -> &str {
@@ -98,7 +111,6 @@ impl Suite {
     /// asked to, and panics on regressions.
     pub fn finish(self, outcomes: impl IntoIterator<Item = (String, Result<(), String>)>) {
         let report = compare(&self.passing, outcomes);
-        let update = std::env::var(UPDATE_VAR).is_ok_and(|v| v == "1");
         eprintln!(
             "ratchet {}: {}/{} passing, {} listed",
             self.name,
@@ -112,7 +124,7 @@ impl Suite {
         if report.newly_passing.is_empty() {
             return;
         }
-        if update {
+        if self.update {
             let mut passing = self.passing;
             passing.extend(report.newly_passing.iter().cloned());
             let path = self.dir.join("passing.txt");
@@ -125,10 +137,10 @@ impl Suite {
             );
         } else {
             eprintln!(
-                "ratchet {}: {} newly passing; record them with `cargo xtask ratchet {}`",
+                "ratchet {}: {} newly passing; record them with `{}`",
                 self.name,
                 report.newly_passing.len(),
-                self.name
+                self.command
             );
         }
     }

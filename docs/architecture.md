@@ -410,7 +410,7 @@ Build this runtime in plain JS first, with model-based tests, in parallel with t
 **Corpora**
 - Every package on package.elm-lang.org at its latest version, both compiled and formatted.
 - The first attempt's four apps.
-- The 8,617-case syntax mutation suite.
+- The syntax mutation suite: 39,314 cases from eight seeds.
 - An error corpus.
 - The first attempt's 605-case `elm make --report=json` matrix.
 
@@ -428,7 +428,7 @@ Oracle outputs are stored in the repository as snapshots, or as hashes when they
 ## 11. Salvage from the first attempt
 
 **Test assets (keep):**
-- the Haskell parser and diagnostic oracle with its 8,617-case mutation suite;
+- the Haskell parser and diagnostic oracle with its mutation suite (its generator now makes 39,314 cases);
 - the elm-format fixtures and package corpus with SHA-256 manifests (185/187 exact);
 - the elm-format bug fixtures and the 119 tuple cases;
 - the solver oracle and solver tests;

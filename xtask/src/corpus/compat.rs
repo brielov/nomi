@@ -36,6 +36,10 @@ impl Version {
         };
         Ok(Version([number(major)?, number(minor)?, number(patch)?]))
     }
+
+    pub fn parts(self) -> [u32; 3] {
+        self.0
+    }
 }
 
 impl fmt::Display for Version {

@@ -22,7 +22,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 ## elm-format
 
-Source: https://github.com/avh4/elm-format. Ported into the format crate and the `elm-format` command-line behavior.
+Source: https://github.com/avh4/elm-format. Ported into the format crate and the `elm-format` command-line behavior. Five of its test files (`tests/test-files/good/Elm-0.19/`) seed the syntax mutation suite in `crates/syntax/tests/syntax_mutations/seeds/`.
 
 ```text
 Copyright (c) 2015-2023, Aaron VonderHaar

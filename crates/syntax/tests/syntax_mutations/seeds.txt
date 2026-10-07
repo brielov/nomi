@@ -1,0 +1,12 @@
+# The mutation suite's seeds: name, the kind of project the module belongs
+# to, and its file under seeds/. From brielov/nomi@8e2b540:
+# crates/syntax/tests/parser_mutation.rs; the Accepted* modules are the
+# first attempt's, the rest are elm-format 0.8.8's tests/test-files.
+accepted application Accepted.elm
+accepted_expressions application AcceptedExpressions.elm
+accepted_types application AcceptedTypes.elm
+all_declarations application Declarations.elm
+all_literals application Literals.elm
+module_syntax application Module.elm
+shader application GLShader.elm
+kernel_infix kernel InfixDeclaration.elm

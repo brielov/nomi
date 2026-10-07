@@ -159,7 +159,14 @@ Goal: one lossless, tolerant parser used by every consumer, which accepts exactl
 
   Every later "every corpus package/app/project" claim means "every one the Compat accepts, plus the expected failures". **Check:** `xtask corpus stats` prints the per-Compat counts; the classification is snapshotted.
 - [x] **1.16a** `testkit: source mutations`. Port the old deterministic mutation generator: every insertion, deletion and duplication at sampled boundaries, plus seeded random combinations. Over the suite's eight seeds (three from the first attempt, five elm-format test files), it makes 39,314 cases. The old 8,617 came from a smaller generator that the current seeds cannot reproduce. **Check:** the generator is deterministic and pinned by tests.
-- [ ] **1.16b** `oracle: syntax accept/reject snapshots`. Tier 3 runs elm 0.19.1, 0.19.2 and 0.19.3 (syntax errors only, from `--report=json`, in the 1.15a sandboxes; otherwise 0.19.2 and 0.19.3 stop at `elm.json` before parsing) and `elm-format --stdin` on the corpus and the mutations.
+- [x] **1.16b** `oracle: syntax accept/reject snapshots`.
+  - Tier 3 runs elm 0.19.1, 0.19.2 and 0.19.3 (syntax errors only, from `--report=json`) and `elm-format --stdin` on the corpus and the mutations. elm runs in synthetic offline sandboxes, one per Compat, each with an application, a package and a kernel project and the module beside their `elm.json`. Without the sandboxes, 0.19.2 and 0.19.3 stop at `elm.json` before parsing.
+  - The mutation verdicts go in `crates/syntax/tests/syntax_mutations/oracle/`, a tier-1 ratchet. The corpus verdicts go in `corpus/syntax/oracle.tsv` (only rows some tool rejects, plus a digest of every module), a tier-2 ratchet with a case per project: `cargo xtask corpus syntax`.
+  - Surprises:
+    - 0.19.2's JSON regions are 0-based (its message snippets are 1-based);
+    - elm copies raw tabs and carriage returns into its JSON;
+    - 0.19.3 crashes on some recursive type aliases; that is stored as `crash` and skipped;
+    - elm very rarely hangs or trips over its own `d.dat` lock, so runs are timed out and retried.
 
   **Check:** snapshots are checked in and the ratchet exists.
 - [ ] **1.17** `syntax: reach accept/reject parity`. Work the ratchet to 100%, with one commit per root cause. Settle the Elm column unit for each Compat from the oracle's regions, and record it in `DECISIONS.md`.

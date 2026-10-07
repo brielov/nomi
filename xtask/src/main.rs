@@ -59,6 +59,13 @@ enum CorpusCommand {
     Classify,
     /// Count what is pinned and fetched, and what each Compat accepts.
     Stats,
+    /// Tier 2: whether nomi accepts and rejects every corpus module as the
+    /// oracles did, a case per project.
+    Syntax {
+        /// Record newly passing projects in corpus/syntax/passing.txt.
+        #[arg(long)]
+        record: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -67,6 +74,15 @@ enum OracleCommand {
     Fetch,
     /// Print every pin and whether it is installed.
     Versions,
+    /// Store whether each elm and elm-format accept every syntax mutation
+    /// and corpus module.
+    Syntax {
+        /// Only these inputs; both by default.
+        inputs: Option<oracle::syntax::Inputs>,
+        /// Concurrent oracle runs; twice the available cores by default.
+        #[arg(long)]
+        jobs: Option<usize>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -79,6 +95,12 @@ fn main() -> ExitCode {
         Command::Oracle { command } => references::load(&root()).and_then(|r| match command {
             OracleCommand::Fetch => oracle::fetch(&root(), &r),
             OracleCommand::Versions => oracle::versions(&r),
+            OracleCommand::Syntax { inputs, jobs } => {
+                let jobs = jobs.unwrap_or_else(|| {
+                    2 * std::thread::available_parallelism().map_or(1, |n| n.get())
+                });
+                oracle::syntax::run(&root(), &r, inputs, jobs)
+            }
         }),
         Command::Ratchet { suite } => ratchet(&root(), &suite),
         Command::Corpus { command } => match command {
@@ -88,6 +110,7 @@ fn main() -> ExitCode {
             }
             CorpusCommand::Classify => corpus::compat::classify(&root()),
             CorpusCommand::Stats => corpus::stats(&root()),
+            CorpusCommand::Syntax { record } => corpus::syntax::check(&root(), record),
         },
     };
     match result {

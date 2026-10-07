@@ -1,6 +1,9 @@
 //! `cargo xtask oracle`: the pinned upstream tools that parity is measured
 //! against, installed under the development cache and never on `PATH`.
 
+pub mod sandbox;
+pub mod syntax;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -257,8 +260,8 @@ mod tests {
 
     #[test]
     fn repository_lock_matches_pins() {
-        let refs = parse(include_str!("../../references.toml")).unwrap();
-        let lock = include_str!("../../oracles/npm/package-lock.json");
+        let refs = parse(include_str!("../../../references.toml")).unwrap();
+        let lock = include_str!("../../../oracles/npm/package-lock.json");
         check_lock_versions(lock, &refs).unwrap();
     }
 }

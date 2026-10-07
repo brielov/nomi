@@ -4,6 +4,7 @@
 pub mod apps;
 pub mod compat;
 pub mod packages;
+pub mod syntax;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
