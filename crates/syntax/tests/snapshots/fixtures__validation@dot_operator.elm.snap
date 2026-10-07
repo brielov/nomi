@@ -5,8 +5,20 @@ input_file: crates/syntax/test_data/parser/validation/dot_operator.elm
 ---
 elm, application:
   35..37 DotOperator ".+"
+  52..53 DotOperator "."
+  69..70 DotOperator "."
+  88..90 DotOperator ".+"
+  104..105 DotOperator "."
 elm, package:
   35..37 DotOperator ".+"
+  52..53 DotOperator "."
+  69..70 DotOperator "."
+  88..90 DotOperator ".+"
+  104..105 DotOperator "."
 elm, kernel package:
   35..37 DotOperator ".+"
+  52..53 DotOperator "."
+  69..70 DotOperator "."
+  88..90 DotOperator ".+"
+  104..105 DotOperator "."
 elm-format:

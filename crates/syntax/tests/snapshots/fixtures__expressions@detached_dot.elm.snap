@@ -4,12 +4,13 @@ expression: "render(&text, nomi_syntax::parse_expr)"
 input_file: crates/syntax/test_data/parser/expressions/detached_dot.elm
 ---
 ExprFragment@0..6
-  NameExpr@0..1
-    LowerIdent@0..1 "a"
-  Whitespace@1..2 " "
-  Error@2..5
-    Dot@2..3 "."
+  OperatorChain@0..5
+    NameExpr@0..1
+      LowerIdent@0..1 "a"
+    Whitespace@1..2 " "
+    Op@2..3
+      Dot@2..3 "."
     Whitespace@3..4 " "
-    LowerIdent@4..5 "b"
+    NameExpr@4..5
+      LowerIdent@4..5 "b"
   Newline@5..6 "\n"
-error 2..3: Unexpected

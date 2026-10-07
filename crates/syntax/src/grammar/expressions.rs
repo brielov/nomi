@@ -69,9 +69,6 @@ fn chain(p: &mut Parser<'_>) {
     }
     let m = first.precede(p);
     while at_operator(p) {
-        if p.current_text().starts_with('.') && p.nth_is_joined(0) {
-            p.error(SyntaxErrorKind::JoinedDotOperator);
-        }
         let op = p.start();
         p.bump();
         op.complete(p, K::Op);
@@ -211,8 +208,15 @@ fn lambda(p: &mut Parser<'_>) -> CompletedMarker {
     m.complete(p, K::LambdaExpr)
 }
 
+/// A `.` that starts no accessor is an operator too, which only
+/// elm-format takes.
 fn at_operator(p: &mut Parser<'_>) -> bool {
-    matches!(p.current(), K::Operator | K::Minus | K::ColonColon) && p.at_indented()
+    let operator = match p.current() {
+        K::Operator | K::Minus | K::ColonColon => true,
+        K::Dot => !starts_atom_here(p),
+        _ => false,
+    };
+    operator && p.at_indented()
 }
 
 /// A function applied to its arguments, or a lone operand.
@@ -340,6 +344,12 @@ fn field_access(p: &mut Parser<'_>, target: CompletedMarker) -> CompletedMarker 
     let at_access =
         p.at(K::Dot) && p.nth_is_joined(0) && p.nth(1) == K::LowerIdent && p.nth_is_joined(1);
     if !at_access {
+        // Neither tool reads an operator touching `target` and starting
+        // with `.` as anything but a field access gone wrong.
+        let dotted = p.at(K::Dot) || p.at(K::Operator) && p.current_text().starts_with('.');
+        if dotted && p.nth_is_joined(0) {
+            p.error(SyntaxErrorKind::JoinedDotOperator);
+        }
         return target;
     }
     let m = target.precede(p);

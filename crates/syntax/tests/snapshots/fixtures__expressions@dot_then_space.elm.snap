@@ -4,11 +4,13 @@ expression: "render(&text, nomi_syntax::parse_expr)"
 input_file: crates/syntax/test_data/parser/expressions/dot_then_space.elm
 ---
 ExprFragment@0..5
-  NameExpr@0..1
-    LowerIdent@0..1 "a"
-  Error@1..4
-    Dot@1..2 "."
+  OperatorChain@0..4
+    NameExpr@0..1
+      LowerIdent@0..1 "a"
+    Op@1..2
+      Dot@1..2 "."
     Whitespace@2..3 " "
-    LowerIdent@3..4 "b"
+    NameExpr@3..4
+      LowerIdent@3..4 "b"
   Newline@4..5 "\n"
-error 1..2: Unexpected
+error 1..2: JoinedDotOperator

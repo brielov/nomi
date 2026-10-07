@@ -2137,6 +2137,7 @@ accepted / insert "." at 181
 accepted / insert "." at 182
 accepted / insert "." at 183
 accepted / insert "." at 184
+accepted / insert "." at 186
 accepted / insert "." at 187
 accepted / insert "." at 188
 accepted / insert "." at 189
@@ -5816,6 +5817,7 @@ accepted_expressions / insert " " at 483
 accepted_expressions / insert " " at 485
 accepted_expressions / insert " " at 487
 accepted_expressions / insert " " at 490
+accepted_expressions / insert " " at 492
 accepted_expressions / insert " " at 494
 accepted_expressions / insert " " at 496
 accepted_expressions / insert " " at 499
@@ -7350,6 +7352,7 @@ accepted_expressions / insert "." at 487
 accepted_expressions / insert "." at 490
 accepted_expressions / insert "." at 492
 accepted_expressions / insert "." at 494
+accepted_expressions / insert "." at 496
 accepted_expressions / insert "." at 499
 accepted_expressions / insert "." at 50
 accepted_expressions / insert "." at 501
@@ -8115,6 +8118,7 @@ accepted_expressions / insert "\n" at 483
 accepted_expressions / insert "\n" at 485
 accepted_expressions / insert "\n" at 487
 accepted_expressions / insert "\n" at 490
+accepted_expressions / insert "\n" at 492
 accepted_expressions / insert "\n" at 494
 accepted_expressions / insert "\n" at 496
 accepted_expressions / insert "\n" at 499
@@ -9392,6 +9396,7 @@ accepted_expressions / insert "{-x-}" at 483
 accepted_expressions / insert "{-x-}" at 485
 accepted_expressions / insert "{-x-}" at 487
 accepted_expressions / insert "{-x-}" at 490
+accepted_expressions / insert "{-x-}" at 492
 accepted_expressions / insert "{-x-}" at 494
 accepted_expressions / insert "{-x-}" at 496
 accepted_expressions / insert "{-x-}" at 499
@@ -20922,6 +20927,7 @@ all_literals / insert "." at 1502
 all_literals / insert "." at 1511
 all_literals / insert "." at 1520
 all_literals / insert "." at 1529
+all_literals / insert "." at 153
 all_literals / insert "." at 1538
 all_literals / insert "." at 1547
 all_literals / insert "." at 1556
@@ -20956,6 +20962,7 @@ all_literals / insert "." at 1791
 all_literals / insert "." at 18
 all_literals / insert "." at 1800
 all_literals / insert "." at 1809
+all_literals / insert "." at 181
 all_literals / insert "." at 1818
 all_literals / insert "." at 1828
 all_literals / insert "." at 1837
@@ -20976,6 +20983,7 @@ all_literals / insert "." at 1954
 all_literals / insert "." at 1963
 all_literals / insert "." at 1972
 all_literals / insert "." at 1981
+all_literals / insert "." at 199
 all_literals / insert "." at 1990
 all_literals / insert "." at 2000
 all_literals / insert "." at 2009
@@ -21008,6 +21016,7 @@ all_literals / insert "." at 2226
 all_literals / insert "." at 2235
 all_literals / insert "." at 2244
 all_literals / insert "." at 2253
+all_literals / insert "." at 226
 all_literals / insert "." at 2262
 all_literals / insert "." at 2271
 all_literals / insert "." at 2280
@@ -21021,10 +21030,13 @@ all_literals / insert "." at 2343
 all_literals / insert "." at 235
 all_literals / insert "." at 2353
 all_literals / insert "." at 244
+all_literals / insert "." at 253
 all_literals / insert "." at 262
 all_literals / insert "." at 27
+all_literals / insert "." at 271
 all_literals / insert "." at 280
 all_literals / insert "." at 289
+all_literals / insert "." at 298
 all_literals / insert "." at 307
 all_literals / insert "." at 316
 all_literals / insert "." at 325
@@ -23845,6 +23857,7 @@ all_literals / random 484
 all_literals / random 485
 all_literals / random 486
 all_literals / random 487
+all_literals / random 488
 all_literals / random 489
 all_literals / random 49
 all_literals / random 490
@@ -26079,6 +26092,7 @@ kernel_infix / insert "." at 231
 kernel_infix / insert "." at 232
 kernel_infix / insert "." at 233
 kernel_infix / insert "." at 235
+kernel_infix / insert "." at 236
 kernel_infix / insert "." at 238
 kernel_infix / insert "." at 239
 kernel_infix / insert "." at 240
