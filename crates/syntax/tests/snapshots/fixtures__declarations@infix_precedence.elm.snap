@@ -1,0 +1,40 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/infix_precedence.elm
+---
+Module@0..56
+  InfixDecl@0..29
+    InfixKw@0..5 "infix"
+    Whitespace@5..6 " "
+    LeftKw@6..10 "left"
+    Whitespace@10..11 " "
+    Int@11..13 "99"
+    Whitespace@13..14 " "
+    LParen@14..15 "("
+    Op@15..17
+      Operator@15..17 "<<"
+    RParen@17..18 ")"
+    Whitespace@18..19 " "
+    Eq@19..20 "="
+    Whitespace@20..21 " "
+    LowerIdent@21..29 "composeL"
+  Newline@29..30 "\n"
+  InfixDecl@30..55
+    InfixKw@30..35 "infix"
+    Whitespace@35..36 " "
+    LeftKw@36..40 "left"
+    Whitespace@40..41 " "
+    Int@41..44 "0x1"
+    Whitespace@44..45 " "
+    LParen@45..46 "("
+    Op@46..48
+      Operator@46..48 "|>"
+    RParen@48..49 ")"
+    Whitespace@49..50 " "
+    Eq@50..51 "="
+    Whitespace@51..52 " "
+    LowerIdent@52..55 "apR"
+  Newline@55..56 "\n"
+error 11..13: BadPrecedence
+error 41..44: BadPrecedence

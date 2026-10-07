@@ -158,6 +158,10 @@ fn infix(p: &mut Parser<'_>, m: Marker) {
         .expect("at_infix checked the associativity");
     p.check_indented();
     p.bump_as(associativity);
+    // Upstream reads a single digit, then expects `(`.
+    if p.at(K::Int) && !matches!(p.current_text().as_bytes(), [b'0'..=b'9']) {
+        p.error(SyntaxErrorKind::BadPrecedence);
+    }
     expect_indented(p, K::Int);
     if expect_indented(p, K::LParen) {
         if matches!(p.current(), K::Operator | K::Minus | K::ColonColon) && p.at_indented() {

@@ -159,6 +159,8 @@ pub enum SyntaxErrorKind {
     ImportWithoutNewline,
     /// Whitespace inside an operator's parentheses, as in `( + )`.
     SpacedOperator,
+    /// An infix precedence other than one decimal digit, such as `10`.
+    BadPrecedence,
     /// An expression of a code block, after the first, starting with
     /// something other than a letter or `_`.
     ExpectedLetterStart,
