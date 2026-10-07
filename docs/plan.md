@@ -102,7 +102,7 @@ Goal: an empty workspace whose rules are enforced by tooling, with oracles and c
 This is plain JS in `runtime/` with no npm dependencies, tested with `node --test` and an in-repo seeded model checker. It needs no compiler, so these steps fit wherever compiler work is waiting on something.
 
 - [x] **R.1** `runtime: add a seeded model-based test harness`. It runs random operation sequences against a reference model, and failing seeds print and replay.
-- [ ] **R.2** `runtime: fibers, exits and the run queue`.
+- [x] **R.2** `runtime: fibers, exits and the run queue`.
   - Fork, join and await.
   - Exits are Success, Fail, Defect or Interrupt; a JS exception becomes a defect.
   - A fairness yield every N steps.
