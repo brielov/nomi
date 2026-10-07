@@ -7,10 +7,12 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+icu_properties.workspace = true
 nomi-base.workspace = true
 rowan.workspace = true
 
 [dev-dependencies]
+proptest.workspace = true
 ungrammar.workspace = true
 
 [lints]

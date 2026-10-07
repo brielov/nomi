@@ -58,6 +58,27 @@ pub const ALLOWED_EXTERNAL: &[&str] = &[
     "typenum",
     "version_check",
     "cpufeatures",
+    // Unicode general categories for identifiers, pinned to 15.1
+    "icu_properties",
+    "icu_properties_data",
+    "icu_collections",
+    "icu_provider",
+    "icu_provider_macros",
+    "icu_locid",
+    "icu_locid_transform",
+    "icu_locid_transform_data",
+    "displaydoc",
+    "litemap",
+    "stable_deref_trait",
+    "synstructure",
+    "tinystr",
+    "writeable",
+    "yoke",
+    "yoke-derive",
+    "zerofrom",
+    "zerofrom-derive",
+    "zerovec",
+    "zerovec-derive",
 ];
 
 /// Standard-library modules a pure crate may not name.

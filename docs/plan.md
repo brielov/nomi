@@ -121,7 +121,7 @@ Goal: one lossless, tolerant parser used by every consumer, which accepts exactl
 - [x] **1.1** `base: text ranges, FileId and LineIndex`. Converts between bytes, (line, column) and UTF-16. The column unit stays a parameter until 1.17 settles it. **Check:** property tests round-trip.
 - [x] **1.2** `base: diagnostic model`. Code, title, severity, spans, message document and fixes; no renderer yet. **Check:** unit tests.
 - [x] **1.3** `syntax: token and node kinds`. One kind per distinct token, the rowan language, and a first `syntax/elm.ungram`. **Check:** kinds round-trip.
-- [ ] **1.4** `syntax: lexer`. Salvaged from the old lexer. It covers:
+- [x] **1.4** `syntax: lexer`. Salvaged from the old lexer. It covers:
   - identifiers, operators and numbers;
   - nested and doc comments;
   - single-line and triple-quoted strings with escapes, and chars;
