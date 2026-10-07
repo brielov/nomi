@@ -12,7 +12,7 @@ use crate::SyntaxKind;
 /// Elm's identifier classes come from GHC's `Data.Char`, whose tables are
 /// Unicode 15.1 for the reference compilers; `icu_properties` is pinned to
 /// the release with the same tables.
-const GENERAL_CATEGORY: CodePointMapDataBorrowed<'static, GeneralCategory> =
+pub(crate) const GENERAL_CATEGORY: CodePointMapDataBorrowed<'static, GeneralCategory> =
     maps::general_category();
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

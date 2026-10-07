@@ -1,6 +1,7 @@
 //! The lossless Elm syntax tree: lexer, parser and typed views.
 
 pub mod ast;
+mod glsl;
 mod grammar;
 mod kind;
 mod lexer;

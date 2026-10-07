@@ -40,6 +40,14 @@ repo = "elm-explorations/test"
 tag = "2.2.1"
 commit = "81dc48ee4edcc48661b0dfa969cf44a79318a321"
 
+# The GLSL parser elm's compiler builds with. The repo has no tags; this is
+# the version its cabal file declares. elm's asks for `>= 0.3`.
+[[source]]
+name = "language-glsl"
+repo = "noteed/language-glsl"
+tag = "0.3.0"
+commit = "103ed6dc5abe0c548ce345b264a9af554ee80c52"
+
 # Each asset is either a gzipped executable (`gz`) or a tarball holding it
 # (`tgz`). Platforms are `<os>-<arch>` as Rust spells them.
 

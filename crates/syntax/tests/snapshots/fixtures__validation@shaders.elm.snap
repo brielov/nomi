@@ -1,0 +1,15 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/shaders.elm
+---
+elm, application:
+  155..155 ShaderProblem ""
+  199..199 ShaderProblem ""
+elm, package:
+  155..155 ShaderProblem ""
+  199..199 ShaderProblem ""
+elm, kernel package:
+  155..155 ShaderProblem ""
+  199..199 ShaderProblem ""
+elm-format:

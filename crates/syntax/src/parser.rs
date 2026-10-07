@@ -210,6 +210,9 @@ pub enum SyntaxErrorKind {
     /// An expression of a code block, after the first, starting with
     /// something other than a letter or `_`.
     ExpectedLetterStart,
+    /// A shader block that elm's GLSL parser, language-glsl, rejects. The
+    /// range is empty, where the parser stopped.
+    ShaderProblem,
 }
 
 /// How deeply grammar rules may nest. Far beyond real code, which rarely
@@ -221,8 +224,8 @@ pub(crate) const DEPTH_LIMIT: u32 = 25_000;
 
 /// Stack kept free before a guarded rule runs, and the size of each new
 /// segment when it isn't.
-const RED_ZONE: usize = 128 * 1024;
-const STACK_SEGMENT: usize = 2 * 1024 * 1024;
+pub(crate) const RED_ZONE: usize = 128 * 1024;
+pub(crate) const STACK_SEGMENT: usize = 2 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Event {

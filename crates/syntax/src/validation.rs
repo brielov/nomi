@@ -7,6 +7,7 @@
 use nomi_base::{Compat, TextRange, TextSize};
 
 use crate::ast::{self, AstNode};
+use crate::glsl::{self, Rejection};
 use crate::lexer::is_elm_operator_char;
 use crate::{
     LexErrorKind, Parse, SyntaxError, SyntaxErrorKind as E, SyntaxKind as K, SyntaxNode,
@@ -49,6 +50,7 @@ pub fn validate(parse: &Parse, tool: Tool) -> Vec<SyntaxError> {
             comment_tabs(&root, &mut errors);
             operator_chars(&root, &mut errors);
             hex_escapes(&root, &mut errors);
+            shaders(&root, &mut errors);
             elm(&root, source, &mut errors);
         }
         Tool::ElmFormat => {
@@ -469,6 +471,27 @@ fn hex_escapes(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
     for token in literals(root) {
         for (range, _) in hex_escapes_in(&token) {
             push(errors, E::Lexical(LexErrorKind::UnknownEscape), range);
+        }
+    }
+}
+
+/// elm parses each shader block's GLSL (`Parse/Shader.hs`). An
+/// unterminated block is the lexer's to report.
+fn shaders(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
+    let shaders = (root.descendants_with_tokens())
+        .filter_map(|e| e.into_token())
+        .filter(|t| t.kind() == K::Glsl);
+    for token in shaders {
+        let Some(glsl) = (token.text())
+            .strip_prefix("[glsl|")
+            .and_then(|rest| rest.strip_suffix("|]"))
+        else {
+            continue;
+        };
+        if let Err(Rejection::At(offset) | Rejection::TooDeep(offset)) = glsl::check(glsl) {
+            let at =
+                token.text_range().start() + TextSize::of("[glsl|") + TextSize::of(&glsl[..offset]);
+            push(errors, E::ShaderProblem, TextRange::empty(at));
         }
     }
 }
