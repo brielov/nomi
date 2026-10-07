@@ -1,0 +1,20 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_pattern)"
+input_file: crates/syntax/test_data/parser/patterns/tuple.elm
+---
+PatternFragment@0..10
+  TuplePattern@0..9
+    LParen@0..1 "("
+    VarPattern@1..2
+      LowerIdent@1..2 "a"
+    Comma@2..3 ","
+    Whitespace@3..4 " "
+    WildcardPattern@4..5
+      Underscore@4..5 "_"
+    Comma@5..6 ","
+    Whitespace@6..7 " "
+    LiteralPattern@7..8
+      Int@7..8 "3"
+    RParen@8..9 ")"
+  Newline@9..10 "\n"

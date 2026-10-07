@@ -1,0 +1,13 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_pattern)"
+input_file: crates/syntax/test_data/parser/patterns/minus_name.elm
+---
+PatternFragment@0..3
+  Missing@0..0
+  Error@0..2
+    Minus@0..1 "-"
+    LowerIdent@1..2 "x"
+  Newline@2..3 "\n"
+error 0..1: ExpectedPattern
+error 0..1: Unexpected

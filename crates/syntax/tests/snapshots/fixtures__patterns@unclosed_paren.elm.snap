@@ -1,0 +1,16 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_pattern)"
+input_file: crates/syntax/test_data/parser/patterns/unclosed_paren.elm
+---
+PatternFragment@0..5
+  ParenPattern@0..4
+    LParen@0..1 "("
+    VarPattern@1..2
+      LowerIdent@1..2 "a"
+    Whitespace@2..3 " "
+    Error@3..4
+      LowerIdent@3..4 "b"
+  Newline@4..5 "\n"
+error 3..4: Expected(RParen)
+error 5..5: Expected(RParen)

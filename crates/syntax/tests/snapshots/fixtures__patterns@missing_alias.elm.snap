@@ -1,0 +1,13 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_pattern)"
+input_file: crates/syntax/test_data/parser/patterns/missing_alias.elm
+---
+PatternFragment@0..5
+  AliasPattern@0..4
+    VarPattern@0..1
+      LowerIdent@0..1 "x"
+    Whitespace@1..2 " "
+    AsKw@2..4 "as"
+  Newline@4..5 "\n"
+error 5..5: Expected(LowerIdent)

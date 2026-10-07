@@ -1,0 +1,9 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_pattern)"
+input_file: crates/syntax/test_data/parser/patterns/wildcard.elm
+---
+PatternFragment@0..2
+  WildcardPattern@0..1
+    Underscore@0..1 "_"
+  Newline@1..2 "\n"

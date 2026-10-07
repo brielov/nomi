@@ -1,0 +1,21 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_pattern)"
+input_file: crates/syntax/test_data/parser/patterns/bad_field.elm
+---
+PatternFragment@0..9
+  RecordPattern@0..8
+    LBrace@0..1 "{"
+    Whitespace@1..2 " "
+    FieldPattern@2..3
+      LowerIdent@2..3 "x"
+    Comma@3..4 ","
+    Missing@4..4
+    Whitespace@4..5 " "
+    Error@5..6
+      Int@5..6 "1"
+    Whitespace@6..7 " "
+    RBrace@7..8 "}"
+  Newline@8..9 "\n"
+error 5..6: Expected(LowerIdent)
+error 5..6: Expected(RBrace)

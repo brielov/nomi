@@ -1,0 +1,20 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_pattern)"
+input_file: crates/syntax/test_data/parser/patterns/double_alias.elm
+---
+PatternFragment@0..12
+  AliasPattern@0..6
+    VarPattern@0..1
+      LowerIdent@0..1 "x"
+    Whitespace@1..2 " "
+    AsKw@2..4 "as"
+    Whitespace@4..5 " "
+    LowerIdent@5..6 "y"
+  Whitespace@6..7 " "
+  Error@7..11
+    AsKw@7..9 "as"
+    Whitespace@9..10 " "
+    LowerIdent@10..11 "z"
+  Newline@11..12 "\n"
+error 7..9: Unexpected

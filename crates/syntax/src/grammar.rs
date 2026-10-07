@@ -3,6 +3,7 @@
 //! flags what a given tool rejects. `elm.ungram` describes the trees.
 
 mod module;
+mod patterns;
 mod types;
 
 use crate::SyntaxKind as K;
@@ -18,13 +19,22 @@ pub fn parse_module(text: &str) -> Parse {
 /// Parses a type on its own, such as one from a package's `docs.json`.
 /// Every line may start at column 0.
 pub fn parse_type(text: &str) -> Parse {
+    parse_fragment(text, K::TypeFragment, types::type_)
+}
+
+/// Parses a pattern on its own. Every line may start at column 0.
+pub fn parse_pattern(text: &str) -> Parse {
+    parse_fragment(text, K::PatternFragment, patterns::pattern)
+}
+
+fn parse_fragment(text: &str, root: K, rule: fn(&mut Parser<'_>)) -> Parse {
     let mut p = Parser::new(text);
     let m = p.start();
     p.with_min_column(0, |p| {
-        types::type_(p);
+        rule(p);
         skip_junk(p, SyntaxErrorKind::Unexpected, &[]);
     });
-    m.complete(&mut p, K::TypeFragment);
+    m.complete(&mut p, root);
     p.finish()
 }
 

@@ -1,0 +1,19 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_pattern)"
+input_file: crates/syntax/test_data/parser/patterns/multiline.elm
+---
+PatternFragment@0..17
+  ParenPattern@0..16
+    LParen@0..1 "("
+    Newline@1..2 "\n"
+    Whitespace@2..4 "  "
+    ConstructorPattern@4..14
+      UpperIdent@4..8 "Just"
+      Newline@8..9 "\n"
+      Whitespace@9..13 "    "
+      VarPattern@13..14
+        LowerIdent@13..14 "x"
+    Newline@14..15 "\n"
+    RParen@15..16 ")"
+  Newline@16..17 "\n"

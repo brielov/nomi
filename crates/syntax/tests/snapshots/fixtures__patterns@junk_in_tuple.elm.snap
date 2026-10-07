@@ -1,0 +1,21 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_pattern)"
+input_file: crates/syntax/test_data/parser/patterns/junk_in_tuple.elm
+---
+PatternFragment@0..9
+  TuplePattern@0..8
+    LParen@0..1 "("
+    VarPattern@1..2
+      LowerIdent@1..2 "a"
+    Comma@2..3 ","
+    Missing@3..3
+    Whitespace@3..4 " "
+    Error@4..7
+      Operator@4..5 "+"
+      Whitespace@5..6 " "
+      LowerIdent@6..7 "b"
+    RParen@7..8 ")"
+  Newline@8..9 "\n"
+error 4..5: ExpectedPattern
+error 4..5: Expected(RParen)

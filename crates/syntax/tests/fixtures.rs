@@ -32,6 +32,14 @@ fn types() {
     });
 }
 
+#[test]
+fn patterns() {
+    insta::glob!("../test_data/parser", "patterns/*.elm", |path| {
+        let text = std::fs::read_to_string(path).unwrap();
+        insta::assert_snapshot!(render(&text, nomi_syntax::parse_pattern));
+    });
+}
+
 /// A fixture renamed or removed must not leave its snapshot behind.
 #[test]
 fn every_snapshot_has_a_fixture() {

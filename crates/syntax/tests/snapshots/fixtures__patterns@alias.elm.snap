@@ -1,0 +1,23 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_pattern)"
+input_file: crates/syntax/test_data/parser/patterns/alias.elm
+---
+PatternFragment@0..22
+  AliasPattern@0..21
+    ConsPattern@0..14
+      ConstructorPattern@0..6
+        UpperIdent@0..4 "Just"
+        Whitespace@4..5 " "
+        VarPattern@5..6
+          LowerIdent@5..6 "x"
+      Whitespace@6..7 " "
+      ColonColon@7..9 "::"
+      Whitespace@9..10 " "
+      VarPattern@10..14
+        LowerIdent@10..14 "rest"
+    Whitespace@14..15 " "
+    AsKw@15..17 "as"
+    Whitespace@17..18 " "
+    LowerIdent@18..21 "all"
+  Newline@21..22 "\n"

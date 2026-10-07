@@ -1,0 +1,21 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_pattern)"
+input_file: crates/syntax/test_data/parser/patterns/constructor.elm
+---
+PatternFragment@0..20
+  ConstructorPattern@0..19
+    UpperIdent@0..4 "Just"
+    Whitespace@4..5 " "
+    ParenPattern@5..11
+      LParen@5..6 "("
+      ConstructorPattern@6..10
+        UpperIdent@6..8 "Ok"
+        Whitespace@8..9 " "
+        VarPattern@9..10
+          LowerIdent@9..10 "x"
+      RParen@10..11 ")"
+    Whitespace@11..12 " "
+    ConstructorPattern@12..19
+      UpperIdent@12..19 "Nothing"
+  Newline@19..20 "\n"

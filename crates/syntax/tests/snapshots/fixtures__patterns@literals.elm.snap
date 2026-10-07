@@ -1,0 +1,35 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_pattern)"
+input_file: crates/syntax/test_data/parser/patterns/literals.elm
+---
+PatternFragment@0..36
+  ConsPattern@0..35
+    LiteralPattern@0..4
+      Minus@0..1 "-"
+      Float@1..4 "1.5"
+    Whitespace@4..5 " "
+    ColonColon@5..7 "::"
+    Whitespace@7..8 " "
+    ConsPattern@8..35
+      LiteralPattern@8..11
+        Char@8..11 "'c'"
+      Whitespace@11..12 " "
+      ColonColon@12..14 "::"
+      Whitespace@14..15 " "
+      ConsPattern@15..35
+        LiteralPattern@15..18
+          String@15..18 "\"s\""
+        Whitespace@18..19 " "
+        ColonColon@19..21 "::"
+        Whitespace@21..22 " "
+        ConsPattern@22..35
+          LiteralPattern@22..29
+            MultilineString@22..29 "\"\"\"m\"\"\""
+          Whitespace@29..30 " "
+          ColonColon@30..32 "::"
+          Whitespace@32..33 " "
+          ListPattern@33..35
+            LBracket@33..34 "["
+            RBracket@34..35 "]"
+  Newline@35..36 "\n"

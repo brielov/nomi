@@ -151,6 +151,9 @@ FieldType =
 
 // Patterns
 
+PatternFragment =
+  Pattern
+
 Pattern =
   VarPattern
 | WildcardPattern
@@ -170,8 +173,10 @@ VarPattern =
 WildcardPattern =
   '_'
 
+// elm takes neither negative nor float literals here; elm-format takes
+// both.
 LiteralPattern =
-  'int' | 'float' | 'char' | 'string' | 'multiline_string'
+  '-'? ('int' | 'float') | 'char' | 'string' | 'multiline_string'
 
 UnitPattern =
   '(' ')'

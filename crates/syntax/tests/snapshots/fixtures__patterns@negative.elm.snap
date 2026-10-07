@@ -1,0 +1,10 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_pattern)"
+input_file: crates/syntax/test_data/parser/patterns/negative.elm
+---
+PatternFragment@0..3
+  LiteralPattern@0..2
+    Minus@0..1 "-"
+    Int@1..2 "1"
+  Newline@2..3 "\n"

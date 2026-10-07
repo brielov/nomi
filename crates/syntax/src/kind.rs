@@ -156,6 +156,8 @@ syntax_kinds! {
         Module,
         /// The root of [`crate::parse_type`].
         TypeFragment,
+        /// The root of [`crate::parse_pattern`].
+        PatternFragment,
         ModuleHeader,
         ModuleName,
         EffectFields,

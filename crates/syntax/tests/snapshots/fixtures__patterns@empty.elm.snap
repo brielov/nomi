@@ -1,0 +1,9 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_pattern)"
+input_file: crates/syntax/test_data/parser/patterns/empty.elm
+---
+PatternFragment@0..1
+  Missing@0..0
+  Newline@0..1 "\n"
+error 1..1: ExpectedPattern

@@ -1,0 +1,13 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_pattern)"
+input_file: crates/syntax/test_data/parser/patterns/wildcard_then_name.elm
+---
+PatternFragment@0..4
+  WildcardPattern@0..1
+    Underscore@0..1 "_"
+  Whitespace@1..2 " "
+  Error@2..3
+    LowerIdent@2..3 "x"
+  Newline@3..4 "\n"
+error 2..3: Unexpected

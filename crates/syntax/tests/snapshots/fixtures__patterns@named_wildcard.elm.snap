@@ -1,0 +1,12 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_pattern)"
+input_file: crates/syntax/test_data/parser/patterns/named_wildcard.elm
+---
+PatternFragment@0..8
+  WildcardPattern@0..7
+    Underscore@0..1 "_"
+    Error@1..7
+      LowerIdent@1..7 "unused"
+  Newline@7..8 "\n"
+error 1..7: NamedWildcard

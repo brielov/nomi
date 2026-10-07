@@ -85,6 +85,10 @@ pub enum SyntaxErrorKind {
     ExpectedIndent,
     /// A type.
     ExpectedType,
+    /// A pattern.
+    ExpectedPattern,
+    /// A name joined to a wildcard, as in `_unused`.
+    NamedWildcard,
     /// A token that must start its line follows other code on that line.
     ExpectedFreshLine,
     /// A token that cannot go here, skipped.
