@@ -169,7 +169,11 @@ Goal: one lossless, tolerant parser used by every consumer, which accepts exactl
     - elm very rarely hangs or trips over its own `d.dat` lock, so runs are timed out and retried.
 
   **Check:** snapshots are checked in and the ratchet exists.
-- [ ] **1.17** `syntax: reach accept/reject parity`. Work the ratchet to 100%, with one commit per root cause. Settle the Elm column unit for each Compat from the oracle's regions, and record it in `DECISIONS.md`.
+- [ ] **1.17a** `syntax: elm parity`. The elm columns of both ratchets reach 100%, shaders aside, with one commit per root cause. Settle the Elm column unit for each Compat from the oracle's regions, and record it in `DECISIONS.md`; 0.19.1 keeps rows and columns in 16 bits, so the Compat reaches validation here.
+- [ ] **1.17b** `syntax: elm-format parity`. The elm-format columns reach 100%, with one commit per root cause. Two kinds of work:
+  - elm-format's legacy syntax: operator definitions such as `(=>) = …`, operators with `$`, `#`, `@`, `~` or Unicode symbols, `\x` escapes and `[a..b]` ranges;
+  - its indentation model, which checks only application arguments (`indented`) and block alignment (`checkIndent`), where elm checks every continuation.
+- [ ] **1.17c** `syntax: GLSL validation`. elm parses each shader with language-glsl and rejects what it can't parse (`Parse/Shader.hs`). Port the subset that decides accept/reject; 1,894 mutations of the shader seed turn on it.
 - [ ] **1.18** `syntax: fuzz target and benchmarks`.
   - A cargo-fuzz target; tier 1 runs the same property with proptest on stable.
   - `xtask bench syntax`, with a scaling assertion: twice the input must take less than three times as long.
