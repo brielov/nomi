@@ -73,7 +73,7 @@ Goal: an empty workspace whose rules are enforced by tooling, with oracles and c
 - [x] **0.2** `repo: add license and third-party notices` (D1). **Check:** both files exist, with upstream copyright lines verbatim.
 - [x] **0.3** `build: create the cargo workspace with base, syntax and cli`. A virtual workspace with `crates/{base,syntax,cli}`, packaged as `nomi-*`. The binary is `nomi`, with `--version`. Workspace lints include `unsafe_code = "forbid"`. **Check:** `cargo run -p nomi-cli -- --version`.
 - [x] **0.3a** `cli: parse arguments with clap`. Subcommands are added by the steps that implement them; each one lists its Elm-name aliases (architecture §9).
-- [ ] **0.4** `xtask: add the ci command and architecture checks`. `cargo xtask ci` runs fmt, clippy (`-D warnings`) and the tests, plus four checks:
+- [x] **0.4** `xtask: add the ci command and architecture checks`. `cargo xtask ci` runs fmt, clippy (`-D warnings`) and the tests, plus four checks:
   - crate edges are a subset of the allowed graph in architecture §4;
   - pure crates use no filesystem, network, process, thread, environment or clock APIs, and depend on no crate that does;
   - no hand-written source file exceeds 1,500 lines;
