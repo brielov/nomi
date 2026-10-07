@@ -1,0 +1,10 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_type)"
+input_file: crates/syntax/test_data/parser/type/empty_record.elm
+---
+TypeFragment@0..3
+  RecordType@0..2
+    LBrace@0..1 "{"
+    RBrace@1..2 "}"
+  Newline@2..3 "\n"

@@ -1,0 +1,18 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_type)"
+input_file: crates/syntax/test_data/parser/type/empty_extension.elm
+---
+TypeFragment@0..8
+  RecordType@0..7
+    LBrace@0..1 "{"
+    Whitespace@1..2 " "
+    RecordExtension@2..5
+      LowerIdent@2..3 "r"
+      Whitespace@3..4 " "
+      Pipe@4..5 "|"
+    Missing@5..5
+    Whitespace@5..6 " "
+    RBrace@6..7 "}"
+  Newline@7..8 "\n"
+error 6..7: Expected(LowerIdent)

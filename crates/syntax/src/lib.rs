@@ -9,7 +9,7 @@ mod lexer;
 )]
 mod parser;
 
-pub use grammar::parse_module;
+pub use grammar::{parse_module, parse_type};
 pub use kind::{ElmLanguage, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 pub use lexer::{LexError, LexErrorKind, Lexed, Token, lex};
 pub use parser::{Parse, SyntaxError, SyntaxErrorKind};

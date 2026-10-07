@@ -3,6 +3,7 @@
 //! flags what a given tool rejects. `elm.ungram` describes the trees.
 
 mod module;
+mod types;
 
 use crate::SyntaxKind as K;
 use crate::parser::{Parse, Parser, SyntaxErrorKind};
@@ -11,6 +12,19 @@ use crate::parser::{Parse, Parser, SyntaxErrorKind};
 pub fn parse_module(text: &str) -> Parse {
     let mut p = Parser::new(text);
     module::module(&mut p);
+    p.finish()
+}
+
+/// Parses a type on its own, such as one from a package's `docs.json`.
+/// Every line may start at column 0.
+pub fn parse_type(text: &str) -> Parse {
+    let mut p = Parser::new(text);
+    let m = p.start();
+    p.with_min_column(0, |p| {
+        types::type_(p);
+        skip_junk(p, SyntaxErrorKind::Unexpected, &[]);
+    });
+    m.complete(&mut p, K::TypeFragment);
     p.finish()
 }
 
@@ -24,6 +38,30 @@ fn expect_indented(p: &mut Parser<'_>, kind: K) -> bool {
     p.check_indented();
     p.bump();
     true
+}
+
+/// A name with an optional qualifier: `Maybe`, `Maybe.Maybe`, or
+/// `List.map` where `last` takes lower identifiers. The current token is
+/// the first name, and each dot must touch the names around it.
+fn qualified_name(p: &mut Parser<'_>, last: &[K]) {
+    let q = p.start();
+    let mut qualified = false;
+    while p.at(K::UpperIdent)
+        && p.nth(1) == K::Dot
+        && p.nth_is_joined(1)
+        && last.contains(&p.nth(2))
+        && p.nth_is_joined(2)
+    {
+        p.bump();
+        p.bump();
+        qualified = true;
+    }
+    if qualified {
+        q.complete(p, K::Qualifier);
+    } else {
+        q.abandon(p);
+    }
+    p.bump();
 }
 
 /// `Foo.Bar.Baz`, a continuation. Each dot and name must touch the one
@@ -44,15 +82,15 @@ fn module_name(p: &mut Parser<'_>) {
     m.complete(p, K::ModuleName);
 }
 
-/// Wraps tokens that continue a finished construct on its lines in one
-/// [`K::Error`] node, with one error.
-fn skip_indented(p: &mut Parser<'_>) {
-    if !p.at_indented() {
+/// Wraps the continuation tokens before the next of `stops` in one
+/// [`K::Error`] node, with one `error`.
+fn skip_junk(p: &mut Parser<'_>, error: SyntaxErrorKind, stops: &[K]) {
+    if !p.at_indented() || stops.contains(&p.current()) {
         return;
     }
-    p.error(SyntaxErrorKind::Unexpected);
+    p.error(error);
     let m = p.start();
-    while p.at_indented() {
+    while p.at_indented() && !stops.contains(&p.current()) {
         p.bump();
     }
     m.complete(p, K::Error);

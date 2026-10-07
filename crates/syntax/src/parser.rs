@@ -80,9 +80,11 @@ pub enum SyntaxErrorKind {
     Expected(SyntaxKind),
     /// Something that can appear in an exposing list.
     ExpectedExposed,
-    /// A token that continues a construct sits at or left of the column
-    /// the construct must stay right of.
+    /// A token that continues a construct sits left of the column the
+    /// construct allows.
     ExpectedIndent,
+    /// A type.
+    ExpectedType,
     /// A token that must start its line follows other code on that line.
     ExpectedFreshLine,
     /// A token that cannot go here, skipped.
@@ -138,8 +140,12 @@ pub(crate) struct Parser<'t> {
     events: Vec<Event>,
     errors: Vec<SyntaxError>,
     depth: u32,
-    /// The column that continuation tokens must stay right of.
-    indent: u32,
+    /// Set once nesting passed [`DEPTH_LIMIT`]. The rest of the input is
+    /// then one error node, and rules unwinding from there report nothing.
+    gave_up: bool,
+    /// The leftmost column a continuation token may start at: one past
+    /// the enclosing construct's column, or 0 in a fragment.
+    min_column: u32,
 }
 
 impl<'t> Parser<'t> {
@@ -171,7 +177,8 @@ impl<'t> Parser<'t> {
                 })
                 .collect(),
             depth: 0,
-            indent: 0,
+            gave_up: false,
+            min_column: 1,
         }
     }
 
@@ -261,10 +268,22 @@ impl<'t> Parser<'t> {
         self.current_column() == 0
     }
 
-    /// Whether the current token is right of the indent, so it continues
-    /// the construct being parsed. The end never is.
+    /// Whether the current token is indented enough to continue the
+    /// construct being parsed. The end never is.
     pub(crate) fn at_indented(&self) -> bool {
-        !self.at(SyntaxKind::Eof) && self.current_column() > self.indent
+        !self.at(SyntaxKind::Eof) && self.current_column() >= self.min_column
+    }
+
+    /// Runs `rule` with continuations allowed from `column` on.
+    pub(crate) fn with_min_column<R>(
+        &mut self,
+        column: u32,
+        rule: impl FnOnce(&mut Parser<'t>) -> R,
+    ) -> R {
+        let outer = std::mem::replace(&mut self.min_column, column);
+        let result = rule(self);
+        self.min_column = outer;
+        result
     }
 
     /// Reports a continuation token that isn't indented. Parsing goes on as
@@ -321,6 +340,9 @@ impl<'t> Parser<'t> {
 
     /// Reports a problem at the current token, or at the end.
     pub(crate) fn error(&mut self, kind: SyntaxErrorKind) {
+        if self.gave_up {
+            return;
+        }
         let range = self.current_range();
         self.errors.push(SyntaxError { kind, range });
     }
@@ -348,12 +370,19 @@ impl<'t> Parser<'t> {
     }
 
     /// Runs a grammar rule that may recurse. Past [`DEPTH_LIMIT`] it
-    /// reports [`SyntaxErrorKind::TooDeep`] and returns `None` without
-    /// running `rule`; the caller recovers. Below it, the stack grows as
-    /// needed, so depth is bounded by memory, not by the thread's stack.
+    /// reports [`SyntaxErrorKind::TooDeep`], gives up on the rest of the
+    /// input, and returns `None` without running `rule`. Below it, the
+    /// stack grows as needed, so depth is bounded by memory, not by the
+    /// thread's stack.
     pub(crate) fn guarded<R>(&mut self, rule: impl FnOnce(&mut Parser<'t>) -> R) -> Option<R> {
         if self.depth >= DEPTH_LIMIT {
             self.error(SyntaxErrorKind::TooDeep);
+            self.gave_up = true;
+            let m = self.start();
+            while !self.at(SyntaxKind::Eof) {
+                self.bump();
+            }
+            m.complete(self, SyntaxKind::Error);
             return None;
         }
         self.depth += 1;

@@ -1,0 +1,8 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_type)"
+input_file: crates/syntax/test_data/parser/type/empty.elm
+---
+TypeFragment@0..0
+  Missing@0..0
+error 0..0: ExpectedType

@@ -1,6 +1,6 @@
 //! The module header, the module documentation and imports.
 
-use super::{expect_indented, module_name, skip_indented};
+use super::{expect_indented, module_name, skip_junk};
 use crate::SyntaxKind as K;
 use crate::parser::{Parser, SyntaxErrorKind};
 
@@ -12,18 +12,18 @@ pub(super) fn module(p: &mut Parser<'_>) {
     let has_header = at_header(p);
     if has_header {
         header(p);
-        skip_indented(p);
+        skip_junk(p, SyntaxErrorKind::Unexpected, &[]);
     }
     // Without a header, a doc comment documents the first declaration
     // unless imports follow it.
-    // skip_indented leaves each of these at a fresh line.
+    // skip_junk leaves each of these at a fresh line.
     if p.at(K::DocComment) && (has_header || p.nth(1) == K::ImportKw) {
         p.bump();
-        skip_indented(p);
+        skip_junk(p, SyntaxErrorKind::Unexpected, &[]);
     }
     while p.at(K::ImportKw) {
         import(p);
-        skip_indented(p);
+        skip_junk(p, SyntaxErrorKind::Unexpected, &[]);
     }
     // TODO(plan 1.11): declarations.
     if !p.at(K::Eof) {

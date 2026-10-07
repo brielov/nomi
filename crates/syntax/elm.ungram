@@ -104,6 +104,9 @@ InfixDecl =
 
 // Types
 
+TypeFragment =
+  Type
+
 Type =
   NamedType
 | TypeVar
@@ -111,6 +114,7 @@ Type =
 | UnitType
 | ParenType
 | TupleType
+| TupleConstructorType
 | RecordType
 
 NamedType =
@@ -131,14 +135,19 @@ ParenType =
 TupleType =
   '(' Type ',' Type (',' Type)* ')'
 
+// elm-format's legacy `(,) a b`.
+TupleConstructorType =
+  '(' ',' ','* ')' Type*
+
 RecordType =
   '{' RecordExtension? (FieldType (',' FieldType)*)? '}'
 
 RecordExtension =
   'lower_ident' '|'
 
+// elm-format also takes the legacy '='.
 FieldType =
-  'lower_ident' ':' Type
+  'lower_ident' (':' | '=') Type
 
 // Patterns
 

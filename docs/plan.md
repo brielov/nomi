@@ -137,7 +137,7 @@ Goal: one lossless, tolerant parser used by every consumer, which accepts exactl
 
   **Check:** builder tests; synthetic recursion at depth 100,000 doesn't abort.
 - [x] **1.6** `syntax: module header, imports and exposing`, including `port module` and `effect module … where { … }`. **Check:** tree snapshot fixtures, as for every grammar step.
-- [ ] **1.7** `syntax: types`.
+- [x] **1.7** `syntax: types`.
 - [ ] **1.8** `syntax: patterns`.
 - [ ] **1.9** `syntax: atoms and operator chains`.
   - Literals, variables and qualified names.

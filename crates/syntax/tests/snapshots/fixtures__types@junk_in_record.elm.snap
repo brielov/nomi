@@ -1,0 +1,32 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_type)"
+input_file: crates/syntax/test_data/parser/types/junk_in_record.elm
+---
+TypeFragment@0..21
+  RecordType@0..20
+    LBrace@0..1 "{"
+    Whitespace@1..2 " "
+    FieldType@2..9
+      LowerIdent@2..3 "a"
+      Whitespace@3..4 " "
+      Colon@4..5 ":"
+      Whitespace@5..6 " "
+      NamedType@6..9
+        UpperIdent@6..9 "Int"
+    Whitespace@9..10 " "
+    Error@10..11
+      RParen@10..11 ")"
+    Comma@11..12 ","
+    Whitespace@12..13 " "
+    FieldType@13..18
+      LowerIdent@13..14 "b"
+      Whitespace@14..15 " "
+      Colon@15..16 ":"
+      Whitespace@16..17 " "
+      TypeVar@17..18
+        LowerIdent@17..18 "c"
+    Whitespace@18..19 " "
+    RBrace@19..20 "}"
+  Newline@20..21 "\n"
+error 10..11: Expected(RBrace)

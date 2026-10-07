@@ -1,0 +1,31 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_type)"
+input_file: crates/syntax/test_data/parser/type/multiline_record.elm
+---
+TypeFragment@0..41
+  RecordType@0..40
+    LBrace@0..1 "{"
+    Whitespace@1..2 " "
+    FieldType@2..15
+      LowerIdent@2..6 "name"
+      Whitespace@6..7 " "
+      Colon@7..8 ":"
+      Whitespace@8..9 " "
+      NamedType@9..15
+        UpperIdent@9..15 "String"
+    Newline@15..16 "\n"
+    LineComment@16..26 "-- the age"
+    Newline@26..27 "\n"
+    Comma@27..28 ","
+    Whitespace@28..29 " "
+    FieldType@29..38
+      LowerIdent@29..32 "age"
+      Whitespace@32..33 " "
+      Colon@33..34 ":"
+      Whitespace@34..35 " "
+      NamedType@35..38
+        UpperIdent@35..38 "Int"
+    Newline@38..39 "\n"
+    RBrace@39..40 "}"
+  Newline@40..41 "\n"

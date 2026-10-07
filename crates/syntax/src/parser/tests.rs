@@ -23,14 +23,7 @@ fn module(p: &mut Parser<'_>) {
 }
 
 fn expr(p: &mut Parser<'_>) {
-    if p.guarded(chain).is_none() {
-        // Too deep: give up on the rest of the input.
-        let m = p.start();
-        while !p.at(K::Eof) {
-            p.bump();
-        }
-        m.complete(p, K::Error);
-    }
+    p.guarded(chain);
 }
 
 fn chain(p: &mut Parser<'_>) {

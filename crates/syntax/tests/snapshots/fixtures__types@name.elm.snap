@@ -1,0 +1,9 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_type)"
+input_file: crates/syntax/test_data/parser/type/name.elm
+---
+TypeFragment@0..4
+  NamedType@0..3
+    UpperIdent@0..3 "Int"
+  Newline@3..4 "\n"

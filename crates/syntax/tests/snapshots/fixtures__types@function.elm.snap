@@ -1,0 +1,36 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_type)"
+input_file: crates/syntax/test_data/parser/type/function.elm
+---
+TypeFragment@0..30
+  FunctionType@0..29
+    TypeVar@0..1
+      LowerIdent@0..1 "a"
+    Whitespace@1..2 " "
+    Arrow@2..4 "->"
+    Whitespace@4..5 " "
+    FunctionType@5..29
+      NamedType@5..12
+        UpperIdent@5..10 "Maybe"
+        Whitespace@10..11 " "
+        TypeVar@11..12
+          LowerIdent@11..12 "b"
+      Whitespace@12..13 " "
+      Arrow@13..15 "->"
+      Whitespace@15..16 " "
+      NamedType@16..29
+        UpperIdent@16..20 "List"
+        Whitespace@20..21 " "
+        ParenType@21..29
+          LParen@21..22 "("
+          FunctionType@22..28
+            TypeVar@22..23
+              LowerIdent@22..23 "a"
+            Whitespace@23..24 " "
+            Arrow@24..26 "->"
+            Whitespace@26..27 " "
+            TypeVar@27..28
+              LowerIdent@27..28 "b"
+          RParen@28..29 ")"
+  Newline@29..30 "\n"

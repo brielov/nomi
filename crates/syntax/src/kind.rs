@@ -154,6 +154,8 @@ syntax_kinds! {
     }
     nodes {
         Module,
+        /// The root of [`crate::parse_type`].
+        TypeFragment,
         ModuleHeader,
         ModuleName,
         EffectFields,
@@ -184,6 +186,7 @@ syntax_kinds! {
         UnitType,
         ParenType,
         TupleType,
+        TupleConstructorType,
         RecordType,
         RecordExtension,
         FieldType,

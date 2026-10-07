@@ -1,0 +1,24 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_type)"
+input_file: crates/syntax/test_data/parser/type/application.elm
+---
+TypeFragment@0..26
+  NamedType@0..25
+    Qualifier@0..5
+      UpperIdent@0..4 "Dict"
+      Dot@4..5 "."
+    UpperIdent@5..9 "Dict"
+    Whitespace@9..10 " "
+    NamedType@10..16
+      UpperIdent@10..16 "String"
+    Whitespace@16..17 " "
+    ParenType@17..25
+      LParen@17..18 "("
+      NamedType@18..24
+        UpperIdent@18..22 "List"
+        Whitespace@22..23 " "
+        TypeVar@23..24
+          LowerIdent@23..24 "a"
+      RParen@24..25 ")"
+  Newline@25..26 "\n"

@@ -1,0 +1,25 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_type)"
+input_file: crates/syntax/test_data/parser/type/broken_tuple.elm
+---
+TypeFragment@0..11
+  TupleType@0..10
+    LParen@0..1 "("
+    TypeVar@1..2
+      LowerIdent@1..2 "a"
+    Whitespace@2..3 " "
+    Error@3..4
+      LowerIdent@3..4 "b"
+    Comma@4..5 ","
+    Whitespace@5..6 " "
+    FunctionType@6..10
+      Missing@6..6
+      Arrow@6..8 "->"
+      Whitespace@8..9 " "
+      TypeVar@9..10
+        LowerIdent@9..10 "c"
+  Newline@10..11 "\n"
+error 3..4: Expected(RParen)
+error 6..8: ExpectedType
+error 11..11: Expected(RParen)

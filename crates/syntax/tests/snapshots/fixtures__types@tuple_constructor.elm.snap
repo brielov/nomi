@@ -1,0 +1,17 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_type)"
+input_file: crates/syntax/test_data/parser/type/tuple_constructor.elm
+---
+TypeFragment@0..8
+  TupleConstructorType@0..7
+    LParen@0..1 "("
+    Comma@1..2 ","
+    RParen@2..3 ")"
+    Whitespace@3..4 " "
+    TypeVar@4..5
+      LowerIdent@4..5 "a"
+    Whitespace@5..6 " "
+    TypeVar@6..7
+      LowerIdent@6..7 "b"
+  Newline@7..8 "\n"

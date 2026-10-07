@@ -1,0 +1,13 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_type)"
+input_file: crates/syntax/test_data/parser/type/lower_after_qualifier.elm
+---
+TypeFragment@0..9
+  NamedType@0..4
+    UpperIdent@0..4 "Html"
+  Error@4..8
+    Dot@4..5 "."
+    LowerIdent@5..8 "div"
+  Newline@8..9 "\n"
+error 4..5: Unexpected

@@ -1,0 +1,13 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_type)"
+input_file: crates/syntax/test_data/parser/type/trailing_junk.elm
+---
+TypeFragment@0..6
+  NamedType@0..3
+    UpperIdent@0..3 "Int"
+  Whitespace@3..4 " "
+  Error@4..5
+    RParen@4..5 ")"
+  Newline@5..6 "\n"
+error 4..5: Unexpected

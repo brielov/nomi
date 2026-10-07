@@ -1,0 +1,19 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_type)"
+input_file: crates/syntax/test_data/parser/type/legacy_field.elm
+---
+TypeFragment@0..18
+  RecordType@0..17
+    LBrace@0..1 "{"
+    Whitespace@1..2 " "
+    FieldType@2..15
+      LowerIdent@2..6 "name"
+      Whitespace@6..7 " "
+      Eq@7..8 "="
+      Whitespace@8..9 " "
+      NamedType@9..15
+        UpperIdent@9..15 "String"
+    Whitespace@15..16 " "
+    RBrace@16..17 "}"
+  Newline@17..18 "\n"
