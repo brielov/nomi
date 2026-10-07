@@ -17,6 +17,7 @@ sha1 = "0.11.0"
 sha2 = "0.11.0"
 tar = "0.4.46"
 toml = "1.1.6"
+ungrammar.workspace = true
 ureq = { version = "3.4.2", features = ["platform-verifier"] }
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 

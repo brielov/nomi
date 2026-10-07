@@ -1,6 +1,7 @@
 //! Repository automation, run as `cargo xtask <command>`.
 
 mod checks;
+mod codegen;
 mod corpus;
 mod download;
 mod oracle;
@@ -26,6 +27,8 @@ enum Command {
     Ci,
     /// Only the architecture checks.
     Check,
+    /// Regenerate the typed syntax views from elm.ungram.
+    Codegen,
     /// Sync reference/ to the source commits pinned in references.toml.
     Refs,
     /// Pinned upstream tools that parity is measured against.
@@ -68,6 +71,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Command::Ci => ci(),
         Command::Check => architecture(&root()),
+        Command::Codegen => codegen::run(&root(), false),
         Command::Refs => references::load(&root()).and_then(|r| refs::sync(&root(), &r)),
         Command::Oracle { command } => references::load(&root()).and_then(|r| match command {
             OracleCommand::Fetch => oracle::fetch(&root(), &r),
@@ -100,6 +104,8 @@ fn root() -> PathBuf {
 
 fn ci() -> Result<()> {
     let root = root();
+    eprintln!("==> codegen --check");
+    codegen::run(&root, true)?;
     cargo(&root, &["fmt", "--all", "--check"])?;
     cargo(
         &root,
