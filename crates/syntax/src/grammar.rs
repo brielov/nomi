@@ -123,8 +123,12 @@ fn expect_part(p: &mut Parser<'_>, kind: K) -> bool {
 /// parentheses: elm takes `..` too (`Parse/Symbol.hs`, `operator`), and
 /// elm-format `.`.
 fn at_parenthesized_op(p: &mut Parser<'_>) -> bool {
+    is_parenthesized_op(p.current())
+}
+
+fn is_parenthesized_op(kind: K) -> bool {
     matches!(
-        p.current(),
+        kind,
         K::Operator | K::Minus | K::ColonColon | K::DotDot | K::Dot
     )
 }

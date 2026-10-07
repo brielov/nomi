@@ -2,7 +2,10 @@
 //! declarations that follow.
 
 use super::declarations::declarations;
-use super::{at_parenthesized_op, expect_indented, module_name, parenthesized_op, skip_junk};
+use super::{
+    at_parenthesized_op, expect_indented, is_parenthesized_op, module_name, parenthesized_op,
+    skip_junk,
+};
 use crate::SyntaxKind as K;
 use crate::parser::{Parser, SyntaxErrorKind};
 
@@ -107,7 +110,12 @@ fn import(p: &mut Parser<'_>) {
         expect_indented(p, K::UpperIdent);
         alias.complete(p, K::ImportAlias);
     }
-    if at_exposing_list(p) {
+    if p.at(K::ExposingKw) || p.at(K::LParen) && p.at_indented_strictly() {
+        exposing_list(p);
+    } else if p.at(K::LParen) && at_whole_list(p) {
+        // elm-format tries a list without `exposing` wherever it stands,
+        // even at the margin: `( a, b ) = pair` below an import is one.
+        p.anchor();
         exposing_list(p);
     }
     m.complete(p, K::Import);
@@ -115,6 +123,46 @@ fn import(p: &mut Parser<'_>) {
 
 fn at_exposing_list(p: &mut Parser<'_>) -> bool {
     p.at(K::ExposingKw) || (p.at(K::LParen) && p.at_indented())
+}
+
+/// Whether a whole parenthesized exposing list is ahead, which elm-format
+/// reads wherever it stands.
+fn at_whole_list(p: &mut Parser<'_>) -> bool {
+    let mut n = 1;
+    loop {
+        n = match (p.nth(n), p.nth(n + 1), p.nth(n + 2)) {
+            (K::DotDot | K::LowerIdent, ..) => n + 1,
+            (K::UpperIdent, K::LParen, _) => match variants_end(p, n + 2) {
+                Some(end) => end,
+                None => return false,
+            },
+            (K::UpperIdent, ..) => n + 1,
+            (K::LParen, op, K::RParen) if is_parenthesized_op(op) => n + 3,
+            _ => return false,
+        };
+        match p.nth(n) {
+            K::Comma => n += 1,
+            K::RParen => return true,
+            _ => return false,
+        }
+    }
+}
+
+/// Past the `)` of the variants starting at token `n`, if they close.
+fn variants_end(p: &mut Parser<'_>, mut n: usize) -> Option<usize> {
+    if p.nth(n) == K::DotDot {
+        return (p.nth(n + 1) == K::RParen).then_some(n + 2);
+    }
+    loop {
+        if p.nth(n) != K::UpperIdent {
+            return None;
+        }
+        match p.nth(n + 1) {
+            K::Comma => n += 2,
+            K::RParen => return Some(n + 2),
+            _ => return None,
+        }
+    }
 }
 
 /// `exposing (a, B(..), (+))` or `exposing (..)`. elm-format also takes a
