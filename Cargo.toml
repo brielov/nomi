@@ -1,6 +1,22 @@
-[package]
-name = "nomi"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+resolver = "3"
+members = ["crates/*"]
 
-[dependencies]
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.89"
+license = "BSD-3-Clause"
+publish = false
+
+[workspace.dependencies]
+nomi-base = { path = "crates/base" }
+nomi-syntax = { path = "crates/syntax" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
