@@ -157,6 +157,8 @@ pub enum SyntaxErrorKind {
     NoDeclarations,
     /// The file ends on the line of an import.
     ImportWithoutNewline,
+    /// Whitespace inside an operator's parentheses, as in `( + )`.
+    SpacedOperator,
     /// An expression of a code block, after the first, starting with
     /// something other than a letter or `_`.
     ExpectedLetterStart,

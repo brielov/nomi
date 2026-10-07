@@ -1,0 +1,88 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/recovery/spaced_operators.elm
+---
+Module@0..87
+  ModuleHeader@0..32
+    ModuleKw@0..6 "module"
+    Whitespace@6..7 " "
+    ModuleName@7..8
+      UpperIdent@7..8 "M"
+    Whitespace@8..9 " "
+    ExposingList@9..32
+      ExposingKw@9..17 "exposing"
+      Whitespace@17..18 " "
+      LParen@18..19 "("
+      ExposedOperator@19..24
+        LParen@19..20 "("
+        Whitespace@20..21 " "
+        Op@21..23
+          Operator@21..23 "<<"
+        RParen@23..24 ")"
+      Comma@24..25 ","
+      Whitespace@25..26 " "
+      ExposedOperator@26..31
+        LParen@26..27 "("
+        Op@27..29
+          Operator@27..29 ">>"
+        Whitespace@29..30 " "
+        RParen@30..31 ")"
+      RParen@31..32 ")"
+  Newline@32..33 "\n"
+  Newline@33..34 "\n"
+  InfixDecl@34..59
+    InfixKw@34..39 "infix"
+    Whitespace@39..40 " "
+    LeftKw@40..44 "left"
+    Whitespace@44..45 " "
+    Int@45..46 "9"
+    Whitespace@46..47 " "
+    LParen@47..48 "("
+    Whitespace@48..49 " "
+    Op@49..51
+      Operator@49..51 "|>"
+    Whitespace@51..52 " "
+    RParen@52..53 ")"
+    Whitespace@53..54 " "
+    Eq@54..55 "="
+    Whitespace@55..56 " "
+    LowerIdent@56..59 "apR"
+  Newline@59..60 "\n"
+  Newline@60..61 "\n"
+  ValueDecl@61..86
+    Definition@61..86
+      LowerIdent@61..64 "add"
+      Whitespace@64..65 " "
+      Eq@65..66 "="
+      Whitespace@66..67 " "
+      CallExpr@67..86
+        OperatorFunction@67..71
+          LParen@67..68 "("
+          Op@68..69
+            Operator@68..69 "+"
+          Whitespace@69..70 " "
+          RParen@70..71 ")"
+        Whitespace@71..72 " "
+        OperatorFunction@72..75
+          LParen@72..73 "("
+          Op@73..74
+            Operator@73..74 "+"
+          RParen@74..75 ")"
+        Whitespace@75..76 " "
+        BlockComment@76..81 "{- -}"
+        OperatorFunction@81..86
+          LParen@81..82 "("
+          Whitespace@82..83 " "
+          Op@83..84
+            Minus@83..84 "-"
+          Whitespace@84..85 " "
+          RParen@85..86 ")"
+  Newline@86..87 "\n"
+error 21..23: SpacedOperator
+error 30..31: SpacedOperator
+error 49..51: SpacedOperator
+error 52..53: SpacedOperator
+error 70..71: SpacedOperator
+error 83..84: SpacedOperator
+error 85..86: SpacedOperator

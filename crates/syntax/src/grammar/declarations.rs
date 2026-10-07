@@ -5,7 +5,7 @@ use super::definitions::value;
 use super::expressions::expr;
 use super::patterns::{at_pattern_atom, pattern_atom};
 use super::types::{at_type, type_, type_atom};
-use super::{expect_indented, expect_part, skip_junk};
+use super::{expect_indented, expect_part, parenthesized_op, skip_junk};
 use crate::SyntaxKind as K;
 use crate::parser::{Marker, Parser, SyntaxErrorKind};
 
@@ -161,9 +161,7 @@ fn infix(p: &mut Parser<'_>, m: Marker) {
     expect_indented(p, K::Int);
     if expect_indented(p, K::LParen) {
         if matches!(p.current(), K::Operator | K::Minus | K::ColonColon) && p.at_indented() {
-            let op = p.start();
-            p.bump();
-            op.complete(p, K::Op);
+            parenthesized_op(p);
         } else {
             p.error(SyntaxErrorKind::Expected(K::Op));
             p.missing();

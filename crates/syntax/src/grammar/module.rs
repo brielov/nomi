@@ -2,7 +2,7 @@
 //! declarations that follow.
 
 use super::declarations::declarations;
-use super::{expect_indented, module_name, skip_junk};
+use super::{expect_indented, module_name, parenthesized_op, skip_junk};
 use crate::SyntaxKind as K;
 use crate::parser::{Parser, SyntaxErrorKind};
 
@@ -181,9 +181,7 @@ fn exposed(p: &mut Parser<'_>) {
             p.bump();
             if matches!(p.current(), K::Operator | K::Minus | K::ColonColon) {
                 p.check_indented();
-                let op = p.start();
-                p.bump();
-                op.complete(p, K::Op);
+                parenthesized_op(p);
             } else {
                 p.error(SyntaxErrorKind::Expected(K::Op));
                 p.missing();

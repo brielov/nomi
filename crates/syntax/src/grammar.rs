@@ -102,6 +102,20 @@ fn expect_part(p: &mut Parser<'_>, kind: K) -> bool {
     true
 }
 
+/// The operator of `(+)`, the current token, after its `(`. Neither
+/// parenthesis may stand apart from it.
+fn parenthesized_op(p: &mut Parser<'_>) {
+    if !p.nth_is_joined(0) {
+        p.error(SyntaxErrorKind::SpacedOperator);
+    }
+    let op = p.start();
+    p.bump();
+    op.complete(p, K::Op);
+    if p.at(K::RParen) && !p.nth_is_joined(0) {
+        p.error(SyntaxErrorKind::SpacedOperator);
+    }
+}
+
 /// Whether the current token lines up at `column` with the items of a
 /// block and, by `starts`, starts another. It is then anchored: it counts
 /// as indented, though the rest of the item must be further right.
