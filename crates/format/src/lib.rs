@@ -5,6 +5,14 @@
 //! its part of the module keeps the source's text, so a module that is
 //! already formatted comes back unchanged from the start.
 
+// Rendering builds on these from plan 2.8; until then only tests do.
+#[cfg_attr(not(test), expect(dead_code))]
+mod block;
+#[cfg_attr(not(test), expect(dead_code))]
+mod structure;
+#[cfg_attr(not(test), expect(dead_code))]
+mod tree;
+
 use nomi_syntax::{Tool, parse_module, validate};
 
 /// `text` formatted as elm-format does, or `None` where elm-format
