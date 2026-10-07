@@ -26,7 +26,7 @@ fn top_level(text: &str) -> Parse {
 fn render(text: &str) -> String {
     let parse = top_level(text);
     let mut out = parse.debug_tree();
-    for error in parse.errors() {
+    for error in parse.elm_errors() {
         out.push_str(&format!("error {:?}: {:?}\n", error.range, error.kind));
     }
     out
@@ -38,7 +38,11 @@ fn check(text: &str, expected: &str) {
 }
 
 fn errors(text: &str) -> Vec<SyntaxErrorKind> {
-    top_level(text).errors().iter().map(|e| e.kind).collect()
+    top_level(text)
+        .elm_errors()
+        .iter()
+        .map(|e| e.kind)
+        .collect()
 }
 
 #[test]
@@ -125,14 +129,17 @@ fn punctuation_must_be_indented() {
     assert_eq!(errors("x = [\n]"), [indent]);
     assert_eq!(errors("x = {\n}"), [indent]);
     assert_eq!(errors("x = (\n)"), [indent]);
-    assert_eq!(errors("x = (\n+)"), [indent]);
+    assert_eq!(
+        errors("x = (\n+)"),
+        [SyntaxErrorKind::SpacedOperator, indent]
+    );
     assert_eq!(errors("x = (\n,)"), [indent]);
     assert_eq!(errors("x = ( a\n, b )"), [indent]);
 }
 
 #[test]
-fn a_closing_parenthesis_may_sit_at_the_margin() {
-    assert_eq!(errors("x = ( a\n)"), []);
+fn a_closing_parenthesis_must_be_indented() {
+    assert_eq!(errors("x = ( a\n)"), [SyntaxErrorKind::ExpectedIndent]);
 }
 
 #[test]

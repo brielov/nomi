@@ -344,24 +344,23 @@ fn field_access(p: &mut Parser<'_>, target: CompletedMarker) -> CompletedMarker 
 }
 
 /// `()`, `(+)`, `(,)`, `(e)` or `(a, b)`. Returns the kind for the
-/// caller's node. elm wants the closing parenthesis indented; elm-format
-/// doesn't.
+/// caller's node.
 fn paren(p: &mut Parser<'_>) -> K {
     p.bump();
     if p.at(K::RParen) {
-        p.check_indented();
+        p.note_unindented();
         p.bump();
         return K::UnitExpr;
     }
     if at_parenthesized_op(p) && p.nth(1) == K::RParen {
-        p.check_indented();
+        p.note_unindented();
         parenthesized_op(p);
         p.bump();
         return K::OperatorFunction;
     }
     if p.at(K::Comma) && at_tuple_constructor(p) {
         while p.at(K::Comma) {
-            p.check_indented();
+            p.note_unindented();
             p.bump();
         }
         p.bump();
@@ -376,7 +375,7 @@ fn paren(p: &mut Parser<'_>) -> K {
             break;
         }
         if p.at(K::Comma) {
-            p.check_indented();
+            p.note_unindented();
             p.bump();
             kind = K::TupleExpr;
             expr(p);
@@ -411,12 +410,12 @@ fn list(p: &mut Parser<'_>) -> K {
     }
     loop {
         if p.at(K::RBracket) {
-            p.check_indented();
+            p.note_unindented();
             p.bump();
             break;
         }
         if p.at(K::Comma) {
-            p.check_indented();
+            p.note_unindented();
             p.bump();
             expr(p);
         } else if p.at_indented() {
@@ -437,13 +436,13 @@ fn list(p: &mut Parser<'_>) -> K {
 fn record(p: &mut Parser<'_>) -> K {
     p.bump();
     if p.at(K::RBrace) {
-        p.check_indented();
+        p.note_unindented();
         p.bump();
         return K::RecordExpr;
     }
     let mut kind = K::RecordExpr;
     if p.at(K::LowerIdent) && p.nth_at_symbol(1, K::Pipe) {
-        p.check_indented();
+        p.note_unindented();
         p.bump();
         expect_indented(p, K::Pipe);
         kind = K::RecordUpdateExpr;
@@ -451,12 +450,12 @@ fn record(p: &mut Parser<'_>) -> K {
     field(p);
     loop {
         if p.at(K::RBrace) {
-            p.check_indented();
+            p.note_unindented();
             p.bump();
             break;
         }
         if p.at(K::Comma) {
-            p.check_indented();
+            p.note_unindented();
             p.bump();
             field(p);
         } else if p.at_indented() {
@@ -481,10 +480,10 @@ fn field(p: &mut Parser<'_>) {
         return;
     }
     let m = p.start();
-    p.check_indented();
+    p.note_unindented();
     p.bump();
     if p.at_symbol(K::Colon) {
-        p.check_indented();
+        p.note_unindented();
         p.bump_symbol(K::Colon);
     } else {
         expect_indented(p, K::Eq);

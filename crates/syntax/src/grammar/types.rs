@@ -89,8 +89,7 @@ fn at_tuple_constructor(p: &mut Parser<'_>) -> bool {
     n > 1 && p.nth(n) == K::RParen
 }
 
-/// `()`, `(a)` or `(a, b, c)`. elm wants the commas and the closing
-/// parenthesis indented; elm-format doesn't.
+/// `()`, `(a)` or `(a, b, c)`.
 fn paren_type(p: &mut Parser<'_>) -> CompletedMarker {
     let m = p.start();
     p.bump();
@@ -129,13 +128,13 @@ fn record_type(p: &mut Parser<'_>) -> CompletedMarker {
     let m = p.start();
     p.bump();
     if p.at(K::RBrace) {
-        p.check_indented();
+        p.note_unindented();
         p.bump();
         return m.complete(p, K::RecordType);
     }
     if p.at(K::LowerIdent) && p.nth_at_symbol(1, K::Pipe) {
         let extension = p.start();
-        p.check_indented();
+        p.note_unindented();
         p.bump();
         expect_indented(p, K::Pipe);
         extension.complete(p, K::RecordExtension);
@@ -143,12 +142,12 @@ fn record_type(p: &mut Parser<'_>) -> CompletedMarker {
     field_type(p);
     loop {
         if p.at(K::RBrace) {
-            p.check_indented();
+            p.note_unindented();
             p.bump();
             break;
         }
         if p.at(K::Comma) {
-            p.check_indented();
+            p.note_unindented();
             p.bump();
             field_type(p);
         } else if p.at_indented() {
@@ -173,10 +172,10 @@ fn field_type(p: &mut Parser<'_>) {
         return;
     }
     let m = p.start();
-    p.check_indented();
+    p.note_unindented();
     p.bump();
     if p.at_symbol(K::Eq) {
-        p.check_indented();
+        p.note_unindented();
         p.bump_symbol(K::Eq);
     } else {
         expect_indented(p, K::Colon);

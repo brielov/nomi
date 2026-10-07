@@ -74,7 +74,7 @@ fn expect_indented(p: &mut Parser<'_>, kind: K) -> bool {
         p.error(SyntaxErrorKind::Expected(kind));
         return false;
     }
-    p.check_indented();
+    p.note_unindented();
     p.bump_symbol(kind);
     true
 }
@@ -97,7 +97,7 @@ fn expect_part(p: &mut Parser<'_>, kind: K) -> bool {
             return false;
         }
     }
-    p.check_indented();
+    p.note_unindented();
     p.bump_symbol(kind);
     true
 }
@@ -169,7 +169,7 @@ fn qualified_name(p: &mut Parser<'_>, last: &[K]) {
 fn module_name(p: &mut Parser<'_>) {
     let m = p.start();
     if p.at(K::UpperIdent) {
-        p.check_indented();
+        p.note_unindented();
         p.bump();
         while p.at(K::Dot) && p.nth_is_joined(0) && p.nth(1) == K::UpperIdent && p.nth_is_joined(1)
         {

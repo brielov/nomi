@@ -23,4 +23,3 @@ ExprFragment@0..25
       LiteralExpr@23..24
         Int@23..24 "1"
   Newline@24..25 "\n"
-error 20..22: ExpectedIndent

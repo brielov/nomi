@@ -24,7 +24,7 @@ fn top_level(text: &str) -> Parse {
 fn check(text: &str, expected: &str) {
     let parse = top_level(text);
     let mut out = parse.debug_tree();
-    for error in parse.errors() {
+    for error in parse.elm_errors() {
         out.push_str(&format!("error {:?}: {:?}\n", error.range, error.kind));
     }
     assert_eq!(out.trim(), expected.trim());

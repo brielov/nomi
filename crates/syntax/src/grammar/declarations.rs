@@ -79,7 +79,7 @@ fn declaration(p: &mut Parser<'_>) {
 /// `type alias Name a = Type`.
 fn type_alias(p: &mut Parser<'_>, m: Marker) {
     p.bump();
-    p.check_indented();
+    p.note_unindented();
     p.bump_as(K::AliasKw);
     type_head(p);
     if expect_part(p, K::Eq) {
@@ -156,7 +156,7 @@ fn infix(p: &mut Parser<'_>, m: Marker) {
         .into_iter()
         .find(|&kind| p.nth_at_contextual(0, kind))
         .expect("at_infix checked the associativity");
-    p.check_indented();
+    p.note_unindented();
     p.bump_as(associativity);
     // Upstream reads a single digit, then expects `(`.
     if p.at(K::Int) && !matches!(p.current_text().as_bytes(), [b'0'..=b'9']) {

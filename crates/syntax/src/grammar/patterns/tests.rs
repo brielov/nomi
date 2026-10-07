@@ -25,7 +25,7 @@ fn top_level(text: &str) -> Parse {
 fn render(text: &str) -> String {
     let parse = top_level(text);
     let mut out = parse.debug_tree();
-    for error in parse.errors() {
+    for error in parse.elm_errors() {
         out.push_str(&format!("error {:?}: {:?}\n", error.range, error.kind));
     }
     out
@@ -37,7 +37,11 @@ fn check(text: &str, expected: &str) {
 }
 
 fn errors(text: &str) -> Vec<SyntaxErrorKind> {
-    top_level(text).errors().iter().map(|e| e.kind).collect()
+    top_level(text)
+        .elm_errors()
+        .iter()
+        .map(|e| e.kind)
+        .collect()
 }
 
 #[test]
@@ -110,10 +114,10 @@ fn list_and_record_punctuation_must_be_indented() {
 }
 
 #[test]
-fn tuple_commas_must_be_indented_but_not_the_parenthesis() {
+fn tuple_punctuation_must_be_indented() {
     let indent = SyntaxErrorKind::ExpectedIndent;
-    assert_eq!(errors("f ( a\n, b\n)"), [indent]);
-    assert_eq!(errors("f ( a\n)"), []);
+    assert_eq!(errors("f ( a\n, b\n)"), [indent, indent]);
+    assert_eq!(errors("f ( a\n)"), [indent]);
     assert_eq!(errors("f (\n)"), [indent]);
 }
 

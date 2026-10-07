@@ -14,7 +14,7 @@ pub(super) fn value(p: &mut Parser<'_>) {
     let column = p.current_column();
     if p.nth_at_symbol(1, K::Colon) {
         let m = p.start();
-        p.check_indented();
+        p.note_unindented();
         p.bump();
         expect_indented(p, K::Colon);
         type_(p);
@@ -31,7 +31,7 @@ pub(super) fn value(p: &mut Parser<'_>) {
 
 fn definition(p: &mut Parser<'_>) {
     let m = p.start();
-    p.check_indented();
+    p.note_unindented();
     p.bump();
     while at_pattern_atom(p) {
         pattern_atom(p);

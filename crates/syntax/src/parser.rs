@@ -63,6 +63,19 @@ impl Parse {
         &self.errors
     }
 
+    /// The errors and the unindented tokens elm reports, in source order;
+    /// for the grammar's tests.
+    #[cfg(test)]
+    pub(crate) fn elm_errors(&self) -> Vec<SyntaxError> {
+        let mut errors = self.errors.clone();
+        errors.extend(self.unindented.iter().map(|&range| SyntaxError {
+            kind: SyntaxErrorKind::ExpectedIndent,
+            range,
+        }));
+        errors.sort_by_key(|e| e.range.start());
+        errors
+    }
+
     /// The tree as indented `Kind@start..end` lines, tokens with their
     /// text; for tests and fixtures.
     pub fn debug_tree(&self) -> String {
@@ -494,16 +507,9 @@ impl<'t> Parser<'t> {
         result
     }
 
-    /// Reports a continuation token that isn't indented. Parsing goes on as
-    /// if it were.
-    pub(crate) fn check_indented(&mut self) {
-        if !self.at(SyntaxKind::Eof) && !self.at_indented() {
-            self.error(SyntaxErrorKind::ExpectedIndent);
-        }
-    }
-
-    /// Records a continuation token that isn't indented, where only elm
-    /// minds. Parsing goes on as if it were.
+    /// Records a continuation token that isn't indented. Only elm minds:
+    /// elm-format checks indentation only where it decides what a token
+    /// belongs to, and parsing goes on as if it were.
     pub(crate) fn note_unindented(&mut self) {
         if !self.at(SyntaxKind::Eof) && !self.at_indented() {
             let range = self.current_range();

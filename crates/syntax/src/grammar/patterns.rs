@@ -108,12 +108,11 @@ pub(super) fn pattern_atom(p: &mut Parser<'_>) -> CompletedMarker {
     m.complete(p, kind)
 }
 
-/// `()`, `(p)` or `(a, b)`. Returns the kind for the caller's node. elm
-/// wants the closing parenthesis indented; elm-format doesn't.
+/// `()`, `(p)` or `(a, b)`. Returns the kind for the caller's node.
 fn paren_pattern(p: &mut Parser<'_>) -> K {
     p.bump();
     if p.at(K::RParen) {
-        p.check_indented();
+        p.note_unindented();
         p.bump();
         return K::UnitPattern;
     }
@@ -126,7 +125,7 @@ fn paren_pattern(p: &mut Parser<'_>) -> K {
             break;
         }
         if p.at(K::Comma) {
-            p.check_indented();
+            p.note_unindented();
             p.bump();
             kind = K::TuplePattern;
             pattern(p);
@@ -152,12 +151,12 @@ fn list_pattern(p: &mut Parser<'_>) -> K {
     }
     loop {
         if p.at(K::RBracket) {
-            p.check_indented();
+            p.note_unindented();
             p.bump();
             break;
         }
         if p.at(K::Comma) {
-            p.check_indented();
+            p.note_unindented();
             p.bump();
             pattern(p);
         } else if p.at_indented() {
@@ -182,12 +181,12 @@ fn record_pattern(p: &mut Parser<'_>) -> K {
     }
     loop {
         if p.at(K::RBrace) {
-            p.check_indented();
+            p.note_unindented();
             p.bump();
             break;
         }
         if p.at(K::Comma) {
-            p.check_indented();
+            p.note_unindented();
             p.bump();
             field_pattern(p);
         } else if p.at_indented() {
@@ -211,7 +210,7 @@ fn field_pattern(p: &mut Parser<'_>) {
         return;
     }
     let m = p.start();
-    p.check_indented();
+    p.note_unindented();
     p.bump();
     m.complete(p, K::FieldPattern);
 }
