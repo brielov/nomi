@@ -18,6 +18,46 @@ pub(super) fn expr(p: &mut Parser<'_>) {
     });
 }
 
+/// Expressions up to the end of input, each starting a line and
+/// continuing on indented ones. Anything else is skipped, with one error,
+/// up to where an expression could start.
+// TODO(plan 1.15): elm-format wants each one after the first to start
+// with a letter or `_`.
+pub(super) fn expressions(p: &mut Parser<'_>) {
+    while !p.at(K::Eof) {
+        if !p.at_fresh_line() {
+            p.error(SyntaxErrorKind::ExpectedFreshLine);
+        }
+        p.anchor();
+        if at_expr(p) {
+            expr(p);
+            skip_junk(p, SyntaxErrorKind::Unexpected, &[]);
+            continue;
+        }
+        p.error(SyntaxErrorKind::ExpectedExpression);
+        let m = p.start();
+        p.bump();
+        while !p.at(K::Eof) && !at_fresh_expr(p) {
+            p.bump();
+        }
+        m.complete(p, K::Error);
+    }
+}
+
+/// Whether an expression starts a line here.
+fn at_fresh_expr(p: &mut Parser<'_>) -> bool {
+    if !p.at_fresh_line() {
+        return false;
+    }
+    p.anchor();
+    at_expr(p)
+}
+
+/// Whether an expression starts here.
+fn at_expr(p: &mut Parser<'_>) -> bool {
+    at_compound(p) || at_atom(p) || p.at(K::Minus) && p.at_indented() && at_negated(p)
+}
+
 /// `a + f x - 1`: calls joined by operators, in one flat node. An `if`,
 /// `case`, `let` or lambda may come last: `a + \x -> x`.
 fn chain(p: &mut Parser<'_>) {

@@ -1,0 +1,39 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expressions)"
+input_file: crates/syntax/test_data/parser/expressions_fragment/exprs.elm
+---
+ExpressionsFragment@0..45
+  CallExpr@0..8
+    NameExpr@0..6
+      LowerIdent@0..6 "double"
+    Whitespace@6..7 " "
+    LiteralExpr@7..8
+      Int@7..8 "2"
+  Newline@8..9 "\n"
+  LineComment@9..14 "--> 4"
+  Newline@14..15 "\n"
+  Newline@15..16 "\n"
+  CallExpr@16..44
+    NameExpr@16..24
+      Qualifier@16..21
+        UpperIdent@16..20 "List"
+        Dot@20..21 "."
+      LowerIdent@21..24 "map"
+    Whitespace@24..25 " "
+    NameExpr@25..31
+      LowerIdent@25..31 "double"
+    Newline@31..32 "\n"
+    Whitespace@32..36 "    "
+    ListExpr@36..44
+      LBracket@36..37 "["
+      Whitespace@37..38 " "
+      LiteralExpr@38..39
+        Int@38..39 "1"
+      Comma@39..40 ","
+      Whitespace@40..41 " "
+      LiteralExpr@41..42
+        Int@41..42 "2"
+      Whitespace@42..43 " "
+      RBracket@43..44 "]"
+  Newline@44..45 "\n"

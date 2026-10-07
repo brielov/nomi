@@ -19,6 +19,27 @@ pub fn parse_module(text: &str) -> Parse {
     p.finish()
 }
 
+/// Parses declarations with no header or imports. elm-format reads an
+/// Elm code block in a doc comment this way first.
+pub fn parse_declarations(text: &str) -> Parse {
+    let mut p = Parser::new(text);
+    let m = p.start();
+    declarations::declarations(&mut p);
+    m.complete(&mut p, K::DeclarationsFragment);
+    p.finish()
+}
+
+/// Parses expressions, each starting a line. elm-format reads an Elm code
+/// block in a doc comment this way if it holds no declarations, before
+/// trying a whole module.
+pub fn parse_expressions(text: &str) -> Parse {
+    let mut p = Parser::new(text);
+    let m = p.start();
+    expressions::expressions(&mut p);
+    m.complete(&mut p, K::ExpressionsFragment);
+    p.finish()
+}
+
 /// Parses a type on its own, such as one from a package's `docs.json`.
 /// Every line may start at column 0.
 pub fn parse_type(text: &str) -> Parse {

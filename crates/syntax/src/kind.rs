@@ -160,6 +160,10 @@ syntax_kinds! {
         PatternFragment,
         /// The root of [`crate::parse_expr`].
         ExprFragment,
+        /// The root of [`crate::parse_declarations`].
+        DeclarationsFragment,
+        /// The root of [`crate::parse_expressions`].
+        ExpressionsFragment,
         ModuleHeader,
         ModuleName,
         EffectFields,

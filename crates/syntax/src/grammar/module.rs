@@ -1,7 +1,7 @@
 //! The module header, the module documentation, imports and the
 //! declarations that follow.
 
-use super::declarations::declaration;
+use super::declarations::declarations;
 use super::{expect_indented, module_name, skip_junk};
 use crate::SyntaxKind as K;
 use crate::parser::{Parser, SyntaxErrorKind};
@@ -27,10 +27,7 @@ pub(super) fn module(p: &mut Parser<'_>) {
         import(p);
         skip_junk(p, SyntaxErrorKind::Unexpected, &[]);
     }
-    while !p.at(K::Eof) {
-        declaration(p);
-        skip_junk(p, SyntaxErrorKind::Unexpected, &[]);
-    }
+    declarations(p);
     m.complete(p, K::Module);
 }
 

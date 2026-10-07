@@ -1,0 +1,22 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_declarations)"
+input_file: crates/syntax/test_data/parser/declarations_fragment/import_rejected.elm
+---
+DeclarationsFragment@0..19
+  Error@0..11
+    ImportKw@0..6 "import"
+    Whitespace@6..7 " "
+    UpperIdent@7..11 "Html"
+  Newline@11..12 "\n"
+  Newline@12..13 "\n"
+  ValueDecl@13..18
+    Definition@13..18
+      LowerIdent@13..14 "x"
+      Whitespace@14..15 " "
+      Eq@15..16 "="
+      Whitespace@16..17 " "
+      LiteralExpr@17..18
+        Int@17..18 "1"
+  Newline@18..19 "\n"
+error 0..6: ExpectedDeclaration

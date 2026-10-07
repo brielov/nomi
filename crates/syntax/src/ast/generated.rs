@@ -207,6 +207,282 @@ impl From<InfixDecl> for Decl {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct DeclarationsFragment {
+    pub(super) syntax: SyntaxNode,
+}
+
+impl AstNode for DeclarationsFragment {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::DeclarationsFragment
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        Self::can_cast(syntax.kind()).then_some(DeclarationsFragment { syntax })
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+
+impl DeclarationsFragment {
+    pub fn decls(&self) -> AstChildren<Decl> {
+        support::children(&self.syntax)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ExpressionsFragment {
+    pub(super) syntax: SyntaxNode,
+}
+
+impl AstNode for ExpressionsFragment {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::ExpressionsFragment
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        Self::can_cast(syntax.kind()).then_some(ExpressionsFragment { syntax })
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+
+impl ExpressionsFragment {
+    pub fn exprs(&self) -> AstChildren<Expr> {
+        support::children(&self.syntax)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Expr {
+    LiteralExpr(LiteralExpr),
+    NameExpr(NameExpr),
+    OperatorFunction(OperatorFunction),
+    TupleConstructorExpr(TupleConstructorExpr),
+    NegateExpr(NegateExpr),
+    CallExpr(CallExpr),
+    OperatorChain(OperatorChain),
+    UnitExpr(UnitExpr),
+    ParenExpr(ParenExpr),
+    TupleExpr(TupleExpr),
+    ListExpr(ListExpr),
+    RecordExpr(RecordExpr),
+    RecordUpdateExpr(RecordUpdateExpr),
+    FieldAccessExpr(FieldAccessExpr),
+    AccessorExpr(AccessorExpr),
+    IfExpr(IfExpr),
+    CaseExpr(CaseExpr),
+    LetExpr(LetExpr),
+    LambdaExpr(LambdaExpr),
+    GlslExpr(GlslExpr),
+}
+
+impl AstNode for Expr {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        LiteralExpr::can_cast(kind)
+            || NameExpr::can_cast(kind)
+            || OperatorFunction::can_cast(kind)
+            || TupleConstructorExpr::can_cast(kind)
+            || NegateExpr::can_cast(kind)
+            || CallExpr::can_cast(kind)
+            || OperatorChain::can_cast(kind)
+            || UnitExpr::can_cast(kind)
+            || ParenExpr::can_cast(kind)
+            || TupleExpr::can_cast(kind)
+            || ListExpr::can_cast(kind)
+            || RecordExpr::can_cast(kind)
+            || RecordUpdateExpr::can_cast(kind)
+            || FieldAccessExpr::can_cast(kind)
+            || AccessorExpr::can_cast(kind)
+            || IfExpr::can_cast(kind)
+            || CaseExpr::can_cast(kind)
+            || LetExpr::can_cast(kind)
+            || LambdaExpr::can_cast(kind)
+            || GlslExpr::can_cast(kind)
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        match syntax.kind() {
+            SyntaxKind::LiteralExpr => Some(Expr::LiteralExpr(LiteralExpr { syntax })),
+            SyntaxKind::NameExpr => Some(Expr::NameExpr(NameExpr { syntax })),
+            SyntaxKind::OperatorFunction => {
+                Some(Expr::OperatorFunction(OperatorFunction { syntax }))
+            }
+            SyntaxKind::TupleConstructorExpr => {
+                Some(Expr::TupleConstructorExpr(TupleConstructorExpr { syntax }))
+            }
+            SyntaxKind::NegateExpr => Some(Expr::NegateExpr(NegateExpr { syntax })),
+            SyntaxKind::CallExpr => Some(Expr::CallExpr(CallExpr { syntax })),
+            SyntaxKind::OperatorChain => Some(Expr::OperatorChain(OperatorChain { syntax })),
+            SyntaxKind::UnitExpr => Some(Expr::UnitExpr(UnitExpr { syntax })),
+            SyntaxKind::ParenExpr => Some(Expr::ParenExpr(ParenExpr { syntax })),
+            SyntaxKind::TupleExpr => Some(Expr::TupleExpr(TupleExpr { syntax })),
+            SyntaxKind::ListExpr => Some(Expr::ListExpr(ListExpr { syntax })),
+            SyntaxKind::RecordExpr => Some(Expr::RecordExpr(RecordExpr { syntax })),
+            SyntaxKind::RecordUpdateExpr => {
+                Some(Expr::RecordUpdateExpr(RecordUpdateExpr { syntax }))
+            }
+            SyntaxKind::FieldAccessExpr => Some(Expr::FieldAccessExpr(FieldAccessExpr { syntax })),
+            SyntaxKind::AccessorExpr => Some(Expr::AccessorExpr(AccessorExpr { syntax })),
+            SyntaxKind::IfExpr => Some(Expr::IfExpr(IfExpr { syntax })),
+            SyntaxKind::CaseExpr => Some(Expr::CaseExpr(CaseExpr { syntax })),
+            SyntaxKind::LetExpr => Some(Expr::LetExpr(LetExpr { syntax })),
+            SyntaxKind::LambdaExpr => Some(Expr::LambdaExpr(LambdaExpr { syntax })),
+            SyntaxKind::GlslExpr => Some(Expr::GlslExpr(GlslExpr { syntax })),
+            _ => None,
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        match self {
+            Expr::LiteralExpr(it) => &it.syntax,
+            Expr::NameExpr(it) => &it.syntax,
+            Expr::OperatorFunction(it) => &it.syntax,
+            Expr::TupleConstructorExpr(it) => &it.syntax,
+            Expr::NegateExpr(it) => &it.syntax,
+            Expr::CallExpr(it) => &it.syntax,
+            Expr::OperatorChain(it) => &it.syntax,
+            Expr::UnitExpr(it) => &it.syntax,
+            Expr::ParenExpr(it) => &it.syntax,
+            Expr::TupleExpr(it) => &it.syntax,
+            Expr::ListExpr(it) => &it.syntax,
+            Expr::RecordExpr(it) => &it.syntax,
+            Expr::RecordUpdateExpr(it) => &it.syntax,
+            Expr::FieldAccessExpr(it) => &it.syntax,
+            Expr::AccessorExpr(it) => &it.syntax,
+            Expr::IfExpr(it) => &it.syntax,
+            Expr::CaseExpr(it) => &it.syntax,
+            Expr::LetExpr(it) => &it.syntax,
+            Expr::LambdaExpr(it) => &it.syntax,
+            Expr::GlslExpr(it) => &it.syntax,
+        }
+    }
+}
+
+impl From<LiteralExpr> for Expr {
+    fn from(node: LiteralExpr) -> Expr {
+        Expr::LiteralExpr(node)
+    }
+}
+
+impl From<NameExpr> for Expr {
+    fn from(node: NameExpr) -> Expr {
+        Expr::NameExpr(node)
+    }
+}
+
+impl From<OperatorFunction> for Expr {
+    fn from(node: OperatorFunction) -> Expr {
+        Expr::OperatorFunction(node)
+    }
+}
+
+impl From<TupleConstructorExpr> for Expr {
+    fn from(node: TupleConstructorExpr) -> Expr {
+        Expr::TupleConstructorExpr(node)
+    }
+}
+
+impl From<NegateExpr> for Expr {
+    fn from(node: NegateExpr) -> Expr {
+        Expr::NegateExpr(node)
+    }
+}
+
+impl From<CallExpr> for Expr {
+    fn from(node: CallExpr) -> Expr {
+        Expr::CallExpr(node)
+    }
+}
+
+impl From<OperatorChain> for Expr {
+    fn from(node: OperatorChain) -> Expr {
+        Expr::OperatorChain(node)
+    }
+}
+
+impl From<UnitExpr> for Expr {
+    fn from(node: UnitExpr) -> Expr {
+        Expr::UnitExpr(node)
+    }
+}
+
+impl From<ParenExpr> for Expr {
+    fn from(node: ParenExpr) -> Expr {
+        Expr::ParenExpr(node)
+    }
+}
+
+impl From<TupleExpr> for Expr {
+    fn from(node: TupleExpr) -> Expr {
+        Expr::TupleExpr(node)
+    }
+}
+
+impl From<ListExpr> for Expr {
+    fn from(node: ListExpr) -> Expr {
+        Expr::ListExpr(node)
+    }
+}
+
+impl From<RecordExpr> for Expr {
+    fn from(node: RecordExpr) -> Expr {
+        Expr::RecordExpr(node)
+    }
+}
+
+impl From<RecordUpdateExpr> for Expr {
+    fn from(node: RecordUpdateExpr) -> Expr {
+        Expr::RecordUpdateExpr(node)
+    }
+}
+
+impl From<FieldAccessExpr> for Expr {
+    fn from(node: FieldAccessExpr) -> Expr {
+        Expr::FieldAccessExpr(node)
+    }
+}
+
+impl From<AccessorExpr> for Expr {
+    fn from(node: AccessorExpr) -> Expr {
+        Expr::AccessorExpr(node)
+    }
+}
+
+impl From<IfExpr> for Expr {
+    fn from(node: IfExpr) -> Expr {
+        Expr::IfExpr(node)
+    }
+}
+
+impl From<CaseExpr> for Expr {
+    fn from(node: CaseExpr) -> Expr {
+        Expr::CaseExpr(node)
+    }
+}
+
+impl From<LetExpr> for Expr {
+    fn from(node: LetExpr) -> Expr {
+        Expr::LetExpr(node)
+    }
+}
+
+impl From<LambdaExpr> for Expr {
+    fn from(node: LambdaExpr) -> Expr {
+        Expr::LambdaExpr(node)
+    }
+}
+
+impl From<GlslExpr> for Expr {
+    fn from(node: GlslExpr) -> Expr {
+        Expr::GlslExpr(node)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ModuleName {
     pub(super) syntax: SyntaxNode,
 }
@@ -1152,232 +1428,6 @@ impl From<ConsPattern> for Pattern {
 impl From<AliasPattern> for Pattern {
     fn from(node: AliasPattern) -> Pattern {
         Pattern::AliasPattern(node)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Expr {
-    LiteralExpr(LiteralExpr),
-    NameExpr(NameExpr),
-    OperatorFunction(OperatorFunction),
-    TupleConstructorExpr(TupleConstructorExpr),
-    NegateExpr(NegateExpr),
-    CallExpr(CallExpr),
-    OperatorChain(OperatorChain),
-    UnitExpr(UnitExpr),
-    ParenExpr(ParenExpr),
-    TupleExpr(TupleExpr),
-    ListExpr(ListExpr),
-    RecordExpr(RecordExpr),
-    RecordUpdateExpr(RecordUpdateExpr),
-    FieldAccessExpr(FieldAccessExpr),
-    AccessorExpr(AccessorExpr),
-    IfExpr(IfExpr),
-    CaseExpr(CaseExpr),
-    LetExpr(LetExpr),
-    LambdaExpr(LambdaExpr),
-    GlslExpr(GlslExpr),
-}
-
-impl AstNode for Expr {
-    fn can_cast(kind: SyntaxKind) -> bool {
-        LiteralExpr::can_cast(kind)
-            || NameExpr::can_cast(kind)
-            || OperatorFunction::can_cast(kind)
-            || TupleConstructorExpr::can_cast(kind)
-            || NegateExpr::can_cast(kind)
-            || CallExpr::can_cast(kind)
-            || OperatorChain::can_cast(kind)
-            || UnitExpr::can_cast(kind)
-            || ParenExpr::can_cast(kind)
-            || TupleExpr::can_cast(kind)
-            || ListExpr::can_cast(kind)
-            || RecordExpr::can_cast(kind)
-            || RecordUpdateExpr::can_cast(kind)
-            || FieldAccessExpr::can_cast(kind)
-            || AccessorExpr::can_cast(kind)
-            || IfExpr::can_cast(kind)
-            || CaseExpr::can_cast(kind)
-            || LetExpr::can_cast(kind)
-            || LambdaExpr::can_cast(kind)
-            || GlslExpr::can_cast(kind)
-    }
-
-    fn cast(syntax: SyntaxNode) -> Option<Self> {
-        match syntax.kind() {
-            SyntaxKind::LiteralExpr => Some(Expr::LiteralExpr(LiteralExpr { syntax })),
-            SyntaxKind::NameExpr => Some(Expr::NameExpr(NameExpr { syntax })),
-            SyntaxKind::OperatorFunction => {
-                Some(Expr::OperatorFunction(OperatorFunction { syntax }))
-            }
-            SyntaxKind::TupleConstructorExpr => {
-                Some(Expr::TupleConstructorExpr(TupleConstructorExpr { syntax }))
-            }
-            SyntaxKind::NegateExpr => Some(Expr::NegateExpr(NegateExpr { syntax })),
-            SyntaxKind::CallExpr => Some(Expr::CallExpr(CallExpr { syntax })),
-            SyntaxKind::OperatorChain => Some(Expr::OperatorChain(OperatorChain { syntax })),
-            SyntaxKind::UnitExpr => Some(Expr::UnitExpr(UnitExpr { syntax })),
-            SyntaxKind::ParenExpr => Some(Expr::ParenExpr(ParenExpr { syntax })),
-            SyntaxKind::TupleExpr => Some(Expr::TupleExpr(TupleExpr { syntax })),
-            SyntaxKind::ListExpr => Some(Expr::ListExpr(ListExpr { syntax })),
-            SyntaxKind::RecordExpr => Some(Expr::RecordExpr(RecordExpr { syntax })),
-            SyntaxKind::RecordUpdateExpr => {
-                Some(Expr::RecordUpdateExpr(RecordUpdateExpr { syntax }))
-            }
-            SyntaxKind::FieldAccessExpr => Some(Expr::FieldAccessExpr(FieldAccessExpr { syntax })),
-            SyntaxKind::AccessorExpr => Some(Expr::AccessorExpr(AccessorExpr { syntax })),
-            SyntaxKind::IfExpr => Some(Expr::IfExpr(IfExpr { syntax })),
-            SyntaxKind::CaseExpr => Some(Expr::CaseExpr(CaseExpr { syntax })),
-            SyntaxKind::LetExpr => Some(Expr::LetExpr(LetExpr { syntax })),
-            SyntaxKind::LambdaExpr => Some(Expr::LambdaExpr(LambdaExpr { syntax })),
-            SyntaxKind::GlslExpr => Some(Expr::GlslExpr(GlslExpr { syntax })),
-            _ => None,
-        }
-    }
-
-    fn syntax(&self) -> &SyntaxNode {
-        match self {
-            Expr::LiteralExpr(it) => &it.syntax,
-            Expr::NameExpr(it) => &it.syntax,
-            Expr::OperatorFunction(it) => &it.syntax,
-            Expr::TupleConstructorExpr(it) => &it.syntax,
-            Expr::NegateExpr(it) => &it.syntax,
-            Expr::CallExpr(it) => &it.syntax,
-            Expr::OperatorChain(it) => &it.syntax,
-            Expr::UnitExpr(it) => &it.syntax,
-            Expr::ParenExpr(it) => &it.syntax,
-            Expr::TupleExpr(it) => &it.syntax,
-            Expr::ListExpr(it) => &it.syntax,
-            Expr::RecordExpr(it) => &it.syntax,
-            Expr::RecordUpdateExpr(it) => &it.syntax,
-            Expr::FieldAccessExpr(it) => &it.syntax,
-            Expr::AccessorExpr(it) => &it.syntax,
-            Expr::IfExpr(it) => &it.syntax,
-            Expr::CaseExpr(it) => &it.syntax,
-            Expr::LetExpr(it) => &it.syntax,
-            Expr::LambdaExpr(it) => &it.syntax,
-            Expr::GlslExpr(it) => &it.syntax,
-        }
-    }
-}
-
-impl From<LiteralExpr> for Expr {
-    fn from(node: LiteralExpr) -> Expr {
-        Expr::LiteralExpr(node)
-    }
-}
-
-impl From<NameExpr> for Expr {
-    fn from(node: NameExpr) -> Expr {
-        Expr::NameExpr(node)
-    }
-}
-
-impl From<OperatorFunction> for Expr {
-    fn from(node: OperatorFunction) -> Expr {
-        Expr::OperatorFunction(node)
-    }
-}
-
-impl From<TupleConstructorExpr> for Expr {
-    fn from(node: TupleConstructorExpr) -> Expr {
-        Expr::TupleConstructorExpr(node)
-    }
-}
-
-impl From<NegateExpr> for Expr {
-    fn from(node: NegateExpr) -> Expr {
-        Expr::NegateExpr(node)
-    }
-}
-
-impl From<CallExpr> for Expr {
-    fn from(node: CallExpr) -> Expr {
-        Expr::CallExpr(node)
-    }
-}
-
-impl From<OperatorChain> for Expr {
-    fn from(node: OperatorChain) -> Expr {
-        Expr::OperatorChain(node)
-    }
-}
-
-impl From<UnitExpr> for Expr {
-    fn from(node: UnitExpr) -> Expr {
-        Expr::UnitExpr(node)
-    }
-}
-
-impl From<ParenExpr> for Expr {
-    fn from(node: ParenExpr) -> Expr {
-        Expr::ParenExpr(node)
-    }
-}
-
-impl From<TupleExpr> for Expr {
-    fn from(node: TupleExpr) -> Expr {
-        Expr::TupleExpr(node)
-    }
-}
-
-impl From<ListExpr> for Expr {
-    fn from(node: ListExpr) -> Expr {
-        Expr::ListExpr(node)
-    }
-}
-
-impl From<RecordExpr> for Expr {
-    fn from(node: RecordExpr) -> Expr {
-        Expr::RecordExpr(node)
-    }
-}
-
-impl From<RecordUpdateExpr> for Expr {
-    fn from(node: RecordUpdateExpr) -> Expr {
-        Expr::RecordUpdateExpr(node)
-    }
-}
-
-impl From<FieldAccessExpr> for Expr {
-    fn from(node: FieldAccessExpr) -> Expr {
-        Expr::FieldAccessExpr(node)
-    }
-}
-
-impl From<AccessorExpr> for Expr {
-    fn from(node: AccessorExpr) -> Expr {
-        Expr::AccessorExpr(node)
-    }
-}
-
-impl From<IfExpr> for Expr {
-    fn from(node: IfExpr) -> Expr {
-        Expr::IfExpr(node)
-    }
-}
-
-impl From<CaseExpr> for Expr {
-    fn from(node: CaseExpr) -> Expr {
-        Expr::CaseExpr(node)
-    }
-}
-
-impl From<LetExpr> for Expr {
-    fn from(node: LetExpr) -> Expr {
-        Expr::LetExpr(node)
-    }
-}
-
-impl From<LambdaExpr> for Expr {
-    fn from(node: LambdaExpr) -> Expr {
-        Expr::LambdaExpr(node)
-    }
-}
-
-impl From<GlslExpr> for Expr {
-    fn from(node: GlslExpr) -> Expr {
-        Expr::GlslExpr(node)
     }
 }
 
@@ -3028,6 +3078,8 @@ pub fn has_view(kind: SyntaxKind) -> bool {
     Module::can_cast(kind)
         || ModuleHeader::can_cast(kind)
         || Import::can_cast(kind)
+        || DeclarationsFragment::can_cast(kind)
+        || ExpressionsFragment::can_cast(kind)
         || ModuleName::can_cast(kind)
         || EffectFields::can_cast(kind)
         || ExposingList::can_cast(kind)

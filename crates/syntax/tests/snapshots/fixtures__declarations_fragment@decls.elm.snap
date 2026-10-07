@@ -1,0 +1,76 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_declarations)"
+input_file: crates/syntax/test_data/parser/declarations_fragment/decls.elm
+---
+DeclarationsFragment@0..99
+  ValueDecl@0..52
+    DocComment@0..11 "{-| Doc. -}"
+    Newline@11..12 "\n"
+    Signature@12..31
+      LowerIdent@12..18 "double"
+      Whitespace@18..19 " "
+      Colon@19..20 ":"
+      Whitespace@20..21 " "
+      FunctionType@21..31
+        NamedType@21..24
+          UpperIdent@21..24 "Int"
+        Whitespace@24..25 " "
+        Arrow@25..27 "->"
+        Whitespace@27..28 " "
+        NamedType@28..31
+          UpperIdent@28..31 "Int"
+    Newline@31..32 "\n"
+    Definition@32..52
+      LowerIdent@32..38 "double"
+      Whitespace@38..39 " "
+      VarPattern@39..40
+        LowerIdent@39..40 "x"
+      Whitespace@40..41 " "
+      Eq@41..42 "="
+      Newline@42..43 "\n"
+      Whitespace@43..47 "    "
+      OperatorChain@47..52
+        NameExpr@47..48
+          LowerIdent@47..48 "x"
+        Whitespace@48..49 " "
+        Op@49..50
+          Operator@49..50 "*"
+        Whitespace@50..51 " "
+        LiteralExpr@51..52
+          Int@51..52 "2"
+  Newline@52..53 "\n"
+  Newline@53..54 "\n"
+  Newline@54..55 "\n"
+  TypeAliasDecl@55..98
+    TypeKw@55..59 "type"
+    Whitespace@59..60 " "
+    AliasKw@60..65 "alias"
+    Whitespace@65..66 " "
+    UpperIdent@66..71 "Point"
+    Whitespace@71..72 " "
+    Eq@72..73 "="
+    Newline@73..74 "\n"
+    Whitespace@74..78 "    "
+    RecordType@78..98
+      LBrace@78..79 "{"
+      Whitespace@79..80 " "
+      FieldType@80..87
+        LowerIdent@80..81 "x"
+        Whitespace@81..82 " "
+        Colon@82..83 ":"
+        Whitespace@83..84 " "
+        NamedType@84..87
+          UpperIdent@84..87 "Int"
+      Comma@87..88 ","
+      Whitespace@88..89 " "
+      FieldType@89..96
+        LowerIdent@89..90 "y"
+        Whitespace@90..91 " "
+        Colon@91..92 ":"
+        Whitespace@92..93 " "
+        NamedType@93..96
+          UpperIdent@93..96 "Int"
+      Whitespace@96..97 " "
+      RBrace@97..98 "}"
+  Newline@98..99 "\n"

@@ -19,6 +19,14 @@ Module =
   Import*
   Decl*
 
+// elm-format's readings of an Elm code block in a doc comment, tried in
+// this order before a whole Module.
+DeclarationsFragment =
+  Decl*
+
+ExpressionsFragment =
+  Expr*
+
 ModuleHeader =
   'port'? 'effect'? 'module' ModuleName
   (EffectFields | 'where')?

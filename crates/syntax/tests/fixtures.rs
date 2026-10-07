@@ -41,6 +41,30 @@ fn recovery() {
 }
 
 #[test]
+fn declarations_fragment() {
+    insta::glob!(
+        "../test_data/parser",
+        "declarations_fragment/*.elm",
+        |path| {
+            let text = std::fs::read_to_string(path).unwrap();
+            insta::assert_snapshot!(render(&text, nomi_syntax::parse_declarations));
+        }
+    );
+}
+
+#[test]
+fn expressions_fragment() {
+    insta::glob!(
+        "../test_data/parser",
+        "expressions_fragment/*.elm",
+        |path| {
+            let text = std::fs::read_to_string(path).unwrap();
+            insta::assert_snapshot!(render(&text, nomi_syntax::parse_expressions));
+        }
+    );
+}
+
+#[test]
 fn types() {
     insta::glob!("../test_data/parser", "types/*.elm", |path| {
         let text = std::fs::read_to_string(path).unwrap();

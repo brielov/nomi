@@ -5,9 +5,17 @@ use super::definitions::value;
 use super::expressions::expr;
 use super::patterns::{at_pattern_atom, pattern_atom};
 use super::types::{at_type, type_, type_atom};
-use super::{expect_indented, expect_part};
+use super::{expect_indented, expect_part, skip_junk};
 use crate::SyntaxKind as K;
 use crate::parser::{Marker, Parser, SyntaxErrorKind};
+
+/// Declarations up to the end of input.
+pub(super) fn declarations(p: &mut Parser<'_>) {
+    while !p.at(K::Eof) {
+        declaration(p);
+        skip_junk(p, SyntaxErrorKind::Unexpected, &[]);
+    }
+}
 
 /// Whether a declaration could start here: a fresh line, then a token
 /// that begins one.
@@ -21,7 +29,7 @@ fn at_declaration(p: &mut Parser<'_>) -> bool {
 
 /// One declaration, which starts on a fresh line. Anything else is
 /// skipped, with one error, up to where a declaration could start.
-pub(super) fn declaration(p: &mut Parser<'_>) {
+fn declaration(p: &mut Parser<'_>) {
     if !p.at_fresh_line() {
         p.error(SyntaxErrorKind::ExpectedFreshLine);
     }

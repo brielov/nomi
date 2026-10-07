@@ -1,0 +1,18 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expressions)"
+input_file: crates/syntax/test_data/parser/expressions_fragment/junk.elm
+---
+ExpressionsFragment@0..8
+  NameExpr@0..1
+    LowerIdent@0..1 "x"
+  Newline@1..2 "\n"
+  Error@2..5
+    RParen@2..3 ")"
+    Newline@3..4 "\n"
+    RBracket@4..5 "]"
+  Newline@5..6 "\n"
+  NameExpr@6..7
+    LowerIdent@6..7 "y"
+  Newline@7..8 "\n"
+error 2..3: ExpectedExpression
