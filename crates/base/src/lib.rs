@@ -1,10 +1,12 @@
 //! Shared vocabulary for every nomi crate: file identities, text ranges,
 //! line indexes and the diagnostic model. Depends on no other nomi crate.
 
+mod compat;
 pub mod diagnostic;
 mod file_id;
 mod line_index;
 
+pub use compat::{Compat, UnknownCompat};
 pub use diagnostic::{Code, Diagnostic, Doc, Edit, Fix, Label, Severity, Span};
 pub use file_id::FileId;
 pub use line_index::{ColumnUnit, ElmPosition, LineCol, LineIndex, PositionError};

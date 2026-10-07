@@ -147,8 +147,10 @@ fn parse_table(text: &str) -> Result<Table> {
 fn tool(column: &str, source: Source) -> Result<Tool> {
     match column {
         "elm-format" => Ok(Tool::ElmFormat),
-        _ if column.starts_with("elm ") => Ok(Tool::Elm(source)),
-        _ => bail!("unknown column `{column}`"),
+        _ => match column.strip_prefix("elm ") {
+            Some(version) => Ok(Tool::Elm(source, version.parse()?)),
+            None => bail!("unknown column `{column}`"),
+        },
     }
 }
 
@@ -209,6 +211,8 @@ pub fn check(root: &Path, record: bool) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use nomi_base::Compat;
+
     use super::*;
 
     #[test]
@@ -228,8 +232,9 @@ mod tests {
     fn columns_name_tools() {
         assert_eq!(
             tool("elm 0.19.3", Source::Kernel).unwrap(),
-            Tool::Elm(Source::Kernel)
+            Tool::Elm(Source::Kernel, Compat::V0_19_3)
         );
+        assert!(tool("elm 0.19.0", Source::Kernel).is_err());
         assert_eq!(tool("elm-format", Source::Kernel).unwrap(), Tool::ElmFormat);
         assert!(tool("elm-review", Source::Kernel).is_err());
     }

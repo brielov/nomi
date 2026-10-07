@@ -4,6 +4,7 @@
 
 use std::fmt::Write;
 
+use nomi_base::Compat;
 use nomi_syntax::{Parse, Source, Tool};
 
 fn render(text: &str, parse: impl Fn(&str) -> Parse) -> String {
@@ -88,13 +89,15 @@ fn expressions() {
     });
 }
 
-/// What each tool rejects in a module that parses cleanly.
+/// What each tool rejects in a module that parses cleanly. Releases
+/// differ only far right on long lines, which unit tests cover.
 #[test]
 fn validation() {
+    let elm = |source| Tool::Elm(source, Compat::LATEST);
     let tools = [
-        ("elm, application", Tool::Elm(Source::Application)),
-        ("elm, package", Tool::Elm(Source::Package)),
-        ("elm, kernel package", Tool::Elm(Source::Kernel)),
+        ("elm, application", elm(Source::Application)),
+        ("elm, package", elm(Source::Package)),
+        ("elm, kernel package", elm(Source::Kernel)),
         ("elm-format", Tool::ElmFormat),
     ];
     insta::glob!("../test_data/parser", "validation/*.elm", |path| {

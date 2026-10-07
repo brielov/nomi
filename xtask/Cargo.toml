@@ -11,6 +11,7 @@ anyhow = "1.0.104"
 cargo_metadata = "0.23.1"
 clap.workspace = true
 flate2 = "1.1.10"
+nomi-base.workspace = true
 nomi-syntax.workspace = true
 nomi-testkit.workspace = true
 serde = { version = "1.0.229", features = ["derive"] }

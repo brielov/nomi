@@ -828,6 +828,7 @@ flarebyte/bubblegum-entity@1.1.1
 flarebyte/bubblegum-ui-textarea@1.0.1
 flo-ham/date-picker@1.0.0
 flowlang-cc/elm-audio-graph@1.0.1
+folkertdev/elm-brotli@1.0.4
 folkertdev/elm-cff@1.0.0
 folkertdev/elm-deque@3.0.1
 folkertdev/elm-flate@2.0.6
@@ -835,7 +836,9 @@ folkertdev/elm-int64@1.0.0
 folkertdev/elm-iris@1.0.0
 folkertdev/elm-kmeans@1.0.0
 folkertdev/elm-paragraph@1.0.0
+folkertdev/elm-sha2@1.0.0
 folkertdev/elm-state@3.0.1
+folkertdev/elm-tiny-inflate@1.1.2
 folkertdev/svg-path-lowlevel@4.0.1
 folq/google-calendar-url@2.0.0
 folq/review-rgb-ranges@1.0.5

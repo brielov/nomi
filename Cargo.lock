@@ -1652,6 +1652,7 @@ dependencies = [
  "cargo_metadata",
  "clap",
  "flate2",
+ "nomi-base",
  "nomi-syntax",
  "nomi-testkit",
  "serde",

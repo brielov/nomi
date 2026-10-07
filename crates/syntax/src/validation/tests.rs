@@ -1,8 +1,10 @@
+use nomi_base::Compat;
+
 use crate::{SyntaxErrorKind as E, parse_declarations, parse_expressions, parse_module};
 
 use super::{Source, Tool, validate};
 
-const ELM: Tool = Tool::Elm(Source::Application);
+const ELM: Tool = Tool::Elm(Source::Application, Compat::LATEST);
 
 fn kinds(parse: &crate::Parse, tool: Tool) -> Vec<E> {
     validate(parse, tool).into_iter().map(|e| e.kind).collect()
@@ -66,11 +68,35 @@ fn broken_trees_validate_without_panicking() {
         let parse = parse_module(text);
         for tool in [
             ELM,
-            Tool::Elm(Source::Package),
-            Tool::Elm(Source::Kernel),
+            Tool::Elm(Source::Package, Compat::LATEST),
+            Tool::Elm(Source::Kernel, Compat::LATEST),
             Tool::ElmFormat,
         ] {
             validate(&parse, tool);
+        }
+    }
+}
+
+#[test]
+fn columns_wrap_in_16_bits_for_0_19_1() {
+    // A list item at the 0-based `column`, after a long string; its
+    // comma is two columns left.
+    let module = |column: usize| {
+        let padding = "a".repeat(column - 10);
+        format!("module M exposing (x)\n\nx =\n    [ \"{padding}\", 1\n    ]\n")
+    };
+    let elm = |compat| Tool::Elm(Source::Application, compat);
+    for (column, wraps) in [(65533, false), (65535, true), (65536, true), (65539, false)] {
+        let parse = parse_module(&module(column));
+        assert_eq!(parse.errors(), [], "column {column}");
+        let expected: &[E] = if wraps { &[E::ExpectedIndent] } else { &[] };
+        assert_eq!(
+            kinds(&parse, elm(Compat::V0_19_1)),
+            expected,
+            "column {column}"
+        );
+        for compat in [Compat::V0_19_2, Compat::V0_19_3] {
+            assert_eq!(kinds(&parse, elm(compat)), [], "column {column}");
         }
     }
 }

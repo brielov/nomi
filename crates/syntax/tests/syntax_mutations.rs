@@ -5,6 +5,7 @@
 
 use std::path::Path;
 
+use nomi_base::Compat;
 use nomi_syntax::{Source, Tool};
 use nomi_testkit::mutation;
 use nomi_testkit::ratchet::Suite;
@@ -65,8 +66,10 @@ fn seed_outcomes(dir: &Path, line: &str) -> Vec<Outcome> {
         .skip(1)
         .map(|column| match column {
             "elm-format" => (column, Tool::ElmFormat),
-            _ if column.starts_with("elm ") => (column, Tool::Elm(source)),
-            _ => panic!("{seed}: unknown column `{column}`"),
+            _ => match column.strip_prefix("elm ").map(str::parse::<Compat>) {
+                Some(Ok(compat)) => (column, Tool::Elm(source, compat)),
+                _ => panic!("{seed}: unknown column `{column}`"),
+            },
         })
         .collect();
     let rows: Vec<&str> = lines.collect();
@@ -81,7 +84,7 @@ fn seed_outcomes(dir: &Path, line: &str) -> Vec<Outcome> {
             "{seed}: malformed row `{row}`"
         );
         let parse = nomi_syntax::parse_module(&m.source);
-        // Each elm column is the same tool; validate it once.
+        // Releases rarely differ; validate each tool once.
         let mut verdicts: Vec<(Tool, bool)> = Vec::new();
         let mut accepts = |tool: Tool| match verdicts.iter().find(|(t, _)| *t == tool) {
             Some(&(_, accepted)) => accepted,

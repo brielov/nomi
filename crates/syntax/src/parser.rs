@@ -31,6 +31,23 @@ pub struct Parse {
     /// parser knows the indentation context, so it records them for
     /// [`crate::validate`].
     pub(crate) unindented: Vec<TextRange>,
+    /// Indentation checks a token passed at [`FAR_COLUMN`] or further
+    /// right, where a release that keeps columns in 16 bits sees another
+    /// column.
+    pub(crate) far: Vec<FarCheck>,
+}
+
+/// The leftmost column, counting from 0, where a 16-bit 1-based column
+/// wraps.
+pub(crate) const FAR_COLUMN: u32 = u16::MAX as u32;
+
+/// A token that passed an indentation check far right on its line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FarCheck {
+    pub(crate) range: TextRange,
+    pub(crate) column: u32,
+    /// The column it had to reach: the enclosing construct's 1-based one.
+    pub(crate) min_column: u32,
 }
 
 impl Parse {
@@ -238,6 +255,7 @@ pub(crate) struct Parser<'t> {
     /// case branch's first token. It counts as indented.
     anchor: Option<TextSize>,
     unindented: Vec<TextRange>,
+    far: Vec<FarCheck>,
 }
 
 impl<'t> Parser<'t> {
@@ -256,6 +274,7 @@ impl<'t> Parser<'t> {
             min_column: 1,
             anchor: None,
             unindented: Vec::new(),
+            far: Vec::new(),
         }
     }
 
@@ -286,6 +305,7 @@ impl<'t> Parser<'t> {
             green,
             errors,
             unindented: self.unindented,
+            far: self.far,
         }
     }
 
@@ -433,7 +453,21 @@ impl<'t> Parser<'t> {
         let Some(a) = self.nth_token(0) else {
             return false;
         };
-        a.column >= self.min_column || self.anchor == Some(a.token.range.start())
+        if self.anchor == Some(a.token.range.start()) {
+            return true;
+        }
+        let indented = a.column >= self.min_column;
+        if indented && a.column >= FAR_COLUMN {
+            let check = FarCheck {
+                range: a.token.range,
+                column: a.column,
+                min_column: self.min_column,
+            };
+            if self.far.last() != Some(&check) {
+                self.far.push(check);
+            }
+        }
+        indented
     }
 
     /// Lets the current token start an item of a block it is aligned in,
@@ -571,8 +605,8 @@ impl<'t> Parser<'t> {
 }
 
 /// The column after `text`, starting at `column`. Columns count
-/// characters, ignoring carriage returns as elm's `eatSpaces` does.
-// TODO(plan 1.17): confirm the unit against the oracle's regions.
+/// characters, as every elm release does, ignoring carriage returns as
+/// elm's `eatSpaces` does.
 fn advance_column(column: u32, text: &str) -> u32 {
     let (base, rest) = match text.rsplit_once('\n') {
         Some((_, rest)) => (0, rest),

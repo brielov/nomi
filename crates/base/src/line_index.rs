@@ -2,8 +2,7 @@
 //!
 //! Lines end at LF only, as in Elm: a CRLF ends one line, and a bare CR
 //! stays inside its line. Columns are counted in a [`ColumnUnit`] chosen by
-//! the caller. LSP uses UTF-16; which unit Elm reports is settled by plan
-//! step 1.17 against the oracle, so it is a parameter until then.
+//! the caller: LSP uses UTF-16, and every elm release counts code points.
 
 use std::fmt;
 

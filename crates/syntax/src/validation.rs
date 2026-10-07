@@ -4,7 +4,7 @@
 //! also depends on the project a module belongs to (`Parse/Module.hs`,
 //! `checkEffects`).
 
-use nomi_base::TextRange;
+use nomi_base::{Compat, TextRange};
 
 use crate::ast::{self, AstNode};
 use crate::{Parse, SyntaxError, SyntaxErrorKind as E, SyntaxKind as K, SyntaxNode, SyntaxToken};
@@ -12,8 +12,8 @@ use crate::{Parse, SyntaxError, SyntaxErrorKind as E, SyntaxKind as K, SyntaxNod
 /// The tool whose rules a tree must follow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Tool {
-    /// The compiler, reading a module of this kind of project.
-    Elm(Source),
+    /// A compiler release, reading a module of this kind of project.
+    Elm(Source, Compat),
     ElmFormat,
 }
 
@@ -33,11 +33,14 @@ pub fn validate(parse: &Parse, tool: Tool) -> Vec<SyntaxError> {
     let mut errors = Vec::new();
     let root = parse.syntax();
     match tool {
-        Tool::Elm(source) => {
+        Tool::Elm(source, compat) => {
             errors.extend(parse.unindented.iter().map(|&range| SyntaxError {
                 kind: E::ExpectedIndent,
                 range,
             }));
+            if let Some(wrap) = compat.column_wrap() {
+                wrapped_columns(parse, wrap, &mut errors);
+            }
             elm(&root, source, &mut errors);
         }
         Tool::ElmFormat => {
@@ -114,6 +117,18 @@ fn elm(root: &SyntaxNode, source: Source, errors: &mut Vec<SyntaxError>) {
         effects(&module, source, errors);
         infixes(&module, source, errors);
         declarations(&module, errors);
+    }
+}
+
+/// Indentation checks that fail once columns wrap at `wrap`: upstream
+/// wants a 1-based column past the enclosing construct's, and past 1
+/// (`Parse/Space.hs`, `chompAndCheckIndent`), and wraps both.
+fn wrapped_columns(parse: &Parse, wrap: u32, errors: &mut Vec<SyntaxError>) {
+    for check in &parse.far {
+        let column = (check.column + 1) % wrap;
+        if column <= (check.min_column % wrap).max(1) {
+            push(errors, E::ExpectedIndent, check.range);
+        }
     }
 }
 
