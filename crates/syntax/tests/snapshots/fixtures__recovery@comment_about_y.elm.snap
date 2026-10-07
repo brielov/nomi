@@ -1,0 +1,29 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/recovery/comment_about_y.elm
+---
+Module@0..32
+  ValueDecl@0..9
+    Definition@0..9
+      LowerIdent@0..1 "x"
+      Whitespace@1..2 " "
+      Eq@2..3 "="
+      Newline@3..4 "\n"
+      Whitespace@4..8 "    "
+      LiteralExpr@8..9
+        Int@8..9 "1"
+  Newline@9..10 "\n"
+  Newline@10..11 "\n"
+  ValueDecl@11..31
+    LineComment@11..21 "-- about y"
+    Newline@21..22 "\n"
+    Definition@22..31
+      LowerIdent@22..23 "y"
+      Whitespace@23..24 " "
+      Eq@24..25 "="
+      Newline@25..26 "\n"
+      Whitespace@26..30 "    "
+      LiteralExpr@30..31
+        Int@30..31 "2"
+  Newline@31..32 "\n"

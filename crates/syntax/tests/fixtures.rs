@@ -33,6 +33,14 @@ fn declarations() {
 }
 
 #[test]
+fn recovery() {
+    insta::glob!("../test_data/parser", "recovery/*.elm", |path| {
+        let text = std::fs::read_to_string(path).unwrap();
+        insta::assert_snapshot!(render(&text, nomi_syntax::parse_module));
+    });
+}
+
+#[test]
 fn types() {
     insta::glob!("../test_data/parser", "types/*.elm", |path| {
         let text = std::fs::read_to_string(path).unwrap();

@@ -1,0 +1,32 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/recovery/late_import.elm
+---
+Module@0..29
+  ValueDecl@0..9
+    Definition@0..9
+      LowerIdent@0..1 "x"
+      Whitespace@1..2 " "
+      Eq@2..3 "="
+      Newline@3..4 "\n"
+      Whitespace@4..8 "    "
+      LiteralExpr@8..9
+        Int@8..9 "1"
+  Newline@9..10 "\n"
+  Error@10..18
+    ImportKw@10..16 "import"
+    Whitespace@16..17 " "
+    UpperIdent@17..18 "A"
+  Newline@18..19 "\n"
+  ValueDecl@19..28
+    Definition@19..28
+      LowerIdent@19..20 "y"
+      Whitespace@20..21 " "
+      Eq@21..22 "="
+      Newline@22..23 "\n"
+      Whitespace@23..27 "    "
+      LiteralExpr@27..28
+        Int@27..28 "2"
+  Newline@28..29 "\n"
+error 10..16: ExpectedDeclaration

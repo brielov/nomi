@@ -1,0 +1,40 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/recovery/missing_branch_body.elm
+---
+Module@0..38
+  ValueDecl@0..30
+    Definition@0..30
+      LowerIdent@0..1 "x"
+      Whitespace@1..2 " "
+      Eq@2..3 "="
+      Newline@3..4 "\n"
+      Whitespace@4..8 "    "
+      CaseExpr@8..30
+        CaseKw@8..12 "case"
+        Whitespace@12..13 " "
+        NameExpr@13..14
+          LowerIdent@13..14 "a"
+        Whitespace@14..15 " "
+        OfKw@15..17 "of"
+        Newline@17..18 "\n"
+        Whitespace@18..26 "        "
+        CaseBranch@26..30
+          LiteralPattern@26..27
+            Int@26..27 "1"
+          Whitespace@27..28 " "
+          Arrow@28..30 "->"
+          Missing@30..30
+  Newline@30..31 "\n"
+  Newline@31..32 "\n"
+  ValueDecl@32..37
+    Definition@32..37
+      LowerIdent@32..33 "y"
+      Whitespace@33..34 " "
+      Eq@34..35 "="
+      Whitespace@35..36 " "
+      LiteralExpr@36..37
+        Int@36..37 "2"
+  Newline@37..38 "\n"
+error 32..33: ExpectedExpression

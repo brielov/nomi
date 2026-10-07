@@ -9,9 +9,18 @@ use super::{expect_indented, expect_part};
 use crate::SyntaxKind as K;
 use crate::parser::{Marker, Parser, SyntaxErrorKind};
 
-/// One declaration, which starts on a fresh line. Anything else there is
-/// skipped up to the next fresh line.
-// TODO(plan 1.12): resynchronize only where a declaration can start.
+/// Whether a declaration could start here: a fresh line, then a token
+/// that begins one.
+fn at_declaration(p: &mut Parser<'_>) -> bool {
+    p.at_fresh_line()
+        && (matches!(
+            p.current(),
+            K::DocComment | K::TypeKw | K::PortKw | K::LowerIdent
+        ) || at_pattern_atom(p))
+}
+
+/// One declaration, which starts on a fresh line. Anything else is
+/// skipped, with one error, up to where a declaration could start.
 pub(super) fn declaration(p: &mut Parser<'_>) {
     if !p.at_fresh_line() {
         p.error(SyntaxErrorKind::ExpectedFreshLine);
@@ -51,7 +60,7 @@ pub(super) fn declaration(p: &mut Parser<'_>) {
         _ => {
             p.error(SyntaxErrorKind::ExpectedDeclaration);
             p.bump();
-            while p.at_indented() {
+            while !p.at(K::Eof) && !at_declaration(p) {
                 p.bump();
             }
             m.complete(p, K::Error);

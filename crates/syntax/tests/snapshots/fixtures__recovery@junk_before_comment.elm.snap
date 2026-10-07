@@ -1,0 +1,33 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/recovery/junk_before_comment.elm
+---
+Module@0..34
+  ValueDecl@0..9
+    Definition@0..9
+      LowerIdent@0..1 "x"
+      Whitespace@1..2 " "
+      Eq@2..3 "="
+      Newline@3..4 "\n"
+      Whitespace@4..8 "    "
+      LiteralExpr@8..9
+        Int@8..9 "1"
+  Newline@9..10 "\n"
+  Error@10..11
+    RParen@10..11 ")"
+  Newline@11..12 "\n"
+  Newline@12..13 "\n"
+  ValueDecl@13..33
+    LineComment@13..23 "-- about y"
+    Newline@23..24 "\n"
+    Definition@24..33
+      LowerIdent@24..25 "y"
+      Whitespace@25..26 " "
+      Eq@26..27 "="
+      Newline@27..28 "\n"
+      Whitespace@28..32 "    "
+      LiteralExpr@32..33
+        Int@32..33 "2"
+  Newline@33..34 "\n"
+error 10..11: ExpectedDeclaration

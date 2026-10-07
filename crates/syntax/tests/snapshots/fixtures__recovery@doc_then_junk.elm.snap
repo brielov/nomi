@@ -1,0 +1,40 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/recovery/doc_then_junk.elm
+---
+Module@0..44
+  CustomTypeDecl@0..22
+    TypeKw@0..4 "type"
+    Whitespace@4..5 " "
+    UpperIdent@5..6 "T"
+    Whitespace@6..7 " "
+    Eq@7..8 "="
+    Newline@8..9 "\n"
+    Whitespace@9..13 "    "
+    Variant@13..14
+      UpperIdent@13..14 "A"
+    Newline@14..15 "\n"
+    Whitespace@15..19 "    "
+    Pipe@19..20 "|"
+    Whitespace@20..21 " "
+    Variant@21..22
+      UpperIdent@21..22 "B"
+  Newline@22..23 "\n"
+  Error@23..37
+    DocComment@23..33 "{-| doc -}"
+    Newline@33..34 "\n"
+    Eq@34..35 "="
+    Whitespace@35..36 " "
+    Int@36..37 "1"
+  Newline@37..38 "\n"
+  ValueDecl@38..43
+    Definition@38..43
+      LowerIdent@38..39 "z"
+      Whitespace@39..40 " "
+      Eq@40..41 "="
+      Whitespace@41..42 " "
+      LiteralExpr@42..43
+        Int@42..43 "3"
+  Newline@43..44 "\n"
+error 34..35: ExpectedDeclaration
