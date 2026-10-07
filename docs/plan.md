@@ -29,7 +29,8 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 6. **Fix representations, not symptoms.** If the same class of mismatch needs a third heuristic, the step stops, and the representation changes with a `DECISIONS.md` entry. The old formatter took about 35 single-mismatch rounds, all landing in one file.
 7. **Small files.** A file past about 1,500 lines gets split by responsibility; `xtask ci` enforces it.
 8. **Documents.** There are only four: this plan, `architecture.md`, `README.md`, and `DECISIONS.md` (one dated paragraph per decision that would be expensive to reverse). Benchmark numbers go in `docs/benchmarks.md`. If a decision can be a test, write the test. There are no handoff or status files.
-9. **Never** write upstream's files (`elm-stuff/0.19.x`, `~/.elm`) from nomi. Oracles run in sandboxes with their own `ELM_HOME`. The development tooling downloads only what `references.toml` or `corpus/` pins by hash.
+9. **Use established crates** where one fits (clap, rowan, pubgrub, lsp-server, serde, insta, proptest and the like) rather than writing our own. The exceptions are where exact upstream behavior requires it, and pure crates still take only pure dependencies.
+10. **Never** write upstream's files (`elm-stuff/0.19.x`, `~/.elm`) from nomi. Oracles run in sandboxes with their own `ELM_HOME`. The development tooling downloads only what `references.toml` or `corpus/` pins by hash.
 
 **Sessions.** Work happens in sessions that don't share memory, so each one:
 
@@ -71,6 +72,7 @@ Goal: an empty workspace whose rules are enforced by tooling, with oracles and c
 - [x] **0.1** `repo: start nomi as its own repository` (D2). Run `git init -b master` and add a `.gitignore` for `target/`, `reference/` and `.DS_Store`. Commit `docs/`, a one-paragraph `README.md`, an empty `DECISIONS.md`, and the current `Cargo.toml` and `src/`. **Check:** `git status` is clean.
 - [x] **0.2** `repo: add license and third-party notices` (D1). **Check:** both files exist, with upstream copyright lines verbatim.
 - [x] **0.3** `build: create the cargo workspace with base, syntax and cli`. A virtual workspace with `crates/{base,syntax,cli}`, packaged as `nomi-*`. The binary is `nomi`, with `--version`. Workspace lints include `unsafe_code = "forbid"`. **Check:** `cargo run -p nomi-cli -- --version`.
+- [x] **0.3a** `cli: parse arguments with clap`. Subcommands are added by the steps that implement them; each one lists its Elm-name aliases (architecture §9).
 - [ ] **0.4** `xtask: add the ci command and architecture checks`. `cargo xtask ci` runs fmt, clippy (`-D warnings`) and the tests, plus four checks:
   - crate edges are a subset of the allowed graph in architecture §4;
   - pure crates use no filesystem, network, process, thread, environment or clock APIs, and depend on no crate that does;
@@ -192,7 +194,7 @@ Goal: `nomi fmt` and the `elm-format` personality, byte-identical to elm-format 
 - [ ] **2.15** `format: reach corpus parity`. Work the ratchet to 100%, with one commit per root cause. Deviations are allowed only for crashes, non-idempotence, meaning changes or unparseable output, and each gets a fixture and a `DECISIONS.md` entry.
 - [ ] **2.16** `format: linear time and depth safety`. The 136, 274 and 549 KB benchmark scales linearly, and 5,000 nested expressions format.
 - [ ] **2.17** `engine: VFS and thread pool`. Reads, atomic writes, file discovery, and the process's only pool. This is pulled forward from M4 so the `format` crate never touches files.
-- [ ] **2.18** `cli: nomi fmt`. Paths, `--check` and `--stdin`, run in parallel through the engine.
+- [ ] **2.18** `cli: nomi fmt`. Paths, `--check` and `--stdin`, run in parallel through the engine. `format` is an alias.
 - [ ] **2.19** `cli: elm-format personality`. Under the name `elm-format`: flags, prompts, messages, `--validate` JSON and exit codes. **Check:** transcript snapshots against elm-format 0.8.8.
 - [ ] **2.20** `release: 0.1`. README usage (`ln -s nomi elm-format`), benchmarks, and tag `v0.1.0`.
 
@@ -210,7 +212,7 @@ Goal: read and write `elm.json` exactly as elm does, resolve and fetch dependenc
 - [ ] **3.6** `registry: pubgrub solver`. Follows upstream's preferences: newest first, and for `install`, the relaxation order in `Install.hs`. Failures come with an explanation.
 - [ ] **3.7** `oracle: solver snapshots`. Rebuild the old Haskell solver oracle (`conformance/oracles/package-solver/Main.hs`) over a frozen index; this may need GHC 9.8 (D3). Scenarios come from the old solver tests plus generated ones.
 - [ ] **3.8** `registry: reach solver parity`. Work the ratchet to 100%.
-- [ ] **3.9** `cli: init and install`. `nomi init` and `nomi install`, plus `elm init` and `elm install`: prompts, the printed plan, and `elm.json` edits. **Check:** transcript snapshots recorded from elm.
+- [ ] **3.9** `cli: new, init and add`. `nomi new`, `nomi init` and `nomi add` (alias `install`), plus the `elm init` and `elm install` personalities: prompts, the printed plan, and `elm.json` edits. **Check:** transcript snapshots recorded from elm.
 
 **Exit:** solver parity, byte-identical `elm.json` rewrites, and every corpus app's dependencies resolve and fetch.
 
@@ -305,7 +307,7 @@ Goal: `nomi check` reports syntax and module errors exactly as `elm make` does, 
 - [ ] **8.10** `oracle: JS output snapshots`. The four apps in three modes for each Compat, plus fixture programs. The old manifest already has the 0.19.2 hashes.
 - [ ] **8.11** `codegen-js: reach byte parity`. Work the ratchet to 100%.
 - [ ] **8.12** `engine: object cache and linking`. Optimized graphs are cached per module, and linking takes only what `main` reaches.
-- [ ] **8.13** `cli: nomi make and elm make`. Flags (including `--docs`), progress and success messages, and exit codes. **Check:** transcripts, including the terminal output of the 605-case matrix.
+- [ ] **8.13** `cli: nomi build and elm make`. `nomi build` (alias `make`, with `--release` as an alias of `--optimize`) and the `elm make` personality. Flags (including `--docs`), progress and success messages, and exit codes. **Check:** transcripts, including the terminal output of the 605-case matrix.
 - [ ] **8.14** `cli: bump, diff and publish`. The API diff is computed from docs. Publishing is tested only against the fixture registry; publishing for real is yours to run.
 - [ ] **8.15** `cli: explain missing repl and reactor`. The message for `elm reactor` points to `nomi run --watch`.
 - [ ] **8.16** `release: 0.2`. README usage (`ln -s nomi elm`), cold and warm build benchmarks against elm, and a tag.

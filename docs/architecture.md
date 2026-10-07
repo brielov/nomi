@@ -380,7 +380,21 @@ Build this runtime in plain JS first, with model-based tests, in parallel with t
 
 ### CLI
 
-- The commands are `nomi init | install | make | check | fmt | test | run | bump | diff | publish | lsp`. There is no REPL.
+- `nomi`'s own commands follow cargo's verbs, and Elm's names work as aliases for the same command, so both habits work. There is no REPL.
+
+  | Command | Aliases | Does |
+  |---|---|---|
+  | `nomi new <dir>` / `nomi init` | | create a project in a new or the current directory |
+  | `nomi add <package>` | `install` | add a dependency to elm.json |
+  | `nomi build` | `make` | compile entries; `--release` is an alias of `--optimize` |
+  | `nomi check` | | type-check without generating code |
+  | `nomi run` | | build and run entries; `--watch` rebuilds and restarts |
+  | `nomi test` | | run elm-test-style tests |
+  | `nomi fmt` | `format` | format files, or check them with `--check` |
+  | `nomi bump`, `diff`, `publish` | | package versioning and publishing, as in elm |
+  | `nomi lsp` | | start the language server |
+
+- `nomi`'s arguments are parsed with clap. The `elm` and `elm-format` personalities below are parsed by hand, because their help, errors and exit codes must match upstream exactly.
 - Installed as `elm` or `elm-format` (via a symlink), it exposes upstream's commands, flags and output formats, including `elm make --report=json`. That serves elm-review, elm-watch, bundler plugins and editors that shell out. The exceptions are `elm repl`, `elm reactor` and elm-format's `--elm-version 0.18`, which exit with a one-line explanation.
 - `nomi run --watch` takes the reactor's place: in a workspace it runs every entry in parallel, Node entries as processes and browser entries behind a dev server, and rebuilds, restarts or reloads only what an edit affects.
 - It does not reproduce the order in which upstream's flag parser reports errors.
