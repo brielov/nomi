@@ -1,0 +1,42 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: render(&text)
+input_file: crates/syntax/test_data/parser/module/operators.elm
+---
+Module@0..47
+  ModuleHeader@0..46
+    ModuleKw@0..6 "module"
+    Whitespace@6..7 " "
+    ModuleName@7..10
+      UpperIdent@7..10 "Ops"
+    Whitespace@10..11 " "
+    ExposingList@11..46
+      ExposingKw@11..19 "exposing"
+      Whitespace@19..20 " "
+      LParen@20..21 "("
+      ExposedOperator@21..24
+        LParen@21..22 "("
+        Op@22..23
+          Operator@22..23 "+"
+        RParen@23..24 ")"
+      Comma@24..25 ","
+      Whitespace@25..26 " "
+      ExposedOperator@26..29
+        LParen@26..27 "("
+        Op@27..28
+          Minus@27..28 "-"
+        RParen@28..29 ")"
+      Comma@29..30 ","
+      Whitespace@30..31 " "
+      ExposedType@31..40
+        UpperIdent@31..36 "Maybe"
+        ExposedVariants@36..40
+          LParen@36..37 "("
+          DotDot@37..39 ".."
+          RParen@39..40 ")"
+      Comma@40..41 ","
+      Whitespace@41..42 " "
+      ExposedValue@42..45
+        LowerIdent@42..45 "map"
+      RParen@45..46 ")"
+  Newline@46..47 "\n"

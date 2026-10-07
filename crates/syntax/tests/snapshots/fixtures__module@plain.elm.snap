@@ -1,0 +1,27 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: render(&text)
+input_file: crates/syntax/test_data/parser/module/plain.elm
+---
+Module@0..41
+  ModuleHeader@0..27
+    ModuleKw@0..6 "module"
+    Whitespace@6..7 " "
+    ModuleName@7..11
+      UpperIdent@7..11 "Main"
+    Whitespace@11..12 " "
+    ExposingList@12..27
+      ExposingKw@12..20 "exposing"
+      Whitespace@20..21 " "
+      LParen@21..22 "("
+      ExposedValue@22..26
+        LowerIdent@22..26 "main"
+      RParen@26..27 ")"
+  Newline@27..28 "\n"
+  Newline@28..29 "\n"
+  Import@29..40
+    ImportKw@29..35 "import"
+    Whitespace@35..36 " "
+    ModuleName@36..40
+      UpperIdent@36..40 "Html"
+  Newline@40..41 "\n"

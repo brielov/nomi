@@ -7,6 +7,9 @@
 //
 // Operator chains stay flat: `a + b * c` is one OperatorChain, resolved
 // after canonicalization from the imported fixities.
+//
+// The trees take elm-format's legacy forms too, such as a header without
+// an exposing list or with a stray 'where'; validation flags them.
 
 Module =
   ModuleHeader?
@@ -16,8 +19,9 @@ Module =
 
 ModuleHeader =
   'port'? 'effect'? 'module' ModuleName
-  EffectFields?
-  ExposingList
+  (EffectFields | 'where')?
+  ExposingList?
+  'where'?
 
 ModuleName =
   'upper_ident' ('.' 'upper_ident')*
@@ -29,7 +33,7 @@ EffectField =
   'lower_ident' '=' 'upper_ident'
 
 ExposingList =
-  'exposing' '(' ('..' | Exposed (',' Exposed)*) ')'
+  'exposing'? '('? ('..' | Exposed (',' Exposed)*) ')'?
 
 Exposed =
   ExposedValue
@@ -43,7 +47,7 @@ ExposedType =
   'upper_ident' ExposedVariants?
 
 ExposedVariants =
-  '(' '..' ')'
+  '(' ('..' | 'upper_ident' (',' 'upper_ident')*) ')'
 
 ExposedOperator =
   '(' Op ')'

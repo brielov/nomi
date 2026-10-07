@@ -1,0 +1,27 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: render(&text)
+input_file: crates/syntax/test_data/parser/module/unindented_variants.elm
+---
+Module@0..27
+  ModuleHeader@0..20
+    ModuleKw@0..6 "module"
+    Whitespace@6..7 " "
+    ModuleName@7..8
+      UpperIdent@7..8 "M"
+    Whitespace@8..9 " "
+    ExposingList@9..20
+      ExposingKw@9..17 "exposing"
+      Whitespace@17..18 " "
+      LParen@18..19 "("
+      ExposedType@19..20
+        UpperIdent@19..20 "T"
+  Newline@20..21 "\n"
+  Error@21..26
+    LParen@21..22 "("
+    DotDot@22..24 ".."
+    RParen@24..25 ")"
+    RParen@25..26 ")"
+  Newline@26..27 "\n"
+error 21..22: Expected(RParen)
+error 21..22: Unexpected

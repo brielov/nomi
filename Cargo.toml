@@ -16,6 +16,7 @@ nomi-testkit = { path = "crates/testkit" }
 clap = { version = "4.6", features = ["derive"] }
 # Pinned: identifier classes must match the Unicode version of GHC that
 # built the reference compilers (15.1).
+insta = { version = "1", features = ["glob"] }
 icu_properties = { version = "=1.5.1", default-features = false, features = ["compiled_data"] }
 proptest = "1"
 rowan = "0.16"

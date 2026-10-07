@@ -1,0 +1,31 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: render(&text)
+input_file: crates/syntax/test_data/parser/module/legacy_where.elm
+---
+Module@0..51
+  ModuleHeader@0..16
+    ModuleKw@0..6 "module"
+    Whitespace@6..7 " "
+    ModuleName@7..10
+      UpperIdent@7..10 "Old"
+    Whitespace@10..11 " "
+    WhereKw@11..16 "where"
+  Newline@16..17 "\n"
+  Newline@17..18 "\n"
+  Import@18..50
+    ImportKw@18..24 "import"
+    Whitespace@24..25 " "
+    ModuleName@25..29
+      UpperIdent@25..29 "List"
+    Whitespace@29..30 " "
+    ExposingList@30..50
+      ExposingKw@30..38 "exposing"
+      Whitespace@38..39 " "
+      ExposedValue@39..42
+        LowerIdent@39..42 "map"
+      Comma@42..43 ","
+      Whitespace@43..44 " "
+      ExposedValue@44..50
+        LowerIdent@44..50 "filter"
+  Newline@50..51 "\n"

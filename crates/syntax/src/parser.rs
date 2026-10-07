@@ -78,6 +78,15 @@ pub enum SyntaxErrorKind {
     Lexical(LexErrorKind),
     /// The grammar needed this token here.
     Expected(SyntaxKind),
+    /// Something that can appear in an exposing list.
+    ExpectedExposed,
+    /// A token that continues a construct sits at or left of the column
+    /// the construct must stay right of.
+    ExpectedIndent,
+    /// A token that must start its line follows other code on that line.
+    ExpectedFreshLine,
+    /// A token that cannot go here, skipped.
+    Unexpected,
     /// Nesting went past [`DEPTH_LIMIT`].
     TooDeep,
 }
@@ -112,25 +121,46 @@ pub(crate) enum Event {
     Tombstone,
 }
 
+/// A token not yet consumed, with the column it starts at.
+#[derive(Clone, Copy, Debug)]
+struct Ahead {
+    token: Token,
+    column: u32,
+}
+
 pub(crate) struct Parser<'t> {
     text: &'t str,
     /// Tokens not yet consumed, reversed, so the next one is last. A split
     /// replaces only the top, so it costs nothing however far in it is.
-    ahead: Vec<Token>,
+    ahead: Vec<Ahead>,
     /// Tokens consumed so far, trivia included, in source order.
     consumed: Vec<Token>,
     events: Vec<Event>,
     errors: Vec<SyntaxError>,
     depth: u32,
+    /// The column that continuation tokens must stay right of.
+    indent: u32,
 }
 
 impl<'t> Parser<'t> {
     pub(crate) fn new(text: &'t str) -> Parser<'t> {
-        let (mut tokens, lex_errors) = lex(text).into_parts();
-        tokens.reverse();
+        let (tokens, lex_errors) = lex(text).into_parts();
+        let mut column = 0;
+        let mut ahead: Vec<Ahead> = tokens
+            .into_iter()
+            .map(|token| {
+                let start = column;
+                column = advance_column(column, &text[token.range]);
+                Ahead {
+                    token,
+                    column: start,
+                }
+            })
+            .collect();
+        ahead.reverse();
         Parser {
             text,
-            ahead: tokens,
+            ahead,
             consumed: Vec::new(),
             events: Vec::new(),
             errors: lex_errors
@@ -141,13 +171,14 @@ impl<'t> Parser<'t> {
                 })
                 .collect(),
             depth: 0,
+            indent: 0,
         }
     }
 
     /// Builds the tree. Every token must have been consumed, except
     /// trailing trivia.
     pub(crate) fn finish(mut self) -> Parse {
-        while let Some(token) = self.ahead.pop() {
+        while let Some(Ahead { token, .. }) = self.ahead.pop() {
             assert!(
                 token.kind.is_trivia(),
                 "the grammar left {:?} unconsumed",
@@ -167,7 +198,35 @@ impl<'t> Parser<'t> {
 
     /// The `n`th significant token ahead, or [`SyntaxKind::Eof`].
     pub(crate) fn nth(&self, n: usize) -> SyntaxKind {
-        self.nth_token(n).map_or(SyntaxKind::Eof, |t| t.kind)
+        self.nth_token(n).map_or(SyntaxKind::Eof, |a| a.token.kind)
+    }
+
+    /// Whether the `n`th token ahead is the lower identifier spelling the
+    /// contextual keyword `kind`.
+    pub(crate) fn nth_at_contextual(&self, n: usize, kind: SyntaxKind) -> bool {
+        debug_assert!(kind.is_contextual_keyword());
+        self.nth_token(n).is_some_and(|a| {
+            a.token.kind == SyntaxKind::LowerIdent && Some(&self.text[a.token.range]) == kind.text()
+        })
+    }
+
+    /// Whether the `n`th token ahead directly follows the token before
+    /// it, with no trivia between them.
+    pub(crate) fn nth_is_joined(&self, n: usize) -> bool {
+        let mut seen = 0;
+        let mut after_trivia = false;
+        for a in self.ahead.iter().rev() {
+            if a.token.kind.is_trivia() {
+                after_trivia = true;
+                continue;
+            }
+            if seen == n {
+                return !after_trivia;
+            }
+            seen += 1;
+            after_trivia = false;
+        }
+        false
     }
 
     pub(crate) fn current(&self) -> SyntaxKind {
@@ -185,15 +244,42 @@ impl<'t> Parser<'t> {
 
     /// The current token's range; empty at the end of the text.
     pub(crate) fn current_range(&self) -> TextRange {
-        self.nth_token(0)
-            .map_or_else(|| TextRange::empty(TextSize::of(self.text)), |t| t.range)
+        self.nth_token(0).map_or_else(
+            || TextRange::empty(TextSize::of(self.text)),
+            |a| a.token.range,
+        )
     }
 
-    fn nth_token(&self, n: usize) -> Option<&Token> {
+    /// The column the current token starts at, counting characters; 0 at
+    /// the end.
+    pub(crate) fn current_column(&self) -> u32 {
+        self.nth_token(0).map_or(0, |a| a.column)
+    }
+
+    /// Whether the current token starts its line. The end counts as one.
+    pub(crate) fn at_fresh_line(&self) -> bool {
+        self.current_column() == 0
+    }
+
+    /// Whether the current token is right of the indent, so it continues
+    /// the construct being parsed. The end never is.
+    pub(crate) fn at_indented(&self) -> bool {
+        !self.at(SyntaxKind::Eof) && self.current_column() > self.indent
+    }
+
+    /// Reports a continuation token that isn't indented. Parsing goes on as
+    /// if it were.
+    pub(crate) fn check_indented(&mut self) {
+        if !self.at(SyntaxKind::Eof) && !self.at_indented() {
+            self.error(SyntaxErrorKind::ExpectedIndent);
+        }
+    }
+
+    fn nth_token(&self, n: usize) -> Option<&Ahead> {
         self.ahead
             .iter()
             .rev()
-            .filter(|t| !t.kind.is_trivia())
+            .filter(|a| !a.token.kind.is_trivia())
             .nth(n)
     }
 
@@ -207,7 +293,7 @@ impl<'t> Parser<'t> {
     /// [`SyntaxKind::AliasKw`].
     pub(crate) fn bump_as(&mut self, kind: SyntaxKind) {
         assert!(!self.at(SyntaxKind::Eof), "bumped past the end");
-        while let Some(token) = self.ahead.pop() {
+        while let Some(Ahead { token, .. }) = self.ahead.pop() {
             self.consumed.push(token);
             if !token.kind.is_trivia() {
                 break;
@@ -275,6 +361,18 @@ impl<'t> Parser<'t> {
         self.depth -= 1;
         Some(result)
     }
+}
+
+/// The column after `text`, starting at `column`. Columns count
+/// characters, ignoring carriage returns as elm's `eatSpaces` does.
+// TODO(plan 1.17): confirm the unit against the oracle's regions.
+fn advance_column(column: u32, text: &str) -> u32 {
+    let (base, rest) = match text.rsplit_once('\n') {
+        Some((_, rest)) => (0, rest),
+        None => (column, text),
+    };
+    let width = rest.chars().filter(|&c| c != '\r').count();
+    base + width as u32
 }
 
 /// An open node. Complete or abandon it; a forgotten marker leaves no

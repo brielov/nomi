@@ -1,0 +1,33 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: render(&text)
+input_file: crates/syntax/test_data/parser/module/multiline.elm
+---
+Module@0..64
+  ModuleHeader@0..63
+    ModuleKw@0..6 "module"
+    Whitespace@6..7 " "
+    ModuleName@7..11
+      UpperIdent@7..11 "Main"
+    Whitespace@11..12 " "
+    ExposingList@12..63
+      ExposingKw@12..20 "exposing"
+      Newline@20..21 "\n"
+      Whitespace@21..25 "    "
+      LParen@25..26 "("
+      Whitespace@26..27 " "
+      ExposedValue@27..31
+        LowerIdent@27..31 "main"
+      Newline@31..32 "\n"
+      Whitespace@32..36 "    "
+      LineComment@36..46 "-- comment"
+      Newline@46..47 "\n"
+      Whitespace@47..51 "    "
+      Comma@51..52 ","
+      Whitespace@52..53 " "
+      ExposedValue@53..57
+        LowerIdent@53..57 "view"
+      Newline@57..58 "\n"
+      Whitespace@58..62 "    "
+      RParen@62..63 ")"
+  Newline@63..64 "\n"

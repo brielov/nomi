@@ -1,0 +1,54 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: render(&text)
+input_file: crates/syntax/test_data/parser/module/effect_module.elm
+---
+Module@0..107
+  ModuleHeader@0..106
+    EffectKw@0..6 "effect"
+    Whitespace@6..7 " "
+    ModuleKw@7..13 "module"
+    Whitespace@13..14 " "
+    ModuleName@14..18
+      UpperIdent@14..18 "Task"
+    Whitespace@18..19 " "
+    EffectFields@19..66
+      WhereKw@19..24 "where"
+      Whitespace@24..25 " "
+      LBrace@25..26 "{"
+      Whitespace@26..27 " "
+      EffectField@27..42
+        LowerIdent@27..34 "command"
+        Whitespace@34..35 " "
+        Eq@35..36 "="
+        Whitespace@36..37 " "
+        UpperIdent@37..42 "MyCmd"
+      Comma@42..43 ","
+      Whitespace@43..44 " "
+      EffectField@44..64
+        LowerIdent@44..56 "subscription"
+        Whitespace@56..57 " "
+        Eq@57..58 "="
+        Whitespace@58..59 " "
+        UpperIdent@59..64 "MySub"
+      Whitespace@64..65 " "
+      RBrace@65..66 "}"
+    Whitespace@66..67 " "
+    ExposingList@67..106
+      ExposingKw@67..75 "exposing"
+      Newline@75..76 "\n"
+      Whitespace@76..80 "    "
+      LParen@80..81 "("
+      Whitespace@81..82 " "
+      ExposedType@82..86
+        UpperIdent@82..86 "Task"
+      Newline@86..87 "\n"
+      Whitespace@87..91 "    "
+      Comma@91..92 ","
+      Whitespace@92..93 " "
+      ExposedValue@93..100
+        LowerIdent@93..100 "perform"
+      Newline@100..101 "\n"
+      Whitespace@101..105 "    "
+      RParen@105..106 ")"
+  Newline@106..107 "\n"

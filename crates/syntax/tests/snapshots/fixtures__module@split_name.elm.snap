@@ -1,0 +1,42 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: render(&text)
+input_file: crates/syntax/test_data/parser/module/split_name.elm
+---
+Module@0..46
+  ModuleHeader@0..21
+    ModuleKw@0..6 "module"
+    Whitespace@6..7 " "
+    ModuleName@7..8
+      UpperIdent@7..8 "M"
+    Whitespace@8..9 " "
+    ExposingList@9..21
+      ExposingKw@9..17 "exposing"
+      Whitespace@17..18 " "
+      LParen@18..19 "("
+      ExposedValue@19..20
+        LowerIdent@19..20 "x"
+      RParen@20..21 ")"
+  Newline@21..22 "\n"
+  Import@22..30
+    ImportKw@22..28 "import"
+    Whitespace@28..29 " "
+    ModuleName@29..30
+      UpperIdent@29..30 "A"
+  Whitespace@30..31 " "
+  Error@31..33
+    Dot@31..32 "."
+    UpperIdent@32..33 "B"
+  Newline@33..34 "\n"
+  Import@34..42
+    ImportKw@34..40 "import"
+    Whitespace@40..41 " "
+    ModuleName@41..42
+      UpperIdent@41..42 "C"
+  Error@42..45
+    Dot@42..43 "."
+    Whitespace@43..44 " "
+    UpperIdent@44..45 "D"
+  Newline@45..46 "\n"
+error 31..32: Unexpected
+error 42..43: Unexpected

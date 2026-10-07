@@ -1,0 +1,87 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: render(&text)
+input_file: crates/syntax/test_data/parser/module/imports.elm
+---
+Module@0..152
+  ModuleHeader@0..24
+    ModuleKw@0..6 "module"
+    Whitespace@6..7 " "
+    ModuleName@7..10
+      UpperIdent@7..8 "A"
+      Dot@8..9 "."
+      UpperIdent@9..10 "B"
+    Whitespace@10..11 " "
+    ExposingList@11..24
+      ExposingKw@11..19 "exposing"
+      Whitespace@19..20 " "
+      LParen@20..21 "("
+      DotDot@21..23 ".."
+      RParen@23..24 ")"
+  Newline@24..25 "\n"
+  Newline@25..26 "\n"
+  DocComment@26..38 "{-| Docs. -}"
+  Newline@38..39 "\n"
+  Newline@39..40 "\n"
+  Import@40..67
+    ImportKw@40..46 "import"
+    Whitespace@46..47 " "
+    ModuleName@47..51
+      UpperIdent@47..51 "Dict"
+    Whitespace@51..52 " "
+    ExposingList@52..67
+      ExposingKw@52..60 "exposing"
+      Whitespace@60..61 " "
+      LParen@61..62 "("
+      ExposedType@62..66
+        UpperIdent@62..66 "Dict"
+      RParen@66..67 ")"
+  Newline@67..68 "\n"
+  Import@68..127
+    ImportKw@68..74 "import"
+    Whitespace@74..75 " "
+    ModuleName@75..90
+      UpperIdent@75..79 "Html"
+      Dot@79..80 "."
+      UpperIdent@80..90 "Attributes"
+    Whitespace@90..91 " "
+    ImportAlias@91..98
+      AsKw@91..93 "as"
+      Whitespace@93..94 " "
+      UpperIdent@94..98 "Attr"
+    Whitespace@98..99 " "
+    ExposingList@99..127
+      ExposingKw@99..107 "exposing"
+      Whitespace@107..108 " "
+      LParen@108..109 "("
+      ExposedValue@109..114
+        LowerIdent@109..114 "class"
+      Comma@114..115 ","
+      Whitespace@115..116 " "
+      ExposedOperator@116..120
+        LParen@116..117 "("
+        Op@117..119
+          ColonColon@117..119 "::"
+        RParen@119..120 ")"
+      Comma@120..121 ","
+      Whitespace@121..122 " "
+      ExposedOperator@122..126
+        LParen@122..123 "("
+        Op@123..125
+          Operator@123..125 "|>"
+        RParen@125..126 ")"
+      RParen@126..127 ")"
+  Newline@127..128 "\n"
+  Import@128..151
+    ImportKw@128..134 "import"
+    Whitespace@134..135 " "
+    ModuleName@135..146
+      UpperIdent@135..139 "Json"
+      Dot@139..140 "."
+      UpperIdent@140..146 "Decode"
+    Whitespace@146..147 " "
+    ImportAlias@147..151
+      AsKw@147..149 "as"
+      Whitespace@149..150 " "
+      UpperIdent@150..151 "D"
+  Newline@151..152 "\n"

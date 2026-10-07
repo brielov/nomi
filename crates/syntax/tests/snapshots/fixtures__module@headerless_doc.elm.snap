@@ -1,0 +1,14 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: render(&text)
+input_file: crates/syntax/test_data/parser/module/headerless_doc.elm
+---
+Module@0..25
+  DocComment@0..12 "{-| Docs. -}"
+  Newline@12..13 "\n"
+  Import@13..24
+    ImportKw@13..19 "import"
+    Whitespace@19..20 " "
+    ModuleName@20..24
+      UpperIdent@20..24 "Html"
+  Newline@24..25 "\n"

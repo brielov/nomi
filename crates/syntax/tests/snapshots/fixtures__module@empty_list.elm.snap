@@ -1,0 +1,25 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: render(&text)
+input_file: crates/syntax/test_data/parser/module/empty_list.elm
+---
+Module@0..31
+  ModuleHeader@0..23
+    ModuleKw@0..6 "module"
+    Whitespace@6..7 " "
+    ModuleName@7..11
+      UpperIdent@7..11 "Main"
+    Whitespace@11..12 " "
+    ExposingList@12..23
+      ExposingKw@12..20 "exposing"
+      Whitespace@20..21 " "
+      LParen@21..22 "("
+      Missing@22..22
+      RParen@22..23 ")"
+  Newline@23..24 "\n"
+  Import@24..31
+    ImportKw@24..30 "import"
+    Newline@30..31 "\n"
+    ModuleName@31..31
+error 22..23: ExpectedExposed
+error 31..31: Expected(ModuleName)

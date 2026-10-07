@@ -1,0 +1,30 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: render(&text)
+input_file: crates/syntax/test_data/parser/module/port_module.elm
+---
+Module@0..43
+  ModuleHeader@0..42
+    PortKw@0..4 "port"
+    Whitespace@4..5 " "
+    ModuleKw@5..11 "module"
+    Whitespace@11..12 " "
+    ModuleName@12..17
+      UpperIdent@12..17 "Ports"
+    Whitespace@17..18 " "
+    ExposingList@18..42
+      ExposingKw@18..26 "exposing"
+      Whitespace@26..27 " "
+      LParen@27..28 "("
+      ExposedValue@28..32
+        LowerIdent@28..32 "send"
+      Comma@32..33 ","
+      Whitespace@33..34 " "
+      ExposedType@34..41
+        UpperIdent@34..37 "Msg"
+        ExposedVariants@37..41
+          LParen@37..38 "("
+          DotDot@38..40 ".."
+          RParen@40..41 ")"
+      RParen@41..42 ")"
+  Newline@42..43 "\n"

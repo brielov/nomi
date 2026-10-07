@@ -1,10 +1,15 @@
 //! The lossless Elm syntax tree: lexer, parser and typed views.
 
+mod grammar;
 mod kind;
 mod lexer;
-#[allow(dead_code, reason = "the grammar arrives in plan 1.6")]
+#[allow(
+    dead_code,
+    reason = "the expression grammar (plan 1.8 on) uses the rest"
+)]
 mod parser;
 
+pub use grammar::parse_module;
 pub use kind::{ElmLanguage, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 pub use lexer::{LexError, LexErrorKind, Lexed, Token, lex};
 pub use parser::{Parse, SyntaxError, SyntaxErrorKind};
