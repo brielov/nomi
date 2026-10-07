@@ -69,7 +69,7 @@ Tests that need Node fail loudly when it's missing; they never skip.
 Goal: an empty workspace whose rules are enforced by tooling, with oracles and corpora reproducible from pins.
 
 - [x] **0.1** `repo: start nomi as its own repository` (D2). Run `git init -b master` and add a `.gitignore` for `target/`, `reference/` and `.DS_Store`. Commit `docs/`, a one-paragraph `README.md`, an empty `DECISIONS.md`, and the current `Cargo.toml` and `src/`. **Check:** `git status` is clean.
-- [ ] **0.2** `repo: add license and third-party notices` (D1). **Check:** both files exist, with upstream copyright lines verbatim.
+- [x] **0.2** `repo: add license and third-party notices` (D1). **Check:** both files exist, with upstream copyright lines verbatim.
 - [ ] **0.3** `build: create the cargo workspace with base, syntax and cli`. A virtual workspace with `crates/{base,syntax,cli}`, packaged as `nomi-*`. The binary is `nomi`, with `--version`. Workspace lints include `unsafe_code = "forbid"`. **Check:** `cargo run -p nomi-cli -- --version`.
 - [ ] **0.4** `xtask: add the ci command and architecture checks`. `cargo xtask ci` runs fmt, clippy (`-D warnings`) and the tests, plus four checks:
   - crate edges are a subset of the allowed graph in architecture §4;
