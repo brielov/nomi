@@ -158,9 +158,8 @@ Goal: one lossless, tolerant parser used by every consumer, which accepts exactl
   - a project a Compat rejects is an expected-failure case whose diagnostic must match, not a gap.
 
   Every later "every corpus package/app/project" claim means "every one the Compat accepts, plus the expected failures". **Check:** `xtask corpus stats` prints the per-Compat counts; the classification is snapshotted.
-- [ ] **1.16** `oracle: syntax accept/reject snapshots`.
-  - Port the old deterministic mutation generator (8,617 cases).
-  - Tier 3 runs elm 0.19.1, 0.19.2 and 0.19.3 (syntax errors only, from `--report=json`, in the 1.15a sandboxes; otherwise 0.19.2 and 0.19.3 stop at `elm.json` before parsing) and `elm-format --stdin` on the corpus and the mutations.
+- [ ] **1.16a** `testkit: source mutations`. Port the old deterministic mutation generator (8,617 cases). **Check:** the generator is deterministic and pinned by tests.
+- [ ] **1.16b** `oracle: syntax accept/reject snapshots`. Tier 3 runs elm 0.19.1, 0.19.2 and 0.19.3 (syntax errors only, from `--report=json`, in the 1.15a sandboxes; otherwise 0.19.2 and 0.19.3 stop at `elm.json` before parsing) and `elm-format --stdin` on the corpus and the mutations.
 
   **Check:** snapshots are checked in and the ratchet exists.
 - [ ] **1.17** `syntax: reach accept/reject parity`. Work the ratchet to 100%, with one commit per root cause. Settle the Elm column unit for each Compat from the oracle's regions, and record it in `DECISIONS.md`.
