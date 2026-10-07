@@ -229,7 +229,7 @@ fn parse_hashes(text: &str) -> Result<BTreeMap<String, String>, String> {
         .collect()
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::Digest as _;
     sha2::Sha256::digest(bytes)
         .iter()
