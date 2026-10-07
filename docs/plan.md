@@ -81,7 +81,7 @@ Goal: an empty workspace whose rules are enforced by tooling, with oracles and c
 
   **Check:** each check has a test with a failing fixture.
 - [x] **0.5** `ci: run xtask ci on Linux, macOS and Windows`. GitHub Actions; it stays dormant until the repo is pushed.
-- [ ] **0.6** `xtask: pin references and fetch oracles` (D3).
+- [x] **0.6** `xtask: pin references and fetch oracles` (D3).
   - `references.toml` pins each of these by tag, commit and archive SHA-256: elm 0.19.1, 0.19.2 and 0.19.3, elm-format 0.8.8, elm-language-server 2.10.0, elm-test 0.19.3-0 and elm-explorations/test. Node comes from `PATH` and must be at least the oldest maintained LTS.
   - `xtask refs` syncs `reference/`.
   - `xtask oracle fetch` installs the binaries under `~/.cache/nomi-dev/`.

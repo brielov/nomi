@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "description": "Oracle tools from npm, pinned by package-lock.json. Installed by `cargo xtask oracle fetch` with --ignore-scripts.",
+  "dependencies": {
+    "@elm-tooling/elm-language-server": "2.10.0",
+    "elm-test": "0.19.3-0"
+  }
+}

@@ -1,6 +1,10 @@
 //! Repository automation, run as `cargo xtask <command>`.
 
 mod checks;
+mod download;
+mod oracle;
+mod references;
+mod refs;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command as Process, ExitCode};
@@ -21,6 +25,21 @@ enum Command {
     Ci,
     /// Only the architecture checks.
     Check,
+    /// Sync reference/ to the source commits pinned in references.toml.
+    Refs,
+    /// Pinned upstream tools that parity is measured against.
+    Oracle {
+        #[command(subcommand)]
+        command: OracleCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum OracleCommand {
+    /// Download, verify and install every pinned oracle.
+    Fetch,
+    /// Print every pin and whether it is installed.
+    Versions,
 }
 
 fn main() -> ExitCode {
@@ -28,6 +47,11 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Command::Ci => ci(),
         Command::Check => architecture(&root()),
+        Command::Refs => references::load(&root()).and_then(|r| refs::sync(&root(), &r)),
+        Command::Oracle { command } => references::load(&root()).and_then(|r| match command {
+            OracleCommand::Fetch => oracle::fetch(&root(), &r),
+            OracleCommand::Versions => oracle::versions(&r),
+        }),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
