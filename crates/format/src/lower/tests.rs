@@ -2,8 +2,8 @@ use nomi_syntax::{Tool, parse_module, validate};
 
 use super::*;
 use crate::tree::{
-    C1, C2, Comment, CommentedMap, Comments, DetailedListing, Header, ImportMethod, Listing, Lower,
-    SourceTag, Upper,
+    C1, C2, Comment, CommentedMap, Comments, DetailedListing, Docs, Header, ImportMethod, Listing,
+    Lower, SourceTag, Upper,
 };
 
 fn lower(text: &str) -> Module {
@@ -196,8 +196,8 @@ fn comments_between_imports_go_before_them_all() {
     assert_eq!(module.docs, Some(Docs("Docs.".to_owned())));
     assert_eq!(module.imports.comments, [line(" h"), line(" between")]);
     assert_eq!(
-        module.body,
-        [TopLevelStructure::BodyComment(line(" after"))]
+        module.body[0],
+        TopLevelStructure::BodyComment(line(" after"))
     );
     assert_eq!(import(&module, &["B"]).value.exposed, none(Listing::Closed));
     let c_import = import(&module, &["C"]);
@@ -212,7 +212,7 @@ fn comments_between_imports_go_before_them_all() {
 fn without_imports_comments_before_the_body_go_before_imports() {
     let module = lower("module A exposing (a)\n\n-- c\n\na = 1\n");
     assert_eq!(module.imports.comments, [line(" c")]);
-    assert!(module.body.is_empty());
+    assert!(matches!(module.body[..], [TopLevelStructure::Entry(_)]));
 }
 
 #[test]

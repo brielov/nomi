@@ -9,6 +9,7 @@
 //! a bug and panics.
 
 mod cursor;
+mod declarations;
 mod definitions;
 mod expressions;
 mod header;
@@ -24,7 +25,7 @@ use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
 use crate::tree::{
-    C0Eol, C2, Commented, Comments, Docs, ForceMultiline, Lower, Module, Namespace, Pair, Sequence,
+    C0Eol, C2, Commented, Comments, ForceMultiline, Lower, Module, Namespace, Pair, Sequence,
     Symbol, TopLevelStructure, Upper, UpperRef,
 };
 use cursor::Cursor;
@@ -51,7 +52,7 @@ pub(crate) fn module(root: &SyntaxNode, text: &str) -> Module {
     let mut comments = Vec::new();
     let docs = module.doc_comment_token().map(|token| {
         comments.extend(cx.take(token.text_range().start()));
-        Docs(cursor::block_body(&token.text()[3..]))
+        declarations::docs(&token)
     });
     comments.extend(
         cx.take(
@@ -75,26 +76,16 @@ pub(crate) fn module(root: &SyntaxNode, text: &str) -> Module {
         }
     }
 
-    // Declarations lower from plan 2.7; until then the comments between
-    // their types, patterns and expressions go unused, and lowering those
-    // on their own checks them over every module.
-    let mut stack = vec![root.clone()];
-    while let Some(node) = stack.pop() {
-        if let Some(ty) = ast::Type::cast(node.clone()) {
-            let _ = cx.take(range(&node).start());
-            types::ty(&mut cx, &ty);
-        } else if let Some(pattern) = ast::Pattern::cast(node.clone()) {
-            let _ = cx.take(range(&node).start());
-            patterns::pattern(&mut cx, &pattern);
-        } else if let Some(expr) = ast::Expr::cast(node.clone()) {
-            let _ = cx.take(range(&node).start());
-            expressions::expr(&mut cx, &expr);
-        } else {
-            let children: Vec<_> = node.children().collect();
-            stack.extend(children.into_iter().rev());
-        }
+    for decl in module.decls() {
+        declarations::declaration(&mut cx, &mut body, &decl);
     }
-    let _ = cx.take(text_end(text));
+    // Upstream reads the comments after the last declaration as between
+    // declarations too.
+    body.extend(
+        cx.take(text_end(text))
+            .into_iter()
+            .map(TopLevelStructure::BodyComment),
+    );
     cx.finish();
     Module {
         initial_comments,
