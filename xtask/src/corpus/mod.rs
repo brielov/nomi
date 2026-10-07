@@ -2,6 +2,7 @@
 //! the development cache. Sources never enter the repository.
 
 pub mod apps;
+pub mod compat;
 pub mod packages;
 
 use std::path::{Path, PathBuf};
@@ -105,7 +106,7 @@ pub fn stats(root: &Path) -> Result<()> {
             println!("app       {:<14} not fetched", app.name);
         }
     }
-    Ok(())
+    compat::stats(root)
 }
 
 /// Number of `.elm` files below `dir` and their total line count.

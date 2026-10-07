@@ -54,7 +54,10 @@ enum CorpusCommand {
     Pin,
     /// Download and verify every pinned package and app.
     Fetch,
-    /// Count what is pinned and fetched.
+    /// Record which Compats accept each package, and pin each app's
+    /// manifest rewritten for each Compat, in corpus/compat.toml.
+    Classify,
+    /// Count what is pinned and fetched, and what each Compat accepts.
     Stats,
 }
 
@@ -83,6 +86,7 @@ fn main() -> ExitCode {
             CorpusCommand::Fetch => {
                 corpus::packages::fetch(&root()).and_then(|()| corpus::apps::fetch(&root()))
             }
+            CorpusCommand::Classify => corpus::compat::classify(&root()),
             CorpusCommand::Stats => corpus::stats(&root()),
         },
     };
