@@ -1,0 +1,86 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/let.elm
+---
+ExprFragment@0..91
+  LetExpr@0..90
+    LetKw@0..3 "let"
+    Newline@3..4 "\n"
+    Whitespace@4..8 "    "
+    LetValue@8..33
+      Signature@8..15
+        LowerIdent@8..9 "x"
+        Whitespace@9..10 " "
+        Colon@10..11 ":"
+        Whitespace@11..12 " "
+        NamedType@12..15
+          UpperIdent@12..15 "Int"
+      Newline@15..16 "\n"
+      Whitespace@16..20 "    "
+      Definition@20..33
+        LowerIdent@20..21 "x"
+        Whitespace@21..22 " "
+        Eq@22..23 "="
+        Newline@23..24 "\n"
+        Whitespace@24..32 "        "
+        LiteralExpr@32..33
+          Int@32..33 "1"
+    Newline@33..34 "\n"
+    Newline@34..35 "\n"
+    Whitespace@35..39 "    "
+    LetValue@39..52
+      Definition@39..52
+        LowerIdent@39..40 "f"
+        Whitespace@40..41 " "
+        VarPattern@41..42
+          LowerIdent@41..42 "a"
+        Whitespace@42..43 " "
+        VarPattern@43..44
+          LowerIdent@43..44 "b"
+        Whitespace@44..45 " "
+        Eq@45..46 "="
+        Whitespace@46..47 " "
+        OperatorChain@47..52
+          NameExpr@47..48
+            LowerIdent@47..48 "a"
+          Whitespace@48..49 " "
+          Op@49..50
+            Operator@49..50 "+"
+          Whitespace@50..51 " "
+          NameExpr@51..52
+            LowerIdent@51..52 "b"
+    Newline@52..53 "\n"
+    Newline@53..54 "\n"
+    Whitespace@54..58 "    "
+    LetDestructure@58..81
+      TuplePattern@58..66
+        LParen@58..59 "("
+        Whitespace@59..60 " "
+        VarPattern@60..61
+          LowerIdent@60..61 "p"
+        Comma@61..62 ","
+        Whitespace@62..63 " "
+        VarPattern@63..64
+          LowerIdent@63..64 "q"
+        Whitespace@64..65 " "
+        RParen@65..66 ")"
+      Whitespace@66..67 " "
+      Eq@67..68 "="
+      Newline@68..69 "\n"
+      Whitespace@69..77 "        "
+      NameExpr@77..81
+        LowerIdent@77..81 "pair"
+    Newline@81..82 "\n"
+    InKw@82..84 "in"
+    Newline@84..85 "\n"
+    CallExpr@85..90
+      NameExpr@85..86
+        LowerIdent@85..86 "f"
+      Whitespace@86..87 " "
+      NameExpr@87..88
+        LowerIdent@87..88 "x"
+      Whitespace@88..89 " "
+      NameExpr@89..90
+        LowerIdent@89..90 "p"
+  Newline@90..91 "\n"

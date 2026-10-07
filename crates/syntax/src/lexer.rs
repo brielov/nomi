@@ -77,10 +77,6 @@ impl Lexed {
     pub fn errors(&self) -> &[LexError] {
         &self.errors
     }
-
-    pub(crate) fn into_parts(self) -> (Vec<Token>, Vec<LexError>) {
-        (self.tokens, self.errors)
-    }
 }
 
 /// Lexes `text`. Panics if it is 4 GiB or longer.
@@ -90,36 +86,63 @@ impl Lexed {
 /// [`SyntaxKind::ErrorToken`]. Contextual keywords lex as
 /// [`SyntaxKind::LowerIdent`], and splits such as `=-` are the parser's.
 pub fn lex(text: &str) -> Lexed {
-    assert!(
-        u32::try_from(text.len()).is_ok(),
-        "source text must be shorter than 4 GiB"
-    );
-    let mut lexer = Lexer {
-        text,
-        bytes: text.as_bytes(),
-        offset: 0,
-        tokens: Vec::new(),
-        errors: Vec::new(),
-    };
-    while lexer.offset < lexer.bytes.len() {
-        lexer.token();
+    let mut lexer = Lexer::new(text);
+    let mut tokens = Vec::new();
+    while let Some(token) = lexer.next_token() {
+        tokens.push(token);
     }
     Lexed {
-        tokens: lexer.tokens,
+        tokens,
         errors: lexer.errors,
     }
 }
 
-struct Lexer<'a> {
+/// Lexes one token at a time, so the parser can split a token and lex
+/// again from inside it.
+pub(crate) struct Lexer<'a> {
     text: &'a str,
     bytes: &'a [u8],
     offset: usize,
-    tokens: Vec<Token>,
     errors: Vec<LexError>,
 }
 
-impl Lexer<'_> {
-    fn token(&mut self) {
+impl<'a> Lexer<'a> {
+    /// Panics if `text` is 4 GiB or longer.
+    pub(crate) fn new(text: &'a str) -> Lexer<'a> {
+        assert!(
+            u32::try_from(text.len()).is_ok(),
+            "source text must be shorter than 4 GiB"
+        );
+        Lexer {
+            text,
+            bytes: text.as_bytes(),
+            offset: 0,
+            errors: Vec::new(),
+        }
+    }
+
+    /// The next token, or `None` at the end.
+    pub(crate) fn next_token(&mut self) -> Option<Token> {
+        (self.offset < self.bytes.len()).then(|| self.token())
+    }
+
+    /// The problems found so far, in source order.
+    pub(crate) fn errors(&self) -> &[LexError] {
+        &self.errors
+    }
+
+    pub(crate) fn into_errors(self) -> Vec<LexError> {
+        self.errors
+    }
+
+    /// Lexes again from `offset`, a character boundary, forgetting all but
+    /// the first `errors` problems.
+    pub(crate) fn rewind(&mut self, offset: TextSize, errors: usize) {
+        self.offset = offset.into();
+        self.errors.truncate(errors);
+    }
+
+    fn token(&mut self) -> Token {
         let start = self.offset;
         let kind = match self.bytes[start] {
             b'\n' => self.single(SyntaxKind::Newline),
@@ -174,10 +197,10 @@ impl Lexer<'_> {
             _ => self.identifier_or_invalid(),
         };
         debug_assert!(self.offset > start, "the lexer must always make progress");
-        self.tokens.push(Token {
+        Token {
             kind,
             range: range(start, self.offset),
-        });
+        }
     }
 
     fn single(&mut self, kind: SyntaxKind) -> SyntaxKind {

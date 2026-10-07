@@ -167,6 +167,12 @@ fn deep_nesting_is_one_error() {
         assert_eq!(too_deep(&negations), 1);
         let accesses = format!("x = y{}", ".a".repeat(n));
         assert_eq!(too_deep(&accesses), 1);
+        let lambdas = format!("x = {}y", "\\a -> ".repeat(n));
+        assert_eq!(too_deep(&lambdas), 1);
+        let lets = format!("x = {}y", "let a = 1 in ".repeat(n));
+        assert_eq!(too_deep(&lets), 1);
+        let ifs = format!("x = {}y", "if a then b else ".repeat(n));
+        assert_eq!(too_deep(&ifs), 1);
     });
 }
 
@@ -177,4 +183,66 @@ fn long_flat_chains_are_not_deep() {
     assert_eq!(errors(&chain), []);
     let call = format!("x = f{}", " y".repeat(n));
     assert_eq!(errors(&call), []);
+}
+
+#[test]
+fn long_blocks_are_not_deep() {
+    let n = DEPTH_LIMIT as usize * 2;
+    let case = format!("x = case y of{}", "\n  _ -> 1".repeat(n));
+    assert_eq!(errors(&case), []);
+    let let_ = format!("x = let{} in 1", "\n      a = 1".repeat(n));
+    assert_eq!(errors(&let_), []);
+}
+
+#[test]
+fn a_case_ends_at_column_zero() {
+    let tree = render("x = case a of\n  B -> 1\ny");
+    assert!(tree.contains("\n  CaseExpr@4..22\n"), "{tree}");
+    assert!(tree.contains("\n  Error@23..24\n"), "{tree}");
+}
+
+#[test]
+fn branch_bodies_are_right_of_the_branch() {
+    // The `1` starts another branch, one without an arrow.
+    assert_eq!(
+        errors("x = case a of\n  B ->\n  1"),
+        [
+            SyntaxErrorKind::ExpectedExpression,
+            SyntaxErrorKind::Expected(K::Arrow)
+        ]
+    );
+    assert_eq!(errors("x = case a of\n  B ->\n   1"), []);
+}
+
+#[test]
+fn a_case_inside_a_branch_takes_the_branches_right_of_it() {
+    let text = "x = case a of\n  B ->\n    case b of\n      C -> 1\n  D -> 2";
+    assert_eq!(errors(text), []);
+    let tree = render(text);
+    assert!(tree.contains("\n      CaseExpr@25..47\n"), "{tree}");
+    assert!(tree.contains("\n    CaseBranch@50..56\n"), "{tree}");
+}
+
+#[test]
+fn let_definitions_are_right_of_the_let() {
+    assert_eq!(errors("x =\n let\n  a = 1\n in a"), []);
+    let indent = SyntaxErrorKind::ExpectedIndent;
+    assert_eq!(errors("x =\n  let\n  a = 1\n  in a"), [indent]);
+    assert_eq!(errors("x = let\n a = 1\n in a"), [indent]);
+}
+
+#[test]
+fn in_must_be_indented() {
+    assert_eq!(
+        errors("x = let a = 1\nin a"),
+        [SyntaxErrorKind::ExpectedIndent]
+    );
+}
+
+#[test]
+fn then_and_else_must_be_indented() {
+    let indent = SyntaxErrorKind::ExpectedIndent;
+    assert_eq!(errors("x = if a\nthen b else c"), [indent]);
+    assert_eq!(errors("x = if a then b\nelse c"), [indent]);
+    assert_eq!(errors("x = if a\n then b\n else c"), []);
 }

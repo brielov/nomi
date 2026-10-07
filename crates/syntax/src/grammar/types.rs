@@ -5,7 +5,7 @@ use crate::SyntaxKind as K;
 use crate::parser::{CompletedMarker, Parser, SyntaxErrorKind};
 
 /// Whether a type starts here and continues the construct being parsed.
-pub(super) fn at_type(p: &Parser<'_>) -> bool {
+pub(super) fn at_type(p: &mut Parser<'_>) -> bool {
     matches!(
         p.current(),
         K::UpperIdent | K::LowerIdent | K::LParen | K::LBrace
@@ -19,9 +19,9 @@ pub(super) fn type_(p: &mut Parser<'_>) {
 
 fn function_type(p: &mut Parser<'_>) {
     let param = applied_type(p);
-    if p.at(K::Arrow) && p.at_indented() {
+    if p.at_symbol(K::Arrow) && p.at_indented() {
         let m = param.precede(p);
-        p.bump();
+        p.bump_symbol(K::Arrow);
         type_(p);
         m.complete(p, K::FunctionType);
     }
@@ -81,7 +81,7 @@ fn type_name(p: &mut Parser<'_>) {
 }
 
 /// `(,)`, `(,,)` and so on.
-fn at_tuple_constructor(p: &Parser<'_>) -> bool {
+fn at_tuple_constructor(p: &mut Parser<'_>) -> bool {
     let mut n = 1;
     while p.nth(n) == K::Comma {
         n += 1;
@@ -130,7 +130,7 @@ fn record_type(p: &mut Parser<'_>) -> CompletedMarker {
         p.bump();
         return m.complete(p, K::RecordType);
     }
-    if p.at(K::LowerIdent) && p.nth(1) == K::Pipe {
+    if p.at(K::LowerIdent) && p.nth_at_symbol(1, K::Pipe) {
         let extension = p.start();
         p.check_indented();
         p.bump();
@@ -172,9 +172,9 @@ fn field_type(p: &mut Parser<'_>) {
     let m = p.start();
     p.check_indented();
     p.bump();
-    if p.at(K::Eq) {
+    if p.at_symbol(K::Eq) {
         p.check_indented();
-        p.bump();
+        p.bump_symbol(K::Eq);
     } else {
         expect_indented(p, K::Colon);
     }

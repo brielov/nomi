@@ -1,0 +1,35 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/case_misaligned.elm
+---
+ExprFragment@0..34
+  CaseExpr@0..28
+    CaseKw@0..4 "case"
+    Whitespace@4..5 " "
+    NameExpr@5..6
+      LowerIdent@5..6 "x"
+    Whitespace@6..7 " "
+    OfKw@7..9 "of"
+    Newline@9..10 "\n"
+    Whitespace@10..14 "    "
+    CaseBranch@14..28
+      ConstructorPattern@14..15
+        UpperIdent@14..15 "A"
+      Whitespace@15..16 " "
+      Arrow@16..18 "->"
+      Whitespace@18..19 " "
+      CallExpr@19..28
+        LiteralExpr@19..20
+          Int@19..20 "1"
+        Newline@20..21 "\n"
+        Whitespace@21..27 "      "
+        NameExpr@27..28
+          UpperIdent@27..28 "B"
+  Whitespace@28..29 " "
+  Error@29..33
+    Arrow@29..31 "->"
+    Whitespace@31..32 " "
+    Int@32..33 "2"
+  Newline@33..34 "\n"
+error 29..31: Unexpected

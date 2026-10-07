@@ -1,0 +1,15 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/let_empty.elm
+---
+ExprFragment@0..9
+  LetExpr@0..8
+    LetKw@0..3 "let"
+    Whitespace@3..4 " "
+    InKw@4..6 "in"
+    Whitespace@6..7 " "
+    NameExpr@7..8
+      LowerIdent@7..8 "x"
+  Newline@8..9 "\n"
+error 4..6: Expected(Definition)

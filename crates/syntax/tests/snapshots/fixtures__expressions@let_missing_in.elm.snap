@@ -1,0 +1,20 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/let_missing_in.elm
+---
+ExprFragment@0..14
+  LetExpr@0..13
+    LetKw@0..3 "let"
+    Newline@3..4 "\n"
+    Whitespace@4..8 "    "
+    LetValue@8..13
+      Definition@8..13
+        LowerIdent@8..9 "x"
+        Whitespace@9..10 " "
+        Eq@10..11 "="
+        Whitespace@11..12 " "
+        LiteralExpr@12..13
+          Int@12..13 "1"
+  Newline@13..14 "\n"
+error 14..14: Expected(InKw)

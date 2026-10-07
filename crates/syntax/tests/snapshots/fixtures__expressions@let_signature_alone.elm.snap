@@ -1,0 +1,31 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/let_signature_alone.elm
+---
+ExprFragment@0..27
+  LetExpr@0..26
+    LetKw@0..3 "let"
+    Newline@3..4 "\n"
+    Whitespace@4..8 "    "
+    LetValue@8..15
+      Signature@8..15
+        LowerIdent@8..9 "x"
+        Whitespace@9..10 " "
+        Colon@10..11 ":"
+        Whitespace@11..12 " "
+        NamedType@12..15
+          UpperIdent@12..15 "Int"
+    Newline@15..16 "\n"
+    Whitespace@16..20 "    "
+    LetDestructure@20..21
+      LiteralPattern@20..21
+        Int@20..21 "1"
+    Newline@21..22 "\n"
+    InKw@22..24 "in"
+    Newline@24..25 "\n"
+    NameExpr@25..26
+      LowerIdent@25..26 "x"
+  Newline@26..27 "\n"
+error 20..21: Expected(Definition)
+error 22..24: Expected(Eq)

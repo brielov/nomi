@@ -1,0 +1,35 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/lambda.elm
+---
+ExprFragment@0..21
+  LambdaExpr@0..20
+    Backslash@0..1 "\\"
+    VarPattern@1..2
+      LowerIdent@1..2 "x"
+    Whitespace@2..3 " "
+    TuplePattern@3..11
+      LParen@3..4 "("
+      Whitespace@4..5 " "
+      VarPattern@5..6
+        LowerIdent@5..6 "a"
+      Comma@6..7 ","
+      Whitespace@7..8 " "
+      VarPattern@8..9
+        LowerIdent@8..9 "b"
+      Whitespace@9..10 " "
+      RParen@10..11 ")"
+    Whitespace@11..12 " "
+    Arrow@12..14 "->"
+    Whitespace@14..15 " "
+    OperatorChain@15..20
+      NameExpr@15..16
+        LowerIdent@15..16 "x"
+      Whitespace@16..17 " "
+      Op@17..18
+        Operator@17..18 "+"
+      Whitespace@18..19 " "
+      NameExpr@19..20
+        LowerIdent@19..20 "a"
+  Newline@20..21 "\n"

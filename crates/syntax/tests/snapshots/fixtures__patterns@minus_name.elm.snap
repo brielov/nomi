@@ -10,4 +10,3 @@ PatternFragment@0..3
     LowerIdent@1..2 "x"
   Newline@2..3 "\n"
 error 0..1: ExpectedPattern
-error 0..1: Unexpected

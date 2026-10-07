@@ -4,16 +4,23 @@
 //!
 //! The parser never sees trivia. Whitespace and comments wait in the token
 //! stream, and the builder places them, so no grammar rule can forget one.
+//!
+//! Tokens are lexed on demand. Elm reads some symbols a character at a
+//! time, so `x =-1` is `x = -1`, while the lexer sees one operator `=-`;
+//! the grammar splits such a token where it expects the symbol, and only
+//! the few tokens already peeked past it are lexed again. Splitting stays
+//! linear however many tokens it splits.
 
 mod build;
 
+use std::collections::VecDeque;
 use std::num::NonZeroU32;
 
 use nomi_base::{TextRange, TextSize};
 use rowan::GreenNode;
 
-use crate::lexer::{LexErrorKind, Token};
-use crate::{SyntaxKind, SyntaxNode, lex};
+use crate::lexer::{LexErrorKind, Lexer, Token};
+use crate::{SyntaxKind, SyntaxNode};
 
 /// A lossless tree and every problem found building it, in source order.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -129,18 +136,25 @@ pub(crate) enum Event {
     Tombstone,
 }
 
-/// A token not yet consumed, with the column it starts at.
+/// A token lexed but not yet consumed.
 #[derive(Clone, Copy, Debug)]
 struct Ahead {
     token: Token,
+    /// The column it starts at.
     column: u32,
+    /// How many lexical errors were found up to and including it.
+    lex_errors: u32,
 }
 
 pub(crate) struct Parser<'t> {
     text: &'t str,
-    /// Tokens not yet consumed, reversed, so the next one is last. A split
-    /// replaces only the top, so it costs nothing however far in it is.
-    ahead: Vec<Ahead>,
+    lexer: Lexer<'t>,
+    /// The column at the lexer's offset.
+    lexer_column: u32,
+    /// Tokens lexed but not consumed, next first: the lookahead.
+    ahead: VecDeque<Ahead>,
+    /// Tokens lexed, those lexed again after a split included.
+    lexed: usize,
     /// Tokens consumed so far, trivia included, in source order.
     consumed: Vec<Token>,
     events: Vec<Event>,
@@ -152,111 +166,176 @@ pub(crate) struct Parser<'t> {
     /// The leftmost column a continuation token may start at: one past
     /// the enclosing construct's column, or 0 in a fragment.
     min_column: u32,
+    /// Where a token starts that its block placed by alignment, such as a
+    /// case branch's first token. It counts as indented.
+    anchor: Option<TextSize>,
 }
 
 impl<'t> Parser<'t> {
     pub(crate) fn new(text: &'t str) -> Parser<'t> {
-        let (tokens, lex_errors) = lex(text).into_parts();
-        let mut column = 0;
-        let mut ahead: Vec<Ahead> = tokens
-            .into_iter()
-            .map(|token| {
-                let start = column;
-                column = advance_column(column, &text[token.range]);
-                Ahead {
-                    token,
-                    column: start,
-                }
-            })
-            .collect();
-        ahead.reverse();
         Parser {
             text,
-            ahead,
+            lexer: Lexer::new(text),
+            lexer_column: 0,
+            ahead: VecDeque::new(),
+            lexed: 0,
             consumed: Vec::new(),
             events: Vec::new(),
-            errors: lex_errors
-                .into_iter()
-                .map(|e| SyntaxError {
-                    kind: SyntaxErrorKind::Lexical(e.kind),
-                    range: e.range,
-                })
-                .collect(),
+            errors: Vec::new(),
             depth: 0,
             gave_up: false,
             min_column: 1,
+            anchor: None,
         }
     }
 
     /// Builds the tree. Every token must have been consumed, except
     /// trailing trivia.
     pub(crate) fn finish(mut self) -> Parse {
-        while let Some(Ahead { token, .. }) = self.ahead.pop() {
+        while let Some(Ahead { token, .. }) = self.ahead_at(0) {
             assert!(
                 token.kind.is_trivia(),
                 "the grammar left {:?} unconsumed",
                 token.kind
             );
+            self.ahead.pop_front();
             self.consumed.push(token);
         }
-        // Lexical errors came first; a stable sort keeps them before
-        // syntax errors at the same place.
-        self.errors.sort_by_key(|e| e.range.start());
+        let mut errors: Vec<SyntaxError> = (self.lexer.into_errors().into_iter())
+            .map(|e| SyntaxError {
+                kind: SyntaxErrorKind::Lexical(e.kind),
+                range: e.range,
+            })
+            .collect();
+        errors.extend(self.errors);
+        // A stable sort keeps lexical errors before syntax errors at the
+        // same place.
+        errors.sort_by_key(|e| e.range.start());
         let green = build::build(self.text, &self.consumed, self.events);
-        Parse {
-            green,
-            errors: self.errors,
+        Parse { green, errors }
+    }
+
+    /// How many tokens were lexed, counting each time one is lexed again
+    /// after a split.
+    #[cfg(test)]
+    pub(crate) fn lexed(&self) -> usize {
+        self.lexed
+    }
+
+    /// The `i`th token ahead, trivia included, lexing up to it.
+    fn ahead_at(&mut self, i: usize) -> Option<Ahead> {
+        while self.ahead.len() <= i {
+            let token = self.lexer.next_token()?;
+            let column = self.lexer_column;
+            self.lexer_column = advance_column(column, &self.text[token.range]);
+            self.lexed += 1;
+            self.ahead.push_back(Ahead {
+                token,
+                column,
+                lex_errors: self.lexer.errors().len() as u32,
+            });
         }
+        Some(self.ahead[i])
+    }
+
+    /// The `n`th significant token ahead, and its index in the lookahead.
+    fn nth_ahead(&mut self, n: usize) -> Option<(usize, Ahead)> {
+        let mut seen = 0;
+        for i in 0.. {
+            let a = self.ahead_at(i)?;
+            if a.token.kind.is_trivia() {
+                continue;
+            }
+            if seen == n {
+                return Some((i, a));
+            }
+            seen += 1;
+        }
+        unreachable!("the lookahead ends")
+    }
+
+    fn nth_token(&mut self, n: usize) -> Option<Ahead> {
+        self.nth_ahead(n).map(|(_, a)| a)
     }
 
     /// The `n`th significant token ahead, or [`SyntaxKind::Eof`].
-    pub(crate) fn nth(&self, n: usize) -> SyntaxKind {
+    pub(crate) fn nth(&mut self, n: usize) -> SyntaxKind {
         self.nth_token(n).map_or(SyntaxKind::Eof, |a| a.token.kind)
     }
 
     /// Whether the `n`th token ahead is the lower identifier spelling the
     /// contextual keyword `kind`.
-    pub(crate) fn nth_at_contextual(&self, n: usize, kind: SyntaxKind) -> bool {
+    pub(crate) fn nth_at_contextual(&mut self, n: usize, kind: SyntaxKind) -> bool {
         debug_assert!(kind.is_contextual_keyword());
         self.nth_token(n).is_some_and(|a| {
             a.token.kind == SyntaxKind::LowerIdent && Some(&self.text[a.token.range]) == kind.text()
         })
     }
 
-    /// Whether the `n`th token ahead directly follows the token before
-    /// it, with no trivia between them.
-    pub(crate) fn nth_is_joined(&self, n: usize) -> bool {
-        let mut seen = 0;
-        let mut after_trivia = false;
-        for a in self.ahead.iter().rev() {
-            if a.token.kind.is_trivia() {
-                after_trivia = true;
-                continue;
-            }
-            if seen == n {
-                return !after_trivia;
-            }
-            seen += 1;
-            after_trivia = false;
-        }
-        false
+    /// Whether the `n`th token ahead is `kind`, or an operator that starts
+    /// with it, as `=-` starts with `=`. Where elm's grammar expects a
+    /// symbol such as `=`, `->` or `|`, it reads just its characters;
+    /// [`Parser::bump_symbol`] splits the operator.
+    pub(crate) fn nth_at_symbol(&mut self, n: usize, kind: SyntaxKind) -> bool {
+        self.nth_token(n).is_some_and(|a| {
+            a.token.kind == kind
+                || (is_operator_token(a.token.kind)
+                    && kind
+                        .text()
+                        .is_some_and(|symbol| self.text[a.token.range].starts_with(symbol)))
+        })
     }
 
-    pub(crate) fn current(&self) -> SyntaxKind {
+    pub(crate) fn at_symbol(&mut self, kind: SyntaxKind) -> bool {
+        self.nth_at_symbol(0, kind)
+    }
+
+    /// Consumes the symbol `kind`, which [`Parser::at_symbol`] found,
+    /// splitting it off the operator it starts. The rest is lexed again:
+    /// `=--` leaves a comment, not an operator `--`.
+    pub(crate) fn bump_symbol(&mut self, kind: SyntaxKind) {
+        debug_assert!(self.at_symbol(kind));
+        if !self.at(kind) {
+            let (i, a) = self.nth_ahead(0).expect("at a symbol");
+            let len = TextSize::of(kind.text().expect("a symbol has a fixed text"));
+            let cut = a.token.range.start() + len;
+            self.ahead.truncate(i + 1);
+            self.ahead[i].token = Token {
+                kind,
+                range: TextRange::new(a.token.range.start(), cut),
+            };
+            self.lexer.rewind(cut, a.lex_errors as usize);
+            // Operators are ASCII, so bytes are columns.
+            self.lexer_column = a.column + u32::from(len);
+        }
+        self.bump();
+    }
+
+    /// Whether the `n`th token ahead directly follows the token before
+    /// it, with no trivia between them.
+    pub(crate) fn nth_is_joined(&mut self, n: usize) -> bool {
+        let Some((i, _)) = self.nth_ahead(n) else {
+            return false;
+        };
+        i == 0 || !self.ahead[i - 1].token.kind.is_trivia()
+    }
+
+    pub(crate) fn current(&mut self) -> SyntaxKind {
         self.nth(0)
     }
 
-    pub(crate) fn at(&self, kind: SyntaxKind) -> bool {
+    pub(crate) fn at(&mut self, kind: SyntaxKind) -> bool {
         self.current() == kind
     }
 
     /// The current token's text; empty at the end.
-    pub(crate) fn current_text(&self) -> &'t str {
-        &self.text[self.current_range()]
+    pub(crate) fn current_text(&mut self) -> &'t str {
+        let range = self.current_range();
+        &self.text[range]
     }
 
     /// The current token's range; empty at the end of the text.
-    pub(crate) fn current_range(&self) -> TextRange {
+    pub(crate) fn current_range(&mut self) -> TextRange {
         self.nth_token(0).map_or_else(
             || TextRange::empty(TextSize::of(self.text)),
             |a| a.token.range,
@@ -265,19 +344,32 @@ impl<'t> Parser<'t> {
 
     /// The column the current token starts at, counting characters; 0 at
     /// the end.
-    pub(crate) fn current_column(&self) -> u32 {
+    pub(crate) fn current_column(&mut self) -> u32 {
         self.nth_token(0).map_or(0, |a| a.column)
     }
 
     /// Whether the current token starts its line. The end counts as one.
-    pub(crate) fn at_fresh_line(&self) -> bool {
+    pub(crate) fn at_fresh_line(&mut self) -> bool {
         self.current_column() == 0
     }
 
     /// Whether the current token is indented enough to continue the
-    /// construct being parsed. The end never is.
-    pub(crate) fn at_indented(&self) -> bool {
-        !self.at(SyntaxKind::Eof) && self.current_column() >= self.min_column
+    /// construct being parsed, or is the anchor. The end never is.
+    pub(crate) fn at_indented(&mut self) -> bool {
+        let Some(a) = self.nth_token(0) else {
+            return false;
+        };
+        a.column >= self.min_column || self.anchor == Some(a.token.range.start())
+    }
+
+    /// Lets the current token start an item of a block it is aligned in,
+    /// at the column where everything after it must be indented further.
+    pub(crate) fn anchor(&mut self) {
+        self.anchor = self.nth_token(0).map(|a| a.token.range.start());
+    }
+
+    pub(crate) fn unanchor(&mut self) {
+        self.anchor = None;
     }
 
     /// Runs `rule` with continuations allowed from `column` on.
@@ -300,14 +392,6 @@ impl<'t> Parser<'t> {
         }
     }
 
-    fn nth_token(&self, n: usize) -> Option<&Ahead> {
-        self.ahead
-            .iter()
-            .rev()
-            .filter(|a| !a.token.kind.is_trivia())
-            .nth(n)
-    }
-
     /// Consumes the current token as its own kind.
     pub(crate) fn bump(&mut self) {
         let kind = self.current();
@@ -318,7 +402,7 @@ impl<'t> Parser<'t> {
     /// [`SyntaxKind::AliasKw`].
     pub(crate) fn bump_as(&mut self, kind: SyntaxKind) {
         assert!(!self.at(SyntaxKind::Eof), "bumped past the end");
-        while let Some(Ahead { token, .. }) = self.ahead.pop() {
+        while let Some(Ahead { token, .. }) = self.ahead.pop_front() {
             self.consumed.push(token);
             if !token.kind.is_trivia() {
                 break;
@@ -344,12 +428,17 @@ impl<'t> Parser<'t> {
         eaten
     }
 
-    /// Reports a problem at the current token, or at the end.
+    /// Reports a problem at the current token, or at the end. Only the
+    /// first problem at a token counts: a construct that ends early leaves
+    /// the expectations of those around it unmet at the same place.
     pub(crate) fn error(&mut self, kind: SyntaxErrorKind) {
         if self.gave_up {
             return;
         }
         let range = self.current_range();
+        if self.errors.last().is_some_and(|e| e.range == range) {
+            return;
+        }
         self.errors.push(SyntaxError { kind, range });
     }
 
@@ -459,3 +548,20 @@ impl CompletedMarker {
 
 #[cfg(test)]
 mod tests;
+
+/// Whether the lexer's operator rule made a token of `kind`, so that a
+/// symbol may start it.
+fn is_operator_token(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::Operator
+            | SyntaxKind::Dot
+            | SyntaxKind::DotDot
+            | SyntaxKind::Arrow
+            | SyntaxKind::Eq
+            | SyntaxKind::Colon
+            | SyntaxKind::ColonColon
+            | SyntaxKind::Pipe
+            | SyntaxKind::Minus
+    )
+}

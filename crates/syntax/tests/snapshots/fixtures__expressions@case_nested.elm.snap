@@ -1,0 +1,62 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/case_nested.elm
+---
+ExprFragment@0..95
+  CaseExpr@0..94
+    CaseKw@0..4 "case"
+    Whitespace@4..5 " "
+    NameExpr@5..6
+      LowerIdent@5..6 "x"
+    Whitespace@6..7 " "
+    OfKw@7..9 "of"
+    Newline@9..10 "\n"
+    Whitespace@10..14 "    "
+    CaseBranch@14..74
+      ConstructorPattern@14..15
+        UpperIdent@14..15 "A"
+      Whitespace@15..16 " "
+      Arrow@16..18 "->"
+      Newline@18..19 "\n"
+      Whitespace@19..27 "        "
+      CaseExpr@27..74
+        CaseKw@27..31 "case"
+        Whitespace@31..32 " "
+        NameExpr@32..33
+          LowerIdent@32..33 "y"
+        Whitespace@33..34 " "
+        OfKw@34..36 "of"
+        Newline@36..37 "\n"
+        Whitespace@37..49 "            "
+        CaseBranch@49..55
+          ConstructorPattern@49..50
+            UpperIdent@49..50 "B"
+          Whitespace@50..51 " "
+          Arrow@51..53 "->"
+          Whitespace@53..54 " "
+          LiteralExpr@54..55
+            Int@54..55 "1"
+        Newline@55..56 "\n"
+        Whitespace@56..68 "            "
+        CaseBranch@68..74
+          ConstructorPattern@68..69
+            UpperIdent@68..69 "C"
+          Whitespace@69..70 " "
+          Arrow@70..72 "->"
+          Whitespace@72..73 " "
+          LiteralExpr@73..74
+            Int@73..74 "2"
+    Newline@74..75 "\n"
+    Newline@75..76 "\n"
+    Whitespace@76..80 "    "
+    CaseBranch@80..94
+      ConstructorPattern@80..81
+        UpperIdent@80..81 "D"
+      Whitespace@81..82 " "
+      Arrow@82..84 "->"
+      Newline@84..85 "\n"
+      Whitespace@85..93 "        "
+      LiteralExpr@93..94
+        Int@93..94 "3"
+  Newline@94..95 "\n"

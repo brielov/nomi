@@ -1,0 +1,16 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/lambda_no_arguments.elm
+---
+ExprFragment@0..7
+  LambdaExpr@0..6
+    Backslash@0..1 "\\"
+    Missing@1..1
+    Whitespace@1..2 " "
+    Arrow@2..4 "->"
+    Whitespace@4..5 " "
+    LiteralExpr@5..6
+      Int@5..6 "1"
+  Newline@6..7 "\n"
+error 2..4: ExpectedPattern

@@ -1,0 +1,24 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/let_split.elm
+---
+ExprFragment@0..15
+  LetExpr@0..14
+    LetKw@0..3 "let"
+    Whitespace@3..4 " "
+    LetValue@4..9
+      Definition@4..9
+        LowerIdent@4..5 "x"
+        Whitespace@5..6 " "
+        Eq@6..7 "="
+        NegateExpr@7..9
+          Minus@7..8 "-"
+          LiteralExpr@8..9
+            Int@8..9 "1"
+    Whitespace@9..10 " "
+    InKw@10..12 "in"
+    Whitespace@12..13 " "
+    NameExpr@13..14
+      LowerIdent@13..14 "x"
+  Newline@14..15 "\n"

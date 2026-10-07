@@ -2,6 +2,7 @@
 //! expression is names and parentheses joined by operators.
 
 use super::*;
+use crate::lex;
 use SyntaxKind as K;
 
 fn module(p: &mut Parser<'_>) {
@@ -250,10 +251,11 @@ Module@0..7
     );
     let errors: Vec<_> = parse.errors().iter().map(|e| (e.kind, e.range)).collect();
     let at = |a: u32, b: u32| TextRange::new(a.into(), b.into());
+    // The `)` is both a missing operand and a stray token; only the first
+    // problem there counts.
     assert_eq!(
         errors,
         [
-            (SyntaxErrorKind::Expected(K::LowerIdent), at(4, 5)),
             (SyntaxErrorKind::Expected(K::LowerIdent), at(4, 5)),
             (SyntaxErrorKind::Expected(K::LowerIdent), at(6, 7)),
         ]
@@ -282,7 +284,6 @@ fn lexical_and_syntax_errors_merge_in_source_order() {
     assert_eq!(
         kinds,
         [
-            SyntaxErrorKind::Expected(K::LowerIdent),
             SyntaxErrorKind::Expected(K::LowerIdent),
             SyntaxErrorKind::Lexical(LexErrorKind::UnterminatedString),
             SyntaxErrorKind::Expected(K::LowerIdent),
@@ -331,11 +332,77 @@ Module@0..3
 
 #[test]
 fn lookahead_skips_trivia() {
-    let p = Parser::new("a -- c\n  =");
+    let mut p = Parser::new("a -- c\n  =");
     assert_eq!(p.current(), K::LowerIdent);
     assert_eq!(p.nth(1), K::Eq);
     assert_eq!(p.nth(2), K::Eof);
     assert_eq!(p.current_text(), "a");
+}
+
+/// Consumes everything, splitting `=` off where it starts a token.
+fn split_all(text: &str) -> Parser<'_> {
+    let mut p = Parser::new(text);
+    let m = p.start();
+    while !p.at(K::Eof) {
+        if p.at_symbol(K::Eq) {
+            p.bump_symbol(K::Eq);
+        } else {
+            p.bump();
+        }
+    }
+    m.complete(&mut p, K::Module);
+    p
+}
+
+#[test]
+fn a_symbol_splits_off_an_operator() {
+    let parse = split_all("x =-1 ==").finish();
+    assert_eq!(
+        parse.debug_tree().trim(),
+        r#"
+Module@0..8
+  LowerIdent@0..1 "x"
+  Whitespace@1..2 " "
+  Eq@2..3 "="
+  Minus@3..4 "-"
+  Int@4..5 "1"
+  Whitespace@5..6 " "
+  Eq@6..7 "="
+  Eq@7..8 "="
+"#
+        .trim()
+    );
+}
+
+#[test]
+fn the_rest_of_a_split_is_lexed_again() {
+    // The operator `=--` and the string it hid become a comment, and the
+    // string's lexical error goes with them.
+    let p = split_all("x =-- \"\n  1");
+    // Nothing was peeked past `=--`, so only what follows the cut is
+    // lexed twice: `x`, ` `, `=--`, then `-- "`, newline, `  ` and `1`.
+    assert_eq!(p.lexed(), 7);
+    let parse = p.finish();
+    assert_eq!(parse.errors(), []);
+    assert!(parse.debug_tree().contains("LineComment@3..7 \"-- \\\"\""));
+}
+
+#[test]
+fn a_split_keeps_tokens_joined() {
+    let mut p = Parser::new("=-1");
+    p.bump_symbol(K::Eq);
+    assert!(p.nth_is_joined(0));
+    assert!(p.nth_is_joined(1));
+}
+
+#[test]
+fn splitting_relexes_only_the_lookahead() {
+    // Each split hides a string that would run to the next line.
+    let line = "x =-- \"\n";
+    let text = line.repeat(10_000);
+    let p = split_all(&text);
+    let tokens = lex(&text).tokens().len();
+    assert!(p.lexed() < 2 * tokens, "{} for {tokens}", p.lexed());
 }
 
 #[test]

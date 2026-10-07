@@ -18,4 +18,3 @@ PatternFragment@0..9
     RParen@7..8 ")"
   Newline@8..9 "\n"
 error 4..5: ExpectedPattern
-error 4..5: Expected(RParen)

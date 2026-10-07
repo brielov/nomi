@@ -2,6 +2,7 @@
 //! elm and elm-format accept, legacy syntax included; the validation pass
 //! flags what a given tool rejects. `elm.ungram` describes the trees.
 
+mod definitions;
 mod expressions;
 mod module;
 mod patterns;
@@ -44,16 +45,54 @@ fn parse_fragment(text: &str, root: K, rule: fn(&mut Parser<'_>)) -> Parse {
     p.finish()
 }
 
-/// Consumes `kind`, reporting it if it isn't indented, or reports that it
-/// is missing.
+/// Consumes `kind`, splitting it off an operator it starts, and reports it
+/// if it isn't indented; or reports that it is missing.
 fn expect_indented(p: &mut Parser<'_>, kind: K) -> bool {
-    if !p.at(kind) {
+    if !p.at_symbol(kind) {
         p.error(SyntaxErrorKind::Expected(kind));
         return false;
     }
     p.check_indented();
-    p.bump();
+    p.bump_symbol(kind);
     true
+}
+
+/// Consumes `kind`, the keyword or symbol that starts the next part of a
+/// construct, such as `then`. Anything indented before it is skipped as
+/// one error. Returns false, having reported it, if the construct ends
+/// first.
+fn expect_part(p: &mut Parser<'_>, kind: K) -> bool {
+    if !p.at_symbol(kind) {
+        p.error(SyntaxErrorKind::Expected(kind));
+        if p.at_indented() {
+            let m = p.start();
+            while p.at_indented() && !p.at_symbol(kind) {
+                p.bump();
+            }
+            m.complete(p, K::Error);
+        }
+        if !p.at_symbol(kind) {
+            return false;
+        }
+    }
+    p.check_indented();
+    p.bump_symbol(kind);
+    true
+}
+
+/// Whether the current token lines up at `column` with the items of a
+/// block and, by `starts`, starts another. It is then anchored: it counts
+/// as indented, though the rest of the item must be further right.
+fn at_aligned(p: &mut Parser<'_>, column: u32, starts: fn(&mut Parser<'_>) -> bool) -> bool {
+    if p.at(K::Eof) || p.current_column() != column {
+        return false;
+    }
+    p.anchor();
+    let at = starts(p);
+    if !at {
+        p.unanchor();
+    }
+    at
 }
 
 /// A name with an optional qualifier: `Maybe`, `Maybe.Maybe`, or

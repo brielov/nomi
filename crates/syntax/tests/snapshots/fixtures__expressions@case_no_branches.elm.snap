@@ -1,0 +1,15 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/case_no_branches.elm
+---
+ExprFragment@0..10
+  CaseExpr@0..9
+    CaseKw@0..4 "case"
+    Whitespace@4..5 " "
+    NameExpr@5..6
+      LowerIdent@5..6 "x"
+    Whitespace@6..7 " "
+    OfKw@7..9 "of"
+  Newline@9..10 "\n"
+error 10..10: ExpectedPattern

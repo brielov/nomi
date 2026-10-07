@@ -1,0 +1,18 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/if_missing_else.elm
+---
+ExprFragment@0..12
+  IfExpr@0..11
+    IfKw@0..2 "if"
+    Whitespace@2..3 " "
+    NameExpr@3..4
+      LowerIdent@3..4 "a"
+    Whitespace@4..5 " "
+    ThenKw@5..9 "then"
+    Whitespace@9..10 " "
+    NameExpr@10..11
+      LowerIdent@10..11 "b"
+  Newline@11..12 "\n"
+error 12..12: Expected(ElseKw)

@@ -11,4 +11,3 @@ PatternFragment@0..4
     Int@2..3 "1"
   Newline@3..4 "\n"
 error 0..1: ExpectedPattern
-error 0..1: Unexpected

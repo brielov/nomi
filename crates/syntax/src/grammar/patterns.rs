@@ -6,7 +6,7 @@ use crate::parser::{CompletedMarker, Parser, SyntaxErrorKind};
 
 /// Whether a pattern that needs no parentheses as an argument starts here
 /// and continues the construct being parsed.
-pub(super) fn at_pattern_atom(p: &Parser<'_>) -> bool {
+pub(super) fn at_pattern_atom(p: &mut Parser<'_>) -> bool {
     let starts = match p.current() {
         K::LowerIdent
         | K::UpperIdent
@@ -25,7 +25,7 @@ pub(super) fn at_pattern_atom(p: &Parser<'_>) -> bool {
     starts && p.at_indented()
 }
 
-fn at_negative_literal(p: &Parser<'_>) -> bool {
+fn at_negative_literal(p: &mut Parser<'_>) -> bool {
     matches!(p.nth(1), K::Int | K::Float) && p.nth_is_joined(1)
 }
 
@@ -45,9 +45,9 @@ pub(super) fn pattern(p: &mut Parser<'_>) {
 
 fn cons_pattern(p: &mut Parser<'_>) -> CompletedMarker {
     let head = applied_pattern(p);
-    if p.at(K::ColonColon) && p.at_indented() {
+    if p.at_symbol(K::ColonColon) && p.at_indented() {
         let m = head.precede(p);
-        p.bump();
+        p.bump_symbol(K::ColonColon);
         p.guarded(cons_pattern);
         return m.complete(p, K::ConsPattern);
     }

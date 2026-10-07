@@ -1,0 +1,38 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/else_if.elm
+---
+ExprFragment@0..48
+  IfExpr@0..47
+    IfKw@0..2 "if"
+    Whitespace@2..3 " "
+    NameExpr@3..4
+      LowerIdent@3..4 "a"
+    Whitespace@4..5 " "
+    ThenKw@5..9 "then"
+    Newline@9..10 "\n"
+    Whitespace@10..14 "    "
+    NameExpr@14..15
+      LowerIdent@14..15 "b"
+    Newline@15..16 "\n"
+    ElseKw@16..20 "else"
+    Whitespace@20..21 " "
+    IfExpr@21..47
+      IfKw@21..23 "if"
+      Whitespace@23..24 " "
+      NameExpr@24..25
+        LowerIdent@24..25 "c"
+      Whitespace@25..26 " "
+      ThenKw@26..30 "then"
+      Newline@30..31 "\n"
+      Whitespace@31..35 "    "
+      NameExpr@35..36
+        LowerIdent@35..36 "d"
+      Newline@36..37 "\n"
+      ElseKw@37..41 "else"
+      Newline@41..42 "\n"
+      Whitespace@42..46 "    "
+      NameExpr@46..47
+        LowerIdent@46..47 "e"
+  Newline@47..48 "\n"

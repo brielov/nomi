@@ -1,0 +1,40 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/case.elm
+---
+ExprFragment@0..60
+  CaseExpr@0..59
+    CaseKw@0..4 "case"
+    Whitespace@4..5 " "
+    NameExpr@5..6
+      LowerIdent@5..6 "x"
+    Whitespace@6..7 " "
+    OfKw@7..9 "of"
+    Newline@9..10 "\n"
+    Whitespace@10..14 "    "
+    CaseBranch@14..33
+      ConstructorPattern@14..20
+        UpperIdent@14..18 "Just"
+        Whitespace@18..19 " "
+        VarPattern@19..20
+          LowerIdent@19..20 "y"
+      Whitespace@20..21 " "
+      Arrow@21..23 "->"
+      Newline@23..24 "\n"
+      Whitespace@24..32 "        "
+      NameExpr@32..33
+        LowerIdent@32..33 "y"
+    Newline@33..34 "\n"
+    Newline@34..35 "\n"
+    Whitespace@35..39 "    "
+    CaseBranch@39..59
+      ConstructorPattern@39..46
+        UpperIdent@39..46 "Nothing"
+      Whitespace@46..47 " "
+      Arrow@47..49 "->"
+      Newline@49..50 "\n"
+      Whitespace@50..58 "        "
+      LiteralExpr@58..59
+        Int@58..59 "0"
+  Newline@59..60 "\n"

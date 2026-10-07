@@ -1,0 +1,23 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/compound_argument.elm
+---
+ExprFragment@0..21
+  NameExpr@0..1
+    LowerIdent@0..1 "f"
+  Whitespace@1..2 " "
+  Error@2..20
+    IfKw@2..4 "if"
+    Whitespace@4..5 " "
+    LowerIdent@5..6 "a"
+    Whitespace@6..7 " "
+    ThenKw@7..11 "then"
+    Whitespace@11..12 " "
+    LowerIdent@12..13 "b"
+    Whitespace@13..14 " "
+    ElseKw@14..18 "else"
+    Whitespace@18..19 " "
+    LowerIdent@19..20 "c"
+  Newline@20..21 "\n"
+error 2..4: Unexpected

@@ -37,7 +37,7 @@ pub(super) fn module(p: &mut Parser<'_>) {
     m.complete(p, K::Module);
 }
 
-fn at_header(p: &Parser<'_>) -> bool {
+fn at_header(p: &mut Parser<'_>) -> bool {
     p.at(K::ModuleKw)
         || ((p.at(K::PortKw) || p.nth_at_contextual(0, K::EffectKw)) && p.nth(1) == K::ModuleKw)
 }
@@ -116,7 +116,7 @@ fn import(p: &mut Parser<'_>) {
     m.complete(p, K::Import);
 }
 
-fn at_exposing_list(p: &Parser<'_>) -> bool {
+fn at_exposing_list(p: &mut Parser<'_>) -> bool {
     p.at(K::ExposingKw) || (p.at(K::LParen) && p.at_indented())
 }
 
