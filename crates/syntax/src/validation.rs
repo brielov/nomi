@@ -93,6 +93,9 @@ fn elm(root: &SyntaxNode, source: Source, errors: &mut Vec<SyntaxError>) {
                 }
             }
             K::LiteralPattern => literal_pattern(&node, errors),
+            K::Op if node.parent().is_some_and(|n| n.kind() == K::OperatorChain) => {
+                dot_operator(&node, errors);
+            }
             K::ModuleHeader => header(&node, errors),
             K::ExposingList
                 if token(&node, K::ExposingKw).is_none() || token(&node, K::LParen).is_none() =>
@@ -159,6 +162,19 @@ fn literal_pattern(node: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
         push(errors, E::NegativePattern, minus.text_range());
     } else if let Some(float) = token(node, K::Float) {
         push(errors, E::FloatPattern, float.text_range());
+    }
+}
+
+/// elm takes a `.` where an argument may start for an accessor
+/// (`Parse/Expression.hs`, `term`), so no operator of a chain can start
+/// with one. Joined to its left operand, the grammar reports it.
+fn dot_operator(node: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
+    let Some(op) = node.first_token() else {
+        return;
+    };
+    let spaced = op.prev_token().is_some_and(|t| t.kind().is_trivia());
+    if op.text().starts_with('.') && spaced {
+        push(errors, E::DotOperator, op.text_range());
     }
 }
 

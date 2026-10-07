@@ -68,6 +68,9 @@ fn chain(p: &mut Parser<'_>) {
     }
     let m = first.precede(p);
     while at_operator(p) {
+        if p.current_text().starts_with('.') && p.nth_is_joined(0) {
+            p.error(SyntaxErrorKind::JoinedDotOperator);
+        }
         let op = p.start();
         p.bump();
         op.complete(p, K::Op);

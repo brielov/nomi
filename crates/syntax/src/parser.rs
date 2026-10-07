@@ -161,6 +161,12 @@ pub enum SyntaxErrorKind {
     SpacedOperator,
     /// An infix precedence other than one decimal digit, such as `10`.
     BadPrecedence,
+    /// An operator starting with `.` right after an operand, as in
+    /// `model.=count`: a field access gone wrong.
+    JoinedDotOperator,
+    /// An operator starting with `.`, which elm reads as a field
+    /// accessor, as in `40 .+ 2`.
+    DotOperator,
     /// An expression of a code block, after the first, starting with
     /// something other than a letter or `_`.
     ExpectedLetterStart,

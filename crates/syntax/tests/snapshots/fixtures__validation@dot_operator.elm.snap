@@ -1,0 +1,12 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/dot_operator.elm
+---
+elm, application:
+  35..37 DotOperator ".+"
+elm, package:
+  35..37 DotOperator ".+"
+elm, kernel package:
+  35..37 DotOperator ".+"
+elm-format:

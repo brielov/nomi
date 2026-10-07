@@ -1,0 +1,100 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/recovery/dot_operators.elm
+---
+Module@0..119
+  ModuleHeader@0..22
+    ModuleKw@0..6 "module"
+    Whitespace@6..7 " "
+    ModuleName@7..8
+      UpperIdent@7..8 "M"
+    Whitespace@8..9 " "
+    ExposingList@9..22
+      ExposingKw@9..17 "exposing"
+      Whitespace@17..18 " "
+      LParen@18..19 "("
+      DotDot@19..21 ".."
+      RParen@21..22 ")"
+  Newline@22..23 "\n"
+  Newline@23..24 "\n"
+  ValueDecl@24..68
+    Definition@24..68
+      LowerIdent@24..25 "a"
+      Whitespace@25..26 " "
+      Eq@26..27 "="
+      Newline@27..28 "\n"
+      Whitespace@28..32 "    "
+      RecordUpdateExpr@32..68
+        LBrace@32..33 "{"
+        Whitespace@33..34 " "
+        LowerIdent@34..39 "model"
+        Whitespace@39..40 " "
+        Pipe@40..41 "|"
+        Whitespace@41..42 " "
+        Field@42..66
+          LowerIdent@42..47 "count"
+          Whitespace@47..48 " "
+          Eq@48..49 "="
+          Whitespace@49..50 " "
+          OperatorChain@50..66
+            NameExpr@50..55
+              LowerIdent@50..55 "model"
+            Op@55..57
+              Operator@55..57 ".="
+            NameExpr@57..62
+              LowerIdent@57..62 "count"
+            Whitespace@62..63 " "
+            Op@63..64
+              Operator@63..64 "+"
+            Whitespace@64..65 " "
+            LiteralExpr@65..66
+              Int@65..66 "1"
+        Whitespace@66..67 " "
+        RBrace@67..68 "}"
+  Newline@68..69 "\n"
+  Newline@69..70 "\n"
+  ValueDecl@70..101
+    Definition@70..101
+      LowerIdent@70..71 "b"
+      Whitespace@71..72 " "
+      Eq@72..73 "="
+      Newline@73..74 "\n"
+      Whitespace@74..78 "    "
+      OperatorChain@78..101
+        NameExpr@78..82
+          UpperIdent@78..82 "List"
+        Op@82..84
+          Operator@82..84 ".="
+        NameExpr@84..87
+          LowerIdent@84..87 "map"
+        Whitespace@87..88 " "
+        Op@88..90
+          Operator@88..90 ".="
+        CallExpr@90..101
+          NameExpr@90..94
+            LowerIdent@90..94 "name"
+          Whitespace@94..95 " "
+          NameExpr@95..101
+            LowerIdent@95..101 "models"
+  Newline@101..102 "\n"
+  Newline@102..103 "\n"
+  ValueDecl@103..118
+    Definition@103..118
+      LowerIdent@103..104 "c"
+      Whitespace@104..105 " "
+      Eq@105..106 "="
+      Newline@106..107 "\n"
+      Whitespace@107..111 "    "
+      OperatorChain@111..118
+        LiteralExpr@111..113
+          Int@111..113 "40"
+        Whitespace@113..114 " "
+        Op@114..116
+          Operator@114..116 ".+"
+        Whitespace@116..117 " "
+        LiteralExpr@117..118
+          Int@117..118 "2"
+  Newline@118..119 "\n"
+error 55..57: JoinedDotOperator
+error 82..84: JoinedDotOperator
