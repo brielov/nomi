@@ -191,7 +191,7 @@ fn token(node: &SyntaxNode, kind: K) -> Option<SyntaxToken> {
         .find(|t| t.kind() == kind)
 }
 
-/// elm reads the definition after a signature by the signature's name
+/// elm reads a definition after each signature, by the signature's name
 /// (`Parse/Declaration.hs`, `chompMatchingName`).
 fn names_match(
     signature: Option<ast::Signature>,
@@ -200,6 +200,10 @@ fn names_match(
 ) {
     let name = |t: Option<SyntaxToken>| t.map(|t| t.text().to_owned());
     let Some(definition) = definition else {
+        if let Some(signature) = signature {
+            let end = trimmed(signature.syntax()).end();
+            push(errors, E::Expected(K::Definition), TextRange::empty(end));
+        }
         return;
     };
     let Some(expected) = name(signature.and_then(|s| s.lower_ident_token())) else {

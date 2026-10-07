@@ -13,4 +13,3 @@ Module@0..8
       NamedType@4..7
         UpperIdent@4..7 "Int"
   Newline@7..8 "\n"
-error 8..8: Expected(Definition)

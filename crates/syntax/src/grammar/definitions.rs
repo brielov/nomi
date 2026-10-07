@@ -6,7 +6,7 @@ use super::patterns::{at_pattern_argument, pattern_atom};
 use super::types::type_;
 use super::{expect_indented, expect_part, is_parenthesized_op, parenthesized_op};
 use crate::SyntaxKind as K;
-use crate::parser::{Parser, SyntaxErrorKind};
+use crate::parser::Parser;
 
 /// Whether a value's name is current: a lower name, or elm-format's
 /// legacy operator name, as in `(=>) a b = …`.
@@ -38,24 +38,29 @@ fn value_name(p: &mut Parser<'_>) {
 }
 
 /// `name : Type` on one line and `name args = body` aligned below it, or
-/// just the definition. The caller placed the name, which is current.
+/// just one of the two: elm-format takes a signature alone, which elm's
+/// validation reports. The caller placed the name, which is current.
 pub(super) fn value(p: &mut Parser<'_>) {
     let column = p.current_column();
-    let name_tokens = if p.at(K::LowerIdent) { 1 } else { 3 };
-    if p.nth_at_symbol(name_tokens, K::Colon) {
+    if at_signature(p) {
         let m = p.start();
         value_name(p);
         expect_indented(p, K::Colon);
         type_(p);
         m.complete(p, K::Signature);
         // elm wants the two names to match; validation checks.
-        if !(at_value_name(p) && p.current_column() == column) {
-            p.error(SyntaxErrorKind::Expected(K::Definition));
+        if !(at_value_name(p) && p.current_column() == column) || at_signature(p) {
             return;
         }
         p.anchor();
     }
     definition(p);
+}
+
+/// At a value's name and the colon after it.
+fn at_signature(p: &mut Parser<'_>) -> bool {
+    let name_tokens = if p.at(K::LowerIdent) { 1 } else { 3 };
+    p.nth_at_symbol(name_tokens, K::Colon)
 }
 
 fn definition(p: &mut Parser<'_>) {

@@ -825,6 +825,7 @@ fifth-postulate/gaussian-elimination@1.0.0
 fifth-postulate/priority-queue@1.0.0
 figbus/elm-urbit-api@4.0.1
 finos/morphir-elm@22.0.2
+finos/morphir@1.0.0
 fission-codes/kit@1.0.0
 fission-codes/webnative-elm@3.0.0
 fivetentech/elm-bounded-list@1.1.1

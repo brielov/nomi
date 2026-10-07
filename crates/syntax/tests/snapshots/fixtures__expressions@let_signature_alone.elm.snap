@@ -27,5 +27,4 @@ ExprFragment@0..27
     NameExpr@25..26
       LowerIdent@25..26 "x"
   Newline@26..27 "\n"
-error 20..21: Expected(Definition)
 error 22..24: Expected(Eq)

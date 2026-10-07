@@ -31,4 +31,4 @@ ExprFragment@0..33
     NameExpr@31..32
       LowerIdent@31..32 "x"
   Newline@32..33 "\n"
-error 24..25: Expected(Definition)
+error 24..25: Expected(InKw)

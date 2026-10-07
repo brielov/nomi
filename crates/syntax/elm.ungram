@@ -86,8 +86,9 @@ Decl =
 | PortDecl
 | InfixDecl
 
+// elm-format takes a signature alone, which elm rejects.
 ValueDecl =
-  'doc_comment'? Signature? Definition
+  'doc_comment'? Signature? Definition?
 
 // The name is one of the two; a token in an alternative gets no accessor.
 Signature =
@@ -321,7 +322,7 @@ LetDecl =
 | LetDestructure
 
 LetValue =
-  Signature? Definition
+  Signature? Definition?
 
 LetDestructure =
   Pattern '=' Expr
