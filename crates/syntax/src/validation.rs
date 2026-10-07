@@ -7,6 +7,7 @@
 use nomi_base::{Compat, TextRange, TextSize};
 
 use crate::ast::{self, AstNode};
+use crate::lexer::is_elm_operator_char;
 use crate::{
     LexErrorKind, Parse, SyntaxError, SyntaxErrorKind as E, SyntaxKind as K, SyntaxNode,
     SyntaxToken,
@@ -46,6 +47,7 @@ pub fn validate(parse: &Parse, tool: Tool) -> Vec<SyntaxError> {
             }
             strings_spanning_lines(&root, &mut errors);
             comment_tabs(&root, &mut errors);
+            operator_chars(&root, &mut errors);
             elm(&root, source, &mut errors);
         }
         Tool::ElmFormat => {
@@ -400,6 +402,25 @@ fn comment_tabs(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
                 errors,
                 E::Lexical(LexErrorKind::Tab),
                 TextRange::at(start, TextSize::new(1)),
+            );
+        }
+    }
+}
+
+/// elm-format takes `$`, `#`, `@`, `~` and Unicode symbols in an
+/// operator, `→` alone being its `->`; elm takes none of them.
+fn operator_chars(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
+    let operators = (root.descendants_with_tokens())
+        .filter_map(|e| e.into_token())
+        .filter(|t| matches!(t.kind(), K::Operator | K::Arrow));
+    for token in operators {
+        if let Some((i, c)) = (token.text().char_indices()).find(|&(_, c)| !is_elm_operator_char(c))
+        {
+            let start = token.text_range().start() + TextSize::new(i as u32);
+            push(
+                errors,
+                E::Lexical(LexErrorKind::InvalidToken),
+                TextRange::at(start, TextSize::of(c)),
             );
         }
     }

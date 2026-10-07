@@ -204,6 +204,7 @@ impl<'a> Lexer<'a> {
             b'\\' => self.single(SyntaxKind::Backslash),
             b'_' => self.single(SyntaxKind::Underscore),
             byte if is_operator(byte) => self.operator(),
+            _ if self.char_at(start).is_some_and(is_operator_char) => self.operator(),
             _ => self.identifier_or_invalid(),
         };
         debug_assert!(self.offset > start, "the lexer must always make progress");
@@ -484,9 +485,15 @@ impl<'a> Lexer<'a> {
 
     fn operator(&mut self) -> SyntaxKind {
         let start = self.offset;
-        self.consume_while(is_operator);
-        // `-`, `=`, `..` and the like have kinds of their own.
-        SyntaxKind::from_text(&self.text[start..self.offset]).unwrap_or(SyntaxKind::Operator)
+        while let Some(next) = self.char_at(self.offset).filter(|&c| is_operator_char(c)) {
+            self.offset += next.len_utf8();
+        }
+        // `-`, `=`, `..` and the like have kinds of their own, and
+        // elm-format reads a lone `→` as `->`.
+        match &self.text[start..self.offset] {
+            "→" => SyntaxKind::Arrow,
+            text => SyntaxKind::from_text(text).unwrap_or(SyntaxKind::Operator),
+        }
     }
 
     fn identifier_or_invalid(&mut self) -> SyntaxKind {
@@ -611,6 +618,27 @@ fn is_identifier_continue(c: char) -> bool {
     )
 }
 
+/// Whether elm-format takes `c` in an operator: elm's characters, a few
+/// more ASCII ones, and Haskell's `isSymbol`. elm's validation reports
+/// the rest.
+fn is_operator_char(c: char) -> bool {
+    if c.is_ascii() {
+        return is_operator(c as u8);
+    }
+    matches!(
+        GENERAL_CATEGORY.get(c),
+        GeneralCategory::MathSymbol
+            | GeneralCategory::CurrencySymbol
+            | GeneralCategory::ModifierSymbol
+            | GeneralCategory::OtherSymbol
+    )
+}
+
+/// Whether elm takes `c` in an operator.
+pub(crate) fn is_elm_operator_char(c: char) -> bool {
+    c.is_ascii() && is_operator(c as u8) && !matches!(c, '$' | '#' | '@' | '~')
+}
+
 fn is_operator(byte: u8) -> bool {
     matches!(
         byte,
@@ -628,6 +656,10 @@ fn is_operator(byte: u8) -> bool {
             | b'?'
             | b'%'
             | b'!'
+            | b'$'
+            | b'#'
+            | b'@'
+            | b'~'
     )
 }
 

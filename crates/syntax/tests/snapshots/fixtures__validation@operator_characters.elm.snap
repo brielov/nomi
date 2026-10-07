@@ -1,0 +1,39 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/operator_characters.elm
+---
+elm, application:
+  24..29 OperatorDefinition "(<$>)"
+  26..27 Lexical(InvalidToken) "$"
+  63..68 OperatorDefinition "(<$>)"
+  65..66 Lexical(InvalidToken) "$"
+  94..97 Lexical(InvalidToken) "→"
+  113..116 Lexical(InvalidToken) "→"
+  120..121 Lexical(InvalidToken) "$"
+  125..128 Lexical(InvalidToken) "⊕"
+  132..133 Lexical(InvalidToken) "~"
+  136..139 Lexical(InvalidToken) "€"
+elm, package:
+  24..29 OperatorDefinition "(<$>)"
+  26..27 Lexical(InvalidToken) "$"
+  63..68 OperatorDefinition "(<$>)"
+  65..66 Lexical(InvalidToken) "$"
+  94..97 Lexical(InvalidToken) "→"
+  113..116 Lexical(InvalidToken) "→"
+  120..121 Lexical(InvalidToken) "$"
+  125..128 Lexical(InvalidToken) "⊕"
+  132..133 Lexical(InvalidToken) "~"
+  136..139 Lexical(InvalidToken) "€"
+elm, kernel package:
+  24..29 OperatorDefinition "(<$>)"
+  26..27 Lexical(InvalidToken) "$"
+  63..68 OperatorDefinition "(<$>)"
+  65..66 Lexical(InvalidToken) "$"
+  94..97 Lexical(InvalidToken) "→"
+  113..116 Lexical(InvalidToken) "→"
+  120..121 Lexical(InvalidToken) "$"
+  125..128 Lexical(InvalidToken) "⊕"
+  132..133 Lexical(InvalidToken) "~"
+  136..139 Lexical(InvalidToken) "€"
+elm-format:

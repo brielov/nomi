@@ -294,10 +294,22 @@ fn unterminated_literals_and_odd_characters() {
     assert_eq!(errors("\"a\\"), [LexErrorKind::UnterminatedString]);
     assert_eq!(errors("{- {- -}"), [LexErrorKind::UnterminatedBlockComment]);
     assert_eq!(kinds("{-| x"), [SyntaxKind::DocComment]);
-    assert_eq!(errors("#"), [LexErrorKind::InvalidToken]);
+    assert_eq!(errors("§"), [LexErrorKind::InvalidToken]);
     assert_eq!(
-        kinds("#`"),
+        kinds("§`"),
         [SyntaxKind::ErrorToken, SyntaxKind::ErrorToken]
+    );
+}
+
+#[test]
+fn operators_take_elm_formats_characters() {
+    use SyntaxKind::*;
+    assert_eq!(
+        kinds("<$> ~ ⊕€ → -→ ·"),
+        [
+            Operator, Whitespace, Operator, Whitespace, Operator, Whitespace, Arrow, Whitespace,
+            Operator, Whitespace, ErrorToken,
+        ]
     );
 }
 
