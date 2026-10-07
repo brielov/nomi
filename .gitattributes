@@ -1,2 +1,4 @@
 # Sources and fixtures are LF everywhere; formatter goldens depend on it.
 * text=auto eol=lf
+# Formatter fixtures are compared byte for byte, and some inputs are CRLF.
+crates/format/tests/format_fixtures/** -text

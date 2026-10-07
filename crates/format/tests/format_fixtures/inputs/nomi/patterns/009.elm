@@ -1,0 +1,6 @@
+module Example exposing (x)
+
+x value =
+    case value of
+        Just x :: rest as whole ->
+            ()

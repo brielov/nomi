@@ -189,7 +189,7 @@ Goal: one lossless, tolerant parser used by every consumer, which accepts exactl
 
 Goal: `nomi format` and the `elm-format` personality, byte-identical to elm-format 0.8.8 and linear in time.
 
-- [ ] **2.1** `oracle: formatter snapshots`. Hashes of elm-format 0.8.8's output on the corpus. Import elm-format's own `tests/test-files`, the old fixtures, the bug fixtures and the 119 tuple cases. **Check:** the ratchet exists, at 0 passing.
+- [x] **2.1** `oracle: formatter snapshots`. Hashes of elm-format 0.8.8's output on the corpus. Import elm-format's own `tests/test-files`, the old fixtures, the bug fixtures and the 119 tuple cases. **Check:** the ratchet exists, at 0 passing.
 - [ ] **2.2** `format: Box layout engine`. A port of `Box.hs` and `ElmStructure.hs`, starting from the salvaged `document.rs`. **Check:** unit tests mirroring elm-format's behavior.
 - [ ] **2.3** `format: formatter tree`. Mirrors elm-format's AST (`AST/V0_16.hs` and its neighbors), with C1/C2 comment slots and multiline flags. Types only.
 - [ ] **2.4** `format: lower module header and imports`. One forward comment cursor, plus a debug assertion that every comment is used exactly once.

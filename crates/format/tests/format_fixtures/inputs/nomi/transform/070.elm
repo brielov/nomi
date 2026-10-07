@@ -1,0 +1,4 @@
+a =
+    String.fromChar '!'
+
+

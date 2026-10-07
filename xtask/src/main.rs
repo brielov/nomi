@@ -84,6 +84,13 @@ enum CorpusCommand {
         #[arg(long)]
         record: bool,
     },
+    /// Tier 2: whether nomi formats every corpus module as elm-format did,
+    /// a case per project.
+    Format {
+        /// Record newly passing projects in corpus/format/passing.txt.
+        #[arg(long)]
+        record: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -97,6 +104,15 @@ enum OracleCommand {
     Syntax {
         /// Only these inputs; both by default.
         inputs: Option<oracle::syntax::Inputs>,
+        /// Concurrent oracle runs; twice the available cores by default.
+        #[arg(long)]
+        jobs: Option<usize>,
+    },
+    /// Store elm-format's output for every formatter fixture and corpus
+    /// module.
+    Format {
+        /// Only these inputs; both by default.
+        inputs: Option<oracle::format::Inputs>,
         /// Concurrent oracle runs; twice the available cores by default.
         #[arg(long)]
         jobs: Option<usize>,
@@ -118,6 +134,12 @@ fn main() -> ExitCode {
                     2 * std::thread::available_parallelism().map_or(1, |n| n.get())
                 });
                 oracle::syntax::run(&root(), &r, inputs, jobs)
+            }
+            OracleCommand::Format { inputs, jobs } => {
+                let jobs = jobs.unwrap_or_else(|| {
+                    2 * std::thread::available_parallelism().map_or(1, |n| n.get())
+                });
+                oracle::format::run(&root(), &r, inputs, jobs)
             }
         }),
         Command::Ratchet { suite } => ratchet(&root(), &suite),
@@ -146,6 +168,7 @@ fn main() -> ExitCode {
             CorpusCommand::Classify => corpus::compat::classify(&root()),
             CorpusCommand::Stats => corpus::stats(&root()),
             CorpusCommand::Syntax { record } => corpus::syntax::check(&root(), record),
+            CorpusCommand::Format { record } => corpus::format::check(&root(), record),
         },
     };
     match result {

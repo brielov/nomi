@@ -3,6 +3,7 @@
 
 pub mod apps;
 pub mod compat;
+pub mod format;
 pub mod packages;
 pub mod syntax;
 
@@ -21,10 +22,19 @@ pub fn corpus_dir() -> Result<PathBuf> {
 /// Runs `f` over `items` on a few threads and returns the results in order.
 /// Downloads are I/O-bound; eight keeps the registry and GitHub comfortable.
 pub fn parallel<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    parallel_on(8, items, f)
+}
+
+/// [`parallel`] on `workers` threads.
+pub fn parallel_on<T: Sync, R: Send>(
+    workers: usize,
+    items: &[T],
+    f: impl Fn(&T) -> R + Sync,
+) -> Vec<R> {
     let next = AtomicUsize::new(0);
     let results: Mutex<Vec<Option<R>>> = Mutex::new((0..items.len()).map(|_| None).collect());
     std::thread::scope(|scope| {
-        for _ in 0..8 {
+        for _ in 0..workers.max(1) {
             scope.spawn(|| {
                 loop {
                     let i = next.fetch_add(1, Ordering::Relaxed);

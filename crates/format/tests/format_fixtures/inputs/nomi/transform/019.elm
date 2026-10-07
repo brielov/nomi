@@ -1,0 +1,6 @@
+module Main exposing (x)
+import A exposing (C(X, X), B, B(..), x, x)
+import A as Alias exposing (C(Y), z)
+import B exposing (..)
+import B exposing (w)
+x=()

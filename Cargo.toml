@@ -11,6 +11,7 @@ publish = false
 
 [workspace.dependencies]
 nomi-base = { path = "crates/base" }
+nomi-format = { path = "crates/format" }
 nomi-syntax = { path = "crates/syntax" }
 nomi-testkit = { path = "crates/testkit" }
 clap = { version = "4.6", features = ["derive"] }

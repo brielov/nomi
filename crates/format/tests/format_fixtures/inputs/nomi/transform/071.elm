@@ -1,0 +1,2 @@
+b =
+    identity (String.fromChar '!')
