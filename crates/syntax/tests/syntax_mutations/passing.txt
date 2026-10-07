@@ -22888,6 +22888,7 @@ kernel_infix / delete ' ' at 180
 kernel_infix / delete ' ' at 183
 kernel_infix / delete ' ' at 184
 kernel_infix / delete ' ' at 186
+kernel_infix / delete ' ' at 197
 kernel_infix / delete ' ' at 203
 kernel_infix / delete ' ' at 204
 kernel_infix / delete ' ' at 205
@@ -23262,6 +23263,8 @@ kernel_infix / duplicate '\n' at 51
 kernel_infix / duplicate '\n' at 71
 kernel_infix / duplicate '\n' at 72
 kernel_infix / duplicate '\n' at 98
+kernel_infix / duplicate '_' at 196
+kernel_infix / duplicate '_' at 198
 kernel_infix / duplicate 'a' at 16
 kernel_infix / duplicate 'a' at 173
 kernel_infix / duplicate 'a' at 18

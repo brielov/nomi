@@ -93,6 +93,7 @@ fn elm(root: &SyntaxNode, source: Source, errors: &mut Vec<SyntaxError>) {
                 }
             }
             K::LiteralPattern => literal_pattern(&node, errors),
+            K::WildcardPattern => joined_wildcard(&node, errors),
             K::Op if node.parent().is_some_and(|n| n.kind() == K::OperatorChain) => {
                 dot_operator(&node, errors);
             }
@@ -162,6 +163,20 @@ fn literal_pattern(node: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
         push(errors, E::NegativePattern, minus.text_range());
     } else if let Some(float) = token(node, K::Float) {
         push(errors, E::FloatPattern, float.text_range());
+    }
+}
+
+/// elm reads a wildcard's inner characters, `_` among them, as a name
+/// it rejects (`Parse/Pattern.hs`, `wildcard`), so `__` is no pair of
+/// wildcards there.
+fn joined_wildcard(node: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
+    let Some(underscore) = token(node, K::Underscore) else {
+        return;
+    };
+    if let Some(next) = underscore.next_token()
+        && next.kind() == K::Underscore
+    {
+        push(errors, E::NamedWildcard, next.text_range());
     }
 }
 

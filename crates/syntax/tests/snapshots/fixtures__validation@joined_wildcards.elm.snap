@@ -1,0 +1,12 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/joined_wildcards.elm
+---
+elm, application:
+  28..29 NamedWildcard "_"
+elm, package:
+  28..29 NamedWildcard "_"
+elm, kernel package:
+  28..29 NamedWildcard "_"
+elm-format:
