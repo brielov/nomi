@@ -68,3 +68,41 @@ fn the_body_follows_the_header_after_blank_lines() {
         Some("module A exposing (a)\n\nimport B\n")
     );
 }
+
+#[test]
+fn syntax_contexts_call_for_parentheses_as_upstream_s_table_does() {
+    use SyntaxContext::{AmbiguousEnd, InfixSeparated, SpaceSeparated, SyntaxSeparated};
+    let all = [
+        SyntaxSeparated,
+        InfixSeparated,
+        SpaceSeparated,
+        AmbiguousEnd,
+    ];
+    let needed = [
+        (SpaceSeparated, SpaceSeparated),
+        (InfixSeparated, SpaceSeparated),
+        (InfixSeparated, InfixSeparated),
+        (AmbiguousEnd, SpaceSeparated),
+        (AmbiguousEnd, InfixSeparated),
+        (InfixSeparated, AmbiguousEnd),
+    ];
+    for inner in all {
+        for outer in all {
+            let block = syntax_parens(outer, (inner, Block::line(Line::text("x"))));
+            let expected = if needed.contains(&(inner, outer)) {
+                "(x)\n"
+            } else {
+                "x\n"
+            };
+            assert_eq!(render(block), expected, "{inner:?} in {outer:?}");
+        }
+    }
+}
+
+#[test]
+fn units_hold_their_comments() {
+    assert_eq!(render(unit('[', ']', &[])), "[]\n");
+    let line = [Comment::Line(" c".to_owned())];
+    assert_eq!(render(unit('{', '}', &line)), "{ -- c\n}\n");
+    assert_eq!(render(unit('(', ')', &line)), "(-- c\n)\n");
+}

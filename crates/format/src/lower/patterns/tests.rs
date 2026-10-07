@@ -1,26 +1,10 @@
-use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::parse_pattern;
-
-use super::super::cursor::Cursor;
-use super::super::{VALID, c};
-use super::pattern;
+use super::super::c;
 use crate::tree::{
     Comment, FloatRepr, IntRepr, LiteralValue, Lower, Pattern, Sequence, StringRepr, Upper,
 };
 
-/// The pattern `text` holds, which must place every comment.
 fn lower(text: &str) -> Pattern {
-    let parse = parse_pattern(text);
-    assert!(parse.errors().is_empty(), "{:?}", parse.errors());
-    let root = parse.syntax();
-    let mut cx = Cursor::new(&root, text);
-    let node = ast::PatternFragment::cast(root)
-        .expect(VALID)
-        .pattern()
-        .expect(VALID);
-    let lowered = pattern(&mut cx, &node);
-    cx.finish();
-    lowered
+    crate::lower::pattern_fragment(text)
 }
 
 fn literal(text: &str) -> LiteralValue {

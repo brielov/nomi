@@ -288,5 +288,39 @@ fn token(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxToken> {
         .find(|t| t.kind() == kind)
 }
 
+/// The type `text` holds, for rendering's tests; it must parse and place
+/// every comment.
+#[cfg(test)]
+pub(crate) fn type_fragment(text: &str) -> crate::tree::Type {
+    let parse = nomi_syntax::parse_type(text);
+    assert!(parse.errors().is_empty(), "{:?}", parse.errors());
+    let root = parse.syntax();
+    let mut cx = Cursor::new(&root, text);
+    let node = ast::TypeFragment::cast(root)
+        .expect(VALID)
+        .ty()
+        .expect(VALID);
+    let lowered = types::ty(&mut cx, &node);
+    cx.finish();
+    lowered
+}
+
+/// The pattern `text` holds, for rendering's tests; it must parse and
+/// place every comment.
+#[cfg(test)]
+pub(crate) fn pattern_fragment(text: &str) -> crate::tree::Pattern {
+    let parse = nomi_syntax::parse_pattern(text);
+    assert!(parse.errors().is_empty(), "{:?}", parse.errors());
+    let root = parse.syntax();
+    let mut cx = Cursor::new(&root, text);
+    let node = ast::PatternFragment::cast(root)
+        .expect(VALID)
+        .pattern()
+        .expect(VALID);
+    let lowered = patterns::pattern(&mut cx, &node);
+    cx.finish();
+    lowered
+}
+
 #[cfg(test)]
 mod tests;

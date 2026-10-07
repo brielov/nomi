@@ -1,24 +1,8 @@
-use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::parse_type;
-
-use super::super::cursor::Cursor;
-use super::super::{VALID, c};
-use super::ty;
+use super::super::c;
 use crate::tree::{Comment, ForceMultiline, Lower, Pair, Sequence, Type, TypeConstructor, Upper};
 
-/// The type `text` holds, which must place every comment.
 fn lower(text: &str) -> Type {
-    let parse = parse_type(text);
-    assert!(parse.errors().is_empty(), "{:?}", parse.errors());
-    let root = parse.syntax();
-    let mut cx = Cursor::new(&root, text);
-    let node = ast::TypeFragment::cast(root)
-        .expect(VALID)
-        .ty()
-        .expect(VALID);
-    let lowered = ty(&mut cx, &node);
-    cx.finish();
-    lowered
+    crate::lower::type_fragment(text)
 }
 
 fn block(text: &str) -> Comment {

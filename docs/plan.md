@@ -197,10 +197,10 @@ Goal: `nomi format` and the `elm-format` personality, byte-identical to elm-form
 - [x] **2.6** `format: lower expressions`.
 - [x] **2.7** `format: lower declarations`.
 - [x] **2.8** `format: render header, imports and exposing`. Import normalization; exposing lists grouped by `@docs`. **Check:** the ratchet climbs, as in every render step.
-- [ ] **2.9** `format: render types and patterns`.
+- [x] **2.9** `format: render types and patterns`. Literal spelling came forward with it, since patterns hold literals.
 - [ ] **2.10** `format: render expressions`.
 - [ ] **2.11** `format: render declarations and top-level spacing`.
-- [ ] **2.12** `format: normalize literals`. Numbers and string/char escapes, from the salvaged `literal.rs`.
+- [ ] **2.12** `format: normalize literals`. Spelling started in 2.9 (`render/literal.rs`). This step settles GHC's `isPrint`/`isSpace` Unicode tables, checks numbers and string/char escapes against the oracle across the corpus, and takes what still applies from the salvaged `literal.rs`.
 - [ ] **2.13** `format: doc comments`. Markdown normalization, and Elm code blocks through the 1.14 entry points. Decide at the start of the step, with differential fixtures, between porting Cheapskate's relevant parts and using pulldown-cmark. The `@docs` names that order the exposing list then come from the Markdown parse, replacing 2.8's line scanner in `render/docs.rs`.
 - [ ] **2.14** `format: check invariants on corpus and proptest`. Four invariants:
   - formatting is idempotent;

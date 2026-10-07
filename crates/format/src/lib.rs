@@ -5,10 +5,12 @@
 //! its part of the module keeps the source's text, so a module that is
 //! already formatted comes back unchanged from the start.
 
-// Rendering takes up the rest of these from plan 2.9 to 2.11.
+// Types, patterns and expressions render once declarations do, from
+// plan 2.11; until then only tests reach them.
 #[cfg_attr(not(test), expect(dead_code))]
 mod block;
 mod lower;
+#[cfg_attr(not(test), expect(dead_code))]
 mod render;
 #[cfg_attr(not(test), expect(dead_code))]
 mod structure;

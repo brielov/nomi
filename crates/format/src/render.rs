@@ -6,10 +6,19 @@
 
 mod docs;
 mod header;
+mod literal;
+mod patterns;
+mod types;
 
 use crate::block::{Block, Line};
-use crate::structure::{forceable_space_sep_or_stack1, space_sep_or_indented, space_sep_or_stack};
-use crate::tree::{Comment, Module, TopLevelStructure};
+use crate::structure::{
+    extension_group_fields, forceable_row_or_stack, forceable_space_sep_or_indented,
+    forceable_space_sep_or_stack, forceable_space_sep_or_stack1, space_sep_or_indented,
+    space_sep_or_prefix, space_sep_or_stack,
+};
+use crate::tree::{
+    C2, Comment, ForceMultiline, Module, Pair, Sequence, TopLevelStructure, UpperRef,
+};
 
 /// Blank lines between top-level parts; upstream renders a module with
 /// `formatModule elmVersion True 2`.
@@ -44,6 +53,76 @@ fn parens(inner: Block) -> Block {
     }
 }
 
+/// Where a construct stands, which decides whether it needs parentheses
+/// in another; upstream's `SyntaxContext`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SyntaxContext {
+    /// Delimited, or a single token.
+    SyntaxSeparated,
+    /// Operands joined by operators.
+    InfixSeparated,
+    /// A function and its arguments.
+    SpaceSeparated,
+    /// What ends in an expression, like a lambda or `if`.
+    AmbiguousEnd,
+}
+
+/// `block` in parentheses when, standing as `inner`, it needs them in
+/// `outer`; upstream's `syntaxParens`.
+fn syntax_parens(outer: SyntaxContext, (inner, block): (SyntaxContext, Block)) -> Block {
+    use SyntaxContext::{AmbiguousEnd, InfixSeparated, SpaceSeparated};
+    let needed = matches!(
+        (inner, outer),
+        (
+            SpaceSeparated | InfixSeparated | AmbiguousEnd,
+            SpaceSeparated
+        ) | (InfixSeparated | AmbiguousEnd, InfixSeparated)
+            | (InfixSeparated, AmbiguousEnd)
+    );
+    if needed { parens(block) } else { block }
+}
+
+/// `left` and `right` around `inner`; upstream's `surround`.
+fn surround(left: char, right: char, inner: Block) -> Block {
+    let (left, right) = (Line::text(left), Line::text(right));
+    match inner {
+        Block::SingleLine(line) => Block::line(Line::row([left, line, right])),
+        inner => Block::stack1([inner.prefix(left), Block::line(right)]),
+    }
+}
+
+/// `()`, `[]` or `{}` with the comments inside; upstream's `formatUnit`.
+fn unit(left: char, right: char, comments: &[Comment]) -> Block {
+    match comments {
+        [] => Block::line(Line::text(format!("{left}{right}"))),
+        [Comment::Line(_), ..] if left == '{' => surround(
+            left,
+            right,
+            Block::stack1(comments.iter().map(comment)).prefix(Line::space()),
+        ),
+        _ => surround(
+            left,
+            right,
+            match Block::all_singles(comments.iter().map(comment).collect()) {
+                Ok(lines) => Block::line(Line::row(spaced(lines))),
+                Err(blocks) => Block::stack1(blocks),
+            },
+        ),
+    }
+}
+
+/// `lines` with a space between each two.
+fn spaced(lines: Vec<Line>) -> Vec<Line> {
+    let mut row = Vec::with_capacity(lines.len() * 2);
+    for (i, line) in lines.into_iter().enumerate() {
+        if i > 0 {
+            row.push(Line::space());
+        }
+        row.push(line);
+    }
+    row
+}
+
 /// A lowercase or uppercase name, with Elm 0.19's `_` for `'`; upstream's
 /// `formatVarName'`.
 fn name(name: &str) -> Line {
@@ -54,6 +133,13 @@ fn name(name: &str) -> Line {
 fn qualified(names: &[crate::tree::Upper]) -> Line {
     let names: Vec<String> = names.iter().map(|n| n.0.replace('\'', "_")).collect();
     Line::text(names.join("."))
+}
+
+/// `A.B.C.D`, a namespace and the name in it.
+fn upper_ref((namespace, name): &UpperRef) -> Line {
+    let mut names = namespace.clone();
+    names.push(name.clone());
+    qualified(&names)
 }
 
 fn comment(comment: &Comment) -> Block {
@@ -116,6 +202,142 @@ fn pre_commented(pre: &[Comment], inner: Block) -> Block {
 /// Upstream's `formatTailCommented`.
 fn tail_commented(inner: Block, post: &[Comment]) -> Block {
     commented(&[], inner, post)
+}
+
+/// `inner`, ending in the `--` comment `eol`; upstream's
+/// `formatEolCommented`.
+fn eol_commented(eol: Option<&str>, inner: Block) -> Block {
+    match (eol, inner) {
+        (None, inner) => inner,
+        (Some(eol), Block::SingleLine(line)) => Block::must_break(Line::row([
+            line,
+            Line::space(),
+            Line::text("--"),
+            Line::text(eol),
+        ])),
+        (Some(eol), inner) => Block::stack1([inner, comment(&Comment::Line(eol.to_owned()))]),
+    }
+}
+
+/// Upstream's `formatC2Eol`.
+fn c2_eol(pre: &[Comment], post: &[Comment], eol: Option<&str>, inner: Block) -> Block {
+    commented(pre, eol_commented(eol, inner), post)
+}
+
+/// Upstream's `formatCommented` of a `C2`.
+fn c2<T>(value: &C2<T>, render: impl FnOnce(&T) -> Block) -> Block {
+    let (pre, post) = &value.comments;
+    commented(pre, render(&value.value), post)
+}
+
+/// An operator and its right operand after a binary expression's left
+/// one; upstream's `formatBinary` takes these as tuples.
+struct BinaryOp<'a> {
+    /// Whether the operator is `<|`, which puts what follows below it.
+    left_pipe: bool,
+    /// The comments before the operator.
+    comments: &'a [Comment],
+    op: Block,
+    next: Block,
+}
+
+/// Operands joined by operators; upstream's `formatBinary`.
+fn binary(multiline: bool, left: Block, ops: Vec<BinaryOp>) -> Block {
+    binary_from(multiline, left, &mut ops.into_iter())
+}
+
+fn binary_from(
+    multiline: bool,
+    mut left: Block,
+    ops: &mut std::vec::IntoIter<BinaryOp<'_>>,
+) -> Block {
+    while let Some(op) = ops.next() {
+        if op.left_pipe {
+            let head = space_sep_or_stack(
+                left,
+                comments(op.comments).into_iter().chain([op.op]).collect(),
+            );
+            let rest = binary_from(multiline, op.next, ops);
+            return forceable_space_sep_or_indented(multiline, head, vec![rest]);
+        }
+        let right = pre_commented(op.comments, space_sep_or_prefix(op.op, op.next));
+        left = forceable_space_sep_or_indented(multiline, left, vec![right]);
+    }
+    left
+}
+
+/// Items after `left` and `delim`s, then `right` if there is one;
+/// upstream's `formatSequence`.
+fn sequence<T>(
+    left: char,
+    delim: char,
+    right: Option<char>,
+    ForceMultiline(multiline): ForceMultiline,
+    trailing: &[Comment],
+    items: &Sequence<T>,
+    render: impl Fn(&T) -> Block,
+) -> Block {
+    let item = |delim: char,
+                (pre, post, eol): &(Vec<Comment>, Vec<Comment>, Option<String>),
+                value: &T| {
+        let item = c2_eol(post, &[], eol.as_deref(), render(value))
+            .prefix(Line::row([Line::text(delim), Line::space()]));
+        match comments(pre) {
+            Some(pre) => Block::blank_line().stack(pre).stack(item),
+            None => item,
+        }
+    };
+    let Some((first, rest)) = items.0.split_first() else {
+        return unit(left, right.unwrap_or(' '), trailing);
+    };
+    let first = item(left, &first.comments, &first.value);
+    let rest = rest
+        .iter()
+        .map(|i| item(delim, &i.comments, &i.value))
+        .collect();
+    let after = comments(trailing)
+        .map(|c| Block::blank_line().stack(c))
+        .into_iter()
+        .chain(right.map(|r| Block::line(Line::text(r))))
+        .collect();
+    forceable_space_sep_or_stack(
+        multiline,
+        forceable_row_or_stack(multiline, first, rest),
+        after,
+    )
+}
+
+/// A record, or with a base an extension; upstream's `formatRecordLike`.
+fn record_like<T>(
+    base: Option<&C2<crate::tree::Lower>>,
+    fields: &Sequence<T>,
+    trailing: &[Comment],
+    multiline: ForceMultiline,
+    render: impl Fn(&T) -> Block,
+) -> Block {
+    match base {
+        Some(base) => extension_group_fields(
+            multiline.0,
+            c2(base, |b| Block::line(name(&b.0))),
+            sequence('|', ',', None, multiline, trailing, fields, render),
+        ),
+        None => sequence('{', ',', Some('}'), multiline, trailing, fields, render),
+    }
+}
+
+/// `key delim value`; upstream's `formatPair`.
+fn pair<K, V>(
+    delim: &str,
+    pair: &Pair<K, V>,
+    key: impl FnOnce(&K) -> Line,
+    value: impl FnOnce(&V) -> Block,
+) -> Block {
+    crate::structure::equals_pair(
+        delim,
+        pair.force_multiline.0,
+        tail_commented(Block::line(key(&pair.key.value)), &pair.key.comments),
+        pre_commented(&pair.value.comments, value(&pair.value.value)),
+    )
 }
 
 /// `word value`, with comments around `word`; upstream's
