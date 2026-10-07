@@ -1,0 +1,21 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/backticked_functions.elm
+---
+elm, application:
+  34..35 Lexical(InvalidToken) "`"
+  40..41 Lexical(InvalidToken) "`"
+  52..53 Lexical(InvalidToken) "`"
+  57..58 Lexical(InvalidToken) "`"
+elm, package:
+  34..35 Lexical(InvalidToken) "`"
+  40..41 Lexical(InvalidToken) "`"
+  52..53 Lexical(InvalidToken) "`"
+  57..58 Lexical(InvalidToken) "`"
+elm, kernel package:
+  34..35 Lexical(InvalidToken) "`"
+  40..41 Lexical(InvalidToken) "`"
+  52..53 Lexical(InvalidToken) "`"
+  57..58 Lexical(InvalidToken) "`"
+elm-format:

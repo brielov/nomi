@@ -1775,6 +1775,7 @@ thomasin/elm-path@1.0.2
 thoughtbot/expirable@2.0.0
 timjs/elm-collage@3.0.0
 timo-weike/generic-collections@1.0.0
+tiziano88/elm-protobuf@3.0.0
 tj/elm-svg-loaders@1.0.0
 tkuriyama/elm-generator@1.1.0
 toastal/either@3.6.3

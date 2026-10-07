@@ -314,6 +314,20 @@ fn operators_take_elm_formats_characters() {
 }
 
 #[test]
+fn backticked_functions_are_operators() {
+    use SyntaxKind::*;
+    assert_eq!(
+        kinds("`f` `M.f` ` f`"),
+        [
+            Operator, Whitespace, Operator, Whitespace, ErrorToken, Whitespace, LowerIdent,
+            ErrorToken,
+        ]
+    );
+    assert_eq!(kinds("`F`")[0], ErrorToken);
+    assert_eq!(kinds("`if`")[0], ErrorToken);
+}
+
+#[test]
 fn error_ranges_point_at_the_problem() {
     let at = |text: &str| -> Vec<(usize, usize)> {
         lex(text)

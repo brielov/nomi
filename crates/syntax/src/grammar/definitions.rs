@@ -14,10 +14,15 @@ pub(super) fn at_value_name(p: &mut Parser<'_>) -> bool {
     p.at(K::LowerIdent) || at_operator_name(p)
 }
 
-/// elm-format reads the operators an expression may name, `..` aside.
+/// elm-format reads the operators an expression may name, `..` and
+/// backticked functions aside.
 fn at_operator_name(p: &mut Parser<'_>) -> bool {
     let op = p.nth(1);
-    p.at(K::LParen) && is_parenthesized_op(op) && op != K::DotDot && p.nth(2) == K::RParen
+    p.at(K::LParen)
+        && is_parenthesized_op(op)
+        && op != K::DotDot
+        && p.nth_text(1).is_some_and(|text| !text.starts_with('`'))
+        && p.nth(2) == K::RParen
 }
 
 fn value_name(p: &mut Parser<'_>) {

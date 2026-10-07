@@ -203,6 +203,7 @@ impl<'a> Lexer<'a> {
             b',' => self.single(SyntaxKind::Comma),
             b'\\' => self.single(SyntaxKind::Backslash),
             b'_' => self.single(SyntaxKind::Underscore),
+            b'`' if self.backticked_end(start).is_some() => self.backticked(start),
             byte if is_operator(byte) => self.operator(),
             _ if self.char_at(start).is_some_and(is_operator_char) => self.operator(),
             _ => self.identifier_or_invalid(),
@@ -494,6 +495,35 @@ impl<'a> Lexer<'a> {
             "→" => SyntaxKind::Arrow,
             text => SyntaxKind::from_text(text).unwrap_or(SyntaxKind::Operator),
         }
+    }
+
+    /// Where elm-format's backticked function, `` `f` `` or `` `M.f` ``,
+    /// starting at `start` ends, if one does.
+    fn backticked_end(&self, start: usize) -> Option<usize> {
+        let mut end = start + 1;
+        loop {
+            let segment = end;
+            let kind = identifier_kind(self.char_at(end)?)?;
+            while let Some(c) = self.char_at(end).filter(|&c| is_identifier_continue(c)) {
+                end += c.len_utf8();
+            }
+            match (kind, self.byte_at(end)?) {
+                (SyntaxKind::UpperIdent, b'.') => end += 1,
+                (SyntaxKind::LowerIdent, b'`')
+                    if SyntaxKind::from_text(&self.text[segment..end]).is_none() =>
+                {
+                    return Some(end + 1);
+                }
+                _ => return None,
+            }
+        }
+    }
+
+    /// An infix call, an operator to the grammar; elm's validation reports
+    /// it.
+    fn backticked(&mut self, start: usize) -> SyntaxKind {
+        self.offset = self.backticked_end(start).expect("the caller checked");
+        SyntaxKind::Operator
     }
 
     fn identifier_or_invalid(&mut self) -> SyntaxKind {
