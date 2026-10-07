@@ -1,0 +1,12 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/string_spanning_lines.elm
+---
+elm, application:
+  32..36 Lexical(UnterminatedString) "\"two"
+elm, package:
+  32..36 Lexical(UnterminatedString) "\"two"
+elm, kernel package:
+  32..36 Lexical(UnterminatedString) "\"two"
+elm-format:

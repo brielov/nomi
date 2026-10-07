@@ -274,8 +274,9 @@ pub(crate) struct Parser<'t> {
     far: Vec<FarCheck>,
 }
 
-/// Which continuations must be indented to belong to the construct being
-/// parsed.
+/// Whose reading of a module the parser follows: which continuations
+/// must be indented to belong to the construct being parsed, and whether
+/// a `"` string may span lines.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Layout {
     /// Every one, as elm wants. Where a token isn't, the construct ends,
@@ -283,7 +284,8 @@ pub(crate) enum Layout {
     Strict,
     /// Only arguments, as elm-format wants (`indented` in its
     /// `Parse/Helpers.hs`): a token any further rule must take, such as
-    /// the body after `=`, may sit anywhere.
+    /// the body after `=`, may sit anywhere. A `"` string runs on past
+    /// a line feed.
     Loose,
 }
 
@@ -295,7 +297,10 @@ impl<'t> Parser<'t> {
     pub(crate) fn with_layout(text: &'t str, layout: Layout) -> Parser<'t> {
         Parser {
             text,
-            lexer: Lexer::new(text),
+            lexer: match layout {
+                Layout::Strict => Lexer::new(text),
+                Layout::Loose => Lexer::new(text).strings_span_lines(),
+            },
             lexer_column: 0,
             ahead: VecDeque::new(),
             lexed: 0,

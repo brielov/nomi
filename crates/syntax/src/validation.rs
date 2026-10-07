@@ -7,7 +7,10 @@
 use nomi_base::{Compat, TextRange, TextSize};
 
 use crate::ast::{self, AstNode};
-use crate::{Parse, SyntaxError, SyntaxErrorKind as E, SyntaxKind as K, SyntaxNode, SyntaxToken};
+use crate::{
+    LexErrorKind, Parse, SyntaxError, SyntaxErrorKind as E, SyntaxKind as K, SyntaxNode,
+    SyntaxToken,
+};
 
 /// The tool whose rules a tree must follow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -41,6 +44,7 @@ pub fn validate(parse: &Parse, tool: Tool) -> Vec<SyntaxError> {
             if let Some(wrap) = compat.column_wrap() {
                 wrapped_columns(parse, wrap, &mut errors);
             }
+            strings_spanning_lines(&root, &mut errors);
             elm(&root, source, &mut errors);
         }
         Tool::ElmFormat => {
@@ -347,6 +351,25 @@ fn last_import(module: &ast::Module, errors: &mut Vec<SyntaxError>) {
     }
     let end = module.syntax().text_range().end();
     push(errors, E::ImportWithoutNewline, TextRange::empty(end));
+}
+
+/// elm ends a `"` string unterminated at a line feed, which
+/// elm-format's take in.
+fn strings_spanning_lines(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
+    let strings = (root.descendants_with_tokens())
+        .filter_map(|e| e.into_token())
+        .filter(|t| t.kind() == K::String);
+    for token in strings {
+        if let Some(i) = token.text().find('\n') {
+            let range = token.text_range();
+            let end = range.start() + TextSize::new(i as u32);
+            push(
+                errors,
+                E::Lexical(LexErrorKind::UnterminatedString),
+                TextRange::new(range.start(), end),
+            );
+        }
+    }
 }
 
 /// elm-format's whitespace is spaces, comments and line ends, `\r\n`

@@ -104,6 +104,9 @@ pub(crate) struct Lexer<'a> {
     bytes: &'a [u8],
     offset: usize,
     errors: Vec<LexError>,
+    /// Whether a `"` string may take in a line feed, as elm-format's do
+    /// (`Parse/Literal.hs`); elm ends it there unterminated.
+    strings_span_lines: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -118,7 +121,14 @@ impl<'a> Lexer<'a> {
             bytes: text.as_bytes(),
             offset: 0,
             errors: Vec::new(),
+            strings_span_lines: false,
         }
+    }
+
+    /// Lets `"` strings span lines.
+    pub(crate) fn strings_span_lines(mut self) -> Lexer<'a> {
+        self.strings_span_lines = true;
+        self
     }
 
     /// The next token, or `None` at the end.
@@ -290,7 +300,7 @@ impl<'a> Lexer<'a> {
             }
             match self.bytes[self.offset] {
                 b'\\' => self.escape(),
-                b'\n' if quote == Quote::Single => break,
+                b'\n' if quote == Quote::Single && !self.strings_span_lines => break,
                 _ => self.offset += self.scalar_width(self.offset),
             }
         }
