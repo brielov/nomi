@@ -7,6 +7,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+nomi-base.workspace = true
 nomi-syntax.workspace = true
 
 [dev-dependencies]

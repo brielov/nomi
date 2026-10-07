@@ -8,9 +8,10 @@
 // Rendering builds on these from plan 2.8; until then only tests do.
 #[cfg_attr(not(test), expect(dead_code))]
 mod block;
+mod lower;
 #[cfg_attr(not(test), expect(dead_code))]
 mod structure;
-// Lowering builds it from plan 2.4, and tests use only part of it.
+// Lowering builds it from plan 2.4 on, and rendering reads it from 2.8.
 #[expect(dead_code)]
 mod tree;
 
@@ -23,6 +24,9 @@ pub fn format(text: &str) -> Option<String> {
     if !parse.errors().is_empty() || !validate(&parse, Tool::ElmFormat).is_empty() {
         return None;
     }
+    // Nothing renders the tree yet; lowering every module still checks
+    // it places each comment once.
+    let _ = lower::module(&parse.syntax(), text);
     Some(text.to_owned())
 }
 

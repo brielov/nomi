@@ -728,6 +728,7 @@ dependencies = [
 name = "nomi-format"
 version = "0.0.0"
 dependencies = [
+ "nomi-base",
  "nomi-syntax",
  "nomi-testkit",
 ]
