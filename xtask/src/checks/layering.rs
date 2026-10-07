@@ -45,11 +45,24 @@ pub const ALLOWED: &[(&str, &[&str])] = &[
             "test",
         ],
     ),
+    // Test support; any crate may use it, but only as a dev-dependency.
+    ("testkit", &[]),
 ];
+
+/// The crate every crate may use in its tests and nowhere else.
+const TESTKIT: &str = "testkit";
+
+/// A dependency of one nomi crate on another, by short name.
+#[derive(Debug)]
+pub struct Edge {
+    pub from: String,
+    pub to: String,
+    pub dev: bool,
+}
 
 /// `crates` are the nomi crates in the workspace and `edges` their
 /// dependencies on each other, all by short name.
-pub fn check(crates: &[String], edges: &[(String, String)]) -> Vec<String> {
+pub fn check(crates: &[String], edges: &[Edge]) -> Vec<String> {
     let allowed = |name: &str| ALLOWED.iter().find(|(c, _)| *c == name).map(|(_, d)| *d);
     let mut violations = Vec::new();
     for name in crates {
@@ -59,7 +72,15 @@ pub fn check(crates: &[String], edges: &[(String, String)]) -> Vec<String> {
             ));
         }
     }
-    for (from, to) in edges {
+    for Edge { from, to, dev } in edges {
+        if to == TESTKIT {
+            if !dev {
+                violations.push(format!(
+                    "nomi-{from} may depend on nomi-testkit only as a dev-dependency"
+                ));
+            }
+            continue;
+        }
         if let Some(deps) = allowed(from)
             && !deps.contains(&to.as_str())
         {
@@ -79,8 +100,19 @@ mod tests {
         xs.iter().map(|s| s.to_string()).collect()
     }
 
-    fn edge(from: &str, to: &str) -> (String, String) {
-        (from.to_string(), to.to_string())
+    fn edge(from: &str, to: &str) -> Edge {
+        Edge {
+            from: from.to_string(),
+            to: to.to_string(),
+            dev: false,
+        }
+    }
+
+    fn dev_edge(from: &str, to: &str) -> Edge {
+        Edge {
+            dev: true,
+            ..edge(from, to)
+        }
     }
 
     #[test]
@@ -96,6 +128,21 @@ mod tests {
         let violations = check(&crates, &[edge("syntax", "format")]);
         assert_eq!(violations.len(), 1);
         assert!(violations[0].contains("nomi-syntax may not depend on nomi-format"));
+    }
+
+    #[test]
+    fn testkit_only_as_a_dev_dependency() {
+        let crates = names(&["base", "syntax", "testkit"]);
+        assert!(check(&crates, &[dev_edge("syntax", "testkit")]).is_empty());
+        let violations = check(&crates, &[edge("syntax", "testkit")]);
+        assert_eq!(violations.len(), 1);
+        assert!(violations[0].contains("only as a dev-dependency"));
+    }
+
+    #[test]
+    fn dev_edges_follow_the_table_too() {
+        let crates = names(&["base", "syntax", "format"]);
+        assert_eq!(check(&crates, &[dev_edge("syntax", "format")]).len(), 1);
     }
 
     #[test]

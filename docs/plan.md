@@ -93,7 +93,7 @@ Goal: an empty workspace whose rules are enforced by tooling, with oracles and c
   - Sources live in `~/.cache/nomi-dev/corpus/` and never enter the repo.
 
   **Check:** a refetch verifies every hash, and `xtask corpus stats` prints counts.
-- [ ] **0.8** `xtask: add the parity ratchet runner`. It covers suites, expected results, `passing.txt`, regression and newly-passing reports, and `xtask ratchet <suite>`. **Check:** a self-test on a toy suite.
+- [x] **0.8** `xtask: add the parity ratchet runner`. It covers suites, expected results, `passing.txt`, regression and newly-passing reports, and `xtask ratchet <suite>`. **Check:** a self-test on a toy suite.
 
 **Exit:** a fresh clone passes `cargo xtask ci`, and refs, oracles and corpus rebuild from pins alone.
 

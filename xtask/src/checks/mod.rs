@@ -29,13 +29,17 @@ pub fn run(root: &Path) -> Result<Vec<String>> {
         .filter(|p| p.name.starts_with(PREFIX))
         .collect();
     let crates: Vec<String> = nomi.iter().map(|p| short(&p.name).to_string()).collect();
-    let edges: Vec<(String, String)> = nomi
+    let edges: Vec<layering::Edge> = nomi
         .iter()
         .flat_map(|p| {
             p.dependencies
                 .iter()
                 .filter(|d| d.name.starts_with(PREFIX))
-                .map(|d| (short(&p.name).to_string(), short(&d.name).to_string()))
+                .map(|d| layering::Edge {
+                    from: short(&p.name).to_string(),
+                    to: short(&d.name).to_string(),
+                    dev: d.kind == DependencyKind::Development,
+                })
         })
         .collect();
     violations.extend(layering::check(&crates, &edges));

@@ -142,6 +142,7 @@ These rules are the architecture. Breaking one requires an entry in `DECISIONS.m
 | `lsp` | protocol, position encoding, request queue, debouncing | contain analysis |
 | `test` | discovery, runner generation, execution, reporters | — |
 | `cli` | `nomi`, plus `elm` and `elm-format` behavior when invoked under those names | contain logic beyond argument mapping |
+| `testkit` | parity ratchets and expected results for every crate's tests | be anything but a dev-dependency |
 
 Next to the crates:
 

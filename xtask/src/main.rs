@@ -33,6 +33,11 @@ enum Command {
         #[command(subcommand)]
         command: OracleCommand,
     },
+    /// Run a parity suite and record its newly passing cases in passing.txt.
+    Ratchet {
+        /// The suite: a test target `crates/<crate>/tests/<suite>.rs`.
+        suite: String,
+    },
     /// Real-world Elm code that the parity suites run over.
     Corpus {
         #[command(subcommand)]
@@ -68,6 +73,7 @@ fn main() -> ExitCode {
             OracleCommand::Fetch => oracle::fetch(&root(), &r),
             OracleCommand::Versions => oracle::versions(&r),
         }),
+        Command::Ratchet { suite } => ratchet(&root(), &suite),
         Command::Corpus { command } => match command {
             CorpusCommand::Pin => corpus::packages::pin(&root()),
             CorpusCommand::Fetch => {
@@ -111,6 +117,44 @@ fn ci() -> Result<()> {
     architecture(&root)
 }
 
+/// Runs the suite's test target with the ratchet allowed to record newly
+/// passing cases; regressions still fail it.
+fn ratchet(root: &Path, suite: &str) -> Result<()> {
+    let mut owners = Vec::new();
+    for entry in std::fs::read_dir(root.join("crates")).context("reading crates/")? {
+        let dir = entry?.path();
+        if dir.join("tests").join(format!("{suite}.rs")).is_file() {
+            owners.push(dir);
+        }
+    }
+    let [dir] = owners.as_slice() else {
+        bail!(
+            "expected one crates/*/tests/{suite}.rs, found {}",
+            owners.len()
+        );
+    };
+    let manifest = std::fs::read_to_string(dir.join("Cargo.toml"))?;
+    let package: toml::Table = toml::from_str(&manifest)?;
+    let name = package
+        .get("package")
+        .and_then(|p| p.get("name"))
+        .and_then(|n| n.as_str())
+        .context("the crate's Cargo.toml has no package name")?;
+    cargo_with(
+        root,
+        &[
+            "test",
+            "--package",
+            name,
+            "--test",
+            suite,
+            "--",
+            "--nocapture",
+        ],
+        &[("NOMI_RATCHET_UPDATE", "1")],
+    )
+}
+
 fn architecture(root: &Path) -> Result<()> {
     eprintln!("==> architecture checks");
     let violations = checks::run(root)?;
@@ -124,10 +168,15 @@ fn architecture(root: &Path) -> Result<()> {
 }
 
 fn cargo(root: &Path, args: &[&str]) -> Result<()> {
+    cargo_with(root, args, &[])
+}
+
+fn cargo_with(root: &Path, args: &[&str], envs: &[(&str, &str)]) -> Result<()> {
     eprintln!("==> cargo {}", args.join(" "));
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
     let status = Process::new(cargo)
         .args(args)
+        .envs(envs.iter().copied())
         .current_dir(root)
         .status()
         .with_context(|| format!("running cargo {}", args[0]))?;
