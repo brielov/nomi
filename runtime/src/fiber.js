@@ -327,6 +327,21 @@ export class Runtime {
     return this.await(this.fork(task));
   }
 
+  /** Interrupts every fiber in the root scope and resolves once all are done. */
+  shutdown() {
+    const fibers = [...this.root.fibers];
+    for (const fiber of fibers) this.#interrupt(fiber);
+    return new Promise((resolve) => {
+      let left = fibers.length;
+      if (left === 0) return resolve();
+      const reaper = () => --left === 0 && resolve();
+      for (const fiber of fibers) {
+        if (fiber.exit !== null) reaper();
+        else fiber.reapers.add(reaper);
+      }
+    });
+  }
+
   #spawn(task, scope) {
     const fiber = new Fiber(isTask(task) ? task : die(notATask(task)), scope);
     scope.fibers.add(fiber);
