@@ -8,6 +8,10 @@ publish.workspace = true
 
 [dependencies]
 nomi-base.workspace = true
+rowan.workspace = true
+
+[dev-dependencies]
+ungrammar.workspace = true
 
 [lints]
 workspace = true

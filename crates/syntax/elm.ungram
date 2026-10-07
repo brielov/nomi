@@ -1,0 +1,284 @@
+// The Elm concrete syntax tree, the single source for typed views (plan
+// 1.13). Quoted names are tokens: fixed text such as 'if' or '::', or a
+// class from SyntaxKind::ungram_name such as 'lower_ident'. A rule that
+// only chooses between nodes, such as Expr, is an enum with no kind of
+// its own. Trivia, Missing and Error nodes are left out; any node may
+// hold them.
+//
+// Operator chains stay flat: `a + b * c` is one OperatorChain, resolved
+// after canonicalization from the imported fixities.
+
+Module =
+  ModuleHeader?
+  'doc_comment'?
+  Import*
+  Decl*
+
+ModuleHeader =
+  'port'? 'effect'? 'module' ModuleName
+  EffectFields?
+  ExposingList
+
+ModuleName =
+  'upper_ident' ('.' 'upper_ident')*
+
+EffectFields =
+  'where' '{' (EffectField (',' EffectField)*) '}'
+
+EffectField =
+  'lower_ident' '=' 'upper_ident'
+
+ExposingList =
+  'exposing' '(' ('..' | Exposed (',' Exposed)*) ')'
+
+Exposed =
+  ExposedValue
+| ExposedType
+| ExposedOperator
+
+ExposedValue =
+  'lower_ident'
+
+ExposedType =
+  'upper_ident' ExposedVariants?
+
+ExposedVariants =
+  '(' '..' ')'
+
+ExposedOperator =
+  '(' Op ')'
+
+Import =
+  'import' ModuleName ImportAlias? ExposingList?
+
+ImportAlias =
+  'as' 'upper_ident'
+
+// Names and operators
+
+Qualifier =
+  'upper_ident' '.' ('upper_ident' '.')*
+
+Op =
+  'operator' | '-' | '::'
+
+// Declarations
+
+Decl =
+  ValueDecl
+| TypeAliasDecl
+| CustomTypeDecl
+| PortDecl
+| InfixDecl
+
+ValueDecl =
+  'doc_comment'? Signature? Definition
+
+Signature =
+  'lower_ident' ':' Type
+
+Definition =
+  'lower_ident' Pattern* '=' Expr
+
+TypeAliasDecl =
+  'doc_comment'? 'type' 'alias' 'upper_ident' TypeParam* '=' Type
+
+CustomTypeDecl =
+  'doc_comment'? 'type' 'upper_ident' TypeParam* '=' Variant ('|' Variant)*
+
+TypeParam =
+  'lower_ident'
+
+Variant =
+  'upper_ident' Type*
+
+PortDecl =
+  'doc_comment'? 'port' 'lower_ident' ':' Type
+
+InfixDecl =
+  'infix' ('left' | 'right' | 'non') 'int' '(' Op ')' '=' 'lower_ident'
+
+// Types
+
+Type =
+  NamedType
+| TypeVar
+| FunctionType
+| UnitType
+| ParenType
+| TupleType
+| RecordType
+
+NamedType =
+  Qualifier? 'upper_ident' Type*
+
+TypeVar =
+  'lower_ident'
+
+FunctionType =
+  param:Type '->' result:Type
+
+UnitType =
+  '(' ')'
+
+ParenType =
+  '(' Type ')'
+
+TupleType =
+  '(' Type ',' Type (',' Type)* ')'
+
+RecordType =
+  '{' RecordExtension? (FieldType (',' FieldType)*)? '}'
+
+RecordExtension =
+  'lower_ident' '|'
+
+FieldType =
+  'lower_ident' ':' Type
+
+// Patterns
+
+Pattern =
+  VarPattern
+| WildcardPattern
+| LiteralPattern
+| UnitPattern
+| ParenPattern
+| TuplePattern
+| ListPattern
+| RecordPattern
+| ConstructorPattern
+| ConsPattern
+| AliasPattern
+
+VarPattern =
+  'lower_ident'
+
+WildcardPattern =
+  '_'
+
+LiteralPattern =
+  'int' | 'float' | 'char' | 'string' | 'multiline_string'
+
+UnitPattern =
+  '(' ')'
+
+ParenPattern =
+  '(' Pattern ')'
+
+TuplePattern =
+  '(' Pattern ',' Pattern (',' Pattern)* ')'
+
+ListPattern =
+  '[' (Pattern (',' Pattern)*)? ']'
+
+RecordPattern =
+  '{' (FieldPattern (',' FieldPattern)*)? '}'
+
+FieldPattern =
+  'lower_ident'
+
+ConstructorPattern =
+  Qualifier? 'upper_ident' Pattern*
+
+ConsPattern =
+  head:Pattern '::' tail:Pattern
+
+AliasPattern =
+  Pattern 'as' 'lower_ident'
+
+// Expressions
+
+Expr =
+  LiteralExpr
+| NameExpr
+| OperatorFunction
+| NegateExpr
+| CallExpr
+| OperatorChain
+| UnitExpr
+| ParenExpr
+| TupleExpr
+| ListExpr
+| RecordExpr
+| RecordUpdateExpr
+| FieldAccessExpr
+| AccessorExpr
+| IfExpr
+| CaseExpr
+| LetExpr
+| LambdaExpr
+| GlslExpr
+
+LiteralExpr =
+  'int' | 'float' | 'char' | 'string' | 'multiline_string'
+
+NameExpr =
+  Qualifier? ('lower_ident' | 'upper_ident')
+
+OperatorFunction =
+  '(' Op ')'
+
+NegateExpr =
+  '-' Expr
+
+CallExpr =
+  Expr Expr*
+
+OperatorChain =
+  Expr (Op Expr)*
+
+UnitExpr =
+  '(' ')'
+
+ParenExpr =
+  '(' Expr ')'
+
+TupleExpr =
+  '(' Expr ',' Expr (',' Expr)* ')'
+
+ListExpr =
+  '[' (Expr (',' Expr)*)? ']'
+
+RecordExpr =
+  '{' (Field (',' Field)*)? '}'
+
+RecordUpdateExpr =
+  '{' 'lower_ident' '|' Field (',' Field)* '}'
+
+Field =
+  'lower_ident' '=' Expr
+
+FieldAccessExpr =
+  Expr '.' 'lower_ident'
+
+AccessorExpr =
+  '.' 'lower_ident'
+
+IfExpr =
+  'if' condition:Expr 'then' then_branch:Expr 'else' else_branch:Expr
+
+CaseExpr =
+  'case' Expr 'of' CaseBranch*
+
+CaseBranch =
+  Pattern '->' Expr
+
+LetExpr =
+  'let' LetDecl* 'in' Expr
+
+LetDecl =
+  LetValue
+| LetDestructure
+
+LetValue =
+  Signature? Definition
+
+LetDestructure =
+  Pattern '=' Expr
+
+LambdaExpr =
+  '\\' Pattern* '->' Expr
+
+GlslExpr =
+  'glsl'

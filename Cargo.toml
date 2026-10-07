@@ -15,7 +15,9 @@ nomi-syntax = { path = "crates/syntax" }
 nomi-testkit = { path = "crates/testkit" }
 clap = { version = "4.6", features = ["derive"] }
 proptest = "1"
+rowan = "0.16"
 text-size = "1.1"
+ungrammar = "1.16"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
