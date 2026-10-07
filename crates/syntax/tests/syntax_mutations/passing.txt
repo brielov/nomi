@@ -3009,49 +3009,120 @@ accepted / insert "\n" at 96
 accepted / insert "\n" at 97
 accepted / insert "\n" at 98
 accepted / insert "\n" at 99
+accepted / insert "\r" at 0
 accepted / insert "\r" at 1
 accepted / insert "\r" at 10
 accepted / insert "\r" at 100
 accepted / insert "\r" at 101
 accepted / insert "\r" at 102
 accepted / insert "\r" at 103
+accepted / insert "\r" at 104
+accepted / insert "\r" at 106
+accepted / insert "\r" at 107
 accepted / insert "\r" at 108
 accepted / insert "\r" at 109
 accepted / insert "\r" at 11
 accepted / insert "\r" at 110
 accepted / insert "\r" at 111
+accepted / insert "\r" at 112
+accepted / insert "\r" at 113
 accepted / insert "\r" at 114
+accepted / insert "\r" at 115
+accepted / insert "\r" at 116
 accepted / insert "\r" at 117
 accepted / insert "\r" at 118
 accepted / insert "\r" at 119
 accepted / insert "\r" at 12
 accepted / insert "\r" at 120
 accepted / insert "\r" at 121
+accepted / insert "\r" at 122
+accepted / insert "\r" at 123
+accepted / insert "\r" at 124
+accepted / insert "\r" at 125
+accepted / insert "\r" at 126
+accepted / insert "\r" at 127
+accepted / insert "\r" at 128
+accepted / insert "\r" at 129
 accepted / insert "\r" at 13
+accepted / insert "\r" at 130
+accepted / insert "\r" at 131
+accepted / insert "\r" at 133
+accepted / insert "\r" at 134
+accepted / insert "\r" at 135
+accepted / insert "\r" at 136
+accepted / insert "\r" at 137
 accepted / insert "\r" at 138
+accepted / insert "\r" at 139
 accepted / insert "\r" at 14
+accepted / insert "\r" at 140
+accepted / insert "\r" at 141
+accepted / insert "\r" at 142
+accepted / insert "\r" at 143
+accepted / insert "\r" at 144
+accepted / insert "\r" at 145
+accepted / insert "\r" at 146
+accepted / insert "\r" at 147
 accepted / insert "\r" at 148
 accepted / insert "\r" at 149
+accepted / insert "\r" at 15
 accepted / insert "\r" at 150
+accepted / insert "\r" at 151
 accepted / insert "\r" at 152
 accepted / insert "\r" at 153
 accepted / insert "\r" at 154
 accepted / insert "\r" at 155
 accepted / insert "\r" at 156
+accepted / insert "\r" at 157
+accepted / insert "\r" at 159
+accepted / insert "\r" at 16
+accepted / insert "\r" at 160
+accepted / insert "\r" at 161
+accepted / insert "\r" at 162
 accepted / insert "\r" at 163
+accepted / insert "\r" at 164
+accepted / insert "\r" at 165
+accepted / insert "\r" at 166
+accepted / insert "\r" at 167
+accepted / insert "\r" at 168
+accepted / insert "\r" at 169
 accepted / insert "\r" at 17
+accepted / insert "\r" at 170
+accepted / insert "\r" at 171
 accepted / insert "\r" at 172
+accepted / insert "\r" at 173
+accepted / insert "\r" at 174
+accepted / insert "\r" at 175
+accepted / insert "\r" at 176
+accepted / insert "\r" at 177
+accepted / insert "\r" at 178
+accepted / insert "\r" at 179
 accepted / insert "\r" at 18
+accepted / insert "\r" at 180
+accepted / insert "\r" at 181
+accepted / insert "\r" at 182
+accepted / insert "\r" at 183
+accepted / insert "\r" at 184
+accepted / insert "\r" at 186
+accepted / insert "\r" at 187
+accepted / insert "\r" at 188
+accepted / insert "\r" at 189
 accepted / insert "\r" at 19
+accepted / insert "\r" at 190
+accepted / insert "\r" at 191
 accepted / insert "\r" at 192
 accepted / insert "\r" at 193
 accepted / insert "\r" at 194
+accepted / insert "\r" at 195
 accepted / insert "\r" at 196
 accepted / insert "\r" at 197
 accepted / insert "\r" at 198
 accepted / insert "\r" at 199
 accepted / insert "\r" at 2
 accepted / insert "\r" at 20
+accepted / insert "\r" at 200
+accepted / insert "\r" at 201
+accepted / insert "\r" at 202
+accepted / insert "\r" at 203
 accepted / insert "\r" at 204
 accepted / insert "\r" at 205
 accepted / insert "\r" at 206
@@ -3063,22 +3134,76 @@ accepted / insert "\r" at 210
 accepted / insert "\r" at 212
 accepted / insert "\r" at 213
 accepted / insert "\r" at 214
+accepted / insert "\r" at 215
+accepted / insert "\r" at 216
+accepted / insert "\r" at 217
+accepted / insert "\r" at 218
+accepted / insert "\r" at 219
 accepted / insert "\r" at 22
+accepted / insert "\r" at 220
+accepted / insert "\r" at 221
+accepted / insert "\r" at 222
+accepted / insert "\r" at 223
+accepted / insert "\r" at 224
+accepted / insert "\r" at 225
+accepted / insert "\r" at 226
+accepted / insert "\r" at 227
+accepted / insert "\r" at 228
+accepted / insert "\r" at 229
 accepted / insert "\r" at 23
+accepted / insert "\r" at 230
+accepted / insert "\r" at 231
+accepted / insert "\r" at 232
+accepted / insert "\r" at 233
+accepted / insert "\r" at 234
 accepted / insert "\r" at 235
+accepted / insert "\r" at 236
+accepted / insert "\r" at 237
+accepted / insert "\r" at 239
+accepted / insert "\r" at 24
+accepted / insert "\r" at 240
+accepted / insert "\r" at 241
+accepted / insert "\r" at 242
 accepted / insert "\r" at 243
+accepted / insert "\r" at 244
+accepted / insert "\r" at 245
+accepted / insert "\r" at 246
+accepted / insert "\r" at 247
+accepted / insert "\r" at 248
+accepted / insert "\r" at 249
+accepted / insert "\r" at 25
+accepted / insert "\r" at 250
+accepted / insert "\r" at 251
+accepted / insert "\r" at 252
+accepted / insert "\r" at 253
+accepted / insert "\r" at 254
+accepted / insert "\r" at 255
+accepted / insert "\r" at 256
+accepted / insert "\r" at 257
+accepted / insert "\r" at 258
 accepted / insert "\r" at 259
+accepted / insert "\r" at 260
+accepted / insert "\r" at 261
+accepted / insert "\r" at 262
+accepted / insert "\r" at 263
+accepted / insert "\r" at 265
 accepted / insert "\r" at 27
 accepted / insert "\r" at 28
 accepted / insert "\r" at 29
 accepted / insert "\r" at 3
 accepted / insert "\r" at 30
 accepted / insert "\r" at 31
+accepted / insert "\r" at 32
+accepted / insert "\r" at 33
+accepted / insert "\r" at 34
 accepted / insert "\r" at 35
 accepted / insert "\r" at 36
 accepted / insert "\r" at 37
 accepted / insert "\r" at 38
+accepted / insert "\r" at 39
 accepted / insert "\r" at 4
+accepted / insert "\r" at 40
+accepted / insert "\r" at 41
 accepted / insert "\r" at 42
 accepted / insert "\r" at 43
 accepted / insert "\r" at 44
@@ -3086,6 +3211,7 @@ accepted / insert "\r" at 45
 accepted / insert "\r" at 46
 accepted / insert "\r" at 47
 accepted / insert "\r" at 48
+accepted / insert "\r" at 49
 accepted / insert "\r" at 5
 accepted / insert "\r" at 50
 accepted / insert "\r" at 51
@@ -3094,12 +3220,20 @@ accepted / insert "\r" at 54
 accepted / insert "\r" at 55
 accepted / insert "\r" at 56
 accepted / insert "\r" at 57
+accepted / insert "\r" at 58
+accepted / insert "\r" at 59
+accepted / insert "\r" at 6
 accepted / insert "\r" at 60
 accepted / insert "\r" at 61
 accepted / insert "\r" at 62
+accepted / insert "\r" at 63
+accepted / insert "\r" at 64
 accepted / insert "\r" at 65
+accepted / insert "\r" at 66
+accepted / insert "\r" at 67
 accepted / insert "\r" at 68
 accepted / insert "\r" at 69
+accepted / insert "\r" at 7
 accepted / insert "\r" at 70
 accepted / insert "\r" at 71
 accepted / insert "\r" at 72
@@ -3107,6 +3241,8 @@ accepted / insert "\r" at 73
 accepted / insert "\r" at 74
 accepted / insert "\r" at 75
 accepted / insert "\r" at 76
+accepted / insert "\r" at 77
+accepted / insert "\r" at 78
 accepted / insert "\r" at 8
 accepted / insert "\r" at 80
 accepted / insert "\r" at 81
@@ -3114,13 +3250,18 @@ accepted / insert "\r" at 82
 accepted / insert "\r" at 83
 accepted / insert "\r" at 84
 accepted / insert "\r" at 85
+accepted / insert "\r" at 86
+accepted / insert "\r" at 87
+accepted / insert "\r" at 88
 accepted / insert "\r" at 89
 accepted / insert "\r" at 9
 accepted / insert "\r" at 90
 accepted / insert "\r" at 91
+accepted / insert "\r" at 92
 accepted / insert "\r" at 93
 accepted / insert "\r" at 94
 accepted / insert "\r" at 95
+accepted / insert "\r" at 96
 accepted / insert "\r" at 97
 accepted / insert "\r" at 98
 accepted / insert "\r" at 99
@@ -4527,6 +4668,7 @@ accepted / random 204
 accepted / random 205
 accepted / random 206
 accepted / random 207
+accepted / random 208
 accepted / random 209
 accepted / random 21
 accepted / random 210
@@ -7890,72 +8032,259 @@ accepted_expressions / insert "\n" at 9
 accepted_expressions / insert "\n" at 93
 accepted_expressions / insert "\n" at 96
 accepted_expressions / insert "\n" at 98
+accepted_expressions / insert "\r" at 0
 accepted_expressions / insert "\r" at 100
+accepted_expressions / insert "\r" at 103
+accepted_expressions / insert "\r" at 105
+accepted_expressions / insert "\r" at 107
+accepted_expressions / insert "\r" at 109
 accepted_expressions / insert "\r" at 11
+accepted_expressions / insert "\r" at 112
+accepted_expressions / insert "\r" at 114
+accepted_expressions / insert "\r" at 116
+accepted_expressions / insert "\r" at 119
+accepted_expressions / insert "\r" at 121
+accepted_expressions / insert "\r" at 123
+accepted_expressions / insert "\r" at 125
+accepted_expressions / insert "\r" at 128
 accepted_expressions / insert "\r" at 13
+accepted_expressions / insert "\r" at 130
+accepted_expressions / insert "\r" at 132
+accepted_expressions / insert "\r" at 135
+accepted_expressions / insert "\r" at 137
+accepted_expressions / insert "\r" at 139
+accepted_expressions / insert "\r" at 141
+accepted_expressions / insert "\r" at 144
 accepted_expressions / insert "\r" at 146
 accepted_expressions / insert "\r" at 148
+accepted_expressions / insert "\r" at 151
+accepted_expressions / insert "\r" at 153
+accepted_expressions / insert "\r" at 155
+accepted_expressions / insert "\r" at 158
 accepted_expressions / insert "\r" at 16
+accepted_expressions / insert "\r" at 160
+accepted_expressions / insert "\r" at 162
+accepted_expressions / insert "\r" at 164
+accepted_expressions / insert "\r" at 167
+accepted_expressions / insert "\r" at 169
+accepted_expressions / insert "\r" at 171
 accepted_expressions / insert "\r" at 174
+accepted_expressions / insert "\r" at 176
+accepted_expressions / insert "\r" at 178
 accepted_expressions / insert "\r" at 18
 accepted_expressions / insert "\r" at 180
+accepted_expressions / insert "\r" at 183
+accepted_expressions / insert "\r" at 185
+accepted_expressions / insert "\r" at 187
+accepted_expressions / insert "\r" at 190
+accepted_expressions / insert "\r" at 192
 accepted_expressions / insert "\r" at 194
 accepted_expressions / insert "\r" at 196
+accepted_expressions / insert "\r" at 199
 accepted_expressions / insert "\r" at 2
 accepted_expressions / insert "\r" at 20
+accepted_expressions / insert "\r" at 201
+accepted_expressions / insert "\r" at 203
+accepted_expressions / insert "\r" at 206
 accepted_expressions / insert "\r" at 208
+accepted_expressions / insert "\r" at 210
+accepted_expressions / insert "\r" at 212
 accepted_expressions / insert "\r" at 215
 accepted_expressions / insert "\r" at 217
+accepted_expressions / insert "\r" at 219
 accepted_expressions / insert "\r" at 22
+accepted_expressions / insert "\r" at 222
+accepted_expressions / insert "\r" at 224
+accepted_expressions / insert "\r" at 226
 accepted_expressions / insert "\r" at 229
+accepted_expressions / insert "\r" at 231
+accepted_expressions / insert "\r" at 233
+accepted_expressions / insert "\r" at 235
+accepted_expressions / insert "\r" at 238
+accepted_expressions / insert "\r" at 240
+accepted_expressions / insert "\r" at 242
+accepted_expressions / insert "\r" at 245
 accepted_expressions / insert "\r" at 247
+accepted_expressions / insert "\r" at 249
 accepted_expressions / insert "\r" at 25
+accepted_expressions / insert "\r" at 251
 accepted_expressions / insert "\r" at 254
+accepted_expressions / insert "\r" at 256
+accepted_expressions / insert "\r" at 258
+accepted_expressions / insert "\r" at 261
+accepted_expressions / insert "\r" at 263
 accepted_expressions / insert "\r" at 265
+accepted_expressions / insert "\r" at 267
+accepted_expressions / insert "\r" at 27
+accepted_expressions / insert "\r" at 270
+accepted_expressions / insert "\r" at 272
+accepted_expressions / insert "\r" at 274
+accepted_expressions / insert "\r" at 277
+accepted_expressions / insert "\r" at 279
+accepted_expressions / insert "\r" at 281
+accepted_expressions / insert "\r" at 283
 accepted_expressions / insert "\r" at 286
+accepted_expressions / insert "\r" at 288
 accepted_expressions / insert "\r" at 29
+accepted_expressions / insert "\r" at 290
+accepted_expressions / insert "\r" at 293
+accepted_expressions / insert "\r" at 295
+accepted_expressions / insert "\r" at 297
+accepted_expressions / insert "\r" at 300
+accepted_expressions / insert "\r" at 302
+accepted_expressions / insert "\r" at 304
 accepted_expressions / insert "\r" at 306
+accepted_expressions / insert "\r" at 309
+accepted_expressions / insert "\r" at 311
+accepted_expressions / insert "\r" at 313
+accepted_expressions / insert "\r" at 316
+accepted_expressions / insert "\r" at 318
 accepted_expressions / insert "\r" at 32
+accepted_expressions / insert "\r" at 320
+accepted_expressions / insert "\r" at 322
 accepted_expressions / insert "\r" at 325
+accepted_expressions / insert "\r" at 327
+accepted_expressions / insert "\r" at 329
+accepted_expressions / insert "\r" at 332
+accepted_expressions / insert "\r" at 334
+accepted_expressions / insert "\r" at 336
+accepted_expressions / insert "\r" at 338
 accepted_expressions / insert "\r" at 34
 accepted_expressions / insert "\r" at 341
 accepted_expressions / insert "\r" at 343
 accepted_expressions / insert "\r" at 345
+accepted_expressions / insert "\r" at 348
+accepted_expressions / insert "\r" at 350
+accepted_expressions / insert "\r" at 352
+accepted_expressions / insert "\r" at 354
+accepted_expressions / insert "\r" at 357
+accepted_expressions / insert "\r" at 359
+accepted_expressions / insert "\r" at 36
+accepted_expressions / insert "\r" at 361
 accepted_expressions / insert "\r" at 364
+accepted_expressions / insert "\r" at 366
+accepted_expressions / insert "\r" at 368
+accepted_expressions / insert "\r" at 371
 accepted_expressions / insert "\r" at 373
 accepted_expressions / insert "\r" at 375
+accepted_expressions / insert "\r" at 377
 accepted_expressions / insert "\r" at 38
 accepted_expressions / insert "\r" at 380
 accepted_expressions / insert "\r" at 382
+accepted_expressions / insert "\r" at 384
+accepted_expressions / insert "\r" at 387
+accepted_expressions / insert "\r" at 389
+accepted_expressions / insert "\r" at 391
 accepted_expressions / insert "\r" at 393
+accepted_expressions / insert "\r" at 396
+accepted_expressions / insert "\r" at 398
 accepted_expressions / insert "\r" at 4
+accepted_expressions / insert "\r" at 400
+accepted_expressions / insert "\r" at 403
 accepted_expressions / insert "\r" at 405
+accepted_expressions / insert "\r" at 407
+accepted_expressions / insert "\r" at 409
 accepted_expressions / insert "\r" at 41
+accepted_expressions / insert "\r" at 412
+accepted_expressions / insert "\r" at 414
+accepted_expressions / insert "\r" at 416
+accepted_expressions / insert "\r" at 419
+accepted_expressions / insert "\r" at 421
 accepted_expressions / insert "\r" at 423
+accepted_expressions / insert "\r" at 425
+accepted_expressions / insert "\r" at 428
+accepted_expressions / insert "\r" at 43
+accepted_expressions / insert "\r" at 430
+accepted_expressions / insert "\r" at 432
+accepted_expressions / insert "\r" at 435
+accepted_expressions / insert "\r" at 437
+accepted_expressions / insert "\r" at 439
+accepted_expressions / insert "\r" at 442
+accepted_expressions / insert "\r" at 444
+accepted_expressions / insert "\r" at 446
+accepted_expressions / insert "\r" at 448
+accepted_expressions / insert "\r" at 45
+accepted_expressions / insert "\r" at 451
+accepted_expressions / insert "\r" at 453
+accepted_expressions / insert "\r" at 455
+accepted_expressions / insert "\r" at 458
 accepted_expressions / insert "\r" at 460
 accepted_expressions / insert "\r" at 462
+accepted_expressions / insert "\r" at 464
+accepted_expressions / insert "\r" at 467
+accepted_expressions / insert "\r" at 469
+accepted_expressions / insert "\r" at 471
+accepted_expressions / insert "\r" at 474
+accepted_expressions / insert "\r" at 476
+accepted_expressions / insert "\r" at 478
+accepted_expressions / insert "\r" at 48
+accepted_expressions / insert "\r" at 480
+accepted_expressions / insert "\r" at 483
+accepted_expressions / insert "\r" at 485
 accepted_expressions / insert "\r" at 487
+accepted_expressions / insert "\r" at 490
 accepted_expressions / insert "\r" at 492
+accepted_expressions / insert "\r" at 494
+accepted_expressions / insert "\r" at 496
+accepted_expressions / insert "\r" at 499
 accepted_expressions / insert "\r" at 50
+accepted_expressions / insert "\r" at 501
 accepted_expressions / insert "\r" at 503
+accepted_expressions / insert "\r" at 506
+accepted_expressions / insert "\r" at 508
+accepted_expressions / insert "\r" at 510
+accepted_expressions / insert "\r" at 513
+accepted_expressions / insert "\r" at 515
 accepted_expressions / insert "\r" at 517
+accepted_expressions / insert "\r" at 519
 accepted_expressions / insert "\r" at 52
+accepted_expressions / insert "\r" at 522
 accepted_expressions / insert "\r" at 524
+accepted_expressions / insert "\r" at 526
+accepted_expressions / insert "\r" at 529
+accepted_expressions / insert "\r" at 531
+accepted_expressions / insert "\r" at 533
+accepted_expressions / insert "\r" at 535
 accepted_expressions / insert "\r" at 538
+accepted_expressions / insert "\r" at 54
+accepted_expressions / insert "\r" at 540
+accepted_expressions / insert "\r" at 542
 accepted_expressions / insert "\r" at 545
+accepted_expressions / insert "\r" at 547
+accepted_expressions / insert "\r" at 549
+accepted_expressions / insert "\r" at 551
+accepted_expressions / insert "\r" at 554
 accepted_expressions / insert "\r" at 556
+accepted_expressions / insert "\r" at 558
+accepted_expressions / insert "\r" at 561
 accepted_expressions / insert "\r" at 563
+accepted_expressions / insert "\r" at 565
+accepted_expressions / insert "\r" at 567
 accepted_expressions / insert "\r" at 57
+accepted_expressions / insert "\r" at 570
+accepted_expressions / insert "\r" at 572
+accepted_expressions / insert "\r" at 574
+accepted_expressions / insert "\r" at 577
+accepted_expressions / insert "\r" at 579
+accepted_expressions / insert "\r" at 581
+accepted_expressions / insert "\r" at 584
 accepted_expressions / insert "\r" at 59
+accepted_expressions / insert "\r" at 6
+accepted_expressions / insert "\r" at 61
 accepted_expressions / insert "\r" at 64
 accepted_expressions / insert "\r" at 66
 accepted_expressions / insert "\r" at 68
 accepted_expressions / insert "\r" at 70
+accepted_expressions / insert "\r" at 73
 accepted_expressions / insert "\r" at 75
 accepted_expressions / insert "\r" at 77
 accepted_expressions / insert "\r" at 80
+accepted_expressions / insert "\r" at 82
+accepted_expressions / insert "\r" at 84
 accepted_expressions / insert "\r" at 87
+accepted_expressions / insert "\r" at 89
 accepted_expressions / insert "\r" at 9
+accepted_expressions / insert "\r" at 91
 accepted_expressions / insert "\r" at 93
 accepted_expressions / insert "\r" at 96
 accepted_expressions / insert "\r" at 98
@@ -9353,6 +9682,7 @@ accepted_expressions / random 20
 accepted_expressions / random 200
 accepted_expressions / random 201
 accepted_expressions / random 202
+accepted_expressions / random 203
 accepted_expressions / random 204
 accepted_expressions / random 205
 accepted_expressions / random 206
@@ -9551,6 +9881,7 @@ accepted_expressions / random 38
 accepted_expressions / random 380
 accepted_expressions / random 381
 accepted_expressions / random 382
+accepted_expressions / random 383
 accepted_expressions / random 384
 accepted_expressions / random 385
 accepted_expressions / random 386
@@ -9592,6 +9923,7 @@ accepted_expressions / random 417
 accepted_expressions / random 418
 accepted_expressions / random 419
 accepted_expressions / random 42
+accepted_expressions / random 420
 accepted_expressions / random 421
 accepted_expressions / random 422
 accepted_expressions / random 423
@@ -9615,6 +9947,7 @@ accepted_expressions / random 439
 accepted_expressions / random 44
 accepted_expressions / random 440
 accepted_expressions / random 441
+accepted_expressions / random 442
 accepted_expressions / random 443
 accepted_expressions / random 444
 accepted_expressions / random 445
@@ -9710,6 +10043,7 @@ accepted_expressions / random 66
 accepted_expressions / random 67
 accepted_expressions / random 68
 accepted_expressions / random 69
+accepted_expressions / random 7
 accepted_expressions / random 70
 accepted_expressions / random 71
 accepted_expressions / random 72
@@ -11666,38 +12000,86 @@ accepted_types / insert "\n" at 96
 accepted_types / insert "\n" at 97
 accepted_types / insert "\n" at 98
 accepted_types / insert "\n" at 99
+accepted_types / insert "\r" at 0
 accepted_types / insert "\r" at 1
 accepted_types / insert "\r" at 10
+accepted_types / insert "\r" at 100
+accepted_types / insert "\r" at 101
+accepted_types / insert "\r" at 102
+accepted_types / insert "\r" at 103
+accepted_types / insert "\r" at 104
+accepted_types / insert "\r" at 105
 accepted_types / insert "\r" at 106
 accepted_types / insert "\r" at 107
 accepted_types / insert "\r" at 108
 accepted_types / insert "\r" at 109
 accepted_types / insert "\r" at 11
+accepted_types / insert "\r" at 110
+accepted_types / insert "\r" at 111
+accepted_types / insert "\r" at 112
+accepted_types / insert "\r" at 113
+accepted_types / insert "\r" at 114
+accepted_types / insert "\r" at 115
+accepted_types / insert "\r" at 116
+accepted_types / insert "\r" at 117
+accepted_types / insert "\r" at 118
+accepted_types / insert "\r" at 119
 accepted_types / insert "\r" at 12
+accepted_types / insert "\r" at 120
+accepted_types / insert "\r" at 121
+accepted_types / insert "\r" at 122
+accepted_types / insert "\r" at 123
+accepted_types / insert "\r" at 124
+accepted_types / insert "\r" at 125
+accepted_types / insert "\r" at 126
+accepted_types / insert "\r" at 127
 accepted_types / insert "\r" at 128
+accepted_types / insert "\r" at 129
 accepted_types / insert "\r" at 13
+accepted_types / insert "\r" at 130
+accepted_types / insert "\r" at 131
+accepted_types / insert "\r" at 132
+accepted_types / insert "\r" at 133
+accepted_types / insert "\r" at 134
+accepted_types / insert "\r" at 135
 accepted_types / insert "\r" at 136
 accepted_types / insert "\r" at 137
 accepted_types / insert "\r" at 138
+accepted_types / insert "\r" at 139
 accepted_types / insert "\r" at 14
+accepted_types / insert "\r" at 140
+accepted_types / insert "\r" at 141
+accepted_types / insert "\r" at 142
 accepted_types / insert "\r" at 143
 accepted_types / insert "\r" at 144
 accepted_types / insert "\r" at 145
+accepted_types / insert "\r" at 146
+accepted_types / insert "\r" at 147
+accepted_types / insert "\r" at 148
 accepted_types / insert "\r" at 149
 accepted_types / insert "\r" at 15
 accepted_types / insert "\r" at 150
 accepted_types / insert "\r" at 151
 accepted_types / insert "\r" at 152
+accepted_types / insert "\r" at 153
+accepted_types / insert "\r" at 154
+accepted_types / insert "\r" at 155
+accepted_types / insert "\r" at 156
 accepted_types / insert "\r" at 157
 accepted_types / insert "\r" at 158
 accepted_types / insert "\r" at 159
 accepted_types / insert "\r" at 16
 accepted_types / insert "\r" at 160
+accepted_types / insert "\r" at 161
+accepted_types / insert "\r" at 162
 accepted_types / insert "\r" at 163
+accepted_types / insert "\r" at 164
 accepted_types / insert "\r" at 17
 accepted_types / insert "\r" at 18
 accepted_types / insert "\r" at 19
 accepted_types / insert "\r" at 2
+accepted_types / insert "\r" at 20
+accepted_types / insert "\r" at 21
 accepted_types / insert "\r" at 22
 accepted_types / insert "\r" at 23
 accepted_types / insert "\r" at 24
@@ -11705,27 +12087,81 @@ accepted_types / insert "\r" at 25
 accepted_types / insert "\r" at 26
 accepted_types / insert "\r" at 27
 accepted_types / insert "\r" at 28
+accepted_types / insert "\r" at 29
 accepted_types / insert "\r" at 3
+accepted_types / insert "\r" at 30
+accepted_types / insert "\r" at 31
 accepted_types / insert "\r" at 32
 accepted_types / insert "\r" at 33
 accepted_types / insert "\r" at 34
 accepted_types / insert "\r" at 35
+accepted_types / insert "\r" at 36
+accepted_types / insert "\r" at 37
 accepted_types / insert "\r" at 38
+accepted_types / insert "\r" at 39
 accepted_types / insert "\r" at 4
+accepted_types / insert "\r" at 40
+accepted_types / insert "\r" at 41
+accepted_types / insert "\r" at 42
 accepted_types / insert "\r" at 43
 accepted_types / insert "\r" at 44
 accepted_types / insert "\r" at 45
+accepted_types / insert "\r" at 46
 accepted_types / insert "\r" at 47
 accepted_types / insert "\r" at 48
 accepted_types / insert "\r" at 49
 accepted_types / insert "\r" at 5
+accepted_types / insert "\r" at 50
 accepted_types / insert "\r" at 51
 accepted_types / insert "\r" at 52
 accepted_types / insert "\r" at 53
+accepted_types / insert "\r" at 54
+accepted_types / insert "\r" at 55
+accepted_types / insert "\r" at 56
+accepted_types / insert "\r" at 57
+accepted_types / insert "\r" at 58
+accepted_types / insert "\r" at 59
+accepted_types / insert "\r" at 6
+accepted_types / insert "\r" at 60
+accepted_types / insert "\r" at 61
+accepted_types / insert "\r" at 62
+accepted_types / insert "\r" at 63
+accepted_types / insert "\r" at 64
+accepted_types / insert "\r" at 65
 accepted_types / insert "\r" at 66
+accepted_types / insert "\r" at 67
+accepted_types / insert "\r" at 68
+accepted_types / insert "\r" at 69
+accepted_types / insert "\r" at 7
+accepted_types / insert "\r" at 70
+accepted_types / insert "\r" at 71
+accepted_types / insert "\r" at 72
+accepted_types / insert "\r" at 73
+accepted_types / insert "\r" at 74
+accepted_types / insert "\r" at 75
+accepted_types / insert "\r" at 76
+accepted_types / insert "\r" at 77
+accepted_types / insert "\r" at 78
+accepted_types / insert "\r" at 79
 accepted_types / insert "\r" at 8
 accepted_types / insert "\r" at 80
+accepted_types / insert "\r" at 81
+accepted_types / insert "\r" at 82
+accepted_types / insert "\r" at 83
+accepted_types / insert "\r" at 84
+accepted_types / insert "\r" at 85
+accepted_types / insert "\r" at 86
+accepted_types / insert "\r" at 87
+accepted_types / insert "\r" at 88
+accepted_types / insert "\r" at 89
 accepted_types / insert "\r" at 9
+accepted_types / insert "\r" at 90
+accepted_types / insert "\r" at 91
+accepted_types / insert "\r" at 92
+accepted_types / insert "\r" at 93
+accepted_types / insert "\r" at 94
+accepted_types / insert "\r" at 95
+accepted_types / insert "\r" at 96
 accepted_types / insert "\r" at 97
 accepted_types / insert "\r" at 98
 accepted_types / insert "\r" at 99
@@ -12597,6 +13033,7 @@ accepted_types / random 132
 accepted_types / random 133
 accepted_types / random 134
 accepted_types / random 135
+accepted_types / random 136
 accepted_types / random 137
 accepted_types / random 138
 accepted_types / random 139
@@ -12817,6 +13254,7 @@ accepted_types / random 331
 accepted_types / random 332
 accepted_types / random 334
 accepted_types / random 335
+accepted_types / random 336
 accepted_types / random 337
 accepted_types / random 338
 accepted_types / random 339
@@ -12855,6 +13293,7 @@ accepted_types / random 368
 accepted_types / random 369
 accepted_types / random 37
 accepted_types / random 370
+accepted_types / random 371
 accepted_types / random 372
 accepted_types / random 373
 accepted_types / random 374
@@ -16078,73 +16517,211 @@ all_declarations / insert "\n" at 968
 all_declarations / insert "\n" at 98
 all_declarations / insert "\n" at 982
 all_declarations / insert "\n" at 996
+all_declarations / insert "\r" at 0
+all_declarations / insert "\r" at 1010
+all_declarations / insert "\r" at 1024
+all_declarations / insert "\r" at 1038
+all_declarations / insert "\r" at 1052
+all_declarations / insert "\r" at 1066
+all_declarations / insert "\r" at 1080
 all_declarations / insert "\r" at 1094
 all_declarations / insert "\r" at 1108
 all_declarations / insert "\r" at 112
+all_declarations / insert "\r" at 1122
+all_declarations / insert "\r" at 1136
+all_declarations / insert "\r" at 1150
+all_declarations / insert "\r" at 1164
 all_declarations / insert "\r" at 1178
+all_declarations / insert "\r" at 1193
 all_declarations / insert "\r" at 1207
+all_declarations / insert "\r" at 1221
+all_declarations / insert "\r" at 1235
+all_declarations / insert "\r" at 1249
+all_declarations / insert "\r" at 126
+all_declarations / insert "\r" at 1263
 all_declarations / insert "\r" at 1277
 all_declarations / insert "\r" at 1291
+all_declarations / insert "\r" at 1305
 all_declarations / insert "\r" at 1319
 all_declarations / insert "\r" at 1333
+all_declarations / insert "\r" at 1347
+all_declarations / insert "\r" at 1361
+all_declarations / insert "\r" at 1375
 all_declarations / insert "\r" at 1389
 all_declarations / insert "\r" at 14
 all_declarations / insert "\r" at 140
+all_declarations / insert "\r" at 1403
+all_declarations / insert "\r" at 1417
+all_declarations / insert "\r" at 1431
 all_declarations / insert "\r" at 1445
+all_declarations / insert "\r" at 1459
+all_declarations / insert "\r" at 1473
+all_declarations / insert "\r" at 1487
+all_declarations / insert "\r" at 1501
+all_declarations / insert "\r" at 1515
+all_declarations / insert "\r" at 1529
+all_declarations / insert "\r" at 154
+all_declarations / insert "\r" at 1543
+all_declarations / insert "\r" at 1557
+all_declarations / insert "\r" at 1571
+all_declarations / insert "\r" at 1585
+all_declarations / insert "\r" at 1600
 all_declarations / insert "\r" at 1614
 all_declarations / insert "\r" at 1628
+all_declarations / insert "\r" at 1642
 all_declarations / insert "\r" at 1656
 all_declarations / insert "\r" at 1670
 all_declarations / insert "\r" at 168
 all_declarations / insert "\r" at 1684
+all_declarations / insert "\r" at 1698
+all_declarations / insert "\r" at 1712
+all_declarations / insert "\r" at 1726
+all_declarations / insert "\r" at 1740
 all_declarations / insert "\r" at 1754
+all_declarations / insert "\r" at 1768
+all_declarations / insert "\r" at 1782
+all_declarations / insert "\r" at 1796
+all_declarations / insert "\r" at 1810
+all_declarations / insert "\r" at 182
+all_declarations / insert "\r" at 1824
+all_declarations / insert "\r" at 1838
 all_declarations / insert "\r" at 1852
+all_declarations / insert "\r" at 1866
 all_declarations / insert "\r" at 1880
+all_declarations / insert "\r" at 1894
+all_declarations / insert "\r" at 1908
+all_declarations / insert "\r" at 1922
+all_declarations / insert "\r" at 1936
+all_declarations / insert "\r" at 1950
 all_declarations / insert "\r" at 196
+all_declarations / insert "\r" at 1964
 all_declarations / insert "\r" at 1978
+all_declarations / insert "\r" at 1993
+all_declarations / insert "\r" at 2007
+all_declarations / insert "\r" at 2021
+all_declarations / insert "\r" at 2035
+all_declarations / insert "\r" at 2049
+all_declarations / insert "\r" at 2063
+all_declarations / insert "\r" at 2077
+all_declarations / insert "\r" at 2091
+all_declarations / insert "\r" at 210
+all_declarations / insert "\r" at 2105
 all_declarations / insert "\r" at 2119
 all_declarations / insert "\r" at 2133
+all_declarations / insert "\r" at 2147
+all_declarations / insert "\r" at 2161
+all_declarations / insert "\r" at 2175
+all_declarations / insert "\r" at 2189
+all_declarations / insert "\r" at 2203
 all_declarations / insert "\r" at 2217
 all_declarations / insert "\r" at 2231
 all_declarations / insert "\r" at 224
+all_declarations / insert "\r" at 2245
+all_declarations / insert "\r" at 2259
+all_declarations / insert "\r" at 2273
 all_declarations / insert "\r" at 2287
 all_declarations / insert "\r" at 2301
+all_declarations / insert "\r" at 2315
+all_declarations / insert "\r" at 2329
+all_declarations / insert "\r" at 2343
+all_declarations / insert "\r" at 2357
 all_declarations / insert "\r" at 2371
 all_declarations / insert "\r" at 238
 all_declarations / insert "\r" at 2386
+all_declarations / insert "\r" at 2400
+all_declarations / insert "\r" at 2414
+all_declarations / insert "\r" at 2428
+all_declarations / insert "\r" at 2442
 all_declarations / insert "\r" at 2456
 all_declarations / insert "\r" at 2470
+all_declarations / insert "\r" at 2484
+all_declarations / insert "\r" at 2498
+all_declarations / insert "\r" at 2512
 all_declarations / insert "\r" at 252
+all_declarations / insert "\r" at 2526
 all_declarations / insert "\r" at 2540
 all_declarations / insert "\r" at 2554
 all_declarations / insert "\r" at 2568
+all_declarations / insert "\r" at 2582
+all_declarations / insert "\r" at 2596
 all_declarations / insert "\r" at 2610
+all_declarations / insert "\r" at 2624
+all_declarations / insert "\r" at 2638
+all_declarations / insert "\r" at 2652
 all_declarations / insert "\r" at 266
+all_declarations / insert "\r" at 2666
+all_declarations / insert "\r" at 2680
 all_declarations / insert "\r" at 2694
+all_declarations / insert "\r" at 2708
+all_declarations / insert "\r" at 2722
+all_declarations / insert "\r" at 2736
+all_declarations / insert "\r" at 2750
+all_declarations / insert "\r" at 2764
 all_declarations / insert "\r" at 2778
 all_declarations / insert "\r" at 2793
 all_declarations / insert "\r" at 28
 all_declarations / insert "\r" at 280
+all_declarations / insert "\r" at 2807
+all_declarations / insert "\r" at 2821
+all_declarations / insert "\r" at 2835
+all_declarations / insert "\r" at 2849
+all_declarations / insert "\r" at 2863
 all_declarations / insert "\r" at 2877
 all_declarations / insert "\r" at 2891
 all_declarations / insert "\r" at 2905
 all_declarations / insert "\r" at 2919
+all_declarations / insert "\r" at 2933
 all_declarations / insert "\r" at 294
+all_declarations / insert "\r" at 2947
+all_declarations / insert "\r" at 2961
+all_declarations / insert "\r" at 2975
+all_declarations / insert "\r" at 2989
+all_declarations / insert "\r" at 3003
+all_declarations / insert "\r" at 3017
 all_declarations / insert "\r" at 3031
+all_declarations / insert "\r" at 3045
+all_declarations / insert "\r" at 3059
+all_declarations / insert "\r" at 3073
 all_declarations / insert "\r" at 308
+all_declarations / insert "\r" at 3087
+all_declarations / insert "\r" at 3101
+all_declarations / insert "\r" at 3115
 all_declarations / insert "\r" at 3129
+all_declarations / insert "\r" at 3143
 all_declarations / insert "\r" at 3157
+all_declarations / insert "\r" at 3171
+all_declarations / insert "\r" at 3186
+all_declarations / insert "\r" at 3200
 all_declarations / insert "\r" at 3214
 all_declarations / insert "\r" at 322
 all_declarations / insert "\r" at 3228
+all_declarations / insert "\r" at 3242
+all_declarations / insert "\r" at 3256
+all_declarations / insert "\r" at 3270
+all_declarations / insert "\r" at 3284
 all_declarations / insert "\r" at 3298
+all_declarations / insert "\r" at 3312
 all_declarations / insert "\r" at 3326
 all_declarations / insert "\r" at 3340
+all_declarations / insert "\r" at 3354
 all_declarations / insert "\r" at 336
 all_declarations / insert "\r" at 3368
+all_declarations / insert "\r" at 3382
+all_declarations / insert "\r" at 3396
+all_declarations / insert "\r" at 3410
+all_declarations / insert "\r" at 3424
 all_declarations / insert "\r" at 3438
+all_declarations / insert "\r" at 3452
+all_declarations / insert "\r" at 3466
+all_declarations / insert "\r" at 3480
+all_declarations / insert "\r" at 3494
 all_declarations / insert "\r" at 350
+all_declarations / insert "\r" at 3508
+all_declarations / insert "\r" at 3522
+all_declarations / insert "\r" at 3536
+all_declarations / insert "\r" at 3550
 all_declarations / insert "\r" at 3564
+all_declarations / insert "\r" at 3579
 all_declarations / insert "\r" at 364
 all_declarations / insert "\r" at 378
 all_declarations / insert "\r" at 392
@@ -16167,12 +16744,35 @@ all_declarations / insert "\r" at 589
 all_declarations / insert "\r" at 603
 all_declarations / insert "\r" at 617
 all_declarations / insert "\r" at 631
+all_declarations / insert "\r" at 645
+all_declarations / insert "\r" at 659
+all_declarations / insert "\r" at 673
+all_declarations / insert "\r" at 687
+all_declarations / insert "\r" at 70
 all_declarations / insert "\r" at 701
+all_declarations / insert "\r" at 715
 all_declarations / insert "\r" at 729
+all_declarations / insert "\r" at 743
 all_declarations / insert "\r" at 757
+all_declarations / insert "\r" at 771
+all_declarations / insert "\r" at 785
+all_declarations / insert "\r" at 800
+all_declarations / insert "\r" at 814
+all_declarations / insert "\r" at 828
+all_declarations / insert "\r" at 84
+all_declarations / insert "\r" at 842
+all_declarations / insert "\r" at 856
+all_declarations / insert "\r" at 870
+all_declarations / insert "\r" at 884
+all_declarations / insert "\r" at 898
 all_declarations / insert "\r" at 912
+all_declarations / insert "\r" at 926
+all_declarations / insert "\r" at 940
+all_declarations / insert "\r" at 954
 all_declarations / insert "\r" at 968
 all_declarations / insert "\r" at 98
+all_declarations / insert "\r" at 982
+all_declarations / insert "\r" at 996
 all_declarations / insert "\t" at 0
 all_declarations / insert "\t" at 1010
 all_declarations / insert "\t" at 1024
@@ -17466,6 +18066,7 @@ all_declarations / random 112
 all_declarations / random 113
 all_declarations / random 114
 all_declarations / random 115
+all_declarations / random 116
 all_declarations / random 117
 all_declarations / random 118
 all_declarations / random 119
@@ -17499,10 +18100,12 @@ all_declarations / random 143
 all_declarations / random 144
 all_declarations / random 145
 all_declarations / random 146
+all_declarations / random 147
 all_declarations / random 148
 all_declarations / random 149
 all_declarations / random 15
 all_declarations / random 150
+all_declarations / random 151
 all_declarations / random 152
 all_declarations / random 153
 all_declarations / random 154
@@ -17525,6 +18128,7 @@ all_declarations / random 169
 all_declarations / random 17
 all_declarations / random 170
 all_declarations / random 171
+all_declarations / random 172
 all_declarations / random 173
 all_declarations / random 174
 all_declarations / random 175
@@ -17586,6 +18190,7 @@ all_declarations / random 224
 all_declarations / random 225
 all_declarations / random 226
 all_declarations / random 227
+all_declarations / random 228
 all_declarations / random 229
 all_declarations / random 23
 all_declarations / random 230
@@ -17644,6 +18249,7 @@ all_declarations / random 278
 all_declarations / random 279
 all_declarations / random 28
 all_declarations / random 280
+all_declarations / random 281
 all_declarations / random 282
 all_declarations / random 283
 all_declarations / random 284
@@ -20944,27 +21550,62 @@ all_literals / insert "\n" at 964
 all_literals / insert "\n" at 973
 all_literals / insert "\n" at 982
 all_literals / insert "\n" at 99
+all_literals / insert "\r" at 0
 all_literals / insert "\r" at 1000
 all_literals / insert "\r" at 1009
+all_literals / insert "\r" at 1018
+all_literals / insert "\r" at 1027
+all_literals / insert "\r" at 1036
 all_literals / insert "\r" at 1045
 all_literals / insert "\r" at 1054
 all_literals / insert "\r" at 1063
+all_literals / insert "\r" at 1072
+all_literals / insert "\r" at 108
+all_literals / insert "\r" at 1081
+all_literals / insert "\r" at 1091
+all_literals / insert "\r" at 1100
 all_literals / insert "\r" at 1109
+all_literals / insert "\r" at 1118
+all_literals / insert "\r" at 1127
+all_literals / insert "\r" at 1140
 all_literals / insert "\r" at 1153
 all_literals / insert "\r" at 1165
+all_literals / insert "\r" at 117
+all_literals / insert "\r" at 1174
+all_literals / insert "\r" at 1183
+all_literals / insert "\r" at 1192
+all_literals / insert "\r" at 1201
 all_literals / insert "\r" at 1210
 all_literals / insert "\r" at 1219
+all_literals / insert "\r" at 1228
+all_literals / insert "\r" at 1237
+all_literals / insert "\r" at 1246
 all_literals / insert "\r" at 1255
+all_literals / insert "\r" at 126
 all_literals / insert "\r" at 1264
+all_literals / insert "\r" at 1273
 all_literals / insert "\r" at 1283
+all_literals / insert "\r" at 1292
+all_literals / insert "\r" at 1301
+all_literals / insert "\r" at 1310
 all_literals / insert "\r" at 1319
+all_literals / insert "\r" at 1328
 all_literals / insert "\r" at 1337
 all_literals / insert "\r" at 1346
+all_literals / insert "\r" at 135
+all_literals / insert "\r" at 1355
 all_literals / insert "\r" at 1364
+all_literals / insert "\r" at 1373
+all_literals / insert "\r" at 1382
+all_literals / insert "\r" at 1391
+all_literals / insert "\r" at 1400
 all_literals / insert "\r" at 1409
 all_literals / insert "\r" at 1418
 all_literals / insert "\r" at 1427
 all_literals / insert "\r" at 1436
+all_literals / insert "\r" at 144
+all_literals / insert "\r" at 1445
+all_literals / insert "\r" at 1455
 all_literals / insert "\r" at 1464
 all_literals / insert "\r" at 1473
 all_literals / insert "\r" at 1482
@@ -20972,6 +21613,7 @@ all_literals / insert "\r" at 1502
 all_literals / insert "\r" at 1511
 all_literals / insert "\r" at 1520
 all_literals / insert "\r" at 1529
+all_literals / insert "\r" at 153
 all_literals / insert "\r" at 1538
 all_literals / insert "\r" at 1547
 all_literals / insert "\r" at 1556
@@ -20992,6 +21634,7 @@ all_literals / insert "\r" at 1674
 all_literals / insert "\r" at 1683
 all_literals / insert "\r" at 1692
 all_literals / insert "\r" at 1701
+all_literals / insert "\r" at 171
 all_literals / insert "\r" at 1710
 all_literals / insert "\r" at 1719
 all_literals / insert "\r" at 1728
@@ -21005,29 +21648,49 @@ all_literals / insert "\r" at 1791
 all_literals / insert "\r" at 18
 all_literals / insert "\r" at 1800
 all_literals / insert "\r" at 1809
+all_literals / insert "\r" at 181
 all_literals / insert "\r" at 1818
 all_literals / insert "\r" at 1828
 all_literals / insert "\r" at 1837
+all_literals / insert "\r" at 1846
+all_literals / insert "\r" at 1855
+all_literals / insert "\r" at 1864
+all_literals / insert "\r" at 1873
+all_literals / insert "\r" at 1882
+all_literals / insert "\r" at 1891
+all_literals / insert "\r" at 190
 all_literals / insert "\r" at 1900
 all_literals / insert "\r" at 1909
+all_literals / insert "\r" at 1918
+all_literals / insert "\r" at 1927
+all_literals / insert "\r" at 1936
+all_literals / insert "\r" at 1945
+all_literals / insert "\r" at 1954
 all_literals / insert "\r" at 1963
 all_literals / insert "\r" at 1972
 all_literals / insert "\r" at 1981
+all_literals / insert "\r" at 199
+all_literals / insert "\r" at 1990
 all_literals / insert "\r" at 2000
 all_literals / insert "\r" at 2009
 all_literals / insert "\r" at 2018
+all_literals / insert "\r" at 2027
 all_literals / insert "\r" at 2036
 all_literals / insert "\r" at 2045
 all_literals / insert "\r" at 2054
 all_literals / insert "\r" at 2063
+all_literals / insert "\r" at 2072
+all_literals / insert "\r" at 208
 all_literals / insert "\r" at 2081
 all_literals / insert "\r" at 2090
 all_literals / insert "\r" at 2099
 all_literals / insert "\r" at 2108
+all_literals / insert "\r" at 2117
 all_literals / insert "\r" at 2126
 all_literals / insert "\r" at 2135
 all_literals / insert "\r" at 2144
 all_literals / insert "\r" at 2153
+all_literals / insert "\r" at 2162
 all_literals / insert "\r" at 217
 all_literals / insert "\r" at 2171
 all_literals / insert "\r" at 2181
@@ -21035,29 +21698,71 @@ all_literals / insert "\r" at 2190
 all_literals / insert "\r" at 2199
 all_literals / insert "\r" at 2208
 all_literals / insert "\r" at 2217
+all_literals / insert "\r" at 2226
 all_literals / insert "\r" at 2235
 all_literals / insert "\r" at 2244
 all_literals / insert "\r" at 2253
+all_literals / insert "\r" at 226
+all_literals / insert "\r" at 2262
 all_literals / insert "\r" at 2271
 all_literals / insert "\r" at 2280
 all_literals / insert "\r" at 2289
 all_literals / insert "\r" at 2298
+all_literals / insert "\r" at 2307
 all_literals / insert "\r" at 2316
 all_literals / insert "\r" at 2325
 all_literals / insert "\r" at 2334
 all_literals / insert "\r" at 2343
+all_literals / insert "\r" at 235
+all_literals / insert "\r" at 2353
 all_literals / insert "\r" at 244
+all_literals / insert "\r" at 253
+all_literals / insert "\r" at 262
 all_literals / insert "\r" at 27
+all_literals / insert "\r" at 271
+all_literals / insert "\r" at 280
 all_literals / insert "\r" at 289
+all_literals / insert "\r" at 298
+all_literals / insert "\r" at 307
+all_literals / insert "\r" at 316
+all_literals / insert "\r" at 325
+all_literals / insert "\r" at 334
+all_literals / insert "\r" at 343
+all_literals / insert "\r" at 352
+all_literals / insert "\r" at 36
+all_literals / insert "\r" at 362
+all_literals / insert "\r" at 371
+all_literals / insert "\r" at 380
+all_literals / insert "\r" at 389
+all_literals / insert "\r" at 398
 all_literals / insert "\r" at 407
 all_literals / insert "\r" at 416
+all_literals / insert "\r" at 425
+all_literals / insert "\r" at 434
+all_literals / insert "\r" at 443
+all_literals / insert "\r" at 45
 all_literals / insert "\r" at 452
 all_literals / insert "\r" at 461
 all_literals / insert "\r" at 481
+all_literals / insert "\r" at 490
+all_literals / insert "\r" at 499
+all_literals / insert "\r" at 508
+all_literals / insert "\r" at 517
+all_literals / insert "\r" at 526
 all_literals / insert "\r" at 538
+all_literals / insert "\r" at 54
 all_literals / insert "\r" at 557
+all_literals / insert "\r" at 566
+all_literals / insert "\r" at 575
+all_literals / insert "\r" at 584
+all_literals / insert "\r" at 593
 all_literals / insert "\r" at 602
 all_literals / insert "\r" at 611
+all_literals / insert "\r" at 620
+all_literals / insert "\r" at 629
+all_literals / insert "\r" at 63
+all_literals / insert "\r" at 638
+all_literals / insert "\r" at 647
 all_literals / insert "\r" at 656
 all_literals / insert "\r" at 665
 all_literals / insert "\r" at 674
@@ -21066,14 +21771,17 @@ all_literals / insert "\r" at 692
 all_literals / insert "\r" at 701
 all_literals / insert "\r" at 710
 all_literals / insert "\r" at 719
+all_literals / insert "\r" at 72
 all_literals / insert "\r" at 728
 all_literals / insert "\r" at 738
 all_literals / insert "\r" at 747
 all_literals / insert "\r" at 756
 all_literals / insert "\r" at 765
+all_literals / insert "\r" at 774
 all_literals / insert "\r" at 783
 all_literals / insert "\r" at 792
 all_literals / insert "\r" at 801
+all_literals / insert "\r" at 81
 all_literals / insert "\r" at 810
 all_literals / insert "\r" at 819
 all_literals / insert "\r" at 828
@@ -21085,8 +21793,16 @@ all_literals / insert "\r" at 873
 all_literals / insert "\r" at 882
 all_literals / insert "\r" at 891
 all_literals / insert "\r" at 9
+all_literals / insert "\r" at 90
 all_literals / insert "\r" at 900
+all_literals / insert "\r" at 909
 all_literals / insert "\r" at 919
+all_literals / insert "\r" at 928
+all_literals / insert "\r" at 937
+all_literals / insert "\r" at 946
+all_literals / insert "\r" at 955
+all_literals / insert "\r" at 964
+all_literals / insert "\r" at 973
 all_literals / insert "\r" at 982
 all_literals / insert "\r" at 99
 all_literals / insert "\r" at 991
@@ -22405,6 +23121,7 @@ all_literals / random 125
 all_literals / random 126
 all_literals / random 127
 all_literals / random 128
+all_literals / random 129
 all_literals / random 13
 all_literals / random 130
 all_literals / random 131
@@ -22520,6 +23237,7 @@ all_literals / random 23
 all_literals / random 230
 all_literals / random 231
 all_literals / random 232
+all_literals / random 233
 all_literals / random 234
 all_literals / random 235
 all_literals / random 236
@@ -22550,6 +23268,7 @@ all_literals / random 258
 all_literals / random 259
 all_literals / random 26
 all_literals / random 260
+all_literals / random 261
 all_literals / random 262
 all_literals / random 263
 all_literals / random 264
@@ -22641,6 +23360,7 @@ all_literals / random 340
 all_literals / random 341
 all_literals / random 342
 all_literals / random 343
+all_literals / random 344
 all_literals / random 345
 all_literals / random 346
 all_literals / random 347
@@ -22673,6 +23393,7 @@ all_literals / random 371
 all_literals / random 372
 all_literals / random 373
 all_literals / random 374
+all_literals / random 375
 all_literals / random 376
 all_literals / random 377
 all_literals / random 378
@@ -22724,6 +23445,7 @@ all_literals / random 418
 all_literals / random 419
 all_literals / random 42
 all_literals / random 420
+all_literals / random 421
 all_literals / random 422
 all_literals / random 423
 all_literals / random 424
@@ -25887,25 +26609,43 @@ kernel_infix / insert "\n" at 92
 kernel_infix / insert "\n" at 96
 kernel_infix / insert "\n" at 98
 kernel_infix / insert "\n" at 99
+kernel_infix / insert "\r" at 0
 kernel_infix / insert "\r" at 1
 kernel_infix / insert "\r" at 100
 kernel_infix / insert "\r" at 102
 kernel_infix / insert "\r" at 103
+kernel_infix / insert "\r" at 105
 kernel_infix / insert "\r" at 106
 kernel_infix / insert "\r" at 107
+kernel_infix / insert "\r" at 109
 kernel_infix / insert "\r" at 11
+kernel_infix / insert "\r" at 110
+kernel_infix / insert "\r" at 112
+kernel_infix / insert "\r" at 113
 kernel_infix / insert "\r" at 114
 kernel_infix / insert "\r" at 116
+kernel_infix / insert "\r" at 117
+kernel_infix / insert "\r" at 119
 kernel_infix / insert "\r" at 12
+kernel_infix / insert "\r" at 120
 kernel_infix / insert "\r" at 121
+kernel_infix / insert "\r" at 123
 kernel_infix / insert "\r" at 124
 kernel_infix / insert "\r" at 126
 kernel_infix / insert "\r" at 127
+kernel_infix / insert "\r" at 128
 kernel_infix / insert "\r" at 130
 kernel_infix / insert "\r" at 131
+kernel_infix / insert "\r" at 133
+kernel_infix / insert "\r" at 134
+kernel_infix / insert "\r" at 135
+kernel_infix / insert "\r" at 137
 kernel_infix / insert "\r" at 138
 kernel_infix / insert "\r" at 14
 kernel_infix / insert "\r" at 140
+kernel_infix / insert "\r" at 141
+kernel_infix / insert "\r" at 142
+kernel_infix / insert "\r" at 144
 kernel_infix / insert "\r" at 145
 kernel_infix / insert "\r" at 147
 kernel_infix / insert "\r" at 148
@@ -25915,6 +26655,7 @@ kernel_infix / insert "\r" at 151
 kernel_infix / insert "\r" at 152
 kernel_infix / insert "\r" at 154
 kernel_infix / insert "\r" at 155
+kernel_infix / insert "\r" at 156
 kernel_infix / insert "\r" at 158
 kernel_infix / insert "\r" at 159
 kernel_infix / insert "\r" at 16
@@ -25927,21 +26668,64 @@ kernel_infix / insert "\r" at 168
 kernel_infix / insert "\r" at 169
 kernel_infix / insert "\r" at 170
 kernel_infix / insert "\r" at 172
+kernel_infix / insert "\r" at 173
+kernel_infix / insert "\r" at 175
+kernel_infix / insert "\r" at 176
+kernel_infix / insert "\r" at 177
+kernel_infix / insert "\r" at 179
 kernel_infix / insert "\r" at 18
+kernel_infix / insert "\r" at 180
 kernel_infix / insert "\r" at 182
+kernel_infix / insert "\r" at 183
+kernel_infix / insert "\r" at 184
+kernel_infix / insert "\r" at 186
+kernel_infix / insert "\r" at 187
+kernel_infix / insert "\r" at 189
 kernel_infix / insert "\r" at 19
 kernel_infix / insert "\r" at 190
 kernel_infix / insert "\r" at 191
+kernel_infix / insert "\r" at 193
+kernel_infix / insert "\r" at 194
+kernel_infix / insert "\r" at 196
+kernel_infix / insert "\r" at 197
+kernel_infix / insert "\r" at 198
 kernel_infix / insert "\r" at 2
+kernel_infix / insert "\r" at 200
 kernel_infix / insert "\r" at 201
+kernel_infix / insert "\r" at 203
+kernel_infix / insert "\r" at 204
+kernel_infix / insert "\r" at 205
+kernel_infix / insert "\r" at 207
+kernel_infix / insert "\r" at 208
 kernel_infix / insert "\r" at 21
 kernel_infix / insert "\r" at 210
 kernel_infix / insert "\r" at 211
 kernel_infix / insert "\r" at 212
+kernel_infix / insert "\r" at 214
+kernel_infix / insert "\r" at 215
+kernel_infix / insert "\r" at 217
+kernel_infix / insert "\r" at 218
+kernel_infix / insert "\r" at 219
 kernel_infix / insert "\r" at 22
+kernel_infix / insert "\r" at 221
+kernel_infix / insert "\r" at 222
+kernel_infix / insert "\r" at 224
+kernel_infix / insert "\r" at 225
+kernel_infix / insert "\r" at 226
+kernel_infix / insert "\r" at 228
 kernel_infix / insert "\r" at 229
+kernel_infix / insert "\r" at 23
+kernel_infix / insert "\r" at 231
+kernel_infix / insert "\r" at 232
+kernel_infix / insert "\r" at 233
+kernel_infix / insert "\r" at 235
+kernel_infix / insert "\r" at 236
+kernel_infix / insert "\r" at 238
+kernel_infix / insert "\r" at 239
+kernel_infix / insert "\r" at 240
 kernel_infix / insert "\r" at 242
 kernel_infix / insert "\r" at 243
+kernel_infix / insert "\r" at 245
 kernel_infix / insert "\r" at 246
 kernel_infix / insert "\r" at 247
 kernel_infix / insert "\r" at 249
@@ -25984,27 +26768,67 @@ kernel_infix / insert "\r" at 294
 kernel_infix / insert "\r" at 295
 kernel_infix / insert "\r" at 296
 kernel_infix / insert "\r" at 298
+kernel_infix / insert "\r" at 299
 kernel_infix / insert "\r" at 30
 kernel_infix / insert "\r" at 301
+kernel_infix / insert "\r" at 302
+kernel_infix / insert "\r" at 303
 kernel_infix / insert "\r" at 305
+kernel_infix / insert "\r" at 306
+kernel_infix / insert "\r" at 308
+kernel_infix / insert "\r" at 309
+kernel_infix / insert "\r" at 310
 kernel_infix / insert "\r" at 312
 kernel_infix / insert "\r" at 313
+kernel_infix / insert "\r" at 315
+kernel_infix / insert "\r" at 316
 kernel_infix / insert "\r" at 317
+kernel_infix / insert "\r" at 319
+kernel_infix / insert "\r" at 32
+kernel_infix / insert "\r" at 320
 kernel_infix / insert "\r" at 322
+kernel_infix / insert "\r" at 323
+kernel_infix / insert "\r" at 324
+kernel_infix / insert "\r" at 326
+kernel_infix / insert "\r" at 327
 kernel_infix / insert "\r" at 329
+kernel_infix / insert "\r" at 33
 kernel_infix / insert "\r" at 330
 kernel_infix / insert "\r" at 331
+kernel_infix / insert "\r" at 333
 kernel_infix / insert "\r" at 334
+kernel_infix / insert "\r" at 336
+kernel_infix / insert "\r" at 337
+kernel_infix / insert "\r" at 338
+kernel_infix / insert "\r" at 340
+kernel_infix / insert "\r" at 341
+kernel_infix / insert "\r" at 343
+kernel_infix / insert "\r" at 344
+kernel_infix / insert "\r" at 345
+kernel_infix / insert "\r" at 347
+kernel_infix / insert "\r" at 348
 kernel_infix / insert "\r" at 35
+kernel_infix / insert "\r" at 350
+kernel_infix / insert "\r" at 351
+kernel_infix / insert "\r" at 352
+kernel_infix / insert "\r" at 354
+kernel_infix / insert "\r" at 355
+kernel_infix / insert "\r" at 357
 kernel_infix / insert "\r" at 36
 kernel_infix / insert "\r" at 37
+kernel_infix / insert "\r" at 39
 kernel_infix / insert "\r" at 4
+kernel_infix / insert "\r" at 40
 kernel_infix / insert "\r" at 42
 kernel_infix / insert "\r" at 43
+kernel_infix / insert "\r" at 44
+kernel_infix / insert "\r" at 46
 kernel_infix / insert "\r" at 47
 kernel_infix / insert "\r" at 49
 kernel_infix / insert "\r" at 5
+kernel_infix / insert "\r" at 50
 kernel_infix / insert "\r" at 51
+kernel_infix / insert "\r" at 53
 kernel_infix / insert "\r" at 54
 kernel_infix / insert "\r" at 56
 kernel_infix / insert "\r" at 57
@@ -26016,21 +26840,31 @@ kernel_infix / insert "\r" at 64
 kernel_infix / insert "\r" at 65
 kernel_infix / insert "\r" at 67
 kernel_infix / insert "\r" at 68
+kernel_infix / insert "\r" at 7
 kernel_infix / insert "\r" at 70
 kernel_infix / insert "\r" at 71
 kernel_infix / insert "\r" at 72
+kernel_infix / insert "\r" at 74
 kernel_infix / insert "\r" at 75
 kernel_infix / insert "\r" at 77
 kernel_infix / insert "\r" at 78
+kernel_infix / insert "\r" at 79
 kernel_infix / insert "\r" at 8
 kernel_infix / insert "\r" at 81
 kernel_infix / insert "\r" at 82
 kernel_infix / insert "\r" at 84
+kernel_infix / insert "\r" at 85
+kernel_infix / insert "\r" at 86
+kernel_infix / insert "\r" at 88
 kernel_infix / insert "\r" at 89
 kernel_infix / insert "\r" at 9
 kernel_infix / insert "\r" at 91
+kernel_infix / insert "\r" at 92
+kernel_infix / insert "\r" at 93
+kernel_infix / insert "\r" at 95
 kernel_infix / insert "\r" at 96
 kernel_infix / insert "\r" at 98
+kernel_infix / insert "\r" at 99
 kernel_infix / insert "\t" at 0
 kernel_infix / insert "\t" at 1
 kernel_infix / insert "\t" at 100
@@ -27495,6 +28329,7 @@ kernel_infix / random 260
 kernel_infix / random 261
 kernel_infix / random 262
 kernel_infix / random 263
+kernel_infix / random 264
 kernel_infix / random 265
 kernel_infix / random 266
 kernel_infix / random 267
@@ -27515,6 +28350,7 @@ kernel_infix / random 28
 kernel_infix / random 280
 kernel_infix / random 281
 kernel_infix / random 282
+kernel_infix / random 283
 kernel_infix / random 284
 kernel_infix / random 285
 kernel_infix / random 286
@@ -27736,6 +28572,7 @@ kernel_infix / random 48
 kernel_infix / random 480
 kernel_infix / random 481
 kernel_infix / random 482
+kernel_infix / random 483
 kernel_infix / random 484
 kernel_infix / random 485
 kernel_infix / random 486
@@ -27778,6 +28615,7 @@ kernel_infix / random 58
 kernel_infix / random 59
 kernel_infix / random 6
 kernel_infix / random 60
+kernel_infix / random 61
 kernel_infix / random 62
 kernel_infix / random 63
 kernel_infix / random 64
@@ -30810,57 +31648,86 @@ module_syntax / insert "\n" at 88
 module_syntax / insert "\n" at 90
 module_syntax / insert "\n" at 93
 module_syntax / insert "\n" at 96
+module_syntax / insert "\r" at 0
 module_syntax / insert "\r" at 10
 module_syntax / insert "\r" at 101
 module_syntax / insert "\r" at 103
+module_syntax / insert "\r" at 106
+module_syntax / insert "\r" at 109
+module_syntax / insert "\r" at 111
+module_syntax / insert "\r" at 114
 module_syntax / insert "\r" at 116
 module_syntax / insert "\r" at 119
 module_syntax / insert "\r" at 12
+module_syntax / insert "\r" at 122
+module_syntax / insert "\r" at 124
+module_syntax / insert "\r" at 127
+module_syntax / insert "\r" at 129
 module_syntax / insert "\r" at 132
 module_syntax / insert "\r" at 134
 module_syntax / insert "\r" at 137
+module_syntax / insert "\r" at 140
+module_syntax / insert "\r" at 142
+module_syntax / insert "\r" at 145
+module_syntax / insert "\r" at 147
 module_syntax / insert "\r" at 15
+module_syntax / insert "\r" at 150
 module_syntax / insert "\r" at 153
 module_syntax / insert "\r" at 155
 module_syntax / insert "\r" at 158
 module_syntax / insert "\r" at 160
 module_syntax / insert "\r" at 163
 module_syntax / insert "\r" at 166
+module_syntax / insert "\r" at 168
+module_syntax / insert "\r" at 171
 module_syntax / insert "\r" at 173
 module_syntax / insert "\r" at 176
 module_syntax / insert "\r" at 179
 module_syntax / insert "\r" at 18
 module_syntax / insert "\r" at 181
+module_syntax / insert "\r" at 184
 module_syntax / insert "\r" at 186
+module_syntax / insert "\r" at 189
 module_syntax / insert "\r" at 192
 module_syntax / insert "\r" at 194
 module_syntax / insert "\r" at 197
+module_syntax / insert "\r" at 199
 module_syntax / insert "\r" at 2
 module_syntax / insert "\r" at 20
 module_syntax / insert "\r" at 202
+module_syntax / insert "\r" at 205
 module_syntax / insert "\r" at 207
+module_syntax / insert "\r" at 210
 module_syntax / insert "\r" at 212
 module_syntax / insert "\r" at 215
 module_syntax / insert "\r" at 218
 module_syntax / insert "\r" at 220
+module_syntax / insert "\r" at 223
 module_syntax / insert "\r" at 225
 module_syntax / insert "\r" at 228
+module_syntax / insert "\r" at 23
 module_syntax / insert "\r" at 231
 module_syntax / insert "\r" at 233
 module_syntax / insert "\r" at 236
+module_syntax / insert "\r" at 238
 module_syntax / insert "\r" at 241
 module_syntax / insert "\r" at 244
+module_syntax / insert "\r" at 246
+module_syntax / insert "\r" at 249
 module_syntax / insert "\r" at 25
 module_syntax / insert "\r" at 251
 module_syntax / insert "\r" at 254
 module_syntax / insert "\r" at 257
+module_syntax / insert "\r" at 259
 module_syntax / insert "\r" at 262
 module_syntax / insert "\r" at 264
 module_syntax / insert "\r" at 267
 module_syntax / insert "\r" at 269
 module_syntax / insert "\r" at 272
+module_syntax / insert "\r" at 275
 module_syntax / insert "\r" at 277
 module_syntax / insert "\r" at 28
+module_syntax / insert "\r" at 280
 module_syntax / insert "\r" at 282
 module_syntax / insert "\r" at 285
 module_syntax / insert "\r" at 288
@@ -30868,67 +31735,175 @@ module_syntax / insert "\r" at 290
 module_syntax / insert "\r" at 293
 module_syntax / insert "\r" at 295
 module_syntax / insert "\r" at 298
+module_syntax / insert "\r" at 301
 module_syntax / insert "\r" at 303
+module_syntax / insert "\r" at 306
+module_syntax / insert "\r" at 308
 module_syntax / insert "\r" at 31
 module_syntax / insert "\r" at 311
 module_syntax / insert "\r" at 314
 module_syntax / insert "\r" at 316
+module_syntax / insert "\r" at 319
+module_syntax / insert "\r" at 321
+module_syntax / insert "\r" at 324
+module_syntax / insert "\r" at 327
+module_syntax / insert "\r" at 329
+module_syntax / insert "\r" at 33
 module_syntax / insert "\r" at 332
 module_syntax / insert "\r" at 334
+module_syntax / insert "\r" at 337
+module_syntax / insert "\r" at 340
+module_syntax / insert "\r" at 342
+module_syntax / insert "\r" at 345
 module_syntax / insert "\r" at 347
 module_syntax / insert "\r" at 350
 module_syntax / insert "\r" at 353
+module_syntax / insert "\r" at 355
+module_syntax / insert "\r" at 358
 module_syntax / insert "\r" at 36
+module_syntax / insert "\r" at 360
+module_syntax / insert "\r" at 363
 module_syntax / insert "\r" at 366
 module_syntax / insert "\r" at 368
+module_syntax / insert "\r" at 371
+module_syntax / insert "\r" at 373
+module_syntax / insert "\r" at 376
+module_syntax / insert "\r" at 379
 module_syntax / insert "\r" at 38
 module_syntax / insert "\r" at 381
 module_syntax / insert "\r" at 384
 module_syntax / insert "\r" at 386
+module_syntax / insert "\r" at 389
+module_syntax / insert "\r" at 392
+module_syntax / insert "\r" at 394
+module_syntax / insert "\r" at 397
+module_syntax / insert "\r" at 399
 module_syntax / insert "\r" at 402
 module_syntax / insert "\r" at 404
 module_syntax / insert "\r" at 407
 module_syntax / insert "\r" at 41
+module_syntax / insert "\r" at 410
+module_syntax / insert "\r" at 412
+module_syntax / insert "\r" at 415
+module_syntax / insert "\r" at 417
+module_syntax / insert "\r" at 420
 module_syntax / insert "\r" at 423
+module_syntax / insert "\r" at 425
+module_syntax / insert "\r" at 428
+module_syntax / insert "\r" at 430
+module_syntax / insert "\r" at 433
 module_syntax / insert "\r" at 436
 module_syntax / insert "\r" at 438
+module_syntax / insert "\r" at 44
+module_syntax / insert "\r" at 441
+module_syntax / insert "\r" at 443
+module_syntax / insert "\r" at 446
+module_syntax / insert "\r" at 449
 module_syntax / insert "\r" at 451
+module_syntax / insert "\r" at 454
+module_syntax / insert "\r" at 456
+module_syntax / insert "\r" at 459
 module_syntax / insert "\r" at 46
+module_syntax / insert "\r" at 462
+module_syntax / insert "\r" at 464
 module_syntax / insert "\r" at 467
+module_syntax / insert "\r" at 469
+module_syntax / insert "\r" at 472
+module_syntax / insert "\r" at 475
+module_syntax / insert "\r" at 477
 module_syntax / insert "\r" at 480
 module_syntax / insert "\r" at 482
+module_syntax / insert "\r" at 485
+module_syntax / insert "\r" at 488
+module_syntax / insert "\r" at 49
+module_syntax / insert "\r" at 490
+module_syntax / insert "\r" at 493
 module_syntax / insert "\r" at 495
 module_syntax / insert "\r" at 498
 module_syntax / insert "\r" at 5
 module_syntax / insert "\r" at 501
+module_syntax / insert "\r" at 503
+module_syntax / insert "\r" at 506
+module_syntax / insert "\r" at 508
+module_syntax / insert "\r" at 51
+module_syntax / insert "\r" at 511
 module_syntax / insert "\r" at 514
 module_syntax / insert "\r" at 516
 module_syntax / insert "\r" at 519
+module_syntax / insert "\r" at 521
+module_syntax / insert "\r" at 524
+module_syntax / insert "\r" at 527
+module_syntax / insert "\r" at 529
 module_syntax / insert "\r" at 532
 module_syntax / insert "\r" at 534
 module_syntax / insert "\r" at 537
+module_syntax / insert "\r" at 539
+module_syntax / insert "\r" at 54
+module_syntax / insert "\r" at 542
+module_syntax / insert "\r" at 545
+module_syntax / insert "\r" at 547
 module_syntax / insert "\r" at 550
 module_syntax / insert "\r" at 552
 module_syntax / insert "\r" at 555
+module_syntax / insert "\r" at 558
+module_syntax / insert "\r" at 560
+module_syntax / insert "\r" at 563
+module_syntax / insert "\r" at 565
 module_syntax / insert "\r" at 568
+module_syntax / insert "\r" at 57
 module_syntax / insert "\r" at 571
 module_syntax / insert "\r" at 573
+module_syntax / insert "\r" at 576
+module_syntax / insert "\r" at 578
+module_syntax / insert "\r" at 581
+module_syntax / insert "\r" at 584
 module_syntax / insert "\r" at 586
 module_syntax / insert "\r" at 589
 module_syntax / insert "\r" at 59
 module_syntax / insert "\r" at 591
+module_syntax / insert "\r" at 594
+module_syntax / insert "\r" at 597
 module_syntax / insert "\r" at 599
+module_syntax / insert "\r" at 602
+module_syntax / insert "\r" at 604
+module_syntax / insert "\r" at 607
+module_syntax / insert "\r" at 610
+module_syntax / insert "\r" at 612
+module_syntax / insert "\r" at 615
+module_syntax / insert "\r" at 617
 module_syntax / insert "\r" at 62
+module_syntax / insert "\r" at 620
+module_syntax / insert "\r" at 623
 module_syntax / insert "\r" at 625
+module_syntax / insert "\r" at 628
+module_syntax / insert "\r" at 630
+module_syntax / insert "\r" at 633
+module_syntax / insert "\r" at 636
 module_syntax / insert "\r" at 638
 module_syntax / insert "\r" at 64
+module_syntax / insert "\r" at 641
 module_syntax / insert "\r" at 643
+module_syntax / insert "\r" at 646
 module_syntax / insert "\r" at 649
 module_syntax / insert "\r" at 651
+module_syntax / insert "\r" at 654
+module_syntax / insert "\r" at 656
+module_syntax / insert "\r" at 659
+module_syntax / insert "\r" at 662
+module_syntax / insert "\r" at 67
+module_syntax / insert "\r" at 7
 module_syntax / insert "\r" at 70
+module_syntax / insert "\r" at 72
+module_syntax / insert "\r" at 75
+module_syntax / insert "\r" at 77
+module_syntax / insert "\r" at 80
 module_syntax / insert "\r" at 83
 module_syntax / insert "\r" at 85
 module_syntax / insert "\r" at 88
+module_syntax / insert "\r" at 90
+module_syntax / insert "\r" at 93
+module_syntax / insert "\r" at 96
+module_syntax / insert "\r" at 98
 module_syntax / insert "\t" at 0
 module_syntax / insert "\t" at 10
 module_syntax / insert "\t" at 101
@@ -32557,6 +33532,7 @@ module_syntax / random 407
 module_syntax / random 408
 module_syntax / random 409
 module_syntax / random 41
+module_syntax / random 410
 module_syntax / random 411
 module_syntax / random 412
 module_syntax / random 413
@@ -34620,19 +35596,61 @@ shader / insert "\n" at 92
 shader / insert "\n" at 94
 shader / insert "\n" at 96
 shader / insert "\n" at 97
+shader / insert "\r" at 0
 shader / insert "\r" at 1
+shader / insert "\r" at 100
+shader / insert "\r" at 101
+shader / insert "\r" at 103
 shader / insert "\r" at 104
+shader / insert "\r" at 105
+shader / insert "\r" at 107
+shader / insert "\r" at 108
 shader / insert "\r" at 11
+shader / insert "\r" at 110
+shader / insert "\r" at 111
+shader / insert "\r" at 112
+shader / insert "\r" at 114
 shader / insert "\r" at 115
 shader / insert "\r" at 117
+shader / insert "\r" at 118
+shader / insert "\r" at 119
 shader / insert "\r" at 12
+shader / insert "\r" at 121
+shader / insert "\r" at 122
+shader / insert "\r" at 123
+shader / insert "\r" at 125
+shader / insert "\r" at 126
+shader / insert "\r" at 128
+shader / insert "\r" at 129
 shader / insert "\r" at 13
+shader / insert "\r" at 130
 shader / insert "\r" at 132
 shader / insert "\r" at 133
 shader / insert "\r" at 134
+shader / insert "\r" at 136
+shader / insert "\r" at 137
+shader / insert "\r" at 139
+shader / insert "\r" at 140
+shader / insert "\r" at 141
+shader / insert "\r" at 143
+shader / insert "\r" at 144
 shader / insert "\r" at 145
+shader / insert "\r" at 147
+shader / insert "\r" at 148
 shader / insert "\r" at 15
+shader / insert "\r" at 150
+shader / insert "\r" at 151
+shader / insert "\r" at 152
+shader / insert "\r" at 154
+shader / insert "\r" at 155
+shader / insert "\r" at 156
+shader / insert "\r" at 158
+shader / insert "\r" at 159
 shader / insert "\r" at 16
+shader / insert "\r" at 161
+shader / insert "\r" at 162
+shader / insert "\r" at 163
+shader / insert "\r" at 165
 shader / insert "\r" at 166
 shader / insert "\r" at 167
 shader / insert "\r" at 169
@@ -34666,6 +35684,7 @@ shader / insert "\r" at 249
 shader / insert "\r" at 250
 shader / insert "\r" at 251
 shader / insert "\r" at 256
+shader / insert "\r" at 26
 shader / insert "\r" at 262
 shader / insert "\r" at 264
 shader / insert "\r" at 265
@@ -34708,11 +35727,14 @@ shader / insert "\r" at 331
 shader / insert "\r" at 333
 shader / insert "\r" at 334
 shader / insert "\r" at 335
+shader / insert "\r" at 34
 shader / insert "\r" at 344
 shader / insert "\r" at 345
 shader / insert "\r" at 346
 shader / insert "\r" at 348
 shader / insert "\r" at 349
+shader / insert "\r" at 35
+shader / insert "\r" at 351
 shader / insert "\r" at 37
 shader / insert "\r" at 38
 shader / insert "\r" at 39
@@ -34722,17 +35744,29 @@ shader / insert "\r" at 42
 shader / insert "\r" at 44
 shader / insert "\r" at 45
 shader / insert "\r" at 46
+shader / insert "\r" at 48
 shader / insert "\r" at 49
 shader / insert "\r" at 5
 shader / insert "\r" at 50
+shader / insert "\r" at 52
 shader / insert "\r" at 53
 shader / insert "\r" at 55
 shader / insert "\r" at 56
 shader / insert "\r" at 57
 shader / insert "\r" at 59
+shader / insert "\r" at 6
 shader / insert "\r" at 60
 shader / insert "\r" at 61
 shader / insert "\r" at 63
+shader / insert "\r" at 64
+shader / insert "\r" at 66
+shader / insert "\r" at 67
+shader / insert "\r" at 68
+shader / insert "\r" at 70
+shader / insert "\r" at 71
+shader / insert "\r" at 72
+shader / insert "\r" at 74
+shader / insert "\r" at 75
 shader / insert "\r" at 77
 shader / insert "\r" at 78
 shader / insert "\r" at 79
@@ -34740,11 +35774,18 @@ shader / insert "\r" at 8
 shader / insert "\r" at 81
 shader / insert "\r" at 82
 shader / insert "\r" at 83
+shader / insert "\r" at 85
+shader / insert "\r" at 86
+shader / insert "\r" at 88
+shader / insert "\r" at 89
 shader / insert "\r" at 9
 shader / insert "\r" at 90
+shader / insert "\r" at 92
+shader / insert "\r" at 93
 shader / insert "\r" at 94
 shader / insert "\r" at 96
 shader / insert "\r" at 97
+shader / insert "\r" at 99
 shader / insert "\t" at 0
 shader / insert "\t" at 1
 shader / insert "\t" at 100
@@ -35500,6 +36541,7 @@ shader / random 158
 shader / random 159
 shader / random 16
 shader / random 160
+shader / random 161
 shader / random 162
 shader / random 163
 shader / random 164
@@ -35654,6 +36696,7 @@ shader / random 340
 shader / random 341
 shader / random 342
 shader / random 343
+shader / random 344
 shader / random 345
 shader / random 346
 shader / random 348
@@ -35762,6 +36805,7 @@ shader / random 465
 shader / random 466
 shader / random 467
 shader / random 468
+shader / random 469
 shader / random 47
 shader / random 470
 shader / random 472

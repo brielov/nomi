@@ -181,6 +181,8 @@ pub enum SyntaxErrorKind {
     /// An operator starting with `.` right after an operand, as in
     /// `model.=count`: a field access gone wrong.
     JoinedDotOperator,
+    /// A carriage return between tokens that no line feed follows.
+    BareCarriageReturn,
     /// `..` as an operator, as in `exposing (a, (..))`, which elm takes.
     DotDotOperator,
     /// An operator starting with `.`, which elm reads as a field

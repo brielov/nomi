@@ -1,0 +1,10 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/bare_carriage_return.elm
+---
+elm, application:
+elm, package:
+elm, kernel package:
+elm-format:
+  33..34 BareCarriageReturn "\r"

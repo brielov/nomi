@@ -4,7 +4,7 @@
 //! also depends on the project a module belongs to (`Parse/Module.hs`,
 //! `checkEffects`).
 
-use nomi_base::{Compat, TextRange};
+use nomi_base::{Compat, TextRange, TextSize};
 
 use crate::ast::{self, AstNode};
 use crate::{Parse, SyntaxError, SyntaxErrorKind as E, SyntaxKind as K, SyntaxNode, SyntaxToken};
@@ -48,6 +48,7 @@ pub fn validate(parse: &Parse, tool: Tool) -> Vec<SyntaxError> {
                 last_import(&module, &mut errors);
             }
             dot_dot_operators(&root, &mut errors);
+            bare_carriage_returns(&root, &mut errors);
         }
     }
     if let Some(fragment) = ast::ExpressionsFragment::cast(root) {
@@ -346,6 +347,25 @@ fn last_import(module: &ast::Module, errors: &mut Vec<SyntaxError>) {
     }
     let end = module.syntax().text_range().end();
     push(errors, E::ImportWithoutNewline, TextRange::empty(end));
+}
+
+/// elm-format's whitespace is spaces, comments and line ends, `\r\n`
+/// among them (`Parse/Whitespace.hs`), where elm skips any carriage
+/// return.
+fn bare_carriage_returns(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
+    let whitespace = (root.descendants_with_tokens())
+        .filter_map(|e| e.into_token())
+        .filter(|t| t.kind() == K::Whitespace);
+    for token in whitespace {
+        if let Some(i) = token.text().find('\r') {
+            let start = token.text_range().start() + TextSize::new(i as u32);
+            push(
+                errors,
+                E::BareCarriageReturn,
+                TextRange::at(start, TextSize::new(1)),
+            );
+        }
+    }
 }
 
 /// elm-format's operators leave out `..`, which elm reads as one.
