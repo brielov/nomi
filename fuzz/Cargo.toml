@@ -1,0 +1,23 @@
+[package]
+name = "nomi-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "BSD-3-Clause"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+nomi-syntax = { path = "../crates/syntax" }
+
+[[bin]]
+name = "syntax"
+path = "fuzz_targets/syntax.rs"
+test = false
+doc = false
+bench = false
+
+# Built apart from the workspace, with libFuzzer's instrumentation.
+[workspace]

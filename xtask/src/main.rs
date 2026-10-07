@@ -4,6 +4,7 @@ mod checks;
 mod codegen;
 mod corpus;
 mod download;
+mod fuzz;
 mod oracle;
 mod references;
 mod refs;
@@ -45,6 +46,23 @@ enum Command {
     Corpus {
         #[command(subcommand)]
         command: CorpusCommand,
+    },
+    /// Run a fuzz target of fuzz/ under libFuzzer, on stable.
+    Fuzz {
+        /// The target: a binary of fuzz/Cargo.toml.
+        target: String,
+        /// How many inputs to run, across every job.
+        #[arg(long, default_value_t = 1_000_000)]
+        runs: u64,
+        /// Concurrent fuzzer processes; the available cores by default.
+        #[arg(long)]
+        jobs: Option<usize>,
+    },
+    /// Time a crate's benchmarks, which fail when twice the input takes
+    /// three times as long or more.
+    Bench {
+        /// The crate: `syntax` for nomi-syntax.
+        target: String,
     },
 }
 
@@ -103,6 +121,23 @@ fn main() -> ExitCode {
             }
         }),
         Command::Ratchet { suite } => ratchet(&root(), &suite),
+        Command::Fuzz { target, runs, jobs } => fuzz::run(
+            &root(),
+            &target,
+            runs,
+            jobs.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get())),
+        ),
+        Command::Bench { target } => cargo(
+            &root(),
+            &[
+                "bench",
+                "--locked",
+                "--package",
+                &format!("nomi-{target}"),
+                "--bench",
+                &target,
+            ],
+        ),
         Command::Corpus { command } => match command {
             CorpusCommand::Pin => corpus::packages::pin(&root()),
             CorpusCommand::Fetch => {
@@ -147,6 +182,22 @@ fn ci() -> Result<()> {
         ],
     )?;
     cargo(&root, &["test", "--workspace", "--locked"])?;
+    // fuzz/ is outside the workspace, for its own build flags.
+    let fuzz = root.join("fuzz/Cargo.toml");
+    let fuzz = fuzz.to_str().context("the checkout's path is not UTF-8")?;
+    cargo(&root, &["fmt", "--manifest-path", fuzz, "--check"])?;
+    cargo(
+        &root,
+        &[
+            "clippy",
+            "--manifest-path",
+            fuzz,
+            "--locked",
+            "--",
+            "-D",
+            "warnings",
+        ],
+    )?;
     runtime_tests(&root)?;
     architecture(&root)
 }

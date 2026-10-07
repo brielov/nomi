@@ -20,3 +20,7 @@ ungrammar.workspace = true
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "syntax"
+harness = false

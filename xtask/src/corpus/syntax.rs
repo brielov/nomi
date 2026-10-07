@@ -1,7 +1,8 @@
 //! `cargo xtask corpus syntax`: the corpus side of the syntax ratchet.
 //! Each corpus project is a case. It passes when nomi accepts and rejects
 //! its modules as every tool in `corpus/syntax/oracle.tsv` did, the table
-//! `cargo xtask oracle syntax` stores.
+//! `cargo xtask oracle syntax` stores, and its tree gives back every
+//! module's text.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -177,6 +178,11 @@ pub fn check(root: &Path, record: bool) -> Result<()> {
         let text = std::fs::read(&m.file)?;
         let expected = table.rejected.get(&(m.case.clone(), m.path.clone()));
         let mut mismatches = Vec::new();
+        if let Ok(text) = std::str::from_utf8(&text)
+            && nomi_syntax::parse_module(text).syntax().to_string() != text
+        {
+            mismatches.push(format!("{}: the tree does not give back the text", m.path));
+        }
         for (i, column) in table.tools.iter().enumerate() {
             let rejection = expected.and_then(|row| row[i].as_ref());
             if rejection.is_some_and(|why| why == CRASH) {
