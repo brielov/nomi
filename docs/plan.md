@@ -171,7 +171,7 @@ Goal: one lossless, tolerant parser used by every consumer, which accepts exactl
 
 ## M2: Formatter, release 0.1 (replaces elm-format)
 
-Goal: `nomi fmt` and the `elm-format` personality, byte-identical to elm-format 0.8.8 and linear in time.
+Goal: `nomi format` and the `elm-format` personality, byte-identical to elm-format 0.8.8 and linear in time.
 
 - [ ] **2.1** `oracle: formatter snapshots`. Hashes of elm-format 0.8.8's output on the corpus. Import elm-format's own `tests/test-files`, the old fixtures, the bug fixtures and the 119 tuple cases. **Check:** the ratchet exists, at 0 passing.
 - [ ] **2.2** `format: Box layout engine`. A port of `Box.hs` and `ElmStructure.hs`, starting from the salvaged `document.rs`. **Check:** unit tests mirroring elm-format's behavior.
@@ -194,7 +194,7 @@ Goal: `nomi fmt` and the `elm-format` personality, byte-identical to elm-format 
 - [ ] **2.15** `format: reach corpus parity`. Work the ratchet to 100%, with one commit per root cause. Deviations are allowed only for crashes, non-idempotence, meaning changes or unparseable output, and each gets a fixture and a `DECISIONS.md` entry.
 - [ ] **2.16** `format: linear time and depth safety`. The 136, 274 and 549 KB benchmark scales linearly, and 5,000 nested expressions format.
 - [ ] **2.17** `engine: VFS and thread pool`. Reads, atomic writes, file discovery, and the process's only pool. This is pulled forward from M4 so the `format` crate never touches files.
-- [ ] **2.18** `cli: nomi fmt`. Paths, `--check` and `--stdin`, run in parallel through the engine. `format` is an alias.
+- [ ] **2.18** `cli: nomi format`. Paths, `--check` and `--stdin`, run in parallel through the engine. `fmt` is an alias.
 - [ ] **2.19** `cli: elm-format personality`. Under the name `elm-format`: flags, prompts, messages, `--validate` JSON and exit codes. **Check:** transcript snapshots against elm-format 0.8.8.
 - [ ] **2.20** `release: 0.1`. README usage (`ln -s nomi elm-format`), benchmarks, and tag `v0.1.0`.
 
@@ -212,7 +212,9 @@ Goal: read and write `elm.json` exactly as elm does, resolve and fetch dependenc
 - [ ] **3.6** `registry: pubgrub solver`. Follows upstream's preferences: newest first, and for `install`, the relaxation order in `Install.hs`. Failures come with an explanation.
 - [ ] **3.7** `oracle: solver snapshots`. Rebuild the old Haskell solver oracle (`conformance/oracles/package-solver/Main.hs`) over a frozen index; this may need GHC 9.8 (D3). Scenarios come from the old solver tests plus generated ones.
 - [ ] **3.8** `registry: reach solver parity`. Work the ratchet to 100%.
-- [ ] **3.9** `cli: new, init and add`. `nomi new`, `nomi init` and `nomi add` (alias `install`), plus the `elm init` and `elm install` personalities: prompts, the printed plan, and `elm.json` edits. **Check:** transcript snapshots recorded from elm.
+- [ ] **3.9** `cli: new and add`. `nomi new` (alias `init`) and `nomi add` (alias `install`), plus the `elm init` and `elm install` personalities: prompts, the printed plan, and `elm.json` edits. **Check:** transcript snapshots recorded from elm.
+- [ ] **3.10** `cli: rm`. Removes a direct dependency and re-solves, so indirect dependencies nothing else needs disappear too. Test dependencies are handled the same way. Alias `remove`. **Check:** fixture-registry scenarios; the result is what `elm install` would produce for the remaining direct dependencies.
+- [ ] **3.11** `cli: update, outdated and tree`. `update` re-solves for the newest versions the constraints allow, optionally for one package and the packages that depend on it, and prints the plan before writing. `outdated` and `tree` only read. **Check:** fixture-registry scenarios.
 
 **Exit:** solver parity, byte-identical `elm.json` rewrites, and every corpus app's dependencies resolve and fetch.
 

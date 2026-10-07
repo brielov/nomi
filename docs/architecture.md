@@ -384,15 +384,19 @@ Build this runtime in plain JS first, with model-based tests, in parallel with t
 
   | Command | Aliases | Does |
   |---|---|---|
-  | `nomi new <dir>` / `nomi init` | | create a project in a new or the current directory |
-  | `nomi add <package>` | `install` | add a dependency to elm.json |
+  | `nomi new [dir]` | `init` | create a project, in the current directory by default |
   | `nomi build` | `make` | compile entries; `--release` is an alias of `--optimize` |
-  | `nomi check` | | type-check without generating code |
   | `nomi run` | | build and run entries; `--watch` rebuilds and restarts |
+  | `nomi check` | | type-check only, with no code generation |
+  | `nomi format` | `fmt` | format files, or check them with `--check` |
   | `nomi test` | | run elm-test-style tests |
-  | `nomi fmt` | `format` | format files, or check them with `--check` |
-  | `nomi bump`, `diff`, `publish` | | package versioning and publishing, as in elm |
   | `nomi lsp` | | start the language server |
+  | `nomi add <package>` | `install` | add a dependency to elm.json |
+  | `nomi rm <package>` | `remove` | remove a direct dependency, and indirect ones nothing else needs |
+  | `nomi update [package]` | | move dependencies to the newest versions the constraints allow |
+  | `nomi outdated` | | list dependencies with newer versions |
+  | `nomi tree` | | print the dependency graph |
+  | `nomi bump`, `diff`, `publish` | | package versioning and publishing, as in elm |
 
 - `nomi`'s arguments are parsed with clap. The `elm` and `elm-format` personalities below are parsed by hand, because their help, errors and exit codes must match upstream exactly.
 - Installed as `elm` or `elm-format` (via a symlink), it exposes upstream's commands, flags and output formats, including `elm make --report=json`. That serves elm-review, elm-watch, bundler plugins and editors that shell out. The exceptions are `elm repl`, `elm reactor` and elm-format's `--elm-version 0.18`, which exit with a one-line explanation.
