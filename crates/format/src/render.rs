@@ -4,7 +4,9 @@
 //! Each function builds the block its upstream namesake does, from the
 //! same parts in the same order, so the two can be read side by side.
 
+mod declarations;
 mod docs;
+mod expressions;
 mod header;
 mod literal;
 mod patterns;
@@ -184,8 +186,18 @@ fn comments(comments: &[Comment]) -> Option<Block> {
 /// `inner` between the comments before and after it; upstream's
 /// `formatCommented`.
 fn commented(pre: &[Comment], inner: Block, post: &[Comment]) -> Block {
+    commented_with(false, pre, inner, post)
+}
+
+/// `commented`, stacked even when it would fit on a line; upstream's
+/// `formatCommented_ True`.
+fn commented_forced(pre: &[Comment], inner: Block, post: &[Comment]) -> Block {
+    commented_with(true, pre, inner, post)
+}
+
+fn commented_with(force: bool, pre: &[Comment], inner: Block, post: &[Comment]) -> Block {
     forceable_space_sep_or_stack1(
-        false,
+        force,
         comments(pre)
             .into_iter()
             .chain([inner])

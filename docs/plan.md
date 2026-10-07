@@ -198,9 +198,9 @@ Goal: `nomi format` and the `elm-format` personality, byte-identical to elm-form
 - [x] **2.7** `format: lower declarations`.
 - [x] **2.8** `format: render header, imports and exposing`. Import normalization; exposing lists grouped by `@docs`. **Check:** the ratchet climbs, as in every render step.
 - [x] **2.9** `format: render types and patterns`. Literal spelling came forward with it, since patterns hold literals.
-- [ ] **2.10** `format: render expressions`.
+- [x] **2.10** `format: render expressions`. `let` needed definitions and annotations, so `render/declarations.rs` started here.
 - [ ] **2.11** `format: render declarations and top-level spacing`.
-- [ ] **2.12** `format: normalize literals`. Spelling started in 2.9 (`render/literal.rs`). This step settles GHC's `isPrint`/`isSpace` Unicode tables, checks numbers and string/char escapes against the oracle across the corpus, and takes what still applies from the salvaged `literal.rs`.
+- [ ] **2.12** `format: normalize literals`. Spelling started in 2.9 (`render/literal.rs`). This step settles GHC's `isPrint`/`isSpace` Unicode tables, checks numbers and string/char escapes against the oracle across the corpus, and takes what still applies from the salvaged `literal.rs`. Known gaps from 2.10's corpus probe: GHC's `floatToDigits` is not always shortest (it excludes the rounding boundaries, so `1.0e23` prints `9.999999999999999e22` and `1.2345e21` prints `1.2344999999999999e21`), and unassigned code points such as U+0378, U+0FFF and U+EFFFD print as `\u{…}` escapes. Also `"\x202Bا…"` comes out as `\u{3D8A1B}\u{008C}…`: upstream's `\x` escape reads on into the UTF-8 bytes after it (abadi199/intl-phone-input's `tests/FilterTest.elm`).
 - [ ] **2.13** `format: doc comments`. Markdown normalization, and Elm code blocks through the 1.14 entry points. Decide at the start of the step, with differential fixtures, between porting Cheapskate's relevant parts and using pulldown-cmark. The `@docs` names that order the exposing list then come from the Markdown parse, replacing 2.8's line scanner in `render/docs.rs`.
 - [ ] **2.14** `format: check invariants on corpus and proptest`. Four invariants:
   - formatting is idempotent;
