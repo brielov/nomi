@@ -890,6 +890,7 @@ getto-systems/elm-sort@1.0.0
 getto-systems/elm-url@1.0.0
 ggb/elm-bloom@1.1.1
 ggb/elm-sentiment@1.0.1
+ggb/elm-trend@1.0.4
 ggb/numeral-elm@1.5.0
 ggb/porterstemmer@1.0.3
 ggpeti/return-optics@1.0.0

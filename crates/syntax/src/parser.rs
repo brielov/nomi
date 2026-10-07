@@ -146,6 +146,8 @@ pub enum SyntaxErrorKind {
     DestructureDeclaration,
     /// elm-format's legacy operator definition, as in `(=>) a b = …`.
     OperatorDefinition,
+    /// elm-format's legacy range, as in `[1..3]`. elm wants `List.range`.
+    ListRange,
     /// A definition named differently from the signature above it.
     DefinitionNameMismatch,
     /// The legacy `(,)` tuple constructor.

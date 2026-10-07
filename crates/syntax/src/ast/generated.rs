@@ -269,6 +269,7 @@ pub enum Expr {
     ParenExpr(ParenExpr),
     TupleExpr(TupleExpr),
     ListExpr(ListExpr),
+    RangeExpr(RangeExpr),
     RecordExpr(RecordExpr),
     RecordUpdateExpr(RecordUpdateExpr),
     FieldAccessExpr(FieldAccessExpr),
@@ -293,6 +294,7 @@ impl AstNode for Expr {
             || ParenExpr::can_cast(kind)
             || TupleExpr::can_cast(kind)
             || ListExpr::can_cast(kind)
+            || RangeExpr::can_cast(kind)
             || RecordExpr::can_cast(kind)
             || RecordUpdateExpr::can_cast(kind)
             || FieldAccessExpr::can_cast(kind)
@@ -321,6 +323,7 @@ impl AstNode for Expr {
             SyntaxKind::ParenExpr => Some(Expr::ParenExpr(ParenExpr { syntax })),
             SyntaxKind::TupleExpr => Some(Expr::TupleExpr(TupleExpr { syntax })),
             SyntaxKind::ListExpr => Some(Expr::ListExpr(ListExpr { syntax })),
+            SyntaxKind::RangeExpr => Some(Expr::RangeExpr(RangeExpr { syntax })),
             SyntaxKind::RecordExpr => Some(Expr::RecordExpr(RecordExpr { syntax })),
             SyntaxKind::RecordUpdateExpr => {
                 Some(Expr::RecordUpdateExpr(RecordUpdateExpr { syntax }))
@@ -349,6 +352,7 @@ impl AstNode for Expr {
             Expr::ParenExpr(it) => &it.syntax,
             Expr::TupleExpr(it) => &it.syntax,
             Expr::ListExpr(it) => &it.syntax,
+            Expr::RangeExpr(it) => &it.syntax,
             Expr::RecordExpr(it) => &it.syntax,
             Expr::RecordUpdateExpr(it) => &it.syntax,
             Expr::FieldAccessExpr(it) => &it.syntax,
@@ -425,6 +429,12 @@ impl From<TupleExpr> for Expr {
 impl From<ListExpr> for Expr {
     fn from(node: ListExpr) -> Expr {
         Expr::ListExpr(node)
+    }
+}
+
+impl From<RangeExpr> for Expr {
+    fn from(node: RangeExpr) -> Expr {
+        Expr::RangeExpr(node)
     }
 }
 
@@ -2627,6 +2637,43 @@ impl ListExpr {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RangeExpr {
+    pub(super) syntax: SyntaxNode,
+}
+
+impl AstNode for RangeExpr {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::RangeExpr
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        Self::can_cast(syntax.kind()).then_some(RangeExpr { syntax })
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+
+impl RangeExpr {
+    pub fn exprs(&self) -> AstChildren<Expr> {
+        support::children(&self.syntax)
+    }
+
+    pub fn l_bracket_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::LBracket)
+    }
+
+    pub fn dot_dot_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::DotDot)
+    }
+
+    pub fn r_bracket_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::RBracket)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RecordExpr {
     pub(super) syntax: SyntaxNode,
 }
@@ -3179,6 +3226,7 @@ pub fn has_view(kind: SyntaxKind) -> bool {
         || ParenExpr::can_cast(kind)
         || TupleExpr::can_cast(kind)
         || ListExpr::can_cast(kind)
+        || RangeExpr::can_cast(kind)
         || RecordExpr::can_cast(kind)
         || RecordUpdateExpr::can_cast(kind)
         || FieldAccessExpr::can_cast(kind)

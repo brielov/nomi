@@ -242,6 +242,7 @@ Expr =
 | ParenExpr
 | TupleExpr
 | ListExpr
+| RangeExpr
 | RecordExpr
 | RecordUpdateExpr
 | FieldAccessExpr
@@ -287,6 +288,10 @@ TupleExpr =
 
 ListExpr =
   '[' (Expr (',' Expr)*)? ']'
+
+// elm-format's legacy `[a..b]`, which elm rejects.
+RangeExpr =
+  '[' Expr '..' Expr ']'
 
 RecordExpr =
   '{' (Field (',' Field)*)? '}'

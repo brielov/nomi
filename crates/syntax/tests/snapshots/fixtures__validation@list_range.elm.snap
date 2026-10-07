@@ -1,0 +1,15 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/list_range.elm
+---
+elm, application:
+  43..50 ListRange "[1..30]"
+  54..64 ListRange "[ a .. b ]"
+elm, package:
+  43..50 ListRange "[1..30]"
+  54..64 ListRange "[ a .. b ]"
+elm, kernel package:
+  43..50 ListRange "[1..30]"
+  54..64 ListRange "[ a .. b ]"
+elm-format:

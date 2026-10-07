@@ -1,0 +1,19 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/list_range.elm
+---
+ExprFragment@0..10
+  RangeExpr@0..9
+    LBracket@0..1 "["
+    LiteralExpr@1..2
+      Int@1..2 "1"
+    DotDot@2..4 ".."
+    CallExpr@4..8
+      NameExpr@4..5
+        LowerIdent@4..5 "f"
+      Whitespace@5..6 " "
+      LiteralExpr@6..8
+        Int@6..8 "30"
+    RBracket@8..9 "]"
+  Newline@9..10 "\n"

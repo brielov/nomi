@@ -225,6 +225,7 @@ syntax_kinds! {
         ParenExpr,
         TupleExpr,
         ListExpr,
+        RangeExpr,
         RecordExpr,
         RecordUpdateExpr,
         Field,

@@ -441,6 +441,10 @@ impl<'a> Lexer<'a> {
 
     /// At the `.` after the integer part that starts at `start`.
     fn fraction(&mut self, start: usize) -> SyntaxKind {
+        // elm-format's `[1..3]`, a range; the grammar reports it for elm.
+        if self.byte_at(self.offset + 1) == Some(b'.') {
+            return SyntaxKind::Int;
+        }
         if !self
             .byte_at(self.offset + 1)
             .is_some_and(|byte| byte.is_ascii_digit())

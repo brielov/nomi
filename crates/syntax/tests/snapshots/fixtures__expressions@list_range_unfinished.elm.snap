@@ -1,0 +1,18 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/list_range_unfinished.elm
+---
+ExprFragment@0..9
+  RangeExpr@0..8
+    LBracket@0..1 "["
+    Whitespace@1..2 " "
+    NameExpr@2..3
+      LowerIdent@2..3 "a"
+    Whitespace@3..4 " "
+    DotDot@4..6 ".."
+    Missing@6..6
+    Whitespace@6..7 " "
+    RBracket@7..8 "]"
+  Newline@8..9 "\n"
+error 7..8: ExpectedExpression

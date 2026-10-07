@@ -418,6 +418,17 @@ fn list(p: &mut Parser<'_>) -> K {
     p.bump();
     if !p.at(K::RBracket) {
         expr(p);
+        // elm-format's legacy `[a..b]`, its `List.range a b`.
+        if p.at(K::DotDot) {
+            p.bump();
+            expr(p);
+            if p.at(K::RBracket) {
+                p.bump();
+            } else {
+                p.error(SyntaxErrorKind::Expected(K::RBracket));
+            }
+            return K::RangeExpr;
+        }
     }
     loop {
         if p.at(K::RBracket) {
