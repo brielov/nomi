@@ -14,6 +14,8 @@ import {
   fail,
   fork,
   forkDaemon,
+  fromPromise,
+  Interrupted,
   interrupt,
   join,
   map,
@@ -135,7 +137,10 @@ function build(p, ctx) {
       // A daemon belongs to no scope of ours.
       return andThen(forkDaemon(checked(p.child, { ...ctx, forks: [] })), () => build(p.a, ctx));
     case "kill":
-      return andThen(fork(checked(p.child, ctx)), (f) => (ctx.forks.push(f), andThen(interrupt(f), () => build(p.a, ctx))));
+      return andThen(fork(checked(p.child, ctx)), (f) => {
+        ctx.forks.push(f);
+        return andThen(interrupt(f), () => build(p.a, ctx));
+      });
     case "yield":
       return andThen(yieldNow, () => build(p.a, ctx));
     case "notATask":
@@ -637,7 +642,9 @@ test("interrupt waits for the fiber and succeeds with its exit", () => {
   const log = [];
   const fiber = runtime.fork(
     andThen(fork(ensuring(never(), sync(() => log.push("released")))), (f) =>
-      andThen(andThen(yieldNow, () => interrupt(f)), (exit) => sync(() => (log.push(`interrupted: ${exit.$}`), exit.$))),
+      andThen(andThen(yieldNow, () => interrupt(f)), (exit) =>
+        sync(() => (log.push(`interrupted: ${exit.$}`), exit.$)),
+      ),
     ),
   );
   flush();
@@ -676,4 +683,115 @@ test("an interruption during an uninterruptible region lands when it ends", () =
   flush();
   assert.deepEqual(log, ["region ended with 1"]);
   assert.deepEqual(fiber.exit, Exit.interrupt());
+});
+
+// ---------------------------------------------------------------------------
+// Interruption
+
+test("interruption lands at the next yield point, not mid-step", () => {
+  const { runtime, flush } = manual({ yieldEvery: 1000 });
+  const log = [];
+  let self;
+  const fiber = runtime.fork(
+    andThen(
+      sync(() => {
+        // Requested from inside the fiber's own step: the step finishes.
+        runtime.interrupt(self);
+        log.push("same step");
+      }),
+      () =>
+        andThen(sync(() => log.push("still the same step")), () =>
+          andThen(yieldNow, () => sync(() => log.push("after the yield"))),
+        ),
+    ),
+  );
+  self = fiber;
+  flush();
+  assert.deepEqual(log, ["same step", "still the same step"]);
+  assert.deepEqual(fiber.exit, Exit.interrupt());
+});
+
+test("a busy fiber is interrupted at a forced yield", () => {
+  const { runtime, flush } = manual({ yieldEvery: 8, budget: 8 });
+  let spins = 0;
+  const spin = () => andThen(sync(() => spins++), spin);
+  const busy = runtime.fork(spin());
+  runtime.fork(sync(() => runtime.interrupt(busy)));
+  flush();
+  assert.deepEqual(busy.exit, Exit.interrupt());
+  assert.ok(spins > 0 && spins < 16, `${spins} spins`);
+});
+
+test("a suspended fiber is interrupted at once and its operation cancelled", () => {
+  const { runtime, flush } = manual();
+  const state = { cancelled: 0 };
+  let resume;
+  const fiber = runtime.fork(async((r) => ((resume = r), () => state.cancelled++)));
+  flush();
+  runtime.interrupt(fiber);
+  runtime.interrupt(fiber);
+  flush();
+  assert.deepEqual(fiber.exit, Exit.interrupt());
+  assert.equal(state.cancelled, 1);
+  // The host finishing late changes nothing.
+  resume(succeed("late"));
+  flush();
+  assert.deepEqual(fiber.exit, Exit.interrupt());
+});
+
+test("an uninterruptible fiber keeps going and is interrupted after", () => {
+  const { runtime, flush } = manual({ yieldEvery: 2 });
+  const log = [];
+  const fiber = runtime.fork(
+    andThen(
+      uninterruptible(
+        andThen(yieldNow, () =>
+          andThen(yieldNow, () => andThen(async((r) => r(succeed())), () => sync(() => log.push("finished")))),
+        ),
+      ),
+      () => sync(() => log.push("unreachable")),
+    ),
+  );
+  // Requested once the region has begun.
+  runtime.fork(sync(() => runtime.interrupt(fiber)));
+  flush();
+  assert.deepEqual(log, ["finished"]);
+  assert.deepEqual(fiber.exit, Exit.interrupt());
+});
+
+test("a host call gets an AbortSignal that interruption aborts", async () => {
+  const runtime = new Runtime();
+  let signal;
+  let settle;
+  const fiber = runtime.fork(
+    fromPromise((s) => {
+      signal = s;
+      return new Promise((resolve) => (settle = resolve));
+    }),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(signal.aborted, false);
+  const exit = await runtime.interrupt(fiber);
+  assert.deepEqual(exit, Exit.interrupt());
+  assert.equal(signal.aborted, true);
+  assert.ok(signal.reason instanceof Interrupted);
+  settle("too late");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(fiber.exit, Exit.interrupt());
+});
+
+test("a host call's promise decides its exit", async () => {
+  const runtime = new Runtime({ reportDefect: () => {} });
+  const ok = await runtime.run(fromPromise(async () => "value"));
+  const rejected = await runtime.run(fromPromise(() => Promise.reject(new Error("no"))));
+  const thrown = await runtime.run(
+    fromPromise(() => {
+      throw new Error("sync");
+    }),
+  );
+  assert.deepEqual(ok, Exit.success("value"));
+  assert.equal(rejected.$, "fail");
+  assert.equal(rejected.error.message, "no");
+  assert.equal(thrown.$, "defect");
+  assert.equal(thrown.defect.message, "sync");
 });

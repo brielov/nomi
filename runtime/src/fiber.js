@@ -23,9 +23,13 @@
 // order, all uninterruptibly. `forkDaemon` attaches to the runtime's root
 // scope instead, which is upstream's `Process.spawn`: it outlives its parent.
 //
-// Interruption is a request. It is delivered when the fiber next passes
-// through the run queue or while it is suspended, unless the fiber is in an
-// uninterruptible region; then it is delivered as the region ends.
+// Interruption is a request, delivered only at safe points: when the fiber
+// passes through the run queue (every yield, including the forced ones),
+// when it is about to suspend, and while it is suspended, which cancels the
+// operation it waits on (an `async` cancel function, or the AbortSignal of
+// a host call). Inside an uninterruptible region it waits until the region
+// ends. Delivery replaces the fiber's next step with an `interrupt` exit,
+// which only scope closing observes.
 //
 // Every fiber ends in exactly one exit: success, a typed failure, a defect
 // (a JS exception or a broken contract), or interruption. A defect nobody is
@@ -83,6 +87,30 @@ export const sync = (f) => ({ $: SYNC, f });
  * ignored. `register` may return a function that cancels the operation.
  */
 export const async = (register) => ({ $: ASYNC, register });
+
+/**
+ * Calls the host function `f(signal)` and waits for the promise it returns:
+ * fulfilled is success, rejected a typed failure, and a synchronous throw a
+ * defect. Interrupting the fiber aborts `signal`, and whatever the promise
+ * does afterwards is ignored.
+ */
+export const fromPromise = (f) =>
+  async((resume) => {
+    const controller = new AbortController();
+    Promise.resolve(f(controller.signal)).then(
+      (value) => resume(succeed(value)),
+      (error) => resume(fail(error)),
+    );
+    return () => controller.abort(new Interrupted());
+  });
+
+/** The reason an interrupted host call's signal is aborted with. */
+export class Interrupted extends Error {
+  name = "Interrupted";
+  constructor() {
+    super("the fiber was interrupted");
+  }
+}
 
 export const andThen = (task, f) => ({ $: AND_THEN, task, f });
 export const onError = (task, f) => ({ $: ON_ERROR, task, f });

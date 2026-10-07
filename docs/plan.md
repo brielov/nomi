@@ -108,7 +108,7 @@ This is plain JS in `runtime/` with no npm dependencies, tested with `node --tes
   - A fairness yield every N steps.
   - Finished fibers leave every table.
 - [x] **R.3** `runtime: scopes and finalizers`. Closing a scope interrupts its children, then runs finalizers in LIFO order. Acquire is uninterruptible, and release runs exactly once.
-- [ ] **R.4** `runtime: interruption`. It is delivered at async boundaries and yield points, and respects masks. Host calls get an `AbortSignal`.
+- [x] **R.4** `runtime: interruption`. It is delivered at async boundaries and yield points, and respects masks. Host calls get an `AbortSignal`.
 - [ ] **R.5** `runtime: virtual clock`. It advances only when every live fiber waits on a timer, never while I/O is pending.
 - [ ] **R.6** `runtime: process lifecycle`. SIGINT or SIGTERM interrupts the root, finalizers run, the process exits with 130 or 143, and in-flight work drains within a deadline. Tested in child processes.
 
