@@ -9,17 +9,27 @@ import { main } from "../src/main.js";
 
 const fixture = fileURLToPath(new URL("../fixtures/program.js", import.meta.url));
 
-/** Runs the fixture scenario; `signals` are sent in turn once it prints "ready". */
+/**
+ * Runs the fixture scenario. The first of `signals` is sent once it prints
+ * "ready", and each later one once it prints another line, in reaction to
+ * the one before: two identical signals sent together can arrive as one.
+ */
 function run(scenario, { signals = [], deadline } = {}) {
   const args = [fixture, scenario, ...(deadline === undefined ? [] : [String(deadline)])];
   const child = spawn(process.execPath, args, { stdio: ["ignore", "pipe", "pipe"] });
   let stdout = "";
   let stderr = "";
   child.stderr.on("data", (chunk) => (stderr += chunk));
+  let pending = [...signals];
+  let lines = Infinity;
   child.stdout.on("data", (chunk) => {
-    const wasReady = stdout.includes("ready\n");
     stdout += chunk;
-    if (!wasReady && stdout.includes("ready\n")) for (const signal of signals) child.kill(signal);
+    const now = stdout.split("\n").length;
+    if (lines === Infinity && stdout.includes("ready\n")) lines = now - 1;
+    if (now > lines && pending.length > 0) {
+      lines = now;
+      child.kill(pending.shift());
+    }
   });
   const started = Date.now();
   return new Promise((resolve, reject) => {
