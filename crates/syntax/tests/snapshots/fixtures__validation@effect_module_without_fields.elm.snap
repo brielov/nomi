@@ -1,0 +1,14 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/effect_module_without_fields.elm
+---
+elm, application:
+  0..13 ExpectedEffectFields "effect module"
+  0..13 EffectModuleOutsideKernel "effect module"
+elm, package:
+  0..13 ExpectedEffectFields "effect module"
+  0..13 EffectModuleOutsideKernel "effect module"
+elm, kernel package:
+  0..13 ExpectedEffectFields "effect module"
+elm-format:

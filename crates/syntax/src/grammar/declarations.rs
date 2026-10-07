@@ -56,8 +56,8 @@ fn declaration(p: &mut Parser<'_>) {
             value(p);
             m.complete(p, K::ValueDecl);
         }
-        // TODO(plan 1.15): elm-format takes `( a, b ) = pair` here; elm
-        // wants a name.
+        // elm-format takes `( a, b ) = pair` here; validation flags it
+        // for elm, which wants a name.
         _ if at_pattern_atom(p) => {
             pattern_atom(p);
             if expect_part(p, K::Eq) {

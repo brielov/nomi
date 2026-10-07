@@ -108,9 +108,8 @@ pub(super) fn pattern_atom(p: &mut Parser<'_>) -> CompletedMarker {
     m.complete(p, kind)
 }
 
-/// `()`, `(p)` or `(a, b)`. Returns the kind for the caller's node.
-// TODO(plan 1.15): elm wants the closing parenthesis indented;
-// elm-format doesn't.
+/// `()`, `(p)` or `(a, b)`. Returns the kind for the caller's node. elm
+/// wants the closing parenthesis indented; elm-format doesn't.
 fn paren_pattern(p: &mut Parser<'_>) -> K {
     p.bump();
     if p.at(K::RParen) {
@@ -121,7 +120,9 @@ fn paren_pattern(p: &mut Parser<'_>) -> K {
     pattern(p);
     let mut kind = K::ParenPattern;
     loop {
-        if p.eat(K::RParen) {
+        if p.at(K::RParen) {
+            p.note_unindented();
+            p.bump();
             break;
         }
         if p.at(K::Comma) {

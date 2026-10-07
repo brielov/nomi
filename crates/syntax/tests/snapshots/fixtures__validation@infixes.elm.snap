@@ -1,0 +1,16 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/infixes.elm
+---
+elm, application:
+  42..64 UnexpectedInfix "infix left 6 (+) = add"
+  65..92 UnexpectedInfix "infix right 5 (++) = append"
+  107..128 UnexpectedInfix "infix non 4 (==) = eq"
+elm, package:
+  42..64 UnexpectedInfix "infix left 6 (+) = add"
+  65..92 UnexpectedInfix "infix right 5 (++) = append"
+  107..128 UnexpectedInfix "infix non 4 (==) = eq"
+elm, kernel package:
+  107..128 UnexpectedInfix "infix non 4 (==) = eq"
+elm-format:

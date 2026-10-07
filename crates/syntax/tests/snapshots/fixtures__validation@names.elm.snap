@@ -1,0 +1,15 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/names.elm
+---
+elm, application:
+  41..46 DefinitionNameMismatch "answr"
+  93..94 DefinitionNameMismatch "g"
+elm, package:
+  41..46 DefinitionNameMismatch "answr"
+  93..94 DefinitionNameMismatch "g"
+elm, kernel package:
+  41..46 DefinitionNameMismatch "answr"
+  93..94 DefinitionNameMismatch "g"
+elm-format:

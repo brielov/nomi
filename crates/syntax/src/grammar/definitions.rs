@@ -19,7 +19,7 @@ pub(super) fn value(p: &mut Parser<'_>) {
         expect_indented(p, K::Colon);
         type_(p);
         m.complete(p, K::Signature);
-        // TODO(plan 1.15): elm wants the two names to match.
+        // elm wants the two names to match; validation checks.
         if !(p.at(K::LowerIdent) && p.current_column() == column) {
             p.error(SyntaxErrorKind::Expected(K::Definition));
             return;

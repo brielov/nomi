@@ -1,0 +1,12 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/fields_outside_effect_module.elm
+---
+elm, application:
+  12..37 UnexpectedEffectFields "where { command = MyCmd }"
+elm, package:
+  12..37 UnexpectedEffectFields "where { command = MyCmd }"
+elm, kernel package:
+  12..37 UnexpectedEffectFields "where { command = MyCmd }"
+elm-format:

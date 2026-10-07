@@ -20,9 +20,8 @@ pub(super) fn expr(p: &mut Parser<'_>) {
 
 /// Expressions up to the end of input, each starting a line and
 /// continuing on indented ones. Anything else is skipped, with one error,
-/// up to where an expression could start.
-// TODO(plan 1.15): elm-format wants each one after the first to start
-// with a letter or `_`.
+/// up to where an expression could start. elm-format also wants each
+/// one after the first to start with a letter or `_`; validation checks.
 pub(super) fn expressions(p: &mut Parser<'_>) {
     while !p.at(K::Eof) {
         if !p.at_fresh_line() {
@@ -339,8 +338,8 @@ fn field_access(p: &mut Parser<'_>, target: CompletedMarker) -> CompletedMarker 
 }
 
 /// `()`, `(+)`, `(,)`, `(e)` or `(a, b)`. Returns the kind for the
-/// caller's node.
-// TODO(plan 1.15): elm wants the closing parenthesis indented.
+/// caller's node. elm wants the closing parenthesis indented; elm-format
+/// doesn't.
 fn paren(p: &mut Parser<'_>) -> K {
     p.bump();
     if p.at(K::RParen) {
@@ -367,7 +366,9 @@ fn paren(p: &mut Parser<'_>) -> K {
     expr(p);
     let mut kind = K::ParenExpr;
     loop {
-        if p.eat(K::RParen) {
+        if p.at(K::RParen) {
+            p.note_unindented();
+            p.bump();
             break;
         }
         if p.at(K::Comma) {

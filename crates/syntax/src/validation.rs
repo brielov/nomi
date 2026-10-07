@@ -1,0 +1,285 @@
+//! The validation pass. The grammar accepts the union of what elm and
+//! elm-format accept, legacy syntax included, so one tree serves every
+//! tool; this pass flags what the given tool rejects. What elm allows
+//! also depends on the project a module belongs to (`Parse/Module.hs`,
+//! `checkEffects`).
+
+use nomi_base::TextRange;
+
+use crate::ast::{self, AstNode};
+use crate::{Parse, SyntaxError, SyntaxErrorKind as E, SyntaxKind as K, SyntaxNode, SyntaxToken};
+
+/// The tool whose rules a tree must follow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Tool {
+    /// The compiler, reading a module of this kind of project.
+    Elm(Source),
+    ElmFormat,
+}
+
+/// What a module belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Source {
+    Application,
+    Package,
+    /// A package under `elm/` or `elm-explorations/`, which may declare
+    /// infix operators and effect modules.
+    Kernel,
+}
+
+/// What `tool` rejects in a tree the grammar accepted, in source order.
+/// The parse's own errors are not repeated.
+pub fn validate(parse: &Parse, tool: Tool) -> Vec<SyntaxError> {
+    let mut errors = Vec::new();
+    let root = parse.syntax();
+    match tool {
+        Tool::Elm(source) => {
+            errors.extend(parse.unindented.iter().map(|&range| SyntaxError {
+                kind: E::ExpectedIndent,
+                range,
+            }));
+            elm(&root, source, &mut errors);
+        }
+        Tool::ElmFormat => {}
+    }
+    if let Some(fragment) = ast::ExpressionsFragment::cast(root) {
+        code_block(&fragment, &mut errors);
+    }
+    errors.sort_by_key(|e| e.range.start());
+    errors
+}
+
+fn push(errors: &mut Vec<SyntaxError>, kind: E, range: TextRange) {
+    errors.push(SyntaxError { kind, range });
+}
+
+/// elm's rules: everything legacy, and what the project allows.
+fn elm(root: &SyntaxNode, source: Source, errors: &mut Vec<SyntaxError>) {
+    for node in root.descendants() {
+        match node.kind() {
+            K::DestructureDecl => {
+                let range = ast::DestructureDecl::cast(node.clone())
+                    .and_then(|decl| decl.pattern())
+                    .map_or_else(|| trimmed(&node), |p| trimmed(p.syntax()));
+                push(errors, E::DestructureDeclaration, range);
+            }
+            K::ValueDecl => {
+                let decl = ast::ValueDecl::cast(node).expect("the kind matched");
+                names_match(decl.signature(), decl.definition(), errors);
+            }
+            K::LetValue => {
+                let decl = ast::LetValue::cast(node).expect("the kind matched");
+                names_match(decl.signature(), decl.definition(), errors);
+            }
+            K::TupleConstructorType | K::TupleConstructorExpr => {
+                // The `(,)` itself, not a constructor type's arguments.
+                let start = trimmed(&node).start();
+                let end = token(&node, K::RParen)
+                    .map_or(node.text_range().end(), |t| t.text_range().end());
+                push(errors, E::TupleConstructor, TextRange::new(start, end));
+            }
+            K::FieldType => {
+                if let Some(eq) = token(&node, K::Eq) {
+                    push(errors, E::LegacyFieldType, eq.text_range());
+                }
+            }
+            K::Field => {
+                if let Some(colon) = token(&node, K::Colon) {
+                    push(errors, E::LegacyField, colon.text_range());
+                }
+            }
+            K::LiteralPattern => literal_pattern(&node, errors),
+            K::ModuleHeader => header(&node, errors),
+            K::ExposingList
+                if token(&node, K::ExposingKw).is_none() || token(&node, K::LParen).is_none() =>
+            {
+                push(errors, E::LegacyExposing, trimmed(&node));
+            }
+            K::ExposedVariants if token(&node, K::DotDot).is_none() => {
+                push(errors, E::LegacyExposedVariants, trimmed(&node));
+            }
+            _ => {}
+        }
+    }
+    if let Some(module) = ast::Module::cast(root.clone()) {
+        effects(&module, source, errors);
+        infixes(&module, source, errors);
+    }
+}
+
+/// A node's range without the trivia it leads with or ends on.
+fn trimmed(node: &SyntaxNode) -> TextRange {
+    let mut tokens = node
+        .descendants_with_tokens()
+        .filter_map(|e| e.into_token())
+        .filter(|t| !t.kind().is_trivia());
+    let Some(first) = tokens.next() else {
+        return node.text_range();
+    };
+    let last = tokens.last().unwrap_or_else(|| first.clone());
+    TextRange::new(first.text_range().start(), last.text_range().end())
+}
+
+/// The first direct child token of `kind`.
+fn token(node: &SyntaxNode, kind: K) -> Option<SyntaxToken> {
+    node.children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .find(|t| t.kind() == kind)
+}
+
+/// elm reads the definition after a signature by the signature's name
+/// (`Parse/Declaration.hs`, `chompMatchingName`).
+fn names_match(
+    signature: Option<ast::Signature>,
+    definition: Option<ast::Definition>,
+    errors: &mut Vec<SyntaxError>,
+) {
+    let name = |t: Option<SyntaxToken>| t.map(|t| t.text().to_owned());
+    let Some(definition) = definition else {
+        return;
+    };
+    let Some(expected) = name(signature.and_then(|s| s.lower_ident_token())) else {
+        return;
+    };
+    if let Some(found) = definition.lower_ident_token()
+        && found.text() != expected
+    {
+        push(errors, E::DefinitionNameMismatch, found.text_range());
+    }
+}
+
+/// elm's patterns take neither `-` nor floats (`Parse/Pattern.hs`).
+fn literal_pattern(node: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
+    if let Some(minus) = token(node, K::Minus) {
+        push(errors, E::NegativePattern, minus.text_range());
+    } else if let Some(float) = token(node, K::Float) {
+        push(errors, E::FloatPattern, float.text_range());
+    }
+}
+
+/// The header's legacy forms, and effect fields where elm wants them.
+fn header(node: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
+    let header = ast::ModuleHeader::cast(node.clone()).expect("the caller matched the kind");
+    if header.exposing_list().is_none() {
+        let range = header
+            .module_name()
+            .map_or_else(|| trimmed(node), |n| trimmed(n.syntax()));
+        push(errors, E::MissingExposing, range);
+    }
+    if let Some(stray) = header.where_token() {
+        push(errors, E::LegacyWhere, stray.text_range());
+    }
+    match (header.effect_token(), header.effect_fields()) {
+        (Some(_), None) => push(errors, E::ExpectedEffectFields, keywords(&header)),
+        (None, Some(fields)) => {
+            push(errors, E::UnexpectedEffectFields, trimmed(fields.syntax()));
+        }
+        (Some(_), Some(fields)) => effect_fields(&fields, errors),
+        (None, None) => {}
+    }
+}
+
+/// One `command`, one `subscription`, or both, in either order
+/// (`Parse/Module.hs`, `chompManager`).
+fn effect_fields(fields: &ast::EffectFields, errors: &mut Vec<SyntaxError>) {
+    let mut seen = Vec::new();
+    for field in fields
+        .syntax()
+        .children()
+        .filter(|n| n.kind() == K::EffectField)
+    {
+        let Some(name) = token(&field, K::LowerIdent) else {
+            continue;
+        };
+        let known = matches!(name.text(), "command" | "subscription");
+        if !known || seen.contains(&name.text().to_owned()) {
+            push(errors, E::BadEffectField, name.text_range());
+        }
+        seen.push(name.text().to_owned());
+    }
+}
+
+/// From the header's first keyword through `module`, where upstream
+/// reports what the module kind allows.
+fn keywords(header: &ast::ModuleHeader) -> TextRange {
+    let node = header.syntax();
+    let start = trimmed(node).start();
+    let end = header
+        .module_token()
+        .map_or(node.text_range().end(), |t| t.text_range().end());
+    TextRange::new(start, end)
+}
+
+/// Ports and effect managers against the module and project kind
+/// (`Parse/Module.hs`, `checkEffects`). A module without a header may
+/// declare ports.
+fn effects(module: &ast::Module, source: Source, errors: &mut Vec<SyntaxError>) {
+    let Some(header) = module.module_header() else {
+        return;
+    };
+    let ports: Vec<ast::PortDecl> = module
+        .syntax()
+        .children()
+        .filter_map(ast::PortDecl::cast)
+        .collect();
+    let region = keywords(&header);
+    if header.effect_token().is_some() {
+        if source != Source::Kernel {
+            push(errors, E::EffectModuleOutsideKernel, region);
+        } else if !ports.is_empty() {
+            push(errors, E::UnexpectedPort, region);
+        }
+    } else if header.port_token().is_some() {
+        if source != Source::Application {
+            push(errors, E::PortModuleInPackage, region);
+        } else if ports.is_empty() {
+            push(errors, E::NoPorts, region);
+        }
+    } else if source == Source::Application {
+        if !ports.is_empty() {
+            push(errors, E::UnexpectedPort, region);
+        }
+    } else if let Some(port) = ports.last() {
+        // Upstream names the last port: it gathers them in reverse.
+        let range = port
+            .lower_ident_token()
+            .map_or_else(|| trimmed(port.syntax()), |t| t.text_range());
+        push(errors, E::PortInPackage, range);
+    }
+}
+
+/// Upstream reads infix declarations only in kernel packages, after the
+/// imports and before any other declaration (`Parse/Module.hs`,
+/// `chompInfixes`).
+fn infixes(module: &ast::Module, source: Source, errors: &mut Vec<SyntaxError>) {
+    let mut leading = source == Source::Kernel;
+    for decl in module.decls() {
+        let is_infix = matches!(decl, ast::Decl::InfixDecl(_));
+        if is_infix && !leading {
+            push(errors, E::UnexpectedInfix, trimmed(decl.syntax()));
+        }
+        leading &= is_infix;
+    }
+}
+
+/// elm-format reads each expression of a code block after the first only
+/// from a letter or `_` (`topLevel` and `freshDef` in its parser).
+fn code_block(fragment: &ast::ExpressionsFragment, errors: &mut Vec<SyntaxError>) {
+    for expr in fragment.exprs().skip(1) {
+        let Some(first) = (expr.syntax().descendants_with_tokens())
+            .filter_map(|e| e.into_token())
+            .find(|t| !t.kind().is_trivia())
+        else {
+            continue;
+        };
+        if !first
+            .text()
+            .starts_with(|c: char| c.is_alphabetic() || c == '_')
+        {
+            push(errors, E::ExpectedLetterStart, first.text_range());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

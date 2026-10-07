@@ -1,0 +1,21 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/unindented.elm
+---
+elm, application:
+  46..47 ExpectedIndent ","
+  74..75 ExpectedIndent ")"
+  90..91 ExpectedIndent ")"
+  113..114 ExpectedIndent ")"
+elm, package:
+  46..47 ExpectedIndent ","
+  74..75 ExpectedIndent ")"
+  90..91 ExpectedIndent ")"
+  113..114 ExpectedIndent ")"
+elm, kernel package:
+  46..47 ExpectedIndent ","
+  74..75 ExpectedIndent ")"
+  90..91 ExpectedIndent ")"
+  113..114 ExpectedIndent ")"
+elm-format:

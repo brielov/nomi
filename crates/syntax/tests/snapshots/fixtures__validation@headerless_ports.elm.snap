@@ -1,0 +1,9 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/headerless_ports.elm
+---
+elm, application:
+elm, package:
+elm, kernel package:
+elm-format:

@@ -27,6 +27,10 @@ use crate::{SyntaxKind, SyntaxNode};
 pub struct Parse {
     green: GreenNode,
     errors: Vec<SyntaxError>,
+    /// Tokens elm wants indented that elm-format takes anywhere. Only the
+    /// parser knows the indentation context, so it records them for
+    /// [`crate::validate`].
+    pub(crate) unindented: Vec<TextRange>,
 }
 
 impl Parse {
@@ -106,6 +110,52 @@ pub enum SyntaxErrorKind {
     Unexpected,
     /// Nesting went past [`DEPTH_LIMIT`].
     TooDeep,
+
+    // Found by [`crate::validate`]: the grammar takes these, a tool doesn't.
+    /// A top-level `( a, b ) = pair`. elm wants a name.
+    DestructureDeclaration,
+    /// A definition named differently from the signature above it.
+    DefinitionNameMismatch,
+    /// The legacy `(,)` tuple constructor.
+    TupleConstructor,
+    /// The legacy `=` in a record type, as in `{ name = String }`.
+    LegacyFieldType,
+    /// The legacy `:` in a record, as in `{ name : "Tom" }`.
+    LegacyField,
+    /// A negative number in a pattern.
+    NegativePattern,
+    /// A float in a pattern.
+    FloatPattern,
+    /// A module header without an exposing list.
+    MissingExposing,
+    /// An exposing list without `exposing` or without parentheses.
+    LegacyExposing,
+    /// The legacy `Type(A, B)` in an exposing list. elm wants `Type(..)`.
+    LegacyExposedVariants,
+    /// The legacy `where` after a module's name or exposing list.
+    LegacyWhere,
+    /// An effect module without `where { command = … }`.
+    ExpectedEffectFields,
+    /// `where { … }` after a module that isn't an effect module.
+    UnexpectedEffectFields,
+    /// An effect field other than one `command` and one `subscription`.
+    BadEffectField,
+    /// An effect module outside a kernel package.
+    EffectModuleOutsideKernel,
+    /// A port module in a package.
+    PortModuleInPackage,
+    /// A port in a package.
+    PortInPackage,
+    /// A port in a module that isn't a port module.
+    UnexpectedPort,
+    /// A port module without ports.
+    NoPorts,
+    /// An infix declaration outside a kernel package, or after another
+    /// declaration.
+    UnexpectedInfix,
+    /// An expression of a code block, after the first, starting with
+    /// something other than a letter or `_`.
+    ExpectedLetterStart,
 }
 
 /// How deeply grammar rules may nest. Far beyond real code, which rarely
@@ -171,6 +221,7 @@ pub(crate) struct Parser<'t> {
     /// Where a token starts that its block placed by alignment, such as a
     /// case branch's first token. It counts as indented.
     anchor: Option<TextSize>,
+    unindented: Vec<TextRange>,
 }
 
 impl<'t> Parser<'t> {
@@ -188,6 +239,7 @@ impl<'t> Parser<'t> {
             gave_up: false,
             min_column: 1,
             anchor: None,
+            unindented: Vec::new(),
         }
     }
 
@@ -214,7 +266,11 @@ impl<'t> Parser<'t> {
         // same place.
         errors.sort_by_key(|e| e.range.start());
         let green = build::build(self.text, &self.consumed, self.events);
-        Parse { green, errors }
+        Parse {
+            green,
+            errors,
+            unindented: self.unindented,
+        }
     }
 
     /// How many tokens were lexed, counting each time one is lexed again
@@ -391,6 +447,15 @@ impl<'t> Parser<'t> {
     pub(crate) fn check_indented(&mut self) {
         if !self.at(SyntaxKind::Eof) && !self.at_indented() {
             self.error(SyntaxErrorKind::ExpectedIndent);
+        }
+    }
+
+    /// Records a continuation token that isn't indented, where only elm
+    /// minds. Parsing goes on as if it were.
+    pub(crate) fn note_unindented(&mut self) {
+        if !self.at(SyntaxKind::Eof) && !self.at_indented() {
+            let range = self.current_range();
+            self.unindented.push(range);
         }
     }
 

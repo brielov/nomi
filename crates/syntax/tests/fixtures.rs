@@ -4,7 +4,7 @@
 
 use std::fmt::Write;
 
-use nomi_syntax::Parse;
+use nomi_syntax::{Parse, Source, Tool};
 
 fn render(text: &str, parse: impl Fn(&str) -> Parse) -> String {
     let parse = parse(text);
@@ -85,6 +85,32 @@ fn expressions() {
     insta::glob!("../test_data/parser", "expressions/*.elm", |path| {
         let text = std::fs::read_to_string(path).unwrap();
         insta::assert_snapshot!(render(&text, nomi_syntax::parse_expr));
+    });
+}
+
+/// What each tool rejects in a module that parses cleanly.
+#[test]
+fn validation() {
+    let tools = [
+        ("elm, application", Tool::Elm(Source::Application)),
+        ("elm, package", Tool::Elm(Source::Package)),
+        ("elm, kernel package", Tool::Elm(Source::Kernel)),
+        ("elm-format", Tool::ElmFormat),
+    ];
+    insta::glob!("../test_data/parser", "validation/*.elm", |path| {
+        let text = std::fs::read_to_string(path).unwrap();
+        let parse = nomi_syntax::parse_module(&text);
+        assert_eq!(parse.errors(), [], "validation fixtures parse cleanly");
+        let mut out = String::new();
+        for (name, tool) in tools {
+            writeln!(out, "{name}:").unwrap();
+            for error in nomi_syntax::validate(&parse, tool) {
+                let range = error.range;
+                let found = &text[usize::from(range.start())..usize::from(range.end())];
+                writeln!(out, "  {range:?} {:?} {found:?}", error.kind).unwrap();
+            }
+        }
+        insta::assert_snapshot!(out);
     });
 }
 

@@ -1,0 +1,17 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/effect_fields.elm
+---
+elm, application:
+  0..13 EffectModuleOutsideKernel "effect module"
+  44..51 BadEffectField "command"
+  61..65 BadEffectField "tick"
+elm, package:
+  0..13 EffectModuleOutsideKernel "effect module"
+  44..51 BadEffectField "command"
+  61..65 BadEffectField "tick"
+elm, kernel package:
+  44..51 BadEffectField "command"
+  61..65 BadEffectField "tick"
+elm-format:

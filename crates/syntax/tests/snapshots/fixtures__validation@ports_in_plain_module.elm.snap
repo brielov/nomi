@@ -1,0 +1,12 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/ports_in_plain_module.elm
+---
+elm, application:
+  0..6 UnexpectedPort "module"
+elm, package:
+  61..65 PortInPackage "last"
+elm, kernel package:
+  61..65 PortInPackage "last"
+elm-format:

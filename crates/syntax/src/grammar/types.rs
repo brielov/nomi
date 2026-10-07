@@ -89,9 +89,8 @@ fn at_tuple_constructor(p: &mut Parser<'_>) -> bool {
     n > 1 && p.nth(n) == K::RParen
 }
 
-/// `()`, `(a)` or `(a, b, c)`.
-// TODO(plan 1.15): elm wants the commas and the closing parenthesis
-// indented; elm-format doesn't.
+/// `()`, `(a)` or `(a, b, c)`. elm wants the commas and the closing
+/// parenthesis indented; elm-format doesn't.
 fn paren_type(p: &mut Parser<'_>) -> CompletedMarker {
     let m = p.start();
     p.bump();
@@ -101,10 +100,14 @@ fn paren_type(p: &mut Parser<'_>) -> CompletedMarker {
     type_(p);
     let mut kind = K::ParenType;
     loop {
-        if p.eat(K::RParen) {
+        if p.at(K::RParen) {
+            p.note_unindented();
+            p.bump();
             break;
         }
-        if p.eat(K::Comma) {
+        if p.at(K::Comma) {
+            p.note_unindented();
+            p.bump();
             kind = K::TupleType;
             type_(p);
         } else if p.at_indented() {

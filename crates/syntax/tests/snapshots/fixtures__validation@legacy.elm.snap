@@ -1,0 +1,48 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/legacy.elm
+---
+elm, application:
+  14..18 LegacyExposing "(..)"
+  19..24 LegacyWhere "where"
+  38..51 LegacyExposing "exposing Dict"
+  64..69 LegacyExposing "(div)"
+  98..113 LegacyExposedVariants "(Just, Nothing)"
+  139..140 LegacyFieldType "="
+  170..171 LegacyField ":"
+  191..194 TupleConstructor "(,)"
+  210..213 TupleConstructor "(,)"
+  252..253 NegativePattern "-"
+  272..275 FloatPattern "0.5"
+  293..294 NegativePattern "-"
+  326..334 DestructureDeclaration "( a, b )"
+elm, package:
+  14..18 LegacyExposing "(..)"
+  19..24 LegacyWhere "where"
+  38..51 LegacyExposing "exposing Dict"
+  64..69 LegacyExposing "(div)"
+  98..113 LegacyExposedVariants "(Just, Nothing)"
+  139..140 LegacyFieldType "="
+  170..171 LegacyField ":"
+  191..194 TupleConstructor "(,)"
+  210..213 TupleConstructor "(,)"
+  252..253 NegativePattern "-"
+  272..275 FloatPattern "0.5"
+  293..294 NegativePattern "-"
+  326..334 DestructureDeclaration "( a, b )"
+elm, kernel package:
+  14..18 LegacyExposing "(..)"
+  19..24 LegacyWhere "where"
+  38..51 LegacyExposing "exposing Dict"
+  64..69 LegacyExposing "(div)"
+  98..113 LegacyExposedVariants "(Just, Nothing)"
+  139..140 LegacyFieldType "="
+  170..171 LegacyField ":"
+  191..194 TupleConstructor "(,)"
+  210..213 TupleConstructor "(,)"
+  252..253 NegativePattern "-"
+  272..275 FloatPattern "0.5"
+  293..294 NegativePattern "-"
+  326..334 DestructureDeclaration "( a, b )"
+elm-format:
