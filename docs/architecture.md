@@ -92,7 +92,7 @@ These rules are the architecture. Breaking one requires an entry in `DECISIONS.m
 **R1. One semantics, many platforms.** An Elm module type-checks and means the same thing everywhere. A platform is a set of kernel JS implementations, an output format and an entry shim, and nothing else.
 
 - elm/* APIs are identical on every platform.
-- Node overrides only the kernels that need a host: `Scheduler` and `Platform` for structured concurrency and process lifecycle, and `Http` via `fetch`. DOM kernels (`Browser`, `VirtualDom`, `File`) are unavailable there.
+- Node overrides only the kernels that need a host: `Scheduler` and `Platform` for structured concurrency and process lifecycle, `Process` and `Time` so timers and the current time go through the runtime's clock, and `Http` via `fetch`. DOM kernels (`Browser`, `VirtualDom`, `File`) are unavailable there.
 - The linker checks availability on the program that is reachable after dead-code elimination. A server may import a module that defines a `view`, as long as it never calls it. The error names the path, e.g. `main → Page.view → Html.div → Elm.Kernel.VirtualDom (not available on node)`.
 - The compiler has no platform enum, and cache keys contain no platform.
 
@@ -329,7 +329,7 @@ Elm's `Scheduler.js` already runs processes, bindings with kill functions and a 
 | Exits | Success, typed failure, defect or interruption. A JS exception in a kernel or FFI call becomes a defect of that fiber. It is reported, never lost, and never crashes the process. |
 | Fairness | Yield to the event loop every N steps. |
 | Bookkeeping | Finished fibers leave every table, and metrics are read before teardown. |
-| Lifecycle | SIGINT or SIGTERM interrupts the root fiber, finalizers run, and the process exits with 130 or 143. HTTP servers drain in-flight requests within a deadline. |
+| Lifecycle | SIGINT or SIGTERM interrupts the root fiber, finalizers run, and the process exits with 130 or 143. HTTP servers drain first: they stop accepting, let in-flight requests finish until a deadline, and only then interrupt what remains. |
 | Test clock | Virtual time advances only when every live fiber waits on a timer, never while I/O is pending. |
 
 Two things are deliberately not taken from Effect: the service/layer system and FiberRefs. Elm passes dependencies explicitly, and capabilities are values.
