@@ -12,6 +12,7 @@ publish = false
 [workspace.dependencies]
 nomi-base = { path = "crates/base" }
 nomi-syntax = { path = "crates/syntax" }
+clap = { version = "4.6", features = ["derive"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -3,16 +3,26 @@
 
 use std::process::ExitCode;
 
+use clap::{Parser, Subcommand};
+
+/// One toolchain for Elm: compiler, formatter, language server, test runner
+/// and package manager.
+#[derive(Debug, Parser)]
+#[command(name = "nomi", version, arg_required_else_help = true)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+/// Subcommands are added by the plan steps that implement them. Each one
+/// declares the Elm names it answers to as aliases, e.g.
+/// `#[command(visible_alias = "make")] Build`.
+#[derive(Debug, Subcommand)]
+enum Command {}
+
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.first().map(String::as_str) {
-        Some("--version" | "-V") => {
-            println!("nomi {}", env!("CARGO_PKG_VERSION"));
-            ExitCode::SUCCESS
-        }
-        _ => {
-            eprintln!("usage: nomi --version");
-            ExitCode::from(2)
-        }
+    let cli = Cli::parse();
+    match cli.command {
+        None => ExitCode::SUCCESS,
     }
 }
