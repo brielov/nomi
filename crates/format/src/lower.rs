@@ -10,6 +10,9 @@
 
 mod cursor;
 mod header;
+mod literal;
+mod patterns;
+mod types;
 
 use std::collections::BTreeMap;
 
@@ -17,7 +20,10 @@ use nomi_base::{TextRange, TextSize};
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
-use crate::tree::{Commented, Docs, Module, TopLevelStructure};
+use crate::tree::{
+    C0Eol, C2, Commented, Docs, Lower, Module, Namespace, Sequence, TopLevelStructure, Upper,
+    UpperRef,
+};
 use cursor::Cursor;
 
 const VALID: &str = "a validated tree has it";
@@ -66,8 +72,22 @@ pub(crate) fn module(root: &SyntaxNode, text: &str) -> Module {
         }
     }
 
-    // Declarations lower from plan 2.7; until then their comments go
-    // unused.
+    // Declarations lower from plan 2.7; until then the comments between
+    // their types and patterns go unused, and lowering those on their own
+    // checks them over every module.
+    let mut stack = vec![root.clone()];
+    while let Some(node) = stack.pop() {
+        if let Some(ty) = ast::Type::cast(node.clone()) {
+            let _ = cx.take(range(&node).start());
+            types::ty(&mut cx, &ty);
+        } else if let Some(pattern) = ast::Pattern::cast(node.clone()) {
+            let _ = cx.take(range(&node).start());
+            patterns::pattern(&mut cx, &pattern);
+        } else {
+            let children: Vec<_> = node.children().collect();
+            stack.extend(children.into_iter().rev());
+        }
+    }
     let _ = cx.take(text_end(text));
     cx.finish();
     Module {
@@ -85,6 +105,93 @@ fn c<C, T>(comments: C, value: T) -> Commented<C, T> {
 
 fn text_end(text: &str) -> TextSize {
     TextSize::of(text)
+}
+
+fn start(token: &SyntaxToken) -> TextSize {
+    token.text_range().start()
+}
+
+fn lower_name(token: &SyntaxToken) -> Lower {
+    Lower(token.text().to_owned())
+}
+
+fn upper_name(token: &SyntaxToken) -> Upper {
+    Upper(token.text().to_owned())
+}
+
+/// The name in `node`, after the qualifier `node` may have.
+fn upper_ref(node: &SyntaxNode, qualifier: Option<ast::Qualifier>) -> UpperRef {
+    let namespace: Namespace = qualifier.map_or_else(Vec::new, |q| {
+        q.syntax()
+            .children_with_tokens()
+            .filter_map(|e| e.into_token())
+            .filter(|t| t.kind() == SyntaxKind::UpperIdent)
+            .map(|t| upper_name(&t))
+            .collect()
+    });
+    (
+        namespace,
+        upper_name(&token(node, SyntaxKind::UpperIdent).expect(VALID)),
+    )
+}
+
+/// Where each comma among the children of `node` starts.
+fn commas(node: &SyntaxNode) -> Vec<TextSize> {
+    node.children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .filter(|t| t.kind() == SyntaxKind::Comma)
+        .map(|t| start(&t))
+        .collect()
+}
+
+/// The comma-separated `items` of `node`, each with the comments before
+/// it and those before the comma or `close` after it; upstream's
+/// `surround''`.
+fn surround<N: AstNode, T>(
+    cx: &mut Cursor,
+    node: &SyntaxNode,
+    items: impl Iterator<Item = N>,
+    close: &SyntaxToken,
+    mut lower: impl FnMut(&mut Cursor, &N) -> T,
+) -> Vec<C2<T>> {
+    let commas = commas(node);
+    items
+        .enumerate()
+        .map(|(i, item)| {
+            let pre = cx.take(range(item.syntax()).start());
+            let value = lower(cx, &item);
+            let post = cx.take(commas.get(i).copied().unwrap_or_else(|| start(close)));
+            c((pre, post), value)
+        })
+        .collect()
+}
+
+/// `terms` with `separators` between them, like `a -> b -> c`: each term
+/// with the `--` comment that may end its line, and the comments around
+/// the separator before it; upstream's `separated`.
+fn separated<N: AstNode, T>(
+    cx: &mut Cursor,
+    terms: Vec<N>,
+    separators: Vec<SyntaxToken>,
+    mut lower: impl FnMut(&mut Cursor, &N) -> T,
+) -> (C0Eol<T>, Sequence<T>) {
+    let mut terms = terms.into_iter();
+    let mut term = |cx: &mut Cursor, node: N| {
+        let value = lower(cx, &node);
+        (value, cx.rest_of_line(range(node.syntax()).end()))
+    };
+    let (first, eol) = term(cx, terms.next().expect(VALID));
+    let rest = separators
+        .iter()
+        .zip(terms)
+        .map(|(separator, node)| {
+            let pre = cx.take(start(separator));
+            let post = cx.take(range(node.syntax()).start());
+            let (value, eol) = term(cx, node);
+            c((pre, post, eol), value)
+        })
+        .collect();
+    (c(eol, first), Sequence(rest))
 }
 
 /// The tokens of `node` that are not trivia.

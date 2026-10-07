@@ -4,18 +4,14 @@ use std::collections::BTreeMap;
 
 use nomi_base::{TextRange, TextSize};
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
+use nomi_syntax::{SyntaxKind, SyntaxToken};
 
 use super::cursor::Cursor;
-use super::{VALID, c, range, significant, token};
+use super::{VALID, c, commas, range, significant, start, token};
 use crate::tree::{
     C1, C2, Comment, CommentedMap, Comments, DetailedListing, Header, ImportMethod, Listing, Lower,
     Namespace, SourceSettings, SourceTag, Symbol, Upper, Value,
 };
-
-fn start(token: &SyntaxToken) -> TextSize {
-    token.text_range().start()
-}
 
 fn namespace(name: &ast::ModuleName) -> Namespace {
     name.syntax()
@@ -184,14 +180,6 @@ fn listing<T>(
 }
 
 /// The starts of the commas among `node`'s children.
-fn commas(node: &SyntaxNode) -> Vec<TextSize> {
-    node.children_with_tokens()
-        .filter_map(|e| e.into_token())
-        .filter(|t| t.kind() == SyntaxKind::Comma)
-        .map(|t| start(&t))
-        .collect()
-}
-
 /// Comma-separated items, each with the comments before it and those
 /// after, which start with the `--` comment ending its line; upstream's
 /// `commaSep1'`. The last item's comments run to `end`, if the list has

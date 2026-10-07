@@ -183,12 +183,15 @@ pub(crate) enum StringRepr {
 }
 
 /// A literal's value, decoded; rendering spells it anew (plan 2.12).
+///
+/// Characters are code points as elm-format holds them, which a Rust
+/// `char` can't: escapes give lone surrogates, and `\x` larger values.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum LiteralValue {
     Int(i64, IntRepr),
     Float(f64, FloatRepr),
-    Char(char),
-    String(String, StringRepr),
+    Char(u32),
+    String(Vec<u32>, StringRepr),
     Bool(bool),
 }
 

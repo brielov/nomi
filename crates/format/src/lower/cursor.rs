@@ -63,9 +63,18 @@ impl<'a> Cursor<'a> {
         if self.multiline(item) {
             return None;
         }
+        self.rest_of_line(item.end())
+    }
+
+    /// The `--` comment after `end`, if only spaces come between;
+    /// upstream's `restOfLine`.
+    pub(super) fn rest_of_line(&mut self, end: TextSize) -> Option<String> {
         let token = self.comments.get(self.next)?;
         let range = token.text_range();
-        let between = &self.text[TextRange::new(item.end(), range.start())];
+        if range.start() < end {
+            return None;
+        }
+        let between = &self.text[TextRange::new(end, range.start())];
         if token.kind() != SyntaxKind::LineComment || !between.bytes().all(|b| b == b' ') {
             return None;
         }

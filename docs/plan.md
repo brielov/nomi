@@ -193,7 +193,7 @@ Goal: `nomi format` and the `elm-format` personality, byte-identical to elm-form
 - [x] **2.2** `format: Box layout engine`. A port of `Box.hs` and `ElmStructure.hs`, starting from the salvaged `document.rs`. **Check:** unit tests mirroring elm-format's behavior.
 - [x] **2.3** `format: formatter tree`. Mirrors elm-format's AST (`AST/V0_16.hs` and its neighbors), with C1/C2 comment slots and multiline flags. Types only.
 - [x] **2.4** `format: lower module header and imports`. One forward comment cursor, plus a debug assertion that every comment is used exactly once.
-- [ ] **2.5** `format: lower types and patterns`.
+- [x] **2.5** `format: lower types and patterns`.
 - [ ] **2.6** `format: lower expressions`.
 - [ ] **2.7** `format: lower declarations`.
 - [ ] **2.8** `format: render header, imports and exposing`. Import normalization; exposing lists grouped by `@docs`. **Check:** the ratchet climbs, as in every render step.
