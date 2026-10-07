@@ -119,6 +119,10 @@ fn elm(root: &SyntaxNode, source: Source, errors: &mut Vec<SyntaxError>) {
             K::ModuleHeader => header(&node, errors),
             K::OperatorName => push(errors, E::OperatorDefinition, trimmed(&node)),
             K::RangeExpr => push(errors, E::ListRange, trimmed(&node)),
+            K::DocDecl => {
+                let end = node.text_range().end();
+                push(errors, E::ExpectedDeclaration, TextRange::empty(end));
+            }
             K::InfixDecl => joined_precedence(&node, errors),
             K::ExposingList
                 if token(&node, K::ExposingKw).is_none() || token(&node, K::LParen).is_none() =>

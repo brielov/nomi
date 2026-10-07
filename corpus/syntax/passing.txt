@@ -86,6 +86,7 @@ Fresheyeball/deburr@1.0.1
 Fresheyeball/elm-return@7.1.0
 Garados007/elm-repono-storage@1.0.0
 Garados007/elm-svg-parser@1.1.2
+Gipphe/elm-ui@2.0.0
 Gipphe/timezone-data-full@1.0.2
 Gizra/elm-all-set@1.0.1
 Gizra/elm-attribute-builder@1.0.1
@@ -156,6 +157,7 @@ MackeyRMS/elm-accessors@3.1.0
 MackeyRMS/elm-rosetree-path@1.0.0
 MackeyRMS/elm-ui-table@1.1.4
 MackeyRMS/elm-ui-with-context@2.0.1
+MackeyRMS/elm-ui@2.0.3
 MackeyRMS/json-decode-attempt@3.0.1
 MackeyRMS/string-util@1.0.0
 MackeyRMS/time-util@1.1.0
@@ -361,6 +363,7 @@ alma/elm-sms-length@2.0.1
 anddani/nelm@1.0.0
 anderssorby/elm-datepicker@1.0.0
 anderssorby/elm-mastodon@1.0.0
+andimclean/elm-ui@1.0.0
 andre-dietrich/elm-conditional@1.0.0
 andre-dietrich/elm-generic@2.0.0
 andre-dietrich/elm-mapbox@2.0.0
@@ -833,6 +836,7 @@ flarebyte/bubblegum-entity@1.1.1
 flarebyte/bubblegum-ui-textarea@1.0.1
 flo-ham/date-picker@1.0.0
 flowlang-cc/elm-audio-graph@1.0.1
+flytreeleft/elm-ui@6.2.0
 folkertdev/elm-brotli@1.0.4
 folkertdev/elm-cff@1.0.0
 folkertdev/elm-deque@3.0.1
@@ -1005,6 +1009,7 @@ inkuzmin/elm-multiselect@4.0.0
 innoave/bounded-number@1.0.0
 insurello/elm-swedish-bank-account-number@2.0.4
 insurello/elm-ui-explorer@3.0.1
+insurello/elm-ui@1.0.1
 integral424/elm-pivot-table@1.0.2
 intrepidshape/elm-web3-ui@4.0.0
 intrepidshape/elm-web3@3.0.0
@@ -1352,7 +1357,9 @@ mdgriffith/elm-bezier@2.0.0
 mdgriffith/elm-codegen@6.0.3
 mdgriffith/elm-markup@3.0.1
 mdgriffith/elm-style-animation@4.0.0
+mdgriffith/elm-ui@1.1.8
 mdgriffith/style-elements@5.0.2
+mdgriffith/stylish-elephants@8.1.0
 melon-love/elm-gab-api@11.0.0
 mercurymedia/elm-ag-grid@34.0.1
 mercurymedia/elm-datetime-picker@12.0.1
@@ -1418,6 +1425,7 @@ mtamc/and-collect@1.0.0
 mthadley/elm-hash-routing@1.0.1
 mthadley/elm-review-unit@2.0.2
 mthadley/elm-typewriter@1.0.1
+mthiems/elm-charts-3@1.0.0
 mthiems/intervals@1.0.0
 mtonnberg/refinement-proofs@5.0.1
 munksgaard/char-extra@1.0.0
@@ -1723,6 +1731,9 @@ tasuki/elm-punycode@1.2.1
 techbelly/elm-zengine@1.0.0
 techbelly/elm-zmachine@1.1.0
 temochka/enclojure@2.1.1
+terezka/charts@20.0.1
+terezka/elm-charts-alpha@4.0.1
+terezka/elm-charts@5.0.0
 terezka/elm-diff@1.0.0
 terezka/intervals@2.0.2
 terezka/line-charts@2.0.2

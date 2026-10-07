@@ -85,6 +85,12 @@ Decl =
 | CustomTypeDecl
 | PortDecl
 | InfixDecl
+| DocDecl
+
+// elm-format's doc comment with no declaration below it, which elm
+// rejects.
+DocDecl =
+  'doc_comment'
 
 // elm-format takes a signature alone, which elm rejects.
 ValueDecl =

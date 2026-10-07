@@ -1,0 +1,15 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/doc_without_declaration.elm
+---
+elm, application:
+  72..72 ExpectedDeclaration ""
+  123..123 ExpectedDeclaration ""
+elm, package:
+  72..72 ExpectedDeclaration ""
+  123..123 ExpectedDeclaration ""
+elm, kernel package:
+  72..72 ExpectedDeclaration ""
+  123..123 ExpectedDeclaration ""
+elm-format:

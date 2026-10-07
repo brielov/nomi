@@ -134,6 +134,7 @@ pub enum Decl {
     CustomTypeDecl(CustomTypeDecl),
     PortDecl(PortDecl),
     InfixDecl(InfixDecl),
+    DocDecl(DocDecl),
 }
 
 impl AstNode for Decl {
@@ -144,6 +145,7 @@ impl AstNode for Decl {
             || CustomTypeDecl::can_cast(kind)
             || PortDecl::can_cast(kind)
             || InfixDecl::can_cast(kind)
+            || DocDecl::can_cast(kind)
     }
 
     fn cast(syntax: SyntaxNode) -> Option<Self> {
@@ -154,6 +156,7 @@ impl AstNode for Decl {
             SyntaxKind::CustomTypeDecl => Some(Decl::CustomTypeDecl(CustomTypeDecl { syntax })),
             SyntaxKind::PortDecl => Some(Decl::PortDecl(PortDecl { syntax })),
             SyntaxKind::InfixDecl => Some(Decl::InfixDecl(InfixDecl { syntax })),
+            SyntaxKind::DocDecl => Some(Decl::DocDecl(DocDecl { syntax })),
             _ => None,
         }
     }
@@ -166,6 +169,7 @@ impl AstNode for Decl {
             Decl::CustomTypeDecl(it) => &it.syntax,
             Decl::PortDecl(it) => &it.syntax,
             Decl::InfixDecl(it) => &it.syntax,
+            Decl::DocDecl(it) => &it.syntax,
         }
     }
 }
@@ -203,6 +207,12 @@ impl From<PortDecl> for Decl {
 impl From<InfixDecl> for Decl {
     fn from(node: InfixDecl) -> Decl {
         Decl::InfixDecl(node)
+    }
+}
+
+impl From<DocDecl> for Decl {
+    fn from(node: DocDecl) -> Decl {
+        Decl::DocDecl(node)
     }
 }
 
@@ -1132,6 +1142,31 @@ impl InfixDecl {
 
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct DocDecl {
+    pub(super) syntax: SyntaxNode,
+}
+
+impl AstNode for DocDecl {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::DocDecl
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        Self::can_cast(syntax.kind()).then_some(DocDecl { syntax })
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+
+impl DocDecl {
+    pub fn doc_comment_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::DocComment)
     }
 }
 
@@ -3185,6 +3220,7 @@ pub fn has_view(kind: SyntaxKind) -> bool {
         || CustomTypeDecl::can_cast(kind)
         || PortDecl::can_cast(kind)
         || InfixDecl::can_cast(kind)
+        || DocDecl::can_cast(kind)
         || Signature::can_cast(kind)
         || Definition::can_cast(kind)
         || OperatorName::can_cast(kind)

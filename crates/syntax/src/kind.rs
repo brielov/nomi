@@ -189,6 +189,7 @@ syntax_kinds! {
         Variant,
         PortDecl,
         InfixDecl,
+        DocDecl,
 
         NamedType,
         TypeVar,

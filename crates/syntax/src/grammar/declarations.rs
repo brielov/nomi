@@ -37,9 +37,10 @@ fn declaration(p: &mut Parser<'_>) {
     if p.at(K::DocComment) {
         p.anchor();
         p.bump();
-        if p.at(K::Eof) {
-            p.error(SyntaxErrorKind::ExpectedDeclaration);
-            m.complete(p, K::Error);
+        // elm-format takes a doc comment with no declaration below it;
+        // validation flags it for elm.
+        if p.at(K::Eof) || p.at(K::DocComment) {
+            m.complete(p, K::DocDecl);
             return;
         }
         if !p.at_fresh_line() {

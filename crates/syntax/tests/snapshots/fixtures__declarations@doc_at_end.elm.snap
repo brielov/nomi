@@ -15,7 +15,6 @@ Module@0..26
         Int@8..9 "1"
   Newline@9..10 "\n"
   Newline@10..11 "\n"
-  Error@11..25
+  DocDecl@11..25
     DocComment@11..25 "{-| Orphan. -}"
   Newline@25..26 "\n"
-error 26..26: ExpectedDeclaration
