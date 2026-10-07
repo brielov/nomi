@@ -1,0 +1,12 @@
+{
+  "name": "@nomi/runtime",
+  "private": true,
+  "description": "The fiber runtime behind nomi's Node platform; plain JS, no dependencies.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

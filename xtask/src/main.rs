@@ -114,7 +114,25 @@ fn ci() -> Result<()> {
         ],
     )?;
     cargo(&root, &["test", "--workspace", "--locked"])?;
+    runtime_tests(&root)?;
     architecture(&root)
+}
+
+/// The JS fiber runtime's tests. Node is required: tier 1 fails rather than
+/// skipping them when it is missing or too old.
+fn runtime_tests(root: &Path) -> Result<()> {
+    let refs = references::load(root)?;
+    let version = oracle::node_version(refs.node_minimum)?;
+    eprintln!("==> node --test runtime/ ({version})");
+    let status = Process::new("node")
+        .arg("--test")
+        .current_dir(root.join("runtime"))
+        .status()
+        .context("running node --test")?;
+    if !status.success() {
+        bail!("runtime tests failed");
+    }
+    Ok(())
 }
 
 /// Runs the suite's test target with the ratchet allowed to record newly
