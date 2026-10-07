@@ -447,8 +447,11 @@ fn hex_escapes_in(token: &SyntaxToken) -> impl Iterator<Item = (TextRange, &str)
     let mut i = 0;
     std::iter::from_fn(move || {
         while let Some(at) = text[i..].find('\\').map(|at| i + at) {
-            i = at + 2;
-            if text.as_bytes().get(at + 1) == Some(&b'x') {
+            // Past the escaped character, which an unterminated literal
+            // may lack.
+            let escaped = text[at + 1..].chars().next()?;
+            i = at + 1 + escaped.len_utf8();
+            if escaped == 'x' {
                 let digits = text[i..]
                     .find(|c: char| !c.is_ascii_hexdigit())
                     .map_or(&text[i..], |end| &text[i..i + end]);

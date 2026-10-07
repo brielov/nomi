@@ -1,6 +1,8 @@
 use nomi_base::Compat;
 
-use crate::{SyntaxErrorKind as E, parse_declarations, parse_expressions, parse_module};
+use crate::{
+    LexErrorKind, SyntaxErrorKind as E, parse_declarations, parse_expressions, parse_module,
+};
 
 use super::{Source, Tool, validate};
 
@@ -99,4 +101,21 @@ fn columns_wrap_in_16_bits_for_0_19_1() {
             assert_eq!(kinds(&parse, elm(compat)), [], "column {column}");
         }
     }
+}
+
+#[test]
+fn escapes_end_with_the_literal() {
+    // A backslash ending an unterminated literal, and one escaping a
+    // character of more than one byte.
+    for text in ["x = \"a\\", "x = '\\", "x = \"\\é\\x41\""] {
+        let parse = parse_module(text);
+        validate(&parse, ELM);
+        validate(&parse, Tool::ElmFormat);
+    }
+    // The lexer reports `\é`; validation, the `\x` after it.
+    let text = "module M exposing (x)\n\n\nx =\n    \"\\é\\x41\"\n";
+    let errors = validate(&parse_module(text), ELM);
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].kind, E::Lexical(LexErrorKind::UnknownEscape));
+    assert_eq!(&text[errors[0].range], "\\x");
 }
