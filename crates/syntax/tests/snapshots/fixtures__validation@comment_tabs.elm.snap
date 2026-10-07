@@ -1,0 +1,15 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/comment_tabs.elm
+---
+elm, application:
+  29..30 Lexical(Tab) "\t"
+  51..52 Lexical(Tab) "\t"
+elm, package:
+  29..30 Lexical(Tab) "\t"
+  51..52 Lexical(Tab) "\t"
+elm, kernel package:
+  29..30 Lexical(Tab) "\t"
+  51..52 Lexical(Tab) "\t"
+elm-format:

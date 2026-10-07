@@ -1,0 +1,12 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/dot_dot_comment.elm
+---
+elm, application:
+  27..27 Expected(RParen) ""
+elm, package:
+  27..27 Expected(RParen) ""
+elm, kernel package:
+  27..27 Expected(RParen) ""
+elm-format:

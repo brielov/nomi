@@ -45,6 +45,7 @@ pub fn validate(parse: &Parse, tool: Tool) -> Vec<SyntaxError> {
                 wrapped_columns(parse, wrap, &mut errors);
             }
             strings_spanning_lines(&root, &mut errors);
+            comment_tabs(&root, &mut errors);
             elm(&root, source, &mut errors);
         }
         Tool::ElmFormat => {
@@ -117,9 +118,18 @@ fn elm(root: &SyntaxNode, source: Source, errors: &mut Vec<SyntaxError>) {
             {
                 push(errors, E::LegacyExposing, trimmed(&node));
             }
-            K::ExposedVariants if token(&node, K::DotDot).is_none() => {
-                push(errors, E::LegacyExposedVariants, trimmed(&node));
-            }
+            K::ExposedVariants => match token(&node, K::DotDot) {
+                None => push(errors, E::LegacyExposedVariants, trimmed(&node)),
+                // elm reads `..--` as an operator.
+                Some(dots) => {
+                    if let Some(next) = dots.next_token()
+                        && next.kind() == K::LineComment
+                    {
+                        let at = TextRange::empty(next.text_range().start());
+                        push(errors, E::Expected(K::RParen), at);
+                    }
+                }
+            },
             _ => {}
         }
     }
@@ -361,6 +371,23 @@ fn last_import(module: &ast::Module, errors: &mut Vec<SyntaxError>) {
     }
     let end = module.syntax().text_range().end();
     push(errors, E::ImportWithoutNewline, TextRange::empty(end));
+}
+
+/// elm takes no tab in a block comment, where elm-format takes any.
+fn comment_tabs(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
+    let comments = (root.descendants_with_tokens())
+        .filter_map(|e| e.into_token())
+        .filter(|t| matches!(t.kind(), K::BlockComment | K::DocComment));
+    for token in comments {
+        for (i, _) in token.text().match_indices('\t') {
+            let start = token.text_range().start() + TextSize::new(i as u32);
+            push(
+                errors,
+                E::Lexical(LexErrorKind::Tab),
+                TextRange::at(start, TextSize::new(1)),
+            );
+        }
+    }
 }
 
 /// elm ends a `"` string unterminated at a line feed, which

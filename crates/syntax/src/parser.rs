@@ -599,6 +599,21 @@ impl<'t> Parser<'t> {
 
     /// Reports a problem and skips the current token inside an
     /// [`SyntaxKind::Error`] node. At the end it only reports.
+    /// Reports the current token as indented too little by a rule of its
+    /// construct's own, as `let` definitions must be right of the `let`:
+    /// an error in the strict layout, and in the loose one, which
+    /// elm-format reads, a token elm rejects.
+    pub(crate) fn misindented(&mut self) {
+        match self.layout {
+            Layout::Strict => self.error(SyntaxErrorKind::ExpectedIndent),
+            Layout::Loose => {
+                if let Some(a) = self.nth_token(0) {
+                    self.unindented.push(a.token.range);
+                }
+            }
+        }
+    }
+
     pub(crate) fn error_and_bump(&mut self, kind: SyntaxErrorKind) {
         self.error(kind);
         if !self.at(SyntaxKind::Eof) {

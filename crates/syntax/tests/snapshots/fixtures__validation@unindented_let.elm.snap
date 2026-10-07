@@ -1,0 +1,12 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/unindented_let.elm
+---
+elm, application:
+  51..52 ExpectedIndent "b"
+elm, package:
+  51..52 ExpectedIndent "b"
+elm, kernel package:
+  51..52 ExpectedIndent "b"
+elm-format:

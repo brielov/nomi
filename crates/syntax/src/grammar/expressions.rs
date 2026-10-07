@@ -153,7 +153,7 @@ fn let_expr(p: &mut Parser<'_>) -> CompletedMarker {
     if at_pattern_atom(p) {
         let column = p.current_column();
         if column <= let_column {
-            p.error(SyntaxErrorKind::ExpectedIndent);
+            p.misindented();
         }
         p.with_min_column(column + 1, |p| {
             p.anchor();

@@ -234,14 +234,11 @@ fn lines_end_at_line_feeds() {
 
 #[test]
 fn malformed_tokens_are_preserved_with_precise_errors() {
+    // The tab in the comment is validation's.
     let text = "\t{- open\t\n\"open\n'' 01 0x 1e+ [glsl|open §";
     assert_eq!(
         errors(text),
-        [
-            LexErrorKind::Tab,
-            LexErrorKind::Tab,
-            LexErrorKind::UnterminatedBlockComment,
-        ]
+        [LexErrorKind::Tab, LexErrorKind::UnterminatedBlockComment]
     );
     assert_lossless(text);
 }

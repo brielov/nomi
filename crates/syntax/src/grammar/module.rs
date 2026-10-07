@@ -139,8 +139,10 @@ fn exposing_list(p: &mut Parser<'_>) {
 /// `..` or a comma-separated list. In parentheses, junk before the next
 /// comma is skipped.
 fn exposed_items(p: &mut Parser<'_>, parenthesized: bool) {
-    if p.at(K::DotDot) {
-        p.bump();
+    // Both tools read `..` by its characters: `(..--x` is `(..` and a
+    // comment.
+    if p.at_symbol(K::DotDot) {
+        p.bump_symbol(K::DotDot);
         return;
     }
     exposed(p);
@@ -200,8 +202,10 @@ fn exposed(p: &mut Parser<'_>) {
 fn exposed_variants(p: &mut Parser<'_>) {
     let m = p.start();
     p.bump();
-    if p.at(K::DotDot) {
-        p.bump();
+    // elm-format reads `..` by its characters, elm an operator, so only
+    // elm-format takes a line comment right after it.
+    if p.at_symbol(K::DotDot) {
+        p.bump_symbol(K::DotDot);
     } else {
         expect_indented(p, K::UpperIdent);
         while p.at(K::Comma) && p.at_indented() {

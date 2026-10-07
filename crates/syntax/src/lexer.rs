@@ -254,10 +254,10 @@ impl<'a> Lexer<'a> {
                     return kind;
                 }
             } else {
-                match self.bytes[self.offset] {
-                    b'\t' => self.error(LexErrorKind::Tab, self.offset, self.offset + 1),
-                    0 => self.error(LexErrorKind::UnexpectedEncoding, self.offset, self.offset),
-                    _ => {}
+                // elm also rejects a tab here, which elm-format takes;
+                // validation reports it.
+                if self.bytes[self.offset] == 0 {
+                    self.error(LexErrorKind::UnexpectedEncoding, self.offset, self.offset);
                 }
                 self.offset += self.scalar_width(self.offset);
             }

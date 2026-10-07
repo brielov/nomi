@@ -5221,6 +5221,7 @@ accepted_expressions / delete '\n' at 423
 accepted_expressions / delete '\n' at 460
 accepted_expressions / delete '\n' at 462
 accepted_expressions / delete '\n' at 503
+accepted_expressions / delete '\n' at 517
 accepted_expressions / delete '\n' at 556
 accepted_expressions / delete '\n' at 563
 accepted_expressions / delete '\n' at 96
@@ -6821,6 +6822,7 @@ accepted_expressions / insert "--x\n" at 442
 accepted_expressions / insert "--x\n" at 444
 accepted_expressions / insert "--x\n" at 446
 accepted_expressions / insert "--x\n" at 448
+accepted_expressions / insert "--x\n" at 45
 accepted_expressions / insert "--x\n" at 451
 accepted_expressions / insert "--x\n" at 453
 accepted_expressions / insert "--x\n" at 455
@@ -6859,6 +6861,8 @@ accepted_expressions / insert "--x\n" at 522
 accepted_expressions / insert "--x\n" at 524
 accepted_expressions / insert "--x\n" at 526
 accepted_expressions / insert "--x\n" at 529
+accepted_expressions / insert "--x\n" at 531
+accepted_expressions / insert "--x\n" at 533
 accepted_expressions / insert "--x\n" at 535
 accepted_expressions / insert "--x\n" at 538
 accepted_expressions / insert "--x\n" at 54
@@ -8137,6 +8141,8 @@ accepted_expressions / insert "\n" at 522
 accepted_expressions / insert "\n" at 524
 accepted_expressions / insert "\n" at 526
 accepted_expressions / insert "\n" at 529
+accepted_expressions / insert "\n" at 531
+accepted_expressions / insert "\n" at 533
 accepted_expressions / insert "\n" at 535
 accepted_expressions / insert "\n" at 538
 accepted_expressions / insert "\n" at 54
@@ -9409,7 +9415,9 @@ accepted_expressions / insert "{-x-}" at 510
 accepted_expressions / insert "{-x-}" at 513
 accepted_expressions / insert "{-x-}" at 515
 accepted_expressions / insert "{-x-}" at 517
+accepted_expressions / insert "{-x-}" at 519
 accepted_expressions / insert "{-x-}" at 52
+accepted_expressions / insert "{-x-}" at 522
 accepted_expressions / insert "{-x-}" at 524
 accepted_expressions / insert "{-x-}" at 526
 accepted_expressions / insert "{-x-}" at 529
@@ -11314,6 +11322,7 @@ accepted_types / insert "--x\n" at 35
 accepted_types / insert "--x\n" at 36
 accepted_types / insert "--x\n" at 37
 accepted_types / insert "--x\n" at 38
+accepted_types / insert "--x\n" at 39
 accepted_types / insert "--x\n" at 4
 accepted_types / insert "--x\n" at 40
 accepted_types / insert "--x\n" at 41
@@ -15285,6 +15294,7 @@ all_declarations / insert "--x\n" at 1487
 all_declarations / insert "--x\n" at 1501
 all_declarations / insert "--x\n" at 1515
 all_declarations / insert "--x\n" at 1529
+all_declarations / insert "--x\n" at 154
 all_declarations / insert "--x\n" at 1543
 all_declarations / insert "--x\n" at 1557
 all_declarations / insert "--x\n" at 1571
@@ -17069,6 +17079,7 @@ all_declarations / insert "\t" at 140
 all_declarations / insert "\t" at 1403
 all_declarations / insert "\t" at 1417
 all_declarations / insert "\t" at 1431
+all_declarations / insert "\t" at 1445
 all_declarations / insert "\t" at 1459
 all_declarations / insert "\t" at 1473
 all_declarations / insert "\t" at 1487
@@ -17102,6 +17113,7 @@ all_declarations / insert "\t" at 1824
 all_declarations / insert "\t" at 1838
 all_declarations / insert "\t" at 1852
 all_declarations / insert "\t" at 1866
+all_declarations / insert "\t" at 1880
 all_declarations / insert "\t" at 1894
 all_declarations / insert "\t" at 1908
 all_declarations / insert "\t" at 1922
@@ -17202,11 +17214,13 @@ all_declarations / insert "\t" at 3101
 all_declarations / insert "\t" at 3115
 all_declarations / insert "\t" at 3129
 all_declarations / insert "\t" at 3143
+all_declarations / insert "\t" at 3157
 all_declarations / insert "\t" at 3171
 all_declarations / insert "\t" at 3186
 all_declarations / insert "\t" at 3200
 all_declarations / insert "\t" at 3214
 all_declarations / insert "\t" at 322
+all_declarations / insert "\t" at 3228
 all_declarations / insert "\t" at 3242
 all_declarations / insert "\t" at 3256
 all_declarations / insert "\t" at 3270
@@ -17953,6 +17967,7 @@ all_declarations / insert "{-x-}" at 2919
 all_declarations / insert "{-x-}" at 2933
 all_declarations / insert "{-x-}" at 294
 all_declarations / insert "{-x-}" at 2947
+all_declarations / insert "{-x-}" at 2961
 all_declarations / insert "{-x-}" at 2975
 all_declarations / insert "{-x-}" at 2989
 all_declarations / insert "{-x-}" at 3003
@@ -17960,6 +17975,7 @@ all_declarations / insert "{-x-}" at 3017
 all_declarations / insert "{-x-}" at 3031
 all_declarations / insert "{-x-}" at 3045
 all_declarations / insert "{-x-}" at 3059
+all_declarations / insert "{-x-}" at 3073
 all_declarations / insert "{-x-}" at 308
 all_declarations / insert "{-x-}" at 3087
 all_declarations / insert "{-x-}" at 3101
@@ -17991,6 +18007,7 @@ all_declarations / insert "{-x-}" at 3424
 all_declarations / insert "{-x-}" at 3438
 all_declarations / insert "{-x-}" at 3452
 all_declarations / insert "{-x-}" at 3466
+all_declarations / insert "{-x-}" at 3480
 all_declarations / insert "{-x-}" at 3494
 all_declarations / insert "{-x-}" at 350
 all_declarations / insert "{-x-}" at 3508
@@ -18552,6 +18569,7 @@ all_declarations / random 315
 all_declarations / random 316
 all_declarations / random 317
 all_declarations / random 318
+all_declarations / random 319
 all_declarations / random 32
 all_declarations / random 320
 all_declarations / random 321
@@ -30654,6 +30672,7 @@ module_syntax / insert "--x\n" at 238
 module_syntax / insert "--x\n" at 241
 module_syntax / insert "--x\n" at 244
 module_syntax / insert "--x\n" at 246
+module_syntax / insert "--x\n" at 249
 module_syntax / insert "--x\n" at 25
 module_syntax / insert "--x\n" at 251
 module_syntax / insert "--x\n" at 254
