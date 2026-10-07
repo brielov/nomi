@@ -1,0 +1,83 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/doc_comments.elm
+---
+Module@0..178
+  ModuleHeader@0..25
+    ModuleKw@0..6 "module"
+    Whitespace@6..7 " "
+    ModuleName@7..11
+      UpperIdent@7..11 "Main"
+    Whitespace@11..12 " "
+    ExposingList@12..25
+      ExposingKw@12..20 "exposing"
+      Whitespace@20..21 " "
+      LParen@21..22 "("
+      DotDot@22..24 ".."
+      RParen@24..25 ")"
+  Newline@25..26 "\n"
+  Newline@26..27 "\n"
+  DocComment@27..45 "{-| The module.\n-}"
+  Newline@45..46 "\n"
+  Newline@46..47 "\n"
+  Import@47..58
+    ImportKw@47..53 "import"
+    Whitespace@53..54 " "
+    ModuleName@54..58
+      UpperIdent@54..58 "Html"
+  Newline@58..59 "\n"
+  Newline@59..60 "\n"
+  Newline@60..61 "\n"
+  ValueDecl@61..105
+    DocComment@61..76 "{-| A value.\n-}"
+    Newline@76..77 "\n"
+    Signature@77..89
+      LowerIdent@77..83 "answer"
+      Whitespace@83..84 " "
+      Colon@84..85 ":"
+      Whitespace@85..86 " "
+      NamedType@86..89
+        UpperIdent@86..89 "Int"
+    Newline@89..90 "\n"
+    Definition@90..105
+      LowerIdent@90..96 "answer"
+      Whitespace@96..97 " "
+      Eq@97..98 "="
+      Newline@98..99 "\n"
+      Whitespace@99..103 "    "
+      LiteralExpr@103..105
+        Int@103..105 "42"
+  Newline@105..106 "\n"
+  Newline@106..107 "\n"
+  Newline@107..108 "\n"
+  CustomTypeDecl@108..137
+    DocComment@108..122 "{-| A type.\n-}"
+    Newline@122..123 "\n"
+    TypeKw@123..127 "type"
+    Whitespace@127..128 " "
+    UpperIdent@128..129 "A"
+    Newline@129..130 "\n"
+    Whitespace@130..134 "    "
+    Eq@134..135 "="
+    Whitespace@135..136 " "
+    Variant@136..137
+      UpperIdent@136..137 "A"
+  Newline@137..138 "\n"
+  Newline@138..139 "\n"
+  Newline@139..140 "\n"
+  TypeAliasDecl@140..177
+    DocComment@140..156 "{-| An alias.\n-}"
+    Newline@156..157 "\n"
+    TypeKw@157..161 "type"
+    Whitespace@161..162 " "
+    AliasKw@162..167 "alias"
+    Whitespace@167..168 " "
+    UpperIdent@168..169 "B"
+    Whitespace@169..170 " "
+    Eq@170..171 "="
+    Newline@171..172 "\n"
+    Whitespace@172..176 "    "
+    NamedType@176..177
+      UpperIdent@176..177 "A"
+  Newline@177..178 "\n"

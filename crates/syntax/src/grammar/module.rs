@@ -1,5 +1,7 @@
-//! The module header, the module documentation and imports.
+//! The module header, the module documentation, imports and the
+//! declarations that follow.
 
+use super::declarations::declaration;
 use super::{expect_indented, module_name, skip_junk};
 use crate::SyntaxKind as K;
 use crate::parser::{Parser, SyntaxErrorKind};
@@ -25,14 +27,9 @@ pub(super) fn module(p: &mut Parser<'_>) {
         import(p);
         skip_junk(p, SyntaxErrorKind::Unexpected, &[]);
     }
-    // TODO(plan 1.11): declarations.
-    if !p.at(K::Eof) {
-        p.error(SyntaxErrorKind::Unexpected);
-        let rest = p.start();
-        while !p.at(K::Eof) {
-            p.bump();
-        }
-        rest.complete(p, K::Error);
+    while !p.at(K::Eof) {
+        declaration(p);
+        skip_junk(p, SyntaxErrorKind::Unexpected, &[]);
     }
     m.complete(p, K::Module);
 }

@@ -57,7 +57,7 @@ fn applied_type(p: &mut Parser<'_>) -> CompletedMarker {
 }
 
 /// A type that needs no parentheses as an argument.
-fn type_atom(p: &mut Parser<'_>) -> CompletedMarker {
+pub(super) fn type_atom(p: &mut Parser<'_>) -> CompletedMarker {
     match p.current() {
         K::UpperIdent => {
             let m = p.start();

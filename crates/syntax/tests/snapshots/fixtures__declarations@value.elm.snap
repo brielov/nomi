@@ -1,0 +1,85 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/value.elm
+---
+Module@0..101
+  ModuleHeader@0..25
+    ModuleKw@0..6 "module"
+    Whitespace@6..7 " "
+    ModuleName@7..11
+      UpperIdent@7..11 "Main"
+    Whitespace@11..12 " "
+    ExposingList@12..25
+      ExposingKw@12..20 "exposing"
+      Whitespace@20..21 " "
+      LParen@21..22 "("
+      DotDot@22..24 ".."
+      RParen@24..25 ")"
+  Newline@25..26 "\n"
+  Newline@26..27 "\n"
+  Newline@27..28 "\n"
+  ValueDecl@28..56
+    Signature@28..40
+      LowerIdent@28..34 "answer"
+      Whitespace@34..35 " "
+      Colon@35..36 ":"
+      Whitespace@36..37 " "
+      NamedType@37..40
+        UpperIdent@37..40 "Int"
+    Newline@40..41 "\n"
+    Definition@41..56
+      LowerIdent@41..47 "answer"
+      Whitespace@47..48 " "
+      Eq@48..49 "="
+      Newline@49..50 "\n"
+      Whitespace@50..54 "    "
+      LiteralExpr@54..56
+        Int@54..56 "42"
+  Newline@56..57 "\n"
+  Newline@57..58 "\n"
+  Newline@58..59 "\n"
+  ValueDecl@59..78
+    Definition@59..78
+      LowerIdent@59..62 "add"
+      Whitespace@62..63 " "
+      VarPattern@63..64
+        LowerIdent@63..64 "a"
+      Whitespace@64..65 " "
+      VarPattern@65..66
+        LowerIdent@65..66 "b"
+      Whitespace@66..67 " "
+      Eq@67..68 "="
+      Newline@68..69 "\n"
+      Whitespace@69..73 "    "
+      OperatorChain@73..78
+        NameExpr@73..74
+          LowerIdent@73..74 "a"
+        Whitespace@74..75 " "
+        Op@75..76
+          Operator@75..76 "+"
+        Whitespace@76..77 " "
+        NameExpr@77..78
+          LowerIdent@77..78 "b"
+  Newline@78..79 "\n"
+  Newline@79..80 "\n"
+  Newline@80..81 "\n"
+  DestructureDecl@81..100
+    TuplePattern@81..89
+      LParen@81..82 "("
+      Whitespace@82..83 " "
+      VarPattern@83..84
+        LowerIdent@83..84 "x"
+      Comma@84..85 ","
+      Whitespace@85..86 " "
+      VarPattern@86..87
+        LowerIdent@86..87 "y"
+      Whitespace@87..88 " "
+      RParen@88..89 ")"
+    Whitespace@89..90 " "
+    Eq@90..91 "="
+    Newline@91..92 "\n"
+    Whitespace@92..96 "    "
+    NameExpr@96..100
+      LowerIdent@96..100 "pair"
+  Newline@100..101 "\n"

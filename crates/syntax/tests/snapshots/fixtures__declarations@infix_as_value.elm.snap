@@ -1,0 +1,30 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/infix_as_value.elm
+---
+Module@0..34
+  ValueDecl@0..17
+    Definition@0..17
+      LowerIdent@0..5 "infix"
+      Whitespace@5..6 " "
+      VarPattern@6..10
+        LowerIdent@6..10 "left"
+      Whitespace@10..11 " "
+      Eq@11..12 "="
+      Whitespace@12..13 " "
+      NameExpr@13..17
+        LowerIdent@13..17 "left"
+  Newline@17..18 "\n"
+  Newline@18..19 "\n"
+  Newline@19..20 "\n"
+  ValueDecl@20..33
+    Definition@20..33
+      LowerIdent@20..25 "infix"
+      Whitespace@25..26 " "
+      Eq@26..27 "="
+      Newline@27..28 "\n"
+      Whitespace@28..32 "    "
+      LiteralExpr@32..33
+        Int@32..33 "1"
+  Newline@33..34 "\n"

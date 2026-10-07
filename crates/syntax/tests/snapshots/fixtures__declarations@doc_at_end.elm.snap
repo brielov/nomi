@@ -1,0 +1,21 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/doc_at_end.elm
+---
+Module@0..26
+  ValueDecl@0..9
+    Definition@0..9
+      LowerIdent@0..1 "x"
+      Whitespace@1..2 " "
+      Eq@2..3 "="
+      Newline@3..4 "\n"
+      Whitespace@4..8 "    "
+      LiteralExpr@8..9
+        Int@8..9 "1"
+  Newline@9..10 "\n"
+  Newline@10..11 "\n"
+  Error@11..25
+    DocComment@11..25 "{-| Orphan. -}"
+  Newline@25..26 "\n"
+error 26..26: ExpectedDeclaration

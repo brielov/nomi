@@ -2,6 +2,7 @@
 //! elm and elm-format accept, legacy syntax included; the validation pass
 //! flags what a given tool rejects. `elm.ungram` describes the trees.
 
+mod declarations;
 mod definitions;
 mod expressions;
 mod module;

@@ -1,0 +1,19 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/variants_tight.elm
+---
+Module@0..13
+  CustomTypeDecl@0..12
+    TypeKw@0..4 "type"
+    Whitespace@4..5 " "
+    UpperIdent@5..6 "A"
+    Whitespace@6..7 " "
+    Eq@7..8 "="
+    Whitespace@8..9 " "
+    Variant@9..10
+      UpperIdent@9..10 "B"
+    Pipe@10..11 "|"
+    Variant@11..12
+      UpperIdent@11..12 "C"
+  Newline@12..13 "\n"

@@ -1,0 +1,17 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/indented_first.elm
+---
+Module@0..7
+  Whitespace@0..1 " "
+  ValueDecl@1..6
+    Definition@1..6
+      LowerIdent@1..2 "x"
+      Whitespace@2..3 " "
+      Eq@3..4 "="
+      Whitespace@4..5 " "
+      LiteralExpr@5..6
+        Int@5..6 "1"
+  Newline@6..7 "\n"
+error 1..2: ExpectedFreshLine

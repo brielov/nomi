@@ -1,0 +1,47 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/type_alias.elm
+---
+Module@0..61
+  TypeAliasDecl@0..60
+    TypeKw@0..4 "type"
+    Whitespace@4..5 " "
+    AliasKw@5..10 "alias"
+    Whitespace@10..11 " "
+    UpperIdent@11..15 "Pair"
+    Whitespace@15..16 " "
+    TypeParam@16..17
+      LowerIdent@16..17 "a"
+    Whitespace@17..18 " "
+    TypeParam@18..19
+      LowerIdent@18..19 "b"
+    Whitespace@19..20 " "
+    Eq@20..21 "="
+    Newline@21..22 "\n"
+    Whitespace@22..26 "    "
+    RecordType@26..60
+      LBrace@26..27 "{"
+      Whitespace@27..28 " "
+      FieldType@28..37
+        LowerIdent@28..33 "first"
+        Whitespace@33..34 " "
+        Colon@34..35 ":"
+        Whitespace@35..36 " "
+        TypeVar@36..37
+          LowerIdent@36..37 "a"
+      Newline@37..38 "\n"
+      Whitespace@38..42 "    "
+      Comma@42..43 ","
+      Whitespace@43..44 " "
+      FieldType@44..54
+        LowerIdent@44..50 "second"
+        Whitespace@50..51 " "
+        Colon@51..52 ":"
+        Whitespace@52..53 " "
+        TypeVar@53..54
+          LowerIdent@53..54 "b"
+      Newline@54..55 "\n"
+      Whitespace@55..59 "    "
+      RBrace@59..60 "}"
+  Newline@60..61 "\n"

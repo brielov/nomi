@@ -1,0 +1,74 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/port.elm
+---
+Module@0..116
+  ModuleHeader@0..31
+    PortKw@0..4 "port"
+    Whitespace@4..5 " "
+    ModuleKw@5..11 "module"
+    Whitespace@11..12 " "
+    ModuleName@12..17
+      UpperIdent@12..17 "Ports"
+    Whitespace@17..18 " "
+    ExposingList@18..31
+      ExposingKw@18..26 "exposing"
+      Whitespace@26..27 " "
+      LParen@27..28 "("
+      DotDot@28..30 ".."
+      RParen@30..31 ")"
+  Newline@31..32 "\n"
+  Newline@32..33 "\n"
+  Newline@33..34 "\n"
+  PortDecl@34..63
+    PortKw@34..38 "port"
+    Whitespace@38..39 " "
+    LowerIdent@39..43 "send"
+    Whitespace@43..44 " "
+    Colon@44..45 ":"
+    Whitespace@45..46 " "
+    FunctionType@46..63
+      NamedType@46..52
+        UpperIdent@46..52 "String"
+      Whitespace@52..53 " "
+      Arrow@53..55 "->"
+      Whitespace@55..56 " "
+      NamedType@56..63
+        UpperIdent@56..59 "Cmd"
+        Whitespace@59..60 " "
+        TypeVar@60..63
+          LowerIdent@60..63 "msg"
+  Newline@63..64 "\n"
+  Newline@64..65 "\n"
+  Newline@65..66 "\n"
+  PortDecl@66..115
+    PortKw@66..70 "port"
+    Whitespace@70..71 " "
+    LowerIdent@71..78 "receive"
+    Whitespace@78..79 " "
+    Colon@79..80 ":"
+    Newline@80..81 "\n"
+    Whitespace@81..85 "    "
+    FunctionType@85..115
+      ParenType@85..100
+        LParen@85..86 "("
+        FunctionType@86..99
+          NamedType@86..92
+            UpperIdent@86..92 "String"
+          Whitespace@92..93 " "
+          Arrow@93..95 "->"
+          Whitespace@95..96 " "
+          TypeVar@96..99
+            LowerIdent@96..99 "msg"
+        RParen@99..100 ")"
+      Newline@100..101 "\n"
+      Whitespace@101..105 "    "
+      Arrow@105..107 "->"
+      Whitespace@107..108 " "
+      NamedType@108..115
+        UpperIdent@108..111 "Sub"
+        Whitespace@111..112 " "
+        TypeVar@112..115
+          LowerIdent@112..115 "msg"
+  Newline@115..116 "\n"

@@ -25,6 +25,14 @@ fn module() {
 }
 
 #[test]
+fn declarations() {
+    insta::glob!("../test_data/parser", "declarations/*.elm", |path| {
+        let text = std::fs::read_to_string(path).unwrap();
+        insta::assert_snapshot!(render(&text, nomi_syntax::parse_module));
+    });
+}
+
+#[test]
 fn types() {
     insta::glob!("../test_data/parser", "types/*.elm", |path| {
         let text = std::fs::read_to_string(path).unwrap();

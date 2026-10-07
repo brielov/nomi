@@ -1,0 +1,30 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/junk_between.elm
+---
+Module@0..22
+  ValueDecl@0..9
+    Definition@0..9
+      LowerIdent@0..1 "x"
+      Whitespace@1..2 " "
+      Eq@2..3 "="
+      Newline@3..4 "\n"
+      Whitespace@4..8 "    "
+      LiteralExpr@8..9
+        Int@8..9 "1"
+  Newline@9..10 "\n"
+  Error@10..11
+    RParen@10..11 ")"
+  Newline@11..12 "\n"
+  ValueDecl@12..21
+    Definition@12..21
+      LowerIdent@12..13 "y"
+      Whitespace@13..14 " "
+      Eq@14..15 "="
+      Newline@15..16 "\n"
+      Whitespace@16..20 "    "
+      LiteralExpr@20..21
+        Int@20..21 "2"
+  Newline@21..22 "\n"
+error 10..11: ExpectedDeclaration

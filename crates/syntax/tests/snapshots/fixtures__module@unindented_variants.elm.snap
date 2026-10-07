@@ -17,10 +17,16 @@ Module@0..27
       ExposedType@19..20
         UpperIdent@19..20 "T"
   Newline@20..21 "\n"
-  Error@21..26
-    LParen@21..22 "("
-    DotDot@22..24 ".."
-    RParen@24..25 ")"
-    RParen@25..26 ")"
+  DestructureDecl@21..26
+    ParenPattern@21..25
+      LParen@21..22 "("
+      Missing@22..22
+      Error@22..24
+        DotDot@22..24 ".."
+      RParen@24..25 ")"
+    Error@25..26
+      RParen@25..26 ")"
   Newline@26..27 "\n"
 error 21..22: Expected(RParen)
+error 22..24: ExpectedPattern
+error 25..26: Expected(Eq)

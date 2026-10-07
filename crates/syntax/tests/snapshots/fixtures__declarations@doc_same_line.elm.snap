@@ -1,0 +1,18 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/doc_same_line.elm
+---
+Module@0..24
+  ValueDecl@0..23
+    DocComment@0..17 "{-| Same line. -}"
+    Whitespace@17..18 " "
+    Definition@18..23
+      LowerIdent@18..19 "x"
+      Whitespace@19..20 " "
+      Eq@20..21 "="
+      Whitespace@21..22 " "
+      LiteralExpr@22..23
+        Int@22..23 "1"
+  Newline@23..24 "\n"
+error 18..19: ExpectedFreshLine

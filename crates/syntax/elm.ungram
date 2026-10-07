@@ -70,6 +70,7 @@ Op =
 
 Decl =
   ValueDecl
+| DestructureDecl
 | TypeAliasDecl
 | CustomTypeDecl
 | PortDecl
@@ -83,6 +84,9 @@ Signature =
 
 Definition =
   'lower_ident' Pattern* '=' Expr
+
+DestructureDecl =
+  'doc_comment'? Pattern '=' Expr
 
 TypeAliasDecl =
   'doc_comment'? 'type' 'alias' 'upper_ident' TypeParam* '=' Type

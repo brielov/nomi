@@ -1,0 +1,81 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/custom_type.elm
+---
+Module@0..120
+  CustomTypeDecl@0..119
+    TypeKw@0..4 "type"
+    Whitespace@4..5 " "
+    UpperIdent@5..10 "Shape"
+    Whitespace@10..11 " "
+    TypeParam@11..12
+      LowerIdent@11..12 "a"
+    Newline@12..13 "\n"
+    Whitespace@13..17 "    "
+    Eq@17..18 "="
+    Whitespace@18..19 " "
+    Variant@19..31
+      UpperIdent@19..25 "Circle"
+      Whitespace@25..26 " "
+      NamedType@26..31
+        UpperIdent@26..31 "Float"
+    Newline@31..32 "\n"
+    Whitespace@32..36 "    "
+    Pipe@36..37 "|"
+    Whitespace@37..38 " "
+    Variant@38..76
+      UpperIdent@38..42 "Rect"
+      Whitespace@42..43 " "
+      RecordType@43..67
+        LBrace@43..44 "{"
+        Whitespace@44..45 " "
+        FieldType@45..54
+          LowerIdent@45..46 "w"
+          Whitespace@46..47 " "
+          Colon@47..48 ":"
+          Whitespace@48..49 " "
+          NamedType@49..54
+            UpperIdent@49..54 "Float"
+        Comma@54..55 ","
+        Whitespace@55..56 " "
+        FieldType@56..65
+          LowerIdent@56..57 "h"
+          Whitespace@57..58 " "
+          Colon@58..59 ":"
+          Whitespace@59..60 " "
+          NamedType@60..65
+            UpperIdent@60..65 "Float"
+        Whitespace@65..66 " "
+        RBrace@66..67 "}"
+      Whitespace@67..68 " "
+      ParenType@68..76
+        LParen@68..69 "("
+        NamedType@69..75
+          UpperIdent@69..73 "List"
+          Whitespace@73..74 " "
+          TypeVar@74..75
+            LowerIdent@74..75 "a"
+        RParen@75..76 ")"
+    Newline@76..77 "\n"
+    Whitespace@77..81 "    "
+    Pipe@81..82 "|"
+    Whitespace@82..83 " "
+    Variant@83..107
+      UpperIdent@83..88 "Named"
+      Whitespace@88..89 " "
+      NamedType@89..100
+        Qualifier@89..95
+          UpperIdent@89..94 "Maybe"
+          Dot@94..95 "."
+        UpperIdent@95..100 "Maybe"
+      Whitespace@100..101 " "
+      NamedType@101..107
+        UpperIdent@101..107 "String"
+    Newline@107..108 "\n"
+    Whitespace@108..112 "    "
+    Pipe@112..113 "|"
+    Whitespace@113..114 " "
+    Variant@114..119
+      UpperIdent@114..119 "Empty"
+  Newline@119..120 "\n"

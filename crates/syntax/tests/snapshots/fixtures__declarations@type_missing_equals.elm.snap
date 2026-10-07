@@ -1,0 +1,24 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/type_missing_equals.elm
+---
+Module@0..19
+  CustomTypeDecl@0..6
+    TypeKw@0..4 "type"
+    Whitespace@4..5 " "
+    UpperIdent@5..6 "A"
+  Newline@6..7 "\n"
+  Newline@7..8 "\n"
+  Newline@8..9 "\n"
+  ValueDecl@9..18
+    Definition@9..18
+      LowerIdent@9..10 "x"
+      Whitespace@10..11 " "
+      Eq@11..12 "="
+      Newline@12..13 "\n"
+      Whitespace@13..17 "    "
+      LiteralExpr@17..18
+        Int@17..18 "1"
+  Newline@18..19 "\n"
+error 9..10: Expected(Eq)

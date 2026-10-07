@@ -1,0 +1,16 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/signature_alone.elm
+---
+Module@0..8
+  ValueDecl@0..7
+    Signature@0..7
+      LowerIdent@0..1 "x"
+      Whitespace@1..2 " "
+      Colon@2..3 ":"
+      Whitespace@3..4 " "
+      NamedType@4..7
+        UpperIdent@4..7 "Int"
+  Newline@7..8 "\n"
+error 8..8: Expected(Definition)
