@@ -129,7 +129,7 @@ Goal: one lossless, tolerant parser used by every consumer, which accepts exactl
   - error tokens for unterminated literals.
 
   There is no formatting mode. **Check:** the old lexer tests, plus a property that tokens concatenate back to the input.
-- [ ] **1.5** `syntax: event parser and tree builder`.
+- [x] **1.5** `syntax: event parser and tree builder`.
   - Markers, events, and Missing/Error nodes.
   - The salvaged event-to-rowan builder, with its losslessness assertion.
   - A depth guard plus `stacker::maybe_grow`.

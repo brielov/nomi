@@ -77,6 +77,10 @@ impl Lexed {
     pub fn errors(&self) -> &[LexError] {
         &self.errors
     }
+
+    pub(crate) fn into_parts(self) -> (Vec<Token>, Vec<LexError>) {
+        (self.tokens, self.errors)
+    }
 }
 
 /// Lexes `text`. Panics if it is 4 GiB or longer.

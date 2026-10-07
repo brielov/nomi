@@ -180,6 +180,7 @@ Next to the crates:
 **Contextual tokens and depth**
 - Contextual splits such as `=-` happen in place. Re-lexing stops as soon as the token stream resynchronizes, normally by the end of the line.
 - Every recursive pass in every crate, not just the parser, has a depth guard or `stacker::maybe_grow`. Long `++` chains and deeply nested literals lower into deep trees.
+- The parser's depth guard also bounds the tree's depth. rowan drops trees recursively, which nothing can guard, so the shell runs core work on threads with `nomi_base::STACK_SIZE` bytes of stack, sized for the deepest tree the guard admits. The tree builder skips rowan's node cache, which rehashes subtrees recursively.
 
 **Recovery and IDs**
 - Recovery at module level resynchronizes at the next column-0 token that can start a declaration, and reports one error per recovery.

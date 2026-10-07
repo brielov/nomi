@@ -30,6 +30,7 @@ pub const ALLOWED_EXTERNAL: &[&str] = &[
     "libc",
     "windows-sys",
     "windows-targets",
+    "windows-link",
     // collections and small types
     "indexmap",
     "equivalent",
