@@ -12,6 +12,8 @@
 //   fork      start a child fiber, succeed with its handle
 //   await     wait for a fiber, succeed with its exit
 //   yield     go to the back of the run queue
+//   sleep     suspend until the runtime's clock passes a delay
+//   now       succeed with the clock's time
 //   mask      run a task uninterruptibly
 //   scoped    run a task in a new scope, closed when it ends
 //   interrupt ask a fiber to stop and wait for its exit
@@ -36,6 +38,8 @@
 // waiting for is reported through `reportDefect`; it never escapes into the
 // host and never crashes the process.
 
+import { RealClock } from "./clock.js";
+
 const EXIT = "exit";
 const SYNC = "sync";
 const ASYNC = "async";
@@ -47,11 +51,13 @@ const YIELD = "yield";
 const MASK = "mask";
 const SCOPED = "scoped";
 const INTERRUPT = "interrupt";
+const SLEEP = "sleep";
+const NOW = "now";
 // Internal: only this module builds these.
 const WITH_FIBER = "withFiber";
 const REAP = "reap";
 
-const TAGS = new Set([EXIT, SYNC, ASYNC, AND_THEN, ON_ERROR, FORK, AWAIT, YIELD, MASK, SCOPED, INTERRUPT]);
+const TAGS = new Set([EXIT, SYNC, ASYNC, AND_THEN, ON_ERROR, FORK, AWAIT, YIELD, MASK, SCOPED, INTERRUPT, SLEEP, NOW]);
 const INTERNAL = new Set([WITH_FIBER, REAP]);
 
 // Frames that only the unwinding loop sees.
@@ -129,6 +135,12 @@ export const awaitFiber = (fiber) => ({ $: AWAIT, fiber });
 export const join = (fiber) => andThen(awaitFiber(fiber), done);
 
 export const yieldNow = Object.freeze({ $: YIELD });
+
+/** Suspends for `ms` milliseconds of the runtime's clock. */
+export const sleep = (ms) => ({ $: SLEEP, ms });
+
+/** Succeeds with the runtime's clock time, in milliseconds. */
+export const now = Object.freeze({ $: NOW });
 
 /** Runs `task` with interruption deferred until it ends. */
 export const uninterruptible = (task) => ({ $: MASK, task });
@@ -220,6 +232,9 @@ export class Fiber {
   epoch = 0;
   // Undoes the current suspension, if it can be undone.
   cancel = null;
+  // Whether the current suspension waits on the host (I/O), which keeps a
+  // test clock still.
+  io = false;
   /** The scope the fiber was forked into. */
   parent;
   /** The innermost open scope; forks and finalizers go here. */
@@ -255,6 +270,7 @@ function defaultReport(defect, fiber) {
  *   back of the queue, so one busy fiber cannot starve the others.
  * - `budget` is how many instructions run before control goes back to the
  *   host, so a busy runtime cannot starve the event loop.
+ * - `clock` serves `sleep` and `now`; see clock.js.
  */
 export class Runtime {
   /** Live fibers by id; a finished fiber leaves at once. */
@@ -271,9 +287,19 @@ export class Runtime {
   #yieldEvery;
   #budget;
   #reportDefect;
+  #clock;
+  // Fibers suspended on the host.
+  #io = 0;
 
-  constructor({ schedule = setImmediate, yieldEvery = 2048, budget = 65536, reportDefect = defaultReport } = {}) {
+  constructor({
+    schedule = setImmediate,
+    yieldEvery = 2048,
+    budget = 65536,
+    reportDefect = defaultReport,
+    clock = new RealClock(),
+  } = {}) {
     this.#schedule = schedule;
+    this.#clock = clock;
     this.#yieldEvery = yieldEvery;
     this.#budget = budget;
     this.#reportDefect = reportDefect;
@@ -339,6 +365,7 @@ export class Runtime {
     }
     this.#draining = false;
     if (this.#head < this.#queue.length) this.#wake();
+    else if (this.#io === 0) this.#clock.idle();
   }
 
   /** Runs `fiber` until it suspends, finishes or uses its slice; returns the instructions run. */
@@ -452,7 +479,7 @@ export class Runtime {
             task = done(Exit.interrupt());
             break;
           }
-          this.#suspend(fiber);
+          this.#suspend(fiber, true);
           const epoch = fiber.epoch;
           const resume = (next) => this.#resume(fiber, epoch, isTask(next) ? next : die(notATask(next)));
           try {
@@ -461,7 +488,7 @@ export class Runtime {
           } catch (error) {
             if (fiber.epoch === epoch && fiber.status === SUSPENDED) {
               // Nothing resumed it yet: the exception is how it ends.
-              fiber.epoch++;
+              this.#endSuspension(fiber);
               fiber.status = RUNNING;
               task = die(error);
               break;
@@ -471,6 +498,19 @@ export class Runtime {
           }
           return n;
         }
+        case SLEEP: {
+          if (this.#takeInterrupt(fiber)) {
+            task = done(Exit.interrupt());
+            break;
+          }
+          this.#suspend(fiber);
+          const epoch = fiber.epoch;
+          fiber.cancel = this.#clock.setTimer(task.ms, () => this.#resume(fiber, epoch, succeed(undefined)));
+          return n;
+        }
+        case NOW:
+          task = this.#callValue(() => this.#clock.now());
+          break;
         case YIELD:
           fiber.task = succeed(undefined);
           this.#enqueue(fiber);
@@ -496,15 +536,26 @@ export class Runtime {
     }
   }
 
-  #suspend(fiber) {
+  #suspend(fiber, io = false) {
     fiber.status = SUSPENDED;
     fiber.task = null;
+    fiber.io = io;
+    if (io) this.#io++;
+  }
+
+  /** Ends the current suspension, so its `resume` and `cancel` go stale. */
+  #endSuspension(fiber) {
+    fiber.epoch++;
+    fiber.cancel = null;
+    if (fiber.io) {
+      fiber.io = false;
+      this.#io--;
+    }
   }
 
   #resume(fiber, epoch, task) {
     if (fiber.epoch !== epoch || fiber.status !== SUSPENDED) return;
-    fiber.epoch++;
-    fiber.cancel = null;
+    this.#endSuspension(fiber);
     fiber.task = task;
     this.#enqueue(fiber);
   }
@@ -514,9 +565,8 @@ export class Runtime {
     if (fiber.exit !== null) return;
     fiber.interruptPending = true;
     if (fiber.status !== SUSPENDED || !this.#takeInterrupt(fiber)) return;
-    fiber.epoch++;
     const cancel = fiber.cancel;
-    fiber.cancel = null;
+    this.#endSuspension(fiber);
     if (cancel !== null) {
       try {
         cancel();
