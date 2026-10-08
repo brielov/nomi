@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 nomi-base.workspace = true
+nomi-format.workspace = true
 rayon.workspace = true
 tempfile.workspace = true
 walkdir.workspace = true

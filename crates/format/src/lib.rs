@@ -23,17 +23,27 @@ const STACK_SEGMENT: usize = 2 * 1024 * 1024;
 fn guarded<R>(step: impl FnOnce() -> R) -> R {
     stacker::maybe_grow(RED_ZONE, STACK_SEGMENT, step)
 }
-use nomi_syntax::{Tool, parse_module, validate};
+use nomi_syntax::{SyntaxError, Tool, parse_module, validate};
 
 /// `text` formatted as elm-format does, or `None` where elm-format
 /// rejects it.
 pub fn format(text: &str) -> Option<String> {
+    format_module(text).ok()
+}
+
+/// `text` formatted as elm-format does, or, where elm-format rejects it,
+/// the first error in the text.
+pub fn format_module(text: &str) -> Result<String, SyntaxError> {
     let parse = parse_module(text);
-    if !parse.errors().is_empty() || !validate(&parse, Tool::ElmFormat).is_empty() {
-        return None;
+    let first = |errors: &[SyntaxError]| errors.iter().min_by_key(|e| e.range.start()).copied();
+    if let Some(error) = first(parse.errors()) {
+        return Err(error);
+    }
+    if let Some(error) = first(&validate(&parse, Tool::ElmFormat)) {
+        return Err(error);
     }
     let module = lower::module(&parse.syntax(), text);
-    Some(render::module(&module))
+    Ok(render::module(&module))
 }
 
 #[cfg(test)]
