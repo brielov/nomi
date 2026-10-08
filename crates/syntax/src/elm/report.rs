@@ -18,6 +18,9 @@ macro_rules! fill {
     };
 }
 
+mod decl;
+mod types;
+
 /// `toReport`: what elm `compat` reports of `error` in `source`, or
 /// `None` where the port doesn't reach yet.
 pub fn to_problem(source: &code::Source<'_>, error: &Error, compat: Compat) -> Option<Problem> {
@@ -160,6 +163,10 @@ fn dullyellow(d: impl Into<Doc>) -> Doc {
     d.into().color(Color::DullYellow)
 }
 
+fn blue(d: impl Into<Doc>) -> Doc {
+    d.into().color(Color::Blue)
+}
+
 /// Reports from one module's text, as one release words them.
 struct Reporter<'s, 'a> {
     source: &'s code::Source<'a>,
@@ -233,7 +240,9 @@ impl Reporter<'_, '_> {
             Module::ModuleSpace(space, cur) => self.space(*space, *cur),
             // 0.19.1 checks for column 1, later releases for the line's
             // start (`isLineStart`), each its first column.
-            Module::ModuleBadEnd(cur) if cur.col == self.compat.first_position() => return None,
+            Module::ModuleBadEnd(cur) if cur.col == self.compat.first_position() => {
+                self.decl_start(*cur)
+            }
             Module::ModuleBadEnd(cur) => self.weird_end(*cur),
             Module::ModuleProblem(cur) => self.at(
                 "UNFINISHED MODULE DECLARATION",
@@ -394,7 +403,7 @@ impl Reporter<'_, '_> {
                      built-in operators.",
                 ),
             ),
-            Module::Declarations(..) => return None,
+            Module::Declarations(decl, _) => return self.declarations(decl),
         })
     }
 
@@ -964,6 +973,14 @@ fn position(cur: Cursor) -> Position {
 fn to_region(cur: Cursor) -> Region {
     Region {
         start: position(cur),
+        end: position(cur),
+    }
+}
+
+/// `A.Region startCur cur`.
+fn surroundings(start: Cursor, cur: Cursor) -> Region {
+    Region {
+        start: position(start),
         end: position(cur),
     }
 }

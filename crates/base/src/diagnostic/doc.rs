@@ -332,7 +332,11 @@ pub fn reflow_link(before: &str, page: &str, after: &str) -> Doc {
 }
 
 pub fn simple_note(message: &str) -> Doc {
-    labelled("Note", words(message))
+    note(words(message))
+}
+
+pub fn note(docs: impl IntoIterator<Item = Doc>) -> Doc {
+    labelled("Note", docs)
 }
 
 /// `D.intToOrdinal`: 1st, 2nd, 3rd, 4th, 11th, 0th.
