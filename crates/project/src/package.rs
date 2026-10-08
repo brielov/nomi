@@ -7,6 +7,7 @@ use std::fmt;
 
 use nomi_base::{Compat, suggest};
 
+use crate::Version;
 use crate::json::{Cursor, Position};
 use crate::scan::Scan;
 
@@ -65,18 +66,36 @@ impl Name {
     /// nothing after it, failing with the position upstream reports.
     pub fn parse(bytes: &[u8], start: Cursor, compat: Compat) -> Result<Name, Position> {
         let mut scan = Scan::new(bytes, start, compat);
-        let author = part(
-            &mut scan,
-            u8::is_ascii_alphanumeric,
-            u8::is_ascii_alphanumeric,
-        );
-        let author = author.map_err(Cursor::position)?;
-        scan.byte(b'/').map_err(Cursor::position)?;
-        let project = part(&mut scan, u8::is_ascii_lowercase, |b| {
-            b.is_ascii_lowercase() || b.is_ascii_digit()
-        });
-        let project = project.map_err(Cursor::position)?;
+        let name = Name::scan(&mut scan).map_err(Cursor::position)?;
         scan.finish().map_err(Cursor::position)?;
+        Ok(name)
+    }
+
+    /// `Deps.Registry.newPkgParser`: a release as the registry lists new
+    /// ones, `author/project@version`, and nothing after it.
+    pub fn parse_release(
+        bytes: &[u8],
+        start: Cursor,
+        compat: Compat,
+    ) -> Result<(Name, Version), Position> {
+        let mut scan = Scan::new(bytes, start, compat);
+        let release = (|| {
+            let name = Name::scan(&mut scan)?;
+            scan.byte(b'@')?;
+            let version = Version::scan(&mut scan)?;
+            scan.finish()?;
+            Ok((name, version))
+        })();
+        release.map_err(Cursor::position)
+    }
+
+    /// `parser`.
+    fn scan(scan: &mut Scan<'_>) -> Result<Name, Cursor> {
+        let author = part(scan, u8::is_ascii_alphanumeric, u8::is_ascii_alphanumeric)?;
+        scan.byte(b'/')?;
+        let project = part(scan, u8::is_ascii_lowercase, |b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit()
+        })?;
         Ok(Name::known(author, project))
     }
 

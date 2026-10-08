@@ -14,6 +14,7 @@ nomi-base = { path = "crates/base" }
 nomi-engine = { path = "crates/engine" }
 nomi-format = { path = "crates/format" }
 nomi-project = { path = "crates/project" }
+nomi-registry = { path = "crates/registry" }
 nomi-syntax = { path = "crates/syntax" }
 nomi-testkit = { path = "crates/testkit" }
 clap = { version = "4.6", features = ["derive"] }
@@ -30,6 +31,7 @@ stacker = "0.1"
 tempfile = "3.27"
 text-size = "1.1"
 ungrammar = "1.16"
+ureq = { version = "3.4", features = ["gzip"] }
 walkdir = "2.5"
 
 [workspace.lints.rust]

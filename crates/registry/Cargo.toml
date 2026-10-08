@@ -1,0 +1,19 @@
+[package]
+name = "nomi-registry"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+nomi-base.workspace = true
+nomi-project.workspace = true
+tempfile.workspace = true
+ureq.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
