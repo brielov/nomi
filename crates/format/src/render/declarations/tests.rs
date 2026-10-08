@@ -36,3 +36,20 @@ fn a_fixity_keeps_its_doc_comment() {
         "module M exposing (..)\n\n\nx =\n    1\n\n\n{-| doc\n-}\n\n\ninfix left  4 (+++) = f\n\n\ny =\n    2\n",
     );
 }
+
+#[test]
+fn elm_0_16_port_definitions_print_as_definitions() {
+    assert_formats(
+        "module A exposing (..)\nx = 1\nport out = signal\n{-| doc -}\nport tasks {- a -} = -- b\n    Signal.map f\n        inputs\nport tasks : Signal Int\nport z\n  {- c -}\n  = 1\nport w =\n  {- d -} 2\ny = 2\n",
+        "module A exposing (..)\n\n\nx =\n    1\n\n\nport out =\n    signal\n\n\n{-| doc\n-}\nport tasks {- a -} =\n    -- b\n    Signal.map f\n        inputs\nport tasks : Signal Int\n\n\nport z {- c -} =\n    1\n\n\nport w =\n    {- d -} 2\n\n\ny =\n    2\n",
+    );
+}
+
+#[test]
+fn a_module_without_a_header_exposes_no_port_definition() {
+    let formatted = crate::format("port out = signal\nport inp : Signal Int\nx = 1\n").unwrap();
+    assert_eq!(
+        formatted.lines().next(),
+        Some("module Main exposing (inp, x)")
+    );
+}

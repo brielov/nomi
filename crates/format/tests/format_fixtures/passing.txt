@@ -9,6 +9,7 @@ elm-format/parser/tests/test-files/good/Lists/ListRange.elm
 elm-format/parser/tests/test-files/good/Lists/NonEmptyList.elm
 elm-format/parser/tests/test-files/good/NoExpressions.elm
 elm-format/parser/tests/test-files/good/Otherwise.elm
+elm-format/parser/tests/test-files/good/Ports.elm
 elm-format/parser/tests/test-files/good/PortsWithTypeAliases.elm
 elm-format/parser/tests/test-files/good/QuotesAndComments.elm
 elm-format/parser/tests/test-files/good/Soundness/Apply.elm
@@ -52,6 +53,7 @@ elm-format/tests/test-files/good/Elm-0.17/elm-lang/examples/random.elm
 elm-format/tests/test-files/good/Elm-0.17/elm-lang/examples/time.elm
 elm-format/tests/test-files/good/Elm-0.17/elm-lang/examples/websockets.elm
 elm-format/tests/test-files/good/Elm-0.17/elm-lang/websocket/WebSocket.elm
+elm-format/tests/test-files/good/Elm-0.18/AllSyntax/AllSyntax.elm
 elm-format/tests/test-files/good/Elm-0.18/AllSyntax/BlockComments/Module.elm
 elm-format/tests/test-files/good/Elm-0.18/AllSyntax/BlockComments/Patterns.elm
 elm-format/tests/test-files/good/Elm-0.18/AllSyntax/BlockComments/Types.elm
@@ -75,6 +77,7 @@ elm-format/tests/test-files/good/Elm-0.18/AllSyntax/OldKeywords.elm
 elm-format/tests/test-files/good/Elm-0.18/AllSyntax/Patterns.elm
 elm-format/tests/test-files/good/Elm-0.18/AllSyntax/Types.elm
 elm-format/tests/test-files/good/Elm-0.18/ApiSketch.elm
+elm-format/tests/test-files/good/Elm-0.18/Comments.elm
 elm-format/tests/test-files/good/Elm-0.18/Export.elm
 elm-format/tests/test-files/good/Elm-0.18/Simple.elm
 elm-format/tests/test-files/good/Elm-0.18/TheSeamau5/elm-check/Check.elm
@@ -967,6 +970,7 @@ nomi/transform/039.elm
 nomi/transform/040.elm
 nomi/transform/041.elm
 nomi/transform/042.elm
+nomi/transform/043.elm
 nomi/transform/044.elm
 nomi/transform/045.elm
 nomi/transform/046.elm

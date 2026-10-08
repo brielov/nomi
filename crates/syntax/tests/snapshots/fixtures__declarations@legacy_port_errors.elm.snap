@@ -1,0 +1,26 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/legacy_port_errors.elm
+---
+Module@0..23
+  PortDecl@0..11
+    PortKw@0..4 "port"
+    Whitespace@4..5 " "
+    Error@5..11
+      InKw@5..7 "in"
+      Whitespace@7..8 " "
+      Eq@8..9 "="
+      Whitespace@9..10 " "
+      LowerIdent@10..11 "x"
+  Newline@11..12 "\n"
+  LegacyPortDecl@12..22
+    PortKw@12..16 "port"
+    Whitespace@16..17 " "
+    LowerIdent@17..20 "out"
+    Whitespace@20..21 " "
+    Eq@21..22 "="
+    Missing@22..22
+  Newline@22..23 "\n"
+error 5..7: Expected(LowerIdent)
+error 23..23: ExpectedExpression

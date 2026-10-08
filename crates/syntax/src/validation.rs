@@ -125,6 +125,7 @@ fn elm(root: &SyntaxNode, source: Source, errors: &mut Vec<SyntaxError>) {
             }
             K::InfixDecl => joined_precedence(&node, errors),
             K::LegacyInfixDecl => push(errors, E::LegacyInfix, trimmed(&node)),
+            K::LegacyPortDecl => push(errors, E::LegacyPort, trimmed(&node)),
             K::ExposingList
                 if token(&node, K::ExposingKw).is_none() || token(&node, K::LParen).is_none() =>
             {

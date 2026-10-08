@@ -1,0 +1,58 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/legacy_port.elm
+---
+Module@0..118
+  LegacyPortDecl@0..17
+    PortKw@0..4 "port"
+    Whitespace@4..5 " "
+    LowerIdent@5..8 "out"
+    Whitespace@8..9 " "
+    Eq@9..10 "="
+    Whitespace@10..11 " "
+    NameExpr@11..17
+      LowerIdent@11..17 "signal"
+  Newline@17..18 "\n"
+  LegacyPortDecl@18..90
+    DocComment@18..28 "{-| doc -}"
+    Newline@28..29 "\n"
+    PortKw@29..33 "port"
+    Whitespace@33..34 " "
+    LowerIdent@34..39 "tasks"
+    Whitespace@39..40 " "
+    BlockComment@40..47 "{- a -}"
+    Whitespace@47..48 " "
+    Eq@48..49 "="
+    Newline@49..50 "\n"
+    Whitespace@50..54 "    "
+    CallExpr@54..90
+      LineComment@54..58 "-- b"
+      Newline@58..59 "\n"
+      Whitespace@59..63 "    "
+      NameExpr@63..73
+        Qualifier@63..70
+          UpperIdent@63..69 "Signal"
+          Dot@69..70 "."
+        LowerIdent@70..73 "map"
+      Whitespace@73..74 " "
+      NameExpr@74..75
+        LowerIdent@74..75 "f"
+      Newline@75..76 "\n"
+      Whitespace@76..84 "        "
+      NameExpr@84..90
+        LowerIdent@84..90 "inputs"
+  Newline@90..91 "\n"
+  PortDecl@91..117
+    PortKw@91..95 "port"
+    Whitespace@95..96 " "
+    LowerIdent@96..104 "incoming"
+    Whitespace@104..105 " "
+    Colon@105..106 ":"
+    Whitespace@106..107 " "
+    NamedType@107..117
+      UpperIdent@107..113 "Signal"
+      Whitespace@113..114 " "
+      NamedType@114..117
+        UpperIdent@114..117 "Int"
+  Newline@117..118 "\n"

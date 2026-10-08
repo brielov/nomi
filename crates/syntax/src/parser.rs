@@ -169,6 +169,9 @@ pub enum SyntaxErrorKind {
     /// Elm 0.18's infix declaration, as in `infixl 0 |>`. elm wants
     /// `infix left 0 (|>) = apR`, and only in a kernel package.
     LegacyInfix,
+    /// Elm 0.16's port definition, as in `port out = signal`. elm wants
+    /// a port's type, as in `port out : String -> Cmd msg`.
+    LegacyPort,
     /// The legacy `where` after a module's name or exposing list.
     LegacyWhere,
     /// An effect module without `where { command = … }`.

@@ -7,6 +7,7 @@ use nomi_syntax::{SyntaxKind, SyntaxToken};
 
 use super::cursor::Cursor;
 use super::definitions::{annotation, definition, destructure};
+use super::expressions::expr;
 use super::types::ty;
 use super::{VALID, c, lower_name, range, significant, start, symbol, token, upper_name};
 use crate::tree::{
@@ -24,6 +25,7 @@ pub(super) fn declaration(cx: &mut Cursor, body: &mut Body, decl: &ast::Decl) {
         ast::Decl::TypeAliasDecl(d) => d.doc_comment_token(),
         ast::Decl::CustomTypeDecl(d) => d.doc_comment_token(),
         ast::Decl::PortDecl(d) => d.doc_comment_token(),
+        ast::Decl::LegacyPortDecl(d) => d.doc_comment_token(),
         ast::Decl::DocDecl(d) => d.doc_comment_token(),
         ast::Decl::InfixDecl(d) => d.doc_comment_token(),
         ast::Decl::LegacyInfixDecl(d) => d.doc_comment_token(),
@@ -63,6 +65,10 @@ pub(super) fn declaration(cx: &mut Cursor, body: &mut Body, decl: &ast::Decl) {
         ast::Decl::PortDecl(d) => {
             comments_before(cx, body, start(&d.port_token().expect(VALID)));
             body.push(TopLevelStructure::Entry(port(cx, d)));
+        }
+        ast::Decl::LegacyPortDecl(d) => {
+            comments_before(cx, body, start(&d.port_token().expect(VALID)));
+            body.push(TopLevelStructure::Entry(legacy_port(cx, d)));
         }
         ast::Decl::InfixDecl(d) => {
             comments_before(cx, body, start(&d.infix_token().expect(VALID)));
@@ -168,6 +174,20 @@ fn port(cx: &mut Cursor, node: &ast::PortDecl) -> Declaration {
         c((before_name, after_name), lower_name(&name)),
         before_type,
         ty(cx, &annotation),
+    )
+}
+
+/// Elm 0.16's `port name = expr`.
+fn legacy_port(cx: &mut Cursor, node: &ast::LegacyPortDecl) -> Declaration {
+    let name = node.lower_ident_token().expect(VALID);
+    let before_name = cx.take(start(&name));
+    let after_name = cx.take(start(&node.eq_token().expect(VALID)));
+    let value = node.expr().expect(VALID);
+    let before_value = cx.take(range(value.syntax()).start());
+    Declaration::PortDefinition(
+        c((before_name, after_name), lower_name(&name)),
+        before_value,
+        expr(cx, &value),
     )
 }
 

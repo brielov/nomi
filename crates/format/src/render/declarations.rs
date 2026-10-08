@@ -68,7 +68,9 @@ fn entry(decl: &Declaration) -> Entry<'_> {
         Declaration::TypeAlias(_, name_with_args, _) => {
             Entry::Named(NamedRef::Tag(&name_with_args.value.name.0))
         }
-        Declaration::PortAnnotation(var, ..) => Entry::Named(NamedRef::Var(&var.value.0)),
+        Declaration::PortAnnotation(var, ..) | Declaration::PortDefinition(var, ..) => {
+            Entry::Named(NamedRef::Var(&var.value.0))
+        }
         Declaration::Fixity(..) | Declaration::LegacyFixity(..) => Entry::Fixity,
     }
 }
@@ -229,6 +231,16 @@ fn declaration(decl: &Declaration) -> Block {
             text("port"),
             vec![c2(var, |v| Block::line(name(&v.0)))],
             pre_commented(type_comments, type_alone(ty)),
+        ),
+        Declaration::PortDefinition(var, body_comments, body) => definition(
+            "=",
+            true,
+            text("port"),
+            vec![c2(var, |v| Block::line(name(&v.0)))],
+            pre_commented(
+                body_comments,
+                syntax_parens(SyntaxSeparated, format_expression(body)),
+            ),
         ),
         Declaration::Fixity(assoc, precedence, op, value) => {
             let assoc_word = match assoc.value {

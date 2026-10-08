@@ -9,8 +9,7 @@
 //!
 //! Upstream's node kinds are separate types here, one per kind, and the
 //! type-level labels on its comment slots (`'BeforeTerm`, `'AfterTerm`, …)
-//! are field docs. Left out: `PortDefinition_until_0_16`, and the
-//! `ContainedCommentedList` and `ExposedCommentedList` that no node holds.
+//! are field docs. Left out: the `ContainedCommentedList` and `ExposedCommentedList` that no node holds.
 
 use std::collections::BTreeMap;
 
@@ -352,6 +351,10 @@ pub(crate) enum Declaration {
     TypeAlias(Comments, C2<NameWithArgs<Upper, Lower>>, C1<Type>),
     /// The name with comments around it, comments after `:`, and the type.
     PortAnnotation(C2<Lower>, Comments, Type),
+    /// Elm 0.16's `port name = expr`: the name with comments around it,
+    /// comments after `=`, and the value; upstream's
+    /// `PortDefinition_until_0_16`.
+    PortDefinition(C2<Lower>, Comments, Expr),
     /// `infix left 6 (+) = add`, each part with comments before it, and
     /// after the operator.
     Fixity(C1<Assoc>, C1<i64>, C2<Symbol>, C1<Lower>),

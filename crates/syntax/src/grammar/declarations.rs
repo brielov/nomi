@@ -129,10 +129,16 @@ fn variant(p: &mut Parser<'_>) {
     m.complete(p, K::Variant);
 }
 
-/// `port send : String -> Cmd msg`.
+/// `port send : String -> Cmd msg`, or Elm 0.16's `port out = signal`.
 fn port(p: &mut Parser<'_>, m: Marker) {
     p.bump();
     expect_indented(p, K::LowerIdent);
+    if p.at_symbol(K::Eq) {
+        p.bump_symbol(K::Eq);
+        expr(p);
+        m.complete(p, K::LegacyPortDecl);
+        return;
+    }
     if expect_part(p, K::Colon) {
         type_(p);
     }

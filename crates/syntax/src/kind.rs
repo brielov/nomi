@@ -190,6 +190,7 @@ syntax_kinds! {
         TypeParam,
         Variant,
         PortDecl,
+        LegacyPortDecl,
         InfixDecl,
         LegacyInfixDecl,
         DocDecl,
