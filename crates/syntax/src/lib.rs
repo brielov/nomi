@@ -2,6 +2,7 @@
 
 pub mod ast;
 pub mod elm;
+pub mod elm_format;
 mod glsl;
 mod grammar;
 mod invariants;

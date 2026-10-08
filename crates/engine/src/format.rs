@@ -71,9 +71,16 @@ impl fmt::Display for RootError {
     }
 }
 
-/// `text` formatted, or the position of its first error.
+/// `text` formatted, or the position elm-format reports it unparsable
+/// at: its parser's, ported, where that rejects it too, and otherwise
+/// the first error of nomi's own.
 pub fn format_text(text: &str) -> Result<String, ElmPosition> {
-    nomi_format::format_module(text).map_err(|error| position(text, error.range.start()))
+    nomi_format::format_module(text).map_err(|error| match nomi_syntax::elm_format::parse(text) {
+        Err(nomi_syntax::elm_format::Error::Position(at)) => at,
+        Ok(()) | Err(nomi_syntax::elm_format::Error::Crash(_)) => {
+            position(text, error.range.start())
+        }
+    })
 }
 
 /// `bytes` as text, or, where they aren't UTF-8, the position of the

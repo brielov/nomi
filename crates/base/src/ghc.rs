@@ -75,3 +75,14 @@ pub fn is_print(c: char) -> bool {
             | GeneralCategory::ParagraphSeparator
     )
 }
+
+/// GHC's `isSymbol`: a math, currency, modifier or other symbol.
+pub fn is_symbol(c: char) -> bool {
+    matches!(
+        GENERAL_CATEGORY.get(c),
+        GeneralCategory::MathSymbol
+            | GeneralCategory::CurrencySymbol
+            | GeneralCategory::ModifierSymbol
+            | GeneralCategory::OtherSymbol
+    )
+}
