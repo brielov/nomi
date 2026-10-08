@@ -98,6 +98,12 @@ impl Cache {
         self.0.join("registry").join("index")
     }
 
+    /// The package store, shared by every release
+    /// (`nomi_registry::Store`).
+    pub fn packages(&self) -> PathBuf {
+        self.0.join("packages")
+    }
+
     /// [`Cache::locate`] on `os` with the variables `var` gives. The user's
     /// cache directory is Go's `os.UserCacheDir`: `%LocalAppData%` on
     /// Windows, `~/Library/Caches` on macOS, and elsewhere

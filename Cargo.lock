@@ -788,9 +788,13 @@ version = "0.1.0"
 dependencies = [
  "nomi-base",
  "nomi-format",
+ "nomi-project",
+ "nomi-registry",
  "rayon",
+ "sha1",
  "tempfile",
  "walkdir",
+ "zip",
 ]
 
 [[package]]
@@ -820,8 +824,10 @@ version = "0.1.0"
 dependencies = [
  "nomi-base",
  "nomi-project",
+ "sha1",
  "tempfile",
  "ureq",
+ "zip",
 ]
 
 [[package]]

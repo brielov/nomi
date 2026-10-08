@@ -1,51 +1,16 @@
 //! The package index against a fixture registry.
 
-use std::cell::RefCell;
-use std::collections::VecDeque;
+mod support;
 
 use nomi_base::Compat;
 use nomi_project::json::Cursor;
 use nomi_project::{Name, Version};
-use nomi_registry::{Connection, Http, HttpError, Index, Known, RegistryProblem};
+use nomi_registry::{Connection, HttpError, Index, Known, RegistryProblem};
+use support::Fixture;
 
 const LATEST: Compat = Compat::LATEST;
 
 const ALL: &str = r#"{"elm/core":["1.0.0","1.0.5","1.0.2"],"elm/json":["1.1.3"]}"#;
-
-/// A website that answers each request with the next of its responses,
-/// and remembers what it was asked.
-#[derive(Default)]
-struct Fixture {
-    responses: RefCell<VecDeque<Result<Vec<u8>, HttpError>>>,
-    asked: RefCell<Vec<String>>,
-}
-
-impl Fixture {
-    fn new(responses: &[Result<&str, HttpError>]) -> Fixture {
-        let responses = responses
-            .iter()
-            .map(|r| r.clone().map(|s| s.as_bytes().to_vec()))
-            .collect();
-        Fixture {
-            responses: RefCell::new(responses),
-            asked: RefCell::default(),
-        }
-    }
-
-    fn asked(&self) -> Vec<String> {
-        self.asked.borrow().clone()
-    }
-}
-
-impl Http for Fixture {
-    fn post(&self, url: &str) -> Result<Vec<u8>, HttpError> {
-        self.asked.borrow_mut().push(url.to_owned());
-        self.responses
-            .borrow_mut()
-            .pop_front()
-            .expect("an unexpected request")
-    }
-}
 
 fn name(s: &str) -> Name {
     Name::parse(s.as_bytes(), Cursor::start(LATEST), LATEST).unwrap()

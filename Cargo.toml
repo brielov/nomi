@@ -27,12 +27,14 @@ num-bigint = "0.5"
 proptest = "1"
 rayon = "1.12"
 rowan = "0.16"
+sha1 = "0.11"
 stacker = "0.1"
 tempfile = "3.27"
 text-size = "1.1"
 ungrammar = "1.16"
-ureq = { version = "3.4", features = ["gzip"] }
+ureq = { version = "3.4", features = ["gzip", "platform-verifier"] }
 walkdir = "2.5"
+zip = { version = "8.6", default-features = false, features = ["deflate"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
