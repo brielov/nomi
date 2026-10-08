@@ -1,6 +1,6 @@
 # Where elm-format 0.8.8 breaks the formatter's invariants and nomi breaks
 # them the same way, checked against the oracle (plan 2.14); each class is
-# one of nomi_format::upstream_breaks. Plan 2.15 decides the deviations.
+# one of nomi_format::upstream_breaks, kept as `DECISIONS.md` says.
 case	path	invariant
 Holmusk/swagger-decoder@1.0.0	src/Swagger/Types.elm	idempotent
 MacCASOutreach/graphicsvg@9.0.0	src/GraphicSVG.elm	idempotent
