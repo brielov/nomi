@@ -166,6 +166,7 @@ elm-format/tests/test-files/transform/Elm-0.19/ParseTabsInLiterals.elm
 elm-format/tests/test-files/transform/Elm-0.19/ParseTabsInLiterals.formatted.elm
 elm-format/tests/test-files/transform/Elm-0.19/ReplaceThenByOfInCase.elm
 elm-format/tests/test-files/transform/Elm-0.19/ReplaceThenByOfInCase.formatted.elm
+elm-format/tests/test-files/transform/Elm-0.19/TransformFatArrow.elm
 elm-format/tests/test-files/transform/Elm-0.19/TransformFatArrow.formatted.elm
 nomi/batch/001.elm
 nomi/batch/002.elm
@@ -1018,6 +1019,7 @@ nomi/transform/086.elm
 nomi/transform/087.elm
 nomi/transform/088.elm
 nomi/transform/089.elm
+nomi/transform/090.elm
 nomi/transform/091.elm
 nomi/transform/092.elm
 nomi/transform/093.elm

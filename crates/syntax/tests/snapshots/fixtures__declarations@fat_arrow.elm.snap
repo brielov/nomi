@@ -1,0 +1,84 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/fat_arrow.elm
+---
+Module@0..87
+  ValueDecl@0..33
+    Signature@0..21
+      LowerIdent@0..1 "f"
+      Whitespace@1..2 " "
+      Colon@2..3 ":"
+      Whitespace@3..4 " "
+      FunctionType@4..21
+        NamedType@4..7
+          UpperIdent@4..7 "Int"
+        Whitespace@7..8 " "
+        Arrow@8..10 "=>"
+        Whitespace@10..11 " "
+        FunctionType@11..21
+          NamedType@11..14
+            UpperIdent@11..14 "Int"
+          Whitespace@14..15 " "
+          Arrow@15..17 "=>"
+          NamedType@17..21
+            UpperIdent@17..21 "Bool"
+    Newline@21..22 "\n"
+    Definition@22..33
+      LowerIdent@22..23 "f"
+      Whitespace@23..24 " "
+      Eq@24..25 "="
+      Whitespace@25..26 " "
+      LambdaExpr@26..33
+        Backslash@26..27 "\\"
+        VarPattern@27..28
+          LowerIdent@27..28 "a"
+        Whitespace@28..29 " "
+        Arrow@29..31 "=>"
+        NegateExpr@31..33
+          Minus@31..32 "-"
+          LiteralExpr@32..33
+            Int@32..33 "1"
+  Newline@33..34 "\n"
+  ValueDecl@34..86
+    Definition@34..86
+      LowerIdent@34..35 "g"
+      Whitespace@35..36 " "
+      Eq@36..37 "="
+      Newline@37..38 "\n"
+      Whitespace@38..42 "    "
+      CaseExpr@42..86
+        CaseKw@42..46 "case"
+        Whitespace@46..47 " "
+        NameExpr@47..48
+          LowerIdent@47..48 "a"
+        Whitespace@48..49 " "
+        OfKw@49..51 "of"
+        Newline@51..52 "\n"
+        Whitespace@52..60 "        "
+        CaseBranch@60..71
+          ConstructorPattern@60..61
+            UpperIdent@60..61 "A"
+          Whitespace@61..62 " "
+          Arrow@62..64 "=>"
+          Whitespace@64..65 " "
+          OperatorChain@65..71
+            NameExpr@65..66
+              LowerIdent@65..66 "b"
+            Whitespace@66..67 " "
+            Op@67..69
+              Operator@67..69 "=>"
+            Whitespace@69..70 " "
+            NameExpr@70..71
+              LowerIdent@70..71 "c"
+        Newline@71..72 "\n"
+        Whitespace@72..80 "        "
+        CaseBranch@80..86
+          ConstructorPattern@80..81
+            UpperIdent@80..81 "B"
+          Whitespace@81..82 " "
+          Arrow@82..84 "->"
+          Whitespace@84..85 " "
+          LiteralExpr@85..86
+            Int@85..86 "2"
+  Newline@86..87 "\n"

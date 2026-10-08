@@ -1,0 +1,15 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/fat_arrows.elm
+---
+elm, application:
+  40..42 FatArrow "=>"
+  58..60 FatArrow "=>"
+elm, package:
+  40..42 FatArrow "=>"
+  58..60 FatArrow "=>"
+elm, kernel package:
+  40..42 FatArrow "=>"
+  58..60 FatArrow "=>"
+elm-format:

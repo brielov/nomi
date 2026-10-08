@@ -426,12 +426,16 @@ fn comment_tabs(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
 }
 
 /// elm-format takes `$`, `#`, `@`, `~` and Unicode symbols in an
-/// operator, `→` alone being its `->`; elm takes none of them.
+/// operator, `→` alone being its `->`, and `=>` for `->`; elm takes none
+/// of them.
 fn operator_chars(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
     let operators = (root.descendants_with_tokens())
         .filter_map(|e| e.into_token())
         .filter(|t| matches!(t.kind(), K::Operator | K::Arrow));
     for token in operators {
+        if token.kind() == K::Arrow && token.text() == "=>" {
+            push(errors, E::FatArrow, token.text_range());
+        }
         if let Some((i, c)) = (token.text().char_indices()).find(|&(_, c)| !is_elm_operator_char(c))
         {
             let start = token.text_range().start() + TextSize::new(i as u32);

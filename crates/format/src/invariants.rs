@@ -319,6 +319,8 @@ impl Summary {
                 SyntaxKind::Colon if parent_is(&token, SyntaxKind::Field) => {
                     body.push(Token::Other(SyntaxKind::Eq, "=".to_owned()));
                 }
+                // elm-format reads `→` and `=>` as `->`.
+                SyntaxKind::Arrow => body.push(Token::Other(SyntaxKind::Arrow, "->".to_owned())),
                 SyntaxKind::ThenKw if parent_is(&token, SyntaxKind::CaseExpr) => {
                     body.push(Token::Other(SyntaxKind::OfKw, "of".to_owned()));
                 }

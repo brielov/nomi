@@ -174,6 +174,8 @@ pub enum SyntaxErrorKind {
     LegacyPort,
     /// `then` for `of` in `case x then`, which elm-format reads.
     CaseThen,
+    /// `=>` for `->`, which elm-format reads.
+    FatArrow,
     /// The legacy `where` after a module's name or exposing list.
     LegacyWhere,
     /// An effect module without `where { command = … }`.
@@ -433,14 +435,15 @@ impl<'t> Parser<'t> {
     /// Whether the `n`th token ahead is `kind`, or an operator that starts
     /// with it, as `=-` starts with `=`. Where elm's grammar expects a
     /// symbol such as `=`, `->` or `|`, it reads just its characters;
-    /// [`Parser::bump_symbol`] splits the operator.
+    /// [`Parser::bump_symbol`] splits the operator. elm-format reads `=>`
+    /// for `->` too; validation flags it for elm.
     pub(crate) fn nth_at_symbol(&mut self, n: usize, kind: SyntaxKind) -> bool {
         self.nth_token(n).is_some_and(|a| {
+            let text = &self.text[a.token.range];
             a.token.kind == kind
                 || (is_operator_token(a.token.kind)
-                    && kind
-                        .text()
-                        .is_some_and(|symbol| self.text[a.token.range].starts_with(symbol)))
+                    && (kind.text().is_some_and(|symbol| text.starts_with(symbol))
+                        || kind == SyntaxKind::Arrow && text.starts_with("=>")))
         })
     }
 
