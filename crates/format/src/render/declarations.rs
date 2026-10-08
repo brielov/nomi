@@ -5,8 +5,8 @@
 use crate::block::{Block, Line};
 use crate::structure::{definition, space_sep_or_indented};
 use crate::tree::{
-    Assoc, C1Eol, C2Eol, Comment, CommonDeclaration, Declaration, Lower, NameWithArgs,
-    OpenCommentedList, Pattern, Ref, TopLevelStructure, Type, Upper,
+    Assoc, C0Eol, C1Eol, C2Eol, Comment, CommonDeclaration, Declaration, Docs, Expr, Lower,
+    NameWithArgs, OpenCommentedList, Pattern, Ref, TopLevelStructure, Type, Upper,
 };
 
 use super::SyntaxContext::{SpaceSeparated, SyntaxSeparated};
@@ -14,7 +14,8 @@ use super::expressions::format_expression;
 use super::patterns::{format_pattern, pattern_argument};
 use super::types::{TypeParensRequired, format_type, type_alone, type_parens};
 use super::{
-    c2, c2_eol, comment, doc_comment_string, name, pre_commented, syntax_parens, tail_commented,
+    c2, c2_eol, comment, doc_comment, eol_commented, name, pre_commented, syntax_parens,
+    tail_commented,
 };
 
 /// What an entry is to the spacing around it; upstream's `BodyEntryType`.
@@ -72,15 +73,37 @@ fn entry(decl: &Declaration) -> Entry<'_> {
     }
 }
 
-fn kind<'a>(item: &TopLevelStructure<Entry<'a>>) -> Kind<'a> {
+/// A part of a top-level body: an entry, already formatted, or what
+/// comes between entries.
+enum Item<'a> {
+    Entry(Entry<'a>, Block),
+    DocComment(&'a Docs),
+    Comment(&'a Comment),
+}
+
+fn item<'a, T>(
+    item: &'a TopLevelStructure<T>,
+    entry: impl FnOnce(&'a T) -> (Entry<'a>, Block),
+) -> Item<'a> {
     match item {
-        TopLevelStructure::Entry(Entry::Named(name)) => Kind::Definition(Some(*name)),
-        TopLevelStructure::Entry(Entry::Unnamed) => Kind::Definition(None),
-        TopLevelStructure::Entry(Entry::Fixity) => Kind::Fixity,
-        TopLevelStructure::DocComment(_) => Kind::DocComment,
-        TopLevelStructure::BodyComment(Comment::TrickOpener) => Kind::Starter,
-        TopLevelStructure::BodyComment(Comment::TrickCloser) => Kind::Closer,
-        TopLevelStructure::BodyComment(_) => Kind::Comment,
+        TopLevelStructure::Entry(e) => {
+            let (e, block) = entry(e);
+            Item::Entry(e, block)
+        }
+        TopLevelStructure::DocComment(docs) => Item::DocComment(docs),
+        TopLevelStructure::BodyComment(c) => Item::Comment(c),
+    }
+}
+
+fn kind<'a>(item: &Item<'a>) -> Kind<'a> {
+    match item {
+        Item::Entry(Entry::Named(name), _) => Kind::Definition(Some(*name)),
+        Item::Entry(Entry::Unnamed, _) => Kind::Definition(None),
+        Item::Entry(Entry::Fixity, _) => Kind::Fixity,
+        Item::DocComment(_) => Kind::DocComment,
+        Item::Comment(Comment::TrickOpener) => Kind::Starter,
+        Item::Comment(Comment::TrickCloser) => Kind::Closer,
+        Item::Comment(_) => Kind::Comment,
     }
 }
 
@@ -116,21 +139,41 @@ fn spacer(lines: usize, a: Kind, b: Kind) -> usize {
 /// The module's declarations and the comments between them, `lines`
 /// blank lines apart; upstream's `formatModuleBody`.
 pub(super) fn body(lines: usize, body: &[TopLevelStructure<Declaration>]) -> Option<Block> {
+    top_level_body(
+        lines,
+        body.iter()
+            .map(|i| item(i, |decl| (entry(decl), declaration(decl)))),
+    )
+}
+
+/// The expressions of a code block and the comments between them, as
+/// entries of no name; `formatDocComment`'s `ExpressionsCode`.
+pub(super) fn expressions(lines: usize, exprs: &[TopLevelStructure<C0Eol<Expr>>]) -> Option<Block> {
+    top_level_body(
+        lines,
+        exprs.iter().map(|i| {
+            item(i, |expr| {
+                let block = syntax_parens(SyntaxSeparated, format_expression(&expr.value));
+                (
+                    Entry::Unnamed,
+                    eol_commented(expr.comments.as_deref(), block),
+                )
+            })
+        }),
+    )
+}
+
+/// Entries and what comes between them, `lines` blank lines apart;
+/// upstream's `formatTopLevelBody`.
+fn top_level_body<'a>(lines: usize, body: impl Iterator<Item = Item<'a>>) -> Option<Block> {
     let mut blocks = Vec::new();
     let mut previous: Option<Kind> = None;
     for item in body {
-        let (current, block) = match item {
-            TopLevelStructure::Entry(decl) => (
-                kind(&TopLevelStructure::Entry(entry(decl))),
-                declaration(decl),
-            ),
-            TopLevelStructure::DocComment(docs) => {
-                // Plan 2.13 formats the Markdown first.
-                (Kind::DocComment, doc_comment_string(&docs.0))
-            }
-            TopLevelStructure::BodyComment(c) => {
-                (kind(&TopLevelStructure::BodyComment(c.clone())), comment(c))
-            }
+        let current = kind(&item);
+        let block = match item {
+            Item::Entry(_, block) => block,
+            Item::DocComment(docs) => doc_comment(docs),
+            Item::Comment(c) => comment(c),
         };
         if let Some(previous) = previous {
             blocks.extend(

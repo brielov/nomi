@@ -5,7 +5,6 @@
 //! same parts in the same order, so the two can be read side by side.
 
 mod declarations;
-mod docs;
 mod expressions;
 mod header;
 mod literal;
@@ -13,35 +12,40 @@ mod patterns;
 mod types;
 
 use crate::block::{Block, Line};
+use crate::markdown;
 use crate::structure::{
     extension_group_fields, forceable_row_or_stack, forceable_space_sep_or_indented,
     forceable_space_sep_or_stack, forceable_space_sep_or_stack1, space_sep_or_indented,
     space_sep_or_prefix, space_sep_or_stack,
 };
 use crate::tree::{
-    C2, Comment, ForceMultiline, Module, Pair, Sequence, TopLevelStructure, UpperRef,
+    C2, Comment, Docs, ElmCode, ForceMultiline, Module, Pair, Sequence, TopLevelStructure, UpperRef,
 };
 
-/// Blank lines between top-level parts; upstream renders a module with
-/// `formatModule elmVersion True 2`.
-const SPACING: usize = 2;
-
-/// `module` as elm-format prints it; upstream's `formatModule`.
+/// `module` as elm-format prints it.
 pub(crate) fn module(module: &Module) -> String {
+    format_module(module, true, 2).map_or_else(String::new, |b| b.render())
+}
+
+/// `module`, with `spacing` blank lines between top-level parts, and the
+/// default module line if it has none and `add_default_header`;
+/// upstream's `formatModule`. Nothing at all only for a module in a code
+/// block, which can have no parts.
+fn format_module(module: &Module, add_default_header: bool, spacing: usize) -> Option<Block> {
     let mut blocks = Vec::new();
     if !module.initial_comments.is_empty() {
         blocks.extend(module.initial_comments.iter().map(comment));
         blocks.extend([Block::blank_line(), Block::blank_line()]);
     }
-    blocks.extend(header::module_header(module));
+    blocks.extend(header::module_header(module, add_default_header));
     let space_before_body = match module.body.first() {
         None => 0,
-        Some(TopLevelStructure::BodyComment(_)) => SPACING + 1,
-        Some(_) => SPACING,
+        Some(TopLevelStructure::BodyComment(_)) => spacing + 1,
+        Some(_) => spacing,
     };
     blocks.extend(std::iter::repeat_with(Block::blank_line).take(space_before_body));
-    blocks.extend(declarations::body(SPACING, &module.body));
-    Block::stack1(blocks).render()
+    blocks.extend(declarations::body(spacing, &module.body));
+    (!blocks.is_empty()).then(|| Block::stack1(blocks))
 }
 
 /// `(inner)`; upstream's `parens`.
@@ -365,6 +369,25 @@ fn lines(text: &str) -> Vec<&str> {
         lines.pop();
     }
     lines
+}
+
+/// A doc comment: its Markdown, with the Elm in code blocks formatted
+/// and the `@docs` names cleaned; upstream's `formatDocComment`.
+fn doc_comment(docs: &Docs) -> Block {
+    doc_comment_string(&markdown::render(&docs.0, &|code: &Option<ElmCode>| {
+        code.as_ref().map(elm_code)
+    }))
+}
+
+/// The Elm of a code block, formatted with one blank line between
+/// top-level parts.
+fn elm_code(code: &ElmCode) -> String {
+    let block = match code {
+        ElmCode::Module(module) => format_module(module, false, 1),
+        ElmCode::Declarations(decls) => declarations::body(1, decls),
+        ElmCode::Expressions(exprs) => declarations::expressions(1, exprs),
+    };
+    block.map_or_else(String::new, |b| b.render())
 }
 
 /// A doc comment of `docs`, already rendered; upstream's

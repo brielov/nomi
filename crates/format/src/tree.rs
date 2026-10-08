@@ -15,6 +15,8 @@
 
 use std::collections::BTreeMap;
 
+use crate::markdown;
+
 /// `LowercaseIdentifier`.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Lower(pub(crate) String);
@@ -364,10 +366,19 @@ pub(crate) enum TopLevelStructure<T> {
     Entry(T),
 }
 
-/// A doc comment's text, between `{-|` and `-}`. Upstream holds it parsed
-/// as Markdown, which plan 2.13 settles on.
+/// A doc comment's Markdown, with the Elm code of its code blocks where
+/// elm-format reads some.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Docs(pub(crate) String);
+pub(crate) struct Docs(pub(crate) Vec<markdown::Block<Option<ElmCode>>>);
+
+/// The Elm in a code block, read as the first of these that parses;
+/// upstream's `ElmCodeBlock`.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum ElmCode {
+    Declarations(Vec<TopLevelStructure<Declaration>>),
+    Expressions(Vec<TopLevelStructure<C0Eol<Expr>>>),
+    Module(Box<Module>),
+}
 
 /// Comments before and after each key, in order; upstream's
 /// `CommentedMap`. Keys sort as upstream's `Ord` does: by code point.

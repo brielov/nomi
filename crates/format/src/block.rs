@@ -6,6 +6,8 @@
 //! width. So a block is built once, rendered once, and the work is linear
 //! in the output.
 
+use crate::ghc::is_space;
+
 /// One piece of a line.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Atom {
@@ -116,14 +118,6 @@ impl Line {
         out.truncate(start + kept);
         out.push('\n');
     }
-}
-
-/// Haskell's `isSpace`, which `Data.Text.stripEnd` strips: the ASCII
-/// whitespace controls and Unicode's space separators. Rust's
-/// `char::is_whitespace` also takes U+0085, U+2028 and U+2029.
-pub(crate) fn is_space(c: char) -> bool {
-    matches!(c, '\t'..='\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}')
-        || matches!(c, '\u{202f}' | '\u{205f}' | '\u{3000}')
 }
 
 /// Lines, at least one.

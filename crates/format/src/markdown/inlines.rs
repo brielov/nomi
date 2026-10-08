@@ -1,0 +1,655 @@
+//! Cheapskate's inline parser (`Cheapskate/Inlines.hs`).
+
+use crate::ghc::{is_alpha, is_alpha_num, is_space};
+
+use super::scanner::{Scanner, is_escapable, is_whitespace};
+use super::{Inline, LinkTarget, strip};
+
+/// The inlines of `text`; upstream's `parseInlines`.
+pub(super) fn parse_inlines(text: &str) -> Vec<Inline> {
+    let mut s = Scanner::new(text);
+    let inlines = s.many(inline).concat();
+    debug_assert!(s.at_end(), "a symbol is any character");
+    inlines
+}
+
+/// Upstream's `pInline`.
+fn inline(s: &mut Scanner) -> Option<Vec<Inline>> {
+    s.attempt(ascii_str)
+        .or_else(|| s.attempt(space))
+        .or_else(|| s.attempt(|s| enclosure('*', s)))
+        .or_else(|| {
+            s.attempt(|s| {
+                if s.last().is_some_and(is_alpha_num) {
+                    return None;
+                }
+                enclosure('_', s)
+            })
+        })
+        .or_else(|| s.attempt(|s| code(s).map(|(code, _)| code)))
+        .or_else(|| s.attempt(link))
+        .or_else(|| s.attempt(image))
+        .or_else(|| s.attempt(raw_html))
+        .or_else(|| s.attempt(autolink))
+        .or_else(|| s.attempt(entity))
+        .or_else(|| sym(s))
+}
+
+fn str(text: impl Into<String>) -> Inline {
+    Inline::Str(text.into())
+}
+
+/// Spaces and newlines: a line break after two spaces, a soft break
+/// otherwise, or a space when no newline is among them.
+fn space(s: &mut Scanner) -> Option<Vec<Inline>> {
+    let ss = s.take_while1(is_whitespace)?;
+    Some(vec![if !ss.contains('\n') {
+        Inline::Space
+    } else if ss.starts_with("  ") {
+        Inline::LineBreak
+    } else {
+        Inline::SoftBreak
+    }])
+}
+
+/// ASCII letters and digits, or the URI they start as a scheme.
+fn ascii_str(s: &mut Scanner) -> Option<Vec<Inline>> {
+    let t = s.take_while1(|c| c.is_ascii_alphanumeric())?;
+    if s.peek() == Some(':') && is_scheme(t) {
+        return uri(t, s);
+    }
+    Some(vec![str(t)])
+}
+
+/// An escaped character, an escaped newline, or any other character.
+fn sym(s: &mut Scanner) -> Option<Vec<Inline>> {
+    let c = s.any_char()?;
+    if c != '\\' {
+        return Some(vec![str(c)]);
+    }
+    Some(vec![
+        s.attempt(|s| s.satisfy(is_escapable))
+            .map(str)
+            .or_else(|| s.attempt(|s| s.char('\n')).map(|()| Inline::LineBreak))
+            .unwrap_or_else(|| str('\\')),
+    ])
+}
+
+/// IANA's URI schemes, and the unofficial `coap`, `doi` and `javascript`,
+/// as upstream lists them.
+const SCHEMES: &[&str] = &[
+    "coap",
+    "doi",
+    "javascript",
+    "aaa",
+    "aaas",
+    "about",
+    "acap",
+    "cap",
+    "cid",
+    "crid",
+    "data",
+    "dav",
+    "dict",
+    "dns",
+    "file",
+    "ftp",
+    "geo",
+    "go",
+    "gopher",
+    "h323",
+    "http",
+    "https",
+    "iax",
+    "icap",
+    "im",
+    "imap",
+    "info",
+    "ipp",
+    "iris",
+    "iris.beep",
+    "iris.xpc",
+    "iris.xpcs",
+    "iris.lwz",
+    "ldap",
+    "mailto",
+    "mid",
+    "msrp",
+    "msrps",
+    "mtqp",
+    "mupdate",
+    "news",
+    "nfs",
+    "ni",
+    "nih",
+    "nntp",
+    "opaquelocktoken",
+    "pop",
+    "pres",
+    "rtsp",
+    "service",
+    "session",
+    "shttp",
+    "sieve",
+    "sip",
+    "sips",
+    "sms",
+    "snmp",
+    "soap.beep",
+    "soap.beeps",
+    "tag",
+    "tel",
+    "telnet",
+    "tftp",
+    "thismessage",
+    "tn3270",
+    "tip",
+    "tv",
+    "urn",
+    "vemmi",
+    "ws",
+    "wss",
+    "xcon",
+    "xcon-userid",
+    "xmlrpc.beep",
+    "xmlrpc.beeps",
+    "xmpp",
+    "z39.50r",
+    "z39.50s",
+    "adiumxtra",
+    "afp",
+    "afs",
+    "aim",
+    "apt",
+    "attachment",
+    "aw",
+    "beshare",
+    "bitcoin",
+    "bolo",
+    "callto",
+    "chrome",
+    "chrome-extension",
+    "com-eventbrite-attendee",
+    "content",
+    "cvs",
+    "dlna-playsingle",
+    "dlna-playcontainer",
+    "dtn",
+    "dvb",
+    "ed2k",
+    "facetime",
+    "feed",
+    "finger",
+    "fish",
+    "gg",
+    "git",
+    "gizmoproject",
+    "gtalk",
+    "hcp",
+    "icon",
+    "ipn",
+    "irc",
+    "irc6",
+    "ircs",
+    "itms",
+    "jar",
+    "jms",
+    "keyparc",
+    "lastfm",
+    "ldaps",
+    "magnet",
+    "maps",
+    "market",
+    "message",
+    "mms",
+    "ms-help",
+    "msnim",
+    "mumble",
+    "mvn",
+    "notes",
+    "oid",
+    "palm",
+    "paparazzi",
+    "platform",
+    "proxy",
+    "psyc",
+    "query",
+    "res",
+    "resource",
+    "rmi",
+    "rsync",
+    "rtmp",
+    "secondlife",
+    "sftp",
+    "sgn",
+    "skype",
+    "smb",
+    "soldat",
+    "spotify",
+    "ssh",
+    "steam",
+    "svn",
+    "teamspeak",
+    "things",
+    "udp",
+    "unreal",
+    "ut2004",
+    "ventrilo",
+    "view-source",
+    "webcal",
+    "wtai",
+    "wyciwyg",
+    "xfire",
+    "xri",
+    "ymsgr",
+];
+
+/// A scheme as listed, or in upper case.
+fn is_scheme(t: &str) -> bool {
+    SCHEMES
+        .iter()
+        .any(|scheme| *scheme == t || scheme.to_uppercase() == t)
+}
+
+/// The rest of a URI after its scheme, but not a last punctuation mark,
+/// nor a closing parenthesis it didn't open; upstream's `pUri`.
+fn uri(scheme: &str, s: &mut Scanner) -> Option<Vec<Inline>> {
+    s.char(':')?;
+    let mut depth = 0usize;
+    let x = s.take_while(|c| match c {
+        ' ' | '\n' => false,
+        '(' => {
+            depth += 1;
+            true
+        }
+        ')' if depth > 0 => {
+            depth -= 1;
+            true
+        }
+        ')' => false,
+        '+' | '/' => true,
+        c => !is_space(c),
+    });
+    let last = x.chars().last()?;
+    if ".;?!:,".contains(last) {
+        let mut inlines = auto_link(&format!("{scheme}:{}", &x[..x.len() - 1]));
+        inlines.push(str(last));
+        Some(inlines)
+    } else {
+        Some(auto_link(&format!("{scheme}:{x}")))
+    }
+}
+
+/// Text in `*`s or `_`s: emphasis, strong, or both. A run of the
+/// character before a space is just text; upstream's `pEnclosure`.
+fn enclosure(c: char, s: &mut Scanner) -> Option<Vec<Inline>> {
+    let cs = s.take_while1(|x| x == c)?;
+    if let Some(space) = s.attempt(space) {
+        return Some([vec![str(cs)], space].concat());
+    }
+    Some(match cs.chars().count() {
+        3 => three(c, s),
+        2 => two(c, s, Vec::new()),
+        1 => one(c, s, Vec::new()),
+        _ => vec![str(cs)],
+    })
+}
+
+/// `wrap(inlines)`, or nothing for no inlines; upstream's `single`.
+fn single(wrap: fn(Vec<Inline>) -> Inline, inlines: Vec<Inline>) -> Vec<Inline> {
+    if inlines.is_empty() {
+        Vec::new()
+    } else {
+        vec![wrap(inlines)]
+    }
+}
+
+/// Inlines up to a `c`, as emphasis; upstream's `pOne`.
+fn one(c: char, s: &mut Scanner, prefix: Vec<Inline>) -> Vec<Inline> {
+    let cc: String = [c, c].iter().collect();
+    let contents = s
+        .many(|s| {
+            s.attempt(|s| {
+                if s.peek() == Some(c) {
+                    return None;
+                }
+                inline(s)
+            })
+            .or_else(|| {
+                s.string(&cc)?;
+                if s.peek() == Some(c) {
+                    return None;
+                }
+                Some(two(c, s, Vec::new()))
+            })
+        })
+        .concat();
+    let inlines = [prefix, contents].concat();
+    if s.attempt(|s| s.char(c)).is_some() {
+        single(Inline::Emph, inlines)
+    } else {
+        [vec![str(c)], inlines].concat()
+    }
+}
+
+/// Inlines up to two `c`s, as strong; upstream's `pTwo`.
+fn two(c: char, s: &mut Scanner, prefix: Vec<Inline>) -> Vec<Inline> {
+    let cc: String = [c, c].iter().collect();
+    let contents = s
+        .many(|s| {
+            if s.rest().starts_with(&cc) {
+                return None;
+            }
+            inline(s)
+        })
+        .concat();
+    let inlines = [prefix, contents].concat();
+    if s.string(&cc).is_some() {
+        single(Inline::Strong, inlines)
+    } else {
+        [vec![str(cc)], inlines].concat()
+    }
+}
+
+/// Inlines up to one or two `c`s, as emphasis or strong, and the rest as
+/// the other; upstream's `pThree`.
+fn three(c: char, s: &mut Scanner) -> Vec<Inline> {
+    let contents = s
+        .many(|s| {
+            if s.peek() == Some(c) {
+                return None;
+            }
+            inline(s)
+        })
+        .concat();
+    let cc: String = [c, c].iter().collect();
+    if s.string(&cc).is_some() {
+        one(c, s, single(Inline::Strong, contents))
+    } else if s.char(c).is_some() {
+        two(c, s, single(Inline::Emph, contents))
+    } else {
+        [vec![str([c, c, c].iter().collect::<String>())], contents].concat()
+    }
+}
+
+/// A code span, and its text as written; upstream's `pCode'`.
+fn code(s: &mut Scanner) -> Option<(Vec<Inline>, String)> {
+    let ticks = s.take_while1(|c| c == '`')?;
+    let contents = s
+        .many_till(
+            |s| {
+                s.take_while1(|c| c != '`')
+                    .or_else(|| s.take_while1(|c| c == '`'))
+            },
+            |s| {
+                s.string(ticks)?;
+                (s.peek() != Some('`')).then_some(())
+            },
+        )?
+        .concat();
+    Some((
+        vec![Inline::Code(strip(&contents).to_owned())],
+        format!("{ticks}{contents}{ticks}"),
+    ))
+}
+
+/// A link's label, with escapes resolved; upstream's `pLinkLabel`.
+pub(super) fn link_label(s: &mut Scanner) -> Option<String> {
+    s.char('[')?;
+    let chunks = s.many_till(
+        |s| {
+            s.attempt(|s| {
+                s.take_while1(|c| !matches!(c, '`' | '[' | ']' | '\\'))
+                    .map(str::to_owned)
+            })
+            .or_else(|| s.attempt(escaped))
+            .or_else(|| s.attempt(|s| link_label(s).map(|t| format!("[{t}]"))))
+            .or_else(|| s.attempt(|s| code(s).map(|(_, raw)| raw)))
+        },
+        |s| s.char(']'),
+    )?;
+    Some(chunks.concat())
+}
+
+/// A URL, in `<…>` or without spaces and with balanced parentheses;
+/// upstream's `pLinkUrl`.
+fn link_url(s: &mut Scanner) -> Option<String> {
+    if s.char('<').is_some() {
+        let chars = s.many_till(
+            |s| satisfy_escaped(s, |c| c != '\r' && c != '\n'),
+            |s| s.char('>'),
+        )?;
+        return Some(chars.into_iter().collect());
+    }
+    Some(s.many(url_chunk).concat())
+}
+
+fn url_chunk(s: &mut Scanner) -> Option<String> {
+    s.attempt(|s| {
+        s.take_while1(|c| !matches!(c, ' ' | '\n' | '(' | ')' | '\\'))
+            .map(str::to_owned)
+    })
+    .or_else(|| s.attempt(escaped))
+    .or_else(|| {
+        s.char('(')?;
+        let inner = s.many_till(url_chunk, |s| s.char(')'))?;
+        Some(format!("({})", inner.concat()))
+    })
+}
+
+/// A title in quotes or parentheses; upstream's `pLinkTitle`.
+fn link_title(s: &mut Scanner) -> Option<String> {
+    let c = s.satisfy(|c| matches!(c, '"' | '\'' | '('))?;
+    match s.peek() {
+        Some(x) if !is_whitespace(x) && x != ')' => {}
+        _ => return None,
+    }
+    let ender = if c == '(' { ')' } else { c };
+    let chunks = s.many_till(
+        |s| {
+            s.attempt(|s| {
+                s.take_while1(|x| x != ender && x != '\\')
+                    .map(str::to_owned)
+            })
+            .or_else(|| s.attempt(escaped))
+            .or_else(|| link_title(s).map(|t| format!("{c}{t}{ender}")))
+        },
+        |s| {
+            s.char(ender)?;
+            (!s.peek().is_some_and(is_alpha_num)).then_some(())
+        },
+    )?;
+    Some(chunks.concat())
+}
+
+/// A reference definition's label, URL and title; upstream's
+/// `pReference`.
+pub(super) fn reference(text: &str) -> Option<(String, String, String)> {
+    let mut s = Scanner::new(text);
+    let label = link_label(&mut s)?;
+    s.char(':')?;
+    s.spnl();
+    let url = link_url(&mut s)?;
+    let title = s
+        .attempt(|s| {
+            s.spnl();
+            link_title(s)
+        })
+        .unwrap_or_default();
+    s.end()?;
+    Some((label, url, title))
+}
+
+/// A backslash and the punctuation it escapes; upstream's `pEscaped`.
+fn escaped(s: &mut Scanner) -> Option<String> {
+    s.char('\\')?;
+    s.satisfy(is_escapable).map(String::from)
+}
+
+/// A character meeting `p`, escaped or not; upstream's `pSatisfy`.
+fn satisfy_escaped(s: &mut Scanner, p: impl Fn(char) -> bool) -> Option<char> {
+    s.attempt(|s| s.satisfy(|c| c != '\\' && p(c))).or_else(|| {
+        s.char('\\')?;
+        s.satisfy(|c| is_escapable(c) && p(c))
+    })
+}
+
+/// A label and, after it, the target in parentheses or another label;
+/// upstream's `pLink`.
+fn link(s: &mut Scanner) -> Option<Vec<Inline>> {
+    let raw = link_label(s)?;
+    let label = parse_inlines(&raw);
+    if let Some(link) = s.attempt(|s| inline_link(label.clone(), s)) {
+        return Some(link);
+    }
+    let reference = s
+        .attempt(|s| {
+            s.spnl();
+            link_label(s)
+        })
+        .unwrap_or(raw);
+    Some(vec![Inline::Link(
+        label,
+        LinkTarget::Ref(reference),
+        String::new(),
+    )])
+}
+
+fn inline_link(label: Vec<Inline>, s: &mut Scanner) -> Option<Vec<Inline>> {
+    s.char('(')?;
+    s.spaces();
+    let url = link_url(s)?;
+    let title = s
+        .attempt(|s| {
+            s.spnl();
+            let title = link_title(s)?;
+            s.spaces();
+            Some(title)
+        })
+        .unwrap_or_default();
+    s.char(')')?;
+    Some(vec![Inline::Link(label, LinkTarget::Url(url), title)])
+}
+
+/// `!` and a link to a URL.
+fn image(s: &mut Scanner) -> Option<Vec<Inline>> {
+    s.char('!')?;
+    let Some(inlines) = s.attempt(link) else {
+        return Some(vec![str('!')]);
+    };
+    Some(match <[Inline; 1]>::try_from(inlines) {
+        Ok([Inline::Link(label, LinkTarget::Url(url), title)]) => {
+            vec![Inline::Image(label, url, title)]
+        }
+        Ok([other]) => vec![str('!'), other],
+        Err(inlines) => [vec![str('!')], inlines].concat(),
+    })
+}
+
+/// `&name;`, `&#digits;` or `&#xhex;`.
+fn entity(s: &mut Scanner) -> Option<Vec<Inline>> {
+    s.char('&')?;
+    let name = s
+        .attempt(|s| {
+            s.take_while1(|c| c.is_ascii_alphabetic())
+                .map(str::to_owned)
+        })
+        .or_else(|| {
+            s.attempt(|s| {
+                s.char('#')?;
+                Some(format!("#{}", s.take_while1(|c| c.is_ascii_digit())?))
+            })
+        })
+        .or_else(|| {
+            s.char('#')?;
+            let x = s.satisfy(|c| c == 'X' || c == 'x')?;
+            Some(format!("#{x}{}", s.take_while1(|c| c.is_ascii_hexdigit())?))
+        })?;
+    s.char(';')?;
+    Some(vec![Inline::Entity(format!("&{name};"))])
+}
+
+fn raw_html(s: &mut Scanner) -> Option<Vec<Inline>> {
+    let html = s
+        .attempt(|s| html_tag(s).map(|(_, tag)| tag))
+        .or_else(|| html_comment(s))?;
+    Some(vec![Inline::RawHtml(html)])
+}
+
+/// An HTML tag's lowercased name and the whole tag; upstream's
+/// `pHtmlTag`.
+pub(super) fn html_tag(s: &mut Scanner) -> Option<(String, String)> {
+    s.char('<')?;
+    let closing = s.attempt(|s| s.char('/')).is_some();
+    let name = s.take_while1(|c| c.is_ascii_alphanumeric() || c == '?' || c == '!')?;
+    let attributes = s.many(|s| {
+        let ss = s.take_while(is_space);
+        let x = s.satisfy(is_alpha)?;
+        let xs = s.take_while(|c| c.is_ascii_alphanumeric() || c == ':');
+        s.char('=')?;
+        let v = s
+            .attempt(|s| quoted('"', s))
+            .or_else(|| s.attempt(|s| quoted('\'', s)))
+            .or_else(|| s.take_while1(is_alpha_num).map(str::to_owned))
+            .unwrap_or_default();
+        Some(format!("{ss}{x}{xs}={v}"))
+    });
+    let last = s.take_while(|c| is_space(c) || c == '/');
+    s.char('>')?;
+    let slash = if closing { "/" } else { "" };
+    Some((
+        name.to_lowercase(),
+        format!("<{slash}{name}{}{last}>", attributes.concat()),
+    ))
+}
+
+fn quoted(c: char, s: &mut Scanner) -> Option<String> {
+    s.char(c)?;
+    let contents = s.take_while(|x| x != c);
+    s.char(c)?;
+    Some(format!("{c}{contents}{c}"))
+}
+
+fn html_comment(s: &mut Scanner) -> Option<String> {
+    s.string("<!--")?;
+    let chars = s.many_till(Scanner::any_char, |s| s.string("-->"))?;
+    Some(format!("<!--{}-->", chars.into_iter().collect::<String>()))
+}
+
+/// `<scheme:…>` or `<name@host>`; upstream's `pAutolink`.
+fn autolink(s: &mut Scanner) -> Option<Vec<Inline>> {
+    s.char('<')?;
+    let scheme = s.take_while1(|c| c != ':' && c != '@')?;
+    let rest = s.take_while1(|c| c != '>' && c != ' ')?;
+    s.char('>')?;
+    let whole = format!("{scheme}{rest}");
+    if rest.starts_with('@') {
+        Some(vec![Inline::Link(
+            vec![str(whole.clone())],
+            LinkTarget::Url(format!("mailto:{whole}")),
+            String::new(),
+        )])
+    } else if is_scheme(scheme) {
+        Some(auto_link(&whole))
+    } else {
+        None
+    }
+}
+
+/// A link to `url` showing it, its entities kept apart; upstream's
+/// `autoLink`.
+fn auto_link(url: &str) -> Vec<Inline> {
+    let mut s = Scanner::new(url);
+    let text = s
+        .many(|s| {
+            s.attempt(|s| s.take_while1(|c| c != '&').map(|t| vec![str(t)]))
+                .or_else(|| s.attempt(entity))
+                .or_else(|| s.string("&").map(|()| vec![str("&")]))
+        })
+        .concat();
+    vec![Inline::Link(
+        text,
+        LinkTarget::Url(url.to_owned()),
+        String::new(),
+    )]
+}

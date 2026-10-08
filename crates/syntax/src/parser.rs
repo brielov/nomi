@@ -207,9 +207,12 @@ pub enum SyntaxErrorKind {
     /// An operator starting with `.`, which elm reads as a field
     /// accessor, as in `40 .+ 2` or `f . g`.
     DotOperator,
-    /// An expression of a code block, after the first, starting with
-    /// something other than a letter or `_`.
-    ExpectedLetterStart,
+    /// Text after a code block's last declaration or expression, which
+    /// elm-format wants the block to end with.
+    TrailingText,
+    /// A `{- -}` comment opening a code block of expressions, which
+    /// elm-format doesn't read as one.
+    LeadingBlockComment,
     /// A shader block that elm's GLSL parser, language-glsl, rejects. The
     /// range is empty, where the parser stopped.
     ShaderProblem,

@@ -11,6 +11,7 @@
 mod cursor;
 mod declarations;
 mod definitions;
+mod docs;
 mod expressions;
 mod header;
 mod literal;
@@ -43,8 +44,10 @@ pub(crate) fn module(root: &SyntaxNode, text: &str) -> Module {
         .next()
         .map_or(text_end(text), |d| range(d.syntax()).start());
 
-    let first = significant(root).next();
-    let initial_comments = cx.take(first.map_or(text_end(text), |t| t.text_range().start()));
+    let initial_comments = cx.take(match significant(root).next() {
+        Some(first) => first.text_range().start(),
+        None => fresh_line_end(root, text_end(text)),
+    });
     let header = module.module_header().map(|h| header::header(&mut cx, &h));
 
     // Upstream reads the comments before the docs, those after, and those
@@ -52,15 +55,12 @@ pub(crate) fn module(root: &SyntaxNode, text: &str) -> Module {
     let mut comments = Vec::new();
     let docs = module.doc_comment_token().map(|token| {
         comments.extend(cx.take(token.text_range().start()));
-        declarations::docs(&token)
+        docs::docs(&token)
     });
-    comments.extend(
-        cx.take(
-            imports
-                .first()
-                .map_or(body_start, |i| range(i.syntax()).start()),
-        ),
-    );
+    comments.extend(cx.take(match imports.first() {
+        Some(import) => range(import.syntax()).start(),
+        None => fresh_line_end(root, body_start),
+    }));
     let mut merged = BTreeMap::new();
     let mut body = Vec::new();
     for (i, import) in imports.iter().enumerate() {
@@ -94,6 +94,18 @@ pub(crate) fn module(root: &SyntaxNode, text: &str) -> Module {
         imports: c(comments, merged),
         body,
     }
+}
+
+/// Where upstream's `freshLine`, reading the comments before `end`, stops:
+/// after the last line end, which a `--` comment counts as. The comments
+/// after it, ending a module's text, are the body's.
+fn fresh_line_end(root: &SyntaxNode, end: TextSize) -> TextSize {
+    root.descendants_with_tokens()
+        .filter_map(|e| e.into_token())
+        .take_while(|t| t.text_range().end() <= end)
+        .filter(|t| matches!(t.kind(), SyntaxKind::Newline | SyntaxKind::LineComment))
+        .last()
+        .map_or(TextSize::default(), |t| t.text_range().end())
 }
 
 fn c<C, T>(comments: C, value: T) -> Commented<C, T> {

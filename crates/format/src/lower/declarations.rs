@@ -5,13 +5,12 @@ use nomi_base::TextSize;
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{SyntaxKind, SyntaxToken};
 
-use super::cursor::{self, Cursor};
+use super::cursor::Cursor;
 use super::definitions::{annotation, definition, destructure};
 use super::types::ty;
 use super::{VALID, c, lower_name, range, start, symbol, token, upper_name};
 use crate::tree::{
-    Assoc, C1, C2, Declaration, Docs, Lower, NameWithArgs, OpenCommentedList, TopLevelStructure,
-    Upper,
+    Assoc, C1, C2, Declaration, Lower, NameWithArgs, OpenCommentedList, TopLevelStructure, Upper,
 };
 
 type Body = Vec<TopLevelStructure<Declaration>>;
@@ -30,7 +29,7 @@ pub(super) fn declaration(cx: &mut Cursor, body: &mut Body, decl: &ast::Decl) {
     };
     if let Some(doc) = doc {
         comments_before(cx, body, start(&doc));
-        body.push(TopLevelStructure::DocComment(docs(&doc)));
+        body.push(TopLevelStructure::DocComment(super::docs::docs(&doc)));
     }
     let entry = |d| TopLevelStructure::Entry(Declaration::Common(d));
     match decl {
@@ -76,11 +75,6 @@ pub(super) fn declaration(cx: &mut Cursor, body: &mut Body, decl: &ast::Decl) {
 fn comments_before(cx: &mut Cursor, body: &mut Body, end: TextSize) {
     let comments = cx.take(end);
     body.extend(comments.into_iter().map(TopLevelStructure::BodyComment));
-}
-
-/// The text of a doc comment, between `{-|` and `-}`.
-pub(super) fn docs(token: &SyntaxToken) -> Docs {
-    Docs(cursor::block_body(&token.text()[3..]))
 }
 
 /// `type alias Name args = type`.

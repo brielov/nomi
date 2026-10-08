@@ -1,14 +1,15 @@
 ---
 source: crates/syntax/tests/fixtures.rs
 expression: "render(&text, nomi_syntax::parse_expressions)"
-input_file: crates/syntax/test_data/parser/expressions_fragment/non_letter_starts.elm
+input_file: crates/syntax/test_data/parser/expressions_fragment/later_starts.elm
 ---
 ExpressionsFragment@0..12
-  LiteralExpr@0..1
-    Int@0..1 "1"
-  Newline@1..2 "\n"
-  NegateExpr@2..4
-    Minus@2..3 "-"
+  OperatorChain@0..4
+    LiteralExpr@0..1
+      Int@0..1 "1"
+    Newline@1..2 "\n"
+    Op@2..3
+      Minus@2..3 "-"
     LiteralExpr@3..4
       Int@3..4 "2"
   Newline@4..5 "\n"

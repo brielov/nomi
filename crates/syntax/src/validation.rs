@@ -62,9 +62,7 @@ pub fn validate(parse: &Parse, tool: Tool) -> Vec<SyntaxError> {
             bare_carriage_returns(&root, &mut errors);
         }
     }
-    if let Some(fragment) = ast::ExpressionsFragment::cast(root) {
-        code_block(&fragment, &mut errors);
-    }
+    code_block(&root, &mut errors);
     errors.sort_by_key(|e| e.range.start());
     errors
 }
@@ -568,22 +566,53 @@ fn dot_dot_operators(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
     }
 }
 
-/// elm-format reads each expression of a code block after the first only
-/// from a letter or `_` (`topLevel` and `freshDef` in its parser).
-fn code_block(fragment: &ast::ExpressionsFragment, errors: &mut Vec<SyntaxError>) {
-    for expr in fragment.exprs().skip(1) {
-        let Some(first) = (expr.syntax().descendants_with_tokens())
+/// elm-format reads a code block's declarations or expressions up to
+/// the end of input (`parseDeclarations` and `parseExpressions`), so
+/// nothing may follow the last one: no comment, not even a newline. An
+/// expression on one line keeps a `--` comment ending it (`withEol`).
+fn code_block(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
+    let last = if let Some(fragment) = ast::DeclarationsFragment::cast(root.clone()) {
+        fragment.decls().last().map(|d| d.syntax().clone())
+    } else if let Some(fragment) = ast::ExpressionsFragment::cast(root.clone()) {
+        fragment.exprs().last().map(|e| e.syntax().clone())
+    } else {
+        return;
+    };
+    if root.kind() == K::ExpressionsFragment
+        && let Some(first) = root.first_token()
+        && first.kind() == K::BlockComment
+    {
+        push(errors, E::LeadingBlockComment, first.text_range());
+    }
+    let range = last.as_ref().map(trimmed);
+    let end = range.map_or(0.into(), TextRange::end);
+    let text = root.text().to_string();
+    let rest = &text[usize::from(end)..];
+    let eol_comment = rest.trim_start_matches(' ');
+    let one_line = |node: &SyntaxNode, range: TextRange| {
+        !node
+            .descendants_with_tokens()
             .filter_map(|e| e.into_token())
-            .find(|t| !t.kind().is_trivia())
-        else {
-            continue;
-        };
-        if !first
-            .text()
-            .starts_with(|c: char| c.is_alphabetic() || c == '_')
-        {
-            push(errors, E::ExpectedLetterStart, first.text_range());
-        }
+            .any(|t| t.kind() == K::Newline && range.contains_range(t.text_range()))
+    };
+    // Upstream's `withEol` reads a `--` comment ending the line of an
+    // expression, or of a custom type's variant, that fits on one line.
+    let eol_item = last.and_then(|node| match root.kind() {
+        K::ExpressionsFragment => Some(node),
+        _ => ast::CustomTypeDecl::cast(node)?
+            .variants()
+            .last()
+            .map(|v| v.syntax().clone()),
+    });
+    let keeps_eol_comment = eol_comment.starts_with("--")
+        && !eol_comment.contains('\n')
+        && eol_item.is_some_and(|node| one_line(&node, trimmed(&node)));
+    if !rest.is_empty() && !keeps_eol_comment {
+        push(
+            errors,
+            E::TrailingText,
+            TextRange::new(end, root.text_range().end()),
+        );
     }
 }
 

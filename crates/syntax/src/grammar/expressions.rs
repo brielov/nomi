@@ -23,15 +23,19 @@ pub(super) fn expr(p: &mut Parser<'_>) {
 
 /// Expressions up to the end of input, each starting a line and
 /// continuing on indented ones. Anything else is skipped, with one error,
-/// up to where an expression could start. elm-format also wants each
-/// one after the first to start with a letter or `_`; validation checks.
+/// up to where an expression could start, which a `-` after the first
+/// isn't.
 pub(super) fn expressions(p: &mut Parser<'_>) {
+    let mut first = true;
     while !p.at(K::Eof) {
         if !p.at_fresh_line() {
             p.error(SyntaxErrorKind::ExpectedFreshLine);
         }
         p.anchor();
-        if at_expr(p) {
+        // elm-format reads a `-` starting a later line as a subtraction
+        // from the expression before, which only the loose layout takes.
+        if at_expr(p) && !(p.at(K::Minus) && !first) {
+            first = false;
             expr(p);
             skip_junk(p, SyntaxErrorKind::Unexpected, &[]);
             continue;

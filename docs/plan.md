@@ -201,7 +201,14 @@ Goal: `nomi format` and the `elm-format` personality, byte-identical to elm-form
 - [x] **2.10** `format: render expressions`. `let` needed definitions and annotations, so `render/declarations.rs` started here.
 - [x] **2.11** `format: render declarations and top-level spacing`. Committed after 2.12. Splicing the body verbatim stops here, so whole modules come from the tree. On the corpus, 1505 of 1915 modules pass. Outside doc comments (2.13), every module that differed did so in a literal, and 2.12 settled those.
 - [x] **2.12** `format: normalize literals`. Spelling started in 2.9 (`render/literal.rs`). GHC's `Data.Char` predicates (`ghc.rs`) use `icu_properties` pinned at Unicode 15.1, which matches the oracle on every code point probed. Float digits are a full port of GHC's `floatToDigits`, which excludes the rounding boundaries and so is not always shortest (`1.0e23` prints `9.999999999999999e22`). A letter, digit or `_` after a `\x` escape's digits makes upstream's `chompHex` return -2, which is written out as a lone 0xFE byte and read back with the bytes after it (`"\x202Bا…"` → `\u{3D8A1B}\u{008C}…`; abadi199/intl-phone-input's `tests/FilterTest.elm`). Landed before 2.11, because 2.11's corpus ratchet only sees literals once declarations render.
-- [ ] **2.13** `format: doc comments`. Markdown normalization, and Elm code blocks through the 1.14 entry points. Decide at the start of the step, with differential fixtures, between porting Cheapskate's relevant parts and using pulldown-cmark. The `@docs` names that order the exposing list then come from the Markdown parse, replacing 2.8's line scanner in `render/docs.rs`.
+- [x] **2.13** `format: doc comments`. Markdown normalization, and Elm code blocks through the 1.14 entry points. Decided for a Cheapskate port (`markdown/`, see `DECISIONS.md`). Lowering parses the code blocks, and the `@docs` names that order the exposing list now come from the Markdown parse, which replaced 2.8's `render/docs.rs`. Upstream's code-block parsers had more rules than 1.14 knew:
+  - `commitIf` backtracks, so the "letter or `_`" start rule never applied and is gone;
+  - a block must end with its last entry, except for a `--` comment after a one-line expression or custom-type variant;
+  - an expression block can't open with `{- -}`;
+  - a `-` starting a later line subtracts;
+  - `freshLine` leaves comments after the last line end to the body.
+
+  The corpus passes 1915 of 1915 modules.
 - [ ] **2.14** `format: check invariants on corpus and proptest`. Four invariants:
   - formatting is idempotent;
   - the output parses;

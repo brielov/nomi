@@ -193,7 +193,10 @@ fn comments_between_imports_go_before_them_all() {
     let module = lower(
         "module A exposing (a)\n\n{-| Docs. -}\n-- h\nimport B\n-- between\nimport {- n -} C as {- p -} D exposing (x)\n-- after\na = 1\n",
     );
-    assert_eq!(module.docs, Some(Docs("Docs.".to_owned())));
+    assert_eq!(
+        module.docs,
+        Some(Docs(crate::markdown::parse("Docs.", &mut |_, _| None)))
+    );
     assert_eq!(module.imports.comments, [line(" h"), line(" between")]);
     assert_eq!(
         module.body[0],

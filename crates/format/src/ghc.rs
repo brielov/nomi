@@ -22,6 +22,17 @@ pub(crate) fn is_alpha(c: char) -> bool {
     )
 }
 
+/// GHC's `isAlphaNum`: a letter or a number of any kind.
+pub(crate) fn is_alpha_num(c: char) -> bool {
+    is_alpha(c)
+        || matches!(
+            GENERAL_CATEGORY.get(c),
+            GeneralCategory::DecimalNumber
+                | GeneralCategory::LetterNumber
+                | GeneralCategory::OtherNumber
+        )
+}
+
 /// GHC's `isSpace`: the Latin-1 spaces, and the space separators.
 pub(crate) fn is_space(c: char) -> bool {
     if u32::from(c) <= 0x377 {

@@ -1,0 +1,87 @@
+//! Doc comments: their Markdown, and the Elm code in its code blocks,
+//! which upstream's `formatDocComment` reads while rendering.
+
+use nomi_syntax::ast::{self, AstNode};
+use nomi_syntax::{
+    Parse, SyntaxNode, SyntaxToken, Tool, parse_declarations, parse_expressions, parse_module,
+    validate,
+};
+
+use super::cursor::{self, Cursor};
+use super::{VALID, c, declarations, expressions, range};
+use crate::markdown::{self, CodeAttr};
+use crate::tree::{Declaration, Docs, ElmCode, TopLevelStructure};
+
+/// The doc comment `token`: the Markdown between `{-|` and `-}`.
+pub(super) fn docs(token: &SyntaxToken) -> Docs {
+    let text = cursor::block_body(&token.text()[3..]);
+    Docs(markdown::parse(&text, &mut elm_code))
+}
+
+/// The Elm in a code block marked `elm` or not at all: declarations,
+/// else expressions, else a module, as the first that elm-format
+/// parses.
+fn elm_code(attr: &CodeAttr, text: &str) -> Option<ElmCode> {
+    if !(attr.lang == "elm" || attr.lang.is_empty()) {
+        return None;
+    }
+    let valid =
+        |parse: &Parse| parse.errors().is_empty() && validate(parse, Tool::ElmFormat).is_empty();
+    let parse = parse_declarations(text);
+    if valid(&parse) {
+        return Some(ElmCode::Declarations(declarations_fragment(
+            &parse.syntax(),
+            text,
+        )));
+    }
+    let parse = parse_expressions(text);
+    if valid(&parse) {
+        return Some(ElmCode::Expressions(expressions_fragment(
+            &parse.syntax(),
+            text,
+        )));
+    }
+    let parse = parse_module(text);
+    valid(&parse).then(|| ElmCode::Module(Box::new(super::module(&parse.syntax(), text))))
+}
+
+/// Declarations, and the comments before each, as a module's body;
+/// upstream's `topLevel`. Validation leaves no comment after the last.
+fn declarations_fragment(root: &SyntaxNode, text: &str) -> Vec<TopLevelStructure<Declaration>> {
+    let mut cx = Cursor::new(root, text);
+    let mut body = Vec::new();
+    for decl in ast::DeclarationsFragment::cast(root.clone())
+        .expect(VALID)
+        .decls()
+    {
+        declarations::declaration(&mut cx, &mut body, &decl);
+    }
+    cx.finish();
+    body
+}
+
+/// Expressions, each with the `--` comment ending its line, and the
+/// comments before each; upstream's `topLevel (withEol expr)`.
+fn expressions_fragment(
+    root: &SyntaxNode,
+    text: &str,
+) -> Vec<TopLevelStructure<crate::tree::C0Eol<crate::tree::Expr>>> {
+    let mut cx = Cursor::new(root, text);
+    let mut body = Vec::new();
+    for expr in ast::ExpressionsFragment::cast(root.clone())
+        .expect(VALID)
+        .exprs()
+    {
+        let expr_range = range(expr.syntax());
+        body.extend(
+            cx.take(expr_range.start())
+                .into_iter()
+                .map(TopLevelStructure::BodyComment),
+        );
+        let value = expressions::expr(&mut cx, &expr);
+        let eol = cx.eol(expr_range);
+        body.push(TopLevelStructure::Entry(c(eol, value)));
+    }
+    cx.finish();
+    body
+}

@@ -3,6 +3,7 @@
 //! listings they share.
 
 use crate::block::{Block, Line};
+use crate::markdown;
 use crate::structure::{equals_pair, group, group_with_footer, space_sep_or_indented};
 use crate::tree::{
     C1, C2, CommentedMap, Comments, CommonDeclaration, Declaration, DetailedListing, Header,
@@ -11,8 +12,8 @@ use crate::tree::{
 };
 
 use super::{
-    commented, comments, doc_comment_string, docs, keyword_commented, name, parens, pre_commented,
-    qualified, tail_commented,
+    commented, comments, doc_comment, keyword_commented, name, parens, pre_commented, qualified,
+    tail_commented,
 };
 
 fn text(text: &str) -> Block {
@@ -20,23 +21,38 @@ fn text(text: &str) -> Block {
 }
 
 /// The module line, the module's docs and the imports, with a blank line
-/// between each two.
-pub(super) fn module_header(module: &Module) -> Vec<Block> {
+/// between each two. A module with no line gets the default one if
+/// `add_default_header`, else none; upstream's `formatModuleHeader`.
+pub(super) fn module_header(module: &Module, add_default_header: bool) -> Vec<Block> {
     let default = Header {
         source_tag: SourceTag::Normal,
         name: c((Vec::new(), Vec::new()), vec![Upper("Main".to_owned())]),
         settings: None,
         exports: None,
     };
-    let header = module.header.as_ref().unwrap_or(&default);
-    let documented: Vec<Vec<String>> = module
-        .docs
-        .as_ref()
-        .map(|d| docs::documented(&d.0))
-        .unwrap_or_default()
-        .into_iter()
-        .map(|group| group.iter().map(|n| ref_name(n).to_owned()).collect())
-        .collect();
+    let header = match &module.header {
+        Some(header) => Some(header),
+        None if add_default_header => Some(&default),
+        None => None,
+    };
+    let mut parts = Vec::new();
+    if let Some(header) = header {
+        parts.push(vec![module_line(module, header)]);
+    }
+    if let Some(docs) = &module.docs {
+        parts.push(vec![doc_comment(docs)]);
+    }
+    let imports = imports(module);
+    if !imports.is_empty() {
+        parts.push(imports);
+    }
+    join_with_blank_lines(parts)
+}
+
+/// The module line of `header`, with the values it exposes sorted into
+/// the groups of the docs' `@docs` lines.
+fn module_line(module: &Module, header: &Header) -> Block {
+    let documented = documented(module);
     let to_expose = match &header.exports {
         Some(exports) => listing_values(&exports.value),
         None if documented.iter().all(Vec::is_empty) => defined_values(module),
@@ -55,17 +71,24 @@ pub(super) fn module_header(module: &Module) -> Vec<Block> {
         Some(Listing::Explicit(_, true))
     );
     let sorted = sort_values(force, to_expose, &documented);
+    module_line_block(header, sorted)
+}
 
-    let mut parts = vec![vec![module_line(header, sorted)]];
-    if let Some(docs) = &module.docs {
-        // Plan 2.13 renders the text as Markdown.
-        parts.push(vec![doc_comment_string(&docs.0)]);
-    }
-    let imports = imports(module);
-    if !imports.is_empty() {
-        parts.push(imports);
-    }
-    join_with_blank_lines(parts)
+/// The names of each `@docs` line of the module's docs, at their top
+/// level and before `formatDocComment` cleans them; upstream's
+/// `documentedVars`.
+fn documented(module: &Module) -> Vec<Vec<String>> {
+    let Some(docs) = &module.docs else {
+        return Vec::new();
+    };
+    docs.0
+        .iter()
+        .flat_map(|block| match block {
+            markdown::Block::ElmDocs(groups) => groups.as_slice(),
+            _ => &[],
+        })
+        .map(|group| group.iter().map(|n| ref_name(n).to_owned()).collect())
+        .collect()
 }
 
 fn c<C, T>(comments: C, value: T) -> crate::tree::Commented<C, T> {
@@ -231,7 +254,7 @@ fn sort_values(
 }
 
 /// `module Name exposing (…)`; upstream's `formatModuleLine`.
-fn module_line(header: &Header, (groups, extra): (Vec<Vec<C2<Value>>>, Comments)) -> Block {
+fn module_line_block(header: &Header, (groups, extra): (Vec<Vec<C2<Value>>>, Comments)) -> Block {
     let tag = match &header.source_tag {
         SourceTag::Normal => text("module"),
         SourceTag::Port(comments) => {

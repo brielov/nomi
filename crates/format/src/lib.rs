@@ -4,6 +4,7 @@
 mod block;
 mod ghc;
 mod lower;
+mod markdown;
 mod render;
 mod structure;
 mod tree;

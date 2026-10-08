@@ -202,7 +202,7 @@ Next to the crates:
   - the HIR is unchanged;
   - every comment survives.
 - **LSP formatting** returns a minimal diff, not a whole-document replacement.
-- **Doc comments.** elm-format renders Markdown with Cheapskate. pulldown-cmark differs at the edges, so doc comments get their own differential fixtures.
+- **Doc comments.** elm-format reads Markdown with its Cheapskate fork, and the format crate ports it (`markdown/`), because a CommonMark parser sees other blocks at the edges. Lowering parses each Elm code block, so rendering never parses. Doc comments get their own differential fixtures.
 
 ## 6. Semantic core and engine
 

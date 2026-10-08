@@ -13,32 +13,116 @@ fn kinds(parse: &crate::Parse, tool: Tool) -> Vec<E> {
 }
 
 #[test]
-fn code_blocks_continue_from_letters() {
-    let parse = parse_expressions("f x\ny\n[ g ]\n");
+fn code_block_expressions_may_start_with_anything() {
+    let parse = parse_expressions("f x\ny\n[ g ]");
     assert_eq!(parse.errors(), []);
-    let errors = validate(&parse, Tool::ElmFormat);
+    assert_eq!(kinds(&parse, Tool::ElmFormat), []);
+}
+
+#[test]
+fn code_blocks_end_with_their_last_entry() {
+    for text in [
+        "a = 1\n",
+        "a = 1 -- note",
+        "a = 1\n-- note",
+        "a = 1 {- note -}",
+    ] {
+        let parse = parse_declarations(text);
+        let errors = validate(&parse, Tool::ElmFormat);
+        assert_eq!(
+            errors.iter().map(|e| e.kind).collect::<Vec<_>>(),
+            [E::TrailingText],
+            "{text:?}"
+        );
+        assert_eq!(u32::from(errors[0].range.start()), 5);
+    }
+    for text in ["", "-- note\na = 1", "{- note -}\na = 1\nb = 2"] {
+        assert_eq!(
+            kinds(&parse_declarations(text), Tool::ElmFormat),
+            [],
+            "{text:?}"
+        );
+    }
+}
+
+#[test]
+fn a_code_block_expression_keeps_the_comment_ending_its_line() {
     assert_eq!(
-        errors.iter().map(|e| e.kind).collect::<Vec<_>>(),
-        [E::ExpectedLetterStart]
+        kinds(&parse_expressions("f x -- note"), Tool::ElmFormat),
+        []
     );
-    assert_eq!(u32::from(errors[0].range.start()), 6);
+    assert_eq!(
+        kinds(&parse_expressions("f x -- note\n"), Tool::ElmFormat),
+        [E::TrailingText]
+    );
+    assert_eq!(
+        kinds(&parse_expressions("f x\n-- note"), Tool::ElmFormat),
+        [E::TrailingText]
+    );
+    assert_eq!(
+        kinds(&parse_expressions("f\n  x -- note"), Tool::ElmFormat),
+        [E::TrailingText]
+    );
+}
+
+#[test]
+fn a_code_block_of_expressions_does_not_open_with_a_block_comment() {
+    assert_eq!(
+        kinds(&parse_expressions("{- note -}\nf x"), Tool::ElmFormat),
+        [E::LeadingBlockComment]
+    );
+    for text in [
+        " {- note -}\nf x",
+        "\n{- note -}\nf x",
+        "-- note\n{- note -}\nf x",
+    ] {
+        assert_eq!(
+            kinds(&parse_expressions(text), Tool::ElmFormat),
+            [],
+            "{text:?}"
+        );
+    }
+    let parse = parse_declarations("{- note -}\na = 1");
+    assert_eq!(kinds(&parse, Tool::ElmFormat), []);
+}
+
+#[test]
+fn a_code_block_variant_keeps_the_comment_ending_its_line() {
+    for text in ["type T = A | B -- note", "type T\n    = A\n    | B -- note"] {
+        assert_eq!(
+            kinds(&parse_declarations(text), Tool::ElmFormat),
+            [],
+            "{text:?}"
+        );
+    }
+    for text in [
+        "type T = A | B\n    Int -- note",
+        "type alias T = Int -- note",
+    ] {
+        let parse = parse_declarations(text);
+        assert_eq!(
+            kinds(&parse, Tool::ElmFormat),
+            [E::TrailingText],
+            "{text:?}"
+        );
+    }
 }
 
 #[test]
 fn the_first_expression_may_start_with_anything() {
-    let parse = parse_expressions("(f x)\n");
+    let parse = parse_expressions("(f x)");
     assert_eq!(kinds(&parse, Tool::ElmFormat), []);
 }
 
 #[test]
 fn a_comment_before_an_expression_is_not_its_start() {
-    let parse = parse_expressions("f\n-- note\ng\n");
+    let parse = parse_expressions("f\n-- note\ng");
     assert_eq!(kinds(&parse, Tool::ElmFormat), []);
 }
 
 #[test]
 fn declaration_fragments_follow_the_same_rules() {
-    let parse = parse_declarations("( a, b ) = pair\n");
+    let parse = parse_declarations("( a, b ) = pair");
     assert_eq!(kinds(&parse, ELM), [E::DestructureDeclaration]);
     assert_eq!(kinds(&parse, Tool::ElmFormat), []);
 }
