@@ -199,14 +199,6 @@ fn equals_pairs() {
 #[test]
 fn extension_groups() {
     assert_eq!(
-        extension_group(false, word("r"), word("a"), words(&["b"])).render(),
-        "{ r | a, b }\n"
-    );
-    assert_eq!(
-        extension_group(true, word("r"), word("a"), words(&["b"])).render(),
-        "{ r\n    | a\n    , b\n}\n"
-    );
-    assert_eq!(
         extension_group_fields(false, word("r"), word("| a")).render(),
         "{ r | a }\n"
     );

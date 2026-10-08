@@ -327,53 +327,15 @@ pub(crate) fn group_with_footer(
 }
 
 /// ```text
-/// { base | first }
-///
-/// { base | first, rest0, rest1 }
+/// { base | first, rest0 }
 ///
 /// { base
 ///     | first
 ///     , rest0
-///     , rest1
 /// }
 /// ```
-pub(crate) fn extension_group(
-    multiline: bool,
-    base: Block,
-    first: Block,
-    rest: Vec<Block>,
-) -> Block {
-    if !multiline && base.is_line() && first.is_line() && all_lines(&rest) {
-        let base = lines(vec![base]).remove(0);
-        let fields = intersperse(lines(vec![first]).into_iter().chain(lines(rest)), || {
-            Line::row([punc(","), Line::space()])
-        });
-        return Block::line(Line::row([
-            punc("{"),
-            Line::space(),
-            base,
-            Line::space(),
-            punc("|"),
-            Line::space(),
-            fields,
-            Line::space(),
-            punc("}"),
-        ]));
-    }
-    Block::stack1([
-        base.prefix(Line::row([punc("{"), Line::space()])),
-        Block::stack1(
-            std::iter::once(first.prefix(Line::row([punc("|"), Line::space()]))).chain(
-                rest.into_iter()
-                    .map(|r| r.prefix(Line::row([punc(","), Line::space()]))),
-            ),
-        )
-        .indent(),
-        Block::line(punc("}")),
-    ])
-}
-
-/// An `extension_group` whose fields are already one block. Upstream's
+///
+/// The fields come already joined, `|` and `,` in place. Upstream's
 /// `extensionGroup'`.
 pub(crate) fn extension_group_fields(multiline: bool, base: Block, fields: Block) -> Block {
     match (base, fields) {

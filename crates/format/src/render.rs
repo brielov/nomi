@@ -26,10 +26,8 @@ use crate::tree::{
 /// `formatModule elmVersion True 2`.
 const SPACING: usize = 2;
 
-/// `module` as elm-format prints it. Declarations render from plan 2.11;
-/// until then `body`, the source text from the first body item to the
-/// end, stands in for them.
-pub(crate) fn module(module: &Module, body: &str) -> String {
+/// `module` as elm-format prints it; upstream's `formatModule`.
+pub(crate) fn module(module: &Module) -> String {
     let mut blocks = Vec::new();
     if !module.initial_comments.is_empty() {
         blocks.extend(module.initial_comments.iter().map(comment));
@@ -42,9 +40,8 @@ pub(crate) fn module(module: &Module, body: &str) -> String {
         Some(_) => SPACING,
     };
     blocks.extend(std::iter::repeat_with(Block::blank_line).take(space_before_body));
-    let mut out = Block::stack1(blocks).render();
-    out.push_str(body);
-    out
+    blocks.extend(declarations::body(SPACING, &module.body));
+    Block::stack1(blocks).render()
 }
 
 /// `(inner)`; upstream's `parens`.
