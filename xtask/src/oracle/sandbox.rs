@@ -74,7 +74,7 @@ impl Sandbox {
             let project = sandbox.project(source);
             fs::create_dir_all(project.join("src"))?;
             fs::write(project.join("elm.json"), manifest(source, compat, &pinned))?;
-            let warm = sandbox.check(source, b"module A exposing (a)\n\n\na =\n    1\n")?;
+            let (warm, _) = sandbox.check(source, b"module A exposing (a)\n\n\na =\n    1\n")?;
             ensure!(
                 warm == Outcome::Accepted,
                 "elm {compat} rejects a trivial module in {}: {warm:?}",
@@ -123,7 +123,9 @@ impl Sandbox {
 
     /// Whether elm parses `text` as a module of a `source` project. Errors
     /// after parsing, such as unknown imports, count as accepted.
-    pub fn check(&self, source: Source, text: &[u8]) -> Result<Outcome> {
+    ///
+    /// When elm rejects it, also the report elm wrote, as it wrote it.
+    pub fn check(&self, source: Source, text: &[u8]) -> Result<(Outcome, Option<Vec<u8>>)> {
         let project = self.project(source);
         fs::write(project.join(MODULE), text)?;
         let mut attempt = 1;
@@ -157,19 +159,24 @@ impl Sandbox {
                 .find(|o| o.starts_with(b"{"));
             let stderr = String::from_utf8_lossy(&output.stderr);
             match report {
-                None if output.status.success() => return Ok(Outcome::Accepted),
+                None if output.status.success() => return Ok((Outcome::Accepted, None)),
                 // elm now and then trips over its own lock on `d.dat`.
                 None if stderr.contains("(file is locked)") && attempt < RETRIES => attempt += 1,
                 // GHC's report of an uncaught exception.
                 None if stderr.starts_with("elm: ") && !stderr.contains("(file is locked)") => {
-                    return Ok(Outcome::Crashed);
+                    return Ok((Outcome::Crashed, None));
                 }
                 None => bail!(
                     "{} exited with {} and no report:\n{stderr}",
                     self.elm.display(),
                     output.status,
                 ),
-                Some(json) => return parse_report(json),
+                Some(json) => {
+                    let outcome = parse_report(json)?;
+                    let report = matches!(outcome, Outcome::Rejected(_))
+                        .then(|| json.trim_ascii_end().to_vec());
+                    return Ok((outcome, report));
+                }
             }
         }
     }

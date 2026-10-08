@@ -115,6 +115,10 @@ enum OracleCommand {
         /// Concurrent oracle runs; twice the available cores by default.
         #[arg(long)]
         jobs: Option<usize>,
+        /// Print each elm's report on this mutation, named `<seed> / <mutation>`,
+        /// instead.
+        #[arg(long, conflicts_with = "inputs")]
+        show: Option<String>,
     },
     /// Store elm-format's output for every formatter fixture and corpus
     /// module.
@@ -144,7 +148,10 @@ fn main() -> ExitCode {
         Command::Oracle { command } => references::load(&root()).and_then(|r| match command {
             OracleCommand::Fetch => oracle::fetch(&root(), &r),
             OracleCommand::Versions => oracle::versions(&r),
-            OracleCommand::Syntax { inputs, jobs } => {
+            OracleCommand::Syntax {
+                show: Some(case), ..
+            } => oracle::syntax::show(&root(), &r, &case),
+            OracleCommand::Syntax { inputs, jobs, .. } => {
                 let jobs = jobs.unwrap_or_else(|| {
                     2 * std::thread::available_parallelism().map_or(1, |n| n.get())
                 });
