@@ -198,10 +198,21 @@ fn sort_values(
         Value::Union(..) => 2,
         Value::Var(_) => 3,
     };
-    // Upstream holds them in a set before it sorts them.
+    // Upstream holds them in a set before it sorts them, so a type
+    // listed twice orders by its derived `Ord` on listings:
+    // `Y(A)`, then `Y(..)`, then `Y`.
+    let listing = |v: &Value| match v {
+        Value::Union(_, Listing::Explicit(..)) => 0,
+        Value::Union(_, Listing::Open(..)) => 1,
+        _ => 2,
+    };
     let mut exposing = exposing;
     exposing.sort_by(|a, b| {
-        (kind(&a.value), value_name(&a.value)).cmp(&(kind(&b.value), value_name(&b.value)))
+        (kind(&a.value), value_name(&a.value), listing(&a.value)).cmp(&(
+            kind(&b.value),
+            value_name(&b.value),
+            listing(&b.value),
+        ))
     });
     exposing.dedup();
 

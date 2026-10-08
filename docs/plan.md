@@ -209,11 +209,13 @@ Goal: `nomi format` and the `elm-format` personality, byte-identical to elm-form
   - `freshLine` leaves comments after the last line end to the body.
 
   The corpus passes 1915 of 1915 modules.
-- [ ] **2.14** `format: check invariants on corpus and proptest`. Four invariants:
+- [x] **2.14** `format: check invariants on corpus and proptest`. Four invariants:
   - formatting is idempotent;
   - the output parses;
   - every comment survives;
   - the token stream is unchanged apart from elm-format's normalizations (5.13 upgrades this to "HIR unchanged").
+
+  Done: every one holds wherever elm-format 0.8.8 keeps it. Where upstream breaks one (comments in the header, comments and doc-comment Markdown that move on a second run, `\x` escapes, `{-- }` comments, comments nested in doc comments, `(f x) y` spanning lines, a headless module's type and alias of one name, floats too large for a double), nomi breaks it the same way, oracle-checked. The fixtures' and the corpus's `invariants.tsv` list those modules for 2.15 to decide.
 - [ ] **2.15** `format: reach corpus parity`. Work the ratchet to 100%, with one commit per root cause. Deviations are allowed only for crashes, non-idempotence, meaning changes or unparseable output, and each gets a fixture and a `DECISIONS.md` entry.
 - [ ] **2.16** `format: linear time and depth safety`. The 136, 274 and 549 KB benchmark scales linearly, and 5,000 nested expressions format.
 - [ ] **2.17** `engine: VFS and thread pool`. Reads, atomic writes, file discovery, and the process's only pool. This is pulled forward from M4 so the `format` crate never touches files.

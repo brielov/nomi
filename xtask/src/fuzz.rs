@@ -10,7 +10,10 @@ use std::process::Command as Process;
 use anyhow::{Context, Result, bail, ensure};
 
 /// Each target, and the inputs it starts from besides its own corpus.
-const TARGETS: &[(&str, &str)] = &[("syntax", "crates/syntax/tests/syntax_mutations/seeds")];
+const TARGETS: &[(&str, &str)] = &[
+    ("syntax", "crates/syntax/tests/syntax_mutations/seeds"),
+    ("format", "crates/format/tests/format_fixtures/inputs"),
+];
 
 /// The flags of `cargo fuzz build --sanitizer none --debug-assertions`.
 const RUSTFLAGS: &[&str] = &[

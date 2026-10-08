@@ -30,6 +30,7 @@ use crate::tree::{
     Symbol, TopLevelStructure, Upper, UpperRef,
 };
 use cursor::Cursor;
+pub(crate) use literal::{negative, unsigned as literal_token};
 
 const VALID: &str = "a validated tree has it";
 

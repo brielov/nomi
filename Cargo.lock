@@ -733,6 +733,7 @@ dependencies = [
  "nomi-syntax",
  "nomi-testkit",
  "num-bigint",
+ "proptest",
 ]
 
 [[package]]

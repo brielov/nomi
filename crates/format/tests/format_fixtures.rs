@@ -1,8 +1,9 @@
 //! The fixture side of the format ratchet: each file under
 //! `format_fixtures/inputs/` is a case, passing when nomi formats it to
 //! the file of the same name under `expected/`, or rejects it where
-//! `rejected.tsv` says elm-format did. `cargo xtask oracle format fixtures`
-//! stores both.
+//! `rejected.tsv` says elm-format did, and keeping the formatter's
+//! invariants but where `invariants.tsv` says elm-format breaks one.
+//! `cargo xtask oracle format fixtures` stores the first two.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -17,21 +18,16 @@ fn format_fixtures() {
     let table = std::fs::read_to_string(dir.join("rejected.tsv"))
         .unwrap_or_else(|e| panic!("reading rejected.tsv: {e}; {RERUN}"));
     // The case, and where elm-format stopped or `crash`.
-    let rejected: BTreeMap<&str, &str> = table
-        .lines()
-        .filter(|l| !l.starts_with('#'))
-        .map(|l| {
-            l.split_once('\t')
-                .unwrap_or_else(|| panic!("malformed row `{l}`"))
-        })
-        .collect();
+    let rejected = rows(&table);
+    let table = std::fs::read_to_string(dir.join("invariants.tsv")).unwrap();
+    // The case, and the invariants elm-format breaks there.
+    let broken = rows(&table);
     let suite = Suite::open(&dir);
     let mut outcomes = Vec::new();
     for case in inputs(&dir.join("inputs")) {
         let text = std::fs::read(dir.join("inputs").join(&case)).unwrap();
-        let formatted = std::str::from_utf8(&text)
-            .ok()
-            .and_then(nomi_format::format);
+        let text = std::str::from_utf8(&text).ok();
+        let formatted = text.and_then(nomi_format::format);
         let result = match (rejected.get(case.as_str()), formatted) {
             // elm-format crashes here; nomi may do as it sees fit.
             (Some(&"crash"), Some(_)) => Ok(()),
@@ -49,9 +45,36 @@ fn format_fixtures() {
                 }
             }
         };
+        let result = result.and_then(|()| {
+            let found = text.map_or_else(Vec::new, nomi_format::broken_invariants);
+            let names: Vec<_> = found.iter().map(|(i, _)| i.name()).collect();
+            let listed = broken.get(case.as_str()).copied().unwrap_or("");
+            match found.first() {
+                _ if names.join(",") == listed => Ok(()),
+                Some((invariant, how)) if listed.is_empty() => {
+                    Err(format!("breaks `{}`: {how}", invariant.name()))
+                }
+                _ => Err(format!(
+                    "breaks `{}`, where invariants.tsv lists `{listed}`",
+                    names.join(",")
+                )),
+            }
+        });
         outcomes.push((case, result));
     }
     suite.finish(outcomes);
+}
+
+/// A table's rows: a case, a tab, and a cell.
+fn rows(table: &str) -> BTreeMap<&str, &str> {
+    table
+        .lines()
+        .filter(|l| !l.starts_with('#'))
+        .map(|l| {
+            l.split_once('\t')
+                .unwrap_or_else(|| panic!("malformed row `{l}`"))
+        })
+        .collect()
 }
 
 /// Every file below `dir`, as `/`-separated relative paths, sorted.

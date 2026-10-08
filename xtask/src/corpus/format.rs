@@ -1,7 +1,9 @@
 //! `cargo xtask corpus format`: the corpus side of the format ratchet.
 //! Each corpus project is a case. It passes when nomi formats each of its
 //! modules to elm-format's output, and rejects the modules elm-format
-//! rejects, as `corpus/format/oracle.tsv` records.
+//! rejects, as `corpus/format/oracle.tsv` records, and keeps the
+//! formatter's invariants but where `corpus/format/invariants.tsv` says
+//! elm-format breaks one.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -109,8 +111,54 @@ fn mismatch(text: &[u8], expected: &Outcome) -> Option<String> {
     }
 }
 
+/// The invariants elm-format breaks in each module where it breaks one,
+/// by case and path.
+fn parse_invariants(text: &str) -> Result<BTreeMap<(String, String), String>> {
+    let mut lines = text.lines().filter(|l| !l.starts_with('#'));
+    ensure!(
+        lines.next() == Some("case\tpath\tinvariant"),
+        "malformed column header"
+    );
+    let mut broken = BTreeMap::new();
+    for line in lines {
+        let [case, path, invariants] = line.split('\t').collect::<Vec<_>>()[..] else {
+            bail!("malformed row `{line}`");
+        };
+        for name in invariants.split(',') {
+            ensure!(
+                nomi_format::Invariant::ALL.iter().any(|i| i.name() == name),
+                "no invariant `{name}`"
+            );
+        }
+        broken.insert((case.to_owned(), path.to_owned()), invariants.to_owned());
+    }
+    Ok(broken)
+}
+
+/// Why formatting `text` breaks invariants other than `listed`, those
+/// elm-format breaks.
+fn invariant_mismatch(text: &[u8], listed: &str) -> Option<String> {
+    let found =
+        std::str::from_utf8(text).map_or_else(|_| Vec::new(), nomi_format::broken_invariants);
+    let names: Vec<_> = found.iter().map(|(i, _)| i.name()).collect();
+    match found.first() {
+        _ if names.join(",") == listed => None,
+        Some((invariant, how)) if listed.is_empty() => {
+            Some(format!("breaks `{}`: {how}", invariant.name()))
+        }
+        _ => Some(format!(
+            "breaks `{}`, where invariants.tsv lists `{listed}`",
+            names.join(",")
+        )),
+    }
+}
+
 pub fn check(root: &Path, record: bool) -> Result<()> {
     let dir = root.join(DIR);
+    let broken = parse_invariants(
+        &std::fs::read_to_string(dir.join("invariants.tsv"))
+            .context("reading corpus/format/invariants.tsv")?,
+    )?;
     let text = std::fs::read_to_string(dir.join("oracle.tsv"))
         .context("reading corpus/format/oracle.tsv; run `cargo xtask oracle format corpus`")?;
     let table = parse_table(&text)?;
@@ -119,13 +167,22 @@ pub fn check(root: &Path, record: bool) -> Result<()> {
         table.modules == modules.len() && table.sources == corpus_syntax::digest(&modules)?,
         "the corpus changed since oracle.tsv was made; run `cargo xtask oracle format corpus`"
     );
+    for (case, path) in broken.keys() {
+        ensure!(
+            modules.iter().any(|m| m.case == *case && m.path == *path),
+            "invariants.tsv lists {case} {path}, which the corpus lacks"
+        );
+    }
     let found = parallel(&modules, |m| -> Result<Option<String>> {
         let text = std::fs::read(&m.file)?;
         let expected = table
             .changed
             .get(&(m.case.clone(), m.path.clone()))
             .unwrap_or(&Outcome::Same);
-        Ok(mismatch(&text, expected).map(|why| format!("{}: {why}", m.path)))
+        let key = (m.case.clone(), m.path.clone());
+        let why = mismatch(&text, expected)
+            .or_else(|| invariant_mismatch(&text, broken.get(&key).map_or("", String::as_str)));
+        Ok(why.map(|why| format!("{}: {why}", m.path)))
     });
     let mut cases: BTreeMap<&str, Vec<String>> = BTreeMap::new();
     for (m, found) in modules.iter().zip(found) {
@@ -185,6 +242,26 @@ mod tests {
         ] {
             assert_eq!(outcome.to_string().parse::<Outcome>().unwrap(), outcome);
         }
+    }
+
+    #[test]
+    fn invariant_tables_parse() {
+        let text = "# comment\ncase\tpath\tinvariant\na/b@1.0.0\tsrc/A.elm\tparses,idempotent\n";
+        let broken = parse_invariants(text).unwrap();
+        assert_eq!(
+            broken[&("a/b@1.0.0".to_owned(), "src/A.elm".to_owned())],
+            "parses,idempotent"
+        );
+        assert!(parse_invariants("case\tpath\tinvariant\na\tb\tnonsense\n").is_err());
+        assert!(parse_invariants("a\tb\tidempotent\n").is_err());
+    }
+
+    #[test]
+    fn invariant_mismatches_follow_the_table() {
+        let formatted = b"module Main exposing (x)\n\n\nx =\n    1\n";
+        assert_eq!(invariant_mismatch(formatted, ""), None);
+        assert!(invariant_mismatch(formatted, "idempotent").is_some());
+        assert_eq!(invariant_mismatch(b"x =", ""), None);
     }
 
     #[test]

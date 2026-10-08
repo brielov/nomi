@@ -30,7 +30,7 @@ pub(super) fn is_number(node: &SyntaxNode) -> bool {
 }
 
 /// A number, negated; upstream's `num`, which reads the `-` itself.
-pub(super) fn negative(value: LiteralValue) -> LiteralValue {
+pub(crate) fn negative(value: LiteralValue) -> LiteralValue {
     match value {
         LiteralValue::Int(value, repr) => LiteralValue::Int(value.wrapping_neg(), repr),
         LiteralValue::Float(value, repr) => LiteralValue::Float(-value, repr),
@@ -38,7 +38,8 @@ pub(super) fn negative(value: LiteralValue) -> LiteralValue {
     }
 }
 
-fn unsigned(token: &SyntaxToken) -> LiteralValue {
+/// The value of a literal token, without a sign.
+pub(crate) fn unsigned(token: &SyntaxToken) -> LiteralValue {
     let text = token.text();
     match token.kind() {
         SyntaxKind::Int => {

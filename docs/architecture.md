@@ -196,11 +196,13 @@ Next to the crates:
   - Box rendering is a port of `ElmStructure`/`Box`.
 - **Comments.** One forward cursor attaches each comment exactly once, to the slot elm-format's parser would use. A debug assertion checks that every comment is emitted exactly once. The whole formatter is linear, and CI benchmarks it.
 - **Deviations from elm-format** are allowed only for crashes, non-idempotence, meaning changes or unparseable output. Each one is a fixture plus a line in `DECISIONS.md`.
-- **Invariants**, checked on the whole corpus and under fuzzing:
+- **Invariants** (`invariants.rs`), checked on the fixtures, the whole corpus, property tests and the `format` fuzz target:
   - formatting is idempotent;
   - the output parses;
-  - the HIR is unchanged;
+  - the HIR is unchanged (until M5, the tokens apart from elm-format's normalizations, and the imported modules);
   - every comment survives.
+
+  Where elm-format 0.8.8 breaks one, nomi breaks it the same way until plan 2.15 decides otherwise; `invariants.tsv` lists those modules, and fuzzing allows only the classes `upstream_breaks` names.
 - **LSP formatting** returns a minimal diff, not a whole-document replacement.
 - **Doc comments.** elm-format reads Markdown with its Cheapskate fork, and the format crate ports it (`markdown/`), because a CommonMark parser sees other blocks at the edges. Lowering parses each Elm code block, so rendering never parses. Doc comments get their own differential fixtures.
 

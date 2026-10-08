@@ -3,12 +3,14 @@
 
 mod block;
 mod ghc;
+mod invariants;
 mod lower;
 mod markdown;
 mod render;
 mod structure;
 mod tree;
 
+pub use invariants::{Invariant, broken_invariants, check_invariants, upstream_breaks};
 use nomi_syntax::{Tool, parse_module, validate};
 
 /// `text` formatted as elm-format does, or `None` where elm-format

@@ -17,6 +17,16 @@ fn a_module_without_a_header_exposes_what_it_defines() {
     );
 }
 
+/// Upstream also drops the blank lines between the two, as if the second
+/// were a definition of the first.
+#[test]
+fn a_type_and_an_alias_of_one_name_both_stay_exposed() {
+    assert_formats(
+        "type alias Y =\n    ()\n\n\ntype Y\n    = Y0\n",
+        "module Main exposing (Y(..), Y)\n\n\ntype alias Y =\n    ()\ntype Y\n    = Y0\n",
+    );
+}
+
 #[test]
 fn docs_group_the_exposing_list() {
     let docs = "{-| Docs.\n\n@docs a, b, nope\n@docs T, (+)\n\n    @docs D\n\n-}\n\nimport B\n\n\na =\n    1\n";
