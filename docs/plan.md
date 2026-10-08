@@ -251,6 +251,7 @@ Goal: read and write `elm.json` exactly as elm does, resolve and fetch dependenc
 - [x] **3.11** `cli: update, outdated and tree`. `update` re-solves for the newest versions of the same major version (DECISIONS 2026-10-08), optionally for one package and the packages that depend on it, and prints the plan before writing. `outdated` and `tree` only read. **Check:** fixture-registry scenarios.
 
 **Exit:** solver parity, byte-identical `elm.json` rewrites, and every corpus app's dependencies resolve and fetch.
+  Done: `cargo xtask corpus deps` checks each corpus app's dependencies out and downloads them, as every Compat, through `nomi_registry` against the live registry: 456 releases. It checks archives against the registry's hashes, not pins of ours, so it runs by hand like `corpus pin`, not in CI.
 
 ## M4: Engine, reports and syntax errors (with LSP v0)
 

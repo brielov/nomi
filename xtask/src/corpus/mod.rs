@@ -3,6 +3,7 @@
 
 pub mod apps;
 pub mod compat;
+pub mod deps;
 pub mod format;
 pub mod outline;
 pub mod packages;

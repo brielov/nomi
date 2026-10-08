@@ -89,6 +89,9 @@ enum CorpusCommand {
     /// Whether nomi reads every corpus `elm.json` as each Compat that
     /// builds it and writes it back as elm would.
     Outline,
+    /// Whether every corpus app's dependencies check out and download as
+    /// each Compat, from the live registry; not part of CI.
+    Deps,
     /// Tier 2: whether nomi formats every corpus module as elm-format did,
     /// a case per project.
     Format {
@@ -188,6 +191,7 @@ fn main() -> ExitCode {
             CorpusCommand::Syntax { record } => corpus::syntax::check(&root(), record),
             CorpusCommand::Format { record } => corpus::format::check(&root(), record),
             CorpusCommand::Outline => corpus::outline::check(&root()),
+            CorpusCommand::Deps => corpus::deps::check(&root()),
         },
     };
     match result {
