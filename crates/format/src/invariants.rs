@@ -118,8 +118,6 @@ pub fn broken_invariants(text: &str) -> Vec<(Invariant, String)> {
 ///   second run;
 /// - `\x` escapes, which elm-format reads as Elm 0.18 did and prints as
 ///   other code points, some that don't exist;
-/// - a float too large for a double, which elm-format prints as
-///   `Infinity`, a name Elm doesn't define;
 /// - a call spanning lines of a parenthesized call or of a range, as in
 ///   `(f x) y` or `[a..b] y` then an argument below, whose function's
 ///   arguments join the first line and move below it on a second run;
@@ -159,11 +157,6 @@ pub fn upstream_breaks(text: &str) -> Vec<Invariant> {
             Invariant::KeepsTokens,
             Invariant::Idempotent,
         ]);
-    }
-    if tokens().any(|t| {
-        t.kind() == SyntaxKind::Float && t.text().parse::<f64>().is_ok_and(f64::is_infinite)
-    }) {
-        breaks.push(Invariant::KeepsTokens);
     }
     if root.descendants().any(|call| {
         call.kind() == SyntaxKind::CallExpr

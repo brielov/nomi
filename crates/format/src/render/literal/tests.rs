@@ -42,7 +42,11 @@ fn floats_print_ghcs_digits() {
     assert_eq!(exponent(1e10), "1.0e10");
     assert_eq!(exponent(1e22), "1.0e22");
     assert_eq!(exponent(1.5e-7), "1.5e-7");
-    assert_eq!(exponent(f64::INFINITY), "Infinity");
+    assert_eq!(exponent(f64::INFINITY), "1.0e309");
+    assert_eq!(exponent(f64::NEG_INFINITY), "-1.0e309");
+    assert_eq!(fixed(f64::INFINITY), format!("1{}.0", "0".repeat(309)));
+    assert_eq!("1.0e309".parse(), Ok(f64::INFINITY));
+    assert_eq!("1.0e308".parse::<f64>().map(f64::is_finite), Ok(true));
     // GHC excludes the rounding boundaries, so digits lying exactly on one
     // are passed over for longer ones.
     assert_eq!(exponent(1e23), "9.999999999999999e22");

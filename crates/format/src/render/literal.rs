@@ -128,7 +128,7 @@ fn digits(f: f64) -> (Vec<u8>, i32) {
 
 /// Upstream's `printf "%f"`, which is GHC's `showFFloat Nothing`.
 fn fixed(f: f64) -> String {
-    signed(f, |f| {
+    signed(f, &format!("1{}.0", "0".repeat(309)), |f| {
         let (digits, e) = digits(f);
         let digits: String = digits.iter().map(|d| char::from(b'0' + d)).collect();
         if e <= 0 {
@@ -150,7 +150,7 @@ fn fixed(f: f64) -> String {
 
 /// Upstream's `printf "%e"`, which is GHC's `showEFloat Nothing`.
 fn exponent(f: f64) -> String {
-    signed(f, |f| {
+    signed(f, "1.0e309", |f| {
         let (digits, e) = digits(f);
         let e = e - 1;
         match &digits[..] {
@@ -165,15 +165,18 @@ fn exponent(f: f64) -> String {
     })
 }
 
-/// `show` around a magnitude's spelling: the sign, and GHC's names for
-/// what has no digits.
-fn signed(f: f64, magnitude: impl FnOnce(f64) -> String) -> String {
+/// `show` around a magnitude's spelling: the sign, and GHC's name for
+/// what has no digits. Upstream spells an infinite magnitude, from a
+/// literal too large for a double, `Infinity`, a name Elm doesn't
+/// define; nomi spells it `infinite`, the least power of ten that reads
+/// back as infinite (`DECISIONS.md`).
+fn signed(f: f64, infinite: &str, magnitude: impl FnOnce(f64) -> String) -> String {
     if f.is_nan() {
         return "NaN".to_owned();
     }
     let sign = if f.is_sign_negative() { "-" } else { "" };
     if f.is_infinite() {
-        return format!("{sign}Infinity");
+        return format!("{sign}{infinite}");
     }
     format!("{sign}{}", magnitude(f.abs()))
 }

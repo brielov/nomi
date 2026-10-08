@@ -168,17 +168,16 @@ fn a_type_and_an_alias_of_one_name_need_not_be_idempotent() {
     nomi_format::check_invariants(text);
 }
 
-/// elm-format prints `Infinity`, which Elm doesn't define; the fuzzer
-/// found it.
+/// elm-format prints `Infinity`, which Elm doesn't define; nomi prints
+/// a literal that is as large. The fuzzer found it.
 #[test]
-fn a_float_too_large_for_a_double_need_not_keep_its_tokens() {
+fn a_float_too_large_for_a_double_keeps_every_invariant() {
     let text = "module A exposing (x)\n\n\nx =\n    ( 1e999, -1e999 )\n";
-    assert_eq!(nomi_format::upstream_breaks(text), [Invariant::KeepsTokens]);
     assert_eq!(
         nomi_format::format(text).as_deref(),
-        Some("module A exposing (x)\n\n\nx =\n    ( Infinity, -Infinity )\n")
+        Some("module A exposing (x)\n\n\nx =\n    ( 1.0e309, -1.0e309 )\n")
     );
-    nomi_format::check_invariants(text);
+    assert_eq!(nomi_format::broken_invariants(text), Vec::new());
 }
 
 proptest! {
