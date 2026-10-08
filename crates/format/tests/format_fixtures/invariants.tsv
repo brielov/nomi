@@ -58,8 +58,6 @@ nomi/documentation_groups/019.elm	idempotent
 nomi/documentation_groups/043.elm	idempotent
 nomi/documentation_groups/045.elm	idempotent
 nomi/documentation_groups/046.elm	idempotent
-nomi/export_comments/001.elm	parses,idempotent
-nomi/export_comments/002.elm	parses,idempotent
 nomi/export_comments/006.elm	idempotent
 nomi/export_comments/010.elm	idempotent
 nomi/export_comments/022.elm	idempotent
@@ -67,8 +65,6 @@ nomi/export_comments/025.elm	keeps-comments
 nomi/export_comments/026.elm	keeps-comments
 nomi/export_comments/032.elm	keeps-comments
 nomi/export_comments/033.elm	keeps-comments
-nomi/export_comments/035.elm	parses,idempotent
-nomi/export_comments/036.elm	parses,idempotent
 nomi/export_comments/044.elm	idempotent
 nomi/export_comments/049.elm	idempotent
 nomi/export_comments/052.elm	idempotent
@@ -80,8 +76,6 @@ nomi/export_comments/060.elm	keeps-comments
 nomi/export_comments/061.elm	keeps-comments
 nomi/export_comments/063.elm	keeps-comments
 nomi/export_comments/064.elm	keeps-comments
-nomi/export_comments/065.elm	parses,idempotent
-nomi/export_comments/066.elm	parses,idempotent
 nomi/headers/013.elm	keeps-comments
 nomi/headers/014.elm	keeps-comments
 nomi/headers/015.elm	keeps-comments

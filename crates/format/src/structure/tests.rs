@@ -83,14 +83,14 @@ fn groups() {
 
 #[test]
 fn groups_with_footers() {
-    let footer = || vec![word("..")];
+    let footer = || vec![word("{-c-}")];
     assert_eq!(
         group_with_footer(true, "(", ",", footer(), ")", false, vec![]).render(),
-        "(..)\n"
+        "({-c-})\n"
     );
     assert_eq!(
-        group_with_footer(true, "(", ",", footer(), ")", false, words(&["a"])).render(),
-        "( a, .. )\n"
+        group_with_footer(true, "(", ",", footer(), ")", false, words(&["a", "b"])).render(),
+        "( a, b {-c-} )\n"
     );
     assert_eq!(
         group_with_footer(

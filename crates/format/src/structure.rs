@@ -279,8 +279,10 @@ pub(crate) fn group(
     )
 }
 
-/// A `group` whose `footer` follows the children: joined like them, or
-/// stacked before `right`. Upstream's `group'`.
+/// A `group` whose `footer` follows the children: after a space, or
+/// stacked before `right`. Upstream's `group'`, which joins the footer
+/// like a child, `(x, {- c -})`, so a module line doesn't parse; nomi
+/// deviates (`DECISIONS.md`).
 pub(crate) fn group_with_footer(
     inner_spaces: bool,
     left: &str,
@@ -303,10 +305,13 @@ pub(crate) fn group_with_footer(
         if inner_spaces {
             row.push(Line::space());
         }
-        row.push(intersperse(
-            lines(children).into_iter().chain(lines(footer)),
-            || Line::row([punc(separator), Line::space()]),
-        ));
+        row.push(intersperse(lines(children), || {
+            Line::row([punc(separator), Line::space()])
+        }));
+        for line in lines(footer) {
+            row.push(Line::space());
+            row.push(line);
+        }
         if inner_spaces {
             row.push(Line::space());
         }

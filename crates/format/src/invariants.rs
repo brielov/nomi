@@ -114,8 +114,8 @@ pub fn broken_invariants(text: &str) -> Vec<(Invariant, String)> {
 /// as nomi does, by what `text` holds:
 ///
 /// - comments: comments in the module header and exposing lists vanish,
-///   some there leave an unparseable exposing list, and comments and doc
-///   comments' Markdown can move or respace on a second run;
+///   and comments and doc comments' Markdown can move or respace on a
+///   second run;
 /// - `\x` escapes, which elm-format reads as Elm 0.18 did and prints as
 ///   other code points, some that don't exist;
 /// - a float too large for a double, which elm-format prints as
@@ -124,7 +124,8 @@ pub fn broken_invariants(text: &str) -> Vec<(Invariant, String)> {
 ///   `(f x) y` or `[a..b] y` then an argument below, whose function's
 ///   arguments join the first line and move below it on a second run;
 /// - an Elm 0.18 infix declaration spanning lines for a comment in it,
-///   which elm-format prints as a request to report it;
+///   which elm-format prints as a request to report it, which doesn't
+///   parse;
 /// - a module without a header, declaring a type alias and a custom
 ///   type of one name, which the exposing list elm-format writes names
 ///   twice and a second run once;
@@ -147,11 +148,7 @@ pub fn upstream_breaks(text: &str) -> Vec<Invariant> {
             SyntaxKind::LineComment | SyntaxKind::BlockComment | SyntaxKind::DocComment
         )
     }) {
-        breaks.extend([
-            Invariant::Parses,
-            Invariant::KeepsComments,
-            Invariant::Idempotent,
-        ]);
+        breaks.extend([Invariant::KeepsComments, Invariant::Idempotent]);
     }
     if tokens().any(|t| {
         matches!(
@@ -195,7 +192,7 @@ pub fn upstream_breaks(text: &str) -> Vec<Invariant> {
                 || t.kind() == SyntaxKind::BlockComment && t.text().contains('\n')
         })
     {
-        breaks.push(Invariant::KeepsTokens);
+        breaks.extend([Invariant::Parses, Invariant::KeepsTokens]);
     }
     let type_name = |kind| {
         root.children()

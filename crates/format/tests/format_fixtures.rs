@@ -3,7 +3,10 @@
 //! the file of the same name under `expected/`, or rejects it where
 //! `rejected.tsv` says elm-format did, and keeping the formatter's
 //! invariants but where `invariants.tsv` says elm-format breaks one.
-//! `cargo xtask oracle format fixtures` stores the first two.
+//! `cargo xtask oracle format fixtures` stores the first two. Where nomi
+//! deviates from elm-format on purpose, `deviations/` holds its output
+//! instead, by hand, and the case keeps every invariant; each deviation
+//! has its entry in `DECISIONS.md`.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -23,8 +26,15 @@ fn format_fixtures() {
     // The case, and the invariants elm-format breaks there.
     let broken = rows(&table);
     let suite = Suite::open(&dir);
+    let cases = inputs(&dir.join("inputs"));
+    for deviation in inputs(&dir.join("deviations")) {
+        assert!(
+            cases.contains(&deviation),
+            "deviations/{deviation}: no input"
+        );
+    }
     let mut outcomes = Vec::new();
-    for case in inputs(&dir.join("inputs")) {
+    for case in cases {
         let text = std::fs::read(dir.join("inputs").join(&case)).unwrap();
         let text = std::str::from_utf8(&text).ok();
         let formatted = text.and_then(nomi_format::format);
@@ -34,6 +44,13 @@ fn format_fixtures() {
             (Some(&"crash"), None) => Err("elm-format crashes, nomi rejects".to_owned()),
             (Some(_), None) => Ok(()),
             (Some(at), Some(_)) => Err(format!("elm-format rejects at {at}, nomi formats")),
+            (None, formatted) if dir.join("deviations").join(&case).exists() => {
+                let deviation = std::fs::read(dir.join("deviations").join(&case)).unwrap();
+                match formatted {
+                    Some(output) if output.as_bytes() == deviation => Ok(()),
+                    _ => Err("nomi's output differs from its deviation".to_owned()),
+                }
+            }
             (None, formatted) => {
                 let expected = suite
                     .expected(&case)
