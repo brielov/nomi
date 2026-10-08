@@ -172,7 +172,7 @@ Next to the crates:
 - A node never ends with trailing trivia; it bubbles up to the parent. The comment about `y` therefore can't land inside `x`.
 
 **Grammar**
-- There is one grammar for every caller.
+- There is one grammar for every caller. elm's own report of a syntax error comes from a port of upstream's parser, which runs only on a module the grammar rejects, builds no tree, and is held to rejecting exactly what each release rejects (DECISIONS 2026-10-08).
 - Where elm-format accepts input the compiler rejects, or the input is legacy syntax, a validation pass flags it instead of a grammar mode. What a project type may use (kernel imports, effect modules) is checked after parsing.
 - Layout follows upstream's column rules: fresh line, indented, aligned.
 - Operator chains stay flat. Precedence is resolved after canonicalization from the imported fixities, as upstream does.

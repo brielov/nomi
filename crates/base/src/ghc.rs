@@ -37,6 +37,11 @@ pub fn is_upper(c: char) -> bool {
     )
 }
 
+/// GHC's `isLower`: a lowercase letter.
+pub fn is_lower(c: char) -> bool {
+    GENERAL_CATEGORY.get(c) == GeneralCategory::LowercaseLetter
+}
+
 /// GHC's `isAlphaNum`: a letter or a number of any kind.
 pub fn is_alpha_num(c: char) -> bool {
     is_alpha(c)
