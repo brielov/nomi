@@ -90,26 +90,7 @@ fn rm_undoes_add() {
     case.create_files(work.path()).unwrap();
     let elm_json = work.path().join("elm.json");
     let before = fs::read_to_string(&elm_json).unwrap();
-    let nomi = |args: &[&str]| {
-        let mut command = offline(Path::new(env!("CARGO_BIN_EXE_nomi")), cache.path());
-        let mut child = command
-            .args(args)
-            .current_dir(work.path())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        child.stdin.take().unwrap().write_all(b"y\n").unwrap();
-        let output = child.wait_with_output().unwrap();
-        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-        assert!(
-            output.status.success(),
-            "nomi {args:?}:\n{stdout}{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        stdout
-    };
+    let nomi = |args: &[&str]| nomi(cache.path(), work.path(), args);
     nomi(&["add", "elm/http"]);
     assert_ne!(fs::read_to_string(&elm_json).unwrap(), before);
     let removed = nomi(&["rm", "elm/http"]);
@@ -117,6 +98,70 @@ fn rm_undoes_add() {
     for gone in ["elm/http", "elm/bytes", "elm/file"] {
         assert!(removed.contains(gone), "{removed}");
     }
+}
+
+/// `nomi tree`, `outdated` and `update`, which upstream has no commands
+/// for, on an application whose dependencies are the fixture registry's
+/// only releases.
+#[test]
+fn tree_outdated_and_update() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm");
+    let cache = tempfile::tempdir().unwrap();
+    Website::new(&dir.join("packages")).fill(cache.path());
+    let case =
+        Case::parse(&fs::read_to_string(dir.join("cases/install_add.case")).unwrap()).unwrap();
+    let work = tempfile::tempdir().unwrap();
+    case.create_files(work.path()).unwrap();
+    let nomi = |args: &[&str]| nomi(cache.path(), work.path(), args);
+    assert_eq!(
+        nomi(&["tree"]),
+        "\
+elm/browser 1.0.2
+├── elm/core 1.0.5
+├── elm/html 1.0.1
+│   ├── elm/core 1.0.5
+│   ├── elm/json 1.1.4
+│   │   └── elm/core 1.0.5
+│   └── elm/virtual-dom 1.0.5
+│       ├── elm/core 1.0.5
+│       └── elm/json 1.1.4 (*)
+├── elm/json 1.1.4 (*)
+├── elm/time 1.0.0
+│   └── elm/core 1.0.5
+├── elm/url 1.0.0
+│   └── elm/core 1.0.5
+└── elm/virtual-dom 1.0.5 (*)
+elm/core 1.0.5
+elm/html 1.0.1 (*)
+"
+    );
+    assert_eq!(nomi(&["outdated"]), "Everything is up to date!\n");
+    assert_eq!(nomi(&["update"]), "Everything is up to date!\n");
+    nomi(&["add", "elm/http"]);
+    assert_eq!(nomi(&["update", "elm/http"]), "Everything is up to date!\n");
+}
+
+/// The output of `nomi` with `args` in `work`, which must succeed,
+/// answering yes to any question.
+fn nomi(cache: &Path, work: &Path, args: &[&str]) -> String {
+    let mut command = offline(Path::new(env!("CARGO_BIN_EXE_nomi")), cache);
+    let mut child = command
+        .args(args)
+        .current_dir(work)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"y\n").unwrap();
+    let output = child.wait_with_output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(
+        output.status.success(),
+        "nomi {args:?}:\n{stdout}{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    stdout
 }
 
 /// `program` with the cache at `cache`, where every request fails, as

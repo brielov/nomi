@@ -11,7 +11,8 @@ use nomi_registry::{Http, RemoveProblem, SolverProblem, Store, remove, report};
 
 use crate::console::{self, Console, Personality};
 use crate::install::{one_line, parse_name, plan_question};
-use crate::paths::{Cache, Root};
+use crate::paths::Cache;
+use crate::project::Project;
 use crate::{Vfs, env};
 
 /// Removes `package` from the project around `dir`, once the user agrees.
@@ -44,29 +45,8 @@ fn remove(
     compat: &mut Compat,
 ) -> Result<bool, Report> {
     let package = parse_name(package)?;
-    let Some(root) = Root::find(vfs, dir) else {
-        return Err(one_line(
-            "NO ELM.JSON",
-            "I cannot find an elm.json here or in any directory above, so there is no \
-             project to remove a package from."
-                .to_owned(),
-        ));
-    };
-    let path = root.elm_json();
-    let src = vfs.read_bytes(&path).map_err(|e| {
-        one_line(
-            "PROBLEM READING ELM.JSON",
-            format!("I could not read elm.json: {e}"),
-        )
-    })?;
-    // `toOutlineReport` comes with 4.4a.
-    let (old, detected) = Outline::detect(&src).map_err(|e| {
-        one_line(
-            "BAD ELM.JSON",
-            format!("I ran into a problem with your elm.json file: {e:?}"),
-        )
-    })?;
-    *compat = detected;
+    let project = Project::load(vfs, dir, "to remove a package from")?;
+    *compat = project.compat;
     let store = Store::new(cache.packages());
     let mut registry = env::registry(
         cache,
@@ -75,7 +55,7 @@ fn remove(
         *compat,
         "I need the list of published packages to figure out what to remove",
     )?;
-    let (question, new) = match remove::plan(&mut registry, &package, &old) {
+    let (question, new) = match remove::plan(&mut registry, &package, &project.outline) {
         Ok(remove::Plan::App { changes, outline }) => {
             (plan_question(&changes), Outline::App(outline))
         }
@@ -95,12 +75,7 @@ fn remove(
             Ok(true)
         }
         Ok(Some(true)) => {
-            vfs.write(&path, new.write()).map_err(|e| {
-                one_line(
-                    "PROBLEM WRITING ELM.JSON",
-                    format!("I could not write elm.json: {e}"),
-                )
-            })?;
+            project.write(vfs, &new)?;
             console.out("Success!\n");
             Ok(true)
         }

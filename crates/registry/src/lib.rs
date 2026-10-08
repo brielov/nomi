@@ -12,6 +12,7 @@ pub mod remove;
 pub mod report;
 pub mod solver;
 pub mod store;
+pub mod update;
 
 pub use details::DetailsProblem;
 pub use http::{Http, HttpError, Web};
@@ -21,3 +22,4 @@ pub use registry::{Registry, SolverProblem};
 pub use remove::RemoveProblem;
 pub use solver::{AppSolution, Details, Packages, Release};
 pub use store::{PackageProblem, Store};
+pub use update::{Outdated, UpdateProblem};

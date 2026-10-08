@@ -80,7 +80,7 @@ pub fn verify<P: Packages>(
 }
 
 /// `AppSolution`: an application's dependencies before and after adding
-/// a package.
+/// a package, or updating some.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AppSolution {
     pub old: BTreeMap<Name, Version>,
@@ -116,7 +116,47 @@ pub fn add_to_app<P: Packages>(
             .collect();
         constraints.insert(pkg.clone(), Constraint::anything(compat));
         if let Some(new) = search.attempt(constraints)? {
-            let app = search.to_app(pkg, app, &new);
+            let app = search.to_app(Some(pkg), app, &new);
+            return Ok(Some(AppSolution {
+                old: all_deps.clone(),
+                new,
+                app,
+            }));
+        }
+    }
+    Ok(None)
+}
+
+/// The application with the dependencies in `free` re-solved: each
+/// direct one up to its next major version, each indirect one not at all.
+/// The others are held exactly, then, if that fails, only the direct
+/// ones. `None` if nothing works.
+pub fn update_app<P: Packages>(
+    packages: &mut P,
+    compat: Compat,
+    free: &BTreeSet<Name>,
+    app: &AppOutline,
+) -> Result<Option<AppSolution>, P::Error> {
+    let all_directs = union(&app.direct, &app.test_direct);
+    let all_deps = union(&all_directs, &union(&app.indirect, &app.test_indirect));
+    let mut search = Search::new(packages, compat);
+    for held in [&all_deps, &all_directs] {
+        let mut constraints = BTreeMap::new();
+        for (name, &version) in &all_deps {
+            let constraint = if !free.contains(name) {
+                held.contains_key(name)
+                    .then(|| Constraint::exactly(version))
+            } else {
+                all_directs
+                    .contains_key(name)
+                    .then(|| Constraint::until_next_major(version, compat))
+            };
+            if let Some(constraint) = constraint {
+                constraints.insert(name.clone(), constraint);
+            }
+        }
+        if let Some(new) = search.attempt(constraints)? {
+            let app = search.to_app(None, app, &new);
             return Ok(Some(AppSolution {
                 old: all_deps.clone(),
                 new,
@@ -255,10 +295,15 @@ impl<'p, P: Packages> Search<'p, P> {
     /// them. Direct ones stay direct, and `pkg` joins them; what those
     /// need is indirect; test dependencies stay so, unless something else
     /// needs them first.
-    fn to_app(&self, pkg: &Name, app: &AppOutline, new: &BTreeMap<Name, Version>) -> AppOutline {
+    fn to_app(
+        &self,
+        pkg: Option<&Name>,
+        app: &AppOutline,
+        new: &BTreeMap<Name, Version>,
+    ) -> AppOutline {
         let direct: BTreeMap<Name, Version> = new
             .iter()
-            .filter(|(name, _)| *name == pkg || app.direct.contains_key(*name))
+            .filter(|(name, _)| Some(*name) == pkg || app.direct.contains_key(*name))
             .map(|(name, &version)| (name.clone(), version))
             .collect();
         let indirect: BTreeMap<Name, Version> = self
@@ -272,7 +317,7 @@ impl<'p, P: Packages> Search<'p, P> {
             .collect();
         let test_direct: BTreeMap<Name, Version> = new
             .iter()
-            .filter(|(name, _)| *name != pkg && app.test_direct.contains_key(*name))
+            .filter(|(name, _)| Some(*name) != pkg && app.test_direct.contains_key(*name))
             .map(|(name, &version)| (name.clone(), version))
             .collect();
         let test_indirect = new

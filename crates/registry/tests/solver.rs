@@ -15,6 +15,7 @@ use nomi_project::json::Cursor;
 use nomi_project::{Name, Outline, Version};
 use nomi_registry::install::{self, Change, InstallProblem, Plan};
 use nomi_registry::remove::{self, RemoveProblem};
+use nomi_registry::update::{self, UpdateProblem};
 use nomi_registry::{DetailsProblem, Known, Packages, Release, details, solver};
 use nomi_testkit::ratchet::Suite;
 use serde::Deserialize;
@@ -211,6 +212,118 @@ fn removing_undoes_adding() {
     }
     assert!(checked > 50, "checked only {checked} scenarios");
     assert!(restored > 10, "restored only {restored} scenarios");
+}
+
+/// Updating an application elm accepts keeps its direct and test
+/// dependencies, moves none of them back or past its major version, and
+/// leaves one elm accepts, which a second update doesn't change. Updating
+/// one dependency moves no direct one that doesn't need it.
+#[test]
+fn updating_stays_within_majors() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/solver");
+    let compat = Compat::LATEST;
+    let mut universes = BTreeMap::new();
+    let (mut checked, mut moved) = (0, 0);
+    for (name, scenario) in &scenarios(&dir) {
+        let universe = universe(&dir, &mut universes, scenario);
+        let src = outline(&scenario.project, compat).to_string();
+        let Ok(Outline::App(before)) = Outline::read(src.as_bytes(), compat) else {
+            continue;
+        };
+        let mut packages = Fixture::new(&universe, compat);
+        if details::verify(&mut packages, compat, &Outline::App(before.clone())).is_err() {
+            continue;
+        }
+        let update = |packages: &mut Fixture, pkg: Option<&Name>, app| match update::plan(
+            packages,
+            compat,
+            pkg,
+            &Outline::App(app),
+        ) {
+            Ok(update::Plan::App { changes, outline }) => Some((changes, outline)),
+            Err(UpdateProblem::Unavailable(..) | UpdateProblem::NoSolution) => None,
+            other => panic!("{name}: {other:?}"),
+        };
+        let Some((changes, after)) = update(&mut packages, None, before.clone()) else {
+            continue;
+        };
+        checked += 1;
+        for (old, new) in [
+            (&before.direct, &after.direct),
+            (&before.test_direct, &after.test_direct),
+        ] {
+            assert!(old.keys().eq(new.keys()), "{name}");
+            for (dep, version) in old {
+                assert!(new[dep] >= *version, "{name}: {dep}");
+                assert_eq!(new[dep].major, version.major, "{name}: {dep}");
+            }
+        }
+        let after_outline = Outline::App(after.clone());
+        assert!(
+            details::verify(&mut packages, compat, &after_outline).is_ok(),
+            "{name}"
+        );
+        let again = update(&mut packages, None, after.clone());
+        assert!(
+            again.is_some_and(|(changes, _)| changes.is_empty()),
+            "{name}"
+        );
+        if !changes.is_empty() {
+            moved += 1;
+        }
+        for pkg in before.direct.keys() {
+            let Some((_, one)) = update(&mut packages, Some(pkg), before.clone()) else {
+                continue;
+            };
+            assert!(
+                details::verify(&mut packages, compat, &Outline::App(one.clone())).is_ok(),
+                "{name}: {pkg}"
+            );
+            let all = [
+                &before.direct,
+                &before.indirect,
+                &before.test_direct,
+                &before.test_indirect,
+            ];
+            for (dep, &version) in before.direct.iter().chain(&before.test_direct) {
+                let moved = [&one.direct, &one.test_direct]
+                    .iter()
+                    .find_map(|deps| deps.get(dep))
+                    != Some(&version);
+                assert!(
+                    !moved || reaches(&mut packages, &all, dep, pkg),
+                    "{name}: updating {pkg} moved {dep}"
+                );
+            }
+        }
+    }
+    assert!(checked >= 50, "checked only {checked} scenarios");
+    assert!(moved > 10, "moved only {moved} scenarios");
+}
+
+/// Whether `from`, at its version among `deps`, needs `to`, directly or
+/// not, or is it.
+fn reaches(
+    packages: &mut Fixture,
+    deps: &[&BTreeMap<Name, Version>],
+    from: &Name,
+    to: &Name,
+) -> bool {
+    let version = |name: &Name| deps.iter().find_map(|deps| deps.get(name)).copied();
+    let mut visited = std::collections::BTreeSet::new();
+    let mut unvisited = vec![from.clone()];
+    while let Some(name) = unvisited.pop() {
+        if &name == to {
+            return true;
+        }
+        if let Some(v) = version(&name)
+            && visited.insert(name.clone())
+            && let Ok(Some(release)) = packages.release(&name, v)
+        {
+            unvisited.extend(release.deps.into_keys());
+        }
+    }
+    false
 }
 
 /// Whether elm accepts `app` and removing a package nothing depends on

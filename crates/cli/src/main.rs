@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 use nomi_engine::console::{Personality, StdConsole};
 use nomi_engine::format::{self, Mode, Outcome};
 use nomi_engine::paths::Cache;
-use nomi_engine::{Vfs, Web, init, install, remove};
+use nomi_engine::{Vfs, Web, init, install, remove, tree, update};
 
 /// One toolchain for Elm: compiler, formatter, language server, test runner
 /// and package manager.
@@ -56,6 +56,17 @@ enum Command {
         /// The package, e.g. elm/http.
         package: String,
     },
+    /// Move the project's dependencies to their newest releases of the
+    /// same major version.
+    Update {
+        /// Only this package, e.g. elm/http, and those that need it.
+        package: Option<String>,
+    },
+    /// List the dependencies that have newer releases.
+    Outdated,
+    /// Show the releases the project builds with, under the dependencies
+    /// that need them.
+    Tree,
 }
 
 mod elm;
@@ -87,6 +98,15 @@ fn main() -> ExitCode {
         Some(Command::New { dir }) => new(Personality::Nomi, dir),
         Some(Command::Add { package }) => add(Personality::Nomi, Some(&package)),
         Some(Command::Rm { package }) => rm(&package),
+        Some(Command::Update { package }) => in_project(|console, dir, cache, http| {
+            update::run(&Vfs::new(), console, dir, cache, http, package.as_deref())
+        }),
+        Some(Command::Outdated) => in_project(|console, dir, cache, http| {
+            update::outdated(&Vfs::new(), console, dir, cache, http)
+        }),
+        Some(Command::Tree) => in_project(|console, dir, cache, http| {
+            tree::run(&Vfs::new(), console, dir, cache, http)
+        }),
     };
     exit(succeeded)
 }
@@ -133,18 +153,18 @@ fn add(personality: Personality, package: Option<&str>) -> bool {
 
 /// `nomi rm`, for the project around the current directory.
 fn rm(package: &str) -> bool {
+    in_project(|console, dir, cache, http| {
+        remove::run(&Vfs::new(), console, dir, cache, http, package)
+    })
+}
+
+/// `command` for the project around the current directory.
+fn in_project(command: impl FnOnce(&mut StdConsole, &Path, &Cache, &Web) -> bool) -> bool {
     let Some(cache) = cache() else { return false };
     let Some(dir) = current_dir() else {
         return false;
     };
-    remove::run(
-        &Vfs::new(),
-        &mut StdConsole,
-        &dir,
-        &cache,
-        &Web::new(),
-        package,
-    )
+    command(&mut StdConsole, &dir, &cache, &Web::new())
 }
 
 fn current_dir() -> Option<PathBuf> {

@@ -277,21 +277,7 @@ fn verify(
     compat: Compat,
     outline: &Outline,
 ) -> Result<(), Report> {
-    // `toDetailsReport` comes with 4.4a.
-    let solution = details::verify(registry, compat, outline).map_err(|problem| {
-        let message = match problem {
-            DetailsProblem::Solver(problem) => return report::solver_problem(&problem),
-            DetailsProblem::AppElm(v) => format!("This application is for elm {v}."),
-            DetailsProblem::PkgElm(c) => format!("This package needs elm {c}."),
-            DetailsProblem::HandEdited => {
-                "The dependencies in elm.json contradict each other.".to_owned()
-            }
-            DetailsProblem::NoSolution => {
-                "I cannot find a set of packages that satisfies elm.json.".to_owned()
-            }
-        };
-        one_line("PROBLEM WITH DEPENDENCIES", message)
-    })?;
+    let solution = details::verify(registry, compat, outline).map_err(details_problem)?;
     let releases = solution
         .into_iter()
         .map(|(name, details)| (name, details.version))
@@ -315,6 +301,23 @@ fn verify(
             format!("I could not download {}", failed.join("; ")),
         ))
     }
+}
+
+/// Why a project's dependencies don't check out. `toDetailsReport` comes
+/// with 4.4a.
+pub(crate) fn details_problem(problem: DetailsProblem<SolverProblem>) -> Report {
+    let message = match problem {
+        DetailsProblem::Solver(problem) => return report::solver_problem(&problem),
+        DetailsProblem::AppElm(v) => format!("This application is for elm {v}."),
+        DetailsProblem::PkgElm(c) => format!("This package needs elm {c}."),
+        DetailsProblem::HandEdited => {
+            "The dependencies in elm.json contradict each other.".to_owned()
+        }
+        DetailsProblem::NoSolution => {
+            "I cannot find a set of packages that satisfies elm.json.".to_owned()
+        }
+    };
+    one_line("PROBLEM WITH DEPENDENCIES", message)
 }
 
 fn package_problem(problem: &PackageProblem) -> String {

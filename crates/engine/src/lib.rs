@@ -13,7 +13,10 @@ pub mod install;
 pub mod packages;
 pub mod paths;
 mod pool;
+mod project;
 pub mod remove;
+pub mod tree;
+pub mod update;
 mod vfs;
 
 pub use nomi_registry::Web;
