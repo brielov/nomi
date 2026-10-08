@@ -25,6 +25,7 @@ icu_properties = { version = "=1.5.1", default-features = false, features = ["co
 icu_casemap = { version = "=1.5.1", default-features = false, features = ["compiled_data"] }
 num-bigint = "0.5"
 proptest = "1"
+pubgrub = "0.3"
 rayon = "1.12"
 rowan = "0.16"
 serde = { version = "1", features = ["derive"] }

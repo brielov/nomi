@@ -1,0 +1,57 @@
+---
+source: crates/registry/tests/solver.rs
+expression: explanations
+---
+== gen-022
+Because gen/alpha 2.0.0 needs elm 0.18.0 <= v < 0.19.0 and there is no gen/alpha 2.0.0 < v < 3.0.0, gen/alpha 2.0.0 <= v < 3.0.0 can't be used.
+And because the project depends on gen/alpha 2.0.0 <= v < 3.0.0, the project can't be solved.
+
+== gen-029
+Because gen/zeta 1.0.1 is not in the package cache and there is no gen/zeta >=1.0.0, <1.0.1 | >1.0.1, <3.0.0, gen/zeta 1.0.0 <= v < 3.0.0 can't be used.
+And because the project depends on gen/zeta 1.0.0 <= v < 3.0.0, the project can't be solved.
+
+== gen-030
+Because there is no gen/beta 3.0.0 < v < 4.0.0 and gen/beta 3.0.0 depends on gen/alpha 1.0.1 <= v < 2.0.0, gen/beta 3.0.0 <= v < 4.0.0 depends on gen/alpha 1.0.1 <= v < 2.0.0.
+And because gen/gamma 3.0.0 depends on gen/beta 3.0.0 <= v < 4.0.0 and gen/gamma 3.0.0 depends on gen/alpha 3.0.0 <= v < 3.0.1, gen/gamma 3.0.0 can't be used.
+And because there is no gen/gamma 3.0.0 < v < 4.0.0 and the project depends on gen/gamma 3.0.0 <= v < 4.0.0, the project can't be solved.
+
+== gen-048
+Because gen/beta 2.1.0 is not in the package cache and there is no gen/beta 2.1.0 < v < 3.0.0, gen/beta 2.1.0 <= v < 3.0.0 can't be used.
+And because the project depends on gen/beta 2.1.0 <= v < 3.0.0, the project can't be solved.
+
+== gen-052
+Because there is no gen/beta 1.0.1 < v < 2.0.0 and gen/beta 1.0.1 depends on gen/alpha 1.1.0 <= v < 2.0.0, gen/beta 1.0.1 <= v < 2.0.0 depends on gen/alpha 1.1.0 <= v < 2.0.0.
+And because the project depends on gen/beta 1.0.1 <= v < 2.0.0 and the project depends on gen/alpha 2.0.0 <= v < 2.0.1, the project can't be solved.
+
+== gen-058
+Because there is no gen/alpha 2.1.0 < v < 3.0.0 and gen/alpha 2.1.0 is not in the package cache, gen/alpha 2.1.0 <= v < 3.0.0 can't be used.
+And because gen/delta 1.0.0 depends on gen/alpha 2.1.0 <= v < 3.0.0, gen/delta 1.0.0 can't be used.
+And because there is no gen/delta 1.0.0 < v < 2.0.0 and the project depends on gen/delta 1.0.0 <= v < 2.0.0, the project can't be solved.
+
+== gen-060
+Because there is no gen/delta 3.0.0 < v < 4.0.0 and gen/delta 3.0.0 depends on gen/alpha 3.0.0 <= v < 4.0.0, gen/delta 3.0.0 <= v < 4.0.0 depends on gen/alpha 3.0.0 <= v < 4.0.0.
+And because the project depends on gen/delta 3.0.0 <= v < 4.0.0 and the project depends on gen/alpha 1.0.1 <= v < 2.0.0, the project can't be solved.
+
+== gen-094
+Because gen/gamma 2.1.0 is not in the package cache and there is no gen/gamma 2.1.0 < v < 3.0.0, gen/gamma 2.1.0 <= v < 3.0.0 can't be used.
+And because gen/delta 1.2.0 depends on gen/gamma 2.1.0 <= v < 3.0.0, gen/delta 1.2.0 can't be used.
+And because there is no gen/delta 1.2.0 < v < 2.0.0 and the project depends on gen/delta 1.2.0 <= v < 2.0.0, the project can't be solved.
+
+== gen-101
+Because gen/alpha 3.0.0 is not in the package cache and there is no gen/alpha 3.0.0 < v < 4.0.0, gen/alpha 3.0.0 <= v < 4.0.0 can't be used.
+And because the project depends on gen/alpha 3.0.0 <= v < 4.0.0, the project can't be solved.
+
+== gen-110
+Because there is no gen/gamma 2.1.0 < v < 2.1.1 and gen/gamma 2.1.0 depends on gen/alpha 2.0.0 <= v < 3.0.0, gen/gamma 2.1.0 <= v < 2.1.1 depends on gen/alpha 2.0.0 <= v < 3.0.0.
+And because the project depends on gen/gamma 2.1.0 <= v < 2.1.1 and the project depends on gen/alpha 1.2.0 <= v < 2.0.0, the project can't be solved.
+
+== gen-153
+Because gen/gamma 2.0.1 is not in the package cache and there is no gen/gamma 2.0.1 < v < 2.1.0, gen/gamma 2.0.1 <= v < 2.1.0 can't be used.
+And because the project depends on gen/gamma 2.0.1 <= v < 2.1.0, the project can't be solved.
+
+== gen-155
+Because there is no gen/delta 1.0.0 < v < 1.1.0 and gen/delta 1.0.0 depends on gen/alpha 1.0.1 <= v < 2.0.0, gen/delta 1.0.0 <= v < 1.1.0 depends on gen/alpha 1.0.1 <= v < 2.0.0.
+And because the project depends on gen/delta 1.0.0 <= v < 1.1.0 and the project depends on gen/alpha 2.0.1 <= v < 3.0.0, the project can't be solved.
+
+== no-solution
+Because there is no fix/a 5.0.0 <= v < 6.0.0 and the project depends on fix/a 5.0.0 <= v < 6.0.0, the project can't be solved.

@@ -136,7 +136,7 @@ These rules are the architecture. Breaking one requires an entry in `DECISIONS.m
 | `compiler` | HIR, canonicalize, types, nitpick, optimize, interfaces | know about platforms, paths or I/O |
 | `codegen-js` | JS generation, kernel parser and linker, availability check, source maps | read files (kernels are inputs) |
 | `project` | elm's JSON, elm.json, nomi.toml, workspace graph (pure) | touch the network |
-| `registry` | registry protocol, pubgrub solver, package store | — |
+| `registry` | registry protocol, solver and its explanations, package store | — |
 | `engine` | VFS, build graph, scheduling, caches, cancellation, the only thread pool | contain compiler logic |
 | `ide` | hover, completion, navigation, rename and code actions over engine snapshots | use LSP types |
 | `lsp` | protocol, position encoding, request queue, debouncing | contain analysis |
@@ -248,7 +248,7 @@ Next to the crates:
 - **Extraction.** Harden it: no absolute paths, no `..`, and size limits.
 
 **Solver**
-- **Algorithm.** pubgrub, so failures come with explanations.
+- **Algorithm.** A port of upstream's search selects, so `install` picks what upstream picks; when it finds nothing, PubGrub runs over the same releases to explain why (DECISIONS, 2026-10-08).
 - **Parity.** `install` must pick the same versions as upstream; the Haskell solver oracle tests this.
 
 **Workspaces**

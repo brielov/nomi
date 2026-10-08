@@ -3567,6 +3567,33 @@ hand-edited
 == pkg-test-dup@0.19.3
 hand-edited
 
+== pubgrub-differs@0.19.1
+ok
+elm/core 1.0.5
+fix/b 2.0.0
+fix/c 2.1.0
+fix/d 2.1.0
+fix/e 1.0.0
+fix/g 1.0.0
+
+== pubgrub-differs@0.19.2
+ok
+elm/core 1.0.5
+fix/b 2.0.0
+fix/c 2.1.0
+fix/d 2.1.0
+fix/e 1.0.0
+fix/g 1.0.0
+
+== pubgrub-differs@0.19.3
+ok
+elm/core 1.0.5
+fix/b 2.0.0
+fix/c 2.1.0
+fix/d 2.1.0
+fix/e 1.0.0
+fix/g 1.0.0
+
 == relax-anything@0.19.1
 ok
 direct elm/core 1.0.5

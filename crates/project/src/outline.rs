@@ -245,8 +245,7 @@ impl Outline {
     /// `read`, short of the source directories: the outline in `src`, or
     /// the error `compat`'s elm reports for it.
     pub fn read(src: &[u8], compat: Compat) -> Result<Outline, OutlineError> {
-        let value = json::parse(src, compat).map_err(OutlineError::Parse)?;
-        let outline = decoder(&value, compat).map_err(OutlineError::Decode)?;
+        let outline = Outline::decode(src, compat)?;
         match &outline {
             Outline::Pkg(pkg)
                 if !pkg.deps.contains_key(&Name::core()) && pkg.name != Name::core() =>
@@ -264,6 +263,13 @@ impl Outline {
             }
             _ => Ok(outline),
         }
+    }
+
+    /// `decoder` alone, without `read`'s checks: how the solver reads a
+    /// release's `elm.json` (`Deps/Solver.hs`, `constraintsDecoder`).
+    pub fn decode(src: &[u8], compat: Compat) -> Result<Outline, OutlineError> {
+        let value = json::parse(src, compat).map_err(OutlineError::Parse)?;
+        decoder(&value, compat).map_err(OutlineError::Decode)
     }
 
     /// `write`'s bytes: the file upstream writes for this outline.
