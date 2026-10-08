@@ -26,6 +26,8 @@ pub enum Doc {
     Underline(Box<Doc>),
     /// Lines of the diagnostic's primary file.
     Snippet(Snippet),
+    /// Two places in the diagnostic's primary file.
+    Pair(Box<Pair>),
     /// `<https://elm-lang.org/{version}/{page}>`, with the version taken
     /// from the compatibility target.
     Link(String),
@@ -49,6 +51,19 @@ pub enum Line {
 pub struct Snippet {
     pub region: TextRange,
     pub highlight: TextRange,
+}
+
+/// Two regions, shown on one line when they share a row and as two
+/// snippets otherwise (`Code.toPair`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Pair {
+    pub first: TextRange,
+    pub second: TextRange,
+    /// What goes before and after the line holding both.
+    pub one_line: (Doc, Doc),
+    /// What goes before the first snippet, between them, and after the
+    /// second.
+    pub two_chunks: (Doc, Doc, Doc),
 }
 
 /// Elm's diagnostic colors. Upper-case names in `--report=json` are the
@@ -184,7 +199,7 @@ impl Doc {
             | Doc::Color(_, d)
             | Doc::Bold(d)
             | Doc::Underline(d) => d.write_plain(out),
-            Doc::Snippet(_) => out.push_str("[snippet]"),
+            Doc::Snippet(_) | Doc::Pair(_) => out.push_str("[snippet]"),
             Doc::Link(page) => {
                 out.push('<');
                 out.push_str(page);
@@ -205,6 +220,32 @@ fn join(docs: impl IntoIterator<Item = Doc>, sep: impl Fn() -> Doc) -> Doc {
         return Doc::empty();
     };
     docs.fold(first, |left, right| left.append(sep()).append(right))
+}
+
+/// `Code.toSnippet`: `before`, a blank line, the lines of `region` with
+/// `highlight` (or else the whole region) marked, and `after`.
+pub fn snippet(before: Doc, region: TextRange, highlight: Option<TextRange>, after: Doc) -> Doc {
+    vcat([
+        before,
+        Doc::empty(),
+        Doc::snippet(region, highlight.unwrap_or(region)),
+        after,
+    ])
+}
+
+/// `Code.toPair`.
+pub fn pair(
+    first: TextRange,
+    second: TextRange,
+    one_line: (Doc, Doc),
+    two_chunks: (Doc, Doc, Doc),
+) -> Doc {
+    Doc::Pair(Box::new(Pair {
+        first,
+        second,
+        one_line,
+        two_chunks,
+    }))
 }
 
 /// Words separated by spaces that never break.

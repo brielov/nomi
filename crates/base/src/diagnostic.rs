@@ -1,8 +1,11 @@
 //! The one structured diagnostic model (architecture §4). Phases build
-//! these and never format strings; [`render`] lays them out for the
-//! terminal, and renderers for `--report=json` and LSP come later.
+//! these and never format strings. [`code`] puts in the source lines
+//! their snippets show, then [`render`] lays them out for the terminal and
+//! [`json`] for `--report=json`; LSP comes later.
 
+pub mod code;
 pub mod doc;
+pub mod json;
 pub mod render;
 
 use std::borrow::Cow;

@@ -29,6 +29,25 @@ impl Compat {
             Compat::V0_19_2 | Compat::V0_19_3 => None,
         }
     }
+
+    /// What the release's own rows and columns count from: 0.19.1 keeps
+    /// them from 1, and later releases from 0 (`Reporting/Annotation.hs`),
+    /// which shows wherever a report prints a position it keeps.
+    pub fn first_position(self) -> u32 {
+        match self {
+            Compat::V0_19_1 => 1,
+            Compat::V0_19_2 | Compat::V0_19_3 => 0,
+        }
+    }
+
+    /// What `--report=json` regions count from: 0.19.2 prints the
+    /// positions it keeps, from 0, and 0.19.3 adds 1 (`toEditorRowCol`).
+    pub fn first_json_position(self) -> u32 {
+        match self {
+            Compat::V0_19_1 | Compat::V0_19_3 => 1,
+            Compat::V0_19_2 => 0,
+        }
+    }
 }
 
 impl fmt::Display for Compat {

@@ -22,30 +22,47 @@ pub enum Styles {
 }
 
 /// `doc` laid out at `width` columns, with links to `compat`'s docs.
+/// Its snippets must have been put in with `code::expand`.
 pub fn render(doc: &Doc, compat: Compat, width: usize, styles: Styles) -> String {
-    let mut renderer = Renderer {
-        width,
-        compat,
-        styles,
-        out: String::new(),
-        column: 0,
-        style: Style::default(),
-        stack: vec![Cmd::Doc {
-            indent: 0,
-            mode: Mode::Break,
-            doc,
-        }],
+    let output = match styles {
+        Styles::Plain => Output::Plain,
+        Styles::Ansi => Output::Ansi,
     };
-    renderer.run();
-    renderer.out
+    Renderer::new(compat, width, output, doc).run().out
+}
+
+/// A run of text in one style: how `D.encode` gives a message to
+/// `--report=json`, cut at every change of style, so a chunk may be empty.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Chunk {
+    pub text: String,
+    pub style: Style,
+}
+
+/// `doc` laid out as `D.encode` lays it out, at [`WIDTH`] columns, in
+/// chunks: the one before the first change of style, then one after each.
+pub fn chunks(doc: &Doc, compat: Compat) -> Vec<Chunk> {
+    let mut renderer = Renderer::new(compat, WIDTH, Output::Chunks, doc).run();
+    let last = renderer.take_chunk();
+    renderer.chunks.push(last);
+    renderer.chunks
 }
 
 /// The styles in effect, which `RestoreFormat` brings back.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct Style {
-    color: Option<Color>,
-    bold: bool,
-    underline: bool,
+pub struct Style {
+    pub color: Option<Color>,
+    pub bold: bool,
+    pub underline: bool,
+}
+
+/// What a change of style does: nothing, an ANSI escape, or the end of a
+/// chunk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Output {
+    Plain,
+    Ansi,
+    Chunks,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,15 +89,33 @@ enum Cmd<'d> {
 struct Renderer<'d> {
     width: usize,
     compat: Compat,
-    styles: Styles,
+    output: Output,
     out: String,
+    chunks: Vec<Chunk>,
     column: usize,
     style: Style,
     stack: Vec<Cmd<'d>>,
 }
 
 impl<'d> Renderer<'d> {
-    fn run(&mut self) {
+    fn new(compat: Compat, width: usize, output: Output, doc: &'d Doc) -> Renderer<'d> {
+        Renderer {
+            width,
+            compat,
+            output,
+            out: String::new(),
+            chunks: Vec::new(),
+            column: 0,
+            style: Style::default(),
+            stack: vec![Cmd::Doc {
+                indent: 0,
+                mode: Mode::Break,
+                doc,
+            }],
+        }
+    }
+
+    fn run(mut self) -> Self {
         while let Some(cmd) = self.stack.pop() {
             let (indent, mode, doc) = match cmd {
                 Cmd::Doc { indent, mode, doc } => (indent, mode, doc),
@@ -90,8 +125,7 @@ impl<'d> Renderer<'d> {
                     continue;
                 }
                 Cmd::Restore(style) => {
-                    self.style = style;
-                    self.escape(&restore_codes(style));
+                    self.restyle(style, &restore_codes(style));
                     continue;
                 }
             };
@@ -146,17 +180,19 @@ impl<'d> Renderer<'d> {
                     style.underline = true;
                     4
                 }),
-                Doc::Snippet(_) => unimplemented!("snippets render from plan 4.4"),
+                Doc::Snippet(_) | Doc::Pair(_) => panic!("{UNEXPANDED}"),
             }
         }
+        self
     }
 
     /// Lays out `doc` with a style `set` adds, then restores the style.
     fn styled(&mut self, indent: usize, mode: Mode, doc: &'d Doc, set: impl Fn(&mut Style) -> u8) {
-        if self.styles == Styles::Ansi {
+        if self.output != Output::Plain {
             self.stack.push(Cmd::Restore(self.style));
-            let code = set(&mut self.style);
-            self.escape(&[code]);
+            let mut style = self.style;
+            let code = set(&mut style);
+            self.restyle(style, &[code]);
         }
         self.stack.push(Cmd::Doc { indent, mode, doc });
     }
@@ -166,11 +202,27 @@ impl<'d> Renderer<'d> {
         self.column += text.chars().count();
     }
 
-    /// `setSGRCode`.
-    fn escape(&mut self, codes: &[u8]) {
-        if self.styles == Styles::Ansi {
-            let codes: Vec<String> = codes.iter().map(u8::to_string).collect();
-            self.out.push_str(&format!("\x1b[{}m", codes.join(";")));
+    /// An `SGR` to `style` by `codes`: `setSGRCode`, or the end of a chunk.
+    fn restyle(&mut self, style: Style, codes: &[u8]) {
+        match self.output {
+            Output::Plain => {}
+            Output::Ansi => {
+                let codes: Vec<String> = codes.iter().map(u8::to_string).collect();
+                self.out.push_str(&format!("\x1b[{}m", codes.join(";")));
+            }
+            Output::Chunks => {
+                let chunk = self.take_chunk();
+                self.chunks.push(chunk);
+            }
+        }
+        self.style = style;
+    }
+
+    /// The text since the last change of style, in the style in effect.
+    fn take_chunk(&mut self) -> Chunk {
+        Chunk {
+            text: std::mem::take(&mut self.out),
+            style: self.style,
         }
     }
 
@@ -260,11 +312,13 @@ impl<'d> Renderer<'d> {
                     mode,
                     doc: d,
                 }),
-                Doc::Snippet(_) => unimplemented!("snippets render from plan 4.4"),
+                Doc::Snippet(_) | Doc::Pair(_) => panic!("{UNEXPANDED}"),
             }
         }
     }
 }
+
+const UNEXPANDED: &str = "a snippet laid out before `code::expand` put its lines in";
 
 /// `fill`'s spaces: up to `width` columns past `start`, where `column`
 /// is, which may be before `start` after a newline.
