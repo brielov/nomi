@@ -742,7 +742,7 @@ dependencies = [
 
 [[package]]
 name = "nomi-base"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "proptest",
  "text-size",
@@ -750,7 +750,7 @@ dependencies = [
 
 [[package]]
 name = "nomi-cli"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "clap",
  "nomi-engine",
@@ -760,7 +760,7 @@ dependencies = [
 
 [[package]]
 name = "nomi-engine"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "nomi-base",
  "nomi-format",
@@ -771,7 +771,7 @@ dependencies = [
 
 [[package]]
 name = "nomi-format"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "icu_properties",
  "nomi-base",
@@ -784,7 +784,7 @@ dependencies = [
 
 [[package]]
 name = "nomi-syntax"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "icu_properties",
  "insta",
@@ -798,7 +798,7 @@ dependencies = [
 
 [[package]]
 name = "nomi-testkit"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "sha2",
 ]
@@ -1743,7 +1743,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "cargo_metadata",

@@ -39,6 +39,26 @@ the larger of the two.
 header. Shapes whose output grows faster than their input, as nested
 `case`s and `let`s do with their indentation, are left out.
 
+## elm-format (`cargo xtask bench elm-format`)
+
+The release build of nomi, run as `elm-format`, against the pinned
+elm-format 0.8.8 (its official build, with its default runtime options)
+from process start to exit. Each corpus app is validated whole with
+`--validate <app>`, which reads and formats every module and writes
+nothing; its largest module is formatted through `--stdin`, as editors
+do. Both tools exit alike on every input.
+
+| input                  |   modules |      size | elm-format |      nomi | speedup |
+|------------------------|-----------|-----------|------------|-----------|---------|
+| exosphere              |       218 |  1940 KiB |   320.0 ms |   46.5 ms |    6.9× |
+| exosphere --stdin      |         1 |   191 KiB |   107.6 ms |   15.7 ms |    6.9× |
+| liascript              |       189 |  1361 KiB |   264.2 ms |   35.6 ms |    7.4× |
+| liascript --stdin      |         1 |   127 KiB |    76.9 ms |   11.4 ms |    6.7× |
+| docspell               |       583 |  2478 KiB |   443.6 ms |   85.9 ms |    5.2× |
+| docspell --stdin       |         1 |   104 KiB |    78.5 ms |   15.6 ms |    5.0× |
+| elm-3d-scene           |        59 |   929 KiB |   126.5 ms |   19.4 ms |    6.5× |
+| elm-3d-scene --stdin   |         1 |   132 KiB |    47.3 ms |    3.9 ms |   12.1× |
+
 ## Fuzzing (`cargo xtask fuzz syntax`)
 
 A libFuzzer campaign over `nomi_syntax::check_invariants`: every entry point

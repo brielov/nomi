@@ -1,5 +1,6 @@
 //! Repository automation, run as `cargo xtask <command>`.
 
+mod bench;
 mod checks;
 mod codegen;
 mod corpus;
@@ -59,9 +60,10 @@ enum Command {
         jobs: Option<usize>,
     },
     /// Time a crate's benchmarks, which fail when twice the input takes
-    /// three times as long or more.
+    /// three times as long or more, or nomi against the pinned elm-format.
     Bench {
-        /// The crate: `syntax` for nomi-syntax, `format` for nomi-format.
+        /// The crate: `syntax` for nomi-syntax, `format` for nomi-format;
+        /// or `elm-format`, to time both tools on the corpus apps.
         target: String,
     },
 }
@@ -152,6 +154,9 @@ fn main() -> ExitCode {
             runs,
             jobs.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get())),
         ),
+        Command::Bench { target } if target == "elm-format" => {
+            references::load(&root()).and_then(|r| bench::elm_format(&root(), &r))
+        }
         Command::Bench { target } => cargo(
             &root(),
             &[
