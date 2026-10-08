@@ -322,6 +322,7 @@ nomi/documentation_groups/049.elm
 nomi/documentation_groups/050.elm
 nomi/documentation_groups/051.elm
 nomi/documentation_groups/052.elm
+nomi/double_negation/001.elm
 nomi/example_comments/001.elm
 nomi/example_comments/002.elm
 nomi/example_comments/003.elm

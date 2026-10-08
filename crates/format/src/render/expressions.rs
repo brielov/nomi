@@ -83,10 +83,17 @@ fn format_expression_unguarded(expr: &Expr) -> (SyntaxContext, Block) {
             AmbiguousEnd,
             lambda(patterns, body_comments, body, *multiline),
         ),
-        Expr::Unary(_, e) => (
-            SyntaxSeparated,
-            syntax_parens(SpaceSeparated, format_expression(e)).prefix(Line::text("-")),
-        ),
+        Expr::Unary(_, e) => {
+            let operand = format_expression(e);
+            // Upstream prints `-(-x)` as `--x`, a comment; nomi keeps the
+            // parentheses.
+            let operand = if starts_with_minus(e) {
+                parens(operand.1)
+            } else {
+                syntax_parens(SpaceSeparated, operand)
+            };
+            (SyntaxSeparated, operand.prefix(Line::text("-")))
+        }
         Expr::App(left, args, _) if args.is_empty() => format_expression(left),
         Expr::App(left, args, multiline) => (
             SpaceSeparated,
@@ -148,6 +155,20 @@ fn format_expression_unguarded(expr: &Expr) -> (SyntaxContext, Block) {
                 Line::text("|]"),
             ])),
         ),
+    }
+}
+
+/// Whether `expr` prints starting with a `-`.
+fn starts_with_minus(expr: &Expr) -> bool {
+    match expr {
+        Expr::Unary(..) => true,
+        Expr::Literal(LiteralValue::Int(n, _)) => *n < 0,
+        Expr::Literal(LiteralValue::Float(f, _)) => f.is_sign_negative(),
+        Expr::Parens(inner) if inner.comments.0.is_empty() && inner.comments.1.is_empty() => {
+            starts_with_minus(&inner.value)
+        }
+        Expr::Access(record, _) => starts_with_minus(record),
+        _ => false,
     }
 }
 

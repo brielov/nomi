@@ -115,6 +115,41 @@ fn a_doc_comment_holding_a_comment_keeps_every_invariant() {
     assert_eq!(nomi_format::broken_invariants(text), []);
 }
 
+/// elm-format drops the parentheses of a negation, so `-(-x)` prints as
+/// `--x`, a comment; nomi keeps them. The fuzzer found it, by `1 -(1e2)`,
+/// which prints as `1 -1.0e2`.
+#[test]
+fn a_negated_negation_keeps_its_parentheses() {
+    for e in [
+        "-(-x)",
+        "f -(-1)",
+        "1 -(1e2)",
+        "x - -(-(-1.5))",
+        "-0 3",
+        "-(1) 2",
+    ] {
+        let text = format!("module A exposing (x)\n\n\nx =\n    {e}\n");
+        assert!(nomi_format::upstream_breaks(&text).is_empty(), "{e}");
+        assert_eq!(nomi_format::broken_invariants(&text), [], "{e}");
+    }
+}
+
+/// elm-format prints `-(0)` as `-0`, and a second run as `0`.
+#[test]
+fn a_negated_zero_need_not_be_idempotent() {
+    for e in ["-(0)", "-(-0)", "f -((0))"] {
+        let text = format!("module A exposing (x)\n\n\nx =\n    {e}\n");
+        assert_eq!(
+            nomi_format::upstream_breaks(&text),
+            [Invariant::KeepsTokens, Invariant::Idempotent],
+            "{e}"
+        );
+        nomi_format::check_invariants(&text);
+    }
+    let text = "module A exposing (x)\n\n\nx =\n    -(1)\n";
+    assert!(nomi_format::upstream_breaks(text).is_empty());
+}
+
 /// elm-format drops a shader's carriage returns, which the token check
 /// allows.
 #[test]

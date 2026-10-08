@@ -183,6 +183,24 @@ pub fn upstream_breaks(text: &str) -> Vec<Invariant> {
     {
         breaks.extend([Invariant::Parses, Invariant::KeepsTokens]);
     }
+    // `-(0)` prints as `-0`, which reads as `0`; `-(-0)` as `-0` too.
+    if tokens().any(|minus| {
+        parent_is(&minus, SyntaxKind::NegateExpr)
+            && minus
+                .next_token()
+                .is_some_and(|t| t.kind() == SyntaxKind::LParen)
+            && std::iter::successors(minus.next_token(), |t| t.next_token())
+                .find(|t| {
+                    !matches!(t.kind(), SyntaxKind::LParen | SyntaxKind::Minus)
+                        && !t.kind().is_trivia()
+                })
+                .is_some_and(|zero| {
+                    zero.kind() == SyntaxKind::Int
+                        && matches!(literal_token(&zero), LiteralValue::Int(0, _))
+                })
+    }) {
+        breaks.extend([Invariant::KeepsTokens, Invariant::Idempotent]);
+    }
     let type_name = |kind| {
         root.children()
             .filter(move |decl| decl.kind() == kind)
@@ -251,6 +269,8 @@ impl Summary {
         let mut comments = Vec::new();
         let mut doc_comments = 0;
         let mut body = Vec::new();
+        // Where in `body` the last `-` that negates went.
+        let mut negation = None;
         for token in root
             .descendants_with_tokens()
             .filter_map(|e| e.into_token())
@@ -263,17 +283,23 @@ impl Summary {
                 SyntaxKind::LParen | SyntaxKind::RParen => {}
                 kind if kind.is_trivia() || in_header(&token) => {}
                 // A negative number is one literal, as wrapping can print a
-                // positive one.
-                SyntaxKind::Minus if token.next_token().is_some_and(|t| sign_of(&t).is_some()) => {}
+                // positive one and upstream drops the parentheses of `-(1)`.
+                SyntaxKind::Minus if negates(&token) => {
+                    negation = Some(body.len());
+                    body.push(Token::Other(SyntaxKind::Minus, "-".to_owned()));
+                }
                 _ if is_literal(&token) && !valid(&token) => {
                     body.push(Token::Other(token.kind(), token.text().to_owned()));
                 }
                 _ if is_number(&token) => {
                     let value = literal_token(&token);
-                    body.push(Token::Literal(match sign_of(&token) {
-                        Some(_) => negative(value),
-                        None => value,
-                    }));
+                    let value = if negation.take().is_some_and(|i| i + 1 == body.len()) {
+                        body.pop();
+                        negative(value)
+                    } else {
+                        value
+                    };
+                    body.push(Token::Literal(value));
                 }
                 // Elm 0.18's `[a..b]` becomes `List.range a b`, a record
                 // type's `=` a `:`, a record's `:` an `=`, and a case's
@@ -358,16 +384,15 @@ fn is_number(token: &SyntaxToken) -> bool {
     matches!(token.kind(), SyntaxKind::Int | SyntaxKind::Float)
 }
 
-/// The `-` touching `number` that negates it, in a pattern's literal or
-/// a negation, which lowering reads as part of it; a `-` in an operator
-/// chain subtracts.
-fn sign_of(number: &SyntaxToken) -> Option<SyntaxToken> {
-    let minus = number.prev_token()?;
-    let negates = minus.parent() == number.parent()
+/// Whether `minus` negates what follows: a negation's, or a pattern's
+/// literal's; a `-` in an operator chain subtracts.
+fn negates(minus: &SyntaxToken) -> bool {
+    minus
+        .parent()
+        .is_some_and(|p| p.kind() == SyntaxKind::NegateExpr)
         || minus
-            .parent()
-            .is_some_and(|p| p.kind() == SyntaxKind::NegateExpr);
-    (is_number(number) && minus.kind() == SyntaxKind::Minus && negates).then_some(minus)
+            .next_token()
+            .is_some_and(|number| is_number(&number) && number.parent() == minus.parent())
 }
 
 fn parent_is(token: &SyntaxToken, kind: SyntaxKind) -> bool {
