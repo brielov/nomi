@@ -1,0 +1,8 @@
+=== note
+paths join as given
+=== args
+--yes
+src/
+=== file src/A.elm
+module A exposing (..)
+x  =  1

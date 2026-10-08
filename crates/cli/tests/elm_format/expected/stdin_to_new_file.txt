@@ -1,0 +1,9 @@
+=== exit 0
+=== stdout
+=== stderr
+=== file New.elm
+|module A exposing (..)
+|
+|
+|x =
+|    1

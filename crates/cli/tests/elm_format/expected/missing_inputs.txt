@@ -1,0 +1,19 @@
+=== exit 1
+=== stdout
+=== stderr
+|There was a problem reading one or more of the specified INPUT paths:
+|
+|    -: No such file or directory
+|    docs: Directory does not contain any *.elm files
+|    nope.elm: No such file or directory
+|
+|Please check the given paths.
+|
+=== file docs/notes.txt
+|notes
+=== file src/B.elm
+|module B exposing (..)
+|
+|
+|x =
+|    1

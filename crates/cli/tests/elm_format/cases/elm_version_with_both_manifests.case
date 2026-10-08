@@ -1,0 +1,11 @@
+=== note
+elm.json beside elm-package.json is 0.19
+=== args
+--stdin
+=== stdin
+module A exposing (..)
+x  =  1
+=== file elm.json
+{}
+=== file elm-package.json
+{}

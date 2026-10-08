@@ -1,0 +1,12 @@
+=== exit 0
+=== stdout
+|module A exposing (..)
+|
+|
+|x =
+|    1
+=== stderr
+=== file elm-package.json
+|{}
+=== file elm.json
+|{}

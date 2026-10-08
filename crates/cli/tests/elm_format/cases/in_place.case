@@ -1,0 +1,15 @@
+=== note
+--yes formats without asking, last INPUT first
+=== args
+--yes
+src/A.elm
+src/B.elm
+=== file src/A.elm
+module A exposing (..)
+x  =  1
+=== file src/B.elm
+module B exposing (..)
+
+
+x =
+    1

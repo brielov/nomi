@@ -1,0 +1,13 @@
+=== note
+--validate writes nothing
+=== args
+--validate
+--output
+out.elm
+src/B.elm
+=== file src/B.elm
+module B exposing (..)
+
+
+x =
+    1

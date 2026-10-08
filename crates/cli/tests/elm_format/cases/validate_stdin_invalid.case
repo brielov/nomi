@@ -1,0 +1,8 @@
+=== note
+a syntax error in standard input
+=== args
+--validate
+--stdin
+=== stdin
+module C exposing (..)
+x = (

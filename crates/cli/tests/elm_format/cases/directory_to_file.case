@@ -1,0 +1,9 @@
+=== note
+a directory holding one module counts as one
+=== args
+src
+--output
+Out.elm
+=== file src/A.elm
+module A exposing (..)
+x  =  1

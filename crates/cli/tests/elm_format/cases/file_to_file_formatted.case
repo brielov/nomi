@@ -1,0 +1,12 @@
+=== note
+--output is written even if nothing changed
+=== args
+src/B.elm
+--output
+B2.elm
+=== file src/B.elm
+module B exposing (..)
+
+
+x =
+    1

@@ -4,6 +4,7 @@
 pub mod format;
 pub mod sandbox;
 pub mod syntax;
+pub mod transcripts;
 
 use std::fs;
 use std::path::{Path, PathBuf};

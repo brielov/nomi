@@ -1,0 +1,18 @@
+=== exit 1
+=== stdout
+|[{"path":"C.elm","message":"Error parsing the file"}
+|,{"path":"src/A.elm","message":"File is not formatted with elm-format-0.8.8 --elm-version=0.19"}
+|]
+=== stderr
+=== file C.elm
+|module C exposing (..)
+|x = (
+=== file src/A.elm
+|module A exposing (..)
+|x  =  1
+=== file src/B.elm
+|module B exposing (..)
+|
+|
+|x =
+|    1

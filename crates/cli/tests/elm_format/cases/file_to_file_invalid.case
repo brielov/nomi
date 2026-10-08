@@ -1,0 +1,9 @@
+=== note
+a syntax error, reported on standard output
+=== args
+C.elm
+--output
+C2.elm
+=== file C.elm
+module C exposing (..)
+x = (

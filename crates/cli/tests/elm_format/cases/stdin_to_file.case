@@ -1,0 +1,14 @@
+=== note
+--output replaces the file
+=== args
+--stdin
+--output=src/B.elm
+=== stdin
+module A exposing (..)
+x  =  1
+=== file src/B.elm
+module B exposing (..)
+
+
+x =
+    1

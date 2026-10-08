@@ -1,0 +1,9 @@
+=== note
+formats one module to another file
+=== args
+src/A.elm
+--output
+A2.elm
+=== file src/A.elm
+module A exposing (..)
+x  =  1

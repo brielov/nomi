@@ -1,0 +1,16 @@
+=== exit 1
+=== stdout
+=== stderr
+|Can't write to the OUTPUT path, because multiple .elm files have been specified.
+|
+|Please remove the --output argument. The .elm files in INPUT will be formatted in place.
+|
+=== file src/A.elm
+|module A exposing (..)
+|x  =  1
+=== file src/B.elm
+|module B exposing (..)
+|
+|
+|x =
+|    1

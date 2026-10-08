@@ -1,0 +1,16 @@
+=== exit 1
+=== stdout
+=== stderr
+|There was a problem reading one or more of the specified INPUT paths:
+|
+|    .: Directory does not contain any *.elm files
+|    elm-stuff: Directory does not contain any *.elm files
+|
+|Please check the given paths.
+|
+=== file elm-stuff/X.elm
+|module A exposing (..)
+|x  =  1
+=== file node_modules/Y.elm
+|module A exposing (..)
+|x  =  1

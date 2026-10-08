@@ -1,0 +1,8 @@
+=== exit 1
+=== stdout
+|[{"path":"a\"b\\c<é>.elm","message":"File is not formatted with elm-format-0.8.8 --elm-version=0.19"}
+|]
+=== stderr
+=== file a"b\c<é>.elm
+|module A exposing (..)
+|x  =  1

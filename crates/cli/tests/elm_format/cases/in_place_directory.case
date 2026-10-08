@@ -1,0 +1,8 @@
+=== note
+a directory is every module below it
+=== args
+--yes
+.
+=== file src/A.elm
+module A exposing (..)
+x  =  1

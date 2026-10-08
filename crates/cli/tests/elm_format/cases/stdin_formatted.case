@@ -1,0 +1,10 @@
+=== note
+formatted input comes back unchanged
+=== args
+--stdin
+=== stdin
+module B exposing (..)
+
+
+x =
+    1

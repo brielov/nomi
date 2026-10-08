@@ -1,0 +1,10 @@
+=== exit 0
+=== stdout
+|Processing file notes.txt
+=== stderr
+=== file notes.txt
+|module A exposing (..)
+|
+|
+|x =
+|    1

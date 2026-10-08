@@ -117,6 +117,8 @@ enum OracleCommand {
         #[arg(long)]
         jobs: Option<usize>,
     },
+    /// Store elm-format's transcript of every command-line case.
+    Transcripts,
 }
 
 fn main() -> ExitCode {
@@ -141,6 +143,7 @@ fn main() -> ExitCode {
                 });
                 oracle::format::run(&root(), &r, inputs, jobs)
             }
+            OracleCommand::Transcripts => oracle::transcripts::run(&root(), &r),
         }),
         Command::Ratchet { suite } => ratchet(&root(), &suite),
         Command::Fuzz { target, runs, jobs } => fuzz::run(

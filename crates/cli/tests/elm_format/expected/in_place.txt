@@ -1,0 +1,17 @@
+=== exit 0
+=== stdout
+|Processing file src/B.elm
+|Processing file src/A.elm
+=== stderr
+=== file src/A.elm
+|module A exposing (..)
+|
+|
+|x =
+|    1
+=== file src/B.elm
+|module B exposing (..)
+|
+|
+|x =
+|    1

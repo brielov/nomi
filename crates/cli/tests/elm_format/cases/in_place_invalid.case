@@ -1,0 +1,12 @@
+=== note
+a syntax error fails the run, the rest still formatted
+=== args
+--yes
+C.elm
+src/A.elm
+=== file src/A.elm
+module A exposing (..)
+x  =  1
+=== file C.elm
+module C exposing (..)
+x = (

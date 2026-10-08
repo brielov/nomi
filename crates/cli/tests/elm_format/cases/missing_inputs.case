@@ -1,0 +1,15 @@
+=== note
+every INPUT that names no module is reported
+=== args
+src/B.elm
+nope.elm
+docs
+-
+=== file src/B.elm
+module B exposing (..)
+
+
+x =
+    1
+=== file docs/notes.txt
+notes

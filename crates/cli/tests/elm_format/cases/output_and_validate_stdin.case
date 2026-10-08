@@ -1,0 +1,10 @@
+=== note
+--validate writes nothing, with --stdin too
+=== args
+--validate
+--stdin
+--output
+out.elm
+=== stdin
+module A exposing (..)
+x  =  1

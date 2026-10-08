@@ -1,0 +1,4 @@
+=== note
+--help ignores a value
+=== args
+--help=x

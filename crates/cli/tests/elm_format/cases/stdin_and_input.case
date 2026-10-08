@@ -1,0 +1,11 @@
+=== note
+--stdin and an INPUT
+=== args
+--stdin
+src/B.elm
+=== file src/B.elm
+module B exposing (..)
+
+
+x =
+    1

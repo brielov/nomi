@@ -1,0 +1,18 @@
+=== exit 0
+=== stdout
+|This will overwrite the following files to use Elm's preferred style:
+|
+|    src/A.elm
+|
+|This cannot be undone! Make sure to back up these files before proceeding.
+|
+|Are you sure you want to overwrite these files with formatted versions? (y/n)
+|
+|Must type 'y' for yes or 'n' for no: Must type 'y' for yes or 'n' for no: Must type 'y' for yes or 'n' for no: Processing file src/A.elm
+=== stderr
+=== file src/A.elm
+|module A exposing (..)
+|
+|
+|x =
+|    1

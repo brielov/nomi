@@ -1,0 +1,9 @@
+=== note
+no leaves every file alone
+=== args
+src/A.elm
+=== stdin
+n
+=== file src/A.elm
+module A exposing (..)
+x  =  1

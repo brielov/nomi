@@ -1,8 +1,9 @@
-//! The `nomi` binary. Command logic lives in other crates; this crate only
-//! maps arguments onto them.
+//! The `nomi` binary, which is also elm-format when invoked under that
+//! name. Command logic lives in other crates; this crate only maps
+//! arguments onto them.
 
 use std::io::{self, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
@@ -39,7 +40,17 @@ enum Command {
     },
 }
 
+mod elm_format;
+
 fn main() -> ExitCode {
+    let mut args = std::env::args_os();
+    let name = args.next().unwrap_or_default();
+    if Path::new(&name)
+        .file_stem()
+        .is_some_and(|stem| stem == "elm-format")
+    {
+        return elm_format::main(args);
+    }
     let cli = Cli::parse();
     let succeeded = match cli.command {
         None => true,

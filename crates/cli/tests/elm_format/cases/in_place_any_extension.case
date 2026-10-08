@@ -1,0 +1,8 @@
+=== note
+a file named directly is a module whatever its name
+=== args
+--yes
+notes.txt
+=== file notes.txt
+module A exposing (..)
+x  =  1

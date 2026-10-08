@@ -1,0 +1,9 @@
+=== note
+--elm-version 0.19 says what auto would
+=== args
+--elm-version
+0.19
+--stdin
+=== stdin
+module A exposing (..)
+x  =  1

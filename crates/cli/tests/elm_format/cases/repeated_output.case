@@ -1,0 +1,7 @@
+=== note
+an option given twice
+=== args
+--output
+a
+--output
+b

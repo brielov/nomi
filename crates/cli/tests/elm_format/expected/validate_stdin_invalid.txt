@@ -1,0 +1,5 @@
+=== exit 1
+=== stdout
+|[{"path":"<STDIN>","message":"Error parsing the file"}
+|]
+=== stderr

@@ -1,0 +1,9 @@
+=== exit 1
+=== stdout
+=== stderr
+|There was a problem reading one or more of the specified INPUT paths:
+|
+|    nope.elm: No such file or directory
+|
+|Please check the given paths.
+|

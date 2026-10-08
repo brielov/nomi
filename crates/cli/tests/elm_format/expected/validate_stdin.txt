@@ -1,0 +1,5 @@
+=== exit 1
+=== stdout
+|[{"path":"<STDIN>","message":"File is not formatted with elm-format-0.8.8 --elm-version=0.19"}
+|]
+=== stderr

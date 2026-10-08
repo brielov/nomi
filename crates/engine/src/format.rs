@@ -7,7 +7,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use nomi_base::{ColumnUnit, ElmPosition, LineIndex};
+use nomi_base::{ColumnUnit, ElmPosition, LineIndex, TextLen};
 
 use crate::{Pool, Vfs};
 
@@ -74,6 +74,16 @@ impl fmt::Display for RootError {
 /// `text` formatted, or the position of its first error.
 pub fn format_text(text: &str) -> Result<String, ElmPosition> {
     nomi_format::format_module(text).map_err(|error| position(text, error.range.start()))
+}
+
+/// `bytes` as text, or, where they aren't UTF-8, the position of the
+/// first byte that isn't.
+pub fn decode(bytes: Vec<u8>) -> Result<String, ElmPosition> {
+    String::from_utf8(bytes).map_err(|e| {
+        let valid = e.utf8_error().valid_up_to();
+        let prefix = std::str::from_utf8(&e.as_bytes()[..valid]).expect("a valid prefix");
+        position(prefix, prefix.text_len())
+    })
 }
 
 /// Formats every module the `roots` name, as [`Vfs::discover`] finds them;

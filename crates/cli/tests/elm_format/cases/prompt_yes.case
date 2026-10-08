@@ -1,0 +1,16 @@
+=== note
+asks before overwriting
+=== args
+src/A.elm
+src/B.elm
+=== stdin
+y
+=== file src/A.elm
+module A exposing (..)
+x  =  1
+=== file src/B.elm
+module B exposing (..)
+
+
+x =
+    1

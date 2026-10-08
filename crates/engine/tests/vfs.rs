@@ -126,6 +126,18 @@ fn writing_a_missing_file_is_an_error() {
     assert_eq!(error.kind(), io::ErrorKind::NotFound);
 }
 
+#[test]
+fn creating_writes_a_missing_file_or_replaces_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("A.elm");
+    Vfs::new().create(&path, "old").unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), "old");
+    Vfs::new().create(&path, MODULE).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), MODULE);
+    let entries: Vec<_> = fs::read_dir(dir.path()).unwrap().collect();
+    assert_eq!(entries.len(), 1);
+}
+
 #[cfg(unix)]
 #[test]
 fn writing_keeps_permissions_and_links() {

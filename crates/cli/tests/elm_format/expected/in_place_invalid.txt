@@ -1,0 +1,15 @@
+=== exit 1
+=== stdout
+|Processing file src/A.elm
+|Processing file C.elm
+|Unable to parse file C.elm:3:1 To see a detailed explanation, run elm make on the file.
+=== stderr
+=== file C.elm
+|module C exposing (..)
+|x = (
+=== file src/A.elm
+|module A exposing (..)
+|
+|
+|x =
+|    1

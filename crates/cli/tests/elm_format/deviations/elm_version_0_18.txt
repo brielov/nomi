@@ -1,0 +1,4 @@
+=== exit 1
+=== stdout
+=== stderr
+|nomi formats Elm 0.19 only; it does not support --elm-version=0.18.

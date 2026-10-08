@@ -1,0 +1,10 @@
+=== exit 0
+=== stdout
+|[]
+=== stderr
+=== file src/B.elm
+|module B exposing (..)
+|
+|
+|x =
+|    1

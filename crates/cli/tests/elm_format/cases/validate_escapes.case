@@ -1,0 +1,8 @@
+=== note
+paths are JSON strings
+=== args
+--validate
+a"b\c<é>.elm
+=== file a"b\c<é>.elm
+module A exposing (..)
+x  =  1

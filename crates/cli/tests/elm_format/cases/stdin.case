@@ -1,0 +1,7 @@
+=== note
+formats standard input to standard output
+=== args
+--stdin
+=== stdin
+module A exposing (..)
+x  =  1

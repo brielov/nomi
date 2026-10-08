@@ -1,0 +1,13 @@
+=== exit 0
+=== stdout
+|Processing file src/A.elm
+=== stderr
+=== file A2.elm
+|module A exposing (..)
+|
+|
+|x =
+|    1
+=== file src/A.elm
+|module A exposing (..)
+|x  =  1

@@ -1,0 +1,9 @@
+=== note
+after -- an INPUT may start with a dash
+=== args
+--yes
+--
+--odd.elm
+=== file --odd.elm
+module A exposing (..)
+x  =  1

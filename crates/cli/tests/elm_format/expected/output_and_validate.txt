@@ -1,0 +1,10 @@
+=== exit 1
+=== stdout
+=== stderr
+|Cannot use --output and --validate together
+=== file src/B.elm
+|module B exposing (..)
+|
+|
+|x =
+|    1

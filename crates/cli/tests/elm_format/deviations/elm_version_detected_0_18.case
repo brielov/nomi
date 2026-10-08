@@ -1,0 +1,9 @@
+=== note
+a project with only elm-package.json is Elm 0.18
+=== args
+--stdin
+=== stdin
+module A exposing (..)
+x  =  1
+=== file elm-package.json
+{}

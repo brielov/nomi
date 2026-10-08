@@ -1,0 +1,5 @@
+=== note
+-h opens a bundle of short options, the rest unread
+=== args
+-hx
+--bad

@@ -1,0 +1,11 @@
+=== note
+an empty list when all are formatted
+=== args
+--validate
+src/B.elm
+=== file src/B.elm
+module B exposing (..)
+
+
+x =
+    1

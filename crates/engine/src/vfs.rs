@@ -31,6 +31,12 @@ impl Vfs {
         fs::read_to_string(path)
     }
 
+    /// The bytes of the file at `path`, for callers that report text that
+    /// isn't UTF-8 themselves.
+    pub fn read_bytes(&self, path: &Path) -> io::Result<Vec<u8>> {
+        fs::read(path)
+    }
+
     /// Replaces the file at `path`, which must exist, with `text` in one
     /// step: the text goes to a new file beside it, which is then renamed
     /// over it, so a reader or an interruption sees the old file or the
@@ -55,6 +61,26 @@ impl Vfs {
         temp.as_file().set_permissions(permissions)?;
         temp.persist(&target).map_err(|e| e.error)?;
         Ok(())
+    }
+
+    /// Whether `path` names a file, through any symbolic links.
+    pub fn is_file(&self, path: &Path) -> bool {
+        path.is_file()
+    }
+
+    /// Writes `text` to `path` as [`Vfs::write`] does, first creating the
+    /// file, empty and with the default permissions, if it is missing.
+    pub fn create(&self, path: &Path, text: &str) -> io::Result<()> {
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+        {
+            Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+        self.write(path, text)
     }
 
     /// The Elm modules `root` names, as elm-format finds them: a file is

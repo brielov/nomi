@@ -1,0 +1,9 @@
+=== note
+--output creates the file
+=== args
+--stdin
+--output
+New.elm
+=== stdin
+module A exposing (..)
+x  =  1

@@ -1,0 +1,10 @@
+=== exit 1
+=== stdout
+=== stderr
+|Too many input sources! Please only provide one of either INPUT or --stdin
+=== file src/B.elm
+|module B exposing (..)
+|
+|
+|x =
+|    1

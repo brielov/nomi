@@ -1,0 +1,9 @@
+=== note
+--output's value may look like an option
+=== args
+--output
+--yes
+src/A.elm
+=== file src/A.elm
+module A exposing (..)
+x  =  1

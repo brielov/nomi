@@ -1,0 +1,9 @@
+=== note
+--elm-version 0.17 is not supported
+=== args
+--elm-version
+0.17
+--stdin
+=== stdin
+module A exposing (..)
+x  =  1

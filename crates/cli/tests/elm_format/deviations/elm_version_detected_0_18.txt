@@ -1,0 +1,6 @@
+=== exit 1
+=== stdout
+=== stderr
+|nomi formats Elm 0.19 only, and this directory has an elm-package.json but no elm.json, which makes it Elm 0.18; pass --elm-version=0.19 to format it anyway.
+=== file elm-package.json
+|{}

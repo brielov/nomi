@@ -1,0 +1,5 @@
+=== note
+arguments are read left to right
+=== args
+--bad
+--help

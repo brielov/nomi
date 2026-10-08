@@ -1,0 +1,8 @@
+=== note
+standard input is <STDIN>
+=== args
+--validate
+--stdin
+=== stdin
+module A exposing (..)
+x  =  1

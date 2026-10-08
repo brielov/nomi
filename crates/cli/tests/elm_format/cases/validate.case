@@ -1,0 +1,19 @@
+=== note
+--validate lists modules not formatted, as JSON
+=== args
+--validate
+src/A.elm
+src/B.elm
+C.elm
+=== file src/A.elm
+module A exposing (..)
+x  =  1
+=== file src/B.elm
+module B exposing (..)
+
+
+x =
+    1
+=== file C.elm
+module C exposing (..)
+x = (

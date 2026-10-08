@@ -1,0 +1,8 @@
+=== note
+INPUT problems come before conflicts
+=== args
+--stdin
+nope.elm
+--validate
+--output
+x

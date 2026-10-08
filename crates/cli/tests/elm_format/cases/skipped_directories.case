@@ -1,0 +1,12 @@
+=== note
+elm-stuff and node_modules are never searched
+=== args
+--validate
+elm-stuff
+.
+=== file elm-stuff/X.elm
+module A exposing (..)
+x  =  1
+=== file node_modules/Y.elm
+module A exposing (..)
+x  =  1

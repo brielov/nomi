@@ -1,0 +1,12 @@
+=== note
+anything but y or n asks again
+=== args
+src/A.elm
+=== stdin
+yes
+
+Y
+y
+=== file src/A.elm
+module A exposing (..)
+x  =  1

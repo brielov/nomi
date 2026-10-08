@@ -1,0 +1,8 @@
+=== note
+help wins wherever it comes
+=== args
+src/A.elm
+--help
+=== file src/A.elm
+module A exposing (..)
+x  =  1

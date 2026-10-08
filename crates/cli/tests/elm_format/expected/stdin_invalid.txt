@@ -1,0 +1,4 @@
+=== exit 1
+=== stdout
+=== stderr
+|Unable to parse file <STDIN>:3:1 To see a detailed explanation, run elm make on the file.

@@ -1,0 +1,15 @@
+=== note
+nothing is written on an error
+=== args
+--stdin
+--output
+src/B.elm
+=== stdin
+module C exposing (..)
+x = (
+=== file src/B.elm
+module B exposing (..)
+
+
+x =
+    1

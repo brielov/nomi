@@ -1,0 +1,9 @@
+=== note
+standard input ending before an answer
+=== args
+src/A.elm
+=== stdin
+x
+=== file src/A.elm
+module A exposing (..)
+x  =  1
