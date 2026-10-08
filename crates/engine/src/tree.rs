@@ -8,7 +8,7 @@ use nomi_base::{Compat, Report};
 use nomi_project::{Name, Outline};
 use nomi_registry::{Details, Http, Store, details};
 
-use crate::console::{self, Console};
+use crate::console::{self, Console, Personality};
 use crate::install::details_problem;
 use crate::paths::Cache;
 use crate::project::Project;
@@ -35,8 +35,8 @@ pub fn run(
             compat,
             "I need the list of published packages to know what your dependencies need",
         )?;
-        let solution =
-            details::verify(&mut registry, compat, &project.outline).map_err(details_problem)?;
+        let solution = details::verify(&mut registry, compat, &project.outline)
+            .map_err(|problem| details_problem(&problem, compat, Personality::Nomi))?;
         let (direct, test): (Vec<&Name>, Vec<&Name>) = match &project.outline {
             Outline::App(app) => (
                 app.direct.keys().collect(),

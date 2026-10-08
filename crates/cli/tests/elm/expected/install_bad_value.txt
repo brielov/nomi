@@ -1,0 +1,38 @@
+=== exit 1
+=== stdout
+=== stderr
+|-- EXPECTING STRING --------------------------------------------------- elm.json
+|
+|I ran into a problem with your elm.json file. I ran into trouble with the value
+|of the "elm/json" field:
+|
+|10|             "elm/json": [
+|                            ^
+|I was expecting to run into a STRING.
+|
+=== file elm.json
+|{
+|    "type": "application",
+|    "source-directories": [
+|        "src"
+|    ],
+|    "elm-version": "0.19.1",
+|    "dependencies": {
+|        "direct": {
+|            "elm/core": "1.0.5",
+|            "elm/json": [
+|                "1.1.4"
+|            ]
+|        },
+|        "indirect": {}
+|    },
+|    "test-dependencies": {
+|        "direct": {},
+|        "indirect": {}
+|    }
+|}
+=== file src/Main.elm
+|module Main exposing (main)
+|
+|main =
+|    main

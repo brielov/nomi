@@ -1,16 +1,156 @@
 //! What the registry's problems say (`Reporting/Exit.hs`):
-//! `toRegistryProblemReport`, `toSolverReport` and `toHttpErrorReport`.
+//! `toRegistryProblemReport`, `toSolverReport`, `toHttpErrorReport`, and
+//! `toDetailsReport` and `toPackageProblemReport` for a project's
+//! dependencies.
 //!
 //! nomi's HTTP client reports less than upstream's, so its errors say
 //! less: a status comes with its standard reason and without the body
 //! 0.19.3 shows, and other failures with the client's message.
 
-use nomi_base::Report;
-use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, reflow, text};
+use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, reflow, text, vcat};
+use nomi_base::{Compat, Report};
+use nomi_project::{Name, Version, report};
 
+use crate::details::DetailsProblem;
 use crate::http::HttpError;
 use crate::index::RegistryProblem;
 use crate::registry::SolverProblem;
+use crate::store::PackageProblem;
+
+/// `toDetailsReport` for what checking the dependencies of a project for
+/// `compat` found. `install` is the command that adds a dependency, and
+/// `reactor` the one that runs elm's reactor, which 0.19.1 also suggests
+/// when there is one.
+pub fn details_problem(
+    problem: &DetailsProblem<SolverProblem>,
+    compat: Compat,
+    install: &str,
+    reactor: Option<&str>,
+) -> Report {
+    let path = Some("elm.json".to_owned());
+    let reliable = |start: &str| {
+        let tools = match reactor {
+            Some(reactor) if compat == Compat::V0_19_1 => vec![
+                text(install).color(Color::Green),
+                text("or"),
+                text("the"),
+                text("dependency"),
+                text("management"),
+                text("tool"),
+                text("in"),
+                text(reactor).color(Color::Green).append(text(".")),
+            ],
+            _ => vec![text(install).color(Color::Green).append(text("."))],
+        };
+        fill_sep(
+            words(start)
+                .chain(words("It is much more reliable to add dependencies with"))
+                .chain(tools),
+        )
+    };
+    let forums = reflow(
+        "Please ask for help on the community forums if you try those paths and are still \
+         having problems!",
+    );
+    match problem {
+        DetailsProblem::NoSolution => Report::new(
+            "INCOMPATIBLE DEPENDENCIES",
+            path,
+            "The dependencies in your elm.json are not compatible.",
+            [
+                reliable("Did you change them by hand? Try to change it back!"),
+                forums,
+            ],
+        ),
+        DetailsProblem::Solver(problem) => solver_problem(problem),
+        DetailsProblem::PkgElm(constraint) => report::pkg_elm(constraint, compat),
+        DetailsProblem::AppElm(version) => report::app_elm(*version, compat),
+        DetailsProblem::HandEdited => Report::new(
+            "ERROR IN DEPENDENCIES",
+            path,
+            "It looks like the dependencies elm.json in were edited by hand (or by a 3rd party \
+             tool) leaving them in an invalid state.",
+            [
+                reliable("Try to change them back to what they were before!"),
+                forums,
+            ],
+        ),
+    }
+}
+
+/// `toPackageProblemReport`: `name` `version` couldn't be had.
+pub fn package_problem(name: &Name, version: Version, problem: &PackageProblem) -> Report {
+    const TITLE: &str = "PROBLEM DOWNLOADING PACKAGE";
+    let package = format!("{name} {version}");
+    let intercepted = "We have gotten reports that schools, businesses, airports, etc. \
+                       sometimes intercept requests and add things to the body or change its \
+                       contents entirely. Could that be the problem?";
+    match problem {
+        PackageProblem::BadEndpointRequest(url, e) => http_error(
+            TITLE,
+            url,
+            e,
+            &format!("I need to find the latest download link for {package}"),
+        ),
+        PackageProblem::BadEndpointContent(url) => Report::new(
+            TITLE,
+            None,
+            &format!(
+                "I need to find the latest download link for {package}, but I ran into \
+                 corrupted information from:"
+            ),
+            [
+                url_doc(url),
+                reflow(&format!(
+                    "Is something weird with your internet connection. {intercepted}"
+                )),
+            ],
+        ),
+        PackageProblem::BadArchiveRequest(url, e) => http_error(
+            TITLE,
+            url,
+            e,
+            &format!("I was trying to download the source code for {package}"),
+        ),
+        PackageProblem::BadArchiveContent(url) => Report::new(
+            TITLE,
+            None,
+            &format!("I downloaded the source code for {package} from:"),
+            [
+                url_doc(url),
+                reflow(&format!(
+                    "But I was unable to unzip the data. Maybe there is something weird with \
+                     your internet connection. {intercepted}"
+                )),
+            ],
+        ),
+        PackageProblem::BadArchiveHash(url, expected, actual) => Report::new(
+            "CORRUPT PACKAGE DATA",
+            None,
+            &format!("I downloaded the source code for {package} from:"),
+            [
+                url_doc(url),
+                reflow("But it looks like the hash of the archive has changed since publication:"),
+                vcat([
+                    text(format!("  Expected: {expected}")),
+                    text(format!("    Actual: {actual}")),
+                ]),
+                reflow(
+                    "This usually means that the package author moved the version tag, so \
+                     report it to them and see if that is the issue. Folks on Elm slack can \
+                     probably help as well.",
+                ),
+            ],
+        ),
+        // nomi's own: upstream dies on a file it can't read or write.
+        PackageProblem::Io(e) => Report::new(
+            TITLE,
+            None,
+            &format!("I could not store the source code for {package}:"),
+            [verbatim(&e.to_string()).indent(4)],
+        ),
+    }
+}
 
 /// `toRegistryProblemReport`: the index couldn't be had, which `context`
 /// needed.
@@ -149,11 +289,18 @@ pub fn http_error(title: &'static str, url: &str, e: &HttpError, context: &str) 
     )
 }
 
+fn words(text: &str) -> impl Iterator<Item = Doc> + '_ {
+    text.split_whitespace().map(Doc::text)
+}
+
 fn url_doc(url: &str) -> Doc {
     text(url).color(Color::DullYellow).indent(4)
 }
 
 /// `D.fromChars`: text as it is, its lines kept.
 fn verbatim(text: &str) -> Doc {
-    nomi_base::diagnostic::doc::vcat(text.split('\n').map(Doc::text))
+    vcat(text.split('\n').map(Doc::text))
 }
+
+#[cfg(test)]
+mod tests;

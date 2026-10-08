@@ -1,0 +1,29 @@
+=== note
+an elm.json missing a colon
+=== args
+install
+elm/http
+=== file elm.json
+{
+    "type": "application",
+    "source-directories": [
+        "src"
+    ],
+    "elm-version": "0.19.1",
+    "dependencies": {
+        "direct": {
+            "elm/core" "1.0.5",
+            "elm/json": "1.1.4"
+        },
+        "indirect": {}
+    },
+    "test-dependencies": {
+        "direct": {},
+        "indirect": {}
+    }
+}
+=== file src/Main.elm
+module Main exposing (main)
+
+main =
+    main

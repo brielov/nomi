@@ -8,6 +8,7 @@ pub mod license;
 pub mod module_name;
 pub mod outline;
 pub mod package;
+pub mod report;
 mod scan;
 pub mod version;
 

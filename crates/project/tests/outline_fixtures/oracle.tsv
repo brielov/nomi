@@ -129,6 +129,47 @@ package-version-escape-dot	PROBLEM WITH VERSION rows 1-1 ^112+1	PROBLEM WITH VER
 package-version-extra	PROBLEM WITH VERSION rows 1-1 ^116+1	PROBLEM WITH VERSION rows 1-1 ^116+1	PROBLEM WITH VERSION rows 1-1 ^116+1
 package-version-leading-zero	PROBLEM WITH VERSION rows 1-1 ^112+1	PROBLEM WITH VERSION rows 1-1 ^112+1	PROBLEM WITH VERSION rows 1-1 ^112+1
 package-version-missing-patch	PROBLEM WITH VERSION rows 1-1 ^114+1	PROBLEM WITH VERSION rows 1-1 ^114+1	PROBLEM WITH VERSION rows 1-1 ^114+1
+report-application-root-array	EXPECTING OBJECT rows 1-1 ^1+1	EXPECTING OBJECT rows 1-1 ^1+1	EXPECTING OBJECT rows 1-1 ^1+1
+report-application-source-entry	EXPECTING STRING rows 5-5 ^9+1	EXPECTING STRING rows 5-5 ^9+1	EXPECTING STRING rows 5-5 ^9+1
+report-application-version-object	EXPECTING STRING rows 10-10 ^25+1	EXPECTING STRING rows 10-10 ^25+1	EXPECTING STRING rows 10-10 ^25+1
+report-arrend	UNFINISHED ARRAY rows 2-4 ^15+1	UNFINISHED ARRAY rows 2-4 ^15+1	UNFINISHED ARRAY rows 2-4 ^15+1
+report-baddepname	PROBLEM WITH DEPENDENCY NAME rows 9-9 ^21+1	PROBLEM WITH DEPENDENCY NAME rows 9-9 ^21+1	PROBLEM WITH DEPENDENCY NAME rows 9-9 ^21+1
+report-badend	JSON PROBLEM rows 17-19 ^1+1	JSON PROBLEM rows 17-19 ^1+1	JSON PROBLEM rows 17-19 ^1+1
+report-badesc	UNKNOWN ESCAPE rows 2-4 ^11+1	UNKNOWN ESCAPE rows 2-4 ^11+1	UNKNOWN ESCAPE rows 2-4 ^11+1
+report-badhex	BAD HEX ESCAPE rows 2-4 ^11+1	BAD HEX ESCAPE rows 2-4 ^11+1	BAD HEX ESCAPE rows 2-4 ^11+1
+report-badtype	UNEXPECTED TYPE rows 1-18 >1-18	UNEXPECTED TYPE rows 1-18 >1-18	UNEXPECTED TYPE rows 1-18 >1-18
+report-badver	PROBLEM WITH VERSION rows 9-9 ^29+1	PROBLEM WITH VERSION rows 9-9 ^29+1	PROBLEM WITH VERSION rows 9-9 ^29+1
+report-ctrl	UNEXPECTED CONTROL CHARACTER rows 2-4 ^11+1	UNEXPECTED CONTROL CHARACTER rows 2-4 ^11+1	UNEXPECTED CONTROL CHARACTER rows 2-4 ^11+1
+report-endless	ENDLESS STRING rows 2-4 ^13+1	ENDLESS STRING rows 2-4 ^13+1	ENDLESS STRING rows 2-4 ^13+1
+report-expstring	loop	loop	loop
+report-floats	UNEXPECTED NUMBER rows 4-6 ^21+1	UNEXPECTED NUMBER rows 4-6 ^21+1	UNEXPECTED NUMBER rows 4-6 ^21+1
+report-nocolon	EXPECTING COLON rows 1-2 ^12+1	EXPECTING COLON rows 1-2 ^12+1	EXPECTING COLON rows 1-2 ^12+1
+report-nocomma	UNFINISHED OBJECT rows 8-10 ^13+1	UNFINISHED OBJECT rows 8-10 ^13+1	UNFINISHED OBJECT rows 8-10 ^13+1
+report-nocore	MISSING DEPENDENCY rows none	MISSING DEPENDENCY rows none	MISSING DEPENDENCY rows none
+report-nojson	MISSING DEPENDENCY rows none	MISSING DEPENDENCY rows none	MISSING DEPENDENCY rows none
+report-nosrcdirs	NO SOURCE DIRECTORIES rows 3-5 >3-5	NO SOURCE DIRECTORIES rows 3-5 >3-5	NO SOURCE DIRECTORIES rows 3-5 >3-5
+report-notype	MISSING FIELD rows 1-1 ^1+1	MISSING FIELD rows 1-1 ^1+1	MISSING FIELD rows 1-1 ^1+1
+report-package-constraint	PROBLEM WITH CONSTRAINT rows 12-12 ^21+20	PROBLEM WITH CONSTRAINT rows 12-12 ^21+20	PROBLEM WITH CONSTRAINT rows 12-12 ^21+20
+report-package-constraint-syntax	PROBLEM WITH CONSTRAINT rows 12-12 ^27+1	PROBLEM WITH CONSTRAINT rows 12-12 ^27+1	PROBLEM WITH CONSTRAINT rows 12-12 ^27+1
+report-package-dependency-name	PROBLEM WITH DEPENDENCY NAME rows 12-12 ^14+1	PROBLEM WITH DEPENDENCY NAME rows 12-12 ^14+1	PROBLEM WITH DEPENDENCY NAME rows 12-12 ^14+1
+report-package-deps-array	EXPECTING OBJECT rows 11-11 ^21+1	EXPECTING OBJECT rows 11-11 ^21+1	EXPECTING OBJECT rows 11-11 ^21+1
+report-package-elm-version	PROBLEM WITH CONSTRAINT rows 10-10 ^31+1	PROBLEM WITH CONSTRAINT rows 10-10 ^31+1	PROBLEM WITH CONSTRAINT rows 10-10 ^31+1
+report-package-exposed-header	EXPECTING ARRAY rows 7-7 ^24+1	EXPECTING ARRAY rows 7-7 ^24+1	EXPECTING ARRAY rows 7-7 ^24+1
+report-package-exposed-object	loop	loop	loop
+report-package-license	UNKNOWN LICENSE rows 5-5 ^16+13	UNKNOWN LICENSE rows 5-5 ^16+13	UNKNOWN LICENSE rows 5-5 ^16+13
+report-package-module	PROBLEM WITH MODULE NAME rows 8-8 ^10+1	PROBLEM WITH MODULE NAME rows 8-8 ^10+1	PROBLEM WITH MODULE NAME rows 8-8 ^10+1
+report-package-module-entry	EXPECTING STRING rows 9-9 ^9+1	EXPECTING STRING rows 9-9 ^9+1	EXPECTING STRING rows 9-9 ^9+1
+report-package-name	accepted	accepted	accepted
+report-package-no-core	MISSING DEPENDENCY rows none	MISSING DEPENDENCY rows none	MISSING DEPENDENCY rows none
+report-package-summary	SUMMARY TOO LONG rows 4-4 ^16+83	SUMMARY TOO LONG rows 4-4 ^16+83	SUMMARY TOO LONG rows 4-4 ^16+83
+report-package-version	PROBLEM WITH VERSION rows 6-6 ^20+1	PROBLEM WITH VERSION rows 6-6 ^20+1	PROBLEM WITH VERSION rows 6-6 ^20+1
+report-row1	crash	EXPECTING COLON rows 1-1 ^9+1	EXPECTING COLON rows 1-1 ^9+1
+report-row1type	loop	loop	loop
+report-row5	EXPECTING COLON rows 3-5 ^9+1	EXPECTING COLON rows 3-5 ^9+1	EXPECTING COLON rows 3-5 ^9+1
+report-start	EXPECTING A VALUE rows 1-2 ^13+1	EXPECTING A VALUE rows 1-2 ^13+1	EXPECTING A VALUE rows 1-2 ^13+1
+report-trailarr	EXPECTING A VALUE rows 3-5 ^5+1	EXPECTING A VALUE rows 3-5 ^5+1	EXPECTING A VALUE rows 3-5 ^5+1
+report-trailcomma	EXTRA COMMA rows 9-11 ^9+1	EXTRA COMMA rows 9-11 ^9+1	EXTRA COMMA rows 9-11 ^9+1
+report-zeros	BAD NUMBER rows 4-6 ^21+1	BAD NUMBER rows 4-6 ^21+1	BAD NUMBER rows 4-6 ^21+1
 rich	accepted	accepted	accepted
 root-array	EXPECTING OBJECT rows 1-1 ^1+1	EXPECTING OBJECT rows 1-1 ^1+1	EXPECTING OBJECT rows 1-1 ^1+1
 source-directories-backslash	accepted	accepted	accepted

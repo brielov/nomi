@@ -73,6 +73,29 @@ impl<'a> Source<'a> {
     }
 }
 
+impl Source<'_> {
+    /// `Code.toSnippet` at a region already resolved, as reports about
+    /// files other than modules, whose parsers track positions
+    /// themselves, show them: `before`, a blank line, the lines of
+    /// `region` with `highlight` (or else the whole region) marked, and
+    /// `after`.
+    pub fn snippet(
+        &self,
+        compat: Compat,
+        before: Doc,
+        region: Region,
+        highlight: Option<Region>,
+        after: Doc,
+    ) -> Doc {
+        let code = Code {
+            source: self,
+            compat,
+        }
+        .render(region, highlight.unwrap_or(region));
+        vcat([before, Doc::empty(), code, after])
+    }
+}
+
 /// `doc` with its snippets and pairs replaced by the lines of `source`
 /// they show, as `compat` shows them.
 pub fn expand(doc: &Doc, source: &Source<'_>, compat: Compat) -> Doc {

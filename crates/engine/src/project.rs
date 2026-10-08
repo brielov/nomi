@@ -1,12 +1,14 @@
 //! The project around a directory, as the commands that read or change
 //! its dependencies load it.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use nomi_base::{Compat, Report};
-use nomi_project::Outline;
+use nomi_project::{Outline, report};
 
 use crate::Vfs;
+use crate::console::Personality;
 use crate::install::one_line;
 use crate::paths::Root;
 
@@ -19,7 +21,8 @@ pub(crate) struct Project {
 }
 
 impl Project {
-    /// The project around `dir`, whose dependencies `purpose` concerns.
+    /// The project around `dir`, whose dependencies `purpose` concerns,
+    /// for one of nomi's own commands.
     pub fn load(vfs: &Vfs, dir: &Path, purpose: &str) -> Result<Project, Report> {
         let Some(root) = Root::find(vfs, dir) else {
             return Err(one_line(
@@ -37,13 +40,8 @@ impl Project {
                 format!("I could not read elm.json: {e}"),
             )
         })?;
-        // `toOutlineReport` comes with 4.4a.
-        let (outline, compat) = Outline::detect(&src).map_err(|e| {
-            one_line(
-                "BAD ELM.JSON",
-                format!("I ran into a problem with your elm.json file: {e:?}"),
-            )
-        })?;
+        let (outline, compat) = Outline::detect(&src)
+            .map_err(|e| report::detect(&e, &src, &|c| Personality::Nomi.command(c)))?;
         Ok(Project {
             path,
             outline,
@@ -59,5 +57,41 @@ impl Project {
                 format!("I could not write elm.json: {e}"),
             )
         })
+    }
+}
+
+/// The rest of `Outline.read`, which looks at the disk: an application's
+/// source directories, as `root` holds them, must exist, and be
+/// different directories.
+pub(crate) fn check_source_dirs(root: &Path, outline: &Outline) -> Result<(), Report> {
+    let Outline::App(app) = outline else {
+        return Ok(());
+    };
+    let dirs: Vec<String> = app.source_dirs.iter().filter_map(|d| d.path()).collect();
+    let missing: Vec<String> = (dirs.iter())
+        .filter(|dir| !root.join(dir).is_dir())
+        .cloned()
+        .collect();
+    if !missing.is_empty() {
+        return Err(report::missing_src_dirs(&missing));
+    }
+    // By canonical path, ordered as Haskell orders strings; the first
+    // directory with two names, named as the last two entries name it.
+    let mut by_canonical: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+    for dir in &dirs {
+        let canonical = std::fs::canonicalize(root.join(dir))
+            .unwrap_or_else(|_| root.join(dir))
+            .to_string_lossy()
+            .into_owned();
+        by_canonical.entry(canonical).or_default().push(dir);
+    }
+    match by_canonical.iter().find(|(_, names)| names.len() > 1) {
+        Some((canonical, names)) => {
+            let [.., dir2, dir1] = names[..] else {
+                unreachable!("two names at least")
+            };
+            Err(report::duplicate_src_dirs(canonical, dir1, dir2))
+        }
+        None => Ok(()),
     }
 }

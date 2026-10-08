@@ -7,7 +7,8 @@
 //! - [`ELM_CASES`] run `elm init` and `elm install` offline, with an
 //!   `ELM_HOME` whose registry and package cache hold the corpus's `elm/`
 //!   packages, so `install` can build what it adds. A case runs with the
-//!   elm its application names in `elm-version`, else the newest. What elm
+//!   elm its application names in `elm-version` if that one is pinned,
+//!   else the newest, as nomi reports an outline no release reads. What elm
 //!   leaves in `elm-stuff/` is its own and isn't recorded. Each package's
 //!   `elm.json` is stored under `packages/`, so the CLI's tests can give
 //!   nomi the same packages.
@@ -55,12 +56,14 @@ fn elm(root: &Path, refs: &References) -> Result<()> {
         .into_iter()
         .filter(|p| p.name.starts_with("elm/"))
         .collect();
-    let newest = *compat::compats(refs)?.last().context("no elm is pinned")?;
+    let compats = compat::compats(refs)?;
+    let newest = *compats.last().context("no elm is pinned")?;
     fixtures(&root.join(ELM_CASES).join("packages"), &pinned)?;
     let scratch = cache_dir()?.join("sandboxes").join("elm-transcripts");
     record(&root.join(ELM_CASES), |name, case| {
         let version = elm_version(case)
             .with_context(|| name.to_owned())?
+            .filter(|v| compats.contains(v))
             .unwrap_or(newest);
         let binary = binary(refs, "elm", Some(&version.to_string()))?;
         let (home, work) = fresh(&scratch)?;

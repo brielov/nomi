@@ -6,7 +6,8 @@
 //! (`Details.load`). A report about the file is summarized as its title
 //! and the code excerpt's shape: the rows shown, and the underline or the
 //! rows marked with `>`. Any other outcome means elm read the outline and
-//! moved on.
+//! moved on. Each report about the file is also kept whole, as elm wrote
+//! it, in `reports.tsv`, for the report tests.
 
 use std::fmt::Write as _;
 use std::fs;
@@ -109,6 +110,8 @@ pub fn run(root: &Path, refs: &References) -> Result<()> {
         record(elm, &project, &text).with_context(|| format!("elm {version} on {name}"))
     });
     let mut out = format!("{HEADER}\nfixture");
+    // A report as many elms write it is one row, which names them all.
+    let mut reports = format!("{HEADER}\nfixture\telms\treport\n");
     for (version, _) in &elms {
         write!(out, "\telm {version}")?;
     }
@@ -116,12 +119,24 @@ pub fn run(root: &Path, refs: &References) -> Result<()> {
     let mut results = results.into_iter();
     for name in &fixtures {
         out.push_str(name);
-        for _ in &elms {
-            write!(out, "\t{}", results.next().expect("a result")?)?;
+        let mut written: Vec<(Vec<String>, String)> = Vec::new();
+        for (version, _) in &elms {
+            let (summary, report) = results.next().expect("a result")?;
+            write!(out, "\t{summary}")?;
+            let Some(report) = report else { continue };
+            let version = format!("elm {version}");
+            match written.iter_mut().find(|(_, r)| *r == report) {
+                Some((versions, _)) => versions.push(version),
+                None => written.push((vec![version], report)),
+            }
+        }
+        for (versions, report) in written {
+            writeln!(reports, "{name}\t{}\t{report}", versions.join(","))?;
         }
         out.push('\n');
     }
     fs::write(dir.join("oracle.tsv"), out)?;
+    fs::write(dir.join("reports.tsv"), reports)?;
     println!(
         "recorded {} fixtures for {} elms",
         fixtures.len(),
@@ -130,8 +145,9 @@ pub fn run(root: &Path, refs: &References) -> Result<()> {
     Ok(())
 }
 
-/// Runs `elm` on a fresh project whose `elm.json` is `text`.
-fn record(elm: &Path, project: &Path, text: &[u8]) -> Result<String> {
+/// Runs `elm` on a fresh project whose `elm.json` is `text`: the
+/// outcome's summary, and elm's report if it is about the file.
+fn record(elm: &Path, project: &Path, text: &[u8]) -> Result<(String, Option<String>)> {
     if project.exists() {
         fs::remove_dir_all(project)?;
     }
@@ -167,13 +183,19 @@ fn record(elm: &Path, project: &Path, text: &[u8]) -> Result<String> {
     let (stdout, stderr) = (fs::read(stdout)?, fs::read(stderr)?);
     let errors = String::from_utf8_lossy(&stderr);
     if timed_out || errors.contains("Heap exhausted") || errors.contains("<<loop>>") {
-        return Ok("loop".to_owned());
+        return Ok(("loop".to_owned(), None));
     }
     match [&stderr, &stdout].into_iter().find(|o| o.starts_with(b"{")) {
-        Some(json) => summarize(json),
+        Some(json) => {
+            let summary = summarize(json)?;
+            // One line: elm escapes the newlines it writes.
+            let report = (summary != "accepted")
+                .then(|| String::from_utf8_lossy(json.trim_ascii_end()).into_owned());
+            Ok((summary, report))
+        }
         // GHC's report of an uncaught exception.
-        None if errors.starts_with("elm: ") => Ok("crash".to_owned()),
-        None => Ok("accepted".to_owned()),
+        None if errors.starts_with("elm: ") => Ok(("crash".to_owned(), None)),
+        None => Ok(("accepted".to_owned(), None)),
     }
 }
 

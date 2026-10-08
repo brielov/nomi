@@ -322,6 +322,18 @@ pub fn simple_note(message: &str) -> Doc {
     labelled("Note", words(message))
 }
 
+/// `D.intToOrdinal`: 1st, 2nd, 3rd, 4th, 11th, 0th.
+pub fn ordinal(n: usize) -> String {
+    let ending = match (n % 100, n % 10) {
+        (11..=13, _) => "th",
+        (_, 1) => "st",
+        (_, 2) => "nd",
+        (_, 3) => "rd",
+        _ => "th",
+    };
+    format!("{n}{ending}")
+}
+
 pub fn simple_hint(message: &str) -> Doc {
     hint(words(message))
 }

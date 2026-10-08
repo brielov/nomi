@@ -1,0 +1,38 @@
+=== exit 1
+=== stdout
+=== stderr
+|-- REDUNDANT SOURCE DIRECTORIES --------------------------------------- elm.json
+|
+|I need a valid elm.json file, but the "source-directories" field lists the same
+|directory twice:
+|
+|    src
+|    src
+|
+|Remove one of the entries!
+|
+=== file elm.json
+|{
+|    "type": "application",
+|    "source-directories": [
+|        "src",
+|        "src"
+|    ],
+|    "elm-version": "0.19.1",
+|    "dependencies": {
+|        "direct": {
+|            "elm/core": "1.0.5",
+|            "elm/json": "1.1.4"
+|        },
+|        "indirect": {}
+|    },
+|    "test-dependencies": {
+|        "direct": {},
+|        "indirect": {}
+|    }
+|}
+=== file src/Main.elm
+|module Main exposing (main)
+|
+|main =
+|    main

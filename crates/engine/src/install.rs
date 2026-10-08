@@ -15,13 +15,13 @@ use nomi_base::{Compat, Report};
 use nomi_project::json::Cursor;
 use nomi_project::{Name, Outline};
 use nomi_registry::{
-    Change, Connection, DetailsProblem, Http, InstallProblem, PackageProblem, Plan, Registry,
-    SolverProblem, Store, details, install, report,
+    Change, Connection, DetailsProblem, Http, InstallProblem, Plan, Registry, SolverProblem, Store,
+    details, install, report,
 };
 
 use crate::console::{self, Console, Personality};
 use crate::paths::{Cache, Root};
-use crate::{Pool, Vfs, env, packages};
+use crate::{Pool, Vfs, env, packages, project};
 
 /// The path reports about the outline name.
 const ELM_JSON: &str = "elm.json";
@@ -102,14 +102,10 @@ impl Install<'_> {
             self.compat,
             "I need the list of published packages to figure out how to install things",
         )?;
-        // `toOutlineReport` comes with 4.4a.
         let (old, _) = detected.map_err(|e| {
-            one_line(
-                "BAD ELM.JSON",
-                format!("I ran into a problem with your elm.json file: {e:?}"),
-            )
+            nomi_project::report::detect(&e, &src, &|c| self.personality.command(c))
         })?;
-        self.check_source_dirs(root.dir(), &old)?;
+        project::check_source_dirs(root.dir(), &old)?;
         let plan = install::plan(&mut registry, self.compat, package, &old)
             .map_err(|problem| self.install_problem(&registry, package, &old, problem))?;
         let (question, new) = match plan {
@@ -136,7 +132,14 @@ impl Install<'_> {
             }
             Ok(Some(true)) => {
                 self.write(&path, &new.write())?;
-                if let Err(problem) = verify(&mut registry, &store, http, self.compat, &new) {
+                if let Err(problem) = verify(
+                    &mut registry,
+                    &store,
+                    http,
+                    self.compat,
+                    self.personality,
+                    &new,
+                ) {
                     self.write(&path, &src)?;
                     return Err(problem);
                 }
@@ -153,32 +156,6 @@ impl Install<'_> {
                 format!("I could not write elm.json: {e}"),
             )
         })
-    }
-
-    /// `Outline.read`'s check that an application's source directories
-    /// exist. `toOutlineReport` comes with 4.4a.
-    fn check_source_dirs(&self, root: &Path, outline: &Outline) -> Result<(), Report> {
-        let Outline::App(app) = outline else {
-            return Ok(());
-        };
-        let missing: Vec<String> = app
-            .source_dirs
-            .iter()
-            .filter_map(|dir| dir.path())
-            .filter(|dir| !root.join(dir).is_dir())
-            .collect();
-        if missing.is_empty() {
-            return Ok(());
-        }
-        Err(Report::new(
-            "MISSING SOURCE DIRECTORY",
-            Some(ELM_JSON.to_owned()),
-            &format!(
-                "I need your source directories to exist, but I cannot find: {}",
-                missing.join(", ")
-            ),
-            [],
-        ))
     }
 
     /// `InstallNoOutline`.
@@ -275,63 +252,36 @@ fn verify(
     store: &Store,
     http: &(impl Http + Sync),
     compat: Compat,
+    personality: Personality,
     outline: &Outline,
 ) -> Result<(), Report> {
-    let solution = details::verify(registry, compat, outline).map_err(details_problem)?;
+    let solution = details::verify(registry, compat, outline)
+        .map_err(|problem| details_problem(&problem, compat, personality))?;
     let releases = solution
         .into_iter()
         .map(|(name, details)| (name, details.version))
         .collect::<Vec<_>>();
     let names = releases.clone();
     let fetched = packages::fetch(Pool::global(), store, http, compat, releases);
-    let failed: Vec<String> = names
+    // Upstream reports the first of the releases it couldn't download.
+    match names
         .iter()
         .zip(fetched)
-        .filter_map(|((name, version), result)| {
-            result
-                .err()
-                .map(|problem| format!("{name} {version}: {}", package_problem(&problem)))
-        })
-        .collect();
-    if failed.is_empty() {
-        Ok(())
-    } else {
-        Err(one_line(
-            "PROBLEM DOWNLOADING PACKAGE",
-            format!("I could not download {}", failed.join("; ")),
-        ))
+        .find_map(|(release, r)| r.err().map(|e| (release, e)))
+    {
+        Some(((name, version), problem)) => Err(report::package_problem(name, *version, &problem)),
+        None => Ok(()),
     }
 }
 
-/// Why a project's dependencies don't check out. `toDetailsReport` comes
-/// with 4.4a.
-pub(crate) fn details_problem(problem: DetailsProblem<SolverProblem>) -> Report {
-    let message = match problem {
-        DetailsProblem::Solver(problem) => return report::solver_problem(&problem),
-        DetailsProblem::AppElm(v) => format!("This application is for elm {v}."),
-        DetailsProblem::PkgElm(c) => format!("This package needs elm {c}."),
-        DetailsProblem::HandEdited => {
-            "The dependencies in elm.json contradict each other.".to_owned()
-        }
-        DetailsProblem::NoSolution => {
-            "I cannot find a set of packages that satisfies elm.json.".to_owned()
-        }
-    };
-    one_line("PROBLEM WITH DEPENDENCIES", message)
-}
-
-fn package_problem(problem: &PackageProblem) -> String {
-    match problem {
-        PackageProblem::BadEndpointRequest(url, e) | PackageProblem::BadArchiveRequest(url, e) => {
-            format!("{url}: {e}")
-        }
-        PackageProblem::BadEndpointContent(url) => format!("{url} is not what I expected"),
-        PackageProblem::BadArchiveContent(url) => format!("{url} is not a package archive"),
-        PackageProblem::BadArchiveHash(url, expected, actual) => {
-            format!("{url} has hash {actual}, not {expected}")
-        }
-        PackageProblem::Io(e) => e.to_string(),
-    }
+/// `toDetailsReport`, in `personality`'s words.
+pub(crate) fn details_problem(
+    problem: &DetailsProblem<SolverProblem>,
+    compat: Compat,
+    personality: Personality,
+) -> Report {
+    let reactor = (personality == Personality::Elm).then_some("elm reactor");
+    report::details_problem(problem, compat, &personality.command("install"), reactor)
 }
 
 /// The package argument. Upstream's argument parser reports a bad one
@@ -346,7 +296,7 @@ pub(crate) fn parse_name(arg: &str) -> Result<Name, Report> {
     })
 }
 
-/// A report whose message is one sentence, until 4.4a ports upstream's.
+/// A report of nomi's own whose message is one sentence.
 pub(crate) fn one_line(title: &'static str, message: String) -> Report {
     Report::new(title, None, &message, [])
 }
