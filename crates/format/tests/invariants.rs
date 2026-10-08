@@ -94,17 +94,12 @@ fn the_seeds_keep_the_invariants() {
 }
 
 /// elm-format 0.8.8 prints this comment as `{--}A<   {|- B-}`, which
-/// ends at `{--}`, and nomi follows; the fuzzer found it.
+/// ends at `{--}`; nomi keeps the space after `{--` and with it every
+/// invariant. The fuzzer found it.
 #[test]
-fn a_comment_that_upstream_ends_early_breaks_every_invariant() {
+fn a_comment_upstream_ends_early_keeps_every_invariant() {
     let text = "module Example exposing (z)\n\nx =\n{-- }A<   {|- B -} value\n";
-    let broken: Vec<_> = nomi_format::broken_invariants(text)
-        .into_iter()
-        .map(|(invariant, _)| invariant)
-        .collect();
-    assert!(broken.contains(&Invariant::KeepsTokens), "{broken:?}");
-    assert_eq!(nomi_format::upstream_breaks(text), Invariant::ALL);
-    nomi_format::check_invariants(text);
+    assert_eq!(nomi_format::broken_invariants(text), Vec::new());
 }
 
 /// elm-format 0.8.8 reprints this doc comment's Markdown without its

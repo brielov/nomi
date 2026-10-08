@@ -1023,3 +1023,4 @@ nomi/transform/090.elm
 nomi/transform/091.elm
 nomi/transform/092.elm
 nomi/transform/093.elm
+nomi/trick_blocks/001.elm

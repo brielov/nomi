@@ -130,9 +130,7 @@ pub fn broken_invariants(text: &str) -> Vec<(Invariant, String)> {
 ///   type of one name, which the exposing list elm-format writes names
 ///   twice and a second run once;
 /// - a doc comment holding a comment, whose nesting reprinting its
-///   Markdown can undo, so that it ends early or swallows code;
-/// - a `{--` comment whose text starts with `}` after its spaces, which
-///   elm-format prints as `{--}` and so ends early.
+///   Markdown can undo, so that it ends early or swallows code.
 ///
 /// The fixtures' and the corpus's `invariants.tsv` record the modules.
 pub fn upstream_breaks(text: &str) -> Vec<Invariant> {
@@ -214,15 +212,6 @@ pub fn upstream_breaks(text: &str) -> Vec<Invariant> {
         breaks.push(Invariant::Idempotent);
     }
     if tokens().any(|t| t.kind() == SyntaxKind::DocComment && t.text()[3..].contains("{-")) {
-        breaks.extend(Invariant::ALL);
-    }
-    if tokens().any(|t| {
-        t.kind() == SyntaxKind::BlockComment
-            && t.text() != "{--}"
-            && t.text()
-                .strip_prefix("{--")
-                .is_some_and(|body| body.trim_start_matches(' ').starts_with('}'))
-    }) {
         breaks.extend(Invariant::ALL);
     }
     Invariant::ALL

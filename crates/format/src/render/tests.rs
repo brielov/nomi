@@ -24,6 +24,18 @@ fn comments_render_as_upstream_spells_them() {
     }
 }
 
+/// Upstream prints `{--}` and `{-}` here, which end and open comments.
+#[test]
+fn trick_blocks_keep_the_space_that_keeps_them_one_comment() {
+    let cases = [
+        (Comment::TrickBlock("} a".to_owned()), "{-- } a-}\n"),
+        (Comment::TrickBlock("a {".to_owned()), "{--a { -}\n"),
+    ];
+    for (c, expected) in cases {
+        assert_eq!(render(comment(&c)), expected, "{c:?}");
+    }
+}
+
 #[test]
 fn line_comments_break_what_they_join() {
     let inner = Block::line(Line::text("x"));

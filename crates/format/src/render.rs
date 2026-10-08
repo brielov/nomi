@@ -167,9 +167,14 @@ fn comment(comment: &Comment) -> Block {
         }
         Comment::TrickOpener => Block::must_break(Line::text("{--}")),
         Comment::TrickCloser => Block::must_break(Line::text("--}")),
+        // Upstream drops the spaces after `{--` and before `-}`, so
+        // `{-- } a -}` prints as `{--}` and code, and `{-- a { -}` as an
+        // unclosed `{-}`; nomi keeps a space there (`DECISIONS.md`).
         Comment::TrickBlock(text) => Block::must_break(Line::row([
             Line::text("{--"),
+            Line::text(if text.starts_with('}') { " " } else { "" }),
             Line::text(text.as_str()),
+            Line::text(if text.ends_with('{') { " " } else { "" }),
             Line::text("-}"),
         ])),
     }
