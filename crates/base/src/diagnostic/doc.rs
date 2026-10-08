@@ -18,6 +18,9 @@ pub enum Doc {
     Nest(usize, Box<Doc>),
     Align(Box<Doc>),
     Group(Box<Doc>),
+    /// The document, then spaces up to the given width from where it
+    /// started, if it ended short of it.
+    Fill(usize, Box<Doc>),
     Color(Color, Box<Doc>),
     Bold(Box<Doc>),
     Underline(Box<Doc>),
@@ -28,13 +31,16 @@ pub enum Doc {
     Link(String),
 }
 
+/// A line break. In a group laid out on one line, `Space` and `Empty`
+/// become what they are named after, and `Hard` keeps the group from
+/// being laid out on one line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Line {
-    /// Always a newline.
+    /// Always a newline (`hardline`).
     Hard,
-    /// A space, or a newline if the enclosing group does not fit.
+    /// A newline, or a space in a group on one line (`line`).
     Space,
-    /// Nothing, or a newline if the enclosing group does not fit.
+    /// A newline, or nothing in a group on one line (`linebreak`).
     Empty,
 }
 
@@ -131,6 +137,11 @@ impl Doc {
         Doc::Group(Box::new(self))
     }
 
+    /// Pads with spaces to `width` columns (`fill`).
+    pub fn fill(self, width: usize) -> Doc {
+        Doc::Fill(width, Box::new(self))
+    }
+
     pub fn indent(self, width: usize) -> Doc {
         Doc::text(" ".repeat(width))
             .append(self.nest(width))
@@ -149,8 +160,8 @@ impl Doc {
         Doc::Underline(Box::new(self))
     }
 
-    /// The text with layout and styles dropped: every line break is one
-    /// space and snippets are elided. For tests and logs, not for users.
+    /// The text with layout and styles dropped: line breaks are as in a
+    /// group on one line, a hard one a space, and snippets are elided. For tests and logs, not for users.
     pub fn plain(&self) -> String {
         let mut out = String::new();
         self.write_plain(&mut out);
@@ -169,6 +180,7 @@ impl Doc {
             Doc::Nest(_, d)
             | Doc::Align(d)
             | Doc::Group(d)
+            | Doc::Fill(_, d)
             | Doc::Color(_, d)
             | Doc::Bold(d)
             | Doc::Underline(d) => d.write_plain(out),
@@ -200,9 +212,10 @@ pub fn hsep(docs: impl IntoIterator<Item = Doc>) -> Doc {
     join(docs, || text(" "))
 }
 
-/// One per line.
+/// One per line, or all run together in a group on one line, as
+/// `vcat` does.
 pub fn vcat(docs: impl IntoIterator<Item = Doc>) -> Doc {
-    join(docs, Doc::line)
+    join(docs, Doc::linebreak)
 }
 
 /// All on one line separated by spaces, or all on separate lines.
@@ -227,7 +240,7 @@ pub fn reflow(paragraph: &str) -> Doc {
 
 /// Paragraphs separated by a blank line.
 pub fn stack(docs: impl IntoIterator<Item = Doc>) -> Doc {
-    join(docs, || Doc::line().append(Doc::line()))
+    join(docs, || Doc::linebreak().append(Doc::linebreak()))
 }
 
 /// `a`, `a or b`, `a, b, or c` for `conjunction` "or". Commas go after

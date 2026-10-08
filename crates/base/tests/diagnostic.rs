@@ -57,7 +57,7 @@ fn a_diagnostic_carries_its_parts() {
     assert_eq!(diagnostic.fixes, [fix]);
     assert_eq!(
         diagnostic.message.plain(),
-        "I was partway through a let.  [snippet]"
+        "I was partway through a let.[snippet]"
     );
     assert!(Severity::Hint < Severity::Warning && Severity::Warning < Severity::Error);
 }
@@ -81,7 +81,7 @@ fn combinators_build_upstreams_shapes() {
     assert_eq!(vcat(Vec::new()), Doc::Empty);
     assert_eq!(
         vcat([text("a"), text("b")]),
-        text("a").append(Doc::line()).append(text("b"))
+        text("a").append(Doc::linebreak()).append(text("b"))
     );
     assert_eq!(
         sep([text("a"), text("b")]),
@@ -95,7 +95,7 @@ fn combinators_build_upstreams_shapes() {
         reflow("  two\n words "),
         fill_sep([text("two"), text("words")])
     );
-    assert_eq!(stack([text("a"), text("b")]).plain(), "a  b");
+    assert_eq!(stack([text("a"), text("b")]).plain(), "ab");
     assert_eq!(Doc::softline(), Doc::Line(Line::Space));
     assert_eq!(text("x").indent(2).plain(), "  x");
     assert_eq!(
