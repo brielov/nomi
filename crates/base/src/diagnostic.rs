@@ -11,7 +11,58 @@ use std::fmt;
 use text_size::TextRange;
 
 use crate::FileId;
+use doc::{Color, text};
 pub use doc::{Doc, Snippet};
+
+/// A problem that isn't in a module, such as a bad `elm.json` or a
+/// package that can't be found: `Help.Report`'s `Report`, which titles a
+/// message and may name the file it is about.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Report {
+    pub title: Cow<'static, str>,
+    pub path: Option<String>,
+    pub message: Doc,
+}
+
+impl Report {
+    /// `Help.report`: a paragraph, then more blocks.
+    pub fn new(
+        title: impl Into<Cow<'static, str>>,
+        path: Option<String>,
+        start: &str,
+        others: impl IntoIterator<Item = Doc>,
+    ) -> Report {
+        Report::doc(title, path, doc::reflow(start), others)
+    }
+
+    /// `Help.docReport`: a block, then more blocks.
+    pub fn doc(
+        title: impl Into<Cow<'static, str>>,
+        path: Option<String>,
+        start: Doc,
+        others: impl IntoIterator<Item = Doc>,
+    ) -> Report {
+        Report {
+            title: title.into(),
+            path,
+            message: doc::stack(std::iter::once(start).chain(others)),
+        }
+    }
+
+    /// `reportToDoc`: the title in a bar 80 columns wide that ends with
+    /// the path, the message, and a blank line.
+    pub fn to_doc(&self) -> Doc {
+        let title_width = self.title.chars().count();
+        let dashes = |used: usize| "-".repeat(80usize.saturating_sub(used).max(1));
+        let end = match &self.path {
+            None => dashes(4 + title_width),
+            Some(path) => format!("{} {path}", dashes(5 + title_width + path.chars().count())),
+        };
+        let bar =
+            doc::hsep([text("--"), text(self.title.clone()), text(end)]).color(Color::DullCyan);
+        doc::stack([bar, self.message.clone(), Doc::empty()])
+    }
+}
 
 /// A range in one file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

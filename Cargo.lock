@@ -777,9 +777,14 @@ name = "nomi-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "nomi-base",
  "nomi-engine",
+ "nomi-project",
+ "nomi-registry",
  "nomi-testkit",
+ "sha1",
  "tempfile",
+ "zip",
 ]
 
 [[package]]

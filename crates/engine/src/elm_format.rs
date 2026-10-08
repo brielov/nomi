@@ -4,11 +4,12 @@
 //! `CommandLine/TransformFiles.hs`. The options arrive parsed; the CLI
 //! emulates upstream's parser.
 
-use std::io::{self, BufRead, Read, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use nomi_base::ElmPosition;
 
+use crate::console::Console;
 use crate::format::{decode, format_text};
 use crate::{Pool, Vfs, paths};
 
@@ -40,52 +41,6 @@ pub enum Exit {
     Failure,
     /// There was nothing to do; upstream prints its help and succeeds.
     Usage,
-}
-
-/// The terminal a run talks to.
-pub trait Console {
-    /// Prints `text` on standard output.
-    fn out(&mut self, text: &str);
-    /// Prints `text` on standard error.
-    fn err(&mut self, text: &str);
-    /// The next line of standard input, without its `\n`, once standard
-    /// output is flushed; `None` at its end.
-    fn read_line(&mut self) -> io::Result<Option<String>>;
-    /// The rest of standard input.
-    fn read_all(&mut self) -> io::Result<Vec<u8>>;
-}
-
-/// The process's own standard streams. Failed writes are ignored, as
-/// there is nowhere left to report them.
-#[derive(Debug, Default)]
-pub struct StdConsole;
-
-impl Console for StdConsole {
-    fn out(&mut self, text: &str) {
-        let _ = io::stdout().write_all(text.as_bytes());
-    }
-
-    fn err(&mut self, text: &str) {
-        let _ = io::stderr().write_all(text.as_bytes());
-    }
-
-    fn read_line(&mut self) -> io::Result<Option<String>> {
-        io::stdout().flush()?;
-        let mut line = String::new();
-        if io::stdin().lock().read_line(&mut line)? == 0 {
-            return Ok(None);
-        }
-        if line.ends_with('\n') {
-            line.pop();
-        }
-        Ok(Some(line))
-    }
-
-    fn read_all(&mut self) -> io::Result<Vec<u8>> {
-        let mut bytes = Vec::new();
-        io::stdin().read_to_end(&mut bytes)?;
-        Ok(bytes)
-    }
 }
 
 /// Where upstream reads from and writes to, once its options agree.

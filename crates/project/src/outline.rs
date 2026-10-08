@@ -69,6 +69,12 @@ impl Exposed {
 pub struct SrcDir(Box<[u8]>);
 
 impl SrcDir {
+    /// The directory at `path`, relative to the project, as upstream
+    /// writes `R.Relative` paths.
+    pub fn new(path: &str) -> SrcDir {
+        SrcDir(path.as_bytes().into())
+    }
+
     pub fn raw(&self) -> &[u8] {
         &self.0
     }

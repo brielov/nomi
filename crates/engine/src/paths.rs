@@ -98,6 +98,12 @@ impl Cache {
         self.0.join("registry").join("index")
     }
 
+    /// The `elm.json` of releases that aren't downloaded, which the solver
+    /// reads (`nomi_registry::Registry`).
+    pub fn metadata(&self) -> PathBuf {
+        self.0.join("registry").join("metadata")
+    }
+
     /// The package store, shared by every release
     /// (`nomi_registry::Store`).
     pub fn packages(&self) -> PathBuf {

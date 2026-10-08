@@ -7,7 +7,8 @@ use std::io;
 use std::path::PathBuf;
 
 use nomi_engine::Vfs;
-use nomi_engine::elm_format::{Console, ElmVersion, Exit, Options, run};
+use nomi_engine::console::Console;
+use nomi_engine::elm_format::{ElmVersion, Exit, Options, run};
 use nomi_engine::format::decode;
 
 /// A console with its input given and its output kept.

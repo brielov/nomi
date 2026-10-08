@@ -8,7 +8,9 @@
 //!   `ELM_HOME` whose registry and package cache hold the corpus's `elm/`
 //!   packages, so `install` can build what it adds. A case runs with the
 //!   elm its application names in `elm-version`, else the newest. What elm
-//!   leaves in `elm-stuff/` is its own and isn't recorded.
+//!   leaves in `elm-stuff/` is its own and isn't recorded. Each package's
+//!   `elm.json` is stored under `packages/`, so the CLI's tests can give
+//!   nomi the same packages.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,7 +22,7 @@ use nomi_testkit::transcript::Case;
 use super::sandbox::{elm_home, offline};
 use super::{binary_path, cache_dir};
 use crate::corpus::compat::{self, Version};
-use crate::corpus::packages;
+use crate::corpus::{corpus_dir, packages};
 use crate::references::References;
 
 /// elm-format's cases, beside `expected/` and the hand-written
@@ -54,6 +56,7 @@ fn elm(root: &Path, refs: &References) -> Result<()> {
         .filter(|p| p.name.starts_with("elm/"))
         .collect();
     let newest = *compat::compats(refs)?.last().context("no elm is pinned")?;
+    fixtures(&root.join(ELM_CASES).join("packages"), &pinned)?;
     let scratch = cache_dir()?.join("sandboxes").join("elm-transcripts");
     record(&root.join(ELM_CASES), |name, case| {
         let version = elm_version(case)
@@ -74,6 +77,24 @@ fn elm(root: &Path, refs: &References) -> Result<()> {
             .retain(|(path, _)| !path.starts_with("elm-stuff/"));
         Ok(transcript)
     })
+}
+
+/// Stores each package's `elm.json` at `dir/<author>/<project>/<version>`.
+fn fixtures(dir: &Path, pinned: &[packages::Package]) -> Result<()> {
+    if dir.exists() {
+        fs::remove_dir_all(dir)?;
+    }
+    let corpus = corpus_dir()?;
+    for package in pinned {
+        let to = dir.join(&package.name).join(&package.version);
+        fs::create_dir_all(&to)?;
+        fs::copy(
+            packages::package_dir(&corpus, package).join("elm.json"),
+            to.join("elm.json"),
+        )
+        .with_context(|| format!("{} {}", package.name, package.version))?;
+    }
+    Ok(())
 }
 
 /// Runs each case in `dir/cases` and stores its transcript in

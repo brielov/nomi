@@ -7,8 +7,10 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use nomi_engine::Vfs;
+use nomi_engine::console::{Personality, StdConsole};
 use nomi_engine::format::{self, Mode, Outcome};
+use nomi_engine::paths::Cache;
+use nomi_engine::{Vfs, Web, init, install};
 
 /// One toolchain for Elm: compiler, formatter, language server, test runner
 /// and package manager.
@@ -38,18 +40,27 @@ enum Command {
         #[arg(long)]
         stdin: bool,
     },
+    /// Start an application in a directory, the current one by default.
+    #[command(visible_alias = "init")]
+    New { dir: Option<PathBuf> },
+    /// Add a package to the project's dependencies.
+    #[command(visible_alias = "install")]
+    Add {
+        /// The package, e.g. elm/http.
+        package: String,
+    },
 }
 
+mod elm;
 mod elm_format;
 
 fn main() -> ExitCode {
     let mut args = std::env::args_os();
     let name = args.next().unwrap_or_default();
-    if Path::new(&name)
-        .file_stem()
-        .is_some_and(|stem| stem == "elm-format")
-    {
-        return elm_format::main(args);
+    match Path::new(&name).file_stem().and_then(|stem| stem.to_str()) {
+        Some("elm-format") => return elm_format::main(args),
+        Some("elm") => return elm::main(args),
+        _ => {}
     }
     let cli = Cli::parse();
     let succeeded = match cli.command {
@@ -66,12 +77,60 @@ fn main() -> ExitCode {
                 format_paths(&paths, mode)
             }
         }
+        Some(Command::New { dir }) => new(Personality::Nomi, dir),
+        Some(Command::Add { package }) => add(Personality::Nomi, Some(&package)),
     };
+    exit(succeeded)
+}
+
+fn exit(succeeded: bool) -> ExitCode {
     if succeeded {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
     }
+}
+
+/// `nomi new` and `elm init`, in `dir` or the current directory.
+fn new(personality: Personality, dir: Option<PathBuf>) -> bool {
+    let Some(cache) = cache() else { return false };
+    let dir = dir.unwrap_or_else(|| PathBuf::from("."));
+    init::run(
+        &Vfs::new(),
+        &mut StdConsole,
+        personality,
+        &dir,
+        &cache,
+        &Web::new(),
+    )
+}
+
+/// `nomi add` and `elm install`, for the project around the current
+/// directory.
+fn add(personality: Personality, package: Option<&str>) -> bool {
+    let Some(cache) = cache() else { return false };
+    let dir = match std::env::current_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("error: the current directory: {e}");
+            return false;
+        }
+    };
+    install::run(
+        &Vfs::new(),
+        &mut StdConsole,
+        personality,
+        &dir,
+        &cache,
+        &Web::new(),
+        package,
+    )
+}
+
+fn cache() -> Option<Cache> {
+    Cache::locate()
+        .inspect_err(|e| eprintln!("error: {e}"))
+        .ok()
 }
 
 fn format_paths(paths: &[PathBuf], mode: Mode) -> bool {

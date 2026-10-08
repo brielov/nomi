@@ -8,7 +8,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use nomi_engine::Vfs;
-use nomi_engine::elm_format::{self, ElmVersion, Exit, Options, StdConsole};
+use nomi_engine::console::StdConsole;
+use nomi_engine::elm_format::{self, ElmVersion, Exit, Options};
 
 /// Upstream's `--help`, byte for byte.
 const HELP: &str = include_str!("elm_format_help.txt");

@@ -45,7 +45,7 @@ impl Vfs {
     /// Through a symbolic link, the file it names is replaced and the link
     /// kept. The file keeps its permissions; a hard link to it keeps the
     /// old text, since the new text is a new file.
-    pub fn write(&self, path: &Path, text: &str) -> io::Result<()> {
+    pub fn write(&self, path: &Path, text: impl AsRef<[u8]>) -> io::Result<()> {
         let target = if fs::symlink_metadata(path)?.file_type().is_symlink() {
             fs::canonicalize(path)?
         } else {
@@ -57,7 +57,7 @@ impl Vfs {
             _ => Path::new("."),
         };
         let mut temp = tempfile::Builder::new().prefix(".nomi-").tempfile_in(dir)?;
-        temp.write_all(text.as_bytes())?;
+        temp.write_all(text.as_ref())?;
         temp.as_file().set_permissions(permissions)?;
         temp.persist(&target).map_err(|e| e.error)?;
         Ok(())
@@ -70,7 +70,7 @@ impl Vfs {
 
     /// Writes `text` to `path` as [`Vfs::write`] does, first creating the
     /// file, empty and with the default permissions, if it is missing.
-    pub fn create(&self, path: &Path, text: &str) -> io::Result<()> {
+    pub fn create(&self, path: &Path, text: impl AsRef<[u8]>) -> io::Result<()> {
         match fs::OpenOptions::new()
             .write(true)
             .create_new(true)
