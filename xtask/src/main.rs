@@ -86,6 +86,9 @@ enum CorpusCommand {
         #[arg(long)]
         record: bool,
     },
+    /// Whether nomi reads every corpus `elm.json` as each Compat that
+    /// builds it and writes it back as elm would.
+    Outline,
     /// Tier 2: whether nomi formats every corpus module as elm-format did,
     /// a case per project.
     Format {
@@ -121,6 +124,8 @@ enum OracleCommand {
     },
     /// Store elm-format's transcript of every command-line case.
     Transcripts,
+    /// Store what each elm reports for every `elm.json` fixture.
+    Outline,
 }
 
 fn main() -> ExitCode {
@@ -146,6 +151,7 @@ fn main() -> ExitCode {
                 oracle::format::run(&root(), &r, inputs, jobs)
             }
             OracleCommand::Transcripts => oracle::transcripts::run(&root(), &r),
+            OracleCommand::Outline => oracle::outline::run(&root(), &r),
         }),
         Command::Ratchet { suite } => ratchet(&root(), &suite),
         Command::Fuzz { target, runs, jobs } => fuzz::run(
@@ -177,6 +183,7 @@ fn main() -> ExitCode {
             CorpusCommand::Stats => corpus::stats(&root()),
             CorpusCommand::Syntax { record } => corpus::syntax::check(&root(), record),
             CorpusCommand::Format { record } => corpus::format::check(&root(), record),
+            CorpusCommand::Outline => corpus::outline::check(&root()),
         },
     };
     match result {

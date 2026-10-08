@@ -4,3 +4,4 @@
 crates/format/tests/format_fixtures/** -text
 # Fuzz seeds are kept byte for byte.
 crates/project/tests/json_seeds/** -text
+crates/project/tests/outline_fixtures/** -text

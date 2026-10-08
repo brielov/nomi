@@ -128,18 +128,42 @@ pub(crate) fn upper(rest: &[u8], compat: Compat) -> usize {
 /// reads past the end of the input for a truncated sequence; here those
 /// bytes are zero. A result that is no character is no letter either.
 pub(crate) fn unchecked_char(bytes: &[u8], width: usize) -> Option<char> {
-    char::from_u32(unchecked_code(bytes, width))
+    u32::try_from(unchecked_code(bytes, width))
+        .ok()
+        .and_then(char::from_u32)
 }
 
 /// The code point [`unchecked_char`] assembles, which may be no
-/// character, or negative and so wrapped.
-pub(crate) fn unchecked_code(bytes: &[u8], width: usize) -> u32 {
+/// character at all: negative, a surrogate or past U+10FFFF.
+pub(crate) fn unchecked_code(bytes: &[u8], width: usize) -> i64 {
     let byte = |i: usize| i64::from(bytes.get(i).copied().unwrap_or(0));
     let tail = |i: usize, shift: u32| (byte(i) - 0x80) << shift;
-    let code = match width {
+    match width {
         2 => ((byte(0) - 0xC0) << 6) + tail(1, 0),
         3 => ((byte(0) - 0xE0) << 12) + tail(1, 6) + tail(2, 0),
         _ => ((byte(0) - 0xF0) << 18) + tail(1, 12) + tail(2, 6) + tail(3, 0),
-    };
-    code as u32
+    }
+}
+
+/// 0.19.1's `Utf8.toChars`: the characters of a string's bytes, each as
+/// wide as its lead byte says, assembled unchecked. A byte below 0xC0 is
+/// a character of its own.
+pub(crate) fn unchecked_chars(bytes: &[u8]) -> Vec<i64> {
+    let mut codes = Vec::new();
+    let mut rest = bytes;
+    while let Some(&lead) = rest.first() {
+        let width = match lead {
+            0..0xC0 => 1,
+            0xC0..0xE0 => 2,
+            0xE0..0xF0 => 3,
+            _ => 4,
+        };
+        codes.push(if width == 1 {
+            i64::from(lead)
+        } else {
+            unchecked_code(rest, width)
+        });
+        rest = rest.get(width..).unwrap_or_default();
+    }
+    codes
 }

@@ -6,6 +6,7 @@ pub mod constraint;
 pub mod json;
 pub mod license;
 pub mod module_name;
+pub mod outline;
 pub mod package;
 mod scan;
 pub mod version;
@@ -13,6 +14,7 @@ pub mod version;
 pub use constraint::{Constraint, ConstraintError, Op};
 pub use license::License;
 pub use module_name::ModuleName;
+pub use outline::{Outline, OutlineError};
 pub use package::Name;
 pub use version::Version;
 

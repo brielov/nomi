@@ -55,25 +55,11 @@ fn code_points(raw: &[u8], compat: Compat) -> Vec<u32> {
             .chars()
             .map(u32::from)
             .collect(),
-        Compat::V0_19_1 => {
-            let mut codes = Vec::new();
-            let mut rest = raw;
-            while let Some(&lead) = rest.first() {
-                let width = match lead {
-                    0..0xC0 => 1,
-                    0xC0..0xE0 => 2,
-                    0xE0..0xF0 => 3,
-                    _ => 4,
-                };
-                codes.push(if width == 1 {
-                    u32::from(lead)
-                } else {
-                    scan::unchecked_code(rest, width)
-                });
-                rest = rest.get(width..).unwrap_or_default();
-            }
-            codes
-        }
+        // Wrapped, as only equality matters and no two codes collide.
+        Compat::V0_19_1 => scan::unchecked_chars(raw)
+            .into_iter()
+            .map(|code| code as u32)
+            .collect(),
     }
 }
 

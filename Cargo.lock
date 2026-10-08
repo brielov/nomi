@@ -1783,6 +1783,7 @@ dependencies = [
  "flate2",
  "nomi-base",
  "nomi-format",
+ "nomi-project",
  "nomi-syntax",
  "nomi-testkit",
  "serde",

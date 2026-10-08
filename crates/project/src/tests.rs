@@ -1,4 +1,4 @@
-//! Names, versions and constraints. Expected positions and suggestions
+//! Names, versions, constraints and outlines. Expected positions and suggestions
 //! follow upstream's code for each release; suggestions were ranked by a
 //! separate model of `Reporting/Suggest.hs`.
 
@@ -7,7 +7,11 @@ use std::cmp::Ordering;
 use nomi_base::Compat;
 
 use crate::json::{Cursor, Position};
-use crate::{Constraint, ConstraintError, License, ModuleName, Name, Op, Version, license};
+use crate::outline::{Exposed, SrcDir};
+use crate::{
+    Constraint, ConstraintError, License, ModuleName, Name, Op, Outline, OutlineError, Version,
+    license,
+};
 
 const V1: Compat = Compat::V0_19_1;
 const V2: Compat = Compat::V0_19_2;
@@ -350,4 +354,113 @@ fn licenses() {
             ["PostgreSQL", "PostgreSQL", "Motosoto", "Multics"]
         );
     }
+}
+
+const APP: &str = r#"{"type":"application","source-directories":[SRC],"elm-version":"0.19.1",
+"dependencies":{"direct":{"elm/json":"1.1.3","elm/core":"1.0.5"},"indirect":{}},
+"test-dependencies":{"indirect":{},"direct":{}}}"#;
+
+fn app(src_dir: &[u8], compat: Compat) -> Result<Outline, OutlineError> {
+    let text = APP.as_bytes().split(|&b| b == b'S').collect::<Vec<_>>();
+    let mut src = text[0].to_vec();
+    src.push(b'"');
+    src.extend_from_slice(src_dir);
+    src.push(b'"');
+    src.extend_from_slice(&text[1][b"RC".len()..]);
+    Outline::read(&src, compat)
+}
+
+fn dirs(outline: &Outline) -> Vec<&[u8]> {
+    match outline {
+        Outline::App(app) => app.source_dirs.iter().map(SrcDir::raw).collect(),
+        Outline::Pkg(_) => Vec::new(),
+    }
+}
+
+#[test]
+fn outlines_write_in_upstreams_layout() {
+    let outline = app(b"src", V2).unwrap();
+    let expected = r#"{
+    "type": "application",
+    "source-directories": [
+        "src"
+    ],
+    "elm-version": "0.19.1",
+    "dependencies": {
+        "direct": {
+            "elm/core": "1.0.5",
+            "elm/json": "1.1.3"
+        },
+        "indirect": {}
+    },
+    "test-dependencies": {
+        "direct": {},
+        "indirect": {}
+    }
+}
+"#;
+    assert_eq!(String::from_utf8(outline.write()).unwrap(), expected);
+}
+
+#[test]
+fn source_directories_are_read_raw_and_written_escaped() {
+    for compat in Compat::ALL {
+        let outline = app(br"a\\b\u0063", compat).unwrap();
+        assert_eq!(dirs(&outline), [br"a\\b\u0063".as_slice()]);
+        let again = Outline::read(&outline.write(), compat).unwrap();
+        assert_eq!(dirs(&again), [br"a\\\\b\\u0063".as_slice()]);
+    }
+}
+
+#[test]
+fn source_directories_outside_utf8_mangle_in_0_19_1() {
+    // `C0 22` is one character to 0.19.1, of code -94, which `charUtf8`
+    // writes as the byte A2; 0.19.2 rejects the string.
+    let outline = app(b"src\xC0\"", V1).unwrap();
+    assert_eq!(dirs(&outline), [b"src\xC0\"".as_slice()]);
+    let Outline::App(a) = &outline else {
+        unreachable!()
+    };
+    assert_eq!(a.source_dirs[0].chars(), [0x73, 0x72, 0x63, -94]);
+    assert_eq!(a.source_dirs[0].path(), None);
+    let written = outline.write();
+    assert!(written.windows(6).any(|w| w == b"\"src\xA2\""));
+    assert!(app(b"src\xC0\"", V2).is_err());
+}
+
+#[test]
+fn outlines_check_core_and_json() {
+    let no_json = APP
+        .replace(r#""elm/json":"1.1.3","#, "")
+        .replace("SRC", r#""src""#);
+    assert_eq!(
+        Outline::read(no_json.as_bytes(), V3),
+        Err(OutlineError::NoAppJson)
+    );
+    let indirect = no_json.replace(r#""indirect":{}},"#, r#""indirect":{"elm/json":"1.1.3"}},"#);
+    assert!(Outline::read(indirect.as_bytes(), V3).is_ok());
+    let no_core = APP
+        .replace(r#","elm/core":"1.0.5""#, "")
+        .replace("SRC", r#""src""#);
+    assert_eq!(
+        Outline::read(no_core.as_bytes(), V3),
+        Err(OutlineError::NoAppCore)
+    );
+}
+
+#[test]
+fn exposed_modules_keep_their_sections() {
+    let src = br#"{"type":"package","name":"elm/core","summary":"s","license":"BSD-3-Clause",
+"version":"1.0.5","exposed-modules":{"B":["Basics"],"A":["List","Maybe"]},
+"elm-version":"0.19.0 <= v < 0.20.0","dependencies":{},"test-dependencies":{}}"#;
+    let Ok(Outline::Pkg(pkg)) = Outline::read(src, V3) else {
+        panic!("not a package")
+    };
+    let Exposed::Dict(sections) = &pkg.exposed else {
+        panic!("not sections")
+    };
+    let headers: Vec<&[u8]> = sections.iter().map(|(h, _)| &**h).collect();
+    assert_eq!(headers, [b"B".as_slice(), b"A"]);
+    let modules: Vec<&[u8]> = pkg.exposed.modules().map(ModuleName::as_bytes).collect();
+    assert_eq!(modules, [b"Basics".as_slice(), b"List", b"Maybe"]);
 }

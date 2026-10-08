@@ -4,6 +4,7 @@
 pub mod apps;
 pub mod compat;
 pub mod format;
+pub mod outline;
 pub mod packages;
 pub mod syntax;
 
