@@ -2,4 +2,19 @@
 //! names, versions and constraints. Pure: callers bring the bytes and
 //! take the bytes away.
 
+pub mod constraint;
 pub mod json;
+pub mod license;
+pub mod module_name;
+pub mod package;
+mod scan;
+pub mod version;
+
+pub use constraint::{Constraint, ConstraintError, Op};
+pub use license::License;
+pub use module_name::ModuleName;
+pub use package::Name;
+pub use version::Version;
+
+#[cfg(test)]
+mod tests;

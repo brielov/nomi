@@ -1,11 +1,14 @@
 //! Shared vocabulary for every nomi crate: file identities, text ranges,
-//! line indexes and the diagnostic model. Depends on no other nomi crate.
+//! line indexes, the diagnostic model, and GHC's character classes and
+//! upstream's suggestions, which several crates copy. Depends on no other
+//! nomi crate.
 
 mod compat;
 pub mod diagnostic;
 mod file_id;
 pub mod ghc;
 mod line_index;
+pub mod suggest;
 
 pub use compat::{Compat, UnknownCompat};
 pub use diagnostic::{Code, Diagnostic, Doc, Edit, Fix, Label, Severity, Span};

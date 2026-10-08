@@ -21,6 +21,7 @@ insta = { version = "1", features = ["glob"] }
 # Pinned: identifier classes and elm-format's escapes must match the
 # Unicode version of GHC that built the reference tools (15.1).
 icu_properties = { version = "=1.5.1", default-features = false, features = ["compiled_data"] }
+icu_casemap = { version = "=1.5.1", default-features = false, features = ["compiled_data"] }
 num-bigint = "0.5"
 proptest = "1"
 rayon = "1.12"

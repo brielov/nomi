@@ -4,9 +4,10 @@
 //! matches, so dispatching on that byte reproduces the backtracking, and
 //! any failure after it is final.
 
-use nomi_base::{Compat, ghc};
+use nomi_base::Compat;
 
 use super::cursor::{Cursor, Position, Region};
+use crate::scan;
 
 /// A parsed value and the region upstream records for it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -367,7 +368,7 @@ impl<'a> Parser<'a> {
     /// The keyword `word`, not followed by what could continue a name.
     fn keyword(&mut self, word: &[u8]) -> bool {
         let rest = &self.src[self.pos..];
-        if !rest.starts_with(word) || continues_name(&rest[word.len()..], self.compat) {
+        if !rest.starts_with(word) || scan::inner(&rest[word.len()..], self.compat) > 0 {
             return false;
         }
         self.advance(word.len());
@@ -400,44 +401,4 @@ fn utf8_width(bytes: &[u8]) -> Option<usize> {
     };
     let char = bytes.get(..width)?;
     std::str::from_utf8(char).ok().map(|_| width)
-}
-
-/// Whether `rest` starts with a character that would continue a name:
-/// `[A-Za-z0-9_]`, or a letter outside ASCII.
-fn continues_name(rest: &[u8], compat: Compat) -> bool {
-    let Some(&lead) = rest.first() else {
-        return false;
-    };
-    if lead.is_ascii_alphanumeric() || lead == b'_' {
-        return true;
-    }
-    let width = match lead {
-        0xC0..0xE0 => 2,
-        0xE0..0xF0 => 3,
-        0xF0..0xF8 => 4,
-        _ => return false,
-    };
-    let c = match compat {
-        Compat::V0_19_1 => unchecked_char(rest, width),
-        Compat::V0_19_2 | Compat::V0_19_3 => rest
-            .get(..width)
-            .and_then(|bytes| std::str::from_utf8(bytes).ok())
-            .and_then(|s| s.chars().next()),
-    };
-    c.is_some_and(ghc::is_alpha)
-}
-
-/// 0.19.1's `chr2`, `chr3` and `chr4`, which assemble a character from a
-/// lead byte and its continuation bytes without checking them. Upstream
-/// reads past the end of the input for a truncated sequence; here those
-/// bytes are zero. A result that is no character is no letter either.
-fn unchecked_char(bytes: &[u8], width: usize) -> Option<char> {
-    let byte = |i: usize| i64::from(bytes.get(i).copied().unwrap_or(0));
-    let tail = |i: usize, shift: u32| (byte(i) - 0x80) << shift;
-    let code = match width {
-        2 => ((byte(0) - 0xC0) << 6) + tail(1, 0),
-        3 => ((byte(0) - 0xE0) << 12) + tail(1, 6) + tail(2, 0),
-        _ => ((byte(0) - 0xF0) << 18) + tail(1, 12) + tail(2, 6) + tail(3, 0),
-    };
-    u32::try_from(code).ok().and_then(char::from_u32)
 }

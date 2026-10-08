@@ -1,6 +1,7 @@
-//! GHC's `Data.Char` predicates, which elm-format's parser and printer
+//! GHC's `Data.Char` predicates and case mapping, which elm-format's parser and printer
 //! and the compiler's `elm.json` parsers lean on.
 
+use icu_casemap::CaseMapper;
 use icu_properties::GeneralCategory;
 use icu_properties::maps::{self, CodePointMapDataBorrowed};
 
@@ -9,6 +10,12 @@ use icu_properties::maps::{self, CodePointMapDataBorrowed};
 /// tables.
 const GENERAL_CATEGORY: CodePointMapDataBorrowed<'static, GeneralCategory> =
     maps::general_category();
+
+/// GHC's `toLower`: the simple lowercase mapping, one character for one.
+pub fn to_lower(c: char) -> char {
+    const CASE_MAPPER: CaseMapper = CaseMapper::new();
+    CASE_MAPPER.simple_lowercase(c)
+}
 
 /// GHC's `isAlpha`: a letter of any case or kind.
 pub fn is_alpha(c: char) -> bool {

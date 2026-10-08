@@ -130,7 +130,7 @@ These rules are the architecture. Breaking one requires an entry in `DECISIONS.m
 
 | Crate | Owns | Must not |
 |---|---|---|
-| `base` | `FileId`; interned names; text ranges; `LineIndex` (byte ↔ Elm column ↔ UTF-16); GHC's character classes; the diagnostic model | depend on other nomi crates |
+| `base` | `FileId`; interned names; text ranges; `LineIndex` (byte ↔ Elm column ↔ UTF-16); GHC's character classes and case mapping; upstream's suggestion ranking; the diagnostic model | depend on other nomi crates |
 | `syntax` | lexer, parser, rowan CST, generated typed views | know about formatting or semantics |
 | `format` | formatter tree, comment attachment, Box renderer | do I/O or spawn threads |
 | `compiler` | HIR, canonicalize, types, nitpick, optimize, interfaces | know about platforms, paths or I/O |
