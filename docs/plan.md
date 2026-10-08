@@ -257,7 +257,8 @@ Goal: read and write `elm.json` exactly as elm does, resolve and fetch dependenc
 
 Goal: `nomi check` reports syntax and module errors exactly as `elm make` does, and the language server runs on the same engine.
 
-- [ ] **4.1** `engine: revisions, overlays and FileIds`. A versioned VFS with editor overlays, and FileIds canonical across symlinks (R7).
+- [x] **4.1** `engine: revisions, overlays and FileIds`. A versioned VFS with editor overlays, and FileIds canonical across symlinks (R7).
+  Done: `Vfs` lays editor overlays over the disk, and each overlay set or removed, write, or reported disk change makes a new `Revision`. A `Snapshot` keeps its revision's overlays, reads the disk when asked, and knows when it is stale (DECISIONS 2026-10-08). `file_id` resolves symbolic links, through the nearest existing directory for unsaved files, and interns the path.
 - [ ] **4.2** `engine: module graph`. Crawls the way upstream's `Build.hs` does: module ↔ path, packages' exposed modules, and the not-found, ambiguous, name-mismatch and cycle errors.
 - [ ] **4.3** `engine: scheduler and cache`. The module DAG runs on the pool, with cancellation between phases, a self-trimming content-addressed per-user cache, and keys built from interface hashes.
 - [ ] **4.4** `base: report documents and renderers`. A port of `Reporting/Doc.hs`, `Render/Code.hs` and `Report.hs`, with the terminal renderer of 3.9a extended to snippets, a `--report=json` renderer, and regions that depend on Compat.

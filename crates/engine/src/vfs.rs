@@ -1,10 +1,17 @@
-//! The files nomi reads and writes. Today that is the disk; editor
-//! overlays, revisions and `FileId`s join it in 4.1, behind the same type.
+//! The files nomi reads and writes: the disk, with the text an editor
+//! holds laid over it. Every change makes a new [`Revision`]; readers take
+//! a [`Snapshot`], whose overlays never change under them and which knows
+//! when a newer revision has made its work stale. Each file is named by
+//! one [`FileId`], from its path with symbolic links resolved (R7).
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 
+use nomi_base::FileId;
 use walkdir::WalkDir;
 
 /// Directories discovery never enters, as elm-format skips them: packages
@@ -14,10 +21,153 @@ const SKIPPED: &[&str] = &["elm-stuff", "node_modules", ".git"];
 /// The extension of an Elm module.
 const ELM: &str = "elm";
 
+/// A state of the files: each overlay set or removed, and each change on
+/// disk nomi made or was told of, makes the next.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Revision(u64);
+
 /// Where the engine's files come from and go to.
 #[derive(Debug, Default)]
 pub struct Vfs {
-    _disk: (),
+    files: Arc<Files>,
+    /// The latest revision, which snapshots compare theirs with.
+    latest: Arc<AtomicU64>,
+    /// The editor's text, by file. Replaced, never changed, so snapshots
+    /// share it.
+    overlays: Mutex<Arc<HashMap<FileId, Arc<str>>>>,
+}
+
+/// The files given ids, which only grow, so every snapshot shares them.
+#[derive(Debug, Default)]
+struct Files(RwLock<Interner>);
+
+#[derive(Debug, Default)]
+struct Interner {
+    ids: HashMap<PathBuf, FileId>,
+    paths: Vec<Arc<Path>>,
+}
+
+/// The files as they were at one revision. The editor's text is frozen;
+/// the disk is read when asked, and a change to it that nomi made or was
+/// told of makes the snapshot stale.
+#[derive(Clone, Debug)]
+pub struct Snapshot {
+    revision: Revision,
+    files: Arc<Files>,
+    latest: Arc<AtomicU64>,
+    overlays: Arc<HashMap<FileId, Arc<str>>>,
+}
+
+impl Files {
+    fn id(&self, path: &Path) -> io::Result<FileId> {
+        let path = canonical(path)?;
+        if let Some(&id) = self.0.read().unwrap().ids.get(&path) {
+            return Ok(id);
+        }
+        let mut interner = self.0.write().unwrap();
+        if let Some(&id) = interner.ids.get(&path) {
+            return Ok(id);
+        }
+        let raw = u32::try_from(interner.paths.len())
+            .map_err(|_| io::Error::other("more files than a FileId can name"))?;
+        let id = FileId::from_raw(raw);
+        interner.paths.push(Arc::from(path.as_path()));
+        interner.ids.insert(path, id);
+        Ok(id)
+    }
+
+    fn path(&self, id: FileId) -> Arc<Path> {
+        self.0.read().unwrap().paths[id.raw() as usize].clone()
+    }
+}
+
+/// `path` made absolute with every symbolic link resolved, so that one file
+/// has one name. Of a path that doesn't exist yet, as an editor's new
+/// buffer, the longest part that does is resolved and the rest kept.
+fn canonical(path: &Path) -> io::Result<PathBuf> {
+    match fs::canonicalize(path) {
+        Ok(path) => return Ok(path),
+        Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+        Err(_) => {}
+    }
+    // Resolved a component at a time while they exist, then lexically.
+    let mut resolved = PathBuf::new();
+    let mut exists = true;
+    for component in std::path::absolute(path)?.components() {
+        match component {
+            Component::CurDir => {}
+            // `C:` alone names a drive's working directory, not its root.
+            Component::Prefix(_) | Component::RootDir => resolved.push(component),
+            Component::ParentDir if !exists => {
+                resolved.pop();
+            }
+            _ if exists => match fs::canonicalize(resolved.join(component)) {
+                Ok(path) => resolved = path,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                    exists = false;
+                    resolved.push(component);
+                }
+                Err(e) => return Err(e),
+            },
+            _ => resolved.push(component),
+        }
+    }
+    Ok(resolved)
+}
+
+impl Snapshot {
+    pub fn revision(&self) -> Revision {
+        self.revision
+    }
+
+    /// Whether a newer revision exists, so work on this one can stop.
+    pub fn is_stale(&self) -> bool {
+        self.latest.load(Ordering::Acquire) != self.revision.0
+    }
+
+    /// The id of the file at `path`.
+    pub fn file_id(&self, path: &Path) -> io::Result<FileId> {
+        self.files.id(path)
+    }
+
+    /// The path of `id`, with symbolic links resolved.
+    pub fn path(&self, id: FileId) -> Arc<Path> {
+        self.files.path(id)
+    }
+
+    /// The text of `id`: the editor's if it has the file open, else the
+    /// disk's; a file on disk that isn't UTF-8 is an
+    /// [`io::ErrorKind::InvalidData`] error.
+    pub fn text(&self, id: FileId) -> io::Result<Arc<str>> {
+        match self.overlays.get(&id) {
+            Some(text) => Ok(text.clone()),
+            None => Ok(Arc::from(fs::read_to_string(self.path(id))?)),
+        }
+    }
+
+    /// The text of the file at `path`, as [`Snapshot::text`] gives it.
+    pub fn read(&self, path: &Path) -> io::Result<String> {
+        match self.overlay(path)? {
+            Some(text) => Ok(text.to_string()),
+            None => fs::read_to_string(path),
+        }
+    }
+
+    /// The bytes of the file at `path`, for callers that report text that
+    /// isn't UTF-8 themselves.
+    pub fn read_bytes(&self, path: &Path) -> io::Result<Vec<u8>> {
+        match self.overlay(path)? {
+            Some(text) => Ok(text.as_bytes().to_vec()),
+            None => fs::read(path),
+        }
+    }
+
+    fn overlay(&self, path: &Path) -> io::Result<Option<&Arc<str>>> {
+        if self.overlays.is_empty() {
+            return Ok(None);
+        }
+        Ok(self.overlays.get(&self.file_id(path)?))
+    }
 }
 
 impl Vfs {
@@ -25,20 +175,77 @@ impl Vfs {
         Vfs::default()
     }
 
-    /// The text of the file at `path`; a file that isn't UTF-8 is an
+    /// The files as they are now.
+    pub fn snapshot(&self) -> Snapshot {
+        // The overlays are read under their lock, so the revision and
+        // the overlays agree.
+        let overlays = self.overlays.lock().unwrap();
+        Snapshot {
+            revision: Revision(self.latest.load(Ordering::Acquire)),
+            files: self.files.clone(),
+            latest: self.latest.clone(),
+            overlays: overlays.clone(),
+        }
+    }
+
+    pub fn revision(&self) -> Revision {
+        Revision(self.latest.load(Ordering::Acquire))
+    }
+
+    /// The id of the file at `path`.
+    pub fn file_id(&self, path: &Path) -> io::Result<FileId> {
+        self.files.id(path)
+    }
+
+    /// The path of `id`, with symbolic links resolved.
+    pub fn path(&self, id: FileId) -> Arc<Path> {
+        self.files.path(id)
+    }
+
+    /// Lays the editor's `text` over the file at `path`, which need not
+    /// exist on disk, until [`Vfs::remove_overlay`].
+    pub fn set_overlay(&self, path: &Path, text: impl Into<Arc<str>>) -> io::Result<Revision> {
+        let id = self.file_id(path)?;
+        let mut overlays = self.overlays.lock().unwrap();
+        Arc::make_mut(&mut overlays).insert(id, text.into());
+        Ok(self.next())
+    }
+
+    /// Returns the file at `path` to its text on disk.
+    pub fn remove_overlay(&self, path: &Path) -> io::Result<Revision> {
+        let id = self.file_id(path)?;
+        let mut overlays = self.overlays.lock().unwrap();
+        Arc::make_mut(&mut overlays).remove(&id);
+        Ok(self.next())
+    }
+
+    /// Records that the disk changed, as a file watcher reports it, so
+    /// snapshots taken before are stale.
+    pub fn disk_changed(&self) -> Revision {
+        let _overlays = self.overlays.lock().unwrap();
+        self.next()
+    }
+
+    /// The next revision; the caller holds the overlays' lock.
+    fn next(&self) -> Revision {
+        Revision(self.latest.fetch_add(1, Ordering::AcqRel) + 1)
+    }
+
+    /// The text of the file at `path`, the editor's if it has the file
+    /// open; a file on disk that isn't UTF-8 is an
     /// [`io::ErrorKind::InvalidData`] error.
     pub fn read(&self, path: &Path) -> io::Result<String> {
-        fs::read_to_string(path)
+        self.snapshot().read(path)
     }
 
-    /// The bytes of the file at `path`, for callers that report text that
-    /// isn't UTF-8 themselves.
+    /// The bytes of the file at `path`, as [`Vfs::read`] finds them, for
+    /// callers that report text that isn't UTF-8 themselves.
     pub fn read_bytes(&self, path: &Path) -> io::Result<Vec<u8>> {
-        fs::read(path)
+        self.snapshot().read_bytes(path)
     }
 
-    /// Replaces the file at `path`, which must exist, with `text` in one
-    /// step: the text goes to a new file beside it, which is then renamed
+    /// Replaces the file at `path` on disk, which must exist, with `text`
+    /// in one step: the text goes to a new file beside it, which is then renamed
     /// over it, so a reader or an interruption sees the old file or the
     /// new, never part of one.
     ///
@@ -60,10 +267,11 @@ impl Vfs {
         temp.write_all(text.as_ref())?;
         temp.as_file().set_permissions(permissions)?;
         temp.persist(&target).map_err(|e| e.error)?;
+        self.disk_changed();
         Ok(())
     }
 
-    /// Whether `path` names a file, through any symbolic links.
+    /// Whether `path` names a file on disk, through any symbolic links.
     pub fn is_file(&self, path: &Path) -> bool {
         path.is_file()
     }

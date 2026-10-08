@@ -160,3 +160,84 @@ fn writing_keeps_permissions_and_links() {
     let mode = fs::metadata(&path).unwrap().permissions().mode();
     assert_eq!(mode & 0o777, 0o640);
 }
+
+#[test]
+fn a_file_has_one_id_through_any_link() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    touch(root, "a/F.elm");
+    std::os::unix::fs::symlink(root.join("a"), root.join("z")).unwrap();
+    std::os::unix::fs::symlink(root.join("a/F.elm"), root.join("G.elm")).unwrap();
+    let vfs = Vfs::new();
+    let id = vfs.file_id(&root.join("a/F.elm")).unwrap();
+    for alias in ["z/F.elm", "G.elm", "a/../z/./F.elm"] {
+        assert_eq!(vfs.file_id(&root.join(alias)).unwrap(), id, "{alias}");
+    }
+    assert_ne!(vfs.file_id(&root.join("a/G.elm")).unwrap(), id);
+    assert_eq!(
+        *vfs.path(id),
+        fs::canonicalize(root.join("a/F.elm")).unwrap()
+    );
+}
+
+#[test]
+fn a_missing_file_is_named_through_its_nearest_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::create_dir(root.join("a")).unwrap();
+    std::os::unix::fs::symlink(root.join("a"), root.join("z")).unwrap();
+    let vfs = Vfs::new();
+    let id = vfs.file_id(&root.join("a/new/New.elm")).unwrap();
+    assert_eq!(vfs.file_id(&root.join("z/new/./New.elm")).unwrap(), id);
+    assert_eq!(vfs.file_id(&root.join("z/new/x/../New.elm")).unwrap(), id);
+}
+
+#[test]
+fn overlays_hide_the_disk_until_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("A.elm");
+    fs::write(&path, MODULE).unwrap();
+    let vfs = Vfs::new();
+    let start = vfs.revision();
+    let set = vfs.set_overlay(&path, "module A exposing (y)\n").unwrap();
+    assert!(set > start);
+    assert_eq!(vfs.read(&path).unwrap(), "module A exposing (y)\n");
+    assert_eq!(vfs.read_bytes(&path).unwrap(), b"module A exposing (y)\n");
+    let unsaved = dir.path().join("B.elm");
+    vfs.set_overlay(&unsaved, "module B exposing (..)\n")
+        .unwrap();
+    assert_eq!(vfs.read(&unsaved).unwrap(), "module B exposing (..)\n");
+    assert!(!vfs.is_file(&unsaved));
+    vfs.remove_overlay(&path).unwrap();
+    assert_eq!(vfs.read(&path).unwrap(), MODULE);
+}
+
+#[test]
+fn a_snapshot_keeps_its_overlays_and_knows_when_it_is_stale() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("A.elm");
+    fs::write(&path, MODULE).unwrap();
+    let vfs = Vfs::new();
+    vfs.set_overlay(&path, "old").unwrap();
+    let snapshot = vfs.snapshot();
+    assert!(!snapshot.is_stale());
+    vfs.set_overlay(&path, "new").unwrap();
+    assert!(snapshot.is_stale());
+    let id = snapshot.file_id(&path).unwrap();
+    assert_eq!(&*snapshot.text(id).unwrap(), "old");
+    assert_eq!(&*vfs.snapshot().text(id).unwrap(), "new");
+    assert!(snapshot.revision() < vfs.revision());
+}
+
+#[test]
+fn writing_makes_a_revision() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("A.elm");
+    fs::write(&path, MODULE).unwrap();
+    let vfs = Vfs::new();
+    let snapshot = vfs.snapshot();
+    vfs.write(&path, "x").unwrap();
+    assert!(snapshot.is_stale());
+    let before = vfs.revision();
+    assert!(vfs.disk_changed() > before);
+}
