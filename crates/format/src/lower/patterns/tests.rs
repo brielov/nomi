@@ -131,4 +131,13 @@ fn strings_and_characters() {
         literal("\"\"\"é\r\n\rb\"\"\""),
         LiteralValue::String(chars("é\n\rb"), StringRepr::TripleQuoted)
     );
+    // A letter after `\x`'s digits makes the escape -2, a lone 0xFE byte
+    // that reads the letters after it as the rest of its sequence.
+    assert_eq!(
+        literal("\"\\x202Bایران\""),
+        LiteralValue::String(
+            [0x3D_8A1B, 0x8C].into_iter().chain(chars("ران")).collect(),
+            StringRepr::SingleQuoted
+        )
+    );
 }

@@ -2,11 +2,12 @@
 //! and `formatString`.
 //!
 //! Numbers print as GHC's `printf` prints them, and strings escape what
-//! GHC's `isPrint` and `isSpace` reject. Plan 2.12 checks the spelling
-//! against the oracle across the corpus, and settles the Unicode tables
-//! those two predicates read, which this approximates.
+//! GHC's `isPrint` and `isSpace` reject.
+
+use num_bigint::BigUint;
 
 use crate::block::{Block, Line};
+use crate::ghc::{is_print, is_space};
 use crate::tree::{FloatRepr, IntRepr, LiteralValue, StringRepr};
 
 /// Upstream's `formatLiteral`.
@@ -37,22 +38,92 @@ fn hexadecimal(i: i64) -> String {
     format!("{sign}0x{magnitude:0width$X}")
 }
 
-/// The shortest digits that read back as `f`, and the exponent putting
-/// the point before them: `f` is `0.d₁d₂… × 10^e`. GHC's `floatToDigits`
-/// for a finite, non-negative `f`.
+/// The digits of `f` and the exponent putting the point before them:
+/// `f` is `0.d₁d₂… × 10^e`. GHC's `floatToDigits 10` for a finite,
+/// non-negative `f`: Burger and Dybvig's free-format algorithm, but with
+/// both bounds exclusive, so where the shortest digits lie exactly halfway
+/// to a neighbour they are passed over (`1.0e23` prints as
+/// `9.999999999999999e22`).
 fn digits(f: f64) -> (Vec<u8>, i32) {
+    const P: i32 = 53;
+    const MIN_EXP: i32 = -1021 - P;
     if f == 0.0 {
         return (vec![0], 0);
     }
-    let scientific = format!("{f:e}");
-    let (mantissa, exponent) = scientific.split_once('e').expect("`{:e}` has an `e`");
-    let exponent: i32 = exponent.parse().expect("`{:e}` has an integer exponent");
-    let digits = mantissa
-        .bytes()
-        .filter(u8::is_ascii_digit)
-        .map(|d| d - b'0')
-        .collect();
-    (digits, exponent + 1)
+    // `decodeFloat`, with denormals at `MIN_EXP` as GHC adjusts them.
+    let bits = f.to_bits();
+    let biased = ((bits >> 52) & 0x7FF) as i32;
+    let fraction = bits & ((1 << 52) - 1);
+    let (m, e) = if biased == 0 {
+        (fraction, MIN_EXP)
+    } else {
+        (fraction | 1 << 52, biased - 1075)
+    };
+    // `lx` is from GHC's unadjusted, normalized `decodeFloat`.
+    let lx = P - 1 + e + (63 - m.leading_zeros() as i32 - 52);
+    let at_power = m == 1 << 52;
+    let pow = |base: u32, n: i32| BigUint::from(base).pow(n.unsigned_abs());
+    let f = BigUint::from(m);
+    let (r, s, m_up, m_dn) = if e >= 0 {
+        let be = pow(2, e);
+        if at_power {
+            (&f * &be * 4u32, BigUint::from(4u32), &be * 2u32, be)
+        } else {
+            (&f * &be * 2u32, BigUint::from(2u32), be.clone(), be)
+        }
+    } else if e > MIN_EXP && at_power {
+        (
+            &f * 4u32,
+            pow(2, -e + 1) * 2u32,
+            BigUint::from(2u32),
+            BigUint::from(1u32),
+        )
+    } else {
+        (
+            &f * 2u32,
+            pow(2, -e) * 2u32,
+            BigUint::from(1u32),
+            BigUint::from(1u32),
+        )
+    };
+    // `logBase 10 2` is slightly larger than 8651/28738.
+    let k1 = lx * 8651 / 28738;
+    let mut k = if lx >= 0 { k1 + 1 } else { k1 };
+    loop {
+        let fits = if k >= 0 {
+            &r + &m_up <= pow(10, k) * &s
+        } else {
+            pow(10, -k) * (&r + &m_up) <= s
+        };
+        if fits {
+            break;
+        }
+        k += 1;
+    }
+    let (mut r, s, mut m_up, mut m_dn) = if k >= 0 {
+        (r, s * pow(10, k), m_up, m_dn)
+    } else {
+        let bk = pow(10, -k);
+        (r * &bk, s, m_up * &bk, m_dn * bk)
+    };
+    let mut digits = Vec::new();
+    loop {
+        let scaled = r * 10u32;
+        let (d, rest) = (&scaled / &s, &scaled % &s);
+        let d = u8::try_from(d).expect("a digit");
+        m_up *= 10u32;
+        m_dn *= 10u32;
+        match (rest < m_dn, &rest + &m_up > s) {
+            (false, false) => {
+                digits.push(d);
+                r = rest;
+            }
+            (true, false) => break digits.push(d),
+            (false, true) => break digits.push(d + 1),
+            (true, true) => break digits.push(if &rest * 2u32 < s { d } else { d + 1 }),
+        }
+    }
+    (digits, k)
 }
 
 /// Upstream's `printf "%f"`, which is GHC's `showFFloat Nothing`.
@@ -163,41 +234,6 @@ fn escape_multi_quote(body: &str) -> String {
     }
     out.push_str(&"\\\"".repeat(quotes));
     out
-}
-
-/// GHC's `isSpace`: the Latin-1 spaces, and the space separators.
-fn is_space(c: char) -> bool {
-    matches!(
-        c,
-        ' ' | '\t'..='\r' | '\u{A0}' | '\u{1680}' | '\u{2000}'..='\u{200A}' | '\u{202F}' | '\u{205F}' | '\u{3000}'
-    )
-}
-
-/// GHC's `isPrint`: not a control, format, surrogate, private-use or
-/// unassigned character, nor a line or paragraph separator. Unassigned
-/// code points read as printable until plan 2.12 brings GHC's table.
-fn is_print(c: char) -> bool {
-    !(c.is_control()
-        || matches!(
-            c,
-            '\u{AD}'
-                | '\u{600}'..='\u{605}'
-                | '\u{61C}'
-                | '\u{6DD}'
-                | '\u{70F}'
-                | '\u{180E}'
-                | '\u{200B}'..='\u{200F}'
-                | '\u{2028}'..='\u{202E}'
-                | '\u{2060}'..='\u{2064}'
-                | '\u{2066}'..='\u{206F}'
-                | '\u{FEFF}'
-                | '\u{FFF9}'..='\u{FFFB}'
-                | '\u{E000}'..='\u{F8FF}'
-                | '\u{F0000}'..='\u{FFFFD}'
-                | '\u{100000}'..='\u{10FFFD}'
-                | '\u{E0001}'
-                | '\u{E0020}'..='\u{E007F}'
-        ))
 }
 
 #[cfg(test)]

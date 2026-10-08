@@ -8,6 +8,7 @@
 use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
 use super::{VALID, significant};
+use crate::ghc::is_alpha;
 use crate::tree::{FloatRepr, IntRepr, LiteralValue, StringRepr};
 
 /// The literal `node` holds: a number with an optional `-` before it, a
@@ -128,15 +129,21 @@ fn escape<'a>(text: &'a str, bytes: &mut Vec<u8>) -> &'a str {
 }
 
 /// Leading hex digits and the text after them; upstream's `chompHex`,
-/// which gives -1 for none.
+/// which gives -1 for none and -2 when a letter, digit or `_` follows
+/// them. Only a `\x` escape can be followed so, and upstream writes the
+/// -2 out regardless.
 fn hex(text: &str) -> (i64, &str) {
     let end = text
         .find(|c: char| !c.is_ascii_hexdigit())
         .unwrap_or(text.len());
-    if end == 0 {
-        return (-1, text);
+    let rest = &text[end..];
+    match rest.chars().next() {
+        Some(c) if c == '_' || c.is_ascii_alphanumeric() || (!c.is_ascii() && is_alpha(c)) => {
+            (-2, rest)
+        }
+        _ if end == 0 => (-1, rest),
+        _ => (digits(&text[..end], 16), rest),
     }
-    (digits(&text[..end], 16), &text[end..])
 }
 
 /// Upstream's `writeCode`: UTF-8 for any integer, each byte cut to 8

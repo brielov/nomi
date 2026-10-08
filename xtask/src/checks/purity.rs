@@ -80,6 +80,10 @@ pub const ALLOWED_EXTERNAL: &[&str] = &[
     "zerofrom-derive",
     "zerovec",
     "zerovec-derive",
+    // exact float digits, as GHC's `floatToDigits` finds them
+    "num-bigint",
+    "num-integer",
+    "num-traits",
 ];
 
 /// Standard-library modules a pure crate may not name.

@@ -9,6 +9,7 @@
 // plan 2.11; until then only tests reach them.
 #[cfg_attr(not(test), expect(dead_code))]
 mod block;
+mod ghc;
 mod lower;
 #[cfg_attr(not(test), expect(dead_code))]
 mod render;

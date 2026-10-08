@@ -7,8 +7,10 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+icu_properties.workspace = true
 nomi-base.workspace = true
 nomi-syntax.workspace = true
+num-bigint.workspace = true
 
 [dev-dependencies]
 nomi-testkit.workspace = true

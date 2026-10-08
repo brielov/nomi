@@ -30,7 +30,7 @@ fn integers_keep_their_base() {
 }
 
 #[test]
-fn floats_print_their_shortest_digits() {
+fn floats_print_ghcs_digits() {
     let fixed = |f| spell(LiteralValue::Float(f, FloatRepr::Decimal));
     let exponent = |f| spell(LiteralValue::Float(f, FloatRepr::Exponent));
     assert_eq!(fixed(1.5), "1.5");
@@ -43,6 +43,13 @@ fn floats_print_their_shortest_digits() {
     assert_eq!(exponent(1e22), "1.0e22");
     assert_eq!(exponent(1.5e-7), "1.5e-7");
     assert_eq!(exponent(f64::INFINITY), "Infinity");
+    // GHC excludes the rounding boundaries, so digits lying exactly on one
+    // are passed over for longer ones.
+    assert_eq!(exponent(1e23), "9.999999999999999e22");
+    assert_eq!(exponent(1.2345e21), "1.2344999999999999e21");
+    assert_eq!(fixed(1e23), "99999999999999990000000.0");
+    assert_eq!(exponent(5e-324), "5.0e-324");
+    assert_eq!(exponent(f64::MAX), "1.7976931348623157e308");
 }
 
 #[test]
@@ -60,6 +67,13 @@ fn strings_escape_what_does_not_print() {
     assert_eq!(
         single("\u{1F600}\u{E000}\u{2028}\u{AD}\u{3000}\r"),
         "\"\u{1F600}\\u{E000}\\u{2028}\\u{00AD}\\u{3000}\\u{000D}\""
+    );
+    // Unicode 15.1's tables: U+0378 and U+1CC00 (assigned in 16.0) are
+    // unassigned, U+2EBF0 (assigned in 15.1) prints, and U+110BD is a
+    // format character.
+    assert_eq!(
+        single("\u{378}\u{1CC00}\u{2EBF0}\u{110BD}"),
+        "\"\\u{0378}\\u{1CC00}\u{2EBF0}\\u{110BD}\""
     );
     // A lone surrogate, as an escape decodes it.
     assert_eq!(
