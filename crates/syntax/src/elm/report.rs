@@ -18,7 +18,19 @@ macro_rules! fill {
     };
 }
 
+/// Upstream's lists of words, written as phrases: a string stands for
+/// its words, a document for itself.
+macro_rules! words {
+    ($($part:expr),* $(,)?) => {
+        [$($crate::elm::report::Words::words($part)),*].into_iter().flatten()
+    };
+}
+
+mod blocks;
+mod collections;
 mod decl;
+mod expr;
+mod pattern;
 mod types;
 
 /// `toReport`: what elm `compat` reports of `error` in `source`, or
@@ -147,6 +159,23 @@ fn note_for_ports_in_package() -> Doc {
              overall goal to keep all community packages free from runtime exceptions.",
         ),
     ])
+}
+
+/// What [`words!`] takes.
+trait Words {
+    fn words(self) -> Vec<Doc>;
+}
+
+impl Words for &str {
+    fn words(self) -> Vec<Doc> {
+        self.split_whitespace().map(Doc::from).collect()
+    }
+}
+
+impl Words for Doc {
+    fn words(self) -> Vec<Doc> {
+        vec![self]
+    }
 }
 
 // COLORS
@@ -966,6 +995,13 @@ fn position(cur: Cursor) -> Position {
     Position {
         row: cur.row,
         col: cur.col,
+    }
+}
+
+fn cursor(position: Position) -> Cursor {
+    Cursor {
+        row: position.row,
+        col: position.col,
     }
 }
 

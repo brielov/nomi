@@ -2,7 +2,7 @@
 //! `Parse/Number.hs`, `Parse/String.hs` and `Parse/Shader.hs`: the
 //! parsers that read bytes rather than other parsers.
 
-use nomi_base::ghc;
+use nomi_base::{Compat, ghc};
 
 use super::engine::P;
 use super::error::{self as E, BadOperator, Cursor, Name};
@@ -200,6 +200,12 @@ pub(super) fn foreign_alpha<X>(p: &mut P<'_>, to_error: impl FnOnce(Cursor) -> X
         }
         let (upper_pos, upper_cur) = chomp_upper_var(p, pos, p.slide(cur, 1));
         if upper_pos == pos {
+            // Before 0.19.3, `Variable.foreignAlphaHelp` ends a trailing
+            // dot on an empty name and rejects it; 0.19.3 keeps the names
+            // before the dot.
+            if p.compat < Compat::V0_19_3 {
+                return Err(to_error(p.slide(cur, 1)));
+            }
             break;
         }
         (prev_end, cur) = (upper_pos, upper_cur);

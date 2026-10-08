@@ -5,6 +5,8 @@ use nomi_base::diagnostic::code::Next;
 use nomi_base::diagnostic::doc::{self, reflow, stack, vcat};
 use nomi_base::diagnostic::{Doc, Problem};
 
+use super::expr::Context;
+use super::pattern::PContext;
 use super::types::TypeContext;
 use super::{Reporter, blue, cyan, dullyellow, green, surroundings, to_region};
 use crate::elm::error::{Cursor, CustomType, Decl, DeclDef, DeclType, Port, TypeAlias};
@@ -505,17 +507,6 @@ impl Reporter<'_, '_> {
 
     /// `toDeclDefReport`, but for the patterns and expressions inside.
     fn decl_def(&self, name: &str, decl_def: &DeclDef, start: Cursor) -> Option<Problem> {
-        let try_format = || {
-            reflow(&format!(
-                "Try to use that format with your `{name}` definition!"
-            ))
-        };
-        let not_sure = || {
-            reflow(
-                "I am not sure what is going wrong exactly, so here is a valid definition (with \
-                 an optional type annotation) for reference:",
-            )
-        };
         let unfinished = |before: Doc, cur: Cursor, message: &str| {
             self.within(
                 "UNFINISHED DEFINITION",
@@ -532,134 +523,16 @@ impl Reporter<'_, '_> {
         };
         Some(match decl_def {
             DeclDef::DeclDefSpace(space, cur) => self.space(*space, *cur),
-            DeclDef::DeclDefEquals(cur) => {
-                let cur = *cur;
-                match self.next(cur) {
-                    Next::Keyword(keyword) => self.within(
-                        "RESERVED WORD",
-                        surroundings(start, cur),
-                        self.keyword_region(cur, keyword),
-                        fill![
-                            "The",
-                            "name",
-                            Doc::from("`").append(cyan(keyword)).append(Doc::from("`")),
-                            "is",
-                            "reserved",
-                            "in",
-                            "Elm,",
-                            "so",
-                            "it",
-                            "cannot",
-                            "be",
-                            "used",
-                            "as",
-                            "an",
-                            "argument",
-                            "here:"
-                        ],
-                        stack([
-                            reflow("Try renaming it to something else."),
-                            if keyword == "as" {
-                                doc::note(
-                                    [
-                                        "This", "keyword", "is", "reserved", "for", "pattern",
-                                        "matches", "like", "((x,y)",
-                                    ]
-                                    .into_iter()
-                                    .map(Doc::from)
-                                    .chain([cyan("as")])
-                                    .chain(
-                                        [
-                                            "point)",
-                                            "where",
-                                            "you",
-                                            "want",
-                                            "to",
-                                            "name",
-                                            "a",
-                                            "tuple",
-                                            "and",
-                                            "the",
-                                            "values",
-                                            "it",
-                                            "contains.",
-                                        ]
-                                        .map(Doc::from),
-                                    ),
-                                )
-                            } else {
-                                doc::simple_note(&format!(
-                                    "The `{keyword}` keyword has a special meaning in Elm, so \
-                                     it can only be used in certain situations."
-                                ))
-                            },
-                        ]),
-                    ),
-                    Next::Operator(op) if op == "->" => self.within(
-                        "MISSING COLON?",
-                        surroundings(start, cur),
-                        self.wider(cur, 2),
-                        reflow("I was not expecting to see an arrow here:"),
-                        stack([
-                            fill![
-                                "This",
-                                "usually",
-                                "means",
-                                "a",
-                                green(":"),
-                                "is",
-                                "missing",
-                                "a",
-                                "bit",
-                                "earlier",
-                                "in",
-                                "a",
-                                "type",
-                                "annotation.",
-                                "It",
-                                "could",
-                                "be",
-                                "something",
-                                "else",
-                                "though,",
-                                "so",
-                                "here",
-                                "is",
-                                "a",
-                                "valid",
-                                "definition",
-                                "for",
-                                "reference:"
-                            ],
-                            greet_example().indent(4),
-                            try_format(),
-                        ]),
-                    ),
-                    Next::Operator(op) => self.within(
-                        "UNEXPECTED SYMBOL",
-                        surroundings(start, cur),
-                        self.keyword_region(cur, &op),
-                        reflow("I was not expecting to see this symbol here:"),
-                        stack([not_sure(), greet_example().indent(4), try_format()]),
-                    ),
-                    _ => self.within(
-                        "PROBLEM IN DEFINITION",
-                        surroundings(start, cur),
-                        to_region(cur),
-                        stuck_definition(),
-                        stack([
-                            not_sure(),
-                            greet_example().indent(4),
-                            reflow("Try to use that format!"),
-                        ]),
-                    ),
-                }
-            }
+            DeclDef::DeclDefEquals(cur) => self.def_equals(name, *cur, start),
             DeclDef::DeclDefType(tipe, cur) => {
                 return self.tipe(&TypeContext::Annotation(name), tipe, *cur);
             }
-            // `toPatternReport` and `toExprReport`: plan 4.9.
-            DeclDef::DeclDefArg(..) | DeclDef::DeclDefBody(..) => return None,
+            DeclDef::DeclDefArg(pattern, cur) => {
+                return self.pattern(PContext::Arg, pattern, *cur);
+            }
+            DeclDef::DeclDefBody(expr, cur) => {
+                return self.expr(&Context::Def(name, start), expr, *cur);
+            }
             DeclDef::DeclDefNameRepeat(cur) => self.within(
                 "EXPECTING DEFINITION",
                 surroundings(start, *cur),
@@ -676,19 +549,9 @@ impl Reporter<'_, '_> {
                     decl_def_note(),
                 ]),
             ),
-            DeclDef::DeclDefNameMatch(def_name, cur) => self.within(
-                "NAME MISMATCH",
-                surroundings(start, *cur),
-                to_region(*cur),
-                reflow(&format!(
-                    "I just saw a type annotation for `{name}`, but it is followed by a \
-                     definition for `{def_name}`:"
-                )),
-                stack([
-                    reflow("These names do not match! Is there a typo?"),
-                    fill![dullyellow(&**def_name), "->", green(name)].indent(4),
-                ]),
-            ),
+            DeclDef::DeclDefNameMatch(def_name, cur) => {
+                self.name_mismatch(name, def_name, *cur, start)
+            }
             DeclDef::DeclDefIndentType(cur) => unfinished(
                 reflow(&format!(
                     "I got stuck while parsing the `{name}` type annotation:"
@@ -708,10 +571,171 @@ impl Reporter<'_, '_> {
             ),
         })
     }
+
+    /// `DeclDefEquals` and `DefEquals`: what can stop a definition
+    /// before its equals sign.
+    pub(super) fn def_equals(&self, name: &str, cur: Cursor, start: Cursor) -> Problem {
+        let try_format = || {
+            reflow(&format!(
+                "Try to use that format with your `{name}` definition!"
+            ))
+        };
+        let not_sure = || {
+            reflow(
+                "I am not sure what is going wrong exactly, so here is a valid definition (with \
+                 an optional type annotation) for reference:",
+            )
+        };
+        match self.next(cur) {
+            Next::Keyword(keyword) => self.within(
+                "RESERVED WORD",
+                surroundings(start, cur),
+                self.keyword_region(cur, keyword),
+                fill![
+                    "The",
+                    "name",
+                    Doc::from("`").append(cyan(keyword)).append(Doc::from("`")),
+                    "is",
+                    "reserved",
+                    "in",
+                    "Elm,",
+                    "so",
+                    "it",
+                    "cannot",
+                    "be",
+                    "used",
+                    "as",
+                    "an",
+                    "argument",
+                    "here:"
+                ],
+                stack([
+                    reflow("Try renaming it to something else."),
+                    if keyword == "as" {
+                        doc::note(
+                            [
+                                "This", "keyword", "is", "reserved", "for", "pattern", "matches",
+                                "like", "((x,y)",
+                            ]
+                            .into_iter()
+                            .map(Doc::from)
+                            .chain([cyan("as")])
+                            .chain(
+                                [
+                                    "point)",
+                                    "where",
+                                    "you",
+                                    "want",
+                                    "to",
+                                    "name",
+                                    "a",
+                                    "tuple",
+                                    "and",
+                                    "the",
+                                    "values",
+                                    "it",
+                                    "contains.",
+                                ]
+                                .map(Doc::from),
+                            ),
+                        )
+                    } else {
+                        doc::simple_note(&format!(
+                            "The `{keyword}` keyword has a special meaning in Elm, so \
+                                     it can only be used in certain situations."
+                        ))
+                    },
+                ]),
+            ),
+            Next::Operator(op) if op == "->" => self.within(
+                "MISSING COLON?",
+                surroundings(start, cur),
+                self.wider(cur, 2),
+                reflow("I was not expecting to see an arrow here:"),
+                stack([
+                    fill![
+                        "This",
+                        "usually",
+                        "means",
+                        "a",
+                        green(":"),
+                        "is",
+                        "missing",
+                        "a",
+                        "bit",
+                        "earlier",
+                        "in",
+                        "a",
+                        "type",
+                        "annotation.",
+                        "It",
+                        "could",
+                        "be",
+                        "something",
+                        "else",
+                        "though,",
+                        "so",
+                        "here",
+                        "is",
+                        "a",
+                        "valid",
+                        "definition",
+                        "for",
+                        "reference:"
+                    ],
+                    greet_example().indent(4),
+                    try_format(),
+                ]),
+            ),
+            Next::Operator(op) => self.within(
+                "UNEXPECTED SYMBOL",
+                surroundings(start, cur),
+                self.keyword_region(cur, &op),
+                reflow("I was not expecting to see this symbol here:"),
+                stack([not_sure(), greet_example().indent(4), try_format()]),
+            ),
+            _ => self.within(
+                "PROBLEM IN DEFINITION",
+                surroundings(start, cur),
+                to_region(cur),
+                reflow(&format!(
+                    "I got stuck while parsing the `{name}` definition:"
+                )),
+                stack([
+                    not_sure(),
+                    greet_example().indent(4),
+                    reflow("Try to use that format!"),
+                ]),
+            ),
+        }
+    }
+
+    /// `DeclDefNameMatch` and `DefNameMatch`.
+    pub(super) fn name_mismatch(
+        &self,
+        name: &str,
+        def_name: &str,
+        cur: Cursor,
+        start: Cursor,
+    ) -> Problem {
+        self.within(
+            "NAME MISMATCH",
+            surroundings(start, cur),
+            to_region(cur),
+            reflow(&format!(
+                "I just saw a type annotation for `{name}`, but it is followed by a definition \
+                 for `{def_name}`:"
+            )),
+            stack([
+                reflow("These names do not match! Is there a typo?"),
+                fill![dullyellow(def_name), "->", green(name)].indent(4),
+            ]),
+        )
+    }
 }
 
 /// The definition of `greet`, which many reports show.
-fn greet_example() -> Doc {
+pub(super) fn greet_example() -> Doc {
     vcat([
         Doc::from("greet : String -> String"),
         Doc::from("greet name ="),
@@ -827,8 +851,8 @@ fn custom_type_note() -> Doc {
     ])
 }
 
-/// `declDefNote`.
-fn decl_def_note() -> Doc {
+/// `declDefNote`, and `defNote` word for word.
+pub(super) fn decl_def_note() -> Doc {
     stack([
         reflow("Here is a valid definition (with a type annotation) for reference:"),
         greet_example().indent(4),

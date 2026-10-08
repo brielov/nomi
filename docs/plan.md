@@ -274,7 +274,7 @@ Goal: `nomi check` reports syntax and module errors exactly as `elm make` does, 
 - [x] **4.6a** `syntax: elm-format's error positions`. elm-format reports a syntax error where its own parser stops: often a column past the start of the token elm reports (4,447 `Unexpected` and 800 `ExpectedDeclaration` cases), and with tabs and carriage returns counted its own way. nomi's first error is at the same position on 17,898 of the mutation suite's 27,814 rejected cases. So `nomi_syntax::elm_format` ports elm-format's `Parse/*.hs` for 0.19, as 4.6 ports elm's, and `format_text` reports its position when nomi's grammar rejects a module (DECISIONS 2026-10-08). **Check:** on the mutation suite it rejects exactly what elm-format rejects, at the position elm-format reports, on all 27,814 cases; held exact, not ratcheted.
 - [x] **4.7** `report: syntax errors in headers and imports`. The first part of `Reporting/Error/Syntax.hs` (5,904 lines), and two ratchets over the mutation suite: one on titles and regions, against `syntax_mutations/oracle/`, and one on full reports, against `syntax_mutations/reports/`. **Check:** both ratchets climb, as in 4.8 to 4.10.
 - [x] **4.8** `report: syntax errors in declarations and types`.
-- [ ] **4.9** `report: syntax errors in expressions and patterns`.
+- [x] **4.9** `report: syntax errors in expressions and patterns`.
 - [ ] **4.10** `report: syntax errors in literals, strings, numbers and shaders`.
 - [ ] **4.11** `report: module and import errors`, the matching parts of `Reporting/Exit.hs`.
 - [ ] **4.12** `cli: nomi check with elm make's reporting policy`. Only the earliest failing phase per module is shown, and blocked modules stay silent.
