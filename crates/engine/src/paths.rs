@@ -104,6 +104,12 @@ impl Cache {
         self.0.join("registry").join("metadata")
     }
 
+    /// What builds made, by what they were made from
+    /// (`artifacts::Artifacts`).
+    pub fn artifacts(&self) -> PathBuf {
+        self.0.join("artifacts")
+    }
+
     /// The package store, shared by every release
     /// (`nomi_registry::Store`).
     pub fn packages(&self) -> PathBuf {

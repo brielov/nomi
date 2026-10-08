@@ -13,6 +13,7 @@ nomi-project.workspace = true
 nomi-registry.workspace = true
 nomi-syntax.workspace = true
 rayon.workspace = true
+sha2.workspace = true
 tempfile.workspace = true
 walkdir.workspace = true
 

@@ -798,6 +798,7 @@ dependencies = [
  "nomi-syntax",
  "rayon",
  "sha1",
+ "sha2",
  "tempfile",
  "walkdir",
  "zip",

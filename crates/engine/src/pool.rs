@@ -40,6 +40,15 @@ impl Pool {
     {
         self.0.install(|| items.into_par_iter().map(f).collect())
     }
+
+    /// Runs `f` on the pool, returning once it and all the work it
+    /// spawned have finished.
+    pub(crate) fn scope<'scope, R>(&self, f: impl FnOnce(&rayon::Scope<'scope>) -> R + Send) -> R
+    where
+        R: Send,
+    {
+        self.0.scope(f)
+    }
 }
 
 #[cfg(test)]
