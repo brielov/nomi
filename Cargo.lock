@@ -824,6 +824,9 @@ version = "0.1.0"
 dependencies = [
  "nomi-base",
  "nomi-project",
+ "nomi-testkit",
+ "serde",
+ "serde_json",
  "sha1",
  "tempfile",
  "ureq",

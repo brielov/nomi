@@ -4,6 +4,7 @@
 pub mod format;
 pub mod outline;
 pub mod sandbox;
+pub mod solver;
 pub mod syntax;
 pub mod transcripts;
 

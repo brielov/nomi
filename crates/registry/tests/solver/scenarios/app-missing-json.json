@@ -1,0 +1,9 @@
+{
+  "universe": "elm",
+  "project": {
+    "type": "application",
+    "direct": {
+      "elm/core": "1.0.5"
+    }
+  }
+}
