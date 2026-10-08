@@ -30,15 +30,15 @@ mod blocks;
 mod collections;
 mod decl;
 mod expr;
+mod literal;
 mod pattern;
 mod types;
 
-/// `toReport`: what elm `compat` reports of `error` in `source`, or
-/// `None` where the port doesn't reach yet.
-pub fn to_problem(source: &code::Source<'_>, error: &Error, compat: Compat) -> Option<Problem> {
+/// `toReport`: what elm `compat` reports of `error` in `source`.
+pub fn to_problem(source: &code::Source<'_>, error: &Error, compat: Compat) -> Problem {
     let r = Reporter { source, compat };
     match error {
-        Error::UnexpectedPort(region) => Some(r.at(
+        Error::UnexpectedPort(region) => r.at(
             "UNEXPECTED PORTS",
             r.region(*region),
             reflow("You are declaring ports in a normal module."),
@@ -66,8 +66,8 @@ pub fn to_problem(source: &code::Source<'_>, error: &Error, compat: Compat) -> O
                     "to learn the syntax and how to use it effectively.",
                 ),
             ]),
-        )),
-        Error::NoPorts(region) => Some(r.at(
+        ),
+        Error::NoPorts(region) => r.at(
             "NO PORTS",
             r.region(*region),
             reflow("This module does not declare any ports, but it says it will:"),
@@ -83,8 +83,8 @@ pub fn to_problem(source: &code::Source<'_>, error: &Error, compat: Compat) -> O
                 "all",
                 "set!"
             ],
-        )),
-        Error::NoPortsInPackage(_, region) => Some(r.at(
+        ),
+        Error::NoPortsInPackage(_, region) => r.at(
             "PACKAGES CANNOT HAVE PORTS",
             r.region(*region),
             reflow("Packages cannot declare any ports, so I am getting stuck here:"),
@@ -92,8 +92,8 @@ pub fn to_problem(source: &code::Source<'_>, error: &Error, compat: Compat) -> O
                 reflow("Remove this port declaration."),
                 note_for_ports_in_package(),
             ]),
-        )),
-        Error::NoPortModulesInPackage(region) => Some(r.at(
+        ),
+        Error::NoPortModulesInPackage(region) => r.at(
             "PACKAGES CANNOT HAVE PORTS",
             r.region(*region),
             reflow("Packages cannot declare any ports, so I am getting stuck here:"),
@@ -113,8 +113,8 @@ pub fn to_problem(source: &code::Source<'_>, error: &Error, compat: Compat) -> O
                 ],
                 note_for_ports_in_package(),
             ]),
-        )),
-        Error::NoEffectsOutsideKernel(region) => Some(r.at(
+        ),
+        Error::NoEffectsOutsideKernel(region) => r.at(
             "INVALID EFFECT MODULE",
             r.region(*region),
             reflow(
@@ -133,7 +133,7 @@ pub fn to_problem(source: &code::Source<'_>, error: &Error, compat: Compat) -> O
                      that kind of design work can proceed much more smoothly.",
                 ),
             ]),
-        )),
+        ),
         Error::ParseError(module) => r.module(module),
     }
 }
@@ -264,8 +264,8 @@ impl Reporter<'_, '_> {
     // MODULES
 
     /// `toParseErrorReport`.
-    fn module(&self, module: &Module) -> Option<Problem> {
-        Some(match module {
+    fn module(&self, module: &Module) -> Problem {
+        match module {
             Module::ModuleSpace(space, cur) => self.space(*space, *cur),
             // 0.19.1 checks for column 1, later releases for the line's
             // start (`isLineStart`), each its first column.
@@ -432,8 +432,8 @@ impl Reporter<'_, '_> {
                      built-in operators.",
                 ),
             ),
-            Module::Declarations(decl, _) => return self.declarations(decl),
-        })
+            Module::Declarations(decl, _) => self.declarations(decl),
+        }
     }
 
     fn fresh_line(&self, cur: Cursor) -> Problem {
@@ -944,15 +944,7 @@ impl Reporter<'_, '_> {
                 reflow("I ran into a tab, but tabs are not allowed in Elm files."),
                 reflow("Replace the tab with spaces."),
             ),
-            Space::HasNonUtf8 => self.at(
-                "UNEXPECTED ENCODING",
-                to_region(cur),
-                reflow(
-                    "Elm files use UTF-8 character encoding, but I ran into something outside \
-                     of that format:",
-                ),
-                reflow("Is there a way to convert this to a valid UTF-8 character?"),
-            ),
+            Space::HasNonUtf8 => self.not_utf8(cur),
             Space::EndlessMultiComment => self.at(
                 "ENDLESS COMMENT",
                 self.wider(cur, 2),

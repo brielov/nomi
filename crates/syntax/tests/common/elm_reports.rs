@@ -35,8 +35,7 @@ pub fn rejections(seed: &Seed) -> Vec<(String, Vec<Rejection>)> {
                 }
                 let problem = match elm::parse(m.source.as_bytes(), kind, compat) {
                     Ok(()) => Err("the port accepts".to_owned()),
-                    Err(error) => elm::to_problem(&source, &error, compat)
-                        .ok_or_else(|| format!("no report yet for {error:?}")),
+                    Err(error) => Ok(elm::to_problem(&source, &error, compat)),
                 };
                 Some(Rejection {
                     column: column.clone(),

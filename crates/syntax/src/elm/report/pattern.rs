@@ -18,12 +18,7 @@ pub(super) enum PContext {
 
 impl Reporter<'_, '_> {
     /// `toPatternReport`.
-    pub(super) fn pattern(
-        &self,
-        context: PContext,
-        pattern: &Pattern,
-        start: Cursor,
-    ) -> Option<Problem> {
+    pub(super) fn pattern(&self, context: PContext, pattern: &Pattern, start: Cursor) -> Problem {
         let stuck = || {
             fill_sep(words![
                 "I am not sure why I am getting stuck exactly. I just know that I want a pattern \
@@ -65,10 +60,10 @@ impl Reporter<'_, '_> {
                 ]),
             )
         };
-        Some(match pattern {
+        match pattern {
             Pattern::PRecord(record, cur) => self.precord(record, *cur),
-            Pattern::PTuple(tuple, cur) => return self.ptuple(context, tuple, *cur),
-            Pattern::PList(list, cur) => return self.plist(context, list, *cur),
+            Pattern::PTuple(tuple, cur) => self.ptuple(context, tuple, *cur),
+            Pattern::PList(list, cur) => self.plist(context, list, *cur),
             Pattern::PStart(cur) => match self.next(*cur) {
                 Next::Keyword(keyword) => self.within(
                     "RESERVED WORD",
@@ -101,9 +96,9 @@ impl Reporter<'_, '_> {
                     stuck(),
                 ),
             },
-            // `toCharReport`, `toStringReport` and `toNumberReport`: plan
-            // 4.10.
-            Pattern::PChar(..) | Pattern::PString(..) | Pattern::PNumber(..) => return None,
+            Pattern::PChar(char, cur) => self.char(char, *cur),
+            Pattern::PString(string, cur) => self.string(string, *cur),
+            Pattern::PNumber(number, cur) => self.number(number, *cur),
             Pattern::PFloat(width, cur) => self.at(
                 "UNEXPECTED PATTERN",
                 self.wider(*cur, *width as usize),
@@ -155,7 +150,7 @@ impl Reporter<'_, '_> {
                 ]),
             ),
             Pattern::PIndentAlias(cur) => alias(*cur, dullyellow("point.")),
-        })
+        }
     }
 
     /// `toPRecordReport`.
@@ -217,7 +212,7 @@ impl Reporter<'_, '_> {
     }
 
     /// `toPTupleReport`.
-    fn ptuple(&self, context: PContext, tuple: &PTuple, start: Cursor) -> Option<Problem> {
+    fn ptuple(&self, context: PContext, tuple: &PTuple, start: Cursor) -> Problem {
         let stuck = |cur: Cursor, title: &'static str, before: &str, after: Doc| {
             self.within(
                 title,
@@ -242,7 +237,7 @@ impl Reporter<'_, '_> {
                 "to see if that helps?",
             ])
         };
-        Some(match tuple {
+        match tuple {
             PTuple::PTupleOpen(cur) => match self.next(*cur) {
                 Next::Keyword(keyword) => self.within(
                     "RESERVED WORD",
@@ -306,7 +301,7 @@ impl Reporter<'_, '_> {
                     ]),
                 ),
             },
-            PTuple::PTupleExpr(pattern, cur) => return self.pattern(context, pattern, *cur),
+            PTuple::PTupleExpr(pattern, cur) => self.pattern(context, pattern, *cur),
             PTuple::PTupleSpace(space, cur) => self.space(*space, *cur),
             PTuple::PTupleIndentEnd(cur) => stuck(
                 *cur,
@@ -344,11 +339,11 @@ impl Reporter<'_, '_> {
                     ),
                 ]),
             ),
-        })
+        }
     }
 
     /// `toPListReport`.
-    fn plist(&self, context: PContext, list: &PList, start: Cursor) -> Option<Problem> {
+    fn plist(&self, context: PContext, list: &PList, start: Cursor) -> Problem {
         let stuck = |cur: Cursor, before: &str, after: Doc| {
             self.within(
                 "UNFINISHED LIST PATTERN",
@@ -367,7 +362,7 @@ impl Reporter<'_, '_> {
         };
         let open = "I just saw an open square bracket, but then I got stuck here:";
         let end = "I was expecting a closing square bracket to end this list pattern:";
-        Some(match list {
+        match list {
             PList::PListOpen(cur) => match self.next(*cur) {
                 Next::Keyword(keyword) => self.within(
                     "RESERVED WORD",
@@ -382,7 +377,7 @@ impl Reporter<'_, '_> {
                 _ => stuck(*cur, open, try_adding()),
             },
             PList::PListEnd(cur) => stuck(*cur, end, try_adding()),
-            PList::PListExpr(pattern, cur) => return self.pattern(context, pattern, *cur),
+            PList::PListExpr(pattern, cur) => self.pattern(context, pattern, *cur),
             PList::PListSpace(space, cur) => self.space(*space, *cur),
             PList::PListIndentOpen(cur) => stuck(
                 *cur,
@@ -417,6 +412,6 @@ impl Reporter<'_, '_> {
                     ),
                 ]),
             ),
-        })
+        }
     }
 }

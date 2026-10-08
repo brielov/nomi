@@ -275,7 +275,9 @@ Goal: `nomi check` reports syntax and module errors exactly as `elm make` does, 
 - [x] **4.7** `report: syntax errors in headers and imports`. The first part of `Reporting/Error/Syntax.hs` (5,904 lines), and two ratchets over the mutation suite: one on titles and regions, against `syntax_mutations/oracle/`, and one on full reports, against `syntax_mutations/reports/`. **Check:** both ratchets climb, as in 4.8 to 4.10.
 - [x] **4.8** `report: syntax errors in declarations and types`.
 - [x] **4.9** `report: syntax errors in expressions and patterns`.
-- [ ] **4.10** `report: syntax errors in literals, strings, numbers and shaders`.
+- [x] **4.10** `report: syntax errors in literals, strings, numbers and shaders`.
+  Done: every syntax error has its report, so `elm::to_problem` returns one outright. Titles and regions match each elm on all 29,511 rejected cases of the mutation suite, and full reports on 27,616. The other 1,895 are SHADER PROBLEM reports, whose message quotes language-glsl's Parsec error, which 4.10a ports.
+- [ ] **4.10a** `syntax: language-glsl's error messages`. The GLSL recognizer tracks only where Parsec fails, but elm quotes Parsec's whole message (`showErrorMessages`), such as `unexpected "v"` and `expecting "/", space, "(", "[", "=", "," or ";"`. So each rule carries Parsec's labels and messages too, and `ShaderProblem` gets the message. **Check:** the report ratchet passes every case of the mutation suite.
 - [ ] **4.11** `report: module and import errors`, the matching parts of `Reporting/Exit.hs`.
 - [ ] **4.12** `cli: nomi check with elm make's reporting policy`. Only the earliest failing phase per module is shown, and blocked modules stay silent.
 - [ ] **4.13** `lsp: v0`. New `ide` and `lsp` crates.

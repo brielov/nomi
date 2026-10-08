@@ -57,20 +57,15 @@ impl<'a> Context<'a> {
 
 impl Reporter<'_, '_> {
     /// `toExprReport`.
-    pub(super) fn expr(
-        &self,
-        context: &Context<'_>,
-        expr: &Expr,
-        start: Cursor,
-    ) -> Option<Problem> {
-        Some(match expr {
-            Expr::Let(let_, cur) => return self.let_(context, let_, *cur),
-            Expr::Case(case, cur) => return self.case(context, case, *cur),
-            Expr::If(if_, cur) => return self.if_(context, if_, *cur),
-            Expr::List(list, cur) => return self.list(context, list, *cur),
-            Expr::Record(record, cur) => return self.record(context, record, *cur),
-            Expr::Tuple(tuple, cur) => return self.tuple(context, tuple, *cur),
-            Expr::Func(func, cur) => return self.func(context, func, *cur),
+    pub(super) fn expr(&self, context: &Context<'_>, expr: &Expr, start: Cursor) -> Problem {
+        match expr {
+            Expr::Let(let_, cur) => self.let_(context, let_, *cur),
+            Expr::Case(case, cur) => self.case(context, case, *cur),
+            Expr::If(if_, cur) => self.if_(context, if_, *cur),
+            Expr::List(list, cur) => self.list(context, list, *cur),
+            Expr::Record(record, cur) => self.record(context, record, *cur),
+            Expr::Tuple(tuple, cur) => self.tuple(context, tuple, *cur),
+            Expr::Func(func, cur) => self.func(context, func, *cur),
             Expr::Dot(cur) => self.at(
                 "EXPECTING RECORD ACCESSOR",
                 to_region(*cur),
@@ -161,14 +156,12 @@ impl Reporter<'_, '_> {
                     ]),
                 )
             }
-            // `toCharReport`, `toStringReport`, `toNumberReport` and the
-            // shaders: plan 4.10.
-            Expr::Char(..)
-            | Expr::String(..)
-            | Expr::Number(..)
-            | Expr::ShaderEndless(_)
-            | Expr::ShaderNotUtf8(_)
-            | Expr::ShaderProblem(..) => return None,
+            Expr::Char(char, cur) => self.char(char, *cur),
+            Expr::String(string, cur) => self.string(string, *cur),
+            Expr::Number(number, cur) => self.number(number, *cur),
+            Expr::ShaderEndless(cur) => self.shader_endless(*cur),
+            Expr::ShaderNotUtf8(cur) => self.not_utf8(*cur),
+            Expr::ShaderProblem(problem, cur) => self.shader_problem(problem, *cur),
             Expr::Space(space, cur) => self.space(*space, *cur),
             Expr::IndentOperatorRight(op, cur) => self.within(
                 "MISSING EXPRESSION",
@@ -192,7 +185,7 @@ impl Reporter<'_, '_> {
                     )),
                 ]),
             ),
-        })
+        }
     }
 
     /// `toOperatorReport`.
@@ -335,7 +328,7 @@ impl Reporter<'_, '_> {
     }
 
     /// `toFuncReport`.
-    fn func(&self, context: &Context<'_>, func: &Func, start: Cursor) -> Option<Problem> {
+    fn func(&self, context: &Context<'_>, func: &Func, start: Cursor) -> Problem {
         let within = |title: &'static str, cur: Cursor, before: &str, after: Doc| {
             self.within(
                 title,
@@ -362,11 +355,11 @@ impl Reporter<'_, '_> {
                  whole thing out into a named function. Things tend to be clearer that way!",
             )
         };
-        Some(match func {
+        match func {
             Func::FuncSpace(space, cur) => self.space(*space, *cur),
-            Func::FuncArg(pattern, cur) => return self.pattern(PContext::Arg, pattern, *cur),
+            Func::FuncArg(pattern, cur) => self.pattern(PContext::Arg, pattern, *cur),
             Func::FuncBody(expr, cur) => {
-                return self.expr(&Context::Node(Node::Func, start, context), expr, *cur);
+                self.expr(&Context::Node(Node::Func, start, context), expr, *cur)
             }
             Func::FuncArrow(cur) => match self.next(*cur) {
                 Next::Keyword(keyword) => self.within(
@@ -426,7 +419,7 @@ impl Reporter<'_, '_> {
                     indentation(),
                 ]),
             ),
-        })
+        }
     }
 }
 

@@ -11,12 +11,7 @@ use crate::elm::error::{BadOperator, Cursor, Expr, List, Record, Tuple};
 
 impl Reporter<'_, '_> {
     /// `toRecordReport`.
-    pub(super) fn record(
-        &self,
-        context: &Context<'_>,
-        record: &Record,
-        start: Cursor,
-    ) -> Option<Problem> {
+    pub(super) fn record(&self, context: &Context<'_>, record: &Record, start: Cursor) -> Problem {
         let stuck = |cur: Cursor, title: &'static str, before: &str, after: Doc| {
             self.within(
                 title,
@@ -56,7 +51,7 @@ impl Reporter<'_, '_> {
             ])
         };
         let partway = "I am partway through parsing a record, but I got stuck here:";
-        Some(match record {
+        match record {
             Record::RecordOpen(cur) => match self.next(*cur) {
                 Next::Keyword(keyword) => reserved(
                     *cur,
@@ -138,7 +133,7 @@ impl Reporter<'_, '_> {
                 ]),
             ),
             Record::RecordExpr(expr, cur) => {
-                return self.expr(&Context::Node(Node::Record, start, context), expr, *cur);
+                self.expr(&Context::Node(Node::Record, start, context), expr, *cur)
             }
             Record::RecordSpace(space, cur) => self.space(*space, *cur),
             Record::RecordIndentOpen(cur) => stuck(
@@ -234,16 +229,11 @@ impl Reporter<'_, '_> {
                     note_for_record_indent_error(),
                 ]),
             ),
-        })
+        }
     }
 
     /// `toTupleReport`.
-    pub(super) fn tuple(
-        &self,
-        context: &Context<'_>,
-        tuple: &Tuple,
-        start: Cursor,
-    ) -> Option<Problem> {
+    pub(super) fn tuple(&self, context: &Context<'_>, tuple: &Tuple, start: Cursor) -> Problem {
         let stuck = |cur: Cursor, title: &'static str, before: &str, after: Doc| {
             self.within(
                 title,
@@ -267,9 +257,9 @@ impl Reporter<'_, '_> {
                  expression but it is not indented enough?",
             )
         };
-        Some(match tuple {
+        match tuple {
             Tuple::TupleExpr(expr, cur) => {
-                return self.expr(&Context::Node(Node::Parens, start, context), expr, *cur);
+                self.expr(&Context::Node(Node::Parens, start, context), expr, *cur)
             }
             Tuple::TupleSpace(space, cur) => self.space(*space, *cur),
             Tuple::TupleEnd(cur) => stuck(
@@ -377,16 +367,11 @@ impl Reporter<'_, '_> {
                     ),
                 ]),
             ),
-        })
+        }
     }
 
     /// `toListReport`.
-    pub(super) fn list(
-        &self,
-        context: &Context<'_>,
-        list: &List,
-        start: Cursor,
-    ) -> Option<Problem> {
+    pub(super) fn list(&self, context: &Context<'_>, list: &List, start: Cursor) -> Problem {
         let stuck = |cur: Cursor, before: &str, after: Doc| {
             self.within(
                 "UNFINISHED LIST",
@@ -430,7 +415,7 @@ impl Reporter<'_, '_> {
             )
         };
         let partway = "I am partway through parsing a list, but I got stuck here:";
-        Some(match list {
+        match list {
             List::ListSpace(space, cur) => self.space(*space, *cur),
             List::ListOpen(cur) | List::ListEnd(cur) => stuck(*cur, partway, closing()),
             List::ListExpr(Expr::Start(c), _) => stuck(
@@ -439,7 +424,7 @@ impl Reporter<'_, '_> {
                 trailing_comma(),
             ),
             List::ListExpr(expr, cur) => {
-                return self.expr(&Context::Node(Node::List, start, context), expr, *cur);
+                self.expr(&Context::Node(Node::List, start, context), expr, *cur)
             }
             List::ListIndentOpen(cur) => stuck(
                 *cur,
@@ -477,7 +462,7 @@ impl Reporter<'_, '_> {
                 "I was expecting to see another list entry after this comma:",
                 trailing_comma(),
             ),
-        })
+        }
     }
 }
 

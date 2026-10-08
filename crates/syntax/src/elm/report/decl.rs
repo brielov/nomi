@@ -13,13 +13,13 @@ use crate::elm::error::{Cursor, CustomType, Decl, DeclDef, DeclType, Port, TypeA
 
 impl Reporter<'_, '_> {
     /// `toDeclarationsReport`.
-    pub(super) fn declarations(&self, decl: &Decl) -> Option<Problem> {
-        Some(match decl {
+    pub(super) fn declarations(&self, decl: &Decl) -> Problem {
+        match decl {
             Decl::DeclStart(cur) => self.decl_start(*cur),
             Decl::DeclSpace(space, cur) => self.space(*space, *cur),
-            Decl::Port(port, cur) => return self.port(port, *cur),
-            Decl::DeclType(decl_type, cur) => return self.decl_type(decl_type, *cur),
-            Decl::DeclDef(name, decl_def, cur) => return self.decl_def(name, decl_def, *cur),
+            Decl::Port(port, cur) => self.port(port, *cur),
+            Decl::DeclType(decl_type, cur) => self.decl_type(decl_type, *cur),
+            Decl::DeclDef(name, decl_def, cur) => self.decl_def(name, decl_def, *cur),
             Decl::DeclFreshLineAfterDocComment(cur) => self.at(
                 "EXPECTING DECLARATION",
                 to_region(*cur),
@@ -29,7 +29,7 @@ impl Reporter<'_, '_> {
                      fresh line with no indentation.",
                 ),
             ),
-        })
+        }
     }
 
     /// `toDeclStartReport`.
@@ -182,7 +182,7 @@ impl Reporter<'_, '_> {
     // PORT
 
     /// `toPortReport`.
-    fn port(&self, port: &Port, start: Cursor) -> Option<Problem> {
+    fn port(&self, port: &Port, start: Cursor) -> Problem {
         let within = |cur: Cursor| surroundings(start, cur);
         let stuck =
             || reflow("I just saw the start of a `port` declaration, but then I got stuck here:");
@@ -221,7 +221,7 @@ impl Reporter<'_, '_> {
                 port_note(),
             ])
         };
-        Some(match port {
+        match port {
             Port::PortSpace(space, cur) => self.space(*space, *cur),
             Port::PortName(cur) => match self.next(*cur) {
                 Next::Keyword(keyword) => self.within(
@@ -249,7 +249,7 @@ impl Reporter<'_, '_> {
                 stuck(),
                 expecting_colon(),
             ),
-            Port::PortType(tipe, cur) => return self.tipe(&TypeContext::Port, tipe, *cur),
+            Port::PortType(tipe, cur) => self.tipe(&TypeContext::Port, tipe, *cur),
             Port::PortIndentName(cur) => self.within(
                 "UNFINISHED PORT",
                 within(*cur),
@@ -285,13 +285,13 @@ impl Reporter<'_, '_> {
                     ),
                 ]),
             ),
-        })
+        }
     }
 
     // DECL TYPE
 
     /// `toDeclTypeReport`.
-    fn decl_type(&self, decl_type: &DeclType, start: Cursor) -> Option<Problem> {
+    fn decl_type(&self, decl_type: &DeclType, start: Cursor) -> Problem {
         let expecting_name = |cur: Cursor| {
             self.within(
                 "EXPECTING TYPE NAME",
@@ -301,16 +301,16 @@ impl Reporter<'_, '_> {
                 stack([expecting_type_name(), custom_type_note()]),
             )
         };
-        Some(match decl_type {
+        match decl_type {
             DeclType::DtSpace(space, cur) => self.space(*space, *cur),
             DeclType::DtName(cur) | DeclType::DtIndentName(cur) => expecting_name(*cur),
-            DeclType::DtAlias(alias, cur) => return self.type_alias(alias, *cur),
-            DeclType::DtUnion(custom, cur) => return self.custom_type(custom, *cur),
-        })
+            DeclType::DtAlias(alias, cur) => self.type_alias(alias, *cur),
+            DeclType::DtUnion(custom, cur) => self.custom_type(custom, *cur),
+        }
     }
 
     /// `toTypeAliasReport`.
-    fn type_alias(&self, alias: &TypeAlias, start: Cursor) -> Option<Problem> {
+    fn type_alias(&self, alias: &TypeAlias, start: Cursor) -> Problem {
         let partway = || reflow("I am partway through parsing a type alias, but I got stuck here:");
         let report = |title: &'static str, cur: Cursor, message: Doc| {
             self.within(
@@ -323,7 +323,7 @@ impl Reporter<'_, '_> {
         };
         let variable_or_equals =
             || reflow("I was expecting to see a type variable or an equals sign next.");
-        Some(match alias {
+        match alias {
             TypeAlias::AliasSpace(space, cur) => self.space(*space, *cur),
             TypeAlias::AliasName(cur) => report(
                 "EXPECTING TYPE ALIAS NAME",
@@ -366,9 +366,7 @@ impl Reporter<'_, '_> {
                 ),
                 _ => report("PROBLEM IN TYPE ALIAS", *cur, variable_or_equals()),
             },
-            TypeAlias::AliasBody(tipe, cur) => {
-                return self.tipe(&TypeContext::TypeAlias, tipe, *cur);
-            }
+            TypeAlias::AliasBody(tipe, cur) => self.tipe(&TypeContext::TypeAlias, tipe, *cur),
             TypeAlias::AliasIndentEquals(cur) => {
                 report("UNFINISHED TYPE ALIAS", *cur, variable_or_equals())
             }
@@ -395,11 +393,11 @@ impl Reporter<'_, '_> {
                     "work!"
                 ],
             ),
-        })
+        }
     }
 
     /// `toCustomTypeReport`.
-    fn custom_type(&self, custom: &CustomType, start: Cursor) -> Option<Problem> {
+    fn custom_type(&self, custom: &CustomType, start: Cursor) -> Problem {
         let report = |title: &'static str, before: Doc, cur: Cursor, message: Doc| {
             self.within(
                 title,
@@ -414,7 +412,7 @@ impl Reporter<'_, '_> {
         let variable_or_equals =
             || reflow("I was expecting to see a type variable or an equals sign next.");
         let bar = || reflow("I was expecting to see a vertical bar like | next.");
-        Some(match custom {
+        match custom {
             CustomType::CtSpace(space, cur) => self.space(*space, *cur),
             CustomType::CtName(cur) => report(
                 "EXPECTING TYPE NAME",
@@ -470,9 +468,7 @@ impl Reporter<'_, '_> {
                     "really!"
                 ],
             ),
-            CustomType::CtVariantArg(tipe, cur) => {
-                return self.tipe(&TypeContext::CustomType, tipe, *cur);
-            }
+            CustomType::CtVariantArg(tipe, cur) => self.tipe(&TypeContext::CustomType, tipe, *cur),
             CustomType::CtIndentEquals(cur) => report(
                 "UNFINISHED CUSTOM TYPE",
                 partway(),
@@ -500,13 +496,13 @@ impl Reporter<'_, '_> {
                      defined next.",
                 ),
             ),
-        })
+        }
     }
 
     // DECL DEF
 
     /// `toDeclDefReport`, but for the patterns and expressions inside.
-    fn decl_def(&self, name: &str, decl_def: &DeclDef, start: Cursor) -> Option<Problem> {
+    fn decl_def(&self, name: &str, decl_def: &DeclDef, start: Cursor) -> Problem {
         let unfinished = |before: Doc, cur: Cursor, message: &str| {
             self.within(
                 "UNFINISHED DEFINITION",
@@ -521,18 +517,14 @@ impl Reporter<'_, '_> {
                 "I got stuck while parsing the `{name}` definition:"
             ))
         };
-        Some(match decl_def {
+        match decl_def {
             DeclDef::DeclDefSpace(space, cur) => self.space(*space, *cur),
             DeclDef::DeclDefEquals(cur) => self.def_equals(name, *cur, start),
             DeclDef::DeclDefType(tipe, cur) => {
-                return self.tipe(&TypeContext::Annotation(name), tipe, *cur);
+                self.tipe(&TypeContext::Annotation(name), tipe, *cur)
             }
-            DeclDef::DeclDefArg(pattern, cur) => {
-                return self.pattern(PContext::Arg, pattern, *cur);
-            }
-            DeclDef::DeclDefBody(expr, cur) => {
-                return self.expr(&Context::Def(name, start), expr, *cur);
-            }
+            DeclDef::DeclDefArg(pattern, cur) => self.pattern(PContext::Arg, pattern, *cur),
+            DeclDef::DeclDefBody(expr, cur) => self.expr(&Context::Def(name, start), expr, *cur),
             DeclDef::DeclDefNameRepeat(cur) => self.within(
                 "EXPECTING DEFINITION",
                 surroundings(start, *cur),
@@ -569,7 +561,7 @@ impl Reporter<'_, '_> {
                 *cur,
                 "I was expecting to see an expression next. What is it equal to?",
             ),
-        })
+        }
     }
 
     /// `DeclDefEquals` and `DefEquals`: what can stop a definition

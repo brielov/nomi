@@ -29,12 +29,7 @@ impl TypeContext<'_> {
 
 impl Reporter<'_, '_> {
     /// `toTypeReport`.
-    pub(super) fn tipe(
-        &self,
-        context: &TypeContext<'_>,
-        tipe: &Type,
-        start: Cursor,
-    ) -> Option<Problem> {
+    pub(super) fn tipe(&self, context: &TypeContext<'_>, tipe: &Type, start: Cursor) -> Problem {
         let try_int = || {
             fill![
                 "I",
@@ -54,9 +49,9 @@ impl Reporter<'_, '_> {
                 "now?"
             ]
         };
-        Some(match tipe {
-            Type::TRecord(record, cur) => self.record_type(context, record, *cur)?,
-            Type::TTuple(tuple, cur) => self.tuple_type(context, tuple, *cur)?,
+        match tipe {
+            Type::TRecord(record, cur) => self.record_type(context, record, *cur),
+            Type::TTuple(tuple, cur) => self.tuple_type(context, tuple, *cur),
             Type::TStart(cur) => match self.next(*cur) {
                 Next::Keyword(keyword) => self.within(
                     "RESERVED WORD",
@@ -106,16 +101,11 @@ impl Reporter<'_, '_> {
                     ),
                 ]),
             ),
-        })
+        }
     }
 
     /// `toTRecordReport`.
-    fn record_type(
-        &self,
-        context: &TypeContext<'_>,
-        record: &TRecord,
-        start: Cursor,
-    ) -> Option<Problem> {
+    fn record_type(&self, context: &TypeContext<'_>, record: &TRecord, start: Cursor) -> Problem {
         let report = |title: &'static str, cur: Cursor, before: &str, after: Doc| {
             self.within(
                 title,
@@ -138,7 +128,7 @@ impl Reporter<'_, '_> {
                 )),
             )
         };
-        Some(match record {
+        match record {
             TRecord::TRecordOpen(cur) => match self.next(*cur) {
                 Next::Keyword(keyword) => reserved(
                     *cur,
@@ -296,7 +286,7 @@ impl Reporter<'_, '_> {
                     note_for_record_type_error(),
                 ]),
             ),
-            TRecord::TRecordType(tipe, cur) => return self.tipe(context, tipe, *cur),
+            TRecord::TRecordType(tipe, cur) => self.tipe(context, tipe, *cur),
             TRecord::TRecordSpace(space, cur) => self.space(*space, *cur),
             TRecord::TRecordIndentOpen(cur) => report(
                 "UNFINISHED RECORD TYPE",
@@ -432,16 +422,11 @@ impl Reporter<'_, '_> {
                     note_for_record_type_indent_error(),
                 ]),
             ),
-        })
+        }
     }
 
     /// `toTTupleReport`.
-    fn tuple_type(
-        &self,
-        context: &TypeContext<'_>,
-        tuple: &TTuple,
-        start: Cursor,
-    ) -> Option<Problem> {
+    fn tuple_type(&self, context: &TypeContext<'_>, tuple: &TTuple, start: Cursor) -> Problem {
         let report = |title: &'static str, cur: Cursor, before: &str, after: Doc| {
             self.within(
                 title,
@@ -470,7 +455,7 @@ impl Reporter<'_, '_> {
             ]
         };
         let open = "I just saw an open parenthesis, so I was expecting to see a type next.";
-        Some(match tuple {
+        match tuple {
             TTuple::TTupleOpen(cur) => match self.next(*cur) {
                 Next::Keyword(keyword) => self.within(
                     "RESERVED WORD",
@@ -507,7 +492,7 @@ impl Reporter<'_, '_> {
                     ),
                 ]),
             ),
-            TTuple::TTupleType(tipe, cur) => return self.tipe(context, tipe, *cur),
+            TTuple::TTupleType(tipe, cur) => self.tipe(context, tipe, *cur),
             TTuple::TTupleSpace(space, cur) => self.space(*space, *cur),
             TTuple::TTupleIndentType1(cur) => report(
                 "UNFINISHED PARENTHESES",
@@ -574,7 +559,7 @@ impl Reporter<'_, '_> {
                     ),
                 ]),
             ),
-        })
+        }
     }
 }
 

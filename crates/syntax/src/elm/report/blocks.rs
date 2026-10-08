@@ -14,7 +14,7 @@ use crate::elm::error::{Case, Cursor, Def, Destruct, If, Indent, Let};
 
 impl Reporter<'_, '_> {
     /// `toLetReport`.
-    pub(super) fn let_(&self, context: &Context<'_>, let_: &Let, start: Cursor) -> Option<Problem> {
+    pub(super) fn let_(&self, context: &Context<'_>, let_: &Let, start: Cursor) -> Problem {
         let partway =
             || reflow("I was partway through parsing a `let` expression, but I got stuck here:");
         let expecting_in = |cur: Cursor| {
@@ -38,7 +38,7 @@ impl Reporter<'_, '_> {
                 ]),
             )
         };
-        Some(match let_ {
+        match let_ {
             Let::LetSpace(space, cur) => self.space(*space, *cur),
             Let::LetIn(cur) | Let::LetDefAlignment(_, cur) => expecting_in(*cur),
             Let::LetDefName(cur) => match self.next(*cur) {
@@ -58,9 +58,9 @@ impl Reporter<'_, '_> {
                     reflow("I was expecting the name of a definition next."),
                 ),
             },
-            Let::LetDef(name, def, cur) => return self.let_def(name, def, *cur),
-            Let::LetDestruct(destruct, cur) => return self.destruct(destruct, *cur),
-            Let::LetBody(expr, cur) => return self.expr(context, expr, *cur),
+            Let::LetDef(name, def, cur) => self.let_def(name, def, *cur),
+            Let::LetDestruct(destruct, cur) => self.destruct(destruct, *cur),
+            Let::LetBody(expr, cur) => self.expr(context, expr, *cur),
             Let::LetIndentDef(cur) => self.unfinished_let(
                 *cur,
                 start,
@@ -83,7 +83,7 @@ impl Reporter<'_, '_> {
                      value you just defined!",
                 ),
             ),
-        })
+        }
     }
 
     /// `toUnfinishLetReport`.
@@ -122,7 +122,7 @@ impl Reporter<'_, '_> {
     }
 
     /// `toLetDefReport`.
-    fn let_def(&self, name: &str, def: &Def, start: Cursor) -> Option<Problem> {
+    fn let_def(&self, name: &str, def: &Def, start: Cursor) -> Problem {
         let stuck = |cur: Cursor, title: &'static str, before: String, after: Doc| {
             self.within(
                 title,
@@ -133,11 +133,9 @@ impl Reporter<'_, '_> {
             )
         };
         let stuck_definition = || format!("I got stuck while parsing the `{name}` definition:");
-        Some(match def {
+        match def {
             Def::DefSpace(space, cur) => self.space(*space, *cur),
-            Def::DefType(tipe, cur) => {
-                return self.tipe(&TypeContext::Annotation(name), tipe, *cur);
-            }
+            Def::DefType(tipe, cur) => self.tipe(&TypeContext::Annotation(name), tipe, *cur),
             Def::DefNameRepeat(cur) => stuck(
                 *cur,
                 "EXPECTING DEFINITION",
@@ -154,9 +152,9 @@ impl Reporter<'_, '_> {
                 ]),
             ),
             Def::DefNameMatch(def_name, cur) => self.name_mismatch(name, def_name, *cur, start),
-            Def::DefArg(pattern, cur) => return self.pattern(PContext::Arg, pattern, *cur),
+            Def::DefArg(pattern, cur) => self.pattern(PContext::Arg, pattern, *cur),
             Def::DefEquals(cur) => self.def_equals(name, *cur, start),
-            Def::DefBody(expr, cur) => return self.expr(&Context::Def(name, start), expr, *cur),
+            Def::DefBody(expr, cur) => self.expr(&Context::Def(name, start), expr, *cur),
             Def::DefIndentEquals(cur) => stuck(
                 *cur,
                 "UNFINISHED DEFINITION",
@@ -198,7 +196,7 @@ impl Reporter<'_, '_> {
                     )),
                 )
             }
-        })
+        }
     }
 
     /// `distanceToIndent`: `indent - col`, in the width of a column.
@@ -210,7 +208,7 @@ impl Reporter<'_, '_> {
     }
 
     /// `toLetDestructReport`.
-    fn destruct(&self, destruct: &Destruct, start: Cursor) -> Option<Problem> {
+    fn destruct(&self, destruct: &Destruct, start: Cursor) -> Problem {
         let stuck = |cur: Cursor, title: &'static str, before: &str, after: Doc| {
             self.within(
                 title,
@@ -226,11 +224,9 @@ impl Reporter<'_, '_> {
                  me what to compute.",
             )
         };
-        Some(match destruct {
+        match destruct {
             Destruct::DestructSpace(space, cur) => self.space(*space, *cur),
-            Destruct::DestructPattern(pattern, cur) => {
-                return self.pattern(PContext::Let, pattern, *cur);
-            }
+            Destruct::DestructPattern(pattern, cur) => self.pattern(PContext::Let, pattern, *cur),
             Destruct::DestructEquals(cur) => stuck(
                 *cur,
                 "PROBLEM IN DEFINITION",
@@ -248,9 +244,7 @@ impl Reporter<'_, '_> {
                     _ => expecting_equals(),
                 },
             ),
-            Destruct::DestructBody(expr, cur) => {
-                return self.expr(&Context::Destruct(start), expr, *cur);
-            }
+            Destruct::DestructBody(expr, cur) => self.expr(&Context::Destruct(start), expr, *cur),
             Destruct::DestructIndentEquals(cur) => stuck(
                 *cur,
                 "UNFINISHED DEFINITION",
@@ -263,18 +257,13 @@ impl Reporter<'_, '_> {
                 "I got stuck while parsing this definition:",
                 reflow("I was expecting to see an expression next. What is it equal to?"),
             ),
-        })
+        }
     }
 
     // CASE
 
     /// `toCaseReport`.
-    pub(super) fn case(
-        &self,
-        context: &Context<'_>,
-        case: &Case,
-        start: Cursor,
-    ) -> Option<Problem> {
+    pub(super) fn case(&self, context: &Context<'_>, case: &Case, start: Cursor) -> Problem {
         let partway =
             || reflow("I am partway through parsing a `case` expression, but I got stuck here:");
         let expecting_of = || {
@@ -284,12 +273,12 @@ impl Reporter<'_, '_> {
                 "keyword next.",
             ])
         };
-        Some(match case {
+        match case {
             Case::CaseSpace(space, cur) => self.space(*space, *cur),
             Case::CaseOf(cur) | Case::CaseIndentOf(cur) => {
                 self.unfinished_case(*cur, start, expecting_of())
             }
-            Case::CasePattern(pattern, cur) => return self.pattern(PContext::Case, pattern, *cur),
+            Case::CasePattern(pattern, cur) => self.pattern(PContext::Case, pattern, *cur),
             Case::CaseArrow(cur) => {
                 let operator = |instead: Doc| {
                     self.within(
@@ -338,10 +327,10 @@ impl Reporter<'_, '_> {
                 }
             }
             Case::CaseExpr(expr, cur) => {
-                return self.expr(&Context::Node(Node::Case, start, context), expr, *cur);
+                self.expr(&Context::Node(Node::Case, start, context), expr, *cur)
             }
             Case::CaseBranch(expr, cur) => {
-                return self.expr(&Context::Node(Node::Branch, start, context), expr, *cur);
+                self.expr(&Context::Node(Node::Branch, start, context), expr, *cur)
             }
             Case::CaseIndentExpr(cur) => self.unfinished_case(
                 *cur,
@@ -378,7 +367,7 @@ impl Reporter<'_, '_> {
                      spaces)"
                 )),
             ),
-        })
+        }
     }
 
     /// `toUnfinishCaseReport`.
@@ -395,7 +384,7 @@ impl Reporter<'_, '_> {
     // IF
 
     /// `toIfReport`.
-    pub(super) fn if_(&self, context: &Context<'_>, if_: &If, start: Cursor) -> Option<Problem> {
+    pub(super) fn if_(&self, context: &Context<'_>, if_: &If, start: Cursor) -> Problem {
         let unfinished = |cur: Cursor, before: &str, after: Doc| {
             self.within(
                 "UNFINISHED IF",
@@ -420,7 +409,7 @@ impl Reporter<'_, '_> {
         };
         let maybe_not_filled =
             || reflow("I was expecting to see an expression next. Maybe it is not filled in yet?");
-        Some(match if_ {
+        match if_ {
             If::IfSpace(space, cur) => self.space(*space, *cur),
             If::IfThen(cur) => unfinished(*cur, more, keyword_next("then")),
             If::IfElse(cur) => unfinished(*cur, more, keyword_next("else")),
@@ -430,13 +419,13 @@ impl Reporter<'_, '_> {
                 maybe_not_filled(),
             ),
             If::IfCondition(expr, cur) => {
-                return self.expr(&Context::Node(Node::Cond, start, context), expr, *cur);
+                self.expr(&Context::Node(Node::Cond, start, context), expr, *cur)
             }
             If::IfThenBranch(expr, cur) => {
-                return self.expr(&Context::Node(Node::Then, start, context), expr, *cur);
+                self.expr(&Context::Node(Node::Then, start, context), expr, *cur)
             }
             If::IfElseBranch(expr, cur) => {
-                return self.expr(&Context::Node(Node::Else, start, context), expr, *cur);
+                self.expr(&Context::Node(Node::Else, start, context), expr, *cur)
             }
             If::IfIndentCondition(cur) => unfinished(
                 *cur,
@@ -505,7 +494,7 @@ impl Reporter<'_, '_> {
                     ])]),
                 ),
             },
-        })
+        }
     }
 }
 
