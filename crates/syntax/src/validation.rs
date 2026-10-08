@@ -500,7 +500,7 @@ fn shaders(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
         else {
             continue;
         };
-        if let Err(Rejection::At(offset) | Rejection::TooDeep(offset)) = glsl::check(glsl) {
+        if let Err(Rejection::At { offset, .. } | Rejection::TooDeep(offset)) = glsl::check(glsl) {
             let at =
                 token.text_range().start() + TextSize::of("[glsl|") + TextSize::of(&glsl[..offset]);
             push(errors, E::ShaderProblem, TextRange::empty(at));

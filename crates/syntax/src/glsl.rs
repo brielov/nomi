@@ -11,18 +11,25 @@
 //!
 //! Whether a rule consumed input shows in the position: rules fail
 //! without moving it, unless they consumed. Errors follow Parsec's too,
-//! so the reported offset is where elm reports the problem.
+//! messages and all (`error.rs`), so the reported offset is where elm
+//! reports the problem and the message is the one it quotes.
+
+mod error;
+mod words;
 
 use icu_properties::GeneralCategory;
 
+use self::error::{Error, Kind, Text};
+use self::words::{KEYWORDS, RESERVED_WORDS, TYPES};
 use crate::lexer::GENERAL_CATEGORY;
 use crate::parser::{DEPTH_LIMIT, RED_ZONE, STACK_SEGMENT};
 
 /// Why a shader doesn't parse.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Rejection {
-    /// Upstream fails, at this byte offset.
-    At(usize),
+    /// Upstream fails at this byte offset, with Parsec's message as elm
+    /// shows it.
+    At { offset: usize, message: String },
     /// Nesting passed [`DEPTH_LIMIT`] at this offset. Upstream has no
     /// limit.
     TooDeep(usize),
@@ -45,7 +52,10 @@ pub(crate) fn check(text: &str) -> Result<(), Rejection> {
     match (p.too_deep, result) {
         (Some(at), _) => Err(Rejection::TooDeep(at)),
         (None, Ok(())) => Ok(()),
-        (None, Err(Fail)) => Err(Rejection::At(p.error.offset)),
+        (None, Err(Fail)) => Err(Rejection::At {
+            offset: p.error.offset,
+            message: p.error.show(),
+        }),
     }
 }
 
@@ -53,33 +63,6 @@ pub(crate) fn check(text: &str) -> Result<(), Rejection> {
 struct Fail;
 
 type P<T = ()> = Result<T, Fail>;
-
-/// Parsec's `ParseError`, as far as its position goes: where, and whether
-/// it carries a message. Errors that don't are dropped in a merge.
-#[derive(Clone, Copy, Debug)]
-struct Error {
-    offset: usize,
-    known: bool,
-}
-
-impl Error {
-    fn unknown(offset: usize) -> Error {
-        Error {
-            offset,
-            known: false,
-        }
-    }
-
-    /// Parsec's `mergeError`: the one with a message, else the later.
-    fn merge(self, other: Error) -> Error {
-        match (self.known, other.known) {
-            (true, false) => self,
-            (false, true) => other,
-            _ if other.offset > self.offset => other,
-            _ => self,
-        }
-    }
-}
 
 struct Glsl<'t> {
     text: &'t str,
@@ -92,248 +75,6 @@ struct Glsl<'t> {
 }
 
 type Rule<'r, 't, T = ()> = &'r dyn Fn(&mut Glsl<'t>) -> P<T>;
-
-const KEYWORDS: &[&str] = &[
-    "attribute",
-    "const",
-    "uniform",
-    "varying",
-    "layout",
-    "centroid",
-    "flat",
-    "smooth",
-    "noperspective",
-    "break",
-    "continue",
-    "do",
-    "for",
-    "while",
-    "switch",
-    "case",
-    "default",
-    "if",
-    "else",
-    "in",
-    "out",
-    "inout",
-    "float",
-    "int",
-    "void",
-    "bool",
-    "true",
-    "false",
-    "invariant",
-    "discard",
-    "return",
-    "mat2",
-    "mat3",
-    "mat4",
-    "mat2x2",
-    "mat2x3",
-    "mat2x4",
-    "mat3x2",
-    "mat3x3",
-    "mat3x4",
-    "mat4x2",
-    "mat4x3",
-    "mat4x4",
-    "vec2",
-    "vec3",
-    "vec4",
-    "ivec2",
-    "ivec3",
-    "ivec4",
-    "bvec2",
-    "bvec3",
-    "bvec4",
-    "uint",
-    "uvec2",
-    "uvec3",
-    "uvec4",
-    "lowp",
-    "mediump",
-    "highp",
-    "precision",
-    "sampler1D",
-    "sampler2D",
-    "sampler3D",
-    "samplerCube",
-    "sampler1DShadow",
-    "sampler2DShadow",
-    "samplerCubeShadow",
-    "sampler1DArray",
-    "sampler2DArray",
-    "sampler1DArrayShadow",
-    "sampler2DArrayShadow",
-    "isampler1D",
-    "isampler2D",
-    "isampler3D",
-    "isamplerCube",
-    "isampler1DArray",
-    "isampler2DArray",
-    "usampler1D",
-    "usampler2D",
-    "usampler3D",
-    "usamplerCube",
-    "usampler1DArray",
-    "usampler2DArray",
-    "sampler2DRect",
-    "sampler2DRectShadow",
-    "isampler2DRect",
-    "usampler2DRect",
-    "samplerBuffer",
-    "isamplerBuffer",
-    "usamplerBuffer",
-    "sampler2DMS",
-    "isampler2DMS",
-    "usampler2DMS",
-    "sampler2DMSArray",
-    "isampler2DMSArray",
-    "usampler2DMSArray",
-    "struct",
-];
-
-const RESERVED_WORDS: &[&str] = &[
-    "common",
-    "partition",
-    "active",
-    "asm",
-    "class",
-    "union",
-    "enum",
-    "typedef",
-    "template",
-    "this",
-    "packed",
-    "goto",
-    "inline",
-    "noinline",
-    "volatile",
-    "public",
-    "static",
-    "extern",
-    "external",
-    "interface",
-    "long",
-    "short",
-    "double",
-    "half",
-    "fixed",
-    "unsigned",
-    "superp",
-    "input",
-    "output",
-    "hvec2",
-    "hvec3",
-    "hvec4",
-    "dvec2",
-    "dvec3",
-    "dvec4",
-    "fvec2",
-    "fvec3",
-    "fvec4",
-    "sampler3DRect",
-    "filter",
-    "image1D",
-    "image2D",
-    "image3D",
-    "imageCube",
-    "iimage1D",
-    "iimage2D",
-    "iimage3D",
-    "iimageCube",
-    "uimage1D",
-    "uimage2D",
-    "uimage3D",
-    "uimageCube",
-    "image1DArray",
-    "image2DArray",
-    "iimage1DArray",
-    "iimage2DArray",
-    "uimage1DArray",
-    "uimage2DArray",
-    "image1DShadow",
-    "image2DShadow",
-    "image1DArrayShadow",
-    "image2DArrayShadow",
-    "imageBuffer",
-    "iimageBuffer",
-    "uimageBuffer",
-    "sizeof",
-    "cast",
-    "namespace",
-    "using",
-    "row_major",
-];
-
-/// `typeSpecifierNonArray`'s keywords, in upstream's order.
-const TYPES: &[&str] = &[
-    "void",
-    "float",
-    "int",
-    "uint",
-    "bool",
-    "vec2",
-    "vec3",
-    "vec4",
-    "bvec2",
-    "bvec3",
-    "bvec4",
-    "ivec2",
-    "ivec3",
-    "ivec4",
-    "uvec2",
-    "uvec3",
-    "uvec4",
-    "mat2",
-    "mat3",
-    "mat4",
-    "mat2x2",
-    "mat2x3",
-    "mat2x4",
-    "mat3x2",
-    "mat3x3",
-    "mat3x4",
-    "mat4x2",
-    "mat4x3",
-    "mat4x4",
-    "sampler1D",
-    "sampler2D",
-    "sampler3D",
-    "samplerCube",
-    "sampler1DShadow",
-    "sampler2DShadow",
-    "samplerCubeShadow",
-    "sampler1DArray",
-    "sampler2DArray",
-    "sampler1DArrayShadow",
-    "sampler2DArrayShadow",
-    "isampler1D",
-    "isampler2D",
-    "isampler3D",
-    "isamplerCube",
-    "isampler1DArray",
-    "isampler2DArray",
-    "usampler1D",
-    "usampler2D",
-    "usampler3D",
-    "usamplerCube",
-    "usampler1DArray",
-    "usampler2DArray",
-    "sampler2DRect",
-    "sampler2DRectShadow",
-    "isampler2DRect",
-    "usampler2DRect",
-    "samplerBuffer",
-    "isamplerBuffer",
-    "usamplerBuffer",
-    "sampler2DMS",
-    "isampler2DMS",
-    "usampler2DMS",
-    "sampler2DMSArray",
-    "isampler2DMSArray",
-    "usampler2DMSArray",
-];
 
 /// An infix operator of `buildExpressionParser`'s tables.
 #[derive(Clone, Copy)]
@@ -419,14 +160,6 @@ fn is_space(c: char) -> bool {
     }
 }
 
-fn is_identifier_head(c: char) -> bool {
-    is_letter(c) || c == '_'
-}
-
-fn is_identifier_tail(c: char) -> bool {
-    is_alpha_num(c) || c == '_'
-}
-
 impl<'t> Glsl<'t> {
     // Parsec's primitives and combinators.
 
@@ -434,16 +167,9 @@ impl<'t> Glsl<'t> {
         self.text[self.pos..].chars().next()
     }
 
-    /// Fails here, as a token parser does, merging the error.
-    fn fail(&mut self) -> Fail {
-        self.fail_at(self.pos)
-    }
-
-    fn fail_at(&mut self, offset: usize) -> Fail {
-        self.error = self.error.merge(Error {
-            offset,
-            known: true,
-        });
+    /// Fails with a message at `offset`, merged into the error.
+    fn fail_at(&mut self, offset: usize, kind: Kind, text: Text) -> Fail {
+        self.error.merge(Error::new(offset, kind, text));
         Fail
     }
 
@@ -453,23 +179,32 @@ impl<'t> Glsl<'t> {
         self.error = Error::unknown(self.pos);
     }
 
+    /// What a token parser met here: `show [c]`, or nothing at the end.
+    fn met(&self, offset: usize) -> Text {
+        match self.text[offset..].chars().next() {
+            Some(c) => Text::ShowString(c),
+            None => Text::Str(""),
+        }
+    }
+
     fn satisfy(&mut self, f: impl Fn(char) -> bool) -> P<char> {
         match self.peek() {
             Some(c) if f(c) => {
                 self.advance(c.len_utf8());
                 Ok(c)
             }
-            _ => Err(self.fail()),
+            _ => Err(self.fail_at(self.pos, Kind::SysUnExpect, self.met(self.pos))),
         }
     }
 
-    fn char(&mut self, c: char) -> P {
-        self.satisfy(|d| d == c).map(drop)
+    /// `char`, which labels itself with its `show`.
+    fn char(&mut self, c: char) -> P<char> {
+        self.label(Text::ShowString(c), |p| p.satisfy(|d| d == c))
     }
 
     /// `string`: consumes what matches, so a partial match fails having
     /// consumed input, with the error where it started.
-    fn string(&mut self, s: &str) -> P {
+    fn string(&mut self, s: &'static str) -> P {
         let start = self.pos;
         let rest = &self.text[start..];
         if rest.starts_with(s) {
@@ -480,32 +215,60 @@ impl<'t> Glsl<'t> {
             .take_while(|(a, b)| a == b)
             .map(|(a, _)| a.len_utf8())
             .sum();
+        let mut error = Error::new(start, Kind::SysUnExpect, self.met(start + matched));
+        error.expect(Text::Show(s));
         if matched == 0 {
-            return Err(self.fail());
+            self.error.merge(error);
+        } else {
+            self.pos += matched;
+            self.error = error;
         }
-        self.pos += matched;
-        self.error = Error {
-            offset: start,
-            known: true,
-        };
         Err(Fail)
     }
 
+    /// `eof`: `notFollowedBy anyToken <?> "end of input"`, which leaves
+    /// its error even when it succeeds.
     fn eof(&mut self) -> P {
+        let mut error = match self.peek() {
+            None => Error::new(self.pos, Kind::SysUnExpect, Text::Str("")),
+            Some(c) => Error::new(self.pos, Kind::UnExpect, Text::ShowChar(c)),
+        };
+        error.expect(Text::Str("end of input"));
+        self.error.merge(error);
         if self.pos == self.text.len() {
             Ok(())
         } else {
-            Err(self.fail())
+            Err(Fail)
         }
+    }
+
+    /// `<?>`: when `rule` consumes nothing, `label` replaces what its
+    /// error expects.
+    fn label<T>(&mut self, label: Text, rule: impl FnOnce(&mut Self) -> P<T>) -> P<T> {
+        let start = self.pos;
+        let outer = std::mem::replace(&mut self.error, Error::unknown(start));
+        let result = rule(self);
+        if self.pos == start {
+            if result.is_err() || self.error.is_known() {
+                self.error.expect(label);
+            }
+            let inner = std::mem::replace(&mut self.error, outer);
+            self.error.merge(inner);
+        }
+        result
     }
 
     /// `try`: a failure consumes nothing.
     fn attempt<T>(&mut self, rule: impl FnOnce(&mut Self) -> P<T>) -> P<T> {
-        let (pos, error) = (self.pos, self.error);
+        let start = self.pos;
+        let outer = std::mem::replace(&mut self.error, Error::unknown(start));
         let result = rule(self);
-        if result.is_err() && self.pos != pos {
-            self.pos = pos;
-            self.error = error.merge(self.error);
+        if result.is_err() {
+            self.pos = start;
+        }
+        if self.pos == start {
+            let inner = std::mem::replace(&mut self.error, outer);
+            self.error.merge(inner);
         }
         result
     }
@@ -566,16 +329,20 @@ impl<'t> Glsl<'t> {
         Ok(())
     }
 
-    /// `notFollowedBy`, which never consumes.
-    fn not_followed_by(&mut self, rule: impl FnOnce(&mut Self) -> P) -> P {
-        let (start, error) = (self.pos, self.error);
-        match self.attempt(rule) {
-            Ok(()) => {
-                self.fail();
-                self.pos = start;
-                self.error = error.merge(self.error);
-                Err(Fail)
-            }
+    /// `notFollowedBy`, which never consumes: it fails where `rule`
+    /// stopped, with `unexpected (show c)` for what `rule` returned.
+    fn not_followed_by(&mut self, rule: impl FnOnce(&mut Self) -> P<char>) -> P {
+        let start = self.pos;
+        let outer = std::mem::replace(&mut self.error, Error::unknown(start));
+        let result = rule(self);
+        if let Ok(c) = result {
+            self.fail_at(self.pos, Kind::UnExpect, Text::ShowChar(c));
+        }
+        self.pos = start;
+        let inner = std::mem::replace(&mut self.error, outer);
+        self.error.merge(inner);
+        match result {
+            Ok(_) => Err(Fail),
             Err(Fail) => Ok(()),
         }
     }
@@ -613,7 +380,8 @@ impl<'t> Glsl<'t> {
     fn blanks(&mut self) {
         let blank = |p: &mut Self| {
             p.choice(&[&|p| p.attempt(Self::comment), &|p| {
-                p.satisfy(is_space).map(drop)
+                p.label(Text::Str("space"), |p| p.satisfy(is_space))
+                    .map(drop)
             }])
         };
         let _ = self.many(blank);
@@ -628,7 +396,15 @@ impl<'t> Glsl<'t> {
             },
             &|p| {
                 p.char('/')?;
-                p.skip_till(|p| p.choice(&[&|p| p.char('\n'), &Self::eof]))
+                p.skip_till(|p| {
+                    p.choice(&[
+                        &|p| {
+                            p.label(Text::Str("lf new-line"), |p| p.char('\n'))
+                                .map(drop)
+                        },
+                        &Self::eof,
+                    ])
+                })
             },
         ])
     }
@@ -640,49 +416,58 @@ impl<'t> Glsl<'t> {
         Ok(())
     }
 
-    /// `choice (map keyword words)`, where `keyword w` takes `w` not
-    /// followed by an identifier's character, and the blanks after it.
-    fn keywords(&mut self, words: &[&str]) -> P {
+    /// `keyword w`: `w` not followed by an identifier's character, and
+    /// the blanks after it.
+    fn keyword(&mut self, word: &'static str) -> P {
+        self.attempt(|p| {
+            p.string(word)?;
+            p.not_followed_by(Self::identifier_tail)
+        })?;
+        self.blanks();
+        Ok(())
+    }
+
+    /// `choice (map keyword words)`.
+    fn keywords(&mut self, words: &[&'static str]) -> P {
         let start = self.pos;
-        let rest = &self.text[start..];
-        let word_len = rest
-            .find(|c: char| !is_identifier_tail(c))
-            .unwrap_or(rest.len());
-        let word = &rest[..word_len];
-        for &w in words {
-            if word == w {
-                self.advance(w.len());
-                self.blanks();
-                return Ok(());
+        for &word in words {
+            match self.keyword(word) {
+                Err(Fail) if self.pos == start => {}
+                result => return result,
             }
-            // `notFollowedBy` fails past the character that follows.
-            let offset = match word.strip_prefix(w) {
-                Some(more) => {
-                    let next = more.chars().next().expect("the word is longer");
-                    start + w.len() + next.len_utf8()
-                }
-                None => start,
-            };
-            self.fail_at(offset);
         }
         Err(Fail)
     }
 
-    fn keyword(&mut self, word: &str) -> P {
-        self.keywords(&[word])
+    /// `identifierTail`: `alphaNum <|> char '_'`.
+    fn identifier_tail(&mut self) -> P<char> {
+        self.choice(&[
+            &|p| p.label(Text::Str("letter or digit"), |p| p.satisfy(is_alpha_num)),
+            &|p| p.char('_'),
+        ])
     }
 
     /// An identifier: its check fails after consuming it.
     fn identifier(&mut self) -> P {
         let start = self.pos;
-        self.satisfy(is_identifier_head)?;
-        while self.satisfy(is_identifier_tail).is_ok() {}
+        self.choice(&[
+            &|p| p.label(Text::Str("letter"), |p| p.satisfy(is_letter)),
+            &|p| p.char('_'),
+        ])?;
+        self.many(|p| p.identifier_tail().map(drop))?;
         let name = &self.text[start..self.pos];
-        if KEYWORDS.contains(&name) || RESERVED_WORDS.contains(&name) || name.contains("__") {
-            return Err(self.fail());
-        }
-        self.blanks();
-        Ok(())
+        let problem = if RESERVED_WORDS.contains(&name) {
+            "is reserved"
+        } else if KEYWORDS.contains(&name) {
+            "is a keyword"
+        } else if name.contains("__") {
+            "is reserved (two consecutive underscores)"
+        } else {
+            self.blanks();
+            return Ok(());
+        };
+        let message = Text::Owned(format!("{name} {problem}"));
+        Err(self.fail_at(self.pos, Kind::Message, message))
     }
 
     /// `operator` and the tables' operators: `lexeme (try …)`.
@@ -695,7 +480,7 @@ impl<'t> Glsl<'t> {
             }
             Op::Single(c) => {
                 p.char(c)?;
-                p.not_followed_by(|p| p.satisfy(|d| d == c || d == '=').map(drop))
+                p.not_followed_by(|p| p.satisfy(|d| d == c || d == '='))
             }
         })?;
         self.blanks();
@@ -708,10 +493,9 @@ impl<'t> Glsl<'t> {
         Ok(())
     }
 
-    fn digits(&mut self, f: fn(char) -> bool) -> P {
-        self.satisfy(f)?;
-        while self.satisfy(f).is_ok() {}
-        Ok(())
+    /// `many1` of a labelled digit parser.
+    fn digits(&mut self, label: &'static str, f: fn(char) -> bool) -> P {
+        self.many1(|p| p.label(Text::Str(label), |p| p.satisfy(f)).map(drop))
     }
 
     fn suffix(&mut self, letters: &str) -> P {
@@ -726,7 +510,7 @@ impl<'t> Glsl<'t> {
                 p.token_with(|p| {
                     p.char('0')?;
                     p.satisfy(|c| c == 'x' || c == 'X')?;
-                    p.digits(|c| c.is_ascii_hexdigit())?;
+                    p.digits("hexadecimal digit", |c| c.is_ascii_hexdigit())?;
                     p.suffix("Uu")
                 })
             },
@@ -734,7 +518,7 @@ impl<'t> Glsl<'t> {
             &|p| {
                 p.token_with(|p| {
                     p.char('0')?;
-                    p.digits(|c| ('0'..='7').contains(&c))?;
+                    p.digits("octal digit", |c| ('0'..='7').contains(&c))?;
                     p.suffix("Uu")
                 })
             },
@@ -742,15 +526,21 @@ impl<'t> Glsl<'t> {
             &|p| {
                 p.token_with(|p| {
                     p.char('0')?;
-                    p.digits(|c| c.is_ascii_hexdigit())
+                    p.digits("hexadecimal digit", |c| c.is_ascii_hexdigit())
                 })?;
-                Err(p.fail())
+                let message = Text::Str("Invalid octal number");
+                Err(p.fail_at(p.pos, Kind::Message, message))
             },
             // decimal
             &|p| {
                 p.token_with(|p| {
-                    p.digits(|c| c.is_ascii_digit())?;
-                    p.not_followed_by(|p| p.choice(&[&|p| p.char('.'), &Self::exponent]))?;
+                    p.digits("digit", |c| c.is_ascii_digit())?;
+                    p.not_followed_by(|p| {
+                        p.choice(&[&|p| p.char('.'), &|p| {
+                            p.exponent()?;
+                            Ok(' ')
+                        }])
+                    })?;
                     p.suffix("Uu")
                 })
             },
@@ -762,7 +552,7 @@ impl<'t> Glsl<'t> {
             // floatExponent
             &|p| {
                 p.token_with(|p| {
-                    p.digits(|c| c.is_ascii_digit())?;
+                    p.digits("digit", |c| c.is_ascii_digit())?;
                     p.exponent()?;
                     p.suffix("Ff")
                 })
@@ -770,9 +560,12 @@ impl<'t> Glsl<'t> {
             // floatPoint
             &|p| {
                 p.token_with(|p| {
-                    p.digits(|c| c.is_ascii_digit())?;
+                    p.digits("digit", |c| c.is_ascii_digit())?;
                     p.char('.')?;
-                    while p.satisfy(|c| c.is_ascii_digit()).is_ok() {}
+                    p.many(|p| {
+                        p.label(Text::Str("digit"), |p| p.satisfy(|c| c.is_ascii_digit()))
+                            .map(drop)
+                    })?;
                     p.optional(Self::exponent)?;
                     p.suffix("Ff")
                 })
@@ -781,7 +574,7 @@ impl<'t> Glsl<'t> {
             &|p| {
                 p.token_with(|p| {
                     p.char('.')?;
-                    p.digits(|c| c.is_ascii_digit())?;
+                    p.digits("digit", |c| c.is_ascii_digit())?;
                     p.optional(Self::exponent)?;
                     p.suffix("Ff")
                 })
@@ -794,7 +587,7 @@ impl<'t> Glsl<'t> {
         self.token_with(|p| {
             p.satisfy(|c| c == 'e' || c == 'E')?;
             p.suffix("+-")?;
-            p.digits(|c| c.is_ascii_digit())
+            p.digits("digit", |c| c.is_ascii_digit())
         })
     }
 
@@ -869,20 +662,50 @@ impl<'t> Glsl<'t> {
         self.postfix_expression()
     }
 
-    /// `buildExpressionParser`: each level reads terms of the level
-    /// before, joined by its operators. Every level here is of one
-    /// associativity, so its ambiguity checks never fire.
+    /// `buildExpressionParser`: a level for each row of `table`, reading
+    /// terms of the rows before joined by the row's operators. No row
+    /// mixes associativities, so its operators are tried twice before the
+    /// first (once to call them ambiguous) and once before each after,
+    /// failing the same way each time.
     fn levels(&mut self, table: &[&[Op]], term: fn(&mut Self) -> P) -> P {
         let Some((ops, inner)) = table.split_last() else {
             return term(self);
         };
-        self.levels(inner, term)?;
-        // The operators fail without consuming, so trying each in turn is
-        // their `choice`.
-        while ops.iter().any(|&op| self.operator(op).is_ok()) {
-            self.levels(inner, term)?;
+        // `termP`, between prefix and postfix operators the row lacks.
+        let term_p = |p: &mut Self| -> P {
+            p.no_operator();
+            p.levels(inner, term)?;
+            p.no_operator();
+            Ok(())
+        };
+        term_p(self)?;
+        if !self.label(Text::Str("operator"), |p| p.operators(ops))? {
+            return Ok(());
         }
-        Ok(())
+        loop {
+            term_p(self)?;
+            if !self.operators(ops)? {
+                return Ok(());
+            }
+        }
+    }
+
+    /// `prefixP` or `postfixP` with no operators: `choice [] <?> ""`,
+    /// whose error expects nothing but is known.
+    fn no_operator(&mut self) {
+        let nothing = Error::new(self.pos, Kind::Expect, Text::Str(""));
+        self.error.merge(nothing);
+    }
+
+    /// The `choice` of a row's operators: whether one was there. Each is
+    /// `try`, so none fails having consumed.
+    fn operators(&mut self, ops: &[Op]) -> P<bool> {
+        for &op in ops {
+            if self.operator(op).is_ok() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn conditional_expression(&mut self) -> P {

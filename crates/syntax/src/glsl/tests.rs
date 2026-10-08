@@ -11,6 +11,13 @@ void main () {
 }
 ";
 
+fn offset(text: &str) -> Option<usize> {
+    match check(text) {
+        Err(Rejection::At { offset, .. }) => Some(offset),
+        _ => None,
+    }
+}
+
 fn body(statements: &str) -> String {
     format!("void main () {{ {statements} }}")
 }
@@ -32,8 +39,8 @@ fn shaders_parse() {
 
 #[test]
 fn shaders_need_a_declaration() {
-    assert_eq!(check(""), Err(Rejection::At(0)));
-    assert_eq!(check("  // nothing"), Err(Rejection::At(12)));
+    assert_eq!(offset(""), Some(0));
+    assert_eq!(offset("  // nothing"), Some(12));
 }
 
 #[test]
@@ -50,13 +57,27 @@ fn quirks_follow_upstream() {
 
 #[test]
 fn rejections_point_where_parsing_stopped() {
-    assert_eq!(check("void main () { x = ; }"), Err(Rejection::At(19)));
-    assert_eq!(check("void main () { /* open }"), Err(Rejection::At(24)));
-    assert_eq!(check("int x = 1;\nint __y;"), Err(Rejection::At(18)));
+    assert_eq!(offset("void main () { x = ; }"), Some(19));
+    assert_eq!(offset("void main () { /* open }"), Some(24));
+    assert_eq!(offset("int x = 1;\nint __y;"), Some(18));
 }
 
 #[test]
 fn deep_nesting_is_rejected() {
     let deep = format!("int x = {}1{};", "(".repeat(100_000), ")".repeat(100_000));
     assert!(matches!(check(&deep), Err(Rejection::TooDeep(_))));
+}
+
+#[test]
+fn rejections_carry_parsecs_message() {
+    // As elm 0.19.1, 0.19.2 and 0.19.3 quote it for the seed's
+    // `vcoord = co]ord.xy;`.
+    let Err(Rejection::At { message, .. }) = check(&body("vcoord = co]ord.xy;")) else {
+        panic!("accepted");
+    };
+    assert_eq!(
+        message,
+        "\nunexpected \"]\"\nexpecting letter or digit, \"_\", \"/\", space, \"[\", \".\", \
+         \"++\", \"--\", operator, \"?\", \"=\" or \";\""
+    );
 }

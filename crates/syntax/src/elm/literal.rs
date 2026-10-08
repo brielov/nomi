@@ -688,9 +688,11 @@ pub(super) fn shader(p: &mut P<'_>) -> Result<(), E::Expr> {
     }
     let text = String::from_utf8_lossy(p.bytes(text_start, pos));
     p.ok_at(pos + 2, p.slide(cur, 2));
-    let offset = match glsl::check(&text) {
+    let (offset, message) = match glsl::check(&text) {
         Ok(()) => return Ok(()),
-        Err(Rejection::At(offset) | Rejection::TooDeep(offset)) => offset,
+        Err(Rejection::At { offset, message }) => (offset, message),
+        // Upstream has no depth limit, so no message to quote.
+        Err(Rejection::TooDeep(offset)) => (offset, String::new()),
     };
     // Parsec's position: lines from 1, columns from 1 by character, tabs
     // to the next multiple of 8.
@@ -723,6 +725,5 @@ pub(super) fn shader(p: &mut P<'_>) -> Result<(), E::Expr> {
         };
         p.slide(row_start, col - 1)
     };
-    // Parsec's message needs a port of language-glsl's parser too.
-    p.cerr(E::Expr::ShaderProblem("".into(), at))
+    p.cerr(E::Expr::ShaderProblem(message.into(), at))
 }

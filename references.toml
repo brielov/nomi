@@ -62,6 +62,26 @@ repo = "noteed/language-glsl"
 tag = "0.3.0"
 commit = "103ed6dc5abe0c548ce345b264a9af554ee80c52"
 
+# The Parsec each elm release links, whose error messages elm quotes in its
+# SHADER PROBLEM reports (`Parse/Shader.hs`, `showErrorMessages`).
+[[source]]
+name = "parsec-3.1.13.0"
+repo = "haskell/parsec"
+tag = "v3.1.13.0"
+commit = "00dd731bc12746ac7d4341348abe733c5373cdb7"
+
+[[source]]
+name = "parsec-3.1.17.0"
+repo = "haskell/parsec"
+tag = "v3.1.17.0"
+commit = "647c570489a210584d9d99be39e1c02054ea7c64"
+
+[[source]]
+name = "parsec-3.1.18.0"
+repo = "haskell/parsec"
+tag = "parsec-3.1.18.0"
+commit = "b87122c1c74b8240e65044a8f600f0427d4dd9c3"
+
 # Each asset is either a gzipped executable (`gz`) or a tarball holding it
 # (`tgz`). Platforms are `<os>-<arch>` as Rust spells them.
 
