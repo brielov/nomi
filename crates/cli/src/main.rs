@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 use nomi_engine::console::{Personality, StdConsole};
 use nomi_engine::format::{self, Mode, Outcome};
 use nomi_engine::paths::Cache;
-use nomi_engine::{Vfs, Web, init, install};
+use nomi_engine::{Vfs, Web, init, install, remove};
 
 /// One toolchain for Elm: compiler, formatter, language server, test runner
 /// and package manager.
@@ -49,6 +49,13 @@ enum Command {
         /// The package, e.g. elm/http.
         package: String,
     },
+    /// Remove a package from the project's dependencies, with what only
+    /// it needed.
+    #[command(visible_alias = "remove")]
+    Rm {
+        /// The package, e.g. elm/http.
+        package: String,
+    },
 }
 
 mod elm;
@@ -79,6 +86,7 @@ fn main() -> ExitCode {
         }
         Some(Command::New { dir }) => new(Personality::Nomi, dir),
         Some(Command::Add { package }) => add(Personality::Nomi, Some(&package)),
+        Some(Command::Rm { package }) => rm(&package),
     };
     exit(succeeded)
 }
@@ -109,12 +117,8 @@ fn new(personality: Personality, dir: Option<PathBuf>) -> bool {
 /// directory.
 fn add(personality: Personality, package: Option<&str>) -> bool {
     let Some(cache) = cache() else { return false };
-    let dir = match std::env::current_dir() {
-        Ok(dir) => dir,
-        Err(e) => {
-            eprintln!("error: the current directory: {e}");
-            return false;
-        }
+    let Some(dir) = current_dir() else {
+        return false;
     };
     install::run(
         &Vfs::new(),
@@ -125,6 +129,28 @@ fn add(personality: Personality, package: Option<&str>) -> bool {
         &Web::new(),
         package,
     )
+}
+
+/// `nomi rm`, for the project around the current directory.
+fn rm(package: &str) -> bool {
+    let Some(cache) = cache() else { return false };
+    let Some(dir) = current_dir() else {
+        return false;
+    };
+    remove::run(
+        &Vfs::new(),
+        &mut StdConsole,
+        &dir,
+        &cache,
+        &Web::new(),
+        package,
+    )
+}
+
+fn current_dir() -> Option<PathBuf> {
+    std::env::current_dir()
+        .inspect_err(|e| eprintln!("error: the current directory: {e}"))
+        .ok()
 }
 
 fn cache() -> Option<Cache> {

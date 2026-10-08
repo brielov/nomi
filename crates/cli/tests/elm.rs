@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Cursor, Write};
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use nomi_base::Compat;
 use nomi_project::Name;
@@ -58,20 +58,10 @@ fn elm_transcripts() {
         website.fill(cache.path());
         let work = tempfile::tempdir().unwrap();
         case.create_files(work.path()).unwrap();
-        let mut command = Command::new(&elm);
-        command.env("NOMI_CACHE", cache.path());
-        // Every request fails, as the recordings' did.
-        for var in [
-            "NO_PROXY",
-            "no_proxy",
-            "HTTPS_PROXY",
-            "https_proxy",
-            "HTTP_PROXY",
-        ] {
-            command.env_remove(var);
-        }
-        command.env("ALL_PROXY", "http://127.0.0.1:9");
-        let actual = case.run(command, work.path()).unwrap().render();
+        let actual = case
+            .run(offline(&elm, cache.path()), work.path())
+            .unwrap()
+            .render();
         if actual != expected {
             failures.push(format!(
                 "{name}:\n--- expected\n{expected}--- actual\n{actual}"
@@ -85,6 +75,66 @@ fn elm_transcripts() {
         cases.len(),
         failures.join("\n")
     );
+}
+
+/// `nomi rm`, which upstream has no command for, takes out what `nomi
+/// add` put in.
+#[test]
+fn rm_undoes_add() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm");
+    let cache = tempfile::tempdir().unwrap();
+    Website::new(&dir.join("packages")).fill(cache.path());
+    let case =
+        Case::parse(&fs::read_to_string(dir.join("cases/install_add.case")).unwrap()).unwrap();
+    let work = tempfile::tempdir().unwrap();
+    case.create_files(work.path()).unwrap();
+    let elm_json = work.path().join("elm.json");
+    let before = fs::read_to_string(&elm_json).unwrap();
+    let nomi = |args: &[&str]| {
+        let mut command = offline(Path::new(env!("CARGO_BIN_EXE_nomi")), cache.path());
+        let mut child = command
+            .args(args)
+            .current_dir(work.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(b"y\n").unwrap();
+        let output = child.wait_with_output().unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        assert!(
+            output.status.success(),
+            "nomi {args:?}:\n{stdout}{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        stdout
+    };
+    nomi(&["add", "elm/http"]);
+    assert_ne!(fs::read_to_string(&elm_json).unwrap(), before);
+    let removed = nomi(&["rm", "elm/http"]);
+    assert_eq!(fs::read_to_string(&elm_json).unwrap(), before, "{removed}");
+    for gone in ["elm/http", "elm/bytes", "elm/file"] {
+        assert!(removed.contains(gone), "{removed}");
+    }
+}
+
+/// `program` with the cache at `cache`, where every request fails, as
+/// the recordings' did.
+fn offline(program: &Path, cache: &Path) -> Command {
+    let mut command = Command::new(program);
+    command.env("NOMI_CACHE", cache);
+    for var in [
+        "NO_PROXY",
+        "no_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "HTTP_PROXY",
+    ] {
+        command.env_remove(var);
+    }
+    command.env("ALL_PROXY", "http://127.0.0.1:9");
+    command
 }
 
 /// The registry the recordings had: one release of each fixture package,

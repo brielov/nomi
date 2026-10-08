@@ -155,7 +155,7 @@ fn plan_pkg<P: Packages>(
 }
 
 /// `detectChanges`.
-fn changes<T: Copy + PartialEq>(
+pub(crate) fn changes<T: Copy + PartialEq>(
     old: &BTreeMap<Name, T>,
     new: &BTreeMap<Name, T>,
 ) -> BTreeMap<Name, Change<T>> {

@@ -13,7 +13,8 @@ use std::path::Path;
 use nomi_base::Compat;
 use nomi_project::json::Cursor;
 use nomi_project::{Name, Outline, Version};
-use nomi_registry::install::{self, InstallProblem, Plan};
+use nomi_registry::install::{self, Change, InstallProblem, Plan};
+use nomi_registry::remove::{self, RemoveProblem};
 use nomi_registry::{DetailsProblem, Known, Packages, Release, details, solver};
 use nomi_testkit::ratchet::Suite;
 use serde::Deserialize;
@@ -145,6 +146,100 @@ fn explanations() {
         }
     }
     insta::assert_snapshot!(explanations);
+}
+
+/// Removing the package each scenario adds to an application leaves its
+/// other dependencies at their versions, and elm accepts the result. When
+/// adding only inserted packages, removing gives back the application
+/// the scenario started from, unless that kept packages nothing needed.
+#[test]
+fn removing_undoes_adding() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/solver");
+    let compat = Compat::LATEST;
+    let mut universes = BTreeMap::new();
+    let (mut checked, mut restored) = (0, 0);
+    for (name, scenario) in &scenarios(&dir) {
+        let universe = universe(&dir, &mut universes, scenario);
+        let src = outline(&scenario.project, compat).to_string();
+        let (Some(pkg), Ok(Outline::App(before))) =
+            (&scenario.add, Outline::read(src.as_bytes(), compat))
+        else {
+            continue;
+        };
+        let pkg = self::name(pkg, compat);
+        let mut packages = Fixture::new(&universe, compat);
+        let Ok(Plan::App { changes, outline }) =
+            install::plan(&mut packages, compat, &pkg, &Outline::App(before.clone()))
+        else {
+            continue;
+        };
+        let after = match remove::plan(&mut packages, &pkg, &Outline::App(outline.clone())) {
+            Ok(remove::Plan::App { outline, .. }) => outline,
+            Err(RemoveProblem::Unavailable(..)) => continue,
+            other => panic!("{name}: {other:?}"),
+        };
+        checked += 1;
+        let mut expected_direct = outline.direct.clone();
+        expected_direct.remove(&pkg);
+        assert_eq!(after.direct, expected_direct, "{name}");
+        for deps in [&after.indirect, &after.test_direct, &after.test_indirect] {
+            for (dep, version) in deps {
+                let kept = [
+                    &outline.direct,
+                    &outline.indirect,
+                    &outline.test_direct,
+                    &outline.test_indirect,
+                ]
+                .iter()
+                .find_map(|deps| deps.get(dep));
+                assert_eq!(kept, Some(version), "{name}: {dep}");
+            }
+        }
+        let after = Outline::App(after);
+        assert!(
+            details::verify(&mut packages, compat, &after).is_ok(),
+            "{name}"
+        );
+        let Outline::App(after) = after else {
+            unreachable!()
+        };
+        if changes.values().all(|c| matches!(c, Change::Insert(_))) && tidy(&mut packages, &before)
+        {
+            assert_eq!(after, before, "{name}");
+            restored += 1;
+        }
+    }
+    assert!(checked > 50, "checked only {checked} scenarios");
+    assert!(restored > 10, "restored only {restored} scenarios");
+}
+
+/// Whether elm accepts `app` and removing a package nothing depends on
+/// would keep all the rest: every indirect dependency is needed.
+fn tidy(packages: &mut Fixture, app: &nomi_project::outline::AppOutline) -> bool {
+    let compat = Compat::LATEST;
+    if details::verify(packages, compat, &Outline::App(app.clone())).is_err() {
+        return false;
+    }
+    let unused = name("nomi/unused", compat);
+    let mut with = app.clone();
+    with.direct.insert(unused.clone(), version("1.0.0", compat));
+    packages.cache.insert(
+        (unused.clone(), version("1.0.0", compat)),
+        (
+            json!({
+                "type": "package", "name": "nomi/unused", "summary": "fixture",
+                "license": "BSD-3-Clause", "version": "1.0.0", "exposed-modules": ["A"],
+                "elm-version": "0.19.0 <= v < 0.20.0", "dependencies": {},
+                "test-dependencies": {},
+            })
+            .to_string(),
+            true,
+        ),
+    );
+    matches!(
+        remove::plan(packages, &unused, &Outline::App(with)),
+        Ok(remove::Plan::App { outline, .. }) if &outline == app
+    )
 }
 
 /// What nomi answers, in the oracle's words.

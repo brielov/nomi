@@ -333,7 +333,7 @@ fn package_problem(problem: &PackageProblem) -> String {
 
 /// The package argument. Upstream's argument parser reports a bad one
 /// with examples, which come with the rest of its usage errors.
-fn parse_name(arg: &str) -> Result<Name, Report> {
+pub(crate) fn parse_name(arg: &str) -> Result<Name, Report> {
     let compat = Compat::LATEST;
     Name::parse(arg.as_bytes(), Cursor::start(compat), compat).map_err(|_| {
         one_line(
@@ -344,11 +344,11 @@ fn parse_name(arg: &str) -> Result<Name, Report> {
 }
 
 /// A report whose message is one sentence, until 4.4a ports upstream's.
-fn one_line(title: &'static str, message: String) -> Report {
+pub(crate) fn one_line(title: &'static str, message: String) -> Report {
     Report::new(title, None, &message, [])
 }
 
-fn words(text: &str) -> impl Iterator<Item = Doc> + '_ {
+pub(crate) fn words(text: &str) -> impl Iterator<Item = Doc> + '_ {
     text.split_whitespace().map(Doc::text)
 }
 
@@ -385,7 +385,7 @@ fn promote_test() -> Doc {
 }
 
 /// The `Changes` question: the plan, by kind of change.
-fn plan_question<T: Display>(changes: &BTreeMap<Name, Change<T>>) -> Doc {
+pub(crate) fn plan_question<T: Display>(changes: &BTreeMap<Name, Change<T>>) -> Doc {
     let width = |s: String| s.chars().count();
     let (mut name_w, mut left_w, mut right_w) = (0, 0, 0);
     for (name, change) in changes {
