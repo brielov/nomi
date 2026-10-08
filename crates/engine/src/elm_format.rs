@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use nomi_base::ElmPosition;
 
 use crate::format::{decode, format_text};
-use crate::{Pool, Vfs};
+use crate::{Pool, Vfs, paths};
 
 /// The `--elm-version` values upstream accepts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -273,7 +273,7 @@ fn task(options: &Options, files: Vec<PathBuf>) -> Result<Option<Task>, &'static
 /// Upstream's guess when `--elm-version` is missing: 0.18 for a project
 /// with only an `elm-package.json`, else 0.19.
 fn detect_version(vfs: &Vfs) -> ElmVersion {
-    if vfs.is_file(Path::new("elm-package.json")) && !vfs.is_file(Path::new("elm.json")) {
+    if vfs.is_file(Path::new(paths::ELM_PACKAGE_JSON)) && !vfs.is_file(Path::new(paths::ELM_JSON)) {
         ElmVersion::V0_18
     } else {
         ElmVersion::V0_19

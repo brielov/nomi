@@ -36,6 +36,16 @@ impl Version {
         }
     }
 
+    /// `V.compiler`: the release `compat` emulates, which an application's
+    /// `elm-version` names and a package's `elm-version` must admit.
+    pub const fn compiler(compat: Compat) -> Version {
+        match compat {
+            Compat::V0_19_1 => Version::new(0, 19, 1),
+            Compat::V0_19_2 => Version::new(0, 19, 2),
+            Compat::V0_19_3 => Version::new(0, 19, 3),
+        }
+    }
+
     /// `toVersion`: the numbers as `compat` stores them.
     pub fn wrapped(compat: Compat, major: u32, minor: u32, patch: u32) -> Version {
         match compat {

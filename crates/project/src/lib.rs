@@ -14,7 +14,7 @@ pub mod version;
 pub use constraint::{Constraint, ConstraintError, Op};
 pub use license::License;
 pub use module_name::ModuleName;
-pub use outline::{Outline, OutlineError};
+pub use outline::{DetectError, Outline, OutlineError};
 pub use package::Name;
 pub use version::Version;
 

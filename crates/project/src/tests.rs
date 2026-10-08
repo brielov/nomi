@@ -7,7 +7,7 @@ use std::cmp::Ordering;
 use nomi_base::Compat;
 
 use crate::json::{Cursor, Position};
-use crate::outline::{Exposed, SrcDir};
+use crate::outline::{DetectError, Exposed, SrcDir};
 use crate::{
     Constraint, ConstraintError, License, ModuleName, Name, Op, Outline, OutlineError, Version,
     license,
@@ -463,4 +463,63 @@ fn exposed_modules_keep_their_sections() {
     assert_eq!(headers, [b"B".as_slice(), b"A"]);
     let modules: Vec<&[u8]> = pkg.exposed.modules().map(ModuleName::as_bytes).collect();
     assert_eq!(modules, [b"Basics".as_slice(), b"List", b"Maybe"]);
+}
+
+fn pkg(elm: &str, module: &str) -> Vec<u8> {
+    format!(
+        r#"{{"type":"package","name":"a/b","summary":"s","license":"MIT","version":"1.0.0",
+"exposed-modules":["{module}"],"elm-version":"{elm}",
+"dependencies":{{"elm/core":"1.0.0 <= v < 2.0.0"}},"test-dependencies":{{}}}}"#
+    )
+    .into_bytes()
+}
+
+#[test]
+fn applications_are_built_as_the_release_they_name() {
+    for (elm, compat) in [("0.19.1", V1), ("0.19.2", V2), ("0.19.3", V3)] {
+        let src = APP.replace("0.19.1", elm).replace("SRC", r#""src""#);
+        assert_eq!(Outline::detect(src.as_bytes()).unwrap().1, compat);
+    }
+    let src = APP.replace("0.19.1", "0.19.0").replace("SRC", r#""src""#);
+    assert_eq!(
+        Outline::detect(src.as_bytes()),
+        Err(DetectError::AppElm(v(0, 19, 0)))
+    );
+}
+
+#[test]
+fn packages_are_built_as_the_newest_release_they_admit() {
+    for (elm, compat) in [
+        ("0.19.0 <= v < 0.20.0", V3),
+        ("0.19.0 <= v < 0.19.3", V2),
+        ("0.19.1 <= v < 0.19.2", V1),
+    ] {
+        assert_eq!(Outline::detect(&pkg(elm, "A")).unwrap().1, compat);
+    }
+    let range = constraint("0.18.0 <= v < 0.19.0", V3);
+    assert_eq!(
+        Outline::detect(&pkg("0.18.0 <= v < 0.19.0", "A")),
+        Err(DetectError::PkgElm(range.unwrap()))
+    );
+}
+
+#[test]
+fn outlines_are_read_as_the_release_they_name() {
+    // Only 0.19.1 reads this file, so it names its release itself.
+    let mut src = APP.as_bytes().split(|&b| b == b'S').collect::<Vec<_>>();
+    let rest = &src.pop().unwrap()[b"RC".len()..];
+    let src = [src[0], b"\"src\xC0\"\"", rest].concat();
+    assert!(matches!(Outline::detect(&src), Ok((_, V1))));
+    // 0.19.3 reads a 300-byte module name, but 0.19.1 doesn't.
+    let long = "A".repeat(300);
+    assert!(Outline::detect(&pkg("0.19.0 <= v < 0.20.0", &long)).is_ok());
+    assert!(matches!(
+        Outline::detect(&pkg("0.19.1 <= v < 0.19.2", &long)),
+        Err(DetectError::Outline(V1, OutlineError::Decode(_)))
+    ));
+    // A file no release reads names none: the newest one's error.
+    assert!(matches!(
+        Outline::detect(b"{"),
+        Err(DetectError::Outline(V3, OutlineError::Parse(_)))
+    ));
 }

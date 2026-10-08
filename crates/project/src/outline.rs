@@ -182,7 +182,66 @@ pub enum OutlineError {
     NoAppJson,
 }
 
+/// Why no supported release of elm builds the project in an `elm.json`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DetectError {
+    /// The outline isn't one: the error the elm in `compat` reports.
+    Outline(Compat, OutlineError),
+    /// An application's `elm-version` that isn't a supported release
+    /// (`Exit.DetailsBadElmInAppOutline`).
+    AppElm(Version),
+    /// A package's `elm-version` that admits no supported release
+    /// (`Exit.DetailsBadElmInPkg`).
+    PkgElm(Constraint),
+}
+
 impl Outline {
+    /// The project in `src` and the release whose behavior building it
+    /// emulates (rule R5): the `elm-version` of an application, since
+    /// upstream builds it only with that release (`Elm/Details.hs`,
+    /// `verifyApp`), or the newest release a package's `elm-version`
+    /// admits (`verifyPkg`). Each release reads `elm.json` a little
+    /// differently, so the outline is read as the release it names.
+    ///
+    /// Which release that is comes from the first release, newest first,
+    /// that reads the file at all. A file none reads names none, so its
+    /// error is the newest's.
+    pub fn detect(src: &[u8]) -> Result<(Outline, Compat), DetectError> {
+        let mut first = None;
+        for compat in Compat::ALL.into_iter().rev() {
+            match Outline::read(src, compat) {
+                Ok(outline) => {
+                    let target = outline.compat()?;
+                    if target == compat {
+                        return Ok((outline, compat));
+                    }
+                    return Outline::read(src, target)
+                        .map(|outline| (outline, target))
+                        .map_err(|e| DetectError::Outline(target, e));
+                }
+                Err(e) => {
+                    first.get_or_insert(DetectError::Outline(compat, e));
+                }
+            }
+        }
+        Err(first.expect("a release"))
+    }
+
+    /// The release this project is built as: see [`Outline::detect`].
+    pub fn compat(&self) -> Result<Compat, DetectError> {
+        match self {
+            Outline::App(app) => Compat::ALL
+                .into_iter()
+                .find(|&c| Version::compiler(c) == app.elm)
+                .ok_or(DetectError::AppElm(app.elm)),
+            Outline::Pkg(pkg) => Compat::ALL
+                .into_iter()
+                .rev()
+                .find(|&c| pkg.elm.satisfies(Version::compiler(c)))
+                .ok_or(DetectError::PkgElm(pkg.elm)),
+        }
+    }
+
     /// `read`, short of the source directories: the outline in `src`, or
     /// the error `compat`'s elm reports for it.
     pub fn read(src: &[u8], compat: Compat) -> Result<Outline, OutlineError> {
