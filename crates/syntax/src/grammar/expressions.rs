@@ -119,7 +119,14 @@ fn case_expr(p: &mut Parser<'_>) -> CompletedMarker {
     let m = p.start();
     p.bump();
     expr(p);
-    if expect_part(p, K::OfKw) {
+    // elm-format reads `case x then`; validation flags it for elm.
+    let of = if p.at_symbol(K::ThenKw) {
+        p.bump_symbol(K::ThenKw);
+        true
+    } else {
+        expect_part(p, K::OfKw)
+    };
+    if of {
         if at_pattern_atom(p) {
             let column = p.current_column();
             p.with_min_column(column + 1, |p| {

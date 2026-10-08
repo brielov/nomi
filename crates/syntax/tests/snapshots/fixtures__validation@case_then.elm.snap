@@ -1,0 +1,12 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/case_then.elm
+---
+elm, application:
+  46..50 CaseThen "then"
+elm, package:
+  46..50 CaseThen "then"
+elm, kernel package:
+  46..50 CaseThen "then"
+elm-format:

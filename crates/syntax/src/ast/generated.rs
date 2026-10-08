@@ -3026,10 +3026,6 @@ impl CaseExpr {
     pub fn case_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::CaseKw)
     }
-
-    pub fn of_token(&self) -> Option<SyntaxToken> {
-        support::token(&self.syntax, SyntaxKind::OfKw)
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

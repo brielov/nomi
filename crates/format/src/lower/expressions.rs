@@ -273,7 +273,11 @@ fn if_clause(cx: &mut Cursor, node: &ast::IfExpr) -> IfClause {
 }
 
 fn case(cx: &mut Cursor, node: &ast::CaseExpr) -> Expr {
-    let of = node.of_token().expect(VALID);
+    // Upstream reads `then` for `of`.
+    let of = [SyntaxKind::OfKw, SyntaxKind::ThenKw]
+        .into_iter()
+        .find_map(|kind| token(node.syntax(), kind))
+        .expect(VALID);
     let subject = bounded(cx, &node.expr().expect(VALID), start(&of));
     // Upstream tracks the newlines around the subject too.
     let after_case = node.case_token().expect(VALID).text_range().end();

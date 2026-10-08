@@ -329,8 +329,9 @@ AccessorExpr =
 IfExpr =
   'if' condition:Expr 'then' then_branch:Expr 'else' else_branch:Expr
 
+// elm-format also reads `then` for `of`.
 CaseExpr =
-  'case' Expr 'of' CaseBranch*
+  'case' Expr ('of' | 'then') CaseBranch*
 
 CaseBranch =
   Pattern '->' Expr

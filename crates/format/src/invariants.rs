@@ -302,7 +302,8 @@ impl Summary {
                     }));
                 }
                 // Elm 0.18's `[a..b]` becomes `List.range a b`, a record
-                // type's `=` a `:`, and a record's `:` an `=`.
+                // type's `=` a `:`, a record's `:` an `=`, and a case's
+                // `then` an `of`.
                 SyntaxKind::LBracket if parent_is(&token, SyntaxKind::RangeExpr) => {
                     body.extend([
                         Token::Other(SyntaxKind::UpperIdent, "List".to_owned()),
@@ -317,6 +318,9 @@ impl Summary {
                 }
                 SyntaxKind::Colon if parent_is(&token, SyntaxKind::Field) => {
                     body.push(Token::Other(SyntaxKind::Eq, "=".to_owned()));
+                }
+                SyntaxKind::ThenKw if parent_is(&token, SyntaxKind::CaseExpr) => {
+                    body.push(Token::Other(SyntaxKind::OfKw, "of".to_owned()));
                 }
                 SyntaxKind::Char | SyntaxKind::String | SyntaxKind::MultilineString => {
                     body.push(Token::Literal(literal_token(&token)));

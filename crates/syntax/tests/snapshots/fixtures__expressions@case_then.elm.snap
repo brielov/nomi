@@ -1,0 +1,49 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_expr)"
+input_file: crates/syntax/test_data/parser/expressions/case_then.elm
+---
+ExprFragment@0..59
+  CaseExpr@0..58
+    CaseKw@0..4 "case"
+    Whitespace@4..5 " "
+    NameExpr@5..6
+      LowerIdent@5..6 "a"
+    Whitespace@6..7 " "
+    ThenKw@7..11 "then"
+    Newline@11..12 "\n"
+    Whitespace@12..16 "    "
+    CaseBranch@16..22
+      ConstructorPattern@16..17
+        UpperIdent@16..17 "A"
+      Whitespace@17..18 " "
+      Arrow@18..20 "->"
+      Whitespace@20..21 " "
+      LiteralExpr@21..22
+        Int@21..22 "1"
+    Newline@22..23 "\n"
+    Whitespace@23..27 "    "
+    CaseBranch@27..58
+      ConstructorPattern@27..28
+        UpperIdent@27..28 "B"
+      Whitespace@28..29 " "
+      Arrow@29..31 "->"
+      Whitespace@31..32 " "
+      CaseExpr@32..58
+        CaseKw@32..36 "case"
+        Whitespace@36..37 " "
+        NameExpr@37..38
+          LowerIdent@37..38 "b"
+        Whitespace@38..39 " "
+        ThenKw@39..43 "then"
+        Newline@43..44 "\n"
+        Whitespace@44..52 "        "
+        CaseBranch@52..58
+          WildcardPattern@52..53
+            Underscore@52..53 "_"
+          Whitespace@53..54 " "
+          Arrow@54..56 "->"
+          Whitespace@56..57 " "
+          LiteralExpr@57..58
+            Int@57..58 "2"
+  Newline@58..59 "\n"

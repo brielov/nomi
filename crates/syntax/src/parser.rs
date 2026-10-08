@@ -172,6 +172,8 @@ pub enum SyntaxErrorKind {
     /// Elm 0.16's port definition, as in `port out = signal`. elm wants
     /// a port's type, as in `port out : String -> Cmd msg`.
     LegacyPort,
+    /// `then` for `of` in `case x then`, which elm-format reads.
+    CaseThen,
     /// The legacy `where` after a module's name or exposing list.
     LegacyWhere,
     /// An effect module without `where { command = … }`.
