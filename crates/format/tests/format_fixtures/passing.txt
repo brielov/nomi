@@ -962,6 +962,10 @@ nomi/transform/034.elm
 nomi/transform/035.elm
 nomi/transform/036.elm
 nomi/transform/037.elm
+nomi/transform/038.elm
+nomi/transform/039.elm
+nomi/transform/040.elm
+nomi/transform/041.elm
 nomi/transform/042.elm
 nomi/transform/044.elm
 nomi/transform/045.elm

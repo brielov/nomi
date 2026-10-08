@@ -12,8 +12,8 @@ use crate::tree::{
 };
 
 use super::{
-    commented, comments, doc_comment, keyword_commented, name, parens, pre_commented, qualified,
-    tail_commented,
+    commented, comments, doc_comment, keyword_commented, name, parens, please_report,
+    pre_commented, qualified, tail_commented,
 };
 
 fn text(text: &str) -> Block {
@@ -476,13 +476,6 @@ fn import_clause(
         }
         (keyword, clause) => Some(Block::stack1([keyword, clause.indent()])),
     }
-}
-
-/// What upstream prints where it meets what it believes can't happen.
-fn please_report(what: &str, details: &str) -> Block {
-    text(&format!(
-        "<elm-format: {what}: {details} -- please report this at https://github.com/avh4/elm-format/issues >"
-    ))
 }
 
 /// Upstream's `formatListing`.

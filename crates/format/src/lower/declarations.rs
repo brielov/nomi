@@ -8,7 +8,7 @@ use nomi_syntax::{SyntaxKind, SyntaxToken};
 use super::cursor::Cursor;
 use super::definitions::{annotation, definition, destructure};
 use super::types::ty;
-use super::{VALID, c, lower_name, range, start, symbol, token, upper_name};
+use super::{VALID, c, lower_name, range, significant, start, symbol, token, upper_name};
 use crate::tree::{
     Assoc, C1, C2, Declaration, Lower, NameWithArgs, OpenCommentedList, TopLevelStructure, Upper,
 };
@@ -26,6 +26,7 @@ pub(super) fn declaration(cx: &mut Cursor, body: &mut Body, decl: &ast::Decl) {
         ast::Decl::PortDecl(d) => d.doc_comment_token(),
         ast::Decl::DocDecl(d) => d.doc_comment_token(),
         ast::Decl::InfixDecl(_) => None,
+        ast::Decl::LegacyInfixDecl(d) => d.doc_comment_token(),
     };
     if let Some(doc) = doc {
         comments_before(cx, body, start(&doc));
@@ -66,6 +67,13 @@ pub(super) fn declaration(cx: &mut Cursor, body: &mut Body, decl: &ast::Decl) {
         ast::Decl::InfixDecl(d) => {
             comments_before(cx, body, start(&d.infix_token().expect(VALID)));
             body.push(TopLevelStructure::Entry(infix(cx, d)));
+        }
+        ast::Decl::LegacyInfixDecl(d) => {
+            let keyword = significant(d.syntax())
+                .find(|t| t.kind() != SyntaxKind::DocComment)
+                .expect(VALID);
+            comments_before(cx, body, start(&keyword));
+            body.push(TopLevelStructure::Entry(legacy_infix(cx, d, &keyword)));
         }
         ast::Decl::DocDecl(_) => {}
     }
@@ -183,6 +191,31 @@ fn infix(cx: &mut Cursor, node: &ast::InfixDecl) -> Declaration {
     let function = node.lower_ident_token().expect(VALID);
     let function = c(cx.take(start(&function)), lower_name(&function));
     Declaration::Fixity(assoc, precedence, op, function)
+}
+
+/// Elm 0.18's `infixl 6 +`, with comments before the precedence and the
+/// operator.
+fn legacy_infix(
+    cx: &mut Cursor,
+    node: &ast::LegacyInfixDecl,
+    keyword: &SyntaxToken,
+) -> Declaration {
+    let assoc = match keyword.kind() {
+        SyntaxKind::InfixlKw => Assoc::Left,
+        SyntaxKind::InfixrKw => Assoc::Right,
+        _ => Assoc::Non,
+    };
+    let int = node.int_token().expect(VALID);
+    let before_precedence = cx.take(start(&int));
+    let op = node.op().expect(VALID);
+    let before_op = cx.take(range(op.syntax()).start());
+    Declaration::LegacyFixity(
+        assoc,
+        before_precedence,
+        int.text().parse().expect(VALID),
+        before_op,
+        symbol(&op),
+    )
 }
 
 #[cfg(test)]

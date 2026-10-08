@@ -1,0 +1,59 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/legacy_infix_errors.elm
+---
+Module@0..62
+  LegacyInfixDecl@0..11
+    InfixlKw@0..6 "infixl"
+    Whitespace@6..7 " "
+    Int@7..9 "10"
+    Whitespace@9..10 " "
+    Op@10..11
+      Operator@10..11 "+"
+  Newline@11..12 "\n"
+  LegacyInfixDecl@12..23
+    InfixlKw@12..18 "infixl"
+    Whitespace@18..19 " "
+    Int@19..20 "7"
+    Op@20..23
+      Operator@20..23 "==="
+  Newline@23..24 "\n"
+  ValueDecl@24..35
+    Definition@24..35
+      LowerIdent@24..30 "infixl"
+      Whitespace@30..31 " "
+      LiteralPattern@31..32
+        Int@31..32 "4"
+      Whitespace@32..33 " "
+      Error@33..35
+        Dot@33..34 "."
+        LowerIdent@34..35 "x"
+  Newline@35..36 "\n"
+  ValueDecl@36..50
+    Definition@36..50
+      LowerIdent@36..42 "infixl"
+      Whitespace@42..43 " "
+      LiteralPattern@43..44
+        Int@43..44 "4"
+      Whitespace@44..45 " "
+      VarPattern@45..46
+        LowerIdent@45..46 "x"
+      Whitespace@46..47 " "
+      Eq@47..48 "="
+      Whitespace@48..49 " "
+      LiteralExpr@49..50
+        Int@49..50 "1"
+  Newline@50..51 "\n"
+  ValueDecl@51..61
+    Definition@51..61
+      LowerIdent@51..57 "infixl"
+      Whitespace@57..58 " "
+      Eq@58..59 "="
+      Whitespace@59..60 " "
+      LiteralExpr@60..61
+        Int@60..61 "1"
+  Newline@61..62 "\n"
+error 7..9: BadPrecedence
+error 19..20: BadPrecedence
+error 33..34: Expected(Eq)

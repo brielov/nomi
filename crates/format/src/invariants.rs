@@ -120,9 +120,11 @@ pub fn broken_invariants(text: &str) -> Vec<(Invariant, String)> {
 ///   other code points, some that don't exist;
 /// - a float too large for a double, which elm-format prints as
 ///   `Infinity`, a name Elm doesn't define;
-/// - a call of a parenthesized call spanning lines, `(f x) y` then an
-///   argument below, whose function's arguments join the first line
-///   and move below it on a second run;
+/// - a call spanning lines of a parenthesized call or of a range, as in
+///   `(f x) y` or `[a..b] y` then an argument below, whose function's
+///   arguments join the first line and move below it on a second run;
+/// - an Elm 0.18 infix declaration spanning lines for a comment in it,
+///   which elm-format prints as a request to report it;
 /// - a module without a header, declaring a type alias and a custom
 ///   type of one name, which the exposing list elm-format writes names
 ///   twice and a second run once;
@@ -172,13 +174,28 @@ pub fn upstream_breaks(text: &str) -> Vec<Invariant> {
         call.kind() == SyntaxKind::CallExpr
             && call.text().to_string().trim().contains('\n')
             && call.first_child().is_some_and(|function| {
-                function.kind() == SyntaxKind::ParenExpr
-                    && function
-                        .children()
-                        .any(|inner| inner.kind() == SyntaxKind::CallExpr)
+                function.kind() == SyntaxKind::RangeExpr
+                    || function.kind() == SyntaxKind::ParenExpr
+                        && function.children().any(|inner| {
+                            matches!(inner.kind(), SyntaxKind::CallExpr | SyntaxKind::RangeExpr)
+                        })
             })
     }) {
         breaks.push(Invariant::Idempotent);
+    }
+    if root
+        .descendants()
+        .filter(|decl| decl.kind() == SyntaxKind::LegacyInfixDecl)
+        .flat_map(|decl| {
+            decl.descendants_with_tokens()
+                .filter_map(|e| e.into_token())
+        })
+        .any(|t| {
+            t.kind() == SyntaxKind::LineComment
+                || t.kind() == SyntaxKind::BlockComment && t.text().contains('\n')
+        })
+    {
+        breaks.push(Invariant::KeepsTokens);
     }
     let type_name = |kind| {
         root.children()

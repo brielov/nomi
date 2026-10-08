@@ -166,6 +166,9 @@ pub enum SyntaxErrorKind {
     LegacyExposing,
     /// The legacy `Type(A, B)` in an exposing list. elm wants `Type(..)`.
     LegacyExposedVariants,
+    /// Elm 0.18's infix declaration, as in `infixl 0 |>`. elm wants
+    /// `infix left 0 (|>) = apR`, and only in a kernel package.
+    LegacyInfix,
     /// The legacy `where` after a module's name or exposing list.
     LegacyWhere,
     /// An effect module without `where { command = … }`.
@@ -195,7 +198,7 @@ pub enum SyntaxErrorKind {
     SpacedOperator,
     /// An infix precedence other than one decimal digit, such as `10`, or
     /// one joined to its associativity, as in `right0`, which elm-format
-    /// takes.
+    /// takes, or to the operator after it, as in `infixl 7===`.
     BadPrecedence,
     /// An operator starting with `.` right after an operand that takes
     /// field accesses, as in `model.=count`: a field access gone wrong.

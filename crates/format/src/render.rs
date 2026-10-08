@@ -410,5 +410,12 @@ fn doc_comment_string(docs: &str) -> Block {
     }
 }
 
+/// What upstream prints where it meets what it believes can't happen.
+fn please_report(what: &str, details: &str) -> Block {
+    Block::line(Line::text(format!(
+        "<elm-format: {what}: {details} -- please report this at https://github.com/avh4/elm-format/issues >"
+    )))
+}
+
 #[cfg(test)]
 mod tests;

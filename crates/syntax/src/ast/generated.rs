@@ -134,6 +134,7 @@ pub enum Decl {
     CustomTypeDecl(CustomTypeDecl),
     PortDecl(PortDecl),
     InfixDecl(InfixDecl),
+    LegacyInfixDecl(LegacyInfixDecl),
     DocDecl(DocDecl),
 }
 
@@ -145,6 +146,7 @@ impl AstNode for Decl {
             || CustomTypeDecl::can_cast(kind)
             || PortDecl::can_cast(kind)
             || InfixDecl::can_cast(kind)
+            || LegacyInfixDecl::can_cast(kind)
             || DocDecl::can_cast(kind)
     }
 
@@ -156,6 +158,7 @@ impl AstNode for Decl {
             SyntaxKind::CustomTypeDecl => Some(Decl::CustomTypeDecl(CustomTypeDecl { syntax })),
             SyntaxKind::PortDecl => Some(Decl::PortDecl(PortDecl { syntax })),
             SyntaxKind::InfixDecl => Some(Decl::InfixDecl(InfixDecl { syntax })),
+            SyntaxKind::LegacyInfixDecl => Some(Decl::LegacyInfixDecl(LegacyInfixDecl { syntax })),
             SyntaxKind::DocDecl => Some(Decl::DocDecl(DocDecl { syntax })),
             _ => None,
         }
@@ -169,6 +172,7 @@ impl AstNode for Decl {
             Decl::CustomTypeDecl(it) => &it.syntax,
             Decl::PortDecl(it) => &it.syntax,
             Decl::InfixDecl(it) => &it.syntax,
+            Decl::LegacyInfixDecl(it) => &it.syntax,
             Decl::DocDecl(it) => &it.syntax,
         }
     }
@@ -207,6 +211,12 @@ impl From<PortDecl> for Decl {
 impl From<InfixDecl> for Decl {
     fn from(node: InfixDecl) -> Decl {
         Decl::InfixDecl(node)
+    }
+}
+
+impl From<LegacyInfixDecl> for Decl {
+    fn from(node: LegacyInfixDecl) -> Decl {
+        Decl::LegacyInfixDecl(node)
     }
 }
 
@@ -1142,6 +1152,39 @@ impl InfixDecl {
 
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LegacyInfixDecl {
+    pub(super) syntax: SyntaxNode,
+}
+
+impl AstNode for LegacyInfixDecl {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::LegacyInfixDecl
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        Self::can_cast(syntax.kind()).then_some(LegacyInfixDecl { syntax })
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+
+impl LegacyInfixDecl {
+    pub fn op(&self) -> Option<Op> {
+        support::child(&self.syntax)
+    }
+
+    pub fn doc_comment_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::DocComment)
+    }
+
+    pub fn int_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::Int)
     }
 }
 
@@ -3220,6 +3263,7 @@ pub fn has_view(kind: SyntaxKind) -> bool {
         || CustomTypeDecl::can_cast(kind)
         || PortDecl::can_cast(kind)
         || InfixDecl::can_cast(kind)
+        || LegacyInfixDecl::can_cast(kind)
         || DocDecl::can_cast(kind)
         || Signature::can_cast(kind)
         || Definition::can_cast(kind)

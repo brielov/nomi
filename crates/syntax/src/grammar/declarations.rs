@@ -54,6 +54,7 @@ fn declaration(p: &mut Parser<'_>) {
         K::TypeKw => custom_type(p, m),
         K::PortKw => port(p, m),
         K::LowerIdent if at_infix(p) => infix(p, m),
+        K::LowerIdent if at_legacy_infix(p) => legacy_infix(p, m),
         _ if at_value_name(p) => {
             value(p);
             m.complete(p, K::ValueDecl);
@@ -171,6 +172,48 @@ fn associativity(p: &mut Parser<'_>, n: usize) -> Option<Associativity> {
             .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
     });
     (p.nth(n) == K::LowerIdent && joined).then_some(Associativity::Joined)
+}
+
+/// Elm 0.18's `infixl 6 +`, an associativity then a precedence then an
+/// operator, which elm-format still reads.
+fn at_legacy_infix(p: &mut Parser<'_>) -> bool {
+    let keyword = [K::InfixlKw, K::InfixrKw, K::InfixKw]
+        .into_iter()
+        .any(|kind| p.nth_at_contextual(0, kind));
+    keyword && p.nth(1) == K::Int && at_legacy_infix_op(p, 2)
+}
+
+/// Upstream's `anyOp`: a symbol or a backticked function, which lexes
+/// as an operator. A `.` joined to a name is a field accessor.
+fn at_legacy_infix_op(p: &mut Parser<'_>, n: usize) -> bool {
+    match p.nth(n) {
+        K::Operator | K::Minus | K::ColonColon => true,
+        K::Dot => !(p.nth(n + 1) == K::LowerIdent && p.nth_is_joined(n + 1)),
+        _ => false,
+    }
+}
+
+/// `infixl 6 +`.
+fn legacy_infix(p: &mut Parser<'_>, m: Marker) {
+    let kind = [K::InfixlKw, K::InfixrKw, K::InfixKw]
+        .into_iter()
+        .find(|&kind| p.nth_at_contextual(0, kind))
+        .expect("at_legacy_infix checked the keyword");
+    p.bump_as(kind);
+    // Upstream reads a single digit, then whitespace.
+    if !matches!(p.current_text().as_bytes(), [b'0'..=b'9']) || p.nth_is_joined(1) {
+        p.error(SyntaxErrorKind::BadPrecedence);
+    }
+    expect_indented(p, K::Int);
+    if p.at_indented() {
+        let op = p.start();
+        p.bump();
+        op.complete(p, K::Op);
+    } else {
+        p.error(SyntaxErrorKind::Expected(K::Op));
+        p.missing();
+    }
+    m.complete(p, K::LegacyInfixDecl);
 }
 
 /// `infix left 5 (+) = add`.

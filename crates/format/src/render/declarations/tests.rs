@@ -20,3 +20,11 @@ fn fixities_stay_together_and_type_heads_can_break() {
         "module M exposing (..)\n\nimport Basics exposing (add)\n\n\ninfix left  6 (+) = add\ninfix right 5 (++) = append\ninfix non   4 (==) = eq\n\n\ntype\n    T\n        a\n        -- why\n        b\n    = T a\n    | U\n        -- arg\n        b\n",
     );
 }
+
+#[test]
+fn elm_0_18_fixities_print_on_one_line() {
+    assert_formats(
+        "module M exposing (..)\nx = 1\n{-| doc -}\ninfixl 4 +++\ninfixr\n  5 {- a -}\n  ***\ninfix 9 `M.op`\ninfixl 0 .\ny = 2\n",
+        "module M exposing (..)\n\n\nx =\n    1\n\n\n{-| doc\n-}\n\n\ninfixl 4 +++\ninfixr 5 {- a -} ***\ninfix 9 `M.op`\ninfixl 0 .\n\n\ny =\n    2\n",
+    );
+}

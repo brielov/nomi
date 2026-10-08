@@ -136,6 +136,34 @@ fn a_call_of_a_parenthesized_call_need_not_be_idempotent() {
     nomi_format::check_invariants(text);
 }
 
+/// `[1..n]` is the call `List.range 1 n`, so it fares as `(f x)` does;
+/// the fuzzer found it.
+#[test]
+fn a_call_of_a_range_need_not_be_idempotent() {
+    for text in [
+        "module A exposing (x)\n\n\nx =\n    [1..n]\n        e\n",
+        "module A exposing (x)\n\n\nx =\n    ([1..n])\n        e\n",
+    ] {
+        assert_eq!(nomi_format::upstream_breaks(text), [Invariant::Idempotent]);
+        nomi_format::check_invariants(text);
+    }
+}
+
+/// elm-format prints a request to report the declaration in its place;
+/// the fuzzer found it.
+#[test]
+fn a_legacy_infix_spanning_lines_need_not_keep_its_tokens() {
+    let text = "x = 1\ninfixl 7 {- a\n -} ===\n";
+    assert_eq!(
+        nomi_format::upstream_breaks(text),
+        Invariant::ALL
+            .into_iter()
+            .filter(|&i| i != Invariant::KeepsImports)
+            .collect::<Vec<_>>()
+    );
+    nomi_format::check_invariants(text);
+}
+
 /// Without a header, elm-format 0.8.8 exposes `Y(..), Y` here, and a
 /// second run drops the `Y`; the fuzzer found it.
 #[test]

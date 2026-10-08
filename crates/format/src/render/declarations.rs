@@ -14,8 +14,8 @@ use super::expressions::format_expression;
 use super::patterns::{format_pattern, pattern_argument};
 use super::types::{TypeParensRequired, format_type, type_alone, type_parens};
 use super::{
-    c2, c2_eol, comment, doc_comment, eol_commented, name, pre_commented, syntax_parens,
-    tail_commented,
+    c2, c2_eol, comment, doc_comment, eol_commented, name, please_report, pre_commented,
+    syntax_parens, tail_commented,
 };
 
 /// What an entry is to the spacing around it; upstream's `BodyEntryType`.
@@ -69,7 +69,7 @@ fn entry(decl: &Declaration) -> Entry<'_> {
             Entry::Named(NamedRef::Tag(&name_with_args.value.name.0))
         }
         Declaration::PortAnnotation(var, ..) => Entry::Named(NamedRef::Var(&var.value.0)),
-        Declaration::Fixity(..) => Entry::Fixity,
+        Declaration::Fixity(..) | Declaration::LegacyFixity(..) => Entry::Fixity,
     }
 }
 
@@ -246,6 +246,26 @@ fn declaration(decl: &Declaration) -> Block {
                     pre_commented(&value.comments, Block::line(name(&value.value.0))),
                 ],
             )
+        }
+        Declaration::LegacyFixity(assoc, before_precedence, precedence, before_op, op) => {
+            let keyword = match assoc {
+                Assoc::Left => "infixl",
+                Assoc::Right => "infixr",
+                Assoc::Non => "infix",
+            };
+            match (
+                pre_commented(before_op, text(op.0.as_str())),
+                pre_commented(before_precedence, text(precedence.to_string())),
+            ) {
+                (Block::SingleLine(op), Block::SingleLine(precedence)) => Block::line(Line::row([
+                    Line::text(keyword),
+                    Line::space(),
+                    precedence,
+                    Line::space(),
+                    op,
+                ])),
+                _ => please_report("TODO", "multiline fixity declaration"),
+            }
         }
     }
 }

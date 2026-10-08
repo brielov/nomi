@@ -1,0 +1,18 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: out
+input_file: crates/syntax/test_data/parser/validation/legacy_infixes.elm
+---
+elm, application:
+  36..47 LegacyInfix "infixl 4 |."
+  48..66 LegacyInfix "infixr 0 `andThen`"
+  57..58 Lexical(InvalidToken) "`"
+elm, package:
+  36..47 LegacyInfix "infixl 4 |."
+  48..66 LegacyInfix "infixr 0 `andThen`"
+  57..58 Lexical(InvalidToken) "`"
+elm, kernel package:
+  36..47 LegacyInfix "infixl 4 |."
+  48..66 LegacyInfix "infixr 0 `andThen`"
+  57..58 Lexical(InvalidToken) "`"
+elm-format:

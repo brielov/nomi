@@ -1,0 +1,58 @@
+---
+source: crates/syntax/tests/fixtures.rs
+expression: "render(&text, nomi_syntax::parse_module)"
+input_file: crates/syntax/test_data/parser/declarations/legacy_infix.elm
+---
+Module@0..91
+  LegacyInfixDecl@0..11
+    InfixlKw@0..6 "infixl"
+    Whitespace@6..7 " "
+    Int@7..8 "4"
+    Whitespace@8..9 " "
+    Op@9..11
+      Operator@9..11 "|."
+  Newline@11..12 "\n"
+  LegacyInfixDecl@12..25
+    InfixrKw@12..18 "infixr"
+    Whitespace@18..19 " "
+    Int@19..20 "0"
+    Whitespace@20..21 " "
+    Op@21..25
+      Operator@21..25 "`op`"
+  Newline@25..26 "\n"
+  LegacyInfixDecl@26..36
+    InfixKw@26..31 "infix"
+    Whitespace@31..32 " "
+    Int@32..33 "9"
+    Whitespace@33..34 " "
+    Op@34..36
+      ColonColon@34..36 "::"
+  Newline@36..37 "\n"
+  LegacyInfixDecl@37..52
+    InfixlKw@37..43 "infixl"
+    Whitespace@43..44 " "
+    Int@44..45 "7"
+    Whitespace@45..46 " "
+    Op@46..52
+      Operator@46..52 "`M.op`"
+  Newline@52..53 "\n"
+  LegacyInfixDecl@53..79
+    InfixrKw@53..59 "infixr"
+    Whitespace@59..60 " "
+    BlockComment@60..67 "{- a -}"
+    Whitespace@67..68 " "
+    Int@68..69 "5"
+    Whitespace@69..70 " "
+    BlockComment@70..77 "{- b -}"
+    Whitespace@77..78 " "
+    Op@78..79
+      Minus@78..79 "-"
+  Newline@79..80 "\n"
+  LegacyInfixDecl@80..90
+    InfixlKw@80..86 "infixl"
+    Whitespace@86..87 " "
+    Int@87..88 "9"
+    Whitespace@88..89 " "
+    Op@89..90
+      Dot@89..90 "."
+  Newline@90..91 "\n"

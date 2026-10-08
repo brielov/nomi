@@ -123,6 +123,8 @@ syntax_kinds! {
         AliasKw = "alias",
         EffectKw = "effect",
         InfixKw = "infix",
+        InfixlKw = "infixl",
+        InfixrKw = "infixr",
         LeftKw = "left",
         RightKw = "right",
         NonKw = "non",
@@ -189,6 +191,7 @@ syntax_kinds! {
         Variant,
         PortDecl,
         InfixDecl,
+        LegacyInfixDecl,
         DocDecl,
 
         NamedType,

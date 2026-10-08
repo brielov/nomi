@@ -9,8 +9,7 @@
 //!
 //! Upstream's node kinds are separate types here, one per kind, and the
 //! type-level labels on its comment slots (`'BeforeTerm`, `'AfterTerm`, …)
-//! are field docs. Left out: what Elm 0.19 can't parse
-//! (`PortDefinition_until_0_16`, `Fixity_until_0_18`), and the
+//! are field docs. Left out: `PortDefinition_until_0_16`, and the
 //! `ContainedCommentedList` and `ExposedCommentedList` that no node holds.
 
 use std::collections::BTreeMap;
@@ -356,6 +355,10 @@ pub(crate) enum Declaration {
     /// `infix left 6 (+) = add`, each part with comments before it, and
     /// after the operator.
     Fixity(C1<Assoc>, C1<i64>, C2<Symbol>, C1<Lower>),
+    /// Elm 0.18's `infixl 6 +`, with comments before the precedence and
+    /// before the operator, a symbol or a backticked function; upstream's
+    /// `Fixity_until_0_18`.
+    LegacyFixity(Assoc, Comments, i64, Comments, Symbol),
 }
 
 /// An entry at the top level, or a comment between them.

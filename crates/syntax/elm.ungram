@@ -85,6 +85,7 @@ Decl =
 | CustomTypeDecl
 | PortDecl
 | InfixDecl
+| LegacyInfixDecl
 | DocDecl
 
 // elm-format's doc comment with no declaration below it, which elm
@@ -127,6 +128,10 @@ PortDecl =
 
 InfixDecl =
   'infix' ('left' | 'right' | 'non') 'int' '(' Op ')' '=' 'lower_ident'
+
+// Elm 0.18's, which only elm-format reads.
+LegacyInfixDecl =
+  'doc_comment'? ('infixl' | 'infixr' | 'infix') 'int' Op
 
 // Types
 
