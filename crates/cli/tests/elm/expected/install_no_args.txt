@@ -1,0 +1,53 @@
+=== exit 1
+=== stdout
+=== stderr
+|-- INSTALL WHAT? ---------------------------------------------------------------
+|
+|I am expecting commands like:
+|
+|    elm install elm/http
+|    elm install elm/json
+|    elm install elm/random
+|
+|Hint: In JavaScript folks run `npm install` to start projects. "Gotta download
+|everything!" But why download packages again and again? Instead, Elm caches
+|packages in ../home so each one is downloaded and built ONCE on your machine.
+|Elm projects check that cache before trying the internet. This reduces build
+|times, reduces server costs, and makes it easier to work offline. As a result
+|elm install is only for adding dependencies to elm.json, whereas elm make is in
+|charge of gathering dependencies and building everything. So maybe try elm make
+|instead?
+|
+=== file elm.json
+|{
+|    "type": "application",
+|    "source-directories": [
+|        "src"
+|    ],
+|    "elm-version": "0.19.3",
+|    "dependencies": {
+|        "direct": {
+|            "elm/browser": "1.0.2",
+|            "elm/core": "1.0.5",
+|            "elm/html": "1.0.1"
+|        },
+|        "indirect": {
+|            "elm/json": "1.1.4",
+|            "elm/time": "1.0.0",
+|            "elm/url": "1.0.0",
+|            "elm/virtual-dom": "1.0.5"
+|        }
+|    },
+|    "test-dependencies": {
+|        "direct": {},
+|        "indirect": {}
+|    }
+|}
+=== file src/Main.elm
+|module Main exposing (main)
+|
+|import Html
+|
+|
+|main =
+|    Html.text "hi"

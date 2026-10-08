@@ -1,0 +1,52 @@
+=== exit 1
+=== stdout
+=== stderr
+|-- UNKNOWN PACKAGE -------------------------------------------------------------
+|
+|I cannot find a package named zzzz/qqqq.
+|
+|I could not connect to https://package.elm-lang.org though, so new packages may
+|have been published since I last updated my local cache of package names.
+|
+|Looking through the locally cached names, the closest ones are:
+|
+|    elm/core
+|    elm/file
+|    elm/html
+|    elm/http
+|
+|Maybe you want one of these instead?
+|
+=== file elm.json
+|{
+|    "type": "application",
+|    "source-directories": [
+|        "src"
+|    ],
+|    "elm-version": "0.19.3",
+|    "dependencies": {
+|        "direct": {
+|            "elm/browser": "1.0.2",
+|            "elm/core": "1.0.5",
+|            "elm/html": "1.0.1"
+|        },
+|        "indirect": {
+|            "elm/json": "1.1.4",
+|            "elm/time": "1.0.0",
+|            "elm/url": "1.0.0",
+|            "elm/virtual-dom": "1.0.5"
+|        }
+|    },
+|    "test-dependencies": {
+|        "direct": {},
+|        "indirect": {}
+|    }
+|}
+=== file src/Main.elm
+|module Main exposing (main)
+|
+|import Html
+|
+|
+|main =
+|    Html.text "hi"

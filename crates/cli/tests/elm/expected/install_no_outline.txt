@@ -1,0 +1,11 @@
+=== exit 1
+=== stdout
+=== stderr
+|-- NEW PROJECT? ----------------------------------------------------------------
+|
+|Are you trying to start a new project? Try this command instead:
+|
+|    elm init
+|
+|It will help you get started!
+|

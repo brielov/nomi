@@ -1,0 +1,35 @@
+=== exit 1
+=== stdout
+=== stderr
+|-- CANNOT FIND COMPATIBLE VERSION LOCALLY ----------------------------- elm.json
+|
+|I cannot find a version of elm/json that is compatible with your existing
+|constraints.
+|
+|I was not able to connect to https://package.elm-lang.org/ though, so I was only
+|able to look through packages that you have downloaded in the past.
+|
+|Try again later when you have internet!
+|
+=== file elm.json
+|{
+|    "type": "package",
+|    "name": "author/project",
+|    "summary": "a package",
+|    "license": "BSD-3-Clause",
+|    "version": "1.0.0",
+|    "exposed-modules": [
+|        "A"
+|    ],
+|    "elm-version": "0.19.0 <= v < 0.20.0",
+|    "dependencies": {
+|        "elm/core": "2.0.0 <= v < 3.0.0"
+|    },
+|    "test-dependencies": {}
+|}
+=== file src/A.elm
+|module A exposing (a)
+|
+|
+|a =
+|    1

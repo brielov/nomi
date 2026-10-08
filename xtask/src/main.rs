@@ -122,7 +122,7 @@ enum OracleCommand {
         #[arg(long)]
         jobs: Option<usize>,
     },
-    /// Store elm-format's transcript of every command-line case.
+    /// Store elm-format's and elm's transcript of every command-line case.
     Transcripts,
     /// Store what each elm reports for every `elm.json` fixture.
     Outline,

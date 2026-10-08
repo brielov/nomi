@@ -1,0 +1,8 @@
+=== note
+anything but y, n or nothing asks again
+=== args
+init
+=== stdin
+yes
+N
+Y

@@ -1,0 +1,6 @@
+=== note
+answering y creates elm.json and src/
+=== args
+init
+=== stdin
+y

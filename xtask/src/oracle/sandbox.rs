@@ -63,24 +63,8 @@ impl Sandbox {
             fs::remove_dir_all(dir).with_context(|| format!("removing {}", dir.display()))?;
         }
         let home = dir.join("home");
-        let packages_dir = home.join(compat.to_string()).join("packages");
-        fs::create_dir_all(&packages_dir)?;
         let pinned = dependencies(root)?;
-        fs::write(packages_dir.join("registry.dat"), registry(compat, &pinned))?;
-        let corpus = corpus_dir()?;
-        for package in &pinned {
-            let from = packages::package_dir(&corpus, package);
-            ensure!(
-                from.join(packages::STAMP).exists(),
-                "{} {} is not fetched; run `cargo xtask corpus fetch`",
-                package.name,
-                package.version
-            );
-            copy_tree(
-                &from,
-                &packages_dir.join(&package.name).join(&package.version),
-            )?;
-        }
+        elm_home(&home, compat, &pinned)?;
         let sandbox = Sandbox {
             elm: elm.to_path_buf(),
             home,
@@ -157,10 +141,8 @@ impl Sandbox {
                     "-RTS",
                 ])
                 .current_dir(&project)
-                .env("ELM_HOME", &self.home)
-                .env("HTTPS_PROXY", "http://127.0.0.1:9")
-                .env("HTTP_PROXY", "http://127.0.0.1:9")
-                .env_remove("NO_PROXY");
+                .env("ELM_HOME", &self.home);
+            offline(&mut command);
             let Some(output) = self.run(command)? else {
                 ensure!(
                     attempt < RETRIES,
@@ -272,6 +254,38 @@ pub fn elm_format(binary: &Path, text: &[u8]) -> Result<Outcome> {
         bail!("elm-format exited with {}:\n{stderr}", output.status);
     };
     Ok(Outcome::Rejected(at.to_owned()))
+}
+
+/// Fills `home` as an offline `ELM_HOME` for `compat`: a registry listing
+/// exactly `pinned`, and their sources in the package cache.
+pub fn elm_home(home: &Path, compat: Version, pinned: &[packages::Package]) -> Result<()> {
+    let packages_dir = home.join(compat.to_string()).join("packages");
+    fs::create_dir_all(&packages_dir)?;
+    fs::write(packages_dir.join("registry.dat"), registry(compat, pinned))?;
+    let corpus = corpus_dir()?;
+    for package in pinned {
+        let from = packages::package_dir(&corpus, package);
+        ensure!(
+            from.join(packages::STAMP).exists(),
+            "{} {} is not fetched; run `cargo xtask corpus fetch`",
+            package.name,
+            package.version
+        );
+        copy_tree(
+            &from,
+            &packages_dir.join(&package.name).join(&package.version),
+        )?;
+    }
+    Ok(())
+}
+
+/// Points elm's proxy nowhere, so it never reaches the network and falls
+/// back to the registry it has.
+pub fn offline(command: &mut Command) -> &mut Command {
+    command
+        .env("HTTPS_PROXY", "http://127.0.0.1:9")
+        .env("HTTP_PROXY", "http://127.0.0.1:9")
+        .env_remove("NO_PROXY")
 }
 
 /// The pinned versions of [`DEPENDENCIES`].

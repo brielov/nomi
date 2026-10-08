@@ -1,0 +1,32 @@
+=== exit 0
+=== stdout
+|Here is my plan:
+|  
+|  Add:
+|    elm/json    1.1.4 <= v < 2.0.0
+|
+|Would you like me to update your elm.json accordingly? [Y/n]: Success!
+=== stderr
+=== file elm.json
+|{
+|    "type": "package",
+|    "name": "author/project",
+|    "summary": "a package",
+|    "license": "BSD-3-Clause",
+|    "version": "1.0.0",
+|    "exposed-modules": [
+|        "A"
+|    ],
+|    "elm-version": "0.19.0 <= v < 0.20.0",
+|    "dependencies": {
+|        "elm/core": "1.0.0 <= v < 2.0.0",
+|        "elm/json": "1.1.4 <= v < 2.0.0"
+|    },
+|    "test-dependencies": {}
+|}
+=== file src/A.elm
+|module A exposing (a)
+|
+|
+|a =
+|    1
