@@ -39,6 +39,13 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 3. ticks the box and commits;
 4. stops to ask when a step needs a decision, a download or a push.
 
+**Picking up on another machine.**
+
+1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
+2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
+3. `cargo xtask ci` must pass before the first edit.
+4. Resume at the first unchecked box. Right now that is **4.10a**: pin the Parsec releases that elm 0.19.1 (3.1.16.1), 0.19.2 (3.1.17.0) and 0.19.3 (3.1.18.0) link, port `Text.Parsec.Error`'s message accumulation into `crates/syntax/src/glsl.rs`, carry the message in `ShaderProblem`, then re-record the ratchets with `cargo xtask ratchet syntax_titles` and `cargo xtask ratchet syntax_reports`.
+
 ### Test tiers
 
 | Tier | Command | Needs | Runs |
