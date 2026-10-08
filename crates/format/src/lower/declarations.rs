@@ -25,7 +25,7 @@ pub(super) fn declaration(cx: &mut Cursor, body: &mut Body, decl: &ast::Decl) {
         ast::Decl::CustomTypeDecl(d) => d.doc_comment_token(),
         ast::Decl::PortDecl(d) => d.doc_comment_token(),
         ast::Decl::DocDecl(d) => d.doc_comment_token(),
-        ast::Decl::InfixDecl(_) => None,
+        ast::Decl::InfixDecl(d) => d.doc_comment_token(),
         ast::Decl::LegacyInfixDecl(d) => d.doc_comment_token(),
     };
     if let Some(doc) = doc {

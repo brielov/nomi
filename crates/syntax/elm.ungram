@@ -127,7 +127,7 @@ PortDecl =
   'doc_comment'? 'port' 'lower_ident' ':' Type
 
 InfixDecl =
-  'infix' ('left' | 'right' | 'non') 'int' '(' Op ')' '=' 'lower_ident'
+  'doc_comment'? 'infix' ('left' | 'right' | 'non') 'int' '(' Op ')' '=' 'lower_ident'
 
 // Elm 0.18's, which only elm-format reads.
 LegacyInfixDecl =

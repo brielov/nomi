@@ -1130,6 +1130,10 @@ impl InfixDecl {
         support::child(&self.syntax)
     }
 
+    pub fn doc_comment_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::DocComment)
+    }
+
     pub fn infix_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::InfixKw)
     }

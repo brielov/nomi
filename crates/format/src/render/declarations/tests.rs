@@ -28,3 +28,11 @@ fn elm_0_18_fixities_print_on_one_line() {
         "module M exposing (..)\n\n\nx =\n    1\n\n\n{-| doc\n-}\n\n\ninfixl 4 +++\ninfixr 5 {- a -} ***\ninfix 9 `M.op`\ninfixl 0 .\n\n\ny =\n    2\n",
     );
 }
+
+#[test]
+fn a_fixity_keeps_its_doc_comment() {
+    assert_formats(
+        "module M exposing (..)\nx = 1\n{-| doc -}\ninfix left 4 (+++) = f\ny = 2\n",
+        "module M exposing (..)\n\n\nx =\n    1\n\n\n{-| doc\n-}\n\n\ninfix left  4 (+++) = f\n\n\ny =\n    2\n",
+    );
+}
