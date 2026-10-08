@@ -13,6 +13,7 @@ publish = false
 nomi-base = { path = "crates/base" }
 nomi-engine = { path = "crates/engine" }
 nomi-format = { path = "crates/format" }
+nomi-project = { path = "crates/project" }
 nomi-syntax = { path = "crates/syntax" }
 nomi-testkit = { path = "crates/testkit" }
 clap = { version = "4.6", features = ["derive"] }

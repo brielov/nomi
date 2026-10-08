@@ -8,8 +8,8 @@
 use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
 use super::{VALID, significant};
-use crate::ghc::is_alpha;
 use crate::tree::{FloatRepr, IntRepr, LiteralValue, StringRepr};
+use nomi_base::ghc::is_alpha;
 
 /// The literal `node` holds: a number with an optional `-` before it, a
 /// character or a string.

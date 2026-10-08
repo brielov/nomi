@@ -4,6 +4,7 @@
 mod compat;
 pub mod diagnostic;
 mod file_id;
+pub mod ghc;
 mod line_index;
 
 pub use compat::{Compat, UnknownCompat};

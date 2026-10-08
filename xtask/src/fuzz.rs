@@ -13,6 +13,7 @@ use anyhow::{Context, Result, bail, ensure};
 const TARGETS: &[(&str, &str)] = &[
     ("syntax", "crates/syntax/tests/syntax_mutations/seeds"),
     ("format", "crates/format/tests/format_fixtures/inputs"),
+    ("json", "crates/project/tests/json_seeds"),
 ];
 
 /// The flags of `cargo fuzz build --sanitizer none --debug-assertions`.

@@ -2,7 +2,6 @@
 //! (docs/architecture.md §5).
 
 mod block;
-mod ghc;
 mod invariants;
 mod lower;
 mod markdown;

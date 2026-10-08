@@ -217,6 +217,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 name = "nomi-base"
 version = "0.1.0"
 dependencies = [
+ "icu_properties",
  "text-size",
 ]
 
@@ -224,7 +225,6 @@ dependencies = [
 name = "nomi-format"
 version = "0.1.0"
 dependencies = [
- "icu_properties",
  "nomi-base",
  "nomi-syntax",
  "num-bigint",
@@ -236,8 +236,18 @@ name = "nomi-fuzz"
 version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
+ "nomi-base",
  "nomi-format",
+ "nomi-project",
  "nomi-syntax",
+]
+
+[[package]]
+name = "nomi-project"
+version = "0.1.0"
+dependencies = [
+ "nomi-base",
+ "stacker",
 ]
 
 [[package]]

@@ -16,6 +16,20 @@ repo = "elm/compiler"
 tag = "0.19.3"
 commit = "1c278bf5ecf4136f122ce1cba436783c7f561dac"
 
+# The releases before it, which Compat also emulates; the same commits as
+# their binaries below.
+[[source]]
+name = "compiler-0.19.1"
+repo = "elm/compiler"
+tag = "0.19.1"
+commit = "c9aefb6230f5e0bda03205ab0499f6e4af924495"
+
+[[source]]
+name = "compiler-0.19.2"
+repo = "elm/compiler"
+tag = "0.19.2"
+commit = "48befde196cbcbdf459114e36c02b52c49b58050"
+
 [[source]]
 name = "elm-format"
 repo = "avh4/elm-format"

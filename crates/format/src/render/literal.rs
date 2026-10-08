@@ -7,8 +7,8 @@
 use num_bigint::BigUint;
 
 use crate::block::{Block, Line};
-use crate::ghc::{is_print, is_space};
 use crate::tree::{FloatRepr, IntRepr, LiteralValue, StringRepr};
+use nomi_base::ghc::{is_print, is_space};
 
 /// Upstream's `formatLiteral`.
 pub(super) fn literal(value: &LiteralValue) -> Block {

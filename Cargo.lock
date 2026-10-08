@@ -744,6 +744,7 @@ dependencies = [
 name = "nomi-base"
 version = "0.1.0"
 dependencies = [
+ "icu_properties",
  "proptest",
  "text-size",
 ]
@@ -773,11 +774,19 @@ dependencies = [
 name = "nomi-format"
 version = "0.1.0"
 dependencies = [
- "icu_properties",
  "nomi-base",
  "nomi-syntax",
  "nomi-testkit",
  "num-bigint",
+ "proptest",
+ "stacker",
+]
+
+[[package]]
+name = "nomi-project"
+version = "0.1.0"
+dependencies = [
+ "nomi-base",
  "proptest",
  "stacker",
 ]

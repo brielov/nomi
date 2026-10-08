@@ -93,7 +93,7 @@ fn lines(text: &str) -> Vec<&str> {
 
 /// `Data.Text`'s `strip`, with GHC's `isSpace`.
 fn strip(text: &str) -> &str {
-    text.trim_matches(crate::ghc::is_space)
+    text.trim_matches(nomi_base::ghc::is_space)
 }
 
 #[cfg(test)]

@@ -6,7 +6,7 @@
 //! width. So a block is built once, rendered once, and the work is linear
 //! in the output.
 
-use crate::ghc::is_space;
+use nomi_base::ghc::is_space;
 
 /// One piece of a line.
 #[derive(Clone, Debug, PartialEq, Eq)]

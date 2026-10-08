@@ -8,8 +8,8 @@
 use nomi_base::{TextRange, TextSize};
 use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
-use crate::ghc::is_space;
 use crate::tree::{Comment, Comments};
+use nomi_base::ghc::is_space;
 
 #[derive(Debug)]
 pub(super) struct Cursor<'a> {

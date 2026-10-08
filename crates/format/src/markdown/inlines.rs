@@ -1,6 +1,6 @@
 //! Cheapskate's inline parser (`Cheapskate/Inlines.hs`).
 
-use crate::ghc::{is_alpha, is_alpha_num, is_space};
+use nomi_base::ghc::{is_alpha, is_alpha_num, is_space};
 
 use super::scanner::{Scanner, is_escapable, is_whitespace};
 use super::{Inline, LinkTarget, strip};

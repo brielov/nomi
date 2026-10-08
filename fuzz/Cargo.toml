@@ -10,7 +10,9 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+nomi-base = { path = "../crates/base" }
 nomi-format = { path = "../crates/format" }
+nomi-project = { path = "../crates/project" }
 nomi-syntax = { path = "../crates/syntax" }
 
 [[bin]]
@@ -23,6 +25,13 @@ bench = false
 [[bin]]
 name = "format"
 path = "fuzz_targets/format.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "json"
+path = "fuzz_targets/json.rs"
 test = false
 doc = false
 bench = false

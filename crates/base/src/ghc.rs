@@ -1,5 +1,5 @@
 //! GHC's `Data.Char` predicates, which elm-format's parser and printer
-//! lean on.
+//! and the compiler's `elm.json` parsers lean on.
 
 use icu_properties::GeneralCategory;
 use icu_properties::maps::{self, CodePointMapDataBorrowed};
@@ -11,7 +11,7 @@ const GENERAL_CATEGORY: CodePointMapDataBorrowed<'static, GeneralCategory> =
     maps::general_category();
 
 /// GHC's `isAlpha`: a letter of any case or kind.
-pub(crate) fn is_alpha(c: char) -> bool {
+pub fn is_alpha(c: char) -> bool {
     matches!(
         GENERAL_CATEGORY.get(c),
         GeneralCategory::UppercaseLetter
@@ -22,8 +22,16 @@ pub(crate) fn is_alpha(c: char) -> bool {
     )
 }
 
+/// GHC's `isUpper`: an uppercase or titlecase letter.
+pub fn is_upper(c: char) -> bool {
+    matches!(
+        GENERAL_CATEGORY.get(c),
+        GeneralCategory::UppercaseLetter | GeneralCategory::TitlecaseLetter
+    )
+}
+
 /// GHC's `isAlphaNum`: a letter or a number of any kind.
-pub(crate) fn is_alpha_num(c: char) -> bool {
+pub fn is_alpha_num(c: char) -> bool {
     is_alpha(c)
         || matches!(
             GENERAL_CATEGORY.get(c),
@@ -34,7 +42,7 @@ pub(crate) fn is_alpha_num(c: char) -> bool {
 }
 
 /// GHC's `isSpace`: the Latin-1 spaces, and the space separators.
-pub(crate) fn is_space(c: char) -> bool {
+pub fn is_space(c: char) -> bool {
     if u32::from(c) <= 0x377 {
         return matches!(c, ' ' | '\t'..='\r' | '\u{A0}');
     }
@@ -43,7 +51,7 @@ pub(crate) fn is_space(c: char) -> bool {
 
 /// GHC's `isPrint`: not a control, format, surrogate, private-use or
 /// unassigned character, nor a line or paragraph separator.
-pub(crate) fn is_print(c: char) -> bool {
+pub fn is_print(c: char) -> bool {
     !matches!(
         GENERAL_CATEGORY.get(c),
         GeneralCategory::Control

@@ -130,12 +130,12 @@ These rules are the architecture. Breaking one requires an entry in `DECISIONS.m
 
 | Crate | Owns | Must not |
 |---|---|---|
-| `base` | `FileId`; interned names; text ranges; `LineIndex` (byte ↔ Elm column ↔ UTF-16); the diagnostic model | depend on other nomi crates |
+| `base` | `FileId`; interned names; text ranges; `LineIndex` (byte ↔ Elm column ↔ UTF-16); GHC's character classes; the diagnostic model | depend on other nomi crates |
 | `syntax` | lexer, parser, rowan CST, generated typed views | know about formatting or semantics |
 | `format` | formatter tree, comment attachment, Box renderer | do I/O or spawn threads |
 | `compiler` | HIR, canonicalize, types, nitpick, optimize, interfaces | know about platforms, paths or I/O |
 | `codegen-js` | JS generation, kernel parser and linker, availability check, source maps | read files (kernels are inputs) |
-| `project` | elm.json, nomi.toml, workspace graph (pure) | touch the network |
+| `project` | elm's JSON, elm.json, nomi.toml, workspace graph (pure) | touch the network |
 | `registry` | registry protocol, pubgrub solver, package store | — |
 | `engine` | VFS, build graph, scheduling, caches, cancellation, the only thread pool | contain compiler logic |
 | `ide` | hover, completion, navigation, rename and code actions over engine snapshots | use LSP types |

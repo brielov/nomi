@@ -2,3 +2,5 @@
 * text=auto eol=lf
 # Formatter fixtures are compared byte for byte, and some inputs are CRLF.
 crates/format/tests/format_fixtures/** -text
+# Fuzz seeds are kept byte for byte.
+crates/project/tests/json_seeds/** -text

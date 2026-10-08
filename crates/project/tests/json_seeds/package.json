@@ -1,0 +1,18 @@
+{
+    "type": "package",
+    "name": "author/project",
+    "summary": "A summary with \"quotes\", a \u00e9 and a \/ slash",
+    "license": "BSD-3-Clause",
+    "version": "1.0.0",
+    "exposed-modules": {
+        "Main": [
+            "Data.Thing",
+            "Data.Thing.Internal"
+        ]
+    },
+    "elm-version": "0.19.0 <= v < 0.20.0",
+    "dependencies": {
+        "elm/core": "1.0.0 <= v < 2.0.0"
+    },
+    "test-dependencies": {}
+}

@@ -551,11 +551,11 @@ fn process_elts<C>(elts: &[Elt], code: &mut impl FnMut(&CodeAttr, &str) -> C) ->
                         .count();
                     let text = std::iter::once(t.as_str())
                         .chain(rest[..count].iter().map(text_of))
-                        .map(|line| line.trim_start_matches(crate::ghc::is_space))
+                        .map(|line| line.trim_start_matches(nomi_base::ghc::is_space))
                         .collect::<Vec<_>>()
                         .join("\n");
                     rest = &rest[count..];
-                    let text = text.trim_end_matches(crate::ghc::is_space);
+                    let text = text.trim_end_matches(nomi_base::ghc::is_space);
                     blocks.push(Block::Para(parse_inlines(text)));
                 }
             }
