@@ -95,6 +95,11 @@ impl Foreigns {
     pub fn get(&self, module: &ModuleName) -> Option<&Foreign> {
         self.0.get(module)
     }
+
+    /// Every module a direct dependency exposes, in no particular order.
+    pub fn names(&self) -> impl Iterator<Item = &ModuleName> {
+        self.0.keys()
+    }
 }
 
 /// What a crawl knows of the project (`Build.Env`).
@@ -105,6 +110,9 @@ pub struct Env {
     owner: Owner,
     src_dirs: Vec<PathBuf>,
     foreigns: Foreigns,
+    /// What paths given to [`Graph::from_paths`] are relative to; empty
+    /// for the process's working directory.
+    cwd: PathBuf,
 }
 
 impl Env {
@@ -129,7 +137,31 @@ impl Env {
             owner,
             src_dirs,
             foreigns,
+            cwd: PathBuf::new(),
         })
+    }
+
+    /// Resolves the paths given to [`Graph::from_paths`] against `cwd`,
+    /// as elm resolves them against its working directory. Reports still
+    /// name them as given.
+    pub fn with_cwd(mut self, cwd: &Path) -> Env {
+        self.cwd = cwd.to_owned();
+        self
+    }
+}
+
+impl Env {
+    pub fn compat(&self) -> Compat {
+        self.compat
+    }
+
+    /// What kind of source the project's modules are.
+    pub fn source(&self) -> Source {
+        self.owner.source()
+    }
+
+    pub fn foreigns(&self) -> &Foreigns {
+        &self.foreigns
     }
 }
 
@@ -283,7 +315,14 @@ impl Graph {
         let locations = find_roots(snapshot, env, paths)?;
         let roots = Pool::global().map(locations, |location| match location {
             Location::Inside(name) => Root::Inside(name),
-            Location::Outside(path) => Root::Outside(read(snapshot, env, path, None)),
+            Location::Outside(path) => {
+                // Read where it is, named as given.
+                let read = read(snapshot, env, env.cwd.join(&path), None);
+                Root::Outside(match read {
+                    Ok(module) => Ok(Module { path, ..module }),
+                    Err(bad) => Err(BadModule { path, ..bad }),
+                })
+            }
         });
         let mut wave = Vec::new();
         for root in &roots {
@@ -526,10 +565,11 @@ fn root_info(
     path: &Path,
 ) -> Result<(PathBuf, PathBuf, Location), Problem> {
     let unknown = || Problem::PathUnknown(path.to_owned());
-    if !snapshot.is_file(path) {
+    let at = env.cwd.join(path);
+    if !snapshot.is_file(&at) {
         return Err(unknown());
     }
-    let absolute = canonical(path).map_err(|_| unknown())?;
+    let absolute = canonical(&at).map_err(|_| unknown())?;
     let (Some(dir), Some(file)) = (absolute.parent(), absolute.file_name()) else {
         return Err(unknown());
     };

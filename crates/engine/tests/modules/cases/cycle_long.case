@@ -1,0 +1,46 @@
+=== note
+a component whose shortest cycle through its first module is shorter than the component
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import A
+
+
+main =
+    A.x
+=== file src/A.elm
+module A exposing (x)
+
+import B
+import D
+
+
+x =
+    1
+=== file src/B.elm
+module B exposing (y)
+
+import C
+
+
+y =
+    1
+=== file src/C.elm
+module C exposing (z)
+
+import A
+
+
+z =
+    1
+=== file src/D.elm
+module D exposing (w)
+
+import A
+
+
+w =
+    1

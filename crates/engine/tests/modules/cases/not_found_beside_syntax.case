@@ -1,0 +1,20 @@
+=== note
+a missing import beside a module that doesn't parse
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Broken
+import Nowhere
+
+
+main =
+    Broken.x
+=== file src/Broken.elm
+module Broken exposing (x)
+
+
+x =
+    (1

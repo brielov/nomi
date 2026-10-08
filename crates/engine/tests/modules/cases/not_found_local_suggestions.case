@@ -1,0 +1,28 @@
+=== note
+suggestions from the local modules the build crawled
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Page.Login
+import Page.Home
+
+
+main =
+    Page.Home.x
+=== file src/Page/Home.elm
+module Page.Home exposing (x)
+
+import Page.Logn
+
+
+x =
+    1
+=== file src/Page/Login.elm
+module Page.Login exposing (y)
+
+
+y =
+    1

@@ -1,0 +1,11 @@
+=== note
+a file whose name can't be a module's
+=== args
+make
+src/main.elm
+=== file src/main.elm
+module Main exposing (main)
+
+
+main =
+    1

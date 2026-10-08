@@ -18,6 +18,7 @@ pub mod paths;
 mod pool;
 mod project;
 pub mod remove;
+pub mod report;
 pub mod schedule;
 pub mod tree;
 pub mod update;

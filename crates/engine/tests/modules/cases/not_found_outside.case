@@ -1,0 +1,19 @@
+=== note
+a root outside the source directories importing a missing module
+=== args
+make
+tools/Gen.elm
+=== file tools/Gen.elm
+module Gen exposing (main)
+
+import Generator.Helpers
+
+
+main =
+    Generator.Helpers.x
+=== file src/Main.elm
+module Main exposing (main)
+
+
+main =
+    1

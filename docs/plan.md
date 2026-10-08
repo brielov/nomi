@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **4.11**.
+4. Resume at the first unchecked box. Right now that is **4.12**.
 
 ### Test tiers
 
@@ -286,7 +286,8 @@ Goal: `nomi check` reports syntax and module errors exactly as `elm make` does, 
   Done: every syntax error has its report, so `elm::to_problem` returns one outright. Titles and regions match each elm on all 29,511 rejected cases of the mutation suite, and full reports on 27,616. The other 1,895 are SHADER PROBLEM reports, whose message quotes language-glsl's Parsec error, which 4.10a ports.
 - [x] **4.10a** `syntax: language-glsl's error messages`. The GLSL recognizer tracks only where Parsec fails, but elm quotes Parsec's whole message (`showErrorMessages`), such as `unexpected "v"` and `expecting "/", space, "(", "[", "=", "," or ";"`. So each rule carries Parsec's labels and messages too, and `ShaderProblem` gets the message. **Check:** the report ratchet passes every case of the mutation suite.
   Done: `glsl/error.rs` ports Parsec's `ParseError`, its merging, `<?>` and `showErrorMessages`, with GHC's `show` for what it quotes; the recognizer's primitives carry Parsec's labels (`char`'s `show`, `space`, `letter`, `eof`'s "end of input", `buildExpressionParser`'s `""` and "operator"). elm 0.19.1 links Parsec 3.1.13.0, 0.19.2 3.1.17.0 and 0.19.3 3.1.18.0, all pinned in `references.toml`; nothing a shader's error shows differs between them. Full reports match each elm on all 29,511 rejected cases.
-- [ ] **4.11** `report: module and import errors`, the matching parts of `Reporting/Exit.hs`.
+- [x] **4.11** `report: module and import errors`, the matching parts of `Reporting/Exit.hs`.
+  Done: `nomi_engine::report` ports `Reporting/Error/Import.hs` with `toImportErrors`, the MODULE NAME MISSING and MISMATCH reports of `Syntax.hs`, and `toProjectProblemReport` for what the crawl finds, `BP_MissingExposed` included. `cargo xtask oracle modules` records each elm's `--report=json` on 22 projects in `crates/engine/tests/modules/cases/`, run in a directory padded to 96 bytes so messages that name it wrap alike, and `tests/module_reports.rs` matches them. `Env::with_cwd` resolves root paths as elm's working directory does, so reports name them as given. elm's arguments take only `.elm` files, so UNEXPECTED FILE EXTENSION, like AMBIGUOUS IMPORT between packages, has unit tests instead.
 - [ ] **4.12** `cli: nomi check with elm make's reporting policy`. Only the earliest failing phase per module is shown, and blocked modules stay silent.
 - [ ] **4.13** `lsp: v0`. New `ide` and `lsp` crates.
   - The `lsp-server` loop and position encodings.

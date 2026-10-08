@@ -1,0 +1,16 @@
+=== note
+a module without a header, imported
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Helpers
+
+
+main =
+    Helpers.x
+=== file src/Helpers.elm
+x =
+    1

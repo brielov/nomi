@@ -1,0 +1,31 @@
+=== note
+a missing import in a module the root imports, and a module that imports it
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Page
+import Page.Home
+
+
+main =
+    Page.x
+=== file src/Page.elm
+module Page exposing (x)
+
+import Json.Decod
+import Page.Hom
+
+
+x =
+    1
+=== file src/Page/Home.elm
+module Page.Home exposing (y)
+
+import Page
+
+
+y =
+    Page.x

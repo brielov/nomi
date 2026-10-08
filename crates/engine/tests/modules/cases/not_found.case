@@ -1,0 +1,26 @@
+=== note
+an import no source directory or dependency has, with local modules to suggest
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Html
+import Utl exposing (x)
+
+
+main =
+    x
+=== file src/Util.elm
+module Util exposing (x)
+
+
+x =
+    1
+=== file src/Url.elm
+module Url exposing (y)
+
+
+y =
+    1

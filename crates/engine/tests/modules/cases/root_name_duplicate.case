@@ -1,0 +1,24 @@
+=== note
+two files outside the source directories, with one module name
+=== args
+make
+a/Main.elm
+b/Main.elm
+=== file a/Main.elm
+module Main exposing (main)
+
+
+main =
+    1
+=== file b/Main.elm
+module Main exposing (main)
+
+
+main =
+    2
+=== file src/Other.elm
+module Other exposing (x)
+
+
+x =
+    1

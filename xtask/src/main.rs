@@ -133,6 +133,8 @@ enum OracleCommand {
     Transcripts,
     /// Store what each elm reports for every `elm.json` fixture.
     Outline,
+    /// Store what each elm reports for every module-graph case.
+    Modules,
     /// Build the solver oracles and store what upstream's solver answers
     /// for every solver scenario.
     Solver,
@@ -165,6 +167,7 @@ fn main() -> ExitCode {
             }
             OracleCommand::Transcripts => oracle::transcripts::run(&root(), &r),
             OracleCommand::Outline => oracle::outline::run(&root(), &r),
+            OracleCommand::Modules => oracle::modules::run(&root(), &r),
             OracleCommand::Solver => oracle::solver::run(&root(), &r),
         }),
         Command::Ratchet { suite } => ratchet(&root(), &suite),

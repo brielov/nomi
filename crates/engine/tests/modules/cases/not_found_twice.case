@@ -1,0 +1,14 @@
+=== note
+a missing module imported twice
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Missing
+import Missing exposing (x)
+
+
+main =
+    x

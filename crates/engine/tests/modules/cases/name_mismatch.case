@@ -1,0 +1,19 @@
+=== note
+a module whose header names another module
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Page.Home
+
+
+main =
+    Page.Home.x
+=== file src/Page/Home.elm
+module Page.Hom exposing (x)
+
+
+x =
+    1

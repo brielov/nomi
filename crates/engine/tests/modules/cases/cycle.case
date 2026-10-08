@@ -1,0 +1,29 @@
+=== note
+two modules importing each other
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import A
+
+
+main =
+    A.x
+=== file src/A.elm
+module A exposing (x)
+
+import B
+
+
+x =
+    B.y
+=== file src/B.elm
+module B exposing (y)
+
+import A
+
+
+y =
+    1

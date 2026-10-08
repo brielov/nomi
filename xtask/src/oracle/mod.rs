@@ -2,6 +2,7 @@
 //! against, installed under the development cache and never on `PATH`.
 
 pub mod format;
+pub mod modules;
 pub mod outline;
 pub mod sandbox;
 pub mod solver;

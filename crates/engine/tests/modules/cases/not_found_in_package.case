@@ -1,0 +1,30 @@
+=== note
+a package whose exposed module imports a module nobody has
+=== args
+make
+=== file elm.json
+{
+    "type": "package",
+    "name": "author/project",
+    "summary": "A package",
+    "license": "BSD-3-Clause",
+    "version": "1.0.0",
+    "exposed-modules": [
+        "Here"
+    ],
+    "elm-version": "0.19.0 <= v < 0.20.0",
+    "dependencies": {
+        "elm/core": "1.0.0 <= v < 2.0.0",
+        "elm/json": "1.0.0 <= v < 2.0.0"
+    },
+    "test-dependencies": {}
+}
+=== file src/Here.elm
+module Here exposing (x)
+
+import Hidden
+import Http
+
+
+x =
+    Hidden.x

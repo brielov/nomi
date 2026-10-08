@@ -1,0 +1,12 @@
+=== note
+the same file twice
+=== args
+make
+src/Main.elm
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+
+main =
+    1

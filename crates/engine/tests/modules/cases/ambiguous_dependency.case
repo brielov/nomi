@@ -1,0 +1,19 @@
+=== note
+a local module with the name of one a dependency exposes
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Json.Decode
+
+
+main =
+    Json.Decode.x
+=== file src/Json/Decode.elm
+module Json.Decode exposing (x)
+
+
+x =
+    1
