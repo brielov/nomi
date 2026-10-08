@@ -8,7 +8,7 @@ use super::cursor::Cursor;
 use super::expressions::expr;
 use super::patterns::pattern;
 use super::types::ty;
-use super::{VALID, c, lower_name, range, start, symbol};
+use super::{VALID, c, lower_name, start, symbol};
 use crate::tree::{C1, CommonDeclaration, Pattern, Ref, Symbol};
 
 /// `name : type`, with the comments before `:` and after it.
@@ -19,7 +19,7 @@ pub(super) fn annotation(cx: &mut Cursor, node: &ast::Signature) -> CommonDeclar
     };
     let before_colon = cx.take(start(&node.colon_token().expect(VALID)));
     let annotation = node.ty().expect(VALID);
-    let before_type = cx.take(range(annotation.syntax()).start());
+    let before_type = cx.take(cx.range(annotation.syntax()).start());
     CommonDeclaration::TypeAnnotation(c(before_colon, name), c(before_type, ty(cx, &annotation)))
 }
 
@@ -32,7 +32,7 @@ pub(super) fn definition(cx: &mut Cursor, node: &ast::Definition) -> CommonDecla
     let args = node
         .patterns()
         .map(|arg| {
-            let comments = cx.take(range(arg.syntax()).start());
+            let comments = cx.take(cx.range(arg.syntax()).start());
             c(comments, pattern(cx, &arg))
         })
         .collect();
@@ -61,7 +61,7 @@ fn body(
     value: &ast::Expr,
 ) -> CommonDeclaration {
     let mut comments = cx.take(start(eq));
-    comments.extend(cx.take(range(value.syntax()).start()));
+    comments.extend(cx.take(cx.range(value.syntax()).start()));
     CommonDeclaration::Definition(name, args, comments, expr(cx, value))
 }
 

@@ -4,10 +4,14 @@ use nomi_syntax::ast::{self, AstNode};
 
 use super::cursor::Cursor;
 use super::literal::literal;
-use super::{VALID, c, lower_name, range, separated, start, surround, upper_ref};
+use super::{VALID, c, lower_name, separated, start, surround, upper_ref};
 use crate::tree::{LiteralValue, Pattern, Upper};
 
 pub(super) fn pattern(cx: &mut Cursor, node: &ast::Pattern) -> Pattern {
+    crate::guarded(|| pattern_unguarded(cx, node))
+}
+
+fn pattern_unguarded(cx: &mut Cursor, node: &ast::Pattern) -> Pattern {
     match node {
         ast::Pattern::WildcardPattern(_) => Pattern::Anything,
         ast::Pattern::VarPattern(p) => {
@@ -82,7 +86,7 @@ fn constructor(cx: &mut Cursor, node: &ast::ConstructorPattern) -> Pattern {
     }
     let args = args
         .map(|arg| {
-            let comments = cx.take(range(arg.syntax()).start());
+            let comments = cx.take(cx.range(arg.syntax()).start());
             c(comments, pattern(cx, &arg))
         })
         .collect();

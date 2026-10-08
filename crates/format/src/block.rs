@@ -22,7 +22,9 @@ enum Atom {
 /// Upstream nests rows (`Row [Line]`). Nesting has no effect on the output,
 /// where a row is a left fold over its pieces, so a line keeps them flat.
 /// The pieces prefixed to it are kept apart, last first, so indenting
-/// stays cheap however deep the nesting goes.
+/// stays cheap however deep the nesting goes, and joining two lines moves
+/// the shorter one's pieces into the longer, so each piece moves at most
+/// a logarithmic number of times however rows nest.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Line {
     /// Prefixed pieces, in reverse.
@@ -63,13 +65,21 @@ impl Line {
     }
 
     /// Appends `line`.
-    pub(crate) fn push(&mut self, line: Line) {
-        if self.before.is_empty() && self.after.is_empty() {
+    pub(crate) fn push(&mut self, mut line: Line) {
+        if line.len() > self.len() {
+            let prefix = std::mem::take(self);
+            line.before.extend(prefix.after.into_iter().rev());
+            line.before.extend(prefix.before);
             *self = line;
             return;
         }
         self.after.extend(line.before.into_iter().rev());
         self.after.extend(line.after);
+    }
+
+    /// How many pieces the line holds.
+    fn len(&self) -> usize {
+        self.before.len() + self.after.len()
     }
 
     /// Prepends `line`.

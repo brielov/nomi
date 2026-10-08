@@ -61,7 +61,7 @@ enum Command {
     /// Time a crate's benchmarks, which fail when twice the input takes
     /// three times as long or more.
     Bench {
-        /// The crate: `syntax` for nomi-syntax.
+        /// The crate: `syntax` for nomi-syntax, `format` for nomi-format.
         target: String,
     },
 }

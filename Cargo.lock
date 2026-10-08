@@ -734,6 +734,7 @@ dependencies = [
  "nomi-testkit",
  "num-bigint",
  "proptest",
+ "stacker",
 ]
 
 [[package]]

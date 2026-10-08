@@ -60,6 +60,10 @@ fn type_constructor(ctor: &TypeConstructor) -> Block {
 
 /// Upstream's `formatType`.
 pub(super) fn format_type(ty: &Type) -> (TypeParensInner, Block) {
+    crate::guarded(|| format_type_unguarded(ty))
+}
+
+fn format_type_unguarded(ty: &Type) -> (TypeParensInner, Block) {
     use TypeParensRequired::{ForCtor, ForLambda};
     match ty {
         Type::Unit(comments) => (TypeParensInner::NotNeeded, unit('(', ')', comments)),

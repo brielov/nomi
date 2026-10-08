@@ -7,7 +7,7 @@ use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{SyntaxKind, SyntaxToken};
 
 use super::cursor::Cursor;
-use super::{VALID, c, commas, range, significant, start, token};
+use super::{VALID, c, commas, significant, start, token};
 use crate::tree::{
     C1, C2, Comment, CommentedMap, Comments, DetailedListing, Header, ImportMethod, Listing, Lower,
     Namespace, SourceSettings, SourceTag, Symbol, Upper, Value,
@@ -33,14 +33,14 @@ pub(super) fn header(cx: &mut Cursor, node: &ast::ModuleHeader) -> Header {
         SourceTag::Normal
     };
     let name = node.module_name().expect(VALID);
-    let pre_name = cx.take(range(name.syntax()).start());
+    let pre_name = cx.take(cx.range(name.syntax()).start());
     let names = namespace(&name);
 
     if let Some(where_kw) = node.where_token() {
         let list = node.exposing_list();
         let post_name = cx.take(
             list.as_ref()
-                .map_or(start(&where_kw), |l| range(l.syntax()).start()),
+                .map_or(start(&where_kw), |l| cx.range(l.syntax()).start()),
         );
         let exports = match list {
             Some(list) => detailed_listing(cx, &list),
@@ -72,7 +72,7 @@ fn settings(cx: &mut Cursor, fields: &ast::EffectFields) -> C2<SourceSettings> {
     let post = cx.take(start(&l_brace));
     let items = fields
         .effect_fields()
-        .map(|f| (range(f.syntax()), f))
+        .map(|f| (cx.range(f.syntax()), f))
         .collect();
     let settings = comma_list(
         cx,
@@ -106,7 +106,7 @@ fn settings(cx: &mut Cursor, fields: &ast::EffectFields) -> C2<SourceSettings> {
 /// An import's module name, and the rest with the comments before the name.
 pub(super) fn import(cx: &mut Cursor, node: &ast::Import) -> (Namespace, C1<ImportMethod>) {
     let name = node.module_name().expect(VALID);
-    let pre_name = cx.take(range(name.syntax()).start());
+    let pre_name = cx.take(cx.range(name.syntax()).start());
     let alias = node.import_alias().map(|alias| {
         let as_kw = alias.as_token().expect(VALID);
         let name = alias.upper_ident_token().expect(VALID);
@@ -133,23 +133,23 @@ fn exposing(cx: &mut Cursor, list: &ast::ExposingList) -> C2<Listing<DetailedLis
     let (pre, post) = match list.exposing_token() {
         Some(kw) => {
             let pre = cx.take(start(&kw));
-            let after = first.map_or_else(|| item_ranges(list)[0].start(), |t| start(&t));
+            let after = first.map_or_else(|| item_ranges(cx, list)[0].start(), |t| start(&t));
             (pre, cx.take(after))
         }
-        None => (Vec::new(), cx.take(range(list.syntax()).start())),
+        None => (Vec::new(), cx.take(cx.range(list.syntax()).start())),
     };
     c((pre, post), detailed_listing(cx, list))
 }
 
-fn item_ranges(list: &ast::ExposingList) -> Vec<TextRange> {
-    list.items().map(|i| range(i.syntax())).collect()
+fn item_ranges(cx: &Cursor, list: &ast::ExposingList) -> Vec<TextRange> {
+    list.items().map(|i| cx.range(i.syntax())).collect()
 }
 
 /// The listing in `list`, in parentheses or not.
 fn detailed_listing(cx: &mut Cursor, list: &ast::ExposingList) -> Listing<DetailedListing> {
     let dot_dot = token(list.syntax(), SyntaxKind::DotDot);
     let items = |cx: &mut Cursor, end| {
-        let items = list.items().map(|i| (range(i.syntax()), i)).collect();
+        let items = list.items().map(|i| (cx.range(i.syntax()), i)).collect();
         to_detailed_listing(comma_list(cx, items, commas(list.syntax()), end, value))
     };
     match (list.l_paren_token(), list.r_paren_token()) {

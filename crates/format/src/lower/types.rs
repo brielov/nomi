@@ -3,12 +3,14 @@
 use nomi_syntax::ast::{self, AstNode};
 
 use super::cursor::Cursor;
-use super::{
-    VALID, c, commas, lower_name, pair, range, sectioned, separated, start, surround, upper_ref,
-};
+use super::{VALID, c, commas, lower_name, pair, sectioned, separated, start, surround, upper_ref};
 use crate::tree::{C0Eol, Comment, ForceMultiline, Type, TypeConstructor};
 
 pub(super) fn ty(cx: &mut Cursor, node: &ast::Type) -> Type {
+    crate::guarded(|| ty_unguarded(cx, node))
+}
+
+fn ty_unguarded(cx: &mut Cursor, node: &ast::Type) -> Type {
     match node {
         ast::Type::FunctionType(f) => function(cx, f),
         ast::Type::NamedType(t) => {
@@ -56,11 +58,11 @@ pub(super) fn ty(cx: &mut Cursor, node: &ast::Type) -> Type {
 /// upstream's `withEol`.
 fn with_eol(cx: &mut Cursor, node: &ast::Type) -> C0Eol<Type> {
     let value = ty(cx, node);
-    c(cx.eol(range(node.syntax())), value)
+    c(cx.eol(cx.range(node.syntax())), value)
 }
 
 fn multiline(cx: &Cursor, node: &ast::Type) -> ForceMultiline {
-    ForceMultiline(cx.multiline(range(node.syntax())))
+    ForceMultiline(cx.multiline(cx.range(node.syntax())))
 }
 
 /// A constructor and its arguments, each with the comments before it;
@@ -73,7 +75,7 @@ fn construction(
 ) -> Type {
     let args = args
         .map(|arg| {
-            let comments = cx.take(range(arg.syntax()).start());
+            let comments = cx.take(cx.range(arg.syntax()).start());
             c(comments, ty(cx, &arg))
         })
         .collect();
@@ -100,7 +102,7 @@ fn function(cx: &mut Cursor, node: &ast::FunctionType) -> Type {
     Type::Function {
         first: Box::new(first),
         rest,
-        force_multiline: ForceMultiline(cx.multiline(range(node.syntax()))),
+        force_multiline: ForceMultiline(cx.multiline(cx.range(node.syntax()))),
     }
 }
 
@@ -124,7 +126,7 @@ fn record(cx: &mut Cursor, node: &ast::RecordType) -> Type {
         base,
         fields,
         trailing,
-        force_multiline: ForceMultiline(cx.multiline(range(node.syntax()))),
+        force_multiline: ForceMultiline(cx.multiline(cx.range(node.syntax()))),
     }
 }
 

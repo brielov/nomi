@@ -8,7 +8,7 @@ use nomi_syntax::{
 };
 
 use super::cursor::{self, Cursor};
-use super::{VALID, c, declarations, expressions, range};
+use super::{VALID, c, declarations, expressions};
 use crate::markdown::{self, CodeAttr};
 use crate::tree::{Declaration, Docs, ElmCode, TopLevelStructure};
 
@@ -75,7 +75,7 @@ fn expressions_fragment(
         .expect(VALID)
         .exprs()
     {
-        let expr_range = range(expr.syntax());
+        let expr_range = cx.range(expr.syntax());
         body.extend(
             cx.take(expr_range.start())
                 .into_iter()

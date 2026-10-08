@@ -19,12 +19,15 @@ pub(super) struct Cursor<'a> {
     next: usize,
     /// Where each newline starts, in order.
     newlines: Vec<TextSize>,
+    /// The tokens that are not trivia, in order.
+    significant: Vec<TextRange>,
 }
 
 impl<'a> Cursor<'a> {
     pub(super) fn new(root: &SyntaxNode, text: &'a str) -> Cursor<'a> {
         let mut comments = Vec::new();
         let mut newlines = Vec::new();
+        let mut significant = Vec::new();
         for token in root
             .descendants_with_tokens()
             .filter_map(|e| e.into_token())
@@ -32,6 +35,7 @@ impl<'a> Cursor<'a> {
             match token.kind() {
                 SyntaxKind::LineComment | SyntaxKind::BlockComment => comments.push(token),
                 SyntaxKind::Newline => newlines.push(token.text_range().start()),
+                kind if !kind.is_trivia() => significant.push(token.text_range()),
                 _ => {}
             }
         }
@@ -40,7 +44,24 @@ impl<'a> Cursor<'a> {
             comments,
             next: 0,
             newlines,
+            significant,
         }
+    }
+
+    /// From the first to the last token of `node` that is not trivia; a
+    /// node's own range takes in the trivia before it. A search of the
+    /// module's tokens, since walking to a node's edge tokens takes as
+    /// long as the node is deep.
+    pub(super) fn range(&self, node: &SyntaxNode) -> TextRange {
+        let within = node.text_range();
+        let first = self
+            .significant
+            .partition_point(|t| t.start() < within.start());
+        let end = self
+            .significant
+            .partition_point(|t| t.end() <= within.end());
+        assert!(first < end, "{}", super::VALID);
+        self.significant[first].cover(self.significant[end - 1])
     }
 
     /// The comments before `end` not yet taken.

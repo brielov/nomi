@@ -19,9 +19,8 @@ mod patterns;
 mod types;
 
 use std::collections::BTreeMap;
-use std::iter::successors;
 
-use nomi_base::{TextRange, TextSize};
+use nomi_base::TextSize;
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
@@ -43,7 +42,7 @@ pub(crate) fn module(root: &SyntaxNode, text: &str) -> Module {
     let body_start = module
         .decls()
         .next()
-        .map_or(text_end(text), |d| range(d.syntax()).start());
+        .map_or(text_end(text), |d| cx.range(d.syntax()).start());
 
     let initial_comments = cx.take(match significant(root).next() {
         Some(first) => first.text_range().start(),
@@ -59,7 +58,7 @@ pub(crate) fn module(root: &SyntaxNode, text: &str) -> Module {
         docs::docs(&token)
     });
     comments.extend(cx.take(match imports.first() {
-        Some(import) => range(import.syntax()).start(),
+        Some(import) => cx.range(import.syntax()).start(),
         None => fresh_line_end(root, body_start),
     }));
     let mut merged = BTreeMap::new();
@@ -68,7 +67,7 @@ pub(crate) fn module(root: &SyntaxNode, text: &str) -> Module {
         let (name, method) = header::import(&mut cx, import);
         header::insert_with(&mut merged, name, method, header::merge_import);
         match imports.get(i + 1) {
-            Some(next) => comments.extend(cx.take(range(next.syntax()).start())),
+            Some(next) => comments.extend(cx.take(cx.range(next.syntax()).start())),
             None => body.extend(
                 cx.take(body_start)
                     .into_iter()
@@ -183,7 +182,7 @@ fn surround<N: AstNode, T>(
     items
         .enumerate()
         .map(|(i, item)| {
-            let pre = cx.take(range(item.syntax()).start());
+            let pre = cx.take(cx.range(item.syntax()).start());
             let value = lower(cx, &item);
             let post = cx.take(commas.get(i).copied().unwrap_or_else(|| start(close)));
             c((pre, post), value)
@@ -205,9 +204,9 @@ fn sectioned<N: AstNode, T>(
     let mut leading = Vec::new();
     let mut terms = Vec::new();
     for (i, item) in items.enumerate() {
-        let pre = cx.take(range(item.syntax()).start());
+        let pre = cx.take(cx.range(item.syntax()).start());
         let value = lower(cx, &item);
-        let eol = cx.eol(range(item.syntax()));
+        let eol = cx.eol(cx.range(item.syntax()));
         let next = commas.get(i).copied().unwrap_or_else(|| start(close));
         let before_next = cx.take(next);
         terms.push(c(
@@ -237,11 +236,11 @@ fn pair<N: AstNode, T>(
         .or_else(|| token(field, SyntaxKind::Eq))
         .expect(VALID);
     let key = c(cx.take(start(&separator)), lower_name(&name));
-    let value = c(cx.take(range(value.syntax()).start()), lower(cx, value));
+    let value = c(cx.take(cx.range(value.syntax()).start()), lower(cx, value));
     Pair {
         key,
         value,
-        force_multiline: ForceMultiline(cx.multiline(range(field))),
+        force_multiline: ForceMultiline(cx.multiline(cx.range(field))),
     }
 }
 
@@ -257,7 +256,7 @@ fn separated<N: AstNode, T>(
     let mut terms = terms.into_iter();
     let mut term = |cx: &mut Cursor, node: N| {
         let value = lower(cx, &node);
-        (value, cx.rest_of_line(range(node.syntax()).end()))
+        (value, cx.rest_of_line(cx.range(node.syntax()).end()))
     };
     let (first, eol) = term(cx, terms.next().expect(VALID));
     let rest = separators
@@ -265,7 +264,7 @@ fn separated<N: AstNode, T>(
         .zip(terms)
         .map(|(separator, node)| {
             let pre = cx.take(start(separator));
-            let post = cx.take(range(node.syntax()).start());
+            let post = cx.take(cx.range(node.syntax()).start());
             let (value, eol) = term(cx, node);
             c((pre, post, eol), value)
         })
@@ -278,20 +277,6 @@ fn significant(node: &SyntaxNode) -> impl Iterator<Item = SyntaxToken> {
     node.descendants_with_tokens()
         .filter_map(|e| e.into_token())
         .filter(|t| !t.kind().is_trivia())
-}
-
-/// From the first to the last token of `node` that is not trivia; a
-/// node's own range takes in the trivia before it.
-fn range(node: &SyntaxNode) -> TextRange {
-    let edge = |token, step: fn(&SyntaxToken) -> Option<SyntaxToken>| {
-        successors(token, step)
-            .find(|t| !t.kind().is_trivia())
-            .expect(VALID)
-            .text_range()
-    };
-    let first = edge(node.first_token(), SyntaxToken::next_token);
-    let last = edge(node.last_token(), SyntaxToken::prev_token);
-    first.cover(last)
 }
 
 /// The child token of `node` of `kind`.

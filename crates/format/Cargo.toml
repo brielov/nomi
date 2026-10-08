@@ -11,6 +11,7 @@ icu_properties.workspace = true
 nomi-base.workspace = true
 nomi-syntax.workspace = true
 num-bigint.workspace = true
+stacker.workspace = true
 
 [dev-dependencies]
 nomi-testkit.workspace = true
@@ -18,3 +19,7 @@ proptest.workspace = true
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "format"
+harness = false

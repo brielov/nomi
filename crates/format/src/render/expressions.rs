@@ -54,6 +54,10 @@ fn infix_var(op: &Ref) -> Line {
 
 /// Upstream's `formatExpression`.
 pub(super) fn format_expression(expr: &Expr) -> (SyntaxContext, Block) {
+    crate::guarded(|| format_expression_unguarded(expr))
+}
+
+fn format_expression_unguarded(expr: &Expr) -> (SyntaxContext, Block) {
     match expr {
         Expr::Literal(value) => (SyntaxSeparated, literal(value)),
         Expr::Var(v) => (SyntaxSeparated, Block::line(var(v))),

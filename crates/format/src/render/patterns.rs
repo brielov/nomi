@@ -27,6 +27,10 @@ fn text(text: impl Into<String>) -> Block {
 
 /// Upstream's `formatPattern`.
 pub(super) fn format_pattern(pattern: &Pattern) -> (SyntaxContext, Block) {
+    crate::guarded(|| format_pattern_unguarded(pattern))
+}
+
+fn format_pattern_unguarded(pattern: &Pattern) -> (SyntaxContext, Block) {
     match pattern {
         Pattern::Anything => (SyntaxSeparated, text("_")),
         Pattern::Unit(comments) => (SyntaxSeparated, unit('(', ')', comments)),

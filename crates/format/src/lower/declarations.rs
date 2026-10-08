@@ -9,7 +9,7 @@ use super::cursor::Cursor;
 use super::definitions::{annotation, definition, destructure};
 use super::expressions::expr;
 use super::types::ty;
-use super::{VALID, c, lower_name, range, significant, start, symbol, token, upper_name};
+use super::{VALID, c, lower_name, significant, start, symbol, token, upper_name};
 use crate::tree::{
     Assoc, C1, C2, Declaration, Lower, NameWithArgs, OpenCommentedList, TopLevelStructure, Upper,
 };
@@ -38,19 +38,19 @@ pub(super) fn declaration(cx: &mut Cursor, body: &mut Body, decl: &ast::Decl) {
     match decl {
         ast::Decl::ValueDecl(d) => {
             if let Some(signature) = d.signature() {
-                comments_before(cx, body, range(signature.syntax()).start());
+                comments_before(cx, body, cx.range(signature.syntax()).start());
                 body.push(entry(annotation(cx, &signature)));
             }
             // Upstream reads an annotation on its own, so either may be
             // missing.
             if let Some(value) = d.definition() {
-                comments_before(cx, body, range(value.syntax()).start());
+                comments_before(cx, body, cx.range(value.syntax()).start());
                 body.push(entry(definition(cx, &value)));
             }
         }
         ast::Decl::DestructureDecl(d) => {
             let target = d.pattern().expect(VALID);
-            comments_before(cx, body, range(target.syntax()).start());
+            comments_before(cx, body, cx.range(target.syntax()).start());
             let (eq, value) = (d.eq_token().expect(VALID), d.expr().expect(VALID));
             body.push(entry(destructure(cx, &target, &eq, &value)));
         }
@@ -99,7 +99,7 @@ fn alias(cx: &mut Cursor, node: &ast::TypeAliasDecl) -> Declaration {
     let name_with_args = name_with_args(cx, &name, node.type_params());
     let before_eq = cx.take(start(&node.eq_token().expect(VALID)));
     let aliased = node.ty().expect(VALID);
-    let after_eq = cx.take(range(aliased.syntax()).start());
+    let after_eq = cx.take(cx.range(aliased.syntax()).start());
     Declaration::TypeAlias(
         after_type,
         c((after_alias, before_eq), name_with_args),
@@ -125,14 +125,14 @@ fn custom_type(cx: &mut Cursor, node: &ast::CustomTypeDecl) -> Declaration {
     let last = loop {
         // After `=` or `|`, which the previous slot stopped before.
         let variant = variants.next().expect(VALID);
-        let pre = cx.take(range(variant.syntax()).start());
+        let pre = cx.take(cx.range(variant.syntax()).start());
         let name = upper_name(&variant.upper_ident_token().expect(VALID));
         let args = variant
             .types()
-            .map(|arg| c(cx.take(range(arg.syntax()).start()), ty(cx, &arg)))
+            .map(|arg| c(cx.take(cx.range(arg.syntax()).start()), ty(cx, &arg)))
             .collect();
         let value = NameWithArgs { name, args };
-        let eol = cx.eol(range(variant.syntax()));
+        let eol = cx.eol(cx.range(variant.syntax()));
         if variants.peek().is_none() {
             break c((pre, eol), value);
         }
@@ -169,7 +169,7 @@ fn port(cx: &mut Cursor, node: &ast::PortDecl) -> Declaration {
     let before_name = cx.take(start(&name));
     let after_name = cx.take(start(&node.colon_token().expect(VALID)));
     let annotation = node.ty().expect(VALID);
-    let before_type = cx.take(range(annotation.syntax()).start());
+    let before_type = cx.take(cx.range(annotation.syntax()).start());
     Declaration::PortAnnotation(
         c((before_name, after_name), lower_name(&name)),
         before_type,
@@ -183,7 +183,7 @@ fn legacy_port(cx: &mut Cursor, node: &ast::LegacyPortDecl) -> Declaration {
     let before_name = cx.take(start(&name));
     let after_name = cx.take(start(&node.eq_token().expect(VALID)));
     let value = node.expr().expect(VALID);
-    let before_value = cx.take(range(value.syntax()).start());
+    let before_value = cx.take(cx.range(value.syntax()).start());
     Declaration::PortDefinition(
         c((before_name, after_name), lower_name(&name)),
         before_value,
@@ -228,7 +228,7 @@ fn legacy_infix(
     let int = node.int_token().expect(VALID);
     let before_precedence = cx.take(start(&int));
     let op = node.op().expect(VALID);
-    let before_op = cx.take(range(op.syntax()).start());
+    let before_op = cx.take(cx.range(op.syntax()).start());
     Declaration::LegacyFixity(
         assoc,
         before_precedence,
