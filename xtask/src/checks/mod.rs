@@ -3,6 +3,7 @@
 
 pub mod ignore;
 pub mod layering;
+pub mod pool;
 pub mod purity;
 pub mod size;
 
@@ -43,6 +44,20 @@ pub fn run(root: &Path) -> Result<Vec<String>> {
         })
         .collect();
     violations.extend(layering::check(&crates, &edges));
+
+    let direct: Vec<(String, Vec<String>)> = nomi
+        .iter()
+        .map(|p| {
+            let deps = p
+                .dependencies
+                .iter()
+                .filter(|d| d.kind == DependencyKind::Normal && !d.name.starts_with(PREFIX))
+                .map(|d| d.name.to_string())
+                .collect();
+            (short(&p.name).to_string(), deps)
+        })
+        .collect();
+    violations.extend(pool::check(&direct));
 
     let closures: Vec<(String, Vec<String>)> = nomi
         .iter()

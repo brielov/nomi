@@ -231,7 +231,7 @@ Next to the crates:
 
 **Rebuilds**
 - **Early cutoff.** If a rebuilt module's interface hash is unchanged, its dependents are skipped. Upstream's `Build.hs` already does this.
-- **Scheduling.** Parallelism follows the module DAG on the engine's thread pool, the only pool in the process.
+- **Scheduling.** Parallelism follows the module DAG on the engine's thread pool, the only pool in the process. It is rayon's, started once, with `nomi_base::STACK_SIZE` for each thread; `cargo xtask ci` fails if another crate depends on a pool crate.
 - **Snapshots.** Every edit creates a revision. Readers hold immutable snapshots, and stale work is cancelled between phases.
 
 **Storage**
