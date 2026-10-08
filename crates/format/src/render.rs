@@ -11,6 +11,8 @@ mod literal;
 mod patterns;
 mod types;
 
+use nomi_syntax::SyntaxKind;
+
 use crate::block::{Block, Line};
 use crate::markdown;
 use crate::structure::{
@@ -378,10 +380,34 @@ fn lines(text: &str) -> Vec<&str> {
 
 /// A doc comment: its Markdown, with the Elm in code blocks formatted
 /// and the `@docs` names cleaned; upstream's `formatDocComment`.
+///
+/// Reprinting the Markdown can undo the nesting of a comment inside, so
+/// that upstream's comment ends early or swallows the code after it;
+/// nomi then prints the comment as written (`DECISIONS.md`).
 fn doc_comment(docs: &Docs) -> Block {
-    doc_comment_string(&markdown::render(&docs.0, &|code: &Option<ElmCode>| {
+    let block = doc_comment_string(&markdown::render(&docs.blocks, &|code: &Option<
+        ElmCode,
+    >| {
         code.as_ref().map(elm_code)
-    }))
+    }));
+    if one_doc_comment(&block.render()) {
+        return block;
+    }
+    Block::stack1(docs.source.lines().map(|l| Block::line(Line::text(l))))
+}
+
+/// Whether `text` lexes as one doc comment and nothing else.
+fn one_doc_comment(text: &str) -> bool {
+    let lexed = nomi_syntax::lex(text);
+    let mut tokens = lexed
+        .tokens()
+        .iter()
+        .filter(|t| !matches!(t.kind, SyntaxKind::Whitespace | SyntaxKind::Newline));
+    lexed.errors().is_empty()
+        && tokens
+            .next()
+            .is_some_and(|t| t.kind == SyntaxKind::DocComment)
+        && tokens.next().is_none()
 }
 
 /// The Elm of a code block, formatted with one blank line between

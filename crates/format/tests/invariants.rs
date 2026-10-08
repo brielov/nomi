@@ -103,13 +103,16 @@ fn a_comment_upstream_ends_early_keeps_every_invariant() {
 }
 
 /// elm-format 0.8.8 reprints this doc comment's Markdown without its
-/// nested comment's closing, so the comment swallows `x = 1`; the fuzzer
-/// found it.
+/// nested comment's closing, so the comment swallows `x = 1`; nomi
+/// keeps the comment as written. The fuzzer found it.
 #[test]
-fn a_doc_comment_holding_a_comment_breaks_every_invariant() {
+fn a_doc_comment_holding_a_comment_keeps_every_invariant() {
     let text = "module Example exposing (x)\n\n{-|\n\n```emodule exposple exposing (x)\n\n{-|\n\n```emodule exposi-}\n\nx = 1lm\n```\n\n-}\n\nx = 1\n";
-    assert_eq!(nomi_format::upstream_breaks(text), Invariant::ALL);
-    nomi_format::check_invariants(text);
+    assert_eq!(
+        nomi_format::upstream_breaks(text),
+        [Invariant::KeepsComments, Invariant::Idempotent]
+    );
+    assert_eq!(nomi_format::broken_invariants(text), []);
 }
 
 /// elm-format drops a shader's carriage returns, which the token check

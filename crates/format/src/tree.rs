@@ -375,7 +375,12 @@ pub(crate) enum TopLevelStructure<T> {
 /// A doc comment's Markdown, with the Elm code of its code blocks where
 /// elm-format reads some.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Docs(pub(crate) Vec<markdown::Block<Option<ElmCode>>>);
+pub(crate) struct Docs {
+    pub(crate) blocks: Vec<markdown::Block<Option<ElmCode>>>,
+    /// The comment as written, `{-|` to `-}`, for where reprinting the
+    /// Markdown would end it elsewhere.
+    pub(crate) source: String,
+}
 
 /// The Elm in a code block, read as the first of these that parses;
 /// upstream's `ElmCodeBlock`.

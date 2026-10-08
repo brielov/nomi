@@ -269,6 +269,7 @@ nomi/code_fences/095.elm
 nomi/code_fences/096.elm
 nomi/code_fences/097.elm
 nomi/code_fences/098.elm
+nomi/doc_comment_nesting/001.elm
 nomi/documentation_groups/001.elm
 nomi/documentation_groups/002.elm
 nomi/documentation_groups/003.elm

@@ -65,7 +65,10 @@ fn values_split_into_their_parts() {
         body(text),
         [
             comment(line(" a")),
-            TopLevelStructure::DocComment(Docs(crate::markdown::parse("Doc.", &mut |_, _| None))),
+            TopLevelStructure::DocComment(Docs {
+                blocks: crate::markdown::parse("Doc.", &mut |_, _| None),
+                source: "{-| Doc. -}".to_owned(),
+            }),
             comment(line(" b")),
             entry(Declaration::Common(CommonDeclaration::TypeAnnotation(
                 c(vec![], Ref::Var((), lower("x"))),

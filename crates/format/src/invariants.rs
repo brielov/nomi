@@ -126,9 +126,7 @@ pub fn broken_invariants(text: &str) -> Vec<(Invariant, String)> {
 ///   parse;
 /// - a module without a header, declaring a type alias and a custom
 ///   type of one name, which the exposing list elm-format writes names
-///   twice and a second run once;
-/// - a doc comment holding a comment, whose nesting reprinting its
-///   Markdown can undo, so that it ends early or swallows code.
+///   twice and a second run once.
 ///
 /// The fixtures' and the corpus's `invariants.tsv` record the modules.
 pub fn upstream_breaks(text: &str) -> Vec<Invariant> {
@@ -203,9 +201,6 @@ pub fn upstream_breaks(text: &str) -> Vec<Invariant> {
         && !type_name(SyntaxKind::TypeAliasDecl).is_disjoint(&type_name(SyntaxKind::CustomTypeDecl))
     {
         breaks.push(Invariant::Idempotent);
-    }
-    if tokens().any(|t| t.kind() == SyntaxKind::DocComment && t.text()[3..].contains("{-")) {
-        breaks.extend(Invariant::ALL);
     }
     Invariant::ALL
         .into_iter()

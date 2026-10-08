@@ -195,7 +195,10 @@ fn comments_between_imports_go_before_them_all() {
     );
     assert_eq!(
         module.docs,
-        Some(Docs(crate::markdown::parse("Docs.", &mut |_, _| None)))
+        Some(Docs {
+            blocks: crate::markdown::parse("Docs.", &mut |_, _| None),
+            source: "{-| Docs. -}".to_owned(),
+        })
     );
     assert_eq!(module.imports.comments, [line(" h"), line(" between")]);
     assert_eq!(

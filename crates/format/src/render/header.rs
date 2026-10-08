@@ -81,7 +81,7 @@ fn documented(module: &Module) -> Vec<Vec<String>> {
     let Some(docs) = &module.docs else {
         return Vec::new();
     };
-    docs.0
+    docs.blocks
         .iter()
         .flat_map(|block| match block {
             markdown::Block::ElmDocs(groups) => groups.as_slice(),

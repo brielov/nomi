@@ -15,7 +15,10 @@ use crate::tree::{Declaration, Docs, ElmCode, TopLevelStructure};
 /// The doc comment `token`: the Markdown between `{-|` and `-}`.
 pub(super) fn docs(token: &SyntaxToken) -> Docs {
     let text = cursor::block_body(&token.text()[3..]);
-    Docs(markdown::parse(&text, &mut elm_code))
+    Docs {
+        blocks: markdown::parse(&text, &mut elm_code),
+        source: token.text().to_owned(),
+    }
 }
 
 /// The Elm in a code block marked `elm` or not at all: declarations,
