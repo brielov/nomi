@@ -67,6 +67,32 @@ impl Report {
     }
 }
 
+/// A problem in a module as an Elm release reports it: `Report.Report`,
+/// which titles a message and says where it is. The region is kept as the
+/// release keeps positions, which a [`Diagnostic`]'s span can't carry:
+/// 0.19.1's wrap at 16 bits, and its errors can point past the text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Problem {
+    pub title: Cow<'static, str>,
+    pub region: code::Region,
+    pub message: Doc,
+}
+
+impl Problem {
+    pub fn new(title: impl Into<Cow<'static, str>>, region: code::Region, message: Doc) -> Problem {
+        Problem {
+            title: title.into(),
+            region,
+            message,
+        }
+    }
+
+    /// `Error.reportToJson`.
+    pub fn to_json(&self, compat: crate::Compat) -> json::Json {
+        json::problem(&self.title, self.region, &self.message, compat)
+    }
+}
+
 /// A range in one file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Span {

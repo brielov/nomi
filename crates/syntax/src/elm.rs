@@ -19,9 +19,11 @@ mod expression;
 mod literal;
 mod module;
 mod pattern;
+mod report;
 mod types;
 
 pub use error::Error;
+pub use report::to_problem;
 
 /// What elm `compat` reports first of the module `src`, from a project
 /// of kind `source`, if it parses at all.

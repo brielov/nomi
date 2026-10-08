@@ -213,6 +213,19 @@ pub fn text(text: impl Into<String>) -> Doc {
     Doc::text(text)
 }
 
+/// A string as a document, as Haskell's `OverloadedStrings` makes one.
+impl From<&str> for Doc {
+    fn from(s: &str) -> Doc {
+        text(s)
+    }
+}
+
+impl From<String> for Doc {
+    fn from(s: String) -> Doc {
+        text(s)
+    }
+}
+
 /// Joins `docs` with `sep` between each pair.
 fn join(docs: impl IntoIterator<Item = Doc>, sep: impl Fn() -> Doc) -> Doc {
     let mut docs = docs.into_iter();

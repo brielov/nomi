@@ -11,7 +11,7 @@
 use text_size::TextRange;
 
 use super::doc::{Color, Doc, Pair, text, vcat};
-use crate::{ColumnUnit, Compat, LineIndex};
+use crate::{ColumnUnit, Compat, LineIndex, ghc};
 
 /// A file's text, split into lines as upstream splits it to show them
 /// (`Code.Source`).
@@ -94,6 +94,126 @@ impl Source<'_> {
         .render(region, highlight.unwrap_or(region));
         vcat([before, Doc::empty(), code, after])
     }
+}
+
+/// What a parser stopped at, as a syntax error names it (`Code.Next`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Next {
+    Keyword(&'static str),
+    Operator(String),
+    /// What the bracket is called, and the bracket.
+    Close(&'static str, char),
+    /// A capitalized name's first letter and the rest.
+    Upper(char, String),
+    /// A lower-case name's first letter and, as upstream has it, the
+    /// whole name again: reports that put the two together count the
+    /// first letter twice.
+    Lower(char, String),
+    Other(Option<char>),
+}
+
+/// `Parse.Variable`'s reserved words, the same in every release.
+const KEYWORDS: [&str; 14] = [
+    "as", "if", "in", "of", "let", "case", "else", "port", "then", "type", "where", "import",
+    "module", "exposing",
+];
+
+impl Source<'_> {
+    /// The line kept as `row`, if there is one.
+    fn line(&self, row: u32, compat: Compat) -> Option<&str> {
+        let index = row.checked_sub(compat.first_position())?;
+        self.lines.get(index as usize).copied()
+    }
+
+    /// `Code.whatIsNext`. Every release drops `col - 1` characters of the
+    /// line, so from 0.19.2 on, where columns count from 0, it looks one
+    /// character early, and at the line's start not at all.
+    pub fn what_is_next(&self, at: Position, compat: Compat) -> Next {
+        let Some(line) = self.line(at.row, compat) else {
+            return Next::Other(None);
+        };
+        let mut chars = line.chars().skip(at.col.saturating_sub(1) as usize);
+        let Some(c) = chars.next() else {
+            return Next::Other(None);
+        };
+        let rest = || {
+            chars
+                .clone()
+                .take_while(|&c| is_inner(c))
+                .collect::<String>()
+        };
+        if ghc::is_upper(c) {
+            Next::Upper(c, rest())
+        } else if ghc::is_lower(c) {
+            let name = format!("{c}{}", rest());
+            match KEYWORDS.iter().find(|&&k| k == name) {
+                Some(keyword) => Next::Keyword(keyword),
+                None => Next::Lower(c, name),
+            }
+        } else if is_binop(c) {
+            let mut op = String::from(c);
+            op.extend(chars.clone().take_while(|&c| is_binop(c)));
+            Next::Operator(op)
+        } else {
+            match c {
+                ')' => Next::Close("parenthesis", ')'),
+                ']' => Next::Close("square bracket", ']'),
+                '}' => Next::Close("curly brace", '}'),
+                _ => Next::Other(Some(c)),
+            }
+        }
+    }
+
+    /// `Code.nextLineStartsWithKeyword`: where `keyword` is if it starts
+    /// the line after `at`'s, after spaces.
+    pub fn next_line_starts_with_keyword(
+        &self,
+        keyword: &str,
+        at: Position,
+        compat: Compat,
+    ) -> Option<Position> {
+        self.next_line_starts(at, compat, |rest| {
+            rest.strip_prefix(keyword)
+                .is_some_and(|after| !after.chars().next().is_some_and(is_inner))
+        })
+    }
+
+    /// `Code.nextLineStartsWithCloseCurly`.
+    pub fn next_line_starts_with_close_curly(
+        &self,
+        at: Position,
+        compat: Compat,
+    ) -> Option<Position> {
+        self.next_line_starts(at, compat, |rest| rest.starts_with('}'))
+    }
+
+    fn next_line_starts(
+        &self,
+        at: Position,
+        compat: Compat,
+        starts: impl Fn(&str) -> bool,
+    ) -> Option<Position> {
+        let row = at.row + 1;
+        let line = self.line(row, compat)?;
+        let rest = line.trim_start_matches(' ');
+        #[allow(clippy::cast_possible_truncation, reason = "a line is shorter")]
+        let spaces = (line.len() - rest.len()) as u32;
+        let col = compat.first_position() + spaces;
+        starts(rest).then(|| Position {
+            row,
+            col: compat.column_wrap().map_or(col, |wrap| col % wrap),
+        })
+    }
+}
+
+/// `isInner`: a character that continues a name.
+fn is_inner(c: char) -> bool {
+    ghc::is_alpha_num(c) || c == '_'
+}
+
+/// `Parse.Symbol.binopCharSet`.
+fn is_binop(c: char) -> bool {
+    "+-/*=.<>:&|^?%!".contains(c)
 }
 
 /// `doc` with its snippets and pairs replaced by the lines of `source`
