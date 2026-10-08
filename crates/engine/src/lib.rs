@@ -9,6 +9,7 @@ pub mod console;
 pub mod elm_format;
 mod env;
 pub mod format;
+pub mod graph;
 pub mod init;
 pub mod install;
 pub mod packages;

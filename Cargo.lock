@@ -795,6 +795,7 @@ dependencies = [
  "nomi-format",
  "nomi-project",
  "nomi-registry",
+ "nomi-syntax",
  "rayon",
  "sha1",
  "tempfile",

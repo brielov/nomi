@@ -7,6 +7,9 @@
 //! 0.19.3 counts bytes and has no limit, since its check is on the bytes
 //! after the name, which `fromSnippet` rejects anyway.
 
+use std::cmp::Ordering;
+use std::fmt;
+
 use nomi_base::Compat;
 
 use crate::json::{Cursor, Position};
@@ -18,12 +21,34 @@ use crate::scan::{self, Scan};
 pub struct ModuleName(Box<[u8]>);
 
 impl ModuleName {
+    /// A name another reader already checked, as the parser checks the
+    /// names in a module's header and imports.
+    pub fn new(name: &str) -> ModuleName {
+        ModuleName(name.as_bytes().into())
+    }
+
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
     pub fn to_str(&self) -> Option<&str> {
         std::str::from_utf8(&self.0).ok()
+    }
+
+    /// `isKernel`: one of the kernel's JavaScript modules, which only
+    /// `elm/` and `elm-explorations/` packages may import.
+    pub fn is_kernel(&self) -> bool {
+        self.0.starts_with(b"Elm.Kernel.")
+    }
+
+    /// The order upstream keeps module names in, which decides the order
+    /// of its maps and graphs: 0.19.1 and 0.19.2 compare the bytes, and
+    /// 0.19.3 (`compareFast`) the lengths first.
+    pub fn compare(&self, other: &ModuleName, compat: Compat) -> Ordering {
+        match compat {
+            Compat::V0_19_1 | Compat::V0_19_2 => self.0.cmp(&other.0),
+            Compat::V0_19_3 => (self.0.len(), &self.0).cmp(&(other.0.len(), &other.0)),
+        }
     }
 
     pub fn parse(bytes: &[u8], start: Cursor, compat: Compat) -> Result<ModuleName, Position> {
@@ -56,5 +81,11 @@ impl ModuleName {
         }
         scan.finish().map_err(Cursor::position)?;
         Ok(ModuleName(bytes.into()))
+    }
+}
+
+impl fmt::Display for ModuleName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&String::from_utf8_lossy(&self.0))
     }
 }

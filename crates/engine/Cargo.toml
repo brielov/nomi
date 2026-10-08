@@ -11,6 +11,7 @@ nomi-base.workspace = true
 nomi-format.workspace = true
 nomi-project.workspace = true
 nomi-registry.workspace = true
+nomi-syntax.workspace = true
 rayon.workspace = true
 tempfile.workspace = true
 walkdir.workspace = true

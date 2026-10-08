@@ -259,7 +259,8 @@ Goal: `nomi check` reports syntax and module errors exactly as `elm make` does, 
 
 - [x] **4.1** `engine: revisions, overlays and FileIds`. A versioned VFS with editor overlays, and FileIds canonical across symlinks (R7).
   Done: `Vfs` lays editor overlays over the disk, and each overlay set or removed, write, or reported disk change makes a new `Revision`. A `Snapshot` keeps its revision's overlays, reads the disk when asked, and knows when it is stale (DECISIONS 2026-10-08). `file_id` resolves symbolic links, through the nearest existing directory for unsaved files, and interns the path.
-- [ ] **4.2** `engine: module graph`. Crawls the way upstream's `Build.hs` does: module ↔ path, packages' exposed modules, and the not-found, ambiguous, name-mismatch and cycle errors.
+- [x] **4.2** `engine: module graph`. Crawls the way upstream's `Build.hs` does: module ↔ path, packages' exposed modules, and the not-found, ambiguous, name-mismatch and cycle errors.
+  Done: `graph::Graph::{from_paths, from_exposed}` crawl in parallel waves, check roots as `findRoots`/`checkRoots` do, and report each release's cycle (DECISIONS 2026-10-08), checked against all three elm releases on random graphs.
 - [ ] **4.3** `engine: scheduler and cache`. The module DAG runs on the pool, with cancellation between phases, a self-trimming content-addressed per-user cache, and keys built from interface hashes.
 - [ ] **4.4** `base: report documents and renderers`. A port of `Reporting/Doc.hs`, `Render/Code.hs` and `Report.hs`, with the terminal renderer of 3.9a extended to snippets, a `--report=json` renderer, and regions that depend on Compat.
 - [ ] **4.4a** `report: elm.json and dependency problems`. `toOutlineReport` and `toDetailsReport`, which `install`, `make` and the rest share, with their snippets. Until then 3.9's commands print a plain one-line version. **Check:** transcripts from elm of broken `elm.json` files and hand-edited dependencies.
