@@ -247,6 +247,9 @@ pub struct Union {
     pub variants: Vec<(Spanned, Vec<TypeId>)>,
     pub docs: Option<Spanned>,
     pub node: NodePtr,
+    /// From its keyword to its end, without its doc comment, as upstream
+    /// locates a declaration.
+    pub range: TextRange,
 }
 
 /// `Src.Alias`.
@@ -257,6 +260,9 @@ pub struct Alias {
     pub body: TypeId,
     pub docs: Option<Spanned>,
     pub node: NodePtr,
+    /// From its keyword to its end, without its doc comment, as upstream
+    /// locates a declaration.
+    pub range: TextRange,
 }
 
 /// `Src.Infix`: `infix left 6 (+) = add`.
@@ -276,6 +282,9 @@ pub struct Port {
     pub ty: TypeId,
     pub docs: Option<Spanned>,
     pub node: NodePtr,
+    /// From its keyword to its end, without its doc comment, as upstream
+    /// locates a declaration.
+    pub range: TextRange,
 }
 
 /// `Src.Def`, and a top-level `Src.Value`.

@@ -4,13 +4,13 @@
 //! with them are upstream's. Before anything compiles, the modules import
 //! no cycle and the roots' names are unique (`checkMidpointAndRoots`).
 
-use std::collections::hash_map::Entry;
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use nomi_base::{Compat, FileId, TextRange, ghc};
+use nomi_compiler::graph;
 use nomi_project::{ModuleName, Name};
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{Parse, Source, SyntaxError, SyntaxKind, Tool, parse_module, validate};
@@ -686,14 +686,14 @@ fn check_cycles(compat: Compat, modules: &HashMap<ModuleName, Status>) -> Result
             _ => Vec::new(),
         })
         .collect();
-    for component in components(&edges) {
+    for component in graph::components(&edges) {
         let first = component[0];
         if component.len() == 1 && !edges[first].contains(&first) {
             continue;
         }
         let cycle = match compat {
             Compat::V0_19_1 | Compat::V0_19_2 => component,
-            Compat::V0_19_3 => minimal_cycle(&edges, &component),
+            Compat::V0_19_3 => graph::minimal_cycle(&edges, &component),
         };
         return Err(Problem::Cycle {
             first: names[cycle[0]].clone(),
@@ -701,102 +701,6 @@ fn check_cycles(compat: Compat, modules: &HashMap<ModuleName, Status>) -> Result
         });
     }
     Ok(())
-}
-
-/// `Data.Graph.scc`: the components as trees of a depth-first search of
-/// the graph, taking roots in reverse postorder of a search of its
-/// transpose; each in preorder, as `stronglyConnComp` lists them.
-fn components(edges: &[Vec<usize>]) -> Vec<Vec<usize>> {
-    // `transposeG` builds with `accumArray (flip (:))`, so each vertex's
-    // edges come back reversed.
-    let mut transposed = vec![Vec::new(); edges.len()];
-    for (v, ws) in edges.iter().enumerate() {
-        for &w in ws {
-            transposed[w].push(v);
-        }
-    }
-    for vs in &mut transposed {
-        vs.reverse();
-    }
-    let (_, postorder) = dfs(&transposed, 0..edges.len());
-    let (trees, _) = dfs(edges, postorder.into_iter().rev());
-    trees
-}
-
-/// `Data.Graph.dfs` from each of `roots` not yet reached: each tree's
-/// vertices in preorder, and every vertex in postorder.
-fn dfs(
-    edges: &[Vec<usize>],
-    roots: impl IntoIterator<Item = usize>,
-) -> (Vec<Vec<usize>>, Vec<usize>) {
-    let mut seen = vec![false; edges.len()];
-    let mut trees = Vec::new();
-    let mut postorder = Vec::with_capacity(edges.len());
-    let mut stack: Vec<(usize, usize)> = Vec::new();
-    for root in roots {
-        if seen[root] {
-            continue;
-        }
-        seen[root] = true;
-        let mut tree = vec![root];
-        stack.push((root, 0));
-        while let Some(&(v, next)) = stack.last() {
-            match edges[v].get(next) {
-                Some(&w) => {
-                    stack.last_mut().expect("the stack has v").1 += 1;
-                    if !seen[w] {
-                        seen[w] = true;
-                        tree.push(w);
-                        stack.push((w, 0));
-                    }
-                }
-                None => {
-                    postorder.push(v);
-                    stack.pop();
-                }
-            }
-        }
-        trees.push(tree);
-    }
-    (trees, postorder)
-}
-
-/// 0.19.3's `withMinimalCycle`: a breadth-first search from the
-/// component's first module, over edges inside the component, to the
-/// first module dequeued that imports it; each module is reached from the
-/// first to find it.
-///
-/// Where the first module imports itself, upstream reads its path from
-/// outside its array, and crashes or hangs; nomi reports that module alone.
-fn minimal_cycle(edges: &[Vec<usize>], component: &[usize]) -> Vec<usize> {
-    let root = component[0];
-    let members: HashSet<usize> = component.iter().copied().collect();
-    let mut back: HashMap<usize, usize> = HashMap::new();
-    let mut queue = VecDeque::from([root]);
-    let last = loop {
-        let i = queue
-            .pop_front()
-            .expect("every module of a component reaches its first");
-        let inside = edges[i].iter().copied().filter(|j| members.contains(j));
-        if inside.clone().any(|j| j == root) {
-            break i;
-        }
-        for j in inside {
-            if let Entry::Vacant(entry) = back.entry(j) {
-                entry.insert(i);
-                queue.push_back(j);
-            }
-        }
-    };
-    let mut cycle = Vec::new();
-    let mut i = last;
-    while i != root {
-        cycle.push(i);
-        i = back[&i];
-    }
-    cycle.push(root);
-    cycle.reverse();
-    cycle
 }
 
 /// `checkUniqueRoots`: no two roots outside the source directories have a

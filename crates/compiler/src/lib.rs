@@ -5,5 +5,6 @@
 pub mod canonical;
 pub mod canonicalize;
 mod encoding;
+pub mod graph;
 pub mod hir;
 pub mod interface;

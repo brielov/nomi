@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use nomi_base::TextRange;
+use nomi_base::{Compat, TextRange};
 
 use super::error::{Error, R};
 
@@ -54,14 +54,18 @@ impl<V> Dict<V> {
     }
 
     /// `Dups.detect`: each name's value, or an error for every name
-    /// written twice, in name order.
+    /// written twice, in `compat`'s name order.
     pub fn detect(
         self,
+        compat: Compat,
         error: impl Fn(&str, TextRange, TextRange) -> Error,
     ) -> R<BTreeMap<String, V>> {
         let mut values = BTreeMap::new();
         let mut errors = Vec::new();
-        for (name, mut places) in self.names {
+        let mut names: Vec<(String, Vec<(TextRange, V)>)> = self.names.into_iter().collect();
+        let order = super::name_order(compat);
+        names.sort_by(|a, b| order(&a.0, &b.0));
+        for (name, mut places) in names {
             if places.len() == 1 {
                 values.insert(name, places.pop().expect("one place").1);
             } else {
@@ -79,12 +83,15 @@ impl<V> Dict<V> {
 /// `Dups.checkFields`: a record's fields by name, each written once. The
 /// fields are added last first, as upstream's `foldr` adds them, so a
 /// field written twice is reported in source order.
-pub fn check_fields<V>(fields: Vec<(String, TextRange, V)>) -> R<BTreeMap<String, V>> {
+pub fn check_fields<V>(
+    compat: Compat,
+    fields: Vec<(String, TextRange, V)>,
+) -> R<BTreeMap<String, V>> {
     let mut dict = Dict::default();
     for (name, range, value) in fields.into_iter().rev() {
         dict.insert(&name, range, value);
     }
-    dict.detect(|name, first, second| Error::DuplicateField {
+    dict.detect(compat, |name, first, second| Error::DuplicateField {
         name: name.to_owned(),
         first,
         second,

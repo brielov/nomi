@@ -7,7 +7,7 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 
-use nomi_base::TextRange;
+use nomi_base::{Compat, TextRange};
 
 use super::env::{BinopInfo, CtorInfo, Env, Exposed, TypeInfo, Var, add_exposed};
 use super::error::{Error, NameKind, R, throw};
@@ -94,6 +94,7 @@ struct State<'a> {
 /// module's interface from `interfaces`. An import with no interface was
 /// reported by the build already, and adds nothing.
 pub fn initial_env<'a>(
+    compat: Compat,
     home: &Home,
     interfaces: &'a HashMap<String, Interface>,
     imports: &[Import],
@@ -125,6 +126,7 @@ pub fn initial_env<'a>(
         add_import(&mut state, interface, import)?;
     }
     Ok(Env {
+        compat,
         home: home.clone(),
         vars: (state.vars.into_iter())
             .map(|(name, homes)| (name, Var::Foreign(homes)))

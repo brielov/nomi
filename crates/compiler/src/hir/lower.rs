@@ -73,6 +73,13 @@ fn last_of(node: &SyntaxNode, kinds: &[SyntaxKind]) -> Option<SyntaxToken> {
         .last()
 }
 
+/// From `keyword` to the end of `node`, which ends with code.
+fn from_keyword(keyword: Option<SyntaxToken>, node: &SyntaxNode) -> TextRange {
+    let end = node.text_range().end();
+    let start = keyword.map_or(node.text_range().start(), |k| k.text_range().start());
+    TextRange::new(start, end)
+}
+
 fn qualifier(q: Option<ast::Qualifier>) -> Option<String> {
     q.map(|q| words(q.syntax()).text.trim_end_matches('.').to_owned())
 }
@@ -148,6 +155,7 @@ impl Lower {
                     body,
                     docs: doc(alias.doc_comment_token()),
                     node,
+                    range: from_keyword(alias.type_token(), decl.syntax()),
                 });
             }
             ast::Decl::CustomTypeDecl(union) => {
@@ -173,6 +181,7 @@ impl Lower {
                     variants,
                     docs: doc(union.doc_comment_token()),
                     node,
+                    range: from_keyword(union.type_token(), decl.syntax()),
                 });
             }
             ast::Decl::PortDecl(port) => {
@@ -185,6 +194,7 @@ impl Lower {
                     ty,
                     docs: doc(port.doc_comment_token()),
                     node,
+                    range: from_keyword(port.port_token(), decl.syntax()),
                 });
             }
             ast::Decl::InfixDecl(infix) => {

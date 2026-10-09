@@ -6,7 +6,7 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
-use nomi_base::TextRange;
+use nomi_base::{Compat, TextRange};
 
 use super::error::{Error, NameKind, PossibleNames, R, throw};
 use crate::canonical::{Annotation, Associativity, Home, Type, Union};
@@ -20,6 +20,8 @@ pub type Qualified<T> = BTreeMap<String, Exposed<T>>;
 /// `Env.Env`.
 #[derive(Clone, Debug)]
 pub struct Env<'a> {
+    /// The release whose order names take where it shows.
+    pub compat: Compat,
     pub home: Home,
     pub vars: BTreeMap<String, Var<'a>>,
     pub types: Exposed<TypeInfo<'a>>,
@@ -152,7 +154,8 @@ impl<'a> Env<'a> {
     pub fn add_locals(&self, names: &BTreeMap<String, TextRange>) -> R<Env<'a>> {
         let mut env = self.clone();
         let mut errors = Vec::new();
-        for (name, &range) in names {
+        for name in super::sorted(self.compat, names.keys()) {
+            let range = names[name];
             match env.vars.get(name) {
                 None | Some(Var::Foreign(_)) => {
                     env.vars.insert(name.clone(), Var::Local(range));

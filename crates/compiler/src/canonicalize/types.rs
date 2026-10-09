@@ -85,9 +85,13 @@ fn canonicalize_(env: &Env<'_>, module: &hir::Module, id: TypeId) -> R<Type> {
             let fields = (fields.iter().enumerate())
                 .map(|(i, (name, ty))| (name.text.clone(), name.range, (i, *ty)))
                 .collect();
-            let fields = check_fields(fields)?;
-            let names: Vec<String> = fields.keys().cloned().collect();
-            let types = all(fields.values().map(|&(i, ty)| {
+            let fields = check_fields(env.compat, fields)?;
+            let names: Vec<String> = super::sorted(env.compat, fields.keys())
+                .into_iter()
+                .cloned()
+                .collect();
+            let types = all(names.iter().map(|name| {
+                let (i, ty) = fields[name];
                 let order = u16::try_from(i).unwrap_or(u16::MAX);
                 canonicalize(env, module, ty).map(|ty| FieldType { order, ty })
             }))?;

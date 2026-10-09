@@ -146,6 +146,7 @@ fn imports(text: &str) -> Vec<hir::Import> {
 fn env<'a>(interfaces: &'a HashMap<String, Interface>, text: &str) -> Result<Env<'a>, Vec<Error>> {
     let main = home("author/project", "Main");
     initial_env(
+        nomi_base::Compat::V0_19_1,
         &main,
         interfaces,
         &with_defaults(&main.package, &imports(text)),
@@ -350,16 +351,113 @@ fn a_later_place_comes_first_unless_a_fold_adds_from_the_right() {
     dict.insert("x", at(1), ());
     dict.insert("x", at(5), ());
     let errors = dict
-        .detect(|name, first, second| Error::DuplicateDecl {
-            name: name.to_owned(),
-            first,
-            second,
+        .detect(nomi_base::Compat::V0_19_1, |name, first, second| {
+            Error::DuplicateDecl {
+                name: name.to_owned(),
+                first,
+                second,
+            }
         })
         .unwrap_err();
     assert!(
         matches!(&errors[..], [Error::DuplicateDecl { first, second, .. }] if *first == at(5) && *second == at(1))
     );
     let fields = vec![("a".to_owned(), at(1), ()), ("a".to_owned(), at(5), ())];
-    let errors = super::dups::check_fields(fields).unwrap_err();
+    let errors = super::dups::check_fields(nomi_base::Compat::V0_19_1, fields).unwrap_err();
     assert!(matches!(&errors[..], [Error::DuplicateField { first, .. }] if *first == at(1)));
+}
+
+fn local(text: &str) -> Result<super::local::Unions, Vec<Error>> {
+    let interfaces = interfaces();
+    let env = env(&interfaces, text).unwrap();
+    let parse = parse_module(text);
+    let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
+    super::local::add(&module, env).map(|(env, unions, _)| {
+        // The module's own values replace imported ones.
+        if let Some(var) = env.vars.get("identity") {
+            assert!(matches!(var, Var::TopLevel(_)));
+        }
+        unions
+    })
+}
+
+fn titles(errors: &[Error]) -> Vec<String> {
+    errors
+        .iter()
+        .map(|e| {
+            format!("{e:?}")
+                .split([' ', '{', '('])
+                .next()
+                .unwrap()
+                .to_owned()
+        })
+        .collect()
+}
+
+#[test]
+fn local_declarations_join_the_imports() {
+    let unions = local(
+        "module Main exposing (..)\n\n\ntype Shape a\n    = Circle a\n    | Dot\n\n\ntype alias Point =\n    { x : Int }\n\n\nidentity =\n    1\n",
+    )
+    .unwrap();
+    assert_eq!(unions["Shape"].ctors.len(), 2);
+    assert_eq!(unions["Shape"].opts, CtorOpts::Normal);
+}
+
+#[test]
+fn local_errors_are_upstreams() {
+    let errors =
+        |text: &str| titles(&local(&format!("module Main exposing (..)\n\n\n{text}")).unwrap_err());
+    assert_eq!(errors("x =\n    1\n\n\nx =\n    2\n"), ["DuplicateDecl"]);
+    assert_eq!(
+        errors("type T\n    = A\n\n\ntype alias T =\n    Int\n"),
+        ["DuplicateType"]
+    );
+    assert_eq!(
+        errors("type T\n    = C\n\n\ntype U\n    = C\n"),
+        ["DuplicateCtor"]
+    );
+    assert_eq!(errors("type U\n    = U a b\n"), ["TypeVarsUnboundInUnion"]);
+    assert_eq!(
+        errors("type alias A a =\n    Int\n"),
+        ["TypeVarsMessedUpInAlias"]
+    );
+    assert_eq!(errors("type alias A a a =\n    a\n"), ["DuplicateAliasArg"]);
+    assert_eq!(
+        errors("type alias A =\n    { a : A }\n"),
+        ["RecursiveAlias"]
+    );
+    assert_eq!(
+        errors("type alias A =\n    { b : B }\n\n\ntype alias B =\n    { a : A }\n"),
+        ["RecursiveAlias"]
+    );
+    // Types fail first and stop the values.
+    assert_eq!(
+        errors("type U\n    = U a\n\n\nx =\n    1\n\n\nx =\n    2\n"),
+        ["TypeVarsUnboundInUnion"]
+    );
+    // A value defined twice is reported at its later definition first.
+    let text = "module Main exposing (..)\n\n\nx =\n    1\n\n\nx =\n    2\n";
+    let Err(errors) = local(text) else { panic!() };
+    let Error::DuplicateDecl { first, second, .. } = &errors[0] else {
+        panic!()
+    };
+    assert!(first.start() > second.start());
+}
+
+#[test]
+fn unbound_variables_are_placed_by_the_first_constructor_using_them() {
+    let text = "module Main exposing (..)\n\n\ntype U\n    = A (List b) b\n    | B b\n";
+    let Err(errors) = local(text) else { panic!() };
+    let Error::TypeVarsUnboundInUnion { first, rest, .. } = &errors[0] else {
+        panic!()
+    };
+    assert!(rest.is_empty());
+    // The last place in the first constructor.
+    assert_eq!(&text[first.range].trim(), &"b");
+    // Node ranges keep leading trivia, which the report trims.
+    assert_eq!(
+        u32::from(first.range.end()) as usize,
+        text.find(") b").unwrap() + 3
+    );
 }
