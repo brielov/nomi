@@ -438,7 +438,11 @@ fn def_node(
             let mut inner = FreeLocals::new();
             canonicalize(env, module, *body, &mut inner)?;
             let names = pattern_names(module, *pattern);
-            let key: String = names.iter().map(|(n, _)| n.as_str()).collect();
+            // `Name.fromManyNames`: `_M$` and the first name, which no
+            // name of the source can be.
+            let key = names
+                .first()
+                .map_or(String::new(), |(n, _)| format!("_M${n}"));
             let uses = inner.keys().cloned().collect();
             combine(let_free, inner);
             nodes.push((LetBinding::Destruct, key.clone(), uses));

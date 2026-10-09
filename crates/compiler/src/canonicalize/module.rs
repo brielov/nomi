@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use nomi_base::{Compat, TextRange};
 
+use super::cycles;
 use super::dups::Dict;
 use super::env::Env;
 use super::error::{Error, NameKind, R, all, throw};
@@ -96,6 +97,15 @@ pub fn canonicalize(
         .rev()
         .map(|&id| value(&env, module, id)))?;
     let nodes: Vec<ValueNode> = nodes.into_iter().flatten().collect();
+    let top = (nodes.iter())
+        .map(|n| cycles::TopNode {
+            name: n.name.clone(),
+            range: n.range,
+            has_params: n.has_params,
+            free: n.free.clone(),
+        })
+        .collect();
+    cycles::top_level(compat, top)?;
     let annotations = (nodes.iter())
         .filter_map(|n| Some((n.name.clone(), n.annotation.clone()?)))
         .collect();
@@ -123,6 +133,7 @@ pub fn canonicalize(
 #[derive(Clone, Debug)]
 pub struct ValueNode {
     pub name: String,
+    pub range: TextRange,
     pub has_params: bool,
     pub annotation: Option<Annotation>,
     /// The locals and top-level values its body uses.
@@ -151,6 +162,7 @@ fn value(env: &Env<'_>, module: &hir::Module, id: hir::DefId) -> R<Option<ValueN
     };
     Ok(Some(ValueNode {
         name: name.text.clone(),
+        range: name.range,
         has_params: !params.is_empty(),
         annotation,
         free,
