@@ -27,6 +27,9 @@ fn names_reports() {
         } else {
             Ok(())
         };
+        if let (Err(why), Ok(_)) = (&outcome, std::env::var("NOMI_SHOW")) {
+            eprintln!("FAIL {}\n{why}", run.id);
+        }
         (run.id, outcome)
     });
     Suite::open(names::dir().with_file_name("names_reports")).finish(outcomes);

@@ -2115,6 +2115,7 @@ dependencies = [
  "flate2",
  "nomi-base",
  "nomi-compiler",
+ "nomi-engine",
  "nomi-format",
  "nomi-project",
  "nomi-registry",

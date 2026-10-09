@@ -9,6 +9,7 @@ use nomi_base::{Compat, TextRange};
 
 use super::cycles;
 use super::dups::Dict;
+use super::effects;
 use super::env::Env;
 use super::error::{Error, NameKind, R, all, throw};
 use super::expr::{self, FreeLocals};
@@ -56,7 +57,7 @@ pub struct Canonical {
     pub binops: BTreeMap<String, Binop>,
     /// Each top-level value's annotation, where it has one.
     pub annotations: BTreeMap<String, Annotation>,
-    /// Every top-level value's name.
+    /// Every top-level value's name, a port module's ports included.
     pub values: Vec<String>,
 }
 
@@ -106,6 +107,16 @@ pub fn canonicalize(
         })
         .collect();
     cycles::top_level(compat, top)?;
+    effects::canonicalize(&env, module, &unions)?;
+    // Ports are values too, which importers may use.
+    let ports_annotated = (module.ports.iter())
+        .map(|p| {
+            Ok((
+                p.name.text.clone(),
+                types::to_annotation(&env, module, p.ty)?,
+            ))
+        })
+        .collect::<R<Vec<_>>>()?;
     let annotations = (nodes.iter())
         .filter_map(|n| Some((n.name.clone(), n.annotation.clone()?)))
         .collect();
@@ -117,6 +128,14 @@ pub fn canonicalize(
         .collect();
     let ports: Vec<String> = module.ports.iter().map(|p| p.name.text.clone()).collect();
     let exports = exports(compat, module, &values, &unions, &aliases, &binops, &ports)?;
+    let mut annotations: BTreeMap<String, Annotation> = annotations;
+    let mut values = values;
+    if matches!(module.kind, hir::ModuleKind::Port) {
+        for (name, annotation) in ports_annotated {
+            values.push(name.clone());
+            annotations.insert(name, annotation);
+        }
+    }
     Ok(Canonical {
         home,
         exports,
@@ -282,12 +301,19 @@ fn exports(
             } else if port_module && ports.contains(&value.text) {
                 ok(&value.text, value.range, Export::Port)
             } else {
-                let mut possible: Vec<String> = if port_module {
-                    ports.to_vec()
+                // `ports ++ Map.keys values`, each in name order.
+                let sorted = |names: &[String]| -> Vec<String> {
+                    super::sorted(compat, names.iter())
+                        .into_iter()
+                        .cloned()
+                        .collect()
+                };
+                let mut possible = if port_module {
+                    sorted(ports)
                 } else {
                     Vec::new()
                 };
-                possible.extend(values.iter().cloned());
+                possible.extend(sorted(values));
                 throw(Error::ExportNotFound {
                     range: value.range,
                     kind: NameKind::Value,
@@ -304,12 +330,22 @@ fn exports(
                     range: op.range,
                     kind: NameKind::Operator,
                     name: op.text.clone(),
-                    possible: binops.keys().cloned().collect(),
+                    possible: super::sorted(compat, binops.keys())
+                        .into_iter()
+                        .cloned()
+                        .collect(),
                 })
             }
         }
         Exposed::Upper(name, open) => {
-            let types = || unions.keys().chain(aliases.keys()).cloned().collect();
+            let types = || {
+                let unions = super::sorted(compat, unions.keys());
+                unions
+                    .into_iter()
+                    .chain(super::sorted(compat, aliases.keys()))
+                    .cloned()
+                    .collect()
+            };
             match open {
                 Some(_) if unions.contains_key(&name.text) => {
                     ok(&name.text, name.range, Export::UnionOpen)

@@ -1,0 +1,7 @@
+# Corpus projects elm rejects too, by case (`cargo xtask corpus names`),
+# each checked by hand. case<TAB>why
+abinayasudhir/html-parser@1.0.3 on 0.19.1	imports Elm.Kernel.VirtualDom outside a kernel package; elm make fails the same way
+abinayasudhir/html-parser@1.0.3 on 0.19.2	imports Elm.Kernel.VirtualDom outside a kernel package; elm make fails the same way
+abinayasudhir/html-parser@1.0.3 on 0.19.3	imports Elm.Kernel.VirtualDom outside a kernel package; elm make fails the same way
+alexkorban/elm-review-json-to-elm@1.0.1 on 0.19.2	needs alexkorban/json-to-elm >= 1.1.0, whose only release is for elm < 0.19.2: no solution
+alexkorban/elm-review-json-to-elm@1.0.1 on 0.19.3	needs alexkorban/json-to-elm >= 1.1.0, whose only release is for elm < 0.19.2: no solution

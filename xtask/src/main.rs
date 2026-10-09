@@ -95,6 +95,13 @@ enum CorpusCommand {
     /// Copy the elm/* packages tier 1 compiles against into the compiler's
     /// tests.
     Fixtures,
+    /// Tier 2, by hand: whether every corpus app and package each elm
+    /// accepts canonicalizes cleanly, downloading dependencies from the
+    /// live registry into the development cache.
+    Names {
+        /// Only projects whose case contains this text.
+        only: Option<String>,
+    },
     /// Tier 2: whether every module elm accepts lowers to the HIR with its
     /// source map whole.
     Hir,
@@ -211,6 +218,7 @@ fn main() -> ExitCode {
             CorpusCommand::Format { record } => corpus::format::check(&root(), record),
             CorpusCommand::Hir => corpus::hir::check(&root()),
             CorpusCommand::Fixtures => corpus::fixtures::run(&root()),
+            CorpusCommand::Names { only } => corpus::names::check(&root(), only.as_deref()),
             CorpusCommand::Outline => corpus::outline::check(&root()),
             CorpusCommand::Deps => corpus::deps::check(&root()),
         },

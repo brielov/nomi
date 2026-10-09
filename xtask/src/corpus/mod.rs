@@ -7,6 +7,7 @@ pub mod deps;
 pub mod fixtures;
 pub mod format;
 pub mod hir;
+pub mod names;
 pub mod outline;
 pub mod packages;
 pub mod syntax;

@@ -12,7 +12,7 @@ use nomi_base::diagnostic::code::Source;
 use nomi_base::diagnostic::doc::Doc;
 use nomi_base::{Compat, TextRange};
 use nomi_compiler::canonicalize::error::Error;
-use nomi_compiler::canonicalize::module::{self, canonicalize, interface};
+use nomi_compiler::canonicalize::module::{canonicalize, interface};
 use nomi_compiler::hir;
 use nomi_compiler::interface::Interface;
 use nomi_project::{ModuleName, Name, Outline};
@@ -31,6 +31,18 @@ pub type PackageInterfaces = BTreeMap<Name, HashMap<String, Interface>>;
 pub fn package_interfaces(
     compat: Compat,
     packages: &[(Name, PathBuf)],
+) -> Result<PackageInterfaces, String> {
+    package_interfaces_with(compat, packages, &mut HashMap::new())
+}
+
+/// [`package_interfaces`], reusing and adding to `memo`, each package's
+/// exposed interfaces by its directory. A release's interfaces depend on
+/// its dependencies' releases only through the types they name, so a run
+/// over many projects may treat them as fixed.
+pub fn package_interfaces_with(
+    compat: Compat,
+    packages: &[(Name, PathBuf)],
+    memo: &mut HashMap<PathBuf, HashMap<String, Interface>>,
 ) -> Result<PackageInterfaces, String> {
     let mut outlines = BTreeMap::new();
     for (name, dir) in packages {
@@ -58,52 +70,74 @@ pub fn package_interfaces(
             .ok_or("the packages depend on each other in a cycle")?;
         let name = pending.remove(ready);
         let (pkg, dir) = &outlines[&name];
+        if let Some(exposed) = memo.get(dir) {
+            done.insert(name.clone(), exposed.clone());
+            continue;
+        }
         let mut visible: HashMap<String, Interface> = HashMap::new();
         for dep in pkg.deps.keys() {
             if let Some(exposed) = done.get(dep) {
                 visible.extend(exposed.iter().map(|(m, i)| (m.clone(), i.clone())));
             }
         }
-        let own = package(compat, &name.to_string(), &dir.join("src"), visible)?;
-        let exposed: HashSet<String> = pkg.exposed.modules().map(|m| m.to_string()).collect();
-        done.insert(
-            name.clone(),
-            own.into_iter()
-                .filter(|(m, _)| exposed.contains(m))
-                .collect(),
-        );
+        let exposed: Vec<String> = pkg.exposed.modules().map(|m| m.to_string()).collect();
+        let own = package(
+            compat,
+            &name.to_string(),
+            &dir.join("src"),
+            &exposed,
+            visible,
+        )?;
+        let exposed: HashSet<String> = exposed.into_iter().collect();
+        let own: HashMap<String, Interface> = (own.into_iter())
+            .filter(|(m, _)| exposed.contains(m))
+            .collect();
+        memo.insert(dir.clone(), own.clone());
+        done.insert(name.clone(), own);
     }
     Ok(done)
 }
 
-/// The interfaces of every module under `src`, canonicalized after the
-/// modules of theirs they import.
+/// The interfaces of the modules under `src` that `exposed` reaches,
+/// each canonicalized after the modules of the package it imports. A
+/// package builds from its exposed modules, so a file nothing exposed
+/// imports is never read, as upstream's crawl never reads it.
 fn package(
     compat: Compat,
     package: &str,
     src: &Path,
+    exposed: &[String],
     mut interfaces: HashMap<String, Interface>,
 ) -> Result<HashMap<String, Interface>, String> {
     let mut modules: BTreeMap<String, hir::Module> = BTreeMap::new();
-    for file in elm_files(src).map_err(|e| format!("{package}: {e}"))? {
-        let text = fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let mut pending: Vec<String> = exposed.to_vec();
+    while let Some(name) = pending.pop() {
+        if modules.contains_key(&name) {
+            continue;
+        }
+        let file = src.join(format!("{}.elm", name.replace('.', "/")));
+        let Ok(text) = fs::read_to_string(&file) else {
+            continue;
+        };
         let parse = parse_module(&text);
         let module = hir::lower(&ast::Module::cast(parse.syntax()).expect("a module"));
-        modules.insert(module::name(&module).to_owned(), module);
+        pending.extend(module.imports.iter().map(|i| i.name.text.clone()));
+        modules.insert(name, module);
     }
     let mut own = HashMap::new();
     let mut state: HashMap<String, bool> = HashMap::new();
-    let names: Vec<String> = modules.keys().cloned().collect();
-    for name in names {
-        visit(
-            compat,
-            package,
-            &name,
-            &modules,
-            &mut state,
-            &mut interfaces,
-            &mut own,
-        )?;
+    for name in exposed {
+        if modules.contains_key(name) {
+            visit(
+                compat,
+                package,
+                name,
+                &modules,
+                &mut state,
+                &mut interfaces,
+                &mut own,
+            )?;
+        }
     }
     Ok(own)
 }
@@ -142,28 +176,6 @@ fn visit(
     own.insert(name.to_owned(), iface);
     state.insert(name.to_owned(), true);
     Ok(())
-}
-
-/// The `.elm` files under `dir`, sorted; none if there is no `dir`, as in
-/// the CLI tests' registry, whose packages hold only their `elm.json`.
-fn elm_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    if !dir.exists() {
-        return Ok(files);
-    }
-    let mut stack = vec![dir.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        for entry in fs::read_dir(&dir)? {
-            let path = entry?.path();
-            if path.is_dir() {
-                stack.push(path);
-            } else if path.extension().is_some_and(|e| e == "elm") {
-                files.push(path);
-            }
-        }
-    }
-    files.sort();
-    Ok(files)
 }
 
 /// The interfaces a project of these direct dependencies imports from.

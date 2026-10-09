@@ -10,6 +10,7 @@ use nomi_base::Compat;
 pub mod binops;
 pub mod cycles;
 pub mod dups;
+pub mod effects;
 pub mod env;
 pub mod error;
 pub mod expr;
