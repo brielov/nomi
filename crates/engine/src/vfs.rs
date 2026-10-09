@@ -90,26 +90,32 @@ pub(crate) fn canonical(path: &Path) -> io::Result<PathBuf> {
         Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
         Err(_) => {}
     }
-    // Resolved a component at a time while they exist, then lexically.
+    // Resolved a component at a time while they exist, and lexically
+    // below one that doesn't, until `..` climbs back out of it.
     let mut resolved = PathBuf::new();
-    let mut exists = true;
+    // How many of the last components don't exist.
+    let mut missing = 0;
     for component in std::path::absolute(path)?.components() {
         match component {
             Component::CurDir => {}
             // `C:` alone names a drive's working directory, not its root.
             Component::Prefix(_) | Component::RootDir => resolved.push(component),
-            Component::ParentDir if !exists => {
+            Component::ParentDir if missing > 0 => {
                 resolved.pop();
+                missing -= 1;
             }
-            _ if exists => match fs::canonicalize(resolved.join(component)) {
+            _ if missing == 0 => match fs::canonicalize(resolved.join(component)) {
                 Ok(path) => resolved = path,
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                    exists = false;
+                    missing = 1;
                     resolved.push(component);
                 }
                 Err(e) => return Err(e),
             },
-            _ => resolved.push(component),
+            _ => {
+                missing += 1;
+                resolved.push(component);
+            }
         }
     }
     Ok(resolved)

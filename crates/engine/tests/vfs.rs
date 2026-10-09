@@ -190,6 +190,15 @@ fn a_missing_file_is_named_through_its_nearest_directory() {
     let id = vfs.file_id(&root.join("a/new/New.elm")).unwrap();
     assert_eq!(vfs.file_id(&root.join("z/new/./New.elm")).unwrap(), id);
     assert_eq!(vfs.file_id(&root.join("z/new/x/../New.elm")).unwrap(), id);
+    // Climbing out of a missing directory resolves links again.
+    let through = root.join("gone/deeper/../../z/new/New.elm");
+    assert_eq!(vfs.file_id(&through).unwrap(), id);
+    vfs.set_overlay(&through, "module New exposing (..)\n")
+        .unwrap();
+    let path = root.join("a/new/New.elm");
+    assert_eq!(vfs.read(&path).unwrap(), "module New exposing (..)\n");
+    vfs.remove_overlay(&path).unwrap();
+    assert!(vfs.read(&through).is_err());
 }
 
 #[test]
