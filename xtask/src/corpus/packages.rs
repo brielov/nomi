@@ -1,7 +1,7 @@
 //! Every package in the Elm registry at its latest version, pinned by the
 //! registry's own hash: the SHA-1 of the zipball `endpoint.json` names.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -154,7 +154,9 @@ pub fn fetch(root: &Path) -> Result<()> {
 fn fetch_one(corpus: &Path, package: &Package) -> Result<()> {
     let dir = package_dir(corpus, package);
     let stamp = dir.join(STAMP);
-    if std::fs::read_to_string(&stamp).ok().as_deref() == Some(package.sha1.as_str()) {
+    if std::fs::read_to_string(&stamp).ok().as_deref() == Some(package.sha1.as_str())
+        && !has_case_variants(&dir)?
+    {
         return Ok(());
     }
     let url = format!(
@@ -172,14 +174,27 @@ fn fetch_one(corpus: &Path, package: &Package) -> Result<()> {
 }
 
 /// Unpacks a GitHub zipball into `dir`, dropping its single top directory.
+///
+/// Names that differ only in case are one name, spelled as the archive
+/// first spells it, as a case-insensitive filesystem (macOS's, Windows')
+/// unpacks them; so the tree, and the tables keyed by its paths, are the
+/// same on every machine. jxxcarlson/meenylatex 14.1.1 has `Demo/src/*.elm`
+/// and `demo/src/Main.elm`, which a case-sensitive one would keep apart.
 fn unzip_stripped(bytes: &[u8], dir: &Path) -> Result<()> {
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).context("reading zip")?;
+    // Each path unpacked so far, folded, to its first spelling.
+    let mut spelled: HashMap<String, PathBuf> = HashMap::new();
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
         let Some(path) = entry.enclosed_name() else {
             bail!("zip entry {:?} escapes its directory", entry.name());
         };
-        let relative: PathBuf = path.components().skip(1).collect();
+        let mut relative = PathBuf::new();
+        for component in path.components().skip(1) {
+            let next = relative.join(component);
+            let folded = next.to_string_lossy().to_lowercase();
+            relative = spelled.entry(folded).or_insert(next).clone();
+        }
         if relative.as_os_str().is_empty() {
             continue;
         }
@@ -196,6 +211,25 @@ fn unzip_stripped(bytes: &[u8], dir: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Whether two names in one directory under `dir` differ only in case,
+/// as a package unpacked before [`unzip_stripped`] folded them can have.
+fn has_case_variants(dir: &Path) -> Result<bool> {
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let mut folded = HashSet::new();
+        for entry in std::fs::read_dir(&dir)? {
+            let entry = entry?;
+            if !folded.insert(entry.file_name().to_string_lossy().to_lowercase()) {
+                return Ok(true);
+            }
+            if entry.file_type()?.is_dir() {
+                stack.push(entry.path());
+            }
+        }
+    }
+    Ok(false)
 }
 
 #[cfg(test)]
@@ -241,6 +275,35 @@ mod tests {
             std::fs::read_to_string(dir.join("src/Basics.elm")).unwrap(),
             "module Basics"
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn names_differing_in_case_unpack_as_the_first_spelling() {
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default();
+        for (name, text) in [
+            ("top/Demo/src/Style.elm", "style"),
+            ("top/demo/src/Main.elm", "main"),
+            ("top/demo/SRC/main.elm", "last"),
+        ] {
+            zip.start_file(name, options).unwrap();
+            std::io::Write::write_all(&mut zip, text.as_bytes()).unwrap();
+        }
+        let bytes = zip.finish().unwrap().into_inner();
+        let dir = std::env::temp_dir().join(format!("nomi-xtask-case-{}", std::process::id()));
+        unzip_stripped(&bytes, &dir).unwrap();
+        assert_eq!(
+            super::super::files_below(&dir).unwrap(),
+            ["Demo/src/Main.elm", "Demo/src/Style.elm"]
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("Demo/src/Main.elm")).unwrap(),
+            "last"
+        );
+        assert!(!has_case_variants(&dir).unwrap());
+        std::fs::create_dir(dir.join("demo")).unwrap();
+        assert!(has_case_variants(&dir).unwrap());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
