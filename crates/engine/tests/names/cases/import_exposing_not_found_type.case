@@ -1,0 +1,13 @@
+=== note
+importing a type the module lacks
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+import Html exposing (Htlm)
+
+
+x =
+    1

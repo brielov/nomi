@@ -1,0 +1,13 @@
+=== note
+importing a value the module lacks
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+import Html exposing (txet)
+
+
+x =
+    1

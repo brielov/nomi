@@ -1,0 +1,12 @@
+=== note
+a case branch binding a name twice
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f t =
+    case t of
+        ( a, a ) ->
+            a

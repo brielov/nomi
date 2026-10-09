@@ -1,0 +1,21 @@
+=== note
+several errors in one module, in the order upstream meets them
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main, y)
+
+import Html exposing (txet)
+
+
+type alias R a =
+    { r : Itn }
+
+
+main =
+    Html.text (String.fromInt (f 1 +++ g))
+
+
+f a a =
+    Juts a

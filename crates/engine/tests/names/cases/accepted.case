@@ -1,0 +1,34 @@
+=== note
+a module with every kind of name, which elm accepts
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Browser
+import Html exposing (Html, text)
+import Html.Events as E
+import Json.Decode as D exposing (Decoder)
+
+
+type Msg
+    = Clicked Int
+
+
+type alias Model =
+    { count : Int }
+
+
+decoder : Decoder Model
+decoder =
+    D.map Model (D.field "count" D.int)
+
+
+main : Program () Model Msg
+main =
+    Browser.sandbox
+        { init = { count = 0 }
+        , update = \(Clicked n) model -> { model | count = model.count + n }
+        , view = \model -> Html.button [ E.onClick (Clicked 1) ] [ text (String.fromInt model.count) ]
+        }

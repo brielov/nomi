@@ -1,0 +1,10 @@
+=== note
+a port carrying an extensible record
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+port module Main exposing (..)
+
+
+port send : { r | a : Int } -> Cmd msg

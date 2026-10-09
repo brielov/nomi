@@ -1,0 +1,15 @@
+=== note
+a constructor pattern with too few arguments
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f m =
+    case m of
+        Just ->
+            1
+
+        Nothing ->
+            0

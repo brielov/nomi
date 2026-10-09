@@ -1,0 +1,14 @@
+=== note
+a let value named as an argument
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f x =
+    let
+        x =
+            1
+    in
+    x

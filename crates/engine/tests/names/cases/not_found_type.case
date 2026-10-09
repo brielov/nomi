@@ -1,0 +1,11 @@
+=== note
+a misspelled type
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x : Itn
+x =
+    1

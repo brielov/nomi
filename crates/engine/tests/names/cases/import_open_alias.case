@@ -1,0 +1,13 @@
+=== note
+importing an alias with (..)
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+import Html exposing (Attribute(..))
+
+
+x =
+    1

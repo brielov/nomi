@@ -3,6 +3,7 @@
 
 pub mod format;
 pub mod modules;
+pub mod names;
 pub mod outline;
 pub mod sandbox;
 pub mod solver;

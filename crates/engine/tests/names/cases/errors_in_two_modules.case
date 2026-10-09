@@ -1,0 +1,19 @@
+=== note
+errors in a module and one it imports
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+import Other
+
+
+x =
+    Other.y + z
+=== file src/Other.elm
+module Other exposing (y)
+
+
+y =
+    w

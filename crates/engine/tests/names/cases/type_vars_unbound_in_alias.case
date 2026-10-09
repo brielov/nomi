@@ -1,0 +1,10 @@
+=== note
+an alias's variable it doesn't declare
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+type alias A =
+    List a

@@ -1,0 +1,11 @@
+=== note
+exposing an alias with (..)
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (A(..))
+
+
+type alias A =
+    Int

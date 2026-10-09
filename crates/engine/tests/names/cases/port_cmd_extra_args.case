@@ -1,0 +1,10 @@
+=== note
+an outgoing port with two arguments
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+port module Main exposing (..)
+
+
+port send : Int -> Int -> Cmd msg

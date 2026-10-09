@@ -39,43 +39,115 @@ const DEPENDENCIES: [&str; 2] = ["elm/core", "elm/json"];
 /// The length of the project directory's path, written `$ROOT`.
 const ROOT_LENGTH: usize = 96;
 
+/// What a cell holds where elm crashed, for the tests to skip.
+pub const CRASH: &str = "crash";
+
 /// Runs of one case before a lock failure is an error.
 const RETRIES: u32 = 5;
 
 pub fn run(root: &Path, refs: &References) -> Result<()> {
     let dir = root.join(CASES);
+    let pinned = pinned(root, &DEPENDENCIES)?;
+    store_packages(&dir.join("packages"), &pinned)?;
+    let mut projects = Vec::new();
+    for (stem, path) in case_files(&dir.join("cases"))? {
+        projects.push((stem, read_case(&path)?));
+    }
+    record_projects(refs, &dir, "modules", &pinned, &projects)
+}
+
+/// The corpus's pins of `names`.
+pub fn pinned(root: &Path, names: &[&str]) -> Result<Vec<packages::Package>> {
     let pinned: Vec<packages::Package> = packages::load(root)?
         .packages
         .into_iter()
-        .filter(|p| DEPENDENCIES.contains(&p.name.as_str()))
+        .filter(|p| names.contains(&p.name.as_str()))
         .collect();
     ensure!(
-        pinned.len() == DEPENDENCIES.len(),
-        "the corpus doesn't pin {DEPENDENCIES:?}"
+        pinned.len() == names.len(),
+        "the corpus doesn't pin {names:?}"
     );
-    store_packages(&dir.join("packages"), &pinned)?;
-    let default = fs::read_to_string(dir.join("default.elm.json"))?;
-    let mut names: Vec<String> = fs::read_dir(dir.join("cases"))?
-        .map(|entry| Ok(entry?.file_name().to_string_lossy().into_owned()))
-        .collect::<Result<_>>()?;
-    names.sort();
-    let scratch = cache_dir()?.join("sandboxes").join("modules");
-    let mut out = format!("{HEADER}\ncase\telms\treport\n");
-    let mut terminal = format!("{HEADER}\ncase\telms\tstderr\n");
-    for name in &names {
+    Ok(pinned)
+}
+
+/// The `.case` files in `dir` by stem, sorted.
+pub fn case_files(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
+    let mut files = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let path = entry?.path();
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
         let stem = name
             .strip_suffix(".case")
             .with_context(|| format!("{name} is not a .case"))?;
-        let case = Case::parse(&fs::read_to_string(dir.join("cases").join(name))?)
-            .map_err(anyhow::Error::msg)
-            .with_context(|| name.clone())?;
-        let mut reports: Vec<(Vec<String>, String)> = Vec::new();
-        let mut stderrs: Vec<(Vec<String>, String)> = Vec::new();
-        for version in compat::compats(refs)? {
+        files.push((stem.to_owned(), path));
+    }
+    files.sort();
+    Ok(files)
+}
+
+pub fn read_case(path: &Path) -> Result<Case> {
+    Case::parse(&fs::read_to_string(path)?)
+        .map_err(anyhow::Error::msg)
+        .with_context(|| path.display().to_string())
+}
+
+/// Records what each elm reports on each of `projects`, into `dir`'s
+/// `reports.tsv` and `terminal.tsv`, with `pinned` in its `ELM_HOME` and
+/// `dir`'s `default.elm.json` where a project has none. Each elm keeps one
+/// `ELM_HOME`, so it builds the packages once, and the elms run at once.
+pub fn record_projects(
+    refs: &References,
+    dir: &Path,
+    suite: &str,
+    pinned: &[packages::Package],
+    projects: &[(String, Case)],
+) -> Result<()> {
+    let default = fs::read_to_string(dir.join("default.elm.json"))?;
+    let versions = compat::compats(refs)?;
+    let outputs: Vec<Result<Vec<(String, String)>>> = std::thread::scope(|scope| {
+        let runs: Vec<_> = (versions.iter())
+            .map(|&version| {
+                let default = &default;
+                scope.spawn(move || -> Result<Vec<(String, String)>> {
+                    let scratch = cache_dir()?
+                        .join("sandboxes")
+                        .join(suite)
+                        .join(version.to_string());
+                    if scratch.exists() {
+                        fs::remove_dir_all(&scratch)?;
+                    }
+                    let home = scratch.join("home");
+                    elm_home(&home, version, pinned)?;
+                    let mut outputs = Vec::new();
+                    for (id, case) in projects {
+                        let run = |json| {
+                            record(refs, &scratch, &home, version, case, default, json)
+                                .with_context(|| format!("elm {version} on {id}"))
+                        };
+                        outputs.push((run(true)?, run(false)?));
+                    }
+                    Ok(outputs)
+                })
+            })
+            .collect();
+        runs.into_iter()
+            .map(|run| run.join().expect("a recorder thread"))
+            .collect()
+    });
+    let outputs = outputs.into_iter().collect::<Result<Vec<_>>>()?;
+    let mut out = format!("{HEADER}\ncase\telms\treport\n");
+    let mut terminal = format!("{HEADER}\ncase\telms\tstderr\n");
+    for (i, (id, _)) in projects.iter().enumerate() {
+        let mut reports: Vec<(Vec<String>, &str)> = Vec::new();
+        let mut stderrs: Vec<(Vec<String>, &str)> = Vec::new();
+        for (version, outputs) in versions.iter().zip(&outputs) {
             let elm = format!("elm {version}");
-            for (json, table) in [(true, &mut reports), (false, &mut stderrs)] {
-                let output = record(refs, &scratch, version, &pinned, &case, &default, json)
-                    .with_context(|| format!("{elm} on {name}"))?;
+            let (report, stderr) = &outputs[i];
+            for (table, output) in [(&mut reports, report), (&mut stderrs, stderr)] {
                 match table.iter_mut().find(|(_, o)| *o == output) {
                     Some((versions, _)) => versions.push(elm.clone()),
                     None => table.push((vec![elm.clone()], output)),
@@ -83,26 +155,28 @@ pub fn run(root: &Path, refs: &References) -> Result<()> {
             }
         }
         for (versions, report) in reports {
-            writeln!(out, "{stem}\t{}\t{report}", versions.join(","))?;
+            writeln!(out, "{id}\t{}\t{report}", versions.join(","))?;
         }
         for (versions, stderr) in stderrs {
-            let stderr = serde_json::to_string(&stderr)?;
-            writeln!(terminal, "{stem}\t{}\t{stderr}", versions.join(","))?;
+            let stderr = serde_json::to_string(stderr)?;
+            writeln!(terminal, "{id}\t{}\t{stderr}", versions.join(","))?;
         }
     }
     fs::write(dir.join("reports.tsv"), out)?;
     fs::write(dir.join("terminal.tsv"), terminal)?;
-    println!("recorded {} cases", names.len());
+    println!("recorded {} cases", projects.len());
     Ok(())
 }
 
 /// elm's report on `case`: with `json`, its `--report=json` on one line,
-/// or `accepted`; without, what it prints on standard error.
+/// or `accepted`; without, what it prints on standard error; [`CRASH`]
+/// either way where elm died by a signal. The project
+/// is made afresh in `scratch`, and elm runs with `home` as `ELM_HOME`.
 fn record(
     refs: &References,
     scratch: &Path,
+    home: &Path,
     version: Version,
-    pinned: &[packages::Package],
     case: &Case,
     default: &str,
     json: bool,
@@ -118,13 +192,12 @@ fn record(
         "{} is missing; run `cargo xtask oracle fetch`",
         elm.display()
     );
-    let home = scratch.join("home");
-    if scratch.exists() {
-        fs::remove_dir_all(scratch)?;
+    let base = scratch.join("work");
+    if base.exists() {
+        fs::remove_dir_all(&base)?;
     }
-    fs::create_dir_all(scratch)?;
-    let work = padded(scratch)?;
-    elm_home(&home, version, pinned)?;
+    fs::create_dir_all(&base)?;
+    let work = padded(&base)?;
     case.create_files(&work)?;
     date_files(&work, case)?;
     let manifest = work.join("elm.json");
@@ -142,7 +215,7 @@ fn record(
             .args(json.then_some("--report=json"))
             .args(["+RTS", "-N1", "-RTS"])
             .current_dir(&work)
-            .env("ELM_HOME", &home);
+            .env("ELM_HOME", home);
         offline(&mut command);
         let output = command.output().context("running elm")?;
         // elm now and then trips over its own lock on `d.dat`.
@@ -152,6 +225,10 @@ fn record(
         }
         attempt += 1;
     };
+    // 0.19.3 dies on some recursive aliases; the tests skip what crashed.
+    if output.status.code().is_none() {
+        return Ok(CRASH.to_owned());
+    }
     let work = canonical(&work)?;
     if !json {
         let stderr = String::from_utf8(output.stderr)?;

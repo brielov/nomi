@@ -1,0 +1,11 @@
+=== note
+exposing a type the module lacks
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (x, Tree)
+
+
+x =
+    1

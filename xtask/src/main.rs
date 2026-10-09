@@ -141,6 +141,8 @@ enum OracleCommand {
     Outline,
     /// Store what each elm reports for every module-graph case.
     Modules,
+    /// Store what each elm reports on the naming-error projects.
+    Names,
     /// Build the solver oracles and store what upstream's solver answers
     /// for every solver scenario.
     Solver,
@@ -174,6 +176,7 @@ fn main() -> ExitCode {
             OracleCommand::Transcripts => oracle::transcripts::run(&root(), &r),
             OracleCommand::Outline => oracle::outline::run(&root(), &r),
             OracleCommand::Modules => oracle::modules::run(&root(), &r),
+            OracleCommand::Names => oracle::names::run(&root(), &r),
             OracleCommand::Solver => oracle::solver::run(&root(), &r),
         }),
         Command::Ratchet { suite } => ratchet(&root(), &suite),

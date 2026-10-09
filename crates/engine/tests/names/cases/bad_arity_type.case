@@ -1,0 +1,11 @@
+=== note
+a type given too few arguments
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x : Maybe
+x =
+    Nothing

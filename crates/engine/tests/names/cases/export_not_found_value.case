@@ -1,0 +1,11 @@
+=== note
+exposing a value the module lacks
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (x, y)
+
+
+x =
+    1

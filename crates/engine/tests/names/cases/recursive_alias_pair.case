@@ -1,0 +1,14 @@
+=== note
+two aliases that contain each other
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+type alias A =
+    { b : B }
+
+
+type alias B =
+    { a : A }

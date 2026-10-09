@@ -1,0 +1,10 @@
+=== note
+a misspelled constructor
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x =
+    Juts 1

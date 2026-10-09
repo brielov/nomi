@@ -1,0 +1,15 @@
+=== note
+a case pattern named as an argument
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f x m =
+    case m of
+        Just x ->
+            x
+
+        Nothing ->
+            x

@@ -1,0 +1,16 @@
+=== note
+a record alias's constructor in a pattern
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+type alias R =
+    { a : Int }
+
+
+f r =
+    case r of
+        R a ->
+            a

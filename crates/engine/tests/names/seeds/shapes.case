@@ -1,0 +1,76 @@
+=== note
+a module of types, records and local functions
+=== args
+make
+src/Shapes.elm
+=== file src/Shapes.elm
+module Shapes exposing (Point, Shape(..), area, describe, largest, move)
+
+import Dict exposing (Dict)
+
+
+type alias Point =
+    { x : Float, y : Float }
+
+
+type Shape
+    = Circle Point Float
+    | Rect Point Point
+    | Group (List Shape)
+
+
+area : Shape -> Float
+area shape =
+    case shape of
+        Circle _ r ->
+            pi * r * r
+
+        Rect a b ->
+            abs ((b.x - a.x) * (b.y - a.y))
+
+        Group shapes ->
+            List.sum (List.map area shapes)
+
+
+move : Point -> Shape -> Shape
+move by shape =
+    let
+        shift p =
+            { p | x = p.x + by.x, y = p.y + by.y }
+    in
+    case shape of
+        Circle center r ->
+            Circle (shift center) r
+
+        Rect a b ->
+            Rect (shift a) (shift b)
+
+        Group shapes ->
+            Group (List.map (move by) shapes)
+
+
+describe : Shape -> String
+describe shape =
+    case shape of
+        Circle _ _ ->
+            "circle"
+
+        Rect _ _ ->
+            "rectangle"
+
+        Group shapes ->
+            "group of " ++ String.fromInt (List.length shapes)
+
+
+largest : List Shape -> Maybe Shape
+largest shapes =
+    let
+        byArea : Dict String ( Float, Shape )
+        byArea =
+            List.foldl (\s acc -> Dict.insert (describe s) ( area s, s ) acc) Dict.empty shapes
+    in
+    Dict.values byArea
+        |> List.sortBy Tuple.first
+        |> List.reverse
+        |> List.head
+        |> Maybe.map Tuple.second

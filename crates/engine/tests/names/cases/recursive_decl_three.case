@@ -1,0 +1,18 @@
+=== note
+three values in a cycle
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x =
+    y + 1
+
+
+y =
+    z + 1
+
+
+z =
+    x + 1

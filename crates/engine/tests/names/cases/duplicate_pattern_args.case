@@ -1,0 +1,10 @@
+=== note
+a function binding a name twice
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f a a =
+    a

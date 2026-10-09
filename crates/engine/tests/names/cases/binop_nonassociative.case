@@ -1,0 +1,10 @@
+=== note
+two non-associative operators in a row
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x =
+    1 == 2 == 3

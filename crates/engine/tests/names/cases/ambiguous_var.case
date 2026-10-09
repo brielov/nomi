@@ -1,0 +1,26 @@
+=== note
+a value two imports expose
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+import A exposing (x)
+import B exposing (x)
+
+
+y =
+    x
+=== file src/A.elm
+module A exposing (x)
+
+
+x =
+    1
+=== file src/B.elm
+module B exposing (x)
+
+
+x =
+    2

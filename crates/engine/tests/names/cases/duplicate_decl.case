@@ -1,0 +1,14 @@
+=== note
+a value defined twice
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x =
+    1
+
+
+x =
+    2

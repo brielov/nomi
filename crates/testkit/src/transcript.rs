@@ -20,7 +20,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 /// A parsed case file.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Case {
     pub args: Vec<String>,
     pub stdin: String,

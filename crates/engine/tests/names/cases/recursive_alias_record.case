@@ -1,0 +1,10 @@
+=== note
+an alias that contains itself
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+type alias A =
+    { a : A }

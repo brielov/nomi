@@ -1,0 +1,10 @@
+=== note
+a port that is neither
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+port module Main exposing (..)
+
+
+port get : Int

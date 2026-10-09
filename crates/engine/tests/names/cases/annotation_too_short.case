@@ -1,0 +1,11 @@
+=== note
+an annotation with fewer arguments than the definition
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : Int
+f x =
+    x

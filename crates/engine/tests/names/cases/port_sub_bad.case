@@ -1,0 +1,10 @@
+=== note
+an incoming port of the wrong shape
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+port module Main exposing (..)
+
+
+port get : Int -> Sub msg

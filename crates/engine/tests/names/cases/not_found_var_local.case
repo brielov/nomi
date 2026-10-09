@@ -1,0 +1,14 @@
+=== note
+a misspelled local
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f count =
+    let
+        total =
+            count + 1
+    in
+    totl

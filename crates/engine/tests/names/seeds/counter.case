@@ -1,0 +1,118 @@
+=== note
+a Browser.element app over three modules
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Browser
+import Counter exposing (Counter, Msg(..))
+import Html exposing (Html, button, div, text)
+import Html.Attributes exposing (class)
+import Html.Events exposing (onClick)
+import Settings
+
+
+type alias Model =
+    { counter : Counter
+    , settings : Settings.Settings
+    }
+
+
+init : () -> ( Model, Cmd Msg )
+init _ =
+    ( { counter = Counter.zero, settings = Settings.default }, Cmd.none )
+
+
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg model =
+    case msg of
+        Increment ->
+            ( { model | counter = Counter.step model.settings.step model.counter }, Cmd.none )
+
+        Reset ->
+            ( { model | counter = Counter.zero }, Cmd.none )
+
+
+view : Model -> Html Msg
+view model =
+    div [ class "counter" ]
+        [ text (Counter.toString model.counter)
+        , button [ onClick Increment ] [ text "+" ]
+        , button [ onClick Reset ] [ text "reset" ]
+        ]
+
+
+main : Program () Model Msg
+main =
+    Browser.element
+        { init = init
+        , update = update
+        , view = view
+        , subscriptions = \_ -> Sub.none
+        }
+=== file src/Counter.elm
+module Counter exposing (Counter, Msg(..), step, toString, zero)
+
+
+type Counter
+    = Counter Int
+
+
+type Msg
+    = Increment
+    | Reset
+
+
+zero : Counter
+zero =
+    Counter 0
+
+
+step : Int -> Counter -> Counter
+step by (Counter n) =
+    Counter (clamp 0 limit (n + by))
+
+
+limit : Int
+limit =
+    100
+
+
+toString : Counter -> String
+toString (Counter n) =
+    let
+        digits =
+            String.fromInt n
+
+        padded =
+            String.padLeft 3 '0' digits
+    in
+    if n == limit then
+        "max"
+
+    else
+        padded
+=== file src/Settings.elm
+module Settings exposing (Settings, decoder, default)
+
+import Json.Decode as Decode exposing (Decoder)
+
+
+type alias Settings =
+    { step : Int
+    , label : String
+    }
+
+
+default : Settings
+default =
+    { step = 1, label = "count" }
+
+
+decoder : Decoder Settings
+decoder =
+    Decode.map2 Settings
+        (Decode.field "step" Decode.int)
+        (Decode.oneOf [ Decode.field "label" Decode.string, Decode.succeed default.label ])

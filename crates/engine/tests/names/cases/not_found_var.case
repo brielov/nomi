@@ -1,0 +1,13 @@
+=== note
+a misspelled value
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+import Html exposing (text)
+
+
+x =
+    txet "hi"

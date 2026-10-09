@@ -1,0 +1,26 @@
+=== note
+a constructor two imports expose
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+import A exposing (T(..))
+import B exposing (U(..))
+
+
+y =
+    C
+=== file src/A.elm
+module A exposing (T(..))
+
+
+type T
+    = C
+=== file src/B.elm
+module B exposing (U(..))
+
+
+type U
+    = C

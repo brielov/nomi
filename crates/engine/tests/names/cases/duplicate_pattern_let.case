@@ -1,0 +1,14 @@
+=== note
+a let function binding a name twice
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f =
+    let
+        g a a =
+            a
+    in
+    g

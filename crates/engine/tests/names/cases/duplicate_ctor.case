@@ -1,0 +1,14 @@
+=== note
+a constructor in two types
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+type T
+    = C
+
+
+type U
+    = C

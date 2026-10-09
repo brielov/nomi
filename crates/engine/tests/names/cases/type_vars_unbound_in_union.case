@@ -1,0 +1,10 @@
+=== note
+a type's variable it doesn't declare
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+type U
+    = U a

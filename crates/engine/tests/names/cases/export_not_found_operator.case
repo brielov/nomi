@@ -1,0 +1,11 @@
+=== note
+exposing an operator the module lacks
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (x, (+++))
+
+
+x =
+    1

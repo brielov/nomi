@@ -1,0 +1,11 @@
+=== note
+a type given too many arguments
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x : Int String
+x =
+    1

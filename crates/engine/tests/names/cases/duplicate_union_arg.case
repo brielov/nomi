@@ -1,0 +1,10 @@
+=== note
+a type parameter written twice
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+type U a a
+    = U a

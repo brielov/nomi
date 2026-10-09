@@ -1,0 +1,26 @@
+=== note
+a type two imports expose, used in a custom type
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+import A exposing (T)
+import B exposing (T)
+
+
+type W
+    = W T
+=== file src/A.elm
+module A exposing (T)
+
+
+type T
+    = A
+=== file src/B.elm
+module B exposing (T)
+
+
+type T
+    = B

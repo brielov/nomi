@@ -1,0 +1,14 @@
+=== note
+a type declared twice
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+type T
+    = A
+
+
+type alias T =
+    Int

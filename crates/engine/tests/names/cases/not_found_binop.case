@@ -1,0 +1,10 @@
+=== note
+an operator nobody defines
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x =
+    1 +++ 2

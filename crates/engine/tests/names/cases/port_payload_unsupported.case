@@ -1,0 +1,14 @@
+=== note
+a port carrying a custom type
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+port module Main exposing (..)
+
+
+type T
+    = T
+
+
+port send : T -> Cmd msg
