@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 
 use nomi_base::TextRange;
 
+use super::binops;
 use super::dups::{Dict, check_fields};
 use super::env::{Env, Var};
 use super::error::{DuplicatePatternContext, Error, NameKind, PossibleNames, R, all, both, throw};
@@ -132,16 +133,25 @@ fn canonicalize_(env: &Env<'_>, module: &hir::Module, id: ExprId, free: &mut Fre
         Expr::Op(op) => env.find_binop(region, op).map(|_| ()),
         Expr::Negate(inner) => canonicalize(env, module, *inner, free),
         Expr::Binops { operands, ops } => {
-            // Each operand with the operator after it, then the last;
-            // plan 5.11 arranges them by precedence.
-            let mut result = Ok(());
-            for (operand, op) in operands.iter().zip(ops) {
-                let operand = canonicalize(env, module, *operand, free);
-                let op = env.find_binop(op.range, &op.text).map(|_| ());
-                result = both(result, both(operand, op)).map(|_| ());
-            }
+            // Each operand with the operator after it, then the last, and
+            // only then the chain arranged by precedence.
+            let chain = all(operands
+                .iter()
+                .zip(ops)
+                .enumerate()
+                .map(|(i, (&operand, op))| {
+                    let operand = canonicalize(env, module, operand, free);
+                    let found = env.find_binop(op.range, &op.text).map(|b| binops::Op {
+                        index: i,
+                        name: op.text.clone(),
+                        associativity: b.associativity,
+                        precedence: b.precedence,
+                    });
+                    both(operand, found).map(|((), op)| (binops::Tree::Operand(i), op))
+                }));
             let last = canonicalize(env, module, *operands.last().expect("an operand"), free);
-            both(result, last).map(|_| ())
+            let (chain, ()) = both(chain, last)?;
+            binops::arrange(chain, binops::Tree::Operand(ops.len()), region).map(|_| ())
         }
         Expr::Lambda { params, body } => {
             let (_, inner) = lambda(env, module, params, *body)?;

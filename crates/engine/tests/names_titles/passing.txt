@@ -28,6 +28,12 @@ case/bad_arity_type/0.19.3
 case/bad_arity_type_many/0.19.1
 case/bad_arity_type_many/0.19.2
 case/bad_arity_type_many/0.19.3
+case/binop_mixed/0.19.1
+case/binop_mixed/0.19.2
+case/binop_mixed/0.19.3
+case/binop_nonassociative/0.19.1
+case/binop_nonassociative/0.19.2
+case/binop_nonassociative/0.19.3
 case/duplicate_alias_arg/0.19.1
 case/duplicate_alias_arg/0.19.2
 case/duplicate_alias_arg/0.19.3

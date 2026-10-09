@@ -7,6 +7,7 @@ use std::cmp::Ordering;
 
 use nomi_base::Compat;
 
+pub mod binops;
 pub mod cycles;
 pub mod dups;
 pub mod env;
