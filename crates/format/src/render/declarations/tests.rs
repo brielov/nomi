@@ -50,6 +50,7 @@ fn a_module_without_a_header_exposes_no_port_definition() {
     let formatted = crate::format("port out = signal\nport inp : Signal Int\nx = 1\n").unwrap();
     assert_eq!(
         formatted.lines().next(),
-        Some("module Main exposing (inp, x)")
+        // A port module's line, as Elm reads the module (a deviation).
+        Some("port module Main exposing (inp, x)")
     );
 }

@@ -22,10 +22,23 @@ fn text(text: &str) -> Block {
 
 /// The module line, the module's docs and the imports, with a blank line
 /// between each two. A module with no line gets the default one if
-/// `add_default_header`, else none; upstream's `formatModuleHeader`.
+/// `add_default_header`, else none; upstream's `formatModuleHeader`. But
+/// for a deviation (`DECISIONS.md`): where the module declares ports, the
+/// default line is a port module's, as Elm reads the module, where
+/// upstream's makes Elm reject it.
 pub(super) fn module_header(module: &Module, add_default_header: bool) -> Vec<Block> {
+    let ports = (module.body.iter()).any(|item| {
+        matches!(
+            item,
+            TopLevelStructure::Entry(Declaration::PortAnnotation(..))
+        )
+    });
     let default = Header {
-        source_tag: SourceTag::Normal,
+        source_tag: if ports {
+            SourceTag::Port(Vec::new())
+        } else {
+            SourceTag::Normal
+        },
         name: c((Vec::new(), Vec::new()), vec![Upper("Main".to_owned())]),
         settings: None,
         exports: None,
