@@ -92,6 +92,9 @@ enum CorpusCommand {
     /// Whether every corpus app's dependencies check out and download as
     /// each Compat, from the live registry; not part of CI.
     Deps,
+    /// Tier 2: whether every module elm accepts lowers to the HIR with its
+    /// source map whole.
+    Hir,
     /// Tier 2: whether nomi formats every corpus module as elm-format did,
     /// a case per project.
     Format {
@@ -200,6 +203,7 @@ fn main() -> ExitCode {
             CorpusCommand::Stats => corpus::stats(&root()),
             CorpusCommand::Syntax { record } => corpus::syntax::check(&root(), record),
             CorpusCommand::Format { record } => corpus::format::check(&root(), record),
+            CorpusCommand::Hir => corpus::hir::check(&root()),
             CorpusCommand::Outline => corpus::outline::check(&root()),
             CorpusCommand::Deps => corpus::deps::check(&root()),
         },

@@ -949,6 +949,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nomi-compiler"
+version = "0.1.0"
+dependencies = [
+ "nomi-base",
+ "nomi-syntax",
+ "stacker",
+]
+
+[[package]]
 name = "nomi-engine"
 version = "0.1.0"
 dependencies = [
@@ -2102,6 +2111,7 @@ dependencies = [
  "clap",
  "flate2",
  "nomi-base",
+ "nomi-compiler",
  "nomi-format",
  "nomi-project",
  "nomi-registry",

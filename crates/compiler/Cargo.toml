@@ -1,0 +1,15 @@
+[package]
+name = "nomi-compiler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+nomi-base.workspace = true
+nomi-syntax.workspace = true
+stacker.workspace = true
+
+[lints]
+workspace = true

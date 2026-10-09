@@ -5,6 +5,7 @@ pub mod apps;
 pub mod compat;
 pub mod deps;
 pub mod format;
+pub mod hir;
 pub mod outline;
 pub mod packages;
 pub mod syntax;

@@ -12,6 +12,7 @@ cargo_metadata = "0.23.1"
 clap.workspace = true
 flate2 = "1.1.10"
 nomi-base.workspace = true
+nomi-compiler.workspace = true
 nomi-format.workspace = true
 nomi-project.workspace = true
 nomi-registry.workspace = true
