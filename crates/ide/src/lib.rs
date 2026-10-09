@@ -1,0 +1,198 @@
+//! What an editor asks about Elm files, answered over engine snapshots
+//! (architecture §9), with byte ranges in the file's text; `lsp` turns
+//! them into protocol positions. So far: the syntax error elm reports,
+//! formatting as edits, and the symbols a file declares.
+
+mod symbols;
+
+use std::io;
+use std::path::{Path, PathBuf};
+
+use nomi_base::diagnostic::render::{self, Styles};
+use nomi_base::{Compat, TextRange, TextSize};
+use nomi_engine::Snapshot;
+use nomi_engine::report::syntax_problem;
+use nomi_project::Outline;
+use nomi_syntax::{Source, Tool, parse_module, validate};
+
+pub use symbols::{Symbol, SymbolKind, document_symbols};
+
+/// A problem in a file, as elm reports it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Diagnostic {
+    pub range: TextRange,
+    pub title: String,
+    /// The message as the terminal shows it, without styles.
+    pub message: String,
+}
+
+/// A change to a file's text: what replaces `range`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Edit {
+    pub range: TextRange,
+    pub text: String,
+}
+
+/// How the project that owns a file reads it: the release its `elm.json`
+/// names and what kind of source the file is. A file in no project is
+/// read as an application of the newest release.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Context {
+    pub compat: Compat,
+    pub source: Source,
+}
+
+impl Context {
+    /// The context of the file at `path`, from the nearest `elm.json`
+    /// above it (R7).
+    pub fn of(snapshot: &Snapshot, path: &Path) -> Context {
+        let fallback = Context {
+            compat: Compat::LATEST,
+            source: Source::Application,
+        };
+        let Some(manifest) = nearest_manifest(snapshot, path) else {
+            return fallback;
+        };
+        let Ok(bytes) = snapshot.read_bytes(&manifest) else {
+            return fallback;
+        };
+        match Outline::detect(&bytes) {
+            Ok((Outline::App(_), compat)) => Context {
+                compat,
+                source: Source::Application,
+            },
+            Ok((Outline::Pkg(pkg), compat)) => {
+                let name = pkg.name.to_string();
+                let kernel = name.starts_with("elm/") || name.starts_with("elm-explorations/");
+                Context {
+                    compat,
+                    source: if kernel {
+                        Source::Kernel
+                    } else {
+                        Source::Package
+                    },
+                }
+            }
+            Err(_) => fallback,
+        }
+    }
+}
+
+fn nearest_manifest(snapshot: &Snapshot, path: &Path) -> Option<PathBuf> {
+    path.ancestors()
+        .skip(1)
+        .map(|dir| dir.join("elm.json"))
+        .find(|manifest| snapshot.is_file(manifest))
+}
+
+/// The syntax error elm reports for the file at `path`, if any, at the
+/// region it reports.
+pub fn diagnostics(snapshot: &Snapshot, path: &Path) -> io::Result<Vec<Diagnostic>> {
+    let text = snapshot.read(path)?;
+    let context = Context::of(snapshot, path);
+    let parse = parse_module(&text);
+    let mut errors = parse.errors().to_vec();
+    errors.extend(validate(&parse, Tool::Elm(context.source, context.compat)));
+    if errors.is_empty() {
+        return Ok(Vec::new());
+    }
+    errors.sort_by_key(|e| e.range.start());
+    let problem = syntax_problem(&text, &errors, context.source, context.compat);
+    let offset = |row, col| elm_offset(&text, row, col, context.compat);
+    let start = offset(problem.region.start.row, problem.region.start.col);
+    let end = offset(problem.region.end.row, problem.region.end.col).max(start);
+    Ok(vec![Diagnostic {
+        range: TextRange::new(start, end),
+        title: problem.title.into_owned(),
+        message: render::render(&problem.message, context.compat, 80, Styles::Plain)
+            .trim_end()
+            .to_owned(),
+    }])
+}
+
+/// The offset of a position as `compat` keeps it: rows by line feeds,
+/// columns by characters other than carriage returns, from
+/// [`Compat::first_position`]. Past a line's end it is the line's end,
+/// and past the text the text's end.
+fn elm_offset(text: &str, row: u32, col: u32, compat: Compat) -> TextSize {
+    let first = compat.first_position();
+    let (row, col) = (row.saturating_sub(first), col.saturating_sub(first));
+    let mut start = 0;
+    for _ in 0..row {
+        match text[start..].find('\n') {
+            Some(at) => start += at + 1,
+            None => return TextSize::of(text),
+        }
+    }
+    let line = &text[start..];
+    let line = &line[..line.find('\n').unwrap_or(line.len())];
+    let mut column = 0;
+    for (at, c) in line.char_indices() {
+        if column == col {
+            return TextSize::new((start + at) as u32);
+        }
+        if c != '\r' {
+            column += 1;
+        }
+    }
+    TextSize::new((start + line.len()) as u32)
+}
+
+/// The edits that format the file at `path` as elm-format does, each as
+/// small as the lines that change allow; `None` where elm-format rejects
+/// the file.
+pub fn format(snapshot: &Snapshot, path: &Path) -> io::Result<Option<Vec<Edit>>> {
+    let text = snapshot.read(path)?;
+    Ok(nomi_format::format(&text).map(|formatted| edits(&text, &formatted)))
+}
+
+/// The edits that turn `before` into `after`: one per run of changed
+/// lines, without the characters the run keeps at its ends.
+pub fn edits(before: &str, after: &str) -> Vec<Edit> {
+    let diff = similar::TextDiff::from_lines(before, after);
+    let starts = |text: &str| {
+        let mut starts = vec![0];
+        starts.extend(text.match_indices('\n').map(|(i, _)| i + 1));
+        starts.push(text.len());
+        starts
+    };
+    let (old_lines, new_lines) = (starts(before), starts(after));
+    let line_start = |starts: &[usize], line: usize| starts[line.min(starts.len() - 1)];
+    let mut edits = Vec::new();
+    for op in diff.ops() {
+        if let similar::DiffOp::Equal { .. } = op {
+            continue;
+        }
+        let (old, new) = (op.old_range(), op.new_range());
+        let mut old = line_start(&old_lines, old.start)..line_start(&old_lines, old.end);
+        let mut new = line_start(&new_lines, new.start)..line_start(&new_lines, new.end);
+        let common = |a: &str, b: &str, forward: bool| {
+            let pairs: Box<dyn Iterator<Item = (char, char)>> = if forward {
+                Box::new(a.chars().zip(b.chars()))
+            } else {
+                Box::new(a.chars().rev().zip(b.chars().rev()))
+            };
+            pairs
+                .take_while(|(x, y)| x == y)
+                .map(|(x, _)| x.len_utf8())
+                .sum::<usize>()
+        };
+        let prefix = common(&before[old.clone()], &after[new.clone()], true);
+        old.start += prefix;
+        new.start += prefix;
+        let suffix = common(&before[old.clone()], &after[new.clone()], false);
+        old.end -= suffix;
+        new.end -= suffix;
+        edits.push(Edit {
+            range: TextRange::new(
+                TextSize::new(old.start as u32),
+                TextSize::new(old.end as u32),
+            ),
+            text: after[new].to_owned(),
+        });
+    }
+    edits
+}
+
+#[cfg(test)]
+mod tests;

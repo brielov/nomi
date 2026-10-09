@@ -68,6 +68,8 @@ enum Command {
     /// Show the releases the project builds with, under the dependencies
     /// that need them.
     Tree,
+    /// Start the language server, on standard input and output.
+    Lsp,
     /// Check modules as `elm make --output=/dev/null` does, generating no
     /// code: so far their syntax, module names and imports.
     Check {
@@ -125,6 +127,13 @@ fn main() -> ExitCode {
         Some(Command::Tree) => in_project(|console, dir, cache, http| {
             tree::run(&Vfs::new(), console, dir, cache, http)
         }),
+        Some(Command::Lsp) => match nomi_lsp::stdio() {
+            Ok(()) => true,
+            Err(e) => {
+                eprintln!("error: the language server stopped: {e}");
+                false
+            }
+        },
         Some(Command::Check { paths, report }) => in_project(|console, dir, cache, http| {
             let style = match report {
                 Some(ReportFormat::Json) => Style::Json,

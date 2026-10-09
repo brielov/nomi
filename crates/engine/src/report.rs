@@ -197,7 +197,7 @@ pub fn module_problem(env: &Env, bad: &BadModule, expected: &ModuleName) -> Opti
 /// from its parser, when that rejects the module too. Where only nomi
 /// does, nomi says why: past [`DEPTH_LIMIT`] nesting, which elm has no
 /// limit on, or otherwise a disagreement that is nomi's bug.
-fn syntax_problem(
+pub fn syntax_problem(
     contents: &str,
     errors: &[SyntaxError],
     kind: nomi_syntax::Source,

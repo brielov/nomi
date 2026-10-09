@@ -13,16 +13,22 @@ publish = false
 nomi-base = { path = "crates/base" }
 nomi-engine = { path = "crates/engine" }
 nomi-format = { path = "crates/format" }
+nomi-ide = { path = "crates/ide" }
+nomi-lsp = { path = "crates/lsp" }
 nomi-project = { path = "crates/project" }
 nomi-registry = { path = "crates/registry" }
 nomi-syntax = { path = "crates/syntax" }
 nomi-testkit = { path = "crates/testkit" }
+crossbeam-channel = "0.5"
 clap = { version = "4.6", features = ["derive"] }
 insta = { version = "1", features = ["glob"] }
 # Pinned: identifier classes and elm-format's escapes must match the
 # Unicode version of GHC that built the reference tools (15.1).
 icu_properties = { version = "=1.5.1", default-features = false, features = ["compiled_data"] }
 icu_casemap = { version = "=1.5.1", default-features = false, features = ["compiled_data"] }
+lsp-server = "0.7.8"
+# 0.95 names documents by `url::Url`, which converts to and from paths.
+lsp-types = "=0.95.1"
 num-bigint = "0.5"
 proptest = "1"
 pubgrub = "0.3"
@@ -31,6 +37,7 @@ rowan = "0.16"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha1 = "0.11"
+similar = "2.7"
 sha2 = "0.11"
 stacker = "0.1"
 tempfile = "3.27"

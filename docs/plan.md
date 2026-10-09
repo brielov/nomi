@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **4.13**.
+4. Resume at the first unchecked box. Right now that is the M4 gate: its exit criteria, then your review.
 
 ### Test tiers
 
@@ -306,13 +306,15 @@ Goal: `nomi check` reports syntax and module errors exactly as `elm make` does, 
 
 - [x] **4.12** `cli: nomi check with elm make's reporting policy`. Only the earliest failing phase per module is shown, and blocked modules stay silent.
   Done: `nomi check [paths] [--report json]` is `elm make --output=/dev/null` as far as nomi's phases go. `nomi_engine::check` loads the project and its dependencies, downloading what the store lacks as `Details.load` does, crawls the paths or a package's exposed modules, and reports the project's problem or each failing module's: outside roots first, as given, then modules by name, each release ordering names its own way (`gatherProblemsOrMains`); the terminal lists them oldest file first, with upstream's separators (`Error.toDoc`), and says on standard output how many modules failed. With no later phases yet, a module whose imports failed has nothing to show, and the crawl already stops at a broken module. `cargo xtask oracle modules` now also records elm's terminal report, with each case's files dated a second apart, and `tests/module_reports.rs` holds `nomi check` to both reports, whole, on 25 projects from each release. Where nothing nomi checks fails, it says so and that names and types aren't checked yet.
-- [ ] **4.13** `lsp: v0`. New `ide` and `lsp` crates.
+- [x] **4.13** `lsp: v0`. New `ide` and `lsp` crates.
   - The `lsp-server` loop and position encodings.
   - Overlays and syntax diagnostics, published only while their snapshot is current (CR.2).
   - Formatting as a minimal diff.
   - Document symbols.
 
   **Check:** transcript tests on the salvaged harness.
+
+  Done: `nomi lsp` serves the protocol on standard streams through `lsp-server`. `nomi_ide` answers over engine snapshots in byte ranges: elm's syntax report for a file, read as its nearest `elm.json`'s release and kind of source; formatting as one edit per run of changed lines, trimmed to the characters that change; and document symbols as elm-language-server 2.10.0 lists them, flat, `let` values included. `nomi_lsp` negotiates UTF-8 or UTF-16 columns, applies incremental changes to the open documents, lays them over the disk as overlays, and works out every open document's diagnostics on the pool after each change, publishing under the lock that makes revisions only while the snapshot is current, so an edit to one file never leaves another's unpublished or stale ones last. `tests/transcript.rs` drives the server on an in-memory connection, as the first attempt's harness did, through the handshake, diagnostics that come and go, closing, formatting, symbols and an unanswered request; a CLI test speaks to `nomi lsp` over its streams.
 
 **Exit:** syntax error titles and regions are identical on the mutation suite for every Compat, and the message-text ratchet is tracked. `nomi lsp` works in your editor.
 

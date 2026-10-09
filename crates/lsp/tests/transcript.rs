@@ -1,0 +1,289 @@
+//! `nomi lsp` in conversation with a scripted client: the server runs on
+//! an in-memory connection, as the first attempt's harness ran it
+//! (brielov/nomi@8e2b540:crates/lsp/tests/transcript.rs), and each test
+//! sends what an editor sends and checks what comes back.
+
+use std::fs;
+use std::path::Path;
+use std::thread;
+use std::time::{Duration, Instant};
+
+use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
+use lsp_types::Url;
+use serde_json::{Value, json};
+
+const APP: &str = r#"{
+    "type": "application",
+    "source-directories": ["src"],
+    "elm-version": "0.19.1",
+    "dependencies": { "direct": { "elm/core": "1.0.5", "elm/json": "1.1.4" }, "indirect": {} },
+    "test-dependencies": { "direct": {}, "indirect": {} }
+}
+"#;
+
+struct Client {
+    connection: Connection,
+    server: Option<thread::JoinHandle<Result<(), nomi_lsp::Error>>>,
+    next_id: i32,
+    capabilities: Value,
+}
+
+impl Client {
+    /// A server started and initialized for a client that offers `encodings`.
+    fn start(encodings: &[&str]) -> Client {
+        let (server, connection) = Connection::memory();
+        let handle = thread::spawn(move || nomi_lsp::run(&server));
+        let mut client = Client {
+            connection,
+            server: Some(handle),
+            next_id: 0,
+            capabilities: Value::Null,
+        };
+        let response = client.request(
+            "initialize",
+            json!({
+                "processId": null,
+                "capabilities": { "general": { "positionEncodings": encodings } },
+            }),
+        );
+        client.capabilities = response.result.unwrap()["capabilities"].clone();
+        client.notify("initialized", json!({}));
+        client
+    }
+
+    fn request(&mut self, method: &str, params: Value) -> Response {
+        self.next_id += 1;
+        let id = RequestId::from(self.next_id);
+        let request = Request::new(id.clone(), method.to_owned(), params);
+        self.connection
+            .sender
+            .send(Message::Request(request))
+            .unwrap();
+        loop {
+            match self.receive() {
+                Message::Response(response) if response.id == id => return response,
+                _ => {}
+            }
+        }
+    }
+
+    fn notify(&self, method: &str, params: Value) {
+        let notification = Notification::new(method.to_owned(), params);
+        self.connection
+            .sender
+            .send(Message::Notification(notification))
+            .unwrap();
+    }
+
+    fn receive(&self) -> Message {
+        self.connection
+            .receiver
+            .recv_timeout(Duration::from_secs(20))
+            .expect("the server answers")
+    }
+
+    /// The diagnostics published for `uri` once they satisfy `settled`:
+    /// a change makes every open document's diagnostics published again,
+    /// so earlier ones may come first.
+    fn diagnostics(&self, uri: &Url, settled: impl Fn(&[Value]) -> bool) -> Vec<Value> {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while Instant::now() < deadline {
+            if let Message::Notification(n) = self.receive()
+                && n.method == "textDocument/publishDiagnostics"
+                && n.params["uri"] == uri.as_str()
+            {
+                let found = n.params["diagnostics"].as_array().unwrap().clone();
+                if settled(&found) {
+                    return found;
+                }
+            }
+        }
+        panic!("no settled diagnostics for {uri}");
+    }
+
+    fn open(&self, uri: &Url, text: &str) {
+        self.notify(
+            "textDocument/didOpen",
+            json!({ "textDocument": {
+                "uri": uri, "languageId": "elm", "version": 1, "text": text,
+            } }),
+        );
+    }
+
+    fn shutdown(mut self) {
+        let response = self.request("shutdown", Value::Null);
+        assert!(response.error.is_none(), "{response:?}");
+        self.notify("exit", Value::Null);
+        let server = self.server.take().unwrap();
+        server.join().unwrap().unwrap();
+    }
+}
+
+/// A project directory with `elm.json` and `src/`, and the URI of its
+/// `src/Main.elm`.
+fn project() -> (tempfile::TempDir, Url) {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("elm.json"), APP).unwrap();
+    fs::create_dir(dir.path().join("src")).unwrap();
+    let uri = uri(&dir.path().join("src/Main.elm"));
+    (dir, uri)
+}
+
+fn uri(path: &Path) -> Url {
+    Url::from_file_path(path).unwrap()
+}
+
+#[test]
+fn the_handshake_offers_what_v0_does() {
+    let client = Client::start(&["utf-16"]);
+    let capabilities = &client.capabilities;
+    assert_eq!(capabilities["positionEncoding"], "utf-16");
+    assert_eq!(capabilities["textDocumentSync"], 2);
+    assert_eq!(capabilities["documentFormattingProvider"], true);
+    assert_eq!(capabilities["documentSymbolProvider"], true);
+    client.shutdown();
+    let client = Client::start(&["utf-16", "utf-8"]);
+    assert_eq!(client.capabilities["positionEncoding"], "utf-8");
+    client.shutdown();
+}
+
+#[test]
+fn syntax_errors_come_and_go_with_the_text() {
+    let (_dir, main) = project();
+    let client = Client::start(&[]);
+    // The emoji takes two UTF-16 units, so the error's column says which
+    // unit the server counts in.
+    let broken = "module Main exposing (x)\n\n\nx =\n    \"😀\" ++ = 1\n";
+    client.open(&main, broken);
+    let found = client.diagnostics(&main, |d| !d.is_empty());
+    assert_eq!(found.len(), 1);
+    let message = found[0]["message"].as_str().unwrap();
+    assert!(message.starts_with("MISSING EXPRESSION\n\n"), "{message}");
+    assert_eq!(found[0]["severity"], 1);
+    assert_eq!(
+        found[0]["range"]["start"],
+        json!({ "line": 4, "character": 12 })
+    );
+    // Replace `= 1` with `1`: the error goes.
+    client.notify(
+        "textDocument/didChange",
+        json!({
+            "textDocument": { "uri": main, "version": 2 },
+            "contentChanges": [{
+                "range": { "start": { "line": 4, "character": 12 }, "end": { "line": 4, "character": 14 } },
+                "text": "",
+            }],
+        }),
+    );
+    client.diagnostics(&main, <[Value]>::is_empty);
+    client.shutdown();
+}
+
+#[test]
+fn an_edit_in_one_document_leaves_anothers_diagnostics() {
+    let (dir, main) = project();
+    let other = uri(&dir.path().join("src/Other.elm"));
+    let client = Client::start(&[]);
+    client.open(&main, "module Main exposing (x)\n\n\nx =\n    = 1\n");
+    client.open(&other, "module Other exposing (y)\n\n\ny =\n    2\n");
+    client.notify(
+        "textDocument/didChange",
+        json!({
+            "textDocument": { "uri": other, "version": 2 },
+            "contentChanges": [{ "text": "module Other exposing (y)\n\n\ny =\n    3\n" }],
+        }),
+    );
+    let found = client.diagnostics(&main, |d| !d.is_empty());
+    assert_eq!(found.len(), 1);
+    client.notify(
+        "textDocument/didClose",
+        json!({ "textDocument": { "uri": main } }),
+    );
+    client.diagnostics(&main, <[Value]>::is_empty);
+    client.shutdown();
+}
+
+#[test]
+fn formatting_answers_with_the_edits_elm_format_makes() {
+    let (_dir, main) = project();
+    let mut client = Client::start(&[]);
+    let text = "module Main exposing (x)\nx = 1\n";
+    client.open(&main, text);
+    let response = client.request(
+        "textDocument/formatting",
+        json!({ "textDocument": { "uri": main }, "options": { "tabSize": 4, "insertSpaces": true } }),
+    );
+    assert_eq!(
+        response.result.unwrap(),
+        // `x = 1` becomes `x =\n    1` after two blank lines; ` 1` stays.
+        json!([{
+            "range": { "start": { "line": 1, "character": 0 }, "end": { "line": 1, "character": 3 } },
+            "newText": "\n\nx =\n   ",
+        }]),
+    );
+    client.notify(
+        "textDocument/didChange",
+        json!({
+            "textDocument": { "uri": main, "version": 2 },
+            "contentChanges": [{ "text": "x = = 1\n" }],
+        }),
+    );
+    let response = client.request(
+        "textDocument/formatting",
+        json!({ "textDocument": { "uri": main }, "options": { "tabSize": 4, "insertSpaces": true } }),
+    );
+    assert_eq!(response.result.unwrap(), Value::Null);
+    client.shutdown();
+}
+
+#[test]
+fn document_symbols_are_flat_as_elm_language_servers() {
+    let (_dir, main) = project();
+    let mut client = Client::start(&[]);
+    client.open(
+        &main,
+        "module Main exposing (..)\n\n\ntype Shape\n    = Circle\n\n\narea =\n    1\n",
+    );
+    let response = client.request(
+        "textDocument/documentSymbol",
+        json!({ "textDocument": { "uri": main } }),
+    );
+    let symbols = response.result.unwrap();
+    let listed: Vec<(String, u64)> = symbols
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| {
+            (
+                s["name"].as_str().unwrap().to_owned(),
+                s["kind"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    let expected = [("Main", 2), ("Shape", 10), ("Circle", 22), ("area", 12)];
+    assert_eq!(
+        listed,
+        expected
+            .map(|(name, kind)| (name.to_owned(), kind))
+            .to_vec()
+    );
+    assert_eq!(
+        symbols[3]["location"],
+        json!({
+            "uri": main,
+            "range": { "start": { "line": 7, "character": 0 }, "end": { "line": 8, "character": 5 } },
+        }),
+    );
+    client.shutdown();
+}
+
+#[test]
+fn what_v0_doesnt_answer_is_said_so() {
+    let mut client = Client::start(&[]);
+    let response = client.request("textDocument/hover", json!({}));
+    assert_eq!(
+        response.error.unwrap().code,
+        lsp_server::ErrorCode::MethodNotFound as i32
+    );
+    client.shutdown();
+}
