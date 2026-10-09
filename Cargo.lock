@@ -955,6 +955,7 @@ dependencies = [
  "nomi-base",
  "nomi-syntax",
  "proptest",
+ "sha2",
  "stacker",
 ]
 

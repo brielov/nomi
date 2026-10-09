@@ -5,3 +5,5 @@ crates/format/tests/format_fixtures/** -text
 # Fuzz seeds are kept byte for byte.
 crates/project/tests/json_seeds/** -text
 crates/project/tests/outline_fixtures/** -text
+# Pinned package copies are checked file for file against their digests.
+crates/compiler/tests/packages/** -text

@@ -92,6 +92,9 @@ enum CorpusCommand {
     /// Whether every corpus app's dependencies check out and download as
     /// each Compat, from the live registry; not part of CI.
     Deps,
+    /// Copy the elm/* packages tier 1 compiles against into the compiler's
+    /// tests.
+    Fixtures,
     /// Tier 2: whether every module elm accepts lowers to the HIR with its
     /// source map whole.
     Hir,
@@ -204,6 +207,7 @@ fn main() -> ExitCode {
             CorpusCommand::Syntax { record } => corpus::syntax::check(&root(), record),
             CorpusCommand::Format { record } => corpus::format::check(&root(), record),
             CorpusCommand::Hir => corpus::hir::check(&root()),
+            CorpusCommand::Fixtures => corpus::fixtures::run(&root()),
             CorpusCommand::Outline => corpus::outline::check(&root()),
             CorpusCommand::Deps => corpus::deps::check(&root()),
         },

@@ -137,6 +137,21 @@ negligence or otherwise) arising in any way out of the use of this software,
 even if advised of the possibility of such damage.
 ```
 
+## Elm packages
+
+`crates/compiler/tests/packages/` holds copies of these packages' sources, unmodified, for tests (plan 5.3). Each is under the BSD-3-Clause license, kept verbatim in the copy's `LICENSE` file:
+
+- elm/browser 1.0.2: Copyright 2017-present Evan Czaplicki. Its license is `crates/compiler/tests/packages/elm/browser/1.0.2/LICENSE`.
+- elm/bytes 1.0.8: Copyright (c) 2018-present, Evan Czaplicki. Its license is `crates/compiler/tests/packages/elm/bytes/1.0.8/LICENSE`.
+- elm/core 1.0.5: Copyright 2014-present Evan Czaplicki. Its license is `crates/compiler/tests/packages/elm/core/1.0.5/LICENSE`.
+- elm/file 1.0.5: Copyright (c) 2018-present, Evan Czaplicki. Its license is `crates/compiler/tests/packages/elm/file/1.0.5/LICENSE`.
+- elm/html 1.0.1: Copyright (c) 2014-present, Evan Czaplicki. Its license is `crates/compiler/tests/packages/elm/html/1.0.1/LICENSE`.
+- elm/http 2.0.0: Copyright (c) 2016-present, Evan Czaplicki. Its license is `crates/compiler/tests/packages/elm/http/2.0.0/LICENSE`.
+- elm/json 1.1.4: Copyright 2014-present Evan Czaplicki. Its license is `crates/compiler/tests/packages/elm/json/1.1.4/LICENSE`.
+- elm/time 1.0.0: Copyright (c) 2018-present, Evan Czaplicki. Its license is `crates/compiler/tests/packages/elm/time/1.0.0/LICENSE`.
+- elm/url 1.0.0: Copyright (c) 2016, Evan Czaplicki. Its license is `crates/compiler/tests/packages/elm/url/1.0.0/LICENSE`.
+- elm/virtual-dom 1.0.5: Copyright (c) 2016-present, Evan Czaplicki. Its license is `crates/compiler/tests/packages/elm/virtual-dom/1.0.5/LICENSE`.
+
 ## elm-language-server
 
 Source: https://github.com/elm-tooling/elm-language-server. Ported into the ide and lsp crates.

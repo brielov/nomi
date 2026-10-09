@@ -4,6 +4,7 @@
 pub mod apps;
 pub mod compat;
 pub mod deps;
+pub mod fixtures;
 pub mod format;
 pub mod hir;
 pub mod outline;
