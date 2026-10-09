@@ -54,6 +54,27 @@ impl ModuleErrors {
 /// not here. In upstream's order (`gatherProblemsOrMains`): the roots
 /// outside the source directories as given, then the modules by name.
 pub fn module_errors(env: &Env, graph: &Graph) -> Vec<ModuleErrors> {
+    module_errors_with(env, graph, &HashMap::new())
+}
+
+/// [`module_errors`], with the problems a later phase found in modules
+/// the earlier phases passed, by path.
+pub fn module_errors_with(
+    env: &Env,
+    graph: &Graph,
+    later: &HashMap<PathBuf, Vec<Problem>>,
+) -> Vec<ModuleErrors> {
+    let imports = |env: &Env, graph: &Graph, module: &Module| {
+        imports(env, graph, module).or_else(|| {
+            let problems = later.get(&module.path)?.clone();
+            Some(ModuleErrors {
+                path: module.path.clone(),
+                name: module.name.to_string(),
+                modified: modified(env, &module.path),
+                problems,
+            })
+        })
+    };
     let mut errors = Vec::new();
     for root in &graph.roots {
         match root {

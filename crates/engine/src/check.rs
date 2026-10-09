@@ -5,11 +5,13 @@
 //! each module is shown, and a module whose imports failed stays silent;
 //! so far the phases are syntax, module names and imports.
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use nomi_base::diagnostic::doc::{Color, reflow, text, vcat};
 use nomi_base::diagnostic::json;
 use nomi_base::{Compat, Report};
+use nomi_compiler::interface::Interface;
 use nomi_project::{ModuleName, Name, Outline};
 use nomi_registry::{Http, Store, details, report as registry_report};
 
@@ -19,7 +21,7 @@ use crate::install::{details_problem, one_line};
 use crate::paths::Cache;
 use crate::project::{Project, check_source_dirs};
 use crate::report::{self, ModuleErrors};
-use crate::{Pool, Snapshot, Vfs, env, packages};
+use crate::{Pool, Snapshot, Vfs, env, names, packages};
 
 /// What checking found.
 #[derive(Debug)]
@@ -57,13 +59,21 @@ pub fn run(
         compat = project.compat;
         let root = project.path.parent().unwrap_or(Path::new(".")).to_owned();
         check_source_dirs(&root, &project.outline)?;
-        let foreigns = foreigns(cache, http, &project)?;
+        let (foreigns, interfaces) = foreigns(cache, http, &project)?;
         let env = env_of(&root, &project.outline, compat, foreigns)?.with_cwd(dir);
-        Ok::<_, Report>((root, project.outline, env))
+        Ok::<_, Report>((root, project.outline, env, interfaces))
     })();
     let (root, checked) = match loaded {
-        Ok((root, outline, env)) => {
-            let checked = check(&vfs.snapshot(), &env, &outline, paths, Personality::Nomi);
+        Ok((root, outline, env, interfaces)) => {
+            let snapshot = vfs.snapshot();
+            let checked = check(
+                &snapshot,
+                &env,
+                &outline,
+                paths,
+                Personality::Nomi,
+                &interfaces,
+            );
             (root, checked)
         }
         Err(report) => (dir.to_owned(), Checked::Project(report)),
@@ -81,6 +91,7 @@ pub fn check(
     outline: &Outline,
     paths: &[PathBuf],
     personality: Personality,
+    packages: &HashMap<String, Interface>,
 ) -> Checked {
     let exposed: Vec<ModuleName> = match outline {
         Outline::Pkg(pkg) => pkg.exposed.modules().cloned().collect(),
@@ -104,7 +115,10 @@ pub fn check(
     {
         return Checked::Project(report);
     }
-    let modules = report::module_errors(env, &graph);
+    let earlier = report::module_errors(env, &graph);
+    let failed: HashSet<PathBuf> = earlier.iter().map(|m| m.path.clone()).collect();
+    let later = names::canonicalize_graph(env, &graph, packages, &failed);
+    let modules = report::module_errors_with(env, &graph, &later);
     if modules.is_empty() {
         Checked::Fine
     } else {
@@ -176,13 +190,14 @@ fn no_input(personality: Personality, app: bool) -> Report {
     )
 }
 
-/// The modules each direct dependency exposes, with every release the
-/// project builds with downloaded first, as `Details.load` builds them.
+/// The modules each direct dependency exposes, and their interfaces, with
+/// every release the project builds with downloaded first, as
+/// `Details.load` builds them.
 fn foreigns(
     cache: &Cache,
     http: &(impl Http + Sync),
     project: &Project,
-) -> Result<Foreigns, Report> {
+) -> Result<(Foreigns, HashMap<String, Interface>), Report> {
     let compat = project.compat;
     let store = Store::new(cache.packages());
     let mut registry = env::registry(
@@ -204,9 +219,11 @@ fn foreigns(
         Outline::Pkg(pkg) => pkg.deps.keys().collect(),
     };
     let mut exposing = Vec::new();
+    let mut sources = Vec::new();
     for ((name, version), dir) in releases.iter().zip(fetched) {
         let dir =
             dir.map_err(|problem| registry_report::package_problem(name, *version, &problem))?;
+        sources.push((name.clone(), dir.clone()));
         if !direct.contains(&name) {
             continue;
         }
@@ -227,7 +244,17 @@ fn foreigns(
             _ => return Err(unreadable()),
         }
     }
-    Ok(Foreigns::new(exposing))
+    let interfaces = names::package_interfaces(compat, &sources).map_err(|why| {
+        one_line(
+            "PROBLEM READING PACKAGES",
+            format!("I could not read the dependencies' modules: {why}"),
+        )
+    })?;
+    let direct: Vec<Name> = direct.into_iter().cloned().collect();
+    Ok((
+        Foreigns::new(exposing),
+        names::visible(&interfaces, &direct),
+    ))
 }
 
 /// The build environment of the project at `root`.

@@ -156,6 +156,11 @@ impl Env {
         &self.cwd
     }
 
+    /// Whose modules these are.
+    pub fn owner(&self) -> &Owner {
+        &self.owner
+    }
+
     pub fn compat(&self) -> Compat {
         self.compat
     }

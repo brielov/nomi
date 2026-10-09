@@ -43,6 +43,9 @@ fn names_titles() {
         } else {
             Err(format!("nomi: {nomi}\nelm: {elm}"))
         };
+        if let (Err(why), Ok(_)) = (&outcome, std::env::var("NOMI_SHOW")) {
+            eprintln!("FAIL {}\n{why}", run.id);
+        }
         (run.id, outcome)
     });
     Suite::open(names::dir().with_file_name("names_titles")).finish(outcomes);

@@ -14,6 +14,7 @@ pub mod format;
 pub mod graph;
 pub mod init;
 pub mod install;
+pub mod names;
 pub mod packages;
 pub mod paths;
 mod pool;

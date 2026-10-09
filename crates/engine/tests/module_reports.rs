@@ -23,6 +23,12 @@ fn dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/modules")
 }
 
+/// The fixture packages, whose sources make the interfaces (plan 5.3);
+/// `tests/modules/packages` keeps only the `elm.json` the oracle had.
+fn packages() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages")
+}
+
 #[test]
 fn module_reports() {
     let reports = table(&dir().join("reports.tsv"));
@@ -41,7 +47,7 @@ fn module_reports() {
             .unwrap_or_else(|e| panic!("{file}: {e}"));
         for compat in ALL {
             let key = (stem.to_owned(), compat_name(compat));
-            let (json, stderr) = projects::run(&case, compat, &default, &dir().join("packages"));
+            let (json, stderr) = projects::run(&case, compat, &default, &packages());
             let elm = &reports[&key];
             if !same_json(elm, &json) {
                 failures.push(format!(

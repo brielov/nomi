@@ -1,6 +1,8 @@
 //! The module's own types, aliases, constructors and values, added over
 //! the imports (`Environment/Local.hs`): first the types, then the
 //! values, then the constructors, each stopping the rest when it fails.
+//! Declarations are taken in reverse source order, as upstream's parser
+//! leaves them.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -43,8 +45,9 @@ fn add_vars<'a>(module: &hir::Module, mut env: Env<'a>) -> R<Env<'a>> {
             dups = manager;
         }
         ModuleKind::Port | ModuleKind::Plain => {
-            for port in &module.ports {
+            for port in module.ports.iter().rev() {
                 dups.insert(
+                    env.compat,
                     &port.name.text,
                     port.name.range,
                     Var::TopLevel(port.name.range),
@@ -52,9 +55,14 @@ fn add_vars<'a>(module: &hir::Module, mut env: Env<'a>) -> R<Env<'a>> {
             }
         }
     }
-    for &id in &module.values {
+    for &id in module.values.iter().rev() {
         if let Def::Define { name, .. } = &module.defs[id] {
-            dups.insert(&name.text, name.range, Var::TopLevel(name.range));
+            dups.insert(
+                env.compat,
+                &name.text,
+                name.range,
+                Var::TopLevel(name.range),
+            );
         }
     }
     let vars = dups.detect(env.compat, |name, first, second| Error::DuplicateDecl {
@@ -70,11 +78,11 @@ fn add_vars<'a>(module: &hir::Module, mut env: Env<'a>) -> R<Env<'a>> {
 /// no two types share a name.
 fn add_types<'a>(module: &hir::Module, mut env: Env<'a>) -> R<Env<'a>> {
     let mut dups = Dict::default();
-    for alias in &module.aliases {
-        dups.insert(&alias.name.text, alias.name.range, ());
+    for alias in module.aliases.iter().rev() {
+        dups.insert(env.compat, &alias.name.text, alias.name.range, ());
     }
-    for union in &module.unions {
-        dups.insert(&union.name.text, union.name.range, ());
+    for union in module.unions.iter().rev() {
+        dups.insert(env.compat, &union.name.text, union.name.range, ());
     }
     dups.detect(env.compat, |name, first, second| Error::DuplicateType {
         name: name.to_owned(),
@@ -82,7 +90,7 @@ fn add_types<'a>(module: &hir::Module, mut env: Env<'a>) -> R<Env<'a>> {
         second,
     })?;
     let home = env.home.clone();
-    for union in &module.unions {
+    for union in module.unions.iter().rev() {
         let arity = check_union_free_vars(module, union, &env)?;
         env.types.insert(
             union.name.text.clone(),
@@ -95,7 +103,7 @@ fn add_types<'a>(module: &hir::Module, mut env: Env<'a>) -> R<Env<'a>> {
             )]),
         );
     }
-    let nodes = (module.aliases.iter())
+    let nodes = (module.aliases.iter().rev())
         .map(|alias| (alias, alias.name.text.clone(), edges(module, alias.body)))
         .collect();
     let order = super::name_order(env.compat);
@@ -201,7 +209,7 @@ fn bound_vars(
 ) -> R<BTreeMap<String, TextRange>> {
     let mut dict = Dict::default();
     for param in params.iter().rev() {
-        dict.insert(&param.text, param.range, param.range);
+        dict.insert(env.compat, &param.text, param.range, param.range);
     }
     dict.detect(env.compat, error)
 }
@@ -295,10 +303,12 @@ fn add_ctors<'a>(module: &hir::Module, mut env: Env<'a>) -> R<(Env<'a>, Unions, 
     let unions = all(module
         .unions
         .iter()
+        .rev()
         .map(|u| canonicalize_union(module, u, &env)))?;
     let aliases = all(module
         .aliases
         .iter()
+        .rev()
         .map(|a| canonicalize_alias(module, a, &env)))?;
     let union_dups = Dict::unions(unions.iter().map(|(_, d)| d.clone()));
     let alias_dups = Dict::unions(aliases.iter().map(|(_, d)| d.clone()));

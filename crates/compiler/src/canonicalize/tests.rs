@@ -348,8 +348,8 @@ fn a_later_place_comes_first_unless_a_fold_adds_from_the_right() {
     use super::dups::Dict;
     let at = |n: u32| nomi_base::TextRange::new(n.into(), (n + 1).into());
     let mut dict = Dict::default();
-    dict.insert("x", at(1), ());
-    dict.insert("x", at(5), ());
+    dict.insert(nomi_base::Compat::V0_19_1, "x", at(1), ());
+    dict.insert(nomi_base::Compat::V0_19_1, "x", at(5), ());
     let errors = dict
         .detect(nomi_base::Compat::V0_19_1, |name, first, second| {
             Error::DuplicateDecl {
@@ -436,13 +436,14 @@ fn local_errors_are_upstreams() {
         errors("type U\n    = U a\n\n\nx =\n    1\n\n\nx =\n    2\n"),
         ["TypeVarsUnboundInUnion"]
     );
-    // A value defined twice is reported at its later definition first.
+    // A value defined twice is met at its later definition first, as
+    // upstream keeps values in reverse, and reported at the later.
     let text = "module Main exposing (..)\n\n\nx =\n    1\n\n\nx =\n    2\n";
     let Err(errors) = local(text) else { panic!() };
     let Error::DuplicateDecl { first, second, .. } = &errors[0] else {
         panic!()
     };
-    assert!(first.start() > second.start());
+    assert!(first.start() < second.start());
 }
 
 #[test]

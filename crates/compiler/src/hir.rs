@@ -188,7 +188,9 @@ pub struct Module {
     /// The module's doc comment, as written.
     pub docs: Option<Spanned>,
     pub imports: Vec<Import>,
-    /// The top-level values, in source order.
+    /// The top-level values, in source order. Upstream's parser keeps
+    /// values, unions, aliases and ports each in reverse source order
+    /// (`categorizeDecls`), which canonicalization follows.
     pub values: Vec<DefId>,
     pub unions: Vec<Union>,
     pub aliases: Vec<Alias>,
@@ -375,7 +377,8 @@ pub enum Pattern {
     Unit,
     /// Two or more.
     Tuple(Vec<PatId>),
-    /// A constructor, maybe qualified, with the range of its name.
+    /// A constructor, maybe qualified, with the range of its name and
+    /// qualifier.
     Ctor {
         qualifier: Option<String>,
         name: Spanned,
@@ -394,7 +397,8 @@ pub enum Type {
     Missing,
     Lambda(TypeId, TypeId),
     Var(String),
-    /// A named type, maybe qualified, with the range of its name.
+    /// A named type, maybe qualified, with the range of its name and
+    /// qualifier.
     Named {
         qualifier: Option<String>,
         name: Spanned,

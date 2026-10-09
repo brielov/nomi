@@ -80,6 +80,18 @@ fn from_keyword(keyword: Option<SyntaxToken>, node: &SyntaxNode) -> TextRange {
     TextRange::new(start, end)
 }
 
+/// A name, located from its qualifier when it has one, as upstream
+/// locates `TTypeQual` and `PCtorQual`.
+fn qualified_name(q: Option<&ast::Qualifier>, name: &SyntaxToken) -> Spanned {
+    let start = q.map_or(name.text_range().start(), |q| {
+        words(q.syntax()).range.start()
+    });
+    Spanned {
+        text: name.text().to_owned(),
+        range: TextRange::new(start, name.text_range().end()),
+    }
+}
+
 fn qualifier(q: Option<ast::Qualifier>) -> Option<String> {
     q.map(|q| words(q.syntax()).text.trim_end_matches('.').to_owned())
 }
@@ -486,8 +498,8 @@ impl Lower {
                 Some(name) => {
                     let args = ctor.patterns().map(|p| self.pattern(Some(p))).collect();
                     Pattern::Ctor {
+                        name: qualified_name(ctor.qualifier().as_ref(), &name),
                         qualifier: qualifier(ctor.qualifier()),
-                        name: spanned(&name),
                         args,
                     }
                 }
@@ -525,8 +537,8 @@ impl Lower {
                 Some(name) => {
                     let args = named.types().map(|t| self.ty(Some(t))).collect();
                     Type::Named {
+                        name: qualified_name(named.qualifier().as_ref(), &name),
                         qualifier: qualifier(named.qualifier()),
-                        name: spanned(&name),
                         args,
                     }
                 }
@@ -580,13 +592,20 @@ fn exposing(list: &ast::ExposingList) -> Exposing {
                 ast::Exposed::ExposedValue(v) => {
                     Some(Exposed::Lower(spanned(&v.lower_ident_token()?)))
                 }
+                // `(..)` is located at its `..`.
                 ast::Exposed::ExposedType(t) => Some(Exposed::Upper(
                     spanned(&t.upper_ident_token()?),
-                    t.exposed_variants().map(|v| v.syntax().text_range()),
+                    t.exposed_variants().map(|v| {
+                        let dots = (v.syntax().children_with_tokens())
+                            .find(|e| e.kind() == SyntaxKind::DotDot);
+                        dots.map_or(v.syntax().text_range(), |d| d.text_range())
+                    }),
                 )),
-                ast::Exposed::ExposedOperator(o) => {
-                    Some(Exposed::Operator(words(o.op()?.syntax())))
-                }
+                // An operator is located with its parentheses.
+                ast::Exposed::ExposedOperator(o) => Some(Exposed::Operator(Spanned {
+                    text: words(o.op()?.syntax()).text,
+                    range: words(o.syntax()).range,
+                })),
             })
             .collect(),
     )

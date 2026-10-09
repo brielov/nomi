@@ -6,10 +6,11 @@
 // Each test target uses only part of the support it shares.
 #![allow(dead_code)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, UNIX_EPOCH};
 
 use nomi_base::Compat;
@@ -17,6 +18,7 @@ use nomi_engine::Vfs;
 use nomi_engine::check::{self, Style};
 use nomi_engine::console::{Console, Personality};
 use nomi_engine::graph::Foreigns;
+use nomi_engine::names;
 use nomi_project::{ModuleName, Name, Outline};
 use nomi_testkit::transcript::Case;
 use serde_json::Value;
@@ -79,6 +81,7 @@ pub fn run(
         deps.iter()
             .map(|dep| (dep.clone(), exposing(packages, dep, compat))),
     );
+    let interfaces = names::visible(&interfaces(packages, compat), &deps);
     let env = check::env_of(&root, &outline, compat, foreigns)
         .unwrap()
         .with_cwd(&root);
@@ -89,6 +92,7 @@ pub fn run(
         &outline,
         &paths,
         Personality::Elm,
+        &interfaces,
     );
     let root_text = root.to_str().unwrap().to_owned();
     let [json, stderr] = [Style::Json, Style::Terminal].map(|style| {
@@ -142,6 +146,49 @@ fn with_elm_version(text: &str, compat: Compat) -> String {
     let start = text.find(KEY).unwrap() + KEY.len();
     let end = start + text[start..].find('"').unwrap();
     format!("{}{compat}{}", &text[..start], &text[end..])
+}
+
+/// The interfaces of every package stored under `packages`, as `compat`
+/// reads them, made once per run.
+fn interfaces(packages: &Path, compat: Compat) -> Arc<names::PackageInterfaces> {
+    type Made = HashMap<(PathBuf, Compat), Arc<names::PackageInterfaces>>;
+    static MADE: OnceLock<Mutex<Made>> = OnceLock::new();
+    let made = MADE.get_or_init(Default::default);
+    let key = (packages.to_owned(), compat);
+    if let Some(interfaces) = made.lock().unwrap().get(&key) {
+        return interfaces.clone();
+    }
+    let mut sources = Vec::new();
+    for author in fs::read_dir(packages).unwrap() {
+        let author = author.unwrap().path();
+        if !author.is_dir() {
+            continue;
+        }
+        for project in fs::read_dir(&author).unwrap() {
+            let project = project.unwrap().path();
+            let version = fs::read_dir(&project)
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap()
+                .path();
+            let name = format!(
+                "{}/{}",
+                author.file_name().unwrap().to_string_lossy(),
+                project.file_name().unwrap().to_string_lossy()
+            );
+            let name = Name::parse(
+                name.as_bytes(),
+                nomi_project::json::Cursor::start(compat),
+                compat,
+            )
+            .unwrap();
+            sources.push((name, version));
+        }
+    }
+    let interfaces = Arc::new(names::package_interfaces(compat, &sources).unwrap());
+    made.lock().unwrap().insert(key, interfaces.clone());
+    interfaces
 }
 
 /// The modules `dep`'s stored `elm.json` exposes.

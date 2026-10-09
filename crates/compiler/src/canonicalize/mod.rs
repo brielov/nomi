@@ -12,6 +12,7 @@ pub mod env;
 pub mod error;
 pub mod foreign;
 pub mod local;
+pub mod module;
 pub mod types;
 
 /// How a release orders names, wherever an order shows: as bytes, and

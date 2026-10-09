@@ -1,8 +1,9 @@
 //! Finding names written twice (`Environment/Dups.hs`). Each name keeps
 //! every place it was written, in the order upstream's `OneOrMore` holds
-//! them: an insert puts the new place first, a union puts the left side
-//! first. A name written twice is reported at its first two places in
-//! that order, which is not always the source's.
+//! them: an insert puts the new place first in 0.19.1 and last from
+//! 0.19.2, a record field's insert always puts it first, and a union puts
+//! the left side first. A name written twice is reported at its first two
+//! places in that order, which is not always the source's.
 
 use std::collections::BTreeMap;
 
@@ -28,12 +29,23 @@ impl<V> Dict<V> {
     /// `Dups.one`.
     pub fn one(name: &str, range: TextRange, value: V) -> Dict<V> {
         let mut dict = Dict::default();
-        dict.insert(name, range, value);
+        dict.insert_first(name, range, value);
         dict
     }
 
-    /// `Dups.insert`: the new place goes first.
-    pub fn insert(&mut self, name: &str, range: TextRange, value: V) {
+    /// `Dups.insert`: the new place goes first in 0.19.1, last from
+    /// 0.19.2.
+    pub fn insert(&mut self, compat: Compat, name: &str, range: TextRange, value: V) {
+        let places = self.names.entry(name.to_owned()).or_default();
+        match compat {
+            Compat::V0_19_1 => places.insert(0, (range, value)),
+            Compat::V0_19_2 | Compat::V0_19_3 => places.push((range, value)),
+        }
+    }
+
+    /// `addField`'s insert, unchanged in every release: the new place
+    /// goes first.
+    fn insert_first(&mut self, name: &str, range: TextRange, value: V) {
         self.names
             .entry(name.to_owned())
             .or_default()
@@ -89,7 +101,7 @@ pub fn check_fields<V>(
 ) -> R<BTreeMap<String, V>> {
     let mut dict = Dict::default();
     for (name, range, value) in fields.into_iter().rev() {
-        dict.insert(&name, range, value);
+        dict.insert_first(&name, range, value);
     }
     dict.detect(compat, |name, first, second| Error::DuplicateField {
         name: name.to_owned(),
