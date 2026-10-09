@@ -133,6 +133,12 @@ fn a_damaged_index_is_none() {
         std::fs::write(&path, &saved[..cut]).unwrap();
         assert_eq!(Index::read(&path, LATEST).unwrap(), None, "cut at {cut}");
     }
+    // A length past the end of memory, as damage could write.
+    let header = saved.split_inclusive(|&b| b == b'\n').next().unwrap();
+    let mut huge = header.to_vec();
+    huge.extend_from_slice(format!("{}\n", usize::MAX).as_bytes());
+    std::fs::write(&path, &huge).unwrap();
+    assert_eq!(Index::read(&path, LATEST).unwrap(), None);
 }
 
 #[test]

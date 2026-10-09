@@ -219,8 +219,9 @@ impl Index {
         while !rest.is_empty() {
             let line = rest.iter().position(|&b| b == b'\n')?;
             let len: usize = std::str::from_utf8(&rest[..line]).ok()?.parse().ok()?;
-            let body = rest.get(line + 1..line + 1 + len)?;
-            rest = rest[line + 1 + len..].strip_prefix(b"\n")?;
+            let end = (line + 1).checked_add(len)?;
+            let body = rest.get(line + 1..end)?;
+            rest = rest[end..].strip_prefix(b"\n")?;
             responses.push(body.to_vec());
         }
         let mut responses = responses.into_iter();
