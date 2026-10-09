@@ -233,7 +233,7 @@ pub enum SyntaxErrorKind {
 /// It bounds the tree's depth, which matters past the parser: rowan drops
 /// trees recursively, and [`nomi_base::STACK_SIZE`] is sized for the
 /// deepest tree this admits.
-pub(crate) const DEPTH_LIMIT: u32 = 25_000;
+pub const DEPTH_LIMIT: u32 = 25_000;
 
 /// Stack kept free before a guarded rule runs, and the size of each new
 /// segment when it isn't.

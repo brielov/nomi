@@ -16,7 +16,7 @@ use nomi_base::diagnostic::doc::{
 use nomi_base::diagnostic::json::{self, Json};
 use nomi_base::diagnostic::{Problem, Report};
 use nomi_project::ModuleName;
-use nomi_syntax::elm;
+use nomi_syntax::{DEPTH_LIMIT, SyntaxError, SyntaxErrorKind, elm};
 
 use crate::graph::{
     BadModule, Env, Graph, ImportProblem, Module, ModuleProblem, Problem as GraphProblem, Root,
@@ -95,9 +95,8 @@ pub fn module_problem(env: &Env, bad: &BadModule, expected: &ModuleName) -> Opti
     let source = Source::new(contents);
     match &bad.problem {
         ModuleProblem::Unreadable(_) => None,
-        ModuleProblem::Syntax(_) => {
-            let error = elm::parse(contents.as_bytes(), env.source(), compat).err()?;
-            Some(elm::to_problem(&source, &error, compat))
+        ModuleProblem::Syntax(errors) => {
+            Some(syntax_problem(contents, errors, env.source(), compat))
         }
         ModuleProblem::NameUnspecified => Some(name_unspecified(expected, compat)),
         ModuleProblem::NameMismatch { actual, range } => {
@@ -127,6 +126,64 @@ pub fn module_problem(env: &Env, bad: &BadModule, expected: &ModuleName) -> Opti
             Some(Problem::new("MODULE NAME MISMATCH", region, message))
         }
     }
+}
+
+/// The report on a module nomi's grammar rejects with `errors`: elm's,
+/// from its parser, when that rejects the module too. Where only nomi
+/// does, nomi says why: past [`DEPTH_LIMIT`] nesting, which elm has no
+/// limit on, or otherwise a disagreement that is nomi's bug.
+fn syntax_problem(
+    contents: &str,
+    errors: &[SyntaxError],
+    kind: nomi_syntax::Source,
+    compat: Compat,
+) -> Problem {
+    let source = Source::new(contents);
+    if let Err(error) = elm::parse(contents.as_bytes(), kind, compat) {
+        return elm::to_problem(&source, &error, compat);
+    }
+    let error = errors.first().expect("a rejected module has an error");
+    let region = source.region(error.range, compat);
+    if error.kind == SyntaxErrorKind::TooDeep {
+        let message = source.snippet(
+            compat,
+            reflow(&format!(
+                "This code nests more than {} levels deep, more than I can follow:",
+                group_thousands(DEPTH_LIMIT)
+            )),
+            region,
+            None,
+            reflow(
+                "Elm itself has no such limit, but I stop here to keep within memory. Try \
+                 breaking this expression up with `let` or helper definitions.",
+            ),
+        );
+        return Problem::new("TOO MUCH NESTING", region, message);
+    }
+    let message = source.snippet(
+        compat,
+        reflow("I could not read this code, but Elm's own parser accepts it:"),
+        region,
+        None,
+        reflow(&format!(
+            "That makes this a bug in nomi ({:?}). Please report it with this module!",
+            error.kind
+        )),
+    );
+    Problem::new("SYNTAX PROBLEM", region, message)
+}
+
+/// `n` with commas between groups of three digits, as `25,000`.
+fn group_thousands(n: u32) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, digit) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out
 }
 
 fn name_unspecified(name: &ModuleName, compat: Compat) -> Problem {
@@ -591,6 +648,41 @@ mod tests {
             Compat::LATEST,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn nesting_only_nomi_rejects_is_reported() {
+        let depth = DEPTH_LIMIT as usize + 1;
+        let contents = format!(
+            "module Main exposing (x)\n\n\nx =\n    {}1{}\n",
+            "(".repeat(depth),
+            ")".repeat(depth)
+        );
+        // Dropping a tree this deep needs the engine's stack.
+        let problem = std::thread::Builder::new()
+            .stack_size(nomi_base::STACK_SIZE)
+            .spawn(move || {
+                let errors = nomi_syntax::parse_module(&contents).errors().to_vec();
+                syntax_problem(
+                    &contents,
+                    &errors,
+                    nomi_syntax::Source::Application,
+                    Compat::LATEST,
+                )
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        let json = problem.to_json(Compat::LATEST).to_string();
+        assert!(json.contains("\"TOO MUCH NESTING\""), "{json}");
+        assert!(json.contains("more than 25,000 levels deep"), "{json}");
+    }
+
+    #[test]
+    fn thousands_are_grouped() {
+        assert_eq!(group_thousands(7), "7");
+        assert_eq!(group_thousands(25_000), "25,000");
+        assert_eq!(group_thousands(1_234_567), "1,234,567");
     }
 
     // `elm make` can't reach these: its argument parser takes only `.elm`
