@@ -166,6 +166,13 @@ fn check_reports_as_elm_make() {
             String::from_utf8(output.stderr).unwrap(),
         )
     };
+    // The registry's packages hold only their elm.json, so a module that
+    // checks cleanly uses none of their values.
+    fs::write(
+        work.path().join("src/Main.elm"),
+        "module Main exposing (main)\n\nimport Html\n\n\nmain =\n    1\n",
+    )
+    .unwrap();
     let (ok, stdout, stderr) = check(&["src/Main.elm"]);
     assert!(ok, "{stdout}{stderr}");
     assert!(stdout.starts_with("No problems in syntax"), "{stdout}");

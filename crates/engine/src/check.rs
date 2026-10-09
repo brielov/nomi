@@ -138,8 +138,8 @@ pub fn show(
 ) {
     match (checked, style) {
         (Checked::Fine, Style::Terminal) => console.out(
-            "No problems in syntax, module names or imports. nomi doesn't check names \
-             and types yet.\n",
+            "No problems in syntax, module names, imports or names. nomi doesn't check \
+             types yet.\n",
         ),
         (Checked::Fine, Style::Json) => {}
         (Checked::Project(report), Style::Terminal) => console::report(console, report, compat),

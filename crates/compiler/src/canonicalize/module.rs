@@ -9,7 +9,8 @@ use nomi_base::{Compat, TextRange};
 
 use super::dups::Dict;
 use super::env::Env;
-use super::error::{DuplicatePatternContext, Error, NameKind, R, all, throw};
+use super::error::{Error, NameKind, R, all, throw};
+use super::expr::{self, FreeLocals};
 use super::foreign::{initial_env, with_defaults};
 use super::local::{self, Aliases, Unions};
 use super::pattern;
@@ -88,14 +89,16 @@ pub fn canonicalize(
     let imports = with_defaults(package, &module.imports);
     let env = initial_env(compat, &home, interfaces, &imports)?;
     let (env, unions, aliases) = local::add(module, env)?;
-    // `canonicalizeValues`, in upstream's reverse order (so far each
-    // value's annotation and parameters; bodies come in plan 5.10).
-    let annotations = all(module
+    // `canonicalizeValues`, in upstream's reverse order.
+    let nodes = all(module
         .values
         .iter()
         .rev()
         .map(|&id| value(&env, module, id)))?;
-    let annotations = annotations.into_iter().flatten().collect();
+    let nodes: Vec<ValueNode> = nodes.into_iter().flatten().collect();
+    let annotations = (nodes.iter())
+        .filter_map(|n| Some((n.name.clone(), n.annotation.clone()?)))
+        .collect();
     let values: Vec<String> = (module.values.iter())
         .filter_map(|&id| match &module.defs[id] {
             Def::Define { name, .. } => Some(name.text.clone()),
@@ -115,46 +118,49 @@ pub fn canonicalize(
     })
 }
 
-/// `toNodeOne`, so far: a value's annotation, then its parameters, bound
-/// once each and over the module's names without shadowing them. The
-/// annotation, if the value has one.
-fn value(env: &Env<'_>, module: &hir::Module, id: hir::DefId) -> R<Option<(String, Annotation)>> {
+/// A top-level value canonicalized: the parts of upstream's `NodeOne` the
+/// interface and the cycle checks read.
+#[derive(Clone, Debug)]
+pub struct ValueNode {
+    pub name: String,
+    pub has_params: bool,
+    pub annotation: Option<Annotation>,
+    /// The locals and top-level values its body uses.
+    pub free: FreeLocals,
+}
+
+/// `toNodeOne`: a value canonicalized; none for a destructuring, which
+/// elm rejects at the top level.
+fn value(env: &Env<'_>, module: &hir::Module, id: hir::DefId) -> R<Option<ValueNode>> {
     let Def::Define {
         name,
         params,
+        body,
         annotation,
         ..
     } = &module.defs[id]
     else {
         return Ok(None);
     };
-    let context = DuplicatePatternContext::FuncArgs(name.text.clone());
-    let (annotation, bindings) = match annotation {
-        None => {
-            let ((), bindings) = pattern::verify(env, context, |bindings| {
-                all(params
-                    .iter()
-                    .map(|&p| pattern::canonicalize(env, module, p, bindings)))
-                .map(|_| ())
-            })?;
-            (None, bindings)
-        }
-        Some(ty) => {
-            let annotation = types::to_annotation(env, module, *ty)?;
-            let ((), bindings) = pattern::verify(env, context, |bindings| {
-                typed_args(env, module, &name.text, params, &annotation.ty, bindings)
-            })?;
-            (Some((name.text.clone(), annotation)), bindings)
-        }
+    let free = expr::definition(env, module, &name.text, params, *body, *annotation)?;
+    // Canonicalized once more for the interface; it went through cleanly
+    // above.
+    let annotation = match annotation {
+        Some(ty) => Some(types::to_annotation(env, module, *ty)?),
+        None => None,
     };
-    let _scope = env.add_locals(&bindings)?;
-    Ok(annotation)
+    Ok(Some(ValueNode {
+        name: name.text.clone(),
+        has_params: !params.is_empty(),
+        annotation,
+        free,
+    }))
 }
 
 /// `gatherTypedArgs`: each parameter against the argument its annotation
 /// gives it, stopping at the first that fails, or where the annotation
 /// runs out of arguments.
-fn typed_args(
+pub(super) fn typed_args(
     env: &Env<'_>,
     module: &hir::Module,
     name: &str,

@@ -7,9 +7,11 @@ use std::cmp::Ordering;
 
 use nomi_base::Compat;
 
+pub mod cycles;
 pub mod dups;
 pub mod env;
 pub mod error;
+pub mod expr;
 pub mod foreign;
 pub mod local;
 pub mod module;
