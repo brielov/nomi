@@ -9,6 +9,10 @@ use std::path::{Path, PathBuf};
 
 use nomi_base::{ColumnUnit, ElmPosition, LineIndex, TextLen};
 
+use nomi_compiler::hir::Expr;
+use nomi_syntax::ast::{self, AstNode};
+use nomi_syntax::{Tool, parse_module, validate};
+
 use crate::{Pool, Vfs};
 
 /// What a run does with a module that isn't formatted.
@@ -81,6 +85,29 @@ pub fn format_text(text: &str) -> Result<String, ElmPosition> {
             position(text, error.range.start())
         }
     })
+}
+
+/// How formatting `text`, a module `tool` accepts, changes what elm reads
+/// in it: where its HIR's shape (`nomi_compiler::hir::shape`) first
+/// differs, nothing where it reads the same or doesn't format (plan
+/// 5.15). elm-format reads a CRLF line break in a multiline string as
+/// `\n` where elm reads both characters, a change nomi keeps
+/// (`DECISIONS.md`), so a module with one is allowed it.
+pub fn shape_change(text: &str, tool: Tool) -> Option<String> {
+    let lower = |text: &str| {
+        let parse = parse_module(text);
+        let accepted = parse.errors().is_empty() && validate(&parse, tool).is_empty();
+        let module = ast::Module::cast(parse.syntax()).expect("a module");
+        accepted.then(|| nomi_compiler::hir::lower(&module))
+    };
+    let before = lower(text)?;
+    let output = nomi_format::format(text)?;
+    let Some(after) = lower(&output) else {
+        return Some("elm rejects the formatted module".to_owned());
+    };
+    let crlf = (before.exprs.iter())
+        .any(|(_, e)| matches!(e, Expr::Str(s) if s.starts_with("\"\"\"") && s.contains('\r')));
+    nomi_compiler::hir::difference(&before, &after).filter(|_| !crlf)
 }
 
 /// `bytes` as text, or, where they aren't UTF-8, the position of the

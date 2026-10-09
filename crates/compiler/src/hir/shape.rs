@@ -1,0 +1,624 @@
+//! A module's shape: its HIR as elm reads it, without IDs, source
+//! positions or spelling. Formatting must leave it unchanged (plan 5.15),
+//! so two spellings of one program have one shape:
+//!
+//! - parentheses are already gone, and `(f a) b` is `f a b`;
+//! - literals are their values as elm decodes them, a negated number
+//!   included, as an integer too large for 64 bits wraps to one;
+//! - `(x) = e` is `x = e`;
+//! - imports are each module's, once, with the qualifiers the module
+//!   uses and everything they expose;
+//! - exposing lists are sets, and one naming everything the module
+//!   declares is `(..)`, as a module without a header is `Main` exposing
+//!   everything.
+//!
+//! Doc comments count by presence, since their Markdown is reprinted; the
+//! formatter's own invariants check their text.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use super::{
+    Def, DefId, Exposed, Exposing, Expr, ExprId, Import, Module, ModuleKind, PatId, Pattern,
+    Spanned, Type, TypeId,
+};
+
+/// Stack kept free before a recursive step, and the size of each new
+/// segment, as lowering keeps.
+const RED_ZONE: usize = 128 * 1024;
+const STACK_SEGMENT: usize = 2 * 1024 * 1024;
+
+/// `module`'s shape, a node a line, each before its children.
+pub fn shape(module: &Module) -> Vec<String> {
+    let mut shape = Shape {
+        module,
+        lines: Vec::new(),
+    };
+    shape.module();
+    shape.lines
+}
+
+/// Where `before` and `after` first differ in shape, with the lines
+/// around it; `None` when they don't.
+pub fn difference(before: &Module, after: &Module) -> Option<String> {
+    let (before, after) = (shape(before), shape(after));
+    let at = (0..before.len().max(after.len())).find(|&i| before.get(i) != after.get(i))?;
+    let near = |lines: &[String]| {
+        let end = (at + 3).min(lines.len());
+        lines[at.saturating_sub(3).min(end)..end].join(" | ")
+    };
+    // The declaration the difference is in, to find it by.
+    let decl = before[..at.min(before.len())]
+        .iter()
+        .rev()
+        .find(|l| l.starts_with("decl "))
+        .map_or("the header", |l| l.as_str());
+    Some(format!(
+        "in {decl}, line {at}: {} became {}",
+        near(&before),
+        near(&after)
+    ))
+}
+
+struct Shape<'m> {
+    module: &'m Module,
+    lines: Vec<String>,
+}
+
+impl Shape<'_> {
+    fn line(&mut self, line: String) {
+        self.lines.push(line);
+    }
+
+    fn module(&mut self) {
+        let m = self.module;
+        let name = m.name.as_ref().map_or("Main", |n| n.text.as_str());
+        self.line(format!("module {name}"));
+        match &m.kind {
+            ModuleKind::Plain => self.line("plain".to_owned()),
+            ModuleKind::Port => self.line("port".to_owned()),
+            ModuleKind::Effect(fields) => {
+                let fields: Vec<String> = (fields.iter())
+                    .map(|(k, v)| format!("{} = {}", k.text, v.text))
+                    .collect();
+                self.line(format!("effect {}", fields.join(", ")));
+            }
+        }
+        self.line(format!("exports {}", exports(m)));
+        self.line(format!("docs {}", m.docs.is_some()));
+        for import in imports(&m.imports, &qualifiers(m)) {
+            self.line(import);
+        }
+        for union in &m.unions {
+            self.line(format!(
+                "decl type {} {} docs {}",
+                union.name.text,
+                texts(&union.params),
+                union.docs.is_some()
+            ));
+            for (name, args) in &union.variants {
+                self.line(format!("variant {} {}", name.text, args.len()));
+                for &arg in args {
+                    self.ty(arg);
+                }
+            }
+        }
+        for alias in &m.aliases {
+            self.line(format!(
+                "decl alias {} {} docs {}",
+                alias.name.text,
+                texts(&alias.params),
+                alias.docs.is_some()
+            ));
+            self.ty(alias.body);
+        }
+        for infix in &m.binops {
+            self.line(format!(
+                "decl infix {:?} {} ({}) = {}",
+                infix.associativity, infix.precedence, infix.op.text, infix.function.text
+            ));
+        }
+        for port in &m.ports {
+            self.line(format!(
+                "decl port {} docs {}",
+                port.name.text,
+                port.docs.is_some()
+            ));
+            self.ty(port.ty);
+        }
+        for &value in &m.values {
+            self.def(value, "decl ");
+        }
+    }
+
+    fn def(&mut self, id: DefId, prefix: &str) {
+        match &self.module.defs[id] {
+            Def::Define {
+                name,
+                params,
+                body,
+                annotation,
+                docs,
+            } => {
+                self.line(format!(
+                    "{prefix}value {} {} annotated {} docs {}",
+                    name.text,
+                    params.len(),
+                    annotation.is_some(),
+                    docs.is_some()
+                ));
+                if let Some(annotation) = annotation {
+                    self.ty(*annotation);
+                }
+                for &param in params {
+                    self.pattern(param);
+                }
+                self.expr(*body);
+            }
+            Def::Destruct { pattern, body } => match &self.module.patterns[*pattern] {
+                // `(x) = e` is `x = e`.
+                Pattern::Var(name) => {
+                    self.line(format!("{prefix}value {name} 0 annotated false docs false"));
+                    self.expr(*body);
+                }
+                _ => {
+                    self.line(format!("{prefix}destruct"));
+                    self.pattern(*pattern);
+                    self.expr(*body);
+                }
+            },
+        }
+    }
+
+    fn expr(&mut self, id: ExprId) {
+        stacker::maybe_grow(RED_ZONE, STACK_SEGMENT, || self.expr_(id));
+    }
+
+    fn expr_(&mut self, id: ExprId) {
+        let exprs = |s: &mut Self, ids: &[ExprId]| ids.iter().for_each(|&e| s.expr(e));
+        match &self.module.exprs[id] {
+            Expr::Missing => self.line("missing".to_owned()),
+            Expr::Chr(text) => self.line(format!("char {}", chr(text))),
+            Expr::Str(text) => self.line(format!("string {}", string(text))),
+            Expr::Int(text) => self.line(format!("int {}", int(text))),
+            Expr::Float(text) => self.line(format!("float {}", float(text))),
+            Expr::Var {
+                qualifier,
+                name,
+                upper: _,
+            } => self.line(format!("var {}", qualified(qualifier, name))),
+            Expr::List(items) => {
+                self.line(format!("list {}", items.len()));
+                exprs(self, items);
+            }
+            Expr::Op(op) => self.line(format!("op ({op})")),
+            // `-1` is the value -1, which a literal can spell too, as an
+            // integer too large for 64 bits wraps to it.
+            Expr::Negate(e) => match &self.module.exprs[*e] {
+                Expr::Int(text) => self.line(format!("int {}", int(&format!("-{text}")))),
+                Expr::Float(text) => self.line(format!("float {}", float(&format!("-{text}")))),
+                _ => {
+                    self.line("negate".to_owned());
+                    self.expr(*e);
+                }
+            },
+            Expr::Binops { operands, ops } => {
+                self.line(format!("binops {}", texts(ops)));
+                exprs(self, operands);
+            }
+            Expr::Lambda { params, body } => {
+                self.line(format!("lambda {}", params.len()));
+                params.iter().for_each(|&p| self.pattern(p));
+                self.expr(*body);
+            }
+            // `(f a) b` is `f a b`.
+            Expr::Call { function, args } => {
+                let mut function = *function;
+                let mut all = args.clone();
+                while let Expr::Call { function: f, args } = &self.module.exprs[function] {
+                    function = *f;
+                    all.splice(0..0, args.iter().copied());
+                }
+                self.line(format!("call {}", all.len()));
+                self.expr(function);
+                exprs(self, &all);
+            }
+            Expr::If {
+                branches,
+                otherwise,
+            } => {
+                self.line(format!("if {}", branches.len()));
+                for &(condition, then) in branches {
+                    self.expr(condition);
+                    self.expr(then);
+                }
+                self.expr(*otherwise);
+            }
+            Expr::Let { defs, body } => {
+                self.line(format!("let {}", defs.len()));
+                defs.iter().for_each(|&d| self.def(d, ""));
+                self.expr(*body);
+            }
+            Expr::Case {
+                scrutinee,
+                branches,
+            } => {
+                self.line(format!("case {}", branches.len()));
+                self.expr(*scrutinee);
+                for &(pattern, body) in branches {
+                    self.pattern(pattern);
+                    self.expr(body);
+                }
+            }
+            Expr::Accessor(field) => self.line(format!("accessor .{field}")),
+            Expr::Access { record, field } => {
+                self.line(format!("access .{}", field.text));
+                self.expr(*record);
+            }
+            Expr::Update { record, fields } => {
+                self.line(format!("update {} {}", record.text, field_names(fields)));
+                fields.iter().for_each(|&(_, e)| self.expr(e));
+            }
+            Expr::Record(fields) => {
+                self.line(format!("record {}", field_names(fields)));
+                fields.iter().for_each(|&(_, e)| self.expr(e));
+            }
+            Expr::Unit => self.line("unit".to_owned()),
+            Expr::Tuple(items) => {
+                self.line(format!("tuple {}", items.len()));
+                exprs(self, items);
+            }
+            Expr::Shader(source) => self.line(format!("shader {source:?}")),
+        }
+    }
+
+    fn pattern(&mut self, id: PatId) {
+        stacker::maybe_grow(RED_ZONE, STACK_SEGMENT, || self.pattern_(id));
+    }
+
+    fn pattern_(&mut self, id: PatId) {
+        let patterns = |s: &mut Self, ids: &[PatId]| ids.iter().for_each(|&p| s.pattern(p));
+        match &self.module.patterns[id] {
+            Pattern::Missing => self.line("missing".to_owned()),
+            Pattern::Anything => self.line("_".to_owned()),
+            Pattern::Var(name) => self.line(format!("pvar {name}")),
+            Pattern::Record(fields) => self.line(format!("precord {}", texts(fields))),
+            Pattern::Alias(p, name) => {
+                self.line(format!("as {}", name.text));
+                self.pattern(*p);
+            }
+            Pattern::Unit => self.line("punit".to_owned()),
+            Pattern::Tuple(items) => {
+                self.line(format!("ptuple {}", items.len()));
+                patterns(self, items);
+            }
+            Pattern::Ctor {
+                qualifier,
+                name,
+                args,
+            } => {
+                self.line(format!(
+                    "ctor {} {}",
+                    qualified(qualifier, &name.text),
+                    args.len()
+                ));
+                patterns(self, args);
+            }
+            Pattern::List(items) => {
+                self.line(format!("plist {}", items.len()));
+                patterns(self, items);
+            }
+            Pattern::Cons(head, tail) => {
+                self.line("cons".to_owned());
+                self.pattern(*head);
+                self.pattern(*tail);
+            }
+            Pattern::Chr(text) => self.line(format!("pchar {}", chr(text))),
+            Pattern::Str(text) => self.line(format!("pstring {}", string(text))),
+            Pattern::Int(text) => self.line(format!("pint {}", int(text))),
+        }
+    }
+
+    fn ty(&mut self, id: TypeId) {
+        stacker::maybe_grow(RED_ZONE, STACK_SEGMENT, || self.ty_(id));
+    }
+
+    fn ty_(&mut self, id: TypeId) {
+        match &self.module.types[id] {
+            Type::Missing => self.line("missing".to_owned()),
+            Type::Lambda(a, b) => {
+                self.line("->".to_owned());
+                self.ty(*a);
+                self.ty(*b);
+            }
+            Type::Var(name) => self.line(format!("tvar {name}")),
+            Type::Named {
+                qualifier,
+                name,
+                args,
+            } => {
+                self.line(format!(
+                    "type {} {}",
+                    qualified(qualifier, &name.text),
+                    args.len()
+                ));
+                args.iter().for_each(|&a| self.ty(a));
+            }
+            Type::Record { fields, extends } => {
+                let extends = extends.as_ref().map_or("", |e| e.text.as_str());
+                self.line(format!("trecord {extends} | {}", field_names(fields)));
+                fields.iter().for_each(|&(_, t)| self.ty(t));
+            }
+            Type::Unit => self.line("tunit".to_owned()),
+            Type::Tuple(items) => {
+                self.line(format!("ttuple {}", items.len()));
+                items.iter().for_each(|&t| self.ty(t));
+            }
+        }
+    }
+}
+
+fn texts(names: &[Spanned]) -> String {
+    let names: Vec<&str> = names.iter().map(|n| n.text.as_str()).collect();
+    names.join(" ")
+}
+
+fn field_names<T>(fields: &[(Spanned, T)]) -> String {
+    let names: Vec<&str> = fields.iter().map(|(n, _)| n.text.as_str()).collect();
+    names.join(" ")
+}
+
+fn qualified(qualifier: &Option<String>, name: &str) -> String {
+    match qualifier {
+        Some(q) => format!("{q}.{name}"),
+        None => name.to_owned(),
+    }
+}
+
+/// Every qualifier the module's names use.
+fn qualifiers(m: &Module) -> BTreeSet<&str> {
+    let exprs = m.exprs.iter().filter_map(|(_, e)| match e {
+        Expr::Var { qualifier, .. } => qualifier.as_deref(),
+        _ => None,
+    });
+    let patterns = m.patterns.iter().filter_map(|(_, p)| match p {
+        Pattern::Ctor { qualifier, .. } => qualifier.as_deref(),
+        _ => None,
+    });
+    let types = m.types.iter().filter_map(|(_, t)| match t {
+        Type::Named { qualifier, .. } => qualifier.as_deref(),
+        _ => None,
+    });
+    exprs.chain(patterns).chain(types).collect()
+}
+
+/// The imports as elm resolves them: each module once, with the
+/// qualifiers its imports give it that the module uses, and everything
+/// they expose. elm-format keeps one alias of a module imported twice,
+/// which changes nothing unless the other is used.
+fn imports(imports: &[Import], used: &BTreeSet<&str>) -> Vec<String> {
+    let mut modules: BTreeMap<&str, (BTreeSet<&str>, bool, Vec<&Exposed>)> = BTreeMap::new();
+    for import in imports {
+        let (qualifiers, open, items) = modules.entry(&import.name.text).or_default();
+        let qualifier = import.alias.as_ref().unwrap_or(&import.name).text.as_str();
+        if used.contains(qualifier) {
+            qualifiers.insert(qualifier);
+        }
+        match &import.exposing {
+            None => {}
+            Some(Exposing::Open) => *open = true,
+            Some(Exposing::Explicit(exposed)) => items.extend(exposed),
+        }
+    }
+    (modules.into_iter())
+        .map(|(name, (qualifiers, open, items))| {
+            let qualifiers: Vec<&str> = qualifiers.into_iter().collect();
+            let exposing = if open {
+                "(..)".to_owned()
+            } else {
+                exposed(items)
+            };
+            format!(
+                "import {name} as {} exposing {exposing}",
+                qualifiers.join(" ")
+            )
+        })
+        .collect()
+}
+
+/// A module's exports as a set; naming everything it declares is
+/// `(..)`, as elm-format writes a header for a module without one.
+fn exports(m: &Module) -> String {
+    let Exposing::Explicit(items) = &m.exports else {
+        return "(..)".to_owned();
+    };
+    let named = names(items.iter());
+    let values = m.values.iter().filter_map(|&id| match &m.defs[id] {
+        Def::Define { name, .. } => Some((name.text.clone(), false)),
+        Def::Destruct { .. } => None,
+    });
+    let everything: BTreeMap<String, bool> = (values)
+        .chain(m.unions.iter().map(|u| (u.name.text.clone(), true)))
+        .chain(m.aliases.iter().map(|a| (a.name.text.clone(), false)))
+        .chain(m.ports.iter().map(|p| (p.name.text.clone(), false)))
+        .chain(m.binops.iter().map(|b| (format!("({})", b.op.text), false)))
+        .collect();
+    if named == everything {
+        "(..)".to_owned()
+    } else {
+        listing(named)
+    }
+}
+
+/// Exposed names as a set, a type with its variants standing for itself
+/// too.
+fn exposed<'e>(items: impl IntoIterator<Item = &'e Exposed>) -> String {
+    listing(names(items))
+}
+
+/// Each exposed name, and whether its variants are.
+fn names<'e>(items: impl IntoIterator<Item = &'e Exposed>) -> BTreeMap<String, bool> {
+    let mut names: BTreeMap<String, bool> = BTreeMap::new();
+    for item in items {
+        let (name, open) = match item {
+            Exposed::Lower(n) => (n.text.clone(), false),
+            Exposed::Upper(n, variants) => (n.text.clone(), variants.is_some()),
+            Exposed::Operator(n) => (format!("({})", n.text), false),
+        };
+        *names.entry(name).or_default() |= open;
+    }
+    names
+}
+
+fn listing(names: BTreeMap<String, bool>) -> String {
+    let names: Vec<String> = (names.into_iter())
+        .map(|(name, open)| if open { format!("{name}(..)") } else { name })
+        .collect();
+    format!("({})", names.join(", "))
+}
+
+/// An integer literal's value, maybe negative, wrapping at 64 bits as
+/// elm's parser does.
+fn int(text: &str) -> String {
+    let (negative, text) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text),
+    };
+    let (digits, radix) = match text.strip_prefix("0x") {
+        Some(hex) => (hex, 16),
+        None => (text, 10),
+    };
+    let value = digits
+        .chars()
+        .map(|c| c.to_digit(radix).map(i64::from))
+        .try_fold(0i64, |n, d| {
+            Some(n.wrapping_mul(i64::from(radix)).wrapping_add(d?))
+        });
+    match value {
+        Some(n) if negative => n.wrapping_neg().to_string(),
+        Some(n) => n.to_string(),
+        None => format!("{text:?}"),
+    }
+}
+
+/// A float literal's value, to the bit.
+fn float(text: &str) -> String {
+    text.parse::<f64>()
+        .map_or_else(|_| format!("{text:?}"), |f| format!("{:#x}", f.to_bits()))
+}
+
+/// A character literal's code points.
+fn chr(text: &str) -> String {
+    let body = text.strip_prefix('\'').and_then(|t| t.strip_suffix('\''));
+    body.map_or_else(|| format!("{text:?}"), |b| points(&decode(b)))
+}
+
+/// A string literal's code points, single- or triple-quoted.
+fn string(text: &str) -> String {
+    let body = (text
+        .strip_prefix("\"\"\"")
+        .and_then(|t| t.strip_suffix("\"\"\"")))
+    .or_else(|| text.strip_prefix('"').and_then(|t| t.strip_suffix('"')));
+    body.map_or_else(|| format!("{text:?}"), |b| points(&decode(b)))
+}
+
+fn points(points: &[u32]) -> String {
+    let text: String = (points.iter())
+        .map(|&p| char::from_u32(p).map_or_else(|| format!("\\u{{{p:X}}}"), |c| c.to_string()))
+        .collect();
+    format!("{text:?}")
+}
+
+/// A literal's body as elm's parser decodes it (`Parse/String.hs`):
+/// escapes to their code points, everything else, line breaks included,
+/// as written.
+fn decode(body: &str) -> Vec<u32> {
+    let mut points = Vec::with_capacity(body.len());
+    let mut chars = body.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            points.push(u32::from(c));
+            continue;
+        }
+        match chars.next() {
+            Some('n') => points.push(0x0A),
+            Some('r') => points.push(0x0D),
+            Some('t') => points.push(0x09),
+            Some('u') => {
+                let rest = chars.as_str();
+                let hex = rest
+                    .strip_prefix('{')
+                    .and_then(|r| r.split_once('}'))
+                    .and_then(|(hex, _)| u32::from_str_radix(hex, 16).ok().map(|n| (hex, n)));
+                match hex {
+                    Some((hex, n)) => {
+                        points.push(n);
+                        chars = rest[hex.len() + 2..].chars();
+                    }
+                    // elm rejects it; kept as written, to compare.
+                    None => points.extend([u32::from('\\'), u32::from('u')]),
+                }
+            }
+            Some(other) => points.push(u32::from(other)),
+            None => points.push(u32::from('\\')),
+        }
+    }
+    points
+}
+
+#[cfg(test)]
+mod tests {
+    use nomi_syntax::ast::{self, AstNode};
+
+    use super::*;
+
+    fn module(text: &str) -> Module {
+        let parse = nomi_syntax::parse_module(text);
+        super::super::lower(&ast::Module::cast(parse.syntax()).unwrap())
+    }
+
+    fn same(a: &str, b: &str) -> Option<String> {
+        difference(&module(a), &module(b))
+    }
+
+    #[test]
+    fn spellings_of_one_program_have_one_shape() {
+        let header = "module Main exposing (..)\n\n";
+        assert_eq!(same("a = (f x) y\n", "a = f x y\n"), None);
+        assert_eq!(same("a = -0x10\n", "a = -16\n"), None);
+        assert_eq!(same("a = let (x) = 1 in x\n", "a = let x = 1 in x\n"), None);
+        assert_eq!(same("a = 1\n", &format!("{header}a = 1\n")), None);
+        assert_eq!(
+            same(
+                "module A exposing (a, T(..))\ntype T = T\na = 1\n",
+                "module A exposing (..)\ntype T = T\na = 1\n"
+            ),
+            None
+        );
+        // `B` goes unused, so keeping one alias keeps the meaning.
+        assert_eq!(
+            same("import A\nimport A as B\na = A.x\n", "import A\na = A.x\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_change_in_meaning_shows_where() {
+        let found = same("a = 1\nb = f (g x)\n", "a = 1\nb = (f g) x\n").unwrap();
+        assert!(found.starts_with("in decl value b 0"), "{found}");
+        assert!(same("import A as B\na = B.x\n", "import A as C\na = B.x\n").is_some());
+        // One shape running out before the other.
+        assert!(same("a = 1\nb = 2\n", "a = 1\n").is_some());
+        assert!(same("a = 1\n", "a = 1\nb = 2\n").is_some());
+    }
+
+    #[test]
+    fn literals_compare_by_value() {
+        assert_eq!(int("0xFF"), int("255"));
+        assert_eq!(int("-0x10"), "-16");
+        assert_eq!(float("1e3"), float("1000.0"));
+        assert_eq!(string(r#""a\u{0041}\n""#), string("\"\"\"aA\n\"\"\""));
+        assert_ne!(string("\"\"\"a\r\nb\"\"\""), string("\"\"\"a\nb\"\"\""));
+        assert_eq!(chr(r"'\''"), chr(r"'\u{27}'"));
+        assert_eq!(chr(r"'\u{1F600}'"), chr("'😀'"));
+    }
+}

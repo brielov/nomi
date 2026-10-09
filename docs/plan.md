@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **5.15**.
+4. Resume at the first unchecked box. Right now that is **5.16**.
 
 ### Test tiers
 
@@ -354,7 +354,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 - [x] **5.14** `report: naming errors`. A port of `Reporting/Error/Canonicalize.hs` (1,256 lines) and `Reporting/Suggest.hs`, split here if it outgrows a step. **Check:** the full-report ratchet of 5.4 reaches every case.
 
   Done: `canonicalize::report` ports `toReport` and its helpers in 1,392 lines, in one step after all, and the engine renders each error through it. `names_reports` passes 945 of 945, every case on every release. The reports follow each release's name order wherever they list a map: suggestions, candidates and ambiguous homes (0.19.3 compares names length first). 0.19.1 keeps columns in 16 bits, so a two-region snippet whose second region starts before the first ends wraps into 65,000-odd spaces, as a duplicate's does there; nomi reproduces it. `D.cycle` moved to `nomi_base` for the module and value cycle reports to share.
-- [ ] **5.15** `format: check the HIR-unchanged invariant`. Formatting a module leaves its HIR unchanged, up to IDs and source positions; replaces the token-level check from 2.14.
+- [x] **5.15** `format: check the HIR-unchanged invariant`. Formatting a module leaves its HIR unchanged, up to IDs and source positions; replaces the token-level check from 2.14.
+
+  Done: `nomi_compiler::hir::shape` writes a module's HIR as Elm reads it, a node a line, without IDs, positions or spelling. `nomi_engine::format::shape_change` formats a module and compares shapes. It runs on the formatter's fixtures and the compiler's packages (`format_shape`) and on all 29,317 corpus modules Elm accepts (`cargo xtask corpus hir`). The token check stays as well, since the format crate can't depend on the compiler (`DECISIONS.md`). Spellings Elm reads alike needed normalizing: `(f a) b`, `(x) = e`, a negated literal (a 4,000-digit integer wraps to -1), imports of one module, and a module without a header, which elm-format gives an export list naming everything. The check found three upstream changes of meaning. Merged imports lose a qualifier the module uses (21 corpus modules), and a module without a header that declares ports gets a plain module line; nomi deviates on both (the two `format:` commits before this one). nomi's lowering also kept such a module `Plain` where Elm reads a port module, now fixed. The third, CRLF in a multiline string, stays elm-format's until decided.
 - [ ] **5.16** `ide: definition, references and highlights`, from the side tables, on the module and across the project.
 
 **Exit:** every corpus package and app each Compat accepts (1.15a) canonicalizes cleanly, naming errors match on the 5.4 snapshots in title, region and text for every Compat, and navigation works in the editor.

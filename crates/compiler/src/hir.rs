@@ -9,6 +9,7 @@
 //! `Missing` node there; a module elm accepts has none.
 
 mod lower;
+mod shape;
 
 use std::fmt;
 use std::marker::PhantomData;
@@ -19,6 +20,7 @@ use nomi_syntax::{SyntaxElement, SyntaxKind, SyntaxNode};
 
 pub use crate::canonical::Associativity;
 pub use lower::lower;
+pub use shape::{difference, shape};
 
 /// An index into an [`Arena`] of `T`.
 pub struct Id<T> {
