@@ -232,7 +232,21 @@ pub struct BadModule {
     pub path: PathBuf,
     /// The file and its text, unless it couldn't be read.
     pub source: Option<(FileId, Arc<str>)>,
+    /// The tree read from the text, recovered past any syntax errors,
+    /// for the editor (R4); the build reads no further than the problem.
+    pub parse: Option<Box<Parse>>,
     pub problem: ModuleProblem,
+}
+
+impl BadModule {
+    /// The imports the recovered tree names, in order.
+    pub fn imports(&self) -> Vec<Import> {
+        self.parse
+            .as_ref()
+            .and_then(|parse| ast::Module::cast(parse.syntax()))
+            .map(|syntax| written_imports(&syntax).collect())
+            .unwrap_or_default()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -439,16 +453,18 @@ fn read(
     let unreadable = |path: &Path, e: io::Error| BadModule {
         path: path.to_owned(),
         source: None,
+        parse: None,
         problem: ModuleProblem::Unreadable(e.kind()),
     };
     let file = snapshot.file_id(&path).map_err(|e| unreadable(&path, e))?;
     let text = snapshot.text(file).map_err(|e| unreadable(&path, e))?;
+    let parse = parse_module(&text);
     let bad = |problem| BadModule {
         path: path.clone(),
         source: Some((file, text.clone())),
+        parse: Some(Box::new(parse.clone())),
         problem,
     };
-    let parse = parse_module(&text);
     let mut errors = parse.errors().to_vec();
     errors.extend(validate(&parse, Tool::Elm(env.owner.source(), env.compat)));
     if !errors.is_empty() {
@@ -480,13 +496,7 @@ fn read(
             range: None,
         })
         .collect();
-    imports.extend(syntax.imports().filter_map(|import| {
-        let (name, range) = name_of(&import.module_name()?);
-        Some(Import {
-            name,
-            range: Some(range),
-        })
-    }));
+    imports.extend(written_imports(&syntax));
     let has_main = syntax.decls().any(|decl| match decl {
         ast::Decl::ValueDecl(value) => value
             .definition()
@@ -502,6 +512,17 @@ fn read(
         name,
         imports,
         has_main,
+    })
+}
+
+/// The imports `syntax` writes, each where it names its module.
+fn written_imports(syntax: &ast::Module) -> impl Iterator<Item = Import> {
+    syntax.imports().filter_map(|import| {
+        let (name, range) = name_of(&import.module_name()?);
+        Some(Import {
+            name,
+            range: Some(range),
+        })
     })
 }
 

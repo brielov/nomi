@@ -239,6 +239,30 @@ fn modules_must_have_the_name_their_path_gives() {
 }
 
 #[test]
+fn a_broken_module_keeps_what_it_says_for_the_editor() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    module(root, "Main", &["Broken"]);
+    write(
+        root,
+        "src/Broken.elm",
+        "module Broken exposing (..)\n\nimport Gone\n\nx = = 1\n",
+    );
+    let graph = from_paths(root, &app(root, Compat::LATEST), &["src/Main.elm"]).unwrap();
+    let Status::BadModule(bad) = &graph.modules[&m("Broken")] else {
+        panic!("Broken parsed");
+    };
+    assert!(matches!(&bad.problem, ModuleProblem::Syntax(errors) if !errors.is_empty()));
+    let parse = bad.parse.as_ref().expect("the recovered tree");
+    let text = &bad.source.as_ref().unwrap().1;
+    assert_eq!(parse.syntax().to_string(), **text);
+    let imports: Vec<String> = bad.imports().iter().map(|i| i.name.to_string()).collect();
+    assert_eq!(imports, ["Gone"]);
+    // The build still stops there: `Gone` isn't looked for.
+    assert!(!graph.modules.contains_key(&m("Gone")));
+}
+
+#[test]
 fn kernel_code_is_for_official_packages() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
