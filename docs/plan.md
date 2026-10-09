@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is the M4 gate: its exit criteria, then your review.
+4. Resume at the first unchecked box. Right now that is **5.1**.
 
 ### Test tiers
 
@@ -320,22 +320,28 @@ Goal: `nomi check` reports syntax and module errors exactly as `elm make` does, 
 
 ## M5: Names (canonicalization)
 
-- [ ] **5.1** `compiler: HIR and source map`. Arenas with IDs, lowered from the typed views, depth-safe.
-- [ ] **5.2** `compiler: interfaces`. Values, unions, aliases and binops, with stable serialization and hashing.
-- [ ] **5.3** `test: hermetic package fixtures`. Pinned copies of the elm/* packages the corpus apps use, with their licenses, so tier 1 compiles real programs offline.
-- [ ] **5.4** `compiler: import environment`. Default imports; qualified, unqualified and aliased imports; exposing lists; kernel imports; ambiguity.
-- [ ] **5.5** `compiler: local scopes and duplicates`.
-- [ ] **5.6** `compiler: canonicalize types and aliases`.
-- [ ] **5.7** `compiler: canonicalize patterns and expressions`.
-- [ ] **5.8** `compiler: operator precedence`. Turns flat chains into trees using the imported fixities.
-- [ ] **5.9** `compiler: top-level SCCs and recursion checks`.
-- [ ] **5.10** `compiler: ports, effects and exposing checks`.
-- [ ] **5.11** `oracle: naming error snapshots`. Curated cases plus mutations (renames, removals from exposing lists, duplicates), for each Compat.
-- [ ] **5.12** `report: naming errors`. A port of `Reporting/Error/Canonicalize.hs` (1,258 lines) and `Reporting/Suggest.hs`.
-- [ ] **5.13** `format: check the HIR-unchanged invariant`. Replaces the token-level check from 2.14.
-- [ ] **5.14** `ide: definition, references and highlights`.
+Goal: every module elm canonicalizes, nomi canonicalizes to the same names, and every naming error elm reports, nomi reports with the same title, region and text.
 
-**Exit:** every corpus package and app each Compat accepts (1.15a) canonicalizes cleanly, naming errors match, and navigation works in the editor.
+Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.hs`): the import environment (`Environment/Foreign.hs`), the module's own types, constructors and values (`Environment/Local.hs`, `Dups.hs`), each value (`Expression.hs`, `Pattern.hs`, `Type.hs`), cycle detection over the values, effects, and exports. It collects every error it meets (`Reporting.Result`), so which errors a module shows, and in what order, follow that order; nomi's steps keep it. The HIR is nomi's `Src.Module` with IDs: lowering keeps what the source wrote, and canonicalization writes what each name means into side tables keyed by ID, plus the operator trees and declaration order it decides. A package's exposed values must be annotated (`Elm/Docs.hs`), so a package's interface is complete without type inference; an application module's unannotated values get their types in M6.
+
+- [ ] **5.1** `compiler: create the crate, the HIR and its source map`. The pure `nomi-compiler` crate. Arenas with IDs (`ExprId`, `PatId`, `TypeId`, `DefId`) for a module's header, imports, declarations, expressions, patterns and types as written, with operator chains still flat, and a source map from each ID to its CST node. **Check:** every corpus module elm accepts lowers, every ID maps to a node whose text is the construct's, and a 20,000-deep expression lowers and drops.
+- [ ] **5.2** `compiler: interfaces`. `Elm/Interface.hs`: exposed values with their canonical types, unions (open, closed, private), aliases and binops, as the public and private forms upstream keeps for dependencies; with a canonical type representation (`AST/Canonical.hs`'s `Type`, `Union`, `Alias`), stable serialization, and a hash. **Check:** serialization round-trips and the hash is stable under rebuilding the same interface.
+- [ ] **5.3** `test: hermetic package fixtures`. Pinned copies of elm/core, json, html, browser, url, virtual-dom, time, http, bytes and file under `crates/compiler/tests/packages/`, with their licenses in `THIRD-PARTY-NOTICES.md`, so tier 1 canonicalizes real code offline. **Check:** each copy matches its registry hash.
+- [ ] **5.4** `oracle: naming error snapshots`. `cargo xtask oracle names` records each elm's `--report=json` and terminal report, as `oracle modules` does, on curated projects (one or more per constructor of `Reporting/Error/Canonicalize.hs`'s `Error`) and on mutations of a few real modules over the fixture packages: renamed and removed names, names taken out of exposing lists, duplicates, shadowing, bad cycles. A tier-1 test holds nomi's titles and regions to them (a ratchet, climbing in 5.5 to 5.13), and a second one the full reports (climbing in 5.14). **Check:** the snapshots are checked in and the ratchets exist.
+- [ ] **5.5** `compiler: import environment`. `Environment/Foreign.hs`: default imports, qualified, unqualified and aliased imports, exposing lists including `(..)` and constructors, kernel imports for `elm/*` and `elm-explorations/*`, and which names are ambiguous, with the errors upstream raises there.
+- [ ] **5.6** `compiler: local declarations and duplicates`. `Environment/Local.hs` and `Dups.hs`: the module's types, aliases, constructors and values added over the imports, with duplicate and shadowing errors.
+- [ ] **5.7** `compiler: canonicalize types and aliases`. `Type.hs` and the alias checks in `Local.hs`: type variables, arity, recursive and badly recursive aliases.
+- [ ] **5.8** `compiler: canonicalize patterns`. `Pattern.hs`, with duplicate bindings.
+- [ ] **5.9** `compiler: canonicalize expressions`. `Expression.hs` but operators and recursion: variables of every kind, records, updates, accessors, `let`, `case`, lambdas, shaders, and the shadowing rules of each.
+- [ ] **5.10** `compiler: operator precedence`. Flat chains become trees by the fixities in scope, as `Expression.hs`'s binop pass does, with its errors.
+- [ ] **5.11** `compiler: declaration order and recursion checks`. `Module.hs`'s two cycle passes over top-level values and `Expression.hs`'s over `let`, ordered as `Data.Graph.stronglyConnComp` orders them (reusing the port from 4.2).
+- [ ] **5.12** `compiler: ports, effect managers and exports`. `Effects.hs` and `canonicalizeExports`, then the module's interface (5.2).
+- [ ] **5.13** `engine: canonicalize the build`. `nomi check` canonicalizes each module after its imports, with package interfaces from the dependencies' sources, cached as artifacts keyed by their interfaces; a module whose imports failed stays silent. `cargo xtask corpus names` is the tier-2 suite: every corpus package and app each Compat accepts canonicalizes cleanly, with each package's dependencies fetched as `corpus deps` fetches them.
+- [ ] **5.14** `report: naming errors`. A port of `Reporting/Error/Canonicalize.hs` (1,256 lines) and `Reporting/Suggest.hs`, split here if it outgrows a step. **Check:** the full-report ratchet of 5.4 reaches every case.
+- [ ] **5.15** `format: check the HIR-unchanged invariant`. Formatting a module leaves its HIR unchanged, up to IDs and source positions; replaces the token-level check from 2.14.
+- [ ] **5.16** `ide: definition, references and highlights`, from the side tables, on the module and across the project.
+
+**Exit:** every corpus package and app each Compat accepts (1.15a) canonicalizes cleanly, naming errors match on the 5.4 snapshots in title, region and text for every Compat, and navigation works in the editor.
 
 ## M6: Types
 
