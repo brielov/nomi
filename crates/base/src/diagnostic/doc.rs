@@ -315,6 +315,33 @@ pub fn comma_sep(conjunction: &str, values: Vec<Doc>) -> Vec<Doc> {
     docs
 }
 
+/// `D.cycle 4`: `names` in a loop drawn with box-drawing characters, or
+/// ASCII on Windows, as upstream draws them there.
+pub fn cycle(names: impl IntoIterator<Item = String>) -> Doc {
+    let (top, line, mid, end) = if cfg!(windows) {
+        ("+-----+", "|    ", "|     |", "+-<---+")
+    } else {
+        ("┌─────┐", "│    ", "│     ↓", "└─────┘")
+    };
+    let mut rows = vec![text(top)];
+    for (i, name) in names.into_iter().enumerate() {
+        if i > 0 {
+            rows.push(text(mid));
+        }
+        rows.push(text(line).append(text(name).color(Color::DullYellow)));
+    }
+    rows.push(text(end));
+    vcat(rows).indent(4)
+}
+
+/// `D.args`: `1 argument`, `2 arguments`.
+pub fn args(n: usize) -> String {
+    match n {
+        1 => "1 argument".to_owned(),
+        n => format!("{n} arguments"),
+    }
+}
+
 /// `Label: before <link> after`, wrapped.
 pub fn link(label: &str, before: &str, page: &str, after: &str) -> Doc {
     let label = text(label).underline().append(text(":"));

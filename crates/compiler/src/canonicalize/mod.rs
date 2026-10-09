@@ -18,6 +18,7 @@ pub mod foreign;
 pub mod local;
 pub mod module;
 pub mod pattern;
+pub mod report;
 pub mod types;
 
 /// How a release orders names, wherever an order shows: as bytes, and

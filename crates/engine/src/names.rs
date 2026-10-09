@@ -9,10 +9,9 @@ use std::path::{Path, PathBuf};
 
 use nomi_base::diagnostic::Problem;
 use nomi_base::diagnostic::code::Source;
-use nomi_base::diagnostic::doc::Doc;
 use nomi_base::{Compat, TextRange};
-use nomi_compiler::canonicalize::error::Error;
 use nomi_compiler::canonicalize::module::{canonicalize, interface};
+use nomi_compiler::canonicalize::report;
 use nomi_compiler::hir;
 use nomi_compiler::interface::Interface;
 use nomi_project::{ModuleName, Name, Outline};
@@ -278,23 +277,19 @@ impl Walk<'_> {
             }
             Err(errors) => {
                 let source = Source::new(&module.text);
-                let problems = errors
-                    .iter()
-                    .map(|e| problem(e, &source, &root, self.env.compat()))
-                    .collect();
+                let trim = |range| trim(&root, range);
+                let cx = report::Context {
+                    source: &source,
+                    module: &hir,
+                    compat: self.env.compat(),
+                    trim: &trim,
+                };
+                let problems = errors.iter().map(|e| report::to_problem(e, &cx)).collect();
                 self.problems.insert(module.path.clone(), problems);
                 false
             }
         }
     }
-}
-
-/// The report of a naming error, so far its title and region; the
-/// message comes with plan 5.14.
-pub fn problem(error: &Error, source: &Source, root: &SyntaxNode, compat: Compat) -> Problem {
-    let (title, range) = title_and_range(error);
-    let region = source.region(trim(root, range), compat);
-    Problem::new(title, region, Doc::empty())
 }
 
 /// From the first token of `range` that isn't trivia: node ranges keep
@@ -311,78 +306,4 @@ fn trim(root: &SyntaxNode, range: TextRange) -> TextRange {
     }
     let start = token.text_range().start().max(range.start());
     TextRange::new(start, range.end().max(start))
-}
-
-/// The title and range `toReport` gives each error.
-fn title_and_range(error: &Error) -> (&'static str, TextRange) {
-    match error {
-        Error::AnnotationTooShort { range, .. } => ("BAD TYPE ANNOTATION", *range),
-        Error::Ambiguous { range, .. } | Error::AmbiguousBinop { range, .. } => {
-            ("AMBIGUOUS NAME", *range)
-        }
-        Error::BadArity {
-            range,
-            expected,
-            actual,
-            ..
-        } => {
-            let title = if actual < expected {
-                "TOO FEW ARGS"
-            } else {
-                "TOO MANY ARGS"
-            };
-            (title, *range)
-        }
-        Error::Binop { range, .. } => ("INFIX PROBLEM", *range),
-        Error::DuplicateDecl { second, .. }
-        | Error::DuplicateType { second, .. }
-        | Error::DuplicateCtor { second, .. }
-        | Error::DuplicateBinop { second, .. }
-        | Error::DuplicateField { second, .. }
-        | Error::DuplicateAliasArg { second, .. }
-        | Error::DuplicateUnionArg { second, .. }
-        | Error::DuplicatePattern { second, .. } => ("NAME CLASH", *second),
-        Error::EffectNotFound { range, .. } | Error::EffectFunctionNotFound { range, .. } => {
-            ("EFFECT PROBLEM", *range)
-        }
-        Error::ExportDuplicate { second, .. } => ("REDUNDANT EXPORT", *second),
-        Error::ExportNotFound { range, .. } => ("UNKNOWN EXPORT", *range),
-        Error::ExportOpenAlias { range, .. } => ("BAD EXPORT", *range),
-        Error::ImportCtorByName { range, .. }
-        | Error::ImportOpenAlias { range, .. }
-        | Error::ImportExposingNotFound { range, .. } => ("BAD IMPORT", *range),
-        Error::NotFound { range, .. } => ("NAMING ERROR", *range),
-        Error::NotFoundBinop { range, .. } => ("UNKNOWN OPERATOR", *range),
-        Error::PatternHasRecordCtor { range, .. } => ("BAD PATTERN", *range),
-        Error::PortPayloadInvalid { range, .. } => ("PORT ERROR", *range),
-        Error::PortTypeInvalid { range, .. } => ("BAD PORT", *range),
-        Error::RecursiveAlias { range, .. } => ("ALIAS PROBLEM", *range),
-        Error::RecursiveDecl { range, .. } => ("CYCLIC DEFINITION", *range),
-        Error::RecursiveLet { name, .. } => ("CYCLIC VALUE", name.range),
-        Error::Shadowing { second, .. } => ("SHADOWING", *second),
-        Error::TupleLargerThanThree { range } => ("BAD TUPLE", *range),
-        Error::TypeVarsUnboundInUnion { range, rest, .. } => {
-            let title = if rest.is_empty() {
-                "UNBOUND TYPE VARIABLE"
-            } else {
-                "UNBOUND TYPE VARIABLES"
-            };
-            (title, *range)
-        }
-        Error::TypeVarsMessedUpInAlias {
-            range,
-            unused,
-            unbound,
-            ..
-        } => {
-            let title = match (unused.len(), unbound.len()) {
-                (1, 0) => "UNUSED TYPE VARIABLE",
-                (_, 0) => "UNUSED TYPE VARIABLES",
-                (0, 1) => "UNBOUND TYPE VARIABLE",
-                (0, _) => "UNBOUND TYPE VARIABLES",
-                _ => "TYPE VARIABLE PROBLEMS",
-            };
-            (title, *range)
-        }
-    }
 }

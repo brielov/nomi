@@ -336,7 +336,14 @@ impl Code<'_, '_> {
         let spaces1 = one.start.col as usize + number.len() + 2 - first as usize;
         let carets =
             |region: Region| "^".repeat(region.end.col.saturating_sub(region.start.col) as usize);
-        let spaces2 = two.start.col.saturating_sub(one.end.col) as usize;
+        // Upstream subtracts columns as it keeps them: 0.19.1's 16 bits
+        // wrap when the second region starts before the first ends, as a
+        // duplicate's do there, into 65,000-odd spaces. Later releases'
+        // 32 bits would ask for billions, which none reaches.
+        let spaces2 = match self.compat {
+            Compat::V0_19_1 => (two.start.col as u16).wrapping_sub(one.end.col as u16) as usize,
+            Compat::V0_19_2 | Compat::V0_19_3 => two.start.col.saturating_sub(one.end.col) as usize,
+        };
         let code = vcat([
             text(format!("{number}| {line}")),
             text(" ".repeat(spaces1))

@@ -597,20 +597,7 @@ pub fn project_problem(problem: &GraphProblem, compat: Compat) -> Report {
 
 /// `D.cycle`.
 fn cycle<'n>(names: impl Iterator<Item = &'n ModuleName>) -> Doc {
-    let (top, line, mid, end) = if cfg!(windows) {
-        ("+-----+", "|    ", "|     |", "+-<---+")
-    } else {
-        ("┌─────┐", "│    ", "│     ↓", "└─────┘")
-    };
-    let mut rows = vec![text(top)];
-    for (i, name) in names.enumerate() {
-        if i > 0 {
-            rows.push(text(mid));
-        }
-        rows.push(text(line).append(text(name.to_string()).color(Color::DullYellow)));
-    }
-    rows.push(text(end));
-    vcat(rows).indent(4)
+    nomi_base::diagnostic::doc::cycle(names.map(|n| n.to_string()))
 }
 
 /// Before 0.19.3 the link follows `here:` with no space, so the two wrap

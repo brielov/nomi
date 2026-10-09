@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **5.14**.
+4. Resume at the first unchecked box. Right now that is **5.15**.
 
 ### Test tiers
 
@@ -351,7 +351,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 - [x] **5.13** `compiler: ports, effect managers and exports`. `Effects.hs` and `canonicalizeExports`, then the module's interface (5.2). `cargo xtask corpus names` is the tier-2 suite: every corpus package and app each Compat accepts canonicalizes cleanly, with each package's dependencies fetched as `corpus deps` fetches them.
 
   Done: `canonicalize::effects` checks ports (each type dealiased deep, then a `Cmd` sending or a `Sub` receiving a payload that can cross to JavaScript) and effect managers (their functions and types). Exports are resolved against sorted candidates, and ports join a port module's values, so its interface carries them. A package now builds from its exposed modules only, as elm builds a dependency: crawling every file read sources elm never reads (elm-css, qrcode). `cargo xtask corpus names` checks 5,664 projects on the three releases: all canonicalize cleanly but five that elm rejects too (`corpus/names/expected.tsv`: kernel imports outside a kernel package, and a dependency only 0.19.1 can solve). 51 more can't be checked, because a dependency's archive is gone or changed (404, bad hash), which stops elm as well. `names_titles` passes 945 of 945.
-- [ ] **5.14** `report: naming errors`. A port of `Reporting/Error/Canonicalize.hs` (1,256 lines) and `Reporting/Suggest.hs`, split here if it outgrows a step. **Check:** the full-report ratchet of 5.4 reaches every case.
+- [x] **5.14** `report: naming errors`. A port of `Reporting/Error/Canonicalize.hs` (1,256 lines) and `Reporting/Suggest.hs`, split here if it outgrows a step. **Check:** the full-report ratchet of 5.4 reaches every case.
+
+  Done: `canonicalize::report` ports `toReport` and its helpers in 1,392 lines, in one step after all, and the engine renders each error through it. `names_reports` passes 945 of 945, every case on every release. The reports follow each release's name order wherever they list a map: suggestions, candidates and ambiguous homes (0.19.3 compares names length first). 0.19.1 keeps columns in 16 bits, so a two-region snippet whose second region starts before the first ends wraps into 65,000-odd spaces, as a duplicate's does there; nomi reproduces it. `D.cycle` moved to `nomi_base` for the module and value cycle reports to share.
 - [ ] **5.15** `format: check the HIR-unchanged invariant`. Formatting a module leaves its HIR unchanged, up to IDs and source positions; replaces the token-level check from 2.14.
 - [ ] **5.16** `ide: definition, references and highlights`, from the side tables, on the module and across the project.
 
