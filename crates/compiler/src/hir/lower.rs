@@ -132,6 +132,11 @@ impl Lower {
         for decl in module.decls() {
             self.decl(&decl);
         }
+        // Without a header, a module that declares ports is a port module
+        // (`checkModule`).
+        if module.module_header().is_none() && !self.module.ports.is_empty() {
+            self.module.kind = ModuleKind::Port;
+        }
     }
 
     fn decl(&mut self, decl: &ast::Decl) {

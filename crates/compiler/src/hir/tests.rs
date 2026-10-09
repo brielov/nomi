@@ -130,6 +130,15 @@ fn a_module_lowers_as_upstream_parses_it() {
 }
 
 #[test]
+fn a_module_without_a_header_that_declares_ports_is_a_port_module() {
+    let (module, _) = lowered("port send : String -> Cmd msg\n\nmain = 1\n");
+    assert_eq!(module.kind, ModuleKind::Port);
+    assert_eq!(module.name, None);
+    let (module, _) = lowered("main = 1\n");
+    assert_eq!(module.kind, ModuleKind::Plain);
+}
+
+#[test]
 fn chains_stay_flat_and_names_keep_their_qualifiers() {
     let (module, root) =
         lowered("module M exposing (x)\n\n\nx =\n    a + b * Dict.empty |> List.map f\n");
