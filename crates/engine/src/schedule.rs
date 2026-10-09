@@ -6,7 +6,9 @@
 //!
 //! Each module's work is a phase between checks of the snapshot: once the
 //! snapshot is stale, no further module starts, and the run ends
-//! [`Cancelled`] when the ones running finish.
+//! [`Cancelled`] when the ones running finish. A run that ends stale is
+//! cancelled too, so what it returns was made from current files; a
+//! caller publishing it later checks again.
 
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -22,7 +24,7 @@ pub enum Outcome<T, E> {
     Blocked,
 }
 
-/// The snapshot went stale before every module ran.
+/// The snapshot went stale before the run ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Cancelled;
 
@@ -67,7 +69,8 @@ where
             }
         }
     });
-    if run.cancelled.load(Ordering::Relaxed) {
+    // The last modules may have run on what went stale under them.
+    if run.cancelled.load(Ordering::Relaxed) || snapshot.is_stale() {
         return Err(Cancelled);
     }
     let outcomes = run.outcomes.into_iter().map(|outcome| {

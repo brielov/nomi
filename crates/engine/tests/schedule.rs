@@ -127,3 +127,14 @@ fn a_stale_snapshot_stops_the_run() {
     assert_eq!(ran.load(Ordering::SeqCst), 1);
     assert!(run(&vfs.snapshot(), &imports, |_, _: &[&()]| Ok::<_, ()>(())).is_ok());
 }
+
+#[test]
+fn a_run_that_ends_stale_is_cancelled() {
+    let vfs = Vfs::new();
+    let snapshot = vfs.snapshot();
+    let result = run(&snapshot, &[vec![]], |_, _: &[&()]| {
+        vfs.disk_changed();
+        Ok::<_, ()>(())
+    });
+    assert_eq!(result, Err(Cancelled));
+}
