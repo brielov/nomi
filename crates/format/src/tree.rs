@@ -465,7 +465,9 @@ pub(crate) struct Module {
     /// The module's doc comment.
     pub(crate) docs: Option<Docs>,
     /// One per module, merged and sorted, with comments before each, and
-    /// comments before them all.
-    pub(crate) imports: C1<BTreeMap<Namespace, C1<ImportMethod>>>,
+    /// comments before them all; keyed by name, then group, as imports of
+    /// one module stay apart where merging them would lose a qualifier
+    /// the module uses.
+    pub(crate) imports: C1<BTreeMap<(Namespace, usize), C1<ImportMethod>>>,
     pub(crate) body: Vec<TopLevelStructure<Declaration>>,
 }

@@ -3,7 +3,9 @@
 //! modules to elm-format's output, and rejects the modules elm-format
 //! rejects, as `corpus/format/oracle.tsv` records, and keeps the
 //! formatter's invariants but where `corpus/format/invariants.tsv` says
-//! elm-format breaks one.
+//! elm-format breaks one. Where nomi deviates from elm-format on purpose,
+//! `corpus/format/deviations.tsv` holds the hash of nomi's output
+//! instead, with the decision it follows.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -153,8 +155,33 @@ fn invariant_mismatch(text: &[u8], listed: &str) -> Option<String> {
     }
 }
 
+/// nomi's output where it deviates, and why, by case and path.
+fn parse_deviations(text: &str) -> Result<BTreeMap<(String, String), String>> {
+    let mut lines = text.lines().filter(|l| !l.starts_with('#'));
+    ensure!(
+        lines.next() == Some("case\tpath\toutput\twhy"),
+        "malformed column header"
+    );
+    let mut deviations = BTreeMap::new();
+    for line in lines {
+        let [case, path, output, _why] = line.split('\t').collect::<Vec<_>>()[..] else {
+            bail!("malformed row `{line}`");
+        };
+        ensure!(
+            matches!(output.parse()?, Outcome::Sha256(_)),
+            "a deviation is an output's hash: `{line}`"
+        );
+        deviations.insert((case.to_owned(), path.to_owned()), output.to_owned());
+    }
+    Ok(deviations)
+}
+
 pub fn check(root: &Path, record: bool) -> Result<()> {
     let dir = root.join(DIR);
+    let deviations = parse_deviations(
+        &std::fs::read_to_string(dir.join("deviations.tsv"))
+            .context("reading corpus/format/deviations.tsv")?,
+    )?;
     let broken = parse_invariants(
         &std::fs::read_to_string(dir.join("invariants.tsv"))
             .context("reading corpus/format/invariants.tsv")?,
@@ -167,19 +194,23 @@ pub fn check(root: &Path, record: bool) -> Result<()> {
         table.modules == modules.len() && table.sources == corpus_syntax::digest(&modules)?,
         "the corpus changed since oracle.tsv was made; run `cargo xtask oracle format corpus`"
     );
-    for (case, path) in broken.keys() {
+    for (table, (case, path)) in (broken.keys().map(|k| ("invariants.tsv", k)))
+        .chain(deviations.keys().map(|k| ("deviations.tsv", k)))
+    {
         ensure!(
             modules.iter().any(|m| m.case == *case && m.path == *path),
-            "invariants.tsv lists {case} {path}, which the corpus lacks"
+            "{table} lists {case} {path}, which the corpus lacks"
         );
     }
     let found = parallel(&modules, |m| -> Result<Option<String>> {
         let text = std::fs::read(&m.file)?;
-        let expected = table
-            .changed
-            .get(&(m.case.clone(), m.path.clone()))
-            .unwrap_or(&Outcome::Same);
         let key = (m.case.clone(), m.path.clone());
+        let deviation = deviations
+            .get(&key)
+            .map(|hash| Outcome::Sha256(hash.clone()));
+        let expected = (deviation.as_ref())
+            .or_else(|| table.changed.get(&key))
+            .unwrap_or(&Outcome::Same);
         let why = mismatch(&text, expected)
             .or_else(|| invariant_mismatch(&text, broken.get(&key).map_or("", String::as_str)));
         Ok(why.map(|why| format!("{}: {why}", m.path)))

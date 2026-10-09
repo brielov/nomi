@@ -59,7 +59,7 @@ fn exports(module: &Module) -> &Listing<DetailedListing> {
 }
 
 fn import<'a>(module: &'a Module, name: &[&str]) -> &'a C1<ImportMethod> {
-    &module.imports.value[&names(name)]
+    &module.imports.value[&(names(name), 0)]
 }
 
 #[test]

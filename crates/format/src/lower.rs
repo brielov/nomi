@@ -18,7 +18,7 @@ mod literal;
 mod patterns;
 mod types;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use nomi_base::TextSize;
 use nomi_syntax::ast::{self, AstNode};
@@ -61,11 +61,12 @@ pub(crate) fn module(root: &SyntaxNode, text: &str) -> Module {
         Some(import) => cx.range(import.syntax()).start(),
         None => fresh_line_end(root, body_start),
     }));
+    let used = qualifiers(root);
     let mut merged = BTreeMap::new();
     let mut body = Vec::new();
     for (i, import) in imports.iter().enumerate() {
         let (name, method) = header::import(&mut cx, import);
-        header::insert_with(&mut merged, name, method, header::merge_import);
+        header::insert_import(&mut merged, name, method, &used);
         match imports.get(i + 1) {
             Some(next) => comments.extend(cx.take(cx.range(next.syntax()).start())),
             None => body.extend(
@@ -322,3 +323,18 @@ pub(crate) fn pattern_fragment(text: &str) -> crate::tree::Pattern {
 
 #[cfg(test)]
 mod tests;
+
+/// The qualifiers the module's names are written with, as `A.B`.
+fn qualifiers(root: &SyntaxNode) -> BTreeSet<String> {
+    (root.descendants())
+        .filter(|n| n.kind() == SyntaxKind::Qualifier)
+        .map(|n| {
+            let text: String = (n.descendants_with_tokens())
+                .filter_map(|e| e.into_token())
+                .filter(|t| !t.kind().is_trivia())
+                .map(|t| t.text().to_owned())
+                .collect();
+            text.trim_end_matches('.').to_owned()
+        })
+        .collect()
+}

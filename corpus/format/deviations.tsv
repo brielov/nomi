@@ -1,0 +1,25 @@
+# Where nomi formats a corpus module differently from elm-format 0.8.8 on
+# purpose: the hash of nomi's output, and the decision in `DECISIONS.md`
+# it follows. Each is checked to be that deviation alone.
+case	path	output	why
+MacCASOutreach/graphicsvg@9.0.0	src/GraphicSVG.elm	bf4ccd1136aa8776cc725b15738ed20db123bd70e6ced027765b066a12b6021c	keeps an import whose merge loses a used qualifier
+dillonkearns/elm-pages@12.3.0	tests/PagesProgramTest.elm	28bce887ea37548630ae0aa642675e7c8ffd6c70c9d89f83bcef3c78e4efe294	keeps an import whose merge loses a used qualifier
+mthiems/elm-charts-3@1.0.0	docs/src/Charts/Dashboard5.elm	3a5e1ac550149b1a233329427610c13d5cd19fb2c980b7e26e8751c16ad59ec6	keeps an import whose merge loses a used qualifier
+mthiems/elm-charts-3@1.0.0	docs/src/Page/GettingStarted.elm	ff524546440b1042e1ff883c93c4ea388326dd33d8beb7efb7dd85c5ed451a1f	keeps an import whose merge loses a used qualifier
+prozacchiwawa/elm-json-codec@3.3.1	src/T2.elm	adaaee0f5a553aeb93b5dcaffc90b562486b5903d80350418f6cc091b8248a0a	keeps an import whose merge loses a used qualifier
+shamansir/tron-gui@13.1.0	example/Everything/Main.elm	ca39091f64d745ce6ecd304ad26c29e492c610ccd9cf7b65a928bba96baeba1a	keeps an import whose merge loses a used qualifier
+shamansir/tron-gui@13.1.0	src/Tron/Control/Impl/Text.elm	a5fe9ded4719775dd60f47bf42525efbbbb5b01c7b48514395b39443427241a6	keeps an import whose merge loses a used qualifier
+shamansir/tron-gui@13.1.0	src/Tron/Control/Impl/Toggle.elm	eadfcb3b2c42d78e7fa5a5e5548fd52420f845e6b21b858989e4b483fa0d6a7b	keeps an import whose merge loses a used qualifier
+shamansir/tron-gui@13.1.0	src/Tron/Core.elm	7c2fbdf23fb0acf87737606c28db9de0620c8649480a098d78729dbab1e93c2f	keeps an import whose merge loses a used qualifier
+shamansir/tron-gui@13.1.0	src/Tron/Layout.elm	93cdb1574fd8fde61da15d7839082f8870b909f6c9a9698963f34d4f4d227b51	keeps an import whose merge loses a used qualifier
+shamansir/tron-gui@13.1.0	src/Tron/Render/Layout.elm	a7dab76b6eb4a9f1342fd6110f81fdc5864077c9f1d4adaf807ab11eb04eec72	keeps an import whose merge loses a used qualifier
+shamansir/tron-gui@13.1.0	src/Tron/Tree/Expose/Convert.elm	c9f23fb49b6d5ba8976c71f8f9371913b6d33e06de557db02bb3d8d8bdc7c150	keeps an import whose merge loses a used qualifier
+shamansir/tron-gui@13.1.0	src/WithTron/ValueAt.elm	10ca6ae77064cf755e97d984413f001a95c33e3afbbab4a5d4d2971f2db86c7c	keeps an import whose merge loses a used qualifier
+terezka/charts@20.0.1	docs/src/Charts/Dashboard5.elm	3a5e1ac550149b1a233329427610c13d5cd19fb2c980b7e26e8751c16ad59ec6	keeps an import whose merge loses a used qualifier
+terezka/charts@20.0.1	docs/src/Page/GettingStarted.elm	4cba2bfdcafe6e07777db1c7b10c70b80b03e9009a1ad898dcfbba0b5a81b3e0	keeps an import whose merge loses a used qualifier
+terezka/elm-charts-alpha@4.0.1	docs/src/Charts/Dashboard5.elm	3a5e1ac550149b1a233329427610c13d5cd19fb2c980b7e26e8751c16ad59ec6	keeps an import whose merge loses a used qualifier
+terezka/elm-charts-alpha@4.0.1	docs/src/Page/GettingStarted.elm	ff524546440b1042e1ff883c93c4ea388326dd33d8beb7efb7dd85c5ed451a1f	keeps an import whose merge loses a used qualifier
+terezka/elm-charts-alpha@4.0.1	examples/BarChart/Events1.elm	f6cb3b7837002abe918c9c3d2635d5731e1aec5032def3867e94f454e99e6ecc	keeps an import whose merge loses a used qualifier
+terezka/elm-charts-alpha@4.0.1	examples/ScatterChart/Flowers.elm	b5f42b9ba376e146a14990a918fab545e0652f63e84bcd36ed4a486769d737e5	keeps an import whose merge loses a used qualifier
+terezka/elm-charts@5.0.0	docs/src/Charts/Dashboard5.elm	3a5e1ac550149b1a233329427610c13d5cd19fb2c980b7e26e8751c16ad59ec6	keeps an import whose merge loses a used qualifier
+terezka/elm-charts@5.0.0	docs/src/Page/GettingStarted.elm	ff524546440b1042e1ff883c93c4ea388326dd33d8beb7efb7dd85c5ed451a1f	keeps an import whose merge loses a used qualifier

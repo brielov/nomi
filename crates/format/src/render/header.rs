@@ -382,7 +382,7 @@ fn imports(module: &Module) -> Vec<Block> {
         .imports
         .value
         .iter()
-        .map(|(name, method)| import(name, method))
+        .map(|((name, _), method)| import(name, method))
         .collect();
     if !imports.is_empty() {
         parts.push(imports);

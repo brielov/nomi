@@ -1,6 +1,6 @@
 //! The module header and imports, after upstream's `Parse/Module.hs`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use nomi_base::{TextRange, TextSize};
 use nomi_syntax::ast::{self, AstNode};
@@ -354,6 +354,42 @@ fn merge_detailed_listing(left: DetailedListing, right: DetailedListing) -> Deta
         values: merge_map(left.values, right.values, |(), ()| ()),
         operators: merge_map(left.operators, right.operators, |(), ()| ()),
         types: merge_map(left.types, right.types, merge_type),
+    }
+}
+
+/// Merges an import of `name` into the earlier ones, as upstream does,
+/// but for a deviation (`DECISIONS.md`): where the merged import's alias
+/// would lose a qualifier in `used`, the import stays apart, in the next
+/// group of `name`'s imports, which upstream's map keyed by name lacks.
+pub(super) fn insert_import(
+    map: &mut BTreeMap<(Namespace, usize), C1<ImportMethod>>,
+    name: Namespace,
+    new: C1<ImportMethod>,
+    used: &BTreeSet<String>,
+) {
+    let full = (name.iter())
+        .map(|part| part.0.as_str())
+        .collect::<Vec<_>>()
+        .join(".");
+    let qualifier =
+        |alias: Option<&C2<Upper>>| alias.map_or_else(|| full.clone(), |a| a.value.0.clone());
+    let mut group = 0;
+    loop {
+        let key = (name.clone(), group);
+        let Some(old) = map.get(&key) else {
+            map.insert(key, new);
+            return;
+        };
+        let (old_alias, new_alias) = (old.value.alias.as_ref(), new.value.alias.as_ref());
+        let kept = qualifier(new_alias.or(old_alias));
+        let lost = [qualifier(old_alias), qualifier(new_alias)]
+            .into_iter()
+            .any(|q| q != kept && used.contains(&q));
+        if !lost {
+            insert_with(map, key, new, merge_import);
+            return;
+        }
+        group += 1;
     }
 }
 

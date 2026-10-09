@@ -718,6 +718,7 @@ nomi/headers/035.elm
 nomi/headers/036.elm
 nomi/headers/037.elm
 nomi/headers/038.elm
+nomi/import_qualifiers/001.elm
 nomi/large_floats/001.elm
 nomi/markdown/001.elm
 nomi/markdown/002.elm
