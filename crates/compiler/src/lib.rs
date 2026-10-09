@@ -3,6 +3,7 @@
 //! needs them.
 
 pub mod canonical;
+pub mod canonicalize;
 mod encoding;
 pub mod hir;
 pub mod interface;
