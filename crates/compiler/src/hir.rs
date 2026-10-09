@@ -17,6 +17,7 @@ use std::ops::Index;
 use nomi_base::TextRange;
 use nomi_syntax::{SyntaxElement, SyntaxKind, SyntaxNode};
 
+pub use crate::canonical::Associativity;
 pub use lower::lower;
 
 /// An index into an [`Arena`] of `T`.
@@ -266,13 +267,6 @@ pub struct Infix {
     pub precedence: i64,
     pub function: Spanned,
     pub node: NodePtr,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Associativity {
-    Left,
-    Non,
-    Right,
 }
 
 /// `Src.Port`.

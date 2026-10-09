@@ -2,4 +2,7 @@
 //! phases over it, ported from upstream's `compiler/` as each milestone
 //! needs them.
 
+pub mod canonical;
+mod encoding;
 pub mod hir;
+pub mod interface;
