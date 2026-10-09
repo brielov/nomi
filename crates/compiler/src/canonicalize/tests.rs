@@ -25,9 +25,9 @@ fn value(ty: Type) -> Annotation {
     Annotation { free: vec![], ty }
 }
 
-fn union(ctors: &[&str]) -> canonical::Union {
+fn union(vars: &[&str], ctors: &[&str]) -> canonical::Union {
     canonical::Union {
-        vars: vec![],
+        vars: vars.iter().map(|v| (*v).to_owned()).collect(),
         ctors: (ctors.iter().enumerate())
             .map(|(index, name)| Ctor {
                 name: (*name).to_owned(),
@@ -54,7 +54,7 @@ fn interfaces() -> HashMap<String, Interface> {
     };
     let mut basics = core(
         &["identity", "toFloat"],
-        vec![("Int", Union::Open(union(&[])))],
+        vec![("Int", Union::Open(union(&[], &[])))],
     );
     basics.binops.insert(
         "+".to_owned(),
@@ -65,7 +65,7 @@ fn interfaces() -> HashMap<String, Interface> {
             precedence: 6,
         },
     );
-    let mut list = core(&["map"], vec![("List", Union::Open(union(&[])))]);
+    let mut list = core(&["map"], vec![("List", Union::Open(union(&["a"], &[])))]);
     list.binops.insert(
         "::".to_owned(),
         Binop {
@@ -82,8 +82,8 @@ fn interfaces() -> HashMap<String, Interface> {
             (extra.to_owned(), value(int())),
         ]),
         unions: BTreeMap::from([
-            ("T".to_owned(), Union::Open(union(&["C"]))),
-            ("Hidden".to_owned(), Union::Closed(union(&["Secret"]))),
+            ("T".to_owned(), Union::Open(union(&[], &["C"]))),
+            ("Hidden".to_owned(), Union::Closed(union(&[], &["Secret"]))),
         ]),
         aliases: BTreeMap::from([(
             "Point".to_owned(),
@@ -101,34 +101,37 @@ fn interfaces() -> HashMap<String, Interface> {
             "Maybe".to_owned(),
             core(
                 &["withDefault"],
-                vec![("Maybe", Union::Open(union(&["Just", "Nothing"])))],
+                vec![("Maybe", Union::Open(union(&["a"], &["Just", "Nothing"])))],
             ),
         ),
         (
             "Result".to_owned(),
-            core(&[], vec![("Result", Union::Open(union(&["Ok", "Err"])))]),
+            core(
+                &[],
+                vec![("Result", Union::Open(union(&[], &["Ok", "Err"])))],
+            ),
         ),
         (
             "String".to_owned(),
-            core(&["fromInt"], vec![("String", Union::Open(union(&[])))]),
+            core(&["fromInt"], vec![("String", Union::Open(union(&[], &[])))]),
         ),
         (
             "Char".to_owned(),
-            core(&[], vec![("Char", Union::Open(union(&[])))]),
+            core(&[], vec![("Char", Union::Open(union(&[], &[])))]),
         ),
         ("Debug".to_owned(), core(&["todo"], vec![])),
         ("Tuple".to_owned(), core(&["first"], vec![])),
         (
             "Platform".to_owned(),
-            core(&[], vec![("Program", Union::Open(union(&[])))]),
+            core(&[], vec![("Program", Union::Open(union(&[], &[])))]),
         ),
         (
             "Platform.Cmd".to_owned(),
-            core(&["none"], vec![("Cmd", Union::Open(union(&[])))]),
+            core(&["none"], vec![("Cmd", Union::Open(union(&[], &[])))]),
         ),
         (
             "Platform.Sub".to_owned(),
-            core(&["none"], vec![("Sub", Union::Open(union(&[])))]),
+            core(&["none"], vec![("Sub", Union::Open(union(&[], &[])))]),
         ),
         ("A".to_owned(), local("a")),
         ("B".to_owned(), local("b")),
@@ -263,4 +266,100 @@ fn locals_shadow_locals_but_not_imports() {
     let errors = env.add_locals(&names).unwrap_err();
     assert_eq!(errors.len(), 2);
     assert!(matches!(&errors[0], Error::Shadowing { name, .. } if name == "identity"));
+}
+
+/// The HIR of `text`, a module of one annotated value, and its
+/// annotation's type.
+fn annotated(text: &str) -> (hir::Module, hir::TypeId) {
+    let parse = parse_module(text);
+    let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
+    let hir::Def::Define { annotation, .. } = &module.defs[module.values[0]] else {
+        panic!("no value");
+    };
+    let ty = annotation.expect("an annotation");
+    (module, ty)
+}
+
+fn canonical_type(text: &str) -> Result<Type, Vec<Error>> {
+    let interfaces = interfaces();
+    let env = env(&interfaces, text).unwrap();
+    let (module, ty) = annotated(text);
+    super::types::canonicalize(&env, &module, ty)
+}
+
+#[test]
+fn types_resolve_and_check_their_arity() {
+    let ty = canonical_type(
+        "module Main exposing (..)\nimport A as X\n\n\nx : Maybe X.T -> List Int\nx = 1\n",
+    )
+    .unwrap();
+    let Type::Lambda(arg, result) = ty else {
+        panic!()
+    };
+    let a_t = Type::Type(home("author/project", "A"), "T".to_owned(), vec![]);
+    assert_eq!(
+        *arg,
+        Type::Type(home("elm/core", "Maybe"), "Maybe".to_owned(), vec![a_t])
+    );
+    assert!(
+        matches!(*result, Type::Type(h, n, args) if h.module == "List" && n == "List" && args.len() == 1)
+    );
+    let errors =
+        canonical_type("module Main exposing (..)\n\n\nx : Int String\nx = 1\n").unwrap_err();
+    assert!(
+        matches!(&errors[..], [Error::BadArity { name, expected: 0, actual: 1, .. }] if name == "Int")
+    );
+}
+
+#[test]
+fn type_errors_collect_as_upstream_collects_them() {
+    // Both sides of an arrow are canonicalized; a missing type stops
+    // its own arguments.
+    let errors =
+        canonical_type("module Main exposing (..)\n\n\nx : Nope Gone -> Itn\nx = 1\n").unwrap_err();
+    let names: Vec<_> = errors
+        .iter()
+        .map(|e| match e {
+            Error::NotFound { name, .. } => name.as_str(),
+            e => panic!("{e:?}"),
+        })
+        .collect();
+    assert_eq!(names, ["Nope", "Itn"]);
+    // A tuple's items, then its size.
+    let errors =
+        canonical_type("module Main exposing (..)\n\n\nx : ( Itn, Int, Int, Int )\nx = 1\n")
+            .unwrap_err();
+    assert!(matches!(
+        &errors[..],
+        [Error::NotFound { .. }, Error::TupleLargerThanThree { .. }]
+    ));
+    // A field written twice stops the record before its types.
+    let errors =
+        canonical_type("module Main exposing (..)\n\n\nx : { a : Itn, b : Int, a : Int }\nx = 1\n")
+            .unwrap_err();
+    assert!(
+        matches!(&errors[..], [Error::DuplicateField { name, first, second }] if name == "a" && first.start() < second.start())
+    );
+}
+
+#[test]
+fn a_later_place_comes_first_unless_a_fold_adds_from_the_right() {
+    use super::dups::Dict;
+    let at = |n: u32| nomi_base::TextRange::new(n.into(), (n + 1).into());
+    let mut dict = Dict::default();
+    dict.insert("x", at(1), ());
+    dict.insert("x", at(5), ());
+    let errors = dict
+        .detect(|name, first, second| Error::DuplicateDecl {
+            name: name.to_owned(),
+            first,
+            second,
+        })
+        .unwrap_err();
+    assert!(
+        matches!(&errors[..], [Error::DuplicateDecl { first, second, .. }] if *first == at(5) && *second == at(1))
+    );
+    let fields = vec![("a".to_owned(), at(1), ()), ("a".to_owned(), at(5), ())];
+    let errors = super::dups::check_fields(fields).unwrap_err();
+    assert!(matches!(&errors[..], [Error::DuplicateField { first, .. }] if *first == at(1)));
 }
