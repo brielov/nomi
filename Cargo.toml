@@ -47,3 +47,8 @@ missing_debug_implementations = "warn"
 [workspace.lints.clippy]
 dbg_macro = "warn"
 todo = "warn"
+
+# The artifact cache hashes nomi's own executable once per run (CR.6);
+# unoptimized, that takes seconds in a development build.
+[profile.dev.package.sha2]
+opt-level = 3

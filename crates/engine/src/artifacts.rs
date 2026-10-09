@@ -14,6 +14,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
@@ -58,7 +59,7 @@ impl fmt::Debug for Hash {
     }
 }
 
-/// What an artifact was made from, hashed: the source, the toolchain,
+/// What an artifact was made from, hashed: the source, the build of nomi,
 /// `Compat`, the interface hashes of resolved imports, the package. Each
 /// part is named and its length written, so no two lists of parts hash
 /// alike by running into each other.
@@ -70,11 +71,16 @@ pub struct Key {
 impl Key {
     /// A key for artifacts of `kind`, made by this build of nomi.
     pub fn new(kind: &str) -> Key {
+        Key::made_by(kind, &build_id().0)
+    }
+
+    /// A key for artifacts of `kind`, made by the build `toolchain` names.
+    fn made_by(kind: &str, toolchain: &[u8]) -> Key {
         Key {
             hasher: Sha256::new(),
         }
         .part("kind", kind.as_bytes())
-        .part("toolchain", env!("CARGO_PKG_VERSION").as_bytes())
+        .part("toolchain", toolchain)
     }
 
     pub fn part(mut self, name: &str, bytes: &[u8]) -> Key {
@@ -92,6 +98,35 @@ impl Key {
     pub fn finish(self) -> Hash {
         Hash(self.hasher.finalize().into())
     }
+}
+
+/// What names this build of nomi: the hash of its executable, as Go's
+/// build ID does, so any change to the code is a different toolchain,
+/// though every development build has one version number. Hashed once per
+/// process, when the cache is first used. If the executable can't be
+/// read, this run's artifacts are its own.
+fn build_id() -> Hash {
+    static ID: OnceLock<Hash> = OnceLock::new();
+    *ID.get_or_init(|| {
+        let exe = std::env::current_exe().and_then(fs::File::open);
+        let hashed = exe.and_then(|mut file| {
+            let mut hasher = Sha256::new();
+            let mut buffer = vec![0; 1 << 16];
+            loop {
+                match file.read(&mut buffer)? {
+                    0 => break Ok(Hash(hasher.finalize().into())),
+                    n => hasher.update(&buffer[..n]),
+                }
+            }
+        });
+        hashed.unwrap_or_else(|_| {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default();
+            let run = format!("unreadable {} {}", std::process::id(), now.as_nanos());
+            Hash::of(run.as_bytes())
+        })
+    })
 }
 
 /// The artifact cache in the user's cache directory.
@@ -246,6 +281,19 @@ mod tests {
         assert_ne!(key(&[("a", "bc")]), key(&[("ab", "c")]));
         assert_ne!(key(&[("a", "b"), ("c", "")]), key(&[("a", "bc")]));
         assert_ne!(Key::new("x").finish(), Key::new("y").finish());
+    }
+
+    #[test]
+    fn keys_belong_to_the_build_that_made_them() {
+        assert_eq!(Key::new("test").finish(), Key::new("test").finish());
+        let other = Key::made_by("test", b"another build").finish();
+        assert_ne!(Key::new("test").finish(), other);
+        assert_eq!(
+            Key::made_by("test", b"one build").finish(),
+            Key::made_by("test", b"one build").finish()
+        );
+        let exe = fs::read(std::env::current_exe().unwrap()).unwrap();
+        assert_eq!(build_id(), Hash::of(&exe));
     }
 
     #[test]
