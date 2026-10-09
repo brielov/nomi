@@ -327,18 +327,24 @@ export class Runtime {
     return this.await(this.fork(task));
   }
 
-  /** Interrupts every fiber in the root scope and resolves once all are done. */
+  /**
+   * Interrupts every fiber in the root scope and resolves once the scope is
+   * empty: fibers forked into it meanwhile, as a finalizer's daemon, are
+   * interrupted in turn, each once.
+   */
   shutdown() {
-    const fibers = [...this.root.fibers];
-    for (const fiber of fibers) this.#interrupt(fiber);
     return new Promise((resolve) => {
-      let left = fibers.length;
-      if (left === 0) return resolve();
-      const reaper = () => --left === 0 && resolve();
-      for (const fiber of fibers) {
-        if (fiber.exit !== null) reaper();
-        else fiber.reapers.add(reaper);
-      }
+      const sweep = () => {
+        const fibers = [...this.root.fibers];
+        if (fibers.length === 0) return resolve();
+        let left = fibers.length;
+        const reaper = () => --left === 0 && sweep();
+        for (const fiber of fibers) {
+          fiber.reapers.add(reaper);
+          this.#interrupt(fiber);
+        }
+      };
+      sweep();
     });
   }
 

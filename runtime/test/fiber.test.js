@@ -584,6 +584,26 @@ test("a fiber's children end with it; a daemon outlives it", () => {
   assert.deepEqual(daemon.exit, Exit.success("still here"));
 });
 
+test("shutdown also ends the fibers its finalizers start", async () => {
+  const { runtime, flush } = manual();
+  const log = [];
+  const daemon = ensuring(never(), sync(() => log.push("daemon released")));
+  // The finalizer yields, so the daemon starts and registers its own.
+  const release = andThen(forkDaemon(daemon), () => andThen(yieldNow, () => sync(() => log.push("released"))));
+  runtime.fork(ensuring(never(), release));
+  flush();
+  let ended = false;
+  const shutdown = runtime.shutdown().then(() => (ended = true));
+  for (let i = 0; i < 5 && !ended; i++) {
+    flush();
+    await Promise.resolve();
+  }
+  await shutdown;
+  assert.deepEqual(log, ["released", "daemon released"]);
+  assert.equal(runtime.root.fibers.size, 0);
+  assert.equal(runtime.fibers.size, 0);
+});
+
 test("acquire is uninterruptible and release runs exactly once", () => {
   const { runtime, flush } = manual();
   const log = [];
