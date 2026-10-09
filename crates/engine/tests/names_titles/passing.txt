@@ -7,6 +7,9 @@ case/ambiguous_type/0.19.3
 case/ambiguous_type_in_union/0.19.1
 case/ambiguous_type_in_union/0.19.2
 case/ambiguous_type_in_union/0.19.3
+case/annotation_too_short/0.19.1
+case/annotation_too_short/0.19.2
+case/annotation_too_short/0.19.3
 case/bad_arity_type/0.19.1
 case/bad_arity_type/0.19.2
 case/bad_arity_type/0.19.3
@@ -22,6 +25,9 @@ case/duplicate_ctor/0.19.3
 case/duplicate_decl/0.19.1
 case/duplicate_decl/0.19.2
 case/duplicate_decl/0.19.3
+case/duplicate_pattern_args/0.19.1
+case/duplicate_pattern_args/0.19.2
+case/duplicate_pattern_args/0.19.3
 case/duplicate_type/0.19.1
 case/duplicate_type/0.19.2
 case/duplicate_type/0.19.3
@@ -99,6 +105,9 @@ mutation/counter/arity/3/0.19.3
 mutation/counter/arity/4/0.19.1
 mutation/counter/arity/4/0.19.2
 mutation/counter/arity/4/0.19.3
+mutation/counter/duplicate-param/0/0.19.1
+mutation/counter/duplicate-param/0/0.19.2
+mutation/counter/duplicate-param/0/0.19.3
 mutation/counter/duplicate/0/0.19.1
 mutation/counter/duplicate/0/0.19.2
 mutation/counter/duplicate/0/0.19.3
@@ -225,6 +234,9 @@ mutation/counter/rename/50/0.19.3
 mutation/counter/rename/51/0.19.1
 mutation/counter/rename/51/0.19.2
 mutation/counter/rename/51/0.19.3
+mutation/counter/rename/52/0.19.1
+mutation/counter/rename/52/0.19.2
+mutation/counter/rename/52/0.19.3
 mutation/counter/rename/58/0.19.1
 mutation/counter/rename/58/0.19.2
 mutation/counter/rename/58/0.19.3
@@ -234,6 +246,9 @@ mutation/counter/rename/59/0.19.3
 mutation/counter/rename/60/0.19.1
 mutation/counter/rename/60/0.19.2
 mutation/counter/rename/60/0.19.3
+mutation/counter/rename/61/0.19.1
+mutation/counter/rename/61/0.19.2
+mutation/counter/rename/61/0.19.3
 mutation/counter/rename/69/0.19.1
 mutation/counter/rename/69/0.19.2
 mutation/counter/rename/69/0.19.3
@@ -285,6 +300,9 @@ mutation/shapes/arity/1/0.19.3
 mutation/shapes/arity/2/0.19.1
 mutation/shapes/arity/2/0.19.2
 mutation/shapes/arity/2/0.19.3
+mutation/shapes/duplicate-param/0/0.19.1
+mutation/shapes/duplicate-param/0/0.19.2
+mutation/shapes/duplicate-param/0/0.19.3
 mutation/shapes/duplicate/0/0.19.1
 mutation/shapes/duplicate/0/0.19.2
 mutation/shapes/duplicate/0/0.19.3

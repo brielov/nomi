@@ -8,11 +8,13 @@ use std::collections::{BTreeMap, HashMap};
 use nomi_base::{Compat, TextRange};
 
 use super::dups::Dict;
-use super::error::{Error, NameKind, R, all, throw};
+use super::env::Env;
+use super::error::{DuplicatePatternContext, Error, NameKind, R, all, throw};
 use super::foreign::{initial_env, with_defaults};
 use super::local::{self, Aliases, Unions};
+use super::pattern;
 use super::types;
-use crate::canonical::{Annotation, Associativity, Home, Type};
+use crate::canonical::{AliasType, Annotation, Associativity, Home, Type};
 use crate::hir::{self, Def, Exposed, Exposing};
 use crate::interface::{self, Interface};
 
@@ -86,25 +88,14 @@ pub fn canonicalize(
     let imports = with_defaults(package, &module.imports);
     let env = initial_env(compat, &home, interfaces, &imports)?;
     let (env, unions, aliases) = local::add(module, env)?;
-    // `canonicalizeValues` (so far each annotation; patterns and bodies
-    // come in plan 5.9 and 5.10).
-    let annotated = (module.values.iter().rev()).filter_map(|&id| match &module.defs[id] {
-        Def::Define {
-            name,
-            annotation: Some(ty),
-            ..
-        } => Some((name.text.clone(), *ty)),
-        _ => None,
-    });
-    let annotated: Vec<(String, hir::TypeId)> = annotated.collect();
-    let annotations = all(annotated
+    // `canonicalizeValues`, in upstream's reverse order (so far each
+    // value's annotation and parameters; bodies come in plan 5.10).
+    let annotations = all(module
+        .values
         .iter()
-        .map(|(_, ty)| types::to_annotation(&env, module, *ty)))?;
-    let annotations = annotated
-        .into_iter()
-        .map(|(n, _)| n)
-        .zip(annotations)
-        .collect();
+        .rev()
+        .map(|&id| value(&env, module, id)))?;
+    let annotations = annotations.into_iter().flatten().collect();
     let values: Vec<String> = (module.values.iter())
         .filter_map(|&id| match &module.defs[id] {
             Def::Define { name, .. } => Some(name.text.clone()),
@@ -122,6 +113,133 @@ pub fn canonicalize(
         annotations,
         values,
     })
+}
+
+/// `toNodeOne`, so far: a value's annotation, then its parameters, bound
+/// once each and over the module's names without shadowing them. The
+/// annotation, if the value has one.
+fn value(env: &Env<'_>, module: &hir::Module, id: hir::DefId) -> R<Option<(String, Annotation)>> {
+    let Def::Define {
+        name,
+        params,
+        annotation,
+        ..
+    } = &module.defs[id]
+    else {
+        return Ok(None);
+    };
+    let context = DuplicatePatternContext::FuncArgs(name.text.clone());
+    let (annotation, bindings) = match annotation {
+        None => {
+            let ((), bindings) = pattern::verify(env, context, |bindings| {
+                all(params
+                    .iter()
+                    .map(|&p| pattern::canonicalize(env, module, p, bindings)))
+                .map(|_| ())
+            })?;
+            (None, bindings)
+        }
+        Some(ty) => {
+            let annotation = types::to_annotation(env, module, *ty)?;
+            let ((), bindings) = pattern::verify(env, context, |bindings| {
+                typed_args(env, module, &name.text, params, &annotation.ty, bindings)
+            })?;
+            (Some((name.text.clone(), annotation)), bindings)
+        }
+    };
+    let _scope = env.add_locals(&bindings)?;
+    Ok(annotation)
+}
+
+/// `gatherTypedArgs`: each parameter against the argument its annotation
+/// gives it, stopping at the first that fails, or where the annotation
+/// runs out of arguments.
+fn typed_args(
+    env: &Env<'_>,
+    module: &hir::Module,
+    name: &str,
+    params: &[hir::PatId],
+    ty: &Type,
+    bindings: &mut pattern::Bindings,
+) -> R<()> {
+    let mut ty = ty.clone();
+    for (index, &param) in params.iter().enumerate() {
+        match dealias(ty) {
+            Type::Lambda(_, result) => {
+                pattern::canonicalize(env, module, param, bindings)?;
+                ty = *result;
+            }
+            _ => {
+                let range = |id| {
+                    module
+                        .source_map
+                        .pattern(id)
+                        .map(|p| p.range)
+                        .unwrap_or_default()
+                };
+                let first = range(param);
+                let last = range(*params.last().expect("a parameter"));
+                return throw(Error::AnnotationTooShort {
+                    range: TextRange::new(first.start(), last.end()),
+                    name: name.to_owned(),
+                    index,
+                    leftover: params.len() - index,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `iteratedDealias`: what `ty` is under its aliases.
+fn dealias(ty: Type) -> Type {
+    match ty {
+        Type::Alias(_, _, args, AliasType::Holey(body)) => dealias(substitute(*body, &args)),
+        Type::Alias(_, _, _, AliasType::Filled(body)) => dealias(*body),
+        ty => ty,
+    }
+}
+
+/// `ty` with each variable `args` names replaced.
+fn substitute(ty: Type, args: &[(String, Type)]) -> Type {
+    let go = |t: Type| substitute(t, args);
+    match ty {
+        Type::Var(name) => match args.iter().find(|(var, _)| *var == name) {
+            Some((_, arg)) => arg.clone(),
+            None => Type::Var(name),
+        },
+        Type::Lambda(a, b) => Type::Lambda(Box::new(go(*a)), Box::new(go(*b))),
+        Type::Type(home, name, targs) => {
+            Type::Type(home, name, targs.into_iter().map(go).collect())
+        }
+        Type::Record(fields, ext) => Type::Record(
+            fields
+                .into_iter()
+                .map(|(n, f)| {
+                    (
+                        n,
+                        crate::canonical::FieldType {
+                            order: f.order,
+                            ty: go(f.ty),
+                        },
+                    )
+                })
+                .collect(),
+            ext,
+        ),
+        Type::Unit => Type::Unit,
+        Type::Tuple(a, b, c) => Type::Tuple(
+            Box::new(go(*a)),
+            Box::new(go(*b)),
+            c.map(|c| Box::new(go(*c))),
+        ),
+        Type::Alias(home, name, aargs, aliased) => Type::Alias(
+            home,
+            name,
+            aargs.into_iter().map(|(v, t)| (v, go(t))).collect(),
+            aliased,
+        ),
+    }
 }
 
 /// `canonicalizeExports`.

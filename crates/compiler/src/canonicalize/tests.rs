@@ -462,3 +462,40 @@ fn unbound_variables_are_placed_by_the_first_constructor_using_them() {
         text.find(") b").unwrap() + 3
     );
 }
+
+fn parameters(text: &str) -> Vec<String> {
+    let interfaces = interfaces();
+    let parse = parse_module(text);
+    let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
+    let package = "author/project";
+    match super::module::canonicalize(nomi_base::Compat::V0_19_1, package, &interfaces, &module) {
+        Ok(_) => Vec::new(),
+        Err(errors) => titles(&errors),
+    }
+}
+
+#[test]
+fn parameters_are_checked_before_their_duplicates() {
+    let header = "module Main exposing (..)\n\n\n";
+    assert_eq!(
+        parameters(&format!("{header}f a a =\n    a\n")),
+        ["DuplicatePattern"]
+    );
+    // A pattern that fails shows only its own errors.
+    assert_eq!(
+        parameters(&format!("{header}f (Juts a) a =\n    a\n")),
+        ["NotFound"]
+    );
+    assert_eq!(
+        parameters(&format!("{header}f : Int\nf a b =\n    a\n")),
+        ["AnnotationTooShort"]
+    );
+    assert_eq!(
+        parameters(&format!("{header}g =\n    1\n\n\nf g =\n    g\n")),
+        ["Shadowing"]
+    );
+    assert_eq!(
+        parameters(&format!("{header}f (Just x y) =\n    1\n")),
+        ["BadArity"]
+    );
+}
