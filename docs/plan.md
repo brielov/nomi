@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **4.12**.
+4. Resume at the first unchecked box. Right now that is **CR.8**, in M4's review fixes.
 
 ### Test tiers
 
@@ -288,10 +288,23 @@ Goal: `nomi check` reports syntax and module errors exactly as `elm make` does, 
   Done: `glsl/error.rs` ports Parsec's `ParseError`, its merging, `<?>` and `showErrorMessages`, with GHC's `show` for what it quotes; the recognizer's primitives carry Parsec's labels (`char`'s `show`, `space`, `letter`, `eof`'s "end of input", `buildExpressionParser`'s `""` and "operator"). elm 0.19.1 links Parsec 3.1.13.0, 0.19.2 3.1.17.0 and 0.19.3 3.1.18.0, all pinned in `references.toml`; nothing a shader's error shows differs between them. Full reports match each elm on all 29,511 rejected cases.
 - [x] **4.11** `report: module and import errors`, the matching parts of `Reporting/Exit.hs`.
   Done: `nomi_engine::report` ports `Reporting/Error/Import.hs` with `toImportErrors`, the MODULE NAME MISSING and MISMATCH reports of `Syntax.hs`, and `toProjectProblemReport` for what the crawl finds, `BP_MissingExposed` included. `cargo xtask oracle modules` records each elm's `--report=json` on 22 projects in `crates/engine/tests/modules/cases/`, run in a directory padded to 96 bytes so messages that name it wrap alike, and `tests/module_reports.rs` matches them. `Env::with_cwd` resolves root paths as elm's working directory does, so reports name them as given. elm's arguments take only `.elm` files, so UNEXPECTED FILE EXTENSION, like AMBIGUOUS IMPORT between packages, has unit tests instead.
+
+**Review fixes (2026-10-08).** An outside review at `ab21774` found nine defects in code already written. They are fixed here, before 4.12 builds on them, in this order. The first four were reproduced; the rest are plain from the code.
+
+- [ ] **CR.8** `registry: reject overflowing cached index lengths`. `Index::decode` ([registry/src/index.rs](../crates/registry/src/index.rs)) adds a cached length to its offset unchecked; the magic header followed by a decimal `usize::MAX` panics in debug builds. **Check:** that input returns `None`.
+- [ ] **CR.2** `engine: a run that ends stale is cancelled`. `schedule::run` checks the snapshot only before each module starts, so a last job that makes it stale still returns `Ok`. Check it once more when the run ends; publishing editor results checks it again (4.13). **Check:** invalidating the snapshot during the last job returns `Cancelled`.
+- [ ] **CR.3** `engine: resume resolving links after a missing directory`. `vfs::canonical` stays lexical after a missing component even when `..` climbs back to an existing directory, so with `link` naming `real`, the unsaved `missing/../link/New.elm` and `real/New.elm` get different `FileId`s (R7). **Check:** both have one id, and an overlay set through one reads and removes through the other.
+- [ ] **CR.7** `test: make tier 1 hold on Windows`. Two symlink tests in [engine/tests/vfs.rs](../crates/engine/tests/vfs.rs) use `std::os::unix` unconditionally; `module_reports.rs` compares against reports recorded on Linux, while the cycle report draws in ASCII on Windows and paths use `\`; and `ci.yml` runs only on pushes to `master`, not `rewrite`. **Check:** the test targets compile for Windows, and CI runs on `rewrite`.
+- [ ] **CR.4** `runtime: include fibers spawned during shutdown`. `Runtime.shutdown` ([runtime/src/fiber.js](../runtime/src/fiber.js)) waits only for the fibers present when it starts, so a daemon a finalizer forks outlives it. **Check:** a finalizer that forks a daemon leaves nothing alive when shutdown resolves; finalizers still run exactly once and both fiber tables end empty.
+- [ ] **CR.1** `report: a module nomi rejects always has a report`. `report::module_problem` takes elm's diagnostic parser's error with `.err()?`, so a module only nomi's grammar rejects, such as 25,001 nested parentheses past `DEPTH_LIMIT`, fails with no report. Report nomi's own error there; elm has no depth limit, so the limit gets a `DECISIONS.md` entry. **Check:** that module produces a report.
+- [ ] **CR.6** `engine: key artifacts by the build that made them`. `artifacts::Key::new` names the toolchain by `CARGO_PKG_VERSION`, which every development build shares. Key by a hash of the running binary instead, as Go's build ID does. **Check:** a different build misses where the same build hits.
+- [ ] **CR.5** `engine: keep the recovered syntax of a broken module`. `graph::read` drops the tolerant parse of a module with syntax errors. Keep it in `BadModule` for editor consumers (R3, R4); the crawl still stops there, as `Build.hs` does, which decides what `elm make` reports. Crawling on through broken modules is for M5's navigation. **Check:** a module with a broken declaration after a valid import keeps its tree and imports, while the graph's reports are unchanged.
+- [ ] **CR.9** `test: resolve the corpus digest mismatch and rerun tier 2`. `cargo xtask corpus syntax` finds 30,463 modules where `corpus/syntax/oracle.tsv` was made from 30,448. Find the difference against the pins before deciding whether to regenerate the oracle, which is your call. **Check:** `cargo xtask corpus syntax` and `cargo xtask corpus format` reach their parity checks and pass.
+
 - [ ] **4.12** `cli: nomi check with elm make's reporting policy`. Only the earliest failing phase per module is shown, and blocked modules stay silent.
 - [ ] **4.13** `lsp: v0`. New `ide` and `lsp` crates.
   - The `lsp-server` loop and position encodings.
-  - Overlays and syntax diagnostics.
+  - Overlays and syntax diagnostics, published only while their snapshot is current (CR.2).
   - Formatting as a minimal diff.
   - Document symbols.
 
@@ -464,4 +477,3 @@ This needs M8 and lane R. At the start of M11 we review package names and APIs t
 | Scale: upstream is about 95k lines across the three tools. | Releases 0.1, 0.2 and 0.3 each replace one tool on their own. |
 | Sessions don't share memory. | The plan, the tests and the history carry all state. |
 | Some oracles need GHC. | Only tier 3 uses them; their snapshots are checked in. |
-
