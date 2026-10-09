@@ -161,6 +161,7 @@ fn writing_keeps_permissions_and_links() {
     assert_eq!(mode & 0o777, 0o640);
 }
 
+#[cfg(unix)]
 #[test]
 fn a_file_has_one_id_through_any_link() {
     let dir = tempfile::tempdir().unwrap();
@@ -180,6 +181,7 @@ fn a_file_has_one_id_through_any_link() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn a_missing_file_is_named_through_its_nearest_directory() {
     let dir = tempfile::tempdir().unwrap();

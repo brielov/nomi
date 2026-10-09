@@ -4,7 +4,7 @@ name: ci
 
 on:
   push:
-    branches: [master]
+    branches: [master, rewrite]
   pull_request:
 
 permissions:

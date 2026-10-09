@@ -5,6 +5,11 @@
 //! must have the import and module-name problems elm lists for it, and
 //! no others; which modules elm shows, in what order, and their other
 //! problems, are for the reporting policy and the phases after.
+//!
+//! The reports were recorded on Linux. On Windows elm draws cycles in
+//! ASCII and separates paths with `\`, as nomi does there, so they hold
+//! on Unix only.
+#![cfg(unix)]
 
 use std::collections::BTreeMap;
 use std::fs;
