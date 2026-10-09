@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use nomi_engine::check::{self, Style};
 use nomi_engine::console::{Personality, StdConsole};
 use nomi_engine::format::{self, Mode, Outcome};
 use nomi_engine::paths::Cache;
@@ -67,6 +68,23 @@ enum Command {
     /// Show the releases the project builds with, under the dependencies
     /// that need them.
     Tree,
+    /// Check modules as `elm make --output=/dev/null` does, generating no
+    /// code: so far their syntax, module names and imports.
+    Check {
+        /// The modules to start from; a package's exposed modules if
+        /// none.
+        paths: Vec<PathBuf>,
+        /// Report problems as JSON on standard error, as `elm make
+        /// --report=json` does.
+        #[arg(long, value_name = "FORMAT")]
+        report: Option<ReportFormat>,
+    },
+}
+
+/// The machine-readable report formats.
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum ReportFormat {
+    Json,
 }
 
 mod elm;
@@ -106,6 +124,13 @@ fn main() -> ExitCode {
         }),
         Some(Command::Tree) => in_project(|console, dir, cache, http| {
             tree::run(&Vfs::new(), console, dir, cache, http)
+        }),
+        Some(Command::Check { paths, report }) => in_project(|console, dir, cache, http| {
+            let style = match report {
+                Some(ReportFormat::Json) => Style::Json,
+                None => Style::Terminal,
+            };
+            check::run(&Vfs::new(), console, dir, cache, http, &paths, style)
         }),
     };
     exit(succeeded)

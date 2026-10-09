@@ -114,6 +114,13 @@ pub fn report(console: &mut dyn Console, report: &Report, compat: Compat) {
     console.err(&render(&report.to_doc(), compat, WIDTH, styles));
 }
 
+/// `Exit.toStderr` of a document that isn't one report, as a list of
+/// modules' reports is.
+pub fn report_doc(console: &mut dyn Console, doc: &Doc, compat: Compat) {
+    let styles = styles(console.err_is_terminal());
+    console.err(&render(doc, compat, WIDTH, styles));
+}
+
 fn styles(terminal: bool) -> Styles {
     if terminal {
         Styles::Ansi

@@ -141,6 +141,64 @@ elm/html 1.0.1 (*)
     assert_eq!(nomi(&["update", "elm/http"]), "Everything is up to date!\n");
 }
 
+/// `nomi check` on an application whose dependencies are the fixture
+/// registry's: elm's reports for what nomi checks, its summary on
+/// standard output, and the dependencies' modules known by name.
+#[test]
+fn check_reports_as_elm_make() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm");
+    let cache = tempfile::tempdir().unwrap();
+    Website::new(&dir.join("packages")).fill(cache.path());
+    let case =
+        Case::parse(&fs::read_to_string(dir.join("cases/install_add.case")).unwrap()).unwrap();
+    let work = tempfile::tempdir().unwrap();
+    case.create_files(work.path()).unwrap();
+    let check = |args: &[&str]| {
+        let output = offline(Path::new(env!("CARGO_BIN_EXE_nomi")), cache.path())
+            .arg("check")
+            .args(args)
+            .current_dir(work.path())
+            .output()
+            .unwrap();
+        (
+            output.status.success(),
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    };
+    let (ok, stdout, stderr) = check(&["src/Main.elm"]);
+    assert!(ok, "{stdout}{stderr}");
+    assert!(stdout.starts_with("No problems in syntax"), "{stdout}");
+
+    fs::write(
+        work.path().join("src/Main.elm"),
+        "module Main exposing (main)\n\nimport Html\nimport Htm.Attributes\n\n\nmain =\n    Html.text \"hi\"\n",
+    )
+    .unwrap();
+    let (ok, stdout, stderr) = check(&["src/Main.elm"]);
+    assert!(!ok);
+    assert_eq!(stdout, "Detected problems in 1 module.\n");
+    let bar = stderr.lines().next().unwrap();
+    assert!(bar.starts_with("-- MODULE NOT FOUND ---"), "{stderr}");
+    assert!(
+        bar.ends_with("--- src/Main.elm") && bar.chars().count() == 80,
+        "{bar}"
+    );
+    assert!(stderr.contains("Html.Attributes"), "{stderr}");
+    let (ok, stdout, stderr) = check(&["src/Main.elm", "--report", "json"]);
+    assert!(!ok);
+    assert_eq!(stdout, "");
+    assert!(
+        stderr.starts_with("{\"type\":\"compile-errors\",\"errors\":[{\"path\":"),
+        "{stderr}"
+    );
+
+    let (ok, _, stderr) = check(&[]);
+    assert!(!ok);
+    assert!(stderr.starts_with("-- NO INPUT"), "{stderr}");
+    assert!(stderr.contains("nomi check src/Main.elm"), "{stderr}");
+}
+
 /// The output of `nomi` with `args` in `work`, which must succeed,
 /// answering yes to any question.
 fn nomi(cache: &Path, work: &Path, args: &[&str]) -> String {

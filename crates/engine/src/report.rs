@@ -6,7 +6,9 @@
 //! order, is the reporting policy's to decide.
 
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use nomi_base::Compat;
 use nomi_base::diagnostic::code::{Position, Region, Source};
@@ -30,6 +32,8 @@ pub struct ModuleErrors {
     /// Its name as the build knows it, or `???` for a file outside the
     /// source directories that doesn't parse.
     pub name: String,
+    /// When the file last changed, which orders the terminal's report.
+    pub modified: SystemTime,
     pub problems: Vec<Problem>,
 }
 
@@ -47,16 +51,10 @@ impl ModuleErrors {
 /// Every module of `graph` with problems of its own: a header or syntax
 /// that is wrong, or imports that name no one module (`checkModule`'s
 /// `RProblem`s). A module that only imports a broken one is blocked, and
-/// not here. In no particular order.
+/// not here. In upstream's order (`gatherProblemsOrMains`): the roots
+/// outside the source directories as given, then the modules by name.
 pub fn module_errors(env: &Env, graph: &Graph) -> Vec<ModuleErrors> {
     let mut errors = Vec::new();
-    for (name, status) in &graph.modules {
-        match status {
-            Status::Local(module) => errors.extend(imports(env, graph, module)),
-            Status::BadModule(bad) => errors.extend(bad_module(env, bad, &name.to_string())),
-            _ => {}
-        }
-    }
     for root in &graph.roots {
         match root {
             Root::Outside(Ok(module)) => errors.extend(imports(env, graph, module)),
@@ -64,7 +62,72 @@ pub fn module_errors(env: &Env, graph: &Graph) -> Vec<ModuleErrors> {
             Root::Inside(_) => {}
         }
     }
+    let mut modules: Vec<_> = graph.modules.iter().collect();
+    modules.sort_by(|(a, _), (b, _)| a.compare(b, env.compat()));
+    for (name, status) in modules {
+        match status {
+            Status::Local(module) => errors.extend(imports(env, graph, module)),
+            Status::BadModule(bad) => errors.extend(bad_module(env, bad, &name.to_string())),
+            _ => {}
+        }
+    }
     errors
+}
+
+/// When the file at `path`, as `env` resolves it, last changed; the
+/// start of time if that can't be known.
+fn modified(env: &Env, path: &Path) -> SystemTime {
+    fs::metadata(env.cwd().join(path))
+        .and_then(|m| m.modified())
+        .unwrap_or(SystemTime::UNIX_EPOCH)
+}
+
+/// `Error.toDoc`: each module's reports, oldest module first, with a
+/// separator between modules that names them. A report's bar gives its
+/// path from `root`.
+pub fn modules_doc(root: &Path, modules: &[ModuleErrors]) -> Doc {
+    let mut sorted: Vec<&ModuleErrors> = modules.iter().collect();
+    sorted.sort_by_key(|m| m.modified);
+    let mut docs = Vec::new();
+    for (i, module) in sorted.iter().enumerate() {
+        let path = module.path.strip_prefix(root).unwrap_or(&module.path);
+        let path = path.to_string_lossy();
+        for problem in &module.problems {
+            docs.extend([
+                message_bar(&problem.title, &path),
+                Doc::empty(),
+                problem.message.clone(),
+                Doc::empty(),
+            ]);
+        }
+        match sorted.get(i + 1) {
+            Some(next) => docs.push(separator(&module.name, &next.name)),
+            None => docs.push(Doc::empty()),
+        }
+    }
+    vcat(docs)
+}
+
+/// `toMessageBar`: the title, dashes, and the path, 80 columns wide.
+fn message_bar(title: &str, path: &str) -> Doc {
+    let used = 4 + title.chars().count() + 1 + path.chars().count();
+    let dashes = "-".repeat(80usize.saturating_sub(used).max(1));
+    text(format!("-- {title} {dashes} {path}")).color(Color::DullCyan)
+}
+
+/// `toSeparator`: where one module's reports end and the next's begin.
+fn separator(before: &str, after: &str) -> Doc {
+    let before = format!("{before}  ↑    ");
+    let after = format!("    ↓  {after}");
+    let indent = 80usize.saturating_sub(before.chars().count());
+    vcat([
+        text(before).indent(indent),
+        text("====o======================================================================o===="),
+        text(after),
+        Doc::empty(),
+        Doc::empty(),
+    ])
+    .color(Color::DullRed)
 }
 
 fn imports(env: &Env, graph: &Graph, module: &Module) -> Option<ModuleErrors> {
@@ -72,6 +135,7 @@ fn imports(env: &Env, graph: &Graph, module: &Module) -> Option<ModuleErrors> {
     (!problems.is_empty()).then(|| ModuleErrors {
         path: module.path.clone(),
         name: module.name.to_string(),
+        modified: modified(env, &module.path),
         problems,
     })
 }
@@ -81,6 +145,7 @@ fn bad_module(env: &Env, bad: &BadModule, name: &str) -> Option<ModuleErrors> {
     Some(ModuleErrors {
         path: bad.path.clone(),
         name: name.to_owned(),
+        modified: modified(env, &bad.path),
         problems: vec![problem],
     })
 }

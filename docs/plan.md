@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **4.12**.
+4. Resume at the first unchecked box. Right now that is **4.13**.
 
 ### Test tiers
 
@@ -304,7 +304,8 @@ Goal: `nomi check` reports syntax and module errors exactly as `elm make` does, 
 - [x] **CR.9** `test: resolve the corpus digest mismatch and rerun tier 2`. `cargo xtask corpus syntax` finds 30,463 modules where `corpus/syntax/oracle.tsv` was made from 30,448. Find the difference against the pins before deciding whether to regenerate the oracle, which is your call. **Check:** `cargo xtask corpus syntax` and `cargo xtask corpus format` reach their parity checks and pass.
   Done: the count was 30,448 all along; one path differed. jxxcarlson/meenylatex 14.1.1's zipball has `Demo/src/*.elm` and `demo/src/Main.elm`, which the case-insensitive filesystem the oracles ran on unpacked as one `Demo`, and a case-sensitive one keeps apart. `corpus fetch` now unpacks names that differ only in case as the archive's first spelling, and unpacks again a package that has both. Both suites pass 1915/1915 against the oracles as they were.
 
-- [ ] **4.12** `cli: nomi check with elm make's reporting policy`. Only the earliest failing phase per module is shown, and blocked modules stay silent.
+- [x] **4.12** `cli: nomi check with elm make's reporting policy`. Only the earliest failing phase per module is shown, and blocked modules stay silent.
+  Done: `nomi check [paths] [--report json]` is `elm make --output=/dev/null` as far as nomi's phases go. `nomi_engine::check` loads the project and its dependencies, downloading what the store lacks as `Details.load` does, crawls the paths or a package's exposed modules, and reports the project's problem or each failing module's: outside roots first, as given, then modules by name, each release ordering names its own way (`gatherProblemsOrMains`); the terminal lists them oldest file first, with upstream's separators (`Error.toDoc`), and says on standard output how many modules failed. With no later phases yet, a module whose imports failed has nothing to show, and the crawl already stops at a broken module. `cargo xtask oracle modules` now also records elm's terminal report, with each case's files dated a second apart, and `tests/module_reports.rs` holds `nomi check` to both reports, whole, on 25 projects from each release. Where nothing nomi checks fails, it says so and that names and types aren't checked yet.
 - [ ] **4.13** `lsp: v0`. New `ide` and `lsp` crates.
   - The `lsp-server` loop and position encodings.
   - Overlays and syntax diagnostics, published only while their snapshot is current (CR.2).

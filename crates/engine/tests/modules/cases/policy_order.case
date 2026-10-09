@@ -1,0 +1,26 @@
+=== note
+two broken modules, dated against their names: the terminal lists them oldest first, the JSON report by name, which 0.19.3 orders by length first
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Aaaa
+import Bb
+
+
+main =
+    Aaaa.x + Bb.x
+=== file src/Bb.elm
+module Bb exposing (x)
+
+
+x =
+    = 1
+=== file src/Aaaa.elm
+module Wrong exposing (x)
+
+
+x =
+    1

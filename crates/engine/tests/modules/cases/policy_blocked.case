@@ -1,0 +1,38 @@
+=== note
+modules that import a broken one stay silent, unless an import of their own names no module
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Broken
+import Other
+import Quiet
+
+
+main =
+    Broken.x + Other.x + Quiet.x
+=== file src/Other.elm
+module Other exposing (x)
+
+import Broken
+import Missing
+
+
+x =
+    Broken.x
+=== file src/Quiet.elm
+module Quiet exposing (x)
+
+import Broken
+
+
+x =
+    Broken.x
+=== file src/Broken.elm
+module Broken exposing (x)
+
+
+x =
+    (

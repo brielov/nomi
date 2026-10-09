@@ -1,0 +1,35 @@
+=== note
+roots outside the source directories come first, in the order given, then the modules by name
+=== args
+make
+tools/One.elm
+src/Main.elm
+tools/Two.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Broken
+
+
+main =
+    Broken.x
+=== file src/Broken.elm
+module Broken exposing (x)
+
+
+x =
+    = 1
+=== file tools/Two.elm
+module Two exposing (main)
+
+
+main =
+    = 2
+=== file tools/One.elm
+module One exposing (main)
+
+import Gone
+
+
+main =
+    Gone.x

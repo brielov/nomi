@@ -8,8 +8,11 @@
 //! rewritten to that elm's. The project's directory is padded to 96
 //! bytes and written `$ROOT` in elm's `--report=json`, which is otherwise
 //! kept as written, in `reports.tsv`; a report several elms write alike is
-//! one row naming them all. Each package's `elm.json` is stored under
-//! `packages/`, so the tests can give
+//! one row naming them all. What elm prints on standard error without
+//! `--report`, its terminal report, goes in `terminal.tsv` the same way,
+//! as a JSON string. The case's files are dated a second apart in their
+//! order, since the terminal report lists modules oldest first. Each
+//! package's `elm.json` is stored under `packages/`, so the tests can give
 //! nomi the same packages.
 
 use std::fmt::Write as _;
@@ -58,6 +61,7 @@ pub fn run(root: &Path, refs: &References) -> Result<()> {
     names.sort();
     let scratch = cache_dir()?.join("sandboxes").join("modules");
     let mut out = format!("{HEADER}\ncase\telms\treport\n");
+    let mut terminal = format!("{HEADER}\ncase\telms\tstderr\n");
     for name in &names {
         let stem = name
             .strip_suffix(".case")
@@ -65,26 +69,35 @@ pub fn run(root: &Path, refs: &References) -> Result<()> {
         let case = Case::parse(&fs::read_to_string(dir.join("cases").join(name))?)
             .map_err(anyhow::Error::msg)
             .with_context(|| name.clone())?;
-        let mut written: Vec<(Vec<String>, String)> = Vec::new();
+        let mut reports: Vec<(Vec<String>, String)> = Vec::new();
+        let mut stderrs: Vec<(Vec<String>, String)> = Vec::new();
         for version in compat::compats(refs)? {
-            let report = record(refs, &scratch, version, &pinned, &case, &default)
-                .with_context(|| format!("elm {version} on {name}"))?;
-            let version = format!("elm {version}");
-            match written.iter_mut().find(|(_, r)| *r == report) {
-                Some((versions, _)) => versions.push(version),
-                None => written.push((vec![version], report)),
+            let elm = format!("elm {version}");
+            for (json, table) in [(true, &mut reports), (false, &mut stderrs)] {
+                let output = record(refs, &scratch, version, &pinned, &case, &default, json)
+                    .with_context(|| format!("{elm} on {name}"))?;
+                match table.iter_mut().find(|(_, o)| *o == output) {
+                    Some((versions, _)) => versions.push(elm.clone()),
+                    None => table.push((vec![elm.clone()], output)),
+                }
             }
         }
-        for (versions, report) in written {
+        for (versions, report) in reports {
             writeln!(out, "{stem}\t{}\t{report}", versions.join(","))?;
+        }
+        for (versions, stderr) in stderrs {
+            let stderr = serde_json::to_string(&stderr)?;
+            writeln!(terminal, "{stem}\t{}\t{stderr}", versions.join(","))?;
         }
     }
     fs::write(dir.join("reports.tsv"), out)?;
+    fs::write(dir.join("terminal.tsv"), terminal)?;
     println!("recorded {} cases", names.len());
     Ok(())
 }
 
-/// elm's report on `case`, on one line, or `accepted`.
+/// elm's report on `case`: with `json`, its `--report=json` on one line,
+/// or `accepted`; without, what it prints on standard error.
 fn record(
     refs: &References,
     scratch: &Path,
@@ -92,6 +105,7 @@ fn record(
     pinned: &[packages::Package],
     case: &Case,
     default: &str,
+    json: bool,
 ) -> Result<String> {
     let pin = refs
         .binary
@@ -112,6 +126,7 @@ fn record(
     let work = padded(scratch)?;
     elm_home(&home, version, pinned)?;
     case.create_files(&work)?;
+    date_files(&work, case)?;
     let manifest = work.join("elm.json");
     let text = match fs::read_to_string(&manifest) {
         Ok(text) => text,
@@ -123,7 +138,9 @@ fn record(
         let mut command = Command::new(&elm);
         command
             .args(&case.args)
-            .args(["--output=/dev/null", "--report=json", "+RTS", "-N1", "-RTS"])
+            .arg("--output=/dev/null")
+            .args(json.then_some("--report=json"))
+            .args(["+RTS", "-N1", "-RTS"])
             .current_dir(&work)
             .env("ELM_HOME", &home);
         offline(&mut command);
@@ -135,6 +152,11 @@ fn record(
         }
         attempt += 1;
     };
+    let work = canonical(&work)?;
+    if !json {
+        let stderr = String::from_utf8(output.stderr)?;
+        return Ok(stderr.replace(&work, "$ROOT"));
+    }
     let json = [&output.stderr, &output.stdout]
         .into_iter()
         .find(|o| o.starts_with(b"{"));
@@ -147,10 +169,20 @@ fn record(
         );
         return Ok("accepted".to_owned());
     };
-    let work = canonical(&work)?;
     // One line: elm escapes the newlines it writes.
     let report = String::from_utf8(json.trim_ascii_end().to_vec())?;
     Ok(report.replace(&work, "$ROOT"))
+}
+
+/// Dates the case's files a second apart in their order, from 2001, so
+/// the terminal report's order, oldest first, is the same on every run.
+pub fn date_files(dir: &Path, case: &Case) -> Result<()> {
+    let start = std::time::UNIX_EPOCH + std::time::Duration::from_secs(978_307_200);
+    for (i, (path, _)) in case.files.iter().enumerate() {
+        let file = fs::File::options().write(true).open(dir.join(path))?;
+        file.set_modified(start + std::time::Duration::from_secs(i as u64))?;
+    }
+    Ok(())
 }
 
 /// An application's `elm.json` with `elm-version` set to `version`; a

@@ -151,6 +151,11 @@ impl Env {
 }
 
 impl Env {
+    /// What paths given to [`Graph::from_paths`] are relative to.
+    pub fn cwd(&self) -> &Path {
+        &self.cwd
+    }
+
     pub fn compat(&self) -> Compat {
         self.compat
     }
