@@ -355,3 +355,28 @@ fn a_root_names_one_module() {
     };
     assert!(main.has_main && main.name == m("Main"));
 }
+
+#[test]
+fn a_graph_of_deep_modules_drops_on_a_small_stack() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let env = app(root, Compat::LATEST);
+    // As deep as nomi parses: the expression's own level and one per pair.
+    let depth = nomi_syntax::DEPTH_LIMIT as usize - 2;
+    let x = format!("{}1{}", "(".repeat(depth), ")".repeat(depth));
+    write(
+        root,
+        "src/Main.elm",
+        &format!("module Main exposing (x)\n\n\nx =\n    {x}\n"),
+    );
+    let graph = from_paths(root, &env, &["src/Main.elm"]).unwrap();
+    assert!(matches!(graph.modules[&m("Main")], Status::Local(_)));
+    // As a caller's thread drops the graph the pool built, here as small
+    // as Windows' main thread.
+    std::thread::Builder::new()
+        .stack_size(1 << 20)
+        .spawn(move || drop(graph))
+        .unwrap()
+        .join()
+        .unwrap();
+}

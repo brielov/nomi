@@ -35,6 +35,23 @@ pub struct Parse {
     /// right, where a release that keeps columns in 16 bits sees another
     /// column.
     pub(crate) far: Vec<FarCheck>,
+    /// How deeply grammar rules nested.
+    deepest: u32,
+}
+
+/// Rule nesting a tree may reach and still drop on any thread's stack.
+/// rowan drops a tree recursively, so a deeper one drops on a stack of
+/// its own, or a 1 MiB main thread (Windows') overflows near 3,000.
+const SHALLOW: u32 = 100;
+
+impl Drop for Parse {
+    fn drop(&mut self) {
+        if self.deepest > SHALLOW {
+            let empty = GreenNode::new(SyntaxKind::Error.into(), []);
+            let green = std::mem::replace(&mut self.green, empty);
+            stacker::grow(nomi_base::STACK_SIZE, move || drop(green));
+        }
+    }
 }
 
 /// The leftmost column, counting from 0, where a 16-bit 1-based column
@@ -282,6 +299,8 @@ pub(crate) struct Parser<'t> {
     events: Vec<Event>,
     errors: Vec<SyntaxError>,
     depth: u32,
+    /// The most `depth` has been.
+    deepest: u32,
     /// Set once nesting passed [`DEPTH_LIMIT`]. The rest of the input is
     /// then one error node, and rules unwinding from there report nothing.
     gave_up: bool,
@@ -330,6 +349,7 @@ impl<'t> Parser<'t> {
             events: Vec::new(),
             errors: Vec::new(),
             depth: 0,
+            deepest: 0,
             gave_up: false,
             min_column: 1,
             anchor: None,
@@ -367,6 +387,7 @@ impl<'t> Parser<'t> {
             errors,
             unindented: self.unindented,
             far: self.far,
+            deepest: self.deepest,
         }
     }
 
@@ -694,6 +715,7 @@ impl<'t> Parser<'t> {
             return None;
         }
         self.depth += 1;
+        self.deepest = self.deepest.max(self.depth);
         let result = stacker::maybe_grow(RED_ZONE, STACK_SEGMENT, || rule(self));
         self.depth -= 1;
         Some(result)
