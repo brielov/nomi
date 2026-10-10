@@ -10,4 +10,5 @@ pub mod graph;
 pub mod hir;
 pub mod interface;
 pub mod nitpick;
+pub mod optimized;
 pub mod types;

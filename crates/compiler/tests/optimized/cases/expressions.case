@@ -1,0 +1,176 @@
+=== note
+literals, functions, records, tuples, lets, destructuring, tail calls,
+cycles, every kind of constructor, and case on each kind of pattern
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Json.Decode
+
+
+type Shape
+    = Circle Float
+    | Rect Float Float
+    | Empty
+
+
+type Color
+    = Red
+    | Green
+    | Blue
+
+
+type Wrapper
+    = Wrapper Int
+
+
+type alias Point =
+    { x : Int, y : Int, label : String }
+
+
+origin : Point
+origin =
+    { x = 0, y = 0, label = "o\"rigin\n" }
+
+
+moved : Point -> Point
+moved point =
+    { point | x = point.x + 1, y = -point.y }
+
+
+area : Shape -> Float
+area shape =
+    case shape of
+        Circle r ->
+            3.14 * r * r
+
+        Rect w h ->
+            w * h
+
+        Empty ->
+            0
+
+
+colorName : Color -> String
+colorName color =
+    case color of
+        Red ->
+            "red"
+
+        Green ->
+            "green"
+
+        Blue ->
+            "blue"
+
+
+unwrap : Wrapper -> Int
+unwrap (Wrapper n) =
+    n
+
+
+sum : Int -> List Int -> Int
+sum acc list =
+    case list of
+        [] ->
+            acc
+
+        x :: rest ->
+            sum (acc + x) rest
+
+
+describe : ( Int, String, Char ) -> String
+describe triple =
+    case triple of
+        ( 0, "zero", 'z' ) ->
+            "nothing"
+
+        ( n, _, '\t' ) ->
+            String.fromInt n
+
+        ( _, s, _ ) ->
+            s
+
+
+isEven : Int -> Bool
+isEven n =
+    if n == 0 then
+        True
+
+    else
+        isOdd (n - 1)
+
+
+isOdd : Int -> Bool
+isOdd n =
+    if n == 0 then
+        False
+
+    else
+        isEven (n - 1)
+
+
+firstOr : a -> List a -> a
+firstOr default list =
+    case list of
+        x :: _ ->
+            x
+
+        _ ->
+            default
+
+
+swap : ( a, b ) -> ( b, a )
+swap ( a, b ) =
+    ( b, a )
+
+
+calc : Int -> Int
+calc n =
+    let
+        ( a, b ) =
+            ( n, n * 2 )
+
+        { x } =
+            origin
+
+        twice f v =
+            f (f v)
+    in
+    twice (\v -> v + a + b + x) n
+
+
+labels : List String
+labels =
+    List.map .label [ origin, moved origin ]
+        ++ List.map colorName [ Red, Green, Blue ]
+
+
+bools : Bool -> Bool -> String
+bools a b =
+    case ( a, b ) of
+        ( True, False ) ->
+            Debug.toString ( a, unwrap (Wrapper 2), area Empty )
+
+        _ ->
+            if a && not b then
+                "one"
+
+            else
+                "other"
+
+
+main : Program () () ()
+main =
+    Platform.worker
+        { init =
+            \_ ->
+                ( Debug.log "start" ()
+                , Cmd.none
+                )
+        , update = \_ model -> ( model, Cmd.none )
+        , subscriptions = \_ -> Sub.none
+        }
+        |> always (Debug.todo "never")

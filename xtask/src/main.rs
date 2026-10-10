@@ -183,6 +183,9 @@ enum OracleCommand {
         #[arg(long)]
         only: Option<String>,
     },
+    /// Store the optimized graphs each elm writes for every optimizer
+    /// case (plan 8.1).
+    Optimized,
     /// Store each elm's transcript of every case of the CLI report
     /// matrix (plan 7.5a).
     Make,
@@ -235,6 +238,7 @@ fn main() -> ExitCode {
             OracleCommand::Patterns => oracle::types::patterns(&root(), &r),
             OracleCommand::Docs => oracle::types::docs(&root(), &r),
             OracleCommand::Make => oracle::make::run(&root(), &r),
+            OracleCommand::Optimized => oracle::optimized::run(&root(), &r),
             OracleCommand::CorpusDocs { jobs, only } => {
                 oracle::corpus_runs::run(&root(), &r, Suite::Docs, jobs, only.as_deref())
             }

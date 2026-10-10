@@ -1,0 +1,45 @@
+=== note
+a graph across modules: imported values, constructors and aliases
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Shapes exposing (Shape(..))
+
+
+main : Program Int Float ()
+main =
+    Platform.worker
+        { init = \n -> ( Shapes.total [ Square (toFloat n), Shapes.unit ], Cmd.none )
+        , update = \_ model -> ( model, Cmd.none )
+        , subscriptions = \_ -> Sub.none
+        }
+=== file src/Shapes.elm
+module Shapes exposing (Shape(..), total, unit)
+
+
+type Shape
+    = Square Float
+    | Line
+
+
+unit : Shape
+unit =
+    Square 1
+
+
+total : List Shape -> Float
+total shapes =
+    List.foldl (\shape acc -> acc + size shape) 0 shapes
+
+
+size : Shape -> Float
+size shape =
+    case shape of
+        Square side ->
+            side * side
+
+        Line ->
+            0

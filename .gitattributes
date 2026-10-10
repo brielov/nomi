@@ -9,3 +9,4 @@ crates/project/tests/outline_fixtures/** -text
 crates/compiler/tests/packages/** -text
 # A documentation case with CRLF lines.
 crates/engine/tests/docs/cases/crlf.case -text
+crates/compiler/tests/optimized/artifacts/** binary

@@ -1,0 +1,29 @@
+=== note
+incoming and outgoing ports, and a main with flags
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+port module Main exposing (main)
+
+import Json.Decode
+import Json.Encode
+
+
+port send : { name : String, count : Int } -> Cmd msg
+
+
+port receive : (List ( String, Maybe Float ) -> msg) -> Sub msg
+
+
+type alias Flags =
+    { user : String, tags : List String, ratio : Float }
+
+
+main : Program Flags Int (List ( String, Maybe Float ))
+main =
+    Platform.worker
+        { init = \flags -> ( List.length flags.tags, send { name = flags.user, count = 0 } )
+        , update = \_ model -> ( model + 1, Cmd.none )
+        , subscriptions = \_ -> receive identity
+        }

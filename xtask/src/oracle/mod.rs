@@ -6,6 +6,7 @@ pub mod format;
 pub mod make;
 pub mod modules;
 pub mod names;
+pub mod optimized;
 pub mod outline;
 pub mod sandbox;
 pub mod solver;
