@@ -375,7 +375,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 
   Done: canonicalization returns upstream's tree (`canonical::Expr`, `Pattern`, `Def`, `Decl`) without changing what it checks or the order it reports in. Variables come back as upstream resolves them, `Debug`'s by the module using them and kernel values in kernel packages. Constructors carry their type, operator chains become trees whose regions run from the left operand to the right, and `True` and `False` patterns become `Bool`. The `let` check nests `Let`, `LetRec` and `LetDestruct` at the `let`'s region, a recursive group's functions last first as upstream gathers them, and the top-level check gives the declarations in dependency order. A shader's inputs are read from its top-level declarations: upstream takes them from language-glsl's tree, and the syntax crate's GLSL port only recognizes. Deep trees drop on grown stacks.
 - [ ] **6.3** `compiler: constraints for expressions`, in upstream's order.
-- [ ] **6.4** `compiler: constraints for patterns`.
+- [x] **6.4** `compiler: constraints for patterns`.
+
+  Done before 6.3, which uses it: `types::constrain::pattern` ports `Constrain/Pattern.hs`, and `types::instantiate` the `fromSrcType` both need, which makes no variables in upstream either. Upstream prepends to lists and reverses them at the end; nomi keeps the variables and constraints in the order upstream finally reads them: a tail is matched before its head, a pattern's parts before the whole.
 - [ ] **6.5** `compiler: annotations, rigid variables and module constraints`.
 - [ ] **6.6** `compiler: solver`. Pools, generalization, the occurs check and instantiation.
 - [ ] **6.7** `compiler: typed interfaces for packages`. **Check:** every corpus package type-checks under each Compat that accepts it (1.15a).

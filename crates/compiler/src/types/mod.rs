@@ -4,8 +4,10 @@
 //! for, its rank and its mark, and the constraints inference solves
 //! (`Type/Type.hs`).
 
+pub mod constrain;
 pub mod error;
 pub mod expected;
+pub mod instantiate;
 mod names;
 pub mod occurs;
 pub mod unify;

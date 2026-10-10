@@ -173,3 +173,51 @@ mod unification {
         assert!(vars.equivalent(a, b));
     }
 }
+
+mod pattern_constraints {
+    use super::*;
+    use crate::canonical::{Pattern, PatternKind};
+    use crate::types::constrain::pattern::{State, add};
+    use crate::types::expected::{PCategory, PExpected};
+    use nomi_base::{TextRange, TextSize};
+
+    fn at(start: u32, end: u32, kind: PatternKind) -> Pattern {
+        Pattern {
+            region: TextRange::new(TextSize::new(start), TextSize::new(end)),
+            kind,
+        }
+    }
+
+    #[test]
+    fn a_tuple_binds_its_names_and_matches_after_its_parts() {
+        let mut vars = Variables::default();
+        // ( x, { a } :: rest )
+        let x = at(1, 2, PatternKind::Var("x".to_owned()));
+        let record = at(4, 9, PatternKind::Record(vec!["a".to_owned()]));
+        let rest = at(13, 17, PatternKind::Var("rest".to_owned()));
+        let cons = at(4, 17, PatternKind::Cons(Box::new(record), Box::new(rest)));
+        let tuple = at(0, 18, PatternKind::Tuple(Box::new(x), Box::new(cons), None));
+        let whole = vars.flex_var();
+        let mut state = State::default();
+        add(
+            &mut vars,
+            &tuple,
+            PExpected::PNoExpectation(Type::Var(whole)),
+            &mut state,
+        );
+        assert_eq!(state.headers.keys().collect::<Vec<_>>(), ["a", "rest", "x"]);
+        // The tail is matched before the head, the parts before the whole.
+        let categories: Vec<PCategory> = (state.cons.iter())
+            .map(|c| match c {
+                Constraint::Pattern(_, category, _, _) => category.clone(),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            categories,
+            [PCategory::PRecord, PCategory::PList, PCategory::PTuple]
+        );
+        // The tuple's parts, then the list's entry, then the record's.
+        assert_eq!(state.vars.len(), 2 + 1 + 2);
+    }
+}
