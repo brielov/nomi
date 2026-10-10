@@ -624,3 +624,36 @@ fn canonicalization_builds_upstreams_tree() {
         "{kinds:?}"
     );
 }
+
+#[test]
+fn a_module_constrains_its_values_in_dependency_order() {
+    use crate::types::{Constraint, Variables, constrain::module::constrain};
+    let text = "module Main exposing (..)\n\n\ng =\n    f 1\n\n\nf x =\n    x\n";
+    let interfaces = interfaces();
+    let parse = parse_module(text);
+    let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
+    let canonical = super::module::canonicalize(
+        nomi_base::Compat::V0_19_1,
+        "author/project",
+        &interfaces,
+        &module,
+    )
+    .unwrap();
+    let mut vars = Variables::default();
+    let mut at = constrain(&mut vars, &canonical);
+    let mut names = Vec::new();
+    loop {
+        match at {
+            Constraint::Let {
+                header, body_con, ..
+            } if !header.is_empty() => {
+                names.extend(header.keys().cloned());
+                at = *body_con;
+            }
+            Constraint::SaveTheEnvironment => break,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    // `f` before `g`, which uses it.
+    assert_eq!(names, ["f", "g"]);
+}

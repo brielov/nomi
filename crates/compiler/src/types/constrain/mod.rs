@@ -3,4 +3,5 @@
 //! upstream generates it, which is the order the solver meets problems.
 
 pub mod expr;
+pub mod module;
 pub mod pattern;

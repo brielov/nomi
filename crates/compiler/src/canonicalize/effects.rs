@@ -11,17 +11,16 @@ use super::env::Env;
 use super::error::{Error, InvalidPayload, PortProblem, R, all, both, throw};
 use super::local::Unions;
 use super::types;
-use crate::canonical::{AliasType, Home, Type};
+use crate::canonical::{AliasType, Effects, Home, Manager, Port as CPort, Type};
 use crate::hir::{self, Def, ModuleKind};
 
 /// `canonicalize`: the module's ports, in upstream's reverse order, or
 /// its effect manager.
-pub fn canonicalize(env: &Env<'_>, module: &hir::Module, unions: &Unions) -> R<()> {
+pub fn canonicalize(env: &Env<'_>, module: &hir::Module, unions: &Unions) -> R<Effects> {
     match &module.kind {
-        ModuleKind::Plain => Ok(()),
-        ModuleKind::Port => {
-            all(module.ports.iter().rev().map(|p| port(env, module, p))).map(|_| ())
-        }
+        ModuleKind::Plain => Ok(Effects::NoEffects),
+        ModuleKind::Port => all(module.ports.iter().rev().map(|p| port(env, module, p)))
+            .map(|ports| Effects::Ports(ports.into_iter().collect())),
         ModuleKind::Effect(fields) => manager(module, fields, unions),
     }
 }
@@ -31,7 +30,7 @@ fn is(home: &Home, package: &str, module: &str) -> bool {
 }
 
 /// `canonicalizePort`.
-fn port(env: &Env<'_>, module: &hir::Module, port: &hir::Port) -> R<()> {
+fn port(env: &Env<'_>, module: &hir::Module, port: &hir::Port) -> R<(String, CPort)> {
     let region = port.name.range;
     let name = &port.name.text;
     let invalid = |problem| {
@@ -49,8 +48,16 @@ fn port(env: &Env<'_>, module: &hir::Module, port: &hir::Port) -> R<()> {
     let [msg] = &args[..] else {
         return invalid(PortProblem::NotCmdOrSub);
     };
-    let payload = |ty: &Type| match check_payload(ty) {
-        Ok(()) => Ok(()),
+    let payload = |ty: &Type, incoming: bool| match check_payload(ty) {
+        Ok(()) => Ok((
+            name.clone(),
+            CPort {
+                incoming,
+                free: annotation.free.clone(),
+                payload: ty.clone(),
+                func: annotation.ty.clone(),
+            },
+        )),
         Err(bad) => throw(Error::PortPayloadInvalid {
             range: region,
             name: name.clone(),
@@ -62,7 +69,7 @@ fn port(env: &Env<'_>, module: &hir::Module, port: &hir::Port) -> R<()> {
         match &parts[..] {
             [] => invalid(PortProblem::CmdNoArg),
             [outgoing] => match msg {
-                Type::Var(_) => payload(outgoing),
+                Type::Var(_) => payload(outgoing, false),
                 _ => invalid(PortProblem::CmdBadMsg),
             },
             _ => invalid(PortProblem::CmdExtraArgs(parts.len())),
@@ -70,7 +77,7 @@ fn port(env: &Env<'_>, module: &hir::Module, port: &hir::Port) -> R<()> {
     } else if is(&home, "elm/core", "Platform.Sub") && type_name == "Sub" {
         match (&parts[..], msg) {
             ([Type::Lambda(incoming, result)], Type::Var(msg2)) if matches!(&**result, Type::Var(msg1) if msg1 == msg2) => {
-                payload(incoming)
+                payload(incoming, true)
             }
             _ => invalid(PortProblem::SubBad),
         }
@@ -228,7 +235,7 @@ fn manager(
     module: &hir::Module,
     fields: &[(hir::Spanned, hir::Spanned)],
     unions: &Unions,
-) -> R<()> {
+) -> R<Effects> {
     let values: BTreeMap<&str, TextRange> = (module.values.iter())
         .filter_map(|&id| match &module.defs[id] {
             Def::Define { name, .. } => Some((name.text.as_str(), name.range)),
@@ -239,7 +246,7 @@ fn manager(
     // stands in, where a report of it needs a place.
     let region = fields.first().map(|(f, _)| f.range).unwrap_or_default();
     let function = |name: &str| match values.get(name) {
-        Some(_) => Ok(()),
+        Some(&range) => Ok(range),
         None => throw(Error::EffectFunctionNotFound {
             range: region,
             name: name.to_owned(),
@@ -247,7 +254,7 @@ fn manager(
     };
     let effect_type = |name: &hir::Spanned| {
         if unions.contains_key(&name.text) {
-            Ok(())
+            Ok(name.text.clone())
         } else {
             throw(Error::EffectNotFound {
                 range: name.range,
@@ -257,17 +264,26 @@ fn manager(
     };
     let field = |key: &str| fields.iter().find(|(f, _)| f.text == key).map(|(_, t)| t);
     let kind = match (field("command"), field("subscription")) {
-        (Some(cmd), None) => both(effect_type(cmd), function("cmdMap")).map(|_| ()),
-        (None, Some(sub)) => both(effect_type(sub), function("subMap")).map(|_| ()),
+        (Some(cmd), None) => {
+            both(effect_type(cmd), function("cmdMap")).map(|(c, _)| Some(Manager::Cmd(c)))
+        }
+        (None, Some(sub)) => {
+            both(effect_type(sub), function("subMap")).map(|(s, _)| Some(Manager::Sub(s)))
+        }
         (Some(cmd), Some(sub)) => {
             let types = both(effect_type(cmd), effect_type(sub));
-            both(both(types, function("cmdMap")), function("subMap")).map(|_| ())
+            both(both(types, function("cmdMap")), function("subMap"))
+                .map(|(((c, s), _), _)| Some(Manager::Fx(c, s)))
         }
-        (None, None) => Ok(()),
+        // The grammar reads a manager with neither; elm's parser doesn't.
+        (None, None) => Ok(None),
     };
     let functions = both(
         both(function("init"), function("onEffects")),
         function("onSelfMsg"),
     );
-    both(functions, kind).map(|_| ())
+    both(functions, kind).map(|(((r0, r1), r2), kind)| match kind {
+        Some(kind) => Effects::Manager(r0, r1, r2, kind),
+        None => Effects::NoEffects,
+    })
 }

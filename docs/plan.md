@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **6.5**.
+4. Resume at the first unchecked box. Right now that is **6.6**.
 
 ### Test tiers
 
@@ -380,7 +380,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 - [x] **6.4** `compiler: constraints for patterns`.
 
   Done before 6.3, which uses it: `types::constrain::pattern` ports `Constrain/Pattern.hs`, and `types::instantiate` the `fromSrcType` both need, which makes no variables in upstream either. Upstream prepends to lists and reverses them at the end; nomi keeps the variables and constraints in the order upstream finally reads them: a tail is matched before its head, a pattern's parts before the whole.
-- [ ] **6.5** `compiler: annotations, rigid variables and module constraints`.
+- [x] **6.5** `compiler: annotations, rigid variables and module constraints`.
+
+  Done: `types::constrain::module` ports `Constrain/Module.hs`: the declarations folded over the point where the solver saves the top-level types, ports bound around them with their variables rigid, and an effect manager's `init`, `onEffects`, `onSelfMsg` and map functions checked against the types the platform calls them at. Canonicalization now returns upstream's `Effects` (each port's payload and type, a manager's kind and its functions' regions), which it only checked before. Annotations and rigid variables came with 6.3's definitions.
 - [ ] **6.6** `compiler: solver`. Pools, generalization, the occurs check and instantiation.
 - [ ] **6.7** `compiler: typed interfaces for packages`. **Check:** every corpus package type-checks under each Compat that accepts it (1.15a).
 - [ ] **6.8** `compiler: per-expression types`. A side table, added without changing the solving order.

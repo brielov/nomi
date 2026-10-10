@@ -277,3 +277,31 @@ pub enum ShaderType {
     M4,
     Texture,
 }
+
+/// `Can.Effects`: what a module's header makes of it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum Effects {
+    #[default]
+    NoEffects,
+    Ports(BTreeMap<String, Port>),
+    /// The regions of `init`, `onEffects` and `onSelfMsg`, and what the
+    /// manager manages.
+    Manager(TextRange, TextRange, TextRange, Manager),
+}
+
+/// `Can.Port`: its free variables, its payload and its whole type.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Port {
+    pub incoming: bool,
+    pub free: Vec<String>,
+    pub payload: Type,
+    pub func: Type,
+}
+
+/// `Can.Manager`: the effect types a manager handles.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Manager {
+    Cmd(String),
+    Sub(String),
+    Fx(String, String),
+}

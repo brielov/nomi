@@ -19,7 +19,7 @@ use super::pattern;
 use super::references::{Kind, Recorder, Reference};
 use super::types;
 use crate::canonical::{
-    AliasType, Annotation, Associativity, Decl as CDecl, Def as CDef, Home, Pattern, Type,
+    AliasType, Annotation, Associativity, Decl as CDecl, Def as CDef, Effects, Home, Pattern, Type,
 };
 use crate::hir::{self, Def, Exposed, Exposing};
 use crate::interface::{self, Interface};
@@ -64,6 +64,7 @@ pub struct Canonical {
     pub values: Vec<String>,
     /// The values, each before those that use it (`Can.Decls`).
     pub decls: Vec<CDecl>,
+    pub effects: Effects,
 }
 
 /// The module's name, `Main` without a header.
@@ -147,7 +148,7 @@ fn canonicalize_into(
         })
         .collect();
     let decls = cycles::top_level(compat, top)?;
-    effects::canonicalize(&env, module, &unions)?;
+    let effects = effects::canonicalize(&env, module, &unions)?;
     // Ports are values too, which importers may use.
     let ports_annotated = (module.ports.iter())
         .map(|p| {
@@ -182,6 +183,7 @@ fn canonicalize_into(
         annotations,
         values,
         decls,
+        effects,
     })
 }
 
