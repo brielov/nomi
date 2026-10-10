@@ -6,6 +6,7 @@
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use nomi_base::TextRange;
 
@@ -70,7 +71,7 @@ fn add_vars<'a>(module: &hir::Module, mut env: Env<'a>) -> R<Env<'a>> {
         first,
         second,
     })?;
-    env.vars.extend(vars);
+    Rc::make_mut(&mut env.vars).extend(vars);
     Ok(env)
 }
 
@@ -92,7 +93,7 @@ fn add_types<'a>(module: &hir::Module, mut env: Env<'a>) -> R<Env<'a>> {
     let home = env.home.clone();
     for union in module.unions.iter().rev() {
         let arity = check_union_free_vars(module, union, &env)?;
-        env.types.insert(
+        Rc::make_mut(&mut env.types).insert(
             union.name.text.clone(),
             BTreeMap::from([(
                 home.clone(),
@@ -118,7 +119,7 @@ fn add_types<'a>(module: &hir::Module, mut env: Env<'a>) -> R<Env<'a>> {
                     vars: args,
                     ty: Cow::Owned(ty),
                 };
-                env.types.insert(
+                Rc::make_mut(&mut env.types).insert(
                     alias.name.text.clone(),
                     BTreeMap::from([(home.clone(), info)]),
                 );
@@ -319,7 +320,7 @@ fn add_ctors<'a>(module: &hir::Module, mut env: Env<'a>) -> R<(Env<'a>, Unions, 
             first,
             second,
         })?;
-    env.ctors.extend(ctors);
+    Rc::make_mut(&mut env.ctors).extend(ctors);
     Ok((
         env,
         unions.into_iter().map(|(u, _)| u).collect(),

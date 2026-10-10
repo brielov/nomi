@@ -14,6 +14,7 @@ use super::env::{Env, Var};
 use super::error::{DuplicatePatternContext, Error, NameKind, PossibleNames, R, all, both, throw};
 use super::foreign::{is_kernel_module, is_kernel_package};
 use super::pattern::{self, Bindings};
+use super::references::{Kind, Target};
 use super::types;
 use crate::hir::{self, Def, DefId, Expr, ExprId, PatId, Pattern};
 
@@ -262,11 +263,19 @@ fn case_branch(
 /// locals.
 fn find_var(env: &Env<'_>, region: TextRange, name: &str, free: &mut FreeLocals) -> R<()> {
     match env.vars.get(name) {
-        Some(Var::Local(_) | Var::TopLevel(_)) => {
+        Some(var @ (Var::Local(_) | Var::TopLevel(_))) => {
+            match var {
+                Var::Local(binder) => env.references.record(region, Target::Local(*binder)),
+                _ => env.references.global(region, &env.home, name, Kind::Value),
+            }
             free.entry(name.to_owned()).or_default().direct += 1;
             Ok(())
         }
-        Some(Var::Foreign(homes)) if homes.len() == 1 => Ok(()),
+        Some(Var::Foreign(homes)) if homes.len() == 1 => {
+            let home = homes.keys().next().expect("one home");
+            env.references.global(region, home, name, Kind::Value);
+            Ok(())
+        }
         Some(Var::Foreign(homes)) => throw(Error::Ambiguous {
             kind: NameKind::Value,
             range: region,
@@ -296,7 +305,11 @@ fn find_var_qual(env: &Env<'_>, region: TextRange, prefix: &str, name: &str) -> 
     };
     match env.q_vars.get(prefix) {
         Some(qualified) => match qualified.get(name) {
-            Some(homes) if homes.len() == 1 => Ok(()),
+            Some(homes) if homes.len() == 1 => {
+                let home = homes.keys().next().expect("one home");
+                env.references.global(region, home, name, Kind::Value);
+                Ok(())
+            }
             Some(homes) => throw(Error::Ambiguous {
                 kind: NameKind::Value,
                 range: region,

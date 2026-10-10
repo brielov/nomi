@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 nomi-base.workspace = true
+nomi-compiler.workspace = true
 nomi-engine.workspace = true
 nomi-format.workspace = true
 nomi-project.workspace = true

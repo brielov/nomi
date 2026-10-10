@@ -996,6 +996,7 @@ name = "nomi-ide"
 version = "0.1.0"
 dependencies = [
  "nomi-base",
+ "nomi-compiler",
  "nomi-engine",
  "nomi-format",
  "nomi-project",

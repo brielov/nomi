@@ -141,6 +141,9 @@ fn the_handshake_offers_what_v0_does() {
     assert_eq!(capabilities["textDocumentSync"], 2);
     assert_eq!(capabilities["documentFormattingProvider"], true);
     assert_eq!(capabilities["documentSymbolProvider"], true);
+    assert_eq!(capabilities["definitionProvider"], true);
+    assert_eq!(capabilities["referencesProvider"], true);
+    assert_eq!(capabilities["documentHighlightProvider"], true);
     client.shutdown();
     let client = Client::start(&["utf-16", "utf-8"]);
     assert_eq!(client.capabilities["positionEncoding"], "utf-8");
@@ -284,6 +287,62 @@ fn what_v0_doesnt_answer_is_said_so() {
     assert_eq!(
         response.error.unwrap().code,
         lsp_server::ErrorCode::MethodNotFound as i32
+    );
+    client.shutdown();
+}
+
+#[test]
+fn navigation_goes_to_definitions_and_finds_references_across_modules() {
+    let (dir, main) = project();
+    let other_path = dir.path().join("src/Other.elm");
+    // Saved, not open: navigation reads it from the disk.
+    fs::write(
+        &other_path,
+        "module Other exposing (helper)\n\n\nhelper x =\n    x\n",
+    )
+    .unwrap();
+    let other = uri(&other_path);
+    let client = Client::start(&[]);
+    let mut client = client;
+    client.open(
+        &main,
+        "module Main exposing (main)\n\nimport Other\n\n\nmain =\n    Other.helper ()\n",
+    );
+    let at = |line, character| json!({ "textDocument": { "uri": main }, "position": { "line": line, "character": character } });
+    // `helper` in `Other.helper`.
+    let response = client.request("textDocument/definition", at(6, 12));
+    let found = response.result.unwrap();
+    assert_eq!(found["uri"], other.as_str());
+    assert_eq!(
+        found["range"],
+        json!({ "start": { "line": 3, "character": 0 }, "end": { "line": 3, "character": 6 } })
+    );
+    let mut params = at(6, 12);
+    params["context"] = json!({ "includeDeclaration": false });
+    let response = client.request("textDocument/references", params);
+    let found = response.result.unwrap();
+    let found: Vec<(&str, &Value)> = (found.as_array().unwrap().iter())
+        .map(|l| (l["uri"].as_str().unwrap(), &l["range"]["start"]))
+        .collect();
+    assert_eq!(
+        found,
+        [
+            (other.as_str(), &json!({ "line": 0, "character": 23 })),
+            (main.as_str(), &json!({ "line": 6, "character": 10 })),
+        ]
+    );
+    // `main`: the exposing list, then its definition, in the text's order.
+    let response = client.request("textDocument/documentHighlight", at(5, 1));
+    let found = response.result.unwrap();
+    let starts: Vec<&Value> = (found.as_array().unwrap().iter())
+        .map(|h| &h["range"]["start"])
+        .collect();
+    assert_eq!(
+        starts,
+        [
+            &json!({ "line": 0, "character": 22 }),
+            &json!({ "line": 5, "character": 0 })
+        ]
     );
     client.shutdown();
 }

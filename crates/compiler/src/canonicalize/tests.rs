@@ -150,6 +150,7 @@ fn env<'a>(interfaces: &'a HashMap<String, Interface>, text: &str) -> Result<Env
         &main,
         interfaces,
         &with_defaults(&main.package, &imports(text)),
+        &Default::default(),
     )
 }
 
@@ -497,5 +498,51 @@ fn parameters_are_checked_before_their_duplicates() {
     assert_eq!(
         parameters(&format!("{header}f (Just x y) =\n    1\n")),
         ["BadArity"]
+    );
+}
+
+#[test]
+fn references_record_what_each_name_resolved_to() {
+    use super::references::Target;
+    let text = "module Main exposing (main, Color(..))\n\nimport A exposing (a, T(..))\n\ntype Color = Red\n\nmain : Int\nmain =\n    let y = a in\n    case Red of\n        Red -> y + A.x + identity 1\n";
+    let interfaces = interfaces();
+    let parse = parse_module(text);
+    let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
+    let (canonical, references) = super::module::canonicalize_with_references(
+        nomi_base::Compat::V0_19_1,
+        "author/project",
+        &interfaces,
+        &module,
+    );
+    assert!(canonical.is_ok());
+    let found: Vec<String> = (references.iter())
+        .map(|r| {
+            let at = text[r.range].trim();
+            match &r.target {
+                Target::Local(binder) => format!("{at} -> local {}", text[*binder].trim()),
+                Target::Global { home, name, kind } => {
+                    format!("{at} -> {kind:?} {}.{name}", home.module)
+                }
+            }
+        })
+        .collect();
+    assert_eq!(
+        found,
+        [
+            "main -> Value Main.main",
+            "Color -> Type Main.Color",
+            "A -> Module A.A",
+            "a -> Value A.a",
+            "T -> Type A.T",
+            "Int -> Type Basics.Int",
+            "a -> Value A.a",
+            "Red -> Ctor Main.Red",
+            "Red -> Ctor Main.Red",
+            "y -> local y",
+            "+ -> Binop Basics.+",
+            "A.x -> Value A.x",
+            "+ -> Binop Basics.+",
+            "identity -> Value Basics.identity",
+        ]
     );
 }

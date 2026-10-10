@@ -8,7 +8,7 @@ mod position;
 
 use std::collections::HashMap;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crossbeam_channel::Sender;
@@ -17,16 +17,22 @@ use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, Notification as _,
     PublishDiagnostics,
 };
-use lsp_types::request::{DocumentSymbolRequest, Formatting, Request as _};
+use lsp_types::request::{
+    DocumentHighlightRequest, DocumentSymbolRequest, Formatting, GotoDefinition, References,
+    Request as _,
+};
 use lsp_types::{
     Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentFormattingParams, DocumentSymbolParams,
-    DocumentSymbolResponse, InitializeParams, Location, OneOf, PublishDiagnosticsParams,
-    ServerCapabilities, ServerInfo, SymbolInformation, SymbolKind, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextEdit, Url,
+    DidOpenTextDocumentParams, DocumentFormattingParams, DocumentHighlight,
+    DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
+    GotoDefinitionResponse, InitializeParams, Location, OneOf, PublishDiagnosticsParams,
+    ReferenceParams, ServerCapabilities, ServerInfo, SymbolInformation, SymbolKind,
+    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
 };
-use nomi_base::ColumnUnit;
-use nomi_engine::{Pool, Snapshot, Vfs};
+use nomi_base::{ColumnUnit, TextSize};
+use nomi_engine::index::{self, Index, Memo};
+use nomi_engine::paths::Cache;
+use nomi_engine::{Pool, Revision, Snapshot, Store, Vfs};
 use serde_json::Value;
 
 use position::Text;
@@ -82,6 +88,9 @@ pub fn run(connection: &Connection) -> Result<(), Error> {
         )),
         document_formatting_provider: Some(OneOf::Left(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
+        definition_provider: Some(OneOf::Left(true)),
+        references_provider: Some(OneOf::Left(true)),
+        document_highlight_provider: Some(OneOf::Left(true)),
         ..ServerCapabilities::default()
     };
     let result = serde_json::json!({
@@ -98,6 +107,10 @@ pub fn run(connection: &Connection) -> Result<(), Error> {
         documents: HashMap::new(),
         publishing: Arc::new(Mutex::new(())),
         sender: connection.sender.clone(),
+        // Without a cache directory, packages are nowhere to be found.
+        store: Store::new(Cache::locate().map_or_else(|_| PathBuf::new(), |c| c.packages())),
+        memo: Memo::new(),
+        index: None,
     };
     for message in &connection.receiver {
         match message {
@@ -125,6 +138,15 @@ struct Server {
     /// something newer.
     publishing: Arc<Mutex<()>>,
     sender: Sender<Message>,
+    /// Where navigation finds the packages a project uses, never
+    /// downloading them.
+    store: Store,
+    /// The packages' interfaces, made once per server.
+    memo: Memo,
+    /// The last project index, its revision and its `elm.json`: indexing
+    /// a project takes a while, and navigation asks again and again
+    /// between edits.
+    index: Option<(Revision, PathBuf, Index)>,
 }
 
 struct Document {
@@ -140,6 +162,17 @@ impl Server {
                 .and_then(|p: DocumentFormattingParams| self.formatting(&p.text_document.uri)),
             DocumentSymbolRequest::METHOD => parse(request)
                 .and_then(|p: DocumentSymbolParams| self.symbols(&p.text_document.uri)),
+            GotoDefinition::METHOD => parse(request).and_then(|p: GotoDefinitionParams| {
+                self.definition(&p.text_document_position_params)
+            }),
+            References::METHOD => parse(request).and_then(|p: ReferenceParams| {
+                self.references(&p.text_document_position, p.context.include_declaration)
+            }),
+            DocumentHighlightRequest::METHOD => {
+                parse(request).and_then(|p: DocumentHighlightParams| {
+                    self.highlights(&p.text_document_position_params)
+                })
+            }
             method => Err((
                 ErrorCode::MethodNotFound,
                 format!("nomi doesn't answer {method} yet"),
@@ -292,6 +325,96 @@ impl Server {
             .collect();
         let response = DocumentSymbolResponse::Flat(symbols);
         Ok(serde_json::to_value(response).expect("symbols serialize"))
+    }
+}
+
+impl Server {
+    /// The open document a position is in, and the offset of the
+    /// position.
+    fn at(
+        &self,
+        position: &TextDocumentPositionParams,
+    ) -> Result<(&Document, TextSize), (ErrorCode, String)> {
+        let document = self.document(&position.text_document.uri)?;
+        let offset = Text::new(&document.text, self.unit).offset(position.position);
+        Ok((document, offset))
+    }
+
+    /// The index of the project that owns `path`, made anew only when the
+    /// editor's text changed since the last.
+    fn index(&mut self, snapshot: &Snapshot, path: &Path) -> Option<&Index> {
+        let manifest = index::manifest(snapshot, path)?;
+        let revision = snapshot.revision();
+        let fresh = (self.index.as_ref()).is_some_and(|(r, m, _)| *r == revision && *m == manifest);
+        if !fresh {
+            let index = index::index(snapshot, &self.store, path, &mut self.memo)?;
+            self.index = Some((revision, manifest, index));
+        }
+        self.index.as_ref().map(|(_, _, index)| index)
+    }
+
+    /// `location` as the protocol names it, its file read through the
+    /// snapshot for its positions.
+    fn location(&self, snapshot: &Snapshot, location: &nomi_ide::Location) -> Option<Location> {
+        let text = snapshot.read(&location.path).ok()?;
+        let uri = Url::from_file_path(&location.path).ok()?;
+        Some(Location::new(
+            uri,
+            Text::new(&text, self.unit).range(location.range),
+        ))
+    }
+
+    fn definition(
+        &mut self,
+        position: &TextDocumentPositionParams,
+    ) -> Result<Value, (ErrorCode, String)> {
+        let (document, offset) = self.at(position)?;
+        let path = document.path.clone();
+        let snapshot = self.vfs.snapshot();
+        let found = (self.index(&snapshot, &path))
+            .and_then(|index| nomi_ide::definition(&snapshot, index, &path, offset));
+        let response = (found.as_ref())
+            .and_then(|l| self.location(&snapshot, l))
+            .map(GotoDefinitionResponse::Scalar);
+        Ok(serde_json::to_value(response).expect("a definition serializes"))
+    }
+
+    fn references(
+        &mut self,
+        position: &TextDocumentPositionParams,
+        with_declaration: bool,
+    ) -> Result<Value, (ErrorCode, String)> {
+        let (document, offset) = self.at(position)?;
+        let path = document.path.clone();
+        let snapshot = self.vfs.snapshot();
+        let found = (self.index(&snapshot, &path))
+            .map(|index| nomi_ide::references(&snapshot, index, &path, offset, with_declaration))
+            .unwrap_or_default();
+        let locations: Vec<Location> = (found.iter())
+            .filter_map(|l| self.location(&snapshot, l))
+            .collect();
+        Ok(serde_json::to_value(locations).expect("references serialize"))
+    }
+
+    fn highlights(
+        &mut self,
+        position: &TextDocumentPositionParams,
+    ) -> Result<Value, (ErrorCode, String)> {
+        let (document, offset) = self.at(position)?;
+        let path = document.path.clone();
+        let snapshot = self.vfs.snapshot();
+        let found = (self.index(&snapshot, &path))
+            .map(|index| nomi_ide::highlights(&snapshot, index, &path, offset))
+            .unwrap_or_default();
+        let document = self.document(&position.text_document.uri)?;
+        let text = Text::new(&document.text, self.unit);
+        let highlights: Vec<DocumentHighlight> = (found.into_iter())
+            .map(|range| DocumentHighlight {
+                range: text.range(range),
+                kind: None,
+            })
+            .collect();
+        Ok(serde_json::to_value(highlights).expect("highlights serialize"))
     }
 }
 

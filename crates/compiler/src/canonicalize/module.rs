@@ -16,6 +16,7 @@ use super::expr::{self, FreeLocals};
 use super::foreign::{initial_env, with_defaults};
 use super::local::{self, Aliases, Unions};
 use super::pattern;
+use super::references::{Kind, Recorder, Reference};
 use super::types;
 use crate::canonical::{AliasType, Annotation, Associativity, Home, Type};
 use crate::hir::{self, Def, Exposed, Exposing};
@@ -74,6 +75,28 @@ pub fn canonicalize(
     interfaces: &HashMap<String, Interface>,
     module: &hir::Module,
 ) -> R<Canonical> {
+    canonicalize_with_references(compat, package, interfaces, module).0
+}
+
+/// [`canonicalize`], and what each name resolved to, as far as it got.
+pub fn canonicalize_with_references(
+    compat: Compat,
+    package: &str,
+    interfaces: &HashMap<String, Interface>,
+    module: &hir::Module,
+) -> (R<Canonical>, Vec<Reference>) {
+    let references = Recorder::default();
+    let canonical = canonicalize_into(compat, package, interfaces, module, &references);
+    (canonical, references.take())
+}
+
+fn canonicalize_into(
+    compat: Compat,
+    package: &str,
+    interfaces: &HashMap<String, Interface>,
+    module: &hir::Module,
+    references: &Recorder,
+) -> R<Canonical> {
     let home = Home {
         package: package.to_owned(),
         module: name(module).to_owned(),
@@ -89,7 +112,18 @@ pub fn canonicalize(
         })
         .collect();
     let imports = with_defaults(package, &module.imports);
-    let env = initial_env(compat, &home, interfaces, &imports)?;
+    // The module's own exposing list names its declarations.
+    if let hir::Exposing::Explicit(items) = &module.exports {
+        for item in items {
+            let (name, kind) = match item {
+                hir::Exposed::Lower(n) => (n, Kind::Value),
+                hir::Exposed::Upper(n, _) => (n, Kind::Type),
+                hir::Exposed::Operator(n) => (n, Kind::Binop),
+            };
+            references.global(name.range, &home, &name.text, kind);
+        }
+    }
+    let env = initial_env(compat, &home, interfaces, &imports, references)?;
     let (env, unions, aliases) = local::add(module, env)?;
     // `canonicalizeValues`, in upstream's reverse order.
     let nodes = all(module

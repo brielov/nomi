@@ -18,6 +18,7 @@ pub mod foreign;
 pub mod local;
 pub mod module;
 pub mod pattern;
+pub mod references;
 pub mod report;
 pub mod types;
 

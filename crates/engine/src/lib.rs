@@ -12,6 +12,7 @@ pub mod elm_format;
 mod env;
 pub mod format;
 pub mod graph;
+pub mod index;
 pub mod init;
 pub mod install;
 pub mod names;
@@ -26,6 +27,6 @@ pub mod tree;
 pub mod update;
 mod vfs;
 
-pub use nomi_registry::Web;
+pub use nomi_registry::{Store, Web};
 pub use pool::Pool;
 pub use vfs::{Revision, Snapshot, Vfs};

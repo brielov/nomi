@@ -173,6 +173,11 @@ impl Env {
     pub fn foreigns(&self) -> &Foreigns {
         &self.foreigns
     }
+
+    /// The project's source directories, absolute.
+    pub fn src_dirs(&self) -> &[PathBuf] {
+        &self.src_dirs
+    }
 }
 
 /// The modules a build reads, and where it starts.

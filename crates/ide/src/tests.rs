@@ -134,3 +134,165 @@ fn symbols_are_listed_as_elm_language_server_lists_them() {
         ]
     );
 }
+
+/// A package store holding the compiler's fixture copy of elm/core 1.0.5.
+fn store() -> (tempfile::TempDir, nomi_engine::Store) {
+    fn copy(from: &Path, to: &Path) {
+        fs::create_dir_all(to).unwrap();
+        for entry in fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let target = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy(&entry.path(), &target);
+            } else {
+                fs::copy(entry.path(), target).unwrap();
+            }
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let hash = "0".repeat(40);
+    let core =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages/elm/core/1.0.5");
+    copy(&core, &dir.path().join("sources").join(&hash));
+    let release = dir.path().join("releases/elm/core");
+    fs::create_dir_all(&release).unwrap();
+    fs::write(release.join("1.0.5"), format!("{hash}\n")).unwrap();
+    let store = nomi_engine::Store::new(dir.path().to_owned());
+    (dir, store)
+}
+
+const NAVIGATED: &str = "module Main exposing (main, Shape(..))
+
+import Other exposing (helper)
+
+
+type Shape
+    = Circle Float
+
+
+main =
+    let
+        size =
+            helper 2
+    in
+    area (Circle size) + Other.twice size
+
+
+area shape =
+    case shape of
+        Circle r ->
+            r * r
+";
+
+const OTHER: &str = "module Other exposing (helper, twice)
+
+
+helper x =
+    x
+
+
+twice x =
+    x + x
+";
+
+/// The NAVIGATED project, with `Other` saved beside `Main`.
+fn navigated() -> (
+    tempfile::TempDir,
+    Vfs,
+    std::path::PathBuf,
+    std::path::PathBuf,
+) {
+    let (dir, vfs, path) = open(NAVIGATED);
+    let other = dir.path().join("src/Other.elm");
+    fs::write(&other, OTHER).unwrap();
+    (dir, vfs, path, other)
+}
+
+/// The offset of the `n`th `needle` in `text`, plus `plus`.
+fn offset(text: &str, needle: &str, n: usize) -> TextSize {
+    let at = text.match_indices(needle).nth(n).unwrap().0;
+    TextSize::new(at as u32 + 1)
+}
+
+#[test]
+fn definition_finds_locals_top_level_names_and_other_modules() {
+    let (_dir, vfs, path, other) = navigated();
+    let (_store_dir, store) = store();
+    let snapshot = vfs.snapshot();
+    let index =
+        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    let go = |needle, n| definition(&snapshot, &index, &path, offset(NAVIGATED, needle, n));
+    // `size` in the body, to its `let`.
+    let found = go("size", 1).unwrap();
+    assert_eq!(
+        (found.path.as_path(), at(NAVIGATED, found.range)),
+        (path.as_path(), "size")
+    );
+    assert_eq!(
+        found.range.start(),
+        offset(NAVIGATED, "size", 0) - TextSize::new(1)
+    );
+    // `area`, to its declaration.
+    let found = go("area", 0).unwrap();
+    assert_eq!(
+        found.range.start(),
+        offset(NAVIGATED, "area", 1) - TextSize::new(1)
+    );
+    // `Circle` in a pattern, to its variant.
+    let found = go("Circle", 2).unwrap();
+    assert_eq!(
+        found.range.start(),
+        offset(NAVIGATED, "Circle", 0) - TextSize::new(1)
+    );
+    // `Other.twice`, to the other module.
+    let found = go("twice", 0).unwrap();
+    assert_eq!(found.path, other);
+    assert_eq!(at(OTHER, found.range), "twice");
+    assert_eq!(
+        found.range.start(),
+        offset(OTHER, "twice", 1) - TextSize::new(1)
+    );
+    // `+`, to elm/core's Basics.
+    let found = go("+", 0).unwrap();
+    assert!(found.path.ends_with("src/Basics.elm"), "{found:?}");
+    let basics = fs::read_to_string(&found.path).unwrap();
+    assert_eq!(&basics[found.range], "+");
+}
+
+#[test]
+fn references_and_highlights_find_every_use() {
+    let (_dir, vfs, path, other) = navigated();
+    let (_store_dir, store) = store();
+    let snapshot = vfs.snapshot();
+    let index =
+        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    // `helper`, from its use in Main: with the declaration, Other's
+    // definition first, then Other's exposing list, as Other comes first,
+    // then Main's import and use.
+    let found = references(
+        &snapshot,
+        &index,
+        &path,
+        offset(NAVIGATED, "helper", 1),
+        true,
+    );
+    let found: Vec<(bool, &str)> = (found.iter())
+        .map(|l| {
+            let text = if l.path == other { OTHER } else { NAVIGATED };
+            (l.path == other, at(text, l.range))
+        })
+        .collect();
+    assert_eq!(
+        found,
+        [
+            (true, "helper"),
+            (true, "helper"),
+            (false, "helper"),
+            (false, "helper")
+        ]
+    );
+    // `shape` in `area`, where it binds and where it's used.
+    let found = highlights(&snapshot, &index, &path, offset(NAVIGATED, "shape", 0));
+    let found: Vec<&str> = found.iter().map(|&r| at(NAVIGATED, r)).collect();
+    assert_eq!(found, ["shape", "shape"]);
+}

@@ -6,11 +6,13 @@
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
+use std::rc::Rc;
 
 use nomi_base::{Compat, TextRange};
 
 use super::env::{BinopInfo, CtorInfo, Env, Exposed, TypeInfo, Var, add_exposed};
 use super::error::{Error, NameKind, R, throw};
+use super::references::{Kind, Recorder};
 use crate::canonical::{AliasType, Annotation, Home, Type};
 use crate::hir::{Exposed as Item, Exposing, Import, Spanned};
 use crate::interface::{self, Interface};
@@ -98,6 +100,7 @@ pub fn initial_env<'a>(
     home: &Home,
     interfaces: &'a HashMap<String, Interface>,
     imports: &[Import],
+    references: &Recorder,
 ) -> R<Env<'a>> {
     let core = |module: &str| Home {
         package: "elm/core".to_owned(),
@@ -123,33 +126,42 @@ pub fn initial_env<'a>(
         let Some(interface) = interfaces.get(&import.name.text) else {
             continue;
         };
-        add_import(&mut state, interface, import)?;
+        add_import(&mut state, interface, import, references)?;
     }
     Ok(Env {
         compat,
         home: home.clone(),
-        vars: (state.vars.into_iter())
-            .map(|(name, homes)| (name, Var::Foreign(homes)))
-            .collect(),
-        types: state.types,
-        ctors: state.ctors,
-        binops: state.binops,
-        q_vars: state.q_vars,
-        q_types: state.q_types,
-        q_ctors: state.q_ctors,
+        vars: Rc::new(
+            (state.vars.into_iter())
+                .map(|(name, homes)| (name, Var::Foreign(homes)))
+                .collect(),
+        ),
+        types: Rc::new(state.types),
+        ctors: Rc::new(state.ctors),
+        binops: Rc::new(state.binops),
+        q_vars: Rc::new(state.q_vars),
+        q_types: Rc::new(state.q_types),
+        q_ctors: Rc::new(state.q_ctors),
+        references: references.clone(),
     })
 }
 
 /// A type an import offers, and the constructors it brings.
 type TypeEntry<'a> = (TypeInfo<'a>, Exposed<CtorInfo<'a>>);
 
-fn add_import<'a>(state: &mut State<'a>, interface: &'a Interface, import: &Import) -> R<()> {
+fn add_import<'a>(
+    state: &mut State<'a>,
+    interface: &'a Interface,
+    import: &Import,
+    references: &Recorder,
+) -> R<()> {
     let name = &import.name.text;
     let prefix = import.alias.as_ref().map_or(name, |a| &a.text).clone();
     let home = Home {
         package: interface.home.clone(),
         module: name.clone(),
     };
+    references.global(import.name.range, &home, name, Kind::Module);
     // Unions before aliases, as `Map.union` keeps the left one.
     let mut raw: BTreeMap<String, TypeEntry<'a>> = BTreeMap::new();
     for (type_name, alias) in &interface.aliases {
@@ -204,6 +216,7 @@ fn add_import<'a>(state: &mut State<'a>, interface: &'a Interface, import: &Impo
                 match item {
                     Item::Lower(value) => match vars.get(&value.text) {
                         Some(homes) => {
+                            references.global(value.range, &home, &value.text, Kind::Value);
                             let entry = state.vars.entry(value.text.clone()).or_default();
                             for (h, a) in homes {
                                 entry.insert(h.clone(), a);
@@ -221,6 +234,7 @@ fn add_import<'a>(state: &mut State<'a>, interface: &'a Interface, import: &Impo
                     },
                     Item::Upper(type_name, open) => match (raw.get(&type_name.text), open) {
                         (Some((info @ TypeInfo::Union { .. }, type_ctors)), _) => {
+                            references.global(type_name.range, &home, &type_name.text, Kind::Type);
                             state
                                 .types
                                 .insert(type_name.text.clone(), single(&home, info.clone()));
@@ -229,6 +243,7 @@ fn add_import<'a>(state: &mut State<'a>, interface: &'a Interface, import: &Impo
                             }
                         }
                         (Some((info @ TypeInfo::Alias { .. }, type_ctors)), None) => {
+                            references.global(type_name.range, &home, &type_name.text, Kind::Type);
                             state
                                 .types
                                 .insert(type_name.text.clone(), single(&home, info.clone()));
@@ -262,6 +277,7 @@ fn add_import<'a>(state: &mut State<'a>, interface: &'a Interface, import: &Impo
                     },
                     Item::Operator(op) => match interface.binops.get(&op.text) {
                         Some(b) => {
+                            references.global(op.range, &home, &op.text, Kind::Binop);
                             state
                                 .binops
                                 .insert(op.text.clone(), single(&home, binop(&op.text, b)));

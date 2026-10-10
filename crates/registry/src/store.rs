@@ -91,6 +91,32 @@ impl Store {
         Ok(sources.filter(|dir| dir.is_dir()))
     }
 
+    /// The releases of `name` already downloaded, oldest first.
+    pub fn versions(&self, name: &Name) -> io::Result<Vec<Version>> {
+        let dir = self
+            .dir
+            .join("releases")
+            .join(name.author())
+            .join(name.project());
+        let entries = match fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e),
+        };
+        let mut versions = Vec::new();
+        for entry in entries {
+            let file = entry?.file_name();
+            let parts: Option<Vec<u32>> = (file.to_str().unwrap_or("").split('.'))
+                .map(|part| part.parse().ok())
+                .collect();
+            if let Some(&[major, minor, patch]) = parts.as_deref() {
+                versions.push(Version::new(major, minor, patch));
+            }
+        }
+        versions.sort();
+        Ok(versions)
+    }
+
     /// The sources of a release, downloaded unless they already are.
     pub fn fetch(
         &self,

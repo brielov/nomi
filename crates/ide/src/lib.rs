@@ -1,8 +1,9 @@
 //! What an editor asks about Elm files, answered over engine snapshots
 //! (architecture §9), with byte ranges in the file's text; `lsp` turns
 //! them into protocol positions. So far: the syntax error elm reports,
-//! formatting as edits, and the symbols a file declares.
+//! formatting as edits, the symbols a file declares, and navigation.
 
+mod navigation;
 mod symbols;
 
 use std::io;
@@ -15,6 +16,7 @@ use nomi_engine::report::syntax_problem;
 use nomi_project::Outline;
 use nomi_syntax::{Source, Tool, parse_module, validate};
 
+pub use navigation::{Location, definition, highlights, references};
 pub use symbols::{Symbol, SymbolKind, document_symbols};
 
 /// A problem in a file, as elm reports it.

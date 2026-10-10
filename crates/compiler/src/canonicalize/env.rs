@@ -5,10 +5,12 @@
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use nomi_base::{Compat, TextRange};
 
 use super::error::{Error, NameKind, PossibleNames, R, throw};
+use super::references::{Kind, Recorder};
 use crate::canonical::{Annotation, Associativity, Home, Type, Union};
 
 /// Names exposed unqualified: each name's homes (`Env.Exposed`).
@@ -17,19 +19,22 @@ pub type Exposed<T> = BTreeMap<String, BTreeMap<Home, T>>;
 /// Names under each qualifier (`Env.Qualified`).
 pub type Qualified<T> = BTreeMap<String, Exposed<T>>;
 
-/// `Env.Env`.
+/// `Env.Env`. Every scope copies it, so the tables a scope doesn't change
+/// are shared.
 #[derive(Clone, Debug)]
 pub struct Env<'a> {
     /// The release whose order names take where it shows.
     pub compat: Compat,
     pub home: Home,
-    pub vars: BTreeMap<String, Var<'a>>,
-    pub types: Exposed<TypeInfo<'a>>,
-    pub ctors: Exposed<CtorInfo<'a>>,
-    pub binops: Exposed<BinopInfo<'a>>,
-    pub q_vars: Qualified<&'a Annotation>,
-    pub q_types: Qualified<TypeInfo<'a>>,
-    pub q_ctors: Qualified<CtorInfo<'a>>,
+    pub vars: Rc<BTreeMap<String, Var<'a>>>,
+    pub types: Rc<Exposed<TypeInfo<'a>>>,
+    pub ctors: Rc<Exposed<CtorInfo<'a>>>,
+    pub binops: Rc<Exposed<BinopInfo<'a>>>,
+    pub q_vars: Rc<Qualified<&'a Annotation>>,
+    pub q_types: Rc<Qualified<TypeInfo<'a>>>,
+    pub q_ctors: Rc<Qualified<CtorInfo<'a>>>,
+    /// What each name resolved to, for navigation.
+    pub references: Recorder,
 }
 
 /// `Env.Var`.
@@ -158,7 +163,7 @@ impl<'a> Env<'a> {
             let range = names[name];
             match env.vars.get(name) {
                 None | Some(Var::Foreign(_)) => {
-                    env.vars.insert(name.clone(), Var::Local(range));
+                    Rc::make_mut(&mut env.vars).insert(name.clone(), Var::Local(range));
                 }
                 Some(Var::Local(parent) | Var::TopLevel(parent)) => {
                     errors.push(Error::Shadowing {
@@ -182,14 +187,17 @@ impl<'a> Env<'a> {
         prefix: Option<&str>,
         name: &str,
     ) -> R<&TypeInfo<'a>> {
-        find(
+        let info = find(
             NameKind::Type,
             range,
             &self.types,
             &self.q_types,
             prefix,
             name,
-        )
+        )?;
+        let (TypeInfo::Alias { home, .. } | TypeInfo::Union { home, .. }) = info;
+        self.references.global(range, home, name, Kind::Type);
+        Ok(info)
     }
 
     pub fn find_ctor(
@@ -198,25 +206,30 @@ impl<'a> Env<'a> {
         prefix: Option<&str>,
         name: &str,
     ) -> R<&CtorInfo<'a>> {
-        find(
+        let info = find(
             NameKind::Variant,
             range,
             &self.ctors,
             &self.q_ctors,
             prefix,
             name,
-        )
+        )?;
+        let (CtorInfo::Record { home, .. } | CtorInfo::Ctor { home, .. }) = info;
+        self.references.global(range, home, name, Kind::Ctor);
+        Ok(info)
     }
 
     pub fn find_binop(&self, range: TextRange, op: &str) -> R<&BinopInfo<'a>> {
         match self.binops.get(op) {
-            Some(homes) => one(homes).or_else(|homes| {
-                throw(Error::AmbiguousBinop {
-                    range,
-                    op: op.to_owned(),
-                    homes,
-                })
-            }),
+            Some(homes) => one(homes)
+                .inspect(|b| self.references.global(range, &b.home, op, Kind::Binop))
+                .or_else(|homes| {
+                    throw(Error::AmbiguousBinop {
+                        range,
+                        op: op.to_owned(),
+                        homes,
+                    })
+                }),
             None => throw(Error::NotFoundBinop {
                 range,
                 op: op.to_owned(),
