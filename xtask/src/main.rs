@@ -117,6 +117,20 @@ enum CorpusCommand {
         /// Only projects whose case contains this text.
         only: Option<String>,
     },
+    /// Where two `.elmo` files' graphs first differ, nomi's and elm's.
+    GraphDiff {
+        /// The release that wrote them, as `0.19.1`.
+        release: String,
+        nomi: PathBuf,
+        elm: PathBuf,
+    },
+    /// Tier 2, by hand: whether nomi optimizes every module of every
+    /// corpus app and package as each elm did (`cargo xtask oracle
+    /// corpus-graphs`), downloading dependencies as `names` does.
+    Graphs {
+        /// Only projects whose case contains this text.
+        only: Option<String>,
+    },
     /// Tier 2: whether every module elm accepts lowers to the HIR with its
     /// source map whole.
     Hir,
@@ -189,6 +203,17 @@ enum OracleCommand {
     /// Store each elm's transcript of every case of the CLI report
     /// matrix (plan 7.5a).
     Make,
+    /// Store a digest of the `.elmo` of every module each elm builds for
+    /// every corpus app and package, as `corpus-check` runs elm.
+    CorpusGraphs {
+        /// Concurrent elm runs; the available cores by default.
+        #[arg(long)]
+        jobs: Option<usize>,
+        /// Print the cells of the projects whose case contains this text
+        /// instead.
+        #[arg(long)]
+        only: Option<String>,
+    },
     /// Store what each elm makes of every corpus app and package with
     /// `elm make --output=/dev/null`, offline, as `corpus-docs` does.
     CorpusCheck {
@@ -242,6 +267,9 @@ fn main() -> ExitCode {
             OracleCommand::CorpusDocs { jobs, only } => {
                 oracle::corpus_runs::run(&root(), &r, Suite::Docs, jobs, only.as_deref())
             }
+            OracleCommand::CorpusGraphs { jobs, only } => {
+                oracle::corpus_runs::run(&root(), &r, Suite::Graphs, jobs, only.as_deref())
+            }
             OracleCommand::CorpusCheck { jobs, only } => {
                 oracle::corpus_runs::run(&root(), &r, Suite::Check, jobs, only.as_deref())
             }
@@ -285,6 +313,12 @@ fn main() -> ExitCode {
             }
             CorpusCommand::Check { only } => {
                 corpus::runs::check(&root(), Suite::Check, only.as_deref())
+            }
+            CorpusCommand::GraphDiff { release, nomi, elm } => {
+                corpus::runs::graph_diff(&release, &nomi, &elm)
+            }
+            CorpusCommand::Graphs { only } => {
+                corpus::runs::check(&root(), Suite::Graphs, only.as_deref())
             }
             CorpusCommand::Outline => corpus::outline::check(&root()),
             CorpusCommand::Deps => corpus::deps::check(&root()),

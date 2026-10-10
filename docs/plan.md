@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **8.4a**.
+4. Resume at the first unchecked box. Right now that is **8.4b**.
 
 ### Test tiers
 
@@ -473,7 +473,9 @@ The optimizer's oracle is elm's own artifacts: every elm writes a module's optim
 - [x] **8.4** `codegen-js: kernel chunk parser` (`Elm/Kernel.hs`).
 
   Done: the new crate `nomi-codegen-js` starts with `kernel`: a kernel module's header of Elm imports, its code split at `__` tags into upstream's chunks, and `add_kernel` making it a node of a package's graph, field counts replacing the graph's as upstream's left-biased union does. `Global::kernel` names a kernel's global for each release. Every kernel node in the `o.dat` each elm wrote for the optimizer cases, elm/core's and elm/json's, is what nomi parses from the vendored files, chunks and needed globals alike. The three releases parse kernels alike.
-- [ ] **8.4a** `oracle: corpus module graphs`. The `.elmo` of every module elm builds for each corpus app and package, for each Compat, recorded as `corpus-check` runs elm. **Check:** byte-identical across the corpus.
+- [x] **8.4a** `oracle: corpus module graphs`. The `.elmo` of every module elm builds for each corpus app and package, for each Compat, recorded as `corpus-check` runs elm. **Check:** byte-identical across the corpus.
+
+  Done: `cargo xtask oracle corpus-graphs` runs each elm on every corpus project as `corpus-check` does and keeps a digest of every `.elmo` it writes, the files themselves left in the sandbox; `cargo xtask corpus graphs` optimizes every module as nomi checks them and finds all 5,664 runs the same, byte for byte, with 51 skipped for releases the registry no longer serves; `cargo xtask corpus graph-diff` shows where two `.elmo` files' graphs part. It turned up four bugs. A shader's source is kept escaped, carriage returns dropped. A `case` of hundreds of branches took minutes, since upstream breaks ties between paths by counting edges that its laziness never builds, which nomi built; it now counts them. And two from canonicalization, in the order of a `let`'s destructurings: upstream lists the nodes last first, which orders those whose keys tie, as every `_ =` does, and 0.19.1 keys a record pattern by the last field written. A sixteenth optimizer case, `let_order`, keeps the last two in CI.
 - [ ] **8.4b** `oracle: corpus dependency graphs`. The `o.dat` of every corpus project: its dependencies' graphs, kernels included, merged as `Details.hs` merges them. **Check:** byte-identical across the corpus.
 - [ ] **8.5** `codegen-js: builder and names`. Exact whitespace, plus the salvaged string escaping, `ElmChar` and BigInt literals.
 - [ ] **8.6** `codegen-js: expressions`. Currying helpers, records, decision trees and tail loops.

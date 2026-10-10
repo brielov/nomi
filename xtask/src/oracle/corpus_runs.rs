@@ -53,6 +53,8 @@ pub enum Suite {
     Docs,
     /// `elm make --output=/dev/null` on every app and package.
     Check,
+    /// The same, keeping the `.elmo` of every module elm built.
+    Graphs,
 }
 
 impl Suite {
@@ -61,6 +63,7 @@ impl Suite {
         match self {
             Suite::Docs => "corpus/docs/oracle.tsv",
             Suite::Check => "corpus/check/oracle.tsv",
+            Suite::Graphs => "corpus/graphs/oracle.tsv",
         }
     }
 
@@ -68,6 +71,7 @@ impl Suite {
         match self {
             Suite::Docs => "corpus-docs",
             Suite::Check => "corpus-check",
+            Suite::Graphs => "corpus-graphs",
         }
     }
 }
@@ -99,7 +103,7 @@ pub fn run(
         "the development cache has no releases; run `cargo xtask corpus names`"
     );
     let mut projects = Vec::new();
-    if suite == Suite::Check {
+    if suite != Suite::Docs {
         for app in apps::load(root)?.app {
             projects.push(Project {
                 case: format!("app/{}", app.name),
@@ -277,7 +281,9 @@ fn record(
         command.arg("make");
         match suite {
             Suite::Docs => command.arg("--docs=docs.json"),
-            Suite::Check => command.args(project.app.iter().flat_map(|a| &a.entries)),
+            Suite::Check | Suite::Graphs => {
+                command.args(project.app.iter().flat_map(|a| &a.entries))
+            }
         };
         command
             .args(["--report=json", "--output=/dev/null"])
@@ -317,6 +323,27 @@ fn record(
         fs::write(out.join(format!("{id}.docs.json")), &docs)?;
         fs::remove_dir_all(&work)?;
         return Ok(format!("docs {}", sha256(&docs)));
+    }
+    if suite == Suite::Graphs && output.status.success() {
+        let stuff = dir.join("elm-stuff").join(version_dir(&dir)?);
+        let mut modules = Vec::new();
+        let kept = out.join(&id);
+        fs::create_dir_all(&kept)?;
+        for entry in fs::read_dir(&stuff)? {
+            let path = entry?.path();
+            let file = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            if let Some(stem) = file.strip_suffix(".elmo") {
+                let bytes = fs::read(&path)?;
+                fs::write(kept.join(&file), &bytes)?;
+                modules.push((stem.replace('-', "."), bytes));
+            }
+        }
+        fs::remove_dir_all(&work)?;
+        return Ok(graphs_cell(modules));
     }
     if suite == Suite::Check && output.status.success() {
         fs::write(out.join(format!("{id}.stdout")), &output.stdout)?;
@@ -387,6 +414,26 @@ fn timed(mut command: Command, dir: &Path) -> Result<Option<Output>> {
         stdout: fs::read(stdout)?,
         stderr: fs::read(stderr)?,
     }))
+}
+
+/// The `elm-stuff` directory elm made in `dir`, named after its release.
+fn version_dir(dir: &Path) -> Result<String> {
+    let entry = fs::read_dir(dir.join("elm-stuff"))?
+        .next()
+        .context("elm left no elm-stuff")??;
+    Ok(entry.file_name().to_string_lossy().into_owned())
+}
+
+/// The cell for a project's module graphs, each a module's name and the
+/// bytes of its `.elmo`: `graphs <digest> <count>`, the digest over each
+/// name and the SHA-256 of its bytes, in the order of names.
+pub fn graphs_cell(mut modules: Vec<(String, Vec<u8>)>) -> String {
+    modules.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut listing = String::new();
+    for (name, bytes) in &modules {
+        listing.push_str(&format!("{name} {}\n", sha256(bytes)));
+    }
+    format!("graphs {} {}", sha256(listing.as_bytes()), modules.len())
 }
 
 /// The cell for a report: `errors <hash> <first title>` for one about

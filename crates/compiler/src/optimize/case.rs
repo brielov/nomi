@@ -5,7 +5,7 @@
 //! leaf reaches them and jumped to where several do. The order things
 //! are gathered in is upstream's, ties included, since it shapes the tree.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use nomi_base::Compat;
 
@@ -63,27 +63,62 @@ struct Branch {
     patterns: Vec<(DtPath, Pattern)>,
 }
 
-/// `compile`.
+/// `compile`. Character and string literals are converted once, to the
+/// values the release tests, which the patterns then hold.
 fn compile(compat: Compat, branches: Vec<(Pattern, usize)>) -> Tree {
     let branches = (branches.into_iter())
-        .map(|(pattern, goal)| Branch {
-            goal,
-            patterns: vec![(DtPath::Empty, pattern)],
+        .map(|(mut pattern, goal)| {
+            convert_literals(compat, &mut pattern);
+            Branch {
+                goal,
+                patterns: vec![(DtPath::Empty, pattern)],
+            }
         })
         .collect();
-    to_tree(compat, branches)
+    to_tree(branches)
+}
+
+/// Each character and string literal in `pattern` as the release keeps it.
+fn convert_literals(compat: Compat, pattern: &mut Pattern) {
+    match &mut pattern.kind {
+        PatternKind::Chr(text) => *text = literal::char(compat, text),
+        PatternKind::Str(text) => *text = literal::string(compat, text),
+        PatternKind::Alias(sub, _) => convert_literals(compat, sub),
+        PatternKind::Tuple(a, b, c) => {
+            convert_literals(compat, a);
+            convert_literals(compat, b);
+            if let Some(c) = c {
+                convert_literals(compat, c);
+            }
+        }
+        PatternKind::List(items) => {
+            for item in items {
+                convert_literals(compat, item);
+            }
+        }
+        PatternKind::Cons(head, tail) => {
+            convert_literals(compat, head);
+            convert_literals(compat, tail);
+        }
+        PatternKind::Ctor { args, .. } => {
+            for arg in args {
+                convert_literals(compat, &mut arg.arg);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// `toDecisionTree`.
-fn to_tree(compat: Compat, branches: Vec<Branch>) -> Tree {
+fn to_tree(branches: Vec<Branch>) -> Tree {
     let branches: Vec<Branch> = branches.into_iter().map(flatten_patterns).collect();
     if let Some(goal) = check_for_match(&branches) {
         return Tree::Match(goal);
     }
-    let path = pick_path(compat, &branches);
-    let (edges, fallback) = gather_edges(compat, &branches, &path);
+    let path = pick_path(&branches);
+    let (edges, fallback) = gather_edges(&branches, &path);
     let mut edges: Vec<(Test, Tree)> = (edges.into_iter())
-        .map(|(test, branches)| (test, to_tree(compat, branches)))
+        .map(|(test, branches)| (test, to_tree(branches)))
         .collect();
     match (edges.len(), fallback.is_empty()) {
         (1, true) => edges.pop().expect("one edge").1,
@@ -92,11 +127,11 @@ fn to_tree(compat: Compat, branches: Vec<Branch>) -> Tree {
             edges,
             default: None,
         },
-        (0, false) => to_tree(compat, fallback),
+        (0, false) => to_tree(fallback),
         (_, false) => Tree::Decision {
             path,
             edges,
-            default: Some(Box::new(to_tree(compat, fallback))),
+            default: Some(Box::new(to_tree(fallback))),
         },
     }
 }
@@ -166,12 +201,8 @@ fn check_for_match(branches: &[Branch]) -> Option<usize> {
 
 /// `gatherEdges`: a branch list per test at `path`, and the branches for
 /// when none matches.
-fn gather_edges(
-    compat: Compat,
-    branches: &[Branch],
-    path: &DtPath,
-) -> (Vec<(Test, Vec<Branch>)>, Vec<Branch>) {
-    let tests = tests_at_path(compat, path, branches);
+fn gather_edges(branches: &[Branch], path: &DtPath) -> (Vec<(Test, Vec<Branch>)>, Vec<Branch>) {
+    let tests = tests_at_path(path, branches);
     let fallback = if is_complete(&tests) {
         Vec::new()
     } else {
@@ -183,7 +214,7 @@ fn gather_edges(
     let edges = (tests.into_iter())
         .map(|test| {
             let relevant = (branches.iter())
-                .filter_map(|b| to_relevant_branch(compat, &test, path, b))
+                .filter_map(|b| to_relevant_branch(&test, path, b))
                 .collect();
             (test, relevant)
         })
@@ -193,16 +224,18 @@ fn gather_edges(
 
 /// `testsAtPath`: each test once, where it last appears, as upstream's
 /// right fold keeps them.
-fn tests_at_path(compat: Compat, path: &DtPath, branches: &[Branch]) -> Vec<Test> {
+fn tests_at_path(path: &DtPath, branches: &[Branch]) -> Vec<Test> {
     let all: Vec<Test> = (branches.iter())
-        .filter_map(|b| test_at_path(compat, path, b))
+        .filter_map(|b| test_at_path(path, b))
         .collect();
+    let mut seen = HashSet::new();
     let mut unique: Vec<Test> = Vec::new();
     for test in all.into_iter().rev() {
-        if !unique.contains(&test) {
-            unique.insert(0, test);
+        if seen.insert(test.clone()) {
+            unique.push(test);
         }
     }
+    unique.reverse();
     unique
 }
 
@@ -214,7 +247,7 @@ fn lookup<'b>(path: &DtPath, branch: &'b Branch) -> Option<&'b Pattern> {
 }
 
 /// `testAtPath`.
-fn test_at_path(compat: Compat, path: &DtPath, branch: &Branch) -> Option<Test> {
+fn test_at_path(path: &DtPath, branch: &Branch) -> Option<Test> {
     match &lookup(path, branch)?.kind {
         PatternKind::Ctor {
             home,
@@ -233,8 +266,8 @@ fn test_at_path(compat: Compat, path: &DtPath, branch: &Branch) -> Option<Test> 
         PatternKind::List(_) | PatternKind::Cons(..) => Some(Test::IsCons),
         PatternKind::Tuple(..) | PatternKind::Unit => Some(Test::IsTuple),
         PatternKind::Int(n) => Some(Test::IsInt(*n)),
-        PatternKind::Str(token) => Some(Test::IsStr(literal::string(compat, token))),
-        PatternKind::Chr(token) => Some(Test::IsChr(literal::char(compat, token))),
+        PatternKind::Str(text) => Some(Test::IsStr(text.clone())),
+        PatternKind::Chr(text) => Some(Test::IsChr(text.clone())),
         PatternKind::Bool(_, b) => Some(Test::IsBool(*b)),
         PatternKind::Var(_) | PatternKind::Anything | PatternKind::Record(_) => None,
         PatternKind::Alias(..) => unreachable!("aliases are flattened before testing"),
@@ -243,12 +276,7 @@ fn test_at_path(compat: Compat, path: &DtPath, branch: &Branch) -> Option<Test> 
 
 /// `toRelevantBranch`: what `branch` still needs once `test` passed at
 /// `path`, or `None` if it can't pass.
-fn to_relevant_branch(
-    compat: Compat,
-    test: &Test,
-    path: &DtPath,
-    branch: &Branch,
-) -> Option<Branch> {
+fn to_relevant_branch(test: &Test, path: &DtPath, branch: &Branch) -> Option<Branch> {
     let Some(at) = branch.patterns.iter().position(|(p, _)| p == path) else {
         return Some(branch.clone());
     };
@@ -301,12 +329,12 @@ fn to_relevant_branch(
             Test::IsCons => with(positions(vec![(**head).clone(), (**tail).clone()])),
             _ => None,
         },
-        PatternKind::Chr(token) => match test {
-            Test::IsChr(c) if *c == literal::char(compat, token) => with(Vec::new()),
+        PatternKind::Chr(text) => match test {
+            Test::IsChr(c) if c == text => with(Vec::new()),
             _ => None,
         },
-        PatternKind::Str(token) => match test {
-            Test::IsStr(s) if *s == literal::string(compat, token) => with(Vec::new()),
+        PatternKind::Str(text) => match test {
+            Test::IsStr(s) if s == text => with(Vec::new()),
             _ => None,
         },
         PatternKind::Int(n) => match test {
@@ -346,7 +374,7 @@ fn needs_tests(pattern: &Pattern) -> bool {
 
 /// `pickPath`: the path whose test leaves the fewest branches to the
 /// default, then the one with the fewest edges.
-fn pick_path(compat: Compat, branches: &[Branch]) -> DtPath {
+fn pick_path(branches: &[Branch]) -> DtPath {
     let all: Vec<DtPath> = (branches.iter())
         .flat_map(|b| &b.patterns)
         .filter(|(_, p)| needs_tests(p))
@@ -364,9 +392,13 @@ fn pick_path(compat: Compat, branches: &[Branch]) -> DtPath {
     if tied.len() == 1 {
         return tied.into_iter().next().expect("one path");
     }
+    // `smallBranchingFactor` counts the edges `gatherEdges` would make,
+    // which upstream's laziness never builds, and whether any branch
+    // falls back.
     let branching = |path: &DtPath| {
-        let (edges, fallback) = gather_edges(compat, branches, path);
-        edges.len() + usize::from(!fallback.is_empty())
+        let tests = tests_at_path(path, branches);
+        let fallback = !is_complete(&tests) && branches.iter().any(|b| is_irrelevant_to(path, b));
+        tests.len() + usize::from(fallback)
     };
     bests(tied.into_iter().map(|p| {
         let weight = branching(&p);

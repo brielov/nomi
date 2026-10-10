@@ -1,9 +1,12 @@
 //! Whether nomi makes of every corpus project what each elm made of it,
-//! as `cargo xtask oracle corpus-docs` and `corpus-check` recorded:
+//! as `cargo xtask oracle corpus-docs`, `corpus-check` and
+//! `corpus-graphs` recorded:
 //! `cargo xtask corpus docs` wants the same `docs.json` of every package,
 //! byte for byte (plan 7.4a), and `cargo xtask corpus check` the silence
-//! of `nomi check` on every app and package elm accepted (plan 7.5); and
-//! both the same `--report=json` wherever elm rejected the project. Each
+//! of `nomi check` on every app and package elm accepted (plan 7.5);
+//! `cargo xtask corpus graphs` the same optimized graph of every module
+//! elm built (plan 8.4a); and all the same `--report=json` wherever elm
+//! rejected the project. Each
 //! project's dependencies are solved and downloaded as `corpus names`
 //! does, so this runs by hand, never in CI. A project elm couldn't build
 //! for want of a release the cache lacked is skipped.
@@ -15,6 +18,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use nomi_base::Compat;
 use nomi_compiler::interface::Interface;
+use nomi_compiler::optimized::binary;
 use nomi_engine::check::{self, Checked, Style};
 use nomi_engine::console::{Console, Personality};
 use nomi_engine::graph::Foreigns;
@@ -36,7 +40,7 @@ pub fn check(root: &Path, suite: Suite, only: Option<&str>) -> Result<()> {
         let c = (Compat::ALL.into_iter())
             .find(|c| c.to_string() == *v)
             .with_context(|| format!("nomi doesn't emulate elm {v}"))?;
-        let solving = solve(root, &classification, c, v, only, suite == Suite::Check)?;
+        let solving = solve(root, &classification, c, v, only, suite != Suite::Docs)?;
         // Dependencies without a solution stop elm before any module too.
         for (case, why) in solving.failures {
             let elm = oracle.get(&(package_case(&case), format!("elm {v}")));
@@ -93,6 +97,7 @@ pub fn check(root: &Path, suite: Suite, only: Option<&str>) -> Result<()> {
     let (name, kind) = match suite {
         Suite::Docs => ("docs", "packages"),
         Suite::Check => ("check", "projects"),
+        Suite::Graphs => ("graphs", "projects"),
     };
     println!(
         "{name}: {matching} {kind} made as elm makes them, {} not, {} skipped",
@@ -103,6 +108,30 @@ pub fn check(root: &Path, suite: Suite, only: Option<&str>) -> Result<()> {
         bail!("{} {kind} differ", failures.len());
     }
     Ok(())
+}
+
+/// Which of `modules` differ from the `.elmo` files the oracle kept for
+/// `case`, if it kept them; nomi's are written beside them for a look.
+fn differing(compat: Compat, case: &str, modules: &[(String, Vec<u8>)]) -> Option<String> {
+    let id = package_case(case).replace('/', "__");
+    let sandbox = crate::oracle::cache_dir()
+        .ok()?
+        .join("sandboxes/corpus/corpus-graphs");
+    let elm = sandbox.join(compat.to_string()).join("out").join(&id);
+    if !elm.is_dir() {
+        return None;
+    }
+    let nomi = sandbox.join(compat.to_string()).join("nomi").join(&id);
+    let _ = std::fs::create_dir_all(&nomi);
+    let mut differ = Vec::new();
+    for (name, bytes) in modules {
+        let file = format!("{}.elmo", name.replace('.', "-"));
+        let _ = std::fs::write(nomi.join(&file), bytes);
+        if std::fs::read(elm.join(&file)).ok().as_deref() != Some(bytes.as_slice()) {
+            differ.push(name.clone());
+        }
+    }
+    Some(differ.join(", "))
 }
 
 /// The oracle's cells, by project case and elm.
@@ -193,6 +222,29 @@ fn run(
             }
             checked
         }
+        Suite::Graphs => {
+            let (checked, graphs) = check::optimize(
+                &snapshot,
+                &env,
+                &project.outline,
+                &project.paths,
+                Personality::Elm,
+                &visible,
+            );
+            if matches!(checked, Checked::Fine) {
+                let modules: Vec<(String, Vec<u8>)> = (graphs.into_iter())
+                    .map(|(name, graph)| {
+                        (name.to_string(), binary::encode_local_graph(&graph, compat))
+                    })
+                    .collect();
+                let cell = corpus_runs::graphs_cell(modules.clone());
+                return Ok(match differing(compat, &project.case, &modules) {
+                    Some(why) if !why.is_empty() => format!("{cell} ({why})"),
+                    _ => cell,
+                });
+            }
+            checked
+        }
     };
     let mut console = Captured::default();
     check::show(&mut console, &root, &checked, compat, Style::Json);
@@ -220,4 +272,48 @@ impl Console for Captured {
     fn read_all(&mut self) -> io::Result<Vec<u8>> {
         Ok(Vec::new())
     }
+}
+
+/// `cargo xtask corpus graph-diff`: where the graph in `nomi` first
+/// differs from the one in `elm`, both `.elmo` files of release `v`.
+pub fn graph_diff(v: &str, nomi: &Path, elm: &Path) -> Result<()> {
+    let compat = (Compat::ALL.into_iter())
+        .find(|c| c.to_string() == v)
+        .with_context(|| format!("nomi doesn't emulate elm {v}"))?;
+    let read = |path: &Path| -> Result<nomi_compiler::optimized::LocalGraph> {
+        binary::decode_local_graph(&std::fs::read(path)?, compat)
+            .with_context(|| format!("{} doesn't decode", path.display()))
+    };
+    let (ours, theirs) = (read(nomi)?, read(elm)?);
+    if ours.main != theirs.main {
+        println!("main:\n  nomi: {:?}\n  elm:  {:?}", ours.main, theirs.main);
+    }
+    for (global, node) in &theirs.nodes {
+        match ours.nodes.get(global) {
+            None => println!("nomi has no {}", global.name),
+            Some(n) if n != node => {
+                let (a, b) = (format!("{n:?}"), format!("{node:?}"));
+                let at = a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count();
+                let from = at.saturating_sub(150);
+                let end = |s: &str| s.len().min(at + 250);
+                println!(
+                    "{} differs at {at}:\n  nomi: …{}\n  elm:  …{}",
+                    global.name,
+                    &a[from..end(&a)],
+                    &b[from..end(&b)]
+                );
+            }
+            Some(_) => {}
+        }
+    }
+    for global in ours.nodes.keys().filter(|g| !theirs.nodes.contains_key(*g)) {
+        println!("elm has no {}", global.name);
+    }
+    if ours.fields != theirs.fields {
+        println!(
+            "fields:\n  nomi: {:?}\n  elm:  {:?}",
+            ours.fields, theirs.fields
+        );
+    }
+    Ok(())
 }

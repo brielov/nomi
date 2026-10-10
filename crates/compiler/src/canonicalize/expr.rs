@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use nomi_base::TextRange;
+use nomi_base::{Compat, TextRange};
 
 use super::binops;
 use super::dups::{Dict, check_fields};
@@ -649,7 +649,7 @@ fn def_node(
             })?;
             let mut inner = FreeLocals::new();
             let cbody = canonicalize(env, module, *body, &mut inner)?;
-            let names = pattern_names(module, *pattern);
+            let names = pattern_names(env.compat, module, *pattern);
             // `Name.fromManyNames`: `_M$` and the first name, which no
             // name of the source can be.
             let key = names
@@ -721,9 +721,10 @@ pub fn definition(
     }
 }
 
-/// `getPatternNames`, in the order it lists them.
-fn pattern_names(module: &hir::Module, id: PatId) -> Vec<(String, TextRange)> {
-    fn go(module: &hir::Module, id: PatId, names: &mut Vec<(String, TextRange)>) {
+/// `getPatternNames`, in the order it lists them. 0.19.1's parser keeps
+/// a record pattern's fields last first.
+fn pattern_names(compat: Compat, module: &hir::Module, id: PatId) -> Vec<(String, TextRange)> {
+    fn go(compat: Compat, module: &hir::Module, id: PatId, names: &mut Vec<(String, TextRange)>) {
         let region = module
             .source_map
             .pattern(id)
@@ -733,20 +734,25 @@ fn pattern_names(module: &hir::Module, id: PatId) -> Vec<(String, TextRange)> {
             hir::Pattern::Var(name) => names.insert(0, (name.clone(), region)),
             hir::Pattern::Record(fields) => {
                 let mut new: Vec<_> = fields.iter().map(|f| (f.text.clone(), f.range)).collect();
+                if compat == Compat::V0_19_1 {
+                    new.reverse();
+                }
                 new.append(names);
                 *names = new;
             }
             hir::Pattern::Alias(inner, name) => {
                 names.insert(0, (name.text.clone(), name.range));
-                go(module, *inner, names);
+                go(compat, module, *inner, names);
             }
             hir::Pattern::Tuple(items) | hir::Pattern::List(items) => {
-                items.iter().for_each(|&p| go(module, p, names))
+                items.iter().for_each(|&p| go(compat, module, p, names))
             }
-            hir::Pattern::Ctor { args, .. } => args.iter().for_each(|&p| go(module, p, names)),
+            hir::Pattern::Ctor { args, .. } => {
+                args.iter().for_each(|&p| go(compat, module, p, names))
+            }
             hir::Pattern::Cons(head, tail) => {
-                go(module, *head, names);
-                go(module, *tail, names);
+                go(compat, module, *head, names);
+                go(compat, module, *tail, names);
             }
             hir::Pattern::Missing
             | hir::Pattern::Anything
@@ -757,6 +763,6 @@ fn pattern_names(module: &hir::Module, id: PatId) -> Vec<(String, TextRange)> {
         }
     }
     let mut names = Vec::new();
-    go(module, id, &mut names);
+    go(compat, module, id, &mut names);
     names
 }

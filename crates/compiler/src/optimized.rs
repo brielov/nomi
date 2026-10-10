@@ -139,7 +139,7 @@ pub enum Choice {
 }
 
 /// `DecisionTree.Path`: where in the tested value a test looks.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DtPath {
     Index(usize, Box<DtPath>),
     Unbox(Box<DtPath>),
@@ -147,7 +147,7 @@ pub enum DtPath {
 }
 
 /// `DecisionTree.Test`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Test {
     /// A constructor: its home, name, index and how many its union has.
     IsCtor(Home, String, usize, i64, CtorOpts),

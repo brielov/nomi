@@ -169,11 +169,29 @@ fn optimize_(cx: &Context, t: &mut Tracker, cycle: &Cycle, expr: &canonical::Exp
             Expr::Tuple(Box::new(a), Box::new(b), c)
         }
         ExprKind::Shader(source, types) => Expr::Shader(
-            source.as_bytes().to_vec(),
+            shader_source(source).into_bytes(),
             types.attribute.keys().cloned().collect(),
             types.uniform.keys().cloned().collect(),
         ),
     }
+}
+
+/// `Shader.fromChars`: a shader's source, JavaScript-ready, carriage
+/// returns dropped.
+fn shader_source(source: &str) -> String {
+    let mut out = String::with_capacity(source.len());
+    for c in source.chars() {
+        match c {
+            '\r' => {}
+            '\n' => out.push_str("\\n"),
+            '"' | '\'' | '\\' => {
+                out.push('\\');
+                out.push(c);
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// A map's entries in the order upstream traverses it: its names' order,

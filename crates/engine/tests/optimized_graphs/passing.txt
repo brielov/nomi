@@ -22,6 +22,9 @@ html_main Main as 0.19.3
 ifs Main as 0.19.1
 ifs Main as 0.19.2
 ifs Main as 0.19.3
+let_order Main as 0.19.1
+let_order Main as 0.19.2
+let_order Main as 0.19.3
 lets Main as 0.19.1
 lets Main as 0.19.2
 lets Main as 0.19.3

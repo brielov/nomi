@@ -1,0 +1,38 @@
+=== note
+the order of a let's destructurings: blanks tie on their key, and
+0.19.1 keys a record pattern by its last field
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+
+blanks : Int -> Int -> Int
+blanks a b =
+    let
+        _ =
+            Debug.log "a" a
+
+        _ =
+            Debug.log "b" b
+
+        _ =
+            Debug.log "sum" (a + b)
+    in
+    a * b
+
+
+records : { x : Int, y : Int } -> { columns : Int, rows : Int } -> Int
+records point size =
+    let
+        { x, y } =
+            point
+
+        ( h, f ) =
+            ( x, y )
+
+        { columns, rows } =
+            size
+    in
+    h + f + columns + rows

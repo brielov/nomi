@@ -163,7 +163,9 @@ fn minimal_cycle(compat: Compat, component: &[(String, Vec<String>)]) -> Vec<Str
 /// `let`'s region, a binding before those that use it.
 pub fn let_cycles(compat: Compat, region: TextRange, nodes: Vec<LetNode>, body: Expr) -> R<Expr> {
     let order = super::name_order(compat);
-    let graph = (nodes.into_iter())
+    // Upstream prepends each node as it goes, so its list runs last
+    // first; that orders the nodes whose keys tie, as every `_ =` does.
+    let graph = (nodes.into_iter().rev())
         .map(|(binding, key, edges)| {
             let edges: Vec<String> = super::sorted(compat, edges.iter())
                 .into_iter()

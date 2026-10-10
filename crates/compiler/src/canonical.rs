@@ -72,7 +72,7 @@ pub struct Union {
 }
 
 /// Which representation codegen may give a union's values.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CtorOpts {
     Normal,
     Enum,
