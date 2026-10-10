@@ -44,26 +44,29 @@ function run(scenario, { signals = [], deadline } = {}) {
   });
 }
 
-test("SIGINT interrupts the program, runs finalizers last to first and exits 130", async () => {
+/** Windows can't send a child a POSIX signal: `kill` ends it outright. */
+const signals = { skip: process.platform === "win32" && "Windows has no POSIX signals" };
+
+test("SIGINT interrupts the program, runs finalizers last to first and exits 130", signals, async () => {
   const { code, stdout } = await run("wait", { signals: ["SIGINT"] });
   assert.equal(code, 130);
   assert.deepEqual(stdout, ["a acquired", "b acquired", "ready", "b released", "a released"]);
 });
 
-test("SIGTERM exits 143 after the finalizers", async () => {
+test("SIGTERM exits 143 after the finalizers", signals, async () => {
   const { code, stdout } = await run("wait", { signals: ["SIGTERM"] });
   assert.equal(code, 143);
   assert.deepEqual(stdout.slice(-2), ["b released", "a released"]);
 });
 
-test("a shutdown that outlasts the deadline is cut short", async () => {
+test("a shutdown that outlasts the deadline is cut short", signals, async () => {
   const { code, stdout, stderr } = await run("hang", { signals: ["SIGTERM"], deadline: 200 });
   assert.equal(code, 143);
   assert.deepEqual(stdout.slice(-1), ["releasing"]);
   assert.match(stderr, /shutdown took longer than 200 ms/);
 });
 
-test("a second signal exits at once", async () => {
+test("a second signal exits at once", signals, async () => {
   const { code, stderr, ms } = await run("hang", { signals: ["SIGINT", "SIGINT"], deadline: 5_000 });
   assert.equal(code, 130);
   assert.match(stderr, /SIGINT again/);
