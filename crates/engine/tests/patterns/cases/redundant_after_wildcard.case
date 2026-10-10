@@ -1,0 +1,16 @@
+=== note
+a branch after a wildcard
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : Int -> Int
+f n =
+    case n of
+        _ ->
+            0
+
+        1 ->
+            1

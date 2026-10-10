@@ -1,0 +1,20 @@
+=== note
+two incomplete cases in one module
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : Maybe Int -> Int
+f m =
+    case m of
+        Just n ->
+            n
+
+
+g : Bool -> Int
+g b =
+    case b of
+        False ->
+            0

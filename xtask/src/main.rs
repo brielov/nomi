@@ -152,6 +152,8 @@ enum OracleCommand {
     Names,
     /// Store what each elm reports on the type-error projects.
     Types,
+    /// Store what each elm reports on the pattern-error projects.
+    Patterns,
     /// Build the solver oracles and store what upstream's solver answers
     /// for every solver scenario.
     Solver,
@@ -187,6 +189,7 @@ fn main() -> ExitCode {
             OracleCommand::Modules => oracle::modules::run(&root(), &r),
             OracleCommand::Names => oracle::names::run(&root(), &r),
             OracleCommand::Types => oracle::types::run(&root(), &r),
+            OracleCommand::Patterns => oracle::types::patterns(&root(), &r),
             OracleCommand::Solver => oracle::solver::run(&root(), &r),
         }),
         Command::Ratchet { suite } => ratchet(&root(), &suite),

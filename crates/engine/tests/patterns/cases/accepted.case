@@ -1,0 +1,31 @@
+=== note
+patterns that cover everything, which elm accepts
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+type Shape
+    = Circle Float
+    | Square Float
+
+
+area : Shape -> Float
+area shape =
+    case shape of
+        Circle r ->
+            r
+
+        Square s ->
+            s
+
+
+first : List a -> Maybe a
+first xs =
+    case xs of
+        [] ->
+            Nothing
+
+        x :: _ ->
+            Just x

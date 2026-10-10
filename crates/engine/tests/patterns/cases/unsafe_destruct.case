@@ -1,0 +1,15 @@
+=== note
+a let destructuring that doesn't cover every value
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : Maybe Int -> Int
+f m =
+    let
+        (Just n) =
+            m
+    in
+    n

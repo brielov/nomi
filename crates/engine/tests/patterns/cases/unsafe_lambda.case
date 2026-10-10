@@ -1,0 +1,11 @@
+=== note
+a lambda argument that doesn't cover every value
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : List Int -> Int
+f =
+    \(x :: _) -> x

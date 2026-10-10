@@ -1,0 +1,13 @@
+=== note
+a case on a Bool missing False
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : Bool -> Int
+f b =
+    case b of
+        True ->
+            1

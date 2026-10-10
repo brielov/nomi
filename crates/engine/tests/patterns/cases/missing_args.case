@@ -1,0 +1,19 @@
+=== note
+a case missing constructors with arguments
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+type Tree
+    = Leaf
+    | Node Tree Int Tree
+    | Pair ( Int, Int )
+
+
+f : Tree -> Int
+f t =
+    case t of
+        Leaf ->
+            0

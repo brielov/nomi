@@ -1,0 +1,18 @@
+=== note
+an incomplete case inside a complete one
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : Maybe Bool -> Int
+f m =
+    case m of
+        Just b ->
+            case b of
+                True ->
+                    1
+
+        Nothing ->
+            0

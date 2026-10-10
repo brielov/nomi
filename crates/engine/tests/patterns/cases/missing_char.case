@@ -1,0 +1,13 @@
+=== note
+a case on Chars without a fallback
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : Char -> Int
+f c =
+    case c of
+        'a' ->
+            1

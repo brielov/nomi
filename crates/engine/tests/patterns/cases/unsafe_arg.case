@@ -1,0 +1,11 @@
+=== note
+a function argument that doesn't cover every value
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : Maybe Int -> Int
+f (Just n) =
+    n

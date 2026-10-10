@@ -1,0 +1,19 @@
+=== note
+a literal matched twice
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : String -> Int
+f s =
+    case s of
+        "a" ->
+            1
+
+        "a" ->
+            2
+
+        _ ->
+            3

@@ -1,0 +1,16 @@
+=== note
+a case on a pair of Bools
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : ( Bool, Bool ) -> Int
+f pair =
+    case pair of
+        ( True, True ) ->
+            1
+
+        ( False, _ ) ->
+            2

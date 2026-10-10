@@ -1,0 +1,16 @@
+=== note
+a case on a triple
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : ( Bool, Bool, Bool ) -> Int
+f t =
+    case t of
+        ( True, _, _ ) ->
+            1
+
+        ( _, True, _ ) ->
+            2

@@ -1,0 +1,13 @@
+=== note
+a case missing Nothing
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : Maybe Int -> Int
+f m =
+    case m of
+        Just n ->
+            n

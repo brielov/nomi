@@ -1,0 +1,19 @@
+=== note
+a case on lists of fixed lengths
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : List Int -> Int
+f xs =
+    case xs of
+        [] ->
+            0
+
+        [ x ] ->
+            x
+
+        [ x, y ] ->
+            x + y

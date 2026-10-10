@@ -1,0 +1,22 @@
+=== note
+a case missing a constructor
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+type Color
+    = Red
+    | Green
+    | Blue
+
+
+name : Color -> String
+name color =
+    case color of
+        Red ->
+            "red"
+
+        Green ->
+            "green"

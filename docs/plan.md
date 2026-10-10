@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **7.1**.
+4. Resume at the first unchecked box. Right now that is **7.2**.
 
 ### Test tiers
 
@@ -421,7 +421,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 
 ## M7: Remaining checks and docs
 
-- [ ] **7.1** `compiler: exhaustiveness and redundancy`. A port of `Nitpick/PatternMatches.hs` and its reports.
+- [x] **7.1** `compiler: exhaustiveness and redundancy`. A port of `Nitpick/PatternMatches.hs` and its reports.
+
+  Done: `nitpick::patterns` ports `PatternMatches.hs` (Maranget's usefulness and exhaustiveness over a pattern matrix) and `nitpick::report` its reports, run after a clean type check as upstream's `nitpick` is. Upstream gathers errors by prepending through nested folds; nomi keeps the list reversed and visits in the same nesting order, so errors come out in upstream's order. Its reports keep upstream's quirk of printing a finite list's entries reversed, and 0.19.2 corrected the spelling of "possibilities". `cargo xtask oracle patterns` records 22 curated cases, and the ratchet `patterns_reports` passes all 66 runs.
 - [ ] **7.2** `compiler: Debug check for --optimize`.
 - [ ] **7.3** `compiler: main validation`. `addDefHelp` and `checkPayload`, with their reports.
 - [ ] **7.4** `compiler: package docs`. `Elm/Docs.hs` and the docs errors. **Check:** `docs.json` is byte-identical for every corpus package each Compat accepts, and the rejected ones fail with upstream's error.

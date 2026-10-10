@@ -55,7 +55,11 @@ fn projects(dir: &Path) -> Vec<(String, Case)> {
         .into_iter()
         .map(|(stem, case)| (format!("case/{stem}"), case))
         .collect();
-    let seeds = cases_in("seeds");
+    let seeds = if dir.join("seeds").is_dir() {
+        cases_in("seeds")
+    } else {
+        Vec::new()
+    };
     for (stem, case) in &seeds {
         projects.push((format!("seed/{stem}"), case.clone()));
     }

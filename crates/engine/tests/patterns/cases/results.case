@@ -1,0 +1,13 @@
+=== note
+a case on Results missing Err
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : Result String Int -> Int
+f r =
+    case r of
+        Ok n ->
+            n

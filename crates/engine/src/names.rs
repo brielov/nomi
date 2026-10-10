@@ -15,6 +15,7 @@ use nomi_compiler::canonicalize::module::{canonicalize, interface};
 use nomi_compiler::canonicalize::report;
 use nomi_compiler::hir;
 use nomi_compiler::interface::Interface;
+use nomi_compiler::nitpick::{patterns, report as patterns_report};
 use nomi_compiler::types::localizer::Localizer;
 use nomi_compiler::types::report as types_report;
 use nomi_project::{ModuleName, Name, Outline};
@@ -321,6 +322,22 @@ impl Walk<'_> {
         match canonicalize(self.env.compat(), &self.package, &self.interfaces, &hir) {
             Ok(canonical) => match nomi_compiler::types::infer(self.env.compat(), &canonical) {
                 Ok(annotations) => {
+                    // Then the patterns, as upstream's `nitpick`.
+                    let pattern_errors = patterns::check(self.env.compat(), &canonical.decls);
+                    if !pattern_errors.is_empty() {
+                        let source = Source::new(&module.text);
+                        let trim = |range| trim(&root, range);
+                        let cx = patterns_report::ReportContext {
+                            source: &source,
+                            compat: self.env.compat(),
+                            trim: &trim,
+                        };
+                        let problems = (pattern_errors.iter())
+                            .map(|e| patterns_report::to_problem(e, &cx))
+                            .collect();
+                        self.problems.insert(module.path.clone(), problems);
+                        return false;
+                    }
                     let interface = interface(&canonical, &annotations);
                     if let (Some(artifacts), Some(key)) = (self.artifacts, key) {
                         // A cache that can't be written only costs a

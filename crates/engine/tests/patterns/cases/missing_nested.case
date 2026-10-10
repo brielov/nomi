@@ -1,0 +1,16 @@
+=== note
+a case missing a nested case
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : Maybe (Maybe Int) -> Int
+f m =
+    case m of
+        Just (Just n) ->
+            n
+
+        Nothing ->
+            0
