@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **6.8**.
+4. Resume at the first unchecked box. Right now that is **6.9**.
 
 ### Test tiers
 
@@ -389,7 +389,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 - [x] **6.7** `compiler: typed interfaces for packages`. **Check:** every corpus package type-checks under each Compat that accepts it (1.15a).
 
   Done: `types::infer` constrains and solves a canonical module, and an interface's values take their annotations from it, as upstream's `fromModule` takes them from the solver; navigation, which doesn't infer, keeps the annotations as written. Package interfaces are built typed, a package that doesn't type-check failing the build. Local modules are type-checked too: until 6.11 ports the reports, `nomi check` shows a type error by upstream's title at its region, in the solver's order, the latest first, as upstream lists them. `cargo xtask corpus names`, rerun: 5,656 of 5,664 projects type-check on the three releases, and the other eight fail as elm does. Besides 5.16's five, jaredramirez/elm-select now fails: today's newest dzuk-mutant/elm-html-styled-aria uses a fork of elm-css whose `Attribute` it appends to rtfeldman/elm-css's, and elm 0.19.1 reports the same TYPE MISMATCH at the same `++`.
-- [ ] **6.8** `compiler: per-expression types`. A side table, added without changing the solving order.
+- [x] **6.8** `compiler: per-expression types`. A side table, added without changing the solving order.
+
+  Done: `types::infer_types` gives each expression's type by its region, besides what `infer` gives. Constraint generation records the type each expression is expected to have, which solving makes its type; once solving is done, each is read back through a variable made outside the solver's pools and named as an error names it. Recording adds nothing to the constraints, so the solving order is unchanged. Hover reads the table (6.16).
 - [ ] **6.9** `oracle: type error snapshots`. Curated cases plus mutations (swapped literals, swapped arguments, edited annotations), for each Compat.
 - [ ] **6.10** `compiler: type error data`. `Type/Error.hs`: categories, expectations, diffs and problems.
 - [ ] **6.11** `report: type errors in annotations and mismatches`. The first part of `Reporting/Error/Type.hs` (1,619 lines). **Check:** the ratchet climbs, as in 6.12 to 6.14.

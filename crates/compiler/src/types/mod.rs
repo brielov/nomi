@@ -255,6 +255,10 @@ pub fn texture() -> Type {
 #[derive(Clone, Debug, Default)]
 pub struct Variables {
     store: UnionFind<Descriptor>,
+    /// Where constraint generation records each expression's type, when
+    /// asked to (plan 6.8): its region and the type it is expected to
+    /// have, which solving makes its type.
+    pub recorded: Option<Vec<(TextRange, Type)>>,
 }
 
 impl Variables {
@@ -333,13 +337,82 @@ impl Variables {
     pub fn to_error_type(&mut self, var: Variable) -> error::Type {
         names::to_error_type(self, var)
     }
+
+    /// A variable standing for `ty`, outside the solver's pools: for
+    /// reading a type once solving is done.
+    pub fn type_to_var(&mut self, ty: &Type) -> Variable {
+        let structure = |vars: &mut Variables, flat| vars.fresh(Content::Structure(flat));
+        match ty {
+            Type::Var(v) => *v,
+            Type::App(home, name, args) => {
+                let args = args.iter().map(|a| self.type_to_var(a)).collect();
+                structure(self, FlatType::App1(home.clone(), name.clone(), args))
+            }
+            Type::Fun(a, b) => {
+                let a = self.type_to_var(a);
+                let b = self.type_to_var(b);
+                structure(self, FlatType::Fun1(a, b))
+            }
+            Type::Alias(home, name, args, real) => {
+                let args = args
+                    .iter()
+                    .map(|(n, a)| (n.clone(), self.type_to_var(a)))
+                    .collect();
+                let real = self.type_to_var(real);
+                self.fresh(Content::Alias(home.clone(), name.clone(), args, real))
+            }
+            // Constraint generation makes no place holders.
+            Type::PlaceHolder(_) => self.fresh(Content::Error),
+            Type::Record(fields, ext) => {
+                let fields = fields
+                    .iter()
+                    .map(|(n, f)| (n.clone(), self.type_to_var(f)))
+                    .collect();
+                let ext = self.type_to_var(ext);
+                structure(self, FlatType::Record1(fields, ext))
+            }
+            Type::EmptyRecord => structure(self, FlatType::EmptyRecord1),
+            Type::Unit => structure(self, FlatType::Unit1),
+            Type::Tuple(a, b, c) => {
+                let a = self.type_to_var(a);
+                let b = self.type_to_var(b);
+                let c = c.as_ref().map(|c| self.type_to_var(c));
+                structure(self, FlatType::Tuple1(a, b, c))
+            }
+        }
+    }
+}
+
+/// A module's top-level annotations, or its type errors, the latest
+/// first.
+pub type Inferred = Result<BTreeMap<String, canonical::Annotation>, Vec<solve::TypeError>>;
+
+/// Each expression's type, by its region.
+pub type ExprTypes = Vec<(TextRange, error::Type)>;
+
+/// `module`'s annotations or type errors, as [`infer`] gives them, and
+/// the type of each expression, by its region, in the order constraint
+/// generation met them. Recording changes nothing about the solving.
+pub fn infer_types(module: &crate::canonicalize::module::Canonical) -> (Inferred, ExprTypes) {
+    let mut vars = Variables {
+        recorded: Some(Vec::new()),
+        ..Variables::default()
+    };
+    let constraint = constrain::module::constrain(&mut vars, module);
+    let recorded = vars.recorded.take().unwrap_or_default();
+    let result = solve::run(&mut vars, &constraint);
+    let types = (recorded.into_iter())
+        .map(|(region, ty)| {
+            let var = vars.type_to_var(&ty);
+            (region, vars.to_error_type(var))
+        })
+        .collect();
+    (result, types)
 }
 
 /// The annotation of every top-level value of `module`, or its type
 /// errors, the latest first.
-pub fn infer(
-    module: &crate::canonicalize::module::Canonical,
-) -> Result<BTreeMap<String, canonical::Annotation>, Vec<solve::TypeError>> {
+pub fn infer(module: &crate::canonicalize::module::Canonical) -> Inferred {
     let mut vars = Variables::default();
     let constraint = constrain::module::constrain(&mut vars, module);
     solve::run(&mut vars, &constraint)

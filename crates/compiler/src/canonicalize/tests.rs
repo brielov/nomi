@@ -724,3 +724,39 @@ fn inference_generalizes_lets_and_finds_mismatches() {
         "{errors:?}"
     );
 }
+
+#[test]
+fn inference_records_each_expressions_type() {
+    use crate::types::error::Type as E;
+    let text = "module Main exposing (..)\n\n\nxs =\n    [ 1, 2 ]\n";
+    let interfaces = interfaces();
+    let parse = parse_module(text);
+    let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
+    let canonical = super::module::canonicalize(
+        nomi_base::Compat::V0_19_1,
+        "author/project",
+        &interfaces,
+        &module,
+    )
+    .unwrap();
+    let (result, types) = crate::types::infer_types(&canonical);
+    assert!(result.is_ok());
+    let shown: Vec<(&str, String)> = (types.iter())
+        .map(|(region, ty)| {
+            let ty = match ty {
+                E::FlexSuper(_, name) => name.clone(),
+                E::Type(_, name, args) => format!("{name} {}", args.len()),
+                other => format!("{other:?}"),
+            };
+            (text[*region].trim(), ty)
+        })
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            ("[ 1, 2 ]", "List 1".to_owned()),
+            ("1", "number".to_owned()),
+            ("2", "number".to_owned())
+        ]
+    );
+}

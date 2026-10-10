@@ -71,6 +71,9 @@ fn constrain_(
     expected: Expected<Type>,
 ) -> Constraint {
     let region = expr.region;
+    if let Some(recorded) = &mut vars.recorded {
+        recorded.push((region, expected.ty().clone()));
+    }
     let foreign = |name: &str, annotation: &canonical::Annotation, expected| {
         Constraint::Foreign(
             region,
