@@ -295,7 +295,7 @@ fn run(
             checked
         }
         Suite::Graphs => {
-            let (checked, graphs) = check::optimize(
+            let (checked, _, graphs) = check::optimize(
                 &snapshot,
                 &env,
                 &project.outline,

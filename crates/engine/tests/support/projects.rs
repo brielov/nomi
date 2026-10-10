@@ -19,6 +19,7 @@ use nomi_engine::check::{self, Style};
 use nomi_engine::console::{Console, Personality};
 use nomi_engine::graph::Foreigns;
 use nomi_engine::names;
+use nomi_engine::{javascript, objects};
 use nomi_project::{ModuleName, Name, Outline};
 use nomi_testkit::transcript::Case;
 use serde_json::Value;
@@ -140,7 +141,7 @@ pub fn optimized(
     packages: &Path,
 ) -> Result<Vec<(String, Vec<u8>)>, String> {
     let project = Project::new(case, compat, default_elm_json, packages);
-    let (checked, graphs) = check::optimize(
+    let (checked, _, graphs) = check::optimize(
         &Vfs::new().snapshot(),
         &project.env,
         &project.outline,
@@ -173,12 +174,12 @@ pub fn optimized(
 pub fn javascript(
     case: &Case,
     compat: Compat,
-    _mode: &str,
+    mode: &str,
     default_elm_json: &str,
     packages: &Path,
 ) -> Result<Vec<u8>, String> {
     let project = Project::new(case, compat, default_elm_json, packages);
-    let (checked, _graphs) = check::optimize(
+    let (checked, roots, graphs) = check::optimize(
         &Vfs::new().snapshot(),
         &project.env,
         &project.outline,
@@ -197,8 +198,41 @@ pub fn javascript(
         );
         return Err(console.err);
     }
-    // Code generation comes with plan 8.7.
-    Err("nomi generates no JavaScript yet".to_owned())
+    let Outline::App(app) = &project.outline else {
+        return Err("only applications generate JavaScript".to_owned());
+    };
+    let sources: Vec<(Name, PathBuf)> = (app.direct.iter())
+        .chain(&app.indirect)
+        .map(|(name, version)| {
+            let dir = packages.join(name.to_string()).join(version.to_string());
+            (name.clone(), dir)
+        })
+        .collect();
+    let dependencies = dependency_graph(compat, &sources)?;
+    let kind = match mode {
+        "dev" => javascript::Kind::Dev,
+        "debug" => javascript::Kind::Debug,
+        _ => javascript::Kind::Optimize,
+    };
+    Ok(javascript::program(
+        compat,
+        kind,
+        "author/project",
+        dependencies,
+        &roots,
+        graphs,
+    ))
+}
+
+/// The merged graph of `sources` as `compat` builds it, made once.
+fn dependency_graph(
+    compat: Compat,
+    sources: &[(Name, PathBuf)],
+) -> Result<nomi_compiler::optimized::GlobalGraph, String> {
+    static MEMOS: OnceLock<Mutex<HashMap<Compat, objects::Memo>>> = OnceLock::new();
+    let mut memos = MEMOS.get_or_init(Default::default).lock().unwrap();
+    let memo = memos.entry(compat).or_default();
+    objects::dependency_graph_with(compat, sources, memo)
 }
 
 fn build(

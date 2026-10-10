@@ -4,6 +4,7 @@
 
 pub mod builder;
 pub mod expression;
+pub mod generate;
 pub mod kernel;
 pub mod mode;
 pub mod name;

@@ -182,7 +182,9 @@ impl Built {
 }
 
 /// What `elm make` optimizes of the project `env` describes, building
-/// as [`check`] does: each module's graph, when nothing was wrong.
+/// as [`check`] does: the roots and whether each defines `main`, and
+/// each module's graph, when nothing was wrong.
+#[allow(clippy::type_complexity)]
 pub fn optimize(
     snapshot: &Snapshot,
     env: &Env,
@@ -190,7 +192,11 @@ pub fn optimize(
     paths: &[PathBuf],
     personality: Personality,
     packages: &HashMap<String, Interface>,
-) -> (Checked, Vec<(ModuleName, LocalGraph)>) {
+) -> (
+    Checked,
+    Vec<(ModuleName, bool)>,
+    Vec<(ModuleName, LocalGraph)>,
+) {
     let built = build(
         snapshot,
         env,
@@ -201,7 +207,7 @@ pub fn optimize(
         None,
         Goal::Optimize,
     );
-    (built.checked, built.optimized)
+    (built.checked, built.mains, built.optimized)
 }
 
 /// [`check_with`], making what `goal` asks for too.

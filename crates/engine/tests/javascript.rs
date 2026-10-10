@@ -2,7 +2,8 @@
 //! `javascript/cases` in each mode as each release, passing when nomi
 //! generates the bytes elm did, whose hashes `cargo xtask oracle
 //! javascript` keeps in `expected.sha256`. A mode elm refuses, as
-//! `--optimize` with `Debug`, isn't run.
+//! `--optimize` with `Debug`, isn't run. What differs is kept in
+//! `target/tmp/javascript`.
 #![cfg(unix)]
 
 #[path = "support/projects.rs"]
@@ -39,7 +40,14 @@ fn javascript() {
                 };
                 let outcome = match projects::javascript(&case, compat, mode, &default, &packages) {
                     Ok(js) if expected.matches(&js) => Ok(()),
-                    Ok(_) => Err("the JavaScript differs".to_owned()),
+                    Ok(js) => {
+                        // Kept for a look beside elm's, which the oracle
+                        // leaves in its sandbox.
+                        let kept = Path::new(env!("CARGO_TARGET_TMPDIR")).join("javascript");
+                        fs::create_dir_all(&kept).unwrap();
+                        fs::write(kept.join(format!("{name}.{mode}.{compat}.js")), js).unwrap();
+                        Err("the JavaScript differs".to_owned())
+                    }
                     Err(why) => Err(why),
                 };
                 if let (Err(why), Ok(_)) = (&outcome, std::env::var("NOMI_SHOW")) {
