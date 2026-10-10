@@ -2,13 +2,13 @@
 //! `--output=/dev/null` of: the project is found, the flags checked, the
 //! project and its dependencies loaded, and the modules the paths name, or
 //! a package's exposed ones, built; then the documentation is written, or
-//! the code generated, which waits for M8.
+//! the code generated.
 
 use std::path::{Path, PathBuf};
 
 use nomi_base::Report;
 use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, reflow, simple_note, text, vcat};
-use nomi_project::ModuleName;
+use nomi_project::{ModuleName, Outline};
 
 use crate::Vfs;
 use crate::artifacts::Artifacts;
@@ -16,8 +16,10 @@ use crate::check::show;
 use crate::check::{self, Checked, Style, env_of, foreigns};
 use crate::console::{Console, Personality};
 use crate::install::one_line;
+use crate::javascript;
 use crate::paths::{Cache, Root};
 use crate::project::{self, Project, check_source_dirs};
+use crate::report;
 use nomi_registry::Http;
 
 /// What `elm make` was asked for (`Make.Flags`, with the paths).
@@ -129,11 +131,11 @@ pub fn run(
         compat = project.compat;
         let root = root.dir().to_owned();
         check_source_dirs(&root, &project.outline)?;
-        let (foreigns, interfaces) = foreigns(cache, http, &project, personality)?;
+        let (foreigns, interfaces, dependencies) = foreigns(cache, http, &project, personality)?;
         let env = env_of(&root, &project.outline, compat, foreigns)?.with_cwd(dir);
-        Ok::<_, Report>((root, project.outline, env, interfaces))
+        Ok::<_, Report>((root, project.outline, env, interfaces, dependencies))
     })();
-    let (root, outline, env, interfaces) = match loaded {
+    let (root, outline, env, interfaces, dependencies) = match loaded {
         Ok(loaded) => loaded,
         Err(report) => {
             show(console, dir, &Checked::Project(report), compat, make.style);
@@ -143,11 +145,12 @@ pub fn run(
     let snapshot = vfs.snapshot();
     let artifacts = Artifacts::new(cache);
     let documenting = make.docs.is_some() && make.paths.is_empty();
-    let mut mains = Vec::new();
+    let generating = !make.paths.is_empty() && make.output != Some(Output::DevNull);
+    let mut optimized = None;
     let (checked, docs) = if documenting {
         check::docs(&snapshot, &env, &outline, personality, &interfaces)
-    } else {
-        let (checked, roots) = check::make_with(
+    } else if generating {
+        let (checked, made) = check::optimize(
             &snapshot,
             &env,
             &outline,
@@ -156,13 +159,34 @@ pub fn run(
             &interfaces,
             Some(&artifacts),
         );
-        mains = roots;
+        optimized = Some(made);
+        (checked, None)
+    } else {
+        let (checked, _) = check::make_with(
+            &snapshot,
+            &env,
+            &outline,
+            &make.paths,
+            personality,
+            &interfaces,
+            Some(&artifacts),
+        );
         (checked, None)
     };
     if !matches!(checked, Checked::Fine) {
         show(console, &root, &checked, compat, make.style);
         return false;
     }
+    let fail = |console: &mut dyn Console, report: Report| {
+        show(
+            console,
+            &root,
+            &Checked::Project(report),
+            compat,
+            make.style,
+        );
+        false
+    };
     if let (Some(path), Some(docs)) = (&make.docs, docs) {
         let path = dir.join(path);
         if let Err(e) = vfs.create(&path, docs.as_bytes()) {
@@ -170,59 +194,100 @@ pub fn run(
                 "PROBLEM WRITING DOCS",
                 format!("I could not write {}: {e}", path.display()),
             );
-            show(
-                console,
-                &root,
-                &Checked::Project(report),
-                compat,
-                make.style,
-            );
-            return false;
+            return fail(console, report);
         }
     }
-    // A package's exposed modules generate nothing.
-    if !make.paths.is_empty()
-        && let Err(report) = generate(make.output.as_ref(), &mains)
-    {
-        if let Some(report) = report {
-            show(
-                console,
-                &root,
-                &Checked::Project(report),
-                compat,
-                make.style,
-            );
-        } else {
-            console.err("error: nomi doesn't generate JavaScript yet; pass --output=/dev/null\n");
+    if let Some(optimized) = optimized {
+        let target = match target(make.output.as_ref(), &optimized.roots) {
+            Ok(target) => target,
+            Err(report) => return fail(console, report),
+        };
+        if let Some(target) = target {
+            let kind = if make.optimize {
+                let uses = javascript::debug_uses(compat, &optimized);
+                if !uses.is_empty() {
+                    return fail(console, report::debug_remnants(&uses));
+                }
+                javascript::Kind::Optimize
+            } else if make.debug {
+                javascript::Kind::Debug
+            } else {
+                javascript::Kind::Dev
+            };
+            let package = match &outline {
+                Outline::App(_) => "author/project".to_owned(),
+                Outline::Pkg(pkg) => pkg.name.to_string(),
+            };
+            let types = (dependencies.graph(), dependencies.types());
+            let js = javascript::program(compat, kind, &package, types, optimized);
+            let bytes = match &target.html {
+                Some(module) => nomi_codegen_js::html::sandwich(&module.to_string(), &js),
+                None => js,
+            };
+            let path = dir.join(&target.path);
+            let written = (path.parent().map_or(Ok(()), std::fs::create_dir_all))
+                .and_then(|()| vfs.create(&path, &bytes));
+            if let Err(e) = written {
+                let report = one_line(
+                    "PROBLEM WRITING OUTPUT",
+                    format!("I could not write {}: {e}", path.display()),
+                );
+                return fail(console, report);
+            }
         }
-        return false;
     }
     show(console, &root, &Checked::Fine, compat, make.style);
     true
 }
 
-/// What `run` does past the build: nothing for `/dev/null`; the reports
-/// on roots that can't make the file asked for; and otherwise the code,
-/// which waits for M8, `Err(None)` until then.
-fn generate(output: Option<&Output>, mains: &[(ModuleName, bool)]) -> Result<(), Option<Report>> {
+/// Where `run` writes the code, and the module an HTML page starts.
+struct Target {
+    path: PathBuf,
+    html: Option<ModuleName>,
+}
+
+/// What `Make.hs` generates for `output` from `roots`, each a root and
+/// whether it defines `main`: without `--output`, `index.html` for one
+/// `main` and `elm.js` for more; JavaScript only when every root has a
+/// `main`; HTML only for one root, which does.
+fn target(output: Option<&Output>, roots: &[(ModuleName, bool)]) -> Result<Option<Target>, Report> {
+    let mains: Vec<&ModuleName> = (roots.iter())
+        .filter(|(_, main)| *main)
+        .map(|(name, _)| name)
+        .collect();
     match output {
-        Some(Output::DevNull) => Ok(()),
-        None if mains.iter().all(|(_, main)| !main) => Ok(()),
-        None => Err(None),
-        Some(Output::Js(_)) => {
-            let no_mains: Vec<&ModuleName> = (mains.iter())
+        Some(Output::DevNull) => Ok(None),
+        None => Ok(match mains.as_slice() {
+            [] => None,
+            [name] => Some(Target {
+                path: "index.html".into(),
+                html: Some((*name).clone()),
+            }),
+            _ => Some(Target {
+                path: "elm.js".into(),
+                html: None,
+            }),
+        }),
+        Some(Output::Js(path)) => {
+            let no_mains: Vec<&ModuleName> = (roots.iter())
                 .filter(|(_, main)| !main)
                 .map(|(name, _)| name)
                 .collect();
             match no_mains.as_slice() {
-                [] => Err(None),
-                names => Err(Some(non_main_files_into_javascript(names))),
+                [] => Ok(Some(Target {
+                    path: path.clone(),
+                    html: None,
+                })),
+                names => Err(non_main_files_into_javascript(names)),
             }
         }
-        Some(Output::Html(_)) => match mains {
-            [(_, true)] => Err(None),
-            [(_, false)] => Err(Some(no_main())),
-            _ => Err(Some(multiple_files_into_html())),
+        Some(Output::Html(path)) => match roots {
+            [(name, true)] => Ok(Some(Target {
+                path: path.clone(),
+                html: Some(name.clone()),
+            })),
+            [(_, false)] => Err(no_main()),
+            _ => Err(multiple_files_into_html()),
         },
     }
 }

@@ -364,7 +364,7 @@ pub(crate) fn foreigns(
     http: &(impl Http + Sync),
     project: &Project,
     personality: Personality,
-) -> Result<(Foreigns, HashMap<String, Interface>), Report> {
+) -> Result<(Foreigns, HashMap<String, Interface>, objects::Dependencies), Report> {
     let compat = project.compat;
     let store = Store::new(cache.packages());
     let mut registry = env::registry(
@@ -418,7 +418,7 @@ pub(crate) fn foreigns(
         &mut objects::Memo::new(),
         Some(&artifacts),
     );
-    let interfaces = built.map(|d| d.exposed()).map_err(|why| {
+    let built = built.map_err(|why| {
         one_line(
             "PROBLEM READING PACKAGES",
             format!("I could not read the dependencies' modules: {why}"),
@@ -427,7 +427,8 @@ pub(crate) fn foreigns(
     let direct: Vec<Name> = direct.into_iter().cloned().collect();
     Ok((
         Foreigns::new(exposing),
-        names::visible(&interfaces, &direct),
+        names::visible(&built.exposed(), &direct),
+        built,
     ))
 }
 

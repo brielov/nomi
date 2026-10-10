@@ -203,6 +203,15 @@ application-extra-field as 0.19.1
 application-extra-field as 0.19.2
 application-extra-field as 0.19.3
 application-future-version as 0.19.3
+application-generation---debug as 0.19.1
+application-generation---debug as 0.19.2
+application-generation---debug as 0.19.3
+application-generation---optimize as 0.19.1
+application-generation---optimize as 0.19.2
+application-generation---optimize as 0.19.3
+application-generation-None as 0.19.1
+application-generation-None as 0.19.2
+application-generation-None as 0.19.3
 application-hand-edited-dependencies as 0.19.1
 application-hand-edited-dependencies as 0.19.2
 application-hand-edited-dependencies as 0.19.3
@@ -1283,6 +1292,9 @@ package-exposing-end-missing-comma as 0.19.3
 package-exposing-end-missing-comma-newline as 0.19.3
 package-exposing-end-nul as 0.19.3
 package-extra-field as 0.19.3
+package-generation---debug as 0.19.3
+package-generation---optimize as 0.19.3
+package-generation-None as 0.19.3
 package-hand-edited-dependencies as 0.19.3
 package-header as 0.19.3
 package-headerless-custom-type as 0.19.3
@@ -1349,6 +1361,7 @@ package-old-elm-constraint-no-inputs as 0.19.3
 package-outside-headerless as 0.19.3
 package-outside-name-clash as 0.19.3
 package-outside-no-src-check as 0.19.3
+package-outside-no-src-generation as 0.19.3
 package-outside-no-src-type as 0.19.3
 package-outside-relative-type as 0.19.3
 package-pattern as 0.19.3
