@@ -67,7 +67,7 @@ pub fn decode_global_graph(bytes: &[u8], compat: Compat) -> Option<GlobalGraph> 
 
 /// `Ord Name`: by bytes, or in 0.19.3 by length, then bytes
 /// (`compareFast`).
-fn names(compat: Compat, a: &str, b: &str) -> Ordering {
+pub fn names(compat: Compat, a: &str, b: &str) -> Ordering {
     if compat == Compat::V0_19_3 {
         a.len()
             .cmp(&b.len())
@@ -79,7 +79,7 @@ fn names(compat: Compat, a: &str, b: &str) -> Ordering {
 
 /// `Ord ModuleName.Canonical`: by module name, then package, by author,
 /// then project, each by bytes.
-fn homes(compat: Compat, a: &Home, b: &Home) -> Ordering {
+pub fn homes(compat: Compat, a: &Home, b: &Home) -> Ordering {
     let package = |home: &Home| {
         let (author, project) = split(home);
         (author.as_bytes().to_vec(), project.as_bytes().to_vec())
@@ -88,7 +88,7 @@ fn homes(compat: Compat, a: &Home, b: &Home) -> Ordering {
 }
 
 /// `Ord Opt.Global`: by name, then home.
-fn globals(compat: Compat, a: &Global, b: &Global) -> Ordering {
+pub fn globals(compat: Compat, a: &Global, b: &Global) -> Ordering {
     names(compat, &a.name, &b.name).then_with(|| homes(compat, &a.home, &b.home))
 }
 
