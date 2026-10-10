@@ -144,6 +144,11 @@ fn the_handshake_offers_what_v0_does() {
     assert_eq!(capabilities["definitionProvider"], true);
     assert_eq!(capabilities["referencesProvider"], true);
     assert_eq!(capabilities["documentHighlightProvider"], true);
+    assert_eq!(capabilities["hoverProvider"], true);
+    assert_eq!(
+        capabilities["completionProvider"]["triggerCharacters"],
+        json!(["."])
+    );
     client.shutdown();
     let client = Client::start(&["utf-16", "utf-8"]);
     assert_eq!(client.capabilities["positionEncoding"], "utf-8");
@@ -283,7 +288,7 @@ fn document_symbols_are_flat_as_elm_language_servers() {
 #[test]
 fn what_v0_doesnt_answer_is_said_so() {
     let mut client = Client::start(&[]);
-    let response = client.request("textDocument/hover", json!({}));
+    let response = client.request("textDocument/rename", json!({}));
     assert_eq!(
         response.error.unwrap().code,
         lsp_server::ErrorCode::MethodNotFound as i32
@@ -344,5 +349,33 @@ fn navigation_goes_to_definitions_and_finds_references_across_modules() {
             &json!({ "line": 5, "character": 0 })
         ]
     );
+    client.shutdown();
+}
+
+#[test]
+fn hover_and_completion_answer_without_packages() {
+    let (dir, main) = project();
+    fs::write(
+        dir.path().join("src/Other.elm"),
+        "module Other exposing (helper)\n\n\nhelper x =\n    x\n",
+    )
+    .unwrap();
+    let mut client = Client::start(&[]);
+    client.open(
+        &main,
+        "module Main exposing (main)\n\nimport Other\n\n\nmain =\n    Other.helper ()\n",
+    );
+    let at = |line, character| json!({ "textDocument": { "uri": main }, "position": { "line": line, "character": character } });
+    // `main`'s name: its inferred annotation.
+    let response = client.request("textDocument/hover", at(5, 1));
+    let found = response.result.unwrap();
+    assert_eq!(found["contents"]["kind"], "markdown");
+    assert_eq!(found["contents"]["value"], "```elm\nmain : ()\n```");
+    // After `Other.`: what Other exposes.
+    let response = client.request("textDocument/completion", at(6, 10));
+    let labels: Vec<&str> = (response.result.as_ref().unwrap().as_array().unwrap().iter())
+        .map(|c| c["label"].as_str().unwrap())
+        .collect();
+    assert_eq!(labels, ["helper"]);
     client.shutdown();
 }

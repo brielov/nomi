@@ -296,3 +296,48 @@ fn references_and_highlights_find_every_use() {
     let found: Vec<&str> = found.iter().map(|&r| at(NAVIGATED, r)).collect();
     assert_eq!(found, ["shape", "shape"]);
 }
+
+#[test]
+fn hover_shows_annotations_and_the_innermost_expressions_type() {
+    let (_dir, vfs, path, _other) = navigated();
+    let (_store_dir, store) = store();
+    let snapshot = vfs.snapshot();
+    let index =
+        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    // `area`'s declaration, which has no annotation: inferred.
+    let found = hover(&index, &path, offset(NAVIGATED, "area", 1)).unwrap();
+    assert_eq!(found.markdown, "```elm\narea : Shape -> Float\n```");
+    // `size` in the body, the innermost expression there: a Float, as
+    // `Circle` takes one.
+    let found = hover(&index, &path, offset(NAVIGATED, "size", 1)).unwrap();
+    assert_eq!(at(NAVIGATED, found.range), "size");
+    assert_eq!(found.markdown, "```elm\nFloat\n```");
+}
+
+#[test]
+fn completion_offers_whats_in_scope_and_a_qualifiers_exports() {
+    let (_dir, vfs, path, _other) = navigated();
+    let (_store_dir, store) = store();
+    let snapshot = vfs.snapshot();
+    let index =
+        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    // After `Other.`: what Other exports.
+    let at_twice = offset(NAVIGATED, "twice", 0) - TextSize::new(1);
+    let found: Vec<String> = completions(&index, &path, at_twice)
+        .into_iter()
+        .map(|c| c.label)
+        .collect();
+    assert_eq!(found, ["helper", "twice"]);
+    // At the start of a line: the module's own, what imports expose, and
+    // the qualifiers.
+    let line = TextSize::new(NAVIGATED.find("area shape =").unwrap() as u32);
+    let found = completions(&index, &path, line);
+    let labels: Vec<&str> = found.iter().map(|c| c.label.as_str()).collect();
+    for expected in [
+        "area", "Circle", "Other", "Shape", "helper", "main", "Basics", "List",
+    ] {
+        assert!(labels.contains(&expected), "{expected} in {labels:?}");
+    }
+    let area = found.iter().find(|c| c.label == "area").unwrap();
+    assert_eq!(area.detail.as_deref(), Some("Shape -> Float"));
+}

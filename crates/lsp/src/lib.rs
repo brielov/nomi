@@ -18,8 +18,8 @@ use lsp_types::notification::{
     PublishDiagnostics,
 };
 use lsp_types::request::{
-    DocumentHighlightRequest, DocumentSymbolRequest, Formatting, GotoDefinition, References,
-    Request as _,
+    Completion, DocumentHighlightRequest, DocumentSymbolRequest, Formatting, GotoDefinition,
+    HoverRequest, References, Request as _,
 };
 use lsp_types::{
     Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
@@ -91,6 +91,11 @@ pub fn run(connection: &Connection) -> Result<(), Error> {
         definition_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
         document_highlight_provider: Some(OneOf::Left(true)),
+        hover_provider: Some(lsp_types::HoverProviderCapability::Simple(true)),
+        completion_provider: Some(lsp_types::CompletionOptions {
+            trigger_characters: Some(vec![".".to_owned()]),
+            ..lsp_types::CompletionOptions::default()
+        }),
         ..ServerCapabilities::default()
     };
     let result = serde_json::json!({
@@ -167,6 +172,11 @@ impl Server {
             }),
             References::METHOD => parse(request).and_then(|p: ReferenceParams| {
                 self.references(&p.text_document_position, p.context.include_declaration)
+            }),
+            HoverRequest::METHOD => parse(request)
+                .and_then(|p: lsp_types::HoverParams| self.hover(&p.text_document_position_params)),
+            Completion::METHOD => parse(request).and_then(|p: lsp_types::CompletionParams| {
+                self.completion(&p.text_document_position)
             }),
             DocumentHighlightRequest::METHOD => {
                 parse(request).and_then(|p: DocumentHighlightParams| {
@@ -415,6 +425,57 @@ impl Server {
             })
             .collect();
         Ok(serde_json::to_value(highlights).expect("highlights serialize"))
+    }
+}
+
+impl Server {
+    fn hover(
+        &mut self,
+        position: &TextDocumentPositionParams,
+    ) -> Result<Value, (ErrorCode, String)> {
+        let (document, offset) = self.at(position)?;
+        let path = document.path.clone();
+        let snapshot = self.vfs.snapshot();
+        let found =
+            (self.index(&snapshot, &path)).and_then(|index| nomi_ide::hover(index, &path, offset));
+        let document = self.document(&position.text_document.uri)?;
+        let text = Text::new(&document.text, self.unit);
+        let response = found.map(|h| lsp_types::Hover {
+            contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
+                kind: lsp_types::MarkupKind::Markdown,
+                value: h.markdown,
+            }),
+            range: Some(text.range(h.range)),
+        });
+        Ok(serde_json::to_value(response).expect("a hover serializes"))
+    }
+
+    fn completion(
+        &mut self,
+        position: &TextDocumentPositionParams,
+    ) -> Result<Value, (ErrorCode, String)> {
+        let (document, offset) = self.at(position)?;
+        let path = document.path.clone();
+        let snapshot = self.vfs.snapshot();
+        let found = (self.index(&snapshot, &path))
+            .map(|index| nomi_ide::completions(index, &path, offset))
+            .unwrap_or_default();
+        let items: Vec<lsp_types::CompletionItem> = (found.into_iter())
+            .map(|c| lsp_types::CompletionItem {
+                label: c.label,
+                kind: Some(match c.kind {
+                    nomi_ide::CompletionKind::Value => lsp_types::CompletionItemKind::VALUE,
+                    nomi_ide::CompletionKind::Type => lsp_types::CompletionItemKind::CLASS,
+                    nomi_ide::CompletionKind::Constructor => {
+                        lsp_types::CompletionItemKind::ENUM_MEMBER
+                    }
+                    nomi_ide::CompletionKind::Module => lsp_types::CompletionItemKind::MODULE,
+                }),
+                detail: c.detail,
+                ..lsp_types::CompletionItem::default()
+            })
+            .collect();
+        Ok(serde_json::to_value(items).expect("completions serialize"))
     }
 }
 

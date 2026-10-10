@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use nomi_base::Compat;
-use nomi_compiler::canonicalize::module::{canonicalize_with_references, interface};
+use nomi_compiler::canonicalize::module::{Canonical, canonicalize_with_references, interface};
 use nomi_compiler::canonicalize::references::Reference;
 use nomi_compiler::hir;
 use nomi_compiler::interface::Interface;
@@ -37,6 +37,9 @@ pub struct Index {
     pub modules: Vec<Indexed>,
     /// Each dependency's source directory, by package name.
     pub packages: HashMap<String, PathBuf>,
+    /// The interface of every module the project's modules may import:
+    /// the direct dependencies' exposed ones and the project's own.
+    pub interfaces: HashMap<String, Interface>,
 }
 
 /// One of the project's own modules.
@@ -48,6 +51,9 @@ pub struct Indexed {
     pub root: SyntaxNode,
     pub hir: hir::Module,
     pub references: Vec<Reference>,
+    /// The module canonicalized, where it canonicalizes, for hover to
+    /// infer its expressions' types.
+    pub canonical: Option<Canonical>,
 }
 
 impl Index {
@@ -145,6 +151,7 @@ pub fn index(snapshot: &Snapshot, store: &Store, file: &Path, memo: &mut Memo) -
         compat,
         package,
         modules,
+        interfaces,
         packages: (sources.into_iter())
             .map(|(name, dir)| (name.to_string(), dir))
             .collect(),
@@ -223,11 +230,12 @@ impl Visit<'_> {
         let hir = hir::lower(&syntax);
         let (canonical, references) =
             canonicalize_with_references(self.compat, self.package, self.interfaces, &hir);
-        if let Ok(canonical) = canonical {
-            (self.interfaces).insert(
-                module.name.to_string(),
-                interface(&canonical, &Default::default()),
-            );
+        let canonical = canonical.ok();
+        if let Some(canonical) = &canonical {
+            // Typed where it type-checks, as written where it doesn't.
+            let annotations =
+                nomi_compiler::types::infer(self.compat, canonical).unwrap_or_default();
+            (self.interfaces).insert(module.name.to_string(), interface(canonical, &annotations));
         }
         self.modules.push(Indexed {
             path: module.path.clone(),
@@ -236,6 +244,7 @@ impl Visit<'_> {
             root,
             hir,
             references,
+            canonical,
         });
     }
 }
