@@ -277,3 +277,69 @@ mod expression_constraints {
         assert!(matches!(&**body_con, Constraint::Local(_, name, _) if name == "x"));
     }
 }
+
+mod comparison {
+    use std::collections::BTreeMap;
+
+    use super::*;
+    use crate::types::error::{Extension, Problem, Type as E, to_comparison, to_doc};
+    use crate::types::localizer::Localizer;
+    use crate::types::render::Context;
+
+    fn basics(name: &str) -> E {
+        E::Type(core("Basics"), name.to_owned(), vec![])
+    }
+
+    fn localizer() -> Localizer {
+        Localizer::from_names(["Basics", "Maybe", "List", "String"])
+    }
+
+    #[test]
+    fn a_comparison_finds_the_problem_to_explain() {
+        let l = localizer();
+        let (_, _, problems) = to_comparison(&l, &basics("Int"), &basics("Float"));
+        assert_eq!(problems, [Problem::IntFloat]);
+        let maybe = E::Type(core("Maybe"), "Maybe".to_owned(), vec![basics("Int")]);
+        let (_, _, problems) = to_comparison(&l, &maybe, &basics("Int"));
+        assert_eq!(problems, [Problem::AnythingFromMaybe]);
+        let record = |fields: &[&str]| {
+            E::Record(
+                fields
+                    .iter()
+                    .map(|f| ((*f).to_owned(), basics("Int")))
+                    .collect::<BTreeMap<_, _>>(),
+                Extension::Closed,
+            )
+        };
+        let (_, _, problems) =
+            to_comparison(&l, &record(&["nmae", "age"]), &record(&["name", "age"]));
+        assert_eq!(
+            problems,
+            [Problem::FieldTypo(
+                "nmae".to_owned(),
+                vec!["age".to_owned(), "name".to_owned()]
+            )]
+        );
+    }
+
+    #[test]
+    fn functions_print_flat_and_arguments_parenthesized() {
+        let l = localizer();
+        let list = E::Type(core("List"), "List".to_owned(), vec![basics("Int")]);
+        let f = E::Lambda(
+            Box::new(E::Lambda(
+                Box::new(basics("Int")),
+                Box::new(basics("Bool")),
+                vec![],
+            )),
+            Box::new(list),
+            vec![E::FlexVar("a".to_owned())],
+        );
+        assert_eq!(
+            to_doc(&l, Context::None, &f).plain(),
+            "(Int -> Bool) -> List Int -> a"
+        );
+        let qualified = E::Type(core("Dict"), "Dict".to_owned(), vec![]);
+        assert_eq!(to_doc(&l, Context::None, &qualified).plain(), "Dict.Dict");
+    }
+}
