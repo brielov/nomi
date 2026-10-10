@@ -221,3 +221,59 @@ mod pattern_constraints {
         assert_eq!(state.vars.len(), 2 + 1 + 2);
     }
 }
+
+mod expression_constraints {
+    use super::*;
+    use crate::canonical::{Expr, ExprKind, Pattern, PatternKind};
+    use crate::types::constrain::expr::constrain;
+    use crate::types::expected::{Category, Expected};
+    use nomi_base::TextRange;
+
+    #[test]
+    fn a_lambda_binds_its_parameter_and_equals_a_function() {
+        let mut vars = Variables::default();
+        let x = Pattern {
+            region: TextRange::default(),
+            kind: PatternKind::Var("x".to_owned()),
+        };
+        let body = Expr {
+            region: TextRange::default(),
+            kind: ExprKind::VarLocal("x".to_owned()),
+        };
+        let lambda = Expr {
+            region: TextRange::default(),
+            kind: ExprKind::Lambda(vec![x], Box::new(body)),
+        };
+        let whole = vars.flex_var();
+        let con = constrain(
+            &mut vars,
+            &Default::default(),
+            &lambda,
+            Expected::NoExpectation(Type::Var(whole)),
+        );
+        let Constraint::Let {
+            flex_vars,
+            header_con,
+            ..
+        } = con
+        else {
+            panic!("exists");
+        };
+        // The parameter's variable and the result's.
+        assert_eq!(flex_vars.len(), 2);
+        let Constraint::And(cons) = *header_con else {
+            panic!("and");
+        };
+        let [
+            Constraint::Let {
+                header, body_con, ..
+            },
+            Constraint::Equal(_, Category::Lambda, Type::Fun(..), _),
+        ] = &cons[..]
+        else {
+            panic!("{cons:?}");
+        };
+        assert!(header.contains_key("x"));
+        assert!(matches!(&**body_con, Constraint::Local(_, name, _) if name == "x"));
+    }
+}

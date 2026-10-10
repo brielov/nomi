@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **6.3**.
+4. Resume at the first unchecked box. Right now that is **6.5**.
 
 ### Test tiers
 
@@ -374,7 +374,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 - [x] **6.2a** `compiler: canonical expressions`. Canonicalization builds upstream's `Can.Expr`, patterns and declarations (`Let` and `LetRec` from the cycle check, operator trees from the stepper, constructors with their unions), which constraints read; until now it only checked them.
 
   Done: canonicalization returns upstream's tree (`canonical::Expr`, `Pattern`, `Def`, `Decl`) without changing what it checks or the order it reports in. Variables come back as upstream resolves them, `Debug`'s by the module using them and kernel values in kernel packages. Constructors carry their type, operator chains become trees whose regions run from the left operand to the right, and `True` and `False` patterns become `Bool`. The `let` check nests `Let`, `LetRec` and `LetDestruct` at the `let`'s region, a recursive group's functions last first as upstream gathers them, and the top-level check gives the declarations in dependency order. A shader's inputs are read from its top-level declarations: upstream takes them from language-glsl's tree, and the syntax crate's GLSL port only recognizes. Deep trees drop on grown stacks.
-- [ ] **6.3** `compiler: constraints for expressions`, in upstream's order.
+- [x] **6.3** `compiler: constraints for expressions`, in upstream's order.
+
+  Done: `types::constrain::expr` ports `Constrain/Expression.hs`: expressions, definitions and recursive groups. Each case makes its variables and constraints in upstream's `do` order, which decides the order the solver meets problems: a `let`'s body before its definition, a call's function before its arguments, a record's fields by name, every `if` condition before any branch. In a recursive group, upstream moves the earlier definitions' variables into the next one's pattern scope; nomi does the same.
 - [x] **6.4** `compiler: constraints for patterns`.
 
   Done before 6.3, which uses it: `types::constrain::pattern` ports `Constrain/Pattern.hs`, and `types::instantiate` the `fromSrcType` both need, which makes no variables in upstream either. Upstream prepends to lists and reverses them at the end; nomi keeps the variables and constraints in the order upstream finally reads them: a tail is matched before its head, a pattern's parts before the whole.
