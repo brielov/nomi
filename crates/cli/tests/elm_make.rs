@@ -9,6 +9,12 @@
 //! compiler's tests, in a directory padded to the recordings' length, as
 //! messages wrap by the paths they name. Where elm crashed, there is
 //! nothing to match, and the run is skipped.
+//!
+//! Each case runs again without `--report=json`, as `<case> terminal`,
+//! against `expected_terminal/` (plan 8.13a). How many `Verifying
+//! dependencies (k/n)` steps elm prints depends on how its threads
+//! interleave, and varies between runs of one elm, so a run of them reads
+//! as one step to `n` on both sides (DECISIONS.md, 2026-10-11).
 #![cfg(unix)]
 
 #[path = "support/website.rs"]
@@ -54,6 +60,9 @@ fn elm_make() {
             .unwrap_or_else(|e| panic!("{name}: {e}"));
         let expected = fs::read_to_string(dir.join("expected").join(format!("{name}.txt")))
             .unwrap_or_else(|e| panic!("{name}: {e}; rerun `cargo xtask oracle make`"));
+        let terminal =
+            fs::read_to_string(dir.join("expected_terminal").join(format!("{name}.txt")))
+                .unwrap_or_else(|e| panic!("{name}: {e}; rerun `cargo xtask oracle make`"));
         let releases: &[&str] = if names_release(&case) {
             &RELEASES
         } else {
@@ -69,6 +78,16 @@ fn elm_make() {
                 continue;
             }
             runs.push((id, as_release(&case, release), expected.to_owned()));
+            let id = format!("{name} terminal as {release}");
+            let Some(expected) = recorded(&terminal, release) else {
+                panic!("{id}: no transcript; rerun `cargo xtask oracle make`");
+            };
+            if crashed(expected) {
+                crashes += 1;
+                continue;
+            }
+            let case = as_release(&terminal_case(&case), release);
+            runs.push((id, case, steady(expected)));
         }
     }
     // Each run is a process; a few at once.
@@ -116,15 +135,54 @@ fn run(elm: &Path, cache: &Path, case: &Case, expected: &str) -> Result<(), Stri
     let work = tempfile::tempdir().unwrap();
     let root = padded(work.path());
     case.create_files(&root).unwrap();
+    case.date_files(&root).unwrap();
     let actual = case
         .run(offline(elm, cache), &root)
         .unwrap()
         .compared(case, &root);
+    let actual = steady(&actual);
     if actual == expected {
         Ok(())
     } else {
         Err(format!("--- expected\n{expected}--- actual\n{actual}"))
     }
+}
+
+/// `case` in the terminal style: without `--report=json`.
+fn terminal_case(case: &Case) -> Case {
+    let mut case = case.clone();
+    case.args.retain(|a| a != "--report=json");
+    case
+}
+
+/// `transcript` with each run of `\rVerifying dependencies (k/n)` steps
+/// read as the one step `\rVerifying dependencies (…/n)`.
+fn steady(transcript: &str) -> String {
+    const STEP: &str = "\rVerifying dependencies (";
+    let mut out = String::new();
+    let mut rest = transcript;
+    while let Some(at) = rest.find(STEP) {
+        out.push_str(&rest[..at]);
+        rest = &rest[at..];
+        let mut total = None;
+        while let Some(step) = rest.strip_prefix(STEP)
+            && let Some(close) = step.find(')')
+            && let Some((_, n)) = step[..close].split_once('/')
+        {
+            total = Some(n);
+            rest = &step[close + 1..];
+        }
+        match total {
+            Some(n) => out.push_str(&format!("{STEP}…/{n})")),
+            // Not a step after all: keep it as it is.
+            None => {
+                out.push_str(STEP);
+                rest = &rest[STEP.len()..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Whether the case is an application whose `elm-version` names a

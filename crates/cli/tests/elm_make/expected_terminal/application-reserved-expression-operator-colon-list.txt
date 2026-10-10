@@ -1,0 +1,46 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNEXPECTED SYMBOL ---------------------------------------------- src/Main.elm
+|
+|I was not expecting to run into the "has type" symbol here:
+|
+|2| value = [1 : 2]
+|              ^
+|Maybe you want :: instead? To put something on the front of a list?
+|
+|Note: The single colon is reserved for type annotations and record types, but I
+|think I am parsing the definition of `value` right now.
+|
+|Note: I may be getting confused by your indentation. Is this supposed to be part
+|of a type annotation AFTER the `value` definition? If so, the problem may be a
+|bit before the "has type" symbol. I need all definitions to be exactly aligned
+|(with exactly the same indentation) so the problem may be that this new
+|definition is indented a bit too much.
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNEXPECTED SYMBOL ---------------------------------------------- src/Main.elm
+|
+|I was not expecting to run into the "has type" symbol here:
+|
+|2| value = [1 : 2]
+|              ^
+|Maybe you want :: instead? To put something on the front of a list?
+|
+|Note: The single colon is reserved for type annotations and record types, but I
+|think I am parsing the definition of `value` right now.
+|
+|Note: I may be getting confused by your indentation. Is this supposed to be part
+|of a type annotation AFTER the `value` definition? If so, the problem may be a
+|bit before the "has type" symbol. I need all definitions to be exactly aligned
+|(with exactly the same indentation) so the problem may be that this new
+|definition is indented a bit too much.
+|

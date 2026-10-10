@@ -1,0 +1,90 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- NO TYPE ANNOTATION --------------------------------------------- src/Main.elm
+|
+|The `alpha` definition does not have a type annotation.
+|
+|9| alpha = 1
+|   ^^^^^
+|I use the type variable names from your annotations when generating docs. So if
+|you say `Html msg` in your type annotation, I can use `msg` in the docs and make
+|them a bit clearer. So add an annotation and try to use nice type variables!
+|
+|Note: Read <https://elm-lang.org/0.19.1/docs> for more advice on writing great
+|docs. There are a couple important tricks!
+|
+|-- NO DOCS -------------------------------------------------------- src/Main.elm
+|
+|The `beta` definition does not have a documentation comment.
+|
+|1| module Main exposing (alpha, beta)
+|                                ^^^^
+|Add documentation with nice examples of how to use it!
+|
+|Note: Read <https://elm-lang.org/0.19.1/docs> for more advice on writing great
+|docs. There are a couple important tricks!
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- NO TYPE ANNOTATION --------------------------------------------- src/Main.elm
+|
+|The `alpha` definition does not have a type annotation.
+|
+|9| alpha = 1
+|   ^^^^^
+|I use the type variable names from your annotations when generating docs. So if
+|you say `Html msg` in your type annotation, I can use `msg` in the docs and make
+|them a bit clearer. So add an annotation and try to use nice type variables!
+|
+|Note: Read <https://elm-lang.org/0.19.2/docs> for more advice on writing great
+|docs. There are a couple important tricks!
+|
+|-- NO DOCS -------------------------------------------------------- src/Main.elm
+|
+|The `beta` definition does not have a documentation comment.
+|
+|1| module Main exposing (alpha, beta)
+|                                ^^^^
+|Add documentation with nice examples of how to use it!
+|
+|Note: Read <https://elm-lang.org/0.19.2/docs> for more advice on writing great
+|docs. There are a couple important tricks!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- NO DOCS -------------------------------------------------------- src/Main.elm
+|
+|The `beta` definition does not have a documentation comment.
+|
+|1| module Main exposing (alpha, beta)
+|                                ^^^^
+|Add documentation with nice examples of how to use it!
+|
+|Note: Read <https://elm-lang.org/0.19.3/docs> for more advice on writing great
+|docs. There are a couple important tricks!
+|
+|-- NO TYPE ANNOTATION --------------------------------------------- src/Main.elm
+|
+|The `alpha` definition does not have a type annotation.
+|
+|9| alpha = 1
+|   ^^^^^
+|I use the type variable names from your annotations when generating docs. So if
+|you say `Html msg` in your type annotation, I can use `msg` in the docs and make
+|them a bit clearer. So add an annotation and try to use nice type variables!
+|
+|Note: Read <https://elm-lang.org/0.19.3/docs> for more advice on writing great
+|docs. There are a couple important tricks!
+|

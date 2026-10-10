@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|-- CLASHING FLAGS --------------------------------------------------------------
+|
+|I cannot compile with --optimize and --debug at the same time.
+|
+|I need to take away information to optimize things, and I need to add
+|information to add the debugger. It is impossible to do both at once though!
+|Pick just one of those flags and it should work!
+|

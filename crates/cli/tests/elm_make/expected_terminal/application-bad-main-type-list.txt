@@ -1,0 +1,19 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- BAD MAIN TYPE -------------------------------------------------- src/Main.elm
+|
+|I cannot handle this type of `main` value:
+|
+|3| main = [Just 1]
+|   ^^^^
+|The type of `main` value I am seeing is:
+|
+|    List (Maybe Int)
+|
+|I only know how to handle Html, Svg, and Programs though. Modify `main` to be
+|one of those types of values!
+|

@@ -1,0 +1,28 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED EXPOSING -------------------------------------------- src/Main.elm
+|
+|I was partway through parsing exposed values, but I got stuck here:
+|
+|1| module Main exposing (value other)
+|                               ^
+|Maybe there is a comma missing before this?
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED EXPOSING -------------------------------------------- src/Main.elm
+|
+|I was partway through parsing exposed values, but I got stuck here:
+|
+|1| module Main exposing (value other)
+|                               ^
+|Maybe there is a comma missing before this?
+|

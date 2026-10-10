@@ -1,0 +1,46 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MODULE NOT FOUND ----------------------------------------------- src/Main.elm
+|
+|You are trying to import a `Missing` module:
+|
+|2| import Missing
+|          ^^^^^^^
+|I checked the "dependencies" and "source-directories" listed in your elm.json,
+|but I cannot find it! Maybe it is a typo for one of these names?
+|
+|    Main
+|    Bitwise
+|    Dict
+|    Set
+|
+|Hint: If it is not a typo, check the "dependencies" and "source-directories" of
+|your elm.json to make sure all the packages you need are listed there!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MODULE NOT FOUND ----------------------------------------------- src/Main.elm
+|
+|You are trying to import a `Missing` module:
+|
+|2| import Missing
+|          ^^^^^^^
+|I checked the "dependencies" and "source-directories" listed in your elm.json,
+|but I cannot find it! Maybe it is a typo for one of these names?
+|
+|    Main
+|    Bitwise
+|    Set
+|    Dict
+|
+|Hint: If it is not a typo, check the "dependencies" and "source-directories" of
+|your elm.json to make sure all the packages you need are listed there!
+|

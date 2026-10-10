@@ -1,0 +1,46 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MODULE NOT FOUND ----------------------------------------------- src/Main.elm
+|
+|You are trying to import a `Http` module:
+|
+|2| import Http
+|          ^^^^
+|I checked the "dependencies" and "source-directories" listed in your elm.json,
+|but I cannot find it! Maybe it is a typo for one of these names?
+|
+|    Set
+|    Dict
+|    Main
+|    Task
+|
+|Hint: Maybe you want the `Http` module defined in the elm/http package? Running
+|elm install elm/http should make it available!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MODULE NOT FOUND ----------------------------------------------- src/Main.elm
+|
+|You are trying to import a `Http` module:
+|
+|2| import Http
+|          ^^^^
+|I checked the "dependencies" and "source-directories" listed in your elm.json,
+|but I cannot find it! Maybe it is a typo for one of these names?
+|
+|    Set
+|    Dict
+|    Main
+|    Task
+|
+|Hint: Maybe you want the `Http` module defined in the elm/http package? Running
+|elm install elm/http should make it available!
+|

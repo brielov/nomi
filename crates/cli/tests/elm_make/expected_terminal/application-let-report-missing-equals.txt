@@ -1,0 +1,59 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- RESERVED WORD -------------------------------------------------- src/Main.elm
+|
+|The name `in` is reserved in Elm, so it cannot be used as an argument here:
+|
+|2| value = let x in x
+|                 ^^
+|Try renaming it to something else.
+|
+|Note: The `in` keyword has a special meaning in Elm, so it can only be used in
+|certain situations.
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- PROBLEM IN DEFINITION ------------------------------------------ src/Main.elm
+|
+|I got stuck while parsing the `x` definition:
+|
+|2| value = let x in x
+|                 ^
+|I am not sure what is going wrong exactly, so here is a valid definition (with
+|an optional type annotation) for reference:
+|
+|    greet : String -> String
+|    greet name =
+|      "Hello " ++ name ++ "!"
+|
+|Try to use that format!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- PROBLEM IN DEFINITION ------------------------------------------ src/Main.elm
+|
+|I got stuck while parsing the `x` definition:
+|
+|2| value = let x in x
+|                 ^
+|I am not sure what is going wrong exactly, so here is a valid definition (with
+|an optional type annotation) for reference:
+|
+|    greet : String -> String
+|    greet name =
+|      "Hello " ++ name ++ "!"
+|
+|Try to use that format!
+|

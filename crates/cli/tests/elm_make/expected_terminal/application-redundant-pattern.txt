@@ -1,0 +1,34 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- REDUNDANT PATTERN ---------------------------------------------- src/Main.elm
+|
+|The 2nd pattern is redundant:
+|
+|2| value x = case x of
+|3|     _ -> 1
+|4|     Just n -> n
+|       ^^^^^^
+|Any value with this shape will be handled by a previous pattern, so it should be
+|removed.
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- REDUNDANT PATTERN ---------------------------------------------- src/Main.elm
+|
+|The 2nd pattern is redundant:
+|
+|2| value x = case x of
+|3|     _ -> 1
+|4|     Just n -> n
+|       ^^^^^^
+|Any value with this shape will be handled by a previous pattern, so it should be
+|removed.
+|

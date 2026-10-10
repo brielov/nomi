@@ -1,0 +1,30 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- BAD FLAGS ------------------------------------------------------ src/Main.elm
+|
+|Your `main` program wants an extended record from JavaScript.
+|
+|3| main = Platform.worker
+|   ^^^^
+|But the exact shape of the record must be known at compile time. No type
+|variables!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- BAD FLAGS ------------------------------------------------------ src/Main.elm
+|
+|Your `main` program wants an extended record from JavaScript.
+|
+|3| main = Platform.worker
+|   ^^^^
+|But the exact shape of the record must be known at compile time. No type
+|variables!
+|

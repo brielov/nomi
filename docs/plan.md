@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **8.13a**.
+4. Resume at the first unchecked box. Right now that is **8.13b**.
 
 ### Test tiers
 
@@ -509,7 +509,9 @@ The optimizer's oracle is elm's own artifacts: every elm writes a module's optim
 - [x] **8.13** `engine: make generates`. `elm make` writes what `Make.hs` writes: `--output` as JavaScript or HTML, and without it `index.html` for one `main` or `elm.js` for more, from the dependencies' cached builds and the modules' graphs. **Check:** the 7.5a matrix at 100%, its 13 generation runs included.
 
   Done: `make` optimizes when it will generate, then writes what `Make.hs` writes: `--output` as JavaScript when every root has a `main`, as HTML for one root with one, and without it `index.html` for one `main` or `elm.js` for more, creating the directory; `--optimize` with `Debug` uses gets `DEBUG REMNANTS`, from the optimized graphs as upstream checks them. `check::foreigns` hands over the dependencies' builds, cached since 8.12, so the code comes from them and the modules' graphs. The 7.5a matrix passes all 1,393 runs, its 13 generation runs included. The terminal style's messages are still nomi's until 8.13a.
-- [ ] **8.13a** `oracle: make terminal transcripts`. The matrix's cases recorded again without `--report=json`, and the terminal style's progress, success and generation messages (`Reporting.hs`: `Compiling ...`, `Success!`, the `───>` diagram). **Check:** the terminal matrix at 100%.
+- [x] **8.13a** `oracle: make terminal transcripts`. The matrix's cases recorded again without `--report=json`, and the terminal style's progress, success and generation messages (`Reporting.hs`: `Compiling ...`, `Success!`, the `───>` diagram). **Check:** the terminal matrix at 100%.
+
+  Done: `cargo xtask oracle make` records every case again without `--report=json` into `expected_terminal/`, and the `elm_make` ratchet runs both, all 2,786 passing. `make` in the elm personality's terminal style now shows what `Reporting.hs` shows: the dependencies' verification steps and `Dependencies ready!` (also when the project fails before them), `Compiling ...` with a count per clean module and the final message over it, the reports without nomi's summary, and the `───>` diagram after writing code; `elm make` without files stops before the build, as upstream does. Three surprises, each in DECISIONS.md: how many verification steps elm prints varies between runs, so the ratchet reads a run of them as one step; elm sorts terminal reports by modification time, so the oracle and the ratchet date each case's files a second apart; and elm sometimes exits before printing its last line, so the oracle runs such a case again. `Compiled N modules` counts every clean module, cached or not.
 - [ ] **8.13b** `cli: nomi build`. `nomi build` (alias `make`, `--release` as an alias of `--optimize`) with nomi's own messages, and `--docs`. **Check:** transcripts.
 - [ ] **8.14** `cli: bump, diff and publish`. The API diff is computed from docs. Publishing is tested only against the fixture registry; publishing for real is yours to run.
 - [ ] **8.15** `cli: explain missing repl and reactor`. The message for `elm reactor` points to `nomi run --watch`.

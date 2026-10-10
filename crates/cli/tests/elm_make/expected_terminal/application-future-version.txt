@@ -1,0 +1,33 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- ELM VERSION MISMATCH ----------------------------------------------- elm.json
+|
+|Your elm.json says this application needs a different version of Elm.
+|
+|It requires 0.20.0, but you are using 0.19.1 right now.
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- ELM VERSION MISMATCH ----------------------------------------------- elm.json
+|
+|Your elm.json says this application needs a different version of Elm.
+|
+|It requires 0.20.0, but you are using 0.19.2 right now.
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- ELM VERSION MISMATCH ----------------------------------------------- elm.json
+|
+|Your elm.json says this application needs a different version of Elm.
+|
+|It requires 0.20.0, but you are using 0.19.3 right now.
+|

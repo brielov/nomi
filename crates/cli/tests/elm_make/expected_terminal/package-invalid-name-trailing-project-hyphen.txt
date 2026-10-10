@@ -1,0 +1,38 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- INVALID PACKAGE NAME ----------------------------------------------- elm.json
+|
+|I got stuck while reading your elm.json file. I ran into trouble with the
+|package name:
+|
+|1| {"type": "package", "name": "example/a-", "summary": "Compiler JSON reporting conformance fixture", "license": "BSD-3-Clause", "version": "1.0.0", "exposed-modules": [], "elm-version": "0.19.0 <= v < 0.20.0", "dependencies": {"elm/core": "1.0.0 <= v < 2.0.0", "elm/json": "1.0.0 <= v < 2.0.0"}, "test-dependencies": {}}
+|                                          ^
+|Package names are always written as "author/project" so I am expecting to see
+|something like:
+|
+|    "mdgriffith/elm-ui"
+|    "w0rm/elm-physics"
+|    "Microsoft/elm-json-tree-view"
+|    "FordLabs/elm-star-rating"
+|    "1602/json-schema"
+|
+|The author name should match your GitHub name exactly, and the project name
+|needs to follow these rules:
+|
+|    +--------------------------------------+-----------+-----------+
+|    | RULE                                 | BAD       | GOOD      |
+|    +--------------------------------------+-----------+-----------+
+|    | only lower case, digits, and hyphens | elm-HTTP  | elm-http  |
+|    | no leading digits                    | 3D        | elm-3d    |
+|    | no non-ASCII characters              | elm-bjørn | elm-bear  |
+|    | no underscores                       | elm_ui    | elm-ui    |
+|    | no double hyphens                    | elm--hash | elm-hash  |
+|    | no starting or ending hyphen         | -elm-tar- | elm-tar   |
+|    +--------------------------------------+-----------+-----------+
+|
+|Note: These rules only apply to the project name, so you should never need to
+|change your GitHub name!
+|

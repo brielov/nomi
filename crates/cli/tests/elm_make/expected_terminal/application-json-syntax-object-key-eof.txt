@@ -1,0 +1,35 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- EXPECTING COLON ---------------------------------------------------- elm.json
+|
+|I ran into a problem with your elm.json file. I was partway through parsing a
+|JSON object when I got stuck here:
+|
+|elm: Prelude.last: empty list
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- EXPECTING COLON ---------------------------------------------------- elm.json
+|
+|I ran into a problem with your elm.json file. I was partway through parsing a
+|JSON object when I got stuck here:
+|
+|1| {"x"
+|       ^
+|I was expecting to see a colon next.
+|
+|Note: Here is an example of a valid JSON object for reference:
+|
+|    {
+|      "name": "Tom",
+|      "age": 42
+|    }
+|
+|Notice that (1) the field names are in double quotes and (2) there is no
+|trailing comma after the last entry. Both are strict requirements in JSON!
+|

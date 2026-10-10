@@ -1,0 +1,30 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+=== stderr
+|-- NO INPUT --------------------------------------------------------------------
+|
+|What should I make though? I need specific files like:
+|
+|    elm make src/Main.elm
+|    elm make src/This.elm src/That.elm
+|
+|You can also entries to the "exposed-modules" list in your elm.json file, and I
+|will try to compile the relevant files.
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+=== stderr
+|-- NO INPUT --------------------------------------------------------------------
+|
+|What should I make though? I need specific files like:
+|
+|    elm make src/Main.elm
+|    elm make src/This.elm src/That.elm
+|
+|You can also entries to the "exposed-modules" list in your elm.json file, and I
+|will try to compile the relevant files.
+|

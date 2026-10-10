@@ -1,0 +1,15 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED IF -------------------------------------------------- src/Main.elm
+|
+|I was expecting to see an `else` branch after this:
+|
+|2| value = if True then 1
+|                         ^
+|I know what to do when the condition is True, but what happens when it is False?
+|Add an else branch to handle that scenario!
+|

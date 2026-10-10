@@ -1,0 +1,58 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Compiling (1)Compiling (2)Success! Compiled 2 modules.
+=== stderr
+|-- NO MAIN ---------------------------------------------------------------------
+|
+|When producing a JS file, I require that given files all have `main` values.
+|That way functions like Elm.NoMain.init() are definitely defined in the
+|resulting file. I am missing `main` values in:
+|
+|    NoMain
+|    OtherNoMain
+|
+|Try adding a `main` value to them? Or if you just want to verify that these
+|modules compile, switch to --output=/dev/null to skip the code gen phase
+|altogether.
+|
+|Note: Adding a `main` value can be as brief as adding something like this:
+|
+|import Html
+|
+|main =
+|  Html.text "Hello!"
+|
+|Or use https://package.elm-lang.org/packages/elm/core/latest/Platform#worker to
+|make a `main` with no user interface.
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Compiling (1)Compiling (2)Success! Compiled 2 modules.
+=== stderr
+|-- NO MAIN ---------------------------------------------------------------------
+|
+|When producing a JS file, I require that given files all have `main` values.
+|That way functions like Elm.NoMain.init() are definitely defined in the
+|resulting file. I am missing `main` values in:
+|
+|    NoMain
+|    OtherNoMain
+|
+|Try adding a `main` value to them? Or if you just want to verify that these
+|modules compile, switch to --output=/dev/null to skip the code gen phase
+|altogether.
+|
+|Note: Adding a `main` value can be as brief as adding something like this:
+|
+|import Html
+|
+|main =
+|  Html.text "Hello!"
+|
+|Or use https://package.elm-lang.org/packages/elm/core/latest/Platform#worker to
+|make a `main` with no user interface.
+|

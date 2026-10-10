@@ -1,0 +1,41 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected a problem.
+=== stderr
+|-- IMPORT CYCLE ----------------------------------------------------------------
+|
+|Your module imports form a cycle:
+|
+|    ┌─────┐
+|    │    A
+|    └─────┘
+|
+|Learn more about why this is disallowed and how to break cycles
+|here:<https://elm-lang.org/0.19.1/import-cycles>
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected a problem.
+=== stderr
+|-- IMPORT CYCLE ----------------------------------------------------------------
+|
+|Your module imports form a cycle:
+|
+|    ┌─────┐
+|    │    A
+|    └─────┘
+|
+|Learn more about why this is disallowed and how to break cycles
+|here:<https://elm-lang.org/0.19.2/import-cycles>
+|
+### elm 0.19.3
+=== killed
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...
+\ no newline at end
+=== stderr

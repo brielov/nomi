@@ -1,0 +1,36 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED OPERATOR FUNCTION ----------------------------------- src/Main.elm
+|
+|I was expecting a closing parenthesis here:
+|
+|2| value = (+ 
+|             ^
+|Try adding a ) to see if that helps!
+|
+|Note: I think I am parsing an operator function right now, so I am expecting to
+|see something like (+) or (&&) where an operator is surrounded by parentheses
+|with no extra spaces.
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED OPERATOR FUNCTION ----------------------------------- src/Main.elm
+|
+|I was expecting a closing parenthesis here:
+|
+|2| value = (+ 
+|             ^
+|Try adding a ) to see if that helps!
+|
+|Note: I think I am parsing an operator function right now, so I am expecting to
+|see something like (+) or (&&) where an operator is surrounded by parentheses
+|with no extra spaces.
+|

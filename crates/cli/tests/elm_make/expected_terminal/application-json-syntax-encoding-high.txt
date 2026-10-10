@@ -1,0 +1,30 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- MISSING SOURCE DIRECTORY ------------------------------------------- elm.json
+|
+|I need a valid elm.json file, but the "source-directories" field lists the
+|following directory:
+|
+|    s����rc
+|
+|I cannot find it though. Is it missing? Is there a typo?
+|
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- UNEXPECTED ENCODING ------------------------------------------------ elm.json
+|
+|I ran into a problem with your elm.json file. JSON files use UTF-8 character
+|encoding, but I ran into something outside of that format:
+|
+|2|   "type": "application",
+|3|   "source-directories": [
+|4|     "s�rc"
+|         ^
+|Is there a way to convert this to a valid UTF-8 character?
+|

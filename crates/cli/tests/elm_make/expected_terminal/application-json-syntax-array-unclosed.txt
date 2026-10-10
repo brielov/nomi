@@ -1,0 +1,54 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- UNFINISHED ARRAY --------------------------------------------------- elm.json
+|
+|I ran into a problem with your elm.json file. I was partway through parsing a
+|JSON array when I got stuck here:
+|
+|4|     "src"
+|5|   ,
+|6|   "elm-version": "0.19.1",
+|                  ^
+|I was expecting to see a comma or a closing square bracket next.
+|
+|Is a comma missing on the previous line? It is often something like that!
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- UNFINISHED ARRAY --------------------------------------------------- elm.json
+|
+|I ran into a problem with your elm.json file. I was partway through parsing a
+|JSON array when I got stuck here:
+|
+|4|     "src"
+|5|   ,
+|6|   "elm-version": "0.19.2",
+|                  ^
+|I was expecting to see a comma or a closing square bracket next.
+|
+|Is a comma missing on the previous line? It is often something like that!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- UNFINISHED ARRAY --------------------------------------------------- elm.json
+|
+|I ran into a problem with your elm.json file. I was partway through parsing a
+|JSON array when I got stuck here:
+|
+|4|     "src"
+|5|   ,
+|6|   "elm-version": "0.19.3",
+|                  ^
+|I was expecting to see a comma or a closing square bracket next.
+|
+|Is a comma missing on the previous line? It is often something like that!
+|

@@ -1,0 +1,42 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- EXPECTING MODULE NAME ------------------------------------------ src/Main.elm
+|
+|I was parsing an `module` declaration until I got stuck here:
+|
+|1| module main exposing (value)
+|          ^
+|I was expecting to see the module name next, like in these examples:
+|
+|    module Dict exposing (..)
+|    module Maybe exposing (..)
+|    module Html.Attributes exposing (..)
+|    module Json.Decode exposing (..)
+|
+|Notice that the module names all start with capital letters. That is required!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- EXPECTING MODULE NAME ------------------------------------------ src/Main.elm
+|
+|I was parsing an `module` declaration until I got stuck here:
+|
+|1| module main exposing (value)
+|          ^
+|I was expecting to see the module name next, like in these examples:
+|
+|    module Dict exposing (..)
+|    module Maybe exposing (..)
+|    module Html.Attributes exposing (..)
+|    module Json.Decode exposing (..)
+|
+|Notice that the module names all start with capital letters. That is required!
+|

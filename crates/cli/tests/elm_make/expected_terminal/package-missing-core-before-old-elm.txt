@@ -1,0 +1,14 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- MISSING DEPENDENCY ------------------------------------------------- elm.json
+|
+|I need to see an "elm/core" dependency your elm.json file. The default imports
+|of `List` and `Maybe` do not work without it.
+|
+|If you modified your elm.json by hand, try to change it back! And if you are
+|having trouble getting back to a working elm.json, it may be easier to find a
+|working package and start fresh with their elm.json file.
+|

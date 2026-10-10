@@ -1,0 +1,44 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- RESERVED WORD -------------------------------------------------- src/Main.elm
+|
+|It looks like you are trying to use `if` as an argument:
+|
+|2| value = \ if -> 1
+|             ^^
+|This is a reserved word! Try using some other name?
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- PROBLEM IN PATTERN --------------------------------------------- src/Main.elm
+|
+|I wanted to parse a pattern next, but I got stuck here:
+|
+|2| value = \ if -> 1
+|             ^
+|I am not sure why I am getting stuck exactly. I just know that I want a pattern
+|next. Something as simple as maybeHeight or result would work!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- PROBLEM IN PATTERN --------------------------------------------- src/Main.elm
+|
+|I wanted to parse a pattern next, but I got stuck here:
+|
+|2| value = \ if -> 1
+|             ^
+|I am not sure why I am getting stuck exactly. I just know that I want a pattern
+|next. Something as simple as maybeHeight or result would work!
+|

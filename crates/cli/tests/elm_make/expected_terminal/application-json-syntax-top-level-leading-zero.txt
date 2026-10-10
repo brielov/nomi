@@ -1,0 +1,25 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- BAD NUMBER --------------------------------------------------------- elm.json
+|
+|I ran into a problem with your elm.json file. Numbers cannot start with zeros
+|like this:
+|
+|elm: Prelude.last: empty list
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- BAD NUMBER --------------------------------------------------------- elm.json
+|
+|I ran into a problem with your elm.json file. Numbers cannot start with zeros
+|like this:
+|
+|1| 01
+|    ^
+|Try deleting the leading zeros?
+|

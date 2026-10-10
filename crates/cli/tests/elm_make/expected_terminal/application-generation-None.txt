@@ -1,0 +1,33 @@
+### elm 0.19.1
+=== exit 0
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Compiling (1)Success! Compiled 1 module.
+|
+|    Main ───> program.js
+|
+=== stderr
+=== file program.js
+|61472 bytes, SHA-256 2da00360b232825420f857acadd90507214965e76f2766f6fa67f305fa82b021
+### elm 0.19.2
+=== exit 0
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Compiling (1)Success! Compiled 1 module.
+|
+|    Main ───> program.js
+|
+=== stderr
+=== file program.js
+|61528 bytes, SHA-256 358e32730c01f2fb7b1482c49753e324dc0690ad30d5ce51f7c0dc90ddc4a9c0
+### elm 0.19.3
+=== exit 0
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Compiling (1)Success! Compiled 1 module.
+|
+|    Main ───> program.js
+|
+=== stderr
+=== file program.js
+|61528 bytes, SHA-256 66b196fde582212d99c1cfe47ac8599040e790e803fac7749308edcc9ac108f4

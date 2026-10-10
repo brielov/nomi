@@ -100,7 +100,7 @@ pub fn check_with(
 }
 
 /// [`check_with`] for `elm make`: also each root and whether it defines
-/// `main`.
+/// `main`, and how many modules came out clean.
 pub fn make_with(
     snapshot: &Snapshot,
     env: &Env,
@@ -109,7 +109,7 @@ pub fn make_with(
     personality: Personality,
     packages: &HashMap<String, Interface>,
     artifacts: Option<&Artifacts>,
-) -> (Checked, Vec<(ModuleName, bool)>) {
+) -> (Checked, Vec<(ModuleName, bool)>, usize) {
     let built = build(
         snapshot,
         env,
@@ -120,19 +120,19 @@ pub fn make_with(
         artifacts,
         Goal::Check,
     );
-    (built.checked, built.mains)
+    (built.checked, built.mains, built.compiled)
 }
 
 /// What `elm make --docs` makes of the package `env` describes: its
 /// exposed modules checked as [`check`] checks them and documented, and
-/// `docs.json` if nothing was wrong.
+/// `docs.json` if nothing was wrong, and how many modules came out clean.
 pub fn docs(
     snapshot: &Snapshot,
     env: &Env,
     outline: &Outline,
     personality: Personality,
     packages: &HashMap<String, Interface>,
-) -> (Checked, Option<String>) {
+) -> (Checked, Option<String>, usize) {
     let built = build(
         snapshot,
         env,
@@ -145,7 +145,7 @@ pub fn docs(
     );
     let json = matches!(built.checked, Checked::Fine)
         .then(|| nomi_compiler::docs::encode(env.compat(), &built.docs));
-    (built.checked, json)
+    (built.checked, json, built.compiled)
 }
 
 /// What [`build`] makes beyond the problems.
@@ -168,6 +168,8 @@ struct Built {
     mains: Vec<(ModuleName, bool)>,
     optimized: Vec<(ModuleName, LocalGraph)>,
     interfaces: Vec<(ModuleName, Interface)>,
+    /// How many modules came out clean.
+    compiled: usize,
 }
 
 impl Built {
@@ -179,6 +181,7 @@ impl Built {
             mains: Vec::new(),
             optimized: Vec::new(),
             interfaces: Vec::new(),
+            compiled: 0,
         }
     }
 }
@@ -194,6 +197,8 @@ pub struct Optimized {
     pub interfaces: Vec<(ModuleName, Interface)>,
     /// The modules checked rather than taken from the artifact cache.
     pub ran: Vec<PathBuf>,
+    /// How many modules came out clean, checked or reused.
+    pub compiled: usize,
 }
 
 /// What `elm make` optimizes of the project `env` describes, building
@@ -222,6 +227,7 @@ pub fn optimize(
         graphs: built.optimized,
         interfaces: built.interfaces,
         ran: built.ran,
+        compiled: built.compiled,
     };
     (built.checked, optimized)
 }
@@ -290,6 +296,7 @@ fn build(
         mains: graph.root_mains(),
         optimized: later.optimized,
         interfaces: later.interfaces,
+        compiled: later.compiled,
     }
 }
 

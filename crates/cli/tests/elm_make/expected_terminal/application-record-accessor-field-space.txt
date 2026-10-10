@@ -1,0 +1,16 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- EXPECTING RECORD ACCESSOR -------------------------------------- src/Main.elm
+|
+|I am trying to parse a record accessor here:
+|
+|2| value = user. thing
+|                ^
+|Something like .name or .price that accesses a value from a record.
+|
+|Note: Record field names must start with a lower case letter!
+|

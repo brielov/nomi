@@ -1,0 +1,58 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNEXPECTED ARROW ----------------------------------------------- src/Main.elm
+|
+|I am parsing a `case` expression right now, but this arrow is confusing me:
+|
+|3|     True -> 1 -> 2
+|                 ^^
+|It makes sense to see arrows around here, so I suspect it is something earlier.
+|Maybe this pattern is indented a bit farther than the previous patterns?
+|
+|Note: Sometimes I get confused by indentation, so try to make your `case` look
+|something like this:
+|
+|    case maybeWidth of
+|      Just width ->
+|        width + 200
+|
+|      Nothing ->
+|        400
+|
+|Notice the indentation! Patterns are aligned with each other. Same indentation.
+|The expressions after each arrow are all indented a bit more than the patterns.
+|That is important!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNEXPECTED ARROW ----------------------------------------------- src/Main.elm
+|
+|I am parsing a `case` expression right now, but this arrow is confusing me:
+|
+|3|     True -> 1 -> 2
+|                 ^^
+|It makes sense to see arrows around here, so I suspect it is something earlier.
+|Maybe this pattern is indented a bit farther than the previous patterns?
+|
+|Note: Sometimes I get confused by indentation, so try to make your `case` look
+|something like this:
+|
+|    case maybeWidth of
+|      Just width ->
+|        width + 200
+|
+|      Nothing ->
+|        400
+|
+|Notice the indentation! Patterns are aligned with each other. Same indentation.
+|The expressions after each arrow are all indented a bit more than the patterns.
+|That is important!
+|

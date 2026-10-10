@@ -1,0 +1,52 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNEXPECTED ARROW ----------------------------------------------- src/Main.elm
+|
+|I am parsing a `case` expression right now, but this arrow is confusing me:
+|
+|2| value = case 1 -> 2 of
+|                  ^^
+|Maybe the `of` keyword is missing on a previous line?
+|
+|Note: Here is an example of a valid `case` expression for reference.
+|
+|    case maybeWidth of
+|      Just width ->
+|        width + 200
+|
+|      Nothing ->
+|        400
+|
+|Notice the indentation. Each pattern is aligned, and each branch is indented a
+|bit more than the corresponding pattern. That is important!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNEXPECTED ARROW ----------------------------------------------- src/Main.elm
+|
+|I am parsing a `case` expression right now, but this arrow is confusing me:
+|
+|2| value = case 1 -> 2 of
+|                  ^^
+|Maybe the `of` keyword is missing on a previous line?
+|
+|Note: Here is an example of a valid `case` expression for reference.
+|
+|    case maybeWidth of
+|      Just width ->
+|        width + 200
+|
+|      Nothing ->
+|        400
+|
+|Notice the indentation. Each pattern is aligned, and each branch is indented a
+|bit more than the corresponding pattern. That is important!
+|

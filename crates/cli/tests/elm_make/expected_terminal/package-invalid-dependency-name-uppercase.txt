@@ -1,0 +1,18 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- PROBLEM WITH DEPENDENCY NAME --------------------------------------- elm.json
+|
+|I got stuck while reading your elm.json file. There is something wrong with this
+|dependency name:
+|
+|1| {"type": "package", "name": "example/reports", "summary": "Compiler JSON reporting conformance fixture", "license": "BSD-3-Clause", "version": "1.0.0", "exposed-modules": [], "elm-version": "0.19.0 <= v < 0.20.0", "dependencies": {"elm/Core": "1.0.0 <= v < 2.0.0"}, "test-dependencies": {}}
+|                                                                                                                                                                                                                                               ^
+|Package names always include the name of the author, so I am expecting to see
+|dependencies like "mdgriffith/elm-ui" and "Microsoft/elm-json-tree-view".
+|
+|I generally recommend finding the package you want on the package website, and
+|installing it with the elm install command!
+|

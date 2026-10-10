@@ -1,0 +1,24 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED LIST ------------------------------------------------ src/Main.elm
+|
+|I was expecting to see another list entry after that last comma:
+|
+|2| value = [1 -]
+|               ^
+|Trailing commas are not allowed in lists, so the fix may be to delete the comma?
+|
+|Note: I recommend using the following format for lists that span multiple lines:
+|
+|    [ "Alice"
+|    , "Bob"
+|    , "Chuck"
+|    ]
+|
+|Notice that each line starts with some indentation. Usually two or four spaces.
+|This is the stylistic convention in the Elm ecosystem.
+|

@@ -1,0 +1,33 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- ERROR IN DEPENDENCIES ---------------------------------------------- elm.json
+|
+|It looks like the dependencies elm.json in were edited by hand (or by a 3rd
+|party tool) leaving them in an invalid state.
+|
+|Try to change them back to what they were before! It is much more reliable to
+|add dependencies with elm install or the dependency management tool in
+|elm reactor.
+|
+|Please ask for help on the community forums if you try those paths and are still
+|having problems!
+|
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- ERROR IN DEPENDENCIES ---------------------------------------------- elm.json
+|
+|It looks like the dependencies elm.json in were edited by hand (or by a 3rd
+|party tool) leaving them in an invalid state.
+|
+|Try to change them back to what they were before! It is much more reliable to
+|add dependencies with elm install.
+|
+|Please ask for help on the community forums if you try those paths and are still
+|having problems!
+|

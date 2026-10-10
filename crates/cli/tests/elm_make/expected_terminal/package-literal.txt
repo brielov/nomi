@@ -1,0 +1,38 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- WEIRD HEXIDECIMAL ---------------------------------------------- src/Main.elm
+|
+|I thought I was reading a hexidecimal number until I got here:
+|
+|2| value = 0xNO
+|             ^
+|Valid hexidecimal digits include 0123456789abcdefABCDEF, so I can only recognize
+|things like this:
+|
+|    0x2B
+|    0x002B
+|    0x00ffb3
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- WEIRD HEXIDECIMAL ---------------------------------------------- src/Main.elm
+|
+|I thought I was reading a hexidecimal number until I got here:
+|
+|2| value = 0xNO
+|             ^
+|Valid hexidecimal digits include 0123456789abcdefABCDEF, so I can only recognize
+|things like this:
+|
+|    0x2B
+|    0x002B
+|    0x00ffb3
+|

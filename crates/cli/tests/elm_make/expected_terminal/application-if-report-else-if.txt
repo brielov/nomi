@@ -1,0 +1,28 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED IF -------------------------------------------------- src/Main.elm
+|
+|I was expecting to see more of this `if` expression, but I got stuck here:
+|
+|2| value = if True then 1 else if False then 2
+|                                              ^
+|I was expecting to see the else keyword next.
+|
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED IF -------------------------------------------------- src/Main.elm
+|
+|I was expecting to see more of this `if` expression, but I got stuck here:
+|
+|2| value = if True then 1 else if False then 2
+|                                              ^
+|I was expecting to see the else keyword next.
+|

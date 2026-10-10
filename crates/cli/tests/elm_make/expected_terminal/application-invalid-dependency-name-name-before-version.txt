@@ -1,0 +1,54 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- PROBLEM WITH DEPENDENCY NAME --------------------------------------- elm.json
+|
+|I got stuck while reading your elm.json file. There is something wrong with this
+|dependency name:
+|
+|1| {"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"core": "1.2", "elm/json": "1.1.4"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}
+|                                                                                                                    ^
+|Package names always include the name of the author, so I am expecting to see
+|dependencies like "mdgriffith/elm-ui" and "Microsoft/elm-json-tree-view".
+|
+|I generally recommend finding the package you want on the package website, and
+|installing it with the elm install command!
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- PROBLEM WITH DEPENDENCY NAME --------------------------------------- elm.json
+|
+|I got stuck while reading your elm.json file. There is something wrong with this
+|dependency name:
+|
+|1| {"type": "application", "source-directories": ["src"], "elm-version": "0.19.2", "dependencies": {"direct": {"core": "1.2", "elm/json": "1.1.4"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}
+|                                                                                                                    ^
+|Package names always include the name of the author, so I am expecting to see
+|dependencies like "mdgriffith/elm-ui" and "Microsoft/elm-json-tree-view".
+|
+|I generally recommend finding the package you want on the package website, and
+|installing it with the elm install command!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- PROBLEM WITH DEPENDENCY NAME --------------------------------------- elm.json
+|
+|I got stuck while reading your elm.json file. There is something wrong with this
+|dependency name:
+|
+|1| {"type": "application", "source-directories": ["src"], "elm-version": "0.19.3", "dependencies": {"direct": {"core": "1.2", "elm/json": "1.1.4"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}
+|                                                                                                                    ^
+|Package names always include the name of the author, so I am expecting to see
+|dependencies like "mdgriffith/elm-ui" and "Microsoft/elm-json-tree-view".
+|
+|I generally recommend finding the package you want on the package website, and
+|installing it with the elm install command!
+|

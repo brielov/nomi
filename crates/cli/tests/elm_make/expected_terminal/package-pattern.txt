@@ -1,0 +1,69 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MISSING PATTERNS ----------------------------------------------- src/Main.elm
+|
+|This `case` does not have branches for all possibilities:
+|
+|2|>value x = case x of
+|3|>    Just n -> n
+|
+|Missing possibilities include:
+|
+|    Nothing
+|
+|I would have to crash if I saw one of those. Add branches for them!
+|
+|Hint: If you want to write the code for each branch later, use `Debug.todo` as a
+|placeholder. Read <https://elm-lang.org/0.19.1/missing-patterns> for more
+|guidance on this workflow.
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MISSING PATTERNS ----------------------------------------------- src/Main.elm
+|
+|This `case` does not have branches for all possibilities:
+|
+|2|>value x = case x of
+|3|>    Just n -> n
+|
+|Missing possibilities include:
+|
+|    Nothing
+|
+|I would have to crash if I saw one of those. Add branches for them!
+|
+|Hint: If you want to write the code for each branch later, use `Debug.todo` as a
+|placeholder. Read <https://elm-lang.org/0.19.2/missing-patterns> for more
+|guidance on this workflow.
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MISSING PATTERNS ----------------------------------------------- src/Main.elm
+|
+|This `case` does not have branches for all possibilities:
+|
+|2|>value x = case x of
+|3|>    Just n -> n
+|
+|Missing possibilities include:
+|
+|    Nothing
+|
+|I would have to crash if I saw one of those. Add branches for them!
+|
+|Hint: If you want to write the code for each branch later, use `Debug.todo` as a
+|placeholder. Read <https://elm-lang.org/0.19.3/missing-patterns> for more
+|guidance on this workflow.
+|

@@ -1,0 +1,28 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected a problem.
+=== stderr
+|-- UNEXPECTED FILE EXTENSION ---------------------------------------------------
+|
+|I can only compile Elm files (with a .elm extension) but you want me to compile:
+|
+|    examples/link.elm
+|
+|Is there a typo? Can the file extension be changed?
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected a problem.
+=== stderr
+|-- UNEXPECTED FILE EXTENSION ---------------------------------------------------
+|
+|I can only compile Elm files (with a .elm extension) but you want me to compile:
+|
+|    examples/link.elm
+|
+|Is there a typo? Can the file extension be changed?
+|

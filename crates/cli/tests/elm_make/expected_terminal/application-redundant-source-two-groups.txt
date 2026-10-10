@@ -1,0 +1,19 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- REDUNDANT SOURCE DIRECTORIES --------------------------------------- elm.json
+|
+|I need a valid elm.json file, but the "source-directories" field has some
+|redundant directories:
+|
+|    ./generated
+|    generated
+|
+|These are two different ways of refering to the same directory:
+|
+|    $ROOT/generated
+|
+|Remove one of the redundant entries from your "source-directories" field.
+|

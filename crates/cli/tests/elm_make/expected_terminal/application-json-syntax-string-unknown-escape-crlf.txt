@@ -1,0 +1,28 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- UNKNOWN ESCAPE ----------------------------------------------------- elm.json
+|
+|I ran into a problem with your elm.json file. Backslashes always start escaped
+|characters, but I do not recognize this one:
+|
+|2|   "type": "application",
+|3|   "source-directories": [
+|4|     "s\qrc"
+|         ^
+|Valid escape characters include:
+|
+|    \"
+|    \\
+|    \/
+|    \b
+|    \f
+|    \n
+|    \r
+|    \t
+|    \u003D
+|
+|Do you want one of those instead? Maybe you need \\ to escape a backslash?
+|

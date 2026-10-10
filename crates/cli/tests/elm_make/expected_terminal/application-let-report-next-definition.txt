@@ -1,0 +1,56 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED LET ------------------------------------------------- src/Main.elm
+|
+|I was partway through parsing a `let` expression, but I got stuck here:
+|
+|2| value = let x = 1
+|                    ^
+|I was expecting to see the in keyword next. Or maybe more of that expression?
+|
+|Note: Here is an example with a valid `let` expression for reference:
+|
+|    viewPerson person =
+|      let
+|        fullName =
+|          person.firstName ++ " " ++ person.lastName
+|      in
+|      div [] [ text fullName ]
+|
+|Here we defined a `viewPerson` function that turns a person into some HTML. We
+|use a `let` expression to define the `fullName` we want to show. Notice the
+|indentation! The `fullName` is indented more than the `let` keyword, and the
+|actual value of `fullName` is indented a bit more than that. That is important!
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED LET ------------------------------------------------- src/Main.elm
+|
+|I was partway through parsing a `let` expression, but I got stuck here:
+|
+|2| value = let x = 1
+|                    ^
+|I was expecting to see the in keyword next. Or maybe more of that expression?
+|
+|Note: Here is an example with a valid `let` expression for reference:
+|
+|    viewPerson person =
+|      let
+|        fullName =
+|          person.firstName ++ " " ++ person.lastName
+|      in
+|      div [] [ text fullName ]
+|
+|Here we defined a `viewPerson` function that turns a person into some HTML. We
+|use a `let` expression to define the `fullName` we want to show. Notice the
+|indentation! The `fullName` is indented more than the `let` keyword, and the
+|actual value of `fullName` is indented a bit more than that. That is important!
+|

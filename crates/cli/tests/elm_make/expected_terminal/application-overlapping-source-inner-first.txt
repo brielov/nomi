@@ -1,0 +1,22 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected a problem.
+=== stderr
+|-- CONFUSING FILE --------------------------------------------------------------
+|
+|I am getting confused when I try to compile this file:
+|
+|    src/Nested/Other.elm
+|
+|I always check if files appear in any of the "source-directories" listed in your
+|elm.json to see if there might be some cached information about them. That can
+|help me compile faster! But in this case, it looks like this file may be in
+|either of these directories:
+|
+|    $ROOT/src/Nested
+|    $ROOT/src
+|
+|Try to make it so no source directory contains another source directory!
+|

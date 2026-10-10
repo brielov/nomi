@@ -1,0 +1,17 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- SUMMARY TOO LONG --------------------------------------------------- elm.json
+|
+|I got stuck while reading your elm.json file. Your "summary" is too long:
+|
+|1| {"type": "package", "name": "example/reports", "summary": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9", "license": "BSD-3-Clause", "version": "1.0.0", "exposed-modules": [], "elm-version": "0.19.0 <= v < 0.20.0", "dependencies": {"elm/core": "1.0.0 <= v < 2.0.0", "elm/json": "1.0.0 <= v < 2.0.0"}, "test-dependencies": {}}
+|                                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+|I need it to be under 80 bytes so it renders nicely on the package website!
+|
+|Note: I count the length in bytes, so using non-ASCII characters costs extra.
+|Please report your case at https://github.com/elm/compiler/issues if this seems
+|overly restrictive for your needs.
+|

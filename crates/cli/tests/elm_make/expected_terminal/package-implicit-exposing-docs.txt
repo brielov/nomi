@@ -1,0 +1,36 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- IMPLICIT EXPOSING ---------------------------------------------- src/Main.elm
+|
+|I need you to be explicit about what this module exposes:
+|
+|1| module Main exposing (..)
+|                        ^^^^
+|A great API usually hides some implementation details, so it is rare that
+|everything in the file should be exposed. And requiring package authors to be
+|explicit about this is a way of adding another quality check before code gets
+|published. So as you write out the public API, ask yourself if it will be easy
+|to understand as people read the documentation!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- IMPLICIT EXPOSING ---------------------------------------------- src/Main.elm
+|
+|I need you to be explicit about what this module exposes:
+|
+|1| module Main exposing (..)
+|                        ^^^^
+|A great API usually hides some implementation details, so it is rare that
+|everything in the file should be exposed. And requiring package authors to be
+|explicit about this is a way of adding another quality check before code gets
+|published. So as you write out the public API, ask yourself if it will be easy
+|to understand as people read the documentation!
+|

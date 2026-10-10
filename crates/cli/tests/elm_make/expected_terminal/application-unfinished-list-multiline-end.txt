@@ -1,0 +1,52 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED LIST ------------------------------------------------ src/Main.elm
+|
+|I cannot find the end of this list:
+|
+|2| value = [
+|3|   1
+|      ^
+|You can just add a closing ] right here, and I will be all set!
+|
+|Note: I may be confused by indentation. For example, if you are trying to define
+|a list across multiple lines, I recommend using this format:
+|
+|    [ "Alice"
+|    , "Bob"
+|    , "Chuck"
+|    ]
+|
+|Notice that each line starts with some indentation. Usually two or four spaces.
+|This is the stylistic convention in the Elm ecosystem.
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED LIST ------------------------------------------------ src/Main.elm
+|
+|I cannot find the end of this list:
+|
+|2| value = [
+|3|   1
+|      ^
+|You can just add a closing ] right here, and I will be all set!
+|
+|Note: I may be confused by indentation. For example, if you are trying to define
+|a list across multiple lines, I recommend using this format:
+|
+|    [ "Alice"
+|    , "Bob"
+|    , "Chuck"
+|    ]
+|
+|Notice that each line starts with some indentation. Usually two or four spaces.
+|This is the stylistic convention in the Elm ecosystem.
+|

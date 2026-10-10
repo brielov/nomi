@@ -1,0 +1,31 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- ENDLESS STRING ----------------------------------------------------- elm.json
+|
+|I ran into a problem with your elm.json file. I got to the end of the line
+|without seeing the closing double quote:
+|
+|1| {"type": "application\
+|2| 
+|                        ^
+|Strings look like "this" with double quotes on each end. Is the closing double
+|quote missing in your code?
+|
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- ENDLESS STRING ----------------------------------------------------- elm.json
+|
+|I ran into a problem with your elm.json file. I got to the end of the line
+|without seeing the closing double quote:
+|
+|1| {"type": "application\
+|                         ^
+|Strings look like "this" with double quotes on each end. Is the closing double
+|quote missing in your code?
+|

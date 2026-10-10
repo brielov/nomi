@@ -1,0 +1,18 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected a problem.
+=== stderr
+|-- MODULE NAME CLASH -----------------------------------------------------------
+|
+|These two files are causing a module name clash:
+|
+|    examples/A.elm
+|    $ROOT/src/A.elm
+|
+|They both say `module A exposing (..)` up at the top, but they cannot have the
+|same name!
+|
+|Try changing to a different module name in one of them!
+|

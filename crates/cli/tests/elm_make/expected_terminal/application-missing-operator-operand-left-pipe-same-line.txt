@@ -1,0 +1,28 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MISSING EXPRESSION --------------------------------------------- src/Main.elm
+|
+|I just saw a <| operator, so I am getting stuck here:
+|
+|2| value = (identity <|)
+|                       ^
+|I was expecting to see an argument next.
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MISSING EXPRESSION --------------------------------------------- src/Main.elm
+|
+|I just saw a <| operator, so I am getting stuck here:
+|
+|2| value = (identity <|)
+|                       ^
+|I was expecting to see an argument next.
+|

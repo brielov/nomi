@@ -1,0 +1,38 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- BAD MAIN ------------------------------------------------------- src/Main.elm
+|
+|A `main` definition cannot be defined in terms of itself.
+|
+|2| main value = main value
+|   ^^^^
+|It should be a boring value with no recursion. But instead it is involved in
+|this cycle of definitions:
+|
+|    ┌─────┐
+|    │    main
+|    └─────┘
+|
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- BAD MAIN ------------------------------------------------------- src/Main.elm
+|
+|A `main` definition cannot be defined in terms of itself.
+|
+|2| main value = main value
+|   ^^^^
+|It should be a boring value with no recursion. But instead it is involved in
+|this cycle of definitions:
+|
+|    ┌─────┐
+|    │    main
+|    └─────┘
+|

@@ -1,0 +1,42 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MODULE NAME MISMATCH ------------------------------------------- src/Main.elm
+|
+|It looks like this module name is out of sync:
+|
+|1| module Other exposing (value)
+|          ^^^^^
+|I need it to match the file path, so I was expecting to see `Main` here. Make
+|the following change, and you should be all set!
+|
+|    Other -> Main
+|
+|Note: I require that module names correspond to file paths. This makes it much
+|easier to explore unfamiliar codebases! So if you want to keep the current
+|module name, try renaming the file instead.
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MODULE NAME MISMATCH ------------------------------------------- src/Main.elm
+|
+|It looks like this module name is out of sync:
+|
+|1| module Other exposing (value)
+|          ^^^^^
+|I need it to match the file path, so I was expecting to see `Main` here. Make
+|the following change, and you should be all set!
+|
+|    Other -> Main
+|
+|Note: I require that module names correspond to file paths. This makes it much
+|easier to explore unfamiliar codebases! So if you want to keep the current
+|module name, try renaming the file instead.
+|

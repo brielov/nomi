@@ -1,0 +1,14 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- MISSING SOURCE DIRECTORY ------------------------------------------- elm.json
+|
+|I need a valid elm.json file, but the "source-directories" field lists the
+|following directory:
+|
+|    src
+|
+|I cannot find it though. Is it missing? Is there a typo?
+|

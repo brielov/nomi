@@ -1,0 +1,38 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MISSING ARGUMENT ----------------------------------------------- src/Main.elm
+|
+|I just saw the beginning of an anonymous function, so I was expecting to see an
+|argument next:
+|
+|2| value = \
+|            ^
+|Something like x or name. Anything that starts with a lower case letter!
+|
+|Note: The syntax for anonymous functions is (\x -> x + 1) where the backslash is
+|meant to look a bit like a lambda if you squint. This visual pun seemed like a
+|better idea at the time!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MISSING ARGUMENT ----------------------------------------------- src/Main.elm
+|
+|I just saw the beginning of an anonymous function, so I was expecting to see an
+|argument next:
+|
+|2| value = \
+|            ^
+|Something like x or name. Anything that starts with a lower case letter!
+|
+|Note: The syntax for anonymous functions is (\x -> x + 1) where the backslash is
+|meant to look a bit like a lambda if you squint. This visual pun seemed like a
+|better idea at the time!
+|

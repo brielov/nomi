@@ -1,0 +1,19 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- LET PROBLEM ---------------------------------------------------- src/Main.elm
+|
+|I was partway through parsing a `let` expression, but I got stuck here:
+|
+|2| value = let x = 1
+|                    ^
+|Based on the indentation, I was expecting to see the in keyword next. Is there a
+|typo?
+|
+|Note: This can also happen if you are trying to define another value within the
+|`let` but it is not indented enough. Make sure each definition has exactly the
+|same amount of spaces before it. They should line up exactly!
+|

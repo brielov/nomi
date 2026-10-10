@@ -94,6 +94,19 @@ impl Case {
         Ok(())
     }
 
+    /// Dates the case's text files under `dir` a second apart, in the
+    /// case's order from 2001, so what sorts by modification time, as
+    /// elm's terminal reports do, sorts as the case lists them and not as
+    /// the file system's clock ticked.
+    pub fn date_files(&self, dir: &Path) -> io::Result<()> {
+        let start = std::time::UNIX_EPOCH + std::time::Duration::from_secs(978_307_200);
+        for (i, (path, _)) in self.files.iter().enumerate() {
+            let file = fs::File::options().write(true).open(dir.join(path))?;
+            file.set_modified(start + std::time::Duration::from_secs(i as u64))?;
+        }
+        Ok(())
+    }
+
     /// The case's arguments, with `$ROOT` standing for `dir`.
     pub fn args_in(&self, dir: &Path) -> Vec<String> {
         let root = dir.to_string_lossy();

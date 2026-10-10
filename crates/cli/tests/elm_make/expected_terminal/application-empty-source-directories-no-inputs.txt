@@ -1,0 +1,42 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- NO SOURCE DIRECTORIES ---------------------------------------------- elm.json
+|
+|I got stuck while reading your elm.json file. You do not have any
+|"source-directories" listed here:
+|
+|1| {"type": "application", "source-directories": [], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}
+|                                                 ^^
+|I need something like ["src"] so I know where to look for your modules!
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- NO SOURCE DIRECTORIES ---------------------------------------------- elm.json
+|
+|I got stuck while reading your elm.json file. You do not have any
+|"source-directories" listed here:
+|
+|1| {"type": "application", "source-directories": [], "elm-version": "0.19.2", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}
+|                                                 ^^
+|I need something like ["src"] so I know where to look for your modules!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- NO SOURCE DIRECTORIES ---------------------------------------------- elm.json
+|
+|I got stuck while reading your elm.json file. You do not have any
+|"source-directories" listed here:
+|
+|1| {"type": "application", "source-directories": [], "elm-version": "0.19.3", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}
+|                                                 ^^
+|I need something like ["src"] so I know where to look for your modules!
+|

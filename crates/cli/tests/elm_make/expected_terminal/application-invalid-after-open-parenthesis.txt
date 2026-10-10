@@ -1,0 +1,18 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED PARENTHESES ----------------------------------------- src/Main.elm
+|
+|I just saw an open parenthesis, so I was expecting to see an expression next.
+|
+|2| value = (
+|            ^
+|Something like (4 + 5) or (String.reverse "desserts"). Anything where you are
+|putting parentheses around normal expressions.
+|
+|Note: I can get confused by indentation in cases like this, so maybe you have an
+|expression but it is not indented enough?
+|

@@ -268,7 +268,7 @@ fn run(
     let snapshot = Vfs::new().snapshot();
     let checked = match suite {
         Suite::Docs => {
-            let (checked, docs) = check::docs(
+            let (checked, docs, _) = check::docs(
                 &snapshot,
                 &env,
                 &project.outline,

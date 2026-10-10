@@ -1,0 +1,32 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED IF -------------------------------------------------- src/Main.elm
+|
+|I was expecting to see more of this `if` expression, but I got stuck here:
+|
+|2| value = if
+|             ^
+|I was expecting to see an expression like x < 0 that evaluates to True or False.
+|
+|Note: I can be confused by indentation. Maybe something is not indented enough?
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED IF -------------------------------------------------- src/Main.elm
+|
+|I was expecting to see more of this `if` expression, but I got stuck here:
+|
+|2| value = if
+|             ^
+|I was expecting to see an expression like x < 0 that evaluates to True or False.
+|
+|Note: I can be confused by indentation. Maybe something is not indented enough?
+|

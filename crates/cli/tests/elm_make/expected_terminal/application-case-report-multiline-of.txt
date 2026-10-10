@@ -1,0 +1,26 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED CASE ------------------------------------------------ src/Main.elm
+|
+|I was partway through parsing a `case` expression, but I got stuck here:
+|
+|3|     case 1
+|             ^
+|I was expecting to see the of keyword next.
+|
+|Note: Here is an example of a valid `case` expression for reference.
+|
+|    case maybeWidth of
+|      Just width ->
+|        width + 200
+|
+|      Nothing ->
+|        400
+|
+|Notice the indentation. Each pattern is aligned, and each branch is indented a
+|bit more than the corresponding pattern. That is important!
+|

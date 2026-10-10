@@ -1,0 +1,54 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- DOCS MISTAKE --------------------------------------------------- src/Main.elm
+|
+|I do not see `other` in your module documentation, but it is in your `exposing`
+|list:
+|
+|1| module Main exposing (value, other)
+|                                ^^^^^
+|Add a line like `@docs other` to your module documentation!
+|
+|Note: See <https://elm-lang.org/0.19.1/docs> for more guidance on writing high
+|quality docs.
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- DOCS MISTAKE --------------------------------------------------- src/Main.elm
+|
+|I do not see `other` in your module documentation, but it is in your `exposing`
+|list:
+|
+|1| module Main exposing (value, other)
+|                                ^^^^^
+|Add a line like `@docs other` to your module documentation!
+|
+|Note: See <https://elm-lang.org/0.19.2/docs> for more guidance on writing high
+|quality docs.
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- DOCS MISTAKE --------------------------------------------------- src/Main.elm
+|
+|I do not see `other` in your module documentation, but it is in your `exposing`
+|list:
+|
+|1| module Main exposing (value, other)
+|                                ^^^^^
+|Add a line like `@docs other` to your module documentation!
+|
+|Note: See <https://elm-lang.org/0.19.3/docs> for more guidance on writing high
+|quality docs.
+|

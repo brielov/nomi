@@ -1,0 +1,51 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- NO DOCS -------------------------------------------------------- src/Main.elm
+|
+|The `value` definition does not have a documentation comment.
+|
+|1| module Main exposing (value)
+|                         ^^^^^
+|Add documentation with nice examples of how to use it!
+|
+|Note: Read <https://elm-lang.org/0.19.1/docs> for more advice on writing great
+|docs. There are a couple important tricks!
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- NO DOCS -------------------------------------------------------- src/Main.elm
+|
+|The `value` definition does not have a documentation comment.
+|
+|1| module Main exposing (value)
+|                         ^^^^^
+|Add documentation with nice examples of how to use it!
+|
+|Note: Read <https://elm-lang.org/0.19.2/docs> for more advice on writing great
+|docs. There are a couple important tricks!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- NO DOCS -------------------------------------------------------- src/Main.elm
+|
+|The `value` definition does not have a documentation comment.
+|
+|1| module Main exposing (value)
+|                         ^^^^^
+|Add documentation with nice examples of how to use it!
+|
+|Note: Read <https://elm-lang.org/0.19.3/docs> for more advice on writing great
+|docs. There are a couple important tricks!
+|

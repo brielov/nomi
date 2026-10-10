@@ -11,7 +11,6 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, UNIX_EPOCH};
 
 use nomi_base::Compat;
 use nomi_engine::Vfs;
@@ -95,7 +94,7 @@ impl Project {
         let temp = tempfile::tempdir().unwrap();
         let root = padded(temp.path());
         case.create_files(&root).unwrap();
-        date_files(&root, case);
+        case.date_files(&root).unwrap();
         let manifest = root.join("elm.json");
         let text = fs::read_to_string(&manifest).unwrap_or_else(|_| default_elm_json.to_owned());
         let text = with_elm_version(&text, compat);
@@ -260,7 +259,8 @@ fn build(
     );
     let snapshot = Vfs::new().snapshot();
     let (checked, written) = if docs {
-        check::docs(&snapshot, env, outline, Personality::Elm, interfaces)
+        let (checked, docs, _) = check::docs(&snapshot, env, outline, Personality::Elm, interfaces);
+        (checked, docs)
     } else {
         let checked = check::check(
             &snapshot,
@@ -304,18 +304,6 @@ fn padded(base: &Path) -> PathBuf {
 
 /// Dates the case's files a second apart in their order, as the oracle
 /// did.
-fn date_files(root: &Path, case: &Case) {
-    let start = UNIX_EPOCH + Duration::from_secs(978_307_200);
-    for (i, (path, _)) in case.files.iter().enumerate() {
-        let file = fs::File::options()
-            .write(true)
-            .open(root.join(path))
-            .unwrap();
-        file.set_modified(start + Duration::from_secs(i as u64))
-            .unwrap();
-    }
-}
-
 fn with_elm_version(text: &str, compat: Compat) -> String {
     const KEY: &str = "\"elm-version\": \"";
     if !text.contains("\"type\": \"application\"") {

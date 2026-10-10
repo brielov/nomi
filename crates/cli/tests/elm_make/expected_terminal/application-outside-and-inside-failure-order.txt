@@ -1,0 +1,122 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 3 modules.
+=== stderr
+|-- MODULE NOT FOUND --------------------------------------------- examples/A.elm
+|
+|You are trying to import a `Missing` module:
+|
+|2| import Missing
+|          ^^^^^^^
+|I checked the "dependencies" and "source-directories" listed in your elm.json,
+|but I cannot find it! Maybe it is a typo for one of these names?
+|
+|    Bitwise
+|    Dict
+|    Set
+|    Task
+|
+|Hint: If it is not a typo, check the "dependencies" and "source-directories" of
+|your elm.json to make sure all the packages you need are listed there!
+|
+|                                                                        A  ↑    
+|====o======================================================================o====
+|    ↓  B
+|
+|
+|-- TYPE MISMATCH ------------------------------------------------ examples/B.elm
+|
+|Something is off with the body of the `value` definition:
+|
+|3| value = True
+|           ^^^^
+|This `True` value is a:
+|
+|    Bool
+|
+|But the type annotation on `value` says it should be:
+|
+|    Int
+|
+|                                                                        B  ↑    
+|====o======================================================================o====
+|    ↓  C
+|
+|
+|-- TYPE MISMATCH ----------------------------------------------------- src/C.elm
+|
+|Something is off with the body of the `value` definition:
+|
+|3| value = True
+|           ^^^^
+|This `True` value is a:
+|
+|    Bool
+|
+|But the type annotation on `value` says it should be:
+|
+|    Int
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 3 modules.
+=== stderr
+|-- MODULE NOT FOUND --------------------------------------------- examples/A.elm
+|
+|You are trying to import a `Missing` module:
+|
+|2| import Missing
+|          ^^^^^^^
+|I checked the "dependencies" and "source-directories" listed in your elm.json,
+|but I cannot find it! Maybe it is a typo for one of these names?
+|
+|    Bitwise
+|    Set
+|    Dict
+|    Task
+|
+|Hint: If it is not a typo, check the "dependencies" and "source-directories" of
+|your elm.json to make sure all the packages you need are listed there!
+|
+|                                                                        A  ↑    
+|====o======================================================================o====
+|    ↓  B
+|
+|
+|-- TYPE MISMATCH ------------------------------------------------ examples/B.elm
+|
+|Something is off with the body of the `value` definition:
+|
+|3| value = True
+|           ^^^^
+|This `True` value is a:
+|
+|    Bool
+|
+|But the type annotation on `value` says it should be:
+|
+|    Int
+|
+|                                                                        B  ↑    
+|====o======================================================================o====
+|    ↓  C
+|
+|
+|-- TYPE MISMATCH ----------------------------------------------------- src/C.elm
+|
+|Something is off with the body of the `value` definition:
+|
+|3| value = True
+|           ^^^^
+|This `True` value is a:
+|
+|    Bool
+|
+|But the type annotation on `value` says it should be:
+|
+|    Int
+|

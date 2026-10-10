@@ -1,0 +1,48 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- WEIRD DECLARATION ---------------------------------------------- src/Main.elm
+|
+|I am trying to parse a declaration, but I am getting stuck here:
+|
+|2| �
+|   ^
+|When a line has no spaces at the beginning, I expect it to be a declaration like
+|one of these:
+|
+|    greet : String -> String
+|    greet name =
+|      "Hello " ++ name ++ "!"
+|    
+|    type User = Anonymous | LoggedIn String
+|
+|Try to make your declaration look like one of those? Or if this is not supposed
+|to be a declaration, try adding some spaces before it?
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- WEIRD DECLARATION ---------------------------------------------- src/Main.elm
+|
+|I am trying to parse a declaration, but I am getting stuck here:
+|
+|2| �
+|   ^
+|When a line has no spaces at the beginning, I expect it to be a declaration like
+|one of these:
+|
+|    greet : String -> String
+|    greet name =
+|      "Hello " ++ name ++ "!"
+|    
+|    type User = Anonymous | LoggedIn String
+|
+|Try to make your declaration look like one of those? Or if this is not supposed
+|to be a declaration, try adding some spaces before it?
+|

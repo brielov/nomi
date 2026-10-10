@@ -1,0 +1,22 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- UNKNOWN LICENSE ---------------------------------------------------- elm.json
+|
+|I got stuck while reading your elm.json file. I do not know about this type of
+|license:
+|
+|1| {"type": "package", "name": "example/reports", "summary": "Compiler JSON reporting conformance fixture", "license": "BSD-3-Clausee", "version": "1.0.0", "exposed-modules": [], "elm-version": "0.19.0 <= v < 0.20.0", "dependencies": {"elm/core": "1.0.0 <= v < 2.0.0", "elm/json": "1.0.0 <= v < 2.0.0"}, "test-dependencies": {}}
+|                                                                                                                       ^^^^^^^^^^^^^^^
+|Elm packages generally use "BSD-3-Clause" or "MIT", but I accept any OSI
+|approved SPDX license. Here some that seem close to what you wrote:
+|
+|    BSD-3-Clause
+|    BSD-2-Clause
+|    ISC
+|    BSL-1.0
+|
+|Check out https://spdx.org/licenses/ for the full list of options.
+|

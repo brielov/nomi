@@ -1,0 +1,74 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- RESERVED WORD -------------------------------------------------- src/Main.elm
+|
+|I am partway through parsing a `case` expression, but I got stuck here:
+|
+|2| value = case 1 of
+|3|     _ then 1
+|         ^^^^
+|It looks like you are trying to use `then` in one of your patterns, but it is a
+|reserved word. Try using a different name?
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MISSING ARROW -------------------------------------------------- src/Main.elm
+|
+|I am partway through parsing a `case` expression, but I got stuck here:
+|
+|2| value = case 1 of
+|3|     _ then 1
+|         ^
+|I was expecting to see an arrow next.
+|
+|Note: Sometimes I get confused by indentation, so try to make your `case` look
+|something like this:
+|
+|    case maybeWidth of
+|      Just width ->
+|        width + 200
+|
+|      Nothing ->
+|        400
+|
+|Notice the indentation! Patterns are aligned with each other. Same indentation.
+|The expressions after each arrow are all indented a bit more than the patterns.
+|That is important!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MISSING ARROW -------------------------------------------------- src/Main.elm
+|
+|I am partway through parsing a `case` expression, but I got stuck here:
+|
+|2| value = case 1 of
+|3|     _ then 1
+|         ^
+|I was expecting to see an arrow next.
+|
+|Note: Sometimes I get confused by indentation, so try to make your `case` look
+|something like this:
+|
+|    case maybeWidth of
+|      Just width ->
+|        width + 200
+|
+|      Nothing ->
+|        400
+|
+|Notice the indentation! Patterns are aligned with each other. Same indentation.
+|The expressions after each arrow are all indented a bit more than the patterns.
+|That is important!
+|

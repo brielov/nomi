@@ -1,0 +1,28 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- NO TABS -------------------------------------------------------- src/Main.elm
+|
+|I ran into a tab, but tabs are not allowed in Elm files.
+|
+|3| value =	1
+|          ^
+|Replace the tab with spaces.
+|
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- NO TABS -------------------------------------------------------- src/Main.elm
+|
+|I ran into a tab, but tabs are not allowed in Elm files.
+|
+|3| value =	1
+|          ^
+|Replace the tab with spaces.
+|

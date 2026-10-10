@@ -1,0 +1,16 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- BAD NUMBER --------------------------------------------------------- elm.json
+|
+|I ran into a problem with your elm.json file. Numbers cannot start with zeros
+|like this:
+|
+|2|   "type": "application",
+|3|   "source-directories": [
+|4|     01
+|        ^
+|Try deleting the leading zeros?
+|

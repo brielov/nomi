@@ -1,0 +1,64 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected a problem.
+=== stderr
+|-- UNEXPECTED FILE NAME --------------------------------------------------------
+|
+|I am having trouble with this file name:
+|
+|    src/.elm
+|
+|I found it in your
+|$ROOT/src/
+|directory which is good, but I expect all of the files in there to use the
+|following module naming convention:
+|
+|    +--------------+-----------------------------------------------------------------------------------------------------------------------+
+|    | Module Name  | File Path                                                                                                             |
+|    +--------------+-----------------------------------------------------------------------------------------------------------------------+
+|    | Main         | $ROOT/src/Main.elm         |
+|    | HomePage     | $ROOT/src/HomePage.elm     |
+|    | Http.Helpers | $ROOT/src/Http/Helpers.elm |
+|    +--------------+-----------------------------------------------------------------------------------------------------------------------+
+|
+|Notice that the names always start with capital letters! Can you make your file
+|use this naming convention?
+|
+|Note: Having a strict naming convention like this makes it a lot easier to find
+|things in large projects. If you see a module imported, you know where to look
+|for the corresponding file every time!
+|
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected a problem.
+=== stderr
+|-- UNEXPECTED FILE NAME --------------------------------------------------------
+|
+|I am having trouble with this file name:
+|
+|    src/.elm
+|
+|I found it in your
+|$ROOT/src/
+|directory which is good, but I expect all of the files in there to use the
+|following module naming convention:
+|
+|    +--------------+-----------------------------------------------------------------------------------------------------------------------+
+|    | Module Name  | File Path                                                                                                             |
+|    +--------------+-----------------------------------------------------------------------------------------------------------------------+
+|    | Main         | $ROOT/src/Main.elm         |
+|    | HomePage     | $ROOT/src/HomePage.elm     |
+|    | Http.Helpers | $ROOT/src/Http/Helpers.elm |
+|    +--------------+-----------------------------------------------------------------------------------------------------------------------+
+|
+|Notice that the names always start with capital letters! Can you make your file
+|use this naming convention?
+|
+|Note: Having a strict naming convention like this makes it a lot easier to find
+|things in large projects. If you see a module imported, you know where to look
+|for the corresponding file every time!
+|

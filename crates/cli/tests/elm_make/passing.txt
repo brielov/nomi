@@ -1,1393 +1,2786 @@
 application-absolute-lowercase-root-name as 0.19.1
 application-absolute-lowercase-root-name as 0.19.2
 application-absolute-lowercase-root-name as 0.19.3
+application-absolute-lowercase-root-name terminal as 0.19.1
+application-absolute-lowercase-root-name terminal as 0.19.2
+application-absolute-lowercase-root-name terminal as 0.19.3
 application-alias as 0.19.1
 application-alias as 0.19.2
 application-alias as 0.19.3
+application-alias terminal as 0.19.1
+application-alias terminal as 0.19.2
+application-alias terminal as 0.19.3
 application-bad-flags-custom as 0.19.1
 application-bad-flags-custom as 0.19.2
 application-bad-flags-custom as 0.19.3
+application-bad-flags-custom terminal as 0.19.1
+application-bad-flags-custom terminal as 0.19.2
+application-bad-flags-custom terminal as 0.19.3
 application-bad-flags-function as 0.19.1
 application-bad-flags-function as 0.19.2
 application-bad-flags-function as 0.19.3
+application-bad-flags-function terminal as 0.19.1
+application-bad-flags-function terminal as 0.19.2
+application-bad-flags-function terminal as 0.19.3
 application-bad-flags-record as 0.19.1
 application-bad-flags-record as 0.19.2
 application-bad-flags-record as 0.19.3
+application-bad-flags-record terminal as 0.19.1
+application-bad-flags-record terminal as 0.19.2
+application-bad-flags-record terminal as 0.19.3
 application-bad-flags-variable as 0.19.1
 application-bad-flags-variable as 0.19.2
 application-bad-flags-variable as 0.19.3
+application-bad-flags-variable terminal as 0.19.1
+application-bad-flags-variable terminal as 0.19.2
+application-bad-flags-variable terminal as 0.19.3
 application-bad-main-cycle as 0.19.1
 application-bad-main-cycle as 0.19.2
 application-bad-main-cycle as 0.19.3
+application-bad-main-cycle terminal as 0.19.1
+application-bad-main-cycle terminal as 0.19.2
+application-bad-main-cycle terminal as 0.19.3
 application-bad-main-type-list as 0.19.1
 application-bad-main-type-list as 0.19.2
 application-bad-main-type-list as 0.19.3
+application-bad-main-type-list terminal as 0.19.1
+application-bad-main-type-list terminal as 0.19.2
+application-bad-main-type-list terminal as 0.19.3
 application-bad-main-type-localized as 0.19.1
 application-bad-main-type-localized as 0.19.2
 application-bad-main-type-localized as 0.19.3
+application-bad-main-type-localized terminal as 0.19.1
+application-bad-main-type-localized terminal as 0.19.2
+application-bad-main-type-localized terminal as 0.19.3
 application-bad-main-type-number as 0.19.1
 application-bad-main-type-number as 0.19.2
 application-bad-main-type-number as 0.19.3
+application-bad-main-type-number terminal as 0.19.1
+application-bad-main-type-number terminal as 0.19.2
+application-bad-main-type-number terminal as 0.19.3
 application-bad-output-before-clash as 0.19.1
 application-bad-output-before-clash as 0.19.2
 application-bad-output-before-clash as 0.19.3
+application-bad-output-before-clash terminal as 0.19.1
+application-bad-output-before-clash terminal as 0.19.2
+application-bad-output-before-clash terminal as 0.19.3
 application-bad-root-before-missing as 0.19.1
 application-bad-root-before-missing as 0.19.2
 application-bad-root-before-missing as 0.19.3
+application-bad-root-before-missing terminal as 0.19.1
+application-bad-root-before-missing terminal as 0.19.2
+application-bad-root-before-missing terminal as 0.19.3
 application-block-comment-byte as 0.19.2
 application-block-comment-byte as 0.19.3
+application-block-comment-byte terminal as 0.19.2
+application-block-comment-byte terminal as 0.19.3
 application-blocked-root as 0.19.1
 application-blocked-root as 0.19.2
 application-blocked-root as 0.19.3
+application-blocked-root terminal as 0.19.1
+application-blocked-root terminal as 0.19.2
+application-blocked-root terminal as 0.19.3
 application-blocked-root-import-and-type as 0.19.1
 application-blocked-root-import-and-type as 0.19.2
 application-blocked-root-import-and-type as 0.19.3
+application-blocked-root-import-and-type terminal as 0.19.1
+application-blocked-root-import-and-type terminal as 0.19.2
+application-blocked-root-import-and-type terminal as 0.19.3
 application-case-report-arrow-eof as 0.19.1
 application-case-report-arrow-eof as 0.19.2
 application-case-report-arrow-eof as 0.19.3
+application-case-report-arrow-eof terminal as 0.19.1
+application-case-report-arrow-eof terminal as 0.19.2
+application-case-report-arrow-eof terminal as 0.19.3
 application-case-report-arrow-newline as 0.19.1
 application-case-report-arrow-newline as 0.19.2
 application-case-report-arrow-newline as 0.19.3
+application-case-report-arrow-newline terminal as 0.19.1
+application-case-report-arrow-newline terminal as 0.19.2
+application-case-report-arrow-newline terminal as 0.19.3
 application-case-report-branch-eof as 0.19.1
 application-case-report-branch-eof as 0.19.2
 application-case-report-branch-eof as 0.19.3
+application-case-report-branch-eof terminal as 0.19.1
+application-case-report-branch-eof terminal as 0.19.2
+application-case-report-branch-eof terminal as 0.19.3
 application-case-report-branch-newline as 0.19.1
 application-case-report-branch-newline as 0.19.2
 application-case-report-branch-newline as 0.19.3
+application-case-report-branch-newline terminal as 0.19.1
+application-case-report-branch-newline terminal as 0.19.2
+application-case-report-branch-newline terminal as 0.19.3
 application-case-report-expression-eof as 0.19.1
 application-case-report-expression-eof as 0.19.2
 application-case-report-expression-eof as 0.19.3
+application-case-report-expression-eof terminal as 0.19.1
+application-case-report-expression-eof terminal as 0.19.2
+application-case-report-expression-eof terminal as 0.19.3
 application-case-report-expression-newline as 0.19.1
 application-case-report-expression-newline as 0.19.2
 application-case-report-expression-newline as 0.19.3
+application-case-report-expression-newline terminal as 0.19.1
+application-case-report-expression-newline terminal as 0.19.2
+application-case-report-expression-newline terminal as 0.19.3
 application-case-report-missing-arrow-colon as 0.19.1
 application-case-report-missing-arrow-colon as 0.19.2
 application-case-report-missing-arrow-colon as 0.19.3
+application-case-report-missing-arrow-colon terminal as 0.19.1
+application-case-report-missing-arrow-colon terminal as 0.19.2
+application-case-report-missing-arrow-colon terminal as 0.19.3
 application-case-report-missing-arrow-equals as 0.19.1
 application-case-report-missing-arrow-equals as 0.19.2
 application-case-report-missing-arrow-equals as 0.19.3
+application-case-report-missing-arrow-equals terminal as 0.19.1
+application-case-report-missing-arrow-equals terminal as 0.19.2
+application-case-report-missing-arrow-equals terminal as 0.19.3
 application-case-report-missing-arrow-keyword as 0.19.1
 application-case-report-missing-arrow-keyword as 0.19.2
 application-case-report-missing-arrow-keyword as 0.19.3
+application-case-report-missing-arrow-keyword terminal as 0.19.1
+application-case-report-missing-arrow-keyword terminal as 0.19.2
+application-case-report-missing-arrow-keyword terminal as 0.19.3
 application-case-report-missing-expression-branch as 0.19.1
 application-case-report-missing-expression-branch as 0.19.2
 application-case-report-missing-expression-branch as 0.19.3
+application-case-report-missing-expression-branch terminal as 0.19.1
+application-case-report-missing-expression-branch terminal as 0.19.2
+application-case-report-missing-expression-branch terminal as 0.19.3
 application-case-report-missing-expression-scrutinee as 0.19.1
 application-case-report-missing-expression-scrutinee as 0.19.2
 application-case-report-missing-expression-scrutinee as 0.19.3
+application-case-report-missing-expression-scrutinee terminal as 0.19.1
+application-case-report-missing-expression-scrutinee terminal as 0.19.2
+application-case-report-missing-expression-scrutinee terminal as 0.19.3
 application-case-report-multiline-arrow as 0.19.1
 application-case-report-multiline-arrow as 0.19.2
 application-case-report-multiline-arrow as 0.19.3
+application-case-report-multiline-arrow terminal as 0.19.1
+application-case-report-multiline-arrow terminal as 0.19.2
+application-case-report-multiline-arrow terminal as 0.19.3
 application-case-report-multiline-branch as 0.19.1
 application-case-report-multiline-branch as 0.19.2
 application-case-report-multiline-branch as 0.19.3
+application-case-report-multiline-branch terminal as 0.19.1
+application-case-report-multiline-branch terminal as 0.19.2
+application-case-report-multiline-branch terminal as 0.19.3
 application-case-report-multiline-expression as 0.19.1
 application-case-report-multiline-expression as 0.19.2
 application-case-report-multiline-expression as 0.19.3
+application-case-report-multiline-expression terminal as 0.19.1
+application-case-report-multiline-expression terminal as 0.19.2
+application-case-report-multiline-expression terminal as 0.19.3
 application-case-report-multiline-of as 0.19.1
 application-case-report-multiline-of as 0.19.2
 application-case-report-multiline-of as 0.19.3
+application-case-report-multiline-of terminal as 0.19.1
+application-case-report-multiline-of terminal as 0.19.2
+application-case-report-multiline-of terminal as 0.19.3
 application-case-report-multiline-pattern as 0.19.1
 application-case-report-multiline-pattern as 0.19.2
 application-case-report-multiline-pattern as 0.19.3
+application-case-report-multiline-pattern terminal as 0.19.1
+application-case-report-multiline-pattern terminal as 0.19.2
+application-case-report-multiline-pattern terminal as 0.19.3
 application-case-report-of-eof as 0.19.1
 application-case-report-of-eof as 0.19.2
 application-case-report-of-eof as 0.19.3
+application-case-report-of-eof terminal as 0.19.1
+application-case-report-of-eof terminal as 0.19.2
+application-case-report-of-eof terminal as 0.19.3
 application-case-report-of-newline as 0.19.1
 application-case-report-of-newline as 0.19.2
 application-case-report-of-newline as 0.19.3
+application-case-report-of-newline terminal as 0.19.1
+application-case-report-of-newline terminal as 0.19.2
+application-case-report-of-newline terminal as 0.19.3
 application-case-report-pattern-eof as 0.19.1
 application-case-report-pattern-eof as 0.19.2
 application-case-report-pattern-eof as 0.19.3
+application-case-report-pattern-eof terminal as 0.19.1
+application-case-report-pattern-eof terminal as 0.19.2
+application-case-report-pattern-eof terminal as 0.19.3
 application-case-report-pattern-newline as 0.19.1
 application-case-report-pattern-newline as 0.19.2
 application-case-report-pattern-newline as 0.19.3
+application-case-report-pattern-newline terminal as 0.19.1
+application-case-report-pattern-newline terminal as 0.19.2
+application-case-report-pattern-newline terminal as 0.19.3
 application-case-report-second-arrow as 0.19.1
 application-case-report-second-arrow as 0.19.2
 application-case-report-second-arrow as 0.19.3
+application-case-report-second-arrow terminal as 0.19.1
+application-case-report-second-arrow terminal as 0.19.2
+application-case-report-second-arrow terminal as 0.19.3
 application-case-report-second-branch as 0.19.1
 application-case-report-second-branch as 0.19.2
 application-case-report-second-branch as 0.19.3
+application-case-report-second-branch terminal as 0.19.1
+application-case-report-second-branch terminal as 0.19.2
+application-case-report-second-branch terminal as 0.19.3
 application-case-report-shallow-arrow as 0.19.1
 application-case-report-shallow-arrow as 0.19.2
 application-case-report-shallow-arrow as 0.19.3
+application-case-report-shallow-arrow terminal as 0.19.1
+application-case-report-shallow-arrow terminal as 0.19.2
+application-case-report-shallow-arrow terminal as 0.19.3
 application-case-report-shallow-branch as 0.19.1
 application-case-report-shallow-branch as 0.19.2
 application-case-report-shallow-branch as 0.19.3
+application-case-report-shallow-branch terminal as 0.19.1
+application-case-report-shallow-branch terminal as 0.19.2
+application-case-report-shallow-branch terminal as 0.19.3
 application-case-success-shallow-expression as 0.19.1
 application-case-success-shallow-expression as 0.19.2
 application-case-success-shallow-expression as 0.19.3
+application-case-success-shallow-expression terminal as 0.19.1
+application-case-success-shallow-expression terminal as 0.19.2
+application-case-success-shallow-expression terminal as 0.19.3
 application-case-success-shallow-of as 0.19.1
 application-case-success-shallow-of as 0.19.2
 application-case-success-shallow-of as 0.19.3
+application-case-success-shallow-of terminal as 0.19.1
+application-case-success-shallow-of terminal as 0.19.2
+application-case-success-shallow-of terminal as 0.19.3
 application-case-success-shallow-pattern as 0.19.1
 application-case-success-shallow-pattern as 0.19.2
 application-case-success-shallow-pattern as 0.19.3
+application-case-success-shallow-pattern terminal as 0.19.1
+application-case-success-shallow-pattern terminal as 0.19.2
+application-case-success-shallow-pattern terminal as 0.19.3
 application-character-byte as 0.19.2
 application-character-byte as 0.19.3
+application-character-byte terminal as 0.19.2
+application-character-byte terminal as 0.19.3
 application-clashing-flags as 0.19.1
 application-clashing-flags as 0.19.2
 application-clashing-flags as 0.19.3
+application-clashing-flags terminal as 0.19.1
+application-clashing-flags terminal as 0.19.2
+application-clashing-flags terminal as 0.19.3
 application-crlf as 0.19.1
 application-crlf as 0.19.2
 application-crlf as 0.19.3
+application-crlf terminal as 0.19.1
+application-crlf terminal as 0.19.2
+application-crlf terminal as 0.19.3
 application-cycle-before-mixed-root-clash as 0.19.1
 application-cycle-before-mixed-root-clash as 0.19.2
 application-cycle-before-mixed-root-clash as 0.19.3
+application-cycle-before-mixed-root-clash terminal as 0.19.1
+application-cycle-before-mixed-root-clash terminal as 0.19.2
+application-cycle-before-mixed-root-clash terminal as 0.19.3
 application-cycle-before-mixed-root-clash-reversed as 0.19.1
 application-cycle-before-mixed-root-clash-reversed as 0.19.2
 application-cycle-before-mixed-root-clash-reversed as 0.19.3
+application-cycle-before-mixed-root-clash-reversed terminal as 0.19.1
+application-cycle-before-mixed-root-clash-reversed terminal as 0.19.2
+application-cycle-before-mixed-root-clash-reversed terminal as 0.19.3
 application-cycle-before-outside-syntax as 0.19.1
 application-cycle-before-outside-syntax as 0.19.2
 application-cycle-before-outside-syntax as 0.19.3
+application-cycle-before-outside-syntax terminal as 0.19.1
+application-cycle-before-outside-syntax terminal as 0.19.2
+application-cycle-before-outside-syntax terminal as 0.19.3
 application-cycle-before-two-outside-roots as 0.19.1
 application-cycle-before-two-outside-roots as 0.19.2
 application-cycle-before-two-outside-roots as 0.19.3
+application-cycle-before-two-outside-roots terminal as 0.19.1
+application-cycle-before-two-outside-roots terminal as 0.19.2
+application-cycle-before-two-outside-roots terminal as 0.19.3
 application-cycle-blocked as 0.19.1
 application-cycle-blocked as 0.19.2
 application-cycle-blocked as 0.19.3
+application-cycle-blocked terminal as 0.19.1
+application-cycle-blocked terminal as 0.19.2
+application-cycle-blocked terminal as 0.19.3
 application-cycle-branching as 0.19.1
 application-cycle-branching as 0.19.2
 application-cycle-branching as 0.19.3
+application-cycle-branching terminal as 0.19.1
+application-cycle-branching terminal as 0.19.2
+application-cycle-branching terminal as 0.19.3
 application-cycle-branching-reversed as 0.19.1
 application-cycle-branching-reversed as 0.19.2
 application-cycle-branching-reversed as 0.19.3
+application-cycle-branching-reversed terminal as 0.19.1
+application-cycle-branching-reversed terminal as 0.19.2
+application-cycle-branching-reversed terminal as 0.19.3
 application-cycle-disjoint as 0.19.1
 application-cycle-disjoint as 0.19.2
 application-cycle-disjoint as 0.19.3
+application-cycle-disjoint terminal as 0.19.1
+application-cycle-disjoint terminal as 0.19.2
+application-cycle-disjoint terminal as 0.19.3
 application-cycle-self as 0.19.1
 application-cycle-self as 0.19.2
+application-cycle-self terminal as 0.19.1
+application-cycle-self terminal as 0.19.2
 application-cycle-three as 0.19.1
 application-cycle-three as 0.19.2
 application-cycle-three as 0.19.3
+application-cycle-three terminal as 0.19.1
+application-cycle-three terminal as 0.19.2
+application-cycle-three terminal as 0.19.3
 application-declaration-byte as 0.19.1
 application-declaration-byte as 0.19.2
 application-declaration-byte as 0.19.3
+application-declaration-byte terminal as 0.19.1
+application-declaration-byte terminal as 0.19.2
+application-declaration-byte terminal as 0.19.3
 application-directory-input as 0.19.1
 application-directory-input as 0.19.2
 application-directory-input as 0.19.3
+application-directory-input terminal as 0.19.1
+application-directory-input terminal as 0.19.2
+application-directory-input terminal as 0.19.3
 application-directory-symlink-input as 0.19.1
 application-directory-symlink-input as 0.19.2
 application-directory-symlink-input as 0.19.3
+application-directory-symlink-input terminal as 0.19.1
+application-directory-symlink-input terminal as 0.19.2
+application-directory-symlink-input terminal as 0.19.3
 application-doc-comment-byte as 0.19.2
 application-doc-comment-byte as 0.19.3
+application-doc-comment-byte terminal as 0.19.2
+application-doc-comment-byte terminal as 0.19.3
 application-dot-duplicate as 0.19.1
 application-dot-duplicate as 0.19.2
 application-dot-duplicate as 0.19.3
+application-dot-duplicate terminal as 0.19.1
+application-dot-duplicate terminal as 0.19.2
+application-dot-duplicate terminal as 0.19.3
 application-dotted-root-name as 0.19.1
 application-dotted-root-name as 0.19.2
 application-dotted-root-name as 0.19.3
+application-dotted-root-name terminal as 0.19.1
+application-dotted-root-name terminal as 0.19.2
+application-dotted-root-name terminal as 0.19.3
 application-duplicate-input as 0.19.1
 application-duplicate-input as 0.19.2
 application-duplicate-input as 0.19.3
+application-duplicate-input terminal as 0.19.1
+application-duplicate-input terminal as 0.19.2
+application-duplicate-input terminal as 0.19.3
 application-empty-root-name as 0.19.1
 application-empty-root-name as 0.19.2
 application-empty-root-name as 0.19.3
+application-empty-root-name terminal as 0.19.1
+application-empty-root-name terminal as 0.19.2
+application-empty-root-name terminal as 0.19.3
 application-empty-source-directories as 0.19.1
 application-empty-source-directories as 0.19.2
 application-empty-source-directories as 0.19.3
+application-empty-source-directories terminal as 0.19.1
+application-empty-source-directories terminal as 0.19.2
+application-empty-source-directories terminal as 0.19.3
 application-empty-source-directories-before-old-version as 0.19.3
+application-empty-source-directories-before-old-version terminal as 0.19.3
 application-empty-source-directories-no-inputs as 0.19.1
 application-empty-source-directories-no-inputs as 0.19.2
 application-empty-source-directories-no-inputs as 0.19.3
+application-empty-source-directories-no-inputs terminal as 0.19.1
+application-empty-source-directories-no-inputs terminal as 0.19.2
+application-empty-source-directories-no-inputs terminal as 0.19.3
 application-expression-after-value as 0.19.1
 application-expression-after-value as 0.19.2
 application-expression-after-value as 0.19.3
+application-expression-after-value terminal as 0.19.1
+application-expression-after-value terminal as 0.19.2
+application-expression-after-value terminal as 0.19.3
 application-expression-byte as 0.19.1
 application-expression-byte as 0.19.2
 application-expression-byte as 0.19.3
+application-expression-byte terminal as 0.19.1
+application-expression-byte terminal as 0.19.2
+application-expression-byte terminal as 0.19.3
 application-extra-dependency-field as 0.19.1
 application-extra-dependency-field as 0.19.2
 application-extra-dependency-field as 0.19.3
+application-extra-dependency-field terminal as 0.19.1
+application-extra-dependency-field terminal as 0.19.2
+application-extra-dependency-field terminal as 0.19.3
 application-extra-field as 0.19.1
 application-extra-field as 0.19.2
 application-extra-field as 0.19.3
+application-extra-field terminal as 0.19.1
+application-extra-field terminal as 0.19.2
+application-extra-field terminal as 0.19.3
 application-future-version as 0.19.3
+application-future-version terminal as 0.19.3
 application-generation---debug as 0.19.1
 application-generation---debug as 0.19.2
 application-generation---debug as 0.19.3
+application-generation---debug terminal as 0.19.1
+application-generation---debug terminal as 0.19.2
+application-generation---debug terminal as 0.19.3
 application-generation---optimize as 0.19.1
 application-generation---optimize as 0.19.2
 application-generation---optimize as 0.19.3
+application-generation---optimize terminal as 0.19.1
+application-generation---optimize terminal as 0.19.2
+application-generation---optimize terminal as 0.19.3
 application-generation-None as 0.19.1
 application-generation-None as 0.19.2
 application-generation-None as 0.19.3
+application-generation-None terminal as 0.19.1
+application-generation-None terminal as 0.19.2
+application-generation-None terminal as 0.19.3
 application-hand-edited-dependencies as 0.19.1
 application-hand-edited-dependencies as 0.19.2
 application-hand-edited-dependencies as 0.19.3
+application-hand-edited-dependencies terminal as 0.19.1
+application-hand-edited-dependencies terminal as 0.19.2
+application-hand-edited-dependencies terminal as 0.19.3
 application-header as 0.19.1
 application-header as 0.19.2
 application-header as 0.19.3
+application-header terminal as 0.19.1
+application-header terminal as 0.19.2
+application-header terminal as 0.19.3
 application-headerless-custom-type as 0.19.1
 application-headerless-custom-type as 0.19.2
 application-headerless-custom-type as 0.19.3
+application-headerless-custom-type terminal as 0.19.1
+application-headerless-custom-type terminal as 0.19.2
+application-headerless-custom-type terminal as 0.19.3
 application-if-report-condition-eof as 0.19.1
 application-if-report-condition-eof as 0.19.2
 application-if-report-condition-eof as 0.19.3
+application-if-report-condition-eof terminal as 0.19.1
+application-if-report-condition-eof terminal as 0.19.2
+application-if-report-condition-eof terminal as 0.19.3
 application-if-report-condition-invalid as 0.19.1
 application-if-report-condition-invalid as 0.19.2
 application-if-report-condition-invalid as 0.19.3
+application-if-report-condition-invalid terminal as 0.19.1
+application-if-report-condition-invalid terminal as 0.19.2
+application-if-report-condition-invalid terminal as 0.19.3
 application-if-report-condition-newline as 0.19.1
 application-if-report-condition-newline as 0.19.2
 application-if-report-condition-newline as 0.19.3
+application-if-report-condition-newline terminal as 0.19.1
+application-if-report-condition-newline terminal as 0.19.2
+application-if-report-condition-newline terminal as 0.19.3
 application-if-report-else as 0.19.1
 application-if-report-else as 0.19.2
 application-if-report-else as 0.19.3
+application-if-report-else terminal as 0.19.1
+application-if-report-else terminal as 0.19.2
+application-if-report-else terminal as 0.19.3
 application-if-report-else-after-multiline as 0.19.1
 application-if-report-else-after-multiline as 0.19.2
 application-if-report-else-after-multiline as 0.19.3
+application-if-report-else-after-multiline terminal as 0.19.1
+application-if-report-else-after-multiline terminal as 0.19.2
+application-if-report-else-after-multiline terminal as 0.19.3
 application-if-report-else-branch as 0.19.1
 application-if-report-else-branch as 0.19.2
 application-if-report-else-branch as 0.19.3
+application-if-report-else-branch terminal as 0.19.1
+application-if-report-else-branch terminal as 0.19.2
+application-if-report-else-branch terminal as 0.19.3
 application-if-report-else-branch-invalid as 0.19.1
 application-if-report-else-branch-invalid as 0.19.2
 application-if-report-else-branch-invalid as 0.19.3
+application-if-report-else-branch-invalid terminal as 0.19.1
+application-if-report-else-branch-invalid terminal as 0.19.2
+application-if-report-else-branch-invalid terminal as 0.19.3
 application-if-report-else-branch-newline as 0.19.1
 application-if-report-else-branch-newline as 0.19.2
 application-if-report-else-branch-newline as 0.19.3
+application-if-report-else-branch-newline terminal as 0.19.1
+application-if-report-else-branch-newline terminal as 0.19.2
+application-if-report-else-branch-newline terminal as 0.19.3
 application-if-report-else-column-zero as 0.19.1
 application-if-report-else-column-zero as 0.19.2
 application-if-report-else-column-zero as 0.19.3
+application-if-report-else-column-zero terminal as 0.19.1
+application-if-report-else-column-zero terminal as 0.19.2
+application-if-report-else-column-zero terminal as 0.19.3
 application-if-report-else-if as 0.19.1
 application-if-report-else-if as 0.19.2
 application-if-report-else-if as 0.19.3
+application-if-report-else-if terminal as 0.19.1
+application-if-report-else-if terminal as 0.19.2
+application-if-report-else-if terminal as 0.19.3
 application-if-report-else-newline as 0.19.1
 application-if-report-else-newline as 0.19.2
 application-if-report-else-newline as 0.19.3
+application-if-report-else-newline terminal as 0.19.1
+application-if-report-else-newline terminal as 0.19.2
+application-if-report-else-newline terminal as 0.19.3
 application-if-report-no-else-next-definition as 0.19.1
 application-if-report-no-else-next-definition as 0.19.2
 application-if-report-no-else-next-definition as 0.19.3
+application-if-report-no-else-next-definition terminal as 0.19.1
+application-if-report-no-else-next-definition terminal as 0.19.2
+application-if-report-no-else-next-definition terminal as 0.19.3
 application-if-report-then as 0.19.1
 application-if-report-then as 0.19.2
 application-if-report-then as 0.19.3
+application-if-report-then terminal as 0.19.1
+application-if-report-then terminal as 0.19.2
+application-if-report-then terminal as 0.19.3
 application-if-report-then-branch as 0.19.1
 application-if-report-then-branch as 0.19.2
 application-if-report-then-branch as 0.19.3
+application-if-report-then-branch terminal as 0.19.1
+application-if-report-then-branch terminal as 0.19.2
+application-if-report-then-branch terminal as 0.19.3
 application-if-report-then-branch-invalid as 0.19.1
 application-if-report-then-branch-invalid as 0.19.2
 application-if-report-then-branch-invalid as 0.19.3
+application-if-report-then-branch-invalid terminal as 0.19.1
+application-if-report-then-branch-invalid terminal as 0.19.2
+application-if-report-then-branch-invalid terminal as 0.19.3
 application-if-report-then-branch-newline as 0.19.1
 application-if-report-then-branch-newline as 0.19.2
 application-if-report-then-branch-newline as 0.19.3
+application-if-report-then-branch-newline terminal as 0.19.1
+application-if-report-then-branch-newline terminal as 0.19.2
+application-if-report-then-branch-newline terminal as 0.19.3
 application-if-report-then-newline as 0.19.1
 application-if-report-then-newline as 0.19.2
 application-if-report-then-newline as 0.19.3
+application-if-report-then-newline terminal as 0.19.1
+application-if-report-then-newline terminal as 0.19.2
+application-if-report-then-newline terminal as 0.19.3
 application-if-success-indented-condition as 0.19.1
 application-if-success-indented-condition as 0.19.2
 application-if-success-indented-condition as 0.19.3
+application-if-success-indented-condition terminal as 0.19.1
+application-if-success-indented-condition terminal as 0.19.2
+application-if-success-indented-condition terminal as 0.19.3
 application-if-success-indented-else as 0.19.1
 application-if-success-indented-else as 0.19.2
 application-if-success-indented-else as 0.19.3
+application-if-success-indented-else terminal as 0.19.1
+application-if-success-indented-else terminal as 0.19.2
+application-if-success-indented-else terminal as 0.19.3
 application-if-success-indented-multiline-else as 0.19.1
 application-if-success-indented-multiline-else as 0.19.2
 application-if-success-indented-multiline-else as 0.19.3
+application-if-success-indented-multiline-else terminal as 0.19.1
+application-if-success-indented-multiline-else terminal as 0.19.2
+application-if-success-indented-multiline-else terminal as 0.19.3
 application-if-success-indented-then-branch as 0.19.1
 application-if-success-indented-then-branch as 0.19.2
 application-if-success-indented-then-branch as 0.19.3
+application-if-success-indented-then-branch terminal as 0.19.1
+application-if-success-indented-then-branch terminal as 0.19.2
+application-if-success-indented-then-branch terminal as 0.19.3
 application-import-name-byte as 0.19.1
 application-import-name-byte as 0.19.2
 application-import-name-byte as 0.19.3
+application-import-name-byte terminal as 0.19.1
+application-import-name-byte terminal as 0.19.2
+application-import-name-byte terminal as 0.19.3
 application-incompatible-dependencies as 0.19.1
 application-incompatible-dependencies as 0.19.2
 application-incompatible-dependencies as 0.19.3
+application-incompatible-dependencies terminal as 0.19.1
+application-incompatible-dependencies terminal as 0.19.2
+application-incompatible-dependencies terminal as 0.19.3
 application-incomplete-sequence as 0.19.1
 application-incomplete-sequence as 0.19.2
 application-incomplete-sequence as 0.19.3
+application-incomplete-sequence terminal as 0.19.1
+application-incomplete-sequence terminal as 0.19.2
+application-incomplete-sequence terminal as 0.19.3
 application-indirect-import as 0.19.1
 application-indirect-import as 0.19.2
 application-indirect-import as 0.19.3
+application-indirect-import terminal as 0.19.1
+application-indirect-import terminal as 0.19.2
+application-indirect-import terminal as 0.19.3
 application-invalid-after-open-parenthesis as 0.19.1
 application-invalid-after-open-parenthesis as 0.19.2
 application-invalid-after-open-parenthesis as 0.19.3
+application-invalid-after-open-parenthesis terminal as 0.19.1
+application-invalid-after-open-parenthesis terminal as 0.19.2
+application-invalid-after-open-parenthesis terminal as 0.19.3
 application-invalid-after-prior-syntax as 0.19.1
 application-invalid-after-prior-syntax as 0.19.2
 application-invalid-after-prior-syntax as 0.19.3
+application-invalid-after-prior-syntax terminal as 0.19.1
+application-invalid-after-prior-syntax terminal as 0.19.2
+application-invalid-after-prior-syntax terminal as 0.19.3
 application-invalid-crlf as 0.19.1
 application-invalid-crlf as 0.19.2
 application-invalid-crlf as 0.19.3
+application-invalid-crlf terminal as 0.19.1
+application-invalid-crlf terminal as 0.19.2
+application-invalid-crlf terminal as 0.19.3
 application-invalid-dependency-name-direct as 0.19.1
 application-invalid-dependency-name-direct as 0.19.2
 application-invalid-dependency-name-direct as 0.19.3
+application-invalid-dependency-name-direct terminal as 0.19.1
+application-invalid-dependency-name-direct terminal as 0.19.2
+application-invalid-dependency-name-direct terminal as 0.19.3
 application-invalid-dependency-name-indirect as 0.19.1
 application-invalid-dependency-name-indirect as 0.19.2
 application-invalid-dependency-name-indirect as 0.19.3
+application-invalid-dependency-name-indirect terminal as 0.19.1
+application-invalid-dependency-name-indirect terminal as 0.19.2
+application-invalid-dependency-name-indirect terminal as 0.19.3
 application-invalid-dependency-name-name-before-version as 0.19.1
 application-invalid-dependency-name-name-before-version as 0.19.2
 application-invalid-dependency-name-name-before-version as 0.19.3
+application-invalid-dependency-name-name-before-version terminal as 0.19.1
+application-invalid-dependency-name-name-before-version terminal as 0.19.2
+application-invalid-dependency-name-name-before-version terminal as 0.19.3
 application-invalid-dependency-name-test-direct as 0.19.1
 application-invalid-dependency-name-test-direct as 0.19.2
 application-invalid-dependency-name-test-direct as 0.19.3
+application-invalid-dependency-name-test-direct terminal as 0.19.1
+application-invalid-dependency-name-test-direct terminal as 0.19.2
+application-invalid-dependency-name-test-direct terminal as 0.19.3
 application-invalid-dependency-name-version-before-name as 0.19.1
 application-invalid-dependency-name-version-before-name as 0.19.2
 application-invalid-dependency-name-version-before-name as 0.19.3
+application-invalid-dependency-name-version-before-name terminal as 0.19.1
+application-invalid-dependency-name-version-before-name terminal as 0.19.2
+application-invalid-dependency-name-version-before-name terminal as 0.19.3
 application-invalid-headerless as 0.19.1
 application-invalid-headerless as 0.19.2
 application-invalid-headerless as 0.19.3
+application-invalid-headerless terminal as 0.19.1
+application-invalid-headerless terminal as 0.19.2
+application-invalid-headerless terminal as 0.19.3
 application-invalid-output-extension as 0.19.1
 application-invalid-output-extension as 0.19.2
 application-invalid-output-extension as 0.19.3
+application-invalid-output-extension terminal as 0.19.1
+application-invalid-output-extension terminal as 0.19.2
+application-invalid-output-extension terminal as 0.19.3
 application-invalid-version-bad-digit as 0.19.3
+application-invalid-version-bad-digit terminal as 0.19.3
 application-invalid-version-missing-patch as 0.19.3
+application-invalid-version-missing-patch terminal as 0.19.3
 application-invalid-with-valid-nonascii-prefix as 0.19.1
 application-invalid-with-valid-nonascii-prefix as 0.19.2
 application-invalid-with-valid-nonascii-prefix as 0.19.3
+application-invalid-with-valid-nonascii-prefix terminal as 0.19.1
+application-invalid-with-valid-nonascii-prefix terminal as 0.19.2
+application-invalid-with-valid-nonascii-prefix terminal as 0.19.3
 application-json-syntax-array-comma-eof as 0.19.3
+application-json-syntax-array-comma-eof terminal as 0.19.3
 application-json-syntax-array-open-bracket as 0.19.3
+application-json-syntax-array-open-bracket terminal as 0.19.3
 application-json-syntax-array-trailing-comma as 0.19.1
 application-json-syntax-array-trailing-comma as 0.19.2
 application-json-syntax-array-trailing-comma as 0.19.3
+application-json-syntax-array-trailing-comma terminal as 0.19.1
+application-json-syntax-array-trailing-comma terminal as 0.19.2
+application-json-syntax-array-trailing-comma terminal as 0.19.3
 application-json-syntax-array-unclosed as 0.19.1
 application-json-syntax-array-unclosed as 0.19.2
 application-json-syntax-array-unclosed as 0.19.3
+application-json-syntax-array-unclosed terminal as 0.19.1
+application-json-syntax-array-unclosed terminal as 0.19.2
+application-json-syntax-array-unclosed terminal as 0.19.3
 application-json-syntax-encoding-before-syntax as 0.19.3
+application-json-syntax-encoding-before-syntax terminal as 0.19.3
 application-json-syntax-encoding-byte as 0.19.3
+application-json-syntax-encoding-byte terminal as 0.19.3
 application-json-syntax-encoding-crlf as 0.19.3
+application-json-syntax-encoding-crlf terminal as 0.19.3
 application-json-syntax-encoding-high as 0.19.3
+application-json-syntax-encoding-high terminal as 0.19.3
 application-json-syntax-encoding-key as 0.19.3
+application-json-syntax-encoding-key terminal as 0.19.3
 application-json-syntax-encoding-overlong as 0.19.3
+application-json-syntax-encoding-overlong terminal as 0.19.3
 application-json-syntax-encoding-surrogate as 0.19.3
+application-json-syntax-encoding-surrogate terminal as 0.19.3
 application-json-syntax-missing-type-before-syntax as 0.19.3
+application-json-syntax-missing-type-before-syntax terminal as 0.19.3
 application-json-syntax-negative-decimal as 0.19.1
 application-json-syntax-negative-decimal as 0.19.2
 application-json-syntax-negative-decimal as 0.19.3
+application-json-syntax-negative-decimal terminal as 0.19.1
+application-json-syntax-negative-decimal terminal as 0.19.2
+application-json-syntax-negative-decimal terminal as 0.19.3
 application-json-syntax-negative-integer as 0.19.1
 application-json-syntax-negative-integer as 0.19.2
 application-json-syntax-negative-integer as 0.19.3
+application-json-syntax-negative-integer terminal as 0.19.1
+application-json-syntax-negative-integer terminal as 0.19.2
+application-json-syntax-negative-integer terminal as 0.19.3
 application-json-syntax-negative-root as 0.19.3
+application-json-syntax-negative-root terminal as 0.19.3
 application-json-syntax-nested-trailing-comma as 0.19.1
 application-json-syntax-nested-trailing-comma as 0.19.2
 application-json-syntax-nested-trailing-comma as 0.19.3
+application-json-syntax-nested-trailing-comma terminal as 0.19.1
+application-json-syntax-nested-trailing-comma terminal as 0.19.2
+application-json-syntax-nested-trailing-comma terminal as 0.19.3
 application-json-syntax-number-decimal as 0.19.1
 application-json-syntax-number-decimal as 0.19.2
 application-json-syntax-number-decimal as 0.19.3
+application-json-syntax-number-decimal terminal as 0.19.1
+application-json-syntax-number-decimal terminal as 0.19.2
+application-json-syntax-number-decimal terminal as 0.19.3
 application-json-syntax-number-exponent as 0.19.1
 application-json-syntax-number-exponent as 0.19.2
 application-json-syntax-number-exponent as 0.19.3
+application-json-syntax-number-exponent terminal as 0.19.1
+application-json-syntax-number-exponent terminal as 0.19.2
+application-json-syntax-number-exponent terminal as 0.19.3
 application-json-syntax-number-leading-zero as 0.19.1
 application-json-syntax-number-leading-zero as 0.19.2
 application-json-syntax-number-leading-zero as 0.19.3
+application-json-syntax-number-leading-zero terminal as 0.19.1
+application-json-syntax-number-leading-zero terminal as 0.19.2
+application-json-syntax-number-leading-zero terminal as 0.19.3
 application-json-syntax-object-key-eof as 0.19.3
+application-json-syntax-object-key-eof terminal as 0.19.3
 application-json-syntax-object-missing-colon as 0.19.3
+application-json-syntax-object-missing-colon terminal as 0.19.3
 application-json-syntax-object-missing-comma as 0.19.1
 application-json-syntax-object-missing-comma as 0.19.2
 application-json-syntax-object-missing-comma as 0.19.3
+application-json-syntax-object-missing-comma terminal as 0.19.1
+application-json-syntax-object-missing-comma terminal as 0.19.2
+application-json-syntax-object-missing-comma terminal as 0.19.3
 application-json-syntax-object-value-eof as 0.19.3
+application-json-syntax-object-value-eof terminal as 0.19.3
 application-json-syntax-root-open-brace as 0.19.3
+application-json-syntax-root-open-brace terminal as 0.19.3
 application-json-syntax-root-trailing-comma as 0.19.1
 application-json-syntax-root-trailing-comma as 0.19.2
 application-json-syntax-root-trailing-comma as 0.19.3
+application-json-syntax-root-trailing-comma terminal as 0.19.1
+application-json-syntax-root-trailing-comma terminal as 0.19.2
+application-json-syntax-root-trailing-comma terminal as 0.19.3
 application-json-syntax-root-trailing-comma-crlf as 0.19.3
+application-json-syntax-root-trailing-comma-crlf terminal as 0.19.3
 application-json-syntax-root-trailing-comma-unicode as 0.19.1
 application-json-syntax-root-trailing-comma-unicode as 0.19.2
 application-json-syntax-root-trailing-comma-unicode as 0.19.3
+application-json-syntax-root-trailing-comma-unicode terminal as 0.19.1
+application-json-syntax-root-trailing-comma-unicode terminal as 0.19.2
+application-json-syntax-root-trailing-comma-unicode terminal as 0.19.3
 application-json-syntax-root-unclosed as 0.19.1
 application-json-syntax-root-unclosed as 0.19.2
 application-json-syntax-root-unclosed as 0.19.3
+application-json-syntax-root-unclosed terminal as 0.19.1
+application-json-syntax-root-unclosed terminal as 0.19.2
+application-json-syntax-root-unclosed terminal as 0.19.3
 application-json-syntax-semantic-before-encoding as 0.19.3
+application-json-syntax-semantic-before-encoding terminal as 0.19.3
 application-json-syntax-semantic-before-number as 0.19.3
+application-json-syntax-semantic-before-number terminal as 0.19.3
 application-json-syntax-semantic-before-syntax as 0.19.1
 application-json-syntax-semantic-before-syntax as 0.19.2
 application-json-syntax-semantic-before-syntax as 0.19.3
+application-json-syntax-semantic-before-syntax terminal as 0.19.1
+application-json-syntax-semantic-before-syntax terminal as 0.19.2
+application-json-syntax-semantic-before-syntax terminal as 0.19.3
 application-json-syntax-string-bad-hex as 0.19.1
 application-json-syntax-string-bad-hex as 0.19.2
 application-json-syntax-string-bad-hex as 0.19.3
+application-json-syntax-string-bad-hex terminal as 0.19.1
+application-json-syntax-string-bad-hex terminal as 0.19.2
+application-json-syntax-string-bad-hex terminal as 0.19.3
 application-json-syntax-string-escape-eof as 0.19.3
+application-json-syntax-string-escape-eof terminal as 0.19.3
 application-json-syntax-string-newline as 0.19.1
 application-json-syntax-string-newline as 0.19.2
 application-json-syntax-string-newline as 0.19.3
+application-json-syntax-string-newline terminal as 0.19.1
+application-json-syntax-string-newline terminal as 0.19.2
+application-json-syntax-string-newline terminal as 0.19.3
 application-json-syntax-string-short-hex as 0.19.1
 application-json-syntax-string-short-hex as 0.19.2
 application-json-syntax-string-short-hex as 0.19.3
+application-json-syntax-string-short-hex terminal as 0.19.1
+application-json-syntax-string-short-hex terminal as 0.19.2
+application-json-syntax-string-short-hex terminal as 0.19.3
 application-json-syntax-string-tab as 0.19.3
+application-json-syntax-string-tab terminal as 0.19.3
 application-json-syntax-string-unknown-escape as 0.19.1
 application-json-syntax-string-unknown-escape as 0.19.2
 application-json-syntax-string-unknown-escape as 0.19.3
+application-json-syntax-string-unknown-escape terminal as 0.19.1
+application-json-syntax-string-unknown-escape terminal as 0.19.2
+application-json-syntax-string-unknown-escape terminal as 0.19.3
 application-json-syntax-string-unknown-escape-crlf as 0.19.3
+application-json-syntax-string-unknown-escape-crlf terminal as 0.19.3
 application-json-syntax-syntax-before-encoding as 0.19.3
+application-json-syntax-syntax-before-encoding terminal as 0.19.3
 application-json-syntax-syntax-before-string as 0.19.1
 application-json-syntax-syntax-before-string as 0.19.2
 application-json-syntax-syntax-before-string as 0.19.3
+application-json-syntax-syntax-before-string terminal as 0.19.1
+application-json-syntax-syntax-before-string terminal as 0.19.2
+application-json-syntax-syntax-before-string terminal as 0.19.3
 application-json-syntax-top-level-leading-zero as 0.19.3
+application-json-syntax-top-level-leading-zero terminal as 0.19.3
 application-json-syntax-trailing-value as 0.19.1
 application-json-syntax-trailing-value as 0.19.2
 application-json-syntax-trailing-value as 0.19.3
+application-json-syntax-trailing-value terminal as 0.19.1
+application-json-syntax-trailing-value terminal as 0.19.2
+application-json-syntax-trailing-value terminal as 0.19.3
 application-json-syntax-zero-exponent-array as 0.19.1
 application-json-syntax-zero-exponent-array as 0.19.2
 application-json-syntax-zero-exponent-array as 0.19.3
+application-json-syntax-zero-exponent-array terminal as 0.19.1
+application-json-syntax-zero-exponent-array terminal as 0.19.2
+application-json-syntax-zero-exponent-array terminal as 0.19.3
 application-json-syntax-zero-exponent-nested as 0.19.1
 application-json-syntax-zero-exponent-nested as 0.19.2
 application-json-syntax-zero-exponent-nested as 0.19.3
+application-json-syntax-zero-exponent-nested terminal as 0.19.1
+application-json-syntax-zero-exponent-nested terminal as 0.19.2
+application-json-syntax-zero-exponent-nested terminal as 0.19.3
 application-json-syntax-zero-exponent-object as 0.19.3
+application-json-syntax-zero-exponent-object terminal as 0.19.3
 application-json-syntax-zero-exponent-root as 0.19.3
+application-json-syntax-zero-exponent-root terminal as 0.19.3
 application-lambda-report-argument-arrow as 0.19.1
 application-lambda-report-argument-arrow as 0.19.2
 application-lambda-report-argument-arrow as 0.19.3
+application-lambda-report-argument-arrow terminal as 0.19.1
+application-lambda-report-argument-arrow terminal as 0.19.2
+application-lambda-report-argument-arrow terminal as 0.19.3
 application-lambda-report-argument-comma as 0.19.1
 application-lambda-report-argument-comma as 0.19.2
 application-lambda-report-argument-comma as 0.19.3
+application-lambda-report-argument-comma terminal as 0.19.1
+application-lambda-report-argument-comma terminal as 0.19.2
+application-lambda-report-argument-comma terminal as 0.19.3
 application-lambda-report-argument-constructor as 0.19.1
 application-lambda-report-argument-constructor as 0.19.2
 application-lambda-report-argument-constructor as 0.19.3
+application-lambda-report-argument-constructor terminal as 0.19.1
+application-lambda-report-argument-constructor terminal as 0.19.2
+application-lambda-report-argument-constructor terminal as 0.19.3
 application-lambda-report-argument-eof as 0.19.1
 application-lambda-report-argument-eof as 0.19.2
 application-lambda-report-argument-eof as 0.19.3
+application-lambda-report-argument-eof terminal as 0.19.1
+application-lambda-report-argument-eof terminal as 0.19.2
+application-lambda-report-argument-eof terminal as 0.19.3
 application-lambda-report-argument-keyword as 0.19.1
 application-lambda-report-argument-keyword as 0.19.2
 application-lambda-report-argument-keyword as 0.19.3
+application-lambda-report-argument-keyword terminal as 0.19.1
+application-lambda-report-argument-keyword terminal as 0.19.2
+application-lambda-report-argument-keyword terminal as 0.19.3
 application-lambda-report-argument-newline as 0.19.1
 application-lambda-report-argument-newline as 0.19.2
 application-lambda-report-argument-newline as 0.19.3
+application-lambda-report-argument-newline terminal as 0.19.1
+application-lambda-report-argument-newline terminal as 0.19.2
+application-lambda-report-argument-newline terminal as 0.19.3
 application-lambda-report-arrow-colon as 0.19.1
 application-lambda-report-arrow-colon as 0.19.2
 application-lambda-report-arrow-colon as 0.19.3
+application-lambda-report-arrow-colon terminal as 0.19.1
+application-lambda-report-arrow-colon terminal as 0.19.2
+application-lambda-report-arrow-colon terminal as 0.19.3
 application-lambda-report-arrow-eof as 0.19.1
 application-lambda-report-arrow-eof as 0.19.2
 application-lambda-report-arrow-eof as 0.19.3
+application-lambda-report-arrow-eof terminal as 0.19.1
+application-lambda-report-arrow-eof terminal as 0.19.2
+application-lambda-report-arrow-eof terminal as 0.19.3
 application-lambda-report-arrow-equals as 0.19.1
 application-lambda-report-arrow-equals as 0.19.2
 application-lambda-report-arrow-equals as 0.19.3
+application-lambda-report-arrow-equals terminal as 0.19.1
+application-lambda-report-arrow-equals terminal as 0.19.2
+application-lambda-report-arrow-equals terminal as 0.19.3
 application-lambda-report-arrow-keyword as 0.19.1
 application-lambda-report-arrow-keyword as 0.19.2
 application-lambda-report-arrow-keyword as 0.19.3
+application-lambda-report-arrow-keyword terminal as 0.19.1
+application-lambda-report-arrow-keyword terminal as 0.19.2
+application-lambda-report-arrow-keyword terminal as 0.19.3
 application-lambda-report-arrow-newline as 0.19.1
 application-lambda-report-arrow-newline as 0.19.2
 application-lambda-report-arrow-newline as 0.19.3
+application-lambda-report-arrow-newline terminal as 0.19.1
+application-lambda-report-arrow-newline terminal as 0.19.2
+application-lambda-report-arrow-newline terminal as 0.19.3
 application-lambda-report-body-close as 0.19.1
 application-lambda-report-body-close as 0.19.2
 application-lambda-report-body-close as 0.19.3
+application-lambda-report-body-close terminal as 0.19.1
+application-lambda-report-body-close terminal as 0.19.2
+application-lambda-report-body-close terminal as 0.19.3
 application-lambda-report-body-eof as 0.19.1
 application-lambda-report-body-eof as 0.19.2
 application-lambda-report-body-eof as 0.19.3
+application-lambda-report-body-eof terminal as 0.19.1
+application-lambda-report-body-eof terminal as 0.19.2
+application-lambda-report-body-eof terminal as 0.19.3
 application-lambda-report-body-keyword as 0.19.1
 application-lambda-report-body-keyword as 0.19.2
 application-lambda-report-body-keyword as 0.19.3
+application-lambda-report-body-keyword terminal as 0.19.1
+application-lambda-report-body-keyword terminal as 0.19.2
+application-lambda-report-body-keyword terminal as 0.19.3
 application-lambda-report-body-newline as 0.19.1
 application-lambda-report-body-newline as 0.19.2
 application-lambda-report-body-newline as 0.19.3
+application-lambda-report-body-newline terminal as 0.19.1
+application-lambda-report-body-newline terminal as 0.19.2
+application-lambda-report-body-newline terminal as 0.19.3
 application-lambda-report-multiline-argument as 0.19.1
 application-lambda-report-multiline-argument as 0.19.2
 application-lambda-report-multiline-argument as 0.19.3
+application-lambda-report-multiline-argument terminal as 0.19.1
+application-lambda-report-multiline-argument terminal as 0.19.2
+application-lambda-report-multiline-argument terminal as 0.19.3
 application-lambda-report-multiline-arrow as 0.19.1
 application-lambda-report-multiline-arrow as 0.19.2
 application-lambda-report-multiline-arrow as 0.19.3
+application-lambda-report-multiline-arrow terminal as 0.19.1
+application-lambda-report-multiline-arrow terminal as 0.19.2
+application-lambda-report-multiline-arrow terminal as 0.19.3
 application-lambda-report-multiline-body as 0.19.1
 application-lambda-report-multiline-body as 0.19.2
 application-lambda-report-multiline-body as 0.19.3
+application-lambda-report-multiline-body terminal as 0.19.1
+application-lambda-report-multiline-body terminal as 0.19.2
+application-lambda-report-multiline-body terminal as 0.19.3
 application-lambda-report-two-arguments-body-eof as 0.19.1
 application-lambda-report-two-arguments-body-eof as 0.19.2
 application-lambda-report-two-arguments-body-eof as 0.19.3
+application-lambda-report-two-arguments-body-eof terminal as 0.19.1
+application-lambda-report-two-arguments-body-eof terminal as 0.19.2
+application-lambda-report-two-arguments-body-eof terminal as 0.19.3
 application-lambda-report-two-arguments-body-newline as 0.19.1
 application-lambda-report-two-arguments-body-newline as 0.19.2
 application-lambda-report-two-arguments-body-newline as 0.19.3
+application-lambda-report-two-arguments-body-newline terminal as 0.19.1
+application-lambda-report-two-arguments-body-newline terminal as 0.19.2
+application-lambda-report-two-arguments-body-newline terminal as 0.19.3
 application-lambda-report-two-arguments-eof as 0.19.1
 application-lambda-report-two-arguments-eof as 0.19.2
 application-lambda-report-two-arguments-eof as 0.19.3
+application-lambda-report-two-arguments-eof terminal as 0.19.1
+application-lambda-report-two-arguments-eof terminal as 0.19.2
+application-lambda-report-two-arguments-eof terminal as 0.19.3
 application-lambda-report-two-arguments-newline as 0.19.1
 application-lambda-report-two-arguments-newline as 0.19.2
 application-lambda-report-two-arguments-newline as 0.19.3
+application-lambda-report-two-arguments-newline terminal as 0.19.1
+application-lambda-report-two-arguments-newline terminal as 0.19.2
+application-lambda-report-two-arguments-newline terminal as 0.19.3
 application-lambda-success-multiple-arguments as 0.19.1
 application-lambda-success-multiple-arguments as 0.19.2
 application-lambda-success-multiple-arguments as 0.19.3
+application-lambda-success-multiple-arguments terminal as 0.19.1
+application-lambda-success-multiple-arguments terminal as 0.19.2
+application-lambda-success-multiple-arguments terminal as 0.19.3
 application-lambda-success-shallow-argument as 0.19.1
 application-lambda-success-shallow-argument as 0.19.2
 application-lambda-success-shallow-argument as 0.19.3
+application-lambda-success-shallow-argument terminal as 0.19.1
+application-lambda-success-shallow-argument terminal as 0.19.2
+application-lambda-success-shallow-argument terminal as 0.19.3
 application-let-report-body-close as 0.19.1
 application-let-report-body-close as 0.19.2
 application-let-report-body-close as 0.19.3
+application-let-report-body-close terminal as 0.19.1
+application-let-report-body-close terminal as 0.19.2
+application-let-report-body-close terminal as 0.19.3
 application-let-report-body-keyword as 0.19.1
 application-let-report-body-keyword as 0.19.2
 application-let-report-body-keyword as 0.19.3
+application-let-report-body-keyword terminal as 0.19.1
+application-let-report-body-keyword terminal as 0.19.2
+application-let-report-body-keyword terminal as 0.19.3
 application-let-report-destructure-missing-equals as 0.19.1
 application-let-report-destructure-missing-equals as 0.19.2
 application-let-report-destructure-missing-equals as 0.19.3
+application-let-report-destructure-missing-equals terminal as 0.19.1
+application-let-report-destructure-missing-equals terminal as 0.19.2
+application-let-report-destructure-missing-equals terminal as 0.19.3
 application-let-report-eof as 0.19.1
 application-let-report-eof as 0.19.2
 application-let-report-eof as 0.19.3
+application-let-report-eof terminal as 0.19.1
+application-let-report-eof terminal as 0.19.2
+application-let-report-eof terminal as 0.19.3
 application-let-report-in-case as 0.19.1
 application-let-report-in-case as 0.19.2
 application-let-report-in-case as 0.19.3
+application-let-report-in-case terminal as 0.19.1
+application-let-report-in-case terminal as 0.19.2
+application-let-report-in-case terminal as 0.19.3
 application-let-report-in-if as 0.19.1
 application-let-report-in-if as 0.19.2
 application-let-report-in-if as 0.19.3
+application-let-report-in-if terminal as 0.19.1
+application-let-report-in-if terminal as 0.19.2
+application-let-report-in-if terminal as 0.19.3
 application-let-report-in-if-close as 0.19.1
 application-let-report-in-if-close as 0.19.2
 application-let-report-in-if-close as 0.19.3
+application-let-report-in-if-close terminal as 0.19.1
+application-let-report-in-if-close terminal as 0.19.2
+application-let-report-in-if-close terminal as 0.19.3
 application-let-report-in-lambda as 0.19.1
 application-let-report-in-lambda as 0.19.2
 application-let-report-in-lambda as 0.19.3
+application-let-report-in-lambda terminal as 0.19.1
+application-let-report-in-lambda terminal as 0.19.2
+application-let-report-in-lambda terminal as 0.19.3
 application-let-report-in-let as 0.19.1
 application-let-report-in-let as 0.19.2
 application-let-report-in-let as 0.19.3
+application-let-report-in-let terminal as 0.19.1
+application-let-report-in-let terminal as 0.19.2
+application-let-report-in-let terminal as 0.19.3
 application-let-report-in-list as 0.19.1
 application-let-report-in-list as 0.19.2
 application-let-report-in-list as 0.19.3
+application-let-report-in-list terminal as 0.19.1
+application-let-report-in-list terminal as 0.19.2
+application-let-report-in-list terminal as 0.19.3
 application-let-report-in-negation as 0.19.1
 application-let-report-in-negation as 0.19.2
 application-let-report-in-negation as 0.19.3
+application-let-report-in-negation terminal as 0.19.1
+application-let-report-in-negation terminal as 0.19.2
+application-let-report-in-negation terminal as 0.19.3
 application-let-report-in-tuple as 0.19.1
 application-let-report-in-tuple as 0.19.2
 application-let-report-in-tuple as 0.19.3
+application-let-report-in-tuple terminal as 0.19.1
+application-let-report-in-tuple terminal as 0.19.2
+application-let-report-in-tuple terminal as 0.19.3
 application-let-report-inline-definition as 0.19.1
 application-let-report-inline-definition as 0.19.2
 application-let-report-inline-definition as 0.19.3
+application-let-report-inline-definition terminal as 0.19.1
+application-let-report-inline-definition terminal as 0.19.2
+application-let-report-inline-definition terminal as 0.19.3
 application-let-report-inline-definition-newline as 0.19.1
 application-let-report-inline-definition-newline as 0.19.2
 application-let-report-inline-definition-newline as 0.19.3
+application-let-report-inline-definition-newline terminal as 0.19.1
+application-let-report-inline-definition-newline terminal as 0.19.2
+application-let-report-inline-definition-newline terminal as 0.19.3
 application-let-report-inline-in as 0.19.1
 application-let-report-inline-in as 0.19.2
 application-let-report-inline-in as 0.19.3
+application-let-report-inline-in terminal as 0.19.1
+application-let-report-inline-in terminal as 0.19.2
+application-let-report-inline-in terminal as 0.19.3
 application-let-report-inline-in-newline as 0.19.1
 application-let-report-inline-in-newline as 0.19.2
 application-let-report-inline-in-newline as 0.19.3
+application-let-report-inline-in-newline terminal as 0.19.1
+application-let-report-inline-in-newline terminal as 0.19.2
+application-let-report-inline-in-newline terminal as 0.19.3
 application-let-report-invalid-definition as 0.19.1
 application-let-report-invalid-definition as 0.19.2
 application-let-report-invalid-definition as 0.19.3
+application-let-report-invalid-definition terminal as 0.19.1
+application-let-report-invalid-definition terminal as 0.19.2
+application-let-report-invalid-definition terminal as 0.19.3
 application-let-report-keyword-definition as 0.19.1
 application-let-report-keyword-definition as 0.19.2
 application-let-report-keyword-definition as 0.19.3
+application-let-report-keyword-definition terminal as 0.19.1
+application-let-report-keyword-definition terminal as 0.19.2
+application-let-report-keyword-definition terminal as 0.19.3
 application-let-report-missing-equals as 0.19.1
 application-let-report-missing-equals as 0.19.2
 application-let-report-missing-equals as 0.19.3
+application-let-report-missing-equals terminal as 0.19.1
+application-let-report-missing-equals terminal as 0.19.2
+application-let-report-missing-equals terminal as 0.19.3
 application-let-report-missing-value as 0.19.1
 application-let-report-missing-value as 0.19.2
 application-let-report-missing-value as 0.19.3
+application-let-report-missing-value terminal as 0.19.1
+application-let-report-missing-value terminal as 0.19.2
+application-let-report-missing-value terminal as 0.19.3
 application-let-report-multiline-definition as 0.19.1
 application-let-report-multiline-definition as 0.19.2
 application-let-report-multiline-definition as 0.19.3
+application-let-report-multiline-definition terminal as 0.19.1
+application-let-report-multiline-definition terminal as 0.19.2
+application-let-report-multiline-definition terminal as 0.19.3
 application-let-report-multiline-in as 0.19.1
 application-let-report-multiline-in as 0.19.2
 application-let-report-multiline-in as 0.19.3
+application-let-report-multiline-in terminal as 0.19.1
+application-let-report-multiline-in terminal as 0.19.2
+application-let-report-multiline-in terminal as 0.19.3
 application-let-report-multiline-in-newline as 0.19.1
 application-let-report-multiline-in-newline as 0.19.2
 application-let-report-multiline-in-newline as 0.19.3
+application-let-report-multiline-in-newline terminal as 0.19.1
+application-let-report-multiline-in-newline terminal as 0.19.2
+application-let-report-multiline-in-newline terminal as 0.19.3
 application-let-report-multiline-no-definition as 0.19.1
 application-let-report-multiline-no-definition as 0.19.2
 application-let-report-multiline-no-definition as 0.19.3
+application-let-report-multiline-no-definition terminal as 0.19.1
+application-let-report-multiline-no-definition terminal as 0.19.2
+application-let-report-multiline-no-definition terminal as 0.19.3
 application-let-report-newline as 0.19.1
 application-let-report-newline as 0.19.2
 application-let-report-newline as 0.19.3
+application-let-report-newline terminal as 0.19.1
+application-let-report-newline terminal as 0.19.2
+application-let-report-newline terminal as 0.19.3
 application-let-report-next-definition as 0.19.1
 application-let-report-next-definition as 0.19.2
 application-let-report-next-definition as 0.19.3
+application-let-report-next-definition terminal as 0.19.1
+application-let-report-next-definition terminal as 0.19.2
+application-let-report-next-definition terminal as 0.19.3
 application-let-report-second-misaligned as 0.19.1
 application-let-report-second-misaligned as 0.19.2
 application-let-report-second-misaligned as 0.19.3
+application-let-report-second-misaligned terminal as 0.19.1
+application-let-report-second-misaligned terminal as 0.19.2
+application-let-report-second-misaligned terminal as 0.19.3
 application-let-report-second-missing-equals as 0.19.1
 application-let-report-second-missing-equals as 0.19.2
 application-let-report-second-missing-equals as 0.19.3
+application-let-report-second-missing-equals terminal as 0.19.1
+application-let-report-second-missing-equals terminal as 0.19.2
+application-let-report-second-missing-equals terminal as 0.19.3
 application-let-report-shallow-definition as 0.19.1
 application-let-report-shallow-definition as 0.19.2
 application-let-report-shallow-definition as 0.19.3
+application-let-report-shallow-definition terminal as 0.19.1
+application-let-report-shallow-definition terminal as 0.19.2
+application-let-report-shallow-definition terminal as 0.19.3
 application-let-success-destructure as 0.19.1
 application-let-success-destructure as 0.19.2
 application-let-success-destructure as 0.19.3
+application-let-success-destructure terminal as 0.19.1
+application-let-success-destructure terminal as 0.19.2
+application-let-success-destructure terminal as 0.19.3
 application-let-success-indented-in as 0.19.1
 application-let-success-indented-in as 0.19.2
 application-let-success-indented-in as 0.19.3
+application-let-success-indented-in terminal as 0.19.1
+application-let-success-indented-in terminal as 0.19.2
+application-let-success-indented-in terminal as 0.19.3
 application-let-success-inline-body as 0.19.1
 application-let-success-inline-body as 0.19.2
 application-let-success-inline-body as 0.19.3
+application-let-success-inline-body terminal as 0.19.1
+application-let-success-inline-body terminal as 0.19.2
+application-let-success-inline-body terminal as 0.19.3
 application-let-success-multiline-body as 0.19.1
 application-let-success-multiline-body as 0.19.2
 application-let-success-multiline-body as 0.19.3
+application-let-success-multiline-body terminal as 0.19.1
+application-let-success-multiline-body terminal as 0.19.2
+application-let-success-multiline-body terminal as 0.19.3
 application-let-success-second-definition as 0.19.1
 application-let-success-second-definition as 0.19.2
 application-let-success-second-definition as 0.19.3
+application-let-success-second-definition terminal as 0.19.1
+application-let-success-second-definition terminal as 0.19.2
+application-let-success-second-definition terminal as 0.19.3
 application-let-success-shallow-in as 0.19.1
 application-let-success-shallow-in as 0.19.2
 application-let-success-shallow-in as 0.19.3
+application-let-success-shallow-in terminal as 0.19.1
+application-let-success-shallow-in terminal as 0.19.2
+application-let-success-shallow-in terminal as 0.19.3
 application-line-comment-byte as 0.19.2
 application-line-comment-byte as 0.19.3
+application-line-comment-byte terminal as 0.19.2
+application-line-comment-byte terminal as 0.19.3
 application-literal as 0.19.1
 application-literal as 0.19.2
 application-literal as 0.19.3
+application-literal terminal as 0.19.1
+application-literal terminal as 0.19.2
+application-literal terminal as 0.19.3
 application-local-dependency-import as 0.19.1
 application-local-dependency-import as 0.19.2
 application-local-dependency-import as 0.19.3
+application-local-dependency-import terminal as 0.19.1
+application-local-dependency-import terminal as 0.19.2
+application-local-dependency-import terminal as 0.19.3
 application-local-source-import as 0.19.1
 application-local-source-import as 0.19.2
 application-local-source-import as 0.19.3
+application-local-source-import terminal as 0.19.1
+application-local-source-import terminal as 0.19.2
+application-local-source-import terminal as 0.19.3
 application-local-source-root-clash as 0.19.1
 application-local-source-root-clash as 0.19.2
 application-local-source-root-clash as 0.19.3
+application-local-source-root-clash terminal as 0.19.1
+application-local-source-root-clash terminal as 0.19.2
+application-local-source-root-clash terminal as 0.19.3
 application-lowercase-root-name as 0.19.1
 application-lowercase-root-name as 0.19.2
 application-lowercase-root-name as 0.19.3
+application-lowercase-root-name terminal as 0.19.1
+application-lowercase-root-name terminal as 0.19.2
+application-lowercase-root-name terminal as 0.19.3
 application-missing-and-local-dependency-import as 0.19.1
 application-missing-and-local-dependency-import as 0.19.2
 application-missing-and-local-dependency-import as 0.19.3
+application-missing-and-local-dependency-import terminal as 0.19.1
+application-missing-and-local-dependency-import terminal as 0.19.2
+application-missing-and-local-dependency-import terminal as 0.19.3
 application-missing-and-local-source-import as 0.19.1
 application-missing-and-local-source-import as 0.19.2
 application-missing-and-local-source-import as 0.19.3
+application-missing-and-local-source-import terminal as 0.19.1
+application-missing-and-local-source-import terminal as 0.19.2
+application-missing-and-local-source-import terminal as 0.19.3
 application-missing-before-bad-root as 0.19.1
 application-missing-before-bad-root as 0.19.2
 application-missing-before-bad-root as 0.19.3
+application-missing-before-bad-root terminal as 0.19.1
+application-missing-before-bad-root terminal as 0.19.2
+application-missing-before-bad-root terminal as 0.19.3
 application-missing-core as 0.19.1
 application-missing-core as 0.19.2
 application-missing-core as 0.19.3
+application-missing-core terminal as 0.19.1
+application-missing-core terminal as 0.19.2
+application-missing-core terminal as 0.19.3
 application-missing-core-no-inputs as 0.19.1
 application-missing-core-no-inputs as 0.19.2
 application-missing-core-no-inputs as 0.19.3
+application-missing-core-no-inputs terminal as 0.19.1
+application-missing-core-no-inputs terminal as 0.19.2
+application-missing-core-no-inputs terminal as 0.19.3
 application-missing-expression-question as 0.19.1
 application-missing-expression-question as 0.19.2
 application-missing-expression-question as 0.19.3
+application-missing-expression-question terminal as 0.19.1
+application-missing-expression-question terminal as 0.19.2
+application-missing-expression-question terminal as 0.19.3
 application-missing-expression-replacement as 0.19.1
 application-missing-expression-replacement as 0.19.2
 application-missing-expression-replacement as 0.19.3
+application-missing-expression-replacement terminal as 0.19.1
+application-missing-expression-replacement terminal as 0.19.2
+application-missing-expression-replacement terminal as 0.19.3
 application-missing-import as 0.19.1
 application-missing-import as 0.19.2
 application-missing-import as 0.19.3
+application-missing-import terminal as 0.19.1
+application-missing-import terminal as 0.19.2
+application-missing-import terminal as 0.19.3
 application-missing-import-cycle as 0.19.1
 application-missing-import-cycle as 0.19.2
 application-missing-import-cycle as 0.19.3
+application-missing-import-cycle terminal as 0.19.1
+application-missing-import-cycle terminal as 0.19.2
+application-missing-import-cycle terminal as 0.19.3
 application-missing-import-cycle-blocked-root as 0.19.1
 application-missing-import-cycle-blocked-root as 0.19.2
 application-missing-import-cycle-blocked-root as 0.19.3
+application-missing-import-cycle-blocked-root terminal as 0.19.1
+application-missing-import-cycle-blocked-root terminal as 0.19.2
+application-missing-import-cycle-blocked-root terminal as 0.19.3
 application-missing-import-cycle-both-members as 0.19.1
 application-missing-import-cycle-both-members as 0.19.2
 application-missing-import-cycle-both-members as 0.19.3
+application-missing-import-cycle-both-members terminal as 0.19.1
+application-missing-import-cycle-both-members terminal as 0.19.2
+application-missing-import-cycle-both-members terminal as 0.19.3
 application-missing-import-cycle-broken-by-syntax as 0.19.1
 application-missing-import-cycle-broken-by-syntax as 0.19.2
 application-missing-import-cycle-broken-by-syntax as 0.19.3
+application-missing-import-cycle-broken-by-syntax terminal as 0.19.1
+application-missing-import-cycle-broken-by-syntax terminal as 0.19.2
+application-missing-import-cycle-broken-by-syntax terminal as 0.19.3
 application-missing-import-cycle-independent-type as 0.19.1
 application-missing-import-cycle-independent-type as 0.19.2
 application-missing-import-cycle-independent-type as 0.19.3
+application-missing-import-cycle-independent-type terminal as 0.19.1
+application-missing-import-cycle-independent-type terminal as 0.19.2
+application-missing-import-cycle-independent-type terminal as 0.19.3
 application-missing-import-cycle-reversed as 0.19.1
 application-missing-import-cycle-reversed as 0.19.2
 application-missing-import-cycle-reversed as 0.19.3
+application-missing-import-cycle-reversed terminal as 0.19.1
+application-missing-import-cycle-reversed terminal as 0.19.2
+application-missing-import-cycle-reversed terminal as 0.19.3
 application-missing-import-later-syntax as 0.19.1
 application-missing-import-later-syntax as 0.19.2
 application-missing-import-later-syntax as 0.19.3
+application-missing-import-later-syntax terminal as 0.19.1
+application-missing-import-later-syntax terminal as 0.19.2
+application-missing-import-later-syntax terminal as 0.19.3
 application-missing-import-local-suggestion as 0.19.1
 application-missing-import-local-suggestion as 0.19.2
 application-missing-import-local-suggestion as 0.19.3
+application-missing-import-local-suggestion terminal as 0.19.1
+application-missing-import-local-suggestion terminal as 0.19.2
+application-missing-import-local-suggestion terminal as 0.19.3
 application-missing-import-outside as 0.19.1
 application-missing-import-outside as 0.19.2
 application-missing-import-outside as 0.19.3
+application-missing-import-outside terminal as 0.19.1
+application-missing-import-outside terminal as 0.19.2
+application-missing-import-outside terminal as 0.19.3
 application-missing-import-package-hint as 0.19.1
 application-missing-import-package-hint as 0.19.2
 application-missing-import-package-hint as 0.19.3
+application-missing-import-package-hint terminal as 0.19.1
+application-missing-import-package-hint terminal as 0.19.2
+application-missing-import-package-hint terminal as 0.19.3
 application-missing-import-typo as 0.19.1
 application-missing-import-typo as 0.19.2
 application-missing-import-typo as 0.19.3
+application-missing-import-typo terminal as 0.19.1
+application-missing-import-typo terminal as 0.19.2
+application-missing-import-typo terminal as 0.19.3
 application-missing-input as 0.19.1
 application-missing-input as 0.19.2
 application-missing-input as 0.19.3
+application-missing-input terminal as 0.19.1
+application-missing-input terminal as 0.19.2
+application-missing-input terminal as 0.19.3
 application-missing-json as 0.19.1
 application-missing-json as 0.19.2
 application-missing-json as 0.19.3
+application-missing-json terminal as 0.19.1
+application-missing-json terminal as 0.19.2
+application-missing-json terminal as 0.19.3
 application-missing-json-no-inputs as 0.19.1
 application-missing-json-no-inputs as 0.19.2
 application-missing-json-no-inputs as 0.19.3
+application-missing-json-no-inputs terminal as 0.19.1
+application-missing-json-no-inputs terminal as 0.19.2
+application-missing-json-no-inputs terminal as 0.19.3
 application-missing-operator-operand-and-newline as 0.19.1
 application-missing-operator-operand-and-newline as 0.19.2
 application-missing-operator-operand-and-newline as 0.19.3
+application-missing-operator-operand-and-newline terminal as 0.19.1
+application-missing-operator-operand-and-newline terminal as 0.19.2
+application-missing-operator-operand-and-newline terminal as 0.19.3
 application-missing-operator-operand-and-same-line as 0.19.1
 application-missing-operator-operand-and-same-line as 0.19.2
 application-missing-operator-operand-and-same-line as 0.19.3
+application-missing-operator-operand-and-same-line terminal as 0.19.1
+application-missing-operator-operand-and-same-line terminal as 0.19.2
+application-missing-operator-operand-and-same-line terminal as 0.19.3
 application-missing-operator-operand-append-same-line as 0.19.1
 application-missing-operator-operand-append-same-line as 0.19.2
 application-missing-operator-operand-append-same-line as 0.19.3
+application-missing-operator-operand-append-same-line terminal as 0.19.1
+application-missing-operator-operand-append-same-line terminal as 0.19.2
+application-missing-operator-operand-append-same-line terminal as 0.19.3
 application-missing-operator-operand-block-comment-newline as 0.19.1
 application-missing-operator-operand-block-comment-newline as 0.19.2
 application-missing-operator-operand-block-comment-newline as 0.19.3
+application-missing-operator-operand-block-comment-newline terminal as 0.19.1
+application-missing-operator-operand-block-comment-newline terminal as 0.19.2
+application-missing-operator-operand-block-comment-newline terminal as 0.19.3
 application-missing-operator-operand-custom-newline as 0.19.1
 application-missing-operator-operand-custom-newline as 0.19.2
 application-missing-operator-operand-custom-newline as 0.19.3
+application-missing-operator-operand-custom-newline terminal as 0.19.1
+application-missing-operator-operand-custom-newline terminal as 0.19.2
+application-missing-operator-operand-custom-newline terminal as 0.19.3
 application-missing-operator-operand-custom-same-line as 0.19.1
 application-missing-operator-operand-custom-same-line as 0.19.2
 application-missing-operator-operand-custom-same-line as 0.19.3
+application-missing-operator-operand-custom-same-line terminal as 0.19.1
+application-missing-operator-operand-custom-same-line terminal as 0.19.2
+application-missing-operator-operand-custom-same-line terminal as 0.19.3
 application-missing-operator-operand-left-pipe-same-line as 0.19.1
 application-missing-operator-operand-left-pipe-same-line as 0.19.2
 application-missing-operator-operand-left-pipe-same-line as 0.19.3
+application-missing-operator-operand-left-pipe-same-line terminal as 0.19.1
+application-missing-operator-operand-left-pipe-same-line terminal as 0.19.2
+application-missing-operator-operand-left-pipe-same-line terminal as 0.19.3
 application-missing-operator-operand-minus-newline as 0.19.1
 application-missing-operator-operand-minus-newline as 0.19.2
 application-missing-operator-operand-minus-newline as 0.19.3
+application-missing-operator-operand-minus-newline terminal as 0.19.1
+application-missing-operator-operand-minus-newline terminal as 0.19.2
+application-missing-operator-operand-minus-newline terminal as 0.19.3
 application-missing-operator-operand-multiline-newline as 0.19.1
 application-missing-operator-operand-multiline-newline as 0.19.2
 application-missing-operator-operand-multiline-newline as 0.19.3
+application-missing-operator-operand-multiline-newline terminal as 0.19.1
+application-missing-operator-operand-multiline-newline terminal as 0.19.2
+application-missing-operator-operand-multiline-newline terminal as 0.19.3
 application-missing-operator-operand-multiline-same-line as 0.19.1
 application-missing-operator-operand-multiline-same-line as 0.19.2
 application-missing-operator-operand-multiline-same-line as 0.19.3
+application-missing-operator-operand-multiline-same-line terminal as 0.19.1
+application-missing-operator-operand-multiline-same-line terminal as 0.19.2
+application-missing-operator-operand-multiline-same-line terminal as 0.19.3
 application-missing-operator-operand-nested-list as 0.19.1
 application-missing-operator-operand-nested-list as 0.19.2
 application-missing-operator-operand-nested-list as 0.19.3
+application-missing-operator-operand-nested-list terminal as 0.19.1
+application-missing-operator-operand-nested-list terminal as 0.19.2
+application-missing-operator-operand-nested-list terminal as 0.19.3
 application-missing-operator-operand-pipe-newline as 0.19.1
 application-missing-operator-operand-pipe-newline as 0.19.2
 application-missing-operator-operand-pipe-newline as 0.19.3
+application-missing-operator-operand-pipe-newline terminal as 0.19.1
+application-missing-operator-operand-pipe-newline terminal as 0.19.2
+application-missing-operator-operand-pipe-newline terminal as 0.19.3
 application-missing-operator-operand-pipe-same-line as 0.19.1
 application-missing-operator-operand-pipe-same-line as 0.19.2
 application-missing-operator-operand-pipe-same-line as 0.19.3
+application-missing-operator-operand-pipe-same-line terminal as 0.19.1
+application-missing-operator-operand-pipe-same-line terminal as 0.19.2
+application-missing-operator-operand-pipe-same-line terminal as 0.19.3
 application-missing-operator-operand-plus-eof as 0.19.1
 application-missing-operator-operand-plus-eof as 0.19.2
 application-missing-operator-operand-plus-eof as 0.19.3
+application-missing-operator-operand-plus-eof terminal as 0.19.1
+application-missing-operator-operand-plus-eof terminal as 0.19.2
+application-missing-operator-operand-plus-eof terminal as 0.19.3
 application-missing-operator-operand-plus-newline as 0.19.1
 application-missing-operator-operand-plus-newline as 0.19.2
 application-missing-operator-operand-plus-newline as 0.19.3
+application-missing-operator-operand-plus-newline terminal as 0.19.1
+application-missing-operator-operand-plus-newline terminal as 0.19.2
+application-missing-operator-operand-plus-newline terminal as 0.19.3
 application-missing-operator-operand-plus-same-line as 0.19.1
 application-missing-operator-operand-plus-same-line as 0.19.2
 application-missing-operator-operand-plus-same-line as 0.19.3
+application-missing-operator-operand-plus-same-line terminal as 0.19.1
+application-missing-operator-operand-plus-same-line terminal as 0.19.2
+application-missing-operator-operand-plus-same-line terminal as 0.19.3
 application-missing-operator-operand-space-newline as 0.19.1
 application-missing-operator-operand-space-newline as 0.19.2
 application-missing-operator-operand-space-newline as 0.19.3
+application-missing-operator-operand-space-newline terminal as 0.19.1
+application-missing-operator-operand-space-newline terminal as 0.19.2
+application-missing-operator-operand-space-newline terminal as 0.19.3
 application-missing-parenthesized-expression-comma-before-space as 0.19.1
 application-missing-parenthesized-expression-comma-before-space as 0.19.2
 application-missing-parenthesized-expression-comma-before-space as 0.19.3
+application-missing-parenthesized-expression-comma-before-space terminal as 0.19.1
+application-missing-parenthesized-expression-comma-before-space terminal as 0.19.2
+application-missing-parenthesized-expression-comma-before-space terminal as 0.19.3
 application-missing-parenthesized-expression-comma-invalid-entry as 0.19.1
 application-missing-parenthesized-expression-comma-invalid-entry as 0.19.2
 application-missing-parenthesized-expression-comma-invalid-entry as 0.19.3
+application-missing-parenthesized-expression-comma-invalid-entry terminal as 0.19.1
+application-missing-parenthesized-expression-comma-invalid-entry terminal as 0.19.2
+application-missing-parenthesized-expression-comma-invalid-entry terminal as 0.19.3
 application-missing-parenthesized-expression-eof-comma as 0.19.1
 application-missing-parenthesized-expression-eof-comma as 0.19.2
 application-missing-parenthesized-expression-eof-comma as 0.19.3
+application-missing-parenthesized-expression-eof-comma terminal as 0.19.1
+application-missing-parenthesized-expression-eof-comma terminal as 0.19.2
+application-missing-parenthesized-expression-eof-comma terminal as 0.19.3
 application-missing-parenthesized-expression-trailing-comma as 0.19.1
 application-missing-parenthesized-expression-trailing-comma as 0.19.2
 application-missing-parenthesized-expression-trailing-comma as 0.19.3
+application-missing-parenthesized-expression-trailing-comma terminal as 0.19.1
+application-missing-parenthesized-expression-trailing-comma terminal as 0.19.2
+application-missing-parenthesized-expression-trailing-comma terminal as 0.19.3
 application-missing-source-directories as 0.19.1
 application-missing-source-directories as 0.19.2
 application-missing-source-directories as 0.19.3
+application-missing-source-directories terminal as 0.19.1
+application-missing-source-directories terminal as 0.19.2
+application-missing-source-directories terminal as 0.19.3
 application-missing-source-directory as 0.19.1
 application-missing-source-directory as 0.19.2
 application-missing-source-directory as 0.19.3
+application-missing-source-directory terminal as 0.19.1
+application-missing-source-directory terminal as 0.19.2
+application-missing-source-directory terminal as 0.19.3
 application-mixed-root-clash as 0.19.1
 application-mixed-root-clash as 0.19.2
 application-mixed-root-clash as 0.19.3
+application-mixed-root-clash terminal as 0.19.1
+application-mixed-root-clash terminal as 0.19.2
+application-mixed-root-clash terminal as 0.19.3
 application-mixed-root-clash-inside-missing as 0.19.1
 application-mixed-root-clash-inside-missing as 0.19.2
 application-mixed-root-clash-inside-missing as 0.19.3
+application-mixed-root-clash-inside-missing terminal as 0.19.1
+application-mixed-root-clash-inside-missing terminal as 0.19.2
+application-mixed-root-clash-inside-missing terminal as 0.19.3
 application-mixed-root-clash-inside-syntax as 0.19.1
 application-mixed-root-clash-inside-syntax as 0.19.2
 application-mixed-root-clash-inside-syntax as 0.19.3
+application-mixed-root-clash-inside-syntax terminal as 0.19.1
+application-mixed-root-clash-inside-syntax terminal as 0.19.2
+application-mixed-root-clash-inside-syntax terminal as 0.19.3
 application-mixed-root-clash-outside-missing as 0.19.1
 application-mixed-root-clash-outside-missing as 0.19.2
 application-mixed-root-clash-outside-missing as 0.19.3
+application-mixed-root-clash-outside-missing terminal as 0.19.1
+application-mixed-root-clash-outside-missing terminal as 0.19.2
+application-mixed-root-clash-outside-missing terminal as 0.19.3
 application-mixed-root-clash-outside-syntax as 0.19.1
 application-mixed-root-clash-outside-syntax as 0.19.2
 application-mixed-root-clash-outside-syntax as 0.19.3
+application-mixed-root-clash-outside-syntax terminal as 0.19.1
+application-mixed-root-clash-outside-syntax terminal as 0.19.2
+application-mixed-root-clash-outside-syntax terminal as 0.19.3
 application-mixed-root-clash-reversed as 0.19.1
 application-mixed-root-clash-reversed as 0.19.2
 application-mixed-root-clash-reversed as 0.19.3
+application-mixed-root-clash-reversed terminal as 0.19.1
+application-mixed-root-clash-reversed terminal as 0.19.2
+application-mixed-root-clash-reversed terminal as 0.19.3
 application-mjs-output-extension as 0.19.1
 application-mjs-output-extension as 0.19.2
 application-mjs-output-extension as 0.19.3
+application-mjs-output-extension terminal as 0.19.1
+application-mjs-output-extension terminal as 0.19.2
+application-mjs-output-extension terminal as 0.19.3
 application-module-name as 0.19.1
 application-module-name as 0.19.2
 application-module-name as 0.19.3
+application-module-name terminal as 0.19.1
+application-module-name terminal as 0.19.2
+application-module-name terminal as 0.19.3
 application-module-name-byte as 0.19.1
 application-module-name-byte as 0.19.2
 application-module-name-byte as 0.19.3
+application-module-name-byte terminal as 0.19.1
+application-module-name-byte terminal as 0.19.2
+application-module-name-byte terminal as 0.19.3
 application-module-name-mismatch as 0.19.1
 application-module-name-mismatch as 0.19.2
 application-module-name-mismatch as 0.19.3
+application-module-name-mismatch terminal as 0.19.1
+application-module-name-mismatch terminal as 0.19.2
+application-module-name-mismatch terminal as 0.19.3
 application-module-name-mismatch-later-syntax as 0.19.1
 application-module-name-mismatch-later-syntax as 0.19.2
 application-module-name-mismatch-later-syntax as 0.19.3
+application-module-name-mismatch-later-syntax terminal as 0.19.1
+application-module-name-mismatch-later-syntax terminal as 0.19.2
+application-module-name-mismatch-later-syntax terminal as 0.19.3
 application-name as 0.19.1
 application-name as 0.19.2
 application-name as 0.19.3
+application-name terminal as 0.19.1
+application-name terminal as 0.19.2
+application-name terminal as 0.19.3
 application-negated-term-application-eof as 0.19.1
 application-negated-term-application-eof as 0.19.2
 application-negated-term-application-eof as 0.19.3
+application-negated-term-application-eof terminal as 0.19.1
+application-negated-term-application-eof terminal as 0.19.2
+application-negated-term-application-eof terminal as 0.19.3
 application-negated-term-binary-eof as 0.19.1
 application-negated-term-binary-eof as 0.19.2
 application-negated-term-binary-eof as 0.19.3
+application-negated-term-binary-eof terminal as 0.19.1
+application-negated-term-binary-eof terminal as 0.19.2
+application-negated-term-binary-eof terminal as 0.19.3
 application-negated-term-definition as 0.19.1
 application-negated-term-definition as 0.19.2
 application-negated-term-definition as 0.19.3
+application-negated-term-definition terminal as 0.19.1
+application-negated-term-definition terminal as 0.19.2
+application-negated-term-definition terminal as 0.19.3
 application-negated-term-definition-eof as 0.19.1
 application-negated-term-definition-eof as 0.19.2
 application-negated-term-definition-eof as 0.19.3
+application-negated-term-definition-eof terminal as 0.19.1
+application-negated-term-definition-eof terminal as 0.19.2
+application-negated-term-definition-eof terminal as 0.19.3
 application-negated-term-list as 0.19.1
 application-negated-term-list as 0.19.2
 application-negated-term-list as 0.19.3
+application-negated-term-list terminal as 0.19.1
+application-negated-term-list terminal as 0.19.2
+application-negated-term-list terminal as 0.19.3
 application-negated-term-list-comma as 0.19.1
 application-negated-term-list-comma as 0.19.2
 application-negated-term-list-comma as 0.19.3
+application-negated-term-list-comma terminal as 0.19.1
+application-negated-term-list-comma terminal as 0.19.2
+application-negated-term-list-comma terminal as 0.19.3
 application-negated-term-list-crlf as 0.19.1
 application-negated-term-list-crlf as 0.19.2
 application-negated-term-list-crlf as 0.19.3
+application-negated-term-list-crlf terminal as 0.19.1
+application-negated-term-list-crlf terminal as 0.19.2
+application-negated-term-list-crlf terminal as 0.19.3
 application-negated-term-list-eof as 0.19.1
 application-negated-term-list-eof as 0.19.2
 application-negated-term-list-eof as 0.19.3
+application-negated-term-list-eof terminal as 0.19.1
+application-negated-term-list-eof terminal as 0.19.2
+application-negated-term-list-eof terminal as 0.19.3
 application-negated-term-list-first as 0.19.1
 application-negated-term-list-first as 0.19.2
 application-negated-term-list-first as 0.19.3
+application-negated-term-list-first terminal as 0.19.1
+application-negated-term-list-first terminal as 0.19.2
+application-negated-term-list-first terminal as 0.19.3
 application-negated-term-list-newline as 0.19.1
 application-negated-term-list-newline as 0.19.2
 application-negated-term-list-newline as 0.19.3
+application-negated-term-list-newline terminal as 0.19.1
+application-negated-term-list-newline terminal as 0.19.2
+application-negated-term-list-newline terminal as 0.19.3
 application-negated-term-nested-let as 0.19.1
 application-negated-term-nested-let as 0.19.2
 application-negated-term-nested-let as 0.19.3
+application-negated-term-nested-let terminal as 0.19.1
+application-negated-term-nested-let terminal as 0.19.2
+application-negated-term-nested-let terminal as 0.19.3
 application-negated-term-parentheses as 0.19.1
 application-negated-term-parentheses as 0.19.2
 application-negated-term-parentheses as 0.19.3
+application-negated-term-parentheses terminal as 0.19.1
+application-negated-term-parentheses terminal as 0.19.2
+application-negated-term-parentheses terminal as 0.19.3
 application-negated-term-parentheses-eof as 0.19.1
 application-negated-term-parentheses-eof as 0.19.2
 application-negated-term-parentheses-eof as 0.19.3
+application-negated-term-parentheses-eof terminal as 0.19.1
+application-negated-term-parentheses-eof terminal as 0.19.2
+application-negated-term-parentheses-eof terminal as 0.19.3
 application-negated-term-parentheses-spaced as 0.19.1
 application-negated-term-parentheses-spaced as 0.19.2
 application-negated-term-parentheses-spaced as 0.19.3
+application-negated-term-parentheses-spaced terminal as 0.19.1
+application-negated-term-parentheses-spaced terminal as 0.19.2
+application-negated-term-parentheses-spaced terminal as 0.19.3
 application-negated-term-tuple-second as 0.19.1
 application-negated-term-tuple-second as 0.19.2
 application-negated-term-tuple-second as 0.19.3
+application-negated-term-tuple-second terminal as 0.19.1
+application-negated-term-tuple-second terminal as 0.19.2
+application-negated-term-tuple-second terminal as 0.19.3
 application-nested-lowercase-root-name as 0.19.1
 application-nested-lowercase-root-name as 0.19.2
 application-nested-lowercase-root-name as 0.19.3
+application-nested-lowercase-root-name terminal as 0.19.1
+application-nested-lowercase-root-name terminal as 0.19.2
+application-nested-lowercase-root-name terminal as 0.19.3
 application-no-inputs as 0.19.1
 application-no-inputs as 0.19.2
 application-no-inputs as 0.19.3
+application-no-inputs terminal as 0.19.1
+application-no-inputs terminal as 0.19.2
+application-no-inputs terminal as 0.19.3
 application-no-main-html as 0.19.1
 application-no-main-html as 0.19.2
 application-no-main-html as 0.19.3
+application-no-main-html terminal as 0.19.1
+application-no-main-html terminal as 0.19.2
+application-no-main-html terminal as 0.19.3
 application-no-main-js as 0.19.1
 application-no-main-js as 0.19.2
 application-no-main-js as 0.19.3
+application-no-main-js terminal as 0.19.1
+application-no-main-js terminal as 0.19.2
+application-no-main-js terminal as 0.19.3
 application-no-main-js-multiple as 0.19.1
 application-no-main-js-multiple as 0.19.2
 application-no-main-js-multiple as 0.19.3
+application-no-main-js-multiple terminal as 0.19.1
+application-no-main-js-multiple terminal as 0.19.2
+application-no-main-js-multiple terminal as 0.19.3
 application-old-version as 0.19.3
+application-old-version terminal as 0.19.3
 application-old-version-before-clash as 0.19.3
+application-old-version-before-clash terminal as 0.19.3
 application-old-version-no-inputs as 0.19.3
+application-old-version-no-inputs terminal as 0.19.3
 application-one-missing-source-directory as 0.19.1
 application-one-missing-source-directory as 0.19.2
 application-one-missing-source-directory as 0.19.3
+application-one-missing-source-directory terminal as 0.19.1
+application-one-missing-source-directory terminal as 0.19.2
+application-one-missing-source-directory terminal as 0.19.3
 application-operator-function-success-minus-function as 0.19.1
 application-operator-function-success-minus-function as 0.19.2
 application-operator-function-success-minus-function as 0.19.3
+application-operator-function-success-minus-function terminal as 0.19.1
+application-operator-function-success-minus-function terminal as 0.19.2
+application-operator-function-success-minus-function terminal as 0.19.3
 application-operator-function-success-negated-number as 0.19.1
 application-operator-function-success-negated-number as 0.19.2
 application-operator-function-success-negated-number as 0.19.3
+application-operator-function-success-negated-number terminal as 0.19.1
+application-operator-function-success-negated-number terminal as 0.19.2
+application-operator-function-success-negated-number terminal as 0.19.3
 application-operator-function-success-negated-variable as 0.19.1
 application-operator-function-success-negated-variable as 0.19.2
 application-operator-function-success-negated-variable as 0.19.3
+application-operator-function-success-negated-variable terminal as 0.19.1
+application-operator-function-success-negated-variable terminal as 0.19.2
+application-operator-function-success-negated-variable terminal as 0.19.3
 application-operator-function-success-plus-function as 0.19.1
 application-operator-function-success-plus-function as 0.19.2
 application-operator-function-success-plus-function as 0.19.3
+application-operator-function-success-plus-function terminal as 0.19.1
+application-operator-function-success-plus-function terminal as 0.19.2
+application-operator-function-success-plus-function terminal as 0.19.3
 application-outside-and-inside-failure-order as 0.19.1
 application-outside-and-inside-failure-order as 0.19.2
 application-outside-and-inside-failure-order as 0.19.3
+application-outside-and-inside-failure-order terminal as 0.19.1
+application-outside-and-inside-failure-order terminal as 0.19.2
+application-outside-and-inside-failure-order terminal as 0.19.3
 application-outside-headerless as 0.19.1
 application-outside-headerless as 0.19.2
 application-outside-headerless as 0.19.3
+application-outside-headerless terminal as 0.19.1
+application-outside-headerless terminal as 0.19.2
+application-outside-headerless terminal as 0.19.3
 application-outside-invalid-comment as 0.19.2
 application-outside-invalid-comment as 0.19.3
+application-outside-invalid-comment terminal as 0.19.2
+application-outside-invalid-comment terminal as 0.19.3
 application-outside-invalid-expression as 0.19.1
 application-outside-invalid-expression as 0.19.2
 application-outside-invalid-expression as 0.19.3
+application-outside-invalid-expression terminal as 0.19.1
+application-outside-invalid-expression terminal as 0.19.2
+application-outside-invalid-expression terminal as 0.19.3
 application-outside-invalid-headerless as 0.19.1
 application-outside-invalid-headerless as 0.19.2
 application-outside-invalid-headerless as 0.19.3
+application-outside-invalid-headerless terminal as 0.19.1
+application-outside-invalid-headerless terminal as 0.19.2
+application-outside-invalid-headerless terminal as 0.19.3
 application-outside-invalid-string as 0.19.2
 application-outside-invalid-string as 0.19.3
+application-outside-invalid-string terminal as 0.19.2
+application-outside-invalid-string terminal as 0.19.3
 application-outside-local-dependency-import as 0.19.1
 application-outside-local-dependency-import as 0.19.2
 application-outside-local-dependency-import as 0.19.3
+application-outside-local-dependency-import terminal as 0.19.1
+application-outside-local-dependency-import terminal as 0.19.2
+application-outside-local-dependency-import terminal as 0.19.3
 application-outside-name-clash as 0.19.1
 application-outside-name-clash as 0.19.2
 application-outside-name-clash as 0.19.3
+application-outside-name-clash terminal as 0.19.1
+application-outside-name-clash terminal as 0.19.2
+application-outside-name-clash terminal as 0.19.3
 application-outside-relative-syntax as 0.19.1
 application-outside-relative-syntax as 0.19.2
 application-outside-relative-syntax as 0.19.3
+application-outside-relative-syntax terminal as 0.19.1
+application-outside-relative-syntax terminal as 0.19.2
+application-outside-relative-syntax terminal as 0.19.3
 application-outside-relative-type as 0.19.1
 application-outside-relative-type as 0.19.2
 application-outside-relative-type as 0.19.3
+application-outside-relative-type terminal as 0.19.1
+application-outside-relative-type terminal as 0.19.2
+application-outside-relative-type terminal as 0.19.3
 application-outside-root-clash-missing as 0.19.1
 application-outside-root-clash-missing as 0.19.2
 application-outside-root-clash-missing as 0.19.3
+application-outside-root-clash-missing terminal as 0.19.1
+application-outside-root-clash-missing terminal as 0.19.2
+application-outside-root-clash-missing terminal as 0.19.3
 application-outside-root-clash-syntax as 0.19.1
 application-outside-root-clash-syntax as 0.19.2
 application-outside-root-clash-syntax as 0.19.3
+application-outside-root-clash-syntax terminal as 0.19.1
+application-outside-root-clash-syntax terminal as 0.19.2
+application-outside-root-clash-syntax terminal as 0.19.3
 application-outside-root-clash-valid as 0.19.1
 application-outside-root-clash-valid as 0.19.2
 application-outside-root-clash-valid as 0.19.3
+application-outside-root-clash-valid terminal as 0.19.1
+application-outside-root-clash-valid terminal as 0.19.2
+application-outside-root-clash-valid terminal as 0.19.3
 application-overlapping-source-absolute as 0.19.1
 application-overlapping-source-absolute as 0.19.2
 application-overlapping-source-absolute as 0.19.3
+application-overlapping-source-absolute terminal as 0.19.1
+application-overlapping-source-absolute terminal as 0.19.2
+application-overlapping-source-absolute terminal as 0.19.3
 application-overlapping-source-inner-first as 0.19.1
 application-overlapping-source-inner-first as 0.19.2
 application-overlapping-source-inner-first as 0.19.3
+application-overlapping-source-inner-first terminal as 0.19.1
+application-overlapping-source-inner-first terminal as 0.19.2
+application-overlapping-source-inner-first terminal as 0.19.3
 application-overlapping-source-invalid-name as 0.19.1
 application-overlapping-source-invalid-name as 0.19.2
 application-overlapping-source-invalid-name as 0.19.3
+application-overlapping-source-invalid-name terminal as 0.19.1
+application-overlapping-source-invalid-name terminal as 0.19.2
+application-overlapping-source-invalid-name terminal as 0.19.3
 application-overlapping-source-outer-first as 0.19.1
 application-overlapping-source-outer-first as 0.19.2
 application-overlapping-source-outer-first as 0.19.3
+application-overlapping-source-outer-first terminal as 0.19.1
+application-overlapping-source-outer-first terminal as 0.19.2
+application-overlapping-source-outer-first terminal as 0.19.3
 application-pattern as 0.19.1
 application-pattern as 0.19.2
 application-pattern as 0.19.3
+application-pattern terminal as 0.19.1
+application-pattern terminal as 0.19.2
+application-pattern terminal as 0.19.3
 application-raw-tab as 0.19.1
 application-raw-tab as 0.19.2
 application-raw-tab as 0.19.3
+application-raw-tab terminal as 0.19.1
+application-raw-tab terminal as 0.19.2
+application-raw-tab terminal as 0.19.3
 application-record-accessor-field-eof as 0.19.1
 application-record-accessor-field-eof as 0.19.2
 application-record-accessor-field-eof as 0.19.3
+application-record-accessor-field-eof terminal as 0.19.1
+application-record-accessor-field-eof terminal as 0.19.2
+application-record-accessor-field-eof terminal as 0.19.3
 application-record-accessor-field-newline as 0.19.1
 application-record-accessor-field-newline as 0.19.2
 application-record-accessor-field-newline as 0.19.3
+application-record-accessor-field-newline terminal as 0.19.1
+application-record-accessor-field-newline terminal as 0.19.2
+application-record-accessor-field-newline terminal as 0.19.3
 application-record-accessor-field-number as 0.19.1
 application-record-accessor-field-number as 0.19.2
 application-record-accessor-field-number as 0.19.3
+application-record-accessor-field-number terminal as 0.19.1
+application-record-accessor-field-number terminal as 0.19.2
+application-record-accessor-field-number terminal as 0.19.3
 application-record-accessor-field-space as 0.19.1
 application-record-accessor-field-space as 0.19.2
 application-record-accessor-field-space as 0.19.3
+application-record-accessor-field-space terminal as 0.19.1
+application-record-accessor-field-space terminal as 0.19.2
+application-record-accessor-field-space terminal as 0.19.3
 application-record-accessor-field-upper as 0.19.1
 application-record-accessor-field-upper as 0.19.2
 application-record-accessor-field-upper as 0.19.3
+application-record-accessor-field-upper terminal as 0.19.1
+application-record-accessor-field-upper terminal as 0.19.2
+application-record-accessor-field-upper terminal as 0.19.3
 application-record-accessor-function-eof as 0.19.1
 application-record-accessor-function-eof as 0.19.2
 application-record-accessor-function-eof as 0.19.3
+application-record-accessor-function-eof terminal as 0.19.1
+application-record-accessor-function-eof terminal as 0.19.2
+application-record-accessor-function-eof terminal as 0.19.3
 application-record-accessor-function-newline as 0.19.1
 application-record-accessor-function-newline as 0.19.2
 application-record-accessor-function-newline as 0.19.3
+application-record-accessor-function-newline terminal as 0.19.1
+application-record-accessor-function-newline terminal as 0.19.2
+application-record-accessor-function-newline terminal as 0.19.3
 application-record-accessor-function-number as 0.19.1
 application-record-accessor-function-number as 0.19.2
 application-record-accessor-function-number as 0.19.3
+application-record-accessor-function-number terminal as 0.19.1
+application-record-accessor-function-number terminal as 0.19.2
+application-record-accessor-function-number terminal as 0.19.3
 application-record-accessor-function-underscore as 0.19.1
 application-record-accessor-function-underscore as 0.19.2
 application-record-accessor-function-underscore as 0.19.3
+application-record-accessor-function-underscore terminal as 0.19.1
+application-record-accessor-function-underscore terminal as 0.19.2
+application-record-accessor-function-underscore terminal as 0.19.3
 application-record-accessor-function-upper as 0.19.1
 application-record-accessor-function-upper as 0.19.2
 application-record-accessor-function-upper as 0.19.3
+application-record-accessor-function-upper terminal as 0.19.1
+application-record-accessor-function-upper terminal as 0.19.2
+application-record-accessor-function-upper terminal as 0.19.3
 application-record-accessor-list as 0.19.1
 application-record-accessor-list as 0.19.2
 application-record-accessor-list as 0.19.3
+application-record-accessor-list terminal as 0.19.1
+application-record-accessor-list terminal as 0.19.2
+application-record-accessor-list terminal as 0.19.3
 application-record-accessor-parenthesized as 0.19.1
 application-record-accessor-parenthesized as 0.19.2
 application-record-accessor-parenthesized as 0.19.3
+application-record-accessor-parenthesized terminal as 0.19.1
+application-record-accessor-parenthesized terminal as 0.19.2
+application-record-accessor-parenthesized terminal as 0.19.3
 application-redundant-pattern as 0.19.1
 application-redundant-pattern as 0.19.2
 application-redundant-pattern as 0.19.3
+application-redundant-pattern terminal as 0.19.1
+application-redundant-pattern terminal as 0.19.2
+application-redundant-pattern terminal as 0.19.3
 application-redundant-source-alias as 0.19.1
 application-redundant-source-alias as 0.19.2
 application-redundant-source-alias as 0.19.3
+application-redundant-source-alias terminal as 0.19.1
+application-redundant-source-alias terminal as 0.19.2
+application-redundant-source-alias terminal as 0.19.3
 application-redundant-source-identical as 0.19.1
 application-redundant-source-identical as 0.19.2
 application-redundant-source-identical as 0.19.3
+application-redundant-source-identical terminal as 0.19.1
+application-redundant-source-identical terminal as 0.19.2
+application-redundant-source-identical terminal as 0.19.3
 application-redundant-source-three-aliases as 0.19.1
 application-redundant-source-three-aliases as 0.19.2
 application-redundant-source-three-aliases as 0.19.3
+application-redundant-source-three-aliases terminal as 0.19.1
+application-redundant-source-three-aliases terminal as 0.19.2
+application-redundant-source-three-aliases terminal as 0.19.3
 application-redundant-source-two-groups as 0.19.1
 application-redundant-source-two-groups as 0.19.2
 application-redundant-source-two-groups as 0.19.3
+application-redundant-source-two-groups terminal as 0.19.1
+application-redundant-source-two-groups terminal as 0.19.2
+application-redundant-source-two-groups terminal as 0.19.3
 application-reserved-expression-operator-arrow as 0.19.1
 application-reserved-expression-operator-arrow as 0.19.2
 application-reserved-expression-operator-arrow as 0.19.3
+application-reserved-expression-operator-arrow terminal as 0.19.1
+application-reserved-expression-operator-arrow terminal as 0.19.2
+application-reserved-expression-operator-arrow terminal as 0.19.3
 application-reserved-expression-operator-arrow-case-branch as 0.19.1
 application-reserved-expression-operator-arrow-case-branch as 0.19.2
 application-reserved-expression-operator-arrow-case-branch as 0.19.3
+application-reserved-expression-operator-arrow-case-branch terminal as 0.19.1
+application-reserved-expression-operator-arrow-case-branch terminal as 0.19.2
+application-reserved-expression-operator-arrow-case-branch terminal as 0.19.3
 application-reserved-expression-operator-arrow-case-scrutinee as 0.19.1
 application-reserved-expression-operator-arrow-case-scrutinee as 0.19.2
 application-reserved-expression-operator-arrow-case-scrutinee as 0.19.3
+application-reserved-expression-operator-arrow-case-scrutinee terminal as 0.19.1
+application-reserved-expression-operator-arrow-case-scrutinee terminal as 0.19.2
+application-reserved-expression-operator-arrow-case-scrutinee terminal as 0.19.3
 application-reserved-expression-operator-arrow-eof as 0.19.1
 application-reserved-expression-operator-arrow-eof as 0.19.2
 application-reserved-expression-operator-arrow-eof as 0.19.3
+application-reserved-expression-operator-arrow-eof terminal as 0.19.1
+application-reserved-expression-operator-arrow-eof terminal as 0.19.2
+application-reserved-expression-operator-arrow-eof terminal as 0.19.3
 application-reserved-expression-operator-arrow-lambda as 0.19.1
 application-reserved-expression-operator-arrow-lambda as 0.19.2
 application-reserved-expression-operator-arrow-lambda as 0.19.3
+application-reserved-expression-operator-arrow-lambda terminal as 0.19.1
+application-reserved-expression-operator-arrow-lambda terminal as 0.19.2
+application-reserved-expression-operator-arrow-lambda terminal as 0.19.3
 application-reserved-expression-operator-colon as 0.19.1
 application-reserved-expression-operator-colon as 0.19.2
 application-reserved-expression-operator-colon as 0.19.3
+application-reserved-expression-operator-colon terminal as 0.19.1
+application-reserved-expression-operator-colon terminal as 0.19.2
+application-reserved-expression-operator-colon terminal as 0.19.3
 application-reserved-expression-operator-colon-eof as 0.19.1
 application-reserved-expression-operator-colon-eof as 0.19.2
 application-reserved-expression-operator-colon-eof as 0.19.3
+application-reserved-expression-operator-colon-eof terminal as 0.19.1
+application-reserved-expression-operator-colon-eof terminal as 0.19.2
+application-reserved-expression-operator-colon-eof terminal as 0.19.3
 application-reserved-expression-operator-colon-let-body as 0.19.1
 application-reserved-expression-operator-colon-let-body as 0.19.2
 application-reserved-expression-operator-colon-let-body as 0.19.3
+application-reserved-expression-operator-colon-let-body terminal as 0.19.1
+application-reserved-expression-operator-colon-let-body terminal as 0.19.2
+application-reserved-expression-operator-colon-let-body terminal as 0.19.3
 application-reserved-expression-operator-colon-list as 0.19.1
 application-reserved-expression-operator-colon-list as 0.19.2
 application-reserved-expression-operator-colon-list as 0.19.3
+application-reserved-expression-operator-colon-list terminal as 0.19.1
+application-reserved-expression-operator-colon-list terminal as 0.19.2
+application-reserved-expression-operator-colon-list terminal as 0.19.3
 application-reserved-expression-operator-equals as 0.19.1
 application-reserved-expression-operator-equals as 0.19.2
 application-reserved-expression-operator-equals as 0.19.3
+application-reserved-expression-operator-equals terminal as 0.19.1
+application-reserved-expression-operator-equals terminal as 0.19.2
+application-reserved-expression-operator-equals terminal as 0.19.3
 application-reserved-expression-operator-equals-case-branch as 0.19.1
 application-reserved-expression-operator-equals-case-branch as 0.19.2
 application-reserved-expression-operator-equals-case-branch as 0.19.3
+application-reserved-expression-operator-equals-case-branch terminal as 0.19.1
+application-reserved-expression-operator-equals-case-branch terminal as 0.19.2
+application-reserved-expression-operator-equals-case-branch terminal as 0.19.3
 application-reserved-expression-operator-equals-eof as 0.19.1
 application-reserved-expression-operator-equals-eof as 0.19.2
 application-reserved-expression-operator-equals-eof as 0.19.3
+application-reserved-expression-operator-equals-eof terminal as 0.19.1
+application-reserved-expression-operator-equals-eof terminal as 0.19.2
+application-reserved-expression-operator-equals-eof terminal as 0.19.3
 application-reserved-expression-operator-equals-record as 0.19.1
 application-reserved-expression-operator-equals-record as 0.19.2
 application-reserved-expression-operator-equals-record as 0.19.3
+application-reserved-expression-operator-equals-record terminal as 0.19.1
+application-reserved-expression-operator-equals-record terminal as 0.19.2
+application-reserved-expression-operator-equals-record terminal as 0.19.3
 application-reserved-expression-operator-pipe as 0.19.1
 application-reserved-expression-operator-pipe as 0.19.2
 application-reserved-expression-operator-pipe as 0.19.3
+application-reserved-expression-operator-pipe terminal as 0.19.1
+application-reserved-expression-operator-pipe terminal as 0.19.2
+application-reserved-expression-operator-pipe terminal as 0.19.3
 application-reserved-expression-operator-pipe-eof as 0.19.1
 application-reserved-expression-operator-pipe-eof as 0.19.2
 application-reserved-expression-operator-pipe-eof as 0.19.3
+application-reserved-expression-operator-pipe-eof terminal as 0.19.1
+application-reserved-expression-operator-pipe-eof terminal as 0.19.2
+application-reserved-expression-operator-pipe-eof terminal as 0.19.3
 application-reserved-expression-operator-pipe-tuple as 0.19.1
 application-reserved-expression-operator-pipe-tuple as 0.19.2
 application-reserved-expression-operator-pipe-tuple as 0.19.3
+application-reserved-expression-operator-pipe-tuple terminal as 0.19.1
+application-reserved-expression-operator-pipe-tuple terminal as 0.19.2
+application-reserved-expression-operator-pipe-tuple terminal as 0.19.3
 application-reserved-operator-function-accessor as 0.19.1
 application-reserved-operator-function-accessor as 0.19.2
 application-reserved-operator-function-accessor as 0.19.3
+application-reserved-operator-function-accessor terminal as 0.19.1
+application-reserved-operator-function-accessor terminal as 0.19.2
+application-reserved-operator-function-accessor terminal as 0.19.3
 application-reserved-operator-function-arrow as 0.19.1
 application-reserved-operator-function-arrow as 0.19.2
 application-reserved-operator-function-arrow as 0.19.3
+application-reserved-operator-function-arrow terminal as 0.19.1
+application-reserved-operator-function-arrow terminal as 0.19.2
+application-reserved-operator-function-arrow terminal as 0.19.3
 application-reserved-operator-function-arrow-eof as 0.19.1
 application-reserved-operator-function-arrow-eof as 0.19.2
 application-reserved-operator-function-arrow-eof as 0.19.3
+application-reserved-operator-function-arrow-eof terminal as 0.19.1
+application-reserved-operator-function-arrow-eof terminal as 0.19.2
+application-reserved-operator-function-arrow-eof terminal as 0.19.3
 application-reserved-operator-function-arrow-spaced as 0.19.1
 application-reserved-operator-function-arrow-spaced as 0.19.2
 application-reserved-operator-function-arrow-spaced as 0.19.3
+application-reserved-operator-function-arrow-spaced terminal as 0.19.1
+application-reserved-operator-function-arrow-spaced terminal as 0.19.2
+application-reserved-operator-function-arrow-spaced terminal as 0.19.3
 application-reserved-operator-function-colon as 0.19.1
 application-reserved-operator-function-colon as 0.19.2
 application-reserved-operator-function-colon as 0.19.3
+application-reserved-operator-function-colon terminal as 0.19.1
+application-reserved-operator-function-colon terminal as 0.19.2
+application-reserved-operator-function-colon terminal as 0.19.3
 application-reserved-operator-function-colon-comment as 0.19.1
 application-reserved-operator-function-colon-comment as 0.19.2
 application-reserved-operator-function-colon-comment as 0.19.3
+application-reserved-operator-function-colon-comment terminal as 0.19.1
+application-reserved-operator-function-colon-comment terminal as 0.19.2
+application-reserved-operator-function-colon-comment terminal as 0.19.3
 application-reserved-operator-function-colon-eof as 0.19.1
 application-reserved-operator-function-colon-eof as 0.19.2
 application-reserved-operator-function-colon-eof as 0.19.3
+application-reserved-operator-function-colon-eof terminal as 0.19.1
+application-reserved-operator-function-colon-eof terminal as 0.19.2
+application-reserved-operator-function-colon-eof terminal as 0.19.3
 application-reserved-operator-function-dot as 0.19.1
 application-reserved-operator-function-dot as 0.19.2
 application-reserved-operator-function-dot as 0.19.3
+application-reserved-operator-function-dot terminal as 0.19.1
+application-reserved-operator-function-dot terminal as 0.19.2
+application-reserved-operator-function-dot terminal as 0.19.3
 application-reserved-operator-function-dot-eof as 0.19.1
 application-reserved-operator-function-dot-eof as 0.19.2
 application-reserved-operator-function-dot-eof as 0.19.3
+application-reserved-operator-function-dot-eof terminal as 0.19.1
+application-reserved-operator-function-dot-eof terminal as 0.19.2
+application-reserved-operator-function-dot-eof terminal as 0.19.3
 application-reserved-operator-function-equals as 0.19.1
 application-reserved-operator-function-equals as 0.19.2
 application-reserved-operator-function-equals as 0.19.3
+application-reserved-operator-function-equals terminal as 0.19.1
+application-reserved-operator-function-equals terminal as 0.19.2
+application-reserved-operator-function-equals terminal as 0.19.3
 application-reserved-operator-function-equals-eof as 0.19.1
 application-reserved-operator-function-equals-eof as 0.19.2
 application-reserved-operator-function-equals-eof as 0.19.3
+application-reserved-operator-function-equals-eof terminal as 0.19.1
+application-reserved-operator-function-equals-eof terminal as 0.19.2
+application-reserved-operator-function-equals-eof terminal as 0.19.3
 application-reserved-operator-function-equals-multiline as 0.19.1
 application-reserved-operator-function-equals-multiline as 0.19.2
 application-reserved-operator-function-equals-multiline as 0.19.3
+application-reserved-operator-function-equals-multiline terminal as 0.19.1
+application-reserved-operator-function-equals-multiline terminal as 0.19.2
+application-reserved-operator-function-equals-multiline terminal as 0.19.3
 application-reserved-operator-function-pipe as 0.19.1
 application-reserved-operator-function-pipe as 0.19.2
 application-reserved-operator-function-pipe as 0.19.3
+application-reserved-operator-function-pipe terminal as 0.19.1
+application-reserved-operator-function-pipe terminal as 0.19.2
+application-reserved-operator-function-pipe terminal as 0.19.3
 application-reserved-operator-function-pipe-eof as 0.19.1
 application-reserved-operator-function-pipe-eof as 0.19.2
 application-reserved-operator-function-pipe-eof as 0.19.3
+application-reserved-operator-function-pipe-eof terminal as 0.19.1
+application-reserved-operator-function-pipe-eof terminal as 0.19.2
+application-reserved-operator-function-pipe-eof terminal as 0.19.3
 application-reserved-operator-function-pipe-nested as 0.19.1
 application-reserved-operator-function-pipe-nested as 0.19.2
 application-reserved-operator-function-pipe-nested as 0.19.3
+application-reserved-operator-function-pipe-nested terminal as 0.19.1
+application-reserved-operator-function-pipe-nested terminal as 0.19.2
+application-reserved-operator-function-pipe-nested terminal as 0.19.3
 application-reserved-operator-function-pipe-spaced as 0.19.1
 application-reserved-operator-function-pipe-spaced as 0.19.2
 application-reserved-operator-function-pipe-spaced as 0.19.3
+application-reserved-operator-function-pipe-spaced terminal as 0.19.1
+application-reserved-operator-function-pipe-spaced terminal as 0.19.2
+application-reserved-operator-function-pipe-spaced terminal as 0.19.3
 application-several-names as 0.19.1
 application-several-names as 0.19.2
 application-several-names as 0.19.3
+application-several-names terminal as 0.19.1
+application-several-names terminal as 0.19.2
+application-several-names terminal as 0.19.3
 application-several-types as 0.19.1
 application-several-types as 0.19.2
 application-several-types as 0.19.3
+application-several-types terminal as 0.19.1
+application-several-types terminal as 0.19.2
+application-several-types terminal as 0.19.3
 application-shader-byte as 0.19.2
 application-shader-byte as 0.19.3
+application-shader-byte terminal as 0.19.2
+application-shader-byte terminal as 0.19.3
 application-string-byte as 0.19.2
 application-string-byte as 0.19.3
+application-string-byte terminal as 0.19.2
+application-string-byte terminal as 0.19.3
 application-success as 0.19.1
 application-success as 0.19.2
 application-success as 0.19.3
+application-success terminal as 0.19.1
+application-success terminal as 0.19.2
+application-success terminal as 0.19.3
 application-symlink-duplicate as 0.19.1
 application-symlink-duplicate as 0.19.2
 application-symlink-duplicate as 0.19.3
+application-symlink-duplicate terminal as 0.19.1
+application-symlink-duplicate terminal as 0.19.2
+application-symlink-duplicate terminal as 0.19.3
 application-symlink-extension as 0.19.1
 application-symlink-extension as 0.19.2
 application-symlink-extension as 0.19.3
+application-symlink-extension terminal as 0.19.1
+application-symlink-extension terminal as 0.19.2
+application-symlink-extension terminal as 0.19.3
 application-syntax-problem-replacement as 0.19.1
 application-syntax-problem-replacement as 0.19.2
 application-syntax-problem-replacement as 0.19.3
+application-syntax-problem-replacement terminal as 0.19.1
+application-syntax-problem-replacement terminal as 0.19.2
+application-syntax-problem-replacement terminal as 0.19.3
 application-too-many-html as 0.19.1
 application-too-many-html as 0.19.2
 application-too-many-html as 0.19.3
+application-too-many-html terminal as 0.19.1
+application-too-many-html terminal as 0.19.2
+application-too-many-html terminal as 0.19.3
 application-two-missing-imports as 0.19.1
 application-two-missing-imports as 0.19.2
 application-two-missing-imports as 0.19.3
+application-two-missing-imports terminal as 0.19.1
+application-two-missing-imports terminal as 0.19.2
+application-two-missing-imports terminal as 0.19.3
 application-two-modules as 0.19.1
 application-two-modules as 0.19.2
 application-two-modules as 0.19.3
+application-two-modules terminal as 0.19.1
+application-two-modules terminal as 0.19.2
+application-two-modules terminal as 0.19.3
 application-two-roots-header-and-type as 0.19.1
 application-two-roots-header-and-type as 0.19.2
 application-two-roots-header-and-type as 0.19.3
+application-two-roots-header-and-type terminal as 0.19.1
+application-two-roots-header-and-type terminal as 0.19.2
+application-two-roots-header-and-type terminal as 0.19.3
 application-two-roots-headerless-and-type as 0.19.1
 application-two-roots-headerless-and-type as 0.19.2
 application-two-roots-headerless-and-type as 0.19.3
+application-two-roots-headerless-and-type terminal as 0.19.1
+application-two-roots-headerless-and-type terminal as 0.19.2
+application-two-roots-headerless-and-type terminal as 0.19.3
 application-two-roots-import-and-type as 0.19.1
 application-two-roots-import-and-type as 0.19.2
 application-two-roots-import-and-type as 0.19.3
+application-two-roots-import-and-type terminal as 0.19.1
+application-two-roots-import-and-type terminal as 0.19.2
+application-two-roots-import-and-type terminal as 0.19.3
 application-two-roots-syntax-before-import-and-type as 0.19.1
 application-two-roots-syntax-before-import-and-type as 0.19.2
 application-two-roots-syntax-before-import-and-type as 0.19.3
+application-two-roots-syntax-before-import-and-type terminal as 0.19.1
+application-two-roots-syntax-before-import-and-type terminal as 0.19.2
+application-two-roots-syntax-before-import-and-type terminal as 0.19.3
 application-type as 0.19.1
 application-type as 0.19.2
 application-type as 0.19.3
+application-type terminal as 0.19.1
+application-type terminal as 0.19.2
+application-type terminal as 0.19.3
 application-unfinished-body as 0.19.1
 application-unfinished-body as 0.19.2
 application-unfinished-body as 0.19.3
+application-unfinished-body terminal as 0.19.1
+application-unfinished-body terminal as 0.19.2
+application-unfinished-body terminal as 0.19.3
 application-unfinished-list-before-invalid-byte as 0.19.1
 application-unfinished-list-before-invalid-byte as 0.19.2
 application-unfinished-list-before-invalid-byte as 0.19.3
+application-unfinished-list-before-invalid-byte terminal as 0.19.1
+application-unfinished-list-before-invalid-byte terminal as 0.19.2
+application-unfinished-list-before-invalid-byte terminal as 0.19.3
 application-unfinished-list-comma as 0.19.1
 application-unfinished-list-comma as 0.19.2
 application-unfinished-list-comma as 0.19.3
+application-unfinished-list-comma terminal as 0.19.1
+application-unfinished-list-comma terminal as 0.19.2
+application-unfinished-list-comma terminal as 0.19.3
 application-unfinished-list-end as 0.19.1
 application-unfinished-list-end as 0.19.2
 application-unfinished-list-end as 0.19.3
+application-unfinished-list-end terminal as 0.19.1
+application-unfinished-list-end terminal as 0.19.2
+application-unfinished-list-end terminal as 0.19.3
 application-unfinished-list-eof-comma as 0.19.1
 application-unfinished-list-eof-comma as 0.19.2
 application-unfinished-list-eof-comma as 0.19.3
+application-unfinished-list-eof-comma terminal as 0.19.1
+application-unfinished-list-eof-comma terminal as 0.19.2
+application-unfinished-list-eof-comma terminal as 0.19.3
 application-unfinished-list-eof-end as 0.19.1
 application-unfinished-list-eof-end as 0.19.2
 application-unfinished-list-eof-end as 0.19.3
+application-unfinished-list-eof-end terminal as 0.19.1
+application-unfinished-list-eof-end terminal as 0.19.2
+application-unfinished-list-eof-end terminal as 0.19.3
 application-unfinished-list-eof-open as 0.19.1
 application-unfinished-list-eof-open as 0.19.2
 application-unfinished-list-eof-open as 0.19.3
+application-unfinished-list-eof-open terminal as 0.19.1
+application-unfinished-list-eof-open terminal as 0.19.2
+application-unfinished-list-eof-open terminal as 0.19.3
 application-unfinished-list-leading-comma as 0.19.1
 application-unfinished-list-leading-comma as 0.19.2
 application-unfinished-list-leading-comma as 0.19.3
+application-unfinished-list-leading-comma terminal as 0.19.1
+application-unfinished-list-leading-comma terminal as 0.19.2
+application-unfinished-list-leading-comma terminal as 0.19.3
 application-unfinished-list-multiline-comma as 0.19.1
 application-unfinished-list-multiline-comma as 0.19.2
 application-unfinished-list-multiline-comma as 0.19.3
+application-unfinished-list-multiline-comma terminal as 0.19.1
+application-unfinished-list-multiline-comma terminal as 0.19.2
+application-unfinished-list-multiline-comma terminal as 0.19.3
 application-unfinished-list-multiline-end as 0.19.1
 application-unfinished-list-multiline-end as 0.19.2
 application-unfinished-list-multiline-end as 0.19.3
+application-unfinished-list-multiline-end terminal as 0.19.1
+application-unfinished-list-multiline-end terminal as 0.19.2
+application-unfinished-list-multiline-end terminal as 0.19.3
 application-unfinished-list-open as 0.19.1
 application-unfinished-list-open as 0.19.2
 application-unfinished-list-open as 0.19.3
+application-unfinished-list-open terminal as 0.19.1
+application-unfinished-list-open terminal as 0.19.2
+application-unfinished-list-open terminal as 0.19.3
 application-unfinished-list-trailing-comma as 0.19.1
 application-unfinished-list-trailing-comma as 0.19.2
 application-unfinished-list-trailing-comma as 0.19.3
+application-unfinished-list-trailing-comma terminal as 0.19.1
+application-unfinished-list-trailing-comma terminal as 0.19.2
+application-unfinished-list-trailing-comma terminal as 0.19.3
 application-unfinished-list-unexpected-entry as 0.19.1
 application-unfinished-list-unexpected-entry as 0.19.2
 application-unfinished-list-unexpected-entry as 0.19.3
+application-unfinished-list-unexpected-entry terminal as 0.19.1
+application-unfinished-list-unexpected-entry terminal as 0.19.2
+application-unfinished-list-unexpected-entry terminal as 0.19.3
 application-unfinished-list-unexpected-semicolon as 0.19.1
 application-unfinished-list-unexpected-semicolon as 0.19.2
 application-unfinished-list-unexpected-semicolon as 0.19.3
+application-unfinished-list-unexpected-semicolon terminal as 0.19.1
+application-unfinished-list-unexpected-semicolon terminal as 0.19.2
+application-unfinished-list-unexpected-semicolon terminal as 0.19.3
 application-unfinished-operator-function-and-eof as 0.19.1
 application-unfinished-operator-function-and-eof as 0.19.2
 application-unfinished-operator-function-and-eof as 0.19.3
+application-unfinished-operator-function-and-eof terminal as 0.19.1
+application-unfinished-operator-function-and-eof terminal as 0.19.2
+application-unfinished-operator-function-and-eof terminal as 0.19.3
 application-unfinished-operator-function-append-eof as 0.19.1
 application-unfinished-operator-function-append-eof as 0.19.2
 application-unfinished-operator-function-append-eof as 0.19.3
+application-unfinished-operator-function-append-eof terminal as 0.19.1
+application-unfinished-operator-function-append-eof terminal as 0.19.2
+application-unfinished-operator-function-append-eof terminal as 0.19.3
 application-unfinished-operator-function-minus-eof as 0.19.1
 application-unfinished-operator-function-minus-eof as 0.19.2
 application-unfinished-operator-function-minus-eof as 0.19.3
+application-unfinished-operator-function-minus-eof terminal as 0.19.1
+application-unfinished-operator-function-minus-eof terminal as 0.19.2
+application-unfinished-operator-function-minus-eof terminal as 0.19.3
 application-unfinished-operator-function-minus-space as 0.19.1
 application-unfinished-operator-function-minus-space as 0.19.2
 application-unfinished-operator-function-minus-space as 0.19.3
+application-unfinished-operator-function-minus-space terminal as 0.19.1
+application-unfinished-operator-function-minus-space terminal as 0.19.2
+application-unfinished-operator-function-minus-space terminal as 0.19.3
 application-unfinished-operator-function-nested-list as 0.19.1
 application-unfinished-operator-function-nested-list as 0.19.2
 application-unfinished-operator-function-nested-list as 0.19.3
+application-unfinished-operator-function-nested-list terminal as 0.19.1
+application-unfinished-operator-function-nested-list terminal as 0.19.2
+application-unfinished-operator-function-nested-list terminal as 0.19.3
 application-unfinished-operator-function-pipe-eof as 0.19.1
 application-unfinished-operator-function-pipe-eof as 0.19.2
 application-unfinished-operator-function-pipe-eof as 0.19.3
+application-unfinished-operator-function-pipe-eof terminal as 0.19.1
+application-unfinished-operator-function-pipe-eof terminal as 0.19.2
+application-unfinished-operator-function-pipe-eof terminal as 0.19.3
 application-unfinished-operator-function-plus-before-definition as 0.19.1
 application-unfinished-operator-function-plus-before-definition as 0.19.2
 application-unfinished-operator-function-plus-before-definition as 0.19.3
+application-unfinished-operator-function-plus-before-definition terminal as 0.19.1
+application-unfinished-operator-function-plus-before-definition terminal as 0.19.2
+application-unfinished-operator-function-plus-before-definition terminal as 0.19.3
 application-unfinished-operator-function-plus-eof as 0.19.1
 application-unfinished-operator-function-plus-eof as 0.19.2
 application-unfinished-operator-function-plus-eof as 0.19.3
+application-unfinished-operator-function-plus-eof terminal as 0.19.1
+application-unfinished-operator-function-plus-eof terminal as 0.19.2
+application-unfinished-operator-function-plus-eof terminal as 0.19.3
 application-unfinished-operator-function-plus-newline as 0.19.1
 application-unfinished-operator-function-plus-newline as 0.19.2
 application-unfinished-operator-function-plus-newline as 0.19.3
+application-unfinished-operator-function-plus-newline terminal as 0.19.1
+application-unfinished-operator-function-plus-newline terminal as 0.19.2
+application-unfinished-operator-function-plus-newline terminal as 0.19.3
 application-unfinished-operator-function-plus-other as 0.19.1
 application-unfinished-operator-function-plus-other as 0.19.2
 application-unfinished-operator-function-plus-other as 0.19.3
+application-unfinished-operator-function-plus-other terminal as 0.19.1
+application-unfinished-operator-function-plus-other terminal as 0.19.2
+application-unfinished-operator-function-plus-other terminal as 0.19.3
 application-unfinished-operator-function-plus-space as 0.19.1
 application-unfinished-operator-function-plus-space as 0.19.2
 application-unfinished-operator-function-plus-space as 0.19.3
+application-unfinished-operator-function-plus-space terminal as 0.19.1
+application-unfinished-operator-function-plus-space terminal as 0.19.2
+application-unfinished-operator-function-plus-space terminal as 0.19.3
 application-unfinished-parentheses-end as 0.19.1
 application-unfinished-parentheses-end as 0.19.2
 application-unfinished-parentheses-end as 0.19.3
+application-unfinished-parentheses-end terminal as 0.19.1
+application-unfinished-parentheses-end terminal as 0.19.2
+application-unfinished-parentheses-end terminal as 0.19.3
 application-unfinished-parentheses-end-before-definition as 0.19.1
 application-unfinished-parentheses-end-before-definition as 0.19.2
 application-unfinished-parentheses-end-before-definition as 0.19.3
+application-unfinished-parentheses-end-before-definition terminal as 0.19.1
+application-unfinished-parentheses-end-before-definition terminal as 0.19.2
+application-unfinished-parentheses-end-before-definition terminal as 0.19.3
 application-unfinished-parentheses-eof-end as 0.19.1
 application-unfinished-parentheses-eof-end as 0.19.2
 application-unfinished-parentheses-eof-end as 0.19.3
+application-unfinished-parentheses-eof-end terminal as 0.19.1
+application-unfinished-parentheses-eof-end terminal as 0.19.2
+application-unfinished-parentheses-eof-end terminal as 0.19.3
 application-unfinished-parentheses-multiline-end as 0.19.1
 application-unfinished-parentheses-multiline-end as 0.19.2
 application-unfinished-parentheses-multiline-end as 0.19.3
+application-unfinished-parentheses-multiline-end terminal as 0.19.1
+application-unfinished-parentheses-multiline-end terminal as 0.19.2
+application-unfinished-parentheses-multiline-end terminal as 0.19.3
 application-unfinished-parentheses-tuple-comma as 0.19.1
 application-unfinished-parentheses-tuple-comma as 0.19.2
 application-unfinished-parentheses-tuple-comma as 0.19.3
+application-unfinished-parentheses-tuple-comma terminal as 0.19.1
+application-unfinished-parentheses-tuple-comma terminal as 0.19.2
+application-unfinished-parentheses-tuple-comma terminal as 0.19.3
 application-unfinished-parentheses-tuple-end as 0.19.1
 application-unfinished-parentheses-tuple-end as 0.19.2
 application-unfinished-parentheses-tuple-end as 0.19.3
+application-unfinished-parentheses-tuple-end terminal as 0.19.1
+application-unfinished-parentheses-tuple-end terminal as 0.19.2
+application-unfinished-parentheses-tuple-end terminal as 0.19.3
 application-unfinished-parentheses-unexpected-semicolon as 0.19.1
 application-unfinished-parentheses-unexpected-semicolon as 0.19.2
 application-unfinished-parentheses-unexpected-semicolon as 0.19.3
+application-unfinished-parentheses-unexpected-semicolon terminal as 0.19.1
+application-unfinished-parentheses-unexpected-semicolon terminal as 0.19.2
+application-unfinished-parentheses-unexpected-semicolon terminal as 0.19.3
 application-unfinished-parenthesized-expression as 0.19.1
 application-unfinished-parenthesized-expression as 0.19.2
 application-unfinished-parenthesized-expression as 0.19.3
+application-unfinished-parenthesized-expression terminal as 0.19.1
+application-unfinished-parenthesized-expression terminal as 0.19.2
+application-unfinished-parenthesized-expression terminal as 0.19.3
 application-unicode as 0.19.1
 application-unicode as 0.19.2
 application-unicode as 0.19.3
+application-unicode terminal as 0.19.1
+application-unicode terminal as 0.19.2
+application-unicode terminal as 0.19.3
 application-unknown-type as 0.19.3
+application-unknown-type terminal as 0.19.3
 application-unknown-type-no-inputs as 0.19.3
+application-unknown-type-no-inputs terminal as 0.19.3
 application-unselected-local-source-clash as 0.19.1
 application-unselected-local-source-clash as 0.19.2
 application-unselected-local-source-clash as 0.19.3
+application-unselected-local-source-clash terminal as 0.19.1
+application-unselected-local-source-clash terminal as 0.19.2
+application-unselected-local-source-clash terminal as 0.19.3
 no-project as 0.19.3
+no-project terminal as 0.19.3
 no-project-before-clash as 0.19.3
+no-project-before-clash terminal as 0.19.3
 no-project-no-inputs as 0.19.3
+no-project-no-inputs terminal as 0.19.3
 package-absolute-lowercase-root-name as 0.19.3
+package-absolute-lowercase-root-name terminal as 0.19.3
 package-alias as 0.19.3
+package-alias terminal as 0.19.3
 package-annotation-type-nul as 0.19.3
+package-annotation-type-nul terminal as 0.19.3
 package-bad-flags-custom as 0.19.3
+package-bad-flags-custom terminal as 0.19.3
 package-bad-flags-function as 0.19.3
+package-bad-flags-function terminal as 0.19.3
 package-bad-flags-record as 0.19.3
+package-bad-flags-record terminal as 0.19.3
 package-bad-flags-variable as 0.19.3
+package-bad-flags-variable terminal as 0.19.3
 package-bad-main-cycle as 0.19.3
+package-bad-main-cycle terminal as 0.19.3
 package-bad-main-type-list as 0.19.3
+package-bad-main-type-list terminal as 0.19.3
 package-bad-main-type-localized as 0.19.3
+package-bad-main-type-localized terminal as 0.19.3
 package-bad-main-type-number as 0.19.3
+package-bad-main-type-number terminal as 0.19.3
 package-bad-root-before-missing as 0.19.3
+package-bad-root-before-missing terminal as 0.19.3
 package-blocked-root as 0.19.3
+package-blocked-root terminal as 0.19.3
 package-crlf as 0.19.3
+package-crlf terminal as 0.19.3
 package-cycle as 0.19.3
+package-cycle terminal as 0.19.3
 package-directory-input as 0.19.3
+package-directory-input terminal as 0.19.3
 package-directory-symlink-input as 0.19.3
+package-directory-symlink-input terminal as 0.19.3
 package-docs-comma-after-comma as 0.19.3
+package-docs-comma-after-comma terminal as 0.19.3
 package-docs-comma-blank-line-start as 0.19.3
+package-docs-comma-blank-line-start terminal as 0.19.3
 package-docs-comma-block-comment-line-start as 0.19.3
+package-docs-comma-block-comment-line-start terminal as 0.19.3
 package-docs-comma-indented as 0.19.3
+package-docs-comma-indented terminal as 0.19.3
 package-docs-comma-line-comment-line-start as 0.19.3
+package-docs-comma-line-comment-line-start terminal as 0.19.3
 package-docs-comma-new-line-start as 0.19.3
+package-docs-comma-new-line-start terminal as 0.19.3
 package-docs-comment-control-formfeed-overview as 0.19.3
+package-docs-comment-control-formfeed-overview terminal as 0.19.3
 package-docs-comment-control-mixed as 0.19.3
+package-docs-comment-control-mixed terminal as 0.19.3
 package-docs-comment-control-soh-declaration as 0.19.3
+package-docs-comment-control-soh-declaration terminal as 0.19.3
 package-docs-comment-control-verticaltab-overview as 0.19.3
+package-docs-comment-control-verticaltab-overview terminal as 0.19.3
 package-docs-comment-cr-both-crlf as 0.19.3
+package-docs-comment-cr-both-crlf terminal as 0.19.3
 package-docs-comment-cr-declaration-bare as 0.19.3
+package-docs-comment-cr-declaration-bare terminal as 0.19.3
 package-docs-comment-cr-declaration-crlf as 0.19.3
+package-docs-comment-cr-declaration-crlf terminal as 0.19.3
 package-docs-comment-cr-overview-bare as 0.19.3
+package-docs-comment-cr-overview-bare terminal as 0.19.3
 package-docs-comment-cr-overview-crlf as 0.19.3
+package-docs-comment-cr-overview-crlf terminal as 0.19.3
 package-docs-comment-cr-unicode-bare as 0.19.3
+package-docs-comment-cr-unicode-bare terminal as 0.19.3
 package-docs-definitions-mixed-alpha-annotation as 0.19.3
+package-docs-definitions-mixed-alpha-annotation terminal as 0.19.3
 package-docs-definitions-mixed-beta-annotation as 0.19.3
+package-docs-definitions-mixed-beta-annotation terminal as 0.19.3
 package-docs-definitions-reversed as 0.19.3
+package-docs-definitions-reversed terminal as 0.19.3
 package-docs-definitions-two-both as 0.19.3
+package-docs-definitions-two-both terminal as 0.19.3
 package-docs-definitions-two-no-annotations as 0.19.3
+package-docs-definitions-two-no-annotations terminal as 0.19.3
 package-docs-definitions-two-no-comments as 0.19.3
+package-docs-definitions-two-no-comments terminal as 0.19.3
 package-docs-duplicate-name as 0.19.3
+package-docs-duplicate-name terminal as 0.19.3
 package-docs-omitted-name as 0.19.3
+package-docs-omitted-name terminal as 0.19.3
 package-docs-syntax-comma as 0.19.3
+package-docs-syntax-comma terminal as 0.19.3
 package-docs-syntax-keyword as 0.19.3
+package-docs-syntax-keyword terminal as 0.19.3
 package-docs-syntax-keyword-after-comma as 0.19.3
+package-docs-syntax-keyword-after-comma terminal as 0.19.3
 package-docs-syntax-missing as 0.19.3
+package-docs-syntax-missing terminal as 0.19.3
 package-docs-syntax-nested-comment as 0.19.3
+package-docs-syntax-nested-comment terminal as 0.19.3
 package-docs-syntax-open-operator as 0.19.3
+package-docs-syntax-open-operator terminal as 0.19.3
 package-docs-syntax-reserved-arrow as 0.19.3
+package-docs-syntax-reserved-arrow terminal as 0.19.3
 package-docs-syntax-reserved-colon as 0.19.3
+package-docs-syntax-reserved-colon terminal as 0.19.3
 package-docs-syntax-reserved-dot as 0.19.3
+package-docs-syntax-reserved-dot terminal as 0.19.3
 package-docs-syntax-reserved-operator as 0.19.3
+package-docs-syntax-reserved-operator terminal as 0.19.3
 package-docs-syntax-reserved-pipe as 0.19.3
+package-docs-syntax-reserved-pipe terminal as 0.19.3
 package-docs-syntax-trailing-comma as 0.19.3
+package-docs-syntax-trailing-comma terminal as 0.19.3
 package-docs-syntax-unclosed-operator as 0.19.3
+package-docs-syntax-unclosed-operator terminal as 0.19.3
 package-docs-unknown-name as 0.19.3
+package-docs-unknown-name terminal as 0.19.3
 package-dot-duplicate as 0.19.3
+package-dot-duplicate terminal as 0.19.3
 package-dotted-root-name as 0.19.3
+package-dotted-root-name terminal as 0.19.3
 package-empty-root-name as 0.19.3
+package-empty-root-name terminal as 0.19.3
 package-exposed-foreign as 0.19.3
+package-exposed-foreign terminal as 0.19.3
 package-exposed-foreign-conflict as 0.19.3
+package-exposed-foreign-conflict terminal as 0.19.3
 package-exposed-missing-docs as 0.19.3
+package-exposed-missing-docs terminal as 0.19.3
 package-exposed-missing-flat as 0.19.3
+package-exposed-missing-flat terminal as 0.19.3
 package-exposed-missing-reversed as 0.19.3
+package-exposed-missing-reversed terminal as 0.19.3
 package-exposed-missing-section as 0.19.3
+package-exposed-missing-section terminal as 0.19.3
 package-exposed-no-docs as 0.19.3
+package-exposed-no-docs terminal as 0.19.3
 package-exposed-no-docs-crlf as 0.19.3
+package-exposed-no-docs-crlf terminal as 0.19.3
 package-exposed-no-docs-eof as 0.19.3
+package-exposed-no-docs-eof terminal as 0.19.3
 package-exposed-no-docs-import as 0.19.3
+package-exposed-no-docs-import terminal as 0.19.3
 package-exposing-end-missing-comma as 0.19.3
+package-exposing-end-missing-comma terminal as 0.19.3
 package-exposing-end-missing-comma-newline as 0.19.3
+package-exposing-end-missing-comma-newline terminal as 0.19.3
 package-exposing-end-nul as 0.19.3
+package-exposing-end-nul terminal as 0.19.3
 package-extra-field as 0.19.3
+package-extra-field terminal as 0.19.3
 package-generation---debug as 0.19.3
+package-generation---debug terminal as 0.19.3
 package-generation---optimize as 0.19.3
+package-generation---optimize terminal as 0.19.3
 package-generation-None as 0.19.3
+package-generation-None terminal as 0.19.3
 package-hand-edited-dependencies as 0.19.3
+package-hand-edited-dependencies terminal as 0.19.3
 package-header as 0.19.3
+package-header terminal as 0.19.3
 package-headerless-custom-type as 0.19.3
+package-headerless-custom-type terminal as 0.19.3
 package-implicit-exposing-docs as 0.19.3
+package-implicit-exposing-docs terminal as 0.19.3
 package-incompatible-dependencies as 0.19.3
+package-incompatible-dependencies terminal as 0.19.3
 package-invalid-constraint-before-name as 0.19.3
+package-invalid-constraint-before-name terminal as 0.19.3
 package-invalid-constraint-dependency-before-elm as 0.19.3
+package-invalid-constraint-dependency-before-elm terminal as 0.19.3
 package-invalid-constraint-dependency-two-bad as 0.19.3
+package-invalid-constraint-dependency-two-bad terminal as 0.19.3
 package-invalid-constraint-dependency-two-bad-reversed as 0.19.3
+package-invalid-constraint-dependency-two-bad-reversed terminal as 0.19.3
 package-invalid-constraint-test-dependency-before-elm as 0.19.3
+package-invalid-constraint-test-dependency-before-elm terminal as 0.19.3
 package-invalid-dependency-constraint as 0.19.3
+package-invalid-dependency-constraint terminal as 0.19.3
 package-invalid-dependency-name-no-slash as 0.19.3
+package-invalid-dependency-name-no-slash terminal as 0.19.3
 package-invalid-dependency-name-uppercase as 0.19.3
+package-invalid-dependency-name-uppercase terminal as 0.19.3
 package-invalid-elm-constraint-descending as 0.19.3
+package-invalid-elm-constraint-descending terminal as 0.19.3
 package-invalid-elm-constraint-equal as 0.19.3
+package-invalid-elm-constraint-equal terminal as 0.19.3
 package-invalid-elm-constraint-extra-space as 0.19.3
+package-invalid-elm-constraint-extra-space terminal as 0.19.3
 package-invalid-elm-constraint-missing-spaces as 0.19.3
+package-invalid-elm-constraint-missing-spaces terminal as 0.19.3
 package-invalid-exposed-module-before-dependency as 0.19.3
+package-invalid-exposed-module-before-dependency terminal as 0.19.3
 package-invalid-exposed-module-lowercase as 0.19.3
+package-invalid-exposed-module-lowercase terminal as 0.19.3
 package-invalid-exposed-module-lowercase-segment as 0.19.3
+package-invalid-exposed-module-lowercase-segment terminal as 0.19.3
 package-invalid-exposed-module-section-later as 0.19.3
+package-invalid-exposed-module-section-later terminal as 0.19.3
 package-invalid-exposed-module-trailing-dot as 0.19.3
+package-invalid-exposed-module-trailing-dot terminal as 0.19.3
 package-invalid-name-before-constraint as 0.19.3
+package-invalid-name-before-constraint terminal as 0.19.3
 package-invalid-name-digit as 0.19.3
+package-invalid-name-digit terminal as 0.19.3
 package-invalid-name-double-dash as 0.19.3
+package-invalid-name-double-dash terminal as 0.19.3
 package-invalid-name-no-slash as 0.19.3
+package-invalid-name-no-slash terminal as 0.19.3
 package-invalid-name-trailing-project-hyphen as 0.19.3
+package-invalid-name-trailing-project-hyphen terminal as 0.19.3
 package-invalid-name-unicode as 0.19.3
+package-invalid-name-unicode terminal as 0.19.3
 package-invalid-name-uppercase as 0.19.3
+package-invalid-name-uppercase terminal as 0.19.3
 package-invalid-test-dependency-constraint as 0.19.3
+package-invalid-test-dependency-constraint terminal as 0.19.3
 package-invalid-test-dependency-name as 0.19.3
+package-invalid-test-dependency-name terminal as 0.19.3
 package-invalid-version-bad-digit as 0.19.3
+package-invalid-version-bad-digit terminal as 0.19.3
 package-invalid-version-extra as 0.19.3
+package-invalid-version-extra terminal as 0.19.3
 package-invalid-version-leading-zero as 0.19.3
+package-invalid-version-leading-zero terminal as 0.19.3
 package-invalid-version-missing-patch as 0.19.3
+package-invalid-version-missing-patch terminal as 0.19.3
 package-json-syntax-package-string-escape as 0.19.3
+package-json-syntax-package-string-escape terminal as 0.19.3
 package-json-syntax-package-trailing-comma as 0.19.3
+package-json-syntax-package-trailing-comma terminal as 0.19.3
 package-literal as 0.19.3
+package-literal terminal as 0.19.3
 package-long-ascii-summary as 0.19.3
+package-long-ascii-summary terminal as 0.19.3
 package-long-escaped-summary as 0.19.3
+package-long-escaped-summary terminal as 0.19.3
 package-lowercase-root-name as 0.19.3
+package-lowercase-root-name terminal as 0.19.3
 package-missing-before-bad-root as 0.19.3
+package-missing-before-bad-root terminal as 0.19.3
 package-missing-core as 0.19.3
+package-missing-core terminal as 0.19.3
 package-missing-core-before-old-elm as 0.19.3
+package-missing-core-before-old-elm terminal as 0.19.3
 package-missing-core-no-inputs as 0.19.3
+package-missing-core-no-inputs terminal as 0.19.3
 package-missing-import as 0.19.3
+package-missing-import terminal as 0.19.3
 package-missing-import-no-src as 0.19.3
+package-missing-import-no-src terminal as 0.19.3
 package-missing-input as 0.19.3
+package-missing-input terminal as 0.19.3
 package-module-name as 0.19.3
+package-module-name terminal as 0.19.3
 package-module-name-mismatch as 0.19.3
+package-module-name-mismatch terminal as 0.19.3
 package-name as 0.19.3
+package-name terminal as 0.19.3
 package-nested-lowercase-root-name as 0.19.3
+package-nested-lowercase-root-name terminal as 0.19.3
 package-no-docs-and-type-error as 0.19.3
+package-no-docs-and-type-error terminal as 0.19.3
 package-no-inputs as 0.19.3
+package-no-inputs terminal as 0.19.3
 package-no-inputs-discard as 0.19.3
+package-no-inputs-discard terminal as 0.19.3
 package-no-inputs-js as 0.19.3
+package-no-inputs-js terminal as 0.19.3
 package-nul-after-declaration as 0.19.3
+package-nul-after-declaration terminal as 0.19.3
 package-nul-comment-block as 0.19.3
+package-nul-comment-block terminal as 0.19.3
 package-nul-comment-declaration as 0.19.3
+package-nul-comment-declaration terminal as 0.19.3
 package-nul-comment-line as 0.19.3
+package-nul-comment-line terminal as 0.19.3
 package-nul-comment-overview as 0.19.3
+package-nul-comment-overview terminal as 0.19.3
 package-old-elm-constraint as 0.19.3
+package-old-elm-constraint terminal as 0.19.3
 package-old-elm-constraint-no-inputs as 0.19.3
+package-old-elm-constraint-no-inputs terminal as 0.19.3
 package-outside-headerless as 0.19.3
+package-outside-headerless terminal as 0.19.3
 package-outside-name-clash as 0.19.3
+package-outside-name-clash terminal as 0.19.3
 package-outside-no-src-check as 0.19.3
+package-outside-no-src-check terminal as 0.19.3
 package-outside-no-src-generation as 0.19.3
+package-outside-no-src-generation terminal as 0.19.3
 package-outside-no-src-type as 0.19.3
+package-outside-no-src-type terminal as 0.19.3
 package-outside-relative-type as 0.19.3
+package-outside-relative-type terminal as 0.19.3
 package-pattern as 0.19.3
+package-pattern terminal as 0.19.3
 package-raw-tab as 0.19.3
+package-raw-tab terminal as 0.19.3
 package-redundant-pattern as 0.19.3
+package-redundant-pattern terminal as 0.19.3
 package-repeated-exposed-flat as 0.19.3
+package-repeated-exposed-flat terminal as 0.19.3
 package-repeated-exposed-flat-docs as 0.19.3
+package-repeated-exposed-flat-docs terminal as 0.19.3
 package-repeated-exposed-missing as 0.19.3
+package-repeated-exposed-missing terminal as 0.19.3
 package-repeated-exposed-missing-explicit as 0.19.3
+package-repeated-exposed-missing-explicit terminal as 0.19.3
 package-repeated-exposed-section-docs as 0.19.3
+package-repeated-exposed-section-docs terminal as 0.19.3
 package-repeated-exposed-sections as 0.19.3
+package-repeated-exposed-sections terminal as 0.19.3
 package-several-names as 0.19.3
+package-several-names terminal as 0.19.3
 package-several-types as 0.19.3
+package-several-types terminal as 0.19.3
 package-success as 0.19.3
+package-success terminal as 0.19.3
 package-two-exposed-no-docs as 0.19.3
+package-two-exposed-no-docs terminal as 0.19.3
 package-two-modules as 0.19.3
+package-two-modules terminal as 0.19.3
 package-type as 0.19.3
+package-type terminal as 0.19.3
 package-unannotated-documented-value as 0.19.3
+package-unannotated-documented-value terminal as 0.19.3
 package-undocumented-exposed-alias as 0.19.3
+package-undocumented-exposed-alias terminal as 0.19.3
 package-undocumented-exposed-union as 0.19.3
+package-undocumented-exposed-union terminal as 0.19.3
 package-undocumented-exposed-value as 0.19.3
+package-undocumented-exposed-value terminal as 0.19.3
 package-unfinished-body as 0.19.3
+package-unfinished-body terminal as 0.19.3
 package-unicode as 0.19.3
+package-unicode terminal as 0.19.3
 package-unknown-license-before-version as 0.19.3
+package-unknown-license-before-version terminal as 0.19.3
 package-unknown-license-bsd-typo as 0.19.3
+package-unknown-license-bsd-typo terminal as 0.19.3
 package-unknown-license-empty as 0.19.3
+package-unknown-license-empty terminal as 0.19.3
 package-unknown-license-full-name as 0.19.3
+package-unknown-license-full-name terminal as 0.19.3
 package-unknown-license-mit-typo as 0.19.3
+package-unknown-license-mit-typo terminal as 0.19.3
 package-unknown-license-unknown as 0.19.3
+package-unknown-license-unknown terminal as 0.19.3

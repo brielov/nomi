@@ -1,0 +1,18 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 0
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Compiling (1)Success! Compiled 1 module.
+=== stderr
+=== file docs.json
+|[{"name":"Main","comment":" Example.\n\n@docs value -- hi\n, value\n","unions":[],"aliases":[],"values":[{"name":"value","comment":" Value. ","type":"Basics.Int"}],"binops":[]}]
+\ no newline at end
+### elm 0.19.3
+=== exit 0
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Compiling (1)Success! Compiled 1 module.
+=== stderr
+=== file docs.json
+|[{"name":"Main","comment":" Example.\n\n@docs value -- hi\n, value\n","unions":[],"aliases":[],"values":[{"name":"value","comment":" Value. ","type":"Basics.Int"}],"binops":[]}]
+\ no newline at end

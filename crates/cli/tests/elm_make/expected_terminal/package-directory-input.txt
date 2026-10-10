@@ -1,0 +1,36 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected a problem.
+=== stderr
+|-- FILE NOT FOUND --------------------------------------------------------------
+|
+|I cannot find this file:
+|
+|    src/Main.elm
+|
+|Is there a typo?
+|
+|Note: If you are just getting started, try working through the examples in the
+|official guide https://guide.elm-lang.org to get an idea of the kinds of things
+|that typically go in a src/Main.elm file.
+|
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected a problem.
+=== stderr
+|-- FILE NOT FOUND --------------------------------------------------------------
+|
+|I cannot find this file:
+|
+|    src/Main.elm
+|
+|Is there a typo?
+|
+|Note: If you are just getting started, try working through the examples in the
+|official guide https://guide.elm-lang.org to get an idea of the kinds of things
+|that typically go in a src/Main.elm file.
+|

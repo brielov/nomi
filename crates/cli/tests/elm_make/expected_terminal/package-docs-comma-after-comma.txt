@@ -1,0 +1,38 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- DUPLICATE DOCS ------------------------------------------------- src/Main.elm
+|
+|There can only be one `value` in your module documentation, but I see two. One
+|here:
+|
+|5| @docs value,
+|         ^^^^^
+|And another one over here:
+|
+|6| value
+|   ^^^^^
+|Remove one of them!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- DUPLICATE DOCS ------------------------------------------------- src/Main.elm
+|
+|There can only be one `value` in your module documentation, but I see two. One
+|here:
+|
+|5| @docs value,
+|         ^^^^^
+|And another one over here:
+|
+|6| value
+|   ^^^^^
+|Remove one of them!
+|

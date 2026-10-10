@@ -1,0 +1,34 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNEXPECTED EQUALS ---------------------------------------------- src/Main.elm
+|
+|I was not expecting to see this equals sign:
+|
+|2| value = { x = 1 = 2 }
+|                   ^
+|Maybe you want == instead? To check if two values are equal?
+|
+|Note: Records look like { x = 3, y = 4 } with the equals sign right after the
+|field name. So maybe you forgot a comma?
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNEXPECTED EQUALS ---------------------------------------------- src/Main.elm
+|
+|I was not expecting to see this equals sign:
+|
+|2| value = { x = 1 = 2 }
+|                   ^
+|Maybe you want == instead? To check if two values are equal?
+|
+|Note: Records look like { x = 3, y = 4 } with the equals sign right after the
+|field name. So maybe you forgot a comma?
+|

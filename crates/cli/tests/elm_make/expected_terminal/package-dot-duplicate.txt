@@ -1,0 +1,34 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected a problem.
+=== stderr
+|-- CONFUSING FILES -------------------------------------------------------------
+|
+|You are telling me to compile these two files:
+|
+|    ./src/Main.elm
+|    src/Main.elm
+|
+|But seem to be the same file though... It makes me think something tricky is
+|going on with symlinks in your project, so I figured I would let you know about
+|it just in case. Remove one of these files from your command to get unstuck!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected a problem.
+=== stderr
+|-- CONFUSING FILES -------------------------------------------------------------
+|
+|You are telling me to compile these two files:
+|
+|    ./src/Main.elm
+|    src/Main.elm
+|
+|But seem to be the same file though... It makes me think something tricky is
+|going on with symlinks in your project, so I figured I would let you know about
+|it just in case. Remove one of these files from your command to get unstuck!
+|

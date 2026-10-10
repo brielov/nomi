@@ -1,0 +1,66 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- NAMING ERROR --------------------------------------------------- src/Main.elm
+|
+|I cannot find a `missing` variable:
+|
+|2| value = missing
+|           ^^^^^^^
+|These names seem close though:
+|
+|    asin
+|    ceiling
+|    isNaN
+|    min
+|
+|Hint: Read <https://elm-lang.org/0.19.1/imports> to see how `import`
+|declarations work in Elm.
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- NAMING ERROR --------------------------------------------------- src/Main.elm
+|
+|I cannot find a `missing` variable:
+|
+|2| value = missing
+|           ^^^^^^^
+|These names seem close though:
+|
+|    asin
+|    ceiling
+|    isNaN
+|    min
+|
+|Hint: Read <https://elm-lang.org/0.19.2/imports> to see how `import`
+|declarations work in Elm.
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- NAMING ERROR --------------------------------------------------- src/Main.elm
+|
+|I cannot find a `missing` variable:
+|
+|2| value = missing
+|           ^^^^^^^
+|These names seem close though:
+|
+|    min
+|    sin
+|    asin
+|    isNaN
+|
+|Hint: Read <https://elm-lang.org/0.19.3/imports> to see how `import`
+|declarations work in Elm.
+|

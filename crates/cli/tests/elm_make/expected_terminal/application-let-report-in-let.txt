@@ -1,0 +1,57 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MISSING EXPRESSION --------------------------------------------- src/Main.elm
+|
+|I am partway through parsing the `x` definition, but I got stuck here:
+|
+|2| value = let x = let y = 1 in in x
+|                                ^
+|I was expecting to see an expression like 42 or "hello". Once there is something
+|there, I can probably give a more specific hint!
+|
+|Note: This can also happen if run into reserved words like `let` or `as`
+|unexpectedly. Or if I run into operators in unexpected spots. Point is, there
+|are a couple ways I can get confused and give sort of weird advice!
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MISSING EXPRESSION --------------------------------------------- src/Main.elm
+|
+|I am partway through parsing the `x` definition, but I got stuck here:
+|
+|2| value = let x = let y = 1 in in x
+|                                ^
+|I was expecting to see an expression like 42 or "hello". Once there is something
+|there, I can probably give a more specific hint!
+|
+|Note: This can also happen if I run into reserved words like `let` or `as`
+|unexpectedly. Or if I run into operators in unexpected spots. Point is, there
+|are a couple ways I can get confused and give sort of weird advice!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MISSING EXPRESSION --------------------------------------------- src/Main.elm
+|
+|I am partway through parsing the `x` definition, but I got stuck here:
+|
+|2| value = let x = let y = 1 in in x
+|                                ^
+|I was expecting to see an expression like 42 or "hello". Once there is something
+|there, I can probably give a more specific hint!
+|
+|Note: This can also happen if I run into reserved words like `let` or `as`
+|unexpectedly. Or if I run into operators in unexpected spots. Point is, there
+|are a couple ways I can get confused and give sort of weird advice!
+|

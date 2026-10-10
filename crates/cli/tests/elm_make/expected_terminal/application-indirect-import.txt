@@ -1,0 +1,46 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (5/7)Verifying dependencies (6/7)Verifying dependencies (7/7)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MODULE NOT FOUND ----------------------------------------------- src/Main.elm
+|
+|You are trying to import a `Time` module:
+|
+|2| import Time
+|          ^^^^
+|I checked the "dependencies" and "source-directories" listed in your elm.json,
+|but I cannot find it! Maybe it is a typo for one of these names?
+|
+|    Dict
+|    Html
+|    Task
+|    Bitwise
+|
+|Hint: Maybe you want the `Time` module defined in the elm/time package? Running
+|elm install elm/time should make it available!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (5/7)Verifying dependencies (6/7)Verifying dependencies (7/7)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- MODULE NOT FOUND ----------------------------------------------- src/Main.elm
+|
+|You are trying to import a `Time` module:
+|
+|2| import Time
+|          ^^^^
+|I checked the "dependencies" and "source-directories" listed in your elm.json,
+|but I cannot find it! Maybe it is a typo for one of these names?
+|
+|    Dict
+|    Html
+|    Task
+|    Set
+|
+|Hint: Maybe you want the `Time` module defined in the elm/time package? Running
+|elm install elm/time should make it available!
+|

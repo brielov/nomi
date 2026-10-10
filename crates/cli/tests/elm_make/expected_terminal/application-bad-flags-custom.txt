@@ -1,0 +1,42 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- BAD FLAGS ------------------------------------------------------ src/Main.elm
+|
+|Your `main` program wants a `Thing` value from JavaScript.
+|
+|4| main = Platform.worker
+|   ^^^^
+|I cannot handle that. The types that CAN be in flags include:
+|
+|    Ints, Floats, Bools, Strings, Maybes, Lists, Arrays, tuples, records, and
+|    JSON values.
+|
+|Since JSON values can flow through, you can use JSON encoders and decoders to
+|allow other types through as well. More advanced users often just do everything
+|with encoders and decoders for more control and better errors.
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- BAD FLAGS ------------------------------------------------------ src/Main.elm
+|
+|Your `main` program wants a `Thing` value from JavaScript.
+|
+|4| main = Platform.worker
+|   ^^^^
+|I cannot handle that. The types that CAN be in flags include:
+|
+|    Ints, Floats, Bools, Strings, Maybes, Lists, Arrays, tuples, records, and
+|    JSON values.
+|
+|Since JSON values can flow through, you can use JSON encoders and decoders to
+|allow other types through as well. More advanced users often just do everything
+|with encoders and decoders for more control and better errors.
+|

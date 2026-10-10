@@ -1,0 +1,16 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- BAD HEX ESCAPE ----------------------------------------------------- elm.json
+|
+|I ran into a problem with your elm.json file. This is not a valid hex escape:
+|
+|2|   "type": "application",
+|3|   "source-directories": [
+|4|     "s\u00xr"
+|         ^
+|Valid hex escapes in JSON are between \u0000 and \uFFFF and always have exactly
+|four digits.
+|

@@ -1,0 +1,44 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- TYPE MISMATCH -------------------------------------------------- src/Main.elm
+|
+|Something is off with the body of the `value` definition:
+|
+|3| value = "λ😀"
+|           ^^^^
+|The body is a string of type:
+|
+|    String
+|
+|But the type annotation on `value` says it should be:
+|
+|    Int
+|
+|Hint: Want to convert a String into an Int? Use the String.toInt function!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- TYPE MISMATCH -------------------------------------------------- src/Main.elm
+|
+|Something is off with the body of the `value` definition:
+|
+|3| value = "λ😀"
+|           ^^^^
+|The body is a string of type:
+|
+|    String
+|
+|But the type annotation on `value` says it should be:
+|
+|    Int
+|
+|Hint: Want to convert a String into an Int? Use the String.toInt function!
+|

@@ -1,0 +1,29 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- EXPECTING A VALUE -------------------------------------------------- elm.json
+|
+|I ran into a problem with your elm.json file. I was expecting to see a JSON
+|value next:
+|
+|elm: Prelude.last: empty list
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- EXPECTING A VALUE -------------------------------------------------- elm.json
+|
+|I ran into a problem with your elm.json file. I was expecting to see a JSON
+|value next:
+|
+|1| {"x":
+|        ^
+|Try something like "this" or 42 to move on to better hints!
+|
+|Note: The JSON specification does not allow trailing commas, so you can
+|sometimes get this error in arrays that have an extra comma at the end. In that
+|case, remove that last comma or add another array entry after it!
+|

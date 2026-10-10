@@ -1,0 +1,36 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Compiling (1)Compiling (2)Success! Compiled 2 modules.
+=== stderr
+|-- TOO MANY FILES --------------------------------------------------------------
+|
+|When producing an HTML file, I can only handle one file.
+|
+|Switch to --output=/dev/null if you just want to get compile errors. This skips
+|the code gen phase, so it can be a bit faster than other options sometimes.
+|
+|Switch to --output=elm.js if you want multiple `main` values available in a
+|single JavaScript file. Then you can make your own customized HTML file that
+|embeds multiple Elm nodes. The generated JavaScript also shares dependencies
+|between modules, so it should be smaller than compiling each module separately.
+|
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Compiling (1)Compiling (2)Success! Compiled 2 modules.
+=== stderr
+|-- TOO MANY FILES --------------------------------------------------------------
+|
+|When producing an HTML file, I can only handle one file.
+|
+|Switch to --output=/dev/null if you just want to get compile errors. This skips
+|the code gen phase, so it can be a bit faster than other options sometimes.
+|
+|Switch to --output=elm.js if you want multiple `main` values available in a
+|single JavaScript file. Then you can make your own customized HTML file that
+|embeds multiple Elm nodes. The generated JavaScript also shares dependencies
+|between modules, so it should be smaller than compiling each module separately.
+|

@@ -1,0 +1,38 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (5/7)Verifying dependencies (6/7)Verifying dependencies (7/7)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- AMBIGUOUS IMPORT ----------------------------------------------- src/Main.elm
+|
+|You are trying to import a `Html` module:
+|
+|2| import Html
+|          ^^^^
+|But I found multiple modules with that name. One in the elm/html package, and
+|another defined locally in the
+|$ROOT/src/Html.elm
+|file. I do not have a way to choose between them.
+|
+|Try changing the name of the locally defined module to clear up the ambiguity?
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (4/7)Verifying dependencies (5/7)Verifying dependencies (6/7)Verifying dependencies (7/7)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- AMBIGUOUS IMPORT ----------------------------------------------- src/Main.elm
+|
+|You are trying to import a `Html` module:
+|
+|2| import Html
+|          ^^^^
+|But I found multiple modules with that name. One in the elm/html package, and
+|another defined locally in the
+|$ROOT/src/Html.elm
+|file. I do not have a way to choose between them.
+|
+|Try changing the name of the locally defined module to clear up the ambiguity?
+|

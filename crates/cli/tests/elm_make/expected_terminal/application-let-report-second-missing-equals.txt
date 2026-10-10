@@ -1,0 +1,50 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED DEFINITION ------------------------------------------ src/Main.elm
+|
+|I got stuck while parsing the `y` definition:
+|
+|5|         y
+|            ^
+|I was expecting to see an argument or an equals sign next.
+|
+|Here is a valid definition (with a type annotation) for reference:
+|
+|    greet : String -> String
+|    greet name =
+|      "Hello " ++ name ++ "!"
+|
+|The top line (called a "type annotation") is optional. You can leave it off if
+|you want. As you get more comfortable with Elm and as your project grows, it
+|becomes more and more valuable to add them though! They work great as
+|compiler-verified documentation, and they often improve error messages!
+|
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED DEFINITION ------------------------------------------ src/Main.elm
+|
+|I got stuck while parsing the `y` definition:
+|
+|5|         y
+|            ^
+|I was expecting to see an argument or an equals sign next.
+|
+|Here is a valid definition (with a type annotation) for reference:
+|
+|    greet : String -> String
+|    greet name =
+|      "Hello " ++ name ++ "!"
+|
+|The top line (called a "type annotation") is optional. You can leave it off if
+|you want. As you get more comfortable with Elm and as your project grows, it
+|becomes more and more valuable to add them though! They work great as
+|compiler-verified documentation, and they often improve error messages!
+|

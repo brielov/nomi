@@ -1,0 +1,28 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNEXPECTED SYMBOL ---------------------------------------------- src/Main.elm
+|
+|I ran into an unexpected symbol here:
+|
+|2| value = (=)
+|            ^
+|Try (==) instead? To make a function that checks equality?
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNEXPECTED SYMBOL ---------------------------------------------- src/Main.elm
+|
+|I ran into an unexpected symbol here:
+|
+|2| value = (=)
+|            ^
+|Try (==) instead? To make a function that checks equality?
+|

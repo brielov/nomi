@@ -1,0 +1,29 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- UNFINISHED OBJECT -------------------------------------------------- elm.json
+|
+|I ran into a problem with your elm.json file. I was partway through parsing a
+|JSON object when I got stuck here:
+|
+|16|     "indirect": {}
+|17|   }
+|18| 
+|    ^
+|I was expecting to see a comma or a closing curly brace next.
+|
+|Is a comma missing on the previous line? Is an array missing a closing square
+|bracket? It is often something tricky like that!
+|
+|Note: Here is an example of a valid JSON object for reference:
+|
+|    {
+|      "name": "Tom",
+|      "age": 42
+|    }
+|
+|Notice that (1) the field names are in double quotes and (2) there is no
+|trailing comma after the last entry. Both are strict requirements in JSON!
+|

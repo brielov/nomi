@@ -86,6 +86,9 @@ pub struct Checked {
     pub optimized: Vec<(ModuleName, LocalGraph)>,
     /// Each optimized module's interface, for the debugger's types.
     pub interfaces: Vec<(ModuleName, Interface)>,
+    /// How many modules came out clean, checked or reused: what elm
+    /// counts as compiled in a project of no `elm-stuff`.
+    pub compiled: usize,
 }
 
 /// What a check makes beyond its problems.
@@ -133,6 +136,7 @@ pub fn check_graph(
         docs: Vec::new(),
         optimized: Vec::new(),
         optimized_interfaces: Vec::new(),
+        compiled: 0,
     };
     let mut names: Vec<&ModuleName> = graph.modules.keys().collect();
     names.sort_by(|a, b| a.compare(b, env.compat()));
@@ -141,7 +145,8 @@ pub fn check_graph(
     }
     for root in &graph.roots {
         if let Root::Outside(Ok(module)) = root {
-            walk.module(module);
+            let ok = walk.module(module);
+            walk.compiled += usize::from(ok);
         }
     }
     Checked {
@@ -150,6 +155,7 @@ pub fn check_graph(
         docs: walk.docs,
         optimized: walk.optimized,
         interfaces: walk.optimized_interfaces,
+        compiled: walk.compiled,
     }
 }
 
@@ -171,6 +177,7 @@ struct Walk<'g> {
     docs: Vec<docs::Module>,
     optimized: Vec<(ModuleName, LocalGraph)>,
     optimized_interfaces: Vec<(ModuleName, Interface)>,
+    compiled: usize,
 }
 
 impl Walk<'_> {
@@ -182,7 +189,11 @@ impl Walk<'_> {
         // A cycle is reported before canonicalization; mark it to stop.
         self.state.insert(name.clone(), false);
         let ok = match self.graph.modules.get(name) {
-            Some(Status::Local(module)) => self.module(module),
+            Some(Status::Local(module)) => {
+                let ok = self.module(module);
+                self.compiled += usize::from(ok);
+                ok
+            }
             Some(Status::BadModule(_)) => false,
             _ => true,
         };

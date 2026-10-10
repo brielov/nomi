@@ -1,0 +1,18 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- PROBLEM IN DOCS ------------------------------------------------ src/Main.elm
+|
+|I was partway through parsing your module documentation, but I got stuck here:
+|
+|5| @docs (->)
+|          ^
+|I am trying to parse an operator like (+) or (*) but it looks like you are using
+|a reserved symbol in this case.
+|
+|Hint: Read through <https://package.elm-lang.org/help/documentation-format> for
+|tips on how to write module documentation!
+|

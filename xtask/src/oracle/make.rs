@@ -11,6 +11,9 @@
 //! per distinct transcript, each after a `### ` line naming the elms that
 //! wrote it.
 //!
+//! Each case runs a second time without `--report=json`, for the terminal
+//! style's messages (plan 8.13a), into `expected_terminal/`.
+//!
 //! [`Transcript::compared`]: nomi_testkit::transcript::Transcript::compared
 
 use std::fmt::Write as _;
@@ -47,13 +50,20 @@ const PACKAGES: [&str; 10] = [
 /// Runs of one case before a lock failure is an error.
 const RETRIES: u32 = 5;
 
+/// Runs of one terminal case before a cut-short success is kept.
+const CUT_SHORT_RETRIES: u32 = 20;
+
 pub fn run(root: &Path, refs: &References) -> Result<()> {
     let dir = root.join(CASES);
     let pinned = pinned(root, &PACKAGES)?;
-    let mut cases = Vec::new();
+    let mut json = Vec::new();
     for (stem, path) in case_files(&dir.join("cases"))? {
-        cases.push((stem, read_case(&path)?));
+        json.push((stem, read_case(&path)?));
     }
+    let terminal: Vec<(String, Case)> = (json.iter())
+        .map(|(stem, case)| (stem.clone(), terminal(case)))
+        .collect();
+    let cases: Vec<(String, Case)> = json.iter().chain(&terminal).cloned().collect();
     let versions = compat::compats(refs)?;
     let jobs = std::thread::available_parallelism().map_or(4, |n| n.get());
     let mut columns = Vec::new();
@@ -86,12 +96,18 @@ pub fn run(root: &Path, refs: &References) -> Result<()> {
         eprintln!("  elm {version}: {} cases", column.len());
         columns.push(column);
     }
-    let expected = dir.join("expected");
-    if expected.exists() {
-        fs::remove_dir_all(&expected)?;
+    for dir in ["expected", "expected_terminal"].map(|d| dir.join(d)) {
+        if dir.exists() {
+            fs::remove_dir_all(&dir)?;
+        }
+        fs::create_dir_all(&dir)?;
     }
-    fs::create_dir_all(&expected)?;
     for (i, (id, _)) in cases.iter().enumerate() {
+        let expected = dir.join(if i < json.len() {
+            "expected"
+        } else {
+            "expected_terminal"
+        });
         let mut groups: Vec<(Vec<String>, &str)> = Vec::new();
         for (version, column) in versions.iter().zip(&columns) {
             let elm = format!("elm {version}");
@@ -107,8 +123,15 @@ pub fn run(root: &Path, refs: &References) -> Result<()> {
         }
         fs::write(expected.join(format!("{id}.txt")), out)?;
     }
-    println!("recorded {} cases", cases.len());
+    println!("recorded {} cases", json.len());
     Ok(())
+}
+
+/// `case` in the terminal style: without `--report=json`.
+pub fn terminal(case: &Case) -> Case {
+    let mut case = case.clone();
+    case.args.retain(|a| a != "--report=json");
+    case
 }
 
 /// The case with an application's `elm-version` set to `version`, where
@@ -138,13 +161,26 @@ fn record(elm: &Path, home: &Path, work: &Path, version: Version, case: &Case) -
         fs::create_dir_all(work)?;
         let dir = PathBuf::from(canonical(&padded(work)?)?);
         case.create_files(&dir)?;
+        case.date_files(&dir)?;
         let mut command = Command::new(elm);
         command.env("ELM_HOME", home).env("GHCRTS", "-N1");
         offline(&mut command);
         let transcript = case.run(command, &dir)?;
         // elm now and then trips over its own lock on `d.dat`.
         let locked = String::from_utf8_lossy(&transcript.stderr).contains("(file is locked)");
-        if !locked || attempt == RETRIES {
+        // And in the terminal style, writing nothing, it may exit before
+        // its build thread prints the last line, which ends with a newline.
+        let terminal = !case.args.iter().any(|a| a == "--report=json");
+        let cut_short = terminal
+            && transcript.exit == Some(0)
+            && !transcript.stdout.is_empty()
+            && !transcript.stdout.ends_with(b"\n");
+        let retries = if cut_short {
+            CUT_SHORT_RETRIES
+        } else {
+            RETRIES
+        };
+        if !(locked || cut_short) || attempt >= retries {
             return Ok(transcript.compared(&case, &dir));
         }
         attempt += 1;

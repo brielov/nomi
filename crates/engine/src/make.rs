@@ -135,19 +135,26 @@ pub fn run(
         let env = env_of(&root, &project.outline, compat, foreigns)?.with_cwd(dir);
         Ok::<_, Report>((root, project.outline, env, interfaces, dependencies))
     })();
+    let terminal = personality == Personality::Elm && make.style == Style::Terminal;
     let (root, outline, env, interfaces, dependencies) = match loaded {
         Ok(loaded) => loaded,
         Err(report) => {
+            if terminal {
+                details_progress(console, 0);
+            }
             show(console, dir, &Checked::Project(report), compat, make.style);
             return false;
         }
     };
+    if terminal {
+        details_progress(console, dependencies.packages.len());
+    }
     let snapshot = vfs.snapshot();
     let artifacts = Artifacts::new(cache);
     let documenting = make.docs.is_some() && make.paths.is_empty();
     let generating = !make.paths.is_empty() && make.output != Some(Output::DevNull);
     let mut optimized = None;
-    let (checked, docs) = if documenting {
+    let (checked, docs, compiled) = if documenting {
         check::docs(&snapshot, &env, &outline, personality, &interfaces)
     } else if generating {
         let (checked, made) = check::optimize(
@@ -159,10 +166,11 @@ pub fn run(
             &interfaces,
             Some(&artifacts),
         );
+        let compiled = made.compiled;
         optimized = Some(made);
-        (checked, None)
+        (checked, None, compiled)
     } else {
-        let (checked, _) = check::make_with(
+        let (checked, _, compiled) = check::make_with(
             &snapshot,
             &env,
             &outline,
@@ -171,10 +179,24 @@ pub fn run(
             &interfaces,
             Some(&artifacts),
         );
-        (checked, None)
+        (checked, None, compiled)
     };
+    // `elm make` without files, in an application or a package exposing
+    // nothing, stops before it builds.
+    let no_input = make.paths.is_empty()
+        && match &outline {
+            Outline::App(_) => true,
+            Outline::Pkg(pkg) => pkg.exposed.modules().next().is_none(),
+        };
+    if terminal && !no_input {
+        build_progress(console, compiled, &checked);
+    }
     if !matches!(checked, Checked::Fine) {
-        show(console, &root, &checked, compat, make.style);
+        if terminal {
+            show_reports(console, &root, &checked, compat);
+        } else {
+            show(console, &root, &checked, compat, make.style);
+        }
         return false;
     }
     let fail = |console: &mut dyn Console, report: Report| {
@@ -234,16 +256,119 @@ pub fn run(
                 );
                 return fail(console, report);
             }
+            if terminal {
+                let names: Vec<String> = target.names.iter().map(|n| n.to_string()).collect();
+                let output = target.path.to_string_lossy();
+                console.out(&format!("\n{}\n", gen_diagram(&names, &output)));
+            }
         }
     }
-    show(console, &root, &Checked::Fine, compat, make.style);
+    if !terminal {
+        show(console, &root, &Checked::Fine, compat, make.style);
+    }
     true
 }
 
-/// Where `run` writes the code, and the module an HTML page starts.
+/// What elm's terminal style shows of the dependencies' verification
+/// (`Reporting.detailsLoop`): each step, then the line cleared and
+/// `Dependencies ready!`. elm's steps interleave as its threads do; nomi
+/// shows the dependencies found, then each built.
+fn details_progress(console: &mut dyn Console, total: usize) {
+    let step = |built: usize| format!("Verifying dependencies ({built}/{total})");
+    if total > 0 {
+        let mut steps = String::new();
+        for built in 0..=total {
+            steps.push('\r');
+            steps.push_str(&step(built));
+        }
+        console.out(&steps);
+    }
+    let cleared = " ".repeat(step(total).chars().count());
+    console.out(&format!("\r{cleared}\rDependencies ready!\n"));
+}
+
+/// What elm's terminal style shows of the build (`Reporting.buildLoop`):
+/// `Compiling ...`, a count for each module compiled, then the final
+/// message over them.
+fn build_progress(console: &mut dyn Console, compiled: usize, checked: &Checked) {
+    let mut out = String::from("Compiling ...");
+    for done in 1..=compiled {
+        out.push_str(&format!("\rCompiling ({done})"));
+    }
+    let message = match checked {
+        Checked::Fine => match compiled {
+            0 => "Success!".to_owned(),
+            1 => "Success! Compiled 1 module.".to_owned(),
+            n => format!("Success! Compiled {n} modules."),
+        },
+        Checked::Modules(modules) => match modules.len() {
+            1 => "Detected problems in 1 module.".to_owned(),
+            n => format!("Detected problems in {n} modules."),
+        },
+        Checked::Project(_) => "Detected a problem.".to_owned(),
+    };
+    let width = 12 + compiled.to_string().len();
+    if message.chars().count() < width {
+        out.push_str(&format!("\r{}\r{message}\n", " ".repeat(width)));
+    } else {
+        out.push_str(&format!("\r{message}\n"));
+    }
+    console.out(&out);
+}
+
+/// The reports of `checked`, without the summary [`build_progress`] has
+/// shown.
+fn show_reports(
+    console: &mut dyn Console,
+    root: &Path,
+    checked: &Checked,
+    compat: nomi_base::Compat,
+) {
+    match checked {
+        Checked::Fine => {}
+        Checked::Project(report) => crate::console::report(console, report, compat),
+        Checked::Modules(modules) => {
+            crate::console::report_doc(console, &report::modules_doc(root, modules), compat);
+        }
+    }
+}
+
+/// `toGenDiagram`: each module given, an arrow to the file they went to.
+fn gen_diagram(names: &[String], output: &str) -> String {
+    let (hbar, vtop, vmiddle, vbottom) = if cfg!(windows) {
+        ('-', '+', '+', '+')
+    } else {
+        ('─', '┬', '┤', '┘')
+    };
+    let width = 3 + names.iter().map(|n| n.chars().count()).max().unwrap_or(0);
+    let line = |name: &str, end: &str| {
+        let bar: String = std::iter::repeat_n(hbar, width - name.chars().count()).collect();
+        format!("    {name} {bar}{end}")
+    };
+    match names {
+        [] => String::new(),
+        [name] => line(name, &format!("> {output}\n")),
+        [first, rest @ ..] => {
+            let mut lines = vec![line(first, &format!("{vtop}{hbar}{hbar}> {output}"))];
+            for (i, name) in rest.iter().enumerate() {
+                let end = if i + 1 == rest.len() {
+                    vbottom
+                } else {
+                    vmiddle
+                };
+                lines.push(line(name, &end.to_string()));
+            }
+            lines.iter().map(|l| format!("{l}\n")).collect()
+        }
+    }
+}
+
+/// Where `run` writes the code, the module an HTML page starts, and the
+/// modules the terminal style says went there.
 struct Target {
     path: PathBuf,
     html: Option<ModuleName>,
+    names: Vec<ModuleName>,
 }
 
 /// What `Make.hs` generates for `output` from `roots`, each a root and
@@ -262,10 +387,12 @@ fn target(output: Option<&Output>, roots: &[(ModuleName, bool)]) -> Result<Optio
             [name] => Some(Target {
                 path: "index.html".into(),
                 html: Some((*name).clone()),
+                names: vec![(*name).clone()],
             }),
             _ => Some(Target {
                 path: "elm.js".into(),
                 html: None,
+                names: mains.iter().map(|n| (*n).clone()).collect(),
             }),
         }),
         Some(Output::Js(path)) => {
@@ -277,6 +404,7 @@ fn target(output: Option<&Output>, roots: &[(ModuleName, bool)]) -> Result<Optio
                 [] => Ok(Some(Target {
                     path: path.clone(),
                     html: None,
+                    names: roots.iter().map(|(n, _)| n.clone()).collect(),
                 })),
                 names => Err(non_main_files_into_javascript(names)),
             }
@@ -285,6 +413,7 @@ fn target(output: Option<&Output>, roots: &[(ModuleName, bool)]) -> Result<Optio
             [(name, true)] => Ok(Some(Target {
                 path: path.clone(),
                 html: Some(name.clone()),
+                names: vec![name.clone()],
             })),
             [(_, false)] => Err(no_main()),
             _ => Err(multiple_files_into_html()),

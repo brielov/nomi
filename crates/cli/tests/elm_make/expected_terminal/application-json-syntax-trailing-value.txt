@@ -1,0 +1,17 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- JSON PROBLEM ------------------------------------------------------- elm.json
+|
+|I ran into a problem with your elm.json file. I was partway through parsing some
+|JSON when I got stuck here:
+|
+|17|   }
+|18| }
+|19| garbage
+|    ^
+|I am not really sure what is wrong. This sometimes means there is extra stuff
+|after a valid JSON value?
+|

@@ -1,0 +1,40 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED ANONYMOUS FUNCTION ---------------------------------- src/Main.elm
+|
+|I was expecting to see the body of your anonymous function next:
+|
+|2| value = \x y ->
+|                  ^
+|The syntax for anonymous functions is (\x -> x + 1) so I am missing all the
+|stuff after the arrow!
+|
+|Note: It is possible that I am confused about indetation! I generally recommend
+|switching to named functions if the definition cannot fit inline nicely, so
+|either (1) try to fit the whole anonymous function on one line or (2) break the
+|whole thing out into a named function. Things tend to be clearer that way!
+|
+### elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED ANONYMOUS FUNCTION ---------------------------------- src/Main.elm
+|
+|I was expecting to see the body of your anonymous function next:
+|
+|2| value = \x y ->
+|                  ^
+|The syntax for anonymous functions is (\x -> x + 1) so I am missing all the
+|stuff after the arrow!
+|
+|Note: It is possible that I am confused about indetation! I generally recommend
+|switching to named functions if the definition cannot fit inline nicely, so
+|either (1) try to fit the whole anonymous function on one line or (2) break the
+|whole thing out into a named function. Things tend to be clearer that way!
+|

@@ -1,0 +1,42 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED MODULE DECLARATION ---------------------------------- src/Main.elm
+|
+|I am parsing an `module` declaration, but I got stuck here:
+|
+|1| module Ma�in exposing (value)
+|            ^
+|Here are some examples of valid `module` declarations:
+|
+|    module Main exposing (..)
+|    module Dict exposing (Dict, empty, get)
+|
+|I generally recommend using an explicit exposing list. I can skip compiling a
+|bunch of files when the public interface of a module stays the same, so exposing
+|fewer values can help improve compile times!
+|
+### elm 0.19.2
+=== exit 1
+=== stdout
+|Verifying dependencies (0/2)Verifying dependencies (1/2)Verifying dependencies (2/2)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- UNFINISHED MODULE DECLARATION ---------------------------------- src/Main.elm
+|
+|I am parsing an `module` declaration, but I got stuck here:
+|
+|1| module Ma�in exposing (value)
+|            ^
+|Here are some examples of valid `module` declarations:
+|
+|    module Main exposing (..)
+|    module Dict exposing (Dict, empty, get)
+|
+|I generally recommend using an explicit exposing list. I can skip compiling a
+|bunch of files when the public interface of a module stays the same, so exposing
+|fewer values can help improve compile times!
+|
