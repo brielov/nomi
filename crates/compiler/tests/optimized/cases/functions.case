@@ -1,0 +1,46 @@
+=== note
+lambdas, calls, partial application and operators
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+
+add a b =
+    a + b
+
+
+increment =
+    add 1
+
+
+compose =
+    String.fromInt >> String.length
+
+
+apply f x =
+    f x
+
+
+pipeline n =
+    n
+        |> add 2
+        |> (\x -> x * 3)
+        |> apply increment
+
+
+operators a b =
+    ( a - b * 2 // 3, a ^ 2, modBy 3 a )
+
+
+comparisons a b =
+    a < b && (a /= b || not (a == b))
+
+
+appended =
+    "a" ++ "b" ++ String.fromInt 3 ++ ""
+
+
+consed =
+    1 :: 2 :: []

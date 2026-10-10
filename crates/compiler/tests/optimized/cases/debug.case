@@ -1,0 +1,29 @@
+=== note
+Debug.log, Debug.toString and Debug.todo, in a case too
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+
+logged n =
+    Debug.log "n" n
+
+
+shown n =
+    Debug.toString ( n, [ n ] )
+
+
+never : Int -> Int
+never n =
+    Debug.todo "never"
+
+
+partial m =
+    case m of
+        Just n ->
+            n
+
+        Nothing ->
+            Debug.todo "nothing"

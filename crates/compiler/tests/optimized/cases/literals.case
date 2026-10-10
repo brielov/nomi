@@ -1,0 +1,35 @@
+=== note
+literals of each kind, unit and lists
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+
+bools =
+    [ True, False ]
+
+
+chars =
+    [ 'a', '\t', '\'', '\u{1F600}', 'é' ]
+
+
+strings =
+    [ "", "plain", "esc\"aped\n\t\\", "\u{00E9}t\u{00E9}", "multi\nline" ]
+
+
+ints =
+    [ 0, 42, -7, 0x1F, 9007199254740991 ]
+
+
+floats =
+    [ 0.5, 1.0e10, -3.25, 6.02e-23 ]
+
+
+unit =
+    ()
+
+
+nested =
+    [ [ 1, 2 ], [], [ 3 ] ]

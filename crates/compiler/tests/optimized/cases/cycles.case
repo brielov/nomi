@@ -1,0 +1,42 @@
+=== note
+mutual recursion at the top level and in lets
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+
+isEven n =
+    if n == 0 then
+        True
+
+    else
+        isOdd (n - 1)
+
+
+isOdd n =
+    if n == 0 then
+        False
+
+    else
+        isEven (n - 1)
+
+
+local n =
+    let
+        ping i =
+            if i <= 0 then
+                "ping"
+
+            else
+                pong (i - 1)
+
+        pong i =
+            if i <= 0 then
+                "pong"
+
+            else
+                ping (i - 1)
+    in
+    ping n

@@ -1,0 +1,82 @@
+=== note
+case on lists, literals and booleans
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+
+lists list =
+    case list of
+        [] ->
+            "none"
+
+        [ _ ] ->
+            "one"
+
+        [ a, b ] ->
+            String.fromInt (a + b)
+
+        a :: b :: _ ->
+            "many"
+
+
+ints n =
+    case n of
+        0 ->
+            "zero"
+
+        1 ->
+            "one"
+
+        _ ->
+            "other"
+
+
+strings s =
+    case s of
+        "a" ->
+            1
+
+        "b" ->
+            2
+
+        _ ->
+            3
+
+
+chars c =
+    case c of
+        'a' ->
+            1
+
+        '\n' ->
+            2
+
+        _ ->
+            3
+
+
+bools a b =
+    case ( a, b ) of
+        ( True, False ) ->
+            "one"
+
+        ( False, True ) ->
+            "other"
+
+        _ ->
+            "same"
+
+
+shared n =
+    case n of
+        1 ->
+            "small"
+
+        2 ->
+            "small"
+
+        _ ->
+            "big"

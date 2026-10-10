@@ -1,0 +1,39 @@
+=== note
+lets, local functions and destructuring
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+
+type Wrapper
+    = Wrapper Int
+
+
+calc n =
+    let
+        ( a, b ) =
+            ( n, n * 2 )
+
+        { x } =
+            { x = 1, y = 2 }
+
+        (Wrapper w) =
+            Wrapper n
+
+        twice f v =
+            f (f v)
+
+        later =
+            a + b
+    in
+    twice (\v -> v + later + x + w) n
+
+
+unwrap (Wrapper n) =
+    n
+
+
+deep ( ( a, _ ), { first } ) =
+    a + first

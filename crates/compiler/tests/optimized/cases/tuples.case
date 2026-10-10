@@ -1,0 +1,27 @@
+=== note
+pairs and triples, built and taken apart
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+
+pair =
+    ( 1, "one" )
+
+
+triple =
+    ( 1, 'b', 3.0 )
+
+
+swap ( a, b ) =
+    ( b, a )
+
+
+rotate ( a, b, c ) =
+    ( b, c, a )
+
+
+firsts =
+    Tuple.first pair + Tuple.second ( 2, 3 )

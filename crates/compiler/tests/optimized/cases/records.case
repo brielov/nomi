@@ -1,0 +1,35 @@
+=== note
+record literals, access, accessors and updates
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+
+type alias Point =
+    { x : Int, y : Int, label : String }
+
+
+origin : Point
+origin =
+    { x = 0, y = 0, label = "origin" }
+
+
+moved : Point -> Point
+moved point =
+    { point | x = point.x + 1, y = point.y - 1 }
+
+
+labels : List Point -> List String
+labels =
+    List.map .label
+
+
+sum : { a | x : Int, y : Int } -> Int
+sum { x, y } =
+    x + y
+
+
+nested =
+    { inner = { value = 1 }, other = origin.label }

@@ -1,0 +1,48 @@
+=== note
+constructors of normal, enumeration and boxed unions
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+
+type Shape
+    = Circle Float
+    | Rect Float Float
+    | Empty
+
+
+type Color
+    = Red
+    | Green
+    | Blue
+
+
+type Box
+    = Box Int
+
+
+type Tree a
+    = Leaf
+    | Node (Tree a) a (Tree a)
+
+
+shapes =
+    [ Circle 1, Rect 2 3, Empty ]
+
+
+colors =
+    [ Red, Green, Blue ]
+
+
+boxed =
+    Box 1
+
+
+partial =
+    Rect 1
+
+
+tree =
+    Node Leaf 1 (Node Leaf 2 Leaf)

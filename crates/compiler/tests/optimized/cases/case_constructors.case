@@ -1,0 +1,55 @@
+=== note
+case on constructors, nested, with fallbacks
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+
+type Shape
+    = Circle Float
+    | Rect Float Float
+    | Empty
+
+
+type Color
+    = Red
+    | Green
+    | Blue
+
+
+area shape =
+    case shape of
+        Circle r ->
+            3.14 * r * r
+
+        Rect w h ->
+            w * h
+
+        Empty ->
+            0
+
+
+isRed color =
+    case color of
+        Red ->
+            True
+
+        _ ->
+            False
+
+
+both a b =
+    case ( a, b ) of
+        ( Just (Circle r), Nothing ) ->
+            r
+
+        ( Just Empty, Just _ ) ->
+            1
+
+        ( _, Just (Rect w _) ) ->
+            w
+
+        _ ->
+            0

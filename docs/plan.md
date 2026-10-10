@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **8.1b**.
+4. Resume at the first unchecked box. Right now that is **8.1c**.
 
 ### Test tiers
 
@@ -458,7 +458,9 @@ The optimizer's oracle is elm's own artifacts: every elm writes a module's optim
 - [x] **8.1a** `compiler: 0.19.3 artifact encoding`. `eLocalGraph` and `eGlobalGraph` with `Bytes.Encode`. **Check:** as 8.1, for 0.19.3.
 
   Done: `optimized::binary` writes and reads every release's format, 0.19.3's as `Bytes.Encode` does: little-endian, counts and string lengths in four bytes, byte strings' in eight, indexes as eight-byte `Int`s, tuples as pairs and triples, types as `Interface.eType` writes them, a type variable with the constraint its name gives, and names in maps and sets sorted length first. Every 0.19.3 `.elmo` and `o.dat` of the optimizer cases decodes and encodes back byte for byte. Surprises: 0.19.3's regions are zero-based, like 0.19.2's, though its reports count from 1; and its decision-tree tests keep 0.19.1's tags though the constructors moved.
-- [ ] **8.1b** `oracle: optimized graphs`. `cargo xtask oracle optimized` keeps each elm's `.elmo` for curated modules: tail calls, cycles, destructuring, records and fields, cases, ports, `Debug`, shaders and `main`. The ratchet `optimized` compares nomi's encoded graph with each.
+- [x] **8.1b** `oracle: optimized graphs`. `cargo xtask oracle optimized` keeps each elm's `.elmo` for curated modules: tail calls, cycles, destructuring, records and fields, cases, ports, `Debug`, shaders and `main`. The ratchet `optimized` compares nomi's encoded graph with each.
+
+  Done: 14 optimizer cases, one module each but for the one across modules, cover literals, functions and operators, records, tuples, lets and destructuring, tail calls, cycles, constructors, cases on constructors and on literals, ifs, `Debug`, ports with flags, and a graph across modules; `cargo xtask oracle optimized` keeps each elm's `.elmo` files. The engine optimizes every module it checks when asked (`names::Goals`, `check::optimize`), through `optimize::module`, which so far gives upstream's empty starting graph. The ratchet `optimized_graphs` runs 45 module graphs, none passing yet; every case checks cleanly, so each failure is the graph's. Shaders wait for the corpus, as a shader needs elm-explorations/webgl.
 - [ ] **8.1c** `compiler: optimize expressions`. `Optimize/Names.hs` and `Optimize/Expression.hs`: generated names, tail calls, destructuring and cycles. **Check:** the ratchet's cases without `case`.
 - [ ] **8.2** `compiler: decision trees`. `Optimize/DecisionTree.hs` and `Case.hs`. **Check:** the ratchet's `case` cases.
 - [ ] **8.3** `compiler: ports, effect managers and modules`. `Optimize/Port.hs` and `Optimize/Module.hs`. **Check:** the ratchet at 100%.

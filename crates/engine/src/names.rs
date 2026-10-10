@@ -17,6 +17,8 @@ use nomi_compiler::docs;
 use nomi_compiler::hir;
 use nomi_compiler::interface::Interface;
 use nomi_compiler::nitpick::{main as main_check, patterns, report as patterns_report};
+use nomi_compiler::optimize;
+use nomi_compiler::optimized::LocalGraph;
 use nomi_compiler::types::localizer::Localizer;
 use nomi_compiler::types::report as types_report;
 use nomi_project::{ModuleName, Name, Outline};
@@ -203,7 +205,7 @@ pub fn canonicalize_graph(
     packages: &HashMap<String, Interface>,
     failed: &HashSet<PathBuf>,
 ) -> HashMap<PathBuf, Vec<Problem>> {
-    check_graph(env, graph, packages, failed, None, &[]).problems
+    check_graph(env, graph, packages, failed, None, Goals::default()).problems
 }
 
 /// What checking a graph found, and which modules it checked rather than
@@ -214,6 +216,19 @@ pub struct Checked {
     pub ran: Vec<PathBuf>,
     /// The documentation of each module asked for that has it.
     pub docs: Vec<docs::Module>,
+    /// Each module's optimized graph, when asked for, in the order checked.
+    pub optimized: Vec<(ModuleName, LocalGraph)>,
+}
+
+/// What a check makes beyond its problems.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Goals<'a> {
+    /// The modules to document, as `elm make --docs` documents a
+    /// package's exposed modules.
+    pub documented: &'a [ModuleName],
+    /// Whether to optimize every module, as `elm make` does before it
+    /// generates code.
+    pub optimize: bool,
 }
 
 /// [`canonicalize_graph`], reusing `artifacts` (architecture §6): a
@@ -221,16 +236,15 @@ pub struct Checked {
 /// what a clean check of it saw before takes the interface it made then,
 /// unchecked. An edit that leaves a module's interface as it was leaves
 /// its importers' keys as they were, so they are skipped too: the early
-/// cutoff. The modules in `documented` are documented too, after
-/// everything else checks out, as `elm make --docs` does a package's
-/// exposed modules; they are always checked afresh.
+/// cutoff. What `goals` asks for is made after everything else checks
+/// out, from modules always checked afresh.
 pub fn check_graph(
     env: &Env,
     graph: &Graph,
     packages: &HashMap<String, Interface>,
     failed: &HashSet<PathBuf>,
     artifacts: Option<&Artifacts>,
-    documented: &[ModuleName],
+    goals: Goals<'_>,
 ) -> Checked {
     let package = match env.owner() {
         Owner::Package(name) => name.to_string(),
@@ -247,8 +261,9 @@ pub fn check_graph(
         artifacts,
         hashes: HashMap::new(),
         ran: Vec::new(),
-        documented,
+        goals,
         docs: Vec::new(),
+        optimized: Vec::new(),
     };
     let mut names: Vec<&ModuleName> = graph.modules.keys().collect();
     names.sort_by(|a, b| a.compare(b, env.compat()));
@@ -264,6 +279,7 @@ pub fn check_graph(
         problems: walk.problems,
         ran: walk.ran,
         docs: walk.docs,
+        optimized: walk.optimized,
     }
 }
 
@@ -281,8 +297,9 @@ struct Walk<'g> {
     hashes: HashMap<String, Hash>,
     /// The modules checked, in order.
     ran: Vec<PathBuf>,
-    documented: &'g [ModuleName],
+    goals: Goals<'g>,
     docs: Vec<docs::Module>,
+    optimized: Vec<(ModuleName, LocalGraph)>,
 }
 
 impl Walk<'_> {
@@ -320,8 +337,9 @@ impl Walk<'_> {
         if blocked {
             return false;
         }
-        let document = self.documented.contains(&module.name);
-        let key = (self.artifacts.filter(|_| !document)).map(|_| self.key(module));
+        let document = self.goals.documented.contains(&module.name);
+        let afresh = document || self.goals.optimize;
+        let key = (self.artifacts.filter(|_| !afresh)).map(|_| self.key(module));
         if let (Some(artifacts), Some(key)) = (self.artifacts, key)
             && let Some(interface) = artifacts.get(key).as_deref().and_then(Interface::decode)
         {
@@ -382,6 +400,10 @@ impl Walk<'_> {
                                 return false;
                             }
                         }
+                    }
+                    if self.goals.optimize {
+                        let graph = optimize::module(self.env.compat(), &annotations, &canonical);
+                        self.optimized.push((module.name.clone(), graph));
                     }
                     let interface = interface(&canonical, &annotations);
                     if let (Some(artifacts), Some(key)) = (self.artifacts, key) {

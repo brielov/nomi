@@ -79,6 +79,94 @@ pub fn run_docs(
     build(case, compat, default_elm_json, packages, true)
 }
 
+/// A case's project, made as the oracle made it, and what checking it
+/// needs.
+struct Project {
+    _temp: tempfile::TempDir,
+    root: PathBuf,
+    outline: Outline,
+    env: nomi_engine::graph::Env,
+    interfaces: HashMap<String, nomi_compiler::interface::Interface>,
+}
+
+impl Project {
+    fn new(case: &Case, compat: Compat, default_elm_json: &str, packages: &Path) -> Project {
+        let temp = tempfile::tempdir().unwrap();
+        let root = padded(temp.path());
+        case.create_files(&root).unwrap();
+        date_files(&root, case);
+        let manifest = root.join("elm.json");
+        let text = fs::read_to_string(&manifest).unwrap_or_else(|_| default_elm_json.to_owned());
+        let text = with_elm_version(&text, compat);
+        fs::write(&manifest, &text).unwrap();
+        let outline = Outline::decode(text.as_bytes(), compat).expect("a good elm.json");
+        let deps: Vec<Name> = match &outline {
+            Outline::App(app) => app.direct.keys().cloned().collect(),
+            Outline::Pkg(pkg) => pkg.deps.keys().cloned().collect(),
+        };
+        let foreigns = Foreigns::new(
+            deps.iter()
+                .map(|dep| (dep.clone(), exposing(packages, dep, compat))),
+        );
+        let interfaces = names::visible(&interfaces(packages, compat), &deps);
+        let env = check::env_of(&root, &outline, compat, foreigns)
+            .unwrap()
+            .with_cwd(&root);
+        Project {
+            _temp: temp,
+            root,
+            outline,
+            env,
+            interfaces,
+        }
+    }
+}
+
+/// The paths `elm make` is given among a case's arguments.
+fn paths(case: &Case) -> Vec<PathBuf> {
+    (case.args[1..].iter())
+        .filter(|a| !a.starts_with("--"))
+        .map(PathBuf::from)
+        .collect()
+}
+
+/// What `elm make` optimizes of `case`, built as [`run`] builds it: each
+/// module's graph, by name, as `compat` writes it to `<Module>.elmo`; or
+/// why there is none.
+pub fn optimized(
+    case: &Case,
+    compat: Compat,
+    default_elm_json: &str,
+    packages: &Path,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let project = Project::new(case, compat, default_elm_json, packages);
+    let (checked, graphs) = check::optimize(
+        &Vfs::new().snapshot(),
+        &project.env,
+        &project.outline,
+        &paths(case),
+        Personality::Elm,
+        &project.interfaces,
+    );
+    if !matches!(checked, check::Checked::Fine) {
+        let mut console = Captured::default();
+        check::show(
+            &mut console,
+            &project.root,
+            &checked,
+            compat,
+            Style::Terminal,
+        );
+        return Err(console.err);
+    }
+    Ok((graphs.into_iter())
+        .map(|(name, graph)| {
+            let bytes = nomi_compiler::optimized::binary::encode_local_graph(&graph, compat);
+            (name.to_string(), bytes)
+        })
+        .collect())
+}
+
 fn build(
     case: &Case,
     compat: Compat,
@@ -86,49 +174,31 @@ fn build(
     packages: &Path,
     docs: bool,
 ) -> (String, String, Option<String>) {
-    let temp = tempfile::tempdir().unwrap();
-    let root = padded(temp.path());
-    case.create_files(&root).unwrap();
-    date_files(&root, case);
-    let manifest = root.join("elm.json");
-    let text = fs::read_to_string(&manifest).unwrap_or_else(|_| default_elm_json.to_owned());
-    let text = with_elm_version(&text, compat);
-    fs::write(&manifest, &text).unwrap();
-    let outline = Outline::decode(text.as_bytes(), compat).expect("a good elm.json");
-    let deps: Vec<Name> = match &outline {
-        Outline::App(app) => app.direct.keys().cloned().collect(),
-        Outline::Pkg(pkg) => pkg.deps.keys().cloned().collect(),
-    };
-    let foreigns = Foreigns::new(
-        deps.iter()
-            .map(|dep| (dep.clone(), exposing(packages, dep, compat))),
+    let project = Project::new(case, compat, default_elm_json, packages);
+    let (root, outline, env, interfaces) = (
+        &project.root,
+        &project.outline,
+        &project.env,
+        &project.interfaces,
     );
-    let interfaces = names::visible(&interfaces(packages, compat), &deps);
-    let env = check::env_of(&root, &outline, compat, foreigns)
-        .unwrap()
-        .with_cwd(&root);
     let snapshot = Vfs::new().snapshot();
     let (checked, written) = if docs {
-        check::docs(&snapshot, &env, &outline, Personality::Elm, &interfaces)
+        check::docs(&snapshot, env, outline, Personality::Elm, interfaces)
     } else {
-        let paths: Vec<PathBuf> = (case.args[1..].iter())
-            .filter(|a| !a.starts_with("--"))
-            .map(PathBuf::from)
-            .collect();
         let checked = check::check(
             &snapshot,
-            &env,
-            &outline,
-            &paths,
+            env,
+            outline,
+            &paths(case),
             Personality::Elm,
-            &interfaces,
+            interfaces,
         );
         (checked, None)
     };
     let root_text = root.to_str().unwrap().to_owned();
     let [json, stderr] = [Style::Json, Style::Terminal].map(|style| {
         let mut console = Captured::default();
-        check::show(&mut console, &root, &checked, compat, style);
+        check::show(&mut console, root, &checked, compat, style);
         console.err.replace(&root_text, "$ROOT")
     });
     (json, stderr, written)

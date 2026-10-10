@@ -12,6 +12,7 @@ use nomi_base::diagnostic::doc::{Color, reflow, text, vcat};
 use nomi_base::diagnostic::json;
 use nomi_base::{Compat, Report};
 use nomi_compiler::interface::Interface;
+use nomi_compiler::optimized::LocalGraph;
 use nomi_project::{ModuleName, Name, Outline};
 use nomi_registry::{Http, Store, details, report as registry_report};
 
@@ -20,6 +21,7 @@ use crate::console::{self, Console, Personality};
 use crate::graph::{Env, Foreigns, Graph, Owner};
 use crate::install::{details_problem, one_line};
 use crate::make::{self, Make};
+use crate::names::Goals;
 use crate::paths::Cache;
 use crate::project::Project;
 use crate::report::{self, ModuleErrors};
@@ -92,7 +94,7 @@ pub fn check_with(
         personality,
         packages,
         artifacts,
-        false,
+        Goal::Check,
     );
     (built.checked, built.ran)
 }
@@ -116,7 +118,7 @@ pub fn make_with(
         personality,
         packages,
         artifacts,
-        false,
+        Goal::Check,
     );
     (built.checked, built.mains)
 }
@@ -139,11 +141,21 @@ pub fn docs(
         personality,
         packages,
         None,
-        true,
+        Goal::Docs,
     );
     let json = matches!(built.checked, Checked::Fine)
         .then(|| nomi_compiler::docs::encode(env.compat(), &built.docs));
     (built.checked, json)
+}
+
+/// What [`build`] makes beyond the problems.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Goal {
+    Check,
+    /// A package's exposed modules' documentation.
+    Docs,
+    /// Every module's optimized graph.
+    Optimize,
 }
 
 /// What [`build`] found and made.
@@ -154,6 +166,7 @@ struct Built {
     docs: Vec<nomi_compiler::docs::Module>,
     /// The roots, and whether each defines `main`.
     mains: Vec<(ModuleName, bool)>,
+    optimized: Vec<(ModuleName, LocalGraph)>,
 }
 
 impl Built {
@@ -163,11 +176,35 @@ impl Built {
             ran: Vec::new(),
             docs: Vec::new(),
             mains: Vec::new(),
+            optimized: Vec::new(),
         }
     }
 }
 
-/// [`check_with`], documenting a package's exposed modules if `docs`.
+/// What `elm make` optimizes of the project `env` describes, building
+/// as [`check`] does: each module's graph, when nothing was wrong.
+pub fn optimize(
+    snapshot: &Snapshot,
+    env: &Env,
+    outline: &Outline,
+    paths: &[PathBuf],
+    personality: Personality,
+    packages: &HashMap<String, Interface>,
+) -> (Checked, Vec<(ModuleName, LocalGraph)>) {
+    let built = build(
+        snapshot,
+        env,
+        outline,
+        paths,
+        personality,
+        packages,
+        None,
+        Goal::Optimize,
+    );
+    (built.checked, built.optimized)
+}
+
+/// [`check_with`], making what `goal` asks for too.
 #[allow(clippy::too_many_arguments)]
 fn build(
     snapshot: &Snapshot,
@@ -177,7 +214,7 @@ fn build(
     personality: Personality,
     packages: &HashMap<String, Interface>,
     artifacts: Option<&Artifacts>,
-    docs: bool,
+    goal: Goal,
 ) -> Built {
     let exposed: Vec<ModuleName> = match outline {
         Outline::Pkg(pkg) => pkg.exposed.modules().cloned().collect(),
@@ -208,12 +245,16 @@ fn build(
     }
     let earlier = report::module_errors(env, &graph);
     let failed: HashSet<PathBuf> = earlier.iter().map(|m| m.path.clone()).collect();
-    let documented: &[ModuleName] = if docs && paths.is_empty() {
+    let documented: &[ModuleName] = if goal == Goal::Docs && paths.is_empty() {
         &exposed
     } else {
         &[]
     };
-    let later = names::check_graph(env, &graph, packages, &failed, artifacts, documented);
+    let goals = Goals {
+        documented,
+        optimize: goal == Goal::Optimize,
+    };
+    let later = names::check_graph(env, &graph, packages, &failed, artifacts, goals);
     let modules = report::module_errors_with(env, &graph, &later.problems);
     let checked = if modules.is_empty() {
         Checked::Fine
@@ -225,6 +266,7 @@ fn build(
         ran: later.ran,
         docs: later.docs,
         mains: graph.root_mains(),
+        optimized: later.optimized,
     }
 }
 
