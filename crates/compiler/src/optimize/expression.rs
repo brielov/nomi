@@ -8,8 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use nomi_base::{Compat, TextRange};
 
-use super::literal;
 use super::names::{self, Tracker};
+use super::{case, literal};
 use crate::canonical::{self, CtorOpts, Def as CDef, ExprKind, PatternKind};
 use crate::optimized::{Def, Destructor, Expr, Path, Region};
 
@@ -121,12 +121,14 @@ fn optimize_(cx: &Context, t: &mut Tracker, cycle: &Cycle, expr: &canonical::Exp
                 Box::new(wrap(destructors, body)),
             )
         }
-        ExprKind::Case(subject, _) => {
-            // Decision trees come with plan 8.2; until then a case is its
-            // subject alone, which never matches elm's graph.
-            let _ = t.generate();
-            optimize(cx, t, cycle, subject)
-        }
+        ExprKind::Case(subject, branches) => optimize_case(
+            cx,
+            t,
+            subject,
+            branches,
+            |cx, t, b| optimize(cx, t, cycle, b),
+            cycle,
+        ),
         ExprKind::Accessor(field) => {
             t.field(field);
             Expr::Accessor(field.clone())
@@ -477,7 +479,49 @@ fn optimize_tail(
                 Box::new(wrap(destructors, body)),
             )
         }
+        ExprKind::Case(subject, branches) => optimize_case(
+            cx,
+            t,
+            subject,
+            branches,
+            |cx, t, b| optimize_tail(cx, t, cycle, root, args, b),
+            cycle,
+        ),
         _ => optimize(cx, t, cycle, expr),
+    }
+}
+
+/// A `case`: a name for it, its subject, then each branch's destructors
+/// and body, `body` optimizing those. A subject that isn't a variable is
+/// bound to the generated name first.
+fn optimize_case(
+    cx: &Context,
+    t: &mut Tracker,
+    subject: &canonical::Expr,
+    branches: &[(canonical::Pattern, canonical::Expr)],
+    mut body: impl FnMut(&Context, &mut Tracker, &canonical::Expr) -> Expr,
+    cycle: &Cycle,
+) -> Expr {
+    let temp = t.generate();
+    let subject = optimize(cx, t, cycle, subject);
+    let root = match &subject {
+        Expr::VarLocal(root) => root.clone(),
+        _ => temp.clone(),
+    };
+    let branches: Vec<(canonical::Pattern, Expr)> = (branches.iter())
+        .map(|(pattern, branch)| {
+            let mut destructors = Vec::new();
+            destruct_help(cx, t, Path::Root(root.clone()), pattern, &mut destructors);
+            let branch = body(cx, t, branch);
+            (pattern.clone(), wrap(destructors, branch))
+        })
+        .collect();
+    match subject {
+        Expr::VarLocal(_) => case::optimize(cx.compat, temp, root, branches),
+        _ => Expr::Let(
+            Box::new(Def::Def(temp.clone(), subject)),
+            Box::new(case::optimize(cx.compat, temp.clone(), temp, branches)),
+        ),
     }
 }
 

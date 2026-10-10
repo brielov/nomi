@@ -3,6 +3,7 @@
 //! Each top-level definition is optimized on its own, its generated names
 //! counted from `_v0`, and a group of mutually recursive ones together.
 
+mod case;
 mod expression;
 mod literal;
 mod names;

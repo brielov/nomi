@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **8.2**.
+4. Resume at the first unchecked box. Right now that is **8.3**.
 
 ### Test tiers
 
@@ -464,7 +464,9 @@ The optimizer's oracle is elm's own artifacts: every elm writes a module's optim
 - [x] **8.1c** `compiler: optimize modules and expressions`. The declarations of `Optimize/Module.hs` (unions, aliases, values, cycles and `main`), `Optimize/Names.hs`, and `Optimize/Expression.hs` short of `case`: literals as each release keeps them, variables, calls, functions, records, tuples, `if`, `let`s, destructuring, tail calls and `Debug`. **Check:** the ratchet's cases built from those alone.
 
   Done: `optimize::module` builds a module's graph as `Optimize/Module.hs` does, each top-level definition with a tracker of its own (`optimize::names`) and a cycle with one for all of it, and `optimize::expression` ports `Optimize/Expression.hs` in upstream's order of effects, which decides the generated names; a `case` is a placeholder until 8.2, and a program's flags decoder waits for 8.3. The engine passes each `Debug` value's region as the release keeps it. The ratchet `optimized_graphs` passes 24 of 45: every module but those with a `case`, ports, or flags. 8.1d, split off to keep the step small, came along within the limit and is folded back in. Surprises: string literals are kept JavaScript-ready, 0.19.1 keeping the escapes as written and later releases writing every escape, quote and multi-line newline as `\uXXXX`, with `\u{FFFF}` itself as a surrogate pair (`optimize::literal`); 0.19.3 names a kernel's global `#0`, not `$`; and 0.19.1's parser keeps a record pattern's fields last first, which orders its destructors.
-- [ ] **8.2** `compiler: decision trees`. `Optimize/DecisionTree.hs` and `Case.hs`. **Check:** the ratchet's `case` cases.
+- [x] **8.2** `compiler: decision trees`. `Optimize/DecisionTree.hs` and `Case.hs`. **Check:** the ratchet's `case` cases.
+
+  Done: `optimize::case` ports `Optimize/DecisionTree.hs` and `Optimize/Case.hs`: patterns flattened, the path picked by fewest defaults then fewest edges, edges and fallbacks gathered, the tree turned into chains and fan-outs, and each branch inlined where one leaf reaches it and jumped to otherwise. Upstream's orders are kept where they shape the tree: a test keeps the place it last appears at, and of tied paths the last found wins. Character and string tests compare the literals as the release keeps them, so in 0.19.1 `'a'` and `'\u{0061}'` are different tests. The ratchet passes 39 of 45, every module with a `case` among them, `Debug.todo` in a branch and tail calls through cases included; the six left are the two programs whose `main` takes flags.
 - [ ] **8.3** `compiler: ports, effect managers and modules`. `Optimize/Port.hs` and `Optimize/Module.hs`. **Check:** the ratchet at 100%.
 - [ ] **8.4** `codegen-js: kernel chunk parser` (`Elm/Kernel.hs`).
 - [ ] **8.4a** `oracle: corpus optimized graphs`. Every corpus package's graph, as `o.dat` holds it, and every corpus app module's `.elmo`, for each Compat. **Check:** byte-identical across the corpus.
