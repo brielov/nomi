@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **6.2a**.
+4. Resume at the first unchecked box. Right now that is **6.3**.
 
 ### Test tiers
 
@@ -371,7 +371,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 - [x] **6.2** `compiler: unification`. Covers the super types (number, comparable, appendable, compappend) and records, and keeps aliases for messages.
 
   Done: `types::unify` ports `Unify.hs` with the occurs check of `Occurs.hs`. Upstream's continuation style becomes `Result` and `?`, which stops at the same steps; where upstream goes on past a failure (the other arguments of a type or an alias, the other fields of a record), so does nomi before the whole fails. A mismatch makes both variables an error, which then unifies with anything, so one mistake shows once. The three releases unify alike: 0.19.3 only splits tuples into pairs and triples.
-- [ ] **6.2a** `compiler: canonical expressions`. Canonicalization builds upstream's `Can.Expr`, patterns and declarations (`Let` and `LetRec` from the cycle check, operator trees from the stepper, constructors with their unions), which constraints read; until now it only checked them.
+- [x] **6.2a** `compiler: canonical expressions`. Canonicalization builds upstream's `Can.Expr`, patterns and declarations (`Let` and `LetRec` from the cycle check, operator trees from the stepper, constructors with their unions), which constraints read; until now it only checked them.
+
+  Done: canonicalization returns upstream's tree (`canonical::Expr`, `Pattern`, `Def`, `Decl`) without changing what it checks or the order it reports in. Variables come back as upstream resolves them, `Debug`'s by the module using them and kernel values in kernel packages. Constructors carry their type, operator chains become trees whose regions run from the left operand to the right, and `True` and `False` patterns become `Bool`. The `let` check nests `Let`, `LetRec` and `LetDestruct` at the `let`'s region, a recursive group's functions last first as upstream gathers them, and the top-level check gives the declarations in dependency order. A shader's inputs are read from its top-level declarations: upstream takes them from language-glsl's tree, and the syntax crate's GLSL port only recognizes. Deep trees drop on grown stacks.
 - [ ] **6.3** `compiler: constraints for expressions`, in upstream's order.
 - [ ] **6.4** `compiler: constraints for patterns`.
 - [ ] **6.5** `compiler: annotations, rigid variables and module constraints`.

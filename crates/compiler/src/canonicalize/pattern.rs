@@ -10,7 +10,8 @@ use nomi_base::TextRange;
 use super::dups::Dict;
 use super::env::{CtorInfo, Env};
 use super::error::{ArityContext, DuplicatePatternContext, Error, R, both, throw};
-use crate::hir::{self, PatId, Pattern};
+use crate::canonical::{Pattern, PatternCtorArg, PatternKind};
+use crate::hir::{self, PatId};
 
 /// The names a pattern binds so far (`Pattern.DupsDict`).
 pub type Bindings = Dict<TextRange>;
@@ -48,90 +49,137 @@ pub fn canonicalize(
     module: &hir::Module,
     id: PatId,
     bindings: &mut Bindings,
-) -> R<()> {
+) -> R<Pattern> {
     stacker::maybe_grow(128 * 1024, 2 * 1024 * 1024, || {
         canonicalize_(env, module, id, bindings)
     })
 }
 
-fn canonicalize_(env: &Env<'_>, module: &hir::Module, id: PatId, bindings: &mut Bindings) -> R<()> {
+/// Each of `ids`, all of them even past an error.
+pub fn each(
+    env: &Env<'_>,
+    module: &hir::Module,
+    ids: &[PatId],
+    bindings: &mut Bindings,
+) -> R<Vec<Pattern>> {
+    let mut result = Ok(Vec::new());
+    for &id in ids {
+        let pattern = canonicalize(env, module, id, bindings);
+        result = both(result, pattern).map(|(mut done, p)| {
+            done.push(p);
+            done
+        });
+    }
+    result
+}
+
+fn canonicalize_(
+    env: &Env<'_>,
+    module: &hir::Module,
+    id: PatId,
+    bindings: &mut Bindings,
+) -> R<Pattern> {
     let region = range(module, id);
-    match &module.patterns[id] {
-        Pattern::Missing
-        | Pattern::Anything
-        | Pattern::Unit
-        | Pattern::Chr(_)
-        | Pattern::Str(_)
-        | Pattern::Int(_) => Ok(()),
-        Pattern::Var(name) => {
+    let kind = match &module.patterns[id] {
+        // A module with syntax errors canonicalizes for the editor only.
+        hir::Pattern::Missing | hir::Pattern::Anything => PatternKind::Anything,
+        hir::Pattern::Unit => PatternKind::Unit,
+        hir::Pattern::Chr(text) => PatternKind::Chr(text.clone()),
+        hir::Pattern::Str(text) => PatternKind::Str(text.clone()),
+        hir::Pattern::Int(text) => PatternKind::Int(super::expr::int_value(text)),
+        hir::Pattern::Var(name) => {
             bindings.insert(env.compat, name, region, region);
-            Ok(())
+            PatternKind::Var(name.clone())
         }
-        Pattern::Record(fields) => {
+        hir::Pattern::Record(fields) => {
             // `logFields` adds them last first.
             for field in fields.iter().rev() {
                 bindings.insert(env.compat, &field.text, field.range, field.range);
             }
-            Ok(())
+            PatternKind::Record(fields.iter().map(|f| f.text.clone()).collect())
         }
-        Pattern::Tuple(items) => {
+        hir::Pattern::Tuple(items) => {
             let a = canonicalize(env, module, items[0], bindings);
             let b = canonicalize(env, module, items[1], bindings);
             let rest = match &items[2..] {
-                [] => Ok(()),
-                [c] => canonicalize(env, module, *c, bindings),
+                [] => Ok(None),
+                [c] => canonicalize(env, module, *c, bindings).map(Some),
                 _ => throw(Error::TupleLargerThanThree { range: region }),
             };
-            both(both(a, b), rest).map(|_| ())
+            let ((a, b), c) = both(both(a, b), rest)?;
+            PatternKind::Tuple(Box::new(a), Box::new(b), c.map(Box::new))
         }
-        Pattern::Ctor {
+        hir::Pattern::Ctor {
             qualifier,
             name,
             args,
         } => {
             let ctor = env.find_ctor(name.range, qualifier.as_deref(), &name.text)?;
             match ctor {
-                CtorInfo::Ctor { args: types, .. } => {
-                    if args.len() == types.len() {
-                        let mut result = Ok(());
-                        for &arg in args {
-                            let arg = canonicalize(env, module, arg, bindings);
-                            result = both(result, arg).map(|_| ());
-                        }
-                        result
-                    } else {
-                        throw(Error::BadArity {
+                CtorInfo::Ctor {
+                    home,
+                    union_name,
+                    union,
+                    index,
+                    args: types,
+                } => {
+                    if args.len() != types.len() {
+                        return throw(Error::BadArity {
                             range: region,
                             context: ArityContext::Pattern,
                             name: name.text.clone(),
                             expected: types.len(),
                             actual: args.len(),
-                        })
+                        });
+                    }
+                    let mut result = Ok(Vec::new());
+                    for (i, (&arg, ty)) in args.iter().zip(types.iter()).enumerate() {
+                        let arg =
+                            canonicalize(env, module, arg, bindings).map(|arg| PatternCtorArg {
+                                index: i,
+                                ty: ty.clone(),
+                                arg,
+                            });
+                        result = both(result, arg).map(|(mut done, a)| {
+                            done.push(a);
+                            done
+                        });
+                    }
+                    let cargs = result?;
+                    if union_name == "Bool" && home.package == "elm/core" && home.module == "Basics"
+                    {
+                        PatternKind::Bool(union.clone().into_owned(), name.text == "True")
+                    } else {
+                        PatternKind::Ctor {
+                            home: home.clone(),
+                            type_name: union_name.clone(),
+                            union: union.clone().into_owned(),
+                            name: name.text.clone(),
+                            index: *index,
+                            args: cargs,
+                        }
                     }
                 }
-                CtorInfo::Record { .. } => throw(Error::PatternHasRecordCtor {
-                    range: region,
-                    name: name.text.clone(),
-                }),
+                CtorInfo::Record { .. } => {
+                    return throw(Error::PatternHasRecordCtor {
+                        range: region,
+                        name: name.text.clone(),
+                    });
+                }
             }
         }
-        Pattern::List(items) => {
-            let mut result = Ok(());
-            for &item in items {
-                let item = canonicalize(env, module, item, bindings);
-                result = both(result, item).map(|_| ());
-            }
-            result
-        }
-        Pattern::Cons(head, tail) => {
+        hir::Pattern::List(items) => PatternKind::List(each(env, module, items, bindings)?),
+        hir::Pattern::Cons(head, tail) => {
             let head = canonicalize(env, module, *head, bindings);
             let tail = canonicalize(env, module, *tail, bindings);
-            both(head, tail).map(|_| ())
+            let (head, tail) = both(head, tail)?;
+            PatternKind::Cons(Box::new(head), Box::new(tail))
         }
-        Pattern::Alias(inner, name) => {
-            canonicalize(env, module, *inner, bindings)?;
+        hir::Pattern::Alias(inner, name) => {
+            let inner = canonicalize(env, module, *inner, bindings)?;
             bindings.insert(env.compat, &name.text, name.range, name.range);
-            Ok(())
+            PatternKind::Alias(Box::new(inner), name.text.clone())
         }
-    }
+    };
+    Ok(Pattern { region, kind })
 }

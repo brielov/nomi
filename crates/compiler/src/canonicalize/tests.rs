@@ -65,6 +65,15 @@ fn interfaces() -> HashMap<String, Interface> {
             precedence: 6,
         },
     );
+    basics.binops.insert(
+        "*".to_owned(),
+        Binop {
+            function: "mul".to_owned(),
+            annotation: value(int()),
+            associativity: Associativity::Left,
+            precedence: 7,
+        },
+    );
     let mut list = core(&["map"], vec![("List", Union::Open(union(&["a"], &[])))]);
     list.binops.insert(
         "::".to_owned(),
@@ -544,5 +553,74 @@ fn references_record_what_each_name_resolved_to() {
             "+ -> Binop Basics.+",
             "identity -> Value Basics.identity",
         ]
+    );
+}
+
+#[test]
+fn canonicalization_builds_upstreams_tree() {
+    use crate::canonical::{Decl, Def as CDef, ExprKind};
+    let text = "module Main exposing (..)\n\nimport A exposing (T(..))\n\n\nf x =\n    let\n        a = 1 + 2 * x\n        g n = h n\n        h n = g n\n    in\n    ( a, C, g )\n";
+    let interfaces = interfaces();
+    let parse = parse_module(text);
+    let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
+    let canonical = super::module::canonicalize(
+        nomi_base::Compat::V0_19_1,
+        "author/project",
+        &interfaces,
+        &module,
+    )
+    .unwrap();
+    let [
+        Decl::Declare(CDef::Def {
+            name, params, body, ..
+        }),
+    ] = &canonical.decls[..]
+    else {
+        panic!("one declaration: {:?}", canonical.decls);
+    };
+    assert_eq!((name.as_str(), params.len()), ("f", 1));
+    // The functions that use each other are one `LetRec`, `a` its own
+    // `Let`, a binding before what uses it.
+    let mut kinds = Vec::new();
+    let mut at = body;
+    loop {
+        match &at.kind {
+            ExprKind::Let(def, rest) => {
+                kinds.push(format!("let {}", def.name()));
+                if def.name() == "a" {
+                    let CDef::Def { body, .. } = &**def else {
+                        panic!("untyped")
+                    };
+                    let ExprKind::Binop(op, _, function, _, left, right) = &body.kind else {
+                        panic!("an operator: {body:?}");
+                    };
+                    assert_eq!((op.as_str(), function.as_str()), ("+", "add"));
+                    assert!(matches!(left.kind, ExprKind::Int(1)));
+                    assert!(
+                        matches!(&right.kind, ExprKind::Binop(op, ..) if op == "*"),
+                        "{right:?}"
+                    );
+                }
+                at = rest;
+            }
+            ExprKind::LetRec(defs, rest) => {
+                let names: Vec<&str> = defs.iter().map(|d| d.name()).collect();
+                kinds.push(format!("rec {}", names.join(" ")));
+                at = rest;
+            }
+            ExprKind::Tuple(_, ctor, _) => {
+                assert!(
+                    matches!(&ctor.kind, ExprKind::VarCtor(_, home, name, 0, _) if home.module == "A" && name == "C"),
+                    "{ctor:?}"
+                );
+                break;
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    assert_eq!(kinds.len(), 2, "{kinds:?}");
+    assert!(
+        kinds.contains(&"let a".to_owned()) && kinds.iter().any(|k| k.starts_with("rec ")),
+        "{kinds:?}"
     );
 }

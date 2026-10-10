@@ -20,6 +20,7 @@ pub mod module;
 pub mod pattern;
 pub mod references;
 pub mod report;
+pub mod shader;
 pub mod types;
 
 /// How a release orders names, wherever an order shows: as bytes, and

@@ -18,7 +18,9 @@ use super::local::{self, Aliases, Unions};
 use super::pattern;
 use super::references::{Kind, Recorder, Reference};
 use super::types;
-use crate::canonical::{AliasType, Annotation, Associativity, Home, Type};
+use crate::canonical::{
+    AliasType, Annotation, Associativity, Decl as CDecl, Def as CDef, Home, Pattern, Type,
+};
 use crate::hir::{self, Def, Exposed, Exposing};
 use crate::interface::{self, Interface};
 
@@ -60,6 +62,8 @@ pub struct Canonical {
     pub annotations: BTreeMap<String, Annotation>,
     /// Every top-level value's name, a port module's ports included.
     pub values: Vec<String>,
+    /// The values, each before those that use it (`Can.Decls`).
+    pub decls: Vec<CDecl>,
 }
 
 /// The module's name, `Main` without a header.
@@ -132,15 +136,17 @@ fn canonicalize_into(
         .rev()
         .map(|&id| value(&env, module, id)))?;
     let nodes: Vec<ValueNode> = nodes.into_iter().flatten().collect();
-    let top = (nodes.iter())
+    let annotations = (nodes.iter())
+        .filter_map(|n| Some((n.name.clone(), n.annotation.clone()?)))
+        .collect();
+    let top = (nodes.into_iter())
         .map(|n| cycles::TopNode {
-            name: n.name.clone(),
-            range: n.range,
+            def: n.def,
             has_params: n.has_params,
-            free: n.free.clone(),
+            free: n.free,
         })
         .collect();
-    cycles::top_level(compat, top)?;
+    let decls = cycles::top_level(compat, top)?;
     effects::canonicalize(&env, module, &unions)?;
     // Ports are values too, which importers may use.
     let ports_annotated = (module.ports.iter())
@@ -151,9 +157,6 @@ fn canonicalize_into(
             ))
         })
         .collect::<R<Vec<_>>>()?;
-    let annotations = (nodes.iter())
-        .filter_map(|n| Some((n.name.clone(), n.annotation.clone()?)))
-        .collect();
     let values: Vec<String> = (module.values.iter())
         .filter_map(|&id| match &module.defs[id] {
             Def::Define { name, .. } => Some(name.text.clone()),
@@ -178,6 +181,7 @@ fn canonicalize_into(
         binops,
         annotations,
         values,
+        decls,
     })
 }
 
@@ -186,11 +190,11 @@ fn canonicalize_into(
 #[derive(Clone, Debug)]
 pub struct ValueNode {
     pub name: String,
-    pub range: TextRange,
     pub has_params: bool,
     pub annotation: Option<Annotation>,
     /// The locals and top-level values its body uses.
     pub free: FreeLocals,
+    pub def: CDef,
 }
 
 /// `toNodeOne`: a value canonicalized; none for a destructuring, which
@@ -206,7 +210,7 @@ fn value(env: &Env<'_>, module: &hir::Module, id: hir::DefId) -> R<Option<ValueN
     else {
         return Ok(None);
     };
-    let free = expr::definition(env, module, &name.text, params, *body, *annotation)?;
+    let (def, free) = expr::definition(env, module, name, params, *body, *annotation)?;
     // Canonicalized once more for the interface; it went through cleanly
     // above.
     let annotation = match annotation {
@@ -215,10 +219,10 @@ fn value(env: &Env<'_>, module: &hir::Module, id: hir::DefId) -> R<Option<ValueN
     };
     Ok(Some(ValueNode {
         name: name.text.clone(),
-        range: name.range,
         has_params: !params.is_empty(),
         annotation,
         free,
+        def,
     }))
 }
 
@@ -232,12 +236,14 @@ pub(super) fn typed_args(
     params: &[hir::PatId],
     ty: &Type,
     bindings: &mut pattern::Bindings,
-) -> R<()> {
+) -> R<(Vec<(Pattern, Type)>, Type)> {
     let mut ty = ty.clone();
+    let mut typed = Vec::with_capacity(params.len());
     for (index, &param) in params.iter().enumerate() {
         match dealias(ty) {
-            Type::Lambda(_, result) => {
-                pattern::canonicalize(env, module, param, bindings)?;
+            Type::Lambda(arg, result) => {
+                let pattern = pattern::canonicalize(env, module, param, bindings)?;
+                typed.push((pattern, *arg));
                 ty = *result;
             }
             _ => {
@@ -259,7 +265,7 @@ pub(super) fn typed_args(
             }
         }
     }
-    Ok(())
+    Ok((typed, ty))
 }
 
 /// `iteratedDealias`: what `ty` is under its aliases.

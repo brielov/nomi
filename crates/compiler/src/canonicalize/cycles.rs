@@ -11,13 +11,13 @@ use nomi_base::{Compat, TextRange};
 
 use super::error::{At, Error, R, all};
 use super::expr::{FreeLocals, LetBinding, LetNode};
+use crate::canonical::{Decl, Def, Expr, ExprKind};
 use crate::graph::{Scc, strongly_connected};
 
 /// A top-level value as the checks see it.
 #[derive(Clone, Debug)]
 pub struct TopNode {
-    pub name: String,
-    pub range: TextRange,
+    pub def: Def,
     pub has_params: bool,
     pub free: FreeLocals,
 }
@@ -33,18 +33,25 @@ fn keys(compat: Compat, free: &FreeLocals) -> Vec<String> {
 /// `detectCycles` over the module's values: components by every use,
 /// then within each cyclic one, components by direct uses alone, each of
 /// which must be acyclic. The first component with a bad cycle stops the
-/// rest.
-pub fn top_level(compat: Compat, nodes: Vec<TopNode>) -> R<()> {
+/// rest. The declarations, a value before those that use it.
+pub fn top_level(compat: Compat, nodes: Vec<TopNode>) -> R<Vec<Decl>> {
     let order = super::name_order(compat);
     let graph = (nodes.into_iter())
         .map(|node| {
             let edges = keys(compat, &node.free);
-            let name = node.name.clone();
+            let name = node.def.name().to_owned();
             (node, name, edges)
         })
         .collect();
+    let mut decls = Vec::new();
     for scc in strongly_connected(graph, |a: &String, b: &String| order(a, b)) {
-        let Scc::Cyclic(members) = scc else { continue };
+        let members = match scc {
+            Scc::Acyclic(node) => {
+                decls.push(Decl::Declare(node.def));
+                continue;
+            }
+            Scc::Cyclic(members) => members,
+        };
         let direct = (members.into_iter())
             .map(|node| {
                 // `toNodeTwo`: a function's uses wait until it is called.
@@ -57,37 +64,41 @@ pub fn top_level(compat: Compat, nodes: Vec<TopNode>) -> R<()> {
                         .collect();
                     keys(compat, &direct)
                 };
-                let name = node.name.clone();
+                let name = node.def.name().to_owned();
                 ((node, edges.clone()), name, edges)
             })
             .collect();
         let sccs = strongly_connected(direct, |a: &String, b: &String| order(a, b));
-        all(sccs.into_iter().map(|scc| bad_cycle(compat, scc)))?;
+        let mut defs = all(sccs.into_iter().map(|scc| bad_cycle(compat, scc)))?.into_iter();
+        if let Some(first) = defs.next() {
+            decls.push(Decl::DeclareRec(first, defs.collect()));
+        }
     }
-    Ok(())
+    Ok(decls)
 }
 
 /// `detectBadCycles`.
-fn bad_cycle(compat: Compat, scc: Scc<(TopNode, Vec<String>)>) -> R<()> {
-    let Scc::Cyclic(members) = scc else {
-        return Ok(());
+fn bad_cycle(compat: Compat, scc: Scc<(TopNode, Vec<String>)>) -> R<Def> {
+    let members = match scc {
+        Scc::Acyclic((node, _)) => return Ok(node.def),
+        Scc::Cyclic(members) => members,
     };
     let (root, _) = &members[0];
     let others = match compat {
-        Compat::V0_19_1 | Compat::V0_19_2 => {
-            members[1..].iter().map(|(n, _)| n.name.clone()).collect()
-        }
+        Compat::V0_19_1 | Compat::V0_19_2 => (members[1..].iter())
+            .map(|(n, _)| n.def.name().to_owned())
+            .collect(),
         Compat::V0_19_3 => {
             let keyed: Vec<(String, Vec<String>)> = members
                 .iter()
-                .map(|(n, edges)| (n.name.clone(), edges.clone()))
+                .map(|(n, edges)| (n.def.name().to_owned(), edges.clone()))
                 .collect();
             minimal_cycle(compat, &keyed)
         }
     };
     Err(vec![Error::RecursiveDecl {
-        range: root.range,
-        name: root.name.clone(),
+        range: root.def.region(),
+        name: root.def.name().to_owned(),
         others,
     }])
 }
@@ -148,8 +159,9 @@ fn minimal_cycle(compat: Compat, component: &[(String, Vec<String>)]) -> Vec<Str
 
 /// `detectCycles` over a `let`'s graph: every cyclic component must hold
 /// only functions; each that doesn't is reported, and the rest still
-/// checked.
-pub fn let_cycles(compat: Compat, nodes: Vec<LetNode>) -> R<()> {
+/// checked. The body under the bindings, each component a `let` at the
+/// `let`'s region, a binding before those that use it.
+pub fn let_cycles(compat: Compat, region: TextRange, nodes: Vec<LetNode>, body: Expr) -> R<Expr> {
     let order = super::name_order(compat);
     let graph = (nodes.into_iter())
         .map(|(binding, key, edges)| {
@@ -161,33 +173,51 @@ pub fn let_cycles(compat: Compat, nodes: Vec<LetNode>) -> R<()> {
         })
         .collect();
     let sccs = strongly_connected(graph, |a: &String, b: &String| order(a, b));
-    all(sccs.into_iter().map(|scc| match scc {
-        Scc::Acyclic(_) => Ok(()),
-        Scc::Cyclic(bindings) => check_cycle(compat, &bindings),
+    let steps = all(sccs.into_iter().map(|scc| match scc {
+        Scc::Acyclic((binding, _, _)) => Ok(Step::One(Box::new(binding))),
+        Scc::Cyclic(bindings) => check_cycle(compat, bindings).map(Step::Rec),
+    }))?;
+    let wrap = |kind| Expr { region, kind };
+    Ok(steps.into_iter().rev().fold(body, |body, step| match step {
+        Step::One(binding) => match *binding {
+            LetBinding::Define(def) => wrap(ExprKind::Let(Box::new(def), Box::new(body))),
+            LetBinding::Edge { .. } => body,
+            LetBinding::Destruct(pattern, expr) => wrap(ExprKind::LetDestruct(
+                pattern,
+                Box::new(expr),
+                Box::new(body),
+            )),
+        },
+        Step::Rec(defs) => wrap(ExprKind::LetRec(defs, Box::new(body))),
     }))
-    .map(|_| ())
+}
+
+/// A component of a `let`'s graph, checked.
+enum Step {
+    One(Box<LetBinding>),
+    Rec(Vec<Def>),
 }
 
 /// `checkCycle`: the first binding of the component that isn't a
-/// function is reported, with the others.
-fn check_cycle(compat: Compat, bindings: &[(LetBinding, String, Vec<String>)]) -> R<()> {
-    let mut defs: Vec<&str> = Vec::new();
+/// function is reported, with the others; or the functions, last first,
+/// as upstream gathers them.
+fn check_cycle(compat: Compat, bindings: Vec<(LetBinding, String, Vec<String>)>) -> R<Vec<Def>> {
+    let mut defs: Vec<Def> = Vec::new();
     for (i, (binding, _, _)) in bindings.iter().enumerate() {
         let name = match binding {
-            LetBinding::Define {
-                name,
-                range,
-                has_params: false,
-            }
-            | LetBinding::Edge { name, range } => At {
+            LetBinding::Define(def) if !has_params(def) => At {
+                name: def.name().to_owned(),
+                range: def.region(),
+            },
+            LetBinding::Edge { name, range } => At {
                 name: name.clone(),
                 range: *range,
             },
-            LetBinding::Define { name, .. } => {
-                defs.push(name);
+            LetBinding::Define(def) => {
+                defs.insert(0, def.clone());
                 continue;
             }
-            LetBinding::Destruct => continue,
+            LetBinding::Destruct(..) => continue,
         };
         let others = match compat {
             Compat::V0_19_1 | Compat::V0_19_2 => {
@@ -195,7 +225,7 @@ fn check_cycle(compat: Compat, bindings: &[(LetBinding, String, Vec<String>)]) -
                     .iter()
                     .filter_map(|(b, _, _)| binding_name(b))
                     .collect();
-                others.extend(defs.iter().map(|d| (*d).to_owned()));
+                others.extend(defs.iter().rev().map(|d| d.name().to_owned()));
                 others
             }
             Compat::V0_19_3 => {
@@ -214,13 +244,21 @@ fn check_cycle(compat: Compat, bindings: &[(LetBinding, String, Vec<String>)]) -
         };
         return Err(vec![Error::RecursiveLet { name, others }]);
     }
-    Ok(())
+    Ok(defs)
+}
+
+fn has_params(def: &Def) -> bool {
+    match def {
+        Def::Def { params, .. } => !params.is_empty(),
+        Def::TypedDef { params, .. } => !params.is_empty(),
+    }
 }
 
 /// `toName`.
 fn binding_name(binding: &LetBinding) -> Option<String> {
     match binding {
-        LetBinding::Define { name, .. } | LetBinding::Edge { name, .. } => Some(name.clone()),
-        LetBinding::Destruct => None,
+        LetBinding::Define(def) => Some(def.name().to_owned()),
+        LetBinding::Edge { name, .. } => Some(name.clone()),
+        LetBinding::Destruct(..) => None,
     }
 }
