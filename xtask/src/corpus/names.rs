@@ -26,19 +26,15 @@ use crate::oracle::cache_dir;
 /// Projects that fail as elm fails, each with why, by case.
 const EXPECTED: &str = "corpus/names/expected.tsv";
 
-struct Project {
-    case: String,
-    root: PathBuf,
-    outline: Outline,
-    paths: Vec<PathBuf>,
+pub(super) struct Project {
+    pub case: String,
+    pub root: PathBuf,
+    pub outline: Outline,
+    pub paths: Vec<PathBuf>,
 }
 
 pub fn check(root: &Path, only: Option<&str>) -> Result<()> {
     let classification = compat::load(root)?;
-    let corpus = corpus_dir()?;
-    let cache = cache_dir()?.join("nomi");
-    let store = Store::new(cache.join("packages"));
-    let http = Web::new();
     let mut failures: Vec<(String, String)> = Vec::new();
     let mut unavailable: Vec<String> = Vec::new();
     let mut checked = 0;
@@ -46,84 +42,11 @@ pub fn check(root: &Path, only: Option<&str>) -> Result<()> {
         let c = (Compat::ALL.into_iter())
             .find(|c| c.to_string() == *v)
             .with_context(|| format!("nomi doesn't emulate elm {v}"))?;
-        let mut projects = Vec::new();
-        for app in apps::load(root)?.app {
-            let text = compat::sandbox_manifest(&classification, &app, compat::Version::parse(v)?)?;
-            let outline =
-                Outline::read(text.as_bytes(), c).map_err(|e| anyhow!("{}: {e:?}", app.name))?;
-            projects.push(Project {
-                case: format!("app/{} on {c}", app.name),
-                root: apps::app_dir(&corpus, &app).join(&app.root),
-                outline,
-                paths: app.entries.iter().map(PathBuf::from).collect(),
-            });
-        }
-        for package in packages::load(root)?.packages {
-            let excluded = (classification.package.iter())
-                .find(|p| p.name == package.name && p.version == package.version)
-                .is_some_and(|p| !p.admits.contains(v));
-            if excluded {
-                continue;
-            }
-            let dir = packages::package_dir(&corpus, &package);
-            let Ok(bytes) = std::fs::read(dir.join("elm.json")) else {
-                continue;
-            };
-            let Ok(outline) = Outline::read(&bytes, c) else {
-                continue;
-            };
-            projects.push(Project {
-                case: format!("{}@{} on {c}", package.name, package.version),
-                root: dir,
-                outline,
-                paths: Vec::new(),
-            });
-        }
-        projects.retain(|p| only.is_none_or(|only| p.case.contains(only)));
-        let (index, connection) = Index::latest(&http, &cache.join("registry").join("index"), c)
-            .map_err(|e| anyhow!("loading the index: {e:?}"))?;
-        let mut registry = Registry::new(
-            index,
-            connection,
-            &store,
-            cache.join("registry").join("metadata"),
-            &http,
-            c,
-        );
-        // Each project's releases, solved and downloaded.
-        let mut solved = Vec::new();
-        for project in projects {
-            let solution = match details::verify(&mut registry, c, &project.outline) {
-                Ok(solution) => solution,
-                Err(e) => {
-                    checked += 1;
-                    failures.push((project.case.clone(), format!("dependencies: {e:?}")));
-                    continue;
-                }
-            };
-            let releases: Vec<_> = solution
-                .iter()
-                .map(|(n, d)| (n.clone(), d.version))
-                .collect();
-            let dirs = parallel(&releases, |(name, version)| {
-                store.fetch(&http, name, *version, c)
-            });
-            let mut sources = Vec::new();
-            let mut missing = None;
-            for ((name, version), dir) in releases.iter().zip(dirs) {
-                match dir {
-                    Ok(dir) => sources.push((name.clone(), dir)),
-                    Err(e) => missing = Some(format!("{name} {version}: {e:?}")),
-                }
-            }
-            // A release the registry no longer serves as it published it
-            // stops elm as it stops nomi: nothing to compare.
-            if let Some(why) = missing {
-                unavailable.push(format!("{}: {why}", project.case));
-                continue;
-            }
-            solved.push((project, sources));
-        }
+        let solving = solve(root, &classification, c, v, only, true)?;
+        checked += solving.failures.len();
+        failures.extend(solving.failures);
+        unavailable.extend(solving.unavailable);
+        let solved = solving.solved;
         // A chunk at a time: interfaces made, projects checked, then
         // dropped, so only the packages' own interfaces stay in memory.
         let mut memo = HashMap::new();
@@ -258,4 +181,119 @@ fn run(
             .collect::<Vec<_>>()
             .join("; ")),
     }
+}
+
+/// Corpus projects, each with its dependencies' sources.
+pub(super) struct Solving {
+    pub solved: Vec<(Project, Vec<(Name, PathBuf)>)>,
+    /// Projects whose dependencies have no solution, with why.
+    pub failures: Vec<(String, String)>,
+    /// Projects a release the registry no longer serves stops.
+    pub unavailable: Vec<String>,
+}
+
+/// The corpus projects `c` (the elm release `v`) accepts whose case
+/// contains `only`, apps too if `apps`, each with its dependencies solved
+/// and downloaded into the development cache.
+pub(super) fn solve(
+    root: &Path,
+    classification: &compat::Classification,
+    c: Compat,
+    v: &str,
+    only: Option<&str>,
+    apps: bool,
+) -> Result<Solving> {
+    let corpus = corpus_dir()?;
+    let cache = cache_dir()?.join("nomi");
+    let store = Store::new(cache.join("packages"));
+    let http = Web::new();
+    let mut failures = Vec::new();
+    let mut unavailable = Vec::new();
+    let mut projects = Vec::new();
+    let apps = if apps {
+        apps::load(root)?.app
+    } else {
+        Vec::new()
+    };
+    for app in apps {
+        let text = compat::sandbox_manifest(classification, &app, compat::Version::parse(v)?)?;
+        let outline =
+            Outline::read(text.as_bytes(), c).map_err(|e| anyhow!("{}: {e:?}", app.name))?;
+        projects.push(Project {
+            case: format!("app/{} on {c}", app.name),
+            root: apps::app_dir(&corpus, &app).join(&app.root),
+            outline,
+            paths: app.entries.iter().map(PathBuf::from).collect(),
+        });
+    }
+    for package in packages::load(root)?.packages {
+        let excluded = (classification.package.iter())
+            .find(|p| p.name == package.name && p.version == package.version)
+            .is_some_and(|p| !p.admits.iter().any(|a| a == v));
+        if excluded {
+            continue;
+        }
+        let dir = packages::package_dir(&corpus, &package);
+        let Ok(bytes) = std::fs::read(dir.join("elm.json")) else {
+            continue;
+        };
+        let Ok(outline) = Outline::read(&bytes, c) else {
+            continue;
+        };
+        projects.push(Project {
+            case: format!("{}@{} on {c}", package.name, package.version),
+            root: dir,
+            outline,
+            paths: Vec::new(),
+        });
+    }
+    projects.retain(|p| only.is_none_or(|only| p.case.contains(only)));
+    let (index, connection) = Index::latest(&http, &cache.join("registry").join("index"), c)
+        .map_err(|e| anyhow!("loading the index: {e:?}"))?;
+    let mut registry = Registry::new(
+        index,
+        connection,
+        &store,
+        cache.join("registry").join("metadata"),
+        &http,
+        c,
+    );
+    // Each project's releases, solved and downloaded.
+    let mut solved = Vec::new();
+    for project in projects {
+        let solution = match details::verify(&mut registry, c, &project.outline) {
+            Ok(solution) => solution,
+            Err(e) => {
+                failures.push((project.case.clone(), format!("dependencies: {e:?}")));
+                continue;
+            }
+        };
+        let releases: Vec<_> = solution
+            .iter()
+            .map(|(n, d)| (n.clone(), d.version))
+            .collect();
+        let dirs = parallel(&releases, |(name, version)| {
+            store.fetch(&http, name, *version, c)
+        });
+        let mut sources = Vec::new();
+        let mut missing = None;
+        for ((name, version), dir) in releases.iter().zip(dirs) {
+            match dir {
+                Ok(dir) => sources.push((name.clone(), dir)),
+                Err(e) => missing = Some(format!("{name} {version}: {e:?}")),
+            }
+        }
+        // A release the registry no longer serves as it published it
+        // stops elm as it stops nomi: nothing to compare.
+        if let Some(why) = missing {
+            unavailable.push(format!("{}: {why}", project.case));
+            continue;
+        }
+        solved.push((project, sources));
+    }
+    Ok(Solving {
+        solved,
+        failures,
+        unavailable,
+    })
 }

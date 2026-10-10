@@ -1,6 +1,7 @@
 //! `cargo xtask oracle`: the pinned upstream tools that parity is measured
 //! against, installed under the development cache and never on `PATH`.
 
+pub mod corpus_docs;
 pub mod format;
 pub mod modules;
 pub mod names;

@@ -311,33 +311,61 @@ fn dependencies(root: &Path) -> Result<Vec<packages::Package>> {
         .collect()
 }
 
-/// A registry listing exactly `pinned`. 0.19.1 and 0.19.2 store it with
-/// Haskell's `Data.Binary` (big-endian `Int64` counts); 0.19.3 switched to
-/// its own encoding (little-endian, `Int64` count and `Word32` lengths).
+/// A registry listing exactly `pinned`.
 fn registry(compat: Version, pinned: &[packages::Package]) -> Vec<u8> {
+    let releases: Vec<(&str, Version)> = (pinned.iter())
+        .map(|p| {
+            (
+                p.name.as_str(),
+                Version::parse(&p.version).expect("a pinned version"),
+            )
+        })
+        .collect();
+    registry_of(compat, &releases)
+}
+
+/// A registry listing exactly `releases`, each package's newest version
+/// first. 0.19.1 and 0.19.2 store it with Haskell's `Data.Binary`
+/// (big-endian `Int64` counts); 0.19.3 switched to its own encoding
+/// (little-endian, `Int64` count and `Word32` lengths). Both read the
+/// packages in ascending order of author, then project.
+pub fn registry_of(compat: Version, releases: &[(&str, Version)]) -> Vec<u8> {
     let legacy = compat < Version::parse("0.19.3").expect("a version");
-    let count = pinned.len() as u64;
+    let mut packages: std::collections::BTreeMap<(&str, &str), Vec<Version>> =
+        std::collections::BTreeMap::new();
+    for (name, version) in releases {
+        let (author, project) = name.split_once('/').expect("author/project");
+        packages
+            .entry((author, project))
+            .or_default()
+            .push(*version);
+    }
+    let count = releases.len() as u64;
     let mut out = Vec::new();
+    let length = |out: &mut Vec<u8>, n: usize| {
+        if legacy {
+            out.extend((n as u64).to_be_bytes());
+        } else {
+            out.extend((n as u32).to_le_bytes());
+        }
+    };
     if legacy {
-        out.extend(count.to_be_bytes());
         out.extend(count.to_be_bytes());
     } else {
         out.extend(count.to_le_bytes());
-        out.extend((count as u32).to_le_bytes());
     }
-    for package in pinned {
-        let (author, project) = package.name.split_once('/').expect("author/project");
+    length(&mut out, packages.len());
+    for ((author, project), mut versions) in packages {
         for part in [author, project] {
             out.push(part.len() as u8);
             out.extend(part.as_bytes());
         }
-        let version = Version::parse(&package.version).expect("a pinned version");
-        out.extend(version.parts().map(|n| n as u8));
-        // No other versions.
-        if legacy {
-            out.extend(0u64.to_be_bytes());
-        } else {
-            out.extend(0u32.to_le_bytes());
+        versions.sort_by(|a, b| b.cmp(a));
+        versions.dedup();
+        out.extend(versions[0].parts().map(|n| n as u8));
+        length(&mut out, versions.len() - 1);
+        for version in &versions[1..] {
+            out.extend(version.parts().map(|n| n as u8));
         }
     }
     out
