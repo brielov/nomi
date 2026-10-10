@@ -49,6 +49,18 @@ fn elm_format_transcripts() {
             .run(Command::new(&elm_format), work.path())
             .unwrap()
             .render();
+        // The transcripts were recorded on Linux; Windows separates the
+        // paths of the files a directory holds with `\`.
+        let actual = if cfg!(windows) {
+            (actual.split_inclusive('\n'))
+                .map(|line| match line.strip_prefix("|Processing file ") {
+                    Some(path) => format!("|Processing file {}", path.replace('\\', "/")),
+                    None => line.to_owned(),
+                })
+                .collect()
+        } else {
+            actual
+        };
         if actual != expected {
             failures.push(format!(
                 "{name}:\n--- expected\n{expected}--- actual\n{actual}"
