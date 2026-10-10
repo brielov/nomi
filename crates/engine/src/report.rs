@@ -702,6 +702,37 @@ pub fn missing_exposed(graph: &Graph, exposed: &[ModuleName]) -> Option<Report> 
     })
 }
 
+/// `GenerateCannotOptimizeDebugValues`: `--optimize` refusing the modules
+/// that use `Debug` (plan 7.2). Only generating code checks this, so
+/// `elm make --output=/dev/null` never reports it; codegen (M8) will.
+pub fn debug_remnants(modules: &[ModuleName]) -> Report {
+    Report::new(
+        "DEBUG REMNANTS",
+        None,
+        "There are uses of the `Debug` module in the following modules:",
+        [
+            vcat(modules.iter().map(|m| text(m.to_string())))
+                .color(Color::Red)
+                .indent(4),
+            reflow("But the --optimize flag only works if all `Debug` functions are removed!"),
+            simple_note(
+                "The issue is that --optimize strips out info needed by `Debug` functions. Here are two examples:",
+            ),
+            reflow(
+                "(1) It shortens record field names. This makes the generated JavaScript is smaller, but `Debug.toString` cannot know the real field names anymore.",
+            )
+            .indent(4),
+            reflow(
+                "(2) Values like `type Height = Height Float` are unboxed. This reduces allocation, but it also means that `Debug.toString` cannot tell if it is looking at a `Height` or `Float` value.",
+            )
+            .indent(4),
+            reflow(
+                "There are a few other cases like that, and it will be much worse once we start inlining code. That optimization could move `Debug.log` and `Debug.todo` calls, resulting in unpredictable behavior. I hope that clarifies why this restriction exists!",
+            ),
+        ],
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use nomi_base::diagnostic::render::{self, Styles};

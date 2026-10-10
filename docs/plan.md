@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **7.2**.
+4. Resume at the first unchecked box. Right now that is **7.3**.
 
 ### Test tiers
 
@@ -424,7 +424,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 - [x] **7.1** `compiler: exhaustiveness and redundancy`. A port of `Nitpick/PatternMatches.hs` and its reports.
 
   Done: `nitpick::patterns` ports `PatternMatches.hs` (Maranget's usefulness and exhaustiveness over a pattern matrix) and `nitpick::report` its reports, run after a clean type check as upstream's `nitpick` is. Upstream gathers errors by prepending through nested folds; nomi keeps the list reversed and visits in the same nesting order, so errors come out in upstream's order. Its reports keep upstream's quirk of printing a finite list's entries reversed, and 0.19.2 corrected the spelling of "possibilities". `cargo xtask oracle patterns` records 22 curated cases, and the ratchet `patterns_reports` passes all 66 runs.
-- [ ] **7.2** `compiler: Debug check for --optimize`.
+- [x] **7.2** `compiler: Debug check for --optimize`.
+
+  Done: `nitpick::debug::has_debug_uses` ports `Nitpick/Debug.hs` over the canonical declarations (upstream reads the optimized graph, which keeps every top-level definition, so the same expressions), and `report::debug_remnants` the `DEBUG REMNANTS` report, which matches elm 0.19.1's output byte for byte. Only generating code runs this check: `elm make --output=/dev/null` never does, so `nomi check` doesn't, and codegen (M8) wires it in.
 - [ ] **7.3** `compiler: main validation`. `addDefHelp` and `checkPayload`, with their reports.
 - [ ] **7.4** `compiler: package docs`. `Elm/Docs.hs` and the docs errors. **Check:** `docs.json` is byte-identical for every corpus package each Compat accepts, and the rejected ones fail with upstream's error.
 - [ ] **7.5** `oracle: whole-project snapshots`. `elm make --output=/dev/null --report=json` on every corpus project, for each Compat, in the 1.15a sandboxes; rejected projects are expected-failure cases. Add the old 605-case CLI report matrix (`conformance/checkpoints/2026-09-23/json-report-fixtures`), which compares every output stream, exit status and artifact.

@@ -760,3 +760,27 @@ fn inference_records_each_expressions_type() {
         ]
     );
 }
+
+#[test]
+fn debug_uses_are_found_anywhere_in_a_body() {
+    use crate::nitpick::debug::has_debug_uses;
+    let decls = |text: &str| {
+        let interfaces = interfaces();
+        let parse = parse_module(text);
+        let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
+        super::module::canonicalize(
+            nomi_base::Compat::V0_19_1,
+            "author/project",
+            &interfaces,
+            &module,
+        )
+        .unwrap()
+        .decls
+    };
+    assert!(has_debug_uses(&decls(
+        "module Main exposing (..)\n\n\nf x =\n    let\n        y = ( x, Debug.todo \"y\" )\n    in\n    y\n"
+    )));
+    assert!(!has_debug_uses(&decls(
+        "module Main exposing (..)\n\n\nf x =\n    ( x, identity x )\n"
+    )));
+}
