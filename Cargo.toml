@@ -11,6 +11,7 @@ publish = false
 
 [workspace.dependencies]
 nomi-base = { path = "crates/base" }
+nomi-codegen-js = { path = "crates/codegen-js" }
 nomi-compiler = { path = "crates/compiler" }
 nomi-engine = { path = "crates/engine" }
 nomi-format = { path = "crates/format" }

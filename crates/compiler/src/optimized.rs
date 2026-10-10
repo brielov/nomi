@@ -65,6 +65,25 @@ pub struct Global {
     pub name: String,
 }
 
+impl Global {
+    /// `toKernelGlobal`: the kernel module `short` (without `Elm.Kernel.`)
+    /// as a global, named `$`, or `#0` in 0.19.3.
+    pub fn kernel(compat: nomi_base::Compat, short: &str) -> Global {
+        let name = if compat == nomi_base::Compat::V0_19_3 {
+            "#0"
+        } else {
+            "$"
+        };
+        Global {
+            home: Home {
+                package: "elm/kernel".to_owned(),
+                module: short.to_owned(),
+            },
+            name: name.to_owned(),
+        }
+    }
+}
+
 /// `A.Region`, as the release keeps it: rows and columns from 1 in 0.19.1,
 /// from 0 later (`code::Source::region`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

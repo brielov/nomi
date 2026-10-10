@@ -39,7 +39,7 @@ impl Tracker {
 
     /// `registerKernel`: the kernel module `home` is needed.
     pub fn kernel(&mut self, home: &str) {
-        self.deps.insert(kernel_global(self.compat, home));
+        self.deps.insert(Global::kernel(self.compat, home));
     }
 
     /// `registerGlobal`.
@@ -78,19 +78,6 @@ impl Tracker {
     /// `registerField`.
     pub fn field(&mut self, name: &str) {
         *self.fields.entry(name.to_owned()).or_default() += 1;
-    }
-}
-
-/// `toKernelGlobal`: a kernel module as a global, named `$`, or `#0` in
-/// 0.19.3.
-pub fn kernel_global(compat: Compat, home: &str) -> Global {
-    let name = if compat == Compat::V0_19_3 { "#0" } else { "$" };
-    Global {
-        home: Home {
-            package: "elm/kernel".to_owned(),
-            module: home.to_owned(),
-        },
-        name: name.to_owned(),
     }
 }
 

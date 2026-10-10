@@ -949,6 +949,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "nomi-codegen-js"
+version = "0.1.0"
+dependencies = [
+ "nomi-base",
+ "nomi-compiler",
+]
+
+[[package]]
 name = "nomi-compiler"
 version = "0.1.0"
 dependencies = [
