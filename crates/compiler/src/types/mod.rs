@@ -10,6 +10,7 @@ pub mod expected;
 pub mod instantiate;
 mod names;
 pub mod occurs;
+pub mod solve;
 pub mod unify;
 pub mod union_find;
 

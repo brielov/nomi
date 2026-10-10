@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **6.6**.
+4. Resume at the first unchecked box. Right now that is **6.7**.
 
 ### Test tiers
 
@@ -383,7 +383,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 - [x] **6.5** `compiler: annotations, rigid variables and module constraints`.
 
   Done: `types::constrain::module` ports `Constrain/Module.hs`: the declarations folded over the point where the solver saves the top-level types, ports bound around them with their variables rigid, and an effect manager's `init`, `onEffects`, `onSelfMsg` and map functions checked against the types the platform calls them at. Canonicalization now returns upstream's `Effects` (each port's payload and type, a manager's kind and its functions' regions), which it only checked before. Annotations and rigid variables came with 6.3's definitions.
-- [ ] **6.6** `compiler: solver`. Pools, generalization, the occurs check and instantiation.
+- [x] **6.6** `compiler: solver`. Pools, generalization, the occurs check and instantiation.
+
+  Done: `types::solve` ports `Solve.hs`: constraints solved in order, a `let`'s header one rank deeper and then generalized, a use of a name copied fresh from its generalized parts (`makeCopy`), an annotation's variables instantiated flexible and named as written, and every local checked for a type containing itself once its scope ends. Upstream copies the environment for each `let`; nomi keeps one map and takes a scope's names out when it ends, which strict nesting makes the same. Upstream's pools are lists it prepends to; nomi keeps each reversed in a vector, so prepending stays cheap. Errors come back latest first, as upstream's list has them.
 - [ ] **6.7** `compiler: typed interfaces for packages`. **Check:** every corpus package type-checks under each Compat that accepts it (1.15a).
 - [ ] **6.8** `compiler: per-expression types`. A side table, added without changing the solving order.
 - [ ] **6.9** `oracle: type error snapshots`. Curated cases plus mutations (swapped literals, swapped arguments, edited annotations), for each Compat.

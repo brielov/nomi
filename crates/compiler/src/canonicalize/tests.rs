@@ -657,3 +657,70 @@ fn a_module_constrains_its_values_in_dependency_order() {
     // `f` before `g`, which uses it.
     assert_eq!(names, ["f", "g"]);
 }
+
+/// The annotations inference gives `text`'s values, or its errors.
+fn infer(text: &str) -> Result<BTreeMap<String, String>, Vec<crate::types::solve::TypeError>> {
+    use crate::types::{Variables, constrain::module::constrain, solve::run};
+    let interfaces = interfaces();
+    let parse = parse_module(text);
+    let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
+    let canonical = super::module::canonicalize(
+        nomi_base::Compat::V0_19_1,
+        "author/project",
+        &interfaces,
+        &module,
+    )
+    .unwrap();
+    let mut vars = Variables::default();
+    let constraint = constrain(&mut vars, &canonical);
+    let annotations = run(&mut vars, &constraint)?;
+    fn show(t: &Type) -> String {
+        match t {
+            Type::Var(v) => v.clone(),
+            Type::Lambda(a, b) => format!("({} -> {})", show(a), show(b)),
+            Type::Type(_, name, args) if args.is_empty() => name.clone(),
+            Type::Type(_, name, args) => {
+                format!(
+                    "({name} {})",
+                    args.iter().map(show).collect::<Vec<_>>().join(" ")
+                )
+            }
+            Type::Tuple(a, b, None) => format!("( {}, {} )", show(a), show(b)),
+            other => format!("{other:?}"),
+        }
+    }
+    Ok(annotations
+        .into_iter()
+        .map(|(n, a)| (n, show(&a.ty)))
+        .collect())
+}
+
+#[test]
+fn inference_generalizes_lets_and_finds_mismatches() {
+    let found = infer(
+        "module Main exposing (..)\n\nimport A\n\n\nidentity2 x =\n    x\n\n\npair =\n    ( identity2 1, identity2 \"s\" )\n\n\nuse =\n    let\n        f y = y\n    in\n    ( f A.x, f [] )\n",
+    )
+    .unwrap();
+    assert_eq!(found["identity2"], "(a -> a)");
+    assert_eq!(found["pair"], "( number, String )");
+    assert_eq!(found["use"], "( Int, (List a) )");
+    // `a -> a` takes two arguments where `a` is a function, so the first
+    // is the problem, as elm reports it.
+    let errors = infer("module Main exposing (..)\n\n\nbad =\n    identityish 1 \"s\"\n\n\nidentityish x =\n    x\n").unwrap_err();
+    assert!(
+        matches!(
+            &errors[..],
+            [crate::types::solve::TypeError::BadExpr(
+                _,
+                crate::types::expected::Category::Number,
+                _,
+                crate::types::expected::Expected::FromContext(
+                    _,
+                    crate::types::expected::Context::CallArg(_, 0),
+                    _
+                ),
+            )]
+        ),
+        "{errors:?}"
+    );
+}
