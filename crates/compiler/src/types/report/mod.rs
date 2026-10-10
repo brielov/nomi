@@ -1,11 +1,11 @@
-//! The reports of type errors (`Reporting/Error/Type.hs`), ported in
-//! parts: annotations and mismatches (6.11), calls and operators (6.12),
-//! branches and patterns (6.13), records and infinite types (6.14). An
-//! error of a part still to come is reported by its title at its region.
+//! The reports of type errors (`Reporting/Error/Type.hs`): annotations
+//! and mismatches here, with the hints, operators, patterns, and records
+//! and infinite types beside.
 
 mod hints;
 mod operators;
 mod patterns;
+mod records;
 
 use nomi_base::diagnostic::Problem;
 use nomi_base::diagnostic::code::{self, Source};
@@ -57,17 +57,10 @@ fn report(error: &TypeError, cx: &ReportContext<'_>) -> (&'static str, TextRange
         TypeError::BadPattern(region, category, actual, expected) => {
             pattern_report(cx, *region, category, actual, expected)
         }
-        TypeError::InfiniteType(region, ..) => placeholder("INFINITE TYPE", *region),
+        TypeError::InfiniteType(region, name, overall) => {
+            records::infinite(cx, *region, name, overall)
+        }
     }
-}
-
-/// A report still to port: its title and region.
-fn placeholder(title: &'static str, region: TextRange) -> (&'static str, TextRange, Doc) {
-    (
-        title,
-        region,
-        reflow("nomi finds this type error but doesn't explain it yet."),
-    )
 }
 
 /// `Code.toSnippet`: the code at `region`, `highlight` underlined.
@@ -478,8 +471,27 @@ fn from_context(
                 )],
             )
         }
-        Context::RecordAccess(..) | Context::RecordUpdateKeys(..) => {
-            placeholder("TYPE MISMATCH", expr_region)
-        }
+        Context::RecordAccess(record_region, name, field_region, field) => records::record_access(
+            cx,
+            expr_region,
+            region,
+            *record_region,
+            name,
+            *field_region,
+            field,
+            category,
+            actual,
+            expected,
+        ),
+        Context::RecordUpdateKeys(record, fields) => records::record_update_keys(
+            cx,
+            expr_region,
+            region,
+            record,
+            fields,
+            category,
+            actual,
+            expected,
+        ),
     }
 }
