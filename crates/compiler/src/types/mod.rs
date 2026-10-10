@@ -335,5 +335,15 @@ impl Variables {
     }
 }
 
+/// The annotation of every top-level value of `module`, or its type
+/// errors, the latest first.
+pub fn infer(
+    module: &crate::canonicalize::module::Canonical,
+) -> Result<BTreeMap<String, canonical::Annotation>, Vec<solve::TypeError>> {
+    let mut vars = Variables::default();
+    let constraint = constrain::module::constrain(&mut vars, module);
+    solve::run(&mut vars, &constraint)
+}
+
 #[cfg(test)]
 mod tests;

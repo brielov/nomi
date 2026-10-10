@@ -5,3 +5,6 @@ abinayasudhir/html-parser@1.0.3 on 0.19.2	imports Elm.Kernel.VirtualDom outside 
 abinayasudhir/html-parser@1.0.3 on 0.19.3	imports Elm.Kernel.VirtualDom outside a kernel package; elm make fails the same way
 alexkorban/elm-review-json-to-elm@1.0.1 on 0.19.2	needs alexkorban/json-to-elm >= 1.1.0, whose only release is for elm < 0.19.2: no solution
 alexkorban/elm-review-json-to-elm@1.0.1 on 0.19.3	needs alexkorban/json-to-elm >= 1.1.0, whose only release is for elm < 0.19.2: no solution
+jaredramirez/elm-select@1.0.0 on 0.19.1	today's newest dzuk-mutant/elm-html-styled-aria uses the dzuk-mutant/elm-css fork, whose Html.Styled.Attribute the package appends to rtfeldman/elm-css's; elm make reports the same TYPE MISMATCH
+jaredramirez/elm-select@1.0.0 on 0.19.2	today's newest dzuk-mutant/elm-html-styled-aria uses the dzuk-mutant/elm-css fork, whose Html.Styled.Attribute the package appends to rtfeldman/elm-css's; elm make reports the same TYPE MISMATCH
+jaredramirez/elm-select@1.0.0 on 0.19.3	today's newest dzuk-mutant/elm-html-styled-aria uses the dzuk-mutant/elm-css fork, whose Html.Styled.Attribute the package appends to rtfeldman/elm-css's; elm make reports the same TYPE MISMATCH

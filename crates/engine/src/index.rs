@@ -224,7 +224,10 @@ impl Visit<'_> {
         let (canonical, references) =
             canonicalize_with_references(self.compat, self.package, self.interfaces, &hir);
         if let Ok(canonical) = canonical {
-            (self.interfaces).insert(module.name.to_string(), interface(&canonical));
+            (self.interfaces).insert(
+                module.name.to_string(),
+                interface(&canonical, &Default::default()),
+            );
         }
         self.modules.push(Indexed {
             path: module.path.clone(),

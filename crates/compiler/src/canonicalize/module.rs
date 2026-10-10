@@ -444,11 +444,12 @@ fn unknown() -> Annotation {
 }
 
 /// `fromModule`: what the module offers importers.
-pub fn interface(canonical: &Canonical) -> Interface {
+pub fn interface(canonical: &Canonical, inferred: &BTreeMap<String, Annotation>) -> Interface {
+    // What inference found, else what the source wrote: navigation
+    // builds interfaces without inferring.
     let annotation = |name: &str| {
-        canonical
-            .annotations
-            .get(name)
+        (inferred.get(name))
+            .or_else(|| canonical.annotations.get(name))
             .cloned()
             .unwrap_or_else(unknown)
     };

@@ -14,6 +14,7 @@ use nomi_compiler::canonicalize::module::{canonicalize, interface};
 use nomi_compiler::canonicalize::report;
 use nomi_compiler::hir;
 use nomi_compiler::interface::Interface;
+use nomi_compiler::types::solve::TypeError;
 use nomi_project::{ModuleName, Name, Outline};
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{SyntaxNode, parse_module};
@@ -170,7 +171,9 @@ fn visit(
     }
     let canonical = canonicalize(compat, package, interfaces, module)
         .map_err(|errors| format!("{package} {name}: {errors:?}"))?;
-    let iface = interface(&canonical);
+    let annotations = nomi_compiler::types::infer(&canonical)
+        .map_err(|errors| format!("{package} {name}: type errors {errors:?}"))?;
+    let iface = interface(&canonical, &annotations);
     interfaces.insert(name.to_owned(), iface.clone());
     own.insert(name.to_owned(), iface);
     state.insert(name.to_owned(), true);
@@ -270,11 +273,23 @@ impl Walk<'_> {
         let root = module.parse.syntax();
         let hir = hir::lower(&ast::Module::cast(root.clone()).expect("a module"));
         match canonicalize(self.env.compat(), &self.package, &self.interfaces, &hir) {
-            Ok(canonical) => {
-                self.interfaces
-                    .insert(module.name.to_string(), interface(&canonical));
-                true
-            }
+            Ok(canonical) => match nomi_compiler::types::infer(&canonical) {
+                Ok(annotations) => {
+                    (self.interfaces)
+                        .insert(module.name.to_string(), interface(&canonical, &annotations));
+                    true
+                }
+                Err(errors) => {
+                    let source = Source::new(&module.text);
+                    // In the solver's order, the latest first, as
+                    // upstream reports them.
+                    let problems = (errors.iter())
+                        .map(|e| type_problem(e, &source, &root, self.env.compat()))
+                        .collect();
+                    self.problems.insert(module.path.clone(), problems);
+                    false
+                }
+            },
             Err(errors) => {
                 let source = Source::new(&module.text);
                 let trim = |range| trim(&root, range);
@@ -290,6 +305,22 @@ impl Walk<'_> {
             }
         }
     }
+}
+
+/// A type error until plan 6.11 ports their reports: upstream's title at
+/// its region, the explanation to come.
+fn type_problem(error: &TypeError, source: &Source, root: &SyntaxNode, compat: Compat) -> Problem {
+    let (title, range) = match error {
+        TypeError::BadExpr(range, ..) | TypeError::BadPattern(range, ..) => {
+            ("TYPE MISMATCH", *range)
+        }
+        TypeError::InfiniteType(range, ..) => ("INFINITE TYPE", *range),
+    };
+    let region = source.region(trim(root, range), compat);
+    let message = nomi_base::diagnostic::doc::reflow(
+        "nomi finds this type error but doesn't explain type errors yet.",
+    );
+    Problem::new(title, region, message)
 }
 
 /// From the first token of `range` that isn't trivia: node ranges keep

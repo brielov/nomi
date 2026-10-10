@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **6.7**.
+4. Resume at the first unchecked box. Right now that is **6.8**.
 
 ### Test tiers
 
@@ -386,7 +386,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 - [x] **6.6** `compiler: solver`. Pools, generalization, the occurs check and instantiation.
 
   Done: `types::solve` ports `Solve.hs`: constraints solved in order, a `let`'s header one rank deeper and then generalized, a use of a name copied fresh from its generalized parts (`makeCopy`), an annotation's variables instantiated flexible and named as written, and every local checked for a type containing itself once its scope ends. Upstream copies the environment for each `let`; nomi keeps one map and takes a scope's names out when it ends, which strict nesting makes the same. Upstream's pools are lists it prepends to; nomi keeps each reversed in a vector, so prepending stays cheap. Errors come back latest first, as upstream's list has them.
-- [ ] **6.7** `compiler: typed interfaces for packages`. **Check:** every corpus package type-checks under each Compat that accepts it (1.15a).
+- [x] **6.7** `compiler: typed interfaces for packages`. **Check:** every corpus package type-checks under each Compat that accepts it (1.15a).
+
+  Done: `types::infer` constrains and solves a canonical module, and an interface's values take their annotations from it, as upstream's `fromModule` takes them from the solver; navigation, which doesn't infer, keeps the annotations as written. Package interfaces are built typed, a package that doesn't type-check failing the build. Local modules are type-checked too: until 6.11 ports the reports, `nomi check` shows a type error by upstream's title at its region, in the solver's order, the latest first, as upstream lists them. `cargo xtask corpus names`, rerun: 5,656 of 5,664 projects type-check on the three releases, and the other eight fail as elm does. Besides 5.16's five, jaredramirez/elm-select now fails: today's newest dzuk-mutant/elm-html-styled-aria uses a fork of elm-css whose `Attribute` it appends to rtfeldman/elm-css's, and elm 0.19.1 reports the same TYPE MISMATCH at the same `++`.
 - [ ] **6.8** `compiler: per-expression types`. A side table, added without changing the solving order.
 - [ ] **6.9** `oracle: type error snapshots`. Curated cases plus mutations (swapped literals, swapped arguments, edited annotations), for each Compat.
 - [ ] **6.10** `compiler: type error data`. `Type/Error.hs`: categories, expectations, diffs and problems.
