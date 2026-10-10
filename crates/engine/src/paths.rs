@@ -155,31 +155,43 @@ mod tests {
         })
     }
 
+    /// `path`, a Unix absolute path, made absolute on the machine running
+    /// the tests: Windows wants a drive.
+    fn abs(path: &str) -> String {
+        if cfg!(windows) {
+            format!("C:{path}")
+        } else {
+            path.to_owned()
+        }
+    }
+
     fn at(dir: &str) -> Result<Cache, CacheError> {
-        Ok(Cache(PathBuf::from(dir)))
+        Ok(Cache(PathBuf::from(abs(dir))))
     }
 
     #[test]
     fn the_variable_comes_first() {
-        let vars = [(NOMI_CACHE, "/c"), ("HOME", "/h")];
+        let (c, h) = (abs("/c"), abs("/h"));
+        let vars = [(NOMI_CACHE, c.as_str()), ("HOME", h.as_str())];
         assert_eq!(cache("linux", &vars), at("/c"));
         assert_eq!(
             cache("linux", &[(NOMI_CACHE, "c")]),
             Err(CacheError::Relative(NOMI_CACHE))
         );
         assert_eq!(
-            cache("linux", &[(NOMI_CACHE, ""), ("HOME", "/h")]),
+            cache("linux", &[(NOMI_CACHE, ""), ("HOME", h.as_str())]),
             at("/h/.cache/nomi")
         );
     }
 
     #[test]
     fn then_the_users_cache_directory() {
-        let home = ("HOME", "/h");
+        let (h, x) = (abs("/h"), abs("/x"));
+        let home = ("HOME", h.as_str());
         assert_eq!(cache("macos", &[home]), at("/h/Library/Caches/nomi"));
         assert_eq!(cache("linux", &[home]), at("/h/.cache/nomi"));
         assert_eq!(
-            cache("freebsd", &[home, ("XDG_CACHE_HOME", "/x")]),
+            cache("freebsd", &[home, ("XDG_CACHE_HOME", x.as_str())]),
             at("/x/nomi")
         );
         assert_eq!(

@@ -302,8 +302,12 @@ mod tests {
             "last"
         );
         assert!(!has_case_variants(&dir).unwrap());
-        std::fs::create_dir(dir.join("demo")).unwrap();
-        assert!(has_case_variants(&dir).unwrap());
+        // Only a filesystem that tells cases apart, unlike macOS's and
+        // Windows' by default, can hold both spellings.
+        match std::fs::create_dir(dir.join("demo")) {
+            Ok(()) => assert!(has_case_variants(&dir).unwrap()),
+            Err(e) => assert_eq!(e.kind(), std::io::ErrorKind::AlreadyExists),
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

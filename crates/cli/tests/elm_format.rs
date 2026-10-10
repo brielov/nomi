@@ -38,6 +38,9 @@ fn elm_format_transcripts() {
         let name = case_path.file_stem().unwrap().to_string_lossy();
         let case = Case::parse(&fs::read_to_string(case_path).unwrap())
             .unwrap_or_else(|e| panic!("{name}: {e}"));
+        if !creatable(&case) {
+            continue;
+        }
         let expected = fs::read_to_string(expected_path)
             .unwrap_or_else(|e| panic!("{name}: {e}; rerun `cargo xtask oracle transcripts`"));
         let work = tempfile::tempdir().unwrap();
@@ -59,4 +62,12 @@ fn elm_format_transcripts() {
         cases.len(),
         failures.join("\n")
     );
+}
+
+/// Whether this platform can hold the case's files: Windows forbids some
+/// characters in names, which cases about escaping paths need.
+fn creatable(case: &Case) -> bool {
+    !cfg!(windows)
+        || (case.files.iter())
+            .all(|(path, _)| !path.contains(['<', '>', ':', '"', '|', '?', '*', '\\']))
 }

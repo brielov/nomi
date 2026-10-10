@@ -26,12 +26,11 @@ fn outcomes(root: &Path, files: &[(std::path::PathBuf, Outcome)]) -> Vec<(String
     files
         .iter()
         .map(|(path, outcome)| {
-            let name = path
-                .strip_prefix(root)
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_owned();
+            // By `/`-separated components, as on every platform.
+            let name = (path.strip_prefix(root).unwrap().components())
+                .map(|c| c.as_os_str().to_str().unwrap())
+                .collect::<Vec<_>>()
+                .join("/");
             let word = match outcome {
                 Outcome::Unchanged => "unchanged".to_owned(),
                 Outcome::Formatted => "formatted".to_owned(),
