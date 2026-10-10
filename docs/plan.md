@@ -450,10 +450,16 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 
 ## M8: Codegen, release 0.2 (replaces elm)
 
-- [ ] **8.1** `compiler: optimized graph`. `AST/Optimized.hs` and `Optimize/Expression.hs`: tail calls and generated names.
-- [ ] **8.2** `compiler: decision trees`. `Optimize/DecisionTree.hs` and `Case.hs`.
-- [ ] **8.3** `compiler: ports and effect managers` (`Optimize/Port.hs`).
+The optimizer's oracle is elm's own artifacts: every elm writes a module's optimized graph to `elm-stuff/0.19.x/<Module>.elmo`, and its dependencies' to `o.dat`, in `Data.Binary` form (0.19.1, 0.19.2) or `Bytes.Encode` form (0.19.3). So nomi encodes its graphs the same way, and they are compared byte for byte.
+
+- [ ] **8.1** `compiler: optimized AST and its encoding`. `AST/Optimized.hs` per release (0.19.3 splits tuples into pairs and triples and names kernels by module), and its `Data.Binary` encoding and decoding as 0.19.1 and 0.19.2 write them. **Check:** every `.elmo` and `o.dat` 0.19.1 and 0.19.2 write for the fixture programs decodes and re-encodes byte for byte.
+- [ ] **8.1a** `compiler: 0.19.3 artifact encoding`. `eLocalGraph` and `eGlobalGraph` with `Bytes.Encode`. **Check:** as 8.1, for 0.19.3.
+- [ ] **8.1b** `oracle: optimized graphs`. `cargo xtask oracle optimized` keeps each elm's `.elmo` for curated modules: tail calls, cycles, destructuring, records and fields, cases, ports, `Debug`, shaders and `main`. The ratchet `optimized` compares nomi's encoded graph with each.
+- [ ] **8.1c** `compiler: optimize expressions`. `Optimize/Names.hs` and `Optimize/Expression.hs`: generated names, tail calls, destructuring and cycles. **Check:** the ratchet's cases without `case`.
+- [ ] **8.2** `compiler: decision trees`. `Optimize/DecisionTree.hs` and `Case.hs`. **Check:** the ratchet's `case` cases.
+- [ ] **8.3** `compiler: ports, effect managers and modules`. `Optimize/Port.hs` and `Optimize/Module.hs`. **Check:** the ratchet at 100%.
 - [ ] **8.4** `codegen-js: kernel chunk parser` (`Elm/Kernel.hs`).
+- [ ] **8.4a** `oracle: corpus optimized graphs`. Every corpus package's graph, as `o.dat` holds it, and every corpus app module's `.elmo`, for each Compat. **Check:** byte-identical across the corpus.
 - [ ] **8.5** `codegen-js: builder and names`. Exact whitespace, plus the salvaged string escaping, `ElmChar` and BigInt literals.
 - [ ] **8.6** `codegen-js: expressions`. Currying helpers, records, decision trees and tail loops.
 - [ ] **8.7** `codegen-js: program graph`. Reachability from each `main`, ordering, cycles and `_Platform_export`.
