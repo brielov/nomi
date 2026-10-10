@@ -1,7 +1,7 @@
-//! The optimized graphs elm 0.19.1 and 0.19.2 wrote for the optimizer
-//! cases (`cargo xtask oracle optimized`) decode, and encode back to the
-//! same bytes: every module's `.elmo`, and the dependencies' `o.dat`,
-//! which holds all of elm/core and elm/json, kernels included.
+//! The optimized graphs each elm wrote for the optimizer cases (`cargo
+//! xtask oracle optimized`) decode, and encode back to the same bytes:
+//! every module's `.elmo`, and the dependencies' `o.dat`, which holds all
+//! of elm/core and elm/json, kernels included.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -9,10 +9,10 @@ use std::path::{Path, PathBuf};
 use nomi_base::Compat;
 use nomi_compiler::optimized::binary;
 
-/// The releases that write graphs with `Data.Binary`.
-const RELEASES: [(&str, Compat); 2] = [
+const RELEASES: [(&str, Compat); 3] = [
     ("elm-0.19.1", Compat::V0_19_1),
     ("elm-0.19.2", Compat::V0_19_2),
+    ("elm-0.19.3", Compat::V0_19_3),
 ];
 
 fn artifacts(elm: &str) -> PathBuf {
@@ -41,7 +41,7 @@ fn module_graphs_round_trip() {
             }
         }
     }
-    assert!(checked >= 8, "only {checked} module graphs");
+    assert!(checked >= 12, "only {checked} module graphs");
 }
 
 #[test]

@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **8.1a**.
+4. Resume at the first unchecked box. Right now that is **8.1b**.
 
 ### Test tiers
 
@@ -455,7 +455,9 @@ The optimizer's oracle is elm's own artifacts: every elm writes a module's optim
 - [x] **8.1** `compiler: optimized AST and its encoding`. `AST/Optimized.hs` per release (0.19.3 splits tuples into pairs and triples and names kernels by module), and its `Data.Binary` encoding and decoding as 0.19.1 and 0.19.2 write them. **Check:** every `.elmo` and `o.dat` 0.19.1 and 0.19.2 write for the fixture programs decodes and re-encodes byte for byte.
 
   Done: `optimized` holds `AST/Optimized.hs`'s graph, and `optimized::binary` writes and reads it as 0.19.1 and 0.19.2 do, maps and sets sorted by upstream's orders (a `Global` by name, then home; a home by module, then package). `cargo xtask oracle optimized` builds the optimizer cases with each elm and keeps the `.elmo` files and the dependencies' `o.dat`; three cases cover literals, records, tuples, destructuring, tail calls, cycles, every kind of constructor, `Debug`, ports and a graph across modules. Every one of 0.19.1's and 0.19.2's files decodes and encodes back byte for byte, `o.dat`'s 455 nodes of elm/core and elm/json, kernels included. Surprises: 0.19.2 already changed the format, not only 0.19.3: a character literal is the character itself, as bare UTF-8, where 0.19.1 keeps its escaped text, and a region is two `Word64`s, a row from 0 over a column from 0, where 0.19.1 has four `Word16`s from 1.
-- [ ] **8.1a** `compiler: 0.19.3 artifact encoding`. `eLocalGraph` and `eGlobalGraph` with `Bytes.Encode`. **Check:** as 8.1, for 0.19.3.
+- [x] **8.1a** `compiler: 0.19.3 artifact encoding`. `eLocalGraph` and `eGlobalGraph` with `Bytes.Encode`. **Check:** as 8.1, for 0.19.3.
+
+  Done: `optimized::binary` writes and reads every release's format, 0.19.3's as `Bytes.Encode` does: little-endian, counts and string lengths in four bytes, byte strings' in eight, indexes as eight-byte `Int`s, tuples as pairs and triples, types as `Interface.eType` writes them, a type variable with the constraint its name gives, and names in maps and sets sorted length first. Every 0.19.3 `.elmo` and `o.dat` of the optimizer cases decodes and encodes back byte for byte. Surprises: 0.19.3's regions are zero-based, like 0.19.2's, though its reports count from 1; and its decision-tree tests keep 0.19.1's tags though the constructors moved.
 - [ ] **8.1b** `oracle: optimized graphs`. `cargo xtask oracle optimized` keeps each elm's `.elmo` for curated modules: tail calls, cycles, destructuring, records and fields, cases, ports, `Debug`, shaders and `main`. The ratchet `optimized` compares nomi's encoded graph with each.
 - [ ] **8.1c** `compiler: optimize expressions`. `Optimize/Names.hs` and `Optimize/Expression.hs`: generated names, tail calls, destructuring and cycles. **Check:** the ratchet's cases without `case`.
 - [ ] **8.2** `compiler: decision trees`. `Optimize/DecisionTree.hs` and `Case.hs`. **Check:** the ratchet's `case` cases.

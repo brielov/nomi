@@ -1,11 +1,17 @@
-//! Optimized graphs as 0.19.1 and 0.19.2 write them, with `Data.Binary`:
-//! a tag byte per constructor, `Int`s as eight big-endian bytes, names in
-//! a length byte and their UTF-8, strings and byte strings after an `Int`
-//! length, lists, maps and sets after an `Int` count, maps and sets in
-//! their keys' order (`Map.toAscList`). A character literal is its text,
-//! escapes kept, in 0.19.1, and the character itself, as its UTF-8, in
-//! 0.19.2. A region is four `Word16`s, rows and columns from 1, in 0.19.1,
-//! and two `Word64`s, each a row from 0 above a column from 0, in 0.19.2.
+//! Optimized graphs as each release writes them. 0.19.1 and 0.19.2 use
+//! `Data.Binary`: a tag byte per constructor, `Int`s as eight big-endian
+//! bytes, names in a length byte and their UTF-8, strings and byte
+//! strings after an `Int` length, lists, maps and sets after an `Int`
+//! count. 0.19.3 uses its own `Bytes.Encode`, alike but little-endian,
+//! with counts and string lengths in four bytes, byte strings' in eight,
+//! tuples split into pairs and triples, and types written its own way.
+//! Maps and sets come in their keys' order, which 0.19.3 changed for
+//! names to length first.
+//!
+//! A character literal is its text, escapes kept, in 0.19.1, and the
+//! character itself, as its UTF-8, later. A region is four `Word16`s,
+//! rows and columns from 1, in 0.19.1, and later two `Word64`s, each a
+//! row from 0 above a column from 0.
 //!
 //! Decoding is for comparing with elm's own files: it rebuilds what
 //! encoding takes, and any malformed input is `None`.
@@ -59,44 +65,76 @@ pub fn decode_global_graph(bytes: &[u8], compat: Compat) -> Option<GlobalGraph> 
     input.done().then_some(graph)
 }
 
-/// `Ord (Utf8 t)`: by bytes.
-fn names(a: &str, b: &str) -> Ordering {
-    a.as_bytes().cmp(b.as_bytes())
+/// `Ord Name`: by bytes, or in 0.19.3 by length, then bytes
+/// (`compareFast`).
+fn names(compat: Compat, a: &str, b: &str) -> Ordering {
+    if compat == Compat::V0_19_3 {
+        a.len()
+            .cmp(&b.len())
+            .then_with(|| a.as_bytes().cmp(b.as_bytes()))
+    } else {
+        a.as_bytes().cmp(b.as_bytes())
+    }
 }
 
-/// `Ord ModuleName.Canonical`: by module name, then package, which
-/// derives its order from author, then project.
-fn homes(a: &Home, b: &Home) -> Ordering {
+/// `Ord ModuleName.Canonical`: by module name, then package, by author,
+/// then project, each by bytes.
+fn homes(compat: Compat, a: &Home, b: &Home) -> Ordering {
     let package = |home: &Home| {
-        let (author, project) = home.package.split_once('/').unwrap_or(("", &home.package));
+        let (author, project) = split(home);
         (author.as_bytes().to_vec(), project.as_bytes().to_vec())
     };
-    names(&a.module, &b.module).then_with(|| package(a).cmp(&package(b)))
+    names(compat, &a.module, &b.module).then_with(|| package(a).cmp(&package(b)))
 }
 
 /// `Ord Opt.Global`: by name, then home.
-fn globals(a: &Global, b: &Global) -> Ordering {
-    names(&a.name, &b.name).then_with(|| homes(&a.home, &b.home))
+fn globals(compat: Compat, a: &Global, b: &Global) -> Ordering {
+    names(compat, &a.name, &b.name).then_with(|| homes(compat, &a.home, &b.home))
+}
+
+/// A home's package, as author and project.
+fn split(home: &Home) -> (&str, &str) {
+    home.package.split_once('/').unwrap_or(("", &home.package))
+}
+
+/// 0.19.3's constraint on a type variable, from its name (`TypeVar.hs`,
+/// `varFromString`).
+fn constraint(name: &str) -> u8 {
+    match name {
+        _ if name.len() < 6 => 0,
+        _ if name.starts_with("comparable") => 1,
+        _ if name.starts_with("appendable") => 2,
+        _ if name.starts_with("compappend") => 3,
+        _ if name.starts_with("number") => 4,
+        _ => 0,
+    }
 }
 
 struct Out {
     bytes: Vec<u8>,
-    /// 0.19.1's character literals and regions, rather than 0.19.2's.
-    v1: bool,
+    compat: Compat,
 }
 
 impl Out {
     fn new(compat: Compat) -> Out {
         Out {
             bytes: Vec::new(),
-            v1: compat == Compat::V0_19_1,
+            compat,
         }
+    }
+
+    fn v1(&self) -> bool {
+        self.compat == Compat::V0_19_1
+    }
+
+    fn v3(&self) -> bool {
+        self.compat == Compat::V0_19_3
     }
 
     /// `Binary Char`'s UTF-8, or 0.19.1's `ES.String`.
     fn chr(&mut self, c: &str) {
-        if self.v1 {
-            self.long(c.as_bytes());
+        if self.v1() {
+            self.string(c.as_bytes());
         } else {
             self.bytes.extend_from_slice(c.as_bytes());
         }
@@ -107,15 +145,33 @@ impl Out {
     }
 
     fn int(&mut self, n: i64) {
-        self.bytes.extend_from_slice(&n.to_be_bytes());
+        if self.v3() {
+            self.bytes.extend_from_slice(&n.to_le_bytes());
+        } else {
+            self.bytes.extend_from_slice(&n.to_be_bytes());
+        }
     }
 
-    fn count(&mut self, n: usize) {
+    /// `Index.ZeroBased`, and a jump's target: an `Int`.
+    fn index(&mut self, n: usize) {
         self.int(n as i64);
     }
 
+    /// A list's, map's or set's length.
+    fn count(&mut self, n: usize) {
+        if self.v3() {
+            self.bytes.extend_from_slice(&(n as u32).to_le_bytes());
+        } else {
+            self.int(n as i64);
+        }
+    }
+
     fn word16(&mut self, n: u16) {
-        self.bytes.extend_from_slice(&n.to_be_bytes());
+        if self.v3() {
+            self.bytes.extend_from_slice(&n.to_le_bytes());
+        } else {
+            self.bytes.extend_from_slice(&n.to_be_bytes());
+        }
     }
 
     fn bool(&mut self, b: bool) {
@@ -128,9 +184,20 @@ impl Out {
         self.bytes.extend_from_slice(name.as_bytes());
     }
 
-    /// `putVeryLong`, and `Binary ByteString`, alike.
-    fn long(&mut self, bytes: &[u8]) {
+    /// An Elm string: `putVeryLong`, or 0.19.3's `encode32`.
+    fn string(&mut self, bytes: &[u8]) {
         self.count(bytes.len());
+        self.bytes.extend_from_slice(bytes);
+    }
+
+    /// `Binary ByteString`, or 0.19.3's `byteString64`.
+    fn byte_string(&mut self, bytes: &[u8]) {
+        if self.v3() {
+            self.bytes
+                .extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+        } else {
+            self.int(bytes.len() as i64);
+        }
         self.bytes.extend_from_slice(bytes);
     }
 
@@ -157,7 +224,7 @@ impl Out {
 
     fn name_set(&mut self, set: &BTreeSet<String>) {
         let mut sorted: Vec<&String> = set.iter().collect();
-        sorted.sort_by(|a, b| names(a, b));
+        sorted.sort_by(|a, b| names(self.compat, a, b));
         self.count(sorted.len());
         for name in sorted {
             self.name(name);
@@ -166,7 +233,7 @@ impl Out {
 
     fn name_map<T>(&mut self, map: &BTreeMap<String, T>, mut put: impl FnMut(&mut Out, &T)) {
         let mut sorted: Vec<(&String, &T)> = map.iter().collect();
-        sorted.sort_by(|a, b| names(a.0, b.0));
+        sorted.sort_by(|a, b| names(self.compat, a.0, b.0));
         self.count(sorted.len());
         for (name, value) in sorted {
             self.name(name);
@@ -175,7 +242,7 @@ impl Out {
     }
 
     fn home(&mut self, home: &Home) {
-        let (author, project) = home.package.split_once('/').unwrap_or(("", &home.package));
+        let (author, project) = split(home);
         self.name(author);
         self.name(project);
         self.name(&home.module);
@@ -188,7 +255,7 @@ impl Out {
 
     fn global_set(&mut self, set: &BTreeSet<Global>) {
         let mut sorted: Vec<&Global> = set.iter().collect();
-        sorted.sort_by(|a, b| globals(a, b));
+        sorted.sort_by(|a, b| globals(self.compat, a, b));
         self.count(sorted.len());
         for global in sorted {
             self.global(global);
@@ -197,7 +264,7 @@ impl Out {
 
     fn nodes(&mut self, nodes: &BTreeMap<Global, Node>) {
         let mut sorted: Vec<(&Global, &Node)> = nodes.iter().collect();
-        sorted.sort_by(|a, b| globals(a.0, b.0));
+        sorted.sort_by(|a, b| globals(self.compat, a.0, b.0));
         self.count(sorted.len());
         for (global, node) in sorted {
             self.global(global);
@@ -235,12 +302,12 @@ impl Out {
             }
             Node::Ctor(index, arity) => {
                 self.u8(2);
-                self.count(*index);
+                self.index(*index);
                 self.int(*arity);
             }
             Node::Enum(index) => {
                 self.u8(3);
-                self.count(*index);
+                self.index(*index);
             }
             Node::Box => self.u8(4),
             Node::Link(global) => {
@@ -287,7 +354,7 @@ impl Out {
         match chunk {
             Chunk::Js(bytes) => {
                 self.u8(0);
-                self.long(bytes);
+                self.byte_string(bytes);
             }
             Chunk::ElmVar(home, name) => {
                 self.u8(1);
@@ -336,7 +403,7 @@ impl Out {
         match path {
             Path::Index(index, rest) => {
                 self.u8(0);
-                self.count(*index);
+                self.index(*index);
                 self.path(rest);
             }
             Path::Field(name, rest) => {
@@ -359,7 +426,7 @@ impl Out {
         match path {
             DtPath::Index(index, rest) => {
                 self.u8(0);
-                self.count(*index);
+                self.index(*index);
                 self.dt_path(rest);
             }
             DtPath::Unbox(rest) => {
@@ -376,7 +443,7 @@ impl Out {
                 self.u8(0);
                 self.home(home);
                 self.name(name);
-                self.count(*index);
+                self.index(*index);
                 self.int(*alts);
                 self.ctor_opts(*opts);
             }
@@ -389,7 +456,7 @@ impl Out {
             }
             Test::IsStr(s) => {
                 self.u8(5);
-                self.long(s.as_bytes());
+                self.string(s.as_bytes());
             }
             Test::IsInt(n) => {
                 self.u8(6);
@@ -421,7 +488,7 @@ impl Out {
                     }
                     Choice::Jump(target) => {
                         self.u8(1);
-                        self.count(*target);
+                        self.index(*target);
                     }
                 }
             }
@@ -456,12 +523,12 @@ impl Out {
 
     fn region(&mut self, region: &Region) {
         for (row, col) in [region.start, region.end] {
-            if self.v1 {
+            if self.v1() {
                 self.word16(row as u16);
                 self.word16(col as u16);
             } else {
                 let word = (u64::from(row.wrapping_sub(1)) << 32) | u64::from(col.wrapping_sub(1));
-                self.bytes.extend_from_slice(&word.to_be_bytes());
+                self.int(word as i64);
             }
         }
     }
@@ -478,7 +545,7 @@ impl Out {
             }
             Expr::Str(s) => {
                 self.u8(2);
-                self.long(s.as_bytes());
+                self.string(s.as_bytes());
             }
             Expr::Int(n) => {
                 self.u8(3);
@@ -499,7 +566,7 @@ impl Out {
             Expr::VarEnum(global, index) => {
                 self.u8(7);
                 self.global(global);
-                self.count(*index);
+                self.index(*index);
             }
             Expr::VarBox(global) => {
                 self.u8(8);
@@ -569,7 +636,7 @@ impl Out {
                 self.name(root);
                 self.decider(decider);
                 self.list(jumps, |out, (target, expr)| {
-                    out.count(*target);
+                    out.index(*target);
                     out.expr(expr);
                 });
             }
@@ -592,6 +659,14 @@ impl Out {
                 self.name_map(fields, Out::expr);
             }
             Expr::Unit => self.u8(24),
+            Expr::Tuple(a, b, c) if self.v3() => {
+                self.u8(if c.is_some() { 26 } else { 25 });
+                self.expr(a);
+                self.expr(b);
+                if let Some(c) = c {
+                    self.expr(c);
+                }
+            }
             Expr::Tuple(a, b, c) => {
                 self.u8(25);
                 self.expr(a);
@@ -599,8 +674,8 @@ impl Out {
                 self.maybe(c.as_deref(), Out::expr);
             }
             Expr::Shader(source, attributes, uniforms) => {
-                self.u8(26);
-                self.long(source);
+                self.u8(if self.v3() { 27 } else { 26 });
+                self.byte_string(source);
                 self.name_set(attributes);
                 self.name_set(uniforms);
             }
@@ -608,6 +683,9 @@ impl Out {
     }
 
     fn ty(&mut self, ty: &Type) {
+        if self.v3() {
+            return self.ty3(ty);
+        }
         match ty {
             Type::Lambda(a, b) => {
                 self.u8(0);
@@ -669,13 +747,76 @@ impl Out {
             }
         }
     }
+
+    /// 0.19.3's `Interface.eType`.
+    fn ty3(&mut self, ty: &Type) {
+        let var = |out: &mut Out, name: &str| {
+            out.name(name);
+            out.u8(constraint(name));
+        };
+        match ty {
+            Type::Lambda(a, b) => {
+                self.u8(0);
+                self.ty3(a);
+                self.ty3(b);
+            }
+            Type::Var(name) => {
+                self.u8(1);
+                var(self, name);
+            }
+            Type::Record(fields, ext) => {
+                self.u8(2);
+                self.name_map(fields, |out, field| {
+                    out.word16(field.order);
+                    out.ty3(&field.ty);
+                });
+                self.maybe(ext.as_ref(), |out, name| var(out, name));
+            }
+            Type::Unit => self.u8(3),
+            Type::Tuple(a, b, None) => {
+                self.u8(4);
+                self.ty3(a);
+                self.ty3(b);
+            }
+            Type::Tuple(a, b, Some(c)) => {
+                self.u8(5);
+                self.ty3(a);
+                self.ty3(b);
+                self.ty3(c);
+            }
+            Type::Alias(home, name, args, body) => {
+                self.u8(6);
+                self.home(home);
+                self.name(name);
+                self.u8(args.len() as u8);
+                for (arg, ty) in args {
+                    var(self, arg);
+                    self.ty3(ty);
+                }
+                let (tag, ty) = match body {
+                    AliasType::Holey(ty) => (0, ty),
+                    AliasType::Filled(ty) => (1, ty),
+                };
+                self.u8(tag);
+                self.ty3(ty);
+            }
+            Type::Type(home, name, args) => {
+                self.u8(7);
+                self.home(home);
+                self.name(name);
+                self.u8(args.len() as u8);
+                for arg in args {
+                    self.ty3(arg);
+                }
+            }
+        }
+    }
 }
 
 struct In<'a> {
     bytes: &'a [u8],
     at: usize,
-    /// As [`Out`]'s.
-    v1: bool,
+    compat: Compat,
 }
 
 impl<'a> In<'a> {
@@ -683,12 +824,20 @@ impl<'a> In<'a> {
         In {
             bytes,
             at: 0,
-            v1: compat == Compat::V0_19_1,
+            compat,
         }
     }
 
+    fn v1(&self) -> bool {
+        self.compat == Compat::V0_19_1
+    }
+
+    fn v3(&self) -> bool {
+        self.compat == Compat::V0_19_3
+    }
+
     fn chr(&mut self) -> Option<String> {
-        if self.v1 {
+        if self.v1() {
             return self.string();
         }
         let width = match self.bytes.get(self.at)? {
@@ -716,15 +865,33 @@ impl<'a> In<'a> {
     }
 
     fn int(&mut self) -> Option<i64> {
-        Some(i64::from_be_bytes(self.take(8)?.try_into().ok()?))
+        let bytes = self.take(8)?.try_into().ok()?;
+        Some(if self.v3() {
+            i64::from_le_bytes(bytes)
+        } else {
+            i64::from_be_bytes(bytes)
+        })
+    }
+
+    fn index(&mut self) -> Option<usize> {
+        usize::try_from(self.int()?).ok()
     }
 
     fn count(&mut self) -> Option<usize> {
+        if self.v3() {
+            let bytes = self.take(4)?.try_into().ok()?;
+            return usize::try_from(u32::from_le_bytes(bytes)).ok();
+        }
         usize::try_from(self.int()?).ok()
     }
 
     fn word16(&mut self) -> Option<u16> {
-        Some(u16::from_be_bytes(self.take(2)?.try_into().ok()?))
+        let bytes = self.take(2)?.try_into().ok()?;
+        Some(if self.v3() {
+            u16::from_le_bytes(bytes)
+        } else {
+            u16::from_be_bytes(bytes)
+        })
     }
 
     fn bool(&mut self) -> Option<bool> {
@@ -740,13 +907,18 @@ impl<'a> In<'a> {
         String::from_utf8(self.take(usize::from(n))?.to_vec()).ok()
     }
 
-    fn long(&mut self) -> Option<Vec<u8>> {
-        let n = self.count()?;
+    fn byte_string(&mut self) -> Option<Vec<u8>> {
+        let n = if self.v3() {
+            usize::try_from(u64::from_le_bytes(self.take(8)?.try_into().ok()?)).ok()?
+        } else {
+            self.count()?
+        };
         Some(self.take(n)?.to_vec())
     }
 
     fn string(&mut self) -> Option<String> {
-        String::from_utf8(self.long()?).ok()
+        let n = self.count()?;
+        String::from_utf8(self.take(n)?.to_vec()).ok()
     }
 
     fn maybe<T>(&mut self, get: impl FnOnce(&mut Self) -> Option<T>) -> Option<Option<T>> {
@@ -827,8 +999,8 @@ impl<'a> In<'a> {
         Some(match self.u8()? {
             0 => Node::Define(self.expr()?, self.global_set()?),
             1 => Node::DefineTailFunc(self.names()?, self.expr()?, self.global_set()?),
-            2 => Node::Ctor(self.count()?, self.int()?),
-            3 => Node::Enum(self.count()?),
+            2 => Node::Ctor(self.index()?, self.int()?),
+            3 => Node::Enum(self.index()?),
             4 => Node::Box,
             5 => Node::Link(self.global()?),
             6 => Node::Cycle(
@@ -852,7 +1024,7 @@ impl<'a> In<'a> {
 
     fn chunk(&mut self) -> Option<Chunk> {
         Some(match self.u8()? {
-            0 => Chunk::Js(self.long()?),
+            0 => Chunk::Js(self.byte_string()?),
             1 => Chunk::ElmVar(self.home()?, self.name()?),
             2 => Chunk::JsVar(self.name()?, self.name()?),
             3 => Chunk::ElmField(self.name()?),
@@ -874,7 +1046,7 @@ impl<'a> In<'a> {
 
     fn path(&mut self) -> Option<Path> {
         Some(match self.u8()? {
-            0 => Path::Index(self.count()?, Box::new(self.path()?)),
+            0 => Path::Index(self.index()?, Box::new(self.path()?)),
             1 => Path::Field(self.name()?, Box::new(self.path()?)),
             2 => Path::Unbox(Box::new(self.path()?)),
             3 => Path::Root(self.name()?),
@@ -884,7 +1056,7 @@ impl<'a> In<'a> {
 
     fn dt_path(&mut self) -> Option<DtPath> {
         Some(match self.u8()? {
-            0 => DtPath::Index(self.count()?, Box::new(self.dt_path()?)),
+            0 => DtPath::Index(self.index()?, Box::new(self.dt_path()?)),
             1 => DtPath::Unbox(Box::new(self.dt_path()?)),
             2 => DtPath::Empty,
             _ => return None,
@@ -896,7 +1068,7 @@ impl<'a> In<'a> {
             0 => Test::IsCtor(
                 self.home()?,
                 self.name()?,
-                self.count()?,
+                self.index()?,
                 self.int()?,
                 self.ctor_opts()?,
             ),
@@ -924,7 +1096,7 @@ impl<'a> In<'a> {
         Some(match self.u8()? {
             0 => Decider::Leaf(match self.u8()? {
                 0 => Choice::Inline(self.expr()?),
-                1 => Choice::Jump(self.count()?),
+                1 => Choice::Jump(self.index()?),
                 _ => return None,
             }),
             1 => Decider::Chain {
@@ -943,10 +1115,10 @@ impl<'a> In<'a> {
 
     fn region(&mut self) -> Option<Region> {
         let mut position = || {
-            if self.v1 {
+            if self.v1() {
                 Some((u32::from(self.word16()?), u32::from(self.word16()?)))
             } else {
-                let word = u64::from_be_bytes(self.take(8)?.try_into().ok()?);
+                let word = self.int()? as u64;
                 let row = u32::try_from(word >> 32).ok()?;
                 Some((row.wrapping_add(1), (word as u32).wrapping_add(1)))
             }
@@ -967,7 +1139,7 @@ impl<'a> In<'a> {
             4 => Expr::Float(self.name()?),
             5 => Expr::VarLocal(self.name()?),
             6 => Expr::VarGlobal(self.global()?),
-            7 => Expr::VarEnum(self.global()?, self.count()?),
+            7 => Expr::VarEnum(self.global()?, self.index()?),
             8 => Expr::VarBox(self.global()?),
             9 => Expr::VarCycle(self.home()?, self.name()?),
             10 => Expr::VarDebug(
@@ -1000,24 +1172,36 @@ impl<'a> In<'a> {
                 self.name()?,
                 self.name()?,
                 Box::new(self.decider()?),
-                self.list(|input| Some((input.count()?, input.expr()?)))?,
+                self.list(|input| Some((input.index()?, input.expr()?)))?,
             ),
             20 => Expr::Accessor(self.name()?),
             21 => Expr::Access(boxed(self.expr()?), self.name()?),
             22 => Expr::Update(boxed(self.expr()?), self.name_map(In::expr)?),
             23 => Expr::Record(self.name_map(In::expr)?),
             24 => Expr::Unit,
+            25 if self.v3() => Expr::Tuple(boxed(self.expr()?), boxed(self.expr()?), None),
+            26 if self.v3() => Expr::Tuple(
+                boxed(self.expr()?),
+                boxed(self.expr()?),
+                Some(boxed(self.expr()?)),
+            ),
+            27 if self.v3() => {
+                Expr::Shader(self.byte_string()?, self.name_set()?, self.name_set()?)
+            }
             25 => Expr::Tuple(
                 boxed(self.expr()?),
                 boxed(self.expr()?),
                 self.maybe(In::expr)?.map(Box::new),
             ),
-            26 => Expr::Shader(self.long()?, self.name_set()?, self.name_set()?),
+            26 => Expr::Shader(self.byte_string()?, self.name_set()?, self.name_set()?),
             _ => return None,
         })
     }
 
     fn ty(&mut self) -> Option<Type> {
+        if self.v3() {
+            return self.ty3();
+        }
         Some(match self.u8()? {
             0 => Type::Lambda(Box::new(self.ty()?), Box::new(self.ty()?)),
             1 => Type::Var(self.name()?),
@@ -1053,6 +1237,58 @@ impl<'a> In<'a> {
                 let args = (0..n - 7).map(|_| self.ty()).collect::<Option<_>>()?;
                 Type::Type(home, name, args)
             }
+        })
+    }
+
+    /// A type variable, whose constraint must be the one its name gives.
+    fn var(&mut self) -> Option<String> {
+        let name = self.name()?;
+        (self.u8()? == constraint(&name)).then_some(name)
+    }
+
+    /// 0.19.3's `Interface.dType`.
+    fn ty3(&mut self) -> Option<Type> {
+        Some(match self.u8()? {
+            0 => Type::Lambda(Box::new(self.ty3()?), Box::new(self.ty3()?)),
+            1 => Type::Var(self.var()?),
+            2 => Type::Record(
+                self.name_map(|input| {
+                    Some(FieldType {
+                        order: input.word16()?,
+                        ty: input.ty3()?,
+                    })
+                })?,
+                self.maybe(In::var)?,
+            ),
+            3 => Type::Unit,
+            4 => Type::Tuple(Box::new(self.ty3()?), Box::new(self.ty3()?), None),
+            5 => Type::Tuple(
+                Box::new(self.ty3()?),
+                Box::new(self.ty3()?),
+                Some(Box::new(self.ty3()?)),
+            ),
+            6 => {
+                let home = self.home()?;
+                let name = self.name()?;
+                let n = self.u8()?;
+                let args = (0..n)
+                    .map(|_| Some((self.var()?, self.ty3()?)))
+                    .collect::<Option<_>>()?;
+                let body = match self.u8()? {
+                    0 => AliasType::Holey(Box::new(self.ty3()?)),
+                    1 => AliasType::Filled(Box::new(self.ty3()?)),
+                    _ => return None,
+                };
+                Type::Alias(home, name, args, body)
+            }
+            7 => {
+                let home = self.home()?;
+                let name = self.name()?;
+                let n = self.u8()?;
+                let args = (0..n).map(|_| self.ty3()).collect::<Option<_>>()?;
+                Type::Type(home, name, args)
+            }
+            _ => return None,
         })
     }
 }
