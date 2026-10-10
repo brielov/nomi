@@ -1,0 +1,15 @@
+=== note
+a main whose aliased type is not a program
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+type alias Main =
+    List Int
+
+
+main : Main
+main =
+    []

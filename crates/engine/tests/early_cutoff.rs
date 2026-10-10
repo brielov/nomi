@@ -30,7 +30,7 @@ const ELM_JSON: &str = r#"{
 "#;
 
 const MAIN: &str =
-    "module Main exposing (main)\n\nimport Middle\n\n\nmain : Int\nmain =\n    Middle.twice 2\n";
+    "module Main exposing (value)\n\nimport Middle\n\n\nvalue : Int\nvalue =\n    Middle.twice 2\n";
 const MIDDLE: &str = "module Middle exposing (twice)\n\nimport Base\n\n\ntwice : Int -> Int\ntwice n =\n    Base.add n n\n";
 const BASE: &str =
     "module Base exposing (add)\n\n\nadd : Int -> Int -> Int\nadd a b =\n    a + b\n";

@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **7.3**.
+4. Resume at the first unchecked box. Right now that is **7.4**.
 
 ### Test tiers
 
@@ -427,7 +427,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 - [x] **7.2** `compiler: Debug check for --optimize`.
 
   Done: `nitpick::debug::has_debug_uses` ports `Nitpick/Debug.hs` over the canonical declarations (upstream reads the optimized graph, which keeps every top-level definition, so the same expressions), and `report::debug_remnants` the `DEBUG REMNANTS` report, which matches elm 0.19.1's output byte for byte. Only generating code runs this check: `elm make --output=/dev/null` never does, so `nomi check` doesn't, and codegen (M8) wires it in.
-- [ ] **7.3** `compiler: main validation`. `addDefHelp` and `checkPayload`, with their reports.
+- [x] **7.3** `compiler: main validation`. `addDefHelp` and `checkPayload`, with their reports.
+
+  Done: `nitpick::main` ports the `main` checks of `Canonicalize/Module.hs` (`addDefHelp`, through `Effects.checkPayload` for flags): `main` must be `Html`, `Svg` or a `Program` whose flags are payload types, and must not be part of a cycle. Upstream runs it in `Result`, so the first error stops, and nomi runs it after the pattern check, where upstream's order puts it. 0.19.3's minimal cycle renders the same for `main`. Nine `main_*` cases join the patterns oracle, and `patterns_reports` passes all 93 runs. Two engine and CLI tests used a non-program `main` as valid code; they now name it otherwise.
 - [ ] **7.4** `compiler: package docs`. `Elm/Docs.hs` and the docs errors. **Check:** `docs.json` is byte-identical for every corpus package each Compat accepts, and the rejected ones fail with upstream's error.
 - [ ] **7.5** `oracle: whole-project snapshots`. `elm make --output=/dev/null --report=json` on every corpus project, for each Compat, in the 1.15a sandboxes; rejected projects are expected-failure cases. Add the old 605-case CLI report matrix (`conformance/checkpoints/2026-09-23/json-report-fixtures`), which compares every output stream, exit status and artifact.
 - [ ] **7.6** `cli: reach nomi check parity`. Work the ratchet to 100%.

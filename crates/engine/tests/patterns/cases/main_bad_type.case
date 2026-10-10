@@ -1,0 +1,10 @@
+=== note
+a main that is a number
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+main =
+    1

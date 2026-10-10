@@ -151,7 +151,7 @@ fn substitute(ty: &Type, args: &[(String, Type)]) -> Type {
 
 /// `deepDealias`: `ty` with every alias, at any depth, replaced by what
 /// it stands for.
-fn deep_dealias(ty: &Type) -> Type {
+pub fn deep_dealias(ty: &Type) -> Type {
     match ty {
         Type::Alias(_, _, args, aliased) => {
             let args: Vec<(String, Type)> = args

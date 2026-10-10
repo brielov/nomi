@@ -15,7 +15,7 @@ use nomi_compiler::canonicalize::module::{canonicalize, interface};
 use nomi_compiler::canonicalize::report;
 use nomi_compiler::hir;
 use nomi_compiler::interface::Interface;
-use nomi_compiler::nitpick::{patterns, report as patterns_report};
+use nomi_compiler::nitpick::{main as main_check, patterns, report as patterns_report};
 use nomi_compiler::types::localizer::Localizer;
 use nomi_compiler::types::report as types_report;
 use nomi_project::{ModuleName, Name, Outline};
@@ -336,6 +336,26 @@ impl Walk<'_> {
                             .map(|e| patterns_report::to_problem(e, &cx))
                             .collect();
                         self.problems.insert(module.path.clone(), problems);
+                        return false;
+                    }
+                    // Then `main`, as upstream's `optimize` checks it.
+                    if let Some(error) = main_check::check(&canonical.decls, &annotations) {
+                        let source = Source::new(&module.text);
+                        let trim = |range| trim(&root, range);
+                        let imports = with_defaults(&self.package, &hir.imports);
+                        let localizer = Localizer::from_module(
+                            self.env.compat(),
+                            nomi_compiler::canonicalize::module::name(&hir),
+                            &imports,
+                        );
+                        let problem = main_check::to_problem(
+                            &error,
+                            &source,
+                            self.env.compat(),
+                            &trim,
+                            &localizer,
+                        );
+                        self.problems.insert(module.path.clone(), vec![problem]);
                         return false;
                     }
                     let interface = interface(&canonical, &annotations);

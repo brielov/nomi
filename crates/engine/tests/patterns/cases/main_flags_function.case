@@ -1,0 +1,14 @@
+=== note
+a Program whose flags are a function
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+import Platform
+
+
+main : Program (Int -> Int) () ()
+main =
+    Platform.worker { init = \_ -> ( (), Cmd.none ), update = \_ m -> ( m, Cmd.none ), subscriptions = \_ -> Sub.none }

@@ -1,0 +1,14 @@
+=== note
+a main that uses itself through another function
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+main x =
+    helper x
+
+
+helper x =
+    main x

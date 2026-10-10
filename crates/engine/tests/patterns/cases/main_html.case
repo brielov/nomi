@@ -1,0 +1,13 @@
+=== note
+an Html main, which elm accepts
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+import Html
+
+
+main =
+    Html.text "hi"

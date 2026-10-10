@@ -1,0 +1,15 @@
+=== note
+a Program main with flags, which elm accepts
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+import Browser
+import Html
+
+
+main : Program { name : String, ids : List Int } () ()
+main =
+    Browser.sandbox { init = (), update = \_ m -> m, view = \_ -> Html.text "" }

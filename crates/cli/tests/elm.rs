@@ -170,7 +170,7 @@ fn check_reports_as_elm_make() {
     // checks cleanly uses none of their values.
     fs::write(
         work.path().join("src/Main.elm"),
-        "module Main exposing (main)\n\nimport Html\n\n\nmain =\n    1\n",
+        "module Main exposing (x)\n\nimport Html\n\n\nx =\n    1\n",
     )
     .unwrap();
     let (ok, stdout, stderr) = check(&["src/Main.elm"]);
