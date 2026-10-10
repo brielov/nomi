@@ -1,0 +1,9 @@
+=== exit 0
+=== stdout
+|No problems in syntax, module names, imports, names or types.
+|
+|    Main ───> main.js
+|
+=== stderr
+=== file main.js
+|60989 bytes, SHA-256 4e3585c2d42be9a9778bf8b94ca86ead388bef706357c7b7998be2516b6d065c

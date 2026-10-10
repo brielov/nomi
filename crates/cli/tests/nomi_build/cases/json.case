@@ -1,0 +1,20 @@
+=== note
+--report=json writes nothing on success
+=== args
+build
+src/Main.elm
+--report=json
+--output=main.js
+=== file elm.json
+{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}
+=== file src/Main.elm
+module Main exposing (main)
+
+
+main : Program () () ()
+main =
+    Platform.worker
+        { init = \_ -> ( (), Cmd.none )
+        , update = \_ model -> ( model, Cmd.none )
+        , subscriptions = \_ -> Sub.none
+        }

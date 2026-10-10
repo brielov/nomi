@@ -11,7 +11,7 @@ use nomi_engine::check::{self, Style};
 use nomi_engine::console::{Personality, StdConsole};
 use nomi_engine::format::{self, Mode, Outcome};
 use nomi_engine::paths::Cache;
-use nomi_engine::{Vfs, Web, init, install, remove, tree, update};
+use nomi_engine::{Vfs, Web, init, install, make, remove, tree, update};
 
 /// One toolchain for Elm: compiler, formatter, language server, test runner
 /// and package manager.
@@ -70,6 +70,31 @@ enum Command {
     Tree,
     /// Start the language server, on standard input and output.
     Lsp,
+    /// Build modules into JavaScript or HTML as `elm make` does.
+    #[command(visible_alias = "make")]
+    Build {
+        /// The modules with the `main`s to build; a package's exposed
+        /// modules, checked, if none.
+        paths: Vec<PathBuf>,
+        /// Where to write the code: a `.js` or `.html` file, or
+        /// `/dev/null` for none. `index.html` for one `main` and `elm.js`
+        /// for more by default.
+        #[arg(long, value_name = "FILE")]
+        output: Option<String>,
+        /// Build with the time-travelling debugger.
+        #[arg(long, conflicts_with = "optimize")]
+        debug: bool,
+        /// Shorten record fields and unbox types, refusing `Debug`.
+        #[arg(long, visible_alias = "release")]
+        optimize: bool,
+        /// Write a package's documentation to this file.
+        #[arg(long, value_name = "FILE")]
+        docs: Option<PathBuf>,
+        /// Report problems as JSON on standard error, as `elm make
+        /// --report=json` does.
+        #[arg(long, value_name = "FORMAT")]
+        report: Option<ReportFormat>,
+    },
     /// Check modules as `elm make --output=/dev/null` does, generating no
     /// code: so far their syntax, module names, imports and names.
     Check {
@@ -135,6 +160,38 @@ fn main() -> ExitCode {
                 false
             }
         },
+        Some(Command::Build {
+            paths,
+            output,
+            debug,
+            optimize,
+            docs,
+            report,
+        }) => {
+            let output = match output.as_deref().map(make::Output::parse) {
+                None => None,
+                Some(Some(output)) => Some(output),
+                Some(None) => {
+                    eprintln!("error: --output takes a file ending in .js or .html, or /dev/null");
+                    return exit(false);
+                }
+            };
+            let make = make::Make {
+                paths,
+                personality: Personality::Nomi,
+                style: match report {
+                    Some(ReportFormat::Json) => Style::Json,
+                    None => Style::Terminal,
+                },
+                debug,
+                optimize,
+                output,
+                docs,
+            };
+            in_project(|console, dir, cache, http| {
+                make::run(&Vfs::new(), console, dir, cache, http, &make)
+            })
+        }
         Some(Command::Check { paths, report }) => in_project(|console, dir, cache, http| {
             let style = match report {
                 Some(ReportFormat::Json) => Style::Json,

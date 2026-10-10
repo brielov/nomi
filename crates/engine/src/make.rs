@@ -103,7 +103,10 @@ pub fn run(
     let Some(root) = Root::find(vfs, dir) else {
         let report = match personality {
             Personality::Elm => no_outline(),
-            Personality::Nomi => project::no_outline("to check"),
+            Personality::Nomi if make.output == Some(Output::DevNull) => {
+                project::no_outline("to check")
+            }
+            Personality::Nomi => project::no_outline("to build"),
         };
         show(
             console,
@@ -219,6 +222,7 @@ pub fn run(
             return fail(console, report);
         }
     }
+    let mut diagram = None;
     if let Some(optimized) = optimized {
         let target = match target(make.output.as_ref(), &optimized.roots) {
             Ok(target) => target,
@@ -256,15 +260,18 @@ pub fn run(
                 );
                 return fail(console, report);
             }
-            if terminal {
-                let names: Vec<String> = target.names.iter().map(|n| n.to_string()).collect();
-                let output = target.path.to_string_lossy();
-                console.out(&format!("\n{}\n", gen_diagram(&names, &output)));
-            }
+            let names: Vec<String> = target.names.iter().map(|n| n.to_string()).collect();
+            diagram = Some(gen_diagram(&names, &target.path.to_string_lossy()));
         }
     }
+    // elm's success line came with the build's progress; nomi's comes now.
     if !terminal {
         show(console, &root, &Checked::Fine, compat, make.style);
+    }
+    if let Some(diagram) = diagram
+        && make.style == Style::Terminal
+    {
+        console.out(&format!("\n{diagram}\n"));
     }
     true
 }

@@ -1,0 +1,5 @@
+=== exit 0
+=== stdout
+=== stderr
+=== file main.js
+|61472 bytes, SHA-256 2da00360b232825420f857acadd90507214965e76f2766f6fa67f305fa82b021

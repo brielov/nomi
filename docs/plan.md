@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **8.13b**.
+4. Resume at the first unchecked box. Right now that is **8.14**.
 
 ### Test tiers
 
@@ -512,7 +512,9 @@ The optimizer's oracle is elm's own artifacts: every elm writes a module's optim
 - [x] **8.13a** `oracle: make terminal transcripts`. The matrix's cases recorded again without `--report=json`, and the terminal style's progress, success and generation messages (`Reporting.hs`: `Compiling ...`, `Success!`, the `───>` diagram). **Check:** the terminal matrix at 100%.
 
   Done: `cargo xtask oracle make` records every case again without `--report=json` into `expected_terminal/`, and the `elm_make` ratchet runs both, all 2,786 passing. `make` in the elm personality's terminal style now shows what `Reporting.hs` shows: the dependencies' verification steps and `Dependencies ready!` (also when the project fails before them), `Compiling ...` with a count per clean module and the final message over it, the reports without nomi's summary, and the `───>` diagram after writing code; `elm make` without files stops before the build, as upstream does. Three surprises, each in DECISIONS.md: how many verification steps elm prints varies between runs, so the ratchet reads a run of them as one step; elm sorts terminal reports by modification time, so the oracle and the ratchet date each case's files a second apart; and elm sometimes exits before printing its last line, so the oracle runs such a case again. `Compiled N modules` counts every clean module, cached or not.
-- [ ] **8.13b** `cli: nomi build`. `nomi build` (alias `make`, `--release` as an alias of `--optimize`) with nomi's own messages, and `--docs`. **Check:** transcripts.
+- [x] **8.13b** `cli: nomi build`. `nomi build` (alias `make`, `--release` as an alias of `--optimize`) with nomi's own messages, and `--docs`. **Check:** transcripts.
+
+  Done: `nomi build`, alias `make`, takes paths, `--output`, `--debug`, `--optimize` with its alias `--release`, `--docs` and `--report=json`, and runs `engine::make` in nomi's personality: the check's line on success, then the `───>` diagram of what it wrote; nothing on success with `--report=json`; clap's errors for its flags. Eleven snapshot transcripts under `crates/cli/tests/nomi_build/` cover the default `index.html`, a `.js` in a new directory, `--release`, the alias, JSON, `/dev/null`, a bad `--output`, `--debug` with `--optimize`, `DEBUG REMNANTS`, a type error and `--docs`; `NOMI_BLESS=1` rewrites them, as nomi's own messages have no oracle.
 - [ ] **8.14** `cli: bump, diff and publish`. The API diff is computed from docs. Publishing is tested only against the fixture registry; publishing for real is yours to run.
 - [ ] **8.15** `cli: explain missing repl and reactor`. The message for `elm reactor` points to `nomi run --watch`.
 - [ ] **8.16** `release: 0.2`. README usage (`ln -s nomi elm`), cold and warm build benchmarks against elm, and a tag.

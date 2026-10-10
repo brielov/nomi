@@ -1,0 +1,28 @@
+=== exit 1
+=== stdout
+|Detected problems in 1 module.
+=== stderr
+|-- TYPE MISMATCH -------------------------------------------------- src/Main.elm
+|
+|The 1st argument to `worker` is not what I expect:
+|
+| 6|     Platform.worker
+| 7|>        { init = \_ -> ( (), Cmd.none )
+| 8|>        , update = \_ model -> ( model, Cmd.none, 1 )
+| 9|>        , subscriptions = \_ -> Sub.none
+|10|>        }
+|
+|This argument is a record of type:
+|
+|    { init : flags -> ( (), Cmd msg1 )
+|    , subscriptions : () -> Sub msg1
+|    , update : msg1 -> () -> ( (), Cmd msg, number )
+|    }
+|
+|But `worker` needs the 1st argument to be:
+|
+|    { init : flags -> ( (), Cmd msg1 )
+|    , subscriptions : () -> Sub msg1
+|    , update : msg1 -> () -> ( (), Cmd msg1 )
+|    }
+|

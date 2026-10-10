@@ -1,0 +1,8 @@
+=== exit 2
+=== stdout
+=== stderr
+|error: the argument '--debug' cannot be used with '--optimize'
+|
+|Usage: nomi build --debug <PATHS>...
+|
+|For more information, try '--help'.
