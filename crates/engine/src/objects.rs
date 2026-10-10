@@ -14,7 +14,9 @@ use std::path::PathBuf;
 
 use nomi_base::Compat;
 use nomi_base::diagnostic::code::Source;
+use nomi_codegen_js::debug::{ModuleTypes, Types};
 use nomi_codegen_js::kernel;
+use nomi_compiler::canonical::Home;
 use nomi_compiler::canonicalize::module::{canonicalize, interface};
 use nomi_compiler::hir;
 use nomi_compiler::interface::Interface;
@@ -32,8 +34,9 @@ enum Built {
     Kernel(Vec<Chunk>),
 }
 
-/// Each package's exposed interfaces and its graph, by its directory.
-pub type Memo = HashMap<PathBuf, (HashMap<String, Interface>, GlobalGraph)>;
+/// Each package's exposed interfaces, its graph and every module's types,
+/// by its directory.
+pub type Memo = HashMap<PathBuf, (HashMap<String, Interface>, GlobalGraph, Types)>;
 
 /// The merged graph of `packages`, each a name and the directory of its
 /// source: the whole of what a project's `o.dat` holds.
@@ -51,6 +54,16 @@ pub fn dependency_graph_with(
     packages: &[(Name, PathBuf)],
     memo: &mut Memo,
 ) -> Result<GlobalGraph, String> {
+    Ok(dependencies_with(compat, packages, memo)?.0)
+}
+
+/// [`dependency_graph_with`], and the unions and aliases of every module
+/// of `packages`, which `--debug` describes messages by.
+pub fn dependencies_with(
+    compat: Compat,
+    packages: &[(Name, PathBuf)],
+    memo: &mut Memo,
+) -> Result<(GlobalGraph, Types), String> {
     let mut outlines = BTreeMap::new();
     for (name, dir) in packages {
         let bytes = fs::read(dir.join("elm.json")).map_err(|e| format!("{name}: {e}"))?;
@@ -64,6 +77,7 @@ pub fn dependency_graph_with(
     // Each package's exposed interfaces, dependencies first.
     let mut exposed_interfaces: BTreeMap<Name, HashMap<String, Interface>> = BTreeMap::new();
     let mut graphs: Vec<(Name, GlobalGraph)> = Vec::new();
+    let mut types = Types::new();
     let mut pending: Vec<Name> = outlines.keys().cloned().collect();
     while !pending.is_empty() {
         let ready = (pending.iter())
@@ -74,9 +88,10 @@ pub fn dependency_graph_with(
             .ok_or("the packages depend on each other in a cycle")?;
         let name = pending.remove(ready);
         let (pkg, dir) = &outlines[&name];
-        if let Some((exposed, graph)) = memo.get(dir) {
+        if let Some((exposed, graph, built_types)) = memo.get(dir) {
             exposed_interfaces.insert(name.clone(), exposed.clone());
             graphs.push((name, graph.clone()));
+            types.extend(built_types.clone());
             continue;
         }
         let mut visible: HashMap<String, Interface> = HashMap::new();
@@ -99,11 +114,22 @@ pub fn dependency_graph_with(
             foreigns: &foreigns,
         };
         let (interfaces, built) = package.build(&exposed, visible)?;
+        let built_types: Types = (interfaces.iter())
+            .filter(|(m, _)| matches!(built.get(*m), Some(Built::Local(_))))
+            .map(|(m, interface)| {
+                let home = Home {
+                    package: name.to_string(),
+                    module: m.clone(),
+                };
+                (home, ModuleTypes::from_interface(interface))
+            })
+            .collect();
         let exposed: HashMap<String, Interface> = (interfaces.into_iter())
             .filter(|(m, _)| exposed.contains(m))
             .collect();
         let graph = package.gather(built);
-        memo.insert(dir.clone(), (exposed.clone(), graph.clone()));
+        types.extend(built_types.clone());
+        memo.insert(dir.clone(), (exposed.clone(), graph.clone(), built_types));
         exposed_interfaces.insert(name.clone(), exposed);
         graphs.push((name, graph));
     }
@@ -114,7 +140,7 @@ pub fn dependency_graph_with(
         merged.nodes.extend(graph.nodes);
         merged.fields.extend(graph.fields);
     }
-    Ok(merged)
+    Ok((merged, types))
 }
 
 /// `Ord Pkg.Name`: author, then project, each by bytes.

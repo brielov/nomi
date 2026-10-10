@@ -141,7 +141,7 @@ pub fn optimized(
     packages: &Path,
 ) -> Result<Vec<(String, Vec<u8>)>, String> {
     let project = Project::new(case, compat, default_elm_json, packages);
-    let (checked, _, graphs) = check::optimize(
+    let (checked, optimized) = check::optimize(
         &Vfs::new().snapshot(),
         &project.env,
         &project.outline,
@@ -160,7 +160,7 @@ pub fn optimized(
         );
         return Err(console.err);
     }
-    Ok((graphs.into_iter())
+    Ok((optimized.graphs.into_iter())
         .map(|(name, graph)| {
             let bytes = nomi_compiler::optimized::binary::encode_local_graph(&graph, compat);
             (name.to_string(), bytes)
@@ -179,7 +179,7 @@ pub fn javascript(
     packages: &Path,
 ) -> Result<Vec<u8>, String> {
     let project = Project::new(case, compat, default_elm_json, packages);
-    let (checked, roots, graphs) = check::optimize(
+    let (checked, optimized) = check::optimize(
         &Vfs::new().snapshot(),
         &project.env,
         &project.outline,
@@ -208,7 +208,7 @@ pub fn javascript(
             (name.clone(), dir)
         })
         .collect();
-    let dependencies = dependency_graph(compat, &sources)?;
+    let dependencies = dependencies(compat, &sources)?;
     let kind = match mode {
         "dev" => javascript::Kind::Dev,
         "debug" => javascript::Kind::Debug,
@@ -219,20 +219,26 @@ pub fn javascript(
         kind,
         "author/project",
         dependencies,
-        &roots,
-        graphs,
+        optimized,
     ))
 }
 
-/// The merged graph of `sources` as `compat` builds it, made once.
-fn dependency_graph(
+/// The merged graph of `sources` as `compat` builds it, and their
+/// modules' types, made once.
+fn dependencies(
     compat: Compat,
     sources: &[(Name, PathBuf)],
-) -> Result<nomi_compiler::optimized::GlobalGraph, String> {
+) -> Result<
+    (
+        nomi_compiler::optimized::GlobalGraph,
+        nomi_codegen_js::debug::Types,
+    ),
+    String,
+> {
     static MEMOS: OnceLock<Mutex<HashMap<Compat, objects::Memo>>> = OnceLock::new();
     let mut memos = MEMOS.get_or_init(Default::default).lock().unwrap();
     let memo = memos.entry(compat).or_default();
-    objects::dependency_graph_with(compat, sources, memo)
+    objects::dependencies_with(compat, sources, memo)
 }
 
 fn build(

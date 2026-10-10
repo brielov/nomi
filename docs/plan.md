@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **8.9**.
+4. Resume at the first unchecked box. Right now that is **8.10**.
 
 ### Test tiers
 
@@ -491,7 +491,9 @@ The optimizer's oracle is elm's own artifacts: every elm writes a module's optim
 - [x] **8.8** `codegen-js: program graph`. `Generate/JavaScript.hs` and `Functions.hs`: reachability from each `main`, ordering, cycles, kernels, effect managers and `_Platform_export`, and the engine's merging of the dependencies' graph and the modules'. **Check:** the ratchet's dev-mode programs.
 
   Done: `generate` ports `JavaScript.hs` and `Functions.hs`: from each `main`, the last module first, every definition reached is written once after what it needs, each node's needs visited in the release's order of globals; kernels' code comes first, `Debugger` only under `--debug`; cycles, effect managers, ports, enums and boxes as upstream writes them; and `_Platform_export` nests each `main` under its module's path, segments in the release's order of names. `engine::javascript::program` merges the dependencies' graph and the modules', gathers the roots' `main`s and generates in the mode asked for. The ratchet `javascript` passes all 27 dev-mode runs, and 12 others whose programs have no record fields to shorten or debugger metadata to write; what differs is kept in `target/tmp/javascript` for a look. `elm make` writing the file waits for 8.13. Unit tests cover what the fixtures don't reach: a cycle of values, and the export tree's order.
-- [ ] **8.9** `codegen-js: debug and optimize modes`. Field shortening, and debugger metadata (`Elm/Compiler/Type/Extract.hs`). **Check:** the ratchet in every mode.
+- [x] **8.9** `codegen-js: debug and optimize modes`. Field shortening, and debugger metadata (`Elm/Compiler/Type/Extract.hs`). **Check:** the ratchet in every mode.
+
+  Done: the ratchet `javascript` passes all 78 runs. `--optimize` needed one fix: upstream merges the modules' field counts into the dependencies' with left-biased unions folded from the right, as `o.dat` merges packages, so the first module in the release's order of names wins and nothing is summed. `debug` ports `Extract.hs` and `encodeMetadata`: the message type and every union and alias it reaches, round by round, each round in the order of upstream's sets (by name, then module, before 0.19.3; by module, then name, in it), each type written as the type printer writes it on one line. `Mode::Dev` carries the types; `engine::objects::dependencies_with` keeps every dependency module's unions and aliases, private modules' included, and `check::optimize` now returns an `Optimized` with the local modules' interfaces. `--optimize` with `Debug` was already refused before code generation (`DEBUG REMNANTS`). Surprise: upstream's check for `Elm.JsArray` calls compares the module with `JsArray`, so they are never inlined; nomi now matches that, which only the debugger's code reached.
 - [ ] **8.10** `codegen-js: html and /dev/null outputs` (`Generate/Html.hs`). **Check:** the ratchet's HTML cases.
 - [ ] **8.11** `oracle: corpus JavaScript`. The four apps in three modes for each Compat (with 1.15a's `elm-version` rewrite); the old manifest already has the 0.19.2 hashes. **Check:** byte parity across them, the ratchet at 100%.
 - [ ] **8.12** `engine: object cache and linking`. Optimized graphs are cached per module, and linking takes only what `main` reaches.

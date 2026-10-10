@@ -3,6 +3,7 @@
 //! printing, the names it uses, and the modes it is generated in.
 
 pub mod builder;
+pub mod debug;
 pub mod expression;
 pub mod generate;
 pub mod kernel;

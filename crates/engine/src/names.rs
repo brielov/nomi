@@ -218,6 +218,8 @@ pub struct Checked {
     pub docs: Vec<docs::Module>,
     /// Each module's optimized graph, when asked for, in the order checked.
     pub optimized: Vec<(ModuleName, LocalGraph)>,
+    /// Each optimized module's interface, for the debugger's types.
+    pub interfaces: Vec<(ModuleName, Interface)>,
 }
 
 /// What a check makes beyond its problems.
@@ -264,6 +266,7 @@ pub fn check_graph(
         goals,
         docs: Vec::new(),
         optimized: Vec::new(),
+        optimized_interfaces: Vec::new(),
     };
     let mut names: Vec<&ModuleName> = graph.modules.keys().collect();
     names.sort_by(|a, b| a.compare(b, env.compat()));
@@ -280,6 +283,7 @@ pub fn check_graph(
         ran: walk.ran,
         docs: walk.docs,
         optimized: walk.optimized,
+        interfaces: walk.optimized_interfaces,
     }
 }
 
@@ -300,6 +304,7 @@ struct Walk<'g> {
     goals: Goals<'g>,
     docs: Vec<docs::Module>,
     optimized: Vec<(ModuleName, LocalGraph)>,
+    optimized_interfaces: Vec<(ModuleName, Interface)>,
 }
 
 impl Walk<'_> {
@@ -419,6 +424,10 @@ impl Walk<'_> {
                         // A cache that can't be written only costs a
                         // check next time.
                         let _ = artifacts.put(key, &interface.encode());
+                    }
+                    if self.goals.optimize {
+                        let entry = (module.name.clone(), interface.clone());
+                        self.optimized_interfaces.push(entry);
                     }
                     self.interfaces.insert(module.name.to_string(), interface);
                     true

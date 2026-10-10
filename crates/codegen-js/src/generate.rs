@@ -56,8 +56,8 @@ pub fn generate(
 fn perf_note(compat: Compat, mode: &Mode) -> String {
     let which = match mode {
         Mode::Prod(_) => return String::new(),
-        Mode::Dev { debug: false } => "DEV",
-        Mode::Dev { debug: true } => "DEBUG",
+        Mode::Dev { debug: None } => "DEV",
+        Mode::Dev { debug: Some(_) } => "DEBUG",
     };
     format!(
         "console.warn('Compiled in {which} mode. Follow the advice at {} for better \
@@ -399,7 +399,7 @@ fn exports(cx: &Gen, trie: &Trie) -> String {
 mod tests {
     use super::*;
 
-    const DEV: Mode = Mode::Dev { debug: false };
+    const DEV: Mode = Mode::Dev { debug: None };
 
     fn home(module: &str) -> Home {
         Home {

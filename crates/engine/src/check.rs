@@ -167,6 +167,7 @@ struct Built {
     /// The roots, and whether each defines `main`.
     mains: Vec<(ModuleName, bool)>,
     optimized: Vec<(ModuleName, LocalGraph)>,
+    interfaces: Vec<(ModuleName, Interface)>,
 }
 
 impl Built {
@@ -177,14 +178,24 @@ impl Built {
             docs: Vec::new(),
             mains: Vec::new(),
             optimized: Vec::new(),
+            interfaces: Vec::new(),
         }
     }
 }
 
+/// What [`optimize`] makes of a project.
+#[derive(Debug, Default)]
+pub struct Optimized {
+    /// The roots, and whether each defines `main`.
+    pub roots: Vec<(ModuleName, bool)>,
+    /// Each module's graph.
+    pub graphs: Vec<(ModuleName, LocalGraph)>,
+    /// Each module's interface.
+    pub interfaces: Vec<(ModuleName, Interface)>,
+}
+
 /// What `elm make` optimizes of the project `env` describes, building
-/// as [`check`] does: the roots and whether each defines `main`, and
-/// each module's graph, when nothing was wrong.
-#[allow(clippy::type_complexity)]
+/// as [`check`] does, when nothing was wrong.
 pub fn optimize(
     snapshot: &Snapshot,
     env: &Env,
@@ -192,11 +203,7 @@ pub fn optimize(
     paths: &[PathBuf],
     personality: Personality,
     packages: &HashMap<String, Interface>,
-) -> (
-    Checked,
-    Vec<(ModuleName, bool)>,
-    Vec<(ModuleName, LocalGraph)>,
-) {
+) -> (Checked, Optimized) {
     let built = build(
         snapshot,
         env,
@@ -207,7 +214,12 @@ pub fn optimize(
         None,
         Goal::Optimize,
     );
-    (built.checked, built.mains, built.optimized)
+    let optimized = Optimized {
+        roots: built.mains,
+        graphs: built.optimized,
+        interfaces: built.interfaces,
+    };
+    (built.checked, optimized)
 }
 
 /// [`check_with`], making what `goal` asks for too.
@@ -273,6 +285,7 @@ fn build(
         docs: later.docs,
         mains: graph.root_mains(),
         optimized: later.optimized,
+        interfaces: later.interfaces,
     }
 }
 

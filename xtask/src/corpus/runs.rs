@@ -295,7 +295,7 @@ fn run(
             checked
         }
         Suite::Graphs => {
-            let (checked, _, graphs) = check::optimize(
+            let (checked, optimized) = check::optimize(
                 &snapshot,
                 &env,
                 &project.outline,
@@ -304,7 +304,7 @@ fn run(
                 &visible,
             );
             if matches!(checked, Checked::Fine) {
-                let modules: Vec<(String, Vec<u8>)> = (graphs.into_iter())
+                let modules: Vec<(String, Vec<u8>)> = (optimized.graphs.into_iter())
                     .map(|(name, graph)| {
                         (name.to_string(), binary::encode_local_graph(&graph, compat))
                     })

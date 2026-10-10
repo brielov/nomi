@@ -13,6 +13,7 @@ use nomi_compiler::optimized::{
 };
 
 use crate::builder::{Case, Expr as Js, InfixOp, LValue, PrefixOp, Stmt};
+use crate::debug;
 use crate::mode::Mode;
 use crate::name::Name;
 
@@ -335,7 +336,9 @@ impl Gen<'_> {
         match home.module.as_str() {
             "Bitwise" => bitwise_call(home, name, args),
             "Tuple" => tuple_call(home, name, args),
-            "Elm.JsArray" => js_array_call(home, name, args),
+            // Upstream looks for `JsArray`, though the module is
+            // `Elm.JsArray`, so its calls are never inlined.
+            "JsArray" => js_array_call(home, name, args),
             _ => global_call(home, name, args),
         }
     }
@@ -684,10 +687,16 @@ impl Gen<'_> {
                 let init = call(kernel("VirtualDom", "init"), vec![main_ref]);
                 call(call(init, vec![Js::Int(0)]), vec![Js::Int(0)])
             }
-            Main::Dynamic { decoder, .. } => {
+            Main::Dynamic { message, decoder } => {
                 let applied = call(main_ref, vec![self.js(decoder)]);
-                // The debugger's metadata comes with plan 8.9.
-                call(applied, vec![Js::Int(0)])
+                // `toDebugMetadata`.
+                let metadata = match self.mode {
+                    Mode::Dev { debug: Some(types) } => {
+                        Js::Json(debug::metadata(self.compat, types, message))
+                    }
+                    _ => Js::Int(0),
+                };
+                call(applied, vec![metadata])
             }
         }
     }
@@ -852,7 +861,7 @@ mod tests {
     use super::*;
     use crate::builder;
 
-    const DEV: Mode = Mode::Dev { debug: false };
+    const DEV: Mode = Mode::Dev { debug: None };
 
     fn home(module: &str) -> Home {
         Home {

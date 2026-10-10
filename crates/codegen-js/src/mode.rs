@@ -7,14 +7,15 @@ use std::collections::BTreeMap;
 use nomi_base::Compat;
 use nomi_compiler::optimized::GlobalGraph;
 
+use crate::debug::Types;
 use crate::name::Name;
 
 /// `Mode`.
 #[derive(Clone, Debug)]
 pub enum Mode {
-    /// Development; with the debugger when `debug` (its type metadata
-    /// comes with plan 8.9).
-    Dev { debug: bool },
+    /// Development; with the debugger, and the types it describes
+    /// messages by, when `debug` holds them.
+    Dev { debug: Option<Types> },
     /// `--optimize`, each record field's short name.
     Prod(BTreeMap<String, Name>),
 }
@@ -22,7 +23,7 @@ pub enum Mode {
 impl Mode {
     /// `isDebug`.
     pub fn is_debug(&self) -> bool {
-        matches!(self, Mode::Dev { debug: true })
+        matches!(self, Mode::Dev { debug: Some(_) })
     }
 }
 
