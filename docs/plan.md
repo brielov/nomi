@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **6.1**.
+4. Resume at the first unchecked box. Right now that is **6.2**.
 
 ### Test tiers
 
@@ -365,7 +365,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 
 ## M6: Types
 
-- [ ] **6.1** `compiler: type variables and union-find`. Descriptors, ranks and marks (`Type/Type.hs`, `UnionFind.hs`).
+- [x] **6.1** `compiler: type variables and union-find`. Descriptors, ranks and marks (`Type/Type.hs`, `UnionFind.hs`).
+
+  Done: `nomi_compiler::types` ports `Type/Type.hs` and `UnionFind.hs`. Upstream keeps each variable in an `IORef`; nomi keeps them as indices into one `Variables` store, which every operation takes, with upstream's weighted union and path shortening. Constraints carry the expectations and categories of `Reporting/Error/Type.hs`, and the error types of `Type/Error.hs` came along for `toErrorType`. Naming variables follows upstream's traversal, since it decides which of two variables named alike keeps the name. 0.19.2's type checker is 0.19.1's; 0.19.3's restructures it, and its differences come in as the oracle shows them.
 - [ ] **6.2** `compiler: unification`. Covers the super types (number, comparable, appendable, compappend) and records, and keeps aliases for messages.
 - [ ] **6.3** `compiler: constraints for expressions`, in upstream's order.
 - [ ] **6.4** `compiler: constraints for patterns`.

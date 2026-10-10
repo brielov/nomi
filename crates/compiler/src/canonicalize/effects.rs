@@ -92,7 +92,7 @@ fn delambda(ty: Type) -> Vec<Type> {
 }
 
 /// `dealias`: what an alias, applied to `args`, stands for.
-fn dealias(args: &[(String, Type)], aliased: &AliasType) -> Type {
+pub fn dealias(args: &[(String, Type)], aliased: &AliasType) -> Type {
     match aliased {
         AliasType::Holey(body) => substitute(body, args),
         AliasType::Filled(body) => (**body).clone(),

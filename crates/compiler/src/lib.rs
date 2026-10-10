@@ -8,3 +8,4 @@ mod encoding;
 pub mod graph;
 pub mod hir;
 pub mod interface;
+pub mod types;
