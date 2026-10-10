@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::error::{self, Extension};
 use super::{
     Content, Descriptor, FlatType, GET_VAR_NAMES_MARK, OCCURS_MARK, SuperType, Variable, Variables,
+    in_name_order,
 };
 use crate::canonical::{self, AliasType, FieldType};
 
@@ -135,8 +136,11 @@ fn var_names(vars: &mut Variables, var: Variable, taken: &mut BTreeMap<String, V
             }
             FlatType::EmptyRecord1 | FlatType::Unit1 => {}
             FlatType::Record1(fields, extension) => {
-                for field in fields.values().rev() {
-                    var_names(vars, *field, taken);
+                let ordered: Vec<Variable> = (in_name_order(vars.compat, &fields).into_iter())
+                    .map(|(_, v)| *v)
+                    .collect();
+                for field in ordered.into_iter().rev() {
+                    var_names(vars, field, taken);
                 }
                 var_names(vars, extension, taken);
             }
@@ -238,7 +242,11 @@ fn flat_to_can_type(
         }
         FlatType::EmptyRecord1 => T::Record(BTreeMap::new(), None),
         FlatType::Record1(fields, extension) => {
-            let mut fields: BTreeMap<String, FieldType> = (fields.into_iter())
+            let ordered: Vec<(String, Variable)> = (in_name_order(vars.compat, &fields)
+                .into_iter())
+            .map(|(n, v)| (n.clone(), *v))
+            .collect();
+            let mut fields: BTreeMap<String, FieldType> = (ordered.into_iter())
                 .map(|(n, v)| {
                     (
                         n,
@@ -356,7 +364,11 @@ fn flat_to_err(vars: &mut Variables, flat: FlatType, state: &mut NameState) -> e
         }
         FlatType::EmptyRecord1 => E::Record(BTreeMap::new(), Extension::Closed),
         FlatType::Record1(fields, extension) => {
-            let mut fields: BTreeMap<String, error::Type> = (fields.into_iter())
+            let ordered: Vec<(String, Variable)> = (in_name_order(vars.compat, &fields)
+                .into_iter())
+            .map(|(n, v)| (n.clone(), *v))
+            .collect();
+            let mut fields: BTreeMap<String, error::Type> = (ordered.into_iter())
                 .map(|(n, v)| (n, to_err(vars, v, state)))
                 .collect();
             match error::iterated_dealias(to_err(vars, extension, state)) {

@@ -739,7 +739,7 @@ fn inference_records_each_expressions_type() {
         &module,
     )
     .unwrap();
-    let (result, types) = crate::types::infer_types(&canonical);
+    let (result, types) = crate::types::infer_types(nomi_base::Compat::V0_19_1, &canonical);
     assert!(result.is_ok());
     let shown: Vec<(&str, String)> = (types.iter())
         .map(|(region, ty)| {

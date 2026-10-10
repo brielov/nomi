@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 use super::{
     Content, Descriptor, FlatType, NO_MARK, SuperType, Variable, Variables, core, error,
-    occurs::occurs,
+    in_name_order, occurs::occurs,
 };
 use crate::canonical::Home;
 
@@ -495,6 +495,11 @@ impl State<'_> {
     ) -> Unify {
         let count = shared.len();
         let mut matching = BTreeMap::new();
+        // `Map.traverseMaybeWithKey`: in the release's name order.
+        let shared: Vec<(String, (Variable, Variable))> =
+            (in_name_order(self.vars.compat, &shared).into_iter())
+                .map(|(n, pair)| (n.clone(), *pair))
+                .collect();
         for (name, (actual, expected)) in shared {
             if self.guarded(actual, expected).is_ok() {
                 matching.insert(name, actual);

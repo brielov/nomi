@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 
 use nomi_base::diagnostic::doc::{Color, Doc, text};
 
+use super::in_name_order;
 use super::localizer::Localizer;
 use super::render::{self, Context};
 use crate::canonical::Home;
@@ -109,10 +110,18 @@ fn alias_to_doc(
     )
 }
 
-/// `fieldsToDocs`: by name.
+/// `fieldsToDocs`: by name, in the release's order.
 fn fields_to_docs(localizer: &Localizer, fields: &BTreeMap<String, Type>) -> Vec<(Doc, Doc)> {
-    (fields.iter())
+    (in_name_order(localizer.compat, fields).into_iter())
         .map(|(n, t)| (text(n.clone()), to_doc(localizer, Context::None, t)))
+        .collect()
+}
+
+/// The names of `map`, in the release's order.
+fn names_in_order<T>(compat: nomi_base::Compat, map: &BTreeMap<String, T>) -> Vec<String> {
+    in_name_order(compat, map)
+        .into_iter()
+        .map(|(n, _)| n.clone())
         .collect()
 }
 
@@ -609,28 +618,34 @@ fn diff_record(
         .collect();
     let names: Vec<&String> = both.iter().map(|(n, _)| *n).collect();
     let both = sequence(both.into_iter().map(|(_, d)| d).collect());
-    // `Map.elems (Map.union both left)`, and the right side alike: by name.
-    let mut docs1: BTreeMap<&String, (Doc, Doc)> = names.iter().copied().zip(both.a).collect();
-    let mut docs2: BTreeMap<&String, (Doc, Doc)> = names.iter().copied().zip(both.b).collect();
+    // `Map.elems (Map.union both left)`, and the right side alike: by name,
+    // in the release's order.
+    let order = crate::canonicalize::name_order(localizer.compat);
+    let mut docs1: Vec<(&String, (Doc, Doc))> = names.iter().copied().zip(both.a).collect();
+    let mut docs2: Vec<(&String, (Doc, Doc))> = names.iter().copied().zip(both.b).collect();
     let fields_status = if left.is_empty() && right.is_empty() {
         both.status
     } else {
         merge(both.status, Status::Different(Vec::new()))
     };
-    let left_names: Vec<String> = left.keys().map(|n| (*n).clone()).collect();
-    let right_names: Vec<String> = right.keys().map(|n| (*n).clone()).collect();
+    let mut left_names: Vec<String> = left.keys().map(|n| (*n).clone()).collect();
+    let mut right_names: Vec<String> = right.keys().map(|n| (*n).clone()).collect();
+    left_names.sort_by(|a, b| order(a, b));
+    right_names.sort_by(|a, b| order(a, b));
     docs1.extend(left);
     docs2.extend(right);
+    docs1.sort_by(|a, b| order(a.0, b.0));
+    docs2.sort_by(|a, b| order(a.0, b.0));
     let ext = ext_to_diff(ext1, ext2);
     let status = merge(fields_status, ext.status);
-    let a = render::record(docs1.into_values().collect(), ext.a);
-    let b = render::record(docs2.into_values().collect(), ext.b);
+    let a = render::record(docs1.into_iter().map(|(_, d)| d).collect(), ext.a);
+    let b = render::record(docs2.into_iter().map(|(_, d)| d).collect(), ext.b);
     let fixed = |e: &Extension| !matches!(e, Extension::FlexOpen(_));
     let extra = match (fixed(ext1), fixed(ext2)) {
         (true, true) => match left_names.first() {
             Some(f) => Status::Different(vec![Problem::FieldTypo(
                 f.clone(),
-                fields2.keys().cloned().collect(),
+                names_in_order(localizer.compat, fields2),
             )]),
             None if right_names.is_empty() => Status::Similar,
             None => Status::Different(vec![Problem::FieldsMissing(right_names)]),
@@ -638,14 +653,14 @@ fn diff_record(
         (false, true) => match left_names.first() {
             Some(f) => Status::Different(vec![Problem::FieldTypo(
                 f.clone(),
-                fields2.keys().cloned().collect(),
+                names_in_order(localizer.compat, fields2),
             )]),
             None => Status::Similar,
         },
         (true, false) => match right_names.first() {
             Some(f) => Status::Different(vec![Problem::FieldTypo(
                 f.clone(),
-                fields1.keys().cloned().collect(),
+                names_in_order(localizer.compat, fields1),
             )]),
             None => Status::Similar,
         },

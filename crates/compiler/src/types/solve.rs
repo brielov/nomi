@@ -17,7 +17,7 @@ use super::occurs::occurs;
 use super::unify::{Answer, unify};
 use super::{
     Constraint, Content, Descriptor, FlatType, Mark, NO_MARK, NO_RANK, OUTERMOST_RANK, SuperType,
-    Type, Variable, Variables, error,
+    Type, Variable, Variables, error, in_name_order,
 };
 use crate::canonical::{self, AliasType};
 
@@ -231,7 +231,7 @@ impl Solver<'_> {
         rank: u32,
         header: &BTreeMap<String, (TextRange, Type)>,
     ) -> Vec<(String, TextRange, Variable)> {
-        (header.iter())
+        (in_name_order(self.vars.compat, header).into_iter())
             .map(|(name, (region, ty))| (name.clone(), *region, self.type_to_variable(rank, ty)))
             .collect()
     }

@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **6.11**.
+4. Resume at the first unchecked box. Right now that is **6.12**.
 
 ### Test tiers
 
@@ -398,7 +398,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 - [x] **6.10** `compiler: type error data`. `Type/Error.hs`: categories, expectations, diffs and problems.
 
   Done: `types::error` holds the rest of `Type/Error.hs`: a type laid out for a report (`toDoc`), and `toComparison`, which lays out both types of a mismatch with what differs marked and finds the problems a report explains (Int against Float, a field misspelled or missing, a Maybe used as what it holds, a rigid or super type variable). `types::render` ports `Reporting/Render/Type.hs`, and `types::localizer` the localizer, which names a type as the module's imports, the default ones included, let it be written. Categories and expectations came with 6.1.
-- [ ] **6.11** `report: type errors in annotations and mismatches`. The first part of `Reporting/Error/Type.hs` (1,619 lines). **Check:** the ratchet climbs, as in 6.12 to 6.14.
+- [x] **6.11** `report: type errors in annotations and mismatches`. The first part of `Reporting/Error/Type.hs` (1,619 lines). **Check:** the ratchet climbs, as in 6.12 to 6.14.
+
+  Done: `types::report` ports `toReport` for an expression used where nothing in particular is expected, against an annotation, and in the contexts of list entries, negation, call arguments, record update values and destructuring, with the comparison of both types and every hint `problemToHint` gives. A part still to come shows its title at its region. The ratchet `types_reports` (whole reports, as `names_reports`) starts at 231 of 342 runs, every remaining failure one of those. 0.19.3 lists a record's fields length first, as it orders names everywhere, which shows in rendered records, in which variable is `number` and which `number1`, and in the order fields are constrained and unified; `Variables` and the localizer now carry the release.
 - [ ] **6.12** `report: type errors in calls and operators`.
 - [ ] **6.13** `report: type errors in branches and patterns`.
 - [ ] **6.14** `report: records, infinite types and hints`.

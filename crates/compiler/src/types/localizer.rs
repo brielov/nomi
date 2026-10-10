@@ -5,6 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use nomi_base::Compat;
 use nomi_base::diagnostic::doc::{Doc, text};
 
 use crate::canonical::Home;
@@ -12,16 +13,18 @@ use crate::hir::{Exposed, Exposing, Import};
 
 /// `Localizer`: each imported module, by name, with its alias and the
 /// types it exposes, or `None` for all of them.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Localizer {
     imports: BTreeMap<String, (Option<String>, Option<BTreeSet<String>>)>,
+    /// The release whose name order shows in a record's fields.
+    pub compat: Compat,
 }
 
 impl Localizer {
     /// `fromModule`: the module itself, exposing everything, then its
     /// imports, the default ones first as the parser adds them, a later
     /// import of a module replacing an earlier.
-    pub fn from_module(name: &str, imports: &[Import]) -> Localizer {
+    pub fn from_module(compat: Compat, name: &str, imports: &[Import]) -> Localizer {
         let mut map = BTreeMap::new();
         map.insert(name.to_owned(), (None, None));
         for import in imports {
@@ -40,12 +43,16 @@ impl Localizer {
             let alias = import.alias.as_ref().map(|a| a.text.clone());
             map.insert(import.name.text.clone(), (alias, exposing));
         }
-        Localizer { imports: map }
+        Localizer {
+            imports: map,
+            compat,
+        }
     }
 
     /// `fromNames`: each module of `names` exposing everything.
-    pub fn from_names<'n>(names: impl IntoIterator<Item = &'n str>) -> Localizer {
+    pub fn from_names<'n>(compat: Compat, names: impl IntoIterator<Item = &'n str>) -> Localizer {
         Localizer {
+            compat,
             imports: names
                 .into_iter()
                 .map(|n| (n.to_owned(), (None, None)))

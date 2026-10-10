@@ -14,7 +14,7 @@ use crate::types::expected::{
     Category, Context, Expected, MaybeName, PContext, PExpected, SubContext,
 };
 use crate::types::instantiate::from_src_type;
-use crate::types::{self, Constraint, Type, Variable, Variables, core, exists, fun};
+use crate::types::{self, Constraint, Type, Variable, Variables, core, exists, fun, in_name_order};
 
 /// `RTV`: the rigid type variables the annotations around an expression
 /// introduced, by name.
@@ -248,7 +248,7 @@ fn constrain_(
             let mut field_vars = Vec::new();
             let mut field_types = BTreeMap::new();
             let mut cons = Vec::new();
-            for (name, value) in fields {
+            for (name, value) in in_name_order(vars.compat, fields) {
                 let v = vars.flex_var();
                 cons.push(constrain(vars, rtv, value, Expected::NoExpectation(var(v))));
                 field_vars.push(v);
@@ -500,7 +500,7 @@ fn update(
     let mut field_vars = Vec::new();
     let mut field_types = BTreeMap::new();
     let mut field_cons = Vec::new();
-    for (field, update) in fields {
+    for (field, update) in in_name_order(vars.compat, fields) {
         let v = vars.flex_var();
         let expected =
             Expected::FromContext(region, Context::RecordUpdateValue(field.clone()), var(v));

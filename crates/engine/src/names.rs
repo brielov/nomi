@@ -10,11 +10,13 @@ use std::path::{Path, PathBuf};
 use nomi_base::diagnostic::Problem;
 use nomi_base::diagnostic::code::Source;
 use nomi_base::{Compat, TextRange};
+use nomi_compiler::canonicalize::foreign::with_defaults;
 use nomi_compiler::canonicalize::module::{canonicalize, interface};
 use nomi_compiler::canonicalize::report;
 use nomi_compiler::hir;
 use nomi_compiler::interface::Interface;
-use nomi_compiler::types::solve::TypeError;
+use nomi_compiler::types::localizer::Localizer;
+use nomi_compiler::types::report as types_report;
 use nomi_project::{ModuleName, Name, Outline};
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{SyntaxNode, parse_module};
@@ -171,7 +173,7 @@ fn visit(
     }
     let canonical = canonicalize(compat, package, interfaces, module)
         .map_err(|errors| format!("{package} {name}: {errors:?}"))?;
-    let annotations = nomi_compiler::types::infer(&canonical)
+    let annotations = nomi_compiler::types::infer(compat, &canonical)
         .map_err(|errors| format!("{package} {name}: type errors {errors:?}"))?;
     let iface = interface(&canonical, &annotations);
     interfaces.insert(name.to_owned(), iface.clone());
@@ -273,7 +275,7 @@ impl Walk<'_> {
         let root = module.parse.syntax();
         let hir = hir::lower(&ast::Module::cast(root.clone()).expect("a module"));
         match canonicalize(self.env.compat(), &self.package, &self.interfaces, &hir) {
-            Ok(canonical) => match nomi_compiler::types::infer(&canonical) {
+            Ok(canonical) => match nomi_compiler::types::infer(self.env.compat(), &canonical) {
                 Ok(annotations) => {
                     (self.interfaces)
                         .insert(module.name.to_string(), interface(&canonical, &annotations));
@@ -281,10 +283,24 @@ impl Walk<'_> {
                 }
                 Err(errors) => {
                     let source = Source::new(&module.text);
+                    let imports = with_defaults(&self.package, &hir.imports);
+                    let localizer = Localizer::from_module(
+                        self.env.compat(),
+                        nomi_compiler::canonicalize::module::name(&hir),
+                        &imports,
+                    );
+                    let trim = |range| trim(&root, range);
+                    let cx = types_report::ReportContext {
+                        source: &source,
+                        compat: self.env.compat(),
+                        trim: &trim,
+                        localizer: &localizer,
+                    };
                     // In the solver's order, the latest first, as
                     // upstream reports them.
-                    let problems = (errors.iter())
-                        .map(|e| type_problem(e, &source, &root, self.env.compat()))
+                    let problems = errors
+                        .iter()
+                        .map(|e| types_report::to_problem(e, &cx))
                         .collect();
                     self.problems.insert(module.path.clone(), problems);
                     false
@@ -305,22 +321,6 @@ impl Walk<'_> {
             }
         }
     }
-}
-
-/// A type error until plan 6.11 ports their reports: upstream's title at
-/// its region, the explanation to come.
-fn type_problem(error: &TypeError, source: &Source, root: &SyntaxNode, compat: Compat) -> Problem {
-    let (title, range) = match error {
-        TypeError::BadExpr(range, ..) | TypeError::BadPattern(range, ..) => {
-            ("TYPE MISMATCH", *range)
-        }
-        TypeError::InfiniteType(range, ..) => ("INFINITE TYPE", *range),
-    };
-    let region = source.region(trim(root, range), compat);
-    let message = nomi_base::diagnostic::doc::reflow(
-        "nomi finds this type error but doesn't explain type errors yet.",
-    );
-    Problem::new(title, region, message)
 }
 
 /// From the first token of `range` that isn't trivia: node ranges keep

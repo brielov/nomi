@@ -12,13 +12,14 @@ pub mod localizer;
 mod names;
 pub mod occurs;
 pub mod render;
+pub mod report;
 pub mod solve;
 pub mod unify;
 pub mod union_find;
 
 use std::collections::BTreeMap;
 
-use nomi_base::TextRange;
+use nomi_base::{Compat, TextRange};
 
 pub use names::{from_type_variable, from_type_variable_scheme};
 
@@ -254,16 +255,45 @@ pub fn texture() -> Type {
 }
 
 /// The type variables of one inference, each with its descriptor.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Variables {
     store: UnionFind<Descriptor>,
+    /// The release whose name order shows where a record's fields are
+    /// walked.
+    pub compat: Compat,
     /// Where constraint generation records each expression's type, when
     /// asked to (plan 6.8): its region and the type it is expected to
     /// have, which solving makes its type.
     pub recorded: Option<Vec<(TextRange, Type)>>,
 }
 
+impl Default for Variables {
+    fn default() -> Variables {
+        Variables::new(Compat::V0_19_1)
+    }
+}
+
+/// `map`'s entries in `compat`'s name order, as upstream's maps keep
+/// them: 0.19.3 compares names length first.
+pub fn in_name_order<T>(compat: Compat, map: &BTreeMap<String, T>) -> Vec<(&String, &T)> {
+    let mut entries: Vec<(&String, &T)> = map.iter().collect();
+    if compat == Compat::V0_19_3 {
+        let order = crate::canonicalize::name_order(compat);
+        entries.sort_by(|a, b| order(a.0, b.0));
+    }
+    entries
+}
+
 impl Variables {
+    /// The variables of an inference as `compat`.
+    pub fn new(compat: Compat) -> Variables {
+        Variables {
+            store: UnionFind::default(),
+            compat,
+            recorded: None,
+        }
+    }
+
     pub fn fresh(&mut self, content: Content) -> Variable {
         self.store.fresh(Descriptor::new(content))
     }
@@ -395,10 +425,13 @@ pub type ExprTypes = Vec<(TextRange, error::Type)>;
 /// `module`'s annotations or type errors, as [`infer`] gives them, and
 /// the type of each expression, by its region, in the order constraint
 /// generation met them. Recording changes nothing about the solving.
-pub fn infer_types(module: &crate::canonicalize::module::Canonical) -> (Inferred, ExprTypes) {
+pub fn infer_types(
+    compat: Compat,
+    module: &crate::canonicalize::module::Canonical,
+) -> (Inferred, ExprTypes) {
     let mut vars = Variables {
         recorded: Some(Vec::new()),
-        ..Variables::default()
+        ..Variables::new(compat)
     };
     let constraint = constrain::module::constrain(&mut vars, module);
     let recorded = vars.recorded.take().unwrap_or_default();
@@ -414,8 +447,8 @@ pub fn infer_types(module: &crate::canonicalize::module::Canonical) -> (Inferred
 
 /// The annotation of every top-level value of `module`, or its type
 /// errors, the latest first.
-pub fn infer(module: &crate::canonicalize::module::Canonical) -> Inferred {
-    let mut vars = Variables::default();
+pub fn infer(compat: Compat, module: &crate::canonicalize::module::Canonical) -> Inferred {
+    let mut vars = Variables::new(compat);
     let constraint = constrain::module::constrain(&mut vars, module);
     solve::run(&mut vars, &constraint)
 }
