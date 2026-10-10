@@ -186,7 +186,10 @@ fn check_reports_as_elm_make() {
     let bar = stderr.lines().next().unwrap();
     assert!(bar.starts_with("-- MODULE NOT FOUND ---"), "{stderr}");
     assert!(
-        bar.ends_with("--- src/Main.elm") && bar.chars().count() == 80,
+        bar.ends_with(&format!(
+            "--- {}",
+            Path::new("src").join("Main.elm").display()
+        )) && bar.chars().count() == 80,
         "{bar}"
     );
     assert!(stderr.contains("Html.Attributes"), "{stderr}");

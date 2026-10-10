@@ -17,9 +17,12 @@ const APP: &str = r#"{
 /// A project with `module` at `src/Main.elm`, open in an editor.
 fn open(module: &str) -> (tempfile::TempDir, Vfs, std::path::PathBuf) {
     let dir = tempfile::tempdir().unwrap();
-    fs::write(dir.path().join("elm.json"), APP).unwrap();
-    fs::create_dir(dir.path().join("src")).unwrap();
-    let path = dir.path().join("src/Main.elm");
+    // Found files have their canonical names, which differ where the
+    // temporary directory is behind a link, as on macOS.
+    let root = fs::canonicalize(dir.path()).unwrap();
+    fs::write(root.join("elm.json"), APP).unwrap();
+    fs::create_dir(root.join("src")).unwrap();
+    let path = root.join("src/Main.elm");
     let vfs = Vfs::new();
     vfs.set_overlay(&path, module).unwrap();
     (dir, vfs, path)
@@ -203,7 +206,7 @@ fn navigated() -> (
     std::path::PathBuf,
 ) {
     let (dir, vfs, path) = open(NAVIGATED);
-    let other = dir.path().join("src/Other.elm");
+    let other = fs::canonicalize(dir.path()).unwrap().join("src/Other.elm");
     fs::write(&other, OTHER).unwrap();
     (dir, vfs, path, other)
 }
@@ -212,6 +215,30 @@ fn navigated() -> (
 fn offset(text: &str, needle: &str, n: usize) -> TextSize {
     let at = text.match_indices(needle).nth(n).unwrap().0;
     TextSize::new(at as u32 + 1)
+}
+
+/// A buffer the editor hasn't saved, in a project it reaches through a
+/// link, as a macOS temporary directory is: the index names it by its
+/// canonical path, and finds it by either.
+#[cfg(unix)]
+#[test]
+fn an_unsaved_buffer_behind_a_link_is_found() {
+    let (dir, _, _, _) = navigated();
+    let links = tempfile::tempdir().unwrap();
+    let link = links.path().join("project");
+    std::os::unix::fs::symlink(fs::canonicalize(dir.path()).unwrap(), &link).unwrap();
+    let path = link.join("src/Main.elm");
+    let vfs = Vfs::new();
+    vfs.set_overlay(&path, NAVIGATED).unwrap();
+    let (_store_dir, store) = store();
+    let snapshot = vfs.snapshot();
+    let index =
+        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    let found = definition(&snapshot, &index, &path, offset(NAVIGATED, "area", 0)).unwrap();
+    assert_eq!(
+        found.path,
+        fs::canonicalize(dir.path()).unwrap().join("src/Main.elm")
+    );
 }
 
 #[test]

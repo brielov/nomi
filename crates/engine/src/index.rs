@@ -69,8 +69,10 @@ impl Index {
     }
 }
 
+/// `path` with its symbolic links resolved as far as it exists, so a
+/// buffer the editor hasn't saved has the name its directory gives it.
 fn canonical(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned())
+    crate::vfs::canonical(path).unwrap_or_else(|_| path.to_owned())
 }
 
 /// The `elm.json` of the project that owns `file`: the nearest above it
@@ -120,7 +122,7 @@ pub fn index(snapshot: &Snapshot, store: &Store, file: &Path, memo: &mut Memo) -
     // Discovery starts from the canonical source directories.
     let wanted = canonical(file);
     if !paths.contains(&wanted) {
-        paths.push(file.to_owned());
+        paths.push(wanted);
     }
     let graph = Graph::from_paths(snapshot, &env, &paths).ok()?;
     let package = match env.owner() {

@@ -123,10 +123,17 @@ impl Client {
 /// `src/Main.elm`.
 fn project() -> (tempfile::TempDir, Url) {
     let dir = tempfile::tempdir().unwrap();
-    fs::write(dir.path().join("elm.json"), APP).unwrap();
-    fs::create_dir(dir.path().join("src")).unwrap();
-    let uri = uri(&dir.path().join("src/Main.elm"));
+    fs::write(root(&dir).join("elm.json"), APP).unwrap();
+    fs::create_dir(root(&dir).join("src")).unwrap();
+    let uri = uri(&root(&dir).join("src/Main.elm"));
     (dir, uri)
+}
+
+/// The project's directory by its canonical name, which the server gives
+/// the files it finds on disk; on macOS the temporary directory is behind
+/// a link.
+fn root(dir: &tempfile::TempDir) -> std::path::PathBuf {
+    fs::canonicalize(dir.path()).unwrap()
 }
 
 fn uri(path: &Path) -> Url {
@@ -190,7 +197,7 @@ fn syntax_errors_come_and_go_with_the_text() {
 #[test]
 fn an_edit_in_one_document_leaves_anothers_diagnostics() {
     let (dir, main) = project();
-    let other = uri(&dir.path().join("src/Other.elm"));
+    let other = uri(&root(&dir).join("src/Other.elm"));
     let client = Client::start(&[]);
     client.open(&main, "module Main exposing (x)\n\n\nx =\n    = 1\n");
     client.open(&other, "module Other exposing (y)\n\n\ny =\n    2\n");
@@ -299,7 +306,7 @@ fn what_v0_doesnt_answer_is_said_so() {
 #[test]
 fn navigation_goes_to_definitions_and_finds_references_across_modules() {
     let (dir, main) = project();
-    let other_path = dir.path().join("src/Other.elm");
+    let other_path = root(&dir).join("src/Other.elm");
     // Saved, not open: navigation reads it from the disk.
     fs::write(
         &other_path,
@@ -356,7 +363,7 @@ fn navigation_goes_to_definitions_and_finds_references_across_modules() {
 fn hover_and_completion_answer_without_packages() {
     let (dir, main) = project();
     fs::write(
-        dir.path().join("src/Other.elm"),
+        root(&dir).join("src/Other.elm"),
         "module Other exposing (helper)\n\n\nhelper x =\n    x\n",
     )
     .unwrap();

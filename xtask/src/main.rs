@@ -319,7 +319,12 @@ fn ci() -> Result<()> {
             "warnings",
         ],
     )?;
-    cargo(&root, &["test", "--workspace", "--locked"])?;
+    // Every failing test binary, not only the first: a platform that
+    // fails in several places shows them all in one run.
+    cargo(
+        &root,
+        &["test", "--workspace", "--locked", "--no-fail-fast"],
+    )?;
     // fuzz/ is outside the workspace, for its own build flags.
     let fuzz = root.join("fuzz/Cargo.toml");
     let fuzz = fuzz.to_str().context("the checkout's path is not UTF-8")?;

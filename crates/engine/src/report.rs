@@ -109,9 +109,14 @@ fn modified(env: &Env, path: &Path) -> SystemTime {
 pub fn modules_doc(root: &Path, modules: &[ModuleErrors]) -> Doc {
     let mut sorted: Vec<&ModuleErrors> = modules.iter().collect();
     sorted.sort_by_key(|m| m.modified);
+    // Module paths are canonical, which on Windows spells the drive
+    // `\\?\C:` where the root may not.
+    let canonical_root = crate::vfs::canonical(root).ok();
     let mut docs = Vec::new();
     for (i, module) in sorted.iter().enumerate() {
-        let path = module.path.strip_prefix(root).unwrap_or(&module.path);
+        let path = (module.path.strip_prefix(root).ok())
+            .or_else(|| module.path.strip_prefix(canonical_root.as_ref()?).ok())
+            .unwrap_or(&module.path);
         let path = path.to_string_lossy();
         for problem in &module.problems {
             docs.extend([
