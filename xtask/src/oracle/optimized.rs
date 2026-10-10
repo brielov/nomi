@@ -5,9 +5,10 @@
 //! arguments and files, with `default.elm.json` for an `elm.json` it
 //! doesn't have, an application's `elm-version` rewritten to the elm's.
 //! Each elm builds every case offline with its own `ELM_HOME`, holding
-//! the corpus's elm/core and elm/json, and the `<Module>.elmo` files it
-//! leaves in `elm-stuff/` go to `artifacts/<elm>/<case>/`; the `o.dat`
-//! of the dependencies, the same for every case, to `artifacts/<elm>/`.
+//! the corpus's elm/core, elm/html, elm/json and elm/virtual-dom, and the
+//! `<Module>.elmo` files it leaves in `elm-stuff/` go to
+//! `artifacts/<elm>/<case>/`; the dependencies' `o.dat` of the last case,
+//! for the encoding's tests, to `artifacts/<elm>/`.
 
 use std::fs;
 use std::path::Path;
@@ -25,7 +26,7 @@ use crate::references::References;
 pub const CASES: &str = "crates/compiler/tests/optimized";
 
 /// The packages every case may depend on.
-const DEPENDENCIES: [&str; 2] = ["elm/core", "elm/json"];
+const DEPENDENCIES: [&str; 4] = ["elm/core", "elm/html", "elm/json", "elm/virtual-dom"];
 
 pub fn run(root: &Path, refs: &References) -> Result<()> {
     let dir = root.join(CASES);

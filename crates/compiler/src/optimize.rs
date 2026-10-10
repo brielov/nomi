@@ -7,6 +7,7 @@ mod case;
 mod expression;
 mod literal;
 mod names;
+mod port;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -49,7 +50,7 @@ pub fn module(
             graph.nodes.insert(global(home, &ctor.name), node);
         }
     }
-    add_effects(home, &module.effects, &mut graph);
+    add_effects(compat, home, &module.effects, &mut graph);
     for decl in &module.decls {
         match decl {
             Decl::Declare(def) => add_def(&cx, annotations, def, &mut graph),
@@ -97,10 +98,25 @@ fn add_alias(compat: Compat, home: &Home, name: &str, ty: &Type, graph: &mut Loc
     }
 }
 
-/// `addEffects`, short of ports (plan 8.3).
-fn add_effects(home: &Home, effects: &Effects, graph: &mut LocalGraph) {
-    let Effects::Manager(_, _, _, manager) = effects else {
-        return;
+/// `addEffects`: each port's encoder or decoder, or a manager's nodes.
+fn add_effects(compat: Compat, home: &Home, effects: &Effects, graph: &mut LocalGraph) {
+    let manager = match effects {
+        Effects::NoEffects => return,
+        Effects::Ports(ports) => {
+            for (name, port) in ports {
+                let mut tracker = Tracker::new(compat);
+                let node = if port.incoming {
+                    let decoder = port::to_decoder(compat, &mut tracker, &port.payload);
+                    Node::PortIncoming(decoder, std::mem::take(&mut tracker.deps))
+                } else {
+                    let encoder = port::to_encoder(compat, &mut tracker, &port.payload);
+                    Node::PortOutgoing(encoder, std::mem::take(&mut tracker.deps))
+                };
+                add_to_graph(graph, global(home, name), node, tracker.fields);
+            }
+            return;
+        }
+        Effects::Manager(_, _, _, manager) => manager,
     };
     let fx = global(home, "$fx$");
     let link = || Node::Link(fx.clone());
@@ -153,7 +169,19 @@ fn add_def(
                 tracker.kernel("VirtualDom");
                 Some(Main::Static)
             }
-            // A program's flags decoder comes with ports (plan 8.3).
+            Type::Type(home, program, args)
+                if args.len() == 3
+                    && program == "Program"
+                    && home.package == "elm/core"
+                    && home.module == "Platform" =>
+            {
+                let decoder = port::to_flags_decoder(cx.compat, &mut tracker, &args[0]);
+                Some(Main::Dynamic {
+                    message: args[2].clone(),
+                    decoder: Box::new(decoder),
+                })
+            }
+            // Anything else the main check has refused.
             _ => None,
         };
         if let Some(main) = main {
