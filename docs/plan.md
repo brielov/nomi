@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **6.2**.
+4. Resume at the first unchecked box. Right now that is **6.2a**.
 
 ### Test tiers
 
@@ -368,7 +368,10 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 - [x] **6.1** `compiler: type variables and union-find`. Descriptors, ranks and marks (`Type/Type.hs`, `UnionFind.hs`).
 
   Done: `nomi_compiler::types` ports `Type/Type.hs` and `UnionFind.hs`. Upstream keeps each variable in an `IORef`; nomi keeps them as indices into one `Variables` store, which every operation takes, with upstream's weighted union and path shortening. Constraints carry the expectations and categories of `Reporting/Error/Type.hs`, and the error types of `Type/Error.hs` came along for `toErrorType`. Naming variables follows upstream's traversal, since it decides which of two variables named alike keeps the name. 0.19.2's type checker is 0.19.1's; 0.19.3's restructures it, and its differences come in as the oracle shows them.
-- [ ] **6.2** `compiler: unification`. Covers the super types (number, comparable, appendable, compappend) and records, and keeps aliases for messages.
+- [x] **6.2** `compiler: unification`. Covers the super types (number, comparable, appendable, compappend) and records, and keeps aliases for messages.
+
+  Done: `types::unify` ports `Unify.hs` with the occurs check of `Occurs.hs`. Upstream's continuation style becomes `Result` and `?`, which stops at the same steps; where upstream goes on past a failure (the other arguments of a type or an alias, the other fields of a record), so does nomi before the whole fails. A mismatch makes both variables an error, which then unifies with anything, so one mistake shows once. The three releases unify alike: 0.19.3 only splits tuples into pairs and triples.
+- [ ] **6.2a** `compiler: canonical expressions`. Canonicalization builds upstream's `Can.Expr`, patterns and declarations (`Let` and `LetRec` from the cycle check, operator trees from the stepper, constructors with their unions), which constraints read; until now it only checked them.
 - [ ] **6.3** `compiler: constraints for expressions`, in upstream's order.
 - [ ] **6.4** `compiler: constraints for patterns`.
 - [ ] **6.5** `compiler: annotations, rigid variables and module constraints`.
