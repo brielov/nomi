@@ -6,7 +6,9 @@
 //! of `nomi check` on every app and package elm accepted (plan 7.5);
 //! `cargo xtask corpus graphs` the same optimized graph of every module
 //! elm built (plan 8.4a); `cargo xtask corpus objects` the same graph of
-//! the dependencies as `o.dat` holds (plan 8.4b); and all the same
+//! the dependencies as `o.dat` holds (plan 8.4b); `cargo xtask corpus
+//! javascript` the same JavaScript of every app in each mode (plan
+//! 8.11); and all the same
 //! `--report=json` wherever elm
 //! rejected the project. Each
 //! project's dependencies are solved and downloaded as `corpus names`
@@ -24,7 +26,7 @@ use nomi_compiler::optimized::binary;
 use nomi_engine::check::{self, Checked, Style};
 use nomi_engine::console::{Console, Personality};
 use nomi_engine::graph::Foreigns;
-use nomi_engine::{Vfs, names};
+use nomi_engine::{Vfs, javascript, names};
 use nomi_project::{ModuleName, Name, Outline};
 
 use super::names::{Project, solve};
@@ -42,7 +44,8 @@ pub fn check(root: &Path, suite: Suite, only: Option<&str>) -> Result<()> {
         let c = (Compat::ALL.into_iter())
             .find(|c| c.to_string() == *v)
             .with_context(|| format!("nomi doesn't emulate elm {v}"))?;
-        let solving = solve(root, &classification, c, v, only, suite != Suite::Docs)?;
+        let (apps, packages) = (suite != Suite::Docs, suite != Suite::JavaScript);
+        let solving = solve(root, &classification, c, v, only, apps, packages)?;
         // Dependencies without a solution stop elm before any module too.
         for (case, why) in solving.failures {
             let elm = oracle.get(&(package_case(&case), format!("elm {v}")));
@@ -124,6 +127,7 @@ pub fn check(root: &Path, suite: Suite, only: Option<&str>) -> Result<()> {
         Suite::Check => ("check", "projects"),
         Suite::Graphs => ("graphs", "projects"),
         Suite::Objects => ("objects", "projects"),
+        Suite::JavaScript => ("javascript", "apps"),
     };
     println!(
         "{name}: {matching} {kind} made as elm makes them, {} where elm is wrong, {} not, {} skipped",
@@ -151,6 +155,23 @@ fn keep_objects(compat: Compat, case: &str, bytes: &[u8]) {
     if std::fs::read(&elm).is_ok_and(|elm| elm != bytes) {
         let _ = std::fs::create_dir_all(dir.join("nomi"));
         let _ = std::fs::write(dir.join("nomi").join(format!("{id}.o.dat")), bytes);
+    }
+}
+
+/// Writes nomi's JavaScript for `case` in `mode` beside what the oracle
+/// kept, where they differ.
+fn keep_javascript(compat: Compat, case: &str, mode: &str, js: &[u8]) {
+    let id = package_case(case).replace('/', "__");
+    let Ok(cache) = crate::oracle::cache_dir() else {
+        return;
+    };
+    let dir = cache
+        .join("sandboxes/corpus/corpus-javascript")
+        .join(compat.to_string());
+    let file = format!("{id}.{mode}.js");
+    if std::fs::read(dir.join("out").join(&file)).is_ok_and(|elm| elm != js) {
+        let _ = std::fs::create_dir_all(dir.join("nomi"));
+        let _ = std::fs::write(dir.join("nomi").join(&file), js);
     }
 }
 
@@ -291,6 +312,46 @@ fn run(
                 let bytes = binary::encode_global_graph(&graph, compat);
                 keep_objects(compat, &project.case, &bytes);
                 return Ok(format!("objects {}", sha256(&bytes)));
+            }
+            checked
+        }
+        Suite::JavaScript => {
+            let (checked, optimized) = check::optimize(
+                &snapshot,
+                &env,
+                &project.outline,
+                &project.paths,
+                Personality::Elm,
+                &visible,
+            );
+            if matches!(checked, Checked::Fine) {
+                let dependencies = OBJECTS.with(|memos| {
+                    let mut memos = memos.borrow_mut();
+                    let memo = memos.entry(compat).or_default();
+                    nomi_engine::objects::dependencies_with(compat, sources, memo)
+                })?;
+                let refused = !javascript::debug_uses(compat, &optimized).is_empty();
+                let mut hashes = Vec::new();
+                for (mode, kind) in [
+                    ("dev", javascript::Kind::Dev),
+                    ("debug", javascript::Kind::Debug),
+                    ("optimize", javascript::Kind::Optimize),
+                ] {
+                    if refused && kind == javascript::Kind::Optimize {
+                        hashes.push("-".to_owned());
+                        continue;
+                    }
+                    let js = javascript::program(
+                        compat,
+                        kind,
+                        "author/project",
+                        dependencies.clone(),
+                        optimized.clone(),
+                    );
+                    keep_javascript(compat, &project.case, mode, &js);
+                    hashes.push(sha256(&js));
+                }
+                return Ok(format!("javascript {}", hashes.join(" ")));
             }
             checked
         }

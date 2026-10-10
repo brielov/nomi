@@ -42,7 +42,7 @@ pub fn check(root: &Path, only: Option<&str>) -> Result<()> {
         let c = (Compat::ALL.into_iter())
             .find(|c| c.to_string() == *v)
             .with_context(|| format!("nomi doesn't emulate elm {v}"))?;
-        let solving = solve(root, &classification, c, v, only, true)?;
+        let solving = solve(root, &classification, c, v, only, true, true)?;
         checked += solving.failures.len();
         failures.extend(solving.failures);
         unavailable.extend(solving.unavailable);
@@ -193,8 +193,8 @@ pub(super) struct Solving {
 }
 
 /// The corpus projects `c` (the elm release `v`) accepts whose case
-/// contains `only`, apps too if `apps`, each with its dependencies solved
-/// and downloaded into the development cache.
+/// contains `only`, apps if `apps` and packages if `packages`, each with
+/// its dependencies solved and downloaded into the development cache.
 pub(super) fn solve(
     root: &Path,
     classification: &compat::Classification,
@@ -202,6 +202,7 @@ pub(super) fn solve(
     v: &str,
     only: Option<&str>,
     apps: bool,
+    packages: bool,
 ) -> Result<Solving> {
     let corpus = corpus_dir()?;
     let cache = cache_dir()?.join("nomi");
@@ -226,7 +227,12 @@ pub(super) fn solve(
             paths: app.entries.iter().map(PathBuf::from).collect(),
         });
     }
-    for package in packages::load(root)?.packages {
+    let packages = if packages {
+        packages::load(root)?.packages
+    } else {
+        Vec::new()
+    };
+    for package in packages {
         let excluded = (classification.package.iter())
             .find(|p| p.name == package.name && p.version == package.version)
             .is_some_and(|p| !p.admits.iter().any(|a| a == v));

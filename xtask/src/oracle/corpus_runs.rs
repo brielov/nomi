@@ -2,7 +2,11 @@
 //! tier-2 suites to compare nomi with: `cargo xtask oracle corpus-docs`
 //! runs `elm make --docs` on every package (plan 7.4a), and `cargo xtask
 //! oracle corpus-check` runs `elm make --output=/dev/null` on every app
-//! and package (plan 7.5).
+//! and package (plan 7.5); `corpus-graphs` and `corpus-objects` keep
+//! the optimized graphs that check makes (plan 8.4a, 8.4b); and
+//! `corpus-javascript` builds every app in dev, `--debug` and
+//! `--optimize`, a cell holding each output's hash, or `-` for a mode elm
+//! refuses (plan 8.11).
 //!
 //! Each elm runs offline with its own `ELM_HOME`, which holds every
 //! release the development cache has downloaded, as `cargo xtask corpus
@@ -57,6 +61,8 @@ pub enum Suite {
     Graphs,
     /// The same, keeping the dependencies' `o.dat`.
     Objects,
+    /// Every app's JavaScript in each mode.
+    JavaScript,
 }
 
 impl Suite {
@@ -67,6 +73,7 @@ impl Suite {
             Suite::Check => "corpus/check/oracle.tsv",
             Suite::Graphs => "corpus/graphs/oracle.tsv",
             Suite::Objects => "corpus/objects/oracle.tsv",
+            Suite::JavaScript => "corpus/javascript/oracle.tsv",
         }
     }
 
@@ -76,6 +83,7 @@ impl Suite {
             Suite::Check => "corpus-check",
             Suite::Graphs => "corpus-graphs",
             Suite::Objects => "corpus-objects",
+            Suite::JavaScript => "corpus-javascript",
         }
     }
 }
@@ -118,7 +126,12 @@ pub fn run(
             });
         }
     }
-    for package in packages::load(root)?.packages {
+    let packages = if suite == Suite::JavaScript {
+        Vec::new()
+    } else {
+        packages::load(root)?.packages
+    };
+    for package in packages {
         let top = packages::package_dir(&corpus, &package);
         if !top.join("elm.json").exists() {
             continue;
@@ -276,46 +289,19 @@ fn record(
     let dir = work.join(&project.root);
     fs::create_dir_all(&dir)?;
     fs::write(dir.join("elm.json"), manifest)?;
-    // Runs sharing an `ELM_HOME` may build the same dependency at once,
-    // and one may read the other's `artifacts.dat` half written; elm then
-    // dies without a report, and a later run finds the file whole.
-    let mut attempt = 1;
-    let output = loop {
-        let mut command = Command::new(elm);
-        command.arg("make");
-        match suite {
-            Suite::Docs => command.arg("--docs=docs.json"),
-            Suite::Check | Suite::Graphs | Suite::Objects => {
-                command.args(project.app.iter().flat_map(|a| &a.entries))
-            }
-        };
-        command
-            .args(["--report=json", "--output=/dev/null"])
-            .args(["+RTS", "-N1", "-RTS"])
-            .current_dir(&dir)
-            .env("ELM_HOME", home);
-        offline(&mut command);
-        let Some(output) = timed(command, &work)? else {
-            // Hung, as concurrent runs very rarely leave elm; again.
-            attempt += 1;
-            ensure!(attempt <= RETRIES, "elm hung {RETRIES} times");
-            continue;
-        };
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let unreported = !output.status.success()
-            && !output.stderr.starts_with(b"{")
-            && !output.stdout.starts_with(b"{");
-        // A success that says something has, so far, been one of those
-        // too: alone, it is silent.
-        let noisy = output.status.success() && !output.stderr.is_empty();
-        let retry = stderr.contains("(file is locked)") || unreported || noisy;
-        if !retry || attempt == RETRIES {
-            break output;
-        }
-        attempt += 1;
-        let _ = fs::remove_dir_all(dir.join("elm-stuff"));
-        std::thread::sleep(Duration::from_secs(u64::from(attempt)));
+    let mut args: Vec<&str> = match suite {
+        Suite::Docs => vec!["--docs=docs.json"],
+        _ => (project.app.iter().flat_map(|a| &a.entries))
+            .map(String::as_str)
+            .collect(),
     };
+    args.push("--report=json");
+    args.push(if suite == Suite::JavaScript {
+        "--output=out.js"
+    } else {
+        "--output=/dev/null"
+    });
+    let output = make(elm, home, &work, &dir, &args)?;
     if output.status.code().is_none() {
         return Ok("crash".to_owned());
     }
@@ -356,6 +342,26 @@ fn record(
         fs::remove_dir_all(&work)?;
         return Ok(format!("objects {}", sha256(&objects)));
     }
+    if suite == Suite::JavaScript && output.status.success() {
+        let mut hashes = Vec::new();
+        for (mode, flag) in super::javascript::MODES {
+            let output = match flag {
+                None => output.clone(),
+                Some(flag) => make(elm, home, &work, &dir, &[&args[..], &[flag]].concat())?,
+            };
+            if !output.status.success() {
+                let report = String::from_utf8_lossy(&output.stderr);
+                fs::write(out.join(format!("{id}.{mode}.report.json")), &*report)?;
+                hashes.push("-".to_owned());
+                continue;
+            }
+            let js = fs::read(dir.join("out.js"))?;
+            fs::write(out.join(format!("{id}.{mode}.js")), &js)?;
+            hashes.push(sha256(&js));
+        }
+        fs::remove_dir_all(&work)?;
+        return Ok(format!("javascript {}", hashes.join(" ")));
+    }
     if suite == Suite::Check && output.status.success() {
         fs::write(out.join(format!("{id}.stdout")), &output.stdout)?;
         fs::write(out.join(format!("{id}.stderr")), &output.stderr)?;
@@ -381,6 +387,45 @@ fn record(
     fs::write(out.join(format!("{id}.report.json")), &report)?;
     fs::remove_dir_all(&work)?;
     Ok(cell(&report))
+}
+
+/// `elm make` with `args` in `dir`, again while it fails as runs that
+/// share an `ELM_HOME` sometimes make it fail.
+fn make(elm: &Path, home: &Path, work: &Path, dir: &Path, args: &[&str]) -> Result<Output> {
+    // Runs sharing an `ELM_HOME` may build the same dependency at once,
+    // and one may read the other's `artifacts.dat` half written; elm then
+    // dies without a report, and a later run finds the file whole.
+    let mut attempt = 1;
+    loop {
+        let mut command = Command::new(elm);
+        command
+            .arg("make")
+            .args(args)
+            .args(["+RTS", "-N1", "-RTS"])
+            .current_dir(dir)
+            .env("ELM_HOME", home);
+        offline(&mut command);
+        let Some(output) = timed(command, work)? else {
+            // Hung, as concurrent runs very rarely leave elm; again.
+            attempt += 1;
+            ensure!(attempt <= RETRIES, "elm hung {RETRIES} times");
+            continue;
+        };
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let unreported = !output.status.success()
+            && !output.stderr.starts_with(b"{")
+            && !output.stdout.starts_with(b"{");
+        // A success that says something has, so far, been one of those
+        // too: alone, it is silent.
+        let noisy = output.status.success() && !output.stderr.is_empty();
+        let retry = stderr.contains("(file is locked)") || unreported || noisy;
+        if !retry || attempt == RETRIES {
+            return Ok(output);
+        }
+        attempt += 1;
+        let _ = fs::remove_dir_all(dir.join("elm-stuff"));
+        std::thread::sleep(Duration::from_secs(u64::from(attempt)));
+    }
 }
 
 /// Copies `top`'s `elm.json` files and modules, which are all elm reads,

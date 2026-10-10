@@ -7,6 +7,7 @@ use nomi_codegen_js::debug::{ModuleTypes, Types};
 use nomi_codegen_js::generate::generate;
 use nomi_codegen_js::mode::{Mode, shorten_field_names};
 use nomi_compiler::canonical::Home;
+use nomi_compiler::nitpick::debug::graph_has_debug_uses;
 use nomi_compiler::optimized::binary::names;
 use nomi_compiler::optimized::{GlobalGraph, LocalGraph, Main};
 use nomi_project::ModuleName;
@@ -76,4 +77,15 @@ fn add_local_graph(mut graph: GlobalGraph, (_, local): (ModuleName, LocalGraph))
     graph.nodes.extend(local.nodes);
     graph.fields.extend(local.fields);
     graph
+}
+
+/// `checkForDebugUses`: the modules using `Debug`, in the release's order
+/// of names, which `--optimize` refuses (`report::debug_remnants`).
+pub fn debug_uses(compat: Compat, optimized: &Optimized) -> Vec<ModuleName> {
+    let mut modules: Vec<ModuleName> = (optimized.graphs.iter())
+        .filter(|(_, graph)| graph_has_debug_uses(graph))
+        .map(|(name, _)| name.clone())
+        .collect();
+    modules.sort_by(|a, b| names(compat, &a.to_string(), &b.to_string()));
+    modules
 }

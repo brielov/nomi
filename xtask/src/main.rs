@@ -124,6 +124,13 @@ enum CorpusCommand {
         /// Only projects whose case contains this text.
         only: Option<String>,
     },
+    /// Tier 2, by hand: whether nomi generates the JavaScript each elm
+    /// generated for every corpus app in each mode (`cargo xtask oracle
+    /// corpus-javascript`), downloading dependencies as `names` does.
+    Javascript {
+        /// Only apps whose case contains this text.
+        only: Option<String>,
+    },
     /// Where two `.elmo` files' graphs first differ, nomi's and elm's.
     GraphDiff {
         /// The release that wrote them, as `0.19.1`.
@@ -224,6 +231,17 @@ enum OracleCommand {
         #[arg(long)]
         only: Option<String>,
     },
+    /// Store a digest of the JavaScript each elm generates for every
+    /// corpus app in dev, `--debug` and `--optimize`.
+    CorpusJavascript {
+        /// Concurrent elm runs; the available cores by default.
+        #[arg(long)]
+        jobs: Option<usize>,
+        /// Print the cells of the apps whose case contains this text
+        /// instead.
+        #[arg(long)]
+        only: Option<String>,
+    },
     /// Store a digest of the `.elmo` of every module each elm builds for
     /// every corpus app and package, as `corpus-check` runs elm.
     CorpusGraphs {
@@ -289,6 +307,9 @@ fn main() -> ExitCode {
             OracleCommand::CorpusDocs { jobs, only } => {
                 oracle::corpus_runs::run(&root(), &r, Suite::Docs, jobs, only.as_deref())
             }
+            OracleCommand::CorpusJavascript { jobs, only } => {
+                oracle::corpus_runs::run(&root(), &r, Suite::JavaScript, jobs, only.as_deref())
+            }
             OracleCommand::CorpusObjects { jobs, only } => {
                 oracle::corpus_runs::run(&root(), &r, Suite::Objects, jobs, only.as_deref())
             }
@@ -338,6 +359,9 @@ fn main() -> ExitCode {
             }
             CorpusCommand::Check { only } => {
                 corpus::runs::check(&root(), Suite::Check, only.as_deref())
+            }
+            CorpusCommand::Javascript { only } => {
+                corpus::runs::check(&root(), Suite::JavaScript, only.as_deref())
             }
             CorpusCommand::Objects { only } => {
                 corpus::runs::check(&root(), Suite::Objects, only.as_deref())

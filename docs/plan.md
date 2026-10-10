@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **8.11**.
+4. Resume at the first unchecked box. Right now that is **8.12**.
 
 ### Test tiers
 
@@ -497,7 +497,9 @@ The optimizer's oracle is elm's own artifacts: every elm writes a module's optim
 - [x] **8.10** `codegen-js: html and /dev/null outputs` (`Generate/Html.hs`). **Check:** the ratchet's HTML cases.
 
   Done: `html::sandwich` writes `Generate/Html.hs`'s page around a program's code, which starts its one `main` and shows what goes wrong starting it; the three releases write it alike. A tenth fixture, `html_page`, builds a nested module's `Browser.sandbox` with `--output=home.html`; the oracle now takes a case's own `--output`, keeping elm's file with its extension. The ratchet passes all 87 runs. `/dev/null` already generated nothing; `elm make` choosing and writing the file is 8.13's.
-- [ ] **8.11** `oracle: corpus JavaScript`. The four apps in three modes for each Compat (with 1.15a's `elm-version` rewrite); the old manifest already has the 0.19.2 hashes. **Check:** byte parity across them, the ratchet at 100%.
+- [x] **8.11** `oracle: corpus JavaScript`. The four apps in three modes for each Compat (with 1.15a's `elm-version` rewrite); the old manifest already has the 0.19.2 hashes. **Check:** byte parity across them, the ratchet at 100%.
+
+  Done: `cargo xtask oracle corpus-javascript` builds each corpus app with each elm in dev, `--debug` and `--optimize`, as the other corpus suites run elm, and keeps each output's hash, `-` for a mode elm refuses; the outputs stay in the sandbox. Its 0.19.2 hashes are the old manifest's, all twelve. `cargo xtask corpus javascript` generates each app as nomi does and finds all 12 runs, 36 outputs of 2 to 4 MB each, the same, byte for byte; nomi's are kept beside elm's where they differ. `engine::javascript::debug_uses` ports `checkForDebugUses` on the optimized graphs, for the runs `--optimize` refuses. The ratchet is at 87 of 87. Nothing new surfaced: what the fixtures didn't reach, the apps didn't either.
 - [ ] **8.12** `engine: object cache and linking`. Optimized graphs are cached per module, and linking takes only what `main` reaches.
 - [ ] **8.13** `cli: nomi build and elm make`. `nomi build` (alias `make`, with `--release` as an alias of `--optimize`) and the `elm make` personality. Flags (including `--docs`), progress and success messages, and exit codes. **Check:** transcripts, including the terminal output of the 605-case matrix.
 - [ ] **8.14** `cli: bump, diff and publish`. The API diff is computed from docs. Publishing is tested only against the fixture registry; publishing for real is yours to run.

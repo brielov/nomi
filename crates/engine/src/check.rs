@@ -184,7 +184,7 @@ impl Built {
 }
 
 /// What [`optimize`] makes of a project.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Optimized {
     /// The roots, and whether each defines `main`.
     pub roots: Vec<(ModuleName, bool)>,
