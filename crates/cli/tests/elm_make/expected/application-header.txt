@@ -1,0 +1,18 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"RESERVED WORD","region":{"start":{"line":1,"column":12},"end":{"line":1,"column":20}},"message":["The name `",{"bold":false,"underline":false,"color":"CYAN","string":"exposing"},"` is reserved in Elm, so it cannot be used as an argument\nhere:\n\n1| modul Main exposing (value)\n              ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^^^^"},"\nTry renaming it to something else.\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": The `exposing` keyword has a special meaning in Elm, so it can only be\nused in certain situations."]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"PROBLEM IN DEFINITION","region":{"start":{"line":0,"column":11},"end":{"line":0,"column":11}},"message":["I got stuck while parsing the `modul` definition:\n\n1| modul Main exposing (value)\n              ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI am not sure what is going wrong exactly, so here is a valid definition (with\nan optional type annotation) for reference:\n\n    greet : String -> String\n    greet name =\n      ",{"bold":false,"underline":false,"color":"yellow","string":"\"Hello \""}," ++ name ++ ",{"bold":false,"underline":false,"color":"yellow","string":"\"!\""},"\n\nTry to use that format!"]}]}]}
+\ no newline at end
+### elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"PROBLEM IN DEFINITION","region":{"start":{"line":1,"column":12},"end":{"line":1,"column":12}},"message":["I got stuck while parsing the `modul` definition:\n\n1| modul Main exposing (value)\n              ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI am not sure what is going wrong exactly, so here is a valid definition (with\nan optional type annotation) for reference:\n\n    greet : String -> String\n    greet name =\n      ",{"bold":false,"underline":false,"color":"yellow","string":"\"Hello \""}," ++ name ++ ",{"bold":false,"underline":false,"color":"yellow","string":"\"!\""},"\n\nTry to use that format!"]}]}]}
+\ no newline at end

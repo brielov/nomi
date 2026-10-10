@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"TYPE MISMATCH","region":{"start":{"line":4,"column":9},"end":{"line":4,"column":26}},"message":["Something is off with the body of the `value` definition:\n\n4| value = Decoder.succeed 1\n           ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^^^^^^^^^^^^^"},"\nThis `succeed` call produces:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"Decoder.Decoder number"},"\n\nBut the type annotation on `value` says it should be:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"Int"},""]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"TYPE MISMATCH","region":{"start":{"line":3,"column":8},"end":{"line":3,"column":25}},"message":["Something is off with the body of the `value` definition:\n\n4| value = Decoder.succeed 1\n           ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^^^^^^^^^^^^^"},"\nThis `succeed` call produces:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"Decoder.Decoder number"},"\n\nBut the type annotation on `value` says it should be:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"Int"},""]}]}]}
+\ no newline at end

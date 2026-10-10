@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"MISSING EXPRESSION","region":{"start":{"line":2,"column":13},"end":{"line":2,"column":13}},"message":["I just saw a + sign, so I am getting stuck here:\n\n2| value = (1 +)\n               ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI was expecting to see an expression next. Something like ",{"bold":false,"underline":false,"color":"yellow","string":"42"}," or ",{"bold":false,"underline":false,"color":"yellow","string":"1000"}," that makes\nsense with a + sign."]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"MISSING EXPRESSION","region":{"start":{"line":1,"column":12},"end":{"line":1,"column":12}},"message":["I just saw a + sign, so I am getting stuck here:\n\n2| value = (1 +)\n               ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI was expecting to see an expression next. Something like ",{"bold":false,"underline":false,"color":"yellow","string":"42"}," or ",{"bold":false,"underline":false,"color":"yellow","string":"1000"}," that makes\nsense with a + sign."]}]}]}
+\ no newline at end

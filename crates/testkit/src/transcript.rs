@@ -5,10 +5,18 @@
 //! A case file has sections, each a `=== ` header line followed by the
 //! section's lines:
 //!
-//! - `=== args`: one argument per line;
+//! - `=== args`: one argument per line, where `$ROOT` stands for the
+//!   directory the case runs in;
 //! - `=== stdin`: standard input, empty without the section;
 //! - `=== file <path>`: a file to create, by a `/`-separated relative path;
+//! - `=== bytes <path>`: one whose bytes aren't all text, written with
+//!   `\xHH` for each byte that isn't printable ASCII and `\\` for a
+//!   backslash;
+//! - `=== link <path>`: a symbolic link to the target on its one line;
 //! - `=== note`: what the case is about; ignored.
+//!
+//! A file's last line may be `\ no newline at end`, which drops the
+//! newline before it, as a transcript prints it.
 //!
 //! A transcript prints each recorded text with every line behind `|`, so
 //! trailing spaces show, and a `\ no newline at end` line where the text
@@ -19,13 +27,22 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use sha2::{Digest, Sha256};
+
 /// A parsed case file.
 #[derive(Clone, Debug, Default)]
 pub struct Case {
     pub args: Vec<String>,
     pub stdin: String,
     pub files: Vec<(String, String)>,
+    /// The `bytes` sections' files, decoded.
+    pub binaries: Vec<(String, Vec<u8>)>,
+    /// Symbolic links, by path, to their targets.
+    pub links: Vec<(String, String)>,
 }
+
+/// The line that ends a text without a newline.
+const NO_NEWLINE: &str = "\\ no newline at end\n";
 
 impl Case {
     pub fn parse(text: &str) -> Result<Case, String> {
@@ -45,7 +62,15 @@ impl Case {
                 None if header == "args" => case.args = body.lines().map(str::to_owned).collect(),
                 None if header == "stdin" => case.stdin = body,
                 None if header == "note" => {}
-                Some(("file", path)) => case.files.push((path.to_owned(), body)),
+                Some(("file", path)) => case.files.push((path.to_owned(), unmarked(body))),
+                Some(("bytes", path)) => {
+                    let bytes = decode(&unmarked(body))
+                        .ok_or_else(|| format!("a bad escape in `=== bytes {path}`"))?;
+                    case.binaries.push((path.to_owned(), bytes));
+                }
+                Some(("link", path)) => case
+                    .links
+                    .push((path.to_owned(), body.trim_end().to_owned())),
                 _ => return Err(format!("unknown section `=== {header}`")),
             }
         }
@@ -54,19 +79,34 @@ impl Case {
 
     /// Creates the case's files under `dir`.
     pub fn create_files(&self, dir: &Path) -> io::Result<()> {
-        for (path, text) in &self.files {
+        let texts = (self.files.iter()).map(|(path, text)| (path, text.as_bytes()));
+        let binaries = (self.binaries.iter()).map(|(path, bytes)| (path, bytes.as_slice()));
+        for (path, bytes) in texts.chain(binaries) {
             let path = dir.join(path);
             fs::create_dir_all(path.parent().expect("a file in a directory"))?;
-            fs::write(path, text)?;
+            fs::write(path, bytes)?;
+        }
+        for (path, target) in &self.links {
+            let path = dir.join(path);
+            fs::create_dir_all(path.parent().expect("a link in a directory"))?;
+            symlink(target, &path)?;
         }
         Ok(())
+    }
+
+    /// The case's arguments, with `$ROOT` standing for `dir`.
+    pub fn args_in(&self, dir: &Path) -> Vec<String> {
+        let root = dir.to_string_lossy();
+        (self.args.iter())
+            .map(|a| a.replace("$ROOT", &root))
+            .collect()
     }
 
     /// Runs `command` on the case in `dir`, which holds its files, and
     /// records what happened.
     pub fn run(&self, mut command: Command, dir: &Path) -> io::Result<Transcript> {
         let mut child = command
-            .args(&self.args)
+            .args(self.args_in(dir))
             .current_dir(dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -86,6 +126,64 @@ impl Case {
     }
 }
 
+/// `text` without a closing [`NO_NEWLINE`] and the newline before it.
+fn unmarked(mut text: String) -> String {
+    if text.ends_with(NO_NEWLINE) {
+        text.truncate(text.len() - NO_NEWLINE.len());
+        text.pop();
+    }
+    text
+}
+
+/// The bytes a `bytes` section's text stands for.
+fn decode(text: &str) -> Option<Vec<u8>> {
+    let mut bytes = Vec::new();
+    let mut rest = text.as_bytes();
+    while let Some((&byte, after)) = rest.split_first() {
+        rest = after;
+        if byte != b'\\' {
+            bytes.push(byte);
+            continue;
+        }
+        match rest {
+            [b'\\', after @ ..] => {
+                bytes.push(b'\\');
+                rest = after;
+            }
+            [b'x', hi, lo, after @ ..] => {
+                let hex = std::str::from_utf8(&[*hi, *lo]).ok()?.to_owned();
+                bytes.push(u8::from_str_radix(&hex, 16).ok()?);
+                rest = after;
+            }
+            _ => return None,
+        }
+    }
+    Some(bytes)
+}
+
+/// `bytes` as a `bytes` section writes them.
+pub fn encode(bytes: &[u8]) -> String {
+    let mut out = String::new();
+    for &byte in bytes {
+        match byte {
+            b'\\' => out.push_str("\\\\"),
+            b'\n' | b' '..=b'~' => out.push(char::from(byte)),
+            _ => out.push_str(&format!("\\x{byte:02x}")),
+        }
+    }
+    out
+}
+
+#[cfg(unix)]
+fn symlink(target: &str, path: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(target, path)
+}
+
+#[cfg(not(unix))]
+fn symlink(target: &str, path: &Path) -> io::Result<()> {
+    std::os::windows::fs::symlink_file(target, path)
+}
+
 /// What running a case did.
 #[derive(Debug)]
 pub struct Transcript {
@@ -97,7 +195,38 @@ pub struct Transcript {
     pub files: Vec<(String, Vec<u8>)>,
 }
 
+/// How a transcript shows a symbolic link: this, then its target.
+const LINK: &str = "symbolic link to ";
+
+/// Files past this many bytes show by their hash.
+const LARGE: usize = 16 * 1024;
+
 impl Transcript {
+    /// The transcript of `case` run in `dir` as compared with elm's: what
+    /// is left in `elm-stuff/` is elm's own, files the case wrote that
+    /// are as it wrote them are left out, a large file shows by its
+    /// SHA-256, and `dir` reads `$ROOT`.
+    pub fn compared(mut self, case: &Case, dir: &Path) -> String {
+        let written = |path: &str, bytes: &[u8]| {
+            let text = (case.files.iter()).any(|(p, t)| p == path && t.as_bytes() == bytes);
+            let binary = (case.binaries.iter()).any(|(p, b)| p == path && b == bytes);
+            let link = (case.links.iter())
+                .any(|(p, t)| p == path && bytes == format!("{LINK}{t}\n").as_bytes());
+            text || binary || link
+        };
+        self.files
+            .retain(|(path, bytes)| !path.starts_with("elm-stuff/") && !written(path, bytes));
+        for (_, bytes) in &mut self.files {
+            if bytes.len() > LARGE {
+                let hash: String = (Sha256::digest(&bytes).iter())
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
+                *bytes = format!("{} bytes, SHA-256 {hash}\n", bytes.len()).into_bytes();
+            }
+        }
+        self.render().replace(&*dir.to_string_lossy(), "$ROOT")
+    }
+
     pub fn render(&self) -> String {
         let mut out = match self.exit {
             Some(code) => format!("=== exit {code}\n"),
@@ -131,7 +260,12 @@ fn list(dir: &Path, prefix: &str, files: &mut Vec<(String, Vec<u8>)>) -> io::Res
     entries.sort_by_key(|entry| entry.file_name());
     for entry in entries {
         let path = format!("{prefix}{}", entry.file_name().to_string_lossy());
-        if entry.file_type()?.is_dir() {
+        let kind = entry.file_type()?;
+        if kind.is_symlink() {
+            let target = fs::read_link(entry.path())?;
+            let text = format!("{LINK}{}\n", target.to_string_lossy());
+            files.push((path, text.into_bytes()));
+        } else if kind.is_dir() {
             list(&entry.path(), &format!("{path}/"), files)?;
         } else {
             files.push((path, fs::read(entry.path())?));
@@ -157,6 +291,15 @@ mod tests {
             [("src/A.elm".to_owned(), "module A\n\n".to_owned())]
         );
         assert!(Case::parse("args\n").is_err());
+        let case = Case::parse(
+            "=== bytes a\n\\xff\\\\x\n\\ no newline at end\n=== file b\nb\n\\ no newline at end\n=== link c\nb\n",
+        )
+        .unwrap();
+        assert_eq!(case.binaries, [("a".to_owned(), b"\xff\\x".to_vec())]);
+        assert_eq!(case.files, [("b".to_owned(), "b".to_owned())]);
+        assert_eq!(case.links, [("c".to_owned(), "b".to_owned())]);
+        assert_eq!(encode(b"\xff\\x\n\r"), "\\xff\\\\x\n\\x0d");
+        assert!(Case::parse("=== bytes a\n\\q\n").is_err());
         assert!(Case::parse("=== argv\n").is_err());
     }
 

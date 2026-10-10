@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"BAD FLAGS","region":{"start":{"line":4,"column":1},"end":{"line":4,"column":5}},"message":["Your `main` program wants a `Thing` value from JavaScript.\n\n4| main = Platform.worker\n   ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nI cannot handle that. The types that CAN be in flags include:\n\n    Ints, Floats, Bools, Strings, Maybes, Lists, Arrays, tuples, records, and\n    JSON values.\n\nSince JSON values can flow through, you can use JSON encoders and decoders to\nallow other types through as well. More advanced users often just do everything\nwith encoders and decoders for more control and better errors."]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"BAD FLAGS","region":{"start":{"line":3,"column":0},"end":{"line":3,"column":4}},"message":["Your `main` program wants a `Thing` value from JavaScript.\n\n4| main = Platform.worker\n   ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nI cannot handle that. The types that CAN be in flags include:\n\n    Ints, Floats, Bools, Strings, Maybes, Lists, Arrays, tuples, records, and\n    JSON values.\n\nSince JSON values can flow through, you can use JSON encoders and decoders to\nallow other types through as well. More advanced users often just do everything\nwith encoders and decoders for more control and better errors."]}]}]}
+\ no newline at end

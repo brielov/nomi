@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"MISSING DEPENDENCY","message":["I need to see an \"elm/json\" dependency your elm.json file. It helps me handle\nflags and ports.\n\nIf you modified your elm.json by hand, try to change it back! And if you are\nhaving trouble getting back to a working elm.json, it may be easier to delete it\nand use `elm init` to start fresh."]}
+\ no newline at end

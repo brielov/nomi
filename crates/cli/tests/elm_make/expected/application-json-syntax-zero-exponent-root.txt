@@ -1,0 +1,11 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+=== stderr
+|elm: Prelude.last: empty list
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"JSON PROBLEM","message":["I ran into a problem with your elm.json file. I was partway through parsing some\nJSON when I got stuck here:\n\n1| 0e3\n    ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI am not really sure what is wrong. This sometimes means there is extra stuff\nafter a valid JSON value?"]}
+\ no newline at end

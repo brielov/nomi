@@ -1,0 +1,18 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"DUPLICATE DOCS","region":{"start":{"line":5,"column":14},"end":{"line":5,"column":19}},"message":["There can only be one `value` in your module documentation, but it is listed\ntwice:\n\n5| @docs value, value\n         ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^"},"  ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^"},"\nRemove one of them!"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"DUPLICATE DOCS","region":{"start":{"line":4,"column":13},"end":{"line":4,"column":18}},"message":["There can only be one `value` in your module documentation, but it is listed\ntwice:\n\n4| @docs value, value\n         ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^"},"  ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^"},"\nRemove one of them!"]}]}]}
+\ no newline at end
+### elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"DUPLICATE DOCS","region":{"start":{"line":5,"column":14},"end":{"line":5,"column":19}},"message":["There can only be one `value` in your module documentation, but it is listed\ntwice:\n\n4| @docs value, value\n         ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^"},"  ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^"},"\nRemove one of them!"]}]}]}
+\ no newline at end

@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"REDUNDANT SOURCE DIRECTORIES","message":["I need a valid elm.json file, but the \"source-directories\" field has some\nredundant directories:\n\n    ",{"bold":false,"underline":false,"color":"RED","string":"./src"},"\n    ",{"bold":false,"underline":false,"color":"RED","string":"src"},"\n\nThese are two different ways of refering to the same directory:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"$ROOT/src"},"\n\nRemove one of the redundant entries from your \"source-directories\" field."]}
+\ no newline at end

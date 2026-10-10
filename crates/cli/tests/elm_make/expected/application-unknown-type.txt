@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"UNEXPECTED TYPE","message":["I got stuck while reading your elm.json file. I cannot handle a \"type\" like\nthis:\n\n1| {\"type\": \"backend\", \"source-directories\": [\"src\"], \"elm-version\": \"0.19.2\", \"dependencies\": {\"direct\": {\"elm/core\": \"1.0.5\", \"elm/json\": \"1.1.4\"}, \"indirect\": {}}, \"test-dependencies\": {\"direct\": {}, \"indirect\": {}}}\n   ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"},"\nTry changing the \"type\" to ",{"bold":false,"underline":false,"color":"GREEN","string":"\"application\""}," or ",{"bold":false,"underline":false,"color":"GREEN","string":"\"package\""}," instead."]}
+\ no newline at end

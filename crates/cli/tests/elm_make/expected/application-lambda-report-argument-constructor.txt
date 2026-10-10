@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"TOO FEW ARGS","region":{"start":{"line":2,"column":11},"end":{"line":2,"column":15}},"message":["The `Just` variant needs 1 argument, but I see 0 instead:\n\n2| value = \\ Just -> 1\n             ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nWhat is missing? Are some parentheses misplaced?"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"TOO FEW ARGS","region":{"start":{"line":1,"column":10},"end":{"line":1,"column":14}},"message":["The `Just` variant needs 1 argument, but I see 0 instead:\n\n2| value = \\ Just -> 1\n             ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nWhat is missing? Are some parentheses misplaced?"]}]}]}
+\ no newline at end

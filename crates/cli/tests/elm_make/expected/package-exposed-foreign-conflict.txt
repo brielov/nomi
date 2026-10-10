@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"AMBIGUOUS MODULE NAME","message":["The \"exposed-modules\" of your elm.json lists the following module:\n\n    ",{"bold":false,"underline":false,"color":"RED","string":"List"},"\n\nBut a module from elm/core already uses that name. Try choosing a different name\nfor your local file."]}
+\ no newline at end

@@ -1,0 +1,18 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"ELM VERSION MISMATCH","message":["Your elm.json says this package needs a version of Elm in this range:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"0.18.0 <= v < 0.19.0"},"\n\nBut you are using Elm ",{"bold":false,"underline":false,"color":"RED","string":"0.19.1"}," right now."]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"ELM VERSION MISMATCH","message":["Your elm.json says this package needs a version of Elm in this range:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"0.18.0 <= v < 0.19.0"},"\n\nBut you are using Elm ",{"bold":false,"underline":false,"color":"RED","string":"0.19.2"}," right now."]}
+\ no newline at end
+### elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"ELM VERSION MISMATCH","message":["Your elm.json says this package needs a version of Elm in this range:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"0.18.0 <= v < 0.19.0"},"\n\nBut you are using Elm ",{"bold":false,"underline":false,"color":"RED","string":"0.19.3"}," right now."]}
+\ no newline at end

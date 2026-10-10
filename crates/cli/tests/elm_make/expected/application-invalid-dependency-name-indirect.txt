@@ -1,0 +1,18 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"PROBLEM WITH DEPENDENCY NAME","message":["I got stuck while reading your elm.json file. There is something wrong with this\ndependency name:\n\n1| {\"type\": \"application\", \"source-directories\": [\"src\"], \"elm-version\": \"0.19.1\", \"dependencies\": {\"direct\": {\"elm/core\": \"1.0.5\", \"elm/json\": \"1.1.4\"}, \"indirect\": {\"url\": \"1.0.0\"}}, \"test-dependencies\": {\"direct\": {}, \"indirect\": {}}}\n                                                                                                                                                                           ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nPackage names always include the name of the author, so I am expecting to see\ndependencies like ",{"bold":false,"underline":false,"color":"yellow","string":"\"mdgriffith/elm-ui\""}," and ",{"bold":false,"underline":false,"color":"yellow","string":"\"Microsoft/elm-json-tree-view\""},".\n\nI generally recommend finding the package you want on the package website, and\ninstalling it with the ",{"bold":false,"underline":false,"color":"GREEN","string":"elm install"}," command!"]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"PROBLEM WITH DEPENDENCY NAME","message":["I got stuck while reading your elm.json file. There is something wrong with this\ndependency name:\n\n1| {\"type\": \"application\", \"source-directories\": [\"src\"], \"elm-version\": \"0.19.2\", \"dependencies\": {\"direct\": {\"elm/core\": \"1.0.5\", \"elm/json\": \"1.1.4\"}, \"indirect\": {\"url\": \"1.0.0\"}}, \"test-dependencies\": {\"direct\": {}, \"indirect\": {}}}\n                                                                                                                                                                           ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nPackage names always include the name of the author, so I am expecting to see\ndependencies like ",{"bold":false,"underline":false,"color":"yellow","string":"\"mdgriffith/elm-ui\""}," and ",{"bold":false,"underline":false,"color":"yellow","string":"\"Microsoft/elm-json-tree-view\""},".\n\nI generally recommend finding the package you want on the package website, and\ninstalling it with the ",{"bold":false,"underline":false,"color":"GREEN","string":"elm install"}," command!"]}
+\ no newline at end
+### elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"PROBLEM WITH DEPENDENCY NAME","message":["I got stuck while reading your elm.json file. There is something wrong with this\ndependency name:\n\n1| {\"type\": \"application\", \"source-directories\": [\"src\"], \"elm-version\": \"0.19.3\", \"dependencies\": {\"direct\": {\"elm/core\": \"1.0.5\", \"elm/json\": \"1.1.4\"}, \"indirect\": {\"url\": \"1.0.0\"}}, \"test-dependencies\": {\"direct\": {}, \"indirect\": {}}}\n                                                                                                                                                                           ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nPackage names always include the name of the author, so I am expecting to see\ndependencies like ",{"bold":false,"underline":false,"color":"yellow","string":"\"mdgriffith/elm-ui\""}," and ",{"bold":false,"underline":false,"color":"yellow","string":"\"Microsoft/elm-json-tree-view\""},".\n\nI generally recommend finding the package you want on the package website, and\ninstalling it with the ",{"bold":false,"underline":false,"color":"GREEN","string":"elm install"}," command!"]}
+\ no newline at end

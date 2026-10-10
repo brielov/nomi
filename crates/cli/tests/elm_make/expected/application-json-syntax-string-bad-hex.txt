@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"BAD HEX ESCAPE","message":["I ran into a problem with your elm.json file. This is not a valid hex escape:\n\n2|   \"type\": \"application\",\n3|   \"source-directories\": [\n4|     \"s\\u00xr\"\n         ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nValid hex escapes in JSON are between ",{"bold":false,"underline":false,"color":"GREEN","string":"\\u0000"}," and ",{"bold":false,"underline":false,"color":"GREEN","string":"\\uFFFF"}," and always have exactly\nfour digits."]}
+\ no newline at end

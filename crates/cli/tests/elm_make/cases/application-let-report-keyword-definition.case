@@ -1,0 +1,12 @@
+=== note
+from the 2026-09-23 CLI report matrix; elm 0.19.2 said compile-errors
+=== args
+make
+src/Main.elm
+--report=json
+--output=/dev/null
+=== file elm.json
+{"type": "application", "source-directories": ["src"], "elm-version": "0.19.2", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}
+=== file src/Main.elm
+module Main exposing (value)
+value = let if = 1 in if

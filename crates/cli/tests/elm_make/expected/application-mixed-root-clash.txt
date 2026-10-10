@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":null,"title":"MODULE NAME CLASH","message":["These two files are causing a module name clash:\n\n    ",{"bold":false,"underline":false,"color":"RED","string":"examples/A.elm\n    $ROOT/src/A.elm"},"\n\nThey both say `module A exposing (..)` up at the top, but they cannot have the\nsame name!\n\nTry changing to a different module name in one of them!"]}
+\ no newline at end

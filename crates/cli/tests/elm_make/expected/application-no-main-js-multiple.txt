@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":null,"title":"NO MAIN","message":["When producing a JS file, I require that given files all have `main` values.\nThat way functions like Elm.NoMain.init() are definitely defined in the\nresulting file. I am missing `main` values in:\n\n    ",{"bold":false,"underline":false,"color":"RED","string":"NoMain\n    OtherNoMain"},"\n\nTry adding a `main` value to them? Or if you just want to verify that these\nmodules compile, switch to --output=/dev/null to skip the code gen phase\naltogether.\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": Adding a `main` value can be as brief as adding something like this:\n\n",{"bold":false,"underline":false,"color":"CYAN","string":"import"}," Html\n\n",{"bold":false,"underline":false,"color":"GREEN","string":"main"}," =\n  ",{"bold":false,"underline":false,"color":"CYAN","string":"Html"},".text ",{"bold":false,"underline":false,"color":"yellow","string":"\"Hello!\""},"\n\nOr use https://package.elm-lang.org/packages/elm/core/latest/Platform#worker to\nmake a `main` with no user interface."]}
+\ no newline at end

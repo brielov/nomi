@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"WEIRD ELSE BRANCH","region":{"start":{"line":5,"column":1},"end":{"line":5,"column":5}},"message":["I was partway through an `if` expression when I got stuck here:\n\n3|     if True then\n4|         1\n5| else\n   ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nI think this ",{"bold":false,"underline":false,"color":"CYAN","string":"else"}," keyword needs to be indented more. Try adding some spaces\nbefore it."]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"WEIRD ELSE BRANCH","region":{"start":{"line":4,"column":0},"end":{"line":4,"column":4}},"message":["I was partway through an `if` expression when I got stuck here:\n\n3|     if True then\n4|         1\n5| else\n   ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nI think this ",{"bold":false,"underline":false,"color":"CYAN","string":"else"}," keyword needs to be indented more. Try adding some spaces\nbefore it."]}]}]}
+\ no newline at end

@@ -1,0 +1,12 @@
+=== note
+from the 2026-09-23 CLI report matrix; elm 0.19.2 said compile-errors
+=== args
+make
+--report=json
+--docs=docs.json
+=== file elm.json
+{"type": "package", "name": "example/reports", "summary": "Compiler JSON reporting conformance fixture", "license": "BSD-3-Clause", "version": "1.0.0", "exposed-modules": ["Main"], "elm-version": "0.19.0 <= v < 0.20.0", "dependencies": {"elm/core": "1.0.0 <= v < 2.0.0", "elm/json": "1.0.0 <= v < 2.0.0"}, "test-dependencies": {}}
+=== bytes src/Main.elm
+module Main exposing (value)\x0d
+value : Int\x0d
+value = 1\x0d

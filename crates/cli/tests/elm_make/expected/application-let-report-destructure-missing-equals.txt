@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"PROBLEM IN DEFINITION","region":{"start":{"line":2,"column":19},"end":{"line":2,"column":19}},"message":["I got stuck trying to parse this definition:\n\n2| value = let (x,y) in x\n                     ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI was expecting to see an equals sign next, followed by an expression telling me\nwhat to compute."]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"PROBLEM IN DEFINITION","region":{"start":{"line":1,"column":18},"end":{"line":1,"column":18}},"message":["I got stuck trying to parse this definition:\n\n2| value = let (x,y) in x\n                     ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI was expecting to see an equals sign next, followed by an expression telling me\nwhat to compute."]}]}]}
+\ no newline at end

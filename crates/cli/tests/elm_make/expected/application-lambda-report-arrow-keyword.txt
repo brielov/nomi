@@ -1,0 +1,18 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"RESERVED WORD","region":{"start":{"line":2,"column":12},"end":{"line":2,"column":14}},"message":["I was parsing an anonymous function, but I got stuck here:\n\n2| value = \\x if x\n              ",{"bold":false,"underline":false,"color":"RED","string":"^^"},"\nIt looks like you are trying to use `if` as an argument, but it is a reserved\nword in this language. Try using a different argument name!"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED ANONYMOUS FUNCTION","region":{"start":{"line":1,"column":11},"end":{"line":1,"column":11}},"message":["I just saw the beginning of an anonymous function, so I was expecting to see an\narrow next:\n\n2| value = \\x if x\n              ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nThe syntax for anonymous functions is ",{"bold":false,"underline":false,"color":"yellow","string":"(\\x -> x + 1)"}," so I am missing the arrow\nand the body of the function."]}]}]}
+\ no newline at end
+### elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED ANONYMOUS FUNCTION","region":{"start":{"line":2,"column":12},"end":{"line":2,"column":12}},"message":["I just saw the beginning of an anonymous function, so I was expecting to see an\narrow next:\n\n2| value = \\x if x\n              ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nThe syntax for anonymous functions is ",{"bold":false,"underline":false,"color":"yellow","string":"(\\x -> x + 1)"}," so I am missing the arrow\nand the body of the function."]}]}]}
+\ no newline at end

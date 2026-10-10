@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"WEIRD HEXIDECIMAL","region":{"start":{"line":2,"column":11},"end":{"line":2,"column":11}},"message":["I thought I was reading a hexidecimal number until I got here:\n\n2| value = 0xNO\n             ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nValid hexidecimal digits include 0123456789abcdefABCDEF, so I can only recognize\nthings like this:\n\n    0x2B\n    0x002B\n    0x00ffb3"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"WEIRD HEXIDECIMAL","region":{"start":{"line":1,"column":10},"end":{"line":1,"column":10}},"message":["I thought I was reading a hexidecimal number until I got here:\n\n2| value = 0xNO\n             ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nValid hexidecimal digits include 0123456789abcdefABCDEF, so I can only recognize\nthings like this:\n\n    0x2B\n    0x002B\n    0x00ffb3"]}]}]}
+\ no newline at end

@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNEXPECTED EQUALS","region":{"start":{"line":3,"column":15},"end":{"line":3,"column":15}},"message":["I was not expecting to see this equals sign:\n\n3|     True -> 1 = 2\n                 ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nMaybe you want == instead? To check if two values are equal?\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": I may be getting confused by your indentation. I think I am still parsing\nthe `value` definition. Is this supposed to be part of a definition after that?\nIf so, the problem may be a bit before the equals sign. I need all definitions\nto be indented exactly the same amount, so the problem may be that this new\ndefinition has too many spaces in front of it."]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNEXPECTED EQUALS","region":{"start":{"line":2,"column":14},"end":{"line":2,"column":14}},"message":["I was not expecting to see this equals sign:\n\n3|     True -> 1 = 2\n                 ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nMaybe you want == instead? To check if two values are equal?\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": I may be getting confused by your indentation. I think I am still parsing\nthe `value` definition. Is this supposed to be part of a definition after that?\nIf so, the problem may be a bit before the equals sign. I need all definitions\nto be indented exactly the same amount, so the problem may be that this new\ndefinition has too many spaces in front of it."]}]}]}
+\ no newline at end

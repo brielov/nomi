@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"BAD FLAGS","region":{"start":{"line":3,"column":1},"end":{"line":3,"column":5}},"message":["Your `main` program wants an unspecified type from JavaScript.\n\n3| main = Platform.worker\n   ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nBut type variables like `a` cannot be given as flags. I need to know exactly\nwhat type of data I am getting, so I can guarantee that unexpected data cannot\nsneak in and crash the Elm program."]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"BAD FLAGS","region":{"start":{"line":2,"column":0},"end":{"line":2,"column":4}},"message":["Your `main` program wants an unspecified type from JavaScript.\n\n3| main = Platform.worker\n   ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nBut type variables like `a` cannot be given as flags. I need to know exactly\nwhat type of data I am getting, so I can guarantee that unexpected data cannot\nsneak in and crash the Elm program."]}]}]}
+\ no newline at end

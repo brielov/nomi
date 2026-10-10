@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED PARENTHESES","region":{"start":{"line":2,"column":10},"end":{"line":2,"column":10}},"message":["I just saw an open parenthesis, so I was expecting to see an expression next.\n\n2| value = (\n            ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nSomething like ",{"bold":false,"underline":false,"color":"yellow","string":"(4 + 5)"}," or ",{"bold":false,"underline":false,"color":"yellow","string":"(String.reverse \"desserts\")"},". Anything where you are\nputting parentheses around normal expressions.\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": I can get confused by indentation in cases like this, so maybe you have an\nexpression but it is not indented enough?"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED PARENTHESES","region":{"start":{"line":1,"column":9},"end":{"line":1,"column":9}},"message":["I just saw an open parenthesis, so I was expecting to see an expression next.\n\n2| value = (\n            ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nSomething like ",{"bold":false,"underline":false,"color":"yellow","string":"(4 + 5)"}," or ",{"bold":false,"underline":false,"color":"yellow","string":"(String.reverse \"desserts\")"},". Anything where you are\nputting parentheses around normal expressions.\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": I can get confused by indentation in cases like this, so maybe you have an\nexpression but it is not indented enough?"]}]}]}
+\ no newline at end

@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"IMPLICIT EXPOSING","region":{"start":{"line":1,"column":22},"end":{"line":1,"column":26}},"message":["I need you to be explicit about what this module exposes:\n\n1| module Main exposing (..)\n                        ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nA great API usually hides some implementation details, so it is rare that\neverything in the file should be exposed. And requiring package authors to be\nexplicit about this is a way of adding another quality check before code gets\npublished. So as you write out the public API, ask yourself if it will be easy\nto understand as people read the documentation!"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"IMPLICIT EXPOSING","region":{"start":{"line":0,"column":21},"end":{"line":0,"column":25}},"message":["I need you to be explicit about what this module exposes:\n\n1| module Main exposing (..)\n                        ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nA great API usually hides some implementation details, so it is rare that\neverything in the file should be exposed. And requiring package authors to be\nexplicit about this is a way of adding another quality check before code gets\npublished. So as you write out the public API, ask yourself if it will be easy\nto understand as people read the documentation!"]}]}]}
+\ no newline at end

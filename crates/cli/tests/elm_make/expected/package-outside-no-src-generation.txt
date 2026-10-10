@@ -1,0 +1,18 @@
+### elm 0.19.1
+=== exit 0
+=== stdout
+=== stderr
+=== file program.js
+|61474 bytes, SHA-256 5c48f2ab620562e8830a489f56635e90a2ff57e7d78073889a6dedad809a6ccd
+### elm 0.19.2
+=== exit 0
+=== stdout
+=== stderr
+=== file program.js
+|61530 bytes, SHA-256 3616199cc912be4aab020ec699df90348c0a450fa7735110a2baf4661dea7ba3
+### elm 0.19.3
+=== exit 0
+=== stdout
+=== stderr
+=== file program.js
+|61530 bytes, SHA-256 b492f4936ade5c39d3ae197581e7959cb86bca35cac07cef85c20be57885644a

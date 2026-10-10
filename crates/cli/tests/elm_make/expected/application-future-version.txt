@@ -1,0 +1,18 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"ELM VERSION MISMATCH","message":["Your elm.json says this application needs a different version of Elm.\n\nIt requires ",{"bold":false,"underline":false,"color":"GREEN","string":"0.20.0"},", but you are using ",{"bold":false,"underline":false,"color":"RED","string":"0.19.1"}," right now."]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"ELM VERSION MISMATCH","message":["Your elm.json says this application needs a different version of Elm.\n\nIt requires ",{"bold":false,"underline":false,"color":"GREEN","string":"0.20.0"},", but you are using ",{"bold":false,"underline":false,"color":"RED","string":"0.19.2"}," right now."]}
+\ no newline at end
+### elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"ELM VERSION MISMATCH","message":["Your elm.json says this application needs a different version of Elm.\n\nIt requires ",{"bold":false,"underline":false,"color":"GREEN","string":"0.20.0"},", but you are using ",{"bold":false,"underline":false,"color":"RED","string":"0.19.3"}," right now."]}
+\ no newline at end

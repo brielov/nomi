@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"AMBIGUOUS IMPORT","region":{"start":{"line":2,"column":8},"end":{"line":2,"column":9}},"message":["You are trying to import a `A` module:\n\n2| import A\n          ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nBut I found multiple files in your \"source-directories\" with that name:\n\n",{"bold":false,"underline":false,"color":"yellow","string":"    src2/A.elm\n    src/A.elm"},"\n\nChange the module names to be distinct!"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"AMBIGUOUS IMPORT","region":{"start":{"line":1,"column":7},"end":{"line":1,"column":8}},"message":["You are trying to import a `A` module:\n\n2| import A\n          ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nBut I found multiple files in your \"source-directories\" with that name:\n\n",{"bold":false,"underline":false,"color":"yellow","string":"    src2/A.elm\n    src/A.elm"},"\n\nChange the module names to be distinct!"]}]}]}
+\ no newline at end

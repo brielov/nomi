@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":null,"title":"CONFUSING FILES","message":["You are telling me to compile these two files:\n\n    ",{"bold":false,"underline":false,"color":"RED","string":"src/Main.elm\n    src/Main.elm"},"\n\nWhy are you telling me twice? Is something weird going on with a script? I\nfigured I would let you know about it just in case something is wrong. Only list\nit once and you should be all set!"]}
+\ no newline at end

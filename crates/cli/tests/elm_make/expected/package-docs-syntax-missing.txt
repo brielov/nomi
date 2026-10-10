@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"PROBLEM IN DOCS","region":{"start":{"line":6,"column":1},"end":{"line":6,"column":1}},"message":["I was partway through parsing your module documentation, but I got stuck here:\n\n6| -}\n   ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI was expecting to see the name of another exposed value from this module.\n\n",{"bold":false,"underline":true,"color":null,"string":"Hint"},": Read through <https://package.elm-lang.org/help/documentation-format> for\ntips on how to write module documentation!"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"PROBLEM IN DOCS","region":{"start":{"line":5,"column":0},"end":{"line":5,"column":0}},"message":["I was partway through parsing your module documentation, but I got stuck here:\n\n6| -}\n   ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI was expecting to see the name of another exposed value from this module.\n\n",{"bold":false,"underline":true,"color":null,"string":"Hint"},": Read through <https://package.elm-lang.org/help/documentation-format> for\ntips on how to write module documentation!"]}]}]}
+\ no newline at end

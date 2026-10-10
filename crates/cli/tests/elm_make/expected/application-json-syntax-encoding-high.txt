@@ -1,0 +1,12 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"MISSING SOURCE DIRECTORY","message":["I need a valid elm.json file, but the \"source-directories\" field lists the\nfollowing directory:\n\n    ",{"bold":false,"underline":false,"color":"RED","string":"s����rc"},"\n\nI cannot find it though. Is it missing? Is there a typo?"]}
+\ no newline at end
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"UNEXPECTED ENCODING","message":["I ran into a problem with your elm.json file. JSON files use UTF-8 character\nencoding, but I ran into something outside of that format:\n\n2|   \"type\": \"application\",\n3|   \"source-directories\": [\n4|     \"s�rc\"\n         ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nIs there a way to convert this to a valid UTF-8 character?"]}
+\ no newline at end

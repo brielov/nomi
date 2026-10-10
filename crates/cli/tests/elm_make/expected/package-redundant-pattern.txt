@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"REDUNDANT PATTERN","region":{"start":{"line":4,"column":5},"end":{"line":4,"column":11}},"message":["The 2nd pattern is redundant:\n\n2| value x = case x of\n3|     _ -> 1\n4|     Just n -> n\n       ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^^"},"\nAny value with this shape will be handled by a previous pattern, so it should be\nremoved."]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"REDUNDANT PATTERN","region":{"start":{"line":3,"column":4},"end":{"line":3,"column":10}},"message":["The 2nd pattern is redundant:\n\n2| value x = case x of\n3|     _ -> 1\n4|     Just n -> n\n       ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^^"},"\nAny value with this shape will be handled by a previous pattern, so it should be\nremoved."]}]}]}
+\ no newline at end

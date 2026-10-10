@@ -1,0 +1,12 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"TROUBLE VERIFYING DEPENDENCIES","message":["I could not connect to https://package.elm-lang.org to get the latest list of\npackages, and I was unable to verify your dependencies with the information I\nhave cached locally.\n\nAre you able to connect to the internet? These dependencies may work once you\nget access to the registry!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": If you changed your dependencies by hand, try to change them back! It is\nmuch more reliable to add dependencies with ",{"bold":false,"underline":false,"color":"GREEN","string":"elm install"}," or the dependency\nmanagement tool in ",{"bold":false,"underline":false,"color":"GREEN","string":"elm reactor"},"."]}
+\ no newline at end
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"TROUBLE VERIFYING DEPENDENCIES","message":["I could not connect to https://package.elm-lang.org to get the latest list of\npackages, and I was unable to verify your dependencies with the information I\nhave cached locally.\n\nAre you able to connect to the internet? These dependencies may work once you\nget access to the registry!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": If you changed your dependencies by hand, try to change them back! It is\nmuch more reliable to add dependencies with ",{"bold":false,"underline":false,"color":"GREEN","string":"elm install"},"."]}
+\ no newline at end

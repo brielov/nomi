@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"BAD MAIN TYPE","region":{"start":{"line":4,"column":1},"end":{"line":4,"column":5}},"message":["I cannot handle this type of `main` value:\n\n4| main = D.succeed 1\n   ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nThe type of `main` value I am seeing is:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"D.Decoder Int"},"\n\nI only know how to handle Html, Svg, and Programs though. Modify `main` to be\none of those types of values!"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"BAD MAIN TYPE","region":{"start":{"line":3,"column":0},"end":{"line":3,"column":4}},"message":["I cannot handle this type of `main` value:\n\n4| main = D.succeed 1\n   ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nThe type of `main` value I am seeing is:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"D.Decoder Int"},"\n\nI only know how to handle Html, Svg, and Programs though. Modify `main` to be\none of those types of values!"]}]}]}
+\ no newline at end

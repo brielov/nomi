@@ -183,6 +183,9 @@ enum OracleCommand {
         #[arg(long)]
         only: Option<String>,
     },
+    /// Store each elm's transcript of every case of the CLI report
+    /// matrix (plan 7.5a).
+    Make,
     /// Store what each elm makes of every corpus app and package with
     /// `elm make --output=/dev/null`, offline, as `corpus-docs` does.
     CorpusCheck {
@@ -231,6 +234,7 @@ fn main() -> ExitCode {
             OracleCommand::Types => oracle::types::run(&root(), &r),
             OracleCommand::Patterns => oracle::types::patterns(&root(), &r),
             OracleCommand::Docs => oracle::types::docs(&root(), &r),
+            OracleCommand::Make => oracle::make::run(&root(), &r),
             OracleCommand::CorpusDocs { jobs, only } => {
                 oracle::corpus_runs::run(&root(), &r, Suite::Docs, jobs, only.as_deref())
             }

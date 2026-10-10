@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED EXPOSING","region":{"start":{"line":1,"column":29},"end":{"line":1,"column":29}},"message":["I was partway through parsing exposed values, but I got stuck here:\n\n1| module Main exposing (value other)\n                               ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nMaybe there is a comma missing before this?"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED EXPOSING","region":{"start":{"line":0,"column":28},"end":{"line":0,"column":28}},"message":["I was partway through parsing exposed values, but I got stuck here:\n\n1| module Main exposing (value other)\n                               ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nMaybe there is a comma missing before this?"]}]}]}
+\ no newline at end

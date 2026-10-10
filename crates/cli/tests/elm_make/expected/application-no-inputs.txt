@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":null,"title":"NO INPUT","message":["What should I make though? I need specific files like:\n\n    ",{"bold":false,"underline":false,"color":"GREEN","string":"elm make src/Main.elm"},"\n    ",{"bold":false,"underline":false,"color":"GREEN","string":"elm make src/This.elm src/That.elm"},"\n\nI recommend reading through https://guide.elm-lang.org for guidance on what to\nactually put in those files!"]}
+\ no newline at end

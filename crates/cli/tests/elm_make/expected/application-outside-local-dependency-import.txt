@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"examples/entry.elm","name":"Main","problems":[{"title":"AMBIGUOUS IMPORT","region":{"start":{"line":2,"column":8},"end":{"line":2,"column":12}},"message":["You are trying to import a `Html` module:\n\n2| import Html\n          ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nBut I found multiple modules with that name. One in the ",{"bold":false,"underline":false,"color":"yellow","string":"elm/html"}," package, and\nanother defined locally in the\n",{"bold":false,"underline":false,"color":"yellow","string":"$ROOT/src/Html.elm"},"\nfile. I do not have a way to choose between them.\n\nTry changing the name of the locally defined module to clear up the ambiguity?"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"examples/entry.elm","name":"Main","problems":[{"title":"AMBIGUOUS IMPORT","region":{"start":{"line":1,"column":7},"end":{"line":1,"column":11}},"message":["You are trying to import a `Html` module:\n\n2| import Html\n          ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nBut I found multiple modules with that name. One in the ",{"bold":false,"underline":false,"color":"yellow","string":"elm/html"}," package, and\nanother defined locally in the\n",{"bold":false,"underline":false,"color":"yellow","string":"$ROOT/src/Html.elm"},"\nfile. I do not have a way to choose between them.\n\nTry changing the name of the locally defined module to clear up the ambiguity?"]}]}]}
+\ no newline at end

@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED TUPLE","region":{"start":{"line":2,"column":12},"end":{"line":2,"column":12}},"message":["I think I am in the middle of parsing a tuple. I just saw a comma, so I was\nexpecting to see an expression next.\n\n2| value = (1,\n              ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nA tuple looks like ",{"bold":false,"underline":false,"color":"yellow","string":"(3,4)"}," or ",{"bold":false,"underline":false,"color":"yellow","string":"(\"Tom\",42)"},", so I think there is an expression\nmissing here?\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": I can get confused by indentation in cases like this, so maybe you have an\nexpression but it is not indented enough?"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED TUPLE","region":{"start":{"line":1,"column":11},"end":{"line":1,"column":11}},"message":["I think I am in the middle of parsing a tuple. I just saw a comma, so I was\nexpecting to see an expression next.\n\n2| value = (1,\n              ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nA tuple looks like ",{"bold":false,"underline":false,"color":"yellow","string":"(3,4)"}," or ",{"bold":false,"underline":false,"color":"yellow","string":"(\"Tom\",42)"},", so I think there is an expression\nmissing here?\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": I can get confused by indentation in cases like this, so maybe you have an\nexpression but it is not indented enough?"]}]}]}
+\ no newline at end

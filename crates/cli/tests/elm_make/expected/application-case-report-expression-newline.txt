@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED CASE","region":{"start":{"line":2,"column":13},"end":{"line":2,"column":13}},"message":["I was partway through parsing a `case` expression, but I got stuck here:\n\n2| value = case\n               ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI was expecting to see a expression next.\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": Here is an example of a valid `case` expression for reference.\n\n    ",{"bold":false,"underline":false,"color":"CYAN","string":"case"}," maybeWidth ",{"bold":false,"underline":false,"color":"CYAN","string":"of"},"\n      ",{"bold":false,"underline":false,"color":"BLUE","string":"Just"}," width ->\n        width + ",{"bold":false,"underline":false,"color":"yellow","string":"200"},"\n\n      ",{"bold":false,"underline":false,"color":"BLUE","string":"Nothing"}," ->\n        ",{"bold":false,"underline":false,"color":"yellow","string":"400"},"\n\nNotice the indentation. Each pattern is aligned, and each branch is indented a\nbit more than the corresponding pattern. That is important!"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED CASE","region":{"start":{"line":1,"column":12},"end":{"line":1,"column":12}},"message":["I was partway through parsing a `case` expression, but I got stuck here:\n\n2| value = case\n               ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI was expecting to see a expression next.\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": Here is an example of a valid `case` expression for reference.\n\n    ",{"bold":false,"underline":false,"color":"CYAN","string":"case"}," maybeWidth ",{"bold":false,"underline":false,"color":"CYAN","string":"of"},"\n      ",{"bold":false,"underline":false,"color":"BLUE","string":"Just"}," width ->\n        width + ",{"bold":false,"underline":false,"color":"yellow","string":"200"},"\n\n      ",{"bold":false,"underline":false,"color":"BLUE","string":"Nothing"}," ->\n        ",{"bold":false,"underline":false,"color":"yellow","string":"400"},"\n\nNotice the indentation. Each pattern is aligned, and each branch is indented a\nbit more than the corresponding pattern. That is important!"]}]}]}
+\ no newline at end

@@ -1,0 +1,18 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":null,"title":"IMPORT CYCLE","message":["Your module imports form a cycle:\n\n    ┌─────┐\n    │    ",{"bold":false,"underline":false,"color":"yellow","string":"A"},"\n    │     ↓\n    │    ",{"bold":false,"underline":false,"color":"yellow","string":"C"},"\n    │     ↓\n    │    ",{"bold":false,"underline":false,"color":"yellow","string":"B"},"\n    └─────┘\n\nLearn more about why this is disallowed and how to break cycles\nhere:<https://elm-lang.org/0.19.1/import-cycles>"]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":null,"title":"IMPORT CYCLE","message":["Your module imports form a cycle:\n\n    ┌─────┐\n    │    ",{"bold":false,"underline":false,"color":"yellow","string":"A"},"\n    │     ↓\n    │    ",{"bold":false,"underline":false,"color":"yellow","string":"C"},"\n    │     ↓\n    │    ",{"bold":false,"underline":false,"color":"yellow","string":"B"},"\n    └─────┘\n\nLearn more about why this is disallowed and how to break cycles\nhere:<https://elm-lang.org/0.19.2/import-cycles>"]}
+\ no newline at end
+### elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":null,"title":"IMPORT CYCLE","message":["Your module imports form a cycle:\n\n    ┌─────┐\n    │    ",{"bold":false,"underline":false,"color":"yellow","string":"A"},"\n    │     ↓\n    │    ",{"bold":false,"underline":false,"color":"yellow","string":"C"},"\n    └─────┘\n\nLearn more about why this is disallowed and how to break cycles here:\n<https://elm-lang.org/0.19.3/import-cycles>"]}
+\ no newline at end

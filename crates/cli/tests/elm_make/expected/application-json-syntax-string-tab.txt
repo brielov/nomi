@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"UNEXPECTED CONTROL CHARACTER","message":["I ran into a problem with your elm.json file. I ran into a control character\nunexpectedly:\n\n2|   \"type\": \"application\",\n3|   \"source-directories\": [\n4|     \"s	rc\"\n         ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nThese are characters that represent tabs, backspaces, newlines, and a bunch of\nother invisible characters. They all come before 20 in the ASCII range, and they\nare disallowed by the JSON specificaiton. Maybe a copy/paste added one of these\ninvisible characters to your JSON?"]}
+\ no newline at end

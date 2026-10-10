@@ -306,7 +306,7 @@ pub fn with_elm_version(text: &str, version: Version) -> String {
 /// A new directory in `base` whose canonical path is [`ROOT_LENGTH`]
 /// bytes long. Messages that name the project's files wrap by their
 /// length, so the tests make theirs as long.
-fn padded(base: &Path) -> Result<PathBuf> {
+pub fn padded(base: &Path) -> Result<PathBuf> {
     let base = canonical(base)?;
     let pad = ROOT_LENGTH
         .checked_sub(base.len() + 1)
@@ -317,7 +317,7 @@ fn padded(base: &Path) -> Result<PathBuf> {
     Ok(dir)
 }
 
-fn canonical(dir: &Path) -> Result<String> {
+pub fn canonical(dir: &Path) -> Result<String> {
     let path: PathBuf = fs::canonicalize(dir)?;
     path.to_str()
         .map(str::to_owned)

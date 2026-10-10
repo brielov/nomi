@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"MISSING SOURCE DIRECTORIES","message":["I need a valid elm.json file, but the \"source-directories\" field lists the\nfollowing directories:\n\n    ",{"bold":false,"underline":false,"color":"RED","string":"src"},"\n    ",{"bold":false,"underline":false,"color":"RED","string":"generated"},"\n\nI cannot find them though. Are they missing? Are there typos?"]}
+\ no newline at end

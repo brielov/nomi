@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":null,"title":"FILE NOT FOUND","message":["I cannot find this file:\n\n    ",{"bold":false,"underline":false,"color":"RED","string":"src/Absent.elm"},"\n\nIs there a typo?\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": If you are just getting started, try working through the examples in the\nofficial guide https://guide.elm-lang.org to get an idea of the kinds of things\nthat typically go in a src/Main.elm file."]}
+\ no newline at end

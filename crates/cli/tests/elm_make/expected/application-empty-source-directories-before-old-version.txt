@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"NO SOURCE DIRECTORIES","message":["I got stuck while reading your elm.json file. You do not have any\n\"source-directories\" listed here:\n\n1| {\"type\": \"application\", \"source-directories\": [], \"elm-version\": \"0.18.0\", \"dependencies\": {\"direct\": {\"elm/core\": \"1.0.5\", \"elm/json\": \"1.1.4\"}, \"indirect\": {}}, \"test-dependencies\": {\"direct\": {}, \"indirect\": {}}}\n                                                 ",{"bold":false,"underline":false,"color":"RED","string":"^^"},"\nI need something like ",{"bold":false,"underline":false,"color":"GREEN","string":"[\"src\"]"}," so I know where to look for your modules!"]}
+\ no newline at end

@@ -1,0 +1,14 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|This flag was given a bad value:
+|
+|    --output=program.mjs
+|
+|I need a valid <output-file> value. For example:
+|
+|    --output=elm.js
+|    --output=index.html
+|    --output=/dev/null
+|

@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":null,"title":"CLASHING FLAGS","message":["I cannot compile with ",{"bold":false,"underline":false,"color":"RED","string":"--optimize"}," and ",{"bold":false,"underline":false,"color":"RED","string":"--debug"}," at the same time.\n\nI need to take away information to optimize things, and I need to add\ninformation to add the debugger. It is impossible to do both at once though!\nPick just one of those flags and it should work!"]}
+\ no newline at end

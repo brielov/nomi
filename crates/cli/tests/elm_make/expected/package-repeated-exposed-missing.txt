@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"MISSING MODULE","message":["The \"exposed-modules\" of your elm.json lists the following module:\n\n    ",{"bold":false,"underline":false,"color":"RED","string":"Absent"},"\n\nBut I cannot find it in your src/ directory. Is there a typo? Was it renamed?"]}
+\ no newline at end

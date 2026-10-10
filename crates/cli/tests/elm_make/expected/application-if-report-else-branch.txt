@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED IF","region":{"start":{"line":2,"column":28},"end":{"line":2,"column":28}},"message":["I just saw the start of an `else` branch, but then I got stuck here:\n\n2| value = if True then 1 else\n                              ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI was expecting to see an expression next. Maybe it is not filled in yet?"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED IF","region":{"start":{"line":1,"column":27},"end":{"line":1,"column":27}},"message":["I just saw the start of an `else` branch, but then I got stuck here:\n\n2| value = if True then 1 else\n                              ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI was expecting to see an expression next. Maybe it is not filled in yet?"]}]}]}
+\ no newline at end

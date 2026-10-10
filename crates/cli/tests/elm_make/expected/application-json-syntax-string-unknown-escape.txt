@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"UNKNOWN ESCAPE","message":["I ran into a problem with your elm.json file. Backslashes always start escaped\ncharacters, but I do not recognize this one:\n\n2|   \"type\": \"application\",\n3|   \"source-directories\": [\n4|     \"s\\qrc\"\n         ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nValid escape characters include:\n\n",{"bold":false,"underline":false,"color":"yellow","string":"    \\\"\n    \\\\\n    \\/\n    \\b\n    \\f\n    \\n\n    \\r\n    \\t\n    \\u003D"},"\n\nDo you want one of those instead? Maybe you need \\\\ to escape a backslash?"]}
+\ no newline at end

@@ -120,6 +120,7 @@ mod tests {
             args: vec![],
             stdin: String::new(),
             files: vec![("A.elm".to_owned(), "abcd".to_owned())],
+            ..Case::default()
         };
         assert_eq!(edit.apply(&seed).files[0].1, "abx\t\\\nd");
     }

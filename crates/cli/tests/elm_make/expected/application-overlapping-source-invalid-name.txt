@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":null,"title":"CONFUSING FILE","message":["I am getting confused when I try to compile this file:\n\n    ",{"bold":false,"underline":false,"color":"RED","string":"src/Nested/lower.elm"},"\n\nI always check if files appear in any of the \"source-directories\" listed in your\nelm.json to see if there might be some cached information about them. That can\nhelp me compile faster! But in this case, it looks like this file may be in\neither of these directories:\n\n    ",{"bold":false,"underline":false,"color":"RED","string":"$ROOT/src\n    $ROOT/src/Nested"},"\n\nTry to make it so no source directory contains another source directory!"]}
+\ no newline at end

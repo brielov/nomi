@@ -1,0 +1,18 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"DOCS MISTAKE","region":{"start":{"line":1,"column":30},"end":{"line":1,"column":35}},"message":["I do not see `other` in your module documentation, but it is in your `exposing`\nlist:\n\n1| module Main exposing (value, other)\n                                ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^"},"\nAdd a line like `@docs other` to your module documentation!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": See <https://elm-lang.org/0.19.1/docs> for more guidance on writing high\nquality docs."]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"DOCS MISTAKE","region":{"start":{"line":0,"column":29},"end":{"line":0,"column":34}},"message":["I do not see `other` in your module documentation, but it is in your `exposing`\nlist:\n\n1| module Main exposing (value, other)\n                                ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^"},"\nAdd a line like `@docs other` to your module documentation!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": See <https://elm-lang.org/0.19.2/docs> for more guidance on writing high\nquality docs."]}]}]}
+\ no newline at end
+### elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"DOCS MISTAKE","region":{"start":{"line":1,"column":30},"end":{"line":1,"column":35}},"message":["I do not see `other` in your module documentation, but it is in your `exposing`\nlist:\n\n1| module Main exposing (value, other)\n                                ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^"},"\nAdd a line like `@docs other` to your module documentation!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": See <https://elm-lang.org/0.19.3/docs> for more guidance on writing high\nquality docs."]}]}]}
+\ no newline at end

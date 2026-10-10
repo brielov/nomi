@@ -1,0 +1,12 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"ERROR IN DEPENDENCIES","message":["It looks like the dependencies elm.json in were edited by hand (or by a 3rd\nparty tool) leaving them in an invalid state.\n\nTry to change them back to what they were before! It is much more reliable to\nadd dependencies with ",{"bold":false,"underline":false,"color":"GREEN","string":"elm install"}," or the dependency management tool in\n",{"bold":false,"underline":false,"color":"GREEN","string":"elm reactor"},".\n\nPlease ask for help on the community forums if you try those paths and are still\nhaving problems!"]}
+\ no newline at end
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"ERROR IN DEPENDENCIES","message":["It looks like the dependencies elm.json in were edited by hand (or by a 3rd\nparty tool) leaving them in an invalid state.\n\nTry to change them back to what they were before! It is much more reliable to\nadd dependencies with ",{"bold":false,"underline":false,"color":"GREEN","string":"elm install"},".\n\nPlease ask for help on the community forums if you try those paths and are still\nhaving problems!"]}
+\ no newline at end

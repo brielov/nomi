@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"MODULE NAME MISSING","region":{"start":{"line":1,"column":1},"end":{"line":1,"column":1}},"message":["I need the module name to be declared at the top of this file, like this:\n\n    ",{"bold":false,"underline":false,"color":"CYAN","string":"module"}," Main ",{"bold":false,"underline":false,"color":"CYAN","string":"exposing"}," (..)\n\nTry adding that as the first line of your file!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": It is best to replace (..) with an explicit list of types and functions\nyou want to expose. When you know a value is only used within this module, you\ncan refactor without worrying about uses elsewhere. Limiting exposed values can\nalso speed up compilation because I can skip a bunch of work if I see that the\nexposed API has not changed."]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"MODULE NAME MISSING","region":{"start":{"line":0,"column":0},"end":{"line":0,"column":0}},"message":["I need the module name to be declared at the top of this file, like this:\n\n    ",{"bold":false,"underline":false,"color":"CYAN","string":"module"}," Main ",{"bold":false,"underline":false,"color":"CYAN","string":"exposing"}," (..)\n\nTry adding that as the first line of your file!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": It is best to replace (..) with an explicit list of types and functions\nyou want to expose. When you know a value is only used within this module, you\ncan refactor without worrying about uses elsewhere. Limiting exposed values can\nalso speed up compilation because I can skip a bunch of work if I see that the\nexposed API has not changed."]}]}]}
+\ no newline at end

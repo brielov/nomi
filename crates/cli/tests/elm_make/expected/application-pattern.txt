@@ -1,0 +1,18 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"MISSING PATTERNS","region":{"start":{"line":2,"column":11},"end":{"line":3,"column":16}},"message":["This `case` does not have branches for all possibilities:\n\n2|",{"bold":false,"underline":false,"color":"RED","string":">"},"value x = case x of\n3|",{"bold":false,"underline":false,"color":"RED","string":">"},"    Just n -> n\n\nMissing possibilities include:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"Nothing"},"\n\nI would have to crash if I saw one of those. Add branches for them!\n\n",{"bold":false,"underline":true,"color":null,"string":"Hint"},": If you want to write the code for each branch later, use `Debug.todo` as a\nplaceholder. Read <https://elm-lang.org/0.19.1/missing-patterns> for more\nguidance on this workflow."]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"MISSING PATTERNS","region":{"start":{"line":1,"column":10},"end":{"line":2,"column":15}},"message":["This `case` does not have branches for all possibilities:\n\n2|",{"bold":false,"underline":false,"color":"RED","string":">"},"value x = case x of\n3|",{"bold":false,"underline":false,"color":"RED","string":">"},"    Just n -> n\n\nMissing possibilities include:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"Nothing"},"\n\nI would have to crash if I saw one of those. Add branches for them!\n\n",{"bold":false,"underline":true,"color":null,"string":"Hint"},": If you want to write the code for each branch later, use `Debug.todo` as a\nplaceholder. Read <https://elm-lang.org/0.19.2/missing-patterns> for more\nguidance on this workflow."]}]}]}
+\ no newline at end
+### elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"MISSING PATTERNS","region":{"start":{"line":2,"column":11},"end":{"line":3,"column":16}},"message":["This `case` does not have branches for all possibilities:\n\n2|",{"bold":false,"underline":false,"color":"RED","string":">"},"value x = case x of\n3|",{"bold":false,"underline":false,"color":"RED","string":">"},"    Just n -> n\n\nMissing possibilities include:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"Nothing"},"\n\nI would have to crash if I saw one of those. Add branches for them!\n\n",{"bold":false,"underline":true,"color":null,"string":"Hint"},": If you want to write the code for each branch later, use `Debug.todo` as a\nplaceholder. Read <https://elm-lang.org/0.19.3/missing-patterns> for more\nguidance on this workflow."]}]}]}
+\ no newline at end

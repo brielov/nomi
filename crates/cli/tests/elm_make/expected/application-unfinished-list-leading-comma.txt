@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED LIST","region":{"start":{"line":2,"column":10},"end":{"line":2,"column":10}},"message":["I am partway through parsing a list, but I got stuck here:\n\n2| value = [,1]\n            ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI was expecting to see a closing square bracket before this, so try adding a ",{"bold":false,"underline":false,"color":"yellow","string":"]"},"\nand see if that helps?\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": When I get stuck like this, it usually means that there is a missing\nparenthesis or bracket somewhere earlier. It could also be a stray keyword or\noperator."]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED LIST","region":{"start":{"line":1,"column":9},"end":{"line":1,"column":9}},"message":["I am partway through parsing a list, but I got stuck here:\n\n2| value = [,1]\n            ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI was expecting to see a closing square bracket before this, so try adding a ",{"bold":false,"underline":false,"color":"yellow","string":"]"},"\nand see if that helps?\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": When I get stuck like this, it usually means that there is a missing\nparenthesis or bracket somewhere earlier. It could also be a stray keyword or\noperator."]}]}]}
+\ no newline at end

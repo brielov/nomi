@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"BAD MAIN","region":{"start":{"line":2,"column":1},"end":{"line":2,"column":5}},"message":["A `main` definition cannot be defined in terms of itself.\n\n2| main value = main value\n   ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nIt should be a boring value with no recursion. But instead it is involved in\nthis cycle of definitions:\n\n    ┌─────┐\n    │    ",{"bold":false,"underline":false,"color":"yellow","string":"main"},"\n    └─────┘"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"BAD MAIN","region":{"start":{"line":1,"column":0},"end":{"line":1,"column":4}},"message":["A `main` definition cannot be defined in terms of itself.\n\n2| main value = main value\n   ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nIt should be a boring value with no recursion. But instead it is involved in\nthis cycle of definitions:\n\n    ┌─────┐\n    │    ",{"bold":false,"underline":false,"color":"yellow","string":"main"},"\n    └─────┘"]}]}]}
+\ no newline at end

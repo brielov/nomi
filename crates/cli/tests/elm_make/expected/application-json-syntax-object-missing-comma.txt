@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"UNFINISHED OBJECT","message":["I ran into a problem with your elm.json file. I was partway through parsing a\nJSON object when I got stuck here:\n\n1| {\n2|   \"type\": \"application\"\n3|   \"source-directories\": [\n     ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI was expecting to see a comma or a closing curly brace next.\n\nIs a comma missing on the previous line? Is an array missing a closing square\nbracket? It is often something tricky like that!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": Here is an example of a valid JSON object for reference:\n\n    {\n      ",{"bold":false,"underline":false,"color":"yellow","string":"\"name\""},": ",{"bold":false,"underline":false,"color":"yellow","string":"\"Tom\""},",\n      ",{"bold":false,"underline":false,"color":"yellow","string":"\"age\""},": ",{"bold":false,"underline":false,"color":"yellow","string":"42"},"\n    }\n\nNotice that (1) the field names are in double quotes and (2) there is no\ntrailing comma after the last entry. Both are strict requirements in JSON!"]}
+\ no newline at end

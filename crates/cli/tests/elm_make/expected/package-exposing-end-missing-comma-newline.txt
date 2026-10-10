@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED EXPOSING","region":{"start":{"line":1,"column":28},"end":{"line":1,"column":28}},"message":["I was partway through parsing exposed values, but I got stuck here:\n\n1| module Main exposing (value\n                              ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI was expecting a closing parenthesis. Try adding a ",{"bold":false,"underline":false,"color":"GREEN","string":")"}," right here?\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": I can get confused when there is not enough indentation, so if you already\nhave a closing parenthesis, it probably just needs some spaces in front of it."]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED EXPOSING","region":{"start":{"line":0,"column":27},"end":{"line":0,"column":27}},"message":["I was partway through parsing exposed values, but I got stuck here:\n\n1| module Main exposing (value\n                              ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI was expecting a closing parenthesis. Try adding a ",{"bold":false,"underline":false,"color":"GREEN","string":")"}," right here?\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": I can get confused when there is not enough indentation, so if you already\nhave a closing parenthesis, it probably just needs some spaces in front of it."]}]}]}
+\ no newline at end

@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/examples/entry.elm","name":"Main","problems":[{"title":"TYPE MISMATCH","region":{"start":{"line":3,"column":9},"end":{"line":3,"column":13}},"message":["Something is off with the body of the `value` definition:\n\n3| value = User\n           ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nThis `User` value is a:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"User"},"\n\nBut the type annotation on `value` says it should be:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"Int"},""]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/examples/entry.elm","name":"Main","problems":[{"title":"TYPE MISMATCH","region":{"start":{"line":2,"column":8},"end":{"line":2,"column":12}},"message":["Something is off with the body of the `value` definition:\n\n3| value = User\n           ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nThis `User` value is a:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"User"},"\n\nBut the type annotation on `value` says it should be:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"Int"},""]}]}]}
+\ no newline at end

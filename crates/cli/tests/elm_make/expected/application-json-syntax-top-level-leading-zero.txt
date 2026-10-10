@@ -1,0 +1,11 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+=== stderr
+|elm: Prelude.last: empty list
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"BAD NUMBER","message":["I ran into a problem with your elm.json file. Numbers cannot start with zeros\nlike this:\n\n1| 01\n    ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nTry deleting the leading zeros?"]}
+\ no newline at end

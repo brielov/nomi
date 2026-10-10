@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"ENDLESS STRING","message":["I ran into a problem with your elm.json file. I got to the end of the line\nwithout seeing the closing double quote:\n\n2|   \"type\": \"application\",\n3|   \"source-directories\": [\n4|     \"s\n         ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nStrings look like ",{"bold":false,"underline":false,"color":"GREEN","string":"\"this\""}," with double quotes on each end. Is the closing double\nquote missing in your code?"]}
+\ no newline at end

@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"SYNTAX PROBLEM","region":{"start":{"line":2,"column":11},"end":{"line":2,"column":11}},"message":["I got stuck here:\n\n2| value = 1 �\n             ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nWhatever I am running into is confusing me a lot! Normally I can give fairly\nspecific hints, but something is really tripping me up this time."]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"SYNTAX PROBLEM","region":{"start":{"line":1,"column":10},"end":{"line":1,"column":10}},"message":["I got stuck here:\n\n2| value = 1 �\n             ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nWhatever I am running into is confusing me a lot! Normally I can give fairly\nspecific hints, but something is really tripping me up this time."]}]}]}
+\ no newline at end

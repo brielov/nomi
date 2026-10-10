@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":null,"title":"CONFUSING FILES","message":["You are telling me to compile these two files:\n\n    ",{"bold":false,"underline":false,"color":"RED","string":"./src/Main.elm\n    src/Main.elm"},"\n\nBut seem to be the same file though... It makes me think something tricky is\ngoing on with symlinks in your project, so I figured I would let you know about\nit just in case. Remove one of these files from your command to get unstuck!"]}
+\ no newline at end

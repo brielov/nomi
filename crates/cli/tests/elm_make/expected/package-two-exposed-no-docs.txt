@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"NO DOCS","region":{"start":{"line":1,"column":29},"end":{"line":3,"column":1}},"message":["You must have a documentation comment between the module declaration and the\nimports.\n\n1|",{"bold":false,"underline":false,"color":"RED","string":">"},"module Main exposing (value)\n2|",{"bold":false,"underline":false,"color":"RED","string":">"},"\n3|",{"bold":false,"underline":false,"color":"RED","string":">"},"value : Int\n\nLearn more at <https://package.elm-lang.org/help/documentation-format>"]}]},{"path":"$ROOT/src/Other.elm","name":"Other","problems":[{"title":"NO DOCS","region":{"start":{"line":1,"column":30},"end":{"line":3,"column":1}},"message":["You must have a documentation comment between the module declaration and the\nimports.\n\n1|",{"bold":false,"underline":false,"color":"RED","string":">"},"module Other exposing (other)\n2|",{"bold":false,"underline":false,"color":"RED","string":">"},"\n3|",{"bold":false,"underline":false,"color":"RED","string":">"},"other : Int\n\nLearn more at <https://package.elm-lang.org/help/documentation-format>"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"NO DOCS","region":{"start":{"line":0,"column":28},"end":{"line":2,"column":0}},"message":["You must have a documentation comment between the module declaration and the\nimports.\n\n1|",{"bold":false,"underline":false,"color":"RED","string":">"},"module Main exposing (value)\n2|",{"bold":false,"underline":false,"color":"RED","string":">"},"\n3|",{"bold":false,"underline":false,"color":"RED","string":">"},"value : Int\n\nLearn more at <https://package.elm-lang.org/help/documentation-format>"]}]},{"path":"$ROOT/src/Other.elm","name":"Other","problems":[{"title":"NO DOCS","region":{"start":{"line":0,"column":29},"end":{"line":2,"column":0}},"message":["You must have a documentation comment between the module declaration and the\nimports.\n\n1|",{"bold":false,"underline":false,"color":"RED","string":">"},"module Other exposing (other)\n2|",{"bold":false,"underline":false,"color":"RED","string":">"},"\n3|",{"bold":false,"underline":false,"color":"RED","string":">"},"other : Int\n\nLearn more at <https://package.elm-lang.org/help/documentation-format>"]}]}]}
+\ no newline at end

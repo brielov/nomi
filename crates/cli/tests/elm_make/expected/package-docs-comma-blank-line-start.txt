@@ -1,0 +1,7 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 0
+=== stdout
+=== stderr
+=== file docs.json
+|[{"name":"Main","comment":" Example.\n\n@docs value\n\n, value\n","unions":[],"aliases":[],"values":[{"name":"value","comment":" Value. ","type":"Basics.Int"}],"binops":[]}]
+\ no newline at end

@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"EXPECTING A VALUE","message":["I ran into a problem with your elm.json file. I was expecting to see a JSON\nvalue next:\n\n3|   \"source-directories\": [\n4|     \"src\",\n5|   ],\n     ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nTry something like ",{"bold":false,"underline":false,"color":"yellow","string":"\"this\""}," or ",{"bold":false,"underline":false,"color":"yellow","string":"42"}," to move on to better hints!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": The JSON specification does not allow trailing commas, so you can\nsometimes get this error in arrays that have an extra comma at the end. In that\ncase, remove that last comma or add another array entry after it!"]}
+\ no newline at end

@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":null,"title":"TOO MANY FILES","message":["When producing an HTML file, I can only handle one file.\n\nSwitch to ",{"bold":false,"underline":false,"color":"yellow","string":"--output=/dev/null"}," if you just want to get compile errors. This skips\nthe code gen phase, so it can be a bit faster than other options sometimes.\n\nSwitch to ",{"bold":false,"underline":false,"color":"yellow","string":"--output=elm.js"}," if you want multiple `main` values available in a\nsingle JavaScript file. Then you can make your own customized HTML file that\nembeds multiple Elm nodes. The generated JavaScript also shares dependencies\nbetween modules, so it should be smaller than compiling each module separately."]}
+\ no newline at end

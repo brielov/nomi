@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNEXPECTED ARROW","region":{"start":{"line":2,"column":17},"end":{"line":2,"column":19}},"message":["I was partway through parsing an expression when I got stuck on this arrow:\n\n2| value = \\x -> x -> 1\n                   ",{"bold":false,"underline":false,"color":"RED","string":"^^"},"\nArrows should only appear in `case` expressions and anonymous functions.\nMaybe it was supposed to be a > sign instead?\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": The syntax for anonymous functions is (\\x -> x + 1) so the arguments all\nappear after the backslash and before the arrow. Maybe a backslash is missing\nearlier?"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNEXPECTED ARROW","region":{"start":{"line":1,"column":16},"end":{"line":1,"column":18}},"message":["I was partway through parsing an expression when I got stuck on this arrow:\n\n2| value = \\x -> x -> 1\n                   ",{"bold":false,"underline":false,"color":"RED","string":"^^"},"\nArrows should only appear in `case` expressions and anonymous functions.\nMaybe it was supposed to be a > sign instead?\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": The syntax for anonymous functions is (\\x -> x + 1) so the arguments all\nappear after the backslash and before the arrow. Maybe a backslash is missing\nearlier?"]}]}]}
+\ no newline at end

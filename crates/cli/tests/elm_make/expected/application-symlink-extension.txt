@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":null,"title":"UNEXPECTED FILE EXTENSION","message":["I can only compile Elm files (with a .elm extension) but you want me to compile:\n\n    ",{"bold":false,"underline":false,"color":"RED","string":"examples/link.elm"},"\n\nIs there a typo? Can the file extension be changed?"]}
+\ no newline at end

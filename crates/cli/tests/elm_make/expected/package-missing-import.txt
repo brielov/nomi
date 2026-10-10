@@ -1,0 +1,18 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"MODULE NOT FOUND","region":{"start":{"line":2,"column":8},"end":{"line":2,"column":15}},"message":["You are trying to import a `Missing` module:\n\n2| import Missing\n          ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^^^"},"\nI checked the \"dependencies\" and \"source-directories\" listed in your elm.json,\nbut I cannot find it! Maybe it is a typo for one of these names?\n\n",{"bold":false,"underline":false,"color":"yellow","string":"    Main\n    Bitwise\n    Dict\n    Set"},"\n\n",{"bold":false,"underline":true,"color":null,"string":"Hint"},": If it is not a typo, check the \"dependencies\" and \"source-directories\" of\nyour elm.json to make sure all the packages you need are listed there!"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"MODULE NOT FOUND","region":{"start":{"line":1,"column":7},"end":{"line":1,"column":14}},"message":["You are trying to import a `Missing` module:\n\n2| import Missing\n          ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^^^"},"\nI checked the \"dependencies\" and \"source-directories\" listed in your elm.json,\nbut I cannot find it! Maybe it is a typo for one of these names?\n\n",{"bold":false,"underline":false,"color":"yellow","string":"    Main\n    Bitwise\n    Dict\n    Set"},"\n\n",{"bold":false,"underline":true,"color":null,"string":"Hint"},": If it is not a typo, check the \"dependencies\" and \"source-directories\" of\nyour elm.json to make sure all the packages you need are listed there!"]}]}]}
+\ no newline at end
+### elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"MODULE NOT FOUND","region":{"start":{"line":2,"column":8},"end":{"line":2,"column":15}},"message":["You are trying to import a `Missing` module:\n\n2| import Missing\n          ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^^^"},"\nI checked the \"dependencies\" and \"source-directories\" listed in your elm.json,\nbut I cannot find it! Maybe it is a typo for one of these names?\n\n",{"bold":false,"underline":false,"color":"yellow","string":"    Main\n    Bitwise\n    Set\n    Dict"},"\n\n",{"bold":false,"underline":true,"color":null,"string":"Hint"},": If it is not a typo, check the \"dependencies\" and \"source-directories\" of\nyour elm.json to make sure all the packages you need are listed there!"]}]}]}
+\ no newline at end

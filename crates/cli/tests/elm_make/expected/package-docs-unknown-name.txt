@@ -1,0 +1,18 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"DOCS MISTAKE","region":{"start":{"line":5,"column":7},"end":{"line":5,"column":11}},"message":["I do not see `typo` in the `exposing` list, but it is in your module\ndocumentation:\n\n5| @docs typo\n         ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nDoes it need to be added to the `exposing` list as well? Or maybe you removed\n`typo` and forgot to delete it here?"]},{"title":"DOCS MISTAKE","region":{"start":{"line":1,"column":23},"end":{"line":1,"column":28}},"message":["I do not see `value` in your module documentation, but it is in your `exposing`\nlist:\n\n1| module Main exposing (value)\n                         ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^"},"\nAdd a line like `@docs value` to your module documentation!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": See <https://elm-lang.org/0.19.1/docs> for more guidance on writing high\nquality docs."]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"DOCS MISTAKE","region":{"start":{"line":4,"column":6},"end":{"line":4,"column":10}},"message":["I do not see `typo` in the `exposing` list, but it is in your module\ndocumentation:\n\n5| @docs typo\n         ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nDoes it need to be added to the `exposing` list as well? Or maybe you removed\n`typo` and forgot to delete it here?"]},{"title":"DOCS MISTAKE","region":{"start":{"line":0,"column":22},"end":{"line":0,"column":27}},"message":["I do not see `value` in your module documentation, but it is in your `exposing`\nlist:\n\n1| module Main exposing (value)\n                         ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^"},"\nAdd a line like `@docs value` to your module documentation!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": See <https://elm-lang.org/0.19.2/docs> for more guidance on writing high\nquality docs."]}]}]}
+\ no newline at end
+### elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"DOCS MISTAKE","region":{"start":{"line":5,"column":7},"end":{"line":5,"column":11}},"message":["I do not see `typo` in the `exposing` list, but it is in your module\ndocumentation:\n\n5| @docs typo\n         ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nDoes it need to be added to the `exposing` list as well? Or maybe you removed\n`typo` and forgot to delete it here?"]},{"title":"DOCS MISTAKE","region":{"start":{"line":1,"column":23},"end":{"line":1,"column":28}},"message":["I do not see `value` in your module documentation, but it is in your `exposing`\nlist:\n\n1| module Main exposing (value)\n                         ",{"bold":false,"underline":false,"color":"RED","string":"^^^^^"},"\nAdd a line like `@docs value` to your module documentation!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": See <https://elm-lang.org/0.19.3/docs> for more guidance on writing high\nquality docs."]}]}]}
+\ no newline at end

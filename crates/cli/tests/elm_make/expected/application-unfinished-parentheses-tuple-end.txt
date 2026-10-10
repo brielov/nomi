@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED PARENTHESES","region":{"start":{"line":2,"column":14},"end":{"line":2,"column":14}},"message":["I was expecting to see a closing parenthesis next:\n\n2| value = (1, 2\n                ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nTry adding a ",{"bold":false,"underline":false,"color":"yellow","string":")"}," to see if that helps!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": I can get confused by indentation in cases like this, so maybe you have a\nclosing parenthesis but it is not indented enough?"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED PARENTHESES","region":{"start":{"line":1,"column":13},"end":{"line":1,"column":13}},"message":["I was expecting to see a closing parenthesis next:\n\n2| value = (1, 2\n                ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nTry adding a ",{"bold":false,"underline":false,"color":"yellow","string":")"}," to see if that helps!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": I can get confused by indentation in cases like this, so maybe you have a\nclosing parenthesis but it is not indented enough?"]}]}]}
+\ no newline at end

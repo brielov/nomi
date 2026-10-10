@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"BAD FLAGS","region":{"start":{"line":3,"column":1},"end":{"line":3,"column":5}},"message":["Your `main` program wants a function from JavaScript.\n\n3| main = Platform.worker\n   ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nBut if I allowed functions from JS, it would be possible to sneak side-effects\nand runtime exceptions into Elm!"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"BAD FLAGS","region":{"start":{"line":2,"column":0},"end":{"line":2,"column":4}},"message":["Your `main` program wants a function from JavaScript.\n\n3| main = Platform.worker\n   ",{"bold":false,"underline":false,"color":"RED","string":"^^^^"},"\nBut if I allowed functions from JS, it would be possible to sneak side-effects\nand runtime exceptions into Elm!"]}]}]}
+\ no newline at end

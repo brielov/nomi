@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED OPERATOR FUNCTION","region":{"start":{"line":2,"column":11},"end":{"line":2,"column":11}},"message":["I was expecting a closing parenthesis here:\n\n2| value = (+ \n             ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nTry adding a ",{"bold":false,"underline":false,"color":"yellow","string":")"}," to see if that helps!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": I think I am parsing an operator function right now, so I am expecting to\nsee something like (+) or (&&) where an operator is surrounded by parentheses\nwith no extra spaces."]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"UNFINISHED OPERATOR FUNCTION","region":{"start":{"line":1,"column":10},"end":{"line":1,"column":10}},"message":["I was expecting a closing parenthesis here:\n\n2| value = (+ \n             ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nTry adding a ",{"bold":false,"underline":false,"color":"yellow","string":")"}," to see if that helps!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": I think I am parsing an operator function right now, so I am expecting to\nsee something like (+) or (&&) where an operator is surrounded by parentheses\nwith no extra spaces."]}]}]}
+\ no newline at end

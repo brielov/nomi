@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"MISSING EXPRESSION","region":{"start":{"line":2,"column":14},"end":{"line":2,"column":14}},"message":["I was expecting to see an expression after this |> operator:\n\n2| value = (1 |>\n                ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nYou can just put anything for now, like ",{"bold":false,"underline":false,"color":"yellow","string":"42"}," or ",{"bold":false,"underline":false,"color":"yellow","string":"\"hello\""},". Once there is something\nthere, I can probably give a more specific hint!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": I may be getting confused by your indentation? The easiest way to make\nsure this is not an indentation problem is to put the expression on the right of\nthe |> operator on the same line."]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"MISSING EXPRESSION","region":{"start":{"line":1,"column":13},"end":{"line":1,"column":13}},"message":["I was expecting to see an expression after this |> operator:\n\n2| value = (1 |>\n                ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nYou can just put anything for now, like ",{"bold":false,"underline":false,"color":"yellow","string":"42"}," or ",{"bold":false,"underline":false,"color":"yellow","string":"\"hello\""},". Once there is something\nthere, I can probably give a more specific hint!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": I may be getting confused by your indentation? The easiest way to make\nsure this is not an indentation problem is to put the expression on the right of\nthe |> operator on the same line."]}]}]}
+\ no newline at end

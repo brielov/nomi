@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"MISSING ARGUMENT","region":{"start":{"line":3,"column":6},"end":{"line":3,"column":6}},"message":["I just saw the beginning of an anonymous function, so I was expecting to see an\nargument next:\n\n3|     \\\n        ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nSomething like ",{"bold":false,"underline":false,"color":"yellow","string":"x"}," or ",{"bold":false,"underline":false,"color":"yellow","string":"name"},". Anything that starts with a lower case letter!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": The syntax for anonymous functions is (\\x -> x + 1) where the backslash is\nmeant to look a bit like a lambda if you squint. This visual pun seemed like a\nbetter idea at the time!"]}]}]}
+\ no newline at end
+### elm 0.19.2
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"compile-errors","errors":[{"path":"$ROOT/src/Main.elm","name":"Main","problems":[{"title":"MISSING ARGUMENT","region":{"start":{"line":2,"column":5},"end":{"line":2,"column":5}},"message":["I just saw the beginning of an anonymous function, so I was expecting to see an\nargument next:\n\n3|     \\\n        ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nSomething like ",{"bold":false,"underline":false,"color":"yellow","string":"x"}," or ",{"bold":false,"underline":false,"color":"yellow","string":"name"},". Anything that starts with a lower case letter!\n\n",{"bold":false,"underline":true,"color":null,"string":"Note"},": The syntax for anonymous functions is (\\x -> x + 1) where the backslash is\nmeant to look a bit like a lambda if you squint. This visual pun seemed like a\nbetter idea at the time!"]}]}]}
+\ no newline at end

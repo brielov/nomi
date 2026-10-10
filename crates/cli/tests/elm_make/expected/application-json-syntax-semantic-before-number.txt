@@ -1,0 +1,6 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|{"type":"error","path":"elm.json","title":"UNEXPECTED NUMBER","message":["I ran into a problem with your elm.json file. I got stuck while trying to parse\nthis number:\n\n2|   \"type\": 42,\n3|   \"source-directories\": [\n4|     3.14\n        ",{"bold":false,"underline":false,"color":"RED","string":"^"},"\nI do not accept floating point numbers like 3.1415 right now. That kind of JSON\nvalue is not needed for any of the uses that Elm has for now."]}
+\ no newline at end
