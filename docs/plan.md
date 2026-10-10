@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **6.13**.
+4. Resume at the first unchecked box. Right now that is **6.14**.
 
 ### Test tiers
 
@@ -404,7 +404,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 - [x] **6.12** `report: type errors in calls and operators`.
 
   Done: calls given too many arguments (`TOO MANY ARGS`, a value that isn't a function or one that takes fewer) and each operator's own explanation of a bad left or right side: arithmetic and its Int/Float casts, division, booleans, comparison, equality, `(::)`, `(++)` and the pipes, highlighting the right operand or both as upstream does. `types_titles` passes all 342 runs and `types_reports` 282.
-- [ ] **6.13** `report: type errors in branches and patterns`.
+- [x] **6.13** `report: type errors in branches and patterns`.
+
+  Done: `if` conditions, `if` and `case` branches that differ from the earlier ones, and every pattern report: a pattern against a typed argument, the first `case` pattern against the scrutinee and later ones against earlier ones, constructor arguments, list entries and tails. A pattern's comparison gives the problem's hint before the context's, where an expression's gives it after. The report outgrew the 1,500-line limit, so it lives in `types::report` and its `hints`, `operators` and `patterns`. `types_reports` passes 315 of 342.
 - [ ] **6.14** `report: records, infinite types and hints`.
 - [ ] **6.15** `engine: early cutoff`. **Check:** an engine test that counts phase runs shows that a body-only edit re-checks one module.
 - [ ] **6.16** `ide: hover types and completion v0`.
