@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **8.1c**.
+4. Resume at the first unchecked box. Right now that is **8.2**.
 
 ### Test tiers
 
@@ -461,8 +461,9 @@ The optimizer's oracle is elm's own artifacts: every elm writes a module's optim
 - [x] **8.1b** `oracle: optimized graphs`. `cargo xtask oracle optimized` keeps each elm's `.elmo` for curated modules: tail calls, cycles, destructuring, records and fields, cases, ports, `Debug`, shaders and `main`. The ratchet `optimized` compares nomi's encoded graph with each.
 
   Done: 14 optimizer cases, one module each but for the one across modules, cover literals, functions and operators, records, tuples, lets and destructuring, tail calls, cycles, constructors, cases on constructors and on literals, ifs, `Debug`, ports with flags, and a graph across modules; `cargo xtask oracle optimized` keeps each elm's `.elmo` files. The engine optimizes every module it checks when asked (`names::Goals`, `check::optimize`), through `optimize::module`, which so far gives upstream's empty starting graph. The ratchet `optimized_graphs` runs 45 module graphs, none passing yet; every case checks cleanly, so each failure is the graph's. Shaders wait for the corpus, as a shader needs elm-explorations/webgl.
-- [ ] **8.1c** `compiler: optimize modules and simple expressions`. The declarations of `Optimize/Module.hs` (unions, aliases, values, cycles and `main`), `Optimize/Names.hs`, and `Optimize/Expression.hs` short of patterns: literals as each release keeps them, variables, calls, functions, records, tuples, `if` and plain `let`s. **Check:** the ratchet's cases built from those alone: literals, functions, records, tuples, constructors, cycles and ifs.
-- [ ] **8.1d** `compiler: destructuring, tail calls and Debug`. `Optimize/Expression.hs`'s destructors and tail calls, and `Debug` with its regions. **Check:** the ratchet's `lets` case; those with `case` follow in 8.2.
+- [x] **8.1c** `compiler: optimize modules and expressions`. The declarations of `Optimize/Module.hs` (unions, aliases, values, cycles and `main`), `Optimize/Names.hs`, and `Optimize/Expression.hs` short of `case`: literals as each release keeps them, variables, calls, functions, records, tuples, `if`, `let`s, destructuring, tail calls and `Debug`. **Check:** the ratchet's cases built from those alone.
+
+  Done: `optimize::module` builds a module's graph as `Optimize/Module.hs` does, each top-level definition with a tracker of its own (`optimize::names`) and a cycle with one for all of it, and `optimize::expression` ports `Optimize/Expression.hs` in upstream's order of effects, which decides the generated names; a `case` is a placeholder until 8.2, and a program's flags decoder waits for 8.3. The engine passes each `Debug` value's region as the release keeps it. The ratchet `optimized_graphs` passes 24 of 45: every module but those with a `case`, ports, or flags. 8.1d, split off to keep the step small, came along within the limit and is folded back in. Surprises: string literals are kept JavaScript-ready, 0.19.1 keeping the escapes as written and later releases writing every escape, quote and multi-line newline as `\uXXXX`, with `\u{FFFF}` itself as a surrogate pair (`optimize::literal`); 0.19.3 names a kernel's global `#0`, not `$`; and 0.19.1's parser keeps a record pattern's fields last first, which orders its destructors.
 - [ ] **8.2** `compiler: decision trees`. `Optimize/DecisionTree.hs` and `Case.hs`. **Check:** the ratchet's `case` cases.
 - [ ] **8.3** `compiler: ports, effect managers and modules`. `Optimize/Port.hs` and `Optimize/Module.hs`. **Check:** the ratchet at 100%.
 - [ ] **8.4** `codegen-js: kernel chunk parser` (`Elm/Kernel.hs`).

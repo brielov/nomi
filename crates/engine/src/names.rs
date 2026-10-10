@@ -402,7 +402,16 @@ impl Walk<'_> {
                         }
                     }
                     if self.goals.optimize {
-                        let graph = optimize::module(self.env.compat(), &annotations, &canonical);
+                        let source = Source::new(&module.text);
+                        let region = |range: TextRange| {
+                            let kept = source.region(trim(&root, range), self.env.compat());
+                            nomi_compiler::optimized::Region {
+                                start: (kept.start.row, kept.start.col),
+                                end: (kept.end.row, kept.end.col),
+                            }
+                        };
+                        let graph =
+                            optimize::module(self.env.compat(), &annotations, &canonical, &region);
                         self.optimized.push((module.name.clone(), graph));
                     }
                     let interface = interface(&canonical, &annotations);

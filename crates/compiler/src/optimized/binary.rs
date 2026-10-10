@@ -527,7 +527,7 @@ impl Out {
                 self.word16(row as u16);
                 self.word16(col as u16);
             } else {
-                let word = (u64::from(row.wrapping_sub(1)) << 32) | u64::from(col.wrapping_sub(1));
+                let word = (u64::from(row) << 32) | u64::from(col);
                 self.int(word as i64);
             }
         }
@@ -1119,8 +1119,7 @@ impl<'a> In<'a> {
                 Some((u32::from(self.word16()?), u32::from(self.word16()?)))
             } else {
                 let word = self.int()? as u64;
-                let row = u32::try_from(word >> 32).ok()?;
-                Some((row.wrapping_add(1), (word as u32).wrapping_add(1)))
+                Some((u32::try_from(word >> 32).ok()?, word as u32))
             }
         };
         Some(Region {

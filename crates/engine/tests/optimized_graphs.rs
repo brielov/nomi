@@ -49,7 +49,9 @@ fn optimized_graphs() {
                     Ok(graphs) => match graphs.iter().find(|(name, _)| *name == module) {
                         None => Err("nomi made no graph".to_owned()),
                         Some((_, bytes)) if *bytes == fs::read(&file).unwrap() => Ok(()),
-                        Some(_) => Err("the graphs differ".to_owned()),
+                        Some((_, bytes)) => {
+                            Err(difference(bytes, &fs::read(&file).unwrap(), compat))
+                        }
                     },
                 };
                 if let (Err(why), Ok(_)) = (&outcome, std::env::var("NOMI_SHOW")) {
@@ -60,4 +62,43 @@ fn optimized_graphs() {
         }
     }
     Suite::open(manifest.join("tests/optimized_graphs")).finish(outcomes);
+}
+
+/// Where nomi's graph first differs from elm's.
+fn difference(nomi: &[u8], elm: &[u8], compat: nomi_base::Compat) -> String {
+    use nomi_compiler::optimized::binary::decode_local_graph;
+    let (Some(nomi), Some(elm)) = (
+        decode_local_graph(nomi, compat),
+        decode_local_graph(elm, compat),
+    ) else {
+        return "a graph doesn't decode".to_owned();
+    };
+    if nomi.main != elm.main {
+        return format!("main:\nnomi: {:?}\nelm:  {:?}", nomi.main, elm.main);
+    }
+    for (global, node) in &elm.nodes {
+        match nomi.nodes.get(global) {
+            None => return format!("nomi has no {}", global.name),
+            Some(n) if n != node => {
+                let (a, b) = (format!("{n:?}"), format!("{node:?}"));
+                let at = a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count();
+                let from = at.saturating_sub(100);
+                let end = |s: &str| s.len().min(at + 200);
+                return format!(
+                    "{} differs at byte {at}:\nnomi: …{}\nelm:  …{}",
+                    global.name,
+                    &a[from..end(&a)],
+                    &b[from..end(&b)]
+                );
+            }
+            Some(_) => {}
+        }
+    }
+    if let Some(global) = nomi.nodes.keys().find(|g| !elm.nodes.contains_key(*g)) {
+        return format!("elm has no {}", global.name);
+    }
+    if nomi.fields != elm.fields {
+        return format!("fields:\nnomi: {:?}\nelm:  {:?}", nomi.fields, elm.fields);
+    }
+    "the same graph, encoded otherwise".to_owned()
 }

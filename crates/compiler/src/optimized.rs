@@ -65,8 +65,8 @@ pub struct Global {
     pub name: String,
 }
 
-/// `A.Region`, as rows and columns from 1; 0.19.2 and later keep them
-/// from 0.
+/// `A.Region`, as the release keeps it: rows and columns from 1 in 0.19.1,
+/// from 0 later (`code::Source::region`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Region {
     pub start: (u32, u32),
