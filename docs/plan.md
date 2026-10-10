@@ -473,7 +473,8 @@ The optimizer's oracle is elm's own artifacts: every elm writes a module's optim
 - [x] **8.4** `codegen-js: kernel chunk parser` (`Elm/Kernel.hs`).
 
   Done: the new crate `nomi-codegen-js` starts with `kernel`: a kernel module's header of Elm imports, its code split at `__` tags into upstream's chunks, and `add_kernel` making it a node of a package's graph, field counts replacing the graph's as upstream's left-biased union does. `Global::kernel` names a kernel's global for each release. Every kernel node in the `o.dat` each elm wrote for the optimizer cases, elm/core's and elm/json's, is what nomi parses from the vendored files, chunks and needed globals alike. The three releases parse kernels alike.
-- [ ] **8.4a** `oracle: corpus optimized graphs`. Every corpus package's graph, as `o.dat` holds it, and every corpus app module's `.elmo`, for each Compat. **Check:** byte-identical across the corpus.
+- [ ] **8.4a** `oracle: corpus module graphs`. The `.elmo` of every module elm builds for each corpus app and package, for each Compat, recorded as `corpus-check` runs elm. **Check:** byte-identical across the corpus.
+- [ ] **8.4b** `oracle: corpus dependency graphs`. The `o.dat` of every corpus project: its dependencies' graphs, kernels included, merged as `Details.hs` merges them. **Check:** byte-identical across the corpus.
 - [ ] **8.5** `codegen-js: builder and names`. Exact whitespace, plus the salvaged string escaping, `ElmChar` and BigInt literals.
 - [ ] **8.6** `codegen-js: expressions`. Currying helpers, records, decision trees and tail loops.
 - [ ] **8.7** `codegen-js: program graph`. Reachability from each `main`, ordering, cycles and `_Platform_export`.
