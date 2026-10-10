@@ -1,0 +1,26 @@
+=== note
+an HTML page: a nested module's element program, sandwiched
+=== args
+make
+src/Page/Home.elm
+--output=home.html
+=== file src/Page/Home.elm
+module Page.Home exposing (main)
+
+import Browser
+import Html exposing (Html, button, text)
+import Html.Events exposing (onClick)
+
+
+main : Program () Int ()
+main =
+    Browser.sandbox
+        { init = 0
+        , update = \_ count -> count + 1
+        , view = view
+        }
+
+
+view : Int -> Html ()
+view count =
+    button [ onClick () ] [ text (String.fromInt count) ]

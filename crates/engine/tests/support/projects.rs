@@ -214,13 +214,13 @@ pub fn javascript(
         "debug" => javascript::Kind::Debug,
         _ => javascript::Kind::Optimize,
     };
-    Ok(javascript::program(
-        compat,
-        kind,
-        "author/project",
-        dependencies,
-        optimized,
-    ))
+    let roots = optimized.roots.clone();
+    let js = javascript::program(compat, kind, "author/project", dependencies, optimized);
+    let html = (case.args.iter()).any(|a| a.starts_with("--output=") && a.ends_with(".html"));
+    match roots.as_slice() {
+        [(module, _)] if html => Ok(nomi_codegen_js::html::sandwich(&module.to_string(), &js)),
+        _ => Ok(js),
+    }
 }
 
 /// The merged graph of `sources` as `compat` builds it, and their

@@ -5,7 +5,8 @@
 //! A case is a project as the modules oracle has them, `elm make`'s
 //! arguments and files, with `default.elm.json` for an `elm.json` it
 //! doesn't have and an application's `elm-version` rewritten to the
-//! elm's. Each elm builds every case offline with its own `ELM_HOME`
+//! elm's. Its output is `out.js` unless its arguments name one, as an
+//! HTML case does. Each elm builds every case offline with its own `ELM_HOME`
 //! once in each mode: dev, `--debug` and `--optimize`. The outputs are
 //! large, so `expected.sha256` keeps their hashes, as the ratchet reads
 //! them, and the files stay in the sandbox for a look; a mode elm refuses
@@ -77,7 +78,12 @@ pub fn run(root: &Path, refs: &References) -> Result<()> {
                 {
                     Ok(js) => {
                         writeln!(hashes, "{}  {run}", sha256(&js))?;
-                        fs::write(out.join(format!("{id}.{mode}.js")), &js)?;
+                        let extension = if output(case).ends_with(".html") {
+                            "html"
+                        } else {
+                            "js"
+                        };
+                        fs::write(out.join(format!("{id}.{mode}.{extension}")), &js)?;
                     }
                     Err(title) => writeln!(refused, "{run}\t{title}")?,
                 }
@@ -120,10 +126,12 @@ fn build(
     let manifest = work.join("elm.json");
     let text = fs::read_to_string(&manifest).unwrap_or_else(|_| default.to_owned());
     fs::write(&manifest, with_elm_version(&text, version))?;
+    let file = output(case);
     let mut command = Command::new(&elm);
     command
         .args(&case.args)
-        .args(["--output=out.js", "--report=json"])
+        .args((!case.args.iter().any(|a| a.starts_with("--output="))).then_some("--output=out.js"))
+        .arg("--report=json")
         .args(flag)
         .args(["+RTS", "-N1", "-RTS"])
         .current_dir(&work)
@@ -131,11 +139,18 @@ fn build(
     offline(&mut command);
     let output = command.output().context("running elm")?;
     if output.status.success() {
-        return Ok(Ok(fs::read(work.join("out.js"))?));
+        return Ok(Ok(fs::read(work.join(file))?));
     }
     let report: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap_or_default();
     let title = (report["title"].as_str())
         .or(report["errors"][0]["problems"][0]["title"].as_str())
         .unwrap_or("?");
     Ok(Err(title.to_owned()))
+}
+
+/// The file `case` makes: the one its arguments name, or `out.js`.
+fn output(case: &Case) -> &str {
+    (case.args.iter())
+        .find_map(|a| a.strip_prefix("--output="))
+        .unwrap_or("out.js")
 }

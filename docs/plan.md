@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **8.10**.
+4. Resume at the first unchecked box. Right now that is **8.11**.
 
 ### Test tiers
 
@@ -494,7 +494,9 @@ The optimizer's oracle is elm's own artifacts: every elm writes a module's optim
 - [x] **8.9** `codegen-js: debug and optimize modes`. Field shortening, and debugger metadata (`Elm/Compiler/Type/Extract.hs`). **Check:** the ratchet in every mode.
 
   Done: the ratchet `javascript` passes all 78 runs. `--optimize` needed one fix: upstream merges the modules' field counts into the dependencies' with left-biased unions folded from the right, as `o.dat` merges packages, so the first module in the release's order of names wins and nothing is summed. `debug` ports `Extract.hs` and `encodeMetadata`: the message type and every union and alias it reaches, round by round, each round in the order of upstream's sets (by name, then module, before 0.19.3; by module, then name, in it), each type written as the type printer writes it on one line. `Mode::Dev` carries the types; `engine::objects::dependencies_with` keeps every dependency module's unions and aliases, private modules' included, and `check::optimize` now returns an `Optimized` with the local modules' interfaces. `--optimize` with `Debug` was already refused before code generation (`DEBUG REMNANTS`). Surprise: upstream's check for `Elm.JsArray` calls compares the module with `JsArray`, so they are never inlined; nomi now matches that, which only the debugger's code reached.
-- [ ] **8.10** `codegen-js: html and /dev/null outputs` (`Generate/Html.hs`). **Check:** the ratchet's HTML cases.
+- [x] **8.10** `codegen-js: html and /dev/null outputs` (`Generate/Html.hs`). **Check:** the ratchet's HTML cases.
+
+  Done: `html::sandwich` writes `Generate/Html.hs`'s page around a program's code, which starts its one `main` and shows what goes wrong starting it; the three releases write it alike. A tenth fixture, `html_page`, builds a nested module's `Browser.sandbox` with `--output=home.html`; the oracle now takes a case's own `--output`, keeping elm's file with its extension. The ratchet passes all 87 runs. `/dev/null` already generated nothing; `elm make` choosing and writing the file is 8.13's.
 - [ ] **8.11** `oracle: corpus JavaScript`. The four apps in three modes for each Compat (with 1.15a's `elm-version` rewrite); the old manifest already has the 0.19.2 hashes. **Check:** byte parity across them, the ratchet at 100%.
 - [ ] **8.12** `engine: object cache and linking`. Optimized graphs are cached per module, and linking takes only what `main` reaches.
 - [ ] **8.13** `cli: nomi build and elm make`. `nomi build` (alias `make`, with `--release` as an alias of `--optimize`) and the `elm make` personality. Flags (including `--docs`), progress and success messages, and exit codes. **Check:** transcripts, including the terminal output of the 605-case matrix.

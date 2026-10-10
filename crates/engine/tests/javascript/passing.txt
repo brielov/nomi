@@ -31,6 +31,15 @@ html dev as 0.19.3
 html optimize as 0.19.1
 html optimize as 0.19.2
 html optimize as 0.19.3
+html_page debug as 0.19.1
+html_page debug as 0.19.2
+html_page debug as 0.19.3
+html_page dev as 0.19.1
+html_page dev as 0.19.2
+html_page dev as 0.19.3
+html_page optimize as 0.19.1
+html_page optimize as 0.19.2
+html_page optimize as 0.19.3
 json debug as 0.19.1
 json debug as 0.19.2
 json debug as 0.19.3
