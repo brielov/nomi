@@ -15,6 +15,7 @@ use std::process::{Command as Process, ExitCode};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
+use oracle::corpus_runs::Suite;
 
 #[derive(Debug, Parser)]
 #[command(name = "cargo xtask")]
@@ -109,6 +110,13 @@ enum CorpusCommand {
         /// Only packages whose case contains this text.
         only: Option<String>,
     },
+    /// Tier 2, by hand: whether `nomi check` reports on every corpus app
+    /// and package as each elm did (`cargo xtask oracle corpus-check`),
+    /// downloading dependencies as `names` does.
+    Check {
+        /// Only projects whose case contains this text.
+        only: Option<String>,
+    },
     /// Tier 2: whether every module elm accepts lowers to the HIR with its
     /// source map whole.
     Hir,
@@ -175,6 +183,17 @@ enum OracleCommand {
         #[arg(long)]
         only: Option<String>,
     },
+    /// Store what each elm makes of every corpus app and package with
+    /// `elm make --output=/dev/null`, offline, as `corpus-docs` does.
+    CorpusCheck {
+        /// Concurrent elm runs; the available cores by default.
+        #[arg(long)]
+        jobs: Option<usize>,
+        /// Print the cells of the projects whose case contains this text
+        /// instead.
+        #[arg(long)]
+        only: Option<String>,
+    },
     /// Build the solver oracles and store what upstream's solver answers
     /// for every solver scenario.
     Solver,
@@ -213,7 +232,10 @@ fn main() -> ExitCode {
             OracleCommand::Patterns => oracle::types::patterns(&root(), &r),
             OracleCommand::Docs => oracle::types::docs(&root(), &r),
             OracleCommand::CorpusDocs { jobs, only } => {
-                oracle::corpus_docs::run(&root(), &r, jobs, only.as_deref())
+                oracle::corpus_runs::run(&root(), &r, Suite::Docs, jobs, only.as_deref())
+            }
+            OracleCommand::CorpusCheck { jobs, only } => {
+                oracle::corpus_runs::run(&root(), &r, Suite::Check, jobs, only.as_deref())
             }
             OracleCommand::Solver => oracle::solver::run(&root(), &r),
         }),
@@ -250,7 +272,12 @@ fn main() -> ExitCode {
             CorpusCommand::Hir => corpus::hir::check(&root()),
             CorpusCommand::Fixtures => corpus::fixtures::run(&root()),
             CorpusCommand::Names { only } => corpus::names::check(&root(), only.as_deref()),
-            CorpusCommand::Docs { only } => corpus::docs::check(&root(), only.as_deref()),
+            CorpusCommand::Docs { only } => {
+                corpus::runs::check(&root(), Suite::Docs, only.as_deref())
+            }
+            CorpusCommand::Check { only } => {
+                corpus::runs::check(&root(), Suite::Check, only.as_deref())
+            }
             CorpusCommand::Outline => corpus::outline::check(&root()),
             CorpusCommand::Deps => corpus::deps::check(&root()),
         },

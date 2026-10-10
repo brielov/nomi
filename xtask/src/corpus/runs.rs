@@ -1,9 +1,11 @@
-//! `cargo xtask corpus docs`: whether nomi documents every corpus package
-//! as each elm did (plan 7.4a): the same `docs.json`, byte for byte, or
-//! the same `--report=json` where elm rejected the package. The oracle is
-//! `corpus/docs/oracle.tsv` (`cargo xtask oracle corpus-docs`). Each
-//! package's dependencies are solved and downloaded as `corpus names`
-//! does, so this runs by hand, never in CI. A package elm couldn't build
+//! Whether nomi makes of every corpus project what each elm made of it,
+//! as `cargo xtask oracle corpus-docs` and `corpus-check` recorded:
+//! `cargo xtask corpus docs` wants the same `docs.json` of every package,
+//! byte for byte (plan 7.4a), and `cargo xtask corpus check` the silence
+//! of `nomi check` on every app and package elm accepted (plan 7.5); and
+//! both the same `--report=json` wherever elm rejected the project. Each
+//! project's dependencies are solved and downloaded as `corpus names`
+//! does, so this runs by hand, never in CI. A project elm couldn't build
 //! for want of a release the cache lacked is skipped.
 
 use std::collections::{BTreeMap, HashMap};
@@ -13,7 +15,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use nomi_base::Compat;
 use nomi_compiler::interface::Interface;
-use nomi_engine::check::{self, Style};
+use nomi_engine::check::{self, Checked, Style};
 use nomi_engine::console::{Console, Personality};
 use nomi_engine::graph::Foreigns;
 use nomi_engine::{Vfs, names};
@@ -22,10 +24,10 @@ use nomi_project::{ModuleName, Name, Outline};
 use super::names::{Project, solve};
 use super::{compat, parallel};
 use crate::download::sha256;
-use crate::oracle::corpus_docs::{self, EXCLUDED};
+use crate::oracle::corpus_runs::{self, EXCLUDED, OK, Suite};
 
-pub fn check(root: &Path, only: Option<&str>) -> Result<()> {
-    let oracle = load(root)?;
+pub fn check(root: &Path, suite: Suite, only: Option<&str>) -> Result<()> {
+    let oracle = load(root, suite)?;
     let classification = compat::load(root)?;
     let mut matching = 0;
     let mut skipped: Vec<String> = Vec::new();
@@ -34,7 +36,7 @@ pub fn check(root: &Path, only: Option<&str>) -> Result<()> {
         let c = (Compat::ALL.into_iter())
             .find(|c| c.to_string() == *v)
             .with_context(|| format!("nomi doesn't emulate elm {v}"))?;
-        let solving = solve(root, &classification, c, v, only, false)?;
+        let solving = solve(root, &classification, c, v, only, suite == Suite::Check)?;
         // Dependencies without a solution stop elm before any module too.
         for (case, why) in solving.failures {
             let elm = oracle.get(&(package_case(&case), format!("elm {v}")));
@@ -51,7 +53,7 @@ pub fn check(root: &Path, only: Option<&str>) -> Result<()> {
             for (project, sources) in chunk {
                 let key = package_case(&project.case);
                 let Some(expected) = oracle.get(&(key.clone(), format!("elm {v}"))) else {
-                    skipped.push(format!("{}: not in the oracle", project.case));
+                    failures.push((project.case.clone(), "not in the oracle".to_owned()));
                     continue;
                 };
                 if expected == EXCLUDED || expected.starts_with("error ") || expected == "crash" {
@@ -67,7 +69,7 @@ pub fn check(root: &Path, only: Option<&str>) -> Result<()> {
                 }
             }
             let results = parallel(&ready, |(project, sources, interfaces, _)| {
-                document(c, project, sources, interfaces)
+                run(suite, c, project, sources, interfaces)
             });
             for ((project, _, _, expected), result) in ready.iter().zip(results) {
                 match result {
@@ -88,26 +90,26 @@ pub fn check(root: &Path, only: Option<&str>) -> Result<()> {
     for (case, why) in &failures {
         eprintln!("FAIL {case}: {why}");
     }
+    let (name, kind) = match suite {
+        Suite::Docs => ("docs", "packages"),
+        Suite::Check => ("check", "projects"),
+    };
     println!(
-        "docs: {matching} packages documented as elm documents them, {} not, {} skipped",
+        "{name}: {matching} {kind} made as elm makes them, {} not, {} skipped",
         failures.len(),
         skipped.len()
     );
     if !failures.is_empty() {
-        bail!("{} packages differ", failures.len());
+        bail!("{} {kind} differ", failures.len());
     }
     Ok(())
 }
 
-/// The oracle's cells, by package case and elm.
-fn load(root: &Path) -> Result<BTreeMap<(String, String), String>> {
-    let path = root.join(corpus_docs::FILE);
-    let text = std::fs::read_to_string(&path).with_context(|| {
-        format!(
-            "reading {}; run `cargo xtask oracle corpus-docs`",
-            path.display()
-        )
-    })?;
+/// The oracle's cells, by project case and elm.
+fn load(root: &Path, suite: Suite) -> Result<BTreeMap<(String, String), String>> {
+    let path = root.join(suite.file());
+    let text = std::fs::read_to_string(&path)
+        .with_context(|| format!("reading {}; run its oracle", path.display()))?;
     let mut lines = text.lines().filter(|l| !l.starts_with('#'));
     let header: Vec<&str> = lines
         .next()
@@ -124,22 +126,24 @@ fn load(root: &Path) -> Result<BTreeMap<(String, String), String>> {
     Ok(cells)
 }
 
-/// `author/project@version` of a case `author/project@version on 0.19.x`.
+/// The oracle's case, `author/project@version` or `app/name`, of a case
+/// `… on 0.19.x`.
 fn package_case(case: &str) -> String {
     case.split(" on ").next().unwrap_or(case).to_owned()
 }
 
-/// What `elm make --docs` makes of `project`, as an oracle cell.
-fn document(
+/// What `suite`'s `elm make` makes of `project`, as an oracle cell.
+fn run(
+    suite: Suite,
     compat: Compat,
     project: &Project,
     sources: &[(Name, PathBuf)],
     interfaces: &names::PackageInterfaces,
 ) -> Result<String, String> {
-    let Outline::Pkg(pkg) = &project.outline else {
-        return Err("not a package".to_owned());
+    let direct: Vec<Name> = match &project.outline {
+        Outline::App(app) => app.direct.keys().cloned().collect(),
+        Outline::Pkg(pkg) => pkg.deps.keys().cloned().collect(),
     };
-    let direct: Vec<Name> = pkg.deps.keys().cloned().collect();
     let dirs: BTreeMap<&Name, &PathBuf> = sources.iter().map(|(n, d)| (n, d)).collect();
     let mut exposing = Vec::new();
     for name in &direct {
@@ -160,21 +164,41 @@ fn document(
     let env = check::env_of(&root, &project.outline, compat, Foreigns::new(exposing))
         .map_err(|r| r.title.to_string())?
         .with_cwd(&root);
-    let (checked, docs) = check::docs(
-        &Vfs::new().snapshot(),
-        &env,
-        &project.outline,
-        Personality::Elm,
-        &visible,
-    );
-    if let Some(docs) = docs {
-        return Ok(format!("docs {}", sha256(docs.as_bytes())));
-    }
+    let snapshot = Vfs::new().snapshot();
+    let checked = match suite {
+        Suite::Docs => {
+            let (checked, docs) = check::docs(
+                &snapshot,
+                &env,
+                &project.outline,
+                Personality::Elm,
+                &visible,
+            );
+            if let Some(docs) = docs {
+                return Ok(format!("docs {}", sha256(docs.as_bytes())));
+            }
+            checked
+        }
+        Suite::Check => {
+            let checked = check::check(
+                &snapshot,
+                &env,
+                &project.outline,
+                &project.paths,
+                Personality::Elm,
+                &visible,
+            );
+            if matches!(checked, Checked::Fine) {
+                return Ok(OK.to_owned());
+            }
+            checked
+        }
+    };
     let mut console = Captured::default();
     check::show(&mut console, &root, &checked, compat, Style::Json);
     let root = root.to_str().ok_or("a path that isn't UTF-8")?;
     let report = console.err.trim_end().replace(root, "$ROOT");
-    Ok(corpus_docs::cell(&report))
+    Ok(corpus_runs::cell(&report))
 }
 
 #[derive(Default)]
