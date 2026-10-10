@@ -10,13 +10,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use nomi_base::Compat;
 use nomi_base::diagnostic::code::{Position, Region, Source};
 use nomi_base::diagnostic::doc::{
     Color, Doc, fill_sep, hint, reflow, reflow_link, simple_hint, simple_note, stack, text, vcat,
 };
 use nomi_base::diagnostic::json::{self, Json};
 use nomi_base::diagnostic::{Problem, Report};
+use nomi_base::{Compat, TextRange, TextSize};
 use nomi_project::ModuleName;
 use nomi_syntax::{DEPTH_LIMIT, SyntaxError, SyntaxErrorKind, elm};
 
@@ -184,6 +184,7 @@ pub fn module_problem(env: &Env, bad: &BadModule, expected: &ModuleName) -> Opti
         ModuleProblem::Syntax(errors) => {
             Some(syntax_problem(contents, errors, env.source(), compat))
         }
+        ModuleProblem::Encoding(bytes) => Some(encoding_problem(contents, bytes, env, compat)),
         ModuleProblem::NameUnspecified => Some(name_unspecified(expected, compat)),
         ModuleProblem::NameMismatch { actual, range } => {
             let region = source.region(*range, compat);
@@ -255,6 +256,30 @@ pub fn syntax_problem(
             "That makes this a bug in nomi ({:?}). Please report it with this module!",
             error.kind
         )),
+    );
+    Problem::new("SYNTAX PROBLEM", region, message)
+}
+
+/// The report on a module that isn't UTF-8: elm's parser reads its
+/// bytes, and shows them as `contents`, with replacement characters.
+fn encoding_problem(contents: &str, bytes: &[u8], env: &Env, compat: Compat) -> Problem {
+    let source = Source::new(contents);
+    if let Err(error) = elm::parse(bytes, env.source(), compat) {
+        return elm::to_problem(&source, &error, compat);
+    }
+    let at = bytes
+        .utf8_chunks()
+        .next()
+        .map_or(0, |chunk| chunk.valid().len());
+    let start = contents.len().min(at);
+    let range = TextRange::empty(TextSize::try_from(start).unwrap_or_default());
+    let region = source.region(range, compat);
+    let message = source.snippet(
+        compat,
+        reflow("This file is not UTF-8, but Elm's own parser accepts it:"),
+        region,
+        None,
+        reflow("That makes this a bug in nomi. Please report it with this module!"),
     );
     Problem::new("SYNTAX PROBLEM", region, message)
 }

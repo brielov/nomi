@@ -367,7 +367,8 @@ fn answer(universe: &Universe, scenario: &Scenario, compat: Compat) -> String {
             Ok(solution) => ok(solution.iter().map(|(n, d)| release("", n, d.version))),
             Err(DetailsProblem::AppElm(_) | DetailsProblem::PkgElm(_)) => vec!["bad-elm".into()],
             Err(DetailsProblem::HandEdited) => vec!["hand-edited".into()],
-            Err(DetailsProblem::NoSolution) => vec!["no-offline-solution".into()],
+            Err(DetailsProblem::NoOfflineSolution) => vec!["no-offline-solution".into()],
+            Err(DetailsProblem::NoSolution) => vec!["no-solution".into()],
             Err(DetailsProblem::Solver(Unreadable)) => vec!["error".into()],
         },
         Some(pkg) => match install::plan(&mut packages, compat, &name(pkg, compat), &outline) {
@@ -480,6 +481,11 @@ impl Packages for Fixture {
         };
         let release = Release::decode(text.as_bytes(), self.compat).ok_or(Unreadable)?;
         Ok(src.then_some(release))
+    }
+
+    /// The oracle runs elm offline.
+    fn offline(&self) -> bool {
+        true
     }
 }
 

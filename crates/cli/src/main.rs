@@ -91,6 +91,7 @@ enum ReportFormat {
 
 mod elm;
 mod elm_format;
+mod terminal;
 
 fn main() -> ExitCode {
     let mut args = std::env::args_os();
@@ -193,7 +194,9 @@ fn rm(package: &str) -> bool {
 }
 
 /// `command` for the project around the current directory.
-fn in_project(command: impl FnOnce(&mut StdConsole, &Path, &Cache, &Web) -> bool) -> bool {
+pub(crate) fn in_project(
+    command: impl FnOnce(&mut StdConsole, &Path, &Cache, &Web) -> bool,
+) -> bool {
     let Some(cache) = cache() else { return false };
     let Some(dir) = current_dir() else {
         return false;

@@ -19,8 +19,9 @@ use crate::artifacts::Artifacts;
 use crate::console::{self, Console, Personality};
 use crate::graph::{Env, Foreigns, Graph, Owner};
 use crate::install::{details_problem, one_line};
+use crate::make::{self, Make};
 use crate::paths::Cache;
-use crate::project::{Project, check_source_dirs};
+use crate::project::Project;
 use crate::report::{self, ModuleErrors};
 use crate::{Pool, Snapshot, Vfs, env, names, packages};
 
@@ -44,7 +45,8 @@ pub enum Style {
 
 /// Checks the project around `dir`, building from `paths`, or a
 /// package's exposed modules when there are none, and shows what it
-/// found. Whether nothing was wrong.
+/// found: `elm make --output=/dev/null`, as [`make::run`] runs it.
+/// Whether nothing was wrong.
 pub fn run(
     vfs: &Vfs,
     console: &mut dyn Console,
@@ -54,35 +56,7 @@ pub fn run(
     paths: &[PathBuf],
     style: Style,
 ) -> bool {
-    let mut compat = Compat::LATEST;
-    let loaded = (|| {
-        let project = Project::load(vfs, dir, "to check")?;
-        compat = project.compat;
-        let root = project.path.parent().unwrap_or(Path::new(".")).to_owned();
-        check_source_dirs(&root, &project.outline)?;
-        let (foreigns, interfaces) = foreigns(cache, http, &project)?;
-        let env = env_of(&root, &project.outline, compat, foreigns)?.with_cwd(dir);
-        Ok::<_, Report>((root, project.outline, env, interfaces))
-    })();
-    let (root, checked) = match loaded {
-        Ok((root, outline, env, interfaces)) => {
-            let snapshot = vfs.snapshot();
-            let artifacts = Artifacts::new(cache);
-            let (checked, _) = check_with(
-                &snapshot,
-                &env,
-                &outline,
-                paths,
-                Personality::Nomi,
-                &interfaces,
-                Some(&artifacts),
-            );
-            (root, checked)
-        }
-        Err(report) => (dir.to_owned(), Checked::Project(report)),
-    };
-    show(console, &root, &checked, compat, style);
-    matches!(checked, Checked::Fine)
+    make::run(vfs, console, dir, cache, http, &Make::check(paths, style))
 }
 
 /// Checks the modules of the project `env` describes, as `elm make`
@@ -110,7 +84,7 @@ pub fn check_with(
     packages: &HashMap<String, Interface>,
     artifacts: Option<&Artifacts>,
 ) -> (Checked, Vec<PathBuf>) {
-    let (checked, ran, _) = build(
+    let built = build(
         snapshot,
         env,
         outline,
@@ -120,7 +94,31 @@ pub fn check_with(
         artifacts,
         false,
     );
-    (checked, ran)
+    (built.checked, built.ran)
+}
+
+/// [`check_with`] for `elm make`: also each root and whether it defines
+/// `main`.
+pub fn make_with(
+    snapshot: &Snapshot,
+    env: &Env,
+    outline: &Outline,
+    paths: &[PathBuf],
+    personality: Personality,
+    packages: &HashMap<String, Interface>,
+    artifacts: Option<&Artifacts>,
+) -> (Checked, Vec<(ModuleName, bool)>) {
+    let built = build(
+        snapshot,
+        env,
+        outline,
+        paths,
+        personality,
+        packages,
+        artifacts,
+        false,
+    );
+    (built.checked, built.mains)
 }
 
 /// What `elm make --docs` makes of the package `env` describes: its
@@ -133,7 +131,7 @@ pub fn docs(
     personality: Personality,
     packages: &HashMap<String, Interface>,
 ) -> (Checked, Option<String>) {
-    let (checked, _, docs) = build(
+    let built = build(
         snapshot,
         env,
         outline,
@@ -143,9 +141,30 @@ pub fn docs(
         None,
         true,
     );
-    let json =
-        matches!(checked, Checked::Fine).then(|| nomi_compiler::docs::encode(env.compat(), &docs));
-    (checked, json)
+    let json = matches!(built.checked, Checked::Fine)
+        .then(|| nomi_compiler::docs::encode(env.compat(), &built.docs));
+    (built.checked, json)
+}
+
+/// What [`build`] found and made.
+struct Built {
+    checked: Checked,
+    /// The modules checked rather than reused.
+    ran: Vec<PathBuf>,
+    docs: Vec<nomi_compiler::docs::Module>,
+    /// The roots, and whether each defines `main`.
+    mains: Vec<(ModuleName, bool)>,
+}
+
+impl Built {
+    fn failed(checked: Checked) -> Built {
+        Built {
+            checked,
+            ran: Vec::new(),
+            docs: Vec::new(),
+            mains: Vec::new(),
+        }
+    }
 }
 
 /// [`check_with`], documenting a package's exposed modules if `docs`.
@@ -159,7 +178,7 @@ fn build(
     packages: &HashMap<String, Interface>,
     artifacts: Option<&Artifacts>,
     docs: bool,
-) -> (Checked, Vec<PathBuf>, Vec<nomi_compiler::docs::Module>) {
+) -> Built {
     let exposed: Vec<ModuleName> = match outline {
         Outline::Pkg(pkg) => pkg.exposed.modules().cloned().collect(),
         Outline::App(_) => Vec::new(),
@@ -167,34 +186,25 @@ fn build(
     let graph = if !paths.is_empty() {
         Graph::from_paths(snapshot, env, paths)
     } else if let Outline::App(_) = outline {
-        return (
-            Checked::Project(no_input(personality, true)),
-            Vec::new(),
-            Vec::new(),
-        );
+        return Built::failed(Checked::Project(no_input(personality, true)));
     } else if exposed.is_empty() {
-        return (
-            Checked::Project(no_input(personality, false)),
-            Vec::new(),
-            Vec::new(),
-        );
+        return Built::failed(Checked::Project(no_input(personality, false)));
     } else {
         Graph::from_exposed(snapshot, env, &exposed)
     };
     let graph = match graph {
         Ok(graph) => graph,
         Err(problem) => {
-            return (
-                Checked::Project(report::project_problem(&problem, env.compat())),
-                Vec::new(),
-                Vec::new(),
-            );
+            return Built::failed(Checked::Project(report::project_problem(
+                &problem,
+                env.compat(),
+            )));
         }
     };
     if paths.is_empty()
         && let Some(report) = report::missing_exposed(&graph, &exposed)
     {
-        return (Checked::Project(report), Vec::new(), Vec::new());
+        return Built::failed(Checked::Project(report));
     }
     let earlier = report::module_errors(env, &graph);
     let failed: HashSet<PathBuf> = earlier.iter().map(|m| m.path.clone()).collect();
@@ -210,7 +220,12 @@ fn build(
     } else {
         Checked::Modules(modules)
     };
-    (checked, later.ran, later.docs)
+    Built {
+        checked,
+        ran: later.ran,
+        docs: later.docs,
+        mains: graph.root_mains(),
+    }
 }
 
 /// Shows `checked`: in the terminal style, the reports on standard error
@@ -279,10 +294,11 @@ fn no_input(personality: Personality, app: bool) -> Report {
 /// The modules each direct dependency exposes, and their interfaces, with
 /// every release the project builds with downloaded first, as
 /// `Details.load` builds them.
-fn foreigns(
+pub(crate) fn foreigns(
     cache: &Cache,
     http: &(impl Http + Sync),
     project: &Project,
+    personality: Personality,
 ) -> Result<(Foreigns, HashMap<String, Interface>), Report> {
     let compat = project.compat;
     let store = Store::new(cache.packages());
@@ -294,7 +310,7 @@ fn foreigns(
         "I need the list of published packages to check your dependencies",
     )?;
     let solution = details::verify(&mut registry, compat, &project.outline)
-        .map_err(|problem| details_problem(&problem, compat, Personality::Nomi))?;
+        .map_err(|problem| details_problem(&problem, compat, personality))?;
     let releases: Vec<(Name, _)> = solution
         .iter()
         .map(|(name, details)| (name.clone(), details.version))

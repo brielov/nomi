@@ -91,6 +91,10 @@ impl<H: Http> Packages for Registry<'_, H> {
         self.index.versions(name)
     }
 
+    fn offline(&self) -> bool {
+        self.connection == Connection::Offline
+    }
+
     fn release(&mut self, name: &Name, version: Version) -> Result<Option<Release>, SolverProblem> {
         let bad_cache = || SolverProblem::BadCacheData(name.clone(), version);
         if let Some(dir) = self.store.get(name, version)? {

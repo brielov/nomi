@@ -20,6 +20,9 @@ pub enum DetailsProblem<E> {
     HandEdited,
     /// No releases satisfy the dependencies.
     NoSolution,
+    /// None satisfy them that can be had without the registry, which
+    /// couldn't be reached.
+    NoOfflineSolution,
     /// Reading a release failed.
     Solver(E),
 }
@@ -31,9 +34,14 @@ pub fn verify<P: Packages>(
     outline: &Outline,
 ) -> Result<BTreeMap<Name, Details>, DetailsProblem<P::Error>> {
     let solve = |packages: &mut P, constraints| {
+        let none = if packages.offline() {
+            DetailsProblem::NoOfflineSolution
+        } else {
+            DetailsProblem::NoSolution
+        };
         solver::verify(packages, compat, &constraints)
             .map_err(DetailsProblem::Solver)?
-            .ok_or(DetailsProblem::NoSolution)
+            .ok_or(none)
     };
     match outline {
         Outline::Pkg(pkg) => {

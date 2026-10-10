@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **7.6**.
+4. Resume at the first unchecked box. Right now that is **8.1**.
 
 ### Test tiers
 
@@ -442,7 +442,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 - [x] **7.5a** `oracle: CLI report matrix`. Port the old 605-case CLI report matrix (`conformance/checkpoints/2026-09-23/json-reports.py` and `json-report-fixtures`), which compares every output stream, exit status and artifact, to cases recorded from each elm. Cases that need generated JavaScript stay in the ratchet, failing until M8.
 
   Done: the matrix's 606 cases (its README counted 605) are generated from the salvaged script into `crates/cli/tests/elm_make/cases/`. Transcript cases gained `=== bytes` sections for files that aren't plain text, `=== link` sections, a `\ no newline at end` marker, and `$ROOT` in arguments; `Transcript::compared` leaves out `elm-stuff/` and the files a case wrote unchanged, shows large files by hash and the directory as `$ROOT`. `cargo xtask oracle make` runs each elm offline on every case, in a directory padded to 96 bytes with an application's pinned `elm-version` rewritten, and stores each distinct transcript in `expected/`, which takes 15 seconds. The ratchet `elm_make` runs nomi as `elm` on every application as each release and every other case as the newest, 1,408 runs, against a cache serving the compiler's vendored packages; none passes yet, as nomi doesn't answer `elm make`. Every case's outcome on 0.19.2 is the one the old matrix recorded. Surprises: 0.19.1 crashes on invalid UTF-8 (13 cases) where later releases report it, and the releases differ on 415 of the 606 cases, mostly 0.19.2's zero-based JSON regions.
-- [ ] **7.6** `cli: reach nomi check parity`. Work the ratchet to 100%.
+- [x] **7.6** `cli: reach nomi check parity`. Work the ratchet to 100%.
+
+  Done: nomi invoked as `elm` answers `elm make`. `cli::terminal` ports `Terminal/Chomp.hs` and the flag and argument errors of `Terminal/Error.hs` that `make` can meet, which match each elm's byte for byte; `engine::make` ports `Make.run`: the project found (`NO elm.json FILE`), `CLASHING FLAGS`, the details loaded with elm's wording, the build, `docs.json` written for `--docs`, and the `NO MAIN` and `TOO MANY FILES` checks a JS or HTML output makes, after which generating code waits for M8. `nomi check` is the same run as `--output=/dev/null`. The ratchet `elm_make` passes 1,380 of 1,393 runs; the 13 left generate JavaScript, and 9 more where elm crashed are skipped, as the crash policy in DECISIONS.md has it. Surprises: upstream reads a module's bytes, so a module that isn't UTF-8 is a syntax error at its first bad byte rather than an unreadable file, and 0.19.2 and later show each run of bad bytes as one replacement character, continuation bytes and all, in modules and `elm.json` alike; offline, dependencies with no solution are `TROUBLE VERIFYING DEPENDENCIES` (`NoOfflineSolution`), which the solver now knows from its `Packages`; Haskell's `takeExtension` takes `.elm` for the extension of `src/.elm`.
 
 **Exit:** `nomi check` matches `elm make --output=/dev/null` across the corpus and every error corpus.
 

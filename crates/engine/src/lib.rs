@@ -15,6 +15,7 @@ pub mod graph;
 pub mod index;
 pub mod init;
 pub mod install;
+pub mod make;
 pub mod names;
 pub mod packages;
 pub mod paths;

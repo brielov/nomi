@@ -187,6 +187,23 @@ pub struct Graph {
     pub roots: Vec<Root>,
 }
 
+impl Graph {
+    /// Each root's name and whether it defines `main`, in order
+    /// (`Build.getRootNames`, and `getMain`'s answer).
+    pub fn root_mains(&self) -> Vec<(ModuleName, bool)> {
+        (self.roots.iter())
+            .filter_map(|root| match root {
+                Root::Inside(name) => match self.modules.get(name) {
+                    Some(Status::Local(module)) => Some((name.clone(), module.has_main)),
+                    _ => None,
+                },
+                Root::Outside(Ok(module)) => Some((module.name.clone(), module.has_main)),
+                Root::Outside(Err(_)) => None,
+            })
+            .collect()
+    }
+}
+
 /// What a module's name led to (`Build.Status`).
 #[derive(Clone, Debug)]
 pub enum Status {
@@ -270,6 +287,9 @@ pub enum ModuleProblem {
     /// [`io::ErrorKind::InvalidData`]. Upstream reads bytes, and stops
     /// on others.
     Unreadable(io::ErrorKind),
+    /// The file isn't UTF-8: its bytes, which elm's parser reads as they
+    /// are, and the source shows with replacement characters.
+    Encoding(Vec<u8>),
     Syntax(Vec<SyntaxError>),
     /// No header, where the path says the name (`ModuleNameUnspecified`).
     NameUnspecified,
@@ -472,7 +492,21 @@ fn read(
         problem: ModuleProblem::Unreadable(e.kind()),
     };
     let file = snapshot.file_id(&path).map_err(|e| unreadable(&path, e))?;
-    let text = snapshot.text(file).map_err(|e| unreadable(&path, e))?;
+    let text = match snapshot.text(file) {
+        Ok(text) => text,
+        Err(e) if e.kind() == io::ErrorKind::InvalidData => {
+            let bytes = snapshot
+                .read_bytes(&path)
+                .map_err(|e| unreadable(&path, e))?;
+            return Err(BadModule {
+                path: path.clone(),
+                source: Some((file, Arc::from(nomi_base::ghc::lenient_utf8(&bytes)))),
+                parse: None,
+                problem: ModuleProblem::Encoding(bytes),
+            });
+        }
+        Err(e) => return Err(unreadable(&path, e)),
+    };
     let parse = parse_module(&text);
     let bad = |problem| BadModule {
         path: path.clone(),

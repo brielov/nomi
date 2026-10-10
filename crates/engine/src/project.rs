@@ -25,14 +25,14 @@ impl Project {
     /// for one of nomi's own commands.
     pub fn load(vfs: &Vfs, dir: &Path, purpose: &str) -> Result<Project, Report> {
         let Some(root) = Root::find(vfs, dir) else {
-            return Err(one_line(
-                "NO ELM.JSON",
-                format!(
-                    "I cannot find an elm.json here or in any directory above, so there is no \
-                     project {purpose}."
-                ),
-            ));
+            return Err(no_outline(purpose));
         };
+        Project::read(vfs, &root, Personality::Nomi)
+    }
+
+    /// The project at `root`, its problems told as `personality` tells
+    /// them.
+    pub fn read(vfs: &Vfs, root: &Root, personality: Personality) -> Result<Project, Report> {
         let path = root.elm_json();
         let src = vfs.read_bytes(&path).map_err(|e| {
             one_line(
@@ -41,7 +41,7 @@ impl Project {
             )
         })?;
         let (outline, compat) = Outline::detect(&src)
-            .map_err(|e| report::detect(&e, &src, &|c| Personality::Nomi.command(c)))?;
+            .map_err(|e| report::detect(&e, &src, &|c| personality.command(c)))?;
         Ok(Project {
             path,
             outline,
@@ -58,6 +58,17 @@ impl Project {
             )
         })
     }
+}
+
+/// What nomi's own commands say where there is no project for `purpose`.
+pub(crate) fn no_outline(purpose: &str) -> Report {
+    one_line(
+        "NO ELM.JSON",
+        format!(
+            "I cannot find an elm.json here or in any directory above, so there is no project \
+             {purpose}."
+        ),
+    )
 }
 
 /// The rest of `Outline.read`, which looks at the disk: an application's

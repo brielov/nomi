@@ -49,6 +49,12 @@ pub trait Packages {
     /// had, as when offline and not in the package cache, which sends the
     /// search elsewhere. An error ends the search.
     fn release(&mut self, name: &Name, version: Version) -> Result<Option<Release>, Self::Error>;
+
+    /// Whether the releases come without the registry, which makes no
+    /// solution a `NoOfflineSolution`.
+    fn offline(&self) -> bool {
+        false
+    }
 }
 
 /// `Details`: a release in the solution, and what it depends on.

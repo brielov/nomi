@@ -12,11 +12,11 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
+nomi-base.workspace = true
 nomi-engine.workspace = true
 nomi-lsp.workspace = true
 
 [dev-dependencies]
-nomi-base.workspace = true
 nomi-project.workspace = true
 nomi-registry.workspace = true
 nomi-testkit.workspace = true

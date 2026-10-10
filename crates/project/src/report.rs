@@ -51,11 +51,11 @@ pub fn outline(
                 of `List` and `Maybe` do not work without it.";
     match error {
         OutlineError::Parse(e) => {
-            let text = String::from_utf8_lossy(src);
+            let text = nomi_base::ghc::lenient_utf8(src);
             decode::parse_error(&Source::new(&text), compat, e)
         }
         OutlineError::Decode(problem) => {
-            let text = String::from_utf8_lossy(src);
+            let text = nomi_base::ghc::lenient_utf8(src);
             let source = Source::new(&text);
             decode::problem(&source, compat, problem, &|region, x| {
                 outline_problem(&source, compat, region, x, command)

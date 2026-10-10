@@ -7,7 +7,8 @@
 //!
 //! Cases run offline, with a cache serving the packages vendored for the
 //! compiler's tests, in a directory padded to the recordings' length, as
-//! messages wrap by the paths they name.
+//! messages wrap by the paths they name. Where elm crashed, there is
+//! nothing to match, and the run is skipped.
 #![cfg(unix)]
 
 #[path = "support/website.rs"]
@@ -15,6 +16,7 @@ mod website;
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use nomi_testkit::ratchet::Suite;
 use nomi_testkit::transcript::Case;
@@ -45,7 +47,8 @@ fn elm_make() {
     }
     cases.sort();
     assert!(cases.len() >= 600, "found only {} cases", cases.len());
-    let mut outcomes = Vec::new();
+    let mut runs = Vec::new();
+    let mut crashes = 0;
     for (name, path) in &cases {
         let case = Case::parse(&fs::read_to_string(path).unwrap())
             .unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -61,26 +64,67 @@ fn elm_make() {
             let Some(expected) = recorded(&expected, release) else {
                 panic!("{id}: no transcript; rerun `cargo xtask oracle make`");
             };
-            let case = as_release(&case, release);
-            let work = tempfile::tempdir().unwrap();
-            let root = padded(work.path());
-            case.create_files(&root).unwrap();
-            let actual = case
-                .run(offline(&elm, cache.path()), &root)
-                .unwrap()
-                .compared(&case, &root);
-            let outcome = if actual == expected {
-                Ok(())
-            } else {
-                Err(format!("--- expected\n{expected}--- actual\n{actual}"))
-            };
-            if let (Err(why), Ok(_)) = (&outcome, std::env::var("NOMI_SHOW")) {
-                eprintln!("FAIL {id}\n{why}");
+            if crashed(expected) {
+                crashes += 1;
+                continue;
             }
-            outcomes.push((id, outcome));
+            runs.push((id, as_release(&case, release), expected.to_owned()));
         }
     }
+    // Each run is a process; a few at once.
+    let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let next = AtomicUsize::new(0);
+    let outcomes: Vec<(String, Result<(), String>)> = std::thread::scope(|scope| {
+        let threads: Vec<_> = (0..workers)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut done = Vec::new();
+                    loop {
+                        let i = next.fetch_add(1, Ordering::Relaxed);
+                        let Some((id, case, expected)) = runs.get(i) else {
+                            return done;
+                        };
+                        let outcome = run(&elm, cache.path(), case, expected);
+                        if let (Err(why), Ok(_)) = (&outcome, std::env::var("NOMI_SHOW")) {
+                            eprintln!("FAIL {id}\n{why}");
+                        }
+                        done.push((i, (id.clone(), outcome)));
+                    }
+                })
+            })
+            .collect();
+        let mut all: Vec<_> = threads
+            .into_iter()
+            .flat_map(|t| t.join().unwrap())
+            .collect();
+        all.sort_by_key(|(i, _)| *i);
+        all.into_iter().map(|(_, outcome)| outcome).collect()
+    });
+    eprintln!("elm_make: {crashes} runs skipped where elm crashed");
     Suite::open(dir).finish(outcomes);
+}
+
+/// Whether elm died on the case, by a signal or an internal error, where
+/// nomi reports what it finds (DECISIONS.md, 2026-10-08).
+fn crashed(expected: &str) -> bool {
+    expected.starts_with("=== killed")
+        || expected.contains("bypassed the normal error reporting process")
+}
+
+/// nomi's transcript of `case`, against `expected`.
+fn run(elm: &Path, cache: &Path, case: &Case, expected: &str) -> Result<(), String> {
+    let work = tempfile::tempdir().unwrap();
+    let root = padded(work.path());
+    case.create_files(&root).unwrap();
+    let actual = case
+        .run(offline(elm, cache), &root)
+        .unwrap()
+        .compared(case, &root);
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(format!("--- expected\n{expected}--- actual\n{actual}"))
+    }
 }
 
 /// Whether the case is an application whose `elm-version` names a

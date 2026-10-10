@@ -7,7 +7,7 @@
 //! less: a status comes with its standard reason and without the body
 //! 0.19.3 shows, and other failures with the client's message.
 
-use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, reflow, text, vcat};
+use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, note, reflow, text, vcat};
 use nomi_base::{Compat, Report};
 use nomi_project::{Name, Version, report};
 
@@ -28,24 +28,24 @@ pub fn details_problem(
     reactor: Option<&str>,
 ) -> Report {
     let path = Some("elm.json".to_owned());
+    let tools = || match reactor {
+        Some(reactor) if compat == Compat::V0_19_1 => vec![
+            text(install).color(Color::Green),
+            text("or"),
+            text("the"),
+            text("dependency"),
+            text("management"),
+            text("tool"),
+            text("in"),
+            text(reactor).color(Color::Green).append(text(".")),
+        ],
+        _ => vec![text(install).color(Color::Green).append(text("."))],
+    };
     let reliable = |start: &str| {
-        let tools = match reactor {
-            Some(reactor) if compat == Compat::V0_19_1 => vec![
-                text(install).color(Color::Green),
-                text("or"),
-                text("the"),
-                text("dependency"),
-                text("management"),
-                text("tool"),
-                text("in"),
-                text(reactor).color(Color::Green).append(text(".")),
-            ],
-            _ => vec![text(install).color(Color::Green).append(text("."))],
-        };
         fill_sep(
             words(start)
                 .chain(words("It is much more reliable to add dependencies with"))
-                .chain(tools),
+                .chain(tools()),
         )
     };
     let forums = reflow(
@@ -60,6 +60,24 @@ pub fn details_problem(
             [
                 reliable("Did you change them by hand? Try to change it back!"),
                 forums,
+            ],
+        ),
+        DetailsProblem::NoOfflineSolution => Report::new(
+            "TROUBLE VERIFYING DEPENDENCIES",
+            path,
+            "I could not connect to https://package.elm-lang.org to get the latest list of \
+             packages, and I was unable to verify your dependencies with the information I have \
+             cached locally.",
+            [
+                reflow(
+                    "Are you able to connect to the internet? These dependencies may work once \
+                     you get access to the registry!",
+                ),
+                note(
+                    words("If you changed your dependencies by hand, try to change them back!")
+                        .chain(words("It is much more reliable to add dependencies with"))
+                        .chain(tools()),
+                ),
             ],
         ),
         DetailsProblem::Solver(problem) => solver_problem(problem),
