@@ -9,6 +9,7 @@ pub mod sandbox;
 pub mod solver;
 pub mod syntax;
 pub mod transcripts;
+pub mod types;
 
 use std::fs;
 use std::path::{Path, PathBuf};

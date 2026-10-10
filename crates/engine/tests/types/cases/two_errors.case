@@ -1,0 +1,16 @@
+=== note
+two independent type errors in one module
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+a : Int
+a =
+    "a"
+
+
+b : String
+b =
+    2

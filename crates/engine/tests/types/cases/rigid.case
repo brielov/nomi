@@ -1,0 +1,11 @@
+=== note
+a rigid type variable unified with Int
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : a -> a
+f x =
+    x + 1

@@ -1,0 +1,10 @@
+=== note
+an accessor applied to a record without the field
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x =
+    .name { age = 1 }

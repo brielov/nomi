@@ -1,0 +1,11 @@
+=== note
+a list whose entries differ
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+xs : List Int
+xs =
+    [ 1, 2, "three" ]

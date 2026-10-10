@@ -1,0 +1,53 @@
+=== note
+a counter app
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Browser
+import Html exposing (Html, button, div, text)
+import Html.Events exposing (onClick)
+
+
+type alias Model =
+    { count : Int, step : Int }
+
+
+type Msg
+    = Increment
+    | Decrement
+    | Reset
+
+
+init : Model
+init =
+    { count = 0, step = 1 }
+
+
+update : Msg -> Model -> Model
+update msg model =
+    case msg of
+        Increment ->
+            { model | count = model.count + model.step }
+
+        Decrement ->
+            { model | count = model.count - model.step }
+
+        Reset ->
+            init
+
+
+view : Model -> Html Msg
+view model =
+    div []
+        [ button [ onClick Decrement ] [ text "-" ]
+        , text (String.fromInt model.count)
+        , button [ onClick Increment ] [ text "+" ]
+        ]
+
+
+main : Program () Model Msg
+main =
+    Browser.sandbox { init = init, update = update, view = view }

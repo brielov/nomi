@@ -1,0 +1,15 @@
+=== note
+a value called as a function
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+n : Int
+n =
+    1
+
+
+x =
+    n 2

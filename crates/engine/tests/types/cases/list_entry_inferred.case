@@ -1,0 +1,10 @@
+=== note
+a list without annotation whose entries differ
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+xs =
+    [ "one", 'c' ]

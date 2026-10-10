@@ -1,0 +1,15 @@
+=== note
+a field misspelled
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+type alias User =
+    { name : String, age : Int }
+
+
+name : User -> String
+name user =
+    user.nmae

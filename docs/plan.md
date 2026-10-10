@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **6.9**.
+4. Resume at the first unchecked box. Right now that is **6.10**.
 
 ### Test tiers
 
@@ -392,7 +392,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 - [x] **6.8** `compiler: per-expression types`. A side table, added without changing the solving order.
 
   Done: `types::infer_types` gives each expression's type by its region, besides what `infer` gives. Constraint generation records the type each expression is expected to have, which solving makes its type; once solving is done, each is read back through a variable made outside the solver's pools and named as an error names it. Recording adds nothing to the constraints, so the solving order is unchanged. Hover reads the table (6.16).
-- [ ] **6.9** `oracle: type error snapshots`. Curated cases plus mutations (swapped literals, swapped arguments, edited annotations), for each Compat.
+- [x] **6.9** `oracle: type error snapshots`. Curated cases plus mutations (swapped literals, swapped arguments, edited annotations), for each Compat.
+
+  Done: `cargo xtask oracle types` records each elm's report on 114 projects over the fixture packages: 47 curated cases under `crates/engine/tests/types/cases/`, each aimed at one of `Reporting/Error/Type.hs`'s reports (mismatches in every context, patterns, infinite types, super types, rigid variables, records), three seeds, and 64 mutations of them (a literal of another type, two arguments swapped, an annotation edited), listed in `mutations.tsv`. The ratchet `types_titles` (titles and regions) starts at 334 of 342 runs. nomi and elm agree on which projects compile in all of them. Matching regions found two upstream rules: a call's region runs to its last argument's own end (`A.merge`), inside a closing parenthesis, and an operator chain's root keeps the chain's region while the nodes inside merge their operands'. What remains is `TOO MANY ARGS`, a title the call reports decide (6.12), and two mutations where 0.19.3 reports one error more or fewer.
 - [ ] **6.10** `compiler: type error data`. `Type/Error.hs`: categories, expectations, diffs and problems.
 - [ ] **6.11** `report: type errors in annotations and mismatches`. The first part of `Reporting/Error/Type.hs` (1,619 lines). **Check:** the ratchet climbs, as in 6.12 to 6.14.
 - [ ] **6.12** `report: type errors in calls and operators`.

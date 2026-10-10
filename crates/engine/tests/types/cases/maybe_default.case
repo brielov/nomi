@@ -1,0 +1,11 @@
+=== note
+a Maybe used as its contents
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x : Maybe Int -> Int
+x m =
+    m + 1

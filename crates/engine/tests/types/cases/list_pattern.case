@@ -1,0 +1,16 @@
+=== note
+a list pattern whose entries differ
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : List Int -> Int
+f xs =
+    case xs of
+        [ "a" ] ->
+            1
+
+        _ ->
+            0

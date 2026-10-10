@@ -1,0 +1,11 @@
+=== note
+a parameter pattern that differs from its annotation
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+first : Int -> Int
+first ( a, b ) =
+    a

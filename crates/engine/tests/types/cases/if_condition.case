@@ -1,0 +1,14 @@
+=== note
+an if whose condition is not a Bool
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x =
+    if 1 then
+        "yes"
+
+    else
+        "no"

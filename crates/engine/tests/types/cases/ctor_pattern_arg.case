@@ -1,0 +1,20 @@
+=== note
+a constructor pattern whose argument has the wrong type
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+type Box
+    = Box Int
+
+
+open : Box -> Int
+open box =
+    case box of
+        Box "one" ->
+            1
+
+        Box n ->
+            n

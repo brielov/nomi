@@ -1,0 +1,15 @@
+=== note
+a case whose branches differ
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x n =
+    case n of
+        0 ->
+            "zero"
+
+        _ ->
+            n

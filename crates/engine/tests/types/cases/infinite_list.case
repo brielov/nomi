@@ -1,0 +1,10 @@
+=== note
+a list that contains itself
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f x =
+    [ x, [ x ] ]

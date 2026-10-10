@@ -1,0 +1,10 @@
+=== note
+a value whose type contains itself
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f x =
+    f

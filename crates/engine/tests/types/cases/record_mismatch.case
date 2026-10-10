@@ -1,0 +1,15 @@
+=== note
+a record missing a field its annotation needs
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+type alias Point =
+    { x : Int, y : Int }
+
+
+origin : Point
+origin =
+    { x = 0 }

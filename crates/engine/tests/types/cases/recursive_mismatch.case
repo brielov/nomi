@@ -1,0 +1,20 @@
+=== note
+functions that use each other at different types
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+isEven : Int -> Bool
+isEven n =
+    if n == 0 then
+        True
+
+    else
+        isOdd (n - 1)
+
+
+isOdd : Int -> Bool
+isOdd n =
+    isEven "n"

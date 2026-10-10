@@ -1,0 +1,14 @@
+=== note
+an update of a field the record lacks
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+point =
+    { x = 1, y = 2 }
+
+
+moved =
+    { point | z = 3 }

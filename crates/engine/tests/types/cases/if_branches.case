@@ -1,0 +1,14 @@
+=== note
+an if whose branches differ
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x =
+    if True then
+        1
+
+    else
+        "no"

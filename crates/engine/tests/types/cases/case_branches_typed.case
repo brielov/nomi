@@ -1,0 +1,16 @@
+=== note
+an annotated case whose branch differs
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x : Int -> String
+x n =
+    case n of
+        0 ->
+            "zero"
+
+        _ ->
+            n

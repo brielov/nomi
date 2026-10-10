@@ -220,7 +220,12 @@ fn canonicalize_(
             }
             exprs.push(Some(last));
             let tree = binops::arrange(steps, binops::Tree::Operand(ops.len()), region)?;
-            return Ok(binop_tree(tree, &mut exprs, &applied));
+            // The chain's root keeps the chain's own region, as upstream
+            // wraps the stepper's result in it; the nodes inside merge
+            // their operands'.
+            let mut root = binop_tree(tree, &mut exprs, &applied);
+            root.region = region;
+            return Ok(root);
         }
         Expr_::Lambda { params, body } => {
             let ((params, body), inner) = lambda(env, module, params, *body)?;
@@ -231,7 +236,11 @@ fn canonicalize_(
             let function = canonicalize(env, module, *function, free);
             let args = each(env, module, args, free);
             let (function, args) = both(function, args)?;
-            ExprKind::Call(Box::new(function), args)
+            // `A.merge func lastArg`: a parenthesized argument's region is
+            // its inner expression's, so the call ends inside the paren.
+            let end = args.last().map_or(region.end(), |a| a.region.end());
+            let region = TextRange::new(function.region.start(), end);
+            return Ok(expr(region, ExprKind::Call(Box::new(function), args)));
         }
         Expr_::If {
             branches,

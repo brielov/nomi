@@ -1,0 +1,16 @@
+=== note
+a cons pattern whose tail is not a list
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : List Int -> Int
+f xs =
+    case xs of
+        x :: 2 ->
+            x
+
+        _ ->
+            0

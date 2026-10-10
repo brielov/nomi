@@ -1,0 +1,10 @@
+=== note
+a Bool added to an Int
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x =
+    True + 1

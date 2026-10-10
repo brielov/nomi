@@ -1,0 +1,11 @@
+=== note
+a number where a String is needed
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x : String
+x =
+    String.append "a" 1

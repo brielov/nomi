@@ -1,0 +1,13 @@
+=== note
+a pipeline into the wrong function
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x : String
+x =
+    [ 1, 2 ]
+        |> List.map String.fromInt
+        |> String.length

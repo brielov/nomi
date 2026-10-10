@@ -1,0 +1,48 @@
+=== note
+JSON decoding and list processing
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+import Json.Decode as D exposing (Decoder)
+
+
+type alias User =
+    { name : String, age : Int, email : Maybe String }
+
+
+user : Decoder User
+user =
+    D.map3 User
+        (D.field "name" D.string)
+        (D.field "age" D.int)
+        (D.maybe (D.field "email" D.string))
+
+
+adults : List User -> List String
+adults users =
+    users
+        |> List.filter (\u -> u.age >= 18)
+        |> List.map .name
+
+
+describe : User -> String
+describe u =
+    case u.email of
+        Just email ->
+            u.name ++ " <" ++ email ++ ">"
+
+        Nothing ->
+            u.name
+
+
+total : List User -> Int
+total users =
+    List.foldl (\u sum -> sum + u.age) 0 users
+
+
+parse : String -> Result D.Error (List User)
+parse json =
+    D.decodeString (D.list user) json

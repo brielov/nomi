@@ -1,0 +1,14 @@
+=== note
+a tuple destructured from a value that is not one
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x =
+    let
+        ( a, b ) =
+            1
+    in
+    a

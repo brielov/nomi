@@ -1,0 +1,29 @@
+=== note
+a module whose every value type-checks, which elm accepts
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+import Html exposing (Html, text)
+
+
+type Shape
+    = Circle Float
+    | Square Float
+
+
+area : Shape -> Float
+area shape =
+    case shape of
+        Circle r ->
+            pi * r * r
+
+        Square s ->
+            s * s
+
+
+main : Html msg
+main =
+    text (String.fromFloat (area (Circle 2)))

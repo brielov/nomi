@@ -1,0 +1,15 @@
+=== note
+a function given too many arguments
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+add : Int -> Int -> Int
+add a b =
+    a + b
+
+
+x =
+    add 1 2 3

@@ -1,0 +1,14 @@
+=== note
+a constructor given an argument of the wrong type
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+type Box
+    = Box Int
+
+
+x =
+    Box "one"

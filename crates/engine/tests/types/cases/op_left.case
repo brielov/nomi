@@ -1,0 +1,11 @@
+=== note
+an operator's left operand of the wrong type
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x : Int
+x =
+    "one" + 2

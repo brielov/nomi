@@ -1,0 +1,11 @@
+=== note
+two rigid type variables unified
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+f : a -> b -> a
+f x y =
+    y

@@ -1,0 +1,55 @@
+=== note
+records, unions and Maybe
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+
+type Shape
+    = Circle Float
+    | Rect Float Float
+
+
+type alias Labeled =
+    { label : String, shape : Shape }
+
+
+area : Shape -> Float
+area shape =
+    case shape of
+        Circle r ->
+            pi * r * r
+
+        Rect w h ->
+            w * h
+
+
+largest : List Labeled -> Maybe String
+largest items =
+    items
+        |> List.sortBy (\item -> area item.shape)
+        |> List.reverse
+        |> List.head
+        |> Maybe.map .label
+
+
+scale : Float -> Shape -> Shape
+scale factor shape =
+    case shape of
+        Circle r ->
+            Circle (r * factor)
+
+        Rect w h ->
+            Rect (w * factor) (h * factor)
+
+
+summary : Labeled -> String
+summary item =
+    item.label ++ ": " ++ String.fromFloat (area item.shape)
+
+
+pairs : List a -> List ( a, a )
+pairs xs =
+    List.map2 Tuple.pair xs (List.drop 1 xs)

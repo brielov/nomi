@@ -1,0 +1,15 @@
+=== note
+an update with a value of the wrong type
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+type alias Point =
+    { x : Int, y : Int }
+
+
+moved : Point -> Point
+moved point =
+    { point | x = "far" }

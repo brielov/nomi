@@ -1,0 +1,10 @@
+=== note
+appending a string to a list
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x =
+    "abc" ++ [ 1 ]

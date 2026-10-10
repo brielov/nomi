@@ -1,6 +1,6 @@
-//! The naming-error projects (`cargo xtask oracle names`): the curated
-//! cases, the seeds, and the seeds' mutations, each run as every release,
-//! for the two naming ratchets.
+//! The oracle's projects (`cargo xtask oracle names`, `oracle types`):
+//! the curated cases, the seeds, and the seeds' mutations, each run as
+//! every release, for the naming and type ratchets.
 // Each test target uses only part of the support it shares.
 #![allow(dead_code)]
 
@@ -14,7 +14,14 @@ use nomi_testkit::transcript::Case;
 use crate::projects::{self, ALL, CRASH, compat_name, table};
 
 pub fn dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/names")
+    suite("names")
+}
+
+/// The directory of the suite `name`.
+pub fn suite(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join(name)
 }
 
 /// The fixture packages every project builds with (plan 5.3).
@@ -23,13 +30,13 @@ fn packages() -> PathBuf {
 }
 
 /// Each project by its id: `case/…`, `seed/…` and `mutation/…`.
-fn projects() -> Vec<(String, Case)> {
+fn projects(dir: &Path) -> Vec<(String, Case)> {
     let read = |path: &Path| {
         Case::parse(&fs::read_to_string(path).unwrap())
             .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
     };
     let cases_in = |sub: &str| {
-        let mut files: Vec<PathBuf> = fs::read_dir(dir().join(sub))
+        let mut files: Vec<PathBuf> = fs::read_dir(dir.join(sub))
             .unwrap()
             .map(|e| e.unwrap().path())
             .collect();
@@ -52,8 +59,7 @@ fn projects() -> Vec<(String, Case)> {
     for (stem, case) in &seeds {
         projects.push((format!("seed/{stem}"), case.clone()));
     }
-    let edits =
-        edit::parse_table(&fs::read_to_string(dir().join("mutations.tsv")).unwrap()).unwrap();
+    let edits = edit::parse_table(&fs::read_to_string(dir.join("mutations.tsv")).unwrap()).unwrap();
     for edit in edits {
         let (_, seed) = seeds.iter().find(|(stem, _)| *stem == edit.seed).unwrap();
         projects.push((format!("mutation/{}", edit.id), edit.apply(seed)));
@@ -71,13 +77,19 @@ pub struct Run {
     pub terminal: String,
 }
 
-/// Every project as every release, but where elm crashed.
+/// Every naming project as every release, but where elm crashed.
 pub fn runs() -> Vec<Run> {
-    let reports = table(&dir().join("reports.tsv"));
-    let terminal = table(&dir().join("terminal.tsv"));
-    let default = fs::read_to_string(dir().join("default.elm.json")).unwrap();
+    runs_in(&dir())
+}
+
+/// Every project of the suite in `dir` as every release, but where elm
+/// crashed.
+pub fn runs_in(dir: &Path) -> Vec<Run> {
+    let reports = table(&dir.join("reports.tsv"));
+    let terminal = table(&dir.join("terminal.tsv"));
+    let default = fs::read_to_string(dir.join("default.elm.json")).unwrap();
     let mut runs = Vec::new();
-    for (id, case) in projects() {
+    for (id, case) in projects(dir) {
         for compat in ALL {
             let key = (id.clone(), compat_name(compat));
             let elm_json = reports[&key].clone();

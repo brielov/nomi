@@ -1,0 +1,15 @@
+=== note
+an annotated if whose branch differs from the annotation
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x : Int
+x =
+    if True then
+        1
+
+    else
+        "no"

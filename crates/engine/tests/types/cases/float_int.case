@@ -1,0 +1,11 @@
+=== note
+a Float where an Int is needed
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (..)
+
+x : Int
+x =
+    1.5
