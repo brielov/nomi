@@ -16,6 +16,12 @@ case/bool_int/0.19.3
 case/call_arg/0.19.1
 case/call_arg/0.19.2
 case/call_arg/0.19.3
+case/call_not_function/0.19.1
+case/call_not_function/0.19.2
+case/call_not_function/0.19.3
+case/call_too_many/0.19.1
+case/call_too_many/0.19.2
+case/call_too_many/0.19.3
 case/case_branches/0.19.1
 case/case_branches/0.19.2
 case/case_branches/0.19.3
@@ -138,6 +144,7 @@ mutation/counter/annotation/0/0.19.2
 mutation/counter/annotation/0/0.19.3
 mutation/counter/annotation/1/0.19.1
 mutation/counter/annotation/1/0.19.2
+mutation/counter/annotation/1/0.19.3
 mutation/counter/annotation/2/0.19.1
 mutation/counter/annotation/2/0.19.2
 mutation/counter/annotation/2/0.19.3
@@ -152,6 +159,7 @@ mutation/counter/annotation/5/0.19.2
 mutation/counter/annotation/5/0.19.3
 mutation/counter/annotation/6/0.19.1
 mutation/counter/annotation/6/0.19.2
+mutation/counter/annotation/6/0.19.3
 mutation/counter/annotation/7/0.19.1
 mutation/counter/annotation/7/0.19.2
 mutation/counter/annotation/7/0.19.3
