@@ -38,6 +38,25 @@ impl ModuleTypes {
     }
 }
 
+impl ModuleTypes {
+    /// An interface of the module `package`'s unions and aliases alone,
+    /// for storing them as interfaces are stored.
+    pub fn to_interface(&self, package: &str) -> Interface {
+        use nomi_compiler::interface::{Alias as IAlias, Union as IUnion};
+        Interface {
+            home: package.to_owned(),
+            values: BTreeMap::new(),
+            unions: (self.unions.iter())
+                .map(|(name, union)| (name.clone(), IUnion::Private(union.clone())))
+                .collect(),
+            aliases: (self.aliases.iter())
+                .map(|(name, alias)| (name.clone(), IAlias::Private(alias.clone())))
+                .collect(),
+            binops: BTreeMap::new(),
+        }
+    }
+}
+
 /// `T.Type`: a type as the debugger reads it.
 enum Public {
     Lambda(Box<Public>, Box<Public>),

@@ -107,13 +107,16 @@ fn plain_code(c: char) -> u32 {
 }
 
 /// `writeCode`: `\uXXXX` in upper case, or a surrogate pair from `0xFFFF`
-/// on, which upstream counts as past the first plane.
+/// on, which upstream counts as past the first plane. `0xFFFF` itself
+/// takes the pair of offset -1: 0.19.1's `divMod` floors, and later
+/// releases' unsigned arithmetic wraps to the same last 16 bits.
 fn code_point(out: &mut String, code: u32) {
     if code < 0xFFFF {
         out.push_str(&format!("\\u{code:04X}"));
     } else {
-        let offset = code - 0x10000;
-        let (hi, lo) = (offset / 0x400 + 0xD800, offset % 0x400 + 0xDC00);
+        let offset = i64::from(code) - 0x10000;
+        let hi = offset.div_euclid(0x400) + 0xD800;
+        let lo = offset.rem_euclid(0x400) + 0xDC00;
         out.push_str(&format!("\\u{:04X}\\u{:04X}", hi & 0xFFFF, lo & 0xFFFF));
     }
 }
@@ -131,6 +134,9 @@ mod tests {
         assert_eq!(string(v2, token), r"esc\u0022aped\u000A\u0009\u005C");
         assert_eq!(string(v1, r#""\u{00E9}t""#), r"\u00E9t");
         assert_eq!(string(v1, r#""it's""#), r"it\'s");
+        assert_eq!(string(v1, r#""\u{FFFF}""#), r"\uD7FF\uDFFF");
+        assert_eq!(string(v2, r#""\u{FFFF}""#), r"\uD7FF\uDFFF");
+        assert_eq!(char(v1, r"'\u{FFFF}'"), r"\uD7FF\uDFFF");
         assert_eq!(string(v2, r#""it's""#), r"it\u0027s");
         assert_eq!(string(v1, "\"\"\"a\n\"b\"\"\""), "a\\n\"b");
         assert_eq!(string(v2, "\"\"\"a\n\"b\"\"\""), r"a\u000A\u0022b");

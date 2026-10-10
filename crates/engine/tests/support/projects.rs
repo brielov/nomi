@@ -238,7 +238,8 @@ fn dependencies(
     static MEMOS: OnceLock<Mutex<HashMap<Compat, objects::Memo>>> = OnceLock::new();
     let mut memos = MEMOS.get_or_init(Default::default).lock().unwrap();
     let memo = memos.entry(compat).or_default();
-    objects::dependencies_with(compat, sources, memo)
+    let built = objects::build(compat, sources, memo, None)?;
+    Ok((built.graph(), built.types()))
 }
 
 fn build(

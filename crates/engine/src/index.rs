@@ -24,8 +24,8 @@ use crate::graph::{Foreigns, Graph, Owner, Root, Status};
 use crate::names::{self, PackageInterfaces};
 use crate::{Snapshot, Vfs};
 
-/// Each package directory's exposed interfaces, kept between indexes.
-pub type Memo = HashMap<PathBuf, HashMap<String, Interface>>;
+/// Each package directory's build, kept between indexes.
+pub type Memo = crate::objects::Memo;
 
 /// A project's modules and packages, for navigation.
 #[derive(Debug)]

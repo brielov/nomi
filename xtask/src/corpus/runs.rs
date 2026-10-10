@@ -307,7 +307,7 @@ fn run(
                 let graph = OBJECTS.with(|memos| {
                     let mut memos = memos.borrow_mut();
                     let memo = memos.entry(compat).or_default();
-                    nomi_engine::objects::dependency_graph_with(compat, sources, memo)
+                    nomi_engine::objects::build(compat, sources, memo, None).map(|d| d.graph())
                 })?;
                 let bytes = binary::encode_global_graph(&graph, compat);
                 keep_objects(compat, &project.case, &bytes);
@@ -325,11 +325,12 @@ fn run(
                 &visible,
             );
             if matches!(checked, Checked::Fine) {
-                let dependencies = OBJECTS.with(|memos| {
+                let built = OBJECTS.with(|memos| {
                     let mut memos = memos.borrow_mut();
                     let memo = memos.entry(compat).or_default();
-                    nomi_engine::objects::dependencies_with(compat, sources, memo)
+                    nomi_engine::objects::build(compat, sources, memo, None)
                 })?;
+                let dependencies = (built.graph(), built.types());
                 let refused = !javascript::debug_uses(compat, &optimized).is_empty();
                 let mut hashes = Vec::new();
                 for (mode, kind) in [

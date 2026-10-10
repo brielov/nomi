@@ -1,7 +1,9 @@
-//! The dependencies' optimized graph, as elm writes it to
-//! `elm-stuff/0.19.x/o.dat` (`Elm/Details.hs`): each package built from
-//! its exposed modules, every module its build reaches optimized and
-//! every kernel it imports parsed, then the packages' graphs merged.
+//! A project's dependencies built (`Elm/Details.hs`): each package from
+//! its exposed modules, every module its build reaches canonicalized,
+//! typed and optimized and every kernel it imports parsed, once per
+//! release of it in the artifact cache. Its exposed interfaces are what
+//! a project's modules import, and the packages' graphs merged are what
+//! elm writes to `elm-stuff/0.19.x/o.dat`.
 //! Upstream merges with left-biased unions folded from the right, so
 //! where two graphs share a key, a record field's count mostly, the one
 //! first in key order wins: modules by name in the release's order,
@@ -10,7 +12,8 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use nomi_base::Compat;
 use nomi_base::diagnostic::code::Source;
@@ -21,11 +24,14 @@ use nomi_compiler::canonicalize::module::{canonicalize, interface};
 use nomi_compiler::hir;
 use nomi_compiler::interface::Interface;
 use nomi_compiler::optimize;
+use nomi_compiler::optimized::binary;
 use nomi_compiler::optimized::{Chunk, GlobalGraph, LocalGraph, Region};
+use nomi_project::outline::PkgOutline;
 use nomi_project::{Name, Outline};
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::parse_module;
 
+use crate::artifacts::{Artifacts, Hash, Key};
 use crate::names::trim;
 
 /// What a package's build makes of one of its modules (`Details.Result`).
@@ -34,9 +40,52 @@ enum Built {
     Kernel(Vec<Chunk>),
 }
 
-/// Each package's exposed interfaces, its graph and every module's types,
-/// by its directory.
-pub type Memo = HashMap<PathBuf, (HashMap<String, Interface>, GlobalGraph, Types)>;
+/// A package built (`Details.Result` for each of its modules): its exposed
+/// modules' interfaces, every module's unions and aliases, and its graph.
+#[derive(Clone, Debug, Default)]
+pub struct PackageBuild {
+    pub exposed: HashMap<String, Interface>,
+    pub types: Types,
+    pub graph: GlobalGraph,
+}
+
+/// Each package's build, by the directory of its source.
+pub type Memo = HashMap<PathBuf, Arc<PackageBuild>>;
+
+/// A project's dependencies built, each a package and its build, by name.
+#[derive(Clone, Debug, Default)]
+pub struct Dependencies {
+    pub packages: BTreeMap<Name, Arc<PackageBuild>>,
+}
+
+impl Dependencies {
+    /// Each package's exposed interfaces.
+    pub fn exposed(&self) -> BTreeMap<Name, HashMap<String, Interface>> {
+        (self.packages.iter())
+            .map(|(name, build)| (name.clone(), build.exposed.clone()))
+            .collect()
+    }
+
+    /// Every module's unions and aliases.
+    pub fn types(&self) -> Types {
+        (self.packages.values())
+            .flat_map(|build| build.types.iter().map(|(h, t)| (h.clone(), t.clone())))
+            .collect()
+    }
+
+    /// The packages' graphs merged, the whole of what `o.dat` holds:
+    /// `Map.foldr addObjects`, so the first package by name wins.
+    pub fn graph(&self) -> GlobalGraph {
+        let mut ordered: Vec<(&Name, &Arc<PackageBuild>)> = self.packages.iter().collect();
+        ordered.sort_by(|(a, _), (b, _)| packages_order(a, b));
+        let mut merged = GlobalGraph::default();
+        for (_, build) in ordered.into_iter().rev() {
+            merged.nodes.extend(build.graph.nodes.clone());
+            merged.fields.extend(build.graph.fields.clone());
+        }
+        merged
+    }
+}
 
 /// The merged graph of `packages`, each a name and the directory of its
 /// source: the whole of what a project's `o.dat` holds.
@@ -44,26 +93,20 @@ pub fn dependency_graph(
     compat: Compat,
     packages: &[(Name, PathBuf)],
 ) -> Result<GlobalGraph, String> {
-    dependency_graph_with(compat, packages, &mut Memo::new())
+    Ok(build(compat, packages, &mut Memo::new(), None)?.graph())
 }
 
-/// [`dependency_graph`], reusing and adding to `memo`, as
-/// `names::package_interfaces_with` does with interfaces.
-pub fn dependency_graph_with(
+/// Builds `packages`, each a name and the directory of its source,
+/// dependencies first: each package once per run through `memo`, and once
+/// per name, version, dependencies' builds, build of nomi and release
+/// through `artifacts` (architecture §6). A module nomi can't build is an
+/// error, naming it.
+pub fn build(
     compat: Compat,
     packages: &[(Name, PathBuf)],
     memo: &mut Memo,
-) -> Result<GlobalGraph, String> {
-    Ok(dependencies_with(compat, packages, memo)?.0)
-}
-
-/// [`dependency_graph_with`], and the unions and aliases of every module
-/// of `packages`, which `--debug` describes messages by.
-pub fn dependencies_with(
-    compat: Compat,
-    packages: &[(Name, PathBuf)],
-    memo: &mut Memo,
-) -> Result<(GlobalGraph, Types), String> {
+    artifacts: Option<&Artifacts>,
+) -> Result<Dependencies, String> {
     let mut outlines = BTreeMap::new();
     for (name, dir) in packages {
         let bytes = fs::read(dir.join("elm.json")).map_err(|e| format!("{name}: {e}"))?;
@@ -74,73 +117,165 @@ pub fn dependencies_with(
             _ => return Err(format!("{name}'s elm.json isn't a package's")),
         }
     }
-    // Each package's exposed interfaces, dependencies first.
-    let mut exposed_interfaces: BTreeMap<Name, HashMap<String, Interface>> = BTreeMap::new();
-    let mut graphs: Vec<(Name, GlobalGraph)> = Vec::new();
-    let mut types = Types::new();
+    let mut built: BTreeMap<Name, Arc<PackageBuild>> = BTreeMap::new();
+    let mut keys: HashMap<Name, Hash> = HashMap::new();
     let mut pending: Vec<Name> = outlines.keys().cloned().collect();
     while !pending.is_empty() {
         let ready = (pending.iter())
             .position(|name| {
                 (outlines[name].0.deps.keys())
-                    .all(|d| exposed_interfaces.contains_key(d) || !outlines.contains_key(d))
+                    .all(|d| built.contains_key(d) || !outlines.contains_key(d))
             })
             .ok_or("the packages depend on each other in a cycle")?;
         let name = pending.remove(ready);
         let (pkg, dir) = &outlines[&name];
-        if let Some((exposed, graph, built_types)) = memo.get(dir) {
-            exposed_interfaces.insert(name.clone(), exposed.clone());
-            graphs.push((name, graph.clone()));
-            types.extend(built_types.clone());
+        let mut key = Key::new("package")
+            .part("compat", compat.to_string().as_bytes())
+            .part("name", name.to_string().as_bytes())
+            .part("version", pkg.version.to_string().as_bytes());
+        for dep in pkg.deps.keys().filter(|d| keys.contains_key(*d)) {
+            key = key.part("dependency", dep.to_string().as_bytes());
+            key = key.hash("build", keys[dep]);
+        }
+        let key = key.finish();
+        keys.insert(name.clone(), key);
+        if let Some(build) = memo.get(dir) {
+            built.insert(name, build.clone());
             continue;
         }
-        let mut visible: HashMap<String, Interface> = HashMap::new();
-        let mut foreigns: BTreeMap<String, String> = BTreeMap::new();
-        for dep in pkg.deps.keys() {
-            if let Some(exposed) = exposed_interfaces.get(dep) {
-                for (module, iface) in exposed {
-                    visible.insert(module.clone(), iface.clone());
-                    foreigns.insert(module.clone(), dep.to_string());
+        let cached =
+            (artifacts.and_then(|a| a.get(key))).and_then(|bytes| decode_build(&bytes, compat));
+        let build = match cached {
+            Some(build) => build,
+            None => {
+                let build = build_package(compat, &name, pkg, dir, &built)?;
+                if let Some(artifacts) = artifacts {
+                    // A cache that can't be written only costs a build next
+                    // time.
+                    let _ = artifacts.put(key, &encode_build(&build, compat));
                 }
+                build
+            }
+        };
+        let build = Arc::new(build);
+        memo.insert(dir.clone(), build.clone());
+        built.insert(name, build);
+    }
+    // Only the packages asked for, though the memo may hold more.
+    built.retain(|name, _| outlines.contains_key(name));
+    Ok(Dependencies { packages: built })
+}
+
+/// Builds the package `name` from its exposed modules, its dependencies
+/// among `built`.
+fn build_package(
+    compat: Compat,
+    name: &Name,
+    pkg: &PkgOutline,
+    dir: &Path,
+    built: &BTreeMap<Name, Arc<PackageBuild>>,
+) -> Result<PackageBuild, String> {
+    let mut visible: HashMap<String, Interface> = HashMap::new();
+    let mut foreigns: BTreeMap<String, String> = BTreeMap::new();
+    for dep in pkg.deps.keys() {
+        if let Some(build) = built.get(dep) {
+            for (module, iface) in &build.exposed {
+                visible.insert(module.clone(), iface.clone());
+                foreigns.insert(module.clone(), dep.to_string());
             }
         }
-        let exposed: Vec<String> = pkg.exposed.modules().map(|m| m.to_string()).collect();
-        let kernels = name.author() == "elm" || name.author() == "elm-explorations";
-        let package = Package {
-            compat,
-            name: name.to_string(),
-            src: dir.join("src"),
-            kernels,
-            foreigns: &foreigns,
-        };
-        let (interfaces, built) = package.build(&exposed, visible)?;
-        let built_types: Types = (interfaces.iter())
-            .filter(|(m, _)| matches!(built.get(*m), Some(Built::Local(_))))
-            .map(|(m, interface)| {
-                let home = Home {
-                    package: name.to_string(),
-                    module: m.clone(),
-                };
-                (home, ModuleTypes::from_interface(interface))
-            })
-            .collect();
-        let exposed: HashMap<String, Interface> = (interfaces.into_iter())
-            .filter(|(m, _)| exposed.contains(m))
-            .collect();
-        let graph = package.gather(built);
-        types.extend(built_types.clone());
-        memo.insert(dir.clone(), (exposed.clone(), graph.clone(), built_types));
-        exposed_interfaces.insert(name.clone(), exposed);
-        graphs.push((name, graph));
     }
-    // `Map.foldr addObjects`: the first package by name wins.
-    graphs.sort_by(|(a, _), (b, _)| packages_order(a, b));
-    let mut merged = GlobalGraph::default();
-    for (_, graph) in graphs.into_iter().rev() {
-        merged.nodes.extend(graph.nodes);
-        merged.fields.extend(graph.fields);
+    let exposed: Vec<String> = pkg.exposed.modules().map(|m| m.to_string()).collect();
+    let kernels = name.author() == "elm" || name.author() == "elm-explorations";
+    let package = Package {
+        compat,
+        name: name.to_string(),
+        src: dir.join("src"),
+        kernels,
+        foreigns: &foreigns,
+    };
+    let (interfaces, modules) = package.build(&exposed, visible)?;
+    let types: Types = (interfaces.iter())
+        .filter(|(m, _)| matches!(modules.get(*m), Some(Built::Local(_))))
+        .map(|(m, interface)| {
+            let home = Home {
+                package: name.to_string(),
+                module: m.clone(),
+            };
+            (home, ModuleTypes::from_interface(interface))
+        })
+        .collect();
+    let exposed: HashMap<String, Interface> = (interfaces.into_iter())
+        .filter(|(m, _)| exposed.contains(m))
+        .collect();
+    let graph = package.gather(modules);
+    Ok(PackageBuild {
+        exposed,
+        types,
+        graph,
+    })
+}
+
+/// A package's build as the artifact cache keeps it: the exposed
+/// interfaces, each module's unions and aliases as an interface holding
+/// only those, and the graph as `o.dat` would.
+fn encode_build(build: &PackageBuild, compat: Compat) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut put = |bytes: &[u8]| {
+        out.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+        out.extend_from_slice(bytes);
+    };
+    let mut exposed: Vec<(&String, &Interface)> = build.exposed.iter().collect();
+    exposed.sort_by(|a, b| a.0.cmp(b.0));
+    put(&(exposed.len() as u64).to_le_bytes());
+    for (module, interface) in exposed {
+        put(module.as_bytes());
+        put(&interface.encode());
     }
-    Ok((merged, types))
+    let mut types: Vec<(&Home, &ModuleTypes)> = build.types.iter().collect();
+    types.sort_by(|a, b| (&a.0.package, &a.0.module).cmp(&(&b.0.package, &b.0.module)));
+    put(&(types.len() as u64).to_le_bytes());
+    for (home, types) in types {
+        put(home.package.as_bytes());
+        put(home.module.as_bytes());
+        put(&types.to_interface(&home.package).encode());
+    }
+    put(&binary::encode_global_graph(&build.graph, compat));
+    out
+}
+
+/// [`encode_build`] read back; `None` for anything else.
+fn decode_build(bytes: &[u8], compat: Compat) -> Option<PackageBuild> {
+    let mut at = 0;
+    let mut take = || -> Option<&[u8]> {
+        let len = u64::from_le_bytes(bytes.get(at..at + 8)?.try_into().ok()?) as usize;
+        let item = bytes.get(at + 8..(at + 8).checked_add(len)?)?;
+        at += 8 + len;
+        Some(item)
+    };
+    let count =
+        |item: &[u8]| -> Option<usize> { Some(u64::from_le_bytes(item.try_into().ok()?) as usize) };
+    let mut exposed = HashMap::new();
+    for _ in 0..count(take()?)? {
+        let module = String::from_utf8(take()?.to_vec()).ok()?;
+        exposed.insert(module, Interface::decode(take()?)?);
+    }
+    let mut types = Types::new();
+    for _ in 0..count(take()?)? {
+        let package = String::from_utf8(take()?.to_vec()).ok()?;
+        let module = String::from_utf8(take()?.to_vec()).ok()?;
+        let interface = Interface::decode(take()?)?;
+        types.insert(
+            Home { package, module },
+            ModuleTypes::from_interface(&interface),
+        );
+    }
+    let graph = binary::decode_global_graph(take()?, compat)?;
+    (at == bytes.len()).then_some(PackageBuild {
+        exposed,
+        types,
+        graph,
+    })
 }
 
 /// `Ord Pkg.Name`: author, then project, each by bytes.

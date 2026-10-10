@@ -25,7 +25,7 @@ use crate::names::Goals;
 use crate::paths::Cache;
 use crate::project::Project;
 use crate::report::{self, ModuleErrors};
-use crate::{Pool, Snapshot, Vfs, env, names, packages};
+use crate::{Pool, Snapshot, Vfs, env, names, objects, packages};
 
 /// What checking found.
 #[derive(Debug)]
@@ -407,7 +407,14 @@ pub(crate) fn foreigns(
             _ => return Err(unreadable()),
         }
     }
-    let interfaces = names::package_interfaces(compat, &sources).map_err(|why| {
+    let artifacts = Artifacts::new(cache);
+    let built = objects::build(
+        compat,
+        &sources,
+        &mut objects::Memo::new(),
+        Some(&artifacts),
+    );
+    let interfaces = built.map(|d| d.exposed()).map_err(|why| {
         one_line(
             "PROBLEM READING PACKAGES",
             format!("I could not read the dependencies' modules: {why}"),

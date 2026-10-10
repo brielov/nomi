@@ -4,8 +4,8 @@
 //! blocked and stays silent.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fs;
-use std::path::{Path, PathBuf};
+
+use std::path::PathBuf;
 
 use nomi_base::diagnostic::Problem;
 use nomi_base::diagnostic::code::Source;
@@ -21,170 +21,36 @@ use nomi_compiler::optimize;
 use nomi_compiler::optimized::LocalGraph;
 use nomi_compiler::types::localizer::Localizer;
 use nomi_compiler::types::report as types_report;
-use nomi_project::{ModuleName, Name, Outline};
+use nomi_project::{ModuleName, Name};
+use nomi_syntax::SyntaxNode;
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxNode, parse_module};
 
 use crate::artifacts::{Artifacts, Hash, Key};
 use crate::graph::{Env, Graph, Module, Owner, Root, Status};
+use crate::objects;
 
 /// Each package's exposed modules' interfaces, by package.
 pub type PackageInterfaces = BTreeMap<Name, HashMap<String, Interface>>;
 
 /// The interfaces of every exposed module of `packages`, each a package
-/// name and the directory of its source, canonicalized from the source
-/// in dependency order. A module nomi can't canonicalize is an error,
-/// naming it.
+/// name and the directory of its source, as `objects::build` builds
+/// them. A module nomi can't build is an error, naming it.
 pub fn package_interfaces(
     compat: Compat,
     packages: &[(Name, PathBuf)],
 ) -> Result<PackageInterfaces, String> {
-    package_interfaces_with(compat, packages, &mut HashMap::new())
+    package_interfaces_with(compat, packages, &mut objects::Memo::new())
 }
 
-/// [`package_interfaces`], reusing and adding to `memo`, each package's
-/// exposed interfaces by its directory. A release's interfaces depend on
-/// its dependencies' releases only through the types they name, so a run
-/// over many projects may treat them as fixed.
+/// [`package_interfaces`], reusing and adding to `memo`. A release's
+/// interfaces depend on its dependencies' releases only through the types
+/// they name, so a run over many projects may treat them as fixed.
 pub fn package_interfaces_with(
     compat: Compat,
     packages: &[(Name, PathBuf)],
-    memo: &mut HashMap<PathBuf, HashMap<String, Interface>>,
+    memo: &mut objects::Memo,
 ) -> Result<PackageInterfaces, String> {
-    let mut outlines = BTreeMap::new();
-    for (name, dir) in packages {
-        let bytes = fs::read(dir.join("elm.json")).map_err(|e| format!("{name}: {e}"))?;
-        match Outline::decode(&bytes, compat) {
-            Ok(Outline::Pkg(pkg)) => {
-                outlines.insert(name.clone(), (pkg, dir.clone()));
-            }
-            _ => return Err(format!("{name}'s elm.json isn't a package's")),
-        }
-    }
-    let mut done: PackageInterfaces = BTreeMap::new();
-    // Dependencies first.
-    let mut pending: Vec<Name> = outlines.keys().cloned().collect();
-    while !pending.is_empty() {
-        let ready = pending
-            .iter()
-            .position(|name| {
-                outlines[name]
-                    .0
-                    .deps
-                    .keys()
-                    .all(|d| done.contains_key(d) || !outlines.contains_key(d))
-            })
-            .ok_or("the packages depend on each other in a cycle")?;
-        let name = pending.remove(ready);
-        let (pkg, dir) = &outlines[&name];
-        if let Some(exposed) = memo.get(dir) {
-            done.insert(name.clone(), exposed.clone());
-            continue;
-        }
-        let mut visible: HashMap<String, Interface> = HashMap::new();
-        for dep in pkg.deps.keys() {
-            if let Some(exposed) = done.get(dep) {
-                visible.extend(exposed.iter().map(|(m, i)| (m.clone(), i.clone())));
-            }
-        }
-        let exposed: Vec<String> = pkg.exposed.modules().map(|m| m.to_string()).collect();
-        let own = package(
-            compat,
-            &name.to_string(),
-            &dir.join("src"),
-            &exposed,
-            visible,
-        )?;
-        let exposed: HashSet<String> = exposed.into_iter().collect();
-        let own: HashMap<String, Interface> = (own.into_iter())
-            .filter(|(m, _)| exposed.contains(m))
-            .collect();
-        memo.insert(dir.clone(), own.clone());
-        done.insert(name.clone(), own);
-    }
-    Ok(done)
-}
-
-/// The interfaces of the modules under `src` that `exposed` reaches,
-/// each canonicalized after the modules of the package it imports. A
-/// package builds from its exposed modules, so a file nothing exposed
-/// imports is never read, as upstream's crawl never reads it.
-fn package(
-    compat: Compat,
-    package: &str,
-    src: &Path,
-    exposed: &[String],
-    mut interfaces: HashMap<String, Interface>,
-) -> Result<HashMap<String, Interface>, String> {
-    let mut modules: BTreeMap<String, hir::Module> = BTreeMap::new();
-    let mut pending: Vec<String> = exposed.to_vec();
-    while let Some(name) = pending.pop() {
-        if modules.contains_key(&name) {
-            continue;
-        }
-        let file = src.join(format!("{}.elm", name.replace('.', "/")));
-        let Ok(text) = fs::read_to_string(&file) else {
-            continue;
-        };
-        let parse = parse_module(&text);
-        let module = hir::lower(&ast::Module::cast(parse.syntax()).expect("a module"));
-        pending.extend(module.imports.iter().map(|i| i.name.text.clone()));
-        modules.insert(name, module);
-    }
-    let mut own = HashMap::new();
-    let mut state: HashMap<String, bool> = HashMap::new();
-    for name in exposed {
-        if modules.contains_key(name) {
-            visit(
-                compat,
-                package,
-                name,
-                &modules,
-                &mut state,
-                &mut interfaces,
-                &mut own,
-            )?;
-        }
-    }
-    Ok(own)
-}
-
-fn visit(
-    compat: Compat,
-    package: &str,
-    name: &str,
-    modules: &BTreeMap<String, hir::Module>,
-    state: &mut HashMap<String, bool>,
-    interfaces: &mut HashMap<String, Interface>,
-    own: &mut HashMap<String, Interface>,
-) -> Result<(), String> {
-    if state.contains_key(name) {
-        return Ok(());
-    }
-    state.insert(name.to_owned(), false);
-    let module = &modules[name];
-    for import in &module.imports {
-        if modules.contains_key(&import.name.text) {
-            visit(
-                compat,
-                package,
-                &import.name.text,
-                modules,
-                state,
-                interfaces,
-                own,
-            )?;
-        }
-    }
-    let canonical = canonicalize(compat, package, interfaces, module)
-        .map_err(|errors| format!("{package} {name}: {errors:?}"))?;
-    let annotations = nomi_compiler::types::infer(compat, &canonical)
-        .map_err(|errors| format!("{package} {name}: type errors {errors:?}"))?;
-    let iface = interface(&canonical, &annotations);
-    interfaces.insert(name.to_owned(), iface.clone());
-    own.insert(name.to_owned(), iface);
-    state.insert(name.to_owned(), true);
-    Ok(())
+    Ok(objects::build(compat, packages, memo, None)?.exposed())
 }
 
 /// The interfaces a project of these direct dependencies imports from.
