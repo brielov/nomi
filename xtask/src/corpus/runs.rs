@@ -323,6 +323,7 @@ fn run(
                 &project.paths,
                 Personality::Elm,
                 &visible,
+                None,
             );
             if matches!(checked, Checked::Fine) {
                 let built = OBJECTS.with(|memos| {
@@ -364,6 +365,7 @@ fn run(
                 &project.paths,
                 Personality::Elm,
                 &visible,
+                None,
             );
             if matches!(checked, Checked::Fine) {
                 let modules: Vec<(String, Vec<u8>)> = (optimized.graphs.into_iter())

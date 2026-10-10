@@ -1,7 +1,8 @@
 //! Early cutoff (plan 6.15): with the artifact cache, a warm check
 //! re-checks a module only where its source or its imports' interfaces
 //! changed. An edit to a body leaves the module's interface as it was,
-//! so its importers are skipped.
+//! so its importers are skipped. Optimizing, as `elm make` does, files
+//! each module's graph beside its interface (plan 8.12a).
 #![cfg(unix)]
 
 #[path = "support/projects.rs"]
@@ -11,6 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use nomi_base::Compat;
+use nomi_compiler::optimized::binary;
 use nomi_engine::Vfs;
 use nomi_engine::artifacts::Artifacts;
 use nomi_engine::check::{self, Checked};
@@ -68,6 +70,16 @@ impl Project {
     /// Checks the project, and names the modules checked rather than
     /// reused, sorted.
     fn check(&self) -> Vec<String> {
+        self.build(false).0
+    }
+
+    /// Optimizes the project as `elm make` does: the modules checked
+    /// rather than reused, sorted, and every module's graph, encoded.
+    fn optimize(&self) -> (Vec<String>, Vec<(String, Vec<u8>)>) {
+        self.build(true)
+    }
+
+    fn build(&self, optimize: bool) -> (Vec<String>, Vec<(String, Vec<u8>)>) {
         let compat = Compat::V0_19_1;
         let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages");
         let outline = Outline::decode(ELM_JSON.as_bytes(), compat).unwrap();
@@ -78,21 +90,42 @@ impl Project {
         let env = check::env_of(&self.root, &outline, compat, foreigns)
             .unwrap()
             .with_cwd(&self.root);
-        let (checked, ran) = check::check_with(
-            &Vfs::new().snapshot(),
-            &env,
-            &outline,
-            &[PathBuf::from("src/Main.elm")],
-            Personality::Nomi,
-            &interfaces,
-            Some(&self.artifacts),
-        );
+        let snapshot = Vfs::new().snapshot();
+        let paths = [PathBuf::from("src/Main.elm")];
+        let artifacts = Some(&self.artifacts);
+        let (checked, ran, graphs) = if optimize {
+            let (checked, optimized) = check::optimize(
+                &snapshot,
+                &env,
+                &outline,
+                &paths,
+                Personality::Nomi,
+                &interfaces,
+                artifacts,
+            );
+            let mut graphs: Vec<(String, Vec<u8>)> = (optimized.graphs.iter())
+                .map(|(name, graph)| (name.to_string(), binary::encode_local_graph(graph, compat)))
+                .collect();
+            graphs.sort();
+            (checked, optimized.ran, graphs)
+        } else {
+            let (checked, ran) = check::check_with(
+                &snapshot,
+                &env,
+                &outline,
+                &paths,
+                Personality::Nomi,
+                &interfaces,
+                artifacts,
+            );
+            (checked, ran, Vec::new())
+        };
         assert!(matches!(checked, Checked::Fine), "{checked:?}");
         let mut names: Vec<String> = (ran.iter())
             .map(|p| p.file_stem().unwrap().to_string_lossy().into_owned())
             .collect();
         names.sort();
-        names
+        (names, graphs)
     }
 }
 
@@ -114,4 +147,29 @@ fn a_body_edit_rechecks_one_module() {
         "module Base exposing (add)\n\n\nadd : number -> number -> number\nadd a b =\n    a + b\n",
     );
     assert_eq!(project.check(), ["Base", "Middle"]);
+}
+
+#[test]
+fn optimized_graphs_are_reused() {
+    let project = Project::new();
+    // A check files interfaces only, so the first build checks again.
+    assert_eq!(project.check(), ["Base", "Main", "Middle"]);
+    let (ran, cold) = project.optimize();
+    assert_eq!(ran, ["Base", "Main", "Middle"]);
+    assert_eq!(cold.len(), 3);
+    // Warm: every graph comes from the cache, the same.
+    let (ran, warm) = project.optimize();
+    assert!(ran.is_empty());
+    assert_eq!(warm, cold);
+    // A body edit rebuilds the one module, and its graph alone changes.
+    project.write("Base", &BASE.replace("a + b", "b + a"));
+    let (ran, edited) = project.optimize();
+    assert_eq!(ran, ["Base"]);
+    let changed: Vec<&str> = (edited.iter().zip(&cold))
+        .filter(|(a, b)| a != b)
+        .map(|(a, _)| a.0.as_str())
+        .collect();
+    assert_eq!(changed, ["Base"]);
+    // And a check after builds reuses everything too.
+    assert!(project.check().is_empty());
 }

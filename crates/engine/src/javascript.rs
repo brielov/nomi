@@ -36,6 +36,7 @@ pub fn program(
         roots,
         graphs: mut locals,
         interfaces,
+        ..
     } = optimized;
     let home = |name: &ModuleName| Home {
         package: package.to_owned(),

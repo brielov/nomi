@@ -18,7 +18,7 @@ use nomi_compiler::hir;
 use nomi_compiler::interface::Interface;
 use nomi_compiler::nitpick::{main as main_check, patterns, report as patterns_report};
 use nomi_compiler::optimize;
-use nomi_compiler::optimized::LocalGraph;
+use nomi_compiler::optimized::{LocalGraph, binary};
 use nomi_compiler::types::localizer::Localizer;
 use nomi_compiler::types::report as types_report;
 use nomi_project::{ModuleName, Name};
@@ -209,13 +209,29 @@ impl Walk<'_> {
             return false;
         }
         let document = self.goals.documented.contains(&module.name);
-        let afresh = document || self.goals.optimize;
-        let key = (self.artifacts.filter(|_| !afresh)).map(|_| self.key(module));
+        let key = (self.artifacts.filter(|_| !document)).map(|_| self.key(module));
         if let (Some(artifacts), Some(key)) = (self.artifacts, key)
             && let Some(interface) = artifacts.get(key).as_deref().and_then(Interface::decode)
         {
-            self.interfaces.insert(module.name.to_string(), interface);
-            return true;
+            // Optimizing, the module's graph must be filed too.
+            let graph = (self.goals.optimize).then(|| {
+                let bytes = artifacts.get(graph_key(key))?;
+                binary::decode_local_graph(&bytes, self.env.compat())
+            });
+            match graph {
+                None => {
+                    self.interfaces.insert(module.name.to_string(), interface);
+                    return true;
+                }
+                Some(Some(graph)) => {
+                    self.optimized.push((module.name.clone(), graph));
+                    let entry = (module.name.clone(), interface.clone());
+                    self.optimized_interfaces.push(entry);
+                    self.interfaces.insert(module.name.to_string(), interface);
+                    return true;
+                }
+                Some(None) => {}
+            }
         }
         self.ran.push(module.path.clone());
         let root = module.parse.syntax();
@@ -283,6 +299,10 @@ impl Walk<'_> {
                         };
                         let graph =
                             optimize::module(self.env.compat(), &annotations, &canonical, &region);
+                        if let (Some(artifacts), Some(key)) = (self.artifacts, key) {
+                            let bytes = binary::encode_local_graph(&graph, self.env.compat());
+                            let _ = artifacts.put(graph_key(key), &bytes);
+                        }
                         self.optimized.push((module.name.clone(), graph));
                     }
                     let interface = interface(&canonical, &annotations);
@@ -366,6 +386,12 @@ impl Walk<'_> {
         }
         key.finish()
     }
+}
+
+/// Where a module's optimized graph is filed: beside the interface filed
+/// under `key`, made of the same inputs.
+fn graph_key(key: Hash) -> Hash {
+    Key::new("graph").hash("module", key).finish()
 }
 
 /// From the first token of `range` that isn't trivia: node ranges keep

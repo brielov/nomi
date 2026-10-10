@@ -148,6 +148,7 @@ pub fn optimized(
         &paths(case),
         Personality::Elm,
         &project.interfaces,
+        None,
     );
     if !matches!(checked, check::Checked::Fine) {
         let mut console = Captured::default();
@@ -186,6 +187,7 @@ pub fn javascript(
         &paths(case),
         Personality::Elm,
         &project.interfaces,
+        None,
     );
     if !matches!(checked, check::Checked::Fine) {
         let mut console = Captured::default();

@@ -192,6 +192,8 @@ pub struct Optimized {
     pub graphs: Vec<(ModuleName, LocalGraph)>,
     /// Each module's interface.
     pub interfaces: Vec<(ModuleName, Interface)>,
+    /// The modules checked rather than taken from the artifact cache.
+    pub ran: Vec<PathBuf>,
 }
 
 /// What `elm make` optimizes of the project `env` describes, building
@@ -203,6 +205,7 @@ pub fn optimize(
     paths: &[PathBuf],
     personality: Personality,
     packages: &HashMap<String, Interface>,
+    artifacts: Option<&Artifacts>,
 ) -> (Checked, Optimized) {
     let built = build(
         snapshot,
@@ -211,13 +214,14 @@ pub fn optimize(
         paths,
         personality,
         packages,
-        None,
+        artifacts,
         Goal::Optimize,
     );
     let optimized = Optimized {
         roots: built.mains,
         graphs: built.optimized,
         interfaces: built.interfaces,
+        ran: built.ran,
     };
     (built.checked, optimized)
 }
