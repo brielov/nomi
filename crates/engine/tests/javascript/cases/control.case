@@ -1,0 +1,83 @@
+=== note
+case expressions, tail calls, cycles and let, run as a worker
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+
+type Shape
+    = Circle Float
+    | Rect Float Float
+    | Empty
+
+
+area : Shape -> Float
+area shape =
+    case shape of
+        Circle r ->
+            pi * r * r
+
+        Rect w h ->
+            w * h
+
+        Empty ->
+            0
+
+
+sum : Int -> List Int -> Int
+sum acc list =
+    case list of
+        [] ->
+            acc
+
+        x :: rest ->
+            sum (acc + x) rest
+
+
+isEven : Int -> Bool
+isEven n =
+    if n == 0 then
+        True
+
+    else
+        isOdd (n - 1)
+
+
+isOdd : Int -> Bool
+isOdd n =
+    if n == 0 then
+        False
+
+    else
+        isEven (n - 1)
+
+
+describe : ( Int, String ) -> String
+describe pair =
+    case pair of
+        ( 0, "zero" ) ->
+            "nothing"
+
+        ( n, s ) ->
+            let
+                twice x =
+                    x ++ x
+            in
+            twice s ++ String.fromInt n
+
+
+main : Program () String ()
+main =
+    Platform.worker
+        { init =
+            \_ ->
+                ( describe ( sum 0 [ 1, 2, 3 ], "x" )
+                    ++ String.fromFloat (List.sum (List.map area [ Circle 1, Rect 2 3, Empty ]))
+                    ++ (if isEven 10 then "even" else "odd")
+                , Cmd.none
+                )
+        , update = \_ model -> ( model, Cmd.none )
+        , subscriptions = \_ -> Sub.none
+        }

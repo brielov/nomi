@@ -1,0 +1,37 @@
+=== note
+records, field access and updates, which --optimize shortens
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+
+type alias Person =
+    { firstName : String, lastName : String, age : Int, address : { street : String, city : String } }
+
+
+people : List Person
+people =
+    [ { firstName = "Ada", lastName = "Lovelace", age = 36, address = { street = "St James's Square", city = "London" } }
+    , { firstName = "Alan", lastName = "Turing", age = 41, address = { street = "Adlington Road", city = "Wilmslow" } }
+    ]
+
+
+older : Person -> Person
+older person =
+    { person | age = person.age + 1 }
+
+
+names : List String
+names =
+    List.map (\p -> p.firstName ++ " " ++ .lastName p ++ ", " ++ p.address.city) (List.map older people)
+
+
+main : Program () (List String) ()
+main =
+    Platform.worker
+        { init = \_ -> ( names, Cmd.none )
+        , update = \_ model -> ( model, Cmd.none )
+        , subscriptions = \_ -> Sub.none
+        }

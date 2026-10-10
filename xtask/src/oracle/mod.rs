@@ -3,6 +3,7 @@
 
 pub mod corpus_runs;
 pub mod format;
+pub mod javascript;
 pub mod make;
 pub mod modules;
 pub mod names;

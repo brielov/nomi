@@ -1,0 +1,22 @@
+=== note
+ports in and out, and a main with flags
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+port module Main exposing (main)
+
+
+port send : { name : String, count : Int, tags : List String } -> Cmd msg
+
+
+port receive : (( String, Maybe Float ) -> msg) -> Sub msg
+
+
+main : Program { user : String } Int ( String, Maybe Float )
+main =
+    Platform.worker
+        { init = \flags -> ( 0, send { name = flags.user, count = 0, tags = [] } )
+        , update = \_ model -> ( model + 1, Cmd.none )
+        , subscriptions = \_ -> receive identity
+        }

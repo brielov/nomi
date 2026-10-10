@@ -1,0 +1,40 @@
+=== note
+JSON decoding and strings, which pull in kernels
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Json.Decode as D
+import Json.Encode as E
+
+
+type alias Item =
+    { id : Int, label : String, tags : List String }
+
+
+item : D.Decoder Item
+item =
+    D.map3 Item
+        (D.field "id" D.int)
+        (D.field "label" D.string)
+        (D.field "tags" (D.list D.string))
+
+
+main : Program E.Value String ()
+main =
+    Platform.worker
+        { init =
+            \flags ->
+                ( case D.decodeValue (D.list item) flags of
+                    Ok items ->
+                        String.join ", " (List.map (.label >> String.toUpper) items)
+
+                    Err error ->
+                        D.errorToString error
+                , Cmd.none
+                )
+        , update = \_ model -> ( model, Cmd.none )
+        , subscriptions = \_ -> Sub.none
+        }

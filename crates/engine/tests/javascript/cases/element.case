@@ -1,0 +1,54 @@
+=== note
+a Browser.element with subscriptions, an effect manager's, and flags
+=== args
+make
+src/Main.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Browser
+import Html exposing (Html, button, div, text)
+import Html.Events exposing (onClick)
+import Time
+
+
+type Msg
+    = Increment
+    | Decrement
+    | Tick Time.Posix
+
+
+type alias Model =
+    { count : Int, ticks : Int, name : String }
+
+
+main : Program String Model Msg
+main =
+    Browser.element
+        { init = \name -> ( { count = 0, ticks = 0, name = name }, Cmd.none )
+        , update = update
+        , subscriptions = \_ -> Time.every 1000 Tick
+        , view = view
+        }
+
+
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg model =
+    case msg of
+        Increment ->
+            ( { model | count = model.count + 1 }, Cmd.none )
+
+        Decrement ->
+            ( { model | count = model.count - 1 }, Cmd.none )
+
+        Tick _ ->
+            ( { model | ticks = model.ticks + 1 }, Cmd.none )
+
+
+view : Model -> Html Msg
+view model =
+    div []
+        [ button [ onClick Decrement ] [ text "-" ]
+        , text (model.name ++ ": " ++ String.fromInt model.count)
+        , button [ onClick Increment ] [ text "+" ]
+        ]

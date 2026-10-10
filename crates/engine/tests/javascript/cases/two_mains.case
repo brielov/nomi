@@ -1,0 +1,22 @@
+=== note
+two programs built into one file
+=== args
+make
+src/Main.elm
+src/Other.elm
+=== file src/Main.elm
+module Main exposing (main)
+
+import Html
+
+
+main =
+    Html.text "main"
+=== file src/Other.elm
+module Other exposing (main)
+
+import Html
+
+
+main =
+    Html.text "other"

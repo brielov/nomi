@@ -204,6 +204,9 @@ enum OracleCommand {
         #[arg(long)]
         only: Option<String>,
     },
+    /// Store the JavaScript each elm generates for every fixture program
+    /// in each mode (plan 8.5).
+    Javascript,
     /// Store the optimized graphs each elm writes for every optimizer
     /// case (plan 8.1).
     Optimized,
@@ -282,6 +285,7 @@ fn main() -> ExitCode {
             OracleCommand::Docs => oracle::types::docs(&root(), &r),
             OracleCommand::Make => oracle::make::run(&root(), &r),
             OracleCommand::Optimized => oracle::optimized::run(&root(), &r),
+            OracleCommand::Javascript => oracle::javascript::run(&root(), &r),
             OracleCommand::CorpusDocs { jobs, only } => {
                 oracle::corpus_runs::run(&root(), &r, Suite::Docs, jobs, only.as_deref())
             }

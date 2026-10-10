@@ -167,6 +167,40 @@ pub fn optimized(
         .collect())
 }
 
+/// The JavaScript `elm make` would generate for `case` in `mode` (`dev`,
+/// `debug` or `optimize`), built as [`run`] builds it; or why there is
+/// none.
+pub fn javascript(
+    case: &Case,
+    compat: Compat,
+    _mode: &str,
+    default_elm_json: &str,
+    packages: &Path,
+) -> Result<Vec<u8>, String> {
+    let project = Project::new(case, compat, default_elm_json, packages);
+    let (checked, _graphs) = check::optimize(
+        &Vfs::new().snapshot(),
+        &project.env,
+        &project.outline,
+        &paths(case),
+        Personality::Elm,
+        &project.interfaces,
+    );
+    if !matches!(checked, check::Checked::Fine) {
+        let mut console = Captured::default();
+        check::show(
+            &mut console,
+            &project.root,
+            &checked,
+            compat,
+            Style::Terminal,
+        );
+        return Err(console.err);
+    }
+    // Code generation comes with plan 8.7.
+    Err("nomi generates no JavaScript yet".to_owned())
+}
+
 fn build(
     case: &Case,
     compat: Compat,
