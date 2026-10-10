@@ -1,0 +1,31 @@
+=== note
+an exposed module importing an internal one, which needs no docs
+=== args
+make
+--docs=docs.json
+=== file src/A.elm
+module A exposing (a)
+
+{-| A.
+
+@docs a
+
+-}
+
+import Internal
+
+
+{-| -}
+a : Internal.T
+a =
+    Internal.t
+=== file src/Internal.elm
+module Internal exposing (T, t)
+
+
+type T
+    = T
+
+
+t =
+    T

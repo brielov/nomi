@@ -1,0 +1,23 @@
+=== note
+a type error comes before the documentation
+=== args
+make
+--docs=docs.json
+=== file src/A.elm
+module A exposing (a, b)
+
+{-| A.
+
+@docs a
+
+-}
+
+
+{-| -}
+a : Int
+a =
+    "one"
+
+
+b =
+    1

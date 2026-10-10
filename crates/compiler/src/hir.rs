@@ -187,8 +187,14 @@ pub struct Module {
     pub name: Option<Spanned>,
     pub kind: ModuleKind,
     pub exports: Exposing,
+    /// The exposing list, from its `(` to its `)`.
+    pub exports_range: TextRange,
     /// The module's doc comment, as written.
     pub docs: Option<Spanned>,
+    /// Where the doc comment goes: from the end of the exposing list to
+    /// the next token, as `chompModuleDocCommentSpace` locates its
+    /// absence.
+    pub docs_gap: TextRange,
     pub imports: Vec<Import>,
     /// The top-level values, in source order. Upstream's parser keeps
     /// values, unions, aliases and ports each in reverse source order

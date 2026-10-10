@@ -1,0 +1,35 @@
+=== note
+names only in the docs and only exposed, in an order that differs between releases
+=== args
+make
+--docs=docs.json
+=== file src/A.elm
+module A exposing (b, aa, T, Zed)
+
+{-| A.
+
+@docs ccc, d, Ghost, aa
+
+-}
+
+
+{-| -}
+type T
+    = T
+
+
+{-| -}
+type Zed
+    = Zed
+
+
+{-| -}
+aa : Int
+aa =
+    1
+
+
+{-| -}
+b : Int
+b =
+    1

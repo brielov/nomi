@@ -79,6 +79,9 @@ pub struct Run {
     pub elm_terminal: String,
     pub json: String,
     pub terminal: String,
+    /// The `docs.json` each wrote, for `--docs` projects.
+    pub elm_docs: Option<String>,
+    pub docs: Option<String>,
 }
 
 /// Every naming project as every release, but where elm crashed.
@@ -89,6 +92,21 @@ pub fn runs() -> Vec<Run> {
 /// Every project of the suite in `dir` as every release, but where elm
 /// crashed.
 pub fn runs_in(dir: &Path) -> Vec<Run> {
+    runs_with(dir, false)
+}
+
+/// [`runs_in`] for a suite of `elm make --docs` projects, with the
+/// `docs.json` each wrote.
+pub fn docs_runs_in(dir: &Path) -> Vec<Run> {
+    runs_with(dir, true)
+}
+
+fn runs_with(dir: &Path, docs: bool) -> Vec<Run> {
+    let written = if docs {
+        table(&dir.join("docs.tsv"))
+    } else {
+        Default::default()
+    };
     let reports = table(&dir.join("reports.tsv"));
     let terminal = table(&dir.join("terminal.tsv"));
     let default = fs::read_to_string(dir.join("default.elm.json")).unwrap();
@@ -100,13 +118,21 @@ pub fn runs_in(dir: &Path) -> Vec<Run> {
             if elm_json == CRASH {
                 continue;
             }
-            let (json, nomi_terminal) = projects::run(&case, compat, &default, &packages());
+            let (json, nomi_terminal, nomi_docs) = if docs {
+                projects::run_docs(&case, compat, &default, &packages())
+            } else {
+                let (json, terminal) = projects::run(&case, compat, &default, &packages());
+                (json, terminal, None)
+            };
+            let elm_docs = (written.get(&key)).filter(|cell| *cell != "none").cloned();
             runs.push(Run {
                 id: format!("{id}/{}", version(compat)),
                 elm_json,
                 elm_terminal: serde_json::from_str(&terminal[&key]).unwrap(),
                 json,
                 terminal: nomi_terminal,
+                elm_docs,
+                docs: nomi_docs,
             });
         }
     }

@@ -13,6 +13,7 @@ use nomi_base::Compat;
 use crate::Source;
 
 mod declaration;
+pub mod docs;
 mod engine;
 pub mod error;
 mod expression;
@@ -23,7 +24,7 @@ mod report;
 mod types;
 
 pub use error::Error;
-pub use report::to_problem;
+pub use report::{docs_problem, to_problem};
 
 /// What elm `compat` reports first of the module `src`, from a project
 /// of kind `source`, if it parses at all.

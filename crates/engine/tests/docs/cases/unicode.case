@@ -1,0 +1,24 @@
+=== note
+names and comments past ASCII
+=== args
+make
+--docs=docs.json
+=== file src/A.elm
+module A exposing (ünïcode, Ŧype)
+
+{-| Ünïcode — “quoted” ✓.
+
+@docs ünïcode, Ŧype
+
+-}
+
+
+{-| Ŧype. -}
+type Ŧype
+    = Ŧype
+
+
+{-| ünïcode ✓ -}
+ünïcode : Ŧype
+ünïcode =
+    Ŧype

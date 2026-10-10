@@ -1,0 +1,34 @@
+=== note
+a comma that starts a line ends the list
+=== args
+make
+--docs=docs.json
+=== file src/A.elm
+module A exposing (a, b, c)
+
+{-| A.
+
+@docs a
+, b
+@docs c
+  , b
+
+-}
+
+
+{-| -}
+a : Int
+a =
+    1
+
+
+{-| -}
+b : Int
+b =
+    1
+
+
+{-| -}
+c : Int
+c =
+    1

@@ -1,0 +1,15 @@
+=== note
+a module without documentation, an ordinary comment next
+=== args
+make
+--docs=docs.json
+=== file src/A.elm
+module A exposing (a)
+
+-- not docs
+{- nor this -}
+
+
+a : Int
+a =
+    1

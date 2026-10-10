@@ -1,0 +1,13 @@
+=== note
+no imports, so the first declaration's doc comment documents the module
+=== args
+make
+--docs=docs.json
+=== file src/A.elm
+module A exposing (a)
+
+{-| The value a.
+-}
+a : Int
+a =
+    1

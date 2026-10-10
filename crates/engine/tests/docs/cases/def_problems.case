@@ -1,0 +1,45 @@
+=== note
+missing comments and annotations, in an order that differs between releases
+=== args
+make
+--docs=docs.json
+=== file src/A.elm
+module A exposing (b, aa, T, Zed, Al, both, typed)
+
+{-| A.
+
+@docs b, aa, T, Zed, Al, both, typed
+
+-}
+
+
+type T
+    = T
+
+
+type Zed
+    = Zed
+
+
+type alias Al =
+    Int
+
+
+{-| -}
+aa =
+    1
+
+
+b : Int
+b =
+    1
+
+
+both =
+    2
+
+
+{-| -}
+typed : Int -> Int
+typed x =
+    x

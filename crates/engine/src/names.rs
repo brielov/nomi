@@ -13,6 +13,7 @@ use nomi_base::{Compat, TextRange};
 use nomi_compiler::canonicalize::foreign::with_defaults;
 use nomi_compiler::canonicalize::module::{canonicalize, interface};
 use nomi_compiler::canonicalize::report;
+use nomi_compiler::docs;
 use nomi_compiler::hir;
 use nomi_compiler::interface::Interface;
 use nomi_compiler::nitpick::{main as main_check, patterns, report as patterns_report};
@@ -202,7 +203,7 @@ pub fn canonicalize_graph(
     packages: &HashMap<String, Interface>,
     failed: &HashSet<PathBuf>,
 ) -> HashMap<PathBuf, Vec<Problem>> {
-    check_graph(env, graph, packages, failed, None).problems
+    check_graph(env, graph, packages, failed, None, &[]).problems
 }
 
 /// What checking a graph found, and which modules it checked rather than
@@ -211,6 +212,8 @@ pub fn canonicalize_graph(
 pub struct Checked {
     pub problems: HashMap<PathBuf, Vec<Problem>>,
     pub ran: Vec<PathBuf>,
+    /// The documentation of each module asked for that has it.
+    pub docs: Vec<docs::Module>,
 }
 
 /// [`canonicalize_graph`], reusing `artifacts` (architecture §6): a
@@ -218,13 +221,16 @@ pub struct Checked {
 /// what a clean check of it saw before takes the interface it made then,
 /// unchecked. An edit that leaves a module's interface as it was leaves
 /// its importers' keys as they were, so they are skipped too: the early
-/// cutoff.
+/// cutoff. The modules in `documented` are documented too, after
+/// everything else checks out, as `elm make --docs` does a package's
+/// exposed modules; they are always checked afresh.
 pub fn check_graph(
     env: &Env,
     graph: &Graph,
     packages: &HashMap<String, Interface>,
     failed: &HashSet<PathBuf>,
     artifacts: Option<&Artifacts>,
+    documented: &[ModuleName],
 ) -> Checked {
     let package = match env.owner() {
         Owner::Package(name) => name.to_string(),
@@ -241,6 +247,8 @@ pub fn check_graph(
         artifacts,
         hashes: HashMap::new(),
         ran: Vec::new(),
+        documented,
+        docs: Vec::new(),
     };
     let mut names: Vec<&ModuleName> = graph.modules.keys().collect();
     names.sort_by(|a, b| a.compare(b, env.compat()));
@@ -255,6 +263,7 @@ pub fn check_graph(
     Checked {
         problems: walk.problems,
         ran: walk.ran,
+        docs: walk.docs,
     }
 }
 
@@ -272,6 +281,8 @@ struct Walk<'g> {
     hashes: HashMap<String, Hash>,
     /// The modules checked, in order.
     ran: Vec<PathBuf>,
+    documented: &'g [ModuleName],
+    docs: Vec<docs::Module>,
 }
 
 impl Walk<'_> {
@@ -309,7 +320,8 @@ impl Walk<'_> {
         if blocked {
             return false;
         }
-        let key = self.artifacts.map(|_| self.key(module));
+        let document = self.documented.contains(&module.name);
+        let key = (self.artifacts.filter(|_| !document)).map(|_| self.key(module));
         if let (Some(artifacts), Some(key)) = (self.artifacts, key)
             && let Some(interface) = artifacts.get(key).as_deref().and_then(Interface::decode)
         {
@@ -357,6 +369,19 @@ impl Walk<'_> {
                         );
                         self.problems.insert(module.path.clone(), vec![problem]);
                         return false;
+                    }
+                    // Then the documentation, as `Build.compile` makes it.
+                    if document {
+                        match docs::from_module(self.env.compat(), &module.text, &hir, &canonical) {
+                            Ok(docs) => self.docs.push(docs),
+                            Err(error) => {
+                                let source = Source::new(&module.text);
+                                let problems =
+                                    docs::report::to_problems(&error, &source, self.env.compat());
+                                self.problems.insert(module.path.clone(), problems);
+                                return false;
+                            }
+                        }
                     }
                     let interface = interface(&canonical, &annotations);
                     if let (Some(artifacts), Some(key)) = (self.artifacts, key) {

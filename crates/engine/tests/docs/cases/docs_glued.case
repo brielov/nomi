@@ -1,0 +1,20 @@
+=== note
+@docsa is not @docs
+=== args
+make
+--docs=docs.json
+=== file src/A.elm
+module A exposing (a)
+
+{-| A.
+
+@docsa
+@docs a
+
+-}
+
+
+{-| -}
+a : Int
+a =
+    1

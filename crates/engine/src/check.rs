@@ -110,6 +110,56 @@ pub fn check_with(
     packages: &HashMap<String, Interface>,
     artifacts: Option<&Artifacts>,
 ) -> (Checked, Vec<PathBuf>) {
+    let (checked, ran, _) = build(
+        snapshot,
+        env,
+        outline,
+        paths,
+        personality,
+        packages,
+        artifacts,
+        false,
+    );
+    (checked, ran)
+}
+
+/// What `elm make --docs` makes of the package `env` describes: its
+/// exposed modules checked as [`check`] checks them and documented, and
+/// `docs.json` if nothing was wrong.
+pub fn docs(
+    snapshot: &Snapshot,
+    env: &Env,
+    outline: &Outline,
+    personality: Personality,
+    packages: &HashMap<String, Interface>,
+) -> (Checked, Option<String>) {
+    let (checked, _, docs) = build(
+        snapshot,
+        env,
+        outline,
+        &[],
+        personality,
+        packages,
+        None,
+        true,
+    );
+    let json =
+        matches!(checked, Checked::Fine).then(|| nomi_compiler::docs::encode(env.compat(), &docs));
+    (checked, json)
+}
+
+/// [`check_with`], documenting a package's exposed modules if `docs`.
+#[allow(clippy::too_many_arguments)]
+fn build(
+    snapshot: &Snapshot,
+    env: &Env,
+    outline: &Outline,
+    paths: &[PathBuf],
+    personality: Personality,
+    packages: &HashMap<String, Interface>,
+    artifacts: Option<&Artifacts>,
+    docs: bool,
+) -> (Checked, Vec<PathBuf>, Vec<nomi_compiler::docs::Module>) {
     let exposed: Vec<ModuleName> = match outline {
         Outline::Pkg(pkg) => pkg.exposed.modules().cloned().collect(),
         Outline::App(_) => Vec::new(),
@@ -117,9 +167,17 @@ pub fn check_with(
     let graph = if !paths.is_empty() {
         Graph::from_paths(snapshot, env, paths)
     } else if let Outline::App(_) = outline {
-        return (Checked::Project(no_input(personality, true)), Vec::new());
+        return (
+            Checked::Project(no_input(personality, true)),
+            Vec::new(),
+            Vec::new(),
+        );
     } else if exposed.is_empty() {
-        return (Checked::Project(no_input(personality, false)), Vec::new());
+        return (
+            Checked::Project(no_input(personality, false)),
+            Vec::new(),
+            Vec::new(),
+        );
     } else {
         Graph::from_exposed(snapshot, env, &exposed)
     };
@@ -129,24 +187,30 @@ pub fn check_with(
             return (
                 Checked::Project(report::project_problem(&problem, env.compat())),
                 Vec::new(),
+                Vec::new(),
             );
         }
     };
     if paths.is_empty()
         && let Some(report) = report::missing_exposed(&graph, &exposed)
     {
-        return (Checked::Project(report), Vec::new());
+        return (Checked::Project(report), Vec::new(), Vec::new());
     }
     let earlier = report::module_errors(env, &graph);
     let failed: HashSet<PathBuf> = earlier.iter().map(|m| m.path.clone()).collect();
-    let later = names::check_graph(env, &graph, packages, &failed, artifacts);
+    let documented: &[ModuleName] = if docs && paths.is_empty() {
+        &exposed
+    } else {
+        &[]
+    };
+    let later = names::check_graph(env, &graph, packages, &failed, artifacts, documented);
     let modules = report::module_errors_with(env, &graph, &later.problems);
     let checked = if modules.is_empty() {
         Checked::Fine
     } else {
         Checked::Modules(modules)
     };
-    (checked, later.ran)
+    (checked, later.ran, later.docs)
 }
 
 /// Shows `checked`: in the terminal style, the reports on standard error

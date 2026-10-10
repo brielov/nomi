@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **7.4**.
+4. Resume at the first unchecked box. Right now that is **7.4a**.
 
 ### Test tiers
 
@@ -430,7 +430,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 - [x] **7.3** `compiler: main validation`. `addDefHelp` and `checkPayload`, with their reports.
 
   Done: `nitpick::main` ports the `main` checks of `Canonicalize/Module.hs` (`addDefHelp`, through `Effects.checkPayload` for flags): `main` must be `Html`, `Svg` or a `Program` whose flags are payload types, and must not be part of a cycle. Upstream runs it in `Result`, so the first error stops, and nomi runs it after the pattern check, where upstream's order puts it. 0.19.3's minimal cycle renders the same for `main`. Nine `main_*` cases join the patterns oracle, and `patterns_reports` passes all 93 runs. Two engine and CLI tests used a non-program `main` as valid code; they now name it otherwise.
-- [ ] **7.4** `compiler: package docs`. `Elm/Docs.hs` and the docs errors, as `elm make --docs` makes them. **Check:** curated package projects, one per report of `Reporting/Error/Docs.hs` and the places releases differ, recorded by `cargo xtask oracle docs`; nomi's reports and `docs.json` match each elm's whole.
+- [x] **7.4** `compiler: package docs`. `Elm/Docs.hs` and the docs errors, as `elm make --docs` makes them. **Check:** curated package projects, one per report of `Reporting/Error/Docs.hs` and the places releases differ, recorded by `cargo xtask oracle docs`; nomi's reports and `docs.json` match each elm's whole.
+
+  Done: `docs::from_module` ports `Elm/Docs.hs` over the canonical module and its HIR, and `docs::report` its reports. The `@docs` lines are parsed by `elm::docs` in the syntax crate, with the elm parser's own spaces, names and operators, where they sit in the module. Canonical exports now keep their regions, and the HIR keeps the exposing list's and the gap where a missing doc comment goes. The engine documents a package's exposed modules after the `main` check, as `Build.compile` does, never from the artifact cache, and `check::docs` gives `docs.json` as `encodeUgly` writes it; the `--docs` flag itself waits for `make` (M8). Surprises: 0.19.3 checks and reports types, then values, then operators, each in length-first name order, which also orders `docs.json`'s modules and entries; it names an operator, not its function, when the annotation is missing; and only 0.19.1 reads an `@docs` that ends the comment. Without imports, the first declaration's doc comment documents the module. `cargo xtask oracle docs` records 22 cases with each elm's `docs.json`, and the ratchet `docs_reports` passes all 66 runs.
 - [ ] **7.4a** `oracle: corpus docs.json`. Every corpus package run through `elm make --docs` for each Compat that accepts it, offline, in an `ELM_HOME` holding the dependencies the development cache has. **Check:** `docs.json` is byte-identical for every corpus package each Compat accepts, and the rejected ones fail with upstream's error.
 - [ ] **7.5** `oracle: whole-project snapshots`. `elm make --output=/dev/null --report=json` on every corpus project, for each Compat, in the 1.15a sandboxes; rejected projects are expected-failure cases. Add the old 605-case CLI report matrix (`conformance/checkpoints/2026-09-23/json-report-fixtures`), which compares every output stream, exit status and artifact.
 - [ ] **7.6** `cli: reach nomi check parity`. Work the ratchet to 100%.

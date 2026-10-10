@@ -1,0 +1,22 @@
+=== note
+a doc comment with carriage returns, which docs.json drops
+=== args
+make
+--docs=docs.json
+=== file src/A.elm
+module A exposing (a)
+
+{-| A,
+with CRLF.
+
+@docs a
+
+-}
+
+
+{-| A value.
+Two lines.
+-}
+a : Int
+a =
+    1

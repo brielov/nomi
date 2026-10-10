@@ -1,0 +1,19 @@
+=== note
+a number in @docs
+=== args
+make
+--docs=docs.json
+=== file src/A.elm
+module A exposing (a)
+
+{-| A.
+
+@docs a, 1
+
+-}
+
+
+{-| -}
+a : Int
+a =
+    1

@@ -1,0 +1,15 @@
+=== note
+@docs where the comment ends: 0.19.1 reads it
+=== args
+make
+--docs=docs.json
+=== file src/A.elm
+module A exposing (a)
+
+{-| A. @docs-}
+
+
+{-| -}
+a : Int
+a =
+    1

@@ -122,10 +122,24 @@ impl Lower {
             } else {
                 ModuleKind::Plain
             };
-            self.module.exports = header
-                .exposing_list()
-                .map(|list| exposing(&list))
-                .unwrap_or_default();
+            if let Some(list) = header.exposing_list() {
+                self.module.exports = exposing(&list);
+                // From its `(`, as `addLocation` around `exposing` has it.
+                let range = words(list.syntax()).range;
+                let open = (list.syntax().children_with_tokens())
+                    .find(|e| e.kind() == SyntaxKind::LParen)
+                    .map_or(range.start(), |e| e.text_range().start());
+                self.module.exports_range = TextRange::new(open, range.end());
+                let mut next = list.syntax().last_token().and_then(|t| t.next_token());
+                while let Some(token) = next.as_ref().filter(|t| t.kind().is_trivia()) {
+                    next = token.next_token();
+                }
+                let end = next.map_or(module.syntax().text_range().end(), |t| {
+                    t.text_range().start()
+                });
+                let start = self.module.exports_range.end();
+                self.module.docs_gap = TextRange::new(start, end.max(start));
+            }
         }
         self.module.docs = doc(module.doc_comment_token());
         self.module.imports = module.imports().filter_map(|i| import(&i)).collect();

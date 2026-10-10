@@ -1,0 +1,108 @@
+=== note
+a module documented in full, which elm accepts
+=== args
+make
+--docs=docs.json
+=== file src/A.elm
+module A exposing
+    ( Shape(..), Hidden, Point, Config
+    , origin, area, map2, decode, pair, nothing, unit, apply
+    )
+
+{-| Shapes and points, with "quotes" and \backslashes\.
+
+# Types
+@docs Shape, Hidden, Point, Config
+
+# Values
+@docs origin, area
+@docs map2, decode
+@docs pair, nothing, unit, apply
+
+-}
+
+import Json.Decode as Decode exposing (Decoder)
+
+
+{-| A shape.
+-}
+type Shape a
+    = Circle Float
+    | Rect { width : Float, height : Float }
+    | Custom (List (Maybe a)) (a -> Int)
+    | Pair ( Int, String ) ( a, a, a )
+
+
+{-| Hidden away. -}
+type Hidden
+    = Hidden Int
+
+
+{-| A point. -}
+type alias Point =
+    { x : Float, y : Float }
+
+
+{-| Some configuration, extensible.
+-}
+type alias Config r =
+    { r | name : String, tags : List String }
+
+
+{-| The origin. -}
+origin : Point
+origin =
+    { x = 0, y = 0 }
+
+
+{-| The area. -}
+area : Shape a -> Float
+area shape =
+    case shape of
+        Circle r ->
+            3 * r * r
+
+        Rect { width, height } ->
+            width * height
+
+        Custom _ _ ->
+            0
+
+        Pair _ _ ->
+            0
+
+
+{-| Two functions at once. -}
+map2 : (a -> b -> c) -> Maybe a -> Maybe b -> Maybe c
+map2 f a b =
+    Maybe.map2 f a b
+
+
+{-| A decoder. -}
+decode : Decoder (Config { id : Int })
+decode =
+    Decode.fail "no"
+
+
+{-| A pair. -}
+pair : a -> b -> ( a, b )
+pair a b =
+    ( a, b )
+
+
+{-| Nothing at all. -}
+nothing : Maybe (Maybe (List ( Int, Decode.Value )))
+nothing =
+    Nothing
+
+
+{-| Unit. -}
+unit : ()
+unit =
+    ()
+
+
+{-| Apply. -}
+apply : ((a -> b) -> c) -> (a -> b) -> c
+apply f g =
+    f g

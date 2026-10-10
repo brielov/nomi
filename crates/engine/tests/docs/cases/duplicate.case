@@ -1,0 +1,26 @@
+=== note
+a name listed twice
+=== args
+make
+--docs=docs.json
+=== file src/A.elm
+module A exposing (a, b)
+
+{-| A.
+
+@docs a, b
+@docs a
+
+-}
+
+
+{-| -}
+a : Int
+a =
+    1
+
+
+{-| -}
+b : Int
+b =
+    1

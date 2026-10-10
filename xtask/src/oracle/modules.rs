@@ -10,7 +10,8 @@
 //! kept as written, in `reports.tsv`; a report several elms write alike is
 //! one row naming them all. What elm prints on standard error without
 //! `--report`, its terminal report, goes in `terminal.tsv` the same way,
-//! as a JSON string. The case's files are dated a second apart in their
+//! as a JSON string. The `docs.json` a case's `--docs` has elm write goes
+//! in `docs.tsv` the same way, as written. The case's files are dated a second apart in their
 //! order, since the terminal report lists modules oldest first. Each
 //! package's `elm.json` is stored under `packages/`, so the tests can give
 //! nomi the same packages.
@@ -44,6 +45,13 @@ pub const CRASH: &str = "crash";
 
 /// Runs of one case before a lock failure is an error.
 const RETRIES: u32 = 5;
+
+/// What a `docs.tsv` cell holds where elm wrote no `docs.json`.
+pub const NO_DOCS: &str = "none";
+
+/// What one elm made of a case: its `--report=json`, its terminal report
+/// and the `docs.json` it wrote, if any.
+type Outputs = (String, String, Option<String>);
 
 pub fn run(root: &Path, refs: &References) -> Result<()> {
     let dir = root.join(CASES);
@@ -108,11 +116,11 @@ pub fn record_projects(
 ) -> Result<()> {
     let default = fs::read_to_string(dir.join("default.elm.json"))?;
     let versions = compat::compats(refs)?;
-    let outputs: Vec<Result<Vec<(String, String)>>> = std::thread::scope(|scope| {
+    let outputs: Vec<Result<Vec<Outputs>>> = std::thread::scope(|scope| {
         let runs: Vec<_> = (versions.iter())
             .map(|&version| {
                 let default = &default;
-                scope.spawn(move || -> Result<Vec<(String, String)>> {
+                scope.spawn(move || -> Result<Vec<Outputs>> {
                     let scratch = cache_dir()?
                         .join("sandboxes")
                         .join(suite)
@@ -128,7 +136,9 @@ pub fn record_projects(
                             record(refs, &scratch, &home, version, case, default, json)
                                 .with_context(|| format!("elm {version} on {id}"))
                         };
-                        outputs.push((run(true)?, run(false)?));
+                        let (report, docs) = run(true)?;
+                        let (stderr, _) = run(false)?;
+                        outputs.push((report, stderr, docs));
                     }
                     Ok(outputs)
                 })
@@ -141,13 +151,20 @@ pub fn record_projects(
     let outputs = outputs.into_iter().collect::<Result<Vec<_>>>()?;
     let mut out = format!("{HEADER}\ncase\telms\treport\n");
     let mut terminal = format!("{HEADER}\ncase\telms\tstderr\n");
+    let mut docs = format!("{HEADER}\ncase\telms\tdocs\n");
     for (i, (id, _)) in projects.iter().enumerate() {
         let mut reports: Vec<(Vec<String>, &str)> = Vec::new();
         let mut stderrs: Vec<(Vec<String>, &str)> = Vec::new();
+        let mut written: Vec<(Vec<String>, &str)> = Vec::new();
         for (version, outputs) in versions.iter().zip(&outputs) {
             let elm = format!("elm {version}");
-            let (report, stderr) = &outputs[i];
-            for (table, output) in [(&mut reports, report), (&mut stderrs, stderr)] {
+            let (report, stderr, json) = &outputs[i];
+            let json = json.as_deref().unwrap_or(NO_DOCS);
+            for (table, output) in [
+                (&mut reports, report.as_str()),
+                (&mut stderrs, stderr.as_str()),
+                (&mut written, json),
+            ] {
                 match table.iter_mut().find(|(_, o)| *o == output) {
                     Some((versions, _)) => versions.push(elm.clone()),
                     None => table.push((vec![elm.clone()], output)),
@@ -161,9 +178,18 @@ pub fn record_projects(
             let stderr = serde_json::to_string(stderr)?;
             writeln!(terminal, "{id}\t{}\t{stderr}", versions.join(","))?;
         }
+        for (versions, json) in written {
+            writeln!(docs, "{id}\t{}\t{json}", versions.join(","))?;
+        }
     }
     fs::write(dir.join("reports.tsv"), out)?;
     fs::write(dir.join("terminal.tsv"), terminal)?;
+    if projects
+        .iter()
+        .any(|(_, case)| case.args.iter().any(|a| a.starts_with("--docs=")))
+    {
+        fs::write(dir.join("docs.tsv"), docs)?;
+    }
     println!("recorded {} cases", projects.len());
     Ok(())
 }
@@ -180,7 +206,7 @@ fn record(
     case: &Case,
     default: &str,
     json: bool,
-) -> Result<String> {
+) -> Result<(String, Option<String>)> {
     let pin = refs
         .binary
         .iter()
@@ -227,12 +253,13 @@ fn record(
     };
     // 0.19.3 dies on some recursive aliases; the tests skip what crashed.
     if output.status.code().is_none() {
-        return Ok(CRASH.to_owned());
+        return Ok((CRASH.to_owned(), None));
     }
+    let docs = fs::read_to_string(work.join("docs.json")).ok();
     let work = canonical(&work)?;
     if !json {
         let stderr = String::from_utf8(output.stderr)?;
-        return Ok(stderr.replace(&work, "$ROOT"));
+        return Ok((stderr.replace(&work, "$ROOT"), docs));
     }
     let json = [&output.stderr, &output.stdout]
         .into_iter()
@@ -244,11 +271,11 @@ fn record(
             output.status,
             String::from_utf8_lossy(&output.stderr)
         );
-        return Ok("accepted".to_owned());
+        return Ok(("accepted".to_owned(), docs));
     };
     // One line: elm escapes the newlines it writes.
     let report = String::from_utf8(json.trim_ascii_end().to_vec())?;
-    Ok(report.replace(&work, "$ROOT"))
+    Ok((report.replace(&work, "$ROOT"), docs))
 }
 
 /// Dates the case's files a second apart in their order, from 2001, so

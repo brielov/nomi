@@ -1,0 +1,19 @@
+=== note
+an unclosed operator in @docs
+=== args
+make
+--docs=docs.json
+=== file src/A.elm
+module A exposing (a)
+
+{-| A.
+
+@docs a, (+
+
+-}
+
+
+{-| -}
+a : Int
+a =
+    1

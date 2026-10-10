@@ -27,8 +27,10 @@ use crate::interface::{self, Interface};
 /// What a module exposes (`Can.Exports`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Exports {
-    Everything,
-    Explicit(BTreeMap<String, Export>),
+    /// `(..)`, and where it is.
+    Everything(TextRange),
+    /// Each name exposed, where the list names it, and what it is.
+    Explicit(BTreeMap<String, (TextRange, Export)>),
 }
 
 /// `Can.Export`.
@@ -332,7 +334,7 @@ fn exports(
     ports: &[String],
 ) -> R<Exports> {
     let Exposing::Explicit(items) = &module.exports else {
-        return Ok(Exports::Everything);
+        return Ok(Exports::Everything(module.exports_range));
     };
     let port_module = matches!(module.kind, hir::ModuleKind::Port);
     let ok = |name: &str, range: TextRange, export| Ok(Dict::one(name, range, (range, export)));
@@ -426,12 +428,7 @@ fn exports(
             first,
             second,
         })?;
-    Ok(Exports::Explicit(
-        exports
-            .into_iter()
-            .map(|(name, (_, export))| (name, export))
-            .collect(),
-    ))
+    Ok(Exports::Explicit(exports.into_iter().collect()))
 }
 
 /// The annotation of a value whose type nomi doesn't infer yet (M6): its
@@ -454,8 +451,8 @@ pub fn interface(canonical: &Canonical, inferred: &BTreeMap<String, Annotation>)
             .unwrap_or_else(unknown)
     };
     let exported = |name: &str| match &canonical.exports {
-        Exports::Everything => Some(None),
-        Exports::Explicit(exports) => exports.get(name).map(Some),
+        Exports::Everything(_) => Some(None),
+        Exports::Explicit(exports) => exports.get(name).map(|(_, export)| Some(export)),
     };
     let values = (canonical.values.iter())
         .filter(|name| exported(name).is_some())

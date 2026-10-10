@@ -64,6 +64,28 @@ pub fn run(
     default_elm_json: &str,
     packages: &Path,
 ) -> (String, String) {
+    let (json, stderr, _) = build(case, compat, default_elm_json, packages, false);
+    (json, stderr)
+}
+
+/// [`run`] as `elm make --docs` runs, and the `docs.json` it writes, if
+/// it writes one.
+pub fn run_docs(
+    case: &Case,
+    compat: Compat,
+    default_elm_json: &str,
+    packages: &Path,
+) -> (String, String, Option<String>) {
+    build(case, compat, default_elm_json, packages, true)
+}
+
+fn build(
+    case: &Case,
+    compat: Compat,
+    default_elm_json: &str,
+    packages: &Path,
+    docs: bool,
+) -> (String, String, Option<String>) {
     let temp = tempfile::tempdir().unwrap();
     let root = padded(temp.path());
     case.create_files(&root).unwrap();
@@ -85,22 +107,31 @@ pub fn run(
     let env = check::env_of(&root, &outline, compat, foreigns)
         .unwrap()
         .with_cwd(&root);
-    let paths: Vec<PathBuf> = case.args[1..].iter().map(PathBuf::from).collect();
-    let checked = check::check(
-        &Vfs::new().snapshot(),
-        &env,
-        &outline,
-        &paths,
-        Personality::Elm,
-        &interfaces,
-    );
+    let snapshot = Vfs::new().snapshot();
+    let (checked, written) = if docs {
+        check::docs(&snapshot, &env, &outline, Personality::Elm, &interfaces)
+    } else {
+        let paths: Vec<PathBuf> = (case.args[1..].iter())
+            .filter(|a| !a.starts_with("--"))
+            .map(PathBuf::from)
+            .collect();
+        let checked = check::check(
+            &snapshot,
+            &env,
+            &outline,
+            &paths,
+            Personality::Elm,
+            &interfaces,
+        );
+        (checked, None)
+    };
     let root_text = root.to_str().unwrap().to_owned();
     let [json, stderr] = [Style::Json, Style::Terminal].map(|style| {
         let mut console = Captured::default();
         check::show(&mut console, &root, &checked, compat, style);
         console.err.replace(&root_text, "$ROOT")
     });
-    (json, stderr)
+    (json, stderr, written)
 }
 
 /// Whether nomi's `--report=json` says what elm's cell does.

@@ -1,0 +1,14 @@
+=== note
+a module without documentation, imports next
+=== args
+make
+--docs=docs.json
+=== file src/A.elm
+module A exposing (a)
+
+import Json.Decode
+
+
+a : Int
+a =
+    1

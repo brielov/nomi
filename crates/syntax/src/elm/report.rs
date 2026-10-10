@@ -196,6 +196,50 @@ fn blue(d: impl Into<Doc>) -> Doc {
     d.into().color(Color::Blue)
 }
 
+/// `toSyntaxProblemReport`: what elm `compat` reports of a module
+/// documentation it can't parse (`Reporting/Error/Docs.hs`).
+pub fn docs_problem(
+    source: &code::Source<'_>,
+    problem: &super::docs::SyntaxProblem,
+    compat: Compat,
+) -> Problem {
+    use super::docs::SyntaxProblem as S;
+    let r = Reporter { source, compat };
+    let (cur, details) = match *problem {
+        S::Op(cur) => (
+            cur,
+            "I am trying to parse an operator like (+) or (*) but something is going wrong.",
+        ),
+        S::OpBad(_, cur) => (
+            cur,
+            "I am trying to parse an operator like (+) or (*) but it looks like you are using \
+             a reserved symbol in this case.",
+        ),
+        S::Name(cur) => (
+            cur,
+            "I was expecting to see the name of another exposed value from this module.",
+        ),
+        S::Space(space, cur) => return r.space(space, cur),
+        S::Comma(cur) => (cur, "I was expecting to see a comma next."),
+        S::BadEnd(cur) => (
+            cur,
+            "I am not really sure what I am getting stuck on though.",
+        ),
+    };
+    r.at(
+        "PROBLEM IN DOCS",
+        to_region(cur),
+        reflow("I was partway through parsing your module documentation, but I got stuck here:"),
+        stack([
+            reflow(details),
+            doc::simple_hint(
+                "Read through <https://package.elm-lang.org/help/documentation-format> for \
+                 tips on how to write module documentation!",
+            ),
+        ]),
+    )
+}
+
 /// Reports from one module's text, as one release words them.
 struct Reporter<'s, 'a> {
     source: &'s code::Source<'a>,

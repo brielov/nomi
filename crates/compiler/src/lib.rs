@@ -4,6 +4,7 @@
 
 pub mod canonical;
 pub mod canonicalize;
+pub mod docs;
 mod encoding;
 pub mod graph;
 pub mod hir;
