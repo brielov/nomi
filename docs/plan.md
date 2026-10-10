@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **6.15**.
+4. Resume at the first unchecked box. Right now that is **6.16**.
 
 ### Test tiers
 
@@ -410,7 +410,9 @@ Upstream canonicalizes a parsed `Src.Module` in one order (`Canonicalize/Module.
 - [x] **6.14** `report: records, infinite types and hints`.
 
   Done: a field accessed or updated that the record lacks, with the nearest fields by `Suggest.sort` shown as a record and the likeliest one named, and the `INFINITE TYPE` report with its best effort at the type. The hints came with 6.11. `types_reports` passes all 342 runs: every type error of the oracle's projects is reported as each release reports it, word for word.
-- [ ] **6.15** `engine: early cutoff`. **Check:** an engine test that counts phase runs shows that a body-only edit re-checks one module.
+- [x] **6.15** `engine: early cutoff`. **Check:** an engine test that counts phase runs shows that a body-only edit re-checks one module.
+
+  Done: `names::check_graph` keys each local module by its source, the toolchain, the release, its package and the interface hashes of every module it imports, defaults included, and stores a clean module's interface in the artifact cache under that key. A module whose key the cache holds takes that interface unchecked. An edit that leaves a module's interface as it was leaves its importers' keys as they were, so they are skipped: the early cutoff. `nomi check` uses the user's cache. The engine test `early_cutoff` counts the modules checked: all three cold, none warm, one after a body edit, and after a changed signature the module and its importer, whose own interface stops the cutoff there. A module with errors is checked every time, and packages' interfaces are still built from their sources each run.
 - [ ] **6.16** `ide: hover types and completion v0`.
 
 **Exit:** accept/reject matches across the corpus, type errors match, and a warm rebuild after a body edit re-checks only that module.

@@ -150,7 +150,7 @@ fn with_elm_version(text: &str, compat: Compat) -> String {
 
 /// The interfaces of every package stored under `packages`, as `compat`
 /// reads them, made once per run.
-fn interfaces(packages: &Path, compat: Compat) -> Arc<names::PackageInterfaces> {
+pub fn interfaces(packages: &Path, compat: Compat) -> Arc<names::PackageInterfaces> {
     type Made = HashMap<(PathBuf, Compat), Arc<names::PackageInterfaces>>;
     static MADE: OnceLock<Mutex<Made>> = OnceLock::new();
     let made = MADE.get_or_init(Default::default);
@@ -192,7 +192,7 @@ fn interfaces(packages: &Path, compat: Compat) -> Arc<names::PackageInterfaces> 
 }
 
 /// The modules `dep`'s stored `elm.json` exposes.
-fn exposing(packages: &Path, dep: &Name, compat: Compat) -> Vec<ModuleName> {
+pub fn exposing(packages: &Path, dep: &Name, compat: Compat) -> Vec<ModuleName> {
     let dir = packages.join(dep.to_string());
     let version = fs::read_dir(&dir)
         .unwrap_or_else(|_| panic!("{dep} isn't stored"))

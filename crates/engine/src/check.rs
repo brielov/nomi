@@ -15,6 +15,7 @@ use nomi_compiler::interface::Interface;
 use nomi_project::{ModuleName, Name, Outline};
 use nomi_registry::{Http, Store, details, report as registry_report};
 
+use crate::artifacts::Artifacts;
 use crate::console::{self, Console, Personality};
 use crate::graph::{Env, Foreigns, Graph, Owner};
 use crate::install::{details_problem, one_line};
@@ -66,13 +67,15 @@ pub fn run(
     let (root, checked) = match loaded {
         Ok((root, outline, env, interfaces)) => {
             let snapshot = vfs.snapshot();
-            let checked = check(
+            let artifacts = Artifacts::new(cache);
+            let (checked, _) = check_with(
                 &snapshot,
                 &env,
                 &outline,
                 paths,
                 Personality::Nomi,
                 &interfaces,
+                Some(&artifacts),
             );
             (root, checked)
         }
@@ -93,6 +96,20 @@ pub fn check(
     personality: Personality,
     packages: &HashMap<String, Interface>,
 ) -> Checked {
+    check_with(snapshot, env, outline, paths, personality, packages, None).0
+}
+
+/// [`check`], reusing what `artifacts` holds of earlier checks; and the
+/// modules it checked rather than reused (plan 6.15).
+pub fn check_with(
+    snapshot: &Snapshot,
+    env: &Env,
+    outline: &Outline,
+    paths: &[PathBuf],
+    personality: Personality,
+    packages: &HashMap<String, Interface>,
+    artifacts: Option<&Artifacts>,
+) -> (Checked, Vec<PathBuf>) {
     let exposed: Vec<ModuleName> = match outline {
         Outline::Pkg(pkg) => pkg.exposed.modules().cloned().collect(),
         Outline::App(_) => Vec::new(),
@@ -100,30 +117,36 @@ pub fn check(
     let graph = if !paths.is_empty() {
         Graph::from_paths(snapshot, env, paths)
     } else if let Outline::App(_) = outline {
-        return Checked::Project(no_input(personality, true));
+        return (Checked::Project(no_input(personality, true)), Vec::new());
     } else if exposed.is_empty() {
-        return Checked::Project(no_input(personality, false));
+        return (Checked::Project(no_input(personality, false)), Vec::new());
     } else {
         Graph::from_exposed(snapshot, env, &exposed)
     };
     let graph = match graph {
         Ok(graph) => graph,
-        Err(problem) => return Checked::Project(report::project_problem(&problem, env.compat())),
+        Err(problem) => {
+            return (
+                Checked::Project(report::project_problem(&problem, env.compat())),
+                Vec::new(),
+            );
+        }
     };
     if paths.is_empty()
         && let Some(report) = report::missing_exposed(&graph, &exposed)
     {
-        return Checked::Project(report);
+        return (Checked::Project(report), Vec::new());
     }
     let earlier = report::module_errors(env, &graph);
     let failed: HashSet<PathBuf> = earlier.iter().map(|m| m.path.clone()).collect();
-    let later = names::canonicalize_graph(env, &graph, packages, &failed);
-    let modules = report::module_errors_with(env, &graph, &later);
-    if modules.is_empty() {
+    let later = names::check_graph(env, &graph, packages, &failed, artifacts);
+    let modules = report::module_errors_with(env, &graph, &later.problems);
+    let checked = if modules.is_empty() {
         Checked::Fine
     } else {
         Checked::Modules(modules)
-    }
+    };
+    (checked, later.ran)
 }
 
 /// Shows `checked`: in the terminal style, the reports on standard error

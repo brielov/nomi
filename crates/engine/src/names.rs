@@ -21,6 +21,7 @@ use nomi_project::{ModuleName, Name, Outline};
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{SyntaxNode, parse_module};
 
+use crate::artifacts::{Artifacts, Hash, Key};
 use crate::graph::{Env, Graph, Module, Owner, Root, Status};
 
 /// Each package's exposed modules' interfaces, by package.
@@ -191,15 +192,39 @@ pub fn visible(packages: &PackageInterfaces, direct: &[Name]) -> HashMap<String,
         .collect()
 }
 
-/// Each local module's naming problems, by path: every module the build
-/// reached whose path isn't in `failed` and none of whose local imports
-/// failed or was blocked, canonicalized after those imports.
+/// Each local module's naming and type problems, by path: every module
+/// the build reached whose path isn't in `failed` and none of whose local
+/// imports failed or was blocked, checked after those imports.
 pub fn canonicalize_graph(
     env: &Env,
     graph: &Graph,
     packages: &HashMap<String, Interface>,
     failed: &HashSet<PathBuf>,
 ) -> HashMap<PathBuf, Vec<Problem>> {
+    check_graph(env, graph, packages, failed, None).problems
+}
+
+/// What checking a graph found, and which modules it checked rather than
+/// took from the artifact cache.
+#[derive(Debug, Default)]
+pub struct Checked {
+    pub problems: HashMap<PathBuf, Vec<Problem>>,
+    pub ran: Vec<PathBuf>,
+}
+
+/// [`canonicalize_graph`], reusing `artifacts` (architecture §6): a
+/// module whose source, release, package and imports' interfaces are
+/// what a clean check of it saw before takes the interface it made then,
+/// unchecked. An edit that leaves a module's interface as it was leaves
+/// its importers' keys as they were, so they are skipped too: the early
+/// cutoff.
+pub fn check_graph(
+    env: &Env,
+    graph: &Graph,
+    packages: &HashMap<String, Interface>,
+    failed: &HashSet<PathBuf>,
+    artifacts: Option<&Artifacts>,
+) -> Checked {
     let package = match env.owner() {
         Owner::Package(name) => name.to_string(),
         Owner::Application => "author/project".to_owned(),
@@ -212,6 +237,9 @@ pub fn canonicalize_graph(
         failed,
         state: HashMap::new(),
         problems: HashMap::new(),
+        artifacts,
+        hashes: HashMap::new(),
+        ran: Vec::new(),
     };
     let mut names: Vec<&ModuleName> = graph.modules.keys().collect();
     names.sort_by(|a, b| a.compare(b, env.compat()));
@@ -223,7 +251,10 @@ pub fn canonicalize_graph(
             walk.module(module);
         }
     }
-    walk.problems
+    Checked {
+        problems: walk.problems,
+        ran: walk.ran,
+    }
 }
 
 struct Walk<'g> {
@@ -235,6 +266,11 @@ struct Walk<'g> {
     /// Whether each module visited canonicalized cleanly.
     state: HashMap<ModuleName, bool>,
     problems: HashMap<PathBuf, Vec<Problem>>,
+    artifacts: Option<&'g Artifacts>,
+    /// Each interface's hash, by module, made once.
+    hashes: HashMap<String, Hash>,
+    /// The modules checked, in order.
+    ran: Vec<PathBuf>,
 }
 
 impl Walk<'_> {
@@ -272,13 +308,26 @@ impl Walk<'_> {
         if blocked {
             return false;
         }
+        let key = self.artifacts.map(|_| self.key(module));
+        if let (Some(artifacts), Some(key)) = (self.artifacts, key)
+            && let Some(interface) = artifacts.get(key).as_deref().and_then(Interface::decode)
+        {
+            self.interfaces.insert(module.name.to_string(), interface);
+            return true;
+        }
+        self.ran.push(module.path.clone());
         let root = module.parse.syntax();
         let hir = hir::lower(&ast::Module::cast(root.clone()).expect("a module"));
         match canonicalize(self.env.compat(), &self.package, &self.interfaces, &hir) {
             Ok(canonical) => match nomi_compiler::types::infer(self.env.compat(), &canonical) {
                 Ok(annotations) => {
-                    (self.interfaces)
-                        .insert(module.name.to_string(), interface(&canonical, &annotations));
+                    let interface = interface(&canonical, &annotations);
+                    if let (Some(artifacts), Some(key)) = (self.artifacts, key) {
+                        // A cache that can't be written only costs a
+                        // check next time.
+                        let _ = artifacts.put(key, &interface.encode());
+                    }
+                    self.interfaces.insert(module.name.to_string(), interface);
                     true
                 }
                 Err(errors) => {
@@ -320,6 +369,34 @@ impl Walk<'_> {
                 false
             }
         }
+    }
+}
+
+impl Walk<'_> {
+    /// The artifact key of `module`: everything checking it reads.
+    fn key(&mut self, module: &Module) -> Hash {
+        let mut key = Key::new("module")
+            .part("toolchain", env!("CARGO_PKG_VERSION").as_bytes())
+            .part("compat", self.env.compat().to_string().as_bytes())
+            .part("package", self.package.as_bytes())
+            .part("source", module.text.as_bytes());
+        for import in &module.imports {
+            let name = import.name.to_string();
+            let hash = match self.hashes.get(&name) {
+                Some(hash) => Some(*hash),
+                None => self.interfaces.get(&name).map(|i| {
+                    let hash = Hash::of(&i.encode());
+                    self.hashes.insert(name.clone(), hash);
+                    hash
+                }),
+            };
+            key = key.part("import", name.as_bytes());
+            key = match hash {
+                Some(hash) => key.hash("interface", hash),
+                None => key.part("interface", b"none"),
+            };
+        }
+        key.finish()
     }
 }
 
