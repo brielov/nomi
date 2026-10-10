@@ -55,6 +55,8 @@ pub enum Suite {
     Check,
     /// The same, keeping the `.elmo` of every module elm built.
     Graphs,
+    /// The same, keeping the dependencies' `o.dat`.
+    Objects,
 }
 
 impl Suite {
@@ -64,6 +66,7 @@ impl Suite {
             Suite::Docs => "corpus/docs/oracle.tsv",
             Suite::Check => "corpus/check/oracle.tsv",
             Suite::Graphs => "corpus/graphs/oracle.tsv",
+            Suite::Objects => "corpus/objects/oracle.tsv",
         }
     }
 
@@ -72,6 +75,7 @@ impl Suite {
             Suite::Docs => "corpus-docs",
             Suite::Check => "corpus-check",
             Suite::Graphs => "corpus-graphs",
+            Suite::Objects => "corpus-objects",
         }
     }
 }
@@ -281,7 +285,7 @@ fn record(
         command.arg("make");
         match suite {
             Suite::Docs => command.arg("--docs=docs.json"),
-            Suite::Check | Suite::Graphs => {
+            Suite::Check | Suite::Graphs | Suite::Objects => {
                 command.args(project.app.iter().flat_map(|a| &a.entries))
             }
         };
@@ -344,6 +348,13 @@ fn record(
         }
         fs::remove_dir_all(&work)?;
         return Ok(graphs_cell(modules));
+    }
+    if suite == Suite::Objects && output.status.success() {
+        let stuff = dir.join("elm-stuff").join(version_dir(&dir)?);
+        let objects = fs::read(stuff.join("o.dat"))?;
+        fs::write(out.join(format!("{id}.o.dat")), &objects)?;
+        fs::remove_dir_all(&work)?;
+        return Ok(format!("objects {}", sha256(&objects)));
     }
     if suite == Suite::Check && output.status.success() {
         fs::write(out.join(format!("{id}.stdout")), &output.stdout)?;

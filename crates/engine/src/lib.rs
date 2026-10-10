@@ -17,6 +17,7 @@ pub mod init;
 pub mod install;
 pub mod make;
 pub mod names;
+pub mod objects;
 pub mod packages;
 pub mod paths;
 mod pool;

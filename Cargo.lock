@@ -972,6 +972,7 @@ name = "nomi-engine"
 version = "0.1.0"
 dependencies = [
  "nomi-base",
+ "nomi-codegen-js",
  "nomi-compiler",
  "nomi-format",
  "nomi-project",

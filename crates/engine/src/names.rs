@@ -495,7 +495,7 @@ impl Walk<'_> {
 
 /// From the first token of `range` that isn't trivia: node ranges keep
 /// the comments and spaces before them.
-fn trim(root: &SyntaxNode, range: TextRange) -> TextRange {
+pub(crate) fn trim(root: &SyntaxNode, range: TextRange) -> TextRange {
     let Some(mut token) = root.token_at_offset(range.start()).right_biased() else {
         return range;
     };
