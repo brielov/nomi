@@ -9,10 +9,10 @@ use std::path::PathBuf;
 
 use nomi_base::Compat;
 use nomi_base::diagnostic::doc::Doc;
-use nomi_engine::Vfs;
 use nomi_engine::check::Style;
 use nomi_engine::console::{self, Console, Personality, StdConsole};
 use nomi_engine::make::{self, Make, Output};
+use nomi_engine::{Vfs, diff};
 
 use crate::terminal::{self, Chunks, Flag, Parser};
 
@@ -24,12 +24,28 @@ pub fn main(args: impl Iterator<Item = OsString>) -> ExitCode {
         ["install"] => crate::add(Personality::Elm, None),
         ["install", package] => crate::add(Personality::Elm, Some(package)),
         ["make", ref rest @ ..] => make(rest),
+        ["diff", ref rest @ ..] => diff(rest),
         _ => {
             eprintln!("error: nomi doesn't answer to `elm {}` yet", args.join(" "));
             false
         }
     };
     crate::exit(succeeded)
+}
+
+/// `elm diff` in its four forms: the code against the latest release or
+/// a given one, two releases of the project's package, or of any.
+fn diff(args: &[&str]) -> bool {
+    let parsed = diff::parse_args(args);
+    let Some(args) = parsed else {
+        eprintln!(
+            "error: `elm diff` takes no arguments, a version, two versions, or a package and two versions"
+        );
+        return false;
+    };
+    crate::in_project(|console, dir, cache, http| {
+        diff::run(&Vfs::new(), console, dir, cache, http, &args)
+    })
 }
 
 /// `make`'s flags, in the order `Main.hs` declares them.

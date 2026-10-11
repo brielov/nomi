@@ -80,11 +80,20 @@ impl Default for Web {
 
 impl Http for Web {
     fn get(&self, url: &str) -> Result<Vec<u8>, HttpError> {
-        body(self.agent.get(url).call())
+        body(self.agent.get(&redirect(url)).call())
     }
 
     fn post(&self, url: &str) -> Result<Vec<u8>, HttpError> {
-        body(self.agent.post(url).send_empty())
+        body(self.agent.post(&redirect(url)).send_empty())
+    }
+}
+
+/// `url`, at the registry `NOMI_REGISTRY` names instead of [`DOMAIN`]
+/// when it is set, as tests serve a fixture registry.
+fn redirect(url: &str) -> String {
+    match (std::env::var("NOMI_REGISTRY"), url.strip_prefix(DOMAIN)) {
+        (Ok(registry), Some(path)) => format!("{}{path}", registry.trim_end_matches('/')),
+        _ => url.to_owned(),
     }
 }
 

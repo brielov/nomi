@@ -8,6 +8,7 @@
 pub mod artifacts;
 pub mod check;
 pub mod console;
+pub mod diff;
 pub mod elm_format;
 mod env;
 pub mod format;

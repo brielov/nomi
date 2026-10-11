@@ -13,7 +13,8 @@
 //! each release's `docs.json` under `docs/<elm>/`, per elm since an elm
 //! writes the `docs.json` of each dependency it builds itself, in its own
 //! order, and later reads that rather than the registry's; and each
-//! package's `releases.json` under `releases/`.
+//! package's `releases.json` under `releases/`; and every package's name,
+//! a line each in `packages.txt`, which suggestions are drawn from.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -27,7 +28,7 @@ use nomi_testkit::transcript::Case;
 use super::modules::{canonical, case_files, padded, read_case};
 use super::{binary_path, cache_dir};
 use crate::corpus::compat;
-use crate::download::get_quiet;
+use crate::download::{get_quiet, post_quiet};
 use crate::references::References;
 
 pub const CASES: &str = "crates/cli/tests/elm_diff";
@@ -124,6 +125,16 @@ pub fn run(root: &Path, refs: &References) -> Result<()> {
         fs::create_dir_all(to.parent().unwrap())?;
         fs::write(to, body)?;
     }
+    let all = post_quiet("https://package.elm-lang.org/all-packages")?;
+    let all: serde_json::Value = serde_json::from_slice(&all)?;
+    let mut names: Vec<&String> = all
+        .as_object()
+        .context("a map of packages")?
+        .keys()
+        .collect();
+    names.sort();
+    let names: String = names.iter().map(|n| format!("{n}\n")).collect();
+    fs::write(dir.join("packages.txt"), names)?;
     println!("recorded {} cases", cases.len());
     Ok(())
 }

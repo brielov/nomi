@@ -15,13 +15,13 @@ nomi-project.workspace = true
 nomi-registry.workspace = true
 nomi-syntax.workspace = true
 rayon.workspace = true
+serde_json.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
 walkdir.workspace = true
 
 [dev-dependencies]
 nomi-testkit.workspace = true
-serde_json.workspace = true
 sha1.workspace = true
 tempfile.workspace = true
 zip.workspace = true

@@ -91,6 +91,30 @@ impl Index {
         }
     }
 
+    /// `Registry.latest`, as `elm diff`, `bump` and `publish` ask for it:
+    /// [`Index::latest`], but an update that fails is a problem rather
+    /// than an offline index.
+    pub fn latest_strict(
+        http: &impl Http,
+        path: &Path,
+        compat: Compat,
+    ) -> Result<Index, LatestError> {
+        match Index::read(path, compat).map_err(LatestError::Io)? {
+            None => {
+                let index = Index::fetch(http, compat).map_err(LatestError::Registry)?;
+                index.write(path).map_err(LatestError::Io)?;
+                Ok(index)
+            }
+            Some(saved) => match saved.update(http, compat).map_err(LatestError::Registry)? {
+                None => Ok(saved),
+                Some(index) => {
+                    index.write(path).map_err(LatestError::Io)?;
+                    Ok(index)
+                }
+            },
+        }
+    }
+
     /// `fetch`: the whole index.
     pub fn fetch(http: &impl Http, compat: Compat) -> Result<Index, RegistryProblem> {
         let url = format!("{DOMAIN}/all-packages");

@@ -1,0 +1,17 @@
+diff_application as 0.19.1
+diff_application as 0.19.2
+diff_application as 0.19.3
+diff_core_patch as 0.19.3
+diff_http_major as 0.19.3
+diff_json_minor as 0.19.3
+diff_local_added as 0.19.3
+diff_local_changed as 0.19.3
+diff_local_two as 0.19.3
+diff_local_unchanged as 0.19.3
+diff_local_version as 0.19.3
+diff_no_project as 0.19.3
+diff_reversed as 0.19.3
+diff_same as 0.19.3
+diff_unknown_package as 0.19.3
+diff_unknown_version as 0.19.3
+diff_unpublished as 0.19.3

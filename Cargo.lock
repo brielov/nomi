@@ -943,6 +943,7 @@ dependencies = [
  "nomi-project",
  "nomi-registry",
  "nomi-testkit",
+ "serde_json",
  "sha1",
  "tempfile",
  "zip",

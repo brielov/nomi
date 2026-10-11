@@ -30,6 +30,21 @@ pub fn get_quiet(url: &str) -> Result<Vec<u8>> {
         .with_context(|| format!("reading {url}"))
 }
 
+/// The body of an empty `POST` to `url`, as the package website answers
+/// `/all-packages`.
+pub fn post_quiet(url: &str) -> Result<Vec<u8>> {
+    let mut response = agent()
+        .post(url)
+        .send_empty()
+        .with_context(|| format!("POST {url}"))?;
+    response
+        .body_mut()
+        .with_config()
+        .limit(LIMIT)
+        .read_to_vec()
+        .with_context(|| format!("reading {url}"))
+}
+
 /// Uses the system's trust store, so machines behind a TLS-inspecting proxy
 /// work too; the pinned hash, not TLS, is what vouches for the bytes.
 fn agent() -> &'static ureq::Agent {

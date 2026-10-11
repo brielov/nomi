@@ -57,7 +57,7 @@ fn unchanged_interfaces_cut_rebuilds_off() {
     let (_, compiled) = build(dir.path(), &["a|1", "b|1", "c|1", "d|1"], &imports);
     assert_eq!(compiled, [0, 1, 2, 3]);
     let (_, compiled) = build(dir.path(), &["a|1", "b|1", "c|1", "d|1"], &imports);
-    assert_eq!(compiled, []);
+    assert!(compiled.is_empty(), "{compiled:?}");
     // A body changes: only that module compiles.
     let (_, compiled) = build(dir.path(), &["a|2", "b|1", "c|1", "d|1"], &imports);
     assert_eq!(compiled, [0]);
