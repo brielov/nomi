@@ -205,7 +205,7 @@ pub fn run(
 
 /// Every release in nomi's store under `store`: its name, version and
 /// sources.
-fn releases(store: &Path) -> Result<Vec<(String, Version, PathBuf)>> {
+pub(crate) fn releases(store: &Path) -> Result<Vec<(String, Version, PathBuf)>> {
     let mut releases = Vec::new();
     let dir = store.join("releases");
     if !dir.is_dir() {
@@ -232,7 +232,11 @@ fn releases(store: &Path) -> Result<Vec<(String, Version, PathBuf)>> {
 
 /// An `ELM_HOME` in `home` for `compat` holding `releases`, kept as it is
 /// when it already holds exactly those.
-fn elm_home(home: &Path, compat: Version, releases: &[(String, Version, PathBuf)]) -> Result<()> {
+pub(crate) fn elm_home(
+    home: &Path,
+    compat: Version,
+    releases: &[(String, Version, PathBuf)],
+) -> Result<()> {
     let listed: Vec<(&str, Version)> = releases.iter().map(|(n, v, _)| (n.as_str(), *v)).collect();
     let registry = registry_of(compat, &listed);
     let packages_dir = home.join(compat.to_string()).join("packages");
@@ -257,7 +261,7 @@ fn elm_home(home: &Path, compat: Version, releases: &[(String, Version, PathBuf)
     Ok(())
 }
 
-fn elm_binary(refs: &References, version: Version) -> Result<PathBuf> {
+pub(crate) fn elm_binary(refs: &References, version: Version) -> Result<PathBuf> {
     let pin = (refs.binary.iter())
         .find(|b| b.name == "elm" && b.version == version.to_string())
         .with_context(|| format!("elm {version} is not pinned"))?;
@@ -430,7 +434,7 @@ fn make(elm: &Path, home: &Path, work: &Path, dir: &Path, args: &[&str]) -> Resu
 
 /// Copies `top`'s `elm.json` files and modules, which are all elm reads,
 /// to `work`.
-fn copy_modules(top: &Path, work: &Path) -> Result<()> {
+pub(crate) fn copy_modules(top: &Path, work: &Path) -> Result<()> {
     for file in files_below(top)? {
         let wanted = file.ends_with(".elm") || file.ends_with(".js") && file.contains("Kernel");
         if !wanted || file.starts_with(".git/") || file.contains("node_modules/") {

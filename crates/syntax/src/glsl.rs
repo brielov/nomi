@@ -35,12 +35,21 @@ pub(crate) enum Rejection {
     TooDeep(usize),
 }
 
-/// Checks a shader block's text, between `[glsl|` and `|]`.
+/// Checks a shader block's text, between `[glsl|` and `|]`: quietly, and
+/// again for the message only when it fails.
 pub(crate) fn check(text: &str) -> Result<(), Rejection> {
+    match parse(text, true) {
+        Err(Rejection::At { .. }) => parse(text, false),
+        checked => checked,
+    }
+}
+
+fn parse(text: &str, quiet: bool) -> Result<(), Rejection> {
     let mut p = Glsl {
         text,
         pos: 0,
-        error: Error::unknown(0),
+        error: Error::unknown(0, quiet),
+        quiet,
         depth: 0,
         too_deep: None,
     };
@@ -54,7 +63,7 @@ pub(crate) fn check(text: &str) -> Result<(), Rejection> {
         (None, Ok(())) => Ok(()),
         (None, Err(Fail)) => Err(Rejection::At {
             offset: p.error.offset,
-            message: p.error.show(),
+            message: if quiet { String::new() } else { p.error.show() },
         }),
     }
 }
@@ -70,6 +79,8 @@ struct Glsl<'t> {
     /// The error of the input consumed so far, as Parsec carries it: a
     /// consuming rule replaces it, a failing one merges into it.
     error: Error,
+    /// Whether errors keep their messages; see [`Error`].
+    quiet: bool,
     depth: u32,
     too_deep: Option<usize>,
 }
@@ -169,14 +180,14 @@ impl<'t> Glsl<'t> {
 
     /// Fails with a message at `offset`, merged into the error.
     fn fail_at(&mut self, offset: usize, kind: Kind, text: Text) -> Fail {
-        self.error.merge(Error::new(offset, kind, text));
+        self.error.merge(Error::new(offset, kind, text, self.quiet));
         Fail
     }
 
     /// Consumes `len` bytes, which starts the error afresh.
     fn advance(&mut self, len: usize) {
         self.pos += len;
-        self.error = Error::unknown(self.pos);
+        self.error = Error::unknown(self.pos, self.quiet);
     }
 
     /// What a token parser met here: `show [c]`, or nothing at the end.
@@ -215,7 +226,12 @@ impl<'t> Glsl<'t> {
             .take_while(|(a, b)| a == b)
             .map(|(a, _)| a.len_utf8())
             .sum();
-        let mut error = Error::new(start, Kind::SysUnExpect, self.met(start + matched));
+        let mut error = Error::new(
+            start,
+            Kind::SysUnExpect,
+            self.met(start + matched),
+            self.quiet,
+        );
         error.expect(Text::Show(s));
         if matched == 0 {
             self.error.merge(error);
@@ -230,8 +246,8 @@ impl<'t> Glsl<'t> {
     /// its error even when it succeeds.
     fn eof(&mut self) -> P {
         let mut error = match self.peek() {
-            None => Error::new(self.pos, Kind::SysUnExpect, Text::Str("")),
-            Some(c) => Error::new(self.pos, Kind::UnExpect, Text::ShowChar(c)),
+            None => Error::new(self.pos, Kind::SysUnExpect, Text::Str(""), self.quiet),
+            Some(c) => Error::new(self.pos, Kind::UnExpect, Text::ShowChar(c), self.quiet),
         };
         error.expect(Text::Str("end of input"));
         self.error.merge(error);
@@ -246,7 +262,7 @@ impl<'t> Glsl<'t> {
     /// error expects.
     fn label<T>(&mut self, label: Text, rule: impl FnOnce(&mut Self) -> P<T>) -> P<T> {
         let start = self.pos;
-        let outer = std::mem::replace(&mut self.error, Error::unknown(start));
+        let outer = std::mem::replace(&mut self.error, Error::unknown(start, self.quiet));
         let result = rule(self);
         if self.pos == start {
             if result.is_err() || self.error.is_known() {
@@ -261,7 +277,7 @@ impl<'t> Glsl<'t> {
     /// `try`: a failure consumes nothing.
     fn attempt<T>(&mut self, rule: impl FnOnce(&mut Self) -> P<T>) -> P<T> {
         let start = self.pos;
-        let outer = std::mem::replace(&mut self.error, Error::unknown(start));
+        let outer = std::mem::replace(&mut self.error, Error::unknown(start, self.quiet));
         let result = rule(self);
         if result.is_err() {
             self.pos = start;
@@ -303,7 +319,7 @@ impl<'t> Glsl<'t> {
         loop {
             let start = self.pos;
             if !first {
-                self.error = Error::unknown(start);
+                self.error = Error::unknown(start, self.quiet);
             }
             match rule(self) {
                 Ok(()) if self.pos == start => return Ok(()),
@@ -333,7 +349,7 @@ impl<'t> Glsl<'t> {
     /// stopped, with `unexpected (show c)` for what `rule` returned.
     fn not_followed_by(&mut self, rule: impl FnOnce(&mut Self) -> P<char>) -> P {
         let start = self.pos;
-        let outer = std::mem::replace(&mut self.error, Error::unknown(start));
+        let outer = std::mem::replace(&mut self.error, Error::unknown(start, self.quiet));
         let result = rule(self);
         if let Ok(c) = result {
             self.fail_at(self.pos, Kind::UnExpect, Text::ShowChar(c));
@@ -693,7 +709,7 @@ impl<'t> Glsl<'t> {
     /// `prefixP` or `postfixP` with no operators: `choice [] <?> ""`,
     /// whose error expects nothing but is known.
     fn no_operator(&mut self) {
-        let nothing = Error::new(self.pos, Kind::Expect, Text::Str(""));
+        let nothing = Error::new(self.pos, Kind::Expect, Text::Str(""), self.quiet);
         self.error.merge(nothing);
     }
 

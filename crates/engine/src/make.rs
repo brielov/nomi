@@ -264,6 +264,9 @@ pub fn run(
             diagram = Some(gen_diagram(&names, &target.path.to_string_lossy()));
         }
     }
+    // What the build checked is freed while it reports, or not at all
+    // when the process ends first.
+    crate::pool::Pool::global().spawn(move || drop((checked, interfaces, env)));
     // elm's success line came with the build's progress; nomi's comes now.
     if !terminal {
         show(console, &root, &Checked::Fine, compat, make.style);

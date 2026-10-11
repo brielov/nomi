@@ -5,6 +5,8 @@
 //! formats a buffer. Both tools must exit alike; the fastest of
 //! [`RUNS`] runs counts.
 
+pub mod elm;
+
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};

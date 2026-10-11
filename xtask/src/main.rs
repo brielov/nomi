@@ -61,10 +61,11 @@ enum Command {
         jobs: Option<usize>,
     },
     /// Time a crate's benchmarks, which fail when twice the input takes
-    /// three times as long or more, or nomi against the pinned elm-format.
+    /// three times as long or more, or nomi against the pinned elm-format
+    /// or elm.
     Bench {
         /// The crate: `syntax` for nomi-syntax, `format` for nomi-format;
-        /// or `elm-format`, to time both tools on the corpus apps.
+        /// or `elm-format` or `elm`, to time both tools on the corpus apps.
         target: String,
     },
 }
@@ -338,6 +339,9 @@ fn main() -> ExitCode {
         ),
         Command::Bench { target } if target == "elm-format" => {
             references::load(&root()).and_then(|r| bench::elm_format(&root(), &r))
+        }
+        Command::Bench { target } if target == "elm" => {
+            references::load(&root()).and_then(|r| bench::elm::run(&root(), &r))
         }
         Command::Bench { target } => cargo(
             &root(),

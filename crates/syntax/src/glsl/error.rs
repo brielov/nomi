@@ -50,30 +50,38 @@ struct Message {
 }
 
 /// Parsec's `ParseError`: where, and the messages gathered there. One
-/// without messages is unknown.
+/// without messages is unknown. A quiet error keeps whether it has any
+/// but not what they say, which is all a parse that succeeds needs: what
+/// the parser does never depends on the messages.
 #[derive(Clone, Debug)]
 pub(super) struct Error {
     pub(super) offset: usize,
+    known: bool,
+    quiet: bool,
     messages: Vec<Message>,
 }
 
 impl Error {
-    pub(super) fn unknown(offset: usize) -> Error {
+    pub(super) fn unknown(offset: usize, quiet: bool) -> Error {
         Error {
             offset,
+            known: false,
+            quiet,
             messages: Vec::new(),
         }
     }
 
-    pub(super) fn new(offset: usize, kind: Kind, text: Text) -> Error {
-        Error {
-            offset,
-            messages: vec![Message { kind, text }],
+    pub(super) fn new(offset: usize, kind: Kind, text: Text, quiet: bool) -> Error {
+        let mut error = Error::unknown(offset, quiet);
+        error.known = true;
+        if !quiet {
+            error.messages.push(Message { kind, text });
         }
+        error
     }
 
     pub(super) fn is_known(&self) -> bool {
-        !self.messages.is_empty()
+        self.known
     }
 
     /// `mergeError self other`: the one with messages, else the later,
@@ -91,6 +99,10 @@ impl Error {
     /// `setExpectErrors self [label]`, what `<?>` does: the label
     /// replaces every `Expect`.
     pub(super) fn expect(&mut self, label: Text) {
+        self.known = true;
+        if self.quiet {
+            return;
+        }
         self.messages.retain(|m| m.kind != Kind::Expect);
         self.messages.insert(
             0,
@@ -238,21 +250,26 @@ mod tests {
 
     #[test]
     fn messages_show_as_parsec_does() {
-        assert_eq!(Error::unknown(0).show(), "unknown parse error");
-        let mut error = Error::new(3, Kind::SysUnExpect, Text::ShowString('v'));
+        assert_eq!(Error::unknown(0, false).show(), "unknown parse error");
+        let mut error = Error::new(3, Kind::SysUnExpect, Text::ShowString('v'), false);
         for label in ["\"/\"", "space", "\"(\"", "space"] {
-            error.merge(Error::new(3, Kind::Expect, Text::Str(label)));
+            error.merge(Error::new(3, Kind::Expect, Text::Str(label), false));
         }
-        error.merge(Error::new(1, Kind::Message, Text::Str("earlier")));
+        error.merge(Error::new(1, Kind::Message, Text::Str("earlier"), false));
         assert_eq!(
             error.show(),
             "\nunexpected \"v\"\nexpecting \"/\", space or \"(\""
         );
-        error.merge(Error::new(3, Kind::UnExpect, Text::ShowChar('=')));
+        error.merge(Error::new(3, Kind::UnExpect, Text::ShowChar('='), false));
         error.expect(Text::Str("operator"));
         assert_eq!(error.show(), "\nunexpected '='\nexpecting operator");
-        let mut end = Error::new(5, Kind::SysUnExpect, Text::Str(""));
-        end.merge(Error::new(5, Kind::Message, Text::Str("x is reserved")));
+        let mut end = Error::new(5, Kind::SysUnExpect, Text::Str(""), false);
+        end.merge(Error::new(
+            5,
+            Kind::Message,
+            Text::Str("x is reserved"),
+            false,
+        ));
         assert_eq!(end.show(), "\nunexpected end of input\nx is reserved");
     }
 }

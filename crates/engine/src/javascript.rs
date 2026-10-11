@@ -69,7 +69,11 @@ pub fn program(
         }
         Kind::Optimize => Mode::Prod(shorten_field_names(compat, &graph)),
     };
-    generate(compat, &mode, &graph, &mains)
+    let js = generate(compat, &mode, &graph, &mains);
+    // Every package's code is in the graph, so freeing it takes a while,
+    // which a build need not wait for.
+    crate::pool::Pool::global().spawn(move || drop((graph, mode)));
+    js
 }
 
 /// `Opt.addLocalGraph`: left-biased unions, so the module's nodes and

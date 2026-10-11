@@ -110,7 +110,7 @@ enum Command {
     /// check `elm publish` makes.
     Publish,
     /// Check modules as `elm make --output=/dev/null` does, generating no
-    /// code: so far their syntax, module names, imports and names.
+    /// code.
     Check {
         /// The modules to start from; a package's exposed modules if
         /// none.

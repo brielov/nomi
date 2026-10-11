@@ -1,7 +1,9 @@
 # Benchmarks
 
 Measured on an Apple M-series laptop (aarch64-apple-darwin, 14 cores),
-rustc 1.99.0, release build. Times are the fastest of at least five runs.
+rustc 1.99.0, release build, unless a section names another machine.
+Times are the fastest of at least five runs unless a section says
+otherwise.
 
 ## Syntax (`cargo xtask bench syntax`)
 
@@ -58,6 +60,35 @@ do. Both tools exit alike on every input.
 | docspell --stdin       |         1 |   104 KiB |    78.5 ms |   15.6 ms |    5.0× |
 | elm-3d-scene           |        59 |   929 KiB |   126.5 ms |   19.4 ms |    6.5× |
 | elm-3d-scene --stdin   |         1 |   132 KiB |    47.3 ms |    3.9 ms |   12.1× |
+
+## elm (`cargo xtask bench elm`)
+
+Measured on a laptop with an AMD Ryzen 7 5800H (x86_64-unknown-linux-gnu,
+8 cores, 16 threads, 15 GB), rustc 1.99.0. The release build of nomi, run
+as `elm`, against the pinned elm 0.19.1 (its official build, with its
+default runtime options), building each corpus app's entry with `elm make`
+from process start to exit. A cold build starts without `elm-stuff` or any
+built dependency: elm's `artifacts.dat` files are removed from its
+`ELM_HOME` and nomi's artifact cache is emptied. A warm build follows it
+with nothing changed. Both tools run offline over the same package sources
+and write the same JavaScript. Wall time is the fastest of three runs; CPU
+time (user and system) and peak memory are the least of any run, as
+`/usr/bin/time` reports them.
+
+| build             |    elm |   nomi | speedup | elm CPU | nomi CPU | elm memory | nomi memory |
+|-------------------|--------|--------|---------|---------|----------|------------|-------------|
+| exosphere cold    | 2.23 s | 2.92 s |   0.76× |  8.97 s |   8.06 s |   2361 MiB |    1605 MiB |
+| exosphere warm    | 0.41 s | 0.27 s |   1.50× |  0.57 s |   0.71 s |    535 MiB |     188 MiB |
+| liascript cold    | 1.03 s | 0.93 s |   1.10× |  3.57 s |   2.27 s |   2127 MiB |     267 MiB |
+| liascript warm    | 0.28 s | 0.19 s |   1.51× |  0.46 s |   0.45 s |    369 MiB |      96 MiB |
+| docspell cold     | 1.76 s | 2.44 s |   0.72× |  7.29 s |   7.49 s |   2325 MiB |    1531 MiB |
+| docspell warm     | 0.44 s | 0.34 s |   1.27× |  0.80 s |   0.95 s |    583 MiB |     151 MiB |
+| elm-3d-scene cold | 1.04 s | 0.76 s |   1.37× |  3.01 s |   1.18 s |   2108 MiB |     117 MiB |
+| elm-3d-scene warm | 0.19 s | 0.14 s |   1.37× |  0.18 s |   0.18 s |    257 MiB |      73 MiB |
+
+M8's bounds hold: no cold build takes more than 1.5 times elm's time, and
+every warm build is faster. Cold builds of the two largest apps are still
+slower, and warm builds spend more CPU time than elm's, which M8b takes on.
 
 ## Fuzzing (`cargo xtask fuzz syntax`)
 
