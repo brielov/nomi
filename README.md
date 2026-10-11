@@ -6,7 +6,7 @@ So far nomi is a compiler and a formatter. As `elm`, it builds Elm 0.19 projects
 
 ## Install
 
-With Rust 1.89 or later:
+With Rust 1.89 or later and a C compiler, for the allocator:
 
 ```sh
 cargo install --locked --path crates/cli

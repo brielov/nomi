@@ -132,6 +132,13 @@ mod elm;
 mod elm_format;
 mod terminal;
 
+/// mimalloc, which builds cold about a fifth faster than the system's
+/// allocator and jemalloc a tenth (plan B.3). Without transparent huge
+/// pages, which would make cold builds faster still but cost warm ones
+/// CPU time and memory.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() -> ExitCode {
     let mut args = std::env::args_os();
     let name = args.next().unwrap_or_default();
