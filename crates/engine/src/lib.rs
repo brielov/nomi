@@ -6,6 +6,7 @@
 //! with cancellation, and the artifact cache.
 
 pub mod artifacts;
+pub mod bump;
 pub mod check;
 pub mod console;
 pub mod diff;

@@ -823,7 +823,7 @@ fn diff_args(
             };
             let old = match args {
                 Args::CodeVsExactly(_) => docs(&name, version)?,
-                _ => fetch_docs(cache, http, compat, &name, version)?,
+                _ => fetch_docs(cache, http, compat, &name, version, DIFF)?,
             };
             let root = root.expect("a project");
             let new = local_docs(vfs, root, &project, cache, http)?;
@@ -883,7 +883,7 @@ fn docs(
     if !known.all().any(|v| v == version) {
         return Err(unknown_version(version, known.all().collect()).into());
     }
-    fetch_docs(cache, http, compat, name, version)
+    fetch_docs(cache, http, compat, name, version, DIFF)
 }
 
 /// `Deps.Diff.getDocs`: from the cache, or the website, which is then
@@ -894,9 +894,10 @@ pub(crate) fn fetch_docs(
     compat: Compat,
     name: &Name,
     version: Version,
+    purpose: &str,
 ) -> Result<Documentation, Stop> {
     let path = docs_path(cache, name, version);
-    let context = format!("I need the docs for {version} to compute this diff");
+    let context = format!("I need the docs for {version} to {purpose}");
     if let Ok(bytes) = std::fs::read(&path) {
         return match decode(compat, &bytes) {
             Some(docs) => Ok(docs),
@@ -923,6 +924,9 @@ pub(crate) fn fetch_docs(
         None => Err(docs_problem(&context, DocsProblem::Data(url)).into()),
     }
 }
+
+/// What `elm diff` needs docs for.
+const DIFF: &str = "compute this diff";
 
 /// Where a release's documentation is kept.
 fn docs_path(cache: &Cache, name: &Name, version: Version) -> PathBuf {

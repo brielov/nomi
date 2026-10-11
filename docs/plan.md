@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **8.14b**.
+4. Resume at the first unchecked box. Right now that is **8.14c**.
 
 ### Test tiers
 
@@ -521,7 +521,9 @@ The optimizer's oracle is elm's own artifacts: every elm writes a module's optim
 - [x] **8.14a** `engine: API diff and elm diff`. `Deps/Diff.hs` over decoded `docs.json` (added, changed and removed values, unions, aliases and binops, and the magnitude), and `elm diff`'s four forms and reports (`Diff.hs`). **Check:** the diff transcripts.
 
   Done: `engine::diff` decodes `docs.json`, parsing each type with `nomi_syntax::parse_type` and dropping qualifiers as upstream's decoder does, diffs two releases' documentation as `Deps/Diff.hs` does (variables matched up to renaming and kind, records up to field order, modules changed only by a patch left out), and prints the changes as `Diff.hs` does, each list in the release's order of names. `elm diff` takes its four forms; it insists on the latest registry (`Index::latest_strict`), keeps fetched docs in the cache and builds the local package's docs as `elm make --docs` does. The `elm_diff` ratchet serves the fixture registry on the loopback interface (`NOMI_REGISTRY` redirects nomi's requests there): every package name elm's registry had, which the oracle now also keeps for suggestions, the releases the cases read, their docs as 0.19.3 read them, and the vendored packages to build with. All 17 diff runs pass; where 0.19.3 hung, a case is checked against the other elms' agreeing transcript. Unit tests cover renamings, constrained variables and magnitudes.
-- [ ] **8.14b** `cli: bump`. `Bump.hs`: the version the API changes call for, its prompt, and the `elm.json` it rewrites. **Check:** the bump transcripts.
+- [x] **8.14b** `cli: bump`. `Bump.hs`: the version the API changes call for, its prompt, and the `elm.json` it rewrites. **Check:** the bump transcripts.
+
+  Done: `engine::bump` ports `Bump.hs`: the versions a release may follow (`getPossibilities`), the version the API changes call for, its question, the version written to `elm.json` on a yes, and a package never published told how versions work. `elm bump`, and `nomi bump` and `nomi diff` over the same engine. The `elm_diff` ratchet passes all 25 runs; the one case every elm crashed on, a prompt with no answer, isn't run.
 - [ ] **8.14c** `cli: publish`. `Publish.hs`'s checks and upload, against a fixture registry the tests serve locally (`NOMI_REGISTRY` points nomi at it); publishing for real is yours to run. Refined when it starts: its checks reach git and GitHub. **Check:** transcripts against the fixture registry.
 - [ ] **8.15** `cli: explain missing repl and reactor`. The message for `elm reactor` points to `nomi run --watch`.
 - [ ] **8.16** `release: 0.2`. README usage (`ln -s nomi elm`), cold and warm build benchmarks against elm, and a tag.

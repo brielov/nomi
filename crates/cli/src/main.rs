@@ -11,7 +11,7 @@ use nomi_engine::check::{self, Style};
 use nomi_engine::console::{Personality, StdConsole};
 use nomi_engine::format::{self, Mode, Outcome};
 use nomi_engine::paths::Cache;
-use nomi_engine::{Vfs, Web, init, install, make, remove, tree, update};
+use nomi_engine::{Vfs, Web, bump, diff, init, install, make, remove, tree, update};
 
 /// One toolchain for Elm: compiler, formatter, language server, test runner
 /// and package manager.
@@ -95,6 +95,17 @@ enum Command {
         #[arg(long, value_name = "FORMAT")]
         report: Option<ReportFormat>,
     },
+    /// Show how a package's API changed: the code against its latest
+    /// release or a given one, two of its releases, or two of any
+    /// package's.
+    Diff {
+        /// Nothing, a version, two versions, or a package and two
+        /// versions.
+        #[arg(num_args = 0..=3)]
+        args: Vec<String>,
+    },
+    /// Set the package's version to the one its API changes call for.
+    Bump,
     /// Check modules as `elm make --output=/dev/null` does, generating no
     /// code: so far their syntax, module names, imports and names.
     Check {
@@ -192,6 +203,21 @@ fn main() -> ExitCode {
                 make::run(&Vfs::new(), console, dir, cache, http, &make)
             })
         }
+        Some(Command::Diff { args }) => {
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            let Some(args) = diff::parse_args(&args) else {
+                eprintln!(
+                    "error: diff takes nothing, a version, two versions, or a package and two versions"
+                );
+                return exit(false);
+            };
+            in_project(|console, dir, cache, http| {
+                diff::run(&Vfs::new(), console, dir, cache, http, &args)
+            })
+        }
+        Some(Command::Bump) => in_project(|console, dir, cache, http| {
+            bump::run(&Vfs::new(), console, dir, cache, http)
+        }),
         Some(Command::Check { paths, report }) => in_project(|console, dir, cache, http| {
             let style = match report {
                 Some(ReportFormat::Json) => Style::Json,

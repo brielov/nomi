@@ -12,7 +12,7 @@ use nomi_base::diagnostic::doc::Doc;
 use nomi_engine::check::Style;
 use nomi_engine::console::{self, Console, Personality, StdConsole};
 use nomi_engine::make::{self, Make, Output};
-use nomi_engine::{Vfs, diff};
+use nomi_engine::{Vfs, bump, diff};
 
 use crate::terminal::{self, Chunks, Flag, Parser};
 
@@ -25,6 +25,9 @@ pub fn main(args: impl Iterator<Item = OsString>) -> ExitCode {
         ["install", package] => crate::add(Personality::Elm, Some(package)),
         ["make", ref rest @ ..] => make(rest),
         ["diff", ref rest @ ..] => diff(rest),
+        ["bump"] => crate::in_project(|console, dir, cache, http| {
+            bump::run(&Vfs::new(), console, dir, cache, http)
+        }),
         _ => {
             eprintln!("error: nomi doesn't answer to `elm {}` yet", args.join(" "));
             false
