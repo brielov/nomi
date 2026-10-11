@@ -553,8 +553,21 @@ Goal: on every workload nomi shares with elm and elm-format, nomi takes less wal
 
 Starting points, from the M8 profiles and oxc's practice: arenas for each module's compiler data, interned names, index-based types in the solver, a faster hasher for internal maps, sorted vectors where maps only order output, small-vector storage, a better global allocator, cheaper artifact encoding, and a syntax tree built for batch builds where rowan's costs show. Every change lands behind the existing ratchets.
 
-- [ ] **B.1** `bench: scoreboard`. `cargo xtask bench` measures wall time, CPU time and peak memory for `elm make` (each corpus app, cold and warm, dev and `--optimize`, each release), `elm make --docs` on the corpus packages, and elm-format (`--validate` on each app, `--stdin` on the largest module), against nomi, writing `docs/benchmarks.md`. **Check:** the table, every cell measured.
-- [ ] **B.2** onward: profile-driven passes, one phase at a time, each step naming the cells it moves. Refined when M8b starts.
+Where M8 left it (`docs/benchmarks.md`, a Ryzen 7 laptop): warm builds are faster than elm's and every build takes a fraction of its memory, but cold builds of exosphere and docspell take 1.3 to 1.4 times as long, warm builds spend more CPU time, and nomi keeps 2.8 cores busy on a cold build where elm keeps 4.
+
+- [ ] **B.1** `bench: scoreboard`. `cargo xtask bench` measures wall time, CPU time and peak memory for every workload, upstream against nomi, and writes the scoreboard into `docs/benchmarks.md` with the machine it ran on; `bench elm` and `bench elm-format` print their part. Workloads:
+  - `elm make` on each corpus app, under each release, in dev and `--optimize`, cold and warm, with the same JavaScript from both;
+  - `elm make --docs` on six packages, cold and warm, with the same `docs.json`: elm/core, mdgriffith/elm-ui, rtfeldman/elm-css, dillonkearns/elm-graphql, finos/morphir-elm (263 modules) and icidasset/elm-material-icons (7 MB of generated code);
+  - elm-format `--validate` on each app and `--stdin` on its largest module.
+
+  **Check:** the table, every cell measured, and a count of the cells nomi wins.
+- [ ] **B.2** `engine: phase timings`. `NOMI_TIMINGS=1` makes a build print each phase's wall and CPU time on standard error (loading, parsing, canonicalizing, types, the remaining checks, optimizing, artifacts read and written, packages, generating), so every later step starts from numbers. **Check:** the phases add up to the build within a few percent on each app.
+- [ ] **B.3** `cli: global allocator`. A faster allocator for the binary, chosen by the scoreboard among the established ones; the pure crates stay free of it. **Check:** the scoreboard, with no cell worse.
+- [ ] **B.4** `compiler: cheaper maps`. A faster hasher for internal maps, and sorted vectors or small vectors where a map only orders output or holds a few entries. **Check:** the scoreboard, and every ratchet and corpus suite unchanged.
+- [ ] **B.5** `engine: critical-path scheduling`. Cold builds keep every core busy: the module and package DAGs run longest-path first, and a package's modules start as their own imports finish rather than once the whole package's dependencies have. **Check:** cold CPU time over wall time at least elm's on each app.
+- [ ] **B.6** `engine: cheaper warm builds`. What a warm build reads and decodes, and the crawl's re-parsing, cut to what the profile shows is needed. **Check:** warm CPU time at or under elm's on each app.
+- [ ] **B.7** onward: interned names, arenas and an index-based solver where the phase timings point, then the formatter's allocations; each step names the cells it moves, refined as the earlier ones land.
+- [ ] **B.n** `bench: scoreboard on the reference machine`. The scoreboard rerun on the Ryzen 9 and recorded.
 
 **Exit:** every scoreboard cell has nomi at or under upstream on wall time, CPU time and peak memory, and every ratchet and corpus suite is unchanged.
 
