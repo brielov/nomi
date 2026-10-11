@@ -9,6 +9,7 @@
 //! first in key order wins: modules by name in the release's order,
 //! packages by author then project.
 
+use crate::timings::{Phase, time};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -167,8 +168,9 @@ pub fn build(
         if let Some(build) = memo_now.get(dir) {
             return Ok((key, build.clone()));
         }
-        let cached =
-            (artifacts.and_then(|a| a.get(key))).and_then(|bytes| decode_build(&bytes, compat));
+        let cached = time(Phase::CacheRead, || {
+            (artifacts.and_then(|a| a.get(key))).and_then(|bytes| decode_build(&bytes, compat))
+        });
         let build = match cached {
             Some(build) => build,
             None => {
@@ -176,7 +178,9 @@ pub fn build(
                 if let Some(artifacts) = artifacts {
                     // A cache that can't be written only costs a build next
                     // time.
-                    let _ = artifacts.put(key, &encode_build(&build, compat));
+                    let _ = time(Phase::CacheWrite, || {
+                        artifacts.put(key, &encode_build(&build, compat))
+                    });
                 }
                 build
             }
@@ -376,8 +380,10 @@ impl Package<'_> {
             let Ok(text) = fs::read_to_string(&file) else {
                 continue;
             };
-            let parse = parse_module(&text);
-            let module = hir::lower(&ast::Module::cast(parse.syntax()).expect("a module"));
+            let parse = time(Phase::Parse, || parse_module(&text));
+            let module = time(Phase::Lower, || {
+                hir::lower(&ast::Module::cast(parse.syntax()).expect("a module"))
+            });
             pending.extend(module.imports.iter().map(|i| i.name.text.clone()));
             modules.insert(name, Read { text, module });
         }
@@ -409,12 +415,31 @@ impl Package<'_> {
                 self.visit(&import.name.text, modules, state, interfaces, built)?;
             }
         }
+        crate::timings::module(&format!("{} {name}", self.name), || {
+            self.compile(name, read, interfaces, built)
+        })?;
+        state.insert(name.to_owned(), true);
+        Ok(())
+    }
+
+    /// Canonicalizes, types and optimizes `name`, its imports compiled.
+    fn compile(
+        &self,
+        name: &str,
+        read: &Read,
+        interfaces: &mut HashMap<String, Interface>,
+        built: &mut BTreeMap<String, Built>,
+    ) -> Result<(), String> {
         let package = &self.name;
-        let canonical = canonicalize(self.compat, package, interfaces, &read.module)
-            .map_err(|errors| format!("{package} {name}: {errors:?}"))?;
-        let annotations = nomi_compiler::types::infer(self.compat, &canonical)
-            .map_err(|errors| format!("{package} {name}: type errors {errors:?}"))?;
-        let parse = parse_module(&read.text);
+        let canonical = time(Phase::Canonicalize, || {
+            canonicalize(self.compat, package, interfaces, &read.module)
+        })
+        .map_err(|errors| format!("{package} {name}: {errors:?}"))?;
+        let annotations = time(Phase::Types, || {
+            nomi_compiler::types::infer(self.compat, &canonical)
+        })
+        .map_err(|errors| format!("{package} {name}: type errors {errors:?}"))?;
+        let parse = time(Phase::Parse, || parse_module(&read.text));
         let root = parse.syntax();
         let source = Source::new(&read.text);
         let region = |range| {
@@ -424,10 +449,12 @@ impl Package<'_> {
                 end: (kept.end.row, kept.end.col),
             }
         };
-        let graph = optimize::module(self.compat, &annotations, &canonical, &region);
-        interfaces.insert(name.to_owned(), interface(&canonical, &annotations));
+        let graph = time(Phase::Optimize, || {
+            optimize::module(self.compat, &annotations, &canonical, &region)
+        });
+        let made = time(Phase::Interface, || interface(&canonical, &annotations));
+        interfaces.insert(name.to_owned(), made);
         built.insert(name.to_owned(), Built::Local(graph));
-        state.insert(name.to_owned(), true);
         Ok(())
     }
 

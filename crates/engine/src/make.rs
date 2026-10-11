@@ -4,6 +4,7 @@
 //! a package's exposed ones, built; then the documentation is written, or
 //! the code generated.
 
+use crate::timings::{self, Phase};
 use std::path::{Path, PathBuf};
 
 use nomi_base::Report;
@@ -90,8 +91,25 @@ impl Make {
 }
 
 /// Makes what `make` asks for of the project around `dir`, and shows how
-/// it went. Whether nothing was wrong.
+/// it went. Whether nothing was wrong. With `NOMI_TIMINGS`, where the time
+/// went follows on standard error.
 pub fn run(
+    vfs: &Vfs,
+    console: &mut dyn Console,
+    dir: &Path,
+    cache: &Cache,
+    http: &(impl Http + Sync),
+    make: &Make,
+) -> bool {
+    let started = std::time::Instant::now();
+    let ok = build(vfs, console, dir, cache, http, make);
+    if timings::on() {
+        console.err(&timings::report(started.elapsed()));
+    }
+    ok
+}
+
+fn build(
     vfs: &Vfs,
     console: &mut dyn Console,
     dir: &Path,
@@ -130,11 +148,13 @@ pub fn run(
     }
     let mut compat = nomi_base::Compat::LATEST;
     let loaded = (|| {
-        let project = Project::read(vfs, &root, personality)?;
+        let project = timings::time(Phase::Load, || Project::read(vfs, &root, personality))?;
         compat = project.compat;
         let root = root.dir().to_owned();
         check_source_dirs(&root, &project.outline)?;
-        let (foreigns, interfaces, dependencies) = foreigns(cache, http, &project, personality)?;
+        let (foreigns, interfaces, dependencies) = timings::time(Phase::Packages, || {
+            foreigns(cache, http, &project, personality)
+        })?;
         let env = env_of(&root, &project.outline, compat, foreigns)?.with_cwd(dir);
         Ok::<_, Report>((root, project.outline, env, interfaces, dependencies))
     })();
@@ -157,33 +177,36 @@ pub fn run(
     let documenting = make.docs.is_some() && make.paths.is_empty();
     let generating = !make.paths.is_empty() && make.output != Some(Output::DevNull);
     let mut optimized = None;
-    let (checked, docs, compiled) = if documenting {
-        check::docs(&snapshot, &env, &outline, personality, &interfaces)
-    } else if generating {
-        let (checked, made) = check::optimize(
-            &snapshot,
-            &env,
-            &outline,
-            &make.paths,
-            personality,
-            &interfaces,
-            Some(&artifacts),
-        );
-        let compiled = made.compiled;
-        optimized = Some(made);
-        (checked, None, compiled)
-    } else {
-        let (checked, _, compiled) = check::make_with(
-            &snapshot,
-            &env,
-            &outline,
-            &make.paths,
-            personality,
-            &interfaces,
-            Some(&artifacts),
-        );
-        (checked, None, compiled)
-    };
+    let modules = timings::time(Phase::Modules, || {
+        if documenting {
+            check::docs(&snapshot, &env, &outline, personality, &interfaces)
+        } else if generating {
+            let (checked, made) = check::optimize(
+                &snapshot,
+                &env,
+                &outline,
+                &make.paths,
+                personality,
+                &interfaces,
+                Some(&artifacts),
+            );
+            let compiled = made.compiled;
+            optimized = Some(made);
+            (checked, None, compiled)
+        } else {
+            let (checked, _, compiled) = check::make_with(
+                &snapshot,
+                &env,
+                &outline,
+                &make.paths,
+                personality,
+                &interfaces,
+                Some(&artifacts),
+            );
+            (checked, None, compiled)
+        }
+    });
+    let (checked, docs, compiled) = modules;
     // `elm make` without files, in an application or a package exposing
     // nothing, stops before it builds.
     let no_input = make.paths.is_empty()
@@ -244,15 +267,19 @@ pub fn run(
                 Outline::App(_) => "author/project".to_owned(),
                 Outline::Pkg(pkg) => pkg.name.to_string(),
             };
-            let types = dependencies.into_graph_and_types();
-            let js = javascript::program(compat, kind, &package, types, optimized);
-            let bytes = match &target.html {
-                Some(module) => nomi_codegen_js::html::sandwich(&module.to_string(), &js),
-                None => js,
-            };
+            let bytes = timings::time(Phase::Generate, || {
+                let types = dependencies.into_graph_and_types();
+                let js = javascript::program(compat, kind, &package, types, optimized);
+                match &target.html {
+                    Some(module) => nomi_codegen_js::html::sandwich(&module.to_string(), &js),
+                    None => js,
+                }
+            });
             let path = dir.join(&target.path);
-            let written = (path.parent().map_or(Ok(()), std::fs::create_dir_all))
-                .and_then(|()| vfs.create(&path, &bytes));
+            let written = timings::time(Phase::Write, || {
+                (path.parent().map_or(Ok(()), std::fs::create_dir_all))
+                    .and_then(|()| vfs.create(&path, &bytes))
+            });
             if let Err(e) = written {
                 let report = one_line(
                     "PROBLEM WRITING OUTPUT",

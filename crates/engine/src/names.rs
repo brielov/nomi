@@ -3,6 +3,7 @@
 //! upstream's `Build.hs` checks them. A module whose import failed is
 //! blocked and stays silent.
 
+use crate::timings::{Phase, time};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use std::path::PathBuf;
@@ -340,7 +341,8 @@ impl Walk<'_> {
                 _ => None,
             })
             .collect();
-        self.module(i, module, &local)
+        let name = module.name.to_string();
+        crate::timings::module(&name, || self.module(i, module, &local))
     }
 
     /// Canonicalizes `module`, its local imports having made `local`.
@@ -355,7 +357,7 @@ impl Walk<'_> {
         let document = self.goals.documented.contains(&module.name);
         let key = (self.artifacts.filter(|_| !document)).map(|_| self.key(module, local));
         if let (Some(artifacts), Some(key)) = (self.artifacts, key)
-            && let Some(bytes) = artifacts.get(key)
+            && let Some(bytes) = time(Phase::CacheRead, || artifacts.get(key))
         {
             // The encoding is canonical, so its bytes hash as the
             // interface's own encoding would.
@@ -366,8 +368,10 @@ impl Walk<'_> {
             };
             // Optimizing, the module's graph must be filed too.
             let graph = (self.goals.optimize).then(|| {
-                let bytes = artifacts.get(graph_key(key))?;
-                binary::decode_local_graph(&bytes, self.env.compat())
+                time(Phase::CacheRead, || {
+                    let bytes = artifacts.get(graph_key(key))?;
+                    binary::decode_local_graph(&bytes, self.env.compat())
+                })
             });
             match graph {
                 None => return Ok(made),
@@ -385,12 +389,21 @@ impl Walk<'_> {
         }
         self.ran.lock().unwrap().push((i, module.path.clone()));
         let root = module.parse.syntax();
-        let hir = hir::lower(&ast::Module::cast(root.clone()).expect("a module"));
-        match canonicalize(self.env.compat(), &self.package, &interfaces, &hir) {
-            Ok(canonical) => match nomi_compiler::types::infer(self.env.compat(), &canonical) {
+        let hir = time(Phase::Lower, || {
+            hir::lower(&ast::Module::cast(root.clone()).expect("a module"))
+        });
+        let canonical = time(Phase::Canonicalize, || {
+            canonicalize(self.env.compat(), &self.package, &interfaces, &hir)
+        });
+        match canonical {
+            Ok(canonical) => match time(Phase::Types, || {
+                nomi_compiler::types::infer(self.env.compat(), &canonical)
+            }) {
                 Ok(annotations) => {
                     // Then the patterns, as upstream's `nitpick`.
-                    let pattern_errors = patterns::check(self.env.compat(), &canonical.decls);
+                    let pattern_errors = time(Phase::Checks, || {
+                        patterns::check(self.env.compat(), &canonical.decls)
+                    });
                     if !pattern_errors.is_empty() {
                         let source = Source::new(&module.text);
                         let trim = |range| trim(&root, range);
@@ -409,7 +422,10 @@ impl Walk<'_> {
                         return Err(());
                     }
                     // Then `main`, as upstream's `optimize` checks it.
-                    if let Some(error) = main_check::check(&canonical.decls, &annotations) {
+                    let main = time(Phase::Checks, || {
+                        main_check::check(&canonical.decls, &annotations)
+                    });
+                    if let Some(error) = main {
                         let source = Source::new(&module.text);
                         let trim = |range| trim(&root, range);
                         let imports = with_defaults(&self.package, &hir.imports);
@@ -433,7 +449,10 @@ impl Walk<'_> {
                     }
                     // Then the documentation, as `Build.compile` makes it.
                     if document {
-                        match docs::from_module(self.env.compat(), &module.text, &hir, &canonical) {
+                        let docs = time(Phase::Checks, || {
+                            docs::from_module(self.env.compat(), &module.text, &hir, &canonical)
+                        });
+                        match docs {
                             Ok(docs) => self.docs.lock().unwrap().push((i, docs)),
                             Err(error) => {
                                 let source = Source::new(&module.text);
@@ -456,23 +475,29 @@ impl Walk<'_> {
                                 end: (kept.end.row, kept.end.col),
                             }
                         };
-                        let graph =
-                            optimize::module(self.env.compat(), &annotations, &canonical, &region);
+                        let graph = time(Phase::Optimize, || {
+                            optimize::module(self.env.compat(), &annotations, &canonical, &region)
+                        });
                         if let (Some(artifacts), Some(key)) = (self.artifacts, key) {
-                            let bytes = binary::encode_local_graph(&graph, self.env.compat());
-                            let _ = artifacts.put(graph_key(key), &bytes);
+                            time(Phase::CacheWrite, || {
+                                let bytes = binary::encode_local_graph(&graph, self.env.compat());
+                                let _ = artifacts.put(graph_key(key), &bytes);
+                            });
                         }
                         self.optimized
                             .lock()
                             .unwrap()
                             .push((i, (module.name.clone(), graph)));
                     }
-                    let interface = interface(&canonical, &annotations);
-                    let bytes = interface.encode();
+                    let (interface, bytes) = time(Phase::Interface, || {
+                        let interface = interface(&canonical, &annotations);
+                        let bytes = interface.encode();
+                        (interface, bytes)
+                    });
                     if let (Some(artifacts), Some(key)) = (self.artifacts, key) {
                         // A cache that can't be written only costs a
                         // check next time.
-                        let _ = artifacts.put(key, &bytes);
+                        let _ = time(Phase::CacheWrite, || artifacts.put(key, &bytes));
                     }
                     let made = Made {
                         interface: Arc::new(LazyInterface::ready(interface)),

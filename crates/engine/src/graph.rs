@@ -4,6 +4,7 @@
 //! with them are upstream's. Before anything compiles, the modules import
 //! no cycle and the roots' names are unique (`checkMidpointAndRoots`).
 
+use crate::timings::Phase;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -480,6 +481,15 @@ fn module_file(name: &ModuleName, ext: &str) -> Option<PathBuf> {
 /// `crawlFile`, or with no name `expected`, `crawlRoot`'s parse of a file
 /// outside the source directories.
 fn read(
+    snapshot: &Snapshot,
+    env: &Env,
+    path: PathBuf,
+    expected: Option<&ModuleName>,
+) -> Result<Module, BadModule> {
+    crate::timings::time(Phase::Parse, || read_file(snapshot, env, path, expected))
+}
+
+fn read_file(
     snapshot: &Snapshot,
     env: &Env,
     path: PathBuf,
