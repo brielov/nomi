@@ -11,7 +11,7 @@
 
 use crate::timings::{Phase, time};
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -50,8 +50,10 @@ pub struct PackageBuild {
     pub graph: GlobalGraph,
 }
 
-/// Each package's build, by the directory of its source.
-pub type Memo = HashMap<PathBuf, Arc<PackageBuild>>;
+/// Each package's build, by its key: the release, the package, and its
+/// dependencies' builds, as one release of a package builds differently
+/// against different releases of its dependencies.
+pub type Memo = HashMap<Hash, Arc<PackageBuild>>;
 
 /// A project's dependencies built, each a package and its build, by name.
 #[derive(Clone, Debug, Default)]
@@ -165,7 +167,7 @@ pub fn build(
             built.insert(names[d].clone(), dep_build.clone());
         }
         let key = key.finish();
-        if let Some(build) = memo_now.get(dir) {
+        if let Some(build) = memo_now.get(&key) {
             return Ok((key, build.clone()));
         }
         let cached = time(Phase::CacheRead, || {
@@ -193,8 +195,8 @@ pub fn build(
     let mut built: BTreeMap<Name, Arc<PackageBuild>> = BTreeMap::new();
     for (name, outcome) in names.iter().zip(outcomes) {
         match outcome {
-            crate::schedule::Outcome::Done((_, build)) => {
-                memo.insert(outlines[*name].1.clone(), build.clone());
+            crate::schedule::Outcome::Done((key, build)) => {
+                memo.insert(key, build.clone());
                 built.insert((*name).clone(), build);
             }
             crate::schedule::Outcome::Failed(why) => return Err(why),
@@ -343,12 +345,43 @@ struct Package<'a> {
 /// A module of the package, read.
 struct Read {
     text: String,
+    parse: nomi_syntax::Parse,
     module: hir::Module,
+}
+
+/// What a crawl found under a name: a module to compile, a kernel, or
+/// nothing, a module the package doesn't have being a foreign one.
+enum Found {
+    Module(Box<Read>),
+    /// A kernel's chunks, and the modules it imports.
+    Kernel(Vec<Chunk>, Vec<String>),
+    Foreign,
+}
+
+/// What one module's compile made.
+type Compiled = (Interface, LocalGraph);
+
+/// The interfaces a package module reads: its package imports' over its
+/// dependencies'.
+struct Layered<'a> {
+    local: HashMap<&'a str, &'a Interface>,
+    visible: &'a HashMap<String, Interface>,
+}
+
+impl nomi_compiler::interface::Interfaces for Layered<'_> {
+    fn get(&self, module: &str) -> Option<&Interface> {
+        match self.local.get(module) {
+            Some(interface) => Some(interface),
+            None => self.visible.get(module),
+        }
+    }
 }
 
 impl Package<'_> {
     /// `crawlModule` from `exposed`, then `compile` of each module the
-    /// crawl reached: every module's interface, and what each became.
+    /// crawl reached: every module's interface, and what each became. The
+    /// crawl reads each wave of modules on the pool, and the modules
+    /// compile on it along their imports.
     #[allow(clippy::type_complexity)]
     fn build(
         &self,
@@ -357,79 +390,128 @@ impl Package<'_> {
     ) -> Result<(HashMap<String, Interface>, BTreeMap<String, Built>), String> {
         let mut modules: BTreeMap<String, Read> = BTreeMap::new();
         let mut built: BTreeMap<String, Built> = BTreeMap::new();
-        let mut pending: Vec<String> = exposed.to_vec();
-        while let Some(name) = pending.pop() {
-            if modules.contains_key(&name) || built.contains_key(&name) {
-                continue;
-            }
-            if let Some(short) = name.strip_prefix("Elm.Kernel.") {
-                if !self.kernels {
-                    continue;
-                }
-                let file = self.src.join("Elm/Kernel").join(format!("{short}.js"));
-                // A kernel the package doesn't have is a foreign one.
-                let Ok(bytes) = fs::read(&file) else { continue };
-                let content = kernel::parse(&self.name, self.foreigns, &bytes)
-                    .ok_or_else(|| format!("{} {name}: a kernel that doesn't parse", self.name))?;
-                pending.extend(content.imports.iter().map(|i| i.module.clone()));
-                built.insert(name, Built::Kernel(content.chunks));
-                continue;
-            }
-            let file = self.src.join(format!("{}.elm", name.replace('.', "/")));
-            // A module the package doesn't have is a foreign one.
-            let Ok(text) = fs::read_to_string(&file) else {
-                continue;
-            };
-            let parse = time(Phase::Parse, || parse_module(&text));
-            let module = time(Phase::Lower, || {
-                hir::lower(&ast::Module::cast(parse.syntax()).expect("a module"))
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut wave: Vec<String> = (exposed.iter())
+            .filter(|name| seen.insert((*name).clone()))
+            .cloned()
+            .collect();
+        while !wave.is_empty() {
+            let found = crate::Pool::global().map(wave, |name| {
+                let found = self.find(&name);
+                (name, found)
             });
-            pending.extend(module.imports.iter().map(|i| i.name.text.clone()));
-            modules.insert(name, Read { text, module });
+            let mut next = Vec::new();
+            for (name, found) in found {
+                let (imports, found): (Vec<String>, Found) = match found? {
+                    Found::Module(read) => {
+                        let imports = (read.module.imports.iter())
+                            .map(|i| i.name.text.clone())
+                            .collect();
+                        (imports, Found::Module(read))
+                    }
+                    Found::Kernel(chunks, imports) => (imports, Found::Kernel(chunks, Vec::new())),
+                    Found::Foreign => (Vec::new(), Found::Foreign),
+                };
+                match found {
+                    Found::Module(read) => {
+                        modules.insert(name, *read);
+                    }
+                    Found::Kernel(chunks, _) => {
+                        built.insert(name, Built::Kernel(chunks));
+                    }
+                    Found::Foreign => {}
+                }
+                next.extend(imports.into_iter().filter(|i| seen.insert(i.clone())));
+            }
+            wave = next;
         }
-        let mut state: HashMap<String, bool> = HashMap::new();
-        let names: Vec<String> = modules.keys().cloned().collect();
-        for name in &names {
-            self.visit(name, &modules, &mut state, &mut interfaces, &mut built)?;
+        let names: Vec<&String> = modules.keys().collect();
+        let index: HashMap<&str, usize> = (names.iter().enumerate())
+            .map(|(i, name)| (name.as_str(), i))
+            .collect();
+        let imports: Vec<Vec<usize>> = (names.iter())
+            .map(|name| {
+                (modules[*name].module.imports.iter())
+                    .filter_map(|i| index.get(i.name.text.as_str()).copied())
+                    .collect()
+            })
+            .collect();
+        if !crate::names::cyclic(&imports).is_empty() {
+            return Err(format!(
+                "{}: its modules import each other in a cycle",
+                self.name
+            ));
+        }
+        let visible = &interfaces;
+        let job = |i: usize, deps: &[&Compiled]| -> Result<Compiled, String> {
+            let name = names[i];
+            let local = (imports[i].iter().zip(deps))
+                .map(|(&d, (interface, _))| (names[d].as_str(), interface))
+                .collect();
+            let layered = Layered { local, visible };
+            crate::timings::module(&format!("{} {name}", self.name), || {
+                self.compile(name, &modules[name], &layered)
+            })
+        };
+        let snapshot = crate::Vfs::new().snapshot();
+        let outcomes =
+            crate::schedule::run(&snapshot, &imports, job).expect("a snapshot nothing edits");
+        let mut compiled = Vec::new();
+        for (name, outcome) in names.iter().zip(outcomes) {
+            match outcome {
+                crate::schedule::Outcome::Done(made) => compiled.push(((*name).clone(), made)),
+                crate::schedule::Outcome::Failed(why) => return Err(why),
+                // Only after an import failed, which comes first.
+                crate::schedule::Outcome::Blocked => {}
+            }
+        }
+        for (name, (interface, graph)) in compiled {
+            interfaces.insert(name.clone(), interface);
+            built.insert(name, Built::Local(graph));
         }
         Ok((interfaces, built))
     }
 
-    /// Canonicalizes, types and optimizes `name` after the package's
-    /// modules it imports.
-    fn visit(
-        &self,
-        name: &str,
-        modules: &BTreeMap<String, Read>,
-        state: &mut HashMap<String, bool>,
-        interfaces: &mut HashMap<String, Interface>,
-        built: &mut BTreeMap<String, Built>,
-    ) -> Result<(), String> {
-        if state.contains_key(name) {
-            return Ok(());
-        }
-        state.insert(name.to_owned(), false);
-        let read = &modules[name];
-        for import in &read.module.imports {
-            if modules.contains_key(&import.name.text) {
-                self.visit(&import.name.text, modules, state, interfaces, built)?;
+    /// What the crawl finds under `name`.
+    fn find(&self, name: &str) -> Result<Found, String> {
+        if let Some(short) = name.strip_prefix("Elm.Kernel.") {
+            if !self.kernels {
+                return Ok(Found::Foreign);
             }
+            let file = self.src.join("Elm/Kernel").join(format!("{short}.js"));
+            // A kernel the package doesn't have is a foreign one.
+            let Ok(bytes) = fs::read(&file) else {
+                return Ok(Found::Foreign);
+            };
+            let content = kernel::parse(&self.name, self.foreigns, &bytes)
+                .ok_or_else(|| format!("{} {name}: a kernel that doesn't parse", self.name))?;
+            let imports = content.imports.iter().map(|i| i.module.clone()).collect();
+            return Ok(Found::Kernel(content.chunks, imports));
         }
-        crate::timings::module(&format!("{} {name}", self.name), || {
-            self.compile(name, read, interfaces, built)
-        })?;
-        state.insert(name.to_owned(), true);
-        Ok(())
+        let file = self.src.join(format!("{}.elm", name.replace('.', "/")));
+        // A module the package doesn't have is a foreign one.
+        let Ok(text) = fs::read_to_string(&file) else {
+            return Ok(Found::Foreign);
+        };
+        let parse = time(Phase::Parse, || parse_module(&text));
+        let module = time(Phase::Lower, || {
+            hir::lower(&ast::Module::cast(parse.syntax()).expect("a module"))
+        });
+        Ok(Found::Module(Box::new(Read {
+            text,
+            parse,
+            module,
+        })))
     }
 
-    /// Canonicalizes, types and optimizes `name`, its imports compiled.
+    /// Canonicalizes, types and optimizes `name`, its imports' interfaces
+    /// among `interfaces`.
     fn compile(
         &self,
         name: &str,
         read: &Read,
-        interfaces: &mut HashMap<String, Interface>,
-        built: &mut BTreeMap<String, Built>,
-    ) -> Result<(), String> {
+        interfaces: &Layered<'_>,
+    ) -> Result<Compiled, String> {
         let package = &self.name;
         let canonical = time(Phase::Canonicalize, || {
             canonicalize(self.compat, package, interfaces, &read.module)
@@ -439,8 +521,7 @@ impl Package<'_> {
             nomi_compiler::types::infer(self.compat, &canonical)
         })
         .map_err(|errors| format!("{package} {name}: type errors {errors:?}"))?;
-        let parse = time(Phase::Parse, || parse_module(&read.text));
-        let root = parse.syntax();
+        let root = read.parse.syntax();
         let source = Source::new(&read.text);
         let region = |range| {
             let kept = source.region(trim(&root, range), self.compat);
@@ -453,9 +534,7 @@ impl Package<'_> {
             optimize::module(self.compat, &annotations, &canonical, &region)
         });
         let made = time(Phase::Interface, || interface(&canonical, &annotations));
-        interfaces.insert(name.to_owned(), made);
-        built.insert(name.to_owned(), Built::Local(graph));
-        Ok(())
+        Ok((made, graph))
     }
 
     /// `gatherObjects`: the modules' graphs and kernels folded from the
