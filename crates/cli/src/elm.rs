@@ -25,6 +25,18 @@ pub fn main(args: impl Iterator<Item = OsString>) -> ExitCode {
         ["install", package] => crate::add(Personality::Elm, Some(package)),
         ["make", ref rest @ ..] => make(rest),
         ["diff", ref rest @ ..] => diff(rest),
+        ["repl", ..] => {
+            eprintln!(
+                "error: nomi has no REPL, so `elm repl` isn't here; elm's own still works beside it"
+            );
+            false
+        }
+        ["reactor", ..] => {
+            eprintln!(
+                "error: nomi has no reactor; `nomi run --watch` rebuilds and serves your entries as you edit"
+            );
+            false
+        }
         ["publish"] => crate::in_project(|console, dir, cache, http| {
             publish::run(&Vfs::new(), console, dir, cache, http)
         }),
