@@ -325,7 +325,7 @@ fn build_progress(console: &mut dyn Console, compiled: usize, checked: &Checked)
 
 /// The reports of `checked`, without the summary [`build_progress`] has
 /// shown.
-fn show_reports(
+pub(crate) fn show_reports(
     console: &mut dyn Console,
     root: &Path,
     checked: &Checked,

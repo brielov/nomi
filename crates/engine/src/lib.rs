@@ -25,6 +25,7 @@ pub mod packages;
 pub mod paths;
 mod pool;
 mod project;
+pub mod publish;
 pub mod remove;
 pub mod report;
 pub mod schedule;

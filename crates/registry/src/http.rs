@@ -24,6 +24,50 @@ pub trait Http {
     /// The body of a successful `POST` to `url`, sent without a body, as
     /// upstream asks for the registry (`Http.post`).
     fn post(&self, url: &str) -> Result<Vec<u8>, HttpError>;
+
+    /// The body of a successful multipart `POST` of `parts` to `url`, as
+    /// `elm publish` registers a release (`Http.upload`).
+    fn upload(&self, url: &str, parts: &[Part]) -> Result<Vec<u8>, HttpError> {
+        let _ = (url, parts);
+        Err(HttpError::Transport(
+            "this website takes no uploads".to_owned(),
+        ))
+    }
+}
+
+/// A part of an upload: its name, the file name it's sent as, if a file,
+/// and its bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Part {
+    pub name: String,
+    pub file_name: Option<String>,
+    pub bytes: Vec<u8>,
+}
+
+impl Part {
+    /// `multipart/form-data` of `parts`, between `boundary`s.
+    pub fn encode(parts: &[Part], boundary: &str) -> Vec<u8> {
+        let mut body = Vec::new();
+        for part in parts {
+            body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+            let disposition = match &part.file_name {
+                Some(file) => format!(
+                    "Content-Disposition: form-data; name=\"{}\"; filename=\"{file}\"\r\n",
+                    part.name
+                ),
+                None => format!("Content-Disposition: form-data; name=\"{}\"\r\n", part.name),
+            };
+            body.extend_from_slice(disposition.as_bytes());
+            if part.file_name.is_some() {
+                body.extend_from_slice(b"Content-Type: application/octet-stream\r\n");
+            }
+            body.extend_from_slice(b"\r\n");
+            body.extend_from_slice(&part.bytes);
+            body.extend_from_slice(b"\r\n");
+        }
+        body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+        body
+    }
 }
 
 /// Why a request got no body.
@@ -86,15 +130,37 @@ impl Http for Web {
     fn post(&self, url: &str) -> Result<Vec<u8>, HttpError> {
         body(self.agent.post(&redirect(url)).send_empty())
     }
+
+    fn upload(&self, url: &str, parts: &[Part]) -> Result<Vec<u8>, HttpError> {
+        let boundary = "nomi-upload-boundary-7d3f1c";
+        let content = format!("multipart/form-data; boundary={boundary}");
+        body(
+            self.agent
+                .post(&redirect(url))
+                .header("Content-Type", content)
+                .send(&Part::encode(parts, boundary)[..]),
+        )
+    }
 }
 
-/// `url`, at the registry `NOMI_REGISTRY` names instead of [`DOMAIN`]
-/// when it is set, as tests serve a fixture registry.
+/// `url` at the website `NOMI_REGISTRY` names, when it is set, as tests
+/// serve a fixture registry: [`DOMAIN`] at its root, GitHub's API under
+/// `/github-api` and GitHub under `/github`.
 fn redirect(url: &str) -> String {
-    match (std::env::var("NOMI_REGISTRY"), url.strip_prefix(DOMAIN)) {
-        (Ok(registry), Some(path)) => format!("{}{path}", registry.trim_end_matches('/')),
-        _ => url.to_owned(),
+    let Ok(registry) = std::env::var("NOMI_REGISTRY") else {
+        return url.to_owned();
+    };
+    let registry = registry.trim_end_matches('/');
+    for (host, under) in [
+        (DOMAIN, ""),
+        ("https://api.github.com", "/github-api"),
+        ("https://github.com", "/github"),
+    ] {
+        if let Some(path) = url.strip_prefix(host) {
+            return format!("{registry}{under}{path}");
+        }
     }
+    url.to_owned()
 }
 
 fn body(

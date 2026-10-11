@@ -11,9 +11,8 @@ use nomi_project::version::Version;
 use nomi_registry::{Http, Known};
 
 use crate::Vfs;
-use crate::check::{self, Style};
 use crate::console::{self, Console, Personality};
-use crate::diff::{self, Stop};
+use crate::diff::{self, Magnitude, Stop};
 use crate::paths::{Cache, Root};
 use crate::project::Project;
 
@@ -37,7 +36,7 @@ pub fn run(
             false
         }
         Err(Stop::Build(checked)) => {
-            check::show(console, root.dir(), &checked, compat, Style::Terminal);
+            crate::make::show_reports(console, root.dir(), &checked, compat);
             false
         }
     }
@@ -66,7 +65,7 @@ fn bump(
     };
     let mut bumpable: Vec<Version> = possibilities(compat, known)
         .into_iter()
-        .map(|(old, _)| old)
+        .map(|(old, _, _)| old)
         .collect();
     if !bumpable.contains(&pkg.version) {
         bumpable.sort();
@@ -97,7 +96,7 @@ fn bump(
 /// `Bump.getPossibilities`: each version a release may follow, with the
 /// one it would be: a major bump from the newest, a minor one from the
 /// last of each major version, a patch from the last of each minor one.
-fn possibilities(compat: Compat, known: &Known) -> Vec<(Version, Version)> {
+pub(crate) fn possibilities(compat: Compat, known: &Known) -> Vec<(Version, Version, Magnitude)> {
     let mut all: Vec<Version> = known.all().collect();
     all.reverse();
     let last_of = |same: fn(&Version, &Version) -> bool| {
@@ -110,16 +109,20 @@ fn possibilities(compat: Compat, known: &Known) -> Vec<(Version, Version)> {
         }
         points
     };
-    let mut out = vec![(known.newest, known.newest.bump_major(compat))];
+    let mut out = vec![(
+        known.newest,
+        known.newest.bump_major(compat),
+        Magnitude::Major,
+    )];
     out.extend(
         last_of(|a, b| a.major == b.major)
             .into_iter()
-            .map(|v| (v, v.bump_minor(compat))),
+            .map(|v| (v, v.bump_minor(compat), Magnitude::Minor)),
     );
     out.extend(
         last_of(|a, b| a.major == b.major && a.minor == b.minor)
             .into_iter()
-            .map(|v| (v, v.bump_patch(compat))),
+            .map(|v| (v, v.bump_patch(compat), Magnitude::Patch)),
     );
     out
 }
@@ -184,7 +187,7 @@ fn change_version(
 
 /// `Exit.newPackageOverview`, which `unlines` ends with an empty line;
 /// `putStrLn` adds the last newline.
-const NEW_PACKAGE_OVERVIEW: &str =
+pub(crate) const NEW_PACKAGE_OVERVIEW: &str =
     "This package has never been published before. Here's how things work:
 
   - Versions all have exactly three parts: MAJOR.MINOR.PATCH

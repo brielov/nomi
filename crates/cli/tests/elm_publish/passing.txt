@@ -1,0 +1,16 @@
+publish_already_published as 0.19.3
+publish_application as 0.19.1
+publish_application as 0.19.2
+publish_application as 0.19.3
+publish_bad_bump as 0.19.3
+publish_build_error as 0.19.3
+publish_good_bump as 0.19.3
+publish_invalid_bump as 0.19.3
+publish_new_initial as 0.19.3
+publish_new_not_initial as 0.19.3
+publish_no_exposed as 0.19.3
+publish_no_license as 0.19.3
+publish_no_project as 0.19.3
+publish_no_readme as 0.19.3
+publish_no_summary as 0.19.3
+publish_short_readme as 0.19.3

@@ -11,7 +11,7 @@ use nomi_engine::check::{self, Style};
 use nomi_engine::console::{Personality, StdConsole};
 use nomi_engine::format::{self, Mode, Outcome};
 use nomi_engine::paths::Cache;
-use nomi_engine::{Vfs, Web, bump, diff, init, install, make, remove, tree, update};
+use nomi_engine::{Vfs, Web, bump, diff, init, install, make, publish, remove, tree, update};
 
 /// One toolchain for Elm: compiler, formatter, language server, test runner
 /// and package manager.
@@ -106,6 +106,9 @@ enum Command {
     },
     /// Set the package's version to the one its API changes call for.
     Bump,
+    /// Publish the package to package.elm-lang.org, once it passes every
+    /// check `elm publish` makes.
+    Publish,
     /// Check modules as `elm make --output=/dev/null` does, generating no
     /// code: so far their syntax, module names, imports and names.
     Check {
@@ -215,6 +218,9 @@ fn main() -> ExitCode {
                 diff::run(&Vfs::new(), console, dir, cache, http, &args)
             })
         }
+        Some(Command::Publish) => in_project(|console, dir, cache, http| {
+            publish::run(&Vfs::new(), console, dir, cache, http)
+        }),
         Some(Command::Bump) => in_project(|console, dir, cache, http| {
             bump::run(&Vfs::new(), console, dir, cache, http)
         }),

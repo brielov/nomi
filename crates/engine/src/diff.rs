@@ -19,7 +19,7 @@ use nomi_syntax::ast::{self, AstNode};
 use serde_json::Value as Json;
 
 use crate::Vfs;
-use crate::check::{self, Checked, Style, env_of, foreigns};
+use crate::check::{self, Checked, env_of, foreigns};
 use crate::console::{self, Console, Personality};
 use crate::paths::{Cache, Root};
 use crate::project::{Project, check_source_dirs};
@@ -778,7 +778,7 @@ pub fn run(
         }
         Err(Stop::Build(checked)) => {
             let root = root.map_or(dir.to_owned(), |r| r.dir().to_owned());
-            check::show(console, &root, &checked, compat, Style::Terminal);
+            crate::make::show_reports(console, &root, &checked, compat);
             false
         }
     }
@@ -946,6 +946,17 @@ pub(crate) fn local_docs(
     cache: &Cache,
     http: &(impl Http + Sync),
 ) -> Result<Documentation, Stop> {
+    Ok(local_docs_json(vfs, root, project, cache, http)?.0)
+}
+
+/// [`local_docs`], and the `docs.json` they read from.
+pub(crate) fn local_docs_json(
+    vfs: &Vfs,
+    root: &Root,
+    project: &Project,
+    cache: &Cache,
+    http: &(impl Http + Sync),
+) -> Result<(Documentation, String), Stop> {
     let compat = project.compat;
     let dir = root.dir();
     check_source_dirs(dir, &project.outline)?;
@@ -964,20 +975,23 @@ pub(crate) fn local_docs(
         &interfaces,
     );
     match json {
-        Some(json) => Ok(decode(compat, json.as_bytes()).expect("docs nomi wrote")),
+        Some(json) => Ok((
+            decode(compat, json.as_bytes()).expect("docs nomi wrote"),
+            json,
+        )),
         None => Err(Stop::Build(checked)),
     }
 }
 
 /// `DocsProblem`.
-enum DocsProblem {
+pub(crate) enum DocsProblem {
     Cache,
     Http(String, HttpError),
     Data(String),
 }
 
 /// `toDocsProblemReport`.
-fn docs_problem(context: &str, problem: DocsProblem) -> Report {
+pub(crate) fn docs_problem(context: &str, problem: DocsProblem) -> Report {
     match problem {
         DocsProblem::Cache => Report::new(
             "PROBLEM LOADING DOCS",

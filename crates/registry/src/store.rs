@@ -192,6 +192,25 @@ impl Store {
     }
 }
 
+/// `File.writePackage` of an archive into `dir`, as `elm publish` unpacks
+/// the zipball GitHub serves; `false` if it isn't a package's archive.
+pub fn unpack(archive: &[u8], dir: &Path) -> io::Result<bool> {
+    let Ok(mut zip) = zip::ZipArchive::new(Cursor::new(archive)) else {
+        return Ok(false);
+    };
+    match write_package(&mut zip, dir) {
+        Ok(()) => Ok(true),
+        Err(Extract::Refused) => Ok(false),
+        Err(Extract::Io(e)) => Err(e),
+    }
+}
+
+/// The SHA-1 of `bytes` in hexadecimal, as `Http.getArchive` hashes an
+/// archive.
+pub fn sha1(bytes: &[u8]) -> String {
+    hex(&Sha1::digest(bytes))
+}
+
 /// `endpointDecoder` over `endpoint.json`: the archive's URL and hash.
 fn endpoint(
     http: &impl Http,

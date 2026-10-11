@@ -15,7 +15,7 @@ pub mod store;
 pub mod update;
 
 pub use details::DetailsProblem;
-pub use http::{Http, HttpError, Web};
+pub use http::{Http, HttpError, Part, Web};
 pub use index::{Connection, Index, Known, LatestError, RegistryProblem};
 pub use install::{Change, InstallProblem, Plan};
 pub use registry::{Registry, SolverProblem};
