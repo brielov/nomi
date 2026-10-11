@@ -216,7 +216,7 @@ fn to_can_type(vars: &mut Variables, var: Variable, state: &mut NameState) -> ca
             let real = to_can_type(vars, real, state);
             T::Alias(
                 home,
-                name,
+                String::from(name),
                 args,
                 AliasType::Filled(std::sync::Arc::new(real)),
             )
@@ -235,7 +235,7 @@ fn flat_to_can_type(
     match flat {
         FlatType::App1(home, name, args) => T::Type(
             home,
-            name,
+            String::from(name),
             args.into_iter()
                 .map(|a| to_can_type(vars, a, state))
                 .collect(),
@@ -341,7 +341,7 @@ fn content_to_err(
                 .map(|(n, a)| (n, to_err(vars, a, state)))
                 .collect();
             let real = to_err(vars, real, state);
-            E::Alias(home, name, args, Box::new(real))
+            E::Alias(home, String::from(name), args, Box::new(real))
         }
         Content::Error => E::Error,
     }
@@ -353,7 +353,7 @@ fn flat_to_err(vars: &mut Variables, flat: FlatType, state: &mut NameState) -> e
     match flat {
         FlatType::App1(home, name, args) => E::Type(
             home,
-            name,
+            String::from(name),
             args.into_iter().map(|a| to_err(vars, a, state)).collect(),
         ),
         FlatType::Fun1(a, b) => {

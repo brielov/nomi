@@ -29,12 +29,57 @@ enum Info<T> {
 /// Points, each linked to another or the root of a set with a value.
 #[derive(Clone, Debug)]
 pub struct UnionFind<T> {
-    points: Vec<Info<T>>,
+    points: Chunks<Info<T>>,
 }
 
 impl<T> Default for UnionFind<T> {
     fn default() -> UnionFind<T> {
-        UnionFind { points: Vec::new() }
+        UnionFind {
+            points: Chunks { chunks: Vec::new() },
+        }
+    }
+}
+
+/// How many points a chunk holds.
+const CHUNK: usize = 1 << 14;
+
+/// A vector in fixed-size chunks, which grows without moving what it holds:
+/// solving a large module makes millions of points, and a vector that
+/// doubled would copy them all, again and again.
+#[derive(Clone, Debug)]
+struct Chunks<T> {
+    chunks: Vec<Vec<T>>,
+}
+
+impl<T> Chunks<T> {
+    fn len(&self) -> usize {
+        self.chunks
+            .last()
+            .map_or(0, |last| (self.chunks.len() - 1) * CHUNK + last.len())
+    }
+
+    fn push(&mut self, value: T) {
+        match self.chunks.last_mut() {
+            Some(last) if last.len() < CHUNK => last.push(value),
+            _ => {
+                let mut chunk = Vec::with_capacity(CHUNK);
+                chunk.push(value);
+                self.chunks.push(chunk);
+            }
+        }
+    }
+}
+
+impl<T> std::ops::Index<usize> for Chunks<T> {
+    type Output = T;
+    fn index(&self, i: usize) -> &T {
+        &self.chunks[i / CHUNK][i % CHUNK]
+    }
+}
+
+impl<T> std::ops::IndexMut<usize> for Chunks<T> {
+    fn index_mut(&mut self, i: usize) -> &mut T {
+        &mut self.chunks[i / CHUNK][i % CHUNK]
     }
 }
 
@@ -51,7 +96,7 @@ impl<T> UnionFind<T> {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.points.is_empty()
+        self.points.len() == 0
     }
 
     /// `repr`: the root of `point`'s set, each point passed on the way

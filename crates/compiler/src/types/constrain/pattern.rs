@@ -1,6 +1,7 @@
 //! Constraints for patterns (`Type/Constrain/Pattern.hs`): what type a
 //! pattern matches, and the names it binds, each with its type.
 
+use crate::canonical::Text;
 use std::collections::BTreeMap;
 
 use nomi_base::TextRange;
@@ -34,7 +35,7 @@ impl State {
 }
 
 fn list(entry: Type) -> Type {
-    Type::App(core("List"), "List".to_owned(), vec![entry])
+    Type::App(core("List"), Text::from("List"), vec![entry])
 }
 
 /// `add`.
@@ -205,7 +206,7 @@ fn add_ctor(
     }
     let ty = Type::App(
         home.clone(),
-        type_name.to_owned(),
+        Text::from(type_name),
         pairs.iter().map(|(_, v)| Type::Var(*v)).collect(),
     );
     state.cons.push(Constraint::Pattern(

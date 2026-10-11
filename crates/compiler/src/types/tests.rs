@@ -1,4 +1,5 @@
 use super::*;
+use crate::canonical::Text;
 use crate::canonical::Type as T;
 
 #[test]
@@ -51,7 +52,7 @@ fn an_error_type_flattens_functions_and_cuts_infinite_types() {
     let a = vars.flex_var();
     let list = vars.fresh(Content::Structure(FlatType::App1(
         core("List"),
-        "List".to_owned(),
+        Text::from("List"),
         vec![a],
     )));
     // a ~ List a.
@@ -77,7 +78,7 @@ mod unification {
     fn app(vars: &mut Variables, module: &str, name: &str, args: Vec<Variable>) -> Variable {
         vars.fresh(Content::Structure(FlatType::App1(
             core(module),
-            name.to_owned(),
+            Text::from(name),
             args,
         )))
     }

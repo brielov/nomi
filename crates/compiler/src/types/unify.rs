@@ -5,6 +5,7 @@
 //! this: the other arguments of a type, and the other fields of a
 //! record, are still unified before the whole fails.
 
+use crate::canonical::Text;
 use std::collections::BTreeMap;
 
 use super::{
@@ -310,7 +311,7 @@ impl State<'_> {
     ) -> Unify {
         match other {
             Content::FlexVar(_) => {
-                let content = Content::Alias(home.clone(), name.to_owned(), args.to_vec(), real);
+                let content = Content::Alias(home.clone(), Text::from(name), args.to_vec(), real);
                 self.merge(context, content)
             }
             Content::FlexSuper(..)

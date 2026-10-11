@@ -4,6 +4,7 @@
 //! definition, a call's function before its arguments, a record's fields
 //! by name.
 
+use crate::canonical::Text;
 use std::collections::BTreeMap;
 
 use nomi_base::TextRange;
@@ -49,7 +50,7 @@ fn flex_let(
 }
 
 fn list(entry: Type) -> Type {
-    Type::App(core("List"), "List".to_owned(), vec![entry])
+    Type::App(core("List"), Text::from("List"), vec![entry])
 }
 
 /// `constrain`.
@@ -561,7 +562,7 @@ fn shader_con(
     };
     let shader_type = Type::App(
         webgl,
-        "Shader".to_owned(),
+        Text::from("Shader"),
         vec![
             record(&shader.attribute, var(attr_var)),
             record(&shader.uniform, var(unif_var)),

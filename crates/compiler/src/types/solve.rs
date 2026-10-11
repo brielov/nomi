@@ -8,6 +8,7 @@
 //! and undoes a scope's names when it ends, which scopes nesting strictly
 //! makes the same.
 
+use crate::canonical::Text;
 use std::collections::BTreeMap;
 
 use nomi_base::TextRange;
@@ -409,7 +410,7 @@ impl Solver<'_> {
                     .collect();
                 self.register(
                     rank,
-                    Content::Structure(FlatType::App1(home.clone(), name.clone(), args)),
+                    Content::Structure(FlatType::App1(home.clone(), Text::from(name), args)),
                 )
             }
             C::Record(fields, ext) => {
@@ -441,7 +442,10 @@ impl Solver<'_> {
                     }
                     AliasType::Filled(real) => self.src_type_to_var(rank, flex, real),
                 };
-                self.register(rank, Content::Alias(home.clone(), name.clone(), args, real))
+                self.register(
+                    rank,
+                    Content::Alias(home.clone(), Text::from(name), args, real),
+                )
             }
         })
     }

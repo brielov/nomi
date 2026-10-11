@@ -23,7 +23,7 @@ use nomi_base::{Compat, TextRange};
 
 pub use names::{from_type_variable, from_type_variable_scheme};
 
-use crate::canonical::{self, Home};
+use crate::canonical::{self, Home, Text};
 use expected::{Category, Expected, PCategory, PExpected};
 use union_find::{Point, UnionFind};
 
@@ -69,7 +69,7 @@ pub fn exists(flex_vars: Vec<Variable>, constraint: Constraint) -> Constraint {
 /// `FlatType`: one layer of a type, its parts variables.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FlatType {
-    App1(Home, String, Vec<Variable>),
+    App1(Home, Text, Vec<Variable>),
     Fun1(Variable, Variable),
     EmptyRecord1,
     Record1(BTreeMap<String, Variable>, Variable),
@@ -81,9 +81,9 @@ pub enum FlatType {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Type {
     PlaceHolder(String),
-    Alias(Home, String, Vec<(String, Type)>, Box<Type>),
+    Alias(Home, Text, Vec<(String, Type)>, Box<Type>),
     Var(Variable),
-    App(Home, String, Vec<Type>),
+    App(Home, Text, Vec<Type>),
     Fun(Box<Type>, Box<Type>),
     EmptyRecord,
     Record(BTreeMap<String, Type>, Box<Type>),
@@ -126,7 +126,7 @@ pub enum Content {
     RigidVar(String),
     RigidSuper(SuperType, String),
     Structure(FlatType),
-    Alias(Home, String, Vec<(String, Variable)>, Variable),
+    Alias(Home, Text, Vec<(String, Variable)>, Variable),
     Error,
 }
 
@@ -190,7 +190,7 @@ impl Mark {
 }
 
 fn basics(name: &str) -> Type {
-    Type::App(core("Basics"), name.to_owned(), Vec::new())
+    Type::App(core("Basics"), Text::from(name), Vec::new())
 }
 
 /// `elm/core`'s module `module`.
@@ -218,11 +218,11 @@ pub fn never() -> Type {
 }
 
 pub fn char() -> Type {
-    Type::App(core("Char"), "Char".to_owned(), Vec::new())
+    Type::App(core("Char"), Text::from("Char"), Vec::new())
 }
 
 pub fn string() -> Type {
-    Type::App(core("String"), "String".to_owned(), Vec::new())
+    Type::App(core("String"), Text::from("String"), Vec::new())
 }
 
 fn package_type(package: &str, module: &str, name: &str) -> Type {
@@ -230,7 +230,7 @@ fn package_type(package: &str, module: &str, name: &str) -> Type {
         package: package.into(),
         module: module.into(),
     };
-    Type::App(home, name.to_owned(), Vec::new())
+    Type::App(home, Text::from(name), Vec::new())
 }
 
 /// WebGL's types, which shaders' attributes, uniforms and varyings have.

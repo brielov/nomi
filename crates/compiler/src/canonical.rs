@@ -15,57 +15,117 @@ pub struct Home {
     pub module: Text,
 }
 
-/// An immutable string, shared by its clones, that reads, compares and
-/// orders as its text.
-#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Text(std::sync::Arc<str>);
+/// A name, a package's, a module's or a type's, interned: every `Text` of
+/// the same name
+/// points at one string, kept for the life of the process, so a clone
+/// copies a pointer, equality compares pointers, and a drop does nothing.
+/// Names are few, so keeping them costs little. It orders and hashes as
+/// its text, so nothing depends on where a name lives.
+#[derive(Clone)]
+pub struct Text(&'static str);
+
+impl Text {
+    /// The interned `name`.
+    pub fn new(name: &str) -> Text {
+        use std::collections::HashSet;
+        use std::sync::{OnceLock, RwLock};
+        static NAMES: OnceLock<RwLock<HashSet<&'static str>>> = OnceLock::new();
+        let names = NAMES.get_or_init(Default::default);
+        if let Some(&interned) = names.read().unwrap_or_else(|e| e.into_inner()).get(name) {
+            return Text(interned);
+        }
+        let mut names = names.write().unwrap_or_else(|e| e.into_inner());
+        if let Some(&interned) = names.get(name) {
+            return Text(interned);
+        }
+        let interned: &'static str = Box::leak(name.into());
+        names.insert(interned);
+        Text(interned)
+    }
+}
+
+impl Default for Text {
+    fn default() -> Text {
+        Text::new("")
+    }
+}
+
+impl PartialEq for Text {
+    fn eq(&self, other: &Text) -> bool {
+        std::ptr::eq(self.0, other.0)
+    }
+}
+
+impl Eq for Text {}
+
+impl PartialOrd for Text {
+    fn partial_cmp(&self, other: &Text) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Text {
+    fn cmp(&self, other: &Text) -> std::cmp::Ordering {
+        if self == other {
+            std::cmp::Ordering::Equal
+        } else {
+            self.0.cmp(other.0)
+        }
+    }
+}
+
+impl std::hash::Hash for Text {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
 
 impl std::ops::Deref for Text {
     type Target = str;
     fn deref(&self) -> &str {
-        &self.0
+        self.0
     }
 }
 
 impl std::borrow::Borrow<str> for Text {
     fn borrow(&self) -> &str {
-        &self.0
+        self.0
     }
 }
 
 impl AsRef<str> for Text {
     fn as_ref(&self) -> &str {
-        &self.0
+        self.0
     }
 }
 
 impl std::fmt::Debug for Text {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(&*self.0, f)
+        std::fmt::Debug::fmt(self.0, f)
     }
 }
 
 impl std::fmt::Display for Text {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(self.0)
     }
 }
 
 impl From<String> for Text {
     fn from(s: String) -> Text {
-        Text(s.into())
+        Text::new(&s)
     }
 }
 
 impl From<&str> for Text {
     fn from(s: &str) -> Text {
-        Text(s.into())
+        Text::new(s)
     }
 }
 
 impl From<&String> for Text {
     fn from(s: &String) -> Text {
-        Text(s.as_str().into())
+        Text::new(s)
     }
 }
 
@@ -77,37 +137,37 @@ impl From<Text> for String {
 
 impl PartialEq<str> for Text {
     fn eq(&self, other: &str) -> bool {
-        &*self.0 == other
+        self.0 == other
     }
 }
 
 impl PartialEq<&str> for Text {
     fn eq(&self, other: &&str) -> bool {
-        &*self.0 == *other
+        self.0 == *other
     }
 }
 
 impl PartialEq<String> for Text {
     fn eq(&self, other: &String) -> bool {
-        &*self.0 == other.as_str()
+        self.0 == other.as_str()
     }
 }
 
 impl PartialEq<Text> for str {
     fn eq(&self, other: &Text) -> bool {
-        self == &*other.0
+        self == other.0
     }
 }
 
 impl PartialEq<Text> for &str {
     fn eq(&self, other: &Text) -> bool {
-        *self == &*other.0
+        *self == other.0
     }
 }
 
 impl PartialEq<Text> for String {
     fn eq(&self, other: &Text) -> bool {
-        self.as_str() == &*other.0
+        self.as_str() == other.0
     }
 }
 

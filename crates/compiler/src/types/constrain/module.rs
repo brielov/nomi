@@ -3,6 +3,7 @@
 //! every top-level type; ports and an effect manager's functions bound
 //! around them.
 
+use crate::canonical::Text;
 use std::collections::BTreeMap;
 
 use nomi_base::TextRange;
@@ -129,8 +130,8 @@ fn let_map(
     let msg_var = vars.flex_var();
     let msg = Type::Var(msg_var);
     let ty = fun(
-        Type::App(home.clone(), tipe.to_owned(), vec![msg.clone()]),
-        Type::App(core(platform), platform_type.to_owned(), vec![msg]),
+        Type::App(home.clone(), Text::from(tipe), vec![msg.clone()]),
+        Type::App(core(platform), Text::from(platform_type), vec![msg]),
     );
     Constraint::Let {
         rigid_vars: vec![msg_var],
@@ -144,20 +145,20 @@ fn let_map(
 fn task(answer: Type) -> Type {
     Type::App(
         core("Platform"),
-        "Task".to_owned(),
+        Text::from("Task"),
         vec![types::never(), answer],
     )
 }
 
 fn router(msg: Type, self_msg: Type) -> Type {
-    Type::App(core("Platform"), "Router".to_owned(), vec![msg, self_msg])
+    Type::App(core("Platform"), Text::from("Router"), vec![msg, self_msg])
 }
 
 fn effect_list(home: &Home, name: &str, msg: Type) -> Type {
     Type::App(
         core("List"),
-        "List".to_owned(),
-        vec![Type::App(home.clone(), name.to_owned(), vec![msg])],
+        Text::from("List"),
+        vec![Type::App(home.clone(), Text::from(name), vec![msg])],
     )
 }
 
@@ -227,7 +228,7 @@ fn check_map(
 ) -> Constraint {
     let a = vars.flex_var();
     let b = vars.flex_var();
-    let applied = |x| Type::App(home.clone(), tipe.to_owned(), vec![Type::Var(x)]);
+    let applied = |x| Type::App(home.clone(), Text::from(&*tipe), vec![Type::Var(x)]);
     let map_type = fun(fun(Type::Var(a), Type::Var(b)), fun(applied(a), applied(b)));
     Constraint::Let {
         rigid_vars: vec![a, b],
