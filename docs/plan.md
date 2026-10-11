@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **8.16**.
+4. Resume at the first unchecked box. Right now that is **8.15a**.
 
 ### Test tiers
 
@@ -533,6 +533,7 @@ The optimizer's oracle is elm's own artifacts: every elm writes a module's optim
 - [x] **8.15** `cli: explain missing repl and reactor`. The message for `elm reactor` points to `nomi run --watch`.
 
   Done: as `elm`, `repl` and `reactor` exit with one line on standard error, whatever follows them; the reactor's points to `nomi run --watch`. elm-format's `--elm-version 0.18` already had its line (2.19). `crates/cli/tests/elm_missing.rs` pins both.
+- [ ] **8.15a** `engine: parallel builds`. Measured on exosphere (583 modules), nomi builds cold in 11.4 s against elm's 2.2 s and warm in 1.1 s against 0.4 s, with the same bytes: the local modules are checked one at a time (9.4 s cold), the packages too (1.4 s), and a warm build reads back every module's artifacts in turn (0.75 s). Modules run on the pool along the import DAG (`schedule::run`, unused so far), packages in dependency order as their dependencies finish, and what each needs from the others is shared rather than copied. **Check:** every ratchet and corpus suite unchanged, and the build benchmark of 8.16 within its bounds.
 - [ ] **8.16** `release: 0.2`. README usage (`ln -s nomi elm`), cold and warm build benchmarks against elm, and a tag.
 
 **Exit:**
