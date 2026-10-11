@@ -2,6 +2,7 @@
 //! against, installed under the development cache and never on `PATH`.
 
 pub mod corpus_runs;
+pub mod diff;
 pub mod format;
 pub mod javascript;
 pub mod make;

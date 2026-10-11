@@ -1,0 +1,12 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 0
+=== stdout
+|This is a MINOR change.
+|
+|---- Json.Decode - MINOR ----
+|
+|    Added:
+|        oneOrMore : (a -> List a -> value) -> Decoder a -> Decoder value
+|
+|
+=== stderr

@@ -1,0 +1,19 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|-- UNKNOWN PACKAGE -------------------------------------------------------------
+|
+|I cannot find a package called:
+|
+|    elm/jsno
+|
+|Maybe you want one of these instead?
+|
+|    elm/json
+|    elm/svg
+|    elm/core
+|    elm/file
+|
+|But check <https://package.elm-lang.org> to see all possibilities!
+|

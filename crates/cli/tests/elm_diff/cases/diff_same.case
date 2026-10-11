@@ -1,0 +1,7 @@
+=== note
+a release against itself
+=== args
+diff
+elm/json
+1.1.3
+1.1.3

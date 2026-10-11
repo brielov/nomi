@@ -1,0 +1,288 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 0
+=== stdout
+|This is a MAJOR change.
+|
+|---- REMOVED MODULES - MAJOR ----
+|
+|    Http.Progress
+|
+|
+|---- Http - MAJOR ----
+|
+|    Added:
+|        type Body 
+|        type Expect msg
+|        type Header 
+|        type Progress 
+|            = Sending { sent : Int, size : Int }
+|            | Receiving { received : Int, size : Maybe Int }
+|        type Resolver x a
+|        type Response body
+|            = BadUrl_ String
+|            | Timeout_
+|            | NetworkError_
+|            | BadStatus_ Metadata body
+|            | GoodStatus_ Metadata body
+|        type alias Metadata =
+|            { url : String
+|            , statusCode : Int
+|            , statusText : String
+|            , headers : Dict String String
+|            }
+|        bytesBody : String -> Bytes -> Body
+|        bytesPart : String -> String -> Bytes -> Part
+|        bytesResolver : (Response Bytes -> Result x a) -> Resolver x a
+|        cancel : String -> Cmd msg
+|        expectBytes : (Result Error a -> msg) -> Decoder a -> Expect msg
+|        expectBytesResponse :
+|            (Result x a -> msg) -> (Response Bytes -> Result x a) -> Expect msg
+|        expectWhatever : (Result Error () -> msg) -> Expect msg
+|        fileBody : File -> Body
+|        filePart : String -> File -> Part
+|        fractionReceived : { received : Int, size : Maybe Int } -> Float
+|        fractionSent : { sent : Int, size : Int } -> Float
+|        riskyRequest :
+|            { method : String
+|            , headers : List Header
+|            , url : String
+|            , body : Body
+|            , expect : Expect msg
+|            , timeout : Maybe Float
+|            , tracker : Maybe String
+|            }
+|            -> Cmd msg
+|        riskyTask :
+|            { method : String
+|            , headers : List Header
+|            , url : String
+|            , body : Body
+|            , resolver : Resolver x a
+|            , timeout : Maybe Float
+|            }
+|            -> Task x a
+|        stringResolver : (Response String -> Result x a) -> Resolver x a
+|        task :
+|            { method : String
+|            , headers : List Header
+|            , url : String
+|            , body : Body
+|            , resolver : Resolver x a
+|            , timeout : Maybe Float
+|            }
+|            -> Task x a
+|        track : String -> (Progress -> msg) -> Sub msg
+|    
+|    Removed:
+|        type alias Body = Body
+|        type alias Expect a = Expect a
+|        type alias Header = Header
+|        type alias Request a = Request a
+|        type alias Response body =
+|            { url : String
+|            , status : { code : Int, message : String }
+|            , headers : Dict String String
+|            , body : body
+|            }
+|        getString : String -> Request String
+|        send : (Result Error a -> msg) -> Request a -> Cmd msg
+|        toTask : Request a -> Task Error a
+|    
+|    Changed:
+|      - type Error 
+|            = BadUrl String
+|            | Timeout
+|            | NetworkError
+|            | BadStatus (Response String)
+|            | BadPayload String (Response String)
+|      + type Error 
+|            = BadUrl String
+|            | Timeout
+|            | NetworkError
+|            | BadStatus Int
+|            | BadBody String
+|    
+|      - expectJson : Decoder a -> Expect a
+|      + expectJson : (Result Error a -> msg) -> Decoder a -> Expect msg
+|    
+|      - expectString : Expect String
+|      + expectString : (Result Error String -> msg) -> Expect msg
+|    
+|      - expectStringResponse : (Response String -> Result String a) -> Expect a
+|      + expectStringResponse :
+|            (Result x a -> msg) -> (Response String -> Result x a) -> Expect msg
+|    
+|      - get : String -> Decoder a -> Request a
+|      + get : { url : String, expect : Expect msg } -> Cmd msg
+|    
+|      - post : String -> Body -> Decoder a -> Request a
+|      + post : { url : String, body : Body, expect : Expect msg } -> Cmd msg
+|    
+|      - request :
+|            { method : String
+|            , headers : List Header
+|            , url : String
+|            , body : Body
+|            , expect : Expect a
+|            , timeout : Maybe Float
+|            , withCredentials : Bool
+|            }
+|            -> Request a
+|      + request :
+|            { method : String
+|            , headers : List Header
+|            , url : String
+|            , body : Body
+|            , expect : Expect msg
+|            , timeout : Maybe Float
+|            , tracker : Maybe String
+|            }
+|            -> Cmd msg
+|    
+|
+|
+=== stderr
+### elm 0.19.3
+=== exit 0
+=== stdout
+|This is a MAJOR change.
+|
+|---- REMOVED MODULES - MAJOR ----
+|
+|    Http.Progress
+|
+|
+|---- Http - MAJOR ----
+|
+|    Added:
+|        type Body 
+|        type Expect msg
+|        type Header 
+|        type Progress 
+|            = Sending { sent : Int, size : Int }
+|            | Receiving { received : Int, size : Maybe Int }
+|        type Resolver x a
+|        type Response body
+|            = BadUrl_ String
+|            | Timeout_
+|            | NetworkError_
+|            | BadStatus_ Metadata body
+|            | GoodStatus_ Metadata body
+|        type alias Metadata =
+|            { url : String
+|            , statusCode : Int
+|            , statusText : String
+|            , headers : Dict String String
+|            }
+|        task :
+|            { method : String
+|            , headers : List Header
+|            , url : String
+|            , body : Body
+|            , resolver : Resolver x a
+|            , timeout : Maybe Float
+|            }
+|            -> Task x a
+|        track : String -> (Progress -> msg) -> Sub msg
+|        cancel : String -> Cmd msg
+|        fileBody : File -> Body
+|        filePart : String -> File -> Part
+|        bytesBody : String -> Bytes -> Body
+|        bytesPart : String -> String -> Bytes -> Part
+|        riskyTask :
+|            { method : String
+|            , headers : List Header
+|            , url : String
+|            , body : Body
+|            , resolver : Resolver x a
+|            , timeout : Maybe Float
+|            }
+|            -> Task x a
+|        expectBytes : (Result Error a -> msg) -> Decoder a -> Expect msg
+|        fractionSent : { sent : Int, size : Int } -> Float
+|        riskyRequest :
+|            { method : String
+|            , headers : List Header
+|            , url : String
+|            , body : Body
+|            , expect : Expect msg
+|            , timeout : Maybe Float
+|            , tracker : Maybe String
+|            }
+|            -> Cmd msg
+|        bytesResolver : (Response Bytes -> Result x a) -> Resolver x a
+|        expectWhatever : (Result Error () -> msg) -> Expect msg
+|        stringResolver : (Response String -> Result x a) -> Resolver x a
+|        fractionReceived : { received : Int, size : Maybe Int } -> Float
+|        expectBytesResponse :
+|            (Result x a -> msg) -> (Response Bytes -> Result x a) -> Expect msg
+|    
+|    Removed:
+|        type alias Body = Body
+|        type alias Expect a = Expect a
+|        type alias Header = Header
+|        type alias Request a = Request a
+|        type alias Response body =
+|            { url : String
+|            , status : { code : Int, message : String }
+|            , headers : Dict String String
+|            , body : body
+|            }
+|        send : (Result Error a -> msg) -> Request a -> Cmd msg
+|        toTask : Request a -> Task Error a
+|        getString : String -> Request String
+|    
+|    Changed:
+|      - type Error 
+|            = BadUrl String
+|            | Timeout
+|            | NetworkError
+|            | BadStatus (Response String)
+|            | BadPayload String (Response String)
+|      + type Error 
+|            = BadUrl String
+|            | Timeout
+|            | NetworkError
+|            | BadStatus Int
+|            | BadBody String
+|    
+|      - get : String -> Decoder a -> Request a
+|      + get : { url : String, expect : Expect msg } -> Cmd msg
+|    
+|      - post : String -> Body -> Decoder a -> Request a
+|      + post : { url : String, body : Body, expect : Expect msg } -> Cmd msg
+|    
+|      - request :
+|            { method : String
+|            , headers : List Header
+|            , url : String
+|            , body : Body
+|            , expect : Expect a
+|            , timeout : Maybe Float
+|            , withCredentials : Bool
+|            }
+|            -> Request a
+|      + request :
+|            { method : String
+|            , headers : List Header
+|            , url : String
+|            , body : Body
+|            , expect : Expect msg
+|            , timeout : Maybe Float
+|            , tracker : Maybe String
+|            }
+|            -> Cmd msg
+|    
+|      - expectJson : Decoder a -> Expect a
+|      + expectJson : (Result Error a -> msg) -> Decoder a -> Expect msg
+|    
+|      - expectString : Expect String
+|      + expectString : (Result Error String -> msg) -> Expect msg
+|    
+|      - expectStringResponse : (Response String -> Result String a) -> Expect a
+|      + expectStringResponse :
+|            (Result x a -> msg) -> (Response String -> Result x a) -> Expect msg
+|    
+|
+|
+=== stderr

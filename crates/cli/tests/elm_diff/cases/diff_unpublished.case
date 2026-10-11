@@ -1,0 +1,35 @@
+=== note
+diff of a package never published
+=== args
+diff
+=== file elm.json
+{
+    "type": "package",
+    "name": "nomi-test/unpublished-thing",
+    "summary": "Just the old flip function",
+    "license": "ISC",
+    "version": "1.0.0",
+    "exposed-modules": [
+        "Flip"
+    ],
+    "elm-version": "0.19.0 <= v < 0.20.0",
+    "dependencies": {
+        "elm/core": "1.0.0 <= v < 2.0.0"
+    },
+    "test-dependencies": {}
+}
+=== file src/Flip.elm
+module Flip exposing (flip)
+
+{-| Reverse the arguments of a function with only two arguments.
+
+@docs flip
+
+-}
+
+
+{-| Take a function, the first argument, and return a new function that accepts the same parameters as the original function, but in reverse order.
+-}
+flip : (a -> b -> c) -> b -> a -> c
+flip function argB argA =
+    function argA argB

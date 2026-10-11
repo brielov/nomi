@@ -1,0 +1,24 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 0
+=== stdout
+|Based on your new API, this should be a MAJOR change (1.0.0 => 2.0.0)
+|Bail out of this command and run 'elm diff' for a full explanation.
+|
+|Should I perform the update (1.0.0 => 2.0.0) in elm.json? [Y/n] Version changed to 2.0.0!
+=== stderr
+=== file elm.json
+|{
+|    "type": "package",
+|    "name": "pilatch/flip",
+|    "summary": "Just the old flip function",
+|    "license": "ISC",
+|    "version": "2.0.0",
+|    "exposed-modules": [
+|        "Flip"
+|    ],
+|    "elm-version": "0.19.0 <= v < 0.20.0",
+|    "dependencies": {
+|        "elm/core": "1.0.0 <= v < 2.0.0"
+|    },
+|    "test-dependencies": {}
+|}

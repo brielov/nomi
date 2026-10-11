@@ -1,0 +1,5 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 0
+=== stdout
+|No API changes detected, so this is a PATCH change.
+=== stderr

@@ -1,0 +1,14 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|-- UNKNOWN VERSION -------------------------------------------------------------
+|
+|Version 9.9.9 has never been published, so I cannot diff against it.
+|
+|Here are all the versions that HAVE been published:
+|
+|    1.0.0 1.1.0 1.1.1 1.1.2 1.1.3 1.1.4
+|
+|Want one of those instead?
+|

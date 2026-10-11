@@ -1,0 +1,8 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 0
+=== stdout
+|Based on your new API, this should be a MINOR change (1.0.0 => 1.1.0)
+|Bail out of this command and run 'elm diff' for a full explanation.
+|
+|Should I perform the update (1.0.0 => 1.1.0) in elm.json? [Y/n] Okay, I did not change anything!
+=== stderr

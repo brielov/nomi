@@ -1,0 +1,14 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|-- CANNOT BUMP -------------------------------------------------------- elm.json
+|
+|Your elm.json says I should bump relative to version 1.0.7, but I cannot find
+|that version on <https://package.elm-lang.org>. That means there is no API for
+|me to diff against and figure out if these are MAJOR, MINOR, or PATCH changes.
+|
+|Try bumping again after changing the "version" in elm.json to:
+|
+|1.0.0
+|

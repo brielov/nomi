@@ -1,0 +1,8 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|-- UNPUBLISHED -----------------------------------------------------------------
+|
+|This package is not published yet. There is nothing to diff against!
+|

@@ -1,0 +1,16 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 0
+=== stdout
+|This is a MINOR change.
+|
+|---- Flip - MINOR ----
+|
+|    Added:
+|        flip3 : (a -> b -> c -> d) -> c -> b -> a -> d
+|
+|
+=== stderr
+### elm 0.19.3
+=== killed
+=== stdout
+=== stderr

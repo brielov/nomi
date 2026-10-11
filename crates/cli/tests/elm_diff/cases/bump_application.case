@@ -1,0 +1,6 @@
+=== note
+bump in an application
+=== args
+bump
+=== file elm.json
+{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}

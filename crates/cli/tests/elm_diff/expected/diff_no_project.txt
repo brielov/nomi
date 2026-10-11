@@ -1,0 +1,13 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|-- DIFF WHAT? ------------------------------------------------------------------
+|
+|I cannot find an elm.json so I am not sure what you want me to diff. Normally
+|you run `elm diff` from within a project!
+|
+|If you are just curious to see a diff, try running this command:
+|
+|    elm diff elm/http 1.0.0 2.0.0
+|

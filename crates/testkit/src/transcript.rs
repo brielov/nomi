@@ -117,6 +117,52 @@ impl Case {
 
     /// Runs `command` on the case in `dir`, which holds its files, and
     /// records what happened.
+    /// [`Case::run`], killing the command once it has run for `limit`, as
+    /// a command that hangs ends: by a signal.
+    pub fn run_within(
+        &self,
+        mut command: Command,
+        dir: &Path,
+        limit: std::time::Duration,
+    ) -> io::Result<Transcript> {
+        let mut child = command
+            .args(self.args_in(dir))
+            .current_dir(dir)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        let _ = child.stdin.take().unwrap().write_all(self.stdin.as_bytes());
+        let read = |mut pipe: Box<dyn io::Read + Send>| {
+            std::thread::spawn(move || {
+                let mut bytes = Vec::new();
+                let _ = pipe.read_to_end(&mut bytes);
+                bytes
+            })
+        };
+        let stdout = read(Box::new(child.stdout.take().unwrap()));
+        let stderr = read(Box::new(child.stderr.take().unwrap()));
+        let started = std::time::Instant::now();
+        let status = loop {
+            if let Some(status) = child.try_wait()? {
+                break status;
+            }
+            if started.elapsed() > limit {
+                child.kill()?;
+                break child.wait()?;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        let mut files = Vec::new();
+        list(dir, "", &mut files)?;
+        Ok(Transcript {
+            exit: status.code(),
+            stdout: stdout.join().unwrap_or_default(),
+            stderr: stderr.join().unwrap_or_default(),
+            files,
+        })
+    }
+
     pub fn run(&self, mut command: Command, dir: &Path) -> io::Result<Transcript> {
         let mut child = command
             .args(self.args_in(dir))

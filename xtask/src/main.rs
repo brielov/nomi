@@ -220,6 +220,9 @@ enum OracleCommand {
     /// Store each elm's transcript of every case of the CLI report
     /// matrix (plan 7.5a).
     Make,
+    /// Store each elm's transcript of every `elm diff` and `elm bump`
+    /// case, recorded online with read-only requests (plan 8.14).
+    Diff,
     /// Store a digest of the dependencies' `o.dat` each elm writes for
     /// every corpus app and package, as `corpus-check` runs elm.
     CorpusObjects {
@@ -302,6 +305,7 @@ fn main() -> ExitCode {
             OracleCommand::Patterns => oracle::types::patterns(&root(), &r),
             OracleCommand::Docs => oracle::types::docs(&root(), &r),
             OracleCommand::Make => oracle::make::run(&root(), &r),
+            OracleCommand::Diff => oracle::diff::run(&root(), &r),
             OracleCommand::Optimized => oracle::optimized::run(&root(), &r),
             OracleCommand::Javascript => oracle::javascript::run(&root(), &r),
             OracleCommand::CorpusDocs { jobs, only } => {

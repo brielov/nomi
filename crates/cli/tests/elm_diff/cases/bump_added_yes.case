@@ -1,0 +1,44 @@
+=== note
+bump a minor change, accepted
+=== args
+bump
+=== stdin
+y
+=== file elm.json
+{
+    "type": "package",
+    "name": "pilatch/flip",
+    "summary": "Just the old flip function",
+    "license": "ISC",
+    "version": "1.0.0",
+    "exposed-modules": [
+        "Flip"
+    ],
+    "elm-version": "0.19.0 <= v < 0.20.0",
+    "dependencies": {
+        "elm/core": "1.0.0 <= v < 2.0.0"
+    },
+    "test-dependencies": {}
+}
+=== file src/Flip.elm
+module Flip exposing (flip, flip3)
+
+{-| Reverse the arguments of a function with only two arguments.
+
+@docs flip, flip3
+
+-}
+
+
+{-| Take a function, the first argument, and return a new function that accepts the same parameters as the original function, but in reverse order.
+-}
+flip : (a -> b -> c) -> b -> a -> c
+flip function argB argA =
+    function argA argB
+
+
+{-| Reverse the arguments of a function of three.
+-}
+flip3 : (a -> b -> c -> d) -> c -> b -> a -> d
+flip3 function c b a =
+    function a b c

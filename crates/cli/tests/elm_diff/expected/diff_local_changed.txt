@@ -1,0 +1,18 @@
+### elm 0.19.1, elm 0.19.2
+=== exit 0
+=== stdout
+|This is a MAJOR change.
+|
+|---- Flip - MAJOR ----
+|
+|    Changed:
+|      - flip : (a -> b -> c) -> b -> a -> c
+|      + flip : (a -> a -> b) -> a -> a -> b
+|    
+|
+|
+=== stderr
+### elm 0.19.3
+=== killed
+=== stdout
+=== stderr
