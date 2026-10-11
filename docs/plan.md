@@ -45,7 +45,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **B.1**.
+4. Resume at the first unchecked box. Right now that is **B.2**.
 
 ### Test tiers
 
@@ -555,12 +555,14 @@ Starting points, from the M8 profiles and oxc's practice: arenas for each module
 
 Where M8 left it (`docs/benchmarks.md`, a Ryzen 7 laptop): warm builds are faster than elm's and every build takes a fraction of its memory, but cold builds of exosphere and docspell take 1.3 to 1.4 times as long, warm builds spend more CPU time, and nomi keeps 2.8 cores busy on a cold build where elm keeps 4.
 
-- [ ] **B.1** `bench: scoreboard`. `cargo xtask bench` measures wall time, CPU time and peak memory for every workload, upstream against nomi, and writes the scoreboard into `docs/benchmarks.md` with the machine it ran on; `bench elm` and `bench elm-format` print their part. Workloads:
+- [x] **B.1** `bench: scoreboard`. `cargo xtask bench` measures wall time, CPU time and peak memory for every workload, upstream against nomi, and writes the scoreboard into `docs/benchmarks.md` with the machine it ran on; `bench elm` and `bench elm-format` print their part. Workloads:
   - `elm make` on each corpus app, under each release, in dev and `--optimize`, cold and warm, with the same JavaScript from both;
   - `elm make --docs` on six packages, cold and warm, with the same `docs.json`: elm/core, mdgriffith/elm-ui, rtfeldman/elm-css, dillonkearns/elm-graphql, finos/morphir-elm (263 modules) and icidasset/elm-material-icons (7 MB of generated code);
   - elm-format `--validate` on each app and `--stdin` on its largest module.
 
   **Check:** the table, every cell measured, and a count of the cells nomi wins.
+
+  Done: `cargo xtask bench` measures each workload with `/usr/bin/time` (GNU's `-v`, BSD's `-l`), as the workspace forbids the `unsafe` a `wait4` would take, and writes the scoreboard between markers in `docs/benchmarks.md`, with the machine and a count of the cells nomi wins; `bench elm` and `bench elm-format` print their part and write nothing. The elm-format bench of 2.20 now measures CPU time and memory too, and checks the `--stdin` output. On the Ryzen 7 laptop nomi wins 162 of 204 cells: every memory cell, every elm-format cell (5 to 23 times as fast), every cold build of liascript and elm-3d-scene, and every warm build's wall time but two. It loses the cold builds of exosphere and docspell (up to 1.69 times elm 0.19.3's time, which builds exosphere in 1.72 s where 0.19.1 takes 2.28 s), most warm builds' CPU time, and the warm `--docs` of elm-ui and morphir-elm. Surprises: a package's `elm.json` admits a range of releases and nomi, as `elm`, builds it as the newest does, so `--docs` is measured against 0.19.3 alone, whose `docs.json` orders modules as 0.19.1's doesn't; elm 0.19.3 takes 42 s to document morphir-elm, where nomi takes 0.7 s; and elm-format's default runtime options cost it 13 s of CPU time over 16 threads to validate exosphere, against 1.2 s of wall time.
 - [ ] **B.2** `engine: phase timings`. `NOMI_TIMINGS=1` makes a build print each phase's wall and CPU time on standard error (loading, parsing, canonicalizing, types, the remaining checks, optimizing, artifacts read and written, packages, generating), so every later step starts from numbers. **Check:** the phases add up to the build within a few percent on each app.
 - [ ] **B.3** `cli: global allocator`. A faster allocator for the binary, chosen by the scoreboard among the established ones; the pure crates stay free of it. **Check:** the scoreboard, with no cell worse.
 - [ ] **B.4** `compiler: cheaper maps`. A faster hasher for internal maps, and sorted vectors or small vectors where a map only orders output or holds a few entries. **Check:** the scoreboard, and every ratchet and corpus suite unchanged.

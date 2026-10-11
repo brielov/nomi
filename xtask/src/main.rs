@@ -61,12 +61,13 @@ enum Command {
         jobs: Option<usize>,
     },
     /// Time a crate's benchmarks, which fail when twice the input takes
-    /// three times as long or more, or nomi against the pinned elm-format
-    /// or elm.
+    /// three times as long or more; or nomi against the pinned upstream
+    /// tools, writing the scoreboard into docs/benchmarks.md.
     Bench {
         /// The crate: `syntax` for nomi-syntax, `format` for nomi-format;
-        /// or `elm-format` or `elm`, to time both tools on the corpus apps.
-        target: String,
+        /// or `elm` or `elm-format`, to print that part of the scoreboard.
+        /// The whole scoreboard if none.
+        target: Option<String>,
     },
 }
 
@@ -337,13 +338,17 @@ fn main() -> ExitCode {
             runs,
             jobs.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get())),
         ),
-        Command::Bench { target } if target == "elm-format" => {
-            references::load(&root()).and_then(|r| bench::elm_format(&root(), &r))
+        Command::Bench { target: None } => {
+            references::load(&root()).and_then(|r| bench::run(&root(), &r, None))
         }
-        Command::Bench { target } if target == "elm" => {
-            references::load(&root()).and_then(|r| bench::elm::run(&root(), &r))
+        Command::Bench {
+            target: Some(target),
+        } if target == "elm" || target == "elm-format" => {
+            references::load(&root()).and_then(|r| bench::run(&root(), &r, Some(&target)))
         }
-        Command::Bench { target } => cargo(
+        Command::Bench {
+            target: Some(target),
+        } => cargo(
             &root(),
             &[
                 "bench",
