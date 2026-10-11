@@ -10,6 +10,7 @@ One binary, `nomi`, that replaces three tools and then adds capabilities on top:
 |---|---|---|---|
 | M2 | elm-format | 0.8.8: byte-identical output, same CLI | 0.1 |
 | M8 | `elm` (make, init, install, bump, diff, publish) | 0.19.1, 0.19.2 and 0.19.3, chosen by `elm-version` | 0.2 |
+| M8b | Performance | beats elm and elm-format on wall time, CPU time and peak memory | 0.2.x |
 | M9 | elm-language-server | 2.10.0 features, including its custom requests | 0.3 |
 | M10 | elm-test | 0.19.3-0 flags and output | 0.4 |
 | M11 | Server platform | Node kernels, `nomi/*` packages, fiber runtime | 0.5 |
@@ -541,6 +542,17 @@ The optimizer's oracle is elm's own artifacts: every elm writes a module's optim
 - `elm` transcripts are identical.
 - The syntax, naming and type error text ratchets are at 100%, apart from listed deviations.
 - A cold build takes at most 1.5× elm's time, and warm builds are faster.
+
+## M8b: Performance (beats elm and elm-format)
+
+Goal: on every workload nomi shares with elm and elm-format, nomi takes less wall time, less CPU time and less peak memory, cold and warm, with output unchanged. Parallelism multiplies an efficient core; it doesn't replace one, since CPU time and memory count too. Measured on the reference machine (Ryzen 9, 64 GB); the scoreboard records the machine, and the ratios are what's compared.
+
+Starting points, from the M8 profiles and oxc's practice: arenas for each module's compiler data, interned names, index-based types in the solver, a faster hasher for internal maps, sorted vectors where maps only order output, small-vector storage, a better global allocator, cheaper artifact encoding, and a syntax tree built for batch builds where rowan's costs show. Every change lands behind the existing ratchets.
+
+- [ ] **B.1** `bench: scoreboard`. `cargo xtask bench` measures wall time, CPU time and peak memory for `elm make` (each corpus app, cold and warm, dev and `--optimize`, each release), `elm make --docs` on the corpus packages, and elm-format (`--validate` on each app, `--stdin` on the largest module), against nomi, writing `docs/benchmarks.md`. **Check:** the table, every cell measured.
+- [ ] **B.2** onward: profile-driven passes, one phase at a time, each step naming the cells it moves. Refined when M8b starts.
+
+**Exit:** every scoreboard cell has nomi at or under upstream on wall time, CPU time and peak memory, and every ratchet and corpus suite is unchanged.
 
 ## M9: Language server, release 0.3 (replaces elm-language-server)
 
