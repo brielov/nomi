@@ -57,7 +57,9 @@ pub fn check(root: &Path, suite: Suite, only: Option<&str>) -> Result<()> {
         }
         skipped.extend(solving.unavailable);
         let mut memo = HashMap::new();
-        for chunk in solving.solved.chunks(64) {
+        // Small chunks: each project holds its dependencies' interfaces
+        // until its chunk is checked.
+        for chunk in solving.solved.chunks(16) {
             let mut ready = Vec::new();
             for (project, sources) in chunk {
                 let key = package_case(&project.case);

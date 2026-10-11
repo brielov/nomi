@@ -6,12 +6,109 @@ use std::collections::BTreeMap;
 
 use nomi_base::TextRange;
 
-/// A module and the package it is in (`ModuleName.Canonical`).
+/// A module and the package it is in (`ModuleName.Canonical`). Types
+/// carry their home everywhere, so its names are shared, not copied.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Home {
     /// `author/project`.
-    pub package: String,
-    pub module: String,
+    pub package: Text,
+    pub module: Text,
+}
+
+/// An immutable string, shared by its clones, that reads, compares and
+/// orders as its text.
+#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Text(std::sync::Arc<str>);
+
+impl std::ops::Deref for Text {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::borrow::Borrow<str> for Text {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<str> for Text {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for Text {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&*self.0, f)
+    }
+}
+
+impl std::fmt::Display for Text {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<String> for Text {
+    fn from(s: String) -> Text {
+        Text(s.into())
+    }
+}
+
+impl From<&str> for Text {
+    fn from(s: &str) -> Text {
+        Text(s.into())
+    }
+}
+
+impl From<&String> for Text {
+    fn from(s: &String) -> Text {
+        Text(s.as_str().into())
+    }
+}
+
+impl From<Text> for String {
+    fn from(t: Text) -> String {
+        t.0.to_string()
+    }
+}
+
+impl PartialEq<str> for Text {
+    fn eq(&self, other: &str) -> bool {
+        &*self.0 == other
+    }
+}
+
+impl PartialEq<&str> for Text {
+    fn eq(&self, other: &&str) -> bool {
+        &*self.0 == *other
+    }
+}
+
+impl PartialEq<String> for Text {
+    fn eq(&self, other: &String) -> bool {
+        &*self.0 == other.as_str()
+    }
+}
+
+impl PartialEq<Text> for str {
+    fn eq(&self, other: &Text) -> bool {
+        self == &*other.0
+    }
+}
+
+impl PartialEq<Text> for &str {
+    fn eq(&self, other: &Text) -> bool {
+        *self == &*other.0
+    }
+}
+
+impl PartialEq<Text> for String {
+    fn eq(&self, other: &Text) -> bool {
+        self.as_str() == &*other.0
+    }
 }
 
 /// `Can.Type`.
@@ -31,11 +128,12 @@ pub enum Type {
 }
 
 /// What an alias in a type stands for (`Can.AliasType`): its body with
-/// the variables still free, or filled in with the arguments.
+/// the variables still free, or filled in with the arguments. Bodies are
+/// shared by every mention of the alias.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AliasType {
-    Holey(Box<Type>),
-    Filled(Box<Type>),
+    Holey(std::sync::Arc<Type>),
+    Filled(std::sync::Arc<Type>),
 }
 
 /// A record field's type and its place among the fields as written; 0
@@ -46,18 +144,20 @@ pub struct FieldType {
     pub ty: Type,
 }
 
-/// A type with its free variables (`Can.Annotation`).
+/// A type with its free variables (`Can.Annotation`). The type is shared:
+/// every use of a foreign value carries its annotation, as upstream's
+/// expressions point to theirs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Annotation {
     pub free: Vec<String>,
-    pub ty: Type,
+    pub ty: std::sync::Arc<Type>,
 }
 
 /// `Can.Alias`: its parameters and body.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Alias {
     pub vars: Vec<String>,
-    pub ty: Type,
+    pub ty: std::sync::Arc<Type>,
 }
 
 /// `Can.Union`.

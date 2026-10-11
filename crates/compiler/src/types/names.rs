@@ -188,7 +188,7 @@ pub fn to_annotation(vars: &mut Variables, var: Variable) -> canonical::Annotati
     let ty = to_can_type(vars, var, &mut state);
     canonical::Annotation {
         free: state.taken.into_iter().collect(),
-        ty,
+        ty: ty.into(),
     }
 }
 
@@ -214,7 +214,12 @@ fn to_can_type(vars: &mut Variables, var: Variable, state: &mut NameState) -> ca
                 .map(|(n, a)| (n, to_can_type(vars, a, state)))
                 .collect();
             let real = to_can_type(vars, real, state);
-            T::Alias(home, name, args, AliasType::Filled(Box::new(real)))
+            T::Alias(
+                home,
+                name,
+                args,
+                AliasType::Filled(std::sync::Arc::new(real)),
+            )
         }
         Content::Error => panic!("cannot handle Error types in variableToCanType"),
     }

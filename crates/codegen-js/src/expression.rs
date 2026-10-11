@@ -102,8 +102,8 @@ fn kernel(home: &str, name: &str) -> Js {
 
 fn core(module: &str) -> Home {
     Home {
-        package: "elm/core".to_owned(),
-        module: module.to_owned(),
+        package: "elm/core".into(),
+        module: module.into(),
     }
 }
 
@@ -283,7 +283,7 @@ impl Gen<'_> {
         if name != "todo" {
             return Js::Ref(Name::from_global(&core("Debug"), name));
         }
-        let mut args = vec![Js::String(home.module.clone()), self.region(region)];
+        let mut args = vec![Js::String(home.module.to_string()), self.region(region)];
         let todo = match unhandled {
             None => "todo",
             Some(value) => {
@@ -333,7 +333,7 @@ impl Gen<'_> {
             return self.basics_call(home, name, args);
         }
         let args: Vec<Js> = args.iter().map(|a| self.js(a)).collect();
-        match home.module.as_str() {
+        match &*home.module {
             "Bitwise" => bitwise_call(home, name, args),
             "Tuple" => tuple_call(home, name, args),
             // Upstream looks for `JsArray`, though the module is
@@ -865,8 +865,8 @@ mod tests {
 
     fn home(module: &str) -> Home {
         Home {
-            package: "author/project".to_owned(),
-            module: module.to_owned(),
+            package: "author/project".into(),
+            module: module.into(),
         }
     }
 

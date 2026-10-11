@@ -269,18 +269,18 @@ impl<'a> Decoder<'a> {
         mut value: impl FnMut(&mut Self) -> Option<V>,
     ) -> Option<BTreeMap<String, V>> {
         let n = self.len()?;
-        let mut map = BTreeMap::new();
-        let mut last: Option<String> = None;
+        let mut entries: Vec<(String, V)> = Vec::with_capacity(n.min(1024));
         for _ in 0..n {
             let key = self.str()?;
             // Keys come in order, once each, as encoding writes them.
-            if last.as_ref().is_some_and(|last| *last >= key) {
+            if entries.last().is_some_and(|(last, _)| *last >= key) {
                 return None;
             }
-            last = Some(key.clone());
-            map.insert(key, value(self)?);
+            let entry = value(self)?;
+            entries.push((key, entry));
         }
-        Some(map)
+        // Sorted already, so the map is built in one pass.
+        Some(entries.into_iter().collect())
     }
 
     pub fn interface(&mut self) -> Option<Interface> {
@@ -352,14 +352,14 @@ impl<'a> Decoder<'a> {
     fn annotation(&mut self) -> Option<Annotation> {
         Some(Annotation {
             free: self.strs()?,
-            ty: self.ty()?,
+            ty: self.ty()?.into(),
         })
     }
 
     fn alias(&mut self) -> Option<Alias> {
         Some(Alias {
             vars: self.strs()?,
-            ty: self.ty()?,
+            ty: self.ty()?.into(),
         })
     }
 
@@ -397,8 +397,8 @@ impl<'a> Decoder<'a> {
 
     fn home(&mut self) -> Option<Home> {
         Some(Home {
-            package: self.str()?,
-            module: self.str()?,
+            package: self.str()?.into(),
+            module: self.str()?.into(),
         })
     }
 
@@ -448,8 +448,8 @@ impl<'a> Decoder<'a> {
                     .map(|_| Some((self.str()?, self.ty()?)))
                     .collect::<Option<_>>()?;
                 let aliased = match self.u8()? {
-                    0 => AliasType::Holey(Box::new(self.ty()?)),
-                    1 => AliasType::Filled(Box::new(self.ty()?)),
+                    0 => AliasType::Holey(std::sync::Arc::new(self.ty()?)),
+                    1 => AliasType::Filled(std::sync::Arc::new(self.ty()?)),
                     _ => return None,
                 };
                 Type::Alias(home, name, args, aliased)

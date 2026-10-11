@@ -196,8 +196,8 @@ fn basics(name: &str) -> Type {
 /// `elm/core`'s module `module`.
 pub fn core(module: &str) -> Home {
     Home {
-        package: "elm/core".to_owned(),
-        module: module.to_owned(),
+        package: "elm/core".into(),
+        module: module.into(),
     }
 }
 
@@ -227,8 +227,8 @@ pub fn string() -> Type {
 
 fn package_type(package: &str, module: &str, name: &str) -> Type {
     let home = Home {
-        package: package.to_owned(),
-        module: module.to_owned(),
+        package: package.into(),
+        module: module.into(),
     };
     Type::App(home, name.to_owned(), Vec::new())
 }

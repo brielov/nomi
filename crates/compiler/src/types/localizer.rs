@@ -62,7 +62,7 @@ impl Localizer {
 
     /// `toChars`.
     pub fn to_chars(&self, home: &Home, name: &str) -> String {
-        match self.imports.get(&home.module) {
+        match self.imports.get(&*home.module) {
             None => format!("{}.{name}", home.module),
             Some((_, None)) => name.to_owned(),
             Some((alias, Some(exposed))) => {

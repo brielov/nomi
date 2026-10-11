@@ -117,7 +117,7 @@ fn add_types<'a>(module: &hir::Module, mut env: Env<'a>) -> R<Env<'a>> {
                     arity: args.len(),
                     home: home.clone(),
                     vars: args,
-                    ty: Cow::Owned(ty),
+                    ty: ty.into(),
                 };
                 Rc::make_mut(&mut env.types).insert(
                     alias.name.text.clone(),
@@ -397,7 +397,7 @@ fn canonicalize_alias<'a>(
                 home.clone(),
                 name.clone(),
                 args,
-                AliasType::Filled(Box::new(Type::Record(fields.clone(), None))),
+                AliasType::Filled(std::sync::Arc::new(Type::Record(fields.clone(), None))),
             );
             let mut by_order: Vec<_> = fields.values().collect();
             by_order.sort_by_key(|f| f.order);
@@ -417,5 +417,14 @@ fn canonicalize_alias<'a>(
         }
         _ => Dict::default(),
     };
-    Ok(((name.clone(), canonical::Alias { vars, ty }), dups))
+    Ok((
+        (
+            name.clone(),
+            canonical::Alias {
+                vars,
+                ty: ty.into(),
+            },
+        ),
+        dups,
+    ))
 }

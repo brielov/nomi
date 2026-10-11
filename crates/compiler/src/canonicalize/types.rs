@@ -16,7 +16,7 @@ pub fn to_annotation(env: &Env<'_>, module: &hir::Module, id: TypeId) -> R<Annot
     free_vars(&ty, &mut free);
     Ok(Annotation {
         free: free.into_iter().collect(),
-        ty,
+        ty: ty.into(),
     })
 }
 
@@ -53,7 +53,7 @@ fn canonicalize_(env: &Env<'_>, module: &hir::Module, id: TypeId) -> R<Type> {
                     ty,
                 } => {
                     let pairs = vars.iter().cloned().zip(cargs).collect();
-                    let holey = AliasType::Holey(Box::new(ty.clone().into_owned()));
+                    let holey = AliasType::Holey(ty.clone());
                     (
                         *arity,
                         Type::Alias(home.clone(), name.text.clone(), pairs, holey),

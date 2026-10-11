@@ -84,9 +84,8 @@ fn decls(vars: &mut Variables, decls: &[Decl], final_con: Constraint) -> Constra
     decls.iter().rev().fold(final_con, |body, decl| match decl {
         Decl::Declare(def) => constrain_def(vars, &BTreeMap::new(), def, body),
         Decl::DeclareRec(def, defs) => {
-            let mut all = vec![def.clone()];
-            all.extend(defs.iter().cloned());
-            constrain_recursive_defs(vars, &BTreeMap::new(), &all, body)
+            let all = std::iter::once(def).chain(defs);
+            constrain_recursive_defs(vars, &BTreeMap::new(), all, body)
         }
     })
 }

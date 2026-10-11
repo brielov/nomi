@@ -6,11 +6,13 @@
 //! are gathered in is upstream's, ties included, since it shapes the tree.
 
 use std::collections::{BTreeMap, HashSet};
+use std::rc::Rc;
+use std::sync::Arc;
 
 use nomi_base::Compat;
 
 use super::literal;
-use crate::canonical::{Pattern, PatternKind};
+use crate::canonical::{CtorOpts, Home, Pattern, PatternKind};
 use crate::optimized::{Choice, Decider, DtPath, Expr, Test};
 
 /// `Case.optimize`: the case on `root`, labelled `temp`, of `branches`,
@@ -60,53 +62,84 @@ enum Tree {
 #[derive(Clone)]
 struct Branch {
     goal: usize,
-    patterns: Vec<(DtPath, Pattern)>,
+    patterns: Vec<(DtPath, Rc<P>)>,
+}
+
+/// A pattern as the decision tree reads it. Every node of the tree copies
+/// every branch, so its parts are shared, as upstream's are, and a list's
+/// tail is the same list from a later item.
+#[derive(Debug)]
+enum P {
+    Ctor {
+        home: Home,
+        name: String,
+        index: usize,
+        /// How many constructors its union has.
+        count: usize,
+        opts: CtorOpts,
+        args: Vec<Rc<P>>,
+    },
+    /// The items from the second field on.
+    List(Rc<[Rc<P>]>, usize),
+    Cons(Rc<P>, Rc<P>),
+    Chr(String),
+    Str(String),
+    Int(i64),
+    Bool(bool),
+    Unit,
+    Tuple(Vec<Rc<P>>),
+    Alias(Rc<P>),
+    /// A variable, `_` or a record: nothing to test.
+    Wild,
+}
+
+/// `pattern` as [`P`], each character and string literal as the release
+/// keeps it.
+fn lower(compat: Compat, pattern: &Pattern) -> Rc<P> {
+    let lower = |p: &Pattern| self::lower(compat, p);
+    Rc::new(match &pattern.kind {
+        PatternKind::Ctor {
+            home,
+            union,
+            name,
+            index,
+            args,
+            ..
+        } => P::Ctor {
+            home: home.clone(),
+            name: name.clone(),
+            index: *index,
+            count: union.count,
+            opts: union.opts,
+            args: args.iter().map(|a| lower(&a.arg)).collect(),
+        },
+        PatternKind::List(items) => P::List(items.iter().map(lower).collect(), 0),
+        PatternKind::Cons(head, tail) => P::Cons(lower(head), lower(tail)),
+        PatternKind::Chr(text) => P::Chr(literal::char(compat, text)),
+        PatternKind::Str(text) => P::Str(literal::string(compat, text)),
+        PatternKind::Int(n) => P::Int(*n),
+        PatternKind::Bool(_, b) => P::Bool(*b),
+        PatternKind::Unit => P::Unit,
+        PatternKind::Tuple(a, b, c) => {
+            let mut parts = vec![lower(a), lower(b)];
+            parts.extend(c.as_deref().map(lower));
+            P::Tuple(parts)
+        }
+        PatternKind::Alias(real, _) => P::Alias(lower(real)),
+        PatternKind::Var(_) | PatternKind::Anything | PatternKind::Record(_) => P::Wild,
+    })
 }
 
 /// `compile`. Character and string literals are converted once, to the
 /// values the release tests, which the patterns then hold.
 fn compile(compat: Compat, branches: Vec<(Pattern, usize)>) -> Tree {
     let branches = (branches.into_iter())
-        .map(|(mut pattern, goal)| {
-            convert_literals(compat, &mut pattern);
-            Branch {
-                goal,
-                patterns: vec![(DtPath::Empty, pattern)],
-            }
+        .map(|(pattern, goal)| Branch {
+            goal,
+            patterns: vec![(DtPath::Empty, lower(compat, &pattern))],
         })
         .collect();
     to_tree(branches)
-}
-
-/// Each character and string literal in `pattern` as the release keeps it.
-fn convert_literals(compat: Compat, pattern: &mut Pattern) {
-    match &mut pattern.kind {
-        PatternKind::Chr(text) => *text = literal::char(compat, text),
-        PatternKind::Str(text) => *text = literal::string(compat, text),
-        PatternKind::Alias(sub, _) => convert_literals(compat, sub),
-        PatternKind::Tuple(a, b, c) => {
-            convert_literals(compat, a);
-            convert_literals(compat, b);
-            if let Some(c) = c {
-                convert_literals(compat, c);
-            }
-        }
-        PatternKind::List(items) => {
-            for item in items {
-                convert_literals(compat, item);
-            }
-        }
-        PatternKind::Cons(head, tail) => {
-            convert_literals(compat, head);
-            convert_literals(compat, tail);
-        }
-        PatternKind::Ctor { args, .. } => {
-            for arg in args {
-                convert_literals(compat, &mut arg.arg);
-            }
-        }
-        _ => {}
-    }
 }
 
 /// `toDecisionTree`.
@@ -151,7 +184,7 @@ fn is_complete(tests: &[Test]) -> bool {
 fn flatten_patterns(branch: Branch) -> Branch {
     let mut patterns = Vec::new();
     for (path, pattern) in branch.patterns {
-        flatten(path, pattern, &mut patterns);
+        flatten(path, &pattern, &mut patterns);
     }
     Branch {
         goal: branch.goal,
@@ -160,34 +193,28 @@ fn flatten_patterns(branch: Branch) -> Branch {
 }
 
 /// `flatten`, in order onto `out`.
-fn flatten(path: DtPath, mut pattern: Pattern, out: &mut Vec<(DtPath, Pattern)>) {
-    let index = |i: usize, path: &DtPath| DtPath::Index(i, Box::new(path.clone()));
-    let region = pattern.region;
-    match std::mem::take(&mut pattern.kind) {
-        PatternKind::Ctor { union, args, .. } if union.count == 1 => {
-            match <[_; 1]>::try_from(args) {
-                Ok([arg]) => flatten(DtPath::Unbox(Box::new(path)), arg.arg, out),
-                Err(args) => {
-                    for (i, arg) in args.into_iter().enumerate() {
-                        flatten(index(i, &path), arg.arg, out);
-                    }
+fn flatten(path: DtPath, pattern: &Rc<P>, out: &mut Vec<(DtPath, Rc<P>)>) {
+    let index = |i: usize, path: &DtPath| DtPath::Index(i, Arc::new(path.clone()));
+    match &**pattern {
+        P::Ctor { count: 1, args, .. } => match args.as_slice() {
+            [arg] => flatten(DtPath::Unbox(Arc::new(path)), arg, out),
+            args => {
+                for (i, arg) in args.iter().enumerate() {
+                    flatten(index(i, &path), arg, out);
                 }
             }
-        }
-        PatternKind::Tuple(a, b, c) => {
-            flatten(index(0, &path), *a, out);
-            flatten(index(1, &path), *b, out);
-            if let Some(c) = c {
-                flatten(index(2, &path), *c, out);
+        },
+        P::Tuple(parts) => {
+            for (i, part) in parts.iter().enumerate() {
+                flatten(index(i, &path), part, out);
             }
         }
-        PatternKind::Unit => {}
-        PatternKind::Alias(real, alias) => {
-            flatten(path.clone(), *real, out);
-            let kind = PatternKind::Var(alias);
-            out.push((path, Pattern { region, kind }));
+        P::Unit => {}
+        P::Alias(real) => {
+            flatten(path.clone(), real, out);
+            out.push((path, Rc::new(P::Wild)));
         }
-        kind => out.push((path, Pattern { region, kind })),
+        _ => out.push((path, pattern.clone())),
     }
 }
 
@@ -240,37 +267,38 @@ fn tests_at_path(path: &DtPath, branches: &[Branch]) -> Vec<Test> {
 }
 
 /// The pattern a branch has at `path`.
-fn lookup<'b>(path: &DtPath, branch: &'b Branch) -> Option<&'b Pattern> {
+fn lookup<'b>(path: &DtPath, branch: &'b Branch) -> Option<&'b P> {
     (branch.patterns.iter())
         .find(|(p, _)| p == path)
-        .map(|(_, pattern)| pattern)
+        .map(|(_, pattern)| &**pattern)
 }
 
 /// `testAtPath`.
 fn test_at_path(path: &DtPath, branch: &Branch) -> Option<Test> {
-    match &lookup(path, branch)?.kind {
-        PatternKind::Ctor {
+    match lookup(path, branch)? {
+        P::Ctor {
             home,
-            union,
             name,
             index,
+            count,
+            opts,
             ..
         } => Some(Test::IsCtor(
             home.clone(),
             name.clone(),
             *index,
-            union.count as i64,
-            union.opts,
+            *count as i64,
+            *opts,
         )),
-        PatternKind::List(items) if items.is_empty() => Some(Test::IsNil),
-        PatternKind::List(_) | PatternKind::Cons(..) => Some(Test::IsCons),
-        PatternKind::Tuple(..) | PatternKind::Unit => Some(Test::IsTuple),
-        PatternKind::Int(n) => Some(Test::IsInt(*n)),
-        PatternKind::Str(text) => Some(Test::IsStr(text.clone())),
-        PatternKind::Chr(text) => Some(Test::IsChr(text.clone())),
-        PatternKind::Bool(_, b) => Some(Test::IsBool(*b)),
-        PatternKind::Var(_) | PatternKind::Anything | PatternKind::Record(_) => None,
-        PatternKind::Alias(..) => unreachable!("aliases are flattened before testing"),
+        P::List(items, from) if *from == items.len() => Some(Test::IsNil),
+        P::List(..) | P::Cons(..) => Some(Test::IsCons),
+        P::Tuple(..) | P::Unit => Some(Test::IsTuple),
+        P::Int(n) => Some(Test::IsInt(*n)),
+        P::Str(text) => Some(Test::IsStr(text.clone())),
+        P::Chr(text) => Some(Test::IsChr(text.clone())),
+        P::Bool(b) => Some(Test::IsBool(*b)),
+        P::Wild => None,
+        P::Alias(..) => unreachable!("aliases are flattened before testing"),
     }
 }
 
@@ -282,8 +310,8 @@ fn to_relevant_branch(test: &Test, path: &DtPath, branch: &Branch) -> Option<Bra
     };
     let (start, rest) = branch.patterns.split_at(at);
     let (pattern, end) = (&rest[0].1, &rest[1..]);
-    let index = |i: usize| DtPath::Index(i, Box::new(path.clone()));
-    let with = |middle: Vec<(DtPath, Pattern)>| {
+    let shared = Arc::new(path.clone());
+    let with = |middle: Vec<(DtPath, Rc<P>)>| {
         let mut patterns = start.to_vec();
         patterns.extend(middle);
         patterns.extend_from_slice(end);
@@ -292,69 +320,57 @@ fn to_relevant_branch(test: &Test, path: &DtPath, branch: &Branch) -> Option<Bra
             patterns,
         })
     };
-    let positions = |patterns: Vec<Pattern>| {
+    let positions = |patterns: Vec<Rc<P>>| {
         (patterns.into_iter().enumerate())
-            .map(|(i, p)| (index(i), p))
+            .map(|(i, p)| (DtPath::Index(i, shared.clone()), p))
             .collect::<Vec<_>>()
     };
-    match &pattern.kind {
-        PatternKind::Ctor {
-            union, name, args, ..
+    match &**pattern {
+        P::Ctor {
+            name, args, count, ..
         } => match test {
             Test::IsCtor(_, test_name, ..) if name == test_name => {
-                let args: Vec<Pattern> = args.iter().map(|a| a.arg.clone()).collect();
-                if args.len() == 1 && union.count == 1 {
-                    let arg = args.into_iter().next().expect("one argument");
-                    with(vec![(DtPath::Unbox(Box::new(path.clone())), arg)])
+                if args.len() == 1 && *count == 1 {
+                    with(vec![(DtPath::Unbox(shared.clone()), args[0].clone())])
                 } else {
-                    with(positions(args))
+                    with(positions(args.clone()))
                 }
             }
             _ => None,
         },
-        PatternKind::List(items) if items.is_empty() => {
+        P::List(items, from) if *from == items.len() => {
             matches!(test, Test::IsNil).then(|| with(Vec::new()))?
         }
-        PatternKind::List(items) => match test {
+        P::List(items, from) => match test {
             Test::IsCons => {
-                let tail = Pattern {
-                    region: pattern.region,
-                    kind: PatternKind::List(items[1..].to_vec()),
-                };
-                with(positions(vec![items[0].clone(), tail]))
+                let tail = Rc::new(P::List(items.clone(), from + 1));
+                with(positions(vec![items[*from].clone(), tail]))
             }
             _ => None,
         },
-        PatternKind::Cons(head, tail) => match test {
-            Test::IsCons => with(positions(vec![(**head).clone(), (**tail).clone()])),
+        P::Cons(head, tail) => match test {
+            Test::IsCons => with(positions(vec![head.clone(), tail.clone()])),
             _ => None,
         },
-        PatternKind::Chr(text) => match test {
+        P::Chr(text) => match test {
             Test::IsChr(c) if c == text => with(Vec::new()),
             _ => None,
         },
-        PatternKind::Str(text) => match test {
+        P::Str(text) => match test {
             Test::IsStr(s) if s == text => with(Vec::new()),
             _ => None,
         },
-        PatternKind::Int(n) => match test {
+        P::Int(n) => match test {
             Test::IsInt(m) if m == n => with(Vec::new()),
             _ => None,
         },
-        PatternKind::Bool(_, b) => match test {
+        P::Bool(b) => match test {
             Test::IsBool(c) if c == b => with(Vec::new()),
             _ => None,
         },
-        PatternKind::Unit => with(Vec::new()),
-        PatternKind::Tuple(a, b, c) => {
-            let mut parts = vec![(**a).clone(), (**b).clone()];
-            parts.extend(c.as_deref().cloned());
-            with(positions(parts))
-        }
-        PatternKind::Var(_)
-        | PatternKind::Anything
-        | PatternKind::Record(_)
-        | PatternKind::Alias(..) => Some(branch.clone()),
+        P::Unit => with(Vec::new()),
+        P::Tuple(parts) => with(positions(parts.clone())),
+        P::Wild | P::Alias(..) => Some(branch.clone()),
     }
 }
 
@@ -364,10 +380,10 @@ fn is_irrelevant_to(path: &DtPath, branch: &Branch) -> bool {
 }
 
 /// `needsTests`.
-fn needs_tests(pattern: &Pattern) -> bool {
-    match pattern.kind {
-        PatternKind::Var(_) | PatternKind::Anything | PatternKind::Record(_) => false,
-        PatternKind::Alias(..) => unreachable!("aliases are flattened before testing"),
+fn needs_tests(pattern: &P) -> bool {
+    match pattern {
+        P::Wild => false,
+        P::Alias(..) => unreachable!("aliases are flattened before testing"),
         _ => true,
     }
 }

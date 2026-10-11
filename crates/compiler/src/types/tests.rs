@@ -22,7 +22,7 @@ fn an_annotation_names_unnamed_variables_after_the_users() {
     let annotation = vars.to_annotation(outer);
     let var = |n: &str| Box::new(T::Var(n.to_owned()));
     assert_eq!(
-        annotation.ty,
+        *annotation.ty,
         T::Lambda(var("a"), Box::new(T::Lambda(var("b"), var("number"))))
     );
     assert_eq!(annotation.free, ["a", "b", "number"]);

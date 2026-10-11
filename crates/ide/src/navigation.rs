@@ -118,8 +118,8 @@ fn target_at(index: &Index, module: &Indexed, offset: TextSize) -> Option<Target
         return Some(reference.target.clone());
     }
     let home = Home {
-        package: index.package.clone(),
-        module: module.name.clone(),
+        package: index.package.clone().into(),
+        module: module.name.clone().into(),
     };
     let declared = declarations(&module.hir).find(|(_, _, range)| range.contains_inclusive(offset));
     if let Some((name, kind, _)) = declared {
@@ -157,7 +157,7 @@ fn declaration(
         });
     }
     // A dependency's module, read from its sources.
-    let mut path = index.packages.get(&home.package)?.join("src");
+    let mut path = index.packages.get(&*home.package)?.join("src");
     path.extend(home.module.split('.'));
     path.set_extension("elm");
     let text = snapshot.read(&path).ok()?;

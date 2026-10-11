@@ -27,11 +27,11 @@ pub struct Env<'a> {
     pub compat: Compat,
     pub home: Home,
     pub vars: Rc<BTreeMap<String, Var<'a>>>,
-    pub types: Rc<Exposed<TypeInfo<'a>>>,
+    pub types: Rc<Exposed<TypeInfo>>,
     pub ctors: Rc<Exposed<CtorInfo<'a>>>,
     pub binops: Rc<Exposed<BinopInfo<'a>>>,
     pub q_vars: Rc<Qualified<&'a Annotation>>,
-    pub q_types: Rc<Qualified<TypeInfo<'a>>>,
+    pub q_types: Rc<Qualified<TypeInfo>>,
     pub q_ctors: Rc<Qualified<CtorInfo<'a>>>,
     /// What each name resolved to, for navigation.
     pub references: Recorder,
@@ -48,12 +48,12 @@ pub enum Var<'a> {
 /// `Env.Type`: an alias with its arity, parameters and body, or a union
 /// with its arity.
 #[derive(Clone, Debug)]
-pub enum TypeInfo<'a> {
+pub enum TypeInfo {
     Alias {
         arity: usize,
         home: Home,
         vars: Vec<String>,
-        ty: Cow<'a, Type>,
+        ty: std::sync::Arc<Type>,
     },
     Union {
         arity: usize,
@@ -181,12 +181,7 @@ impl<'a> Env<'a> {
         }
     }
 
-    pub fn find_type(
-        &self,
-        range: TextRange,
-        prefix: Option<&str>,
-        name: &str,
-    ) -> R<&TypeInfo<'a>> {
+    pub fn find_type(&self, range: TextRange, prefix: Option<&str>, name: &str) -> R<&TypeInfo> {
         let info = find(
             NameKind::Type,
             range,

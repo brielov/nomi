@@ -316,7 +316,7 @@ impl State<'_> {
         let platform = |name| Box::new(Js::Ref(Name::from_kernel("Platform", name)));
         let manager = LValue::Bracket(
             platform("effectManagers"),
-            Box::new(Js::String(home.module.clone())),
+            Box::new(Js::String(home.module.to_string())),
         );
         let create = Stmt::Expr(Js::Assign(
             manager,
@@ -326,7 +326,7 @@ impl State<'_> {
         stmts.extend(leaves.iter().map(|leaf| {
             Stmt::Var(
                 Name::from_global(home, leaf),
-                Js::Call(platform("leaf"), vec![Js::String(home.module.clone())]),
+                Js::Call(platform("leaf"), vec![Js::String(home.module.to_string())]),
             )
         }));
         self.add_stmt(&Stmt::Block(stmts));
@@ -335,8 +335,8 @@ impl State<'_> {
 
 fn basics() -> Home {
     Home {
-        package: "elm/core".to_owned(),
-        module: "Basics".to_owned(),
+        package: "elm/core".into(),
+        module: "Basics".into(),
     }
 }
 
@@ -403,8 +403,8 @@ mod tests {
 
     fn home(module: &str) -> Home {
         Home {
-            package: "author/project".to_owned(),
-            module: module.to_owned(),
+            package: "author/project".into(),
+            module: module.into(),
         }
     }
 

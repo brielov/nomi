@@ -12,8 +12,8 @@ use crate::interface::{Alias, Binop, Interface, Union};
 
 fn home(package: &str, module: &str) -> Home {
     Home {
-        package: package.to_owned(),
-        module: module.to_owned(),
+        package: package.into(),
+        module: module.into(),
     }
 }
 
@@ -22,7 +22,10 @@ fn int() -> Type {
 }
 
 fn value(ty: Type) -> Annotation {
-    Annotation { free: vec![], ty }
+    Annotation {
+        free: vec![],
+        ty: ty.into(),
+    }
 }
 
 fn union(vars: &[&str], ctors: &[&str]) -> canonical::Union {
@@ -98,7 +101,7 @@ fn interfaces() -> HashMap<String, Interface> {
             "Point".to_owned(),
             Alias::Public(canonical::Alias {
                 vars: vec![],
-                ty: Type::Record(BTreeMap::new(), None),
+                ty: Type::Record(BTreeMap::new(), None).into(),
             }),
         )]),
         binops: BTreeMap::new(),

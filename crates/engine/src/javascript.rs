@@ -39,8 +39,8 @@ pub fn program(
         ..
     } = optimized;
     let home = |name: &ModuleName| Home {
-        package: package.to_owned(),
-        module: name.to_string(),
+        package: package.into(),
+        module: name.to_string().into(),
     };
     // `gatherMains`.
     let mut mains: Vec<(Home, Main)> = Vec::new();
@@ -63,7 +63,7 @@ pub fn program(
         Kind::Dev => Mode::Dev { debug: None },
         Kind::Debug => {
             for (name, interface) in &interfaces {
-                types.insert(home(name), ModuleTypes::from_interface(interface));
+                types.insert(home(name), ModuleTypes::from_interface(interface.get()));
             }
             Mode::Dev { debug: Some(types) }
         }

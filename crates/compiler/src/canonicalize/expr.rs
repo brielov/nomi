@@ -381,7 +381,7 @@ fn to_var_ctor(name: &str, ctor: &CtorInfo<'_>) -> ExprKind {
             });
             let annotation = Annotation {
                 free: sorted_vars(&union.vars),
-                ty,
+                ty: ty.into(),
             };
             ExprKind::VarCtor(
                 union.opts,
@@ -394,7 +394,7 @@ fn to_var_ctor(name: &str, ctor: &CtorInfo<'_>) -> ExprKind {
         CtorInfo::Record { home, vars, ty } => {
             let annotation = Annotation {
                 free: sorted_vars(vars),
-                ty: ty.clone(),
+                ty: ty.clone().into(),
             };
             ExprKind::VarCtor(
                 CtorOpts::Normal,

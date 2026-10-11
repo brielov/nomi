@@ -244,7 +244,7 @@ pub fn run(
                 Outline::App(_) => "author/project".to_owned(),
                 Outline::Pkg(pkg) => pkg.name.to_string(),
             };
-            let types = (dependencies.graph(), dependencies.types());
+            let types = dependencies.into_graph_and_types();
             let js = javascript::program(compat, kind, &package, types, optimized);
             let bytes = match &target.html {
                 Some(module) => nomi_codegen_js::html::sandwich(&module.to_string(), &js),

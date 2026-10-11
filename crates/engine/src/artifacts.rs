@@ -100,26 +100,21 @@ impl Key {
     }
 }
 
-/// What names this build of nomi: the hash of its executable, as Go's
-/// build ID does, so any change to the code is a different toolchain,
-/// though every development build has one version number. Hashed once per
-/// process, when the cache is first used. If the executable can't be
-/// read, this run's artifacts are its own.
+/// What names this build of nomi: its executable, by canonical path, file
+/// identity, size and modification time, so every rebuild is a different
+/// toolchain, though every development build has one version number.
+/// Hashing the executable's bytes, as Go's build ID does, would cost every
+/// run tens of milliseconds; a binary that changes keeps none of these the
+/// same. Made once per process, when the cache is first used. If the
+/// executable can't be found, this run's artifacts are its own.
 fn build_id() -> Hash {
     static ID: OnceLock<Hash> = OnceLock::new();
     *ID.get_or_init(|| {
-        let exe = std::env::current_exe().and_then(fs::File::open);
-        let hashed = exe.and_then(|mut file| {
-            let mut hasher = Sha256::new();
-            let mut buffer = vec![0; 1 << 16];
-            loop {
-                match file.read(&mut buffer)? {
-                    0 => break Ok(Hash(hasher.finalize().into())),
-                    n => hasher.update(&buffer[..n]),
-                }
-            }
-        });
-        hashed.unwrap_or_else(|_| {
+        let identity = std::env::current_exe()
+            .and_then(fs::canonicalize)
+            .and_then(|exe| Ok((fs::metadata(&exe)?, exe)))
+            .map(|(meta, exe)| executable_identity(&exe, &meta));
+        identity.unwrap_or_else(|_| {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default();
@@ -127,6 +122,29 @@ fn build_id() -> Hash {
             Hash::of(run.as_bytes())
         })
     })
+}
+
+/// [`build_id`] of the executable at `exe`.
+fn executable_identity(exe: &std::path::Path, meta: &fs::Metadata) -> Hash {
+    let modified = (meta.modified().ok())
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .unwrap_or_default();
+    #[cfg(unix)]
+    let file = {
+        use std::os::unix::fs::MetadataExt;
+        (meta.dev(), meta.ino())
+    };
+    #[cfg(not(unix))]
+    let file = (0u64, 0u64);
+    let identity = format!(
+        "{} {} {} {} {}",
+        exe.display(),
+        file.0,
+        file.1,
+        meta.len(),
+        modified.as_nanos()
+    );
+    Hash::of(identity.as_bytes())
 }
 
 /// The artifact cache in the user's cache directory.
@@ -292,8 +310,17 @@ mod tests {
             Key::made_by("test", b"one build").finish(),
             Key::made_by("test", b"one build").finish()
         );
-        let exe = fs::read(std::env::current_exe().unwrap()).unwrap();
-        assert_eq!(build_id(), Hash::of(&exe));
+        let exe = fs::canonicalize(std::env::current_exe().unwrap()).unwrap();
+        let identity = executable_identity(&exe, &fs::metadata(&exe).unwrap());
+        assert_eq!(build_id(), identity);
+        // A rebuilt binary, here a copy, is another toolchain.
+        let temp = tempfile::tempdir().unwrap();
+        let copy = temp.path().join("nomi");
+        fs::copy(&exe, &copy).unwrap();
+        assert_ne!(
+            executable_identity(&copy, &fs::metadata(&copy).unwrap()),
+            identity
+        );
     }
 
     #[test]

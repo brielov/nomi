@@ -218,7 +218,7 @@ fn check_defs(
     };
     let mut problems = Vec::new();
     let mut docs = Module {
-        name: canonical.home.module.clone(),
+        name: canonical.home.module.to_string(),
         comment: from_comment(overview),
         unions: Vec::new(),
         aliases: Vec::new(),

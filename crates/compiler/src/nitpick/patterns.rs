@@ -94,8 +94,8 @@ fn triple() -> Union {
 fn list() -> Union {
     let list = Type::Type(
         Home {
-            package: "elm/core".to_owned(),
-            module: "List".to_owned(),
+            package: "elm/core".into(),
+            module: "List".into(),
         },
         "List".to_owned(),
         vec![var("a")],
@@ -402,18 +402,18 @@ fn non_redundant_rows(
     region: TextRange,
     patterns: &[canonical::Pattern],
 ) -> Result<Vec<Vec<Pattern>>, Error> {
-    // Upstream conses each new row onto the checked ones.
-    let mut checked: Vec<Vec<Pattern>> = Vec::new();
+    // Upstream conses each new row onto the checked ones, so the newest
+    // comes first.
+    let mut checked: std::collections::VecDeque<Vec<Pattern>> = std::collections::VecDeque::new();
     for pattern in patterns {
         let row = vec![simplify(pattern)];
-        let matrix: Vec<Vec<Pattern>> = checked.iter().rev().cloned().collect();
-        if is_useful(&matrix, &row) {
-            checked.push(row);
+        if is_useful(checked.make_contiguous(), &row) {
+            checked.push_front(row);
         } else {
             return Err(Error::Redundant(region, pattern.region, checked.len() + 1));
         }
     }
-    Ok(checked.into_iter().rev().collect())
+    Ok(checked.into())
 }
 
 /// `isUseful`: whether `vector` matches a value no row does.

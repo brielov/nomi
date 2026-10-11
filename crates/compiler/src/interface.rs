@@ -19,6 +19,18 @@ pub struct Interface {
     pub binops: BTreeMap<String, Binop>,
 }
 
+/// Where canonicalization finds the interface of each module a module
+/// imports, by name.
+pub trait Interfaces: Sync {
+    fn get(&self, module: &str) -> Option<&Interface>;
+}
+
+impl Interfaces for std::collections::HashMap<String, Interface> {
+    fn get(&self, module: &str) -> Option<&Interface> {
+        std::collections::HashMap::get(self, module)
+    }
+}
+
 /// A union as the module exports it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Union {

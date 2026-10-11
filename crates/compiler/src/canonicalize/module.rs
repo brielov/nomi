@@ -22,7 +22,7 @@ use crate::canonical::{
     AliasType, Annotation, Associativity, Decl as CDecl, Def as CDef, Effects, Home, Pattern, Type,
 };
 use crate::hir::{self, Def, Exposed, Exposing};
-use crate::interface::{self, Interface};
+use crate::interface::{self, Interface, Interfaces};
 
 /// What a module exposes (`Can.Exports`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -79,7 +79,7 @@ pub fn name(module: &hir::Module) -> &str {
 pub fn canonicalize(
     compat: Compat,
     package: &str,
-    interfaces: &HashMap<String, Interface>,
+    interfaces: &dyn Interfaces,
     module: &hir::Module,
 ) -> R<Canonical> {
     canonicalize_with_references(compat, package, interfaces, module).0
@@ -89,7 +89,7 @@ pub fn canonicalize(
 pub fn canonicalize_with_references(
     compat: Compat,
     package: &str,
-    interfaces: &HashMap<String, Interface>,
+    interfaces: &dyn Interfaces,
     module: &hir::Module,
 ) -> (R<Canonical>, Vec<Reference>) {
     let references = Recorder::default();
@@ -100,13 +100,13 @@ pub fn canonicalize_with_references(
 fn canonicalize_into(
     compat: Compat,
     package: &str,
-    interfaces: &HashMap<String, Interface>,
+    interfaces: &dyn Interfaces,
     module: &hir::Module,
     references: &Recorder,
 ) -> R<Canonical> {
     let home = Home {
-        package: package.to_owned(),
-        module: name(module).to_owned(),
+        package: package.into(),
+        module: (name(module).to_owned()).into(),
     };
     let binops = (module.binops.iter())
         .map(|b| {
@@ -275,8 +275,12 @@ pub(super) fn typed_args(
 /// `iteratedDealias`: what `ty` is under its aliases.
 fn dealias(ty: Type) -> Type {
     match ty {
-        Type::Alias(_, _, args, AliasType::Holey(body)) => dealias(substitute(*body, &args)),
-        Type::Alias(_, _, _, AliasType::Filled(body)) => dealias(*body),
+        Type::Alias(_, _, args, AliasType::Holey(body)) => {
+            dealias(substitute(std::sync::Arc::unwrap_or_clone(body), &args))
+        }
+        Type::Alias(_, _, _, AliasType::Filled(body)) => {
+            dealias(std::sync::Arc::unwrap_or_clone(body))
+        }
         ty => ty,
     }
 }
@@ -436,7 +440,7 @@ fn exports(
 fn unknown() -> Annotation {
     Annotation {
         free: Vec::new(),
-        ty: Type::Var("?".to_owned()),
+        ty: Type::Var("?".to_owned()).into(),
     }
 }
 
@@ -490,7 +494,7 @@ pub fn interface(canonical: &Canonical, inferred: &BTreeMap<String, Annotation>)
         })
         .collect();
     Interface {
-        home: canonical.home.package.clone(),
+        home: canonical.home.package.to_string(),
         values,
         unions,
         aliases,

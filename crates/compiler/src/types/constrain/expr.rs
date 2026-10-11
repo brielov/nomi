@@ -556,8 +556,8 @@ fn shader_con(
         }
     };
     let webgl = crate::canonical::Home {
-        package: "elm-explorations/webgl".to_owned(),
-        module: "WebGL".to_owned(),
+        package: "elm-explorations/webgl".into(),
+        module: "WebGL".into(),
     };
     let shader_type = Type::App(
         webgl,
@@ -781,10 +781,10 @@ struct Info {
 }
 
 /// `constrainRecursiveDefs`.
-pub fn constrain_recursive_defs(
+pub fn constrain_recursive_defs<'d>(
     vars: &mut Variables,
     rtv: &Rtv,
-    defs: &[Def],
+    defs: impl IntoIterator<Item = &'d Def>,
     body_con: Constraint,
 ) -> Constraint {
     let mut rigid = Info::default();

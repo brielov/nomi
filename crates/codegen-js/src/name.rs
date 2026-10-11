@@ -290,8 +290,8 @@ mod tests {
     #[test]
     fn globals_name_their_package_and_module() {
         let home = Home {
-            package: "elm-community/list-extra".to_owned(),
-            module: "List.Extra".to_owned(),
+            package: "elm-community/list-extra".into(),
+            module: "List.Extra".into(),
         };
         assert_eq!(
             Name::from_global(&home, "find").as_str(),

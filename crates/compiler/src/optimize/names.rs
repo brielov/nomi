@@ -84,16 +84,16 @@ impl Tracker {
 /// `ModuleName.basics`.
 pub fn basics() -> Home {
     Home {
-        package: "elm/core".to_owned(),
-        module: "Basics".to_owned(),
+        package: "elm/core".into(),
+        module: "Basics".into(),
     }
 }
 
 /// `ModuleName.debug`.
 pub fn debug() -> Home {
     Home {
-        package: "elm/core".to_owned(),
-        module: "Debug".to_owned(),
+        package: "elm/core".into(),
+        module: "Debug".into(),
     }
 }
 

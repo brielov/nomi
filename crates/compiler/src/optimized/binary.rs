@@ -18,6 +18,7 @@
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use super::{
     Choice, Chunk, Decider, Def, Destructor, DtPath, EffectsType, Expr, Global, GlobalGraph,
@@ -959,8 +960,8 @@ impl<'a> In<'a> {
         let author = self.name()?;
         let project = self.name()?;
         Some(Home {
-            package: format!("{author}/{project}"),
-            module: self.name()?,
+            package: format!("{author}/{project}").into(),
+            module: self.name()?.into(),
         })
     }
 
@@ -1056,8 +1057,8 @@ impl<'a> In<'a> {
 
     fn dt_path(&mut self) -> Option<DtPath> {
         Some(match self.u8()? {
-            0 => DtPath::Index(self.index()?, Box::new(self.dt_path()?)),
-            1 => DtPath::Unbox(Box::new(self.dt_path()?)),
+            0 => DtPath::Index(self.index()?, Arc::new(self.dt_path()?)),
+            1 => DtPath::Unbox(Arc::new(self.dt_path()?)),
             2 => DtPath::Empty,
             _ => return None,
         })
@@ -1224,8 +1225,8 @@ impl<'a> In<'a> {
                 self.name()?,
                 self.list(|input| Some((input.name()?, input.ty()?)))?,
                 match self.u8()? {
-                    0 => AliasType::Holey(Box::new(self.ty()?)),
-                    1 => AliasType::Filled(Box::new(self.ty()?)),
+                    0 => AliasType::Holey(std::sync::Arc::new(self.ty()?)),
+                    1 => AliasType::Filled(std::sync::Arc::new(self.ty()?)),
                     _ => return None,
                 },
             ),
@@ -1274,8 +1275,8 @@ impl<'a> In<'a> {
                     .map(|_| Some((self.var()?, self.ty3()?)))
                     .collect::<Option<_>>()?;
                 let body = match self.u8()? {
-                    0 => AliasType::Holey(Box::new(self.ty3()?)),
-                    1 => AliasType::Filled(Box::new(self.ty3()?)),
+                    0 => AliasType::Holey(std::sync::Arc::new(self.ty3()?)),
+                    1 => AliasType::Filled(std::sync::Arc::new(self.ty3()?)),
                     _ => return None,
                 };
                 Type::Alias(home, name, args, body)

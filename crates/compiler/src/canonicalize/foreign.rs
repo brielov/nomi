@@ -5,7 +5,7 @@
 //! the first name an import can't expose.
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use nomi_base::{Compat, TextRange};
@@ -15,7 +15,7 @@ use super::error::{Error, NameKind, R, throw};
 use super::references::{Kind, Recorder};
 use crate::canonical::{AliasType, Annotation, Home, Type};
 use crate::hir::{Exposed as Item, Exposing, Import, Spanned};
-use crate::interface::{self, Interface};
+use crate::interface::{self, Interface, Interfaces};
 
 /// The packages whose modules may import kernel code (`Pkg.isKernel`).
 pub fn is_kernel_package(package: &str) -> bool {
@@ -83,11 +83,11 @@ pub fn with_defaults(package: &str, imports: &[Import]) -> Vec<Import> {
 #[derive(Default)]
 struct State<'a> {
     vars: Exposed<&'a Annotation>,
-    types: Exposed<TypeInfo<'a>>,
+    types: Exposed<TypeInfo>,
     ctors: Exposed<CtorInfo<'a>>,
     binops: Exposed<BinopInfo<'a>>,
     q_vars: BTreeMap<String, Exposed<&'a Annotation>>,
-    q_types: BTreeMap<String, Exposed<TypeInfo<'a>>>,
+    q_types: BTreeMap<String, Exposed<TypeInfo>>,
     q_ctors: BTreeMap<String, Exposed<CtorInfo<'a>>>,
 }
 
@@ -98,13 +98,13 @@ struct State<'a> {
 pub fn initial_env<'a>(
     compat: Compat,
     home: &Home,
-    interfaces: &'a HashMap<String, Interface>,
+    interfaces: &'a dyn Interfaces,
     imports: &[Import],
     references: &Recorder,
 ) -> R<Env<'a>> {
     let core = |module: &str| Home {
-        package: "elm/core".to_owned(),
-        module: module.to_owned(),
+        package: "elm/core".into(),
+        module: module.into(),
     };
     let mut state = State::default();
     state.types.insert(
@@ -147,7 +147,7 @@ pub fn initial_env<'a>(
 }
 
 /// A type an import offers, and the constructors it brings.
-type TypeEntry<'a> = (TypeInfo<'a>, Exposed<CtorInfo<'a>>);
+type TypeEntry<'a> = (TypeInfo, Exposed<CtorInfo<'a>>);
 
 fn add_import<'a>(
     state: &mut State<'a>,
@@ -158,8 +158,8 @@ fn add_import<'a>(
     let name = &import.name.text;
     let prefix = import.alias.as_ref().map_or(name, |a| &a.text).clone();
     let home = Home {
-        package: interface.home.clone(),
-        module: name.clone(),
+        package: interface.home.clone().into(),
+        module: name.clone().into(),
     };
     references.global(import.name.range, &home, name, Kind::Module);
     // Unions before aliases, as `Map.union` keeps the left one.
@@ -177,14 +177,15 @@ fn add_import<'a>(
     let vars: Exposed<&'a Annotation> = (interface.values.iter())
         .map(|(n, a)| (n.clone(), single(&home, a)))
         .collect();
-    let types: Exposed<TypeInfo<'a>> = (raw.iter())
+    let types: Exposed<TypeInfo> = (raw.iter())
         .map(|(n, (t, _))| (n.clone(), single(&home, t.clone())))
         .collect();
+    // A left-biased union folded from the right: the first type's
+    // constructors win, so adding each type's in order, keeping what is
+    // there, makes the same map without copying it each time.
     let mut ctors: Exposed<CtorInfo<'a>> = BTreeMap::new();
-    for (_, type_ctors) in raw.values().rev() {
-        let mut merged = type_ctors.clone();
-        add_exposed(&mut merged, &ctors);
-        ctors = merged;
+    for (_, type_ctors) in raw.values() {
+        add_exposed(&mut ctors, type_ctors);
     }
     add_qualified(&mut state.q_vars, &prefix, &vars);
     add_qualified(&mut state.q_types, &prefix, &types);
@@ -314,10 +315,14 @@ fn add_qualified<T: Clone>(
         None => {
             qualified.insert(prefix.to_owned(), exposed.clone());
         }
+        // `exposed` over `old`, in place.
         Some(old) => {
-            let mut merged = exposed.clone();
-            add_exposed(&mut merged, old);
-            *old = merged;
+            for (name, homes) in exposed {
+                let entry = old.entry(name.clone()).or_default();
+                for (home, info) in homes {
+                    entry.insert(home.clone(), info.clone());
+                }
+            }
         }
     }
 }
@@ -370,10 +375,10 @@ fn alias_to_type<'a>(home: &Home, name: &str, alias: &'a crate::canonical::Alias
         arity: alias.vars.len(),
         home: home.clone(),
         vars: alias.vars.clone(),
-        ty: Cow::Borrowed(&alias.ty),
+        ty: alias.ty.clone(),
     };
     let mut ctors = BTreeMap::new();
-    if let Type::Record(fields, None) = &alias.ty {
+    if let Type::Record(fields, None) = &*alias.ty {
         let args = alias
             .vars
             .iter()
@@ -383,7 +388,7 @@ fn alias_to_type<'a>(home: &Home, name: &str, alias: &'a crate::canonical::Alias
             home.clone(),
             name.to_owned(),
             args,
-            AliasType::Filled(Box::new(alias.ty.clone())),
+            AliasType::Filled(alias.ty.clone()),
         );
         let mut by_order: Vec<_> = fields.iter().collect();
         by_order.sort_by_key(|(_, f)| f.order);

@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use nomi_base::diagnostic::doc::{Color, reflow, text, vcat};
 use nomi_base::diagnostic::json;
@@ -167,7 +168,7 @@ struct Built {
     /// The roots, and whether each defines `main`.
     mains: Vec<(ModuleName, bool)>,
     optimized: Vec<(ModuleName, LocalGraph)>,
-    interfaces: Vec<(ModuleName, Interface)>,
+    interfaces: Vec<(ModuleName, Arc<names::LazyInterface>)>,
     /// How many modules came out clean.
     compiled: usize,
 }
@@ -194,7 +195,7 @@ pub struct Optimized {
     /// Each module's graph.
     pub graphs: Vec<(ModuleName, LocalGraph)>,
     /// Each module's interface.
-    pub interfaces: Vec<(ModuleName, Interface)>,
+    pub interfaces: Vec<(ModuleName, Arc<names::LazyInterface>)>,
     /// The modules checked rather than taken from the artifact cache.
     pub ran: Vec<PathBuf>,
     /// How many modules came out clean, checked or reused.

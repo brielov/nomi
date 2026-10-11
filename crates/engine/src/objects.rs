@@ -73,6 +73,22 @@ impl Dependencies {
             .collect()
     }
 
+    /// [`Dependencies::graph`] and [`Dependencies::types`], taking each
+    /// build rather than copying it where nothing else holds it.
+    pub fn into_graph_and_types(self) -> (GlobalGraph, Types) {
+        let mut ordered: Vec<(Name, Arc<PackageBuild>)> = self.packages.into_iter().collect();
+        ordered.sort_by(|(a, _), (b, _)| packages_order(a, b));
+        let mut merged = GlobalGraph::default();
+        let mut types = Types::new();
+        for (_, build) in ordered.into_iter().rev() {
+            let build = Arc::try_unwrap(build).unwrap_or_else(|shared| (*shared).clone());
+            merged.nodes.extend(build.graph.nodes);
+            merged.fields.extend(build.graph.fields);
+            types.extend(build.types);
+        }
+        (merged, types)
+    }
+
     /// The packages' graphs merged, the whole of what `o.dat` holds:
     /// `Map.foldr addObjects`, so the first package by name wins.
     pub fn graph(&self) -> GlobalGraph {
@@ -117,38 +133,46 @@ pub fn build(
             _ => return Err(format!("{name}'s elm.json isn't a package's")),
         }
     }
-    let mut built: BTreeMap<Name, Arc<PackageBuild>> = BTreeMap::new();
-    let mut keys: HashMap<Name, Hash> = HashMap::new();
-    let mut pending: Vec<Name> = outlines.keys().cloned().collect();
-    while !pending.is_empty() {
-        let ready = (pending.iter())
-            .position(|name| {
-                (outlines[name].0.deps.keys())
-                    .all(|d| built.contains_key(d) || !outlines.contains_key(d))
-            })
-            .ok_or("the packages depend on each other in a cycle")?;
-        let name = pending.remove(ready);
-        let (pkg, dir) = &outlines[&name];
+    // Each package waits on its dependencies among `packages`, and builds
+    // as soon as they have, on whichever thread is free.
+    let names: Vec<&Name> = outlines.keys().collect();
+    let index: HashMap<&Name, usize> = names.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+    let imports: Vec<Vec<usize>> = (names.iter())
+        .map(|name| {
+            (outlines[*name].0.deps.keys())
+                .filter_map(|dep| index.get(dep).copied())
+                .collect()
+        })
+        .collect();
+    if !crate::names::cyclic(&imports).is_empty() {
+        return Err("the packages depend on each other in a cycle".to_owned());
+    }
+    let memo_now: &Memo = memo;
+    let job = |i: usize,
+               deps: &[&(Hash, Arc<PackageBuild>)]|
+     -> Result<(Hash, Arc<PackageBuild>), String> {
+        let name = names[i];
+        let (pkg, dir) = &outlines[name];
         let mut key = Key::new("package")
             .part("compat", compat.to_string().as_bytes())
             .part("name", name.to_string().as_bytes())
             .part("version", pkg.version.to_string().as_bytes());
-        for dep in pkg.deps.keys().filter(|d| keys.contains_key(*d)) {
-            key = key.part("dependency", dep.to_string().as_bytes());
-            key = key.hash("build", keys[dep]);
+        let mut built: BTreeMap<Name, Arc<PackageBuild>> = BTreeMap::new();
+        for (&d, (dep_key, dep_build)) in imports[i].iter().zip(deps.iter().map(|d| (&d.0, &d.1))) {
+            key = key.part("dependency", names[d].to_string().as_bytes());
+            key = key.hash("build", *dep_key);
+            built.insert(names[d].clone(), dep_build.clone());
         }
         let key = key.finish();
-        keys.insert(name.clone(), key);
-        if let Some(build) = memo.get(dir) {
-            built.insert(name, build.clone());
-            continue;
+        if let Some(build) = memo_now.get(dir) {
+            return Ok((key, build.clone()));
         }
         let cached =
             (artifacts.and_then(|a| a.get(key))).and_then(|bytes| decode_build(&bytes, compat));
         let build = match cached {
             Some(build) => build,
             None => {
-                let build = build_package(compat, &name, pkg, dir, &built)?;
+                let build = build_package(compat, name, pkg, dir, &built)?;
                 if let Some(artifacts) = artifacts {
                     // A cache that can't be written only costs a build next
                     // time.
@@ -157,9 +181,22 @@ pub fn build(
                 build
             }
         };
-        let build = Arc::new(build);
-        memo.insert(dir.clone(), build.clone());
-        built.insert(name, build);
+        Ok((key, Arc::new(build)))
+    };
+    let snapshot = crate::Vfs::new().snapshot();
+    let outcomes =
+        crate::schedule::run(&snapshot, &imports, job).expect("a snapshot nothing edits");
+    let mut built: BTreeMap<Name, Arc<PackageBuild>> = BTreeMap::new();
+    for (name, outcome) in names.iter().zip(outcomes) {
+        match outcome {
+            crate::schedule::Outcome::Done((_, build)) => {
+                memo.insert(outlines[*name].1.clone(), build.clone());
+                built.insert((*name).clone(), build);
+            }
+            crate::schedule::Outcome::Failed(why) => return Err(why),
+            // Only after a dependency failed, which comes first.
+            crate::schedule::Outcome::Blocked => {}
+        }
     }
     // Only the packages asked for, though the memo may hold more.
     built.retain(|name, _| outlines.contains_key(name));
@@ -199,8 +236,8 @@ fn build_package(
         .filter(|(m, _)| matches!(modules.get(*m), Some(Built::Local(_))))
         .map(|(m, interface)| {
             let home = Home {
-                package: name.to_string(),
-                module: m.clone(),
+                package: name.to_string().into(),
+                module: m.clone().into(),
             };
             (home, ModuleTypes::from_interface(interface))
         })
@@ -266,7 +303,10 @@ fn decode_build(bytes: &[u8], compat: Compat) -> Option<PackageBuild> {
         let module = String::from_utf8(take()?.to_vec()).ok()?;
         let interface = Interface::decode(take()?)?;
         types.insert(
-            Home { package, module },
+            Home {
+                package: package.into(),
+                module: module.into(),
+            },
             ModuleTypes::from_interface(&interface),
         );
     }

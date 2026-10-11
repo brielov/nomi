@@ -365,8 +365,8 @@ mod tests {
 
     fn home(module: &str) -> Home {
         Home {
-            package: "author/project".to_owned(),
-            module: module.to_owned(),
+            package: "author/project".into(),
+            module: module.into(),
         }
     }
 

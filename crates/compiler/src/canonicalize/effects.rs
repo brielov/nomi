@@ -55,7 +55,7 @@ fn port(env: &Env<'_>, module: &hir::Module, port: &hir::Port) -> R<(String, CPo
                 incoming,
                 free: annotation.free.clone(),
                 payload: ty.clone(),
-                func: annotation.ty.clone(),
+                func: (*annotation.ty).clone(),
             },
         )),
         Err(bad) => throw(Error::PortPayloadInvalid {

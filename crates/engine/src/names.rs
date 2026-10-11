@@ -6,6 +6,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use nomi_base::diagnostic::Problem;
 use nomi_base::diagnostic::code::Source;
@@ -15,7 +16,7 @@ use nomi_compiler::canonicalize::module::{canonicalize, interface};
 use nomi_compiler::canonicalize::report;
 use nomi_compiler::docs;
 use nomi_compiler::hir;
-use nomi_compiler::interface::Interface;
+use nomi_compiler::interface::{Interface, Interfaces};
 use nomi_compiler::nitpick::{main as main_check, patterns, report as patterns_report};
 use nomi_compiler::optimize;
 use nomi_compiler::optimized::{LocalGraph, binary};
@@ -28,6 +29,7 @@ use nomi_syntax::ast::{self, AstNode};
 use crate::artifacts::{Artifacts, Hash, Key};
 use crate::graph::{Env, Graph, Module, Owner, Root, Status};
 use crate::objects;
+use crate::schedule::{self, Outcome};
 
 /// Each package's exposed modules' interfaces, by package.
 pub type PackageInterfaces = BTreeMap<Name, HashMap<String, Interface>>;
@@ -50,7 +52,18 @@ pub fn package_interfaces_with(
     packages: &[(Name, PathBuf)],
     memo: &mut objects::Memo,
 ) -> Result<PackageInterfaces, String> {
-    Ok(objects::build(compat, packages, memo, None)?.exposed())
+    let exposed = objects::build(compat, packages, memo, None)?.exposed();
+    // What's kept for later calls is only what they read: across a corpus
+    // of packages, their graphs would fill memory.
+    for build in memo.values_mut() {
+        if !build.graph.nodes.is_empty() || !build.types.is_empty() {
+            *build = Arc::new(objects::PackageBuild {
+                exposed: build.exposed.clone(),
+                ..objects::PackageBuild::default()
+            });
+        }
+    }
+    Ok(exposed)
 }
 
 /// The interfaces a project of these direct dependencies imports from.
@@ -85,7 +98,7 @@ pub struct Checked {
     /// Each module's optimized graph, when asked for, in the order checked.
     pub optimized: Vec<(ModuleName, LocalGraph)>,
     /// Each optimized module's interface, for the debugger's types.
-    pub interfaces: Vec<(ModuleName, Interface)>,
+    pub interfaces: Vec<(ModuleName, Arc<LazyInterface>)>,
     /// How many modules came out clean, checked or reused: what elm
     /// counts as compiled in a project of no `elm-stuff`.
     pub compiled: usize,
@@ -121,133 +134,259 @@ pub fn check_graph(
         Owner::Package(name) => name.to_string(),
         Owner::Application => "author/project".to_owned(),
     };
-    let mut walk = Walk {
-        env,
-        graph,
-        package,
-        interfaces: packages.clone(),
-        failed,
-        state: HashMap::new(),
-        problems: HashMap::new(),
-        artifacts,
-        hashes: HashMap::new(),
-        ran: Vec::new(),
-        goals,
-        docs: Vec::new(),
-        optimized: Vec::new(),
-        optimized_interfaces: Vec::new(),
-        compiled: 0,
-    };
+    // The local modules in the release's order of names, then the roots
+    // outside the source directories.
     let mut names: Vec<&ModuleName> = graph.modules.keys().collect();
     names.sort_by(|a, b| a.compare(b, env.compat()));
-    for name in names {
-        walk.local(name);
-    }
+    let mut nodes: Vec<Node<'_>> = (names.iter())
+        .map(|name| match &graph.modules[*name] {
+            Status::Local(module) => Node::Module(module),
+            Status::BadModule(_) => Node::Bad,
+            _ => Node::Foreign,
+        })
+        .collect();
+    let index: HashMap<&ModuleName, usize> =
+        names.iter().enumerate().map(|(i, n)| (*n, i)).collect();
     for root in &graph.roots {
         if let Root::Outside(Ok(module)) = root {
-            let ok = walk.module(module);
-            walk.compiled += usize::from(ok);
+            nodes.push(Node::Module(module));
         }
     }
+    // Each module waits on the local modules it imports; one already
+    // failed waits on nothing, as it won't run.
+    let mut imports: Vec<Vec<usize>> = (nodes.iter())
+        .map(|node| match node {
+            Node::Module(module) if !failed.contains(&module.path) => {
+                let mut deps: Vec<usize> = (module.imports.iter())
+                    .filter_map(|import| index.get(&import.name).copied())
+                    .filter(|&d| !matches!(nodes[d], Node::Foreign))
+                    .collect();
+                deps.dedup();
+                deps
+            }
+            _ => Vec::new(),
+        })
+        .collect();
+    // A cycle was reported before canonicalization; its modules stay
+    // silent, as upstream's walk leaves them.
+    let cyclic = cyclic(&imports);
+    for &i in &cyclic {
+        imports[i].clear();
+    }
+    let walk = Walk {
+        env,
+        package,
+        packages,
+        failed,
+        artifacts,
+        goals,
+        nodes: &nodes,
+        imports: &imports,
+        cyclic: &cyclic,
+        package_hashes: Mutex::new(HashMap::new()),
+        problems: Mutex::new(HashMap::new()),
+        ran: Mutex::new(Vec::new()),
+        docs: Mutex::new(Vec::new()),
+        optimized: Mutex::new(Vec::new()),
+        optimized_interfaces: Mutex::new(Vec::new()),
+    };
+    let snapshot = crate::Vfs::new().snapshot();
+    let outcomes = schedule::run(&snapshot, &imports, |i, deps| walk.job(i, deps))
+        .expect("a snapshot nothing edits");
+    let compiled = (nodes.iter().zip(&outcomes))
+        .filter(|(node, outcome)| {
+            matches!(node, Node::Module(..)) && matches!(outcome, Outcome::Done(_))
+        })
+        .count();
     Checked {
-        problems: walk.problems,
-        ran: walk.ran,
-        docs: walk.docs,
-        optimized: walk.optimized,
-        interfaces: walk.optimized_interfaces,
-        compiled: walk.compiled,
+        problems: walk.problems.into_inner().unwrap(),
+        ran: by_node(walk.ran.into_inner().unwrap()),
+        docs: by_node(walk.docs.into_inner().unwrap()),
+        optimized: by_node(walk.optimized.into_inner().unwrap()),
+        interfaces: by_node(walk.optimized_interfaces.into_inner().unwrap()),
+        compiled,
+    }
+}
+
+/// `items` in the order of the nodes that made them.
+fn by_node<T>(mut items: Vec<(usize, T)>) -> Vec<T> {
+    items.sort_by_key(|(i, _)| *i);
+    items.into_iter().map(|(_, item)| item).collect()
+}
+
+/// The modules on an import cycle, by Kahn's algorithm.
+pub(crate) fn cyclic(imports: &[Vec<usize>]) -> Vec<usize> {
+    let mut waiting: Vec<usize> = imports.iter().map(Vec::len).collect();
+    let mut importers = vec![Vec::new(); imports.len()];
+    for (i, deps) in imports.iter().enumerate() {
+        for &d in deps {
+            importers[d].push(i);
+        }
+    }
+    let mut ready: Vec<usize> = (0..imports.len()).filter(|&i| waiting[i] == 0).collect();
+    let mut done = vec![false; imports.len()];
+    while let Some(i) = ready.pop() {
+        done[i] = true;
+        for &importer in &importers[i] {
+            waiting[importer] -= 1;
+            if waiting[importer] == 0 {
+                ready.push(importer);
+            }
+        }
+    }
+    (0..imports.len()).filter(|&i| !done[i]).collect()
+}
+
+/// A module of the build, as the walk sees it.
+enum Node<'g> {
+    /// A module to check.
+    Module(&'g Module),
+    /// One that didn't parse or isn't where its name says.
+    Bad,
+    /// A name the graph resolved elsewhere.
+    Foreign,
+}
+
+/// What a module made that its importers need: its interface and that
+/// interface's hash.
+struct Made {
+    interface: Arc<LazyInterface>,
+    hash: Hash,
+}
+
+/// A module's interface, decoded from the artifact cache only when
+/// something reads it: a warm build reads none.
+#[derive(Debug)]
+pub struct LazyInterface {
+    bytes: Vec<u8>,
+    decoded: OnceLock<Interface>,
+}
+
+impl LazyInterface {
+    fn ready(interface: Interface) -> LazyInterface {
+        LazyInterface {
+            bytes: Vec::new(),
+            decoded: OnceLock::from(interface),
+        }
+    }
+
+    fn encoded(bytes: Vec<u8>) -> LazyInterface {
+        LazyInterface {
+            bytes,
+            decoded: OnceLock::new(),
+        }
+    }
+
+    /// The interface. The artifact cache checks each entry's hash, so a
+    /// cached interface decodes.
+    pub fn get(&self) -> &Interface {
+        self.decoded.get_or_init(|| {
+            Interface::decode(&self.bytes).expect("an interface the cache vouches for")
+        })
+    }
+}
+
+/// A module and its interface.
+type ModuleInterface = (ModuleName, Arc<LazyInterface>);
+
+/// The interfaces one module reads: its local imports' over the
+/// packages'.
+struct Layered<'a> {
+    local: HashMap<&'a str, &'a LazyInterface>,
+    packages: &'a HashMap<String, Interface>,
+}
+
+impl Interfaces for Layered<'_> {
+    fn get(&self, module: &str) -> Option<&Interface> {
+        match self.local.get(module) {
+            Some(lazy) => Some(lazy.get()),
+            None => self.packages.get(module),
+        }
     }
 }
 
 struct Walk<'g> {
     env: &'g Env,
-    graph: &'g Graph,
     package: String,
-    interfaces: HashMap<String, Interface>,
+    packages: &'g HashMap<String, Interface>,
     failed: &'g HashSet<PathBuf>,
-    /// Whether each module visited canonicalized cleanly.
-    state: HashMap<ModuleName, bool>,
-    problems: HashMap<PathBuf, Vec<Problem>>,
     artifacts: Option<&'g Artifacts>,
-    /// Each interface's hash, by module, made once.
-    hashes: HashMap<String, Hash>,
-    /// The modules checked, in order.
-    ran: Vec<PathBuf>,
     goals: Goals<'g>,
-    docs: Vec<docs::Module>,
-    optimized: Vec<(ModuleName, LocalGraph)>,
-    optimized_interfaces: Vec<(ModuleName, Interface)>,
-    compiled: usize,
+    nodes: &'g [Node<'g>],
+    imports: &'g [Vec<usize>],
+    cyclic: &'g [usize],
+    /// Each package interface's hash, made once.
+    package_hashes: Mutex<HashMap<String, Hash>>,
+    problems: Mutex<HashMap<PathBuf, Vec<Problem>>>,
+    /// The modules checked rather than reused, by node.
+    ran: Mutex<Vec<(usize, PathBuf)>>,
+    docs: Mutex<Vec<(usize, docs::Module)>>,
+    optimized: Mutex<Vec<(usize, (ModuleName, LocalGraph))>>,
+    optimized_interfaces: Mutex<Vec<(usize, ModuleInterface)>>,
 }
 
 impl Walk<'_> {
-    /// Whether the local module `name` is fine to import.
-    fn local(&mut self, name: &ModuleName) -> bool {
-        if let Some(&ok) = self.state.get(name) {
-            return ok;
-        }
-        // A cycle is reported before canonicalization; mark it to stop.
-        self.state.insert(name.clone(), false);
-        let ok = match self.graph.modules.get(name) {
-            Some(Status::Local(module)) => {
-                let ok = self.module(module);
-                self.compiled += usize::from(ok);
-                ok
-            }
-            Some(Status::BadModule(_)) => false,
-            _ => true,
+    /// Node `i`'s work, given what its local imports made.
+    fn job(&self, i: usize, deps: &[&Made]) -> Result<Made, ()> {
+        let Node::Module(module) = &self.nodes[i] else {
+            return Err(());
         };
-        self.state.insert(name.clone(), ok);
-        ok
+        if self.failed.contains(&module.path) || self.cyclic.contains(&i) {
+            return Err(());
+        }
+        let local: HashMap<&str, &Made> = (self.imports[i].iter().zip(deps))
+            .filter_map(|(&d, made)| match &self.nodes[d] {
+                Node::Module(dep) => Some((dep.name.to_str()?, *made)),
+                _ => None,
+            })
+            .collect();
+        self.module(i, module, &local)
     }
 
-    /// Canonicalizes `module` if it and its local imports are fine.
-    fn module(&mut self, module: &Module) -> bool {
-        if self.failed.contains(&module.path) {
-            return false;
-        }
-        let mut blocked = false;
-        for import in &module.imports {
-            if matches!(
-                self.graph.modules.get(&import.name),
-                Some(Status::Local(_) | Status::BadModule(_))
-            ) && !self.local(&import.name)
-            {
-                blocked = true;
-            }
-        }
-        if blocked {
-            return false;
-        }
+    /// Canonicalizes `module`, its local imports having made `local`.
+    fn module(&self, i: usize, module: &Module, local: &HashMap<&str, &Made>) -> Result<Made, ()> {
+        let interfaces = Layered {
+            local: local
+                .iter()
+                .map(|(name, made)| (*name, &*made.interface))
+                .collect(),
+            packages: self.packages,
+        };
         let document = self.goals.documented.contains(&module.name);
-        let key = (self.artifacts.filter(|_| !document)).map(|_| self.key(module));
+        let key = (self.artifacts.filter(|_| !document)).map(|_| self.key(module, local));
         if let (Some(artifacts), Some(key)) = (self.artifacts, key)
-            && let Some(interface) = artifacts.get(key).as_deref().and_then(Interface::decode)
+            && let Some(bytes) = artifacts.get(key)
         {
+            // The encoding is canonical, so its bytes hash as the
+            // interface's own encoding would.
+            let hash = Hash::of(&bytes);
+            let made = Made {
+                interface: Arc::new(LazyInterface::encoded(bytes)),
+                hash,
+            };
             // Optimizing, the module's graph must be filed too.
             let graph = (self.goals.optimize).then(|| {
                 let bytes = artifacts.get(graph_key(key))?;
                 binary::decode_local_graph(&bytes, self.env.compat())
             });
             match graph {
-                None => {
-                    self.interfaces.insert(module.name.to_string(), interface);
-                    return true;
-                }
+                None => return Ok(made),
                 Some(Some(graph)) => {
-                    self.optimized.push((module.name.clone(), graph));
-                    let entry = (module.name.clone(), interface.clone());
-                    self.optimized_interfaces.push(entry);
-                    self.interfaces.insert(module.name.to_string(), interface);
-                    return true;
+                    self.optimized
+                        .lock()
+                        .unwrap()
+                        .push((i, (module.name.clone(), graph)));
+                    let entry = (module.name.clone(), made.interface.clone());
+                    self.optimized_interfaces.lock().unwrap().push((i, entry));
+                    return Ok(made);
                 }
                 Some(None) => {}
             }
         }
-        self.ran.push(module.path.clone());
+        self.ran.lock().unwrap().push((i, module.path.clone()));
         let root = module.parse.syntax();
         let hir = hir::lower(&ast::Module::cast(root.clone()).expect("a module"));
-        match canonicalize(self.env.compat(), &self.package, &self.interfaces, &hir) {
+        match canonicalize(self.env.compat(), &self.package, &interfaces, &hir) {
             Ok(canonical) => match nomi_compiler::types::infer(self.env.compat(), &canonical) {
                 Ok(annotations) => {
                     // Then the patterns, as upstream's `nitpick`.
@@ -263,8 +402,11 @@ impl Walk<'_> {
                         let problems = (pattern_errors.iter())
                             .map(|e| patterns_report::to_problem(e, &cx))
                             .collect();
-                        self.problems.insert(module.path.clone(), problems);
-                        return false;
+                        self.problems
+                            .lock()
+                            .unwrap()
+                            .insert(module.path.clone(), problems);
+                        return Err(());
                     }
                     // Then `main`, as upstream's `optimize` checks it.
                     if let Some(error) = main_check::check(&canonical.decls, &annotations) {
@@ -283,19 +425,25 @@ impl Walk<'_> {
                             &trim,
                             &localizer,
                         );
-                        self.problems.insert(module.path.clone(), vec![problem]);
-                        return false;
+                        self.problems
+                            .lock()
+                            .unwrap()
+                            .insert(module.path.clone(), vec![problem]);
+                        return Err(());
                     }
                     // Then the documentation, as `Build.compile` makes it.
                     if document {
                         match docs::from_module(self.env.compat(), &module.text, &hir, &canonical) {
-                            Ok(docs) => self.docs.push(docs),
+                            Ok(docs) => self.docs.lock().unwrap().push((i, docs)),
                             Err(error) => {
                                 let source = Source::new(&module.text);
                                 let problems =
                                     docs::report::to_problems(&error, &source, self.env.compat());
-                                self.problems.insert(module.path.clone(), problems);
-                                return false;
+                                self.problems
+                                    .lock()
+                                    .unwrap()
+                                    .insert(module.path.clone(), problems);
+                                return Err(());
                             }
                         }
                     }
@@ -314,20 +462,27 @@ impl Walk<'_> {
                             let bytes = binary::encode_local_graph(&graph, self.env.compat());
                             let _ = artifacts.put(graph_key(key), &bytes);
                         }
-                        self.optimized.push((module.name.clone(), graph));
+                        self.optimized
+                            .lock()
+                            .unwrap()
+                            .push((i, (module.name.clone(), graph)));
                     }
                     let interface = interface(&canonical, &annotations);
+                    let bytes = interface.encode();
                     if let (Some(artifacts), Some(key)) = (self.artifacts, key) {
                         // A cache that can't be written only costs a
                         // check next time.
-                        let _ = artifacts.put(key, &interface.encode());
+                        let _ = artifacts.put(key, &bytes);
                     }
+                    let made = Made {
+                        interface: Arc::new(LazyInterface::ready(interface)),
+                        hash: Hash::of(&bytes),
+                    };
                     if self.goals.optimize {
-                        let entry = (module.name.clone(), interface.clone());
-                        self.optimized_interfaces.push(entry);
+                        let entry = (module.name.clone(), made.interface.clone());
+                        self.optimized_interfaces.lock().unwrap().push((i, entry));
                     }
-                    self.interfaces.insert(module.name.to_string(), interface);
-                    true
+                    Ok(made)
                 }
                 Err(errors) => {
                     let source = Source::new(&module.text);
@@ -350,8 +505,11 @@ impl Walk<'_> {
                         .iter()
                         .map(|e| types_report::to_problem(e, &cx))
                         .collect();
-                    self.problems.insert(module.path.clone(), problems);
-                    false
+                    self.problems
+                        .lock()
+                        .unwrap()
+                        .insert(module.path.clone(), problems);
+                    Err(())
                 }
             },
             Err(errors) => {
@@ -364,8 +522,11 @@ impl Walk<'_> {
                     trim: &trim,
                 };
                 let problems = errors.iter().map(|e| report::to_problem(e, &cx)).collect();
-                self.problems.insert(module.path.clone(), problems);
-                false
+                self.problems
+                    .lock()
+                    .unwrap()
+                    .insert(module.path.clone(), problems);
+                Err(())
             }
         }
     }
@@ -373,7 +534,7 @@ impl Walk<'_> {
 
 impl Walk<'_> {
     /// The artifact key of `module`: everything checking it reads.
-    fn key(&mut self, module: &Module) -> Hash {
+    fn key(&self, module: &Module, local: &HashMap<&str, &Made>) -> Hash {
         let mut key = Key::new("module")
             .part("toolchain", env!("CARGO_PKG_VERSION").as_bytes())
             .part("compat", self.env.compat().to_string().as_bytes())
@@ -381,13 +542,9 @@ impl Walk<'_> {
             .part("source", module.text.as_bytes());
         for import in &module.imports {
             let name = import.name.to_string();
-            let hash = match self.hashes.get(&name) {
-                Some(hash) => Some(*hash),
-                None => self.interfaces.get(&name).map(|i| {
-                    let hash = Hash::of(&i.encode());
-                    self.hashes.insert(name.clone(), hash);
-                    hash
-                }),
+            let hash = match local.get(name.as_str()) {
+                Some(made) => Some(made.hash),
+                None => self.package_hash(&name),
             };
             key = key.part("import", name.as_bytes());
             key = match hash {
@@ -396,6 +553,21 @@ impl Walk<'_> {
             };
         }
         key.finish()
+    }
+}
+
+impl Walk<'_> {
+    /// The hash of the package interface of `module`, made once.
+    fn package_hash(&self, module: &str) -> Option<Hash> {
+        if let Some(hash) = self.package_hashes.lock().unwrap().get(module) {
+            return Some(*hash);
+        }
+        let hash = Hash::of(&self.packages.get(module)?.encode());
+        self.package_hashes
+            .lock()
+            .unwrap()
+            .insert(module.to_owned(), hash);
+        Some(hash)
     }
 }
 

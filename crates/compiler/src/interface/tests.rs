@@ -7,8 +7,8 @@ use crate::canonical::{AliasType, Ctor, CtorOpts, FieldType, Home, Type};
 
 fn home(module: &str) -> Home {
     Home {
-        package: "elm/core".to_owned(),
-        module: module.to_owned(),
+        package: "elm/core".into(),
+        module: module.into(),
     }
 }
 
@@ -59,7 +59,7 @@ fn sample() -> Interface {
         home("Maybe"),
         "Point".to_owned(),
         vec![("r".to_owned(), Type::Unit)],
-        AliasType::Filled(Box::new(point.clone())),
+        AliasType::Filled(std::sync::Arc::new(point.clone())),
     );
     let with_default = Type::Lambda(
         Box::new(a()),
@@ -71,7 +71,7 @@ fn sample() -> Interface {
             "withDefault".to_owned(),
             Annotation {
                 free: vec!["a".to_owned()],
-                ty: with_default,
+                ty: with_default.into(),
             },
         )]),
         unions: BTreeMap::from([("Maybe".to_owned(), Union::Open(union))]),
@@ -79,7 +79,7 @@ fn sample() -> Interface {
             "Point".to_owned(),
             Alias::Private(canonical::Alias {
                 vars: vec!["r".to_owned()],
-                ty: point,
+                ty: point.into(),
             }),
         )]),
         binops: BTreeMap::from([(
@@ -88,7 +88,7 @@ fn sample() -> Interface {
                 function: "apR".to_owned(),
                 annotation: Annotation {
                     free: vec![],
-                    ty: Type::Tuple(Box::new(aliased), Box::new(Type::Unit), None),
+                    ty: Type::Tuple(Box::new(aliased), Box::new(Type::Unit), None).into(),
                 },
                 associativity: Associativity::Left,
                 precedence: 0,
@@ -195,9 +195,9 @@ fn ty() -> impl Strategy<Value = Type> {
                 .prop_map(|(n, args, body, filled)| {
                     let body = Box::new(body);
                     let aliased = if filled {
-                        AliasType::Filled(body)
+                        AliasType::Filled(body.into())
                     } else {
-                        AliasType::Holey(body)
+                        AliasType::Holey(body.into())
                     };
                     Type::Alias(home("M"), n, args, aliased)
                 }),
@@ -206,7 +206,10 @@ fn ty() -> impl Strategy<Value = Type> {
 }
 
 fn annotation() -> impl Strategy<Value = Annotation> {
-    (prop::collection::vec(name(), 0..3), ty()).prop_map(|(free, ty)| Annotation { free, ty })
+    (prop::collection::vec(name(), 0..3), ty()).prop_map(|(free, ty)| Annotation {
+        free,
+        ty: ty.into(),
+    })
 }
 
 fn interface() -> impl Strategy<Value = Interface> {
@@ -233,7 +236,10 @@ fn interface() -> impl Strategy<Value = Interface> {
         });
     let alias = (prop::collection::vec(name(), 0..2), ty(), any::<bool>()).prop_map(
         |(vars, ty, public)| {
-            let alias = canonical::Alias { vars, ty };
+            let alias = canonical::Alias {
+                vars,
+                ty: ty.into(),
+            };
             if public {
                 Alias::Public(alias)
             } else {

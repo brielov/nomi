@@ -76,8 +76,8 @@ impl Global {
         };
         Global {
             home: Home {
-                package: "elm/kernel".to_owned(),
-                module: short.to_owned(),
+                package: "elm/kernel".into(),
+                module: short.into(),
             },
             name: name.to_owned(),
         }
@@ -138,12 +138,30 @@ pub enum Choice {
     Jump(usize),
 }
 
-/// `DecisionTree.Path`: where in the tested value a test looks.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+/// `DecisionTree.Path`: where in the tested value a test looks. Paths
+/// share their prefixes, as the case compiler copies them at every node,
+/// and a shared prefix is equal without a look.
+// The equality below is the structural one, so the derived hash agrees.
+#[allow(clippy::derived_hash_with_manual_eq)]
+#[derive(Clone, Debug, Eq, Hash)]
 pub enum DtPath {
-    Index(usize, Box<DtPath>),
-    Unbox(Box<DtPath>),
+    Index(usize, std::sync::Arc<DtPath>),
+    Unbox(std::sync::Arc<DtPath>),
     Empty,
+}
+
+impl PartialEq for DtPath {
+    fn eq(&self, other: &DtPath) -> bool {
+        let same = |a: &std::sync::Arc<DtPath>, b: &std::sync::Arc<DtPath>| {
+            std::sync::Arc::ptr_eq(a, b) || a == b
+        };
+        match (self, other) {
+            (DtPath::Index(i, a), DtPath::Index(j, b)) => i == j && same(a, b),
+            (DtPath::Unbox(a), DtPath::Unbox(b)) => same(a, b),
+            (DtPath::Empty, DtPath::Empty) => true,
+            _ => false,
+        }
+    }
 }
 
 /// `DecisionTree.Test`.

@@ -88,8 +88,8 @@ fn var_table(
                 package: foreigns
                     .get(&import.module)
                     .map_or(package, String::as_str)
-                    .to_owned(),
-                module: import.module.clone(),
+                    .into(),
+                module: import.module.clone().into(),
             };
             let prefix = match &import.alias {
                 Some(alias) => alias.clone(),

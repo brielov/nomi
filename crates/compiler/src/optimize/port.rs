@@ -14,15 +14,15 @@ use crate::optimized::{Destructor, Expr, Path};
 
 fn json(module: &str) -> Home {
     Home {
-        package: "elm/json".to_owned(),
-        module: module.to_owned(),
+        package: "elm/json".into(),
+        module: module.into(),
     }
 }
 
 fn maybe() -> Home {
     Home {
-        package: "elm/core".to_owned(),
-        module: "Maybe".to_owned(),
+        package: "elm/core".into(),
+        module: "Maybe".into(),
     }
 }
 
