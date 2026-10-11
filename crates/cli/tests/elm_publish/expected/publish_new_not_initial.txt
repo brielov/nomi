@@ -1,0 +1,32 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|This package has never been published before. Here's how things work:
+|
+|  - Versions all have exactly three parts: MAJOR.MINOR.PATCH
+|
+|  - All packages start with initial version 1.0.0
+|
+|  - Versions are incremented based on how the API changes:
+|
+|        PATCH = the API is the same, no risk of breaking code
+|        MINOR = values have been added, existing values are unchanged
+|        MAJOR = existing values have been changed or removed
+|
+|  - I will bump versions for you, automatically enforcing these rules
+|
+|
+|I will now verify that everything is in order...
+|
+|  → Looking for README.md  ● Found README.md      
+|  → Looking for LICENSE  ● Found LICENSE      
+|  → Verifying documentation...  ● Verified documentation    
+|  → Checking semantic versioning rules. Is 1.0.1 correct?  ✗ Version 1.0.1 is not correct!                        
+|
+=== stderr
+|-- INVALID VERSION -------------------------------------------------------------
+|
+|I cannot publish 1.0.1 as the initial version.
+|
+|Change it to 1.0.0 which is the initial version for all Elm packages.
+|

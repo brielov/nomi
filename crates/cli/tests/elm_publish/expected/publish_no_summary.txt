@@ -1,0 +1,14 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying pilatch/flip 1.0.0 ...
+|
+=== stderr
+|-- NO SUMMARY --------------------------------------------------------- elm.json
+|
+|To publish a package, your elm.json must have a "summary" field that gives a
+|consice overview of your project.
+|
+|The summary must be less than 80 characters. It should describe the concrete use
+|of your package as clearly and as plainly as possible.
+|

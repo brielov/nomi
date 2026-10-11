@@ -1,0 +1,19 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying pilatch/flip 1.0.0 ...
+|
+|  → Looking for README.md  ● Found README.md      
+|  → Looking for LICENSE  ✗ Problem with your LICENSE
+|
+=== stderr
+|-- NO LICENSE FILE ----------------------------------------------------- LICENSE
+|
+|By publishing a package you are inviting the Elm community to build upon your
+|work. But without knowing your license, we have no idea if that is legal!
+|
+|Once you pick an OSI approved license from <https://spdx.org/licenses/>, you
+|must share that choice in two places. First, the license identifier must appear
+|in your elm.json file. Second, the full license text must appear in the root of
+|your project in a file named LICENSE. Add that file and you will be all set!
+|

@@ -1,0 +1,11 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+=== stderr
+|-- PUBLISH WHAT? ---------------------------------------------------------------
+|
+|I cannot find an elm.json so I am not sure what you want me to publish.
+|
+|Elm packages always have an elm.json that states the version number,
+|dependencies, exposed modules, etc.
+|

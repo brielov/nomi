@@ -1,5 +1,10 @@
-//! `cargo xtask oracle diff`: each pinned elm's transcript of every case
-//! of `elm diff` and `elm bump` (plan 8.14), stored for the CLI's tests.
+//! `cargo xtask oracle diff` and `oracle publish`: each pinned elm's
+//! transcript of every case of `elm diff` and `elm bump` (plan 8.14), and
+//! of `elm publish` failing (plan 8.14c), stored for the CLI's tests.
+//!
+//! No publish case may reach GitHub, past which elm would register the
+//! package for real: none may hold a git repository, so each stops at
+//! `git show`, if not before, and the oracle refuses one that does.
 //!
 //! Both commands insist on the latest registry (`Registry.latest`), so
 //! unlike the other transcripts these are recorded online, with read-only
@@ -33,11 +38,31 @@ use crate::references::References;
 
 pub const CASES: &str = "crates/cli/tests/elm_diff";
 
+pub const PUBLISH_CASES: &str = "crates/cli/tests/elm_publish";
+
+/// `oracle diff`.
 pub fn run(root: &Path, refs: &References) -> Result<()> {
-    let dir = root.join(CASES);
+    record_all(root, refs, CASES, "diff")
+}
+
+/// `oracle publish`.
+pub fn publish(root: &Path, refs: &References) -> Result<()> {
+    record_all(root, refs, PUBLISH_CASES, "publish")
+}
+
+fn record_all(root: &Path, refs: &References, cases_dir: &str, sandbox: &str) -> Result<()> {
+    let dir = root.join(cases_dir);
     let mut cases = Vec::new();
     for (stem, path) in case_files(&dir.join("cases"))? {
-        cases.push((stem, read_case(&path)?));
+        let case = read_case(&path)?;
+        let git = (case.files.iter().map(|(p, _)| p))
+            .chain(case.binaries.iter().map(|(p, _)| p))
+            .any(|p| p == ".git" || p.starts_with(".git/") || p.contains("/.git/"));
+        ensure!(
+            !git,
+            "{stem} holds a git repository, with which elm could publish for real"
+        );
+        cases.push((stem, case));
     }
     let versions = compat::compats(refs)?;
     let mut columns = Vec::new();
@@ -50,7 +75,7 @@ pub fn run(root: &Path, refs: &References) -> Result<()> {
     for &version in &versions {
         let scratch = cache_dir()?
             .join("sandboxes")
-            .join("diff")
+            .join(sandbox)
             .join(version.to_string());
         if scratch.exists() {
             fs::remove_dir_all(&scratch)?;
@@ -149,7 +174,14 @@ fn record(elm: &Path, home: &Path, work: &Path, case: &Case) -> Result<String> {
     case.create_files(&dir)?;
     case.date_files(&dir)?;
     let mut command = Command::new(elm);
-    command.env("ELM_HOME", home).env("GHCRTS", "-N1");
+    // A repository git finds above the sandbox mustn't serve as the
+    // case's: with none, `elm publish` stops at `git show`.
+    let no_git = work.join("no-git-here");
+    command
+        .env("ELM_HOME", home)
+        .env("GHCRTS", "-N1")
+        .env("GIT_DIR", &no_git)
+        .env("GIT_CEILING_DIRECTORIES", work);
     // elm 0.19.3 deadlocks on its own package lock in some cases.
     let transcript = case.run_within(command, &dir, std::time::Duration::from_secs(120))?;
     Ok(transcript.compared(case, &dir))

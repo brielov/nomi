@@ -1,0 +1,14 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying pilatch/flip 1.0.0 ...
+|
+=== stderr
+|-- NO EXPOSED MODULES ------------------------------------------------- elm.json
+|
+|To publish a package, the "exposed-modules" field of your elm.json must list at
+|least one module.
+|
+|Which modules do you want users of the package to have access to? Add their
+|names to the "exposed-modules" list.
+|

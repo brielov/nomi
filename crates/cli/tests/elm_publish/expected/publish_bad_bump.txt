@@ -1,0 +1,23 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying pilatch/flip 1.1.0 ...
+|
+|  → Looking for README.md  ● Found README.md      
+|  → Looking for LICENSE  ● Found LICENSE      
+|  → Verifying documentation...  ● Verified documentation    
+|  → Checking semantic versioning rules. Is 1.1.0 correct?  ✗ Version 1.1.0 is not correct!                        
+|
+=== stderr
+|-- INVALID VERSION ---------------------------------------------------- elm.json
+|
+|Your elm.json says the next version should be 1.1.0, indicating a MINOR change
+|to the public API. This does not match the API diff given by:
+|
+|    elm diff 1.0.0
+|
+|This command says this is a MAJOR change, so the next version should be 2.0.0.
+|Double check everything to make sure you are publishing what you want!
+|
+|Also, next time use `elm bump` and I'll figure all this out for you!
+|

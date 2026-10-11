@@ -1,0 +1,21 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying pilatch/flip 1.0.0 ...
+|
+|  → Looking for README.md  ● Found README.md      
+|  → Looking for LICENSE  ● Found LICENSE      
+|  → Verifying documentation...  ● Verified documentation    
+|  → Checking semantic versioning rules. Is 1.0.0 correct?  ✗ Version 1.0.0 is not correct!                        
+|
+=== stderr
+|-- ALREADY PUBLISHED -----------------------------------------------------------
+|
+|Version 1.0.0 has already been published. You cannot publish it again!
+|Try using the `bump` command:
+|
+|    elm bump
+|
+|It computes the version number based on API changes, ensuring that no breaking
+|changes end up in PATCH releases!
+|

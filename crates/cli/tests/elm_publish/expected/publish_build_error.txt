@@ -1,0 +1,18 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying pilatch/flip 1.1.0 ...
+|
+|  → Looking for README.md  ● Found README.md      
+|  → Looking for LICENSE  ● Found LICENSE      
+|  → Verifying documentation...  ✗ Problem with documentation
+|
+=== stderr
+|-- TOO MANY ARGS -------------------------------------------------- src/Flip.elm
+|
+|The `function` function expects 2 arguments, but it got 3 instead.
+|
+|14|     function argA argB argB
+|        ^^^^^^^^
+|Are there any missing commas? Or missing parentheses?
+|

@@ -44,7 +44,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **8.14c**.
+4. Resume at the first unchecked box. Right now that is **8.14d**.
 
 ### Test tiers
 
@@ -524,7 +524,9 @@ The optimizer's oracle is elm's own artifacts: every elm writes a module's optim
 - [x] **8.14b** `cli: bump`. `Bump.hs`: the version the API changes call for, its prompt, and the `elm.json` it rewrites. **Check:** the bump transcripts.
 
   Done: `engine::bump` ports `Bump.hs`: the versions a release may follow (`getPossibilities`), the version the API changes call for, its question, the version written to `elm.json` on a yes, and a package never published told how versions work. `elm bump`, and `nomi bump` and `nomi diff` over the same engine. The `elm_diff` ratchet passes all 25 runs; the one case every elm crashed on, a prompt with no answer, isn't run.
-- [ ] **8.14c** `oracle: publish transcripts`. `elm publish` checks the summary, exposed modules, README, LICENSE, build, version, git tag, GitHub tag, local changes and zipball before it registers, and needs the latest registry, so its failures are recorded online, read-only. Every case must fail before the GitHub tag lookup succeeds: none has a git repository except ones naming a repository or tag GitHub doesn't have, and the oracle refuses a case otherwise. **Check:** the recordings, stable across two runs.
+- [x] **8.14c** `oracle: publish transcripts`. `elm publish` checks the summary, exposed modules, README, LICENSE, build, version, git tag, GitHub tag, local changes and zipball before it registers, and needs the latest registry, so its failures are recorded online, read-only. Every case must fail before the GitHub tag lookup succeeds: none has a git repository except ones naming a repository or tag GitHub doesn't have, and the oracle refuses a case otherwise. **Check:** the recordings, stable across two runs.
+
+  Done: `cargo xtask oracle publish` records 14 cases under `crates/cli/tests/elm_publish/` online as `oracle diff` does: no project, an application, no exposed modules, the default summary, no README, a short one, no LICENSE, a module that doesn't compile, a new package not at 1.0.0 and one at it, a version already published, one no bump reaches, a minor bump for a major change, and a right bump. None can reach GitHub: the oracle refuses a case holding a git repository and runs elm with `GIT_DIR` naming none, so every case stops at `git show` if not before, and the last two show the tag check failing. The three elms agree on every case, and two runs recorded the same bytes.
 - [ ] **8.14d** `engine: publish`. `Publish.hs`'s checks, git and GitHub steps and the multipart `/register` upload, run against the fixture server, which `NOMI_REGISTRY` now stands in for GitHub's API and archives too. Publishing for real is yours to run. **Check:** the publish transcripts, and a publish of a fixture package end to end against the fixture server, its upload checked part by part.
 - [ ] **8.15** `cli: explain missing repl and reactor`. The message for `elm reactor` points to `nomi run --watch`.
 - [ ] **8.16** `release: 0.2`. README usage (`ln -s nomi elm`), cold and warm build benchmarks against elm, and a tag.

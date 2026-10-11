@@ -1,0 +1,24 @@
+### elm 0.19.1, elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|Verifying pilatch/flip 1.0.5 ...
+|
+|  → Looking for README.md  ● Found README.md      
+|  → Looking for LICENSE  ● Found LICENSE      
+|  → Verifying documentation...  ● Verified documentation    
+|  → Checking semantic versioning rules. Is 1.0.5 correct?  ✗ Version 1.0.5 is not correct!                        
+|
+=== stderr
+|-- INVALID VERSION ---------------------------------------------------- elm.json
+|
+|Your elm.json says the next version should be 1.0.5, but that is not valid based
+|on the previously published versions.
+|
+|Change the version back to 1.0.0 which is the most recently published version.
+|From there, have Elm bump the version by running:
+|
+|    elm bump
+|
+|If you want more insight on the API changes Elm detects, you can run `elm diff`
+|at this point as well.
+|
