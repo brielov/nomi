@@ -822,10 +822,14 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - **Done:** all 219 recorded code actions match, the 10 of a new `refactors` seed case among them: extract to `let`, move function, and the parenthesized and tuple type aliases. 845 requests pass. The only extras are the four case-branch fixes the 2026-10-12 decision foresees.
   - Upstream's node at the range is tree-sitter's deepest named node. A lone name is an identifier there, never an expression, and a `case` in parentheses runs on to the `)`, so neither is extracted.
   - Positions follow `getNamedDescendantForPosition`: after a name's character, the name that ends there.
-- [ ] **9.16** `lsp: file events and custom requests`.
-  - **File events:** `didCreateFiles` (the module header), `willRenameFiles` (modules and folders) and `willDeleteFiles`.
-  - **Custom requests:** `elm/findTests`, `elm/expose`, `elm/unexpose`, `elm/getMoveDestinations`, `elm/move`, `elm/getDiagnostics`, `elm/provideFileContents` and `workspace/textDocumentContent`.
-  - **Cases:** elm-language-server's find-tests (14) and file-event (15) tests, converted by hand.
+- [ ] **9.16a** `lsp: file events and moving functions`.
+  - **Driver:** a step can create files before it runs, and send a notification rather than a request, recording the edits the server applies in answer.
+  - **File events:** `didCreateFiles` gives an empty new module its header. `willRenameFiles` renames the module and every reference to it, for a file or a folder. `willDeleteFiles` forgets the file.
+  - **Moving functions:** `elm/getMoveDestinations` and `elm/move` (`moveRefactoringHandler.ts`), the requests behind 9.15's Move Function.
+  - **Cases:** elm-language-server's file-event (15) and move tests, recorded as sessions.
+- [ ] **9.16b** `lsp: tests, diagnostics on request and virtual files`.
+  - **Requests:** `elm/findTests` (`findTestsProvider.ts`, its 14 tests), `elm/getDiagnostics`, `elm/provideFileContents` and `workspace/textDocumentContent`.
+  - **Cases:** recorded as sessions, as in 9.16a.
 - [ ] **9.17** `lsp: elm-review`.
   - Its CLI runs on open and save after clean diagnostics, under the same conditions: the setting, and `review/src/ReviewConfig.elm` exists. It is cleared on change.
   - Its fixes become code actions.
