@@ -31,8 +31,151 @@ pub fn definition(
     offset: TextSize,
 ) -> Option<Location> {
     let module = index.module(path)?;
-    let target = target_at(index, module, offset)?;
-    declaration(snapshot, index, module, &target)
+    if let Some((declared, _)) = type_variable(&module.root, offset) {
+        return Some(Location {
+            path: module.path.clone(),
+            range: declared,
+        });
+    }
+    if let Some(name) = module_at(&module.root, offset) {
+        let path = module_path(index, &name)?;
+        let text = snapshot.read(&path).ok()?;
+        let root = parse_module(&text).syntax();
+        let header = root
+            .children()
+            .find(|c| c.kind() == SyntaxKind::ModuleHeader)?;
+        return Some(Location {
+            path,
+            range: crate::symbols::code_range(&header)?,
+        });
+    }
+    let Some(target) = target_at(index, module, offset) else {
+        // Where canonicalization stopped short, a local by its syntax.
+        let (binder, _) = crate::scopes::local(&module.root, offset)?;
+        return Some(Location {
+            path: module.path.clone(),
+            range: declaring_node(&module.root, binder).unwrap_or(binder),
+        });
+    };
+    let found = declaration(snapshot, index, module, &target)?;
+    // As elm-language-server answers: the node that declares the name.
+    let text = snapshot.read(&found.path).ok()?;
+    let root = parse_module(&text).syntax();
+    // A pattern can't match on a record alias's constructor.
+    let in_pattern = (module.root.token_at_offset(offset).right_biased()).is_some_and(|t| {
+        t.parent_ancestors()
+            .any(|a| a.kind() == SyntaxKind::ConstructorPattern)
+    });
+    let declares_alias = (root.token_at_offset(found.range.start()).right_biased())
+        .and_then(|t| t.parent())
+        .is_some_and(|p| p.kind() == SyntaxKind::TypeAliasDecl);
+    if in_pattern && declares_alias {
+        return None;
+    }
+    // An operator is its infix declaration's function.
+    let found = match kind(&target) {
+        Some(Kind::Binop) => {
+            infix_function(&root, found.range).map_or(found.clone(), |range| Location {
+                path: found.path.clone(),
+                range,
+            })
+        }
+        _ => found,
+    };
+    Some(Location {
+        range: declaring_node(&root, found.range).unwrap_or(found.range),
+        path: found.path,
+    })
+}
+
+/// The name of the function the infix declaration at `range` gives an
+/// operator, where that file declares it.
+fn infix_function(root: &SyntaxNode, range: TextRange) -> Option<TextRange> {
+    let token = root.token_at_offset(range.start()).right_biased()?;
+    let infix = token
+        .parent_ancestors()
+        .find(|a| a.kind() == SyntaxKind::InfixDecl)?;
+    let function = (infix.children_with_tokens())
+        .filter_map(|e| e.into_token())
+        .filter(|t| t.kind() == SyntaxKind::LowerIdent)
+        .last()?;
+    let definition = (root.descendants())
+        .filter(|n| n.kind() == SyntaxKind::Definition)
+        .find(|d| {
+            crate::lint::first_token(d, SyntaxKind::LowerIdent)
+                .is_some_and(|t| t.text() == function.text())
+        })?;
+    crate::lint::first_token(&definition, SyntaxKind::LowerIdent).map(|t| t.text_range())
+}
+
+/// The range of the node that declares the name at `range`, as
+/// tree-sitter-elm's are: a value's name and parameters, a whole type,
+/// alias, port or module header, a variant, a record field, or a
+/// variable itself; none past a doc comment.
+fn declaring_node(root: &SyntaxNode, range: TextRange) -> Option<TextRange> {
+    let token = root.token_at_offset(range.start()).right_biased()?;
+    let parent = token.parent()?;
+    let node = match parent.kind() {
+        SyntaxKind::ModuleName => parent
+            .parent()
+            .filter(|p| p.kind() == SyntaxKind::ModuleHeader)?,
+        _ => parent,
+    };
+    match node.kind() {
+        SyntaxKind::Definition => {
+            let end = (node.children())
+                .filter(|c| ast::Pattern::can_cast(c.kind()))
+                .last()
+                .map_or(token.text_range().end(), |last| last.text_range().end());
+            Some(TextRange::new(token.text_range().start(), end))
+        }
+        SyntaxKind::TypeAliasDecl
+        | SyntaxKind::CustomTypeDecl
+        | SyntaxKind::PortDecl
+        | SyntaxKind::Variant
+        | SyntaxKind::FieldType
+        | SyntaxKind::ModuleHeader => crate::symbols::code_range(&node),
+        _ => None,
+    }
+}
+
+/// Where the type of the expression at `offset` in the file at `path`
+/// is declared: its custom type, or the alias it's written as; none for
+/// a record, a function or a variable.
+pub fn type_definition(
+    snapshot: &Snapshot,
+    index: &Index,
+    path: &Path,
+    offset: TextSize,
+) -> Option<Location> {
+    use nomi_compiler::types::{self, error};
+    let module = index.module(path)?;
+    let canonical = module.canonical.as_ref()?;
+    let (_, types) = types::infer_types(index.compat, canonical);
+    let (_, ty) = (types.iter())
+        .filter_map(|(range, ty)| Some((crate::hover::trimmed(&module.root, *range)?, ty)))
+        .filter(|(range, _)| range.contains_inclusive(offset))
+        .min_by_key(|(range, _)| range.len())?;
+    let (home, name, alias) = match ty {
+        error::Type::Alias(home, name, _, _) => (home, name, true),
+        error::Type::Type(home, name, _) => (home, name, false),
+        _ => return None,
+    };
+    let path = module_path(index, &home.module)?;
+    let text = snapshot.read(&path).ok()?;
+    let root = parse_module(&text).syntax();
+    let kind = if alias {
+        SyntaxKind::TypeAliasDecl
+    } else {
+        SyntaxKind::CustomTypeDecl
+    };
+    let declaration = (root.children()).filter(|n| n.kind() == kind).find(|n| {
+        crate::symbols::token(n, SyntaxKind::UpperIdent).as_deref() == Some(name.as_str())
+    })?;
+    Some(Location {
+        path,
+        range: crate::symbols::code_range(&declaration)?,
+    })
 }
 
 /// Every use of the name at `offset` in the file at `path`, across the
@@ -48,23 +191,155 @@ pub fn references(
     let Some(module) = index.module(path) else {
         return Vec::new();
     };
+    if let Some(name) = module_at(&module.root, offset) {
+        return module_references(index, &name, with_declaration);
+    }
+    if let Some((declared, all)) = type_variable(&module.root, offset) {
+        return (all.into_iter())
+            .filter(|range| with_declaration || *range != declared)
+            .map(|range| Location {
+                path: module.path.clone(),
+                range,
+            })
+            .collect();
+    }
     let Some(target) = target_at(index, module, offset) else {
-        return Vec::new();
+        let Some((binder, scope)) = crate::scopes::local(&module.root, offset) else {
+            return Vec::new();
+        };
+        return (crate::scopes::uses(&module.root, binder, &scope).into_iter())
+            .filter(|range| with_declaration || *range != binder)
+            .map(|range| Location {
+                path: module.path.clone(),
+                range,
+            })
+            .collect();
     };
     let mut found = Vec::new();
-    if with_declaration {
-        found.extend(declaration(snapshot, index, module, &target));
+    if let Some(declared) = declaration(snapshot, index, module, &target) {
+        // The annotation names the definition too.
+        let annotation = (index.modules.iter())
+            .find(|m| m.path == declared.path)
+            .and_then(|m| annotation_of(&m.root, declared.range));
+        if let Some(range) = annotation {
+            found.push(Location {
+                path: declared.path.clone(),
+                range,
+            });
+        }
+        if with_declaration {
+            found.push(declared);
+        }
     }
     // A local is one module's.
     let modules: Vec<&Indexed> = match target {
         Target::Local(_) => vec![module],
         Target::Global { .. } => index.modules.iter().collect(),
     };
+    // A record alias is also its constructor.
+    let constructor = match &target {
+        Target::Global {
+            home,
+            name,
+            kind: Kind::Type,
+        } if home.package == index.package => (index.named(&home.module))
+            .filter(|m| m.hir.aliases.iter().any(|a| a.name.text == **name))
+            .map(|_| Target::Global {
+                home: home.clone(),
+                name: name.clone(),
+                kind: Kind::Ctor,
+            }),
+        _ => None,
+    };
     for m in modules {
-        found.extend(uses(m, &target).map(|range| Location {
-            path: m.path.clone(),
-            range,
-        }));
+        for target in std::iter::once(&target).chain(&constructor) {
+            found.extend(uses(m, target).map(|range| Location {
+                path: m.path.clone(),
+                range,
+            }));
+            // Where canonicalization stopped short, its names as written.
+            if m.canonical.is_none() {
+                for range in written_uses(m, target) {
+                    if !found.iter().any(|l| l.path == m.path && l.range == range) {
+                        found.push(Location {
+                            path: m.path.clone(),
+                            range,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    found
+}
+
+/// The names in `module` that name `target` as written, qualified with
+/// its module or one of its aliases, or exposed by an import of it.
+fn written_uses(module: &Indexed, target: &Target) -> Vec<TextRange> {
+    let Target::Global { home, name, kind } = target else {
+        return Vec::new();
+    };
+    let imports: Vec<SyntaxNode> = (module.root.children())
+        .filter(|n| n.kind() == SyntaxKind::Import)
+        .filter(|i| {
+            i.children()
+                .find(|c| c.kind() == SyntaxKind::ModuleName)
+                .is_some_and(|n| crate::symbols::words(&n) == *home.module)
+        })
+        .collect();
+    let names: Vec<String> = imports
+        .iter()
+        .flat_map(|i| {
+            let alias = (i.children().find(|c| c.kind() == SyntaxKind::ImportAlias))
+                .and_then(|a| crate::lint::first_token(&a, SyntaxKind::UpperIdent))
+                .map(|t| t.text().to_owned());
+            alias
+                .into_iter()
+                .chain(std::iter::once(home.module.to_string()))
+        })
+        .collect();
+    let exposed = imports.iter().any(|i| {
+        i.children()
+            .find(|c| c.kind() == SyntaxKind::ExposingList)
+            .is_some_and(|list| {
+                crate::lint::first_token(&list, SyntaxKind::DotDot).is_some()
+                    || list.text().to_string().contains(name.as_ref() as &str)
+            })
+    });
+    let mut found = Vec::new();
+    for node in module.root.descendants() {
+        let fits = match node.kind() {
+            SyntaxKind::NameExpr => match crate::lint::first_token(&node, SyntaxKind::UpperIdent) {
+                Some(_) => *kind == Kind::Ctor,
+                None => *kind == Kind::Value,
+            },
+            SyntaxKind::ConstructorPattern => *kind == Kind::Ctor,
+            SyntaxKind::NamedType => *kind == Kind::Type,
+            _ => false,
+        };
+        if !fits {
+            continue;
+        }
+        let written = (node.children_with_tokens())
+            .filter_map(|e| e.into_token())
+            .find(|t| matches!(t.kind(), SyntaxKind::UpperIdent | SyntaxKind::LowerIdent));
+        let Some(written) = written.filter(|t| t.text() == &**name) else {
+            continue;
+        };
+        let qualifier = (node.children().find(|c| c.kind() == SyntaxKind::Qualifier))
+            .map(|q| crate::symbols::words(&q).trim_end_matches('.').to_owned());
+        let named = match &qualifier {
+            Some(q) => names.contains(q),
+            None => exposed,
+        };
+        // A value's name alone, as tree-sitter-elm writes it.
+        let range = match kind {
+            Kind::Value => Some(written.text_range()),
+            _ => qualified_range(&node),
+        };
+        if named && let Some(range) = range {
+            found.push(range);
+        }
     }
     found
 }
@@ -98,7 +373,17 @@ pub fn highlights(
 fn uses<'m>(module: &'m Indexed, target: &'m Target) -> impl Iterator<Item = TextRange> + 'm {
     (module.references.iter())
         .filter(move |r| r.target == *target)
-        .filter_map(|r| name_range(&module.root, r.range, kind(&r.target)))
+        .filter_map(|r| {
+            // tree-sitter-elm writes a capitalized name with its
+            // qualifier as one node, and a value's name alone.
+            let whole = matches!(kind(&r.target), Some(Kind::Type | Kind::Ctor));
+            let kind = if whole {
+                Some(Kind::Module)
+            } else {
+                kind(&r.target)
+            };
+            name_range(&module.root, r.range, kind)
+        })
 }
 
 fn kind(target: &Target) -> Option<Kind> {
@@ -111,6 +396,22 @@ fn kind(target: &Target) -> Option<Kind> {
 /// What the name at `offset` refers to, or names where it is defined:
 /// a reference, a top-level declaration, or a local's binding.
 fn target_at(index: &Index, module: &Indexed, offset: TextSize) -> Option<Target> {
+    // An annotation's name is its definition's.
+    if let Some(name) = annotated(&module.root, offset) {
+        return target_at(index, module, name.start());
+    }
+    // So is an infix declaration's function.
+    let infix = (module.hir.binops.iter()).find(|b| b.function.range.contains_inclusive(offset));
+    if let Some(infix) = infix {
+        return Some(Target::Global {
+            home: Home {
+                package: index.package.clone().into(),
+                module: module.name.clone().into(),
+            },
+            name: infix.function.text.clone(),
+            kind: Kind::Value,
+        });
+    }
     let at = |range: Option<TextRange>| range.is_some_and(|r| r.contains_inclusive(offset));
     let used =
         (module.references.iter()).find(|r| at(name_range(&module.root, r.range, kind(&r.target))));
@@ -131,6 +432,241 @@ fn target_at(index: &Index, module: &Indexed, offset: TextSize) -> Option<Target
         }
         _ => None,
     })
+}
+
+/// The module named at `offset`: in a header, an import, or a name's
+/// qualifier, an import's alias standing for its module.
+fn module_at(root: &SyntaxNode, offset: TextSize) -> Option<String> {
+    let token = root
+        .token_at_offset(offset)
+        .find(|t| t.kind() == SyntaxKind::UpperIdent)?;
+    let parent = token.parent()?;
+    // A qualifier names the module up to the part at `offset`.
+    let upto = |node: &SyntaxNode| -> String {
+        let parts: Vec<String> = (node.descendants_with_tokens())
+            .filter_map(|e| e.into_token())
+            .filter(|t| {
+                t.kind() == SyntaxKind::UpperIdent
+                    && t.text_range().start() <= token.text_range().start()
+            })
+            .map(|t| t.text().to_owned())
+            .collect();
+        parts.join(".")
+    };
+    match parent.kind() {
+        // An import or a header names its whole module.
+        SyntaxKind::ModuleName => Some(crate::symbols::words(&parent)),
+        SyntaxKind::Qualifier => {
+            let written = upto(&parent);
+            let aliased = (root.children())
+                .filter(|n| n.kind() == SyntaxKind::Import)
+                .find_map(|import| {
+                    let alias = import
+                        .children()
+                        .find(|c| c.kind() == SyntaxKind::ImportAlias)?;
+                    let alias = crate::lint::first_token(&alias, SyntaxKind::UpperIdent)?;
+                    let name = import
+                        .children()
+                        .find(|c| c.kind() == SyntaxKind::ModuleName)?;
+                    (alias.text() == written).then(|| crate::symbols::words(&name))
+                });
+            Some(aliased.unwrap_or(written))
+        }
+        _ => None,
+    }
+}
+
+/// The file of the module `name`: the project's, or a dependency's.
+fn module_path(index: &Index, name: &str) -> Option<PathBuf> {
+    if let Some(module) = index.named(name) {
+        return Some(module.path.clone());
+    }
+    let mut relative = PathBuf::from("src");
+    relative.extend(name.split('.'));
+    relative.set_extension("elm");
+    let mut packages: Vec<&PathBuf> = index.packages.values().collect();
+    packages.sort();
+    packages
+        .into_iter()
+        .map(|dir| dir.join(&relative))
+        .find(|p| p.is_file())
+}
+
+/// Every place the project names the module `name`, as
+/// elm-language-server finds them: its header where `with_declaration`,
+/// each import of it, and each name qualified with it as written.
+fn module_references(index: &Index, name: &str, with_declaration: bool) -> Vec<Location> {
+    let mut found = Vec::new();
+    for module in &index.modules {
+        let at = |range| Location {
+            path: module.path.clone(),
+            range,
+        };
+        for node in module.root.descendants() {
+            match node.kind() {
+                SyntaxKind::ModuleName => {
+                    let header = node
+                        .parent()
+                        .is_some_and(|p| p.kind() == SyntaxKind::ModuleHeader);
+                    if crate::symbols::words(&node) == name
+                        && (with_declaration || !header)
+                        && let Some(range) = crate::symbols::code_range(&node)
+                    {
+                        found.push(at(range));
+                    }
+                }
+                SyntaxKind::NameExpr | SyntaxKind::NamedType | SyntaxKind::ConstructorPattern => {
+                    let qualifier = node.children().find(|c| c.kind() == SyntaxKind::Qualifier);
+                    let written = qualifier.map(|q| crate::symbols::words(&q));
+                    if written.is_some_and(|w| w.trim_end_matches('.') == name)
+                        && let Some(range) = qualified_range(&node)
+                    {
+                        found.push(at(range));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    found
+}
+
+/// A qualified name's range, from its qualifier through its name.
+fn qualified_range(node: &SyntaxNode) -> Option<TextRange> {
+    let mut tokens = (node.children_with_tokens())
+        .flat_map(|e| match e {
+            SyntaxElement::Node(n) if n.kind() == SyntaxKind::Qualifier => n
+                .descendants_with_tokens()
+                .filter_map(|e| e.into_token())
+                .collect::<Vec<_>>(),
+            SyntaxElement::Token(t) => vec![t],
+            SyntaxElement::Node(_) => Vec::new(),
+        })
+        .filter(|t| !t.kind().is_trivia());
+    let first = tokens.next()?;
+    let last = tokens
+        .take_while(|t| {
+            matches!(
+                t.kind(),
+                SyntaxKind::UpperIdent | SyntaxKind::LowerIdent | SyntaxKind::Dot
+            )
+        })
+        .last()
+        .unwrap_or_else(|| first.clone());
+    Some(TextRange::new(
+        first.text_range().start(),
+        last.text_range().end(),
+    ))
+}
+
+/// The type variable at `offset`: where it's declared, and everywhere it
+/// is, as elm-language-server resolves them. A custom type's or alias's
+/// variable is its parameter's. An annotation's is its first in the
+/// outermost annotation around it that has it, so a `let`'s annotation
+/// shares the variables of its declaration's.
+fn type_variable(root: &SyntaxNode, offset: TextSize) -> Option<(TextRange, Vec<TextRange>)> {
+    let token = root
+        .token_at_offset(offset)
+        .find(|t| t.kind() == SyntaxKind::LowerIdent)?;
+    let parent = token.parent()?;
+    if !matches!(
+        parent.kind(),
+        SyntaxKind::TypeVar | SyntaxKind::RecordExtension | SyntaxKind::TypeParam
+    ) {
+        return None;
+    }
+    let name = token.text().to_owned();
+    let occurrences = |node: &SyntaxNode| -> Vec<TextRange> {
+        (node.descendants_with_tokens())
+            .filter_map(|e| e.into_token())
+            .filter(|t| t.kind() == SyntaxKind::LowerIdent && t.text() == name)
+            .filter(|t| {
+                t.parent().is_some_and(|p| {
+                    matches!(
+                        p.kind(),
+                        SyntaxKind::TypeVar | SyntaxKind::RecordExtension | SyntaxKind::TypeParam
+                    )
+                })
+            })
+            .map(|t| t.text_range())
+            .collect()
+    };
+    let declaration = parent.ancestors().find(|a| {
+        matches!(
+            a.kind(),
+            SyntaxKind::TypeAliasDecl
+                | SyntaxKind::CustomTypeDecl
+                | SyntaxKind::Signature
+                | SyntaxKind::PortDecl
+        )
+    })?;
+    match declaration.kind() {
+        SyntaxKind::TypeAliasDecl | SyntaxKind::CustomTypeDecl => {
+            let all = occurrences(&declaration);
+            let param = (declaration.children())
+                .filter(|c| c.kind() == SyntaxKind::TypeParam)
+                .find(|p| p.text() == name.as_str())?;
+            let declared = all
+                .iter()
+                .copied()
+                .find(|r| param.text_range().contains_range(*r))?;
+            Some((declared, all))
+        }
+        SyntaxKind::Signature => {
+            // The annotations around it, innermost first, each with its
+            // declaration.
+            let outermost = (declaration.ancestors())
+                .filter(|a| matches!(a.kind(), SyntaxKind::ValueDecl | SyntaxKind::LetValue))
+                .filter_map(|d| {
+                    let signature = d.children().find(|c| c.kind() == SyntaxKind::Signature)?;
+                    (!occurrences(&signature).is_empty()).then_some((signature, d))
+                })
+                .last()?;
+            let (signature, scope) = outermost;
+            let declared = *occurrences(&signature).first()?;
+            let all = (scope.descendants())
+                .filter(|n| n.kind() == SyntaxKind::Signature)
+                .flat_map(|s| occurrences(&s))
+                .collect();
+            Some((declared, all))
+        }
+        _ => {
+            let all = occurrences(&declaration);
+            Some((*all.first()?, all))
+        }
+    }
+}
+
+/// The name of the definition whose annotation names it at `offset`.
+fn annotated(root: &SyntaxNode, offset: TextSize) -> Option<TextRange> {
+    let token = root
+        .token_at_offset(offset)
+        .find(|t| t.kind() == SyntaxKind::LowerIdent)?;
+    let signature = token
+        .parent()
+        .filter(|p| p.kind() == SyntaxKind::Signature)?;
+    let definition = signature
+        .next_sibling()
+        .filter(|n| n.kind() == SyntaxKind::Definition)?;
+    let name = (definition.children_with_tokens())
+        .filter_map(|e| e.into_token())
+        .find(|t| t.kind() == SyntaxKind::LowerIdent)?;
+    Some(name.text_range())
+}
+
+/// The annotation's name above the definition named at `range`, if any.
+fn annotation_of(root: &SyntaxNode, range: TextRange) -> Option<TextRange> {
+    let token = root.token_at_offset(range.start()).right_biased()?;
+    let definition = token
+        .parent()
+        .filter(|p| p.kind() == SyntaxKind::Definition)?;
+    let signature = definition
+        .prev_sibling()
+        .filter(|n| n.kind() == SyntaxKind::Signature)?;
+    let name = (signature.children_with_tokens())
+        .filter_map(|e| e.into_token())
+        .find(|t| t.kind() == SyntaxKind::LowerIdent)?;
+    Some(name.text_range())
 }
 
 /// Where `target`, which a name in `module` refers to, is defined.

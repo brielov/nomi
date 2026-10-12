@@ -22,13 +22,19 @@ els-add-new-function-parameter-004/diagnostics
 els-add-type-annotation-code-action-001/diagnostics
 els-add-type-annotation-code-action-002/diagnostics
 els-add-type-annotation-code-action-003/diagnostics
+els-aliased-import-definition-001/00 textDocument/definition
 els-aliased-import-definition-001/diagnostics
+els-aliased-import-definition-002/00 textDocument/definition
 els-aliased-import-definition-002/diagnostics
+els-aliased-import-definition-003/00 textDocument/definition
 els-aliased-import-definition-003/diagnostics
+els-aliased-import-definition-004/00 textDocument/definition
 els-aliased-import-definition-004/diagnostics
+els-aliased-import-definition-005/00 textDocument/definition
 els-aliased-import-definition-005/diagnostics
 els-aliased-import-definition-006/00 textDocument/definition
 els-aliased-import-definition-006/diagnostics
+els-aliased-import-definition-007/00 textDocument/definition
 els-aliased-import-definition-007/diagnostics
 els-completion-provider-003/diagnostics
 els-completion-provider-004/diagnostics
@@ -196,18 +202,27 @@ els-extract-type-alias-code-action-008/diagnostics
 els-extract-type-alias-code-action-009/diagnostics
 els-extract-type-alias-code-action-010/diagnostics
 els-extract-type-alias-code-action-011/diagnostics
+els-function-definition-001/00 textDocument/definition
 els-function-definition-001/diagnostics
+els-function-definition-002/00 textDocument/definition
 els-function-definition-002/diagnostics
+els-function-definition-003/00 textDocument/definition
 els-function-definition-003/diagnostics
+els-function-definition-004/00 textDocument/definition
 els-function-definition-004/diagnostics
+els-function-definition-005/00 textDocument/definition
 els-function-definition-005/diagnostics
+els-function-definition-006/00 textDocument/definition
 els-function-definition-006/diagnostics
+els-function-definition-007/00 textDocument/definition
 els-function-definition-007/diagnostics
 els-function-definition-008/00 textDocument/definition
 els-function-definition-008/diagnostics
 els-function-definition-009/00 textDocument/definition
 els-function-definition-009/diagnostics
+els-function-definition-010/00 textDocument/definition
 els-function-definition-010/diagnostics
+els-function-definition-011/00 textDocument/definition
 els-function-definition-011/diagnostics
 els-function-references-001/00 textDocument/references
 els-function-references-001/diagnostics
@@ -223,9 +238,13 @@ els-function-references-006/00 textDocument/references
 els-function-references-006/diagnostics
 els-function-references-007/00 textDocument/references
 els-function-references-007/diagnostics
+els-function-references-008/00 textDocument/references
 els-function-references-008/diagnostics
+els-function-references-009/00 textDocument/references
 els-function-references-009/diagnostics
+els-function-references-010/00 textDocument/references
 els-function-references-010/diagnostics
+els-function-references-011/00 textDocument/references
 els-function-references-011/diagnostics
 els-function-references-012/00 textDocument/references
 els-function-references-012/diagnostics
@@ -242,98 +261,158 @@ els-import-code-action-002/diagnostics
 els-import-code-action-003/diagnostics
 els-import-code-action-004/diagnostics
 els-import-code-action-005/diagnostics
+els-import-definition-001/00 textDocument/definition
 els-import-definition-001/diagnostics
+els-import-definition-002/00 textDocument/definition
 els-import-definition-002/diagnostics
 els-import-definition-003/00 textDocument/definition
 els-import-definition-003/diagnostics
 els-import-definition-004/00 textDocument/definition
 els-import-definition-004/diagnostics
+els-import-definition-005/00 textDocument/definition
 els-import-definition-005/diagnostics
+els-import-definition-006/00 textDocument/definition
 els-import-definition-006/diagnostics
+els-import-definition-007/00 textDocument/definition
 els-import-definition-007/diagnostics
 els-import-definition-008/00 textDocument/definition
 els-import-definition-008/diagnostics
+els-import-definition-009/00 textDocument/definition
 els-import-definition-009/diagnostics
+els-import-definition-010/00 textDocument/definition
 els-import-definition-010/diagnostics
 els-import-definition-011/00 textDocument/definition
 els-import-definition-011/diagnostics
 els-import-definition-012/00 textDocument/definition
 els-import-definition-012/diagnostics
+els-import-definition-013/00 textDocument/definition
 els-import-definition-013/diagnostics
+els-import-definition-014/00 textDocument/definition
 els-import-definition-014/diagnostics
+els-import-definition-015/00 textDocument/definition
 els-import-definition-015/diagnostics
+els-import-definition-016/00 textDocument/definition
 els-import-definition-016/diagnostics
 els-import-definition-017/00 textDocument/definition
 els-import-definition-017/diagnostics
+els-import-definition-018/00 textDocument/definition
 els-import-definition-018/diagnostics
+els-import-definition-019/00 textDocument/definition
 els-import-definition-019/diagnostics
+els-import-definition-020/00 textDocument/definition
 els-import-definition-020/diagnostics
+els-import-definition-021/00 textDocument/definition
 els-import-definition-021/diagnostics
+els-import-definition-022/00 textDocument/definition
 els-import-definition-022/diagnostics
+els-import-definition-023/00 textDocument/definition
 els-import-definition-023/diagnostics
+els-import-definition-024/00 textDocument/definition
 els-import-definition-024/diagnostics
+els-import-definition-025/00 textDocument/definition
 els-import-definition-025/diagnostics
+els-import-definition-026/00 textDocument/definition
 els-import-definition-026/diagnostics
 els-import-definition-027/00 textDocument/definition
 els-import-definition-027/diagnostics
+els-import-definition-028/00 textDocument/definition
 els-import-definition-028/diagnostics
+els-import-definition-029/00 textDocument/definition
 els-import-definition-029/diagnostics
+els-import-definition-030/00 textDocument/definition
 els-import-definition-030/diagnostics
 els-import-definition-031/diagnostics
 els-import-definition-032/diagnostics
+els-import-definition-033/00 textDocument/definition
 els-import-definition-033/diagnostics
+els-import-definition-034/00 textDocument/definition
 els-import-definition-034/diagnostics
+els-import-definition-035/00 textDocument/definition
 els-import-definition-035/diagnostics
+els-import-definition-036/00 textDocument/definition
 els-import-definition-036/diagnostics
+els-import-definition-037/00 textDocument/definition
 els-import-definition-037/diagnostics
+els-import-definition-038/00 textDocument/definition
 els-import-definition-038/diagnostics
+els-import-definition-039/00 textDocument/definition
 els-import-definition-039/diagnostics
+els-layered-import-definition-001/00 textDocument/definition
 els-layered-import-definition-001/diagnostics
+els-layered-import-definition-002/00 textDocument/definition
 els-layered-import-definition-002/diagnostics
 els-make-external-declaration-from-usage-code-actions-001/diagnostics
 els-make-external-declaration-from-usage-code-actions-002/diagnostics
 els-make-external-declaration-from-usage-code-actions-003/diagnostics
 els-make-external-declaration-from-usage-code-actions-004/diagnostics
 els-make-external-declaration-from-usage-code-actions-005/diagnostics
+els-misc-definition-001/00 textDocument/definition
 els-misc-definition-001/diagnostics
+els-misc-definition-002/00 textDocument/definition
 els-misc-definition-002/diagnostics
 els-misc-definition-003/00 textDocument/definition
 els-misc-definition-003/diagnostics
 els-misc-definition-004/00 textDocument/definition
 els-misc-definition-004/diagnostics
+els-misc-definition-005/00 textDocument/definition
 els-misc-definition-005/diagnostics
+els-misc-definition-006/00 textDocument/definition
 els-misc-definition-006/diagnostics
 els-misc-definition-007/00 textDocument/definition
 els-misc-definition-007/diagnostics
+els-misc-definition-008/00 textDocument/definition
 els-misc-definition-008/diagnostics
+els-misc-definition-009/00 textDocument/definition
 els-misc-definition-009/diagnostics
+els-misc-definition-010/00 textDocument/definition
 els-misc-definition-010/diagnostics
+els-misc-definition-011/00 textDocument/definition
 els-misc-definition-011/diagnostics
+els-module-references-001/00 textDocument/references
 els-module-references-001/diagnostics
+els-module-references-002/00 textDocument/references
 els-module-references-002/diagnostics
+els-module-resolve-definition-001/00 textDocument/definition
 els-module-resolve-definition-001/diagnostics
+els-module-resolve-definition-002/00 textDocument/definition
 els-module-resolve-definition-002/diagnostics
+els-module-resolve-definition-003/00 textDocument/definition
 els-module-resolve-definition-003/diagnostics
 els-module-resolve-definition-004/diagnostics
 els-move-function-code-action-001/diagnostics
+els-operator-definition-001/00 textDocument/definition
 els-operator-definition-001/diagnostics
+els-pattern-definition-001/00 textDocument/definition
 els-pattern-definition-001/diagnostics
+els-pattern-definition-002/00 textDocument/definition
 els-pattern-definition-002/diagnostics
+els-pattern-definition-003/00 textDocument/definition
 els-pattern-definition-003/diagnostics
 els-pattern-definition-004/00 textDocument/definition
 els-pattern-definition-004/diagnostics
+els-pattern-definition-005/00 textDocument/definition
 els-pattern-definition-005/diagnostics
 els-pattern-definition-006/00 textDocument/definition
 els-pattern-definition-006/diagnostics
+els-pattern-definition-007/00 textDocument/definition
 els-pattern-definition-007/diagnostics
+els-pattern-definition-008/00 textDocument/definition
 els-pattern-definition-008/diagnostics
+els-pattern-definition-009/00 textDocument/definition
 els-pattern-definition-009/diagnostics
+els-pattern-definition-010/00 textDocument/definition
 els-pattern-definition-010/diagnostics
+els-pattern-definition-011/00 textDocument/definition
 els-pattern-definition-011/diagnostics
+els-pattern-definition-012/00 textDocument/definition
 els-pattern-definition-012/diagnostics
+els-pattern-definition-013/00 textDocument/definition
 els-pattern-definition-013/diagnostics
+els-pattern-definition-014/00 textDocument/definition
 els-pattern-definition-014/diagnostics
+els-pattern-definition-015/00 textDocument/definition
 els-pattern-definition-015/diagnostics
+els-pattern-references-001/00 textDocument/references
 els-pattern-references-001/diagnostics
 els-port-references-001/00 textDocument/references
 els-port-references-001/diagnostics
@@ -343,20 +422,35 @@ els-port-references-003/00 textDocument/references
 els-port-references-003/diagnostics
 els-port-references-004/00 textDocument/references
 els-port-references-004/diagnostics
+els-qualified-import-definition-001/00 textDocument/definition
 els-qualified-import-definition-001/diagnostics
+els-qualified-import-definition-002/00 textDocument/definition
 els-qualified-import-definition-002/diagnostics
+els-qualified-import-definition-003/00 textDocument/definition
 els-qualified-import-definition-003/diagnostics
+els-qualified-import-definition-004/00 textDocument/definition
 els-qualified-import-definition-004/diagnostics
+els-qualified-import-definition-005/00 textDocument/definition
 els-qualified-import-definition-005/diagnostics
+els-qualified-import-definition-006/00 textDocument/definition
 els-qualified-import-definition-006/diagnostics
+els-qualified-import-definition-007/00 textDocument/definition
 els-qualified-import-definition-007/diagnostics
+els-qualified-import-definition-008/00 textDocument/definition
 els-qualified-import-definition-008/diagnostics
+els-qualified-import-definition-009/00 textDocument/definition
 els-qualified-import-definition-009/diagnostics
+els-qualified-import-definition-010/00 textDocument/definition
 els-qualified-import-definition-010/diagnostics
+els-qualified-import-definition-011/00 textDocument/definition
 els-qualified-import-definition-011/diagnostics
+els-record-definition-001/00 textDocument/definition
 els-record-definition-001/diagnostics
+els-record-definition-002/00 textDocument/definition
 els-record-definition-002/diagnostics
+els-record-definition-003/00 textDocument/definition
 els-record-definition-003/diagnostics
+els-record-definition-004/00 textDocument/definition
 els-record-definition-004/diagnostics
 els-record-field-definition-001/diagnostics
 els-record-field-definition-002/diagnostics
@@ -425,65 +519,111 @@ els-rename-provider-005/diagnostics
 els-rename-provider-006/diagnostics
 els-rename-provider-007/diagnostics
 els-rename-provider-008/diagnostics
+els-type-definition-provider-001/00 textDocument/typeDefinition
 els-type-definition-provider-001/diagnostics
+els-type-definition-provider-002/00 textDocument/typeDefinition
 els-type-definition-provider-002/diagnostics
+els-type-definition-provider-003/00 textDocument/typeDefinition
 els-type-definition-provider-003/diagnostics
+els-type-definition-provider-004/00 textDocument/typeDefinition
 els-type-definition-provider-004/diagnostics
+els-type-definition-provider-005/00 textDocument/typeDefinition
 els-type-definition-provider-005/diagnostics
+els-type-definition-provider-006/00 textDocument/typeDefinition
 els-type-definition-provider-006/diagnostics
 els-type-references-001/00 textDocument/references
 els-type-references-001/diagnostics
+els-type-references-002/00 textDocument/references
 els-type-references-002/diagnostics
 els-type-references-003/00 textDocument/references
 els-type-references-003/diagnostics
+els-type-references-004/00 textDocument/references
 els-type-references-004/diagnostics
 els-type-references-005/00 textDocument/references
 els-type-references-005/diagnostics
+els-type-references-006/00 textDocument/references
+els-type-references-007/00 textDocument/references
 els-type-references-007/diagnostics
+els-type-references-008/00 textDocument/references
 els-type-references-008/diagnostics
 els-type-references-009/00 textDocument/references
 els-type-references-009/diagnostics
 els-type-references-010/00 textDocument/references
 els-type-references-010/diagnostics
+els-type-resolve-definition-001/00 textDocument/definition
 els-type-resolve-definition-001/diagnostics
+els-type-resolve-definition-002/00 textDocument/definition
 els-type-resolve-definition-002/diagnostics
+els-type-resolve-definition-003/00 textDocument/definition
 els-type-resolve-definition-003/diagnostics
+els-type-resolve-definition-004/00 textDocument/definition
 els-type-resolve-definition-004/diagnostics
+els-type-resolve-definition-005/00 textDocument/definition
 els-type-resolve-definition-005/diagnostics
+els-type-resolve-definition-006/00 textDocument/definition
 els-type-resolve-definition-006/diagnostics
+els-type-resolve-definition-007/00 textDocument/definition
 els-type-resolve-definition-007/diagnostics
+els-type-resolve-definition-008/00 textDocument/definition
 els-type-resolve-definition-008/diagnostics
+els-type-resolve-definition-009/00 textDocument/definition
 els-type-resolve-definition-009/diagnostics
 els-type-resolve-definition-010/00 textDocument/definition
 els-type-resolve-definition-010/diagnostics
 els-type-resolve-definition-011/00 textDocument/definition
 els-type-resolve-definition-011/diagnostics
+els-type-resolve-definition-012/00 textDocument/definition
 els-type-resolve-definition-012/diagnostics
+els-type-resolve-definition-013/00 textDocument/definition
 els-type-resolve-definition-013/diagnostics
+els-type-resolve-definition-014/00 textDocument/definition
 els-type-resolve-definition-014/diagnostics
+els-type-resolve-definition-015/00 textDocument/definition
 els-type-resolve-definition-015/diagnostics
+els-type-resolve-definition-016/00 textDocument/definition
 els-type-resolve-definition-016/diagnostics
+els-type-resolve-definition-017/00 textDocument/definition
 els-type-resolve-definition-017/diagnostics
+els-type-resolve-definition-018/00 textDocument/definition
 els-type-resolve-definition-018/diagnostics
+els-type-resolve-definition-019/00 textDocument/definition
 els-type-resolve-definition-019/diagnostics
+els-type-variable-definition-001/00 textDocument/definition
 els-type-variable-definition-001/diagnostics
+els-type-variable-definition-002/00 textDocument/definition
 els-type-variable-definition-002/diagnostics
+els-type-variable-definition-003/00 textDocument/definition
 els-type-variable-definition-003/diagnostics
+els-type-variable-definition-004/00 textDocument/definition
 els-type-variable-definition-004/diagnostics
+els-type-variable-definition-005/00 textDocument/definition
 els-type-variable-definition-005/diagnostics
+els-type-variable-definition-006/00 textDocument/definition
 els-type-variable-definition-006/diagnostics
+els-type-variable-definition-007/00 textDocument/definition
 els-type-variable-definition-007/diagnostics
+els-type-variable-definition-008/00 textDocument/definition
 els-type-variable-definition-008/diagnostics
+els-type-variable-references-001/00 textDocument/references
 els-type-variable-references-001/diagnostics
+els-type-variable-references-002/00 textDocument/references
 els-type-variable-references-002/diagnostics
+els-type-variable-references-003/00 textDocument/references
 els-type-variable-references-003/diagnostics
+els-type-variable-references-004/00 textDocument/references
 els-type-variable-references-004/diagnostics
 make-annotations/diagnostics
 make-missing-module/diagnostics
 make-modules/diagnostics
 make-package/diagnostics
 make-patterns/diagnostics
+navigation/06 textDocument/definition
+navigation/07 textDocument/definition
+navigation/08 textDocument/definition
+navigation/09 textDocument/definition
+navigation/10 textDocument/definition
 navigation/11 textDocument/definition
+navigation/12 textDocument/typeDefinition
 navigation/13 textDocument/references
 navigation/14 textDocument/references
 navigation/diagnostics

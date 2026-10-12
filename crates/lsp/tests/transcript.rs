@@ -360,13 +360,13 @@ fn navigation_goes_to_definitions_and_finds_references_across_modules() {
         "module Main exposing (main)\n\nimport Other\n\n\nmain =\n    Other.helper ()\n",
     );
     let at = |line, character| json!({ "textDocument": { "uri": main }, "position": { "line": line, "character": character } });
-    // `helper` in `Other.helper`.
+    // `helper` in `Other.helper`, to its name and parameters.
     let response = client.request("textDocument/definition", at(6, 12));
     let found = response.result.unwrap();
     assert_eq!(found["uri"], other.as_str());
     assert_eq!(
         found["range"],
-        json!({ "start": { "line": 3, "character": 0 }, "end": { "line": 3, "character": 6 } })
+        json!({ "start": { "line": 3, "character": 0 }, "end": { "line": 3, "character": 8 } })
     );
     let mut params = at(6, 12);
     params["context"] = json!({ "includeDeclaration": false });

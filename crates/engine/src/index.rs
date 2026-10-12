@@ -168,7 +168,12 @@ pub fn index(snapshot: &Snapshot, store: &Store, file: &Path, memo: &mut Memo) -
     if !paths.contains(&wanted) {
         paths.push(wanted);
     }
-    let graph = Graph::from_paths(snapshot, &env, &paths).ok()?;
+    // A file no module name fits, or a cycle, stops a build; the index
+    // takes what modules it can, and reads the rest on their own below.
+    let graph = (Graph::from_paths(snapshot, &env, &paths))
+        .or_else(|_| Graph::from_paths(snapshot, &env, &named(&env, &paths)))
+        .or_else(|_| Graph::from_paths(snapshot, &env, &[]))
+        .ok()?;
     let package = match env.owner() {
         Owner::Package(name) => name.to_string(),
         Owner::Application => "author/project".to_owned(),
@@ -192,6 +197,27 @@ pub fn index(snapshot: &Snapshot, store: &Store, file: &Path, memo: &mut Memo) -
             visit.module(module);
         }
     }
+    // A file no module name fits, such as `src/main.elm`, is in no graph;
+    // it's read on its own.
+    for path in &paths {
+        if visit
+            .modules
+            .iter()
+            .any(|m| canonical(&m.path) == canonical(path))
+        {
+            continue;
+        }
+        let Ok(text) = snapshot.read(path) else {
+            continue;
+        };
+        let text: Arc<str> = text.into();
+        let parse = nomi_syntax::parse_module(&text);
+        let imports: Vec<ModuleName> = (ast::Module::cast(parse.syntax()).iter())
+            .flat_map(crate::graph::written_imports)
+            .map(|import| import.name)
+            .collect();
+        visit.visit(path, None, &text, parse.syntax(), &imports);
+    }
     let modules = visit.modules;
     Some(Index {
         compat,
@@ -202,6 +228,29 @@ pub fn index(snapshot: &Snapshot, store: &Store, file: &Path, memo: &mut Memo) -
             .map(|(name, dir)| (name.to_string(), dir))
             .collect(),
     })
+}
+
+/// The paths of `paths` that some module name fits: under a source
+/// directory, each part a capitalized name.
+fn named(env: &crate::graph::Env, paths: &[PathBuf]) -> Vec<PathBuf> {
+    let fits = |path: &Path| {
+        env.src_dirs().iter().any(|dir| {
+            path.strip_prefix(dir).is_ok_and(|relative| {
+                let parts: Vec<_> = relative.iter().map(|p| p.to_string_lossy()).collect();
+                let last = parts.len().saturating_sub(1);
+                parts.iter().enumerate().all(|(i, part)| {
+                    let part = if i == last {
+                        part.trim_end_matches(".elm")
+                    } else {
+                        part
+                    };
+                    part.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+                        && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                })
+            })
+        })
+    };
+    paths.iter().filter(|p| fits(p)).cloned().collect()
 }
 
 /// The releases the project builds with that the store holds, and its
@@ -258,22 +307,55 @@ impl Visit<'_> {
         if !self.seen.insert(name.clone()) {
             return;
         }
-        if let Some(Status::Local(module)) = self.graph.modules.get(name) {
-            self.module(module);
+        match self.graph.modules.get(name) {
+            Some(Status::Local(module)) => self.module(module),
+            // A module elm won't build, misnamed, unnamed or broken, is
+            // still the editor's to navigate, as far as its tree goes.
+            Some(Status::BadModule(bad)) => {
+                if let (Some(parse), Some((_, text))) = (&bad.parse, &bad.source) {
+                    let imports: Vec<ModuleName> =
+                        bad.imports().into_iter().map(|i| i.name).collect();
+                    self.visit(&bad.path, None, text, parse.syntax(), &imports);
+                }
+            }
+            _ => {}
         }
     }
 
-    /// Canonicalizes `module` after its local imports, whatever became
-    /// of them: an import without an interface adds nothing.
     fn module(&mut self, module: &crate::graph::Module) {
-        for import in &module.imports {
-            self.local(&import.name);
+        let imports: Vec<ModuleName> = module.imports.iter().map(|i| i.name.clone()).collect();
+        let syntax = module.parse.syntax();
+        self.visit(
+            &module.path,
+            Some(&module.name),
+            &module.text,
+            syntax,
+            &imports,
+        );
+    }
+
+    /// Canonicalizes a module after its local imports, whatever became
+    /// of them: an import without an interface adds nothing. A module
+    /// without a `name` is named by its header, or `Main` without one.
+    fn visit(
+        &mut self,
+        path: &Path,
+        name: Option<&ModuleName>,
+        text: &Arc<str>,
+        root: SyntaxNode,
+        imports: &[ModuleName],
+    ) {
+        for import in imports {
+            self.local(import);
         }
-        let root = module.parse.syntax();
         let Some(syntax) = ast::Module::cast(root.clone()) else {
             return;
         };
         let hir = hir::lower(&syntax);
+        let name = name.map_or_else(
+            || nomi_compiler::canonicalize::module::name(&hir).to_owned(),
+            ToString::to_string,
+        );
         let (canonical, references) =
             canonicalize_with_references(self.compat, self.package, self.interfaces, &hir);
         let canonical = canonical.ok();
@@ -281,12 +363,12 @@ impl Visit<'_> {
             // Typed where it type-checks, as written where it doesn't.
             let annotations =
                 nomi_compiler::types::infer(self.compat, canonical).unwrap_or_default();
-            (self.interfaces).insert(module.name.to_string(), interface(canonical, &annotations));
+            (self.interfaces).insert(name.clone(), interface(canonical, &annotations));
         }
         self.modules.push(Indexed {
-            path: module.path.clone(),
-            name: module.name.to_string(),
-            text: module.text.clone(),
+            path: path.to_owned(),
+            name,
+            text: text.clone(),
             root,
             hir,
             references,

@@ -575,7 +575,7 @@ fn read_file(
 }
 
 /// The imports `syntax` writes, each where it names its module.
-fn written_imports(syntax: &ast::Module) -> impl Iterator<Item = Import> {
+pub(crate) fn written_imports(syntax: &ast::Module) -> impl Iterator<Item = Import> {
     syntax.imports().filter_map(|import| {
         let (name, range) = name_of(&import.module_name()?);
         Some(Import {

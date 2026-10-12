@@ -9,6 +9,7 @@ mod hover;
 mod lint;
 mod navigation;
 mod problems;
+mod scopes;
 mod symbols;
 
 use std::io;
@@ -24,7 +25,7 @@ use nomi_syntax::{Source, Tool, parse_module, validate};
 pub use completion::{Completion, CompletionKind, completions};
 pub use hover::{Hover, hover};
 pub use lint::{Checks, lint};
-pub use navigation::{Location, definition, highlights, references};
+pub use navigation::{Location, definition, highlights, references, type_definition};
 pub use problems::{Problem, Severity, compiler_problems, missing_annotations};
 pub use symbols::{Symbol, SymbolKind, document_symbols};
 

@@ -742,7 +742,7 @@ fn import_exposures(imports: &[SyntaxNode]) -> Vec<(SyntaxNode, SyntaxKind, Text
 
 /// The variables `pattern` binds, as tree-sitter's `lower_pattern`s:
 /// variables, record fields and `as` names, in order.
-fn bindings(pattern: &SyntaxNode) -> Vec<(String, TextRange)> {
+pub(crate) fn bindings(pattern: &SyntaxNode) -> Vec<(String, TextRange)> {
     let mut found = Vec::new();
     for node in std::iter::once(pattern.clone()).chain(pattern.descendants().skip(1)) {
         match node.kind() {
@@ -868,13 +868,13 @@ fn imports<'r>(
     })
 }
 
-fn first_token(node: &SyntaxNode, kind: SyntaxKind) -> Option<nomi_syntax::SyntaxToken> {
+pub(crate) fn first_token(node: &SyntaxNode, kind: SyntaxKind) -> Option<nomi_syntax::SyntaxToken> {
     node.children_with_tokens()
         .filter_map(|e| e.into_token())
         .find(|t| t.kind() == kind)
 }
 
-fn is_pattern(kind: SyntaxKind) -> bool {
+pub(crate) fn is_pattern(kind: SyntaxKind) -> bool {
     matches!(
         kind,
         SyntaxKind::VarPattern

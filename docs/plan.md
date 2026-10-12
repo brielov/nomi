@@ -670,11 +670,24 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
     - tree-sitter-elm only reads the operators Elm's packages define, so `(!!) a b` is no prefix call to it.
     - A one-field record given to an alias of a record it extends is several fields to elm-language-server's type checker. nomi tells that case by its syntax.
     - With three branches or more, the boolean-case query may match more than once; nomi reports one per `case`, which is all the cases test.
-- [ ] **9.6a** `ide: navigation by name`.
+- [x] **9.6a** `ide: navigation by name`.
   - **Definition.** Answered with the declaring node's range, as elm-language-server answers. Also in files elm won't build: misnamed, unnamed or broken.
   - **More names.** Annotation names, module names, operators, type variables and alias patterns, for definition and references.
   - **Type definition.** Also here, with package sources opening from nomi's store.
   - **Check:** the definition, references and type definition cases, except record fields.
+
+  Done:
+  - **Definition** answers with the declaring node: a value's name and parameters, a whole type, alias, port or module header, a variant or a record field. It goes through annotation names, infix declarations' functions and operators, to the function the infix names.
+  - **References** include the annotation's name. Types and constructors come with their qualifier, values without it, as tree-sitter-elm writes them, and a record alias's references include its uses as a constructor.
+  - **Modules.** A header, an import or a qualifier names a module: a qualifier up to the part under the cursor, an alias standing for its module. Module references are the header, the imports and the names qualified with its full name.
+  - **Type variables** resolve to their custom type's or alias's parameter, or to the first in the outermost annotation that has them.
+  - **Type definition** follows the inferred type to its custom type, or the alias it's written as.
+  - **Files elm won't build.** The index now takes misnamed, unnamed and broken modules from their recovered trees, and files no module name fits on their own. Where canonicalization stopped short, locals resolve by their syntactic scopes, and other modules' names as written.
+  - **Result.** The ratchet goes from 489 to 629 of 838. Outside record fields, three cases stay unlisted: two operators that a project module declares infix, which only `elm/` packages may, and one half-written `let`.
+  - **Surprises.**
+    - elm-language-server's definition is the declaring node, not the name.
+    - A qualifier's module stops at the part under the cursor (`Module` in `Module.Model.func`), but an import's name is always whole.
+    - Most of elm-language-server's fixtures don't compile: there's shadowing, a missing header, or an annotation too short. That's why navigation had to work past canonicalization errors.
 - [ ] **9.6b** `ide: record fields by type`. Definition and references of record fields through inference: field access, accessors, updates, patterns and fields declared across modules. **Check:** the record-field cases.
 - [ ] **9.6c** `ide: hover as elm-language-server shows it`. Markdown with the annotation, the doc comment and, for a parameter, a link to its type. **Check:** the hover cases.
 - [ ] **9.7** `ide: rename`. Prepare-rename, exposing lists, qualified names, record fields, and module rename as a `RenameFile`. Files outside the project are refused with its message.

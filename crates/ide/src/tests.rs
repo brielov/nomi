@@ -271,19 +271,20 @@ fn definition_finds_locals_top_level_names_and_other_modules() {
         found.range.start(),
         offset(NAVIGATED, "Circle", 0) - TextSize::new(1)
     );
-    // `Other.twice`, to the other module.
+    // `Other.twice`, to the other module: its name and parameters, as
+    // elm-language-server answers.
     let found = go("twice", 0).unwrap();
     assert_eq!(found.path, other);
-    assert_eq!(at(OTHER, found.range), "twice");
+    assert_eq!(at(OTHER, found.range), "twice x");
     assert_eq!(
         found.range.start(),
         offset(OTHER, "twice", 1) - TextSize::new(1)
     );
-    // `+`, to elm/core's Basics.
+    // `+`, to the function elm/core's Basics declares it for.
     let found = go("+", 0).unwrap();
     assert!(found.path.ends_with("src/Basics.elm"), "{found:?}");
     let basics = fs::read_to_string(&found.path).unwrap();
-    assert_eq!(&basics[found.range], "+");
+    assert_eq!(&basics[found.range], "add");
 }
 
 #[test]

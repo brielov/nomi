@@ -20,7 +20,7 @@ use lsp_types::notification::{
 };
 use lsp_types::request::{
     Completion, DocumentHighlightRequest, DocumentSymbolRequest, Formatting, GotoDefinition,
-    HoverRequest, References, Request as _,
+    GotoTypeDefinition, HoverRequest, References, Request as _,
 };
 use lsp_types::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
@@ -105,6 +105,7 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
         document_formatting_provider: Some(OneOf::Left(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
         definition_provider: Some(OneOf::Left(true)),
+        type_definition_provider: Some(lsp_types::TypeDefinitionProviderCapability::Simple(true)),
         references_provider: Some(OneOf::Left(true)),
         document_highlight_provider: Some(OneOf::Left(true)),
         hover_provider: Some(lsp_types::HoverProviderCapability::Simple(true)),
@@ -212,6 +213,9 @@ impl Server {
                 .and_then(|p: DocumentSymbolParams| self.symbols(&p.text_document.uri)),
             GotoDefinition::METHOD => parse(request).and_then(|p: GotoDefinitionParams| {
                 self.definition(&p.text_document_position_params)
+            }),
+            GotoTypeDefinition::METHOD => parse(request).and_then(|p: GotoDefinitionParams| {
+                self.type_definition(&p.text_document_position_params)
             }),
             References::METHOD => parse(request).and_then(|p: ReferenceParams| {
                 self.references(&p.text_document_position, p.context.include_declaration)
@@ -447,6 +451,21 @@ impl Server {
             .and_then(|l| self.location(&snapshot, l))
             .map(GotoDefinitionResponse::Scalar);
         Ok(serde_json::to_value(response).expect("a definition serializes"))
+    }
+
+    fn type_definition(
+        &mut self,
+        position: &TextDocumentPositionParams,
+    ) -> Result<Value, (ErrorCode, String)> {
+        let (document, offset) = self.at(position)?;
+        let path = document.path.clone();
+        let snapshot = self.vfs.snapshot();
+        let found = (self.index(&snapshot, &path))
+            .and_then(|index| nomi_ide::type_definition(&snapshot, index, &path, offset));
+        let response = (found.as_ref())
+            .and_then(|l| self.location(&snapshot, l))
+            .map(GotoDefinitionResponse::Scalar);
+        Ok(serde_json::to_value(response).expect("a type definition serializes"))
     }
 
     fn references(

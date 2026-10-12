@@ -69,7 +69,7 @@ pub(crate) fn localizer(index: &Index, indexed: &Indexed) -> Localizer {
 }
 
 /// `range` from its first token that isn't trivia.
-fn trimmed(root: &SyntaxNode, range: TextRange) -> Option<TextRange> {
+pub(crate) fn trimmed(root: &SyntaxNode, range: TextRange) -> Option<TextRange> {
     let range = range.intersect(root.text_range())?;
     let token = root.token_at_offset(range.start()).right_biased()?;
     let mut token = token;
