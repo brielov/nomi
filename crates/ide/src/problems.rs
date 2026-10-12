@@ -29,6 +29,7 @@ use crate::hover::localizer;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Severity {
     Error,
+    Warning,
     Information,
 }
 
@@ -39,9 +40,14 @@ pub struct Problem {
     pub range: TextRange,
     pub severity: Severity,
     pub message: String,
+    /// Who says so: `Elm` for elm's reports and the annotations,
+    /// `ElmLS` for the lint rules.
+    pub source: &'static str,
     /// What the problem is, for code actions: `missing_value`,
     /// `import_resolve`, `elm_make` and so on.
     pub code: &'static str,
+    /// Whether it marks code nothing needs, which editors fade.
+    pub unnecessary: bool,
     /// The file as the problem's data names it: relative to the project
     /// for elm's reports, as elm-language-server keeps them; none for its
     /// URI.
@@ -66,7 +72,9 @@ pub fn compiler_problems(snapshot: &Snapshot, live: &Live, open: &[PathBuf]) -> 
                     range: TextRange::default(),
                     severity: Severity::Error,
                     message: message.clone(),
+                    source: "Elm",
                     code: code(&report.title),
+                    unnecessary: false,
                     relative: Some(relative(path)),
                 })
                 .collect()
@@ -84,7 +92,9 @@ pub fn compiler_problems(snapshot: &Snapshot, live: &Live, open: &[PathBuf]) -> 
                         range: range(&text, report, live.compat),
                         severity: Severity::Error,
                         message: module_message(report, live.compat),
+                        source: "Elm",
                         code: code(&report.title),
+                        unnecessary: false,
                         relative: Some(relative(&path)),
                     });
                 }
@@ -213,7 +223,9 @@ pub fn missing_annotations(index: &Index, path: &Path) -> Vec<Problem> {
             range: name.range,
             severity: Severity::Information,
             message: format!("Missing type annotation: `{ty}`."),
+            source: "Elm",
             code: "missing_type_annotation",
+            unnecessary: false,
             relative: None,
         });
     }

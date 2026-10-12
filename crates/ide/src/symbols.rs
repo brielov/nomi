@@ -67,12 +67,12 @@ fn symbols(root: &SyntaxNode) -> Vec<Symbol> {
     symbols
 }
 
-fn child(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxNode> {
+pub(crate) fn child(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxNode> {
     node.children().find(|c| c.kind() == kind)
 }
 
 /// The text of `node`'s first token of `kind` among its own.
-fn token(node: &SyntaxNode, kind: SyntaxKind) -> Option<String> {
+pub(crate) fn token(node: &SyntaxNode, kind: SyntaxKind) -> Option<String> {
     node.children_with_tokens()
         .filter_map(|e| e.into_token())
         .find(|t| t.kind() == kind)
@@ -81,7 +81,7 @@ fn token(node: &SyntaxNode, kind: SyntaxKind) -> Option<String> {
 
 /// `node`'s text without trivia, as tree-sitter's `text` of a name or a
 /// variant reads on one line.
-fn words(node: &SyntaxNode) -> String {
+pub(crate) fn words(node: &SyntaxNode) -> String {
     let mut out = String::new();
     let mut gap = false;
     for token in node
@@ -103,7 +103,7 @@ fn words(node: &SyntaxNode) -> String {
 
 /// From `node`'s first token that is neither trivia nor a doc comment to
 /// its last that isn't trivia.
-fn code_range(node: &SyntaxNode) -> Option<TextRange> {
+pub(crate) fn code_range(node: &SyntaxNode) -> Option<TextRange> {
     let mut tokens = node
         .descendants_with_tokens()
         .filter_map(|e| e.into_token())

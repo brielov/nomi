@@ -16,7 +16,7 @@ use std::time::Duration;
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 use lsp_server::Message;
 use lsp_types::notification::PublishDiagnostics;
-use lsp_types::{Diagnostic, DiagnosticSeverity, PublishDiagnosticsParams, Url};
+use lsp_types::{Diagnostic, DiagnosticSeverity, DiagnosticTag, PublishDiagnosticsParams, Url};
 use nomi_base::ColumnUnit;
 use nomi_engine::index::{self, Memo};
 use nomi_engine::{Snapshot, Store, live};
@@ -33,6 +33,7 @@ const DEBOUNCE: Duration = Duration::from_millis(200);
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Settings {
     pub on_save_only: bool,
+    pub no_lint: bool,
 }
 
 impl Settings {
@@ -40,11 +41,56 @@ impl Settings {
     pub fn read(value: &Value) -> Option<Settings> {
         let section = value.get("elmLS").unwrap_or(value);
         let section = section.as_object()?;
+        let flag = |name: &str| section.get(name).and_then(Value::as_bool).unwrap_or(false);
         Some(Settings {
-            on_save_only: (section.get("onlyUpdateDiagnosticsOnSave"))
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
+            on_save_only: flag("onlyUpdateDiagnosticsOnSave"),
+            no_lint: flag("disableElmLSDiagnostics"),
         })
+    }
+
+    /// Whether the lint rules run. Diagnostics on save run them on open
+    /// and save whatever `disableElmLSDiagnostics` says, as
+    /// elm-language-server does.
+    fn lint(&self) -> bool {
+        self.on_save_only || !self.no_lint
+    }
+}
+
+/// A project's `elm-analyse.json`: which lint rules run, and which files
+/// have none.
+struct Analyse {
+    checks: nomi_ide::Checks,
+    excluded: Vec<PathBuf>,
+}
+
+impl Analyse {
+    fn read(snapshot: &Snapshot, root: &Path) -> Analyse {
+        let json = (snapshot.read(&root.join("elm-analyse.json")).ok())
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            .unwrap_or(Value::Null);
+        let checks = (json
+            .get("checks")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten())
+        .filter_map(|(name, on)| Some((name.clone(), on.as_bool()?)))
+        .collect::<Vec<_>>();
+        let excluded = (json
+            .get("excludedPaths")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten())
+        .filter_map(Value::as_str)
+        .map(|path| root.join(path))
+        .collect();
+        Analyse {
+            checks: nomi_ide::Checks::new(checks),
+            excluded,
+        }
+    }
+
+    fn excludes(&self, path: &Path) -> bool {
+        self.excluded.iter().any(|dir| path.starts_with(dir))
     }
 }
 
@@ -104,7 +150,7 @@ fn work(shared: &Shared, jobs: &Receiver<Job>) {
         if settings.on_save_only && !saved {
             continue;
         }
-        let found = problems(shared, &job, !settings.on_save_only);
+        let found = problems(shared, &job, &settings);
         let mut files: BTreeMap<Url, Vec<Diagnostic>> = BTreeMap::new();
         for (uri, _) in &job.open {
             files.entry(uri.clone()).or_default();
@@ -134,9 +180,10 @@ fn work(shared: &Shared, jobs: &Receiver<Job>) {
     }
 }
 
-/// The problems of every project with an open file: elm's, and the
-/// annotations the open files leave out where `annotations`.
-fn problems(shared: &Shared, job: &Job, annotations: bool) -> Vec<Problem> {
+/// The problems of every project with an open file: elm's, the lint
+/// rules' in open files, and the annotations they leave out, as
+/// `settings` has them.
+fn problems(shared: &Shared, job: &Job, settings: &Settings) -> Vec<Problem> {
     let snapshot = &job.snapshot;
     let mut projects: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
     let mut found = Vec::new();
@@ -150,19 +197,42 @@ fn problems(shared: &Shared, job: &Job, annotations: bool) -> Vec<Problem> {
     // was built before it.
     let mut memo = shared.memo.lock().unwrap().clone();
     for (manifest, open) in projects {
+        let root = manifest.parent().unwrap_or(Path::new(""));
         match live::check(snapshot, &shared.store, &manifest, &open, &mut memo) {
             Some(live) => found.extend(nomi_ide::compiler_problems(snapshot, &live, &open)),
             None => {
                 for path in &open {
-                    found.extend(syntax(snapshot, path, manifest.parent()));
+                    found.extend(syntax(snapshot, path, Some(root)));
                 }
             }
         }
-        if annotations
-            && let Some(index) = index::index(snapshot, &shared.store, &open[0], &mut memo)
-        {
+        let analyse = Analyse::read(snapshot, root);
+        let open: Vec<&PathBuf> = open.iter().filter(|p| !analyse.excludes(p)).collect();
+        let annotations = !settings.on_save_only && analyse.checks.on("MissingTypeAnnotation");
+        // Indexing takes a while; only annotations and ports need it.
+        let ports = || {
+            open.iter()
+                .any(|p| snapshot.read(p).is_ok_and(|t| t.contains("port ")))
+        };
+        let index = match open.first() {
+            Some(first) if annotations || (settings.lint() && ports()) => {
+                index::index(snapshot, &shared.store, first, &mut memo)
+            }
+            _ => None,
+        };
+        if settings.lint() {
             for path in &open {
-                found.extend(nomi_ide::missing_annotations(&index, path));
+                found.extend(nomi_ide::lint(
+                    snapshot,
+                    index.as_ref(),
+                    path,
+                    &analyse.checks,
+                ));
+            }
+        }
+        if annotations && let Some(index) = &index {
+            for path in &open {
+                found.extend(nomi_ide::missing_annotations(index, path));
             }
         }
     }
@@ -186,7 +256,9 @@ fn syntax(snapshot: &Snapshot, path: &Path, root: Option<&Path>) -> Vec<Problem>
             range: d.range,
             severity: Severity::Error,
             message: format!("{} - {}", d.title, d.message),
+            source: "Elm",
             code: "elm_make",
+            unnecessary: false,
             relative: Some(relative.join("/")),
         })
         .collect()
@@ -198,10 +270,12 @@ fn diagnostic(problem: &Problem, uri: &Url, text: &Text) -> Diagnostic {
         range: text.range(problem.range),
         severity: Some(match problem.severity {
             Severity::Error => DiagnosticSeverity::ERROR,
+            Severity::Warning => DiagnosticSeverity::WARNING,
             Severity::Information => DiagnosticSeverity::INFORMATION,
         }),
-        source: Some("Elm".to_owned()),
+        source: Some(problem.source.to_owned()),
         message: problem.message.clone(),
+        tags: (problem.unnecessary).then(|| vec![DiagnosticTag::UNNECESSARY]),
         data: Some(json!({ "uri": data_uri, "code": problem.code })),
         ..Diagnostic::default()
     }
@@ -212,8 +286,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn elm_analyse_json_turns_rules_off_and_files_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let json = r#"{ "checks": { "UnusedImport": false, "SingleFieldRecord": true },
+                        "excludedPaths": ["src/Generated"] }"#;
+        std::fs::write(dir.path().join("elm-analyse.json"), json).unwrap();
+        let analyse = Analyse::read(&nomi_engine::Vfs::new().snapshot(), dir.path());
+        assert!(!analyse.checks.on("UnusedImport"));
+        assert!(analyse.checks.on("UnusedPatternVariable"));
+        assert!(analyse.checks.opted_in("SingleFieldRecord"));
+        assert!(analyse.excludes(&dir.path().join("src/Generated/Api.elm")));
+        assert!(!analyse.excludes(&dir.path().join("src/Main.elm")));
+    }
+
+    #[test]
     fn settings_read_from_the_section_or_around_it() {
-        let on = Settings { on_save_only: true };
+        let on = Settings {
+            on_save_only: true,
+            no_lint: false,
+        };
         let section = json!({ "onlyUpdateDiagnosticsOnSave": true });
         assert_eq!(Settings::read(&section), Some(on.clone()));
         assert_eq!(Settings::read(&json!({ "elmLS": section })), Some(on));

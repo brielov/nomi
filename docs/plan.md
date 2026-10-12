@@ -651,7 +651,17 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
     - elm writes tabs raw in its JSON, `JSON.parse` rejects them, and elm-language-server drops the whole report. nomi shows it (DECISIONS.md), and the imported cases' tabs become spaces.
     - elm-language-server passes elm's code-point columns through as UTF-16. nomi converts them, which differs past astral characters.
   - **Not yet.** Markdown messages for clients with `markupMessageSupport`, and early cutoff for checks as you type (9.18).
-- [ ] **9.4** `ide: lint rules for unused code`. `unused_import`, `unused_imported_value`, `unused_alias`, `unused_pattern`, `unused_top_level`, `unused_type_alias`, `unused_value_constructor`, `unused_incoming_port` (across modules) and `unnecessary_port_module`, with `elm-analyse.json` checks and `excludedPaths`.
+- [x] **9.4** `ide: lint rules for unused code`. `unused_import`, `unused_imported_value`, `unused_alias`, `unused_pattern`, `unused_top_level`, `unused_type_alias`, `unused_value_constructor`, `unused_incoming_port` (across modules) and `unnecessary_port_module`, with `elm-analyse.json` checks and `excludedPaths`.
+
+  Done:
+  - **Rules.** `ide::lint` ports the rules as elm-language-server writes them: tree-sitter queries that compare the text of nodes, over nomi's syntax tree. A `value_expr` is a `NameExpr`, a `type_ref` a `NamedType`, and an `infix` declaration's function counts as a use. Pattern scopes are the declaration, the `let`, the case branch or the lambda. A top-level value is used from outside its own declaration, or by `exposing (..)`. Incoming ports are found unused through the index's references.
+  - **Config.** `elm-analyse.json` sets the checks and `excludedPaths`.
+  - **When.** The worker runs the rules on open files, after elm's reports and before the missing annotations. With diagnostics on save, they run on open and save whatever `disableElmLSDiagnostics` says, as elm-language-server does.
+  - **Result.** 458 of the oracle's 464 lint sets match for these rules, and the ratchet goes from 206 to 472 of 838.
+  - **Surprises.**
+    - tree-sitter yields a pattern match once it has all its nodes, so problems come in the order of the names bound, a declaration's name before its parameters.
+    - An empty `{}` pattern is an unnamed variable that's never used, reported over its declaration's name and parameters.
+    - On a file with a syntax error, the rules see what tree-sitter recovered, which nomi can't reproduce (DECISIONS.md). nomi skips the imports that didn't parse whole, and the six remaining mismatches are all such files.
 - [ ] **9.5** `ide: lint rules for lists, cases and records`. `map_nothing_to_nothing`, `boolean_case_expr`, `drop_concat_of_lists`, `drop_cons_of_item_and_list`, `use_cons_over_concat`, `unnecessary_list_concat`, `no_uncurried_prefix`, and `single_field_record` (opt-in).
 - [ ] **9.6** `ide: navigation parity`. Definition, type definition and references, including record fields by type, type variables, ports and modules. Hover as Markdown, with annotation and doc comment. Package sources open from nomi's store. **Check:** the definition, references and hover cases.
 - [ ] **9.7** `ide: rename`. Prepare-rename, exposing lists, qualified names, record fields, and module rename as a `RenameFile`. Files outside the project are refused with its message.
