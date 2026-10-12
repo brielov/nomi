@@ -157,7 +157,20 @@ fn replay(
     let mut replacements = packages.to_vec();
     replacements.push((root_uri, "<project>".to_owned()));
     replacements.push((work.display().to_string(), "<project>".to_owned()));
-    let actual = lsp::tidy(transcript, &replacements);
+    let mut actual = lsp::tidy(transcript, &replacements);
+    // The transcripts were recorded on Linux; on Windows elm's report of a
+    // misnamed file writes its paths with `\`.
+    if cfg!(windows) {
+        for diagnostics in (actual["diagnostics"].as_object_mut().into_iter()).flat_map(|d| d.values_mut()) {
+            for diagnostic in diagnostics.as_array_mut().into_iter().flatten() {
+                if let Some(message) = diagnostic["message"].as_str()
+                    && message.starts_with("UNEXPECTED FILE NAME")
+                {
+                    diagnostic["message"] = Value::String(message.replace('\\', "/"));
+                }
+            }
+        }
+    }
     // To compare by hand: nomi's transcripts, as the oracle's are written.
     if let Some(dir) = std::env::var_os("NOMI_LSP_DUMP") {
         let path = Path::new(&dir).join(format!("{}.json", case.name));
