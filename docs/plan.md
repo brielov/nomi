@@ -781,7 +781,16 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - Refactors read the range of the last diagnostic the request carries, not the request's own, because `onCodeAction` overwrites it.
   - A fix and a refactor with the same name share one preferred priority, so the annotation refactor (3) outranks exposing (2).
   - tree-sitter-elm gives a signature's outer punctuation (its arrows, and the parentheses at its top) to the signature's `type_expression`. A cursor on that punctuation then offers to expose or unexpose the whole type's text as a "function".
-- [ ] **9.13** `ide: code actions that create code`. Missing case branches, missing record fields, missing union constructors, a local or external function from its usage, and a new parameter.
+- [ ] **9.13a** `ide: functions from their usage`.
+  - **Local:** a missing value becomes a top-level function after the declaration that uses it, with `Debug.todo`, the type its usage infers, and as many parameters as it's applied to. Its fix-all creates every one.
+  - **External:** a missing qualified value becomes a function in the module the qualifier names, exposed there. This applies to the project's own modules only, aliases resolved.
+  - **New parameter:** the missing value becomes a parameter of each enclosing function, the innermost first, typed in the signature where there is one.
+  - **Check:** the `make-*-from-usage` and `add-new-function-parameter` actions, and the "Create local function" actions of the import cases.
+- [ ] **9.13b** `ide: constructors, case branches and record fields`.
+  - **Union constructors:** a missing constructor of the type the context expects is added to that type, in this file or another, with its arguments' types. Its fix-all adds each one.
+  - **Case branches:** the branches a `case` misses, each `Debug.todo`, prefixed as the existing branches are.
+  - **Record fields:** the field a record lacks is added to its type alias, on one line or many, and in a record update.
+  - **Elm's reports:** elm-language-server keys the last two to its own checker's `incomplete_case_pattern` and `record_field`, which nomi doesn't publish (DECISIONS 2026-10-12). nomi offers them on elm's MISSING PATTERNS and record TYPE MISMATCH reports instead, so the six recorded cases where elm-language-server's on-save transcript offers nothing stay unlisted (DECISIONS).
 - [ ] **9.14** `ide: code actions that remove unused code`. Unused imports, aliases, values, constructors, type aliases and patterns, and unused parameters together with their call sites.
 - [ ] **9.15** `ide: refactors`. Extract a function (to `let` or the top level), extract a type alias, and move a function.
 - [ ] **9.16** `lsp: file events and custom requests`.
