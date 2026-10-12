@@ -762,9 +762,18 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - A value's lens sits on its signature only when the signature is its previous named node in tree-sitter-elm, so a comment between the two moves it to the definition.
   - An exposed type is matched by its source text, as elm-language-server does, so `Shape (..)` written with a space reads as local.
   - Counts include the declaration, the signature's name, the exposing entry and the module's own name, as `References.find` does.
-- [ ] **9.12** `ide: code action machinery and import fixes`.
-  - **Machinery:** preferred actions, fix-all, and lazy resolve when the client supports it.
-  - **Fixes:** import a missing value or module, install a package (`elm install` through the client's confirmation), the compiler's "Change to" suggestions, add the inferred annotation, and expose or unexpose.
+- [ ] **9.12a** `ide: code action machinery and import fixes`.
+  - **Machinery:** a port of `codeActionProvider.ts`.
+    - Each context diagnostic's `data.code` picks its fixes, in elm-language-server's registration order (`codeAction/index.ts`).
+    - A fix-all comes along when the program's own diagnostics hold another of the code.
+    - Preferred actions follow its priorities. Refactors come after the fixes, with their edits given eagerly unless the client resolves `edit`, and elm make's "Change to" actions come last.
+    - Nothing is offered when the module doesn't parse at the top.
+  - **Checker diagnostics:** fix-alls list elm-language-server's own type checker's diagnostics, not elm's (`No definition found for `foo`.`). nomi writes them from its own analysis, with that checker's messages, for the fixable codes, starting with `missing_value`.
+  - **Fixes:** import a missing value or module, aliased when it's written qualified (9.9's `getPossibleImports` and `addImport`), the "Change to" suggestions of elm's naming, import and module-name errors, and install a missing package (`import_resolve`). The install runs nomi's `add` after the client confirms, so it never writes `~/.elm`.
+  - **Check:** the cases mix fixes from 9.12a to 9.15, so few pass whole until 9.15. Progress is counted per action across every code-action answer.
+- [ ] **9.12b** `ide: annotations and exposing`.
+  - **Annotations:** the inferred annotation, both as a fix for `missing_type_annotation` and as a refactor.
+  - **Exposing:** the expose and unexpose refactors (a function, a type, a type with its variants), with no edit where unexposing would leave the list empty. Also the `elm.expose-` and `elm.unexpose-` commands that 9.11's lenses offer.
 - [ ] **9.13** `ide: code actions that create code`. Missing case branches, missing record fields, missing union constructors, a local or external function from its usage, and a new parameter.
 - [ ] **9.14** `ide: code actions that remove unused code`. Unused imports, aliases, values, constructors, type aliases and patterns, and unused parameters together with their call sites.
 - [ ] **9.15** `ide: refactors`. Extract a function (to `let` or the top level), extract a type alias, and move a function.
