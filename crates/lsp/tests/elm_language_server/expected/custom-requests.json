@@ -1,0 +1,48 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "unused_import",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused import `Attributes`",
+        "range": {
+          "end": {"character":36,"line":6},
+          "start": {"character":0,"line":6}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused top level definition `origin`",
+        "range": {
+          "end": {"character":6,"line":58},
+          "start": {"character":0,"line":58}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "elm/provideFileContents",
+      "result": "module Shapes.Circle exposing (Circle, area)\n\n\ntype alias Circle =\n    { radius : Float }\n\n\narea : Circle -> Float\narea circle =\n    pi * circle.radius * circle.radius\n"
+    },
+    {
+      "method": "elm/getDiagnostics",
+      "result": null
+    }
+  ]
+}

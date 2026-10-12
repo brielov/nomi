@@ -12,6 +12,7 @@ mod completion_data;
 mod completion_general;
 mod fields;
 mod files;
+mod find_tests;
 mod hover;
 mod lens;
 mod lint;
@@ -40,6 +41,7 @@ pub use actions::{
 };
 pub use completion::{Completion, CompletionKind, Completions, completions};
 pub use files::{created_module_header, renamed_files};
+pub use find_tests::{TestSuite, find_tests};
 pub use hover::{Hover, hover};
 pub use lens::{Lens, LensKind, code_lenses, is_exposed};
 pub use lint::{Checks, lint};

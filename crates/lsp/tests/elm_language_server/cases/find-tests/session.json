@@ -1,0 +1,6 @@
+{
+    "open": ["tests/Simple.elm"],
+    "requests": [
+        { "method": "elm/findTests", "params": { "projectFolder": "<project>" } }
+    ]
+}

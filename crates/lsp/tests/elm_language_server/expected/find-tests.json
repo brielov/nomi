@@ -1,0 +1,17 @@
+{
+  "diagnostics": {
+    "tests/Simple.elm": []
+  },
+  "requests": [
+    {
+      "method": "elm/findTests",
+      "result": {
+        "suites": [
+          {"file":"<project>/tests/Lets.elm","label":"Lets","position":{"character":0,"line":0},"tests":[{"file":"<project>/tests/Lets.elm","label":"let suite","position":{"character":4,"line":16},"tests":[{"file":"<project>/tests/Lets.elm","label":"a test","position":{"character":27,"line":16}}]},{"file":"<project>/tests/Lets.elm","label":"top suite","position":{"character":4,"line":21},"tests":[{"file":"<project>/tests/Lets.elm","label":"deeper suite","position":{"character":10,"line":26},"tests":[{"file":"<project>/tests/Lets.elm","label":"a test","position":{"character":36,"line":26}}]}]}]},
+          {"file":"<project>/tests/Qualified.elm","label":"Qualified","position":{"character":0,"line":0},"tests":[{"file":"<project>/tests/Qualified.elm","label":"qualified suite","position":{"character":4,"line":10}},{"file":"<project>/tests/Qualified.elm","label":"aliased suite","position":{"character":4,"line":15},"tests":[{"file":"<project>/tests/Qualified.elm","label":"a fuzz","position":{"character":33,"line":15}}]},{"file":"<project>/tests/Qualified.elm","label":"a \"multiline\"\nlabel","position":{"character":4,"line":30}},{"file":"<project>/tests/Qualified.elm","label":"an \"escaped\" \t label","position":{"character":4,"line":36}}]},
+          {"file":"<project>/tests/Simple.elm","label":"Simple","position":{"character":0,"line":0},"tests":[{"file":"<project>/tests/Simple.elm","label":"top suite","position":{"character":4,"line":8},"tests":[{"file":"<project>/tests/Simple.elm","label":"a test","position":{"character":27,"line":8}}]},{"file":"<project>/tests/Simple.elm","label":"outer","position":{"character":4,"line":17},"tests":[{"file":"<project>/tests/Simple.elm","label":"first","position":{"character":10,"line":18}},{"file":"<project>/tests/Simple.elm","label":"nested","position":{"character":10,"line":19},"tests":[{"file":"<project>/tests/Simple.elm","label":"second","position":{"character":14,"line":20}}]}]}]}
+        ]
+      }
+    }
+  ]
+}

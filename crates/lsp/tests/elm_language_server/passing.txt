@@ -12,6 +12,9 @@ completion-lines/00 textDocument/completion
 completion-lines/01 textDocument/completion
 completion-lines/02 textDocument/completion
 completion-lines/diagnostics
+custom-requests/00 elm/provideFileContents
+custom-requests/01 elm/getDiagnostics
+custom-requests/diagnostics
 diagnostics/00 textDocument/codeAction
 diagnostics/01 textDocument/hover
 diagnostics/diagnostics
@@ -815,6 +818,8 @@ file-events/04 workspace/didCreateFiles
 file-events/05 workspace/didCreateFiles
 file-events/06 workspace/didCreateFiles
 file-events/diagnostics
+find-tests/00 elm/findTests
+find-tests/diagnostics
 make-annotations/diagnostics
 make-missing-module/diagnostics
 make-modules/diagnostics

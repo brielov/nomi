@@ -128,6 +128,95 @@ pub(crate) fn setup(snapshot: &Snapshot, store: &Store, manifest: &Path) -> Opti
     })
 }
 
+/// [`setup`] as elm-test and elm-language-server see the project: with its
+/// test dependencies, and with `tests/` among its source directories
+/// where it has one.
+fn setup_with_tests(snapshot: &Snapshot, store: &Store, manifest: &Path) -> Option<Setup> {
+    let mut setup = setup(snapshot, store, manifest)?;
+    let (sources, direct) = match &setup.outline {
+        Outline::App(app) => {
+            let sources = (app.test_direct.iter().chain(&app.test_indirect))
+                .filter_map(|(name, &version)| {
+                    Some((name.clone(), store.get(name, version).ok()??))
+                })
+                .collect();
+            (sources, app.test_direct.keys().cloned().collect::<Vec<_>>())
+        }
+        Outline::Pkg(pkg) => {
+            let mut sources = setup.sources.clone();
+            resolve(
+                store,
+                setup.compat,
+                pkg.test_deps.iter().map(|(n, c)| (n.clone(), *c)).collect(),
+                &mut sources,
+            );
+            (sources, pkg.test_deps.keys().cloned().collect())
+        }
+    };
+    for (name, dir) in sources {
+        if !setup.sources.iter().any(|(n, _)| *n == name) {
+            setup.sources.push((name, dir));
+        }
+    }
+    for name in direct {
+        if !setup.direct.contains(&name) {
+            setup.direct.push(name);
+        }
+    }
+    let tests = setup.root.join("tests");
+    let mut src_dirs = setup.env.src_dirs().to_vec();
+    // Directories are the disk's; the Vfs keeps files.
+    let listed = crate::vfs::canonical(&tests).is_ok_and(|t| src_dirs.contains(&t));
+    if tests.is_dir() && !listed {
+        src_dirs.push(tests);
+    }
+    let mut exposing = Vec::new();
+    for name in &setup.direct {
+        let Some((_, dir)) = setup.sources.iter().find(|(n, _)| n == name) else {
+            continue;
+        };
+        if let Some(Outline::Pkg(pkg)) = package_outline(dir, setup.compat) {
+            exposing.push((name.clone(), pkg.exposed.modules().cloned().collect()));
+        }
+    }
+    let owner = setup.env.owner().clone();
+    setup.env = crate::graph::Env::new(
+        setup.compat,
+        &setup.root,
+        owner,
+        &src_dirs,
+        Foreigns::new(exposing),
+    )
+    .ok()?;
+    Some(setup)
+}
+
+/// The newest release in the store of each package `pending` names, in
+/// its range, and of each it depends on, added to `sources`.
+fn resolve(
+    store: &Store,
+    compat: Compat,
+    mut pending: Vec<(Name, nomi_project::Constraint)>,
+    sources: &mut Vec<(Name, PathBuf)>,
+) {
+    while let Some((name, constraint)) = pending.pop() {
+        if sources.iter().any(|(n, _)| *n == name) {
+            continue;
+        }
+        let versions = store.versions(&name).unwrap_or_default();
+        let Some(dir) = (versions.into_iter().rev())
+            .filter(|&v| constraint.satisfies(v))
+            .find_map(|v| store.get(&name, v).ok().flatten())
+        else {
+            continue;
+        };
+        if let Some(Outline::Pkg(dep)) = package_outline(&dir, compat) {
+            pending.extend(dep.deps.iter().map(|(n, c)| (n.clone(), *c)));
+        }
+        sources.push((name, dir));
+    }
+}
+
 /// The `.elm` files under the source directories of `env`, from the disk.
 pub(crate) fn discover(env: &crate::graph::Env) -> Vec<PathBuf> {
     let vfs = Vfs::new();
@@ -154,7 +243,7 @@ pub fn index(snapshot: &Snapshot, store: &Store, file: &Path, memo: &mut Memo) -
         sources,
         direct,
         ..
-    } = setup(snapshot, store, &manifest)?;
+    } = setup_with_tests(snapshot, store, &manifest)?;
     // A package nomi can't canonicalize leaves the project's own modules
     // to navigate.
     let packages: PackageInterfaces =
@@ -267,23 +356,12 @@ fn releases(store: &Store, outline: &Outline, compat: Compat) -> (Vec<(Name, Pat
         }
         Outline::Pkg(pkg) => {
             let mut sources: Vec<(Name, PathBuf)> = Vec::new();
-            let mut pending: Vec<_> = pkg.deps.iter().map(|(n, c)| (n.clone(), *c)).collect();
-            while let Some((name, constraint)) = pending.pop() {
-                if sources.iter().any(|(n, _)| *n == name) {
-                    continue;
-                }
-                let versions = store.versions(&name).unwrap_or_default();
-                let Some(dir) = (versions.into_iter().rev())
-                    .filter(|&v| constraint.satisfies(v))
-                    .find_map(|v| store.get(&name, v).ok().flatten())
-                else {
-                    continue;
-                };
-                if let Some(Outline::Pkg(dep)) = package_outline(&dir, compat) {
-                    pending.extend(dep.deps.iter().map(|(n, c)| (n.clone(), *c)));
-                }
-                sources.push((name, dir));
-            }
+            resolve(
+                store,
+                compat,
+                pkg.deps.iter().map(|(n, c)| (n.clone(), *c)).collect(),
+                &mut sources,
+            );
             (sources, pkg.deps.keys().cloned().collect())
         }
     }

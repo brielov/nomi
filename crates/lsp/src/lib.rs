@@ -320,6 +320,16 @@ impl Server {
                 parse(request).and_then(|p: lsp_types::RenameFilesParams| self.rename_files(&p))
             }
             "workspace/willDeleteFiles" => Ok(Value::Null),
+            "elm/findTests" => parse(request).and_then(|p: Value| self.find_tests(&p)),
+            "elm/provideFileContents" => parse(request).and_then(|p: Value| self.file_contents(&p)),
+            "workspace/textDocumentContent" => parse(request)
+                .and_then(|p: Value| self.file_contents(&p))
+                .map(|text| serde_json::json!({ "text": text })),
+            "elm/getDiagnostics" => {
+                // A check now, published as any other is.
+                self.revise(true);
+                Ok(Value::Null)
+            }
             "elm/getMoveDestinations" => {
                 parse(request).and_then(|p: Value| self.move_destinations(&p))
             }
@@ -765,6 +775,75 @@ impl Server {
             .filter_map(|l| self.location(&snapshot, l))
             .collect();
         Ok(serde_json::to_value(locations).expect("references serialize"))
+    }
+
+    /// `elm/provideFileContents`: the text of a file of the project or of
+    /// a package it uses, as the editor or the disk has it.
+    fn file_contents(&mut self, params: &Value) -> Result<Value, (ErrorCode, String)> {
+        let path = (params["uri"].as_str())
+            .and_then(|u| Url::parse(u).ok())
+            .and_then(|u| u.to_file_path().ok())
+            .ok_or_else(|| (ErrorCode::InvalidParams, "a file".to_owned()))?;
+        let snapshot = self.vfs.snapshot();
+        let known = (self.index(&snapshot, &path)).is_some_and(|index| {
+            index.module(&path).is_some()
+                || index.packages.values().any(|dir| path.starts_with(dir))
+        });
+        if !known {
+            return Err((
+                ErrorCode::InvalidParams,
+                format!("no Elm project has {}", path.display()),
+            ));
+        }
+        let text = snapshot
+            .read(&path)
+            .map_err(|e| (ErrorCode::InternalError, e.to_string()))?;
+        Ok(Value::String(text.to_string()))
+    }
+
+    /// `elm/findTests`: the suites of the project's test modules.
+    fn find_tests(&mut self, params: &Value) -> Result<Value, (ErrorCode, String)> {
+        let root = (params["projectFolder"].as_str())
+            .and_then(|u| Url::parse(u).ok())
+            .and_then(|u| u.to_file_path().ok())
+            .ok_or_else(|| (ErrorCode::InvalidParams, "a project folder".to_owned()))?;
+        let snapshot = self.vfs.snapshot();
+        let unit = self.unit;
+        // A file of the project, for the index to start from: an open one,
+        // or else its `elm.json`.
+        let file = (self.documents.values())
+            .map(|d| d.path.clone())
+            .find(|p| p.starts_with(&root))
+            .unwrap_or_else(|| root.join("elm.json"));
+        let Some(index) = self.index(&snapshot, &file) else {
+            return Err((
+                ErrorCode::RequestFailed,
+                format!("no Elm project at {}", root.display()),
+            ));
+        };
+        fn json(
+            suite: &nomi_ide::TestSuite,
+            snapshot: &Snapshot,
+            unit: ColumnUnit,
+        ) -> Option<Value> {
+            let text = snapshot.read(&suite.path).ok()?;
+            let mut value = serde_json::json!({
+                "label": suite.label,
+                "file": Url::from_file_path(&suite.path).ok()?,
+                "position": Text::new(&text, unit).position(suite.at),
+            });
+            if let Some(tests) = &suite.tests {
+                value["tests"] = tests
+                    .iter()
+                    .filter_map(|t| json(t, snapshot, unit))
+                    .collect();
+            }
+            Some(value)
+        }
+        let suites: Vec<Value> = (nomi_ide::find_tests(index, &root).iter())
+            .filter_map(|s| json(s, &snapshot, unit))
+            .collect();
+        Ok(serde_json::json!({ "suites": suites }))
     }
 
     fn code_lenses(&self, uri: &Url) -> Result<Value, (ErrorCode, String)> {

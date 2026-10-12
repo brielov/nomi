@@ -15,8 +15,9 @@ use super::{corpus_dir, files_below, packages, tree_digest};
 
 pub const DIR: &str = "crates/compiler/tests/packages";
 
-/// The packages the corpus apps build with that tier 1 needs.
-const PACKAGES: [&str; 10] = [
+/// The packages the corpus apps build with that tier 1 needs, and the
+/// test framework the language server finds tests with.
+const PACKAGES: [&str; 12] = [
     "elm/core",
     "elm/json",
     "elm/html",
@@ -27,6 +28,8 @@ const PACKAGES: [&str; 10] = [
     "elm/http",
     "elm/bytes",
     "elm/file",
+    "elm/random",
+    "elm-explorations/test",
 ];
 
 pub fn run(root: &Path) -> Result<()> {

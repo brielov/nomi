@@ -55,7 +55,7 @@ fn packages_are_the_pinned_releases() {
         line.trim_matches('"').to_owned()
     };
     let entries: Vec<&str> = manifest.split("[[package]]").skip(1).collect();
-    assert_eq!(entries.len(), 10);
+    assert_eq!(entries.len(), 12);
     for entry in entries {
         let (name, version) = (field(entry, "name"), field(entry, "version"));
         let root = dir().join(&name).join(&version);

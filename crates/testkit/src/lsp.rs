@@ -627,6 +627,14 @@ pub fn tidy(transcript: Value, replacements: &[(String, String)]) -> Value {
             locations.sort_by_key(|l| serde_json::to_string(l).unwrap());
         }
         // Nor do they order a rename's edits.
+        // The test modules come in the order the disk lists them.
+        if request["method"] == "elm/findTests"
+            && let Some(suites) = request
+                .pointer_mut("/result/suites")
+                .and_then(Value::as_array_mut)
+        {
+            suites.sort_by_key(|s| s["file"].as_str().unwrap_or_default().to_owned());
+        }
         if request["method"] == "codeLens/resolve" {
             for lens in request["result"].as_array_mut().into_iter().flatten() {
                 let references = lens.pointer_mut("/command/arguments/0/references");

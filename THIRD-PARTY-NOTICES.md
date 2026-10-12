@@ -148,9 +148,11 @@ even if advised of the possibility of such damage.
 - elm/html 1.0.1: Copyright (c) 2014-present, Evan Czaplicki. Its license is `crates/compiler/tests/packages/elm/html/1.0.1/LICENSE`.
 - elm/http 2.0.0: Copyright (c) 2016-present, Evan Czaplicki. Its license is `crates/compiler/tests/packages/elm/http/2.0.0/LICENSE`.
 - elm/json 1.1.4: Copyright 2014-present Evan Czaplicki. Its license is `crates/compiler/tests/packages/elm/json/1.1.4/LICENSE`.
+- elm/random 1.0.0: Copyright (c) 2018-present, Evan Czaplicki. Its license is `crates/compiler/tests/packages/elm/random/1.0.0/LICENSE`.
 - elm/time 1.0.0: Copyright (c) 2018-present, Evan Czaplicki. Its license is `crates/compiler/tests/packages/elm/time/1.0.0/LICENSE`.
 - elm/url 1.0.0: Copyright (c) 2016, Evan Czaplicki. Its license is `crates/compiler/tests/packages/elm/url/1.0.0/LICENSE`.
 - elm/virtual-dom 1.0.5: Copyright (c) 2016-present, Evan Czaplicki. Its license is `crates/compiler/tests/packages/elm/virtual-dom/1.0.5/LICENSE`.
+- elm-explorations/test 2.2.1: Copyright (c) 2016-2018 The elm-test contributors. Its license is `crates/compiler/tests/packages/elm-explorations/test/2.2.1/LICENSE`.
 
 ## elm-language-server
 

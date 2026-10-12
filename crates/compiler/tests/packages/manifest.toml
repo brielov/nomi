@@ -69,3 +69,17 @@ version = "1.0.5"
 sha1 = "9be249cec687caeb7cbdd85027b5e38625a9789e"
 files = 6
 digest = "4a285fada9c3f643e5ac6e9aa0ece7cb774283588d62f704df60b4e5a14c6021"
+
+[[package]]
+name = "elm/random"
+version = "1.0.0"
+sha1 = "aa2cdd98e008d05ae9ea0dabb44b1caf0da90f09"
+files = 3
+digest = "014234f1faf5c2b431217e4a1b6aa5cf473459c8e5d3f240bce93bb13cbe5ad1"
+
+[[package]]
+name = "elm-explorations/test"
+version = "2.2.1"
+sha1 = "eefbb97802f2f63b003bd299510fc86a1f72d0ae"
+files = 42
+digest = "126f4ce1a8d4fe85e0c2e44cc6ca4c22b1abaddd585ddb63f3228c6148d65d36"

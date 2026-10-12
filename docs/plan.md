@@ -832,9 +832,13 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - The create edit is applied even when empty, and a non-empty or misnamed file gets none.
   - A moved function goes to the line after the destination's last, past its end, which no offset names. The move adds an import even where one of the destination exists already, as upstream does.
   - `lsp/src/lib.rs` passed the line limit, so the requests that answer with edits moved to `edits.rs`.
-- [ ] **9.16b** `lsp: tests, diagnostics on request and virtual files`.
+- [x] **9.16b** `lsp: tests, diagnostics on request and virtual files`.
   - **Requests:** `elm/findTests` (`findTestsProvider.ts`, its 14 tests), `elm/getDiagnostics`, `elm/provideFileContents` and `workspace/textDocumentContent`.
   - **Cases:** recorded as sessions, as in 9.16a.
+  - **Done:** two seed cases, `find-tests` (upstream's 14 tests' situations, against the real `elm-explorations/test`) and `custom-requests`, match whole. 861 requests pass.
+  - `elm-explorations/test` and `elm/random` joined the fixture packages, and the index now includes `tests/` and the test dependencies, as elm-test and elm-language-server do. Elm's own as-you-type checks still leave them out.
+  - `getQualifierForName` takes a module's last import, so with `import Test` and `import Test as T`, `Test.describe` is a test with no suite.
+  - Virtual files (`elm-virtual-file:`) exist only where elm-language-server has no disk. nomi serves `file:` URIs and leaves the scheme unregistered. A file no project has is an error, where upstream fails with a `TypeError`.
 - [ ] **9.17** `lsp: elm-review`.
   - Its CLI runs on open and save after clean diagnostics, under the same conditions: the setting, and `review/src/ReviewConfig.elm` exists. It is cleared on change.
   - Its fixes become code actions.

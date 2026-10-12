@@ -1,0 +1,27 @@
+{
+    "settings": {
+        "extendedCapabilities": {
+            "clientInitiatedDiagnostics": true
+        }
+    },
+    "open": [
+        "src/Main.elm"
+    ],
+    "requests": [
+        {
+            "method": "elm/provideFileContents",
+            "params": {
+                "uri": "<project>/src/Shapes/Circle.elm"
+            }
+        },
+        {
+            "method": "elm/getDiagnostics",
+            "params": {
+                "files": [
+                    "<project>/src/Main.elm"
+                ],
+                "delay": 0
+            }
+        }
+    ]
+}
