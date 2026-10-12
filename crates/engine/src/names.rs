@@ -489,11 +489,10 @@ impl Walk<'_> {
         let document = self.goals.documented.contains(&module.name);
         let key = (self.artifacts.filter(|_| !document)).map(|_| self.key(module, local));
         if let (Some(artifacts), Some(key)) = (self.artifacts, key)
-            && let Some(bytes) = time(Phase::CacheRead, || artifacts.get(key))
+            && let Some((bytes, hash)) = time(Phase::CacheRead, || artifacts.get_hashed(key))
         {
             // The encoding is canonical, so its bytes hash as the
             // interface's own encoding would.
-            let hash = Hash::of(&bytes);
             let made = Made {
                 interface: Arc::new(LazyInterface::encoded(bytes)),
                 hash,

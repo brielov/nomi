@@ -333,6 +333,12 @@ fn name_unspecified(name: &ModuleName, compat: Compat) -> Problem {
 /// of `module`'s imports, default ones included, that names no one
 /// module, in the order it imports them.
 pub fn import_problems(env: &Env, graph: &Graph, module: &Module) -> Vec<Problem> {
+    // Most modules import nothing amiss, and need no more.
+    let bad = (module.imports.iter())
+        .any(|import| matches!(graph.modules.get(&import.name), Some(Status::BadImport(_))));
+    if !bad {
+        return Vec::new();
+    }
     let compat = env.compat();
     // `Map.fromList`: an import written twice is where it was written last.
     let ranges: HashMap<&ModuleName, _> = (module.imports.iter())

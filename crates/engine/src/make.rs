@@ -179,7 +179,14 @@ fn build(
     let modules = timings::time(Phase::Modules, || {
         let packages = Packages::Building(&building);
         if documenting {
-            check::docs(&snapshot, &env, &outline, personality, packages)
+            check::docs_with(
+                &snapshot,
+                &env,
+                &outline,
+                personality,
+                packages,
+                Some(&artifacts),
+            )
         } else if generating {
             let (checked, made) = check::optimize(
                 &snapshot,

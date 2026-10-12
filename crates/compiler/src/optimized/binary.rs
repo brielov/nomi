@@ -17,7 +17,7 @@
 //! encoding takes, and any malformed input is `None`.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use super::{
@@ -818,6 +818,8 @@ struct In<'a> {
     bytes: &'a [u8],
     at: usize,
     compat: Compat,
+    /// Each home read, by its bytes: a graph names few, many times.
+    homes: HashMap<&'a [u8], Home>,
 }
 
 impl<'a> In<'a> {
@@ -826,6 +828,7 @@ impl<'a> In<'a> {
             bytes,
             at: 0,
             compat,
+            homes: HashMap::new(),
         }
     }
 
@@ -957,12 +960,24 @@ impl<'a> In<'a> {
     }
 
     fn home(&mut self) -> Option<Home> {
+        let start = self.at;
+        let mut end = start;
+        for _ in 0..3 {
+            end += 1 + usize::from(*self.bytes.get(end)?);
+        }
+        let bytes: &'a [u8] = self.bytes.get(start..end)?;
+        if let Some(home) = self.homes.get(bytes) {
+            self.at = end;
+            return Some(home.clone());
+        }
         let author = self.name()?;
         let project = self.name()?;
-        Some(Home {
+        let home = Home {
             package: format!("{author}/{project}").into(),
             module: self.name()?.into(),
-        })
+        };
+        self.homes.insert(bytes, home.clone());
+        Some(home)
     }
 
     fn global(&mut self) -> Option<Global> {

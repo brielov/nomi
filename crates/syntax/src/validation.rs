@@ -46,11 +46,7 @@ pub fn validate(parse: &Parse, tool: Tool) -> Vec<SyntaxError> {
             if let Some(wrap) = compat.column_wrap() {
                 wrapped_columns(parse, wrap, &mut errors);
             }
-            strings_spanning_lines(&root, &mut errors);
-            comment_tabs(&root, &mut errors);
-            operator_chars(&root, &mut errors);
-            hex_escapes(&root, &mut errors);
-            shaders(&root, &mut errors);
+            elm_tokens(&root, &mut errors);
             elm(&root, source, &mut errors);
         }
         Tool::ElmFormat => {
@@ -408,43 +404,49 @@ fn last_import(module: &ast::Module, errors: &mut Vec<SyntaxError>) {
     push(errors, E::ImportWithoutNewline, TextRange::empty(end));
 }
 
-/// elm takes no tab in a block comment, where elm-format takes any.
-fn comment_tabs(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
-    let comments = (root.descendants_with_tokens())
-        .filter_map(|e| e.into_token())
-        .filter(|t| matches!(t.kind(), K::BlockComment | K::DocComment));
-    for token in comments {
-        for (i, _) in token.text().match_indices('\t') {
-            let start = token.text_range().start() + TextSize::new(i as u32);
-            push(
-                errors,
-                E::Lexical(LexErrorKind::Tab),
-                TextRange::at(start, TextSize::new(1)),
-            );
+/// elm's rules on tokens, in one walk over them.
+fn elm_tokens(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
+    for token in (root.descendants_with_tokens()).filter_map(|e| e.into_token()) {
+        match token.kind() {
+            K::BlockComment | K::DocComment => comment_tabs(&token, errors),
+            K::Operator | K::Arrow => operator_chars(&token, errors),
+            K::String => {
+                string_spanning_lines(&token, errors);
+                hex_escapes(&token, errors);
+            }
+            K::MultilineString | K::Char => hex_escapes(&token, errors),
+            K::Glsl => shader(&token, errors),
+            _ => {}
         }
+    }
+}
+
+/// elm takes no tab in a block comment, where elm-format takes any.
+fn comment_tabs(token: &SyntaxToken, errors: &mut Vec<SyntaxError>) {
+    for (i, _) in token.text().match_indices('\t') {
+        let start = token.text_range().start() + TextSize::new(i as u32);
+        push(
+            errors,
+            E::Lexical(LexErrorKind::Tab),
+            TextRange::at(start, TextSize::new(1)),
+        );
     }
 }
 
 /// elm-format takes `$`, `#`, `@`, `~` and Unicode symbols in an
 /// operator, `→` alone being its `->`, and `=>` for `->`; elm takes none
 /// of them.
-fn operator_chars(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
-    let operators = (root.descendants_with_tokens())
-        .filter_map(|e| e.into_token())
-        .filter(|t| matches!(t.kind(), K::Operator | K::Arrow));
-    for token in operators {
-        if token.kind() == K::Arrow && token.text() == "=>" {
-            push(errors, E::FatArrow, token.text_range());
-        }
-        if let Some((i, c)) = (token.text().char_indices()).find(|&(_, c)| !is_elm_operator_char(c))
-        {
-            let start = token.text_range().start() + TextSize::new(i as u32);
-            push(
-                errors,
-                E::Lexical(LexErrorKind::InvalidToken),
-                TextRange::at(start, TextSize::of(c)),
-            );
-        }
+fn operator_chars(token: &SyntaxToken, errors: &mut Vec<SyntaxError>) {
+    if token.kind() == K::Arrow && token.text() == "=>" {
+        push(errors, E::FatArrow, token.text_range());
+    }
+    if let Some((i, c)) = (token.text().char_indices()).find(|&(_, c)| !is_elm_operator_char(c)) {
+        let start = token.text_range().start() + TextSize::new(i as u32);
+        push(
+            errors,
+            E::Lexical(LexErrorKind::InvalidToken),
+            TextRange::at(start, TextSize::of(c)),
+        );
     }
 }
 
@@ -479,32 +481,25 @@ fn literals(root: &SyntaxNode) -> impl Iterator<Item = SyntaxToken> {
 }
 
 /// elm knows no `\x` escape.
-fn hex_escapes(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
-    for token in literals(root) {
-        for (range, _) in hex_escapes_in(&token) {
-            push(errors, E::Lexical(LexErrorKind::UnknownEscape), range);
-        }
+fn hex_escapes(token: &SyntaxToken, errors: &mut Vec<SyntaxError>) {
+    for (range, _) in hex_escapes_in(token) {
+        push(errors, E::Lexical(LexErrorKind::UnknownEscape), range);
     }
 }
 
 /// elm parses each shader block's GLSL (`Parse/Shader.hs`). An
 /// unterminated block is the lexer's to report.
-fn shaders(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
-    let shaders = (root.descendants_with_tokens())
-        .filter_map(|e| e.into_token())
-        .filter(|t| t.kind() == K::Glsl);
-    for token in shaders {
-        let Some(glsl) = (token.text())
-            .strip_prefix("[glsl|")
-            .and_then(|rest| rest.strip_suffix("|]"))
-        else {
-            continue;
-        };
-        if let Err(Rejection::At { offset, .. } | Rejection::TooDeep(offset)) = glsl::check(glsl) {
-            let at =
-                token.text_range().start() + TextSize::of("[glsl|") + TextSize::of(&glsl[..offset]);
-            push(errors, E::ShaderProblem, TextRange::empty(at));
-        }
+fn shader(token: &SyntaxToken, errors: &mut Vec<SyntaxError>) {
+    let Some(glsl) = (token.text())
+        .strip_prefix("[glsl|")
+        .and_then(|rest| rest.strip_suffix("|]"))
+    else {
+        return;
+    };
+    if let Err(Rejection::At { offset, .. } | Rejection::TooDeep(offset)) = glsl::check(glsl) {
+        let at =
+            token.text_range().start() + TextSize::of("[glsl|") + TextSize::of(&glsl[..offset]);
+        push(errors, E::ShaderProblem, TextRange::empty(at));
     }
 }
 
@@ -532,20 +527,15 @@ fn hex_characters(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
 
 /// elm ends a `"` string unterminated at a line feed, which
 /// elm-format's take in.
-fn strings_spanning_lines(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
-    let strings = (root.descendants_with_tokens())
-        .filter_map(|e| e.into_token())
-        .filter(|t| t.kind() == K::String);
-    for token in strings {
-        if let Some(i) = token.text().find('\n') {
-            let range = token.text_range();
-            let end = range.start() + TextSize::new(i as u32);
-            push(
-                errors,
-                E::Lexical(LexErrorKind::UnterminatedString),
-                TextRange::new(range.start(), end),
-            );
-        }
+fn string_spanning_lines(token: &SyntaxToken, errors: &mut Vec<SyntaxError>) {
+    if let Some(i) = token.text().find('\n') {
+        let range = token.text_range();
+        let end = range.start() + TextSize::new(i as u32);
+        push(
+            errors,
+            E::Lexical(LexErrorKind::UnterminatedString),
+            TextRange::new(range.start(), end),
+        );
     }
 }
 

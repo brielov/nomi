@@ -175,19 +175,30 @@ impl Artifacts {
     /// The payload filed under `key`, if there is a sound one; it is then
     /// marked used.
     pub fn get(&self, key: Hash) -> Option<Vec<u8>> {
+        self.get_hashed(key).map(|(payload, _)| payload)
+    }
+
+    /// [`Artifacts::get`], with the payload's hash, which the entry holds.
+    pub fn get_hashed(&self, key: Hash) -> Option<(Vec<u8>, Hash)> {
         self.get_at(key, SystemTime::now())
     }
 
-    fn get_at(&self, key: Hash, now: SystemTime) -> Option<Vec<u8>> {
+    fn get_at(&self, key: Hash, now: SystemTime) -> Option<(Vec<u8>, Hash)> {
         let path = self.path(key);
         let mut file = fs::File::open(&path).ok()?;
-        let mut bytes = Vec::new();
-        (&mut file)
-            .take(HEADER as u64 + MAX_PAYLOAD + 1)
-            .read_to_end(&mut bytes)
-            .ok()?;
-        let payload = open(&bytes, key)?;
-        let used = file.metadata().and_then(|m| m.modified()).ok()?;
+        let meta = file.metadata().ok()?;
+        // Read whole at the size the file has, which a sound entry's
+        // header agrees with.
+        let length = meta.len().checked_sub(HEADER as u64)?;
+        if length > MAX_PAYLOAD {
+            return None;
+        }
+        let mut header = [0; HEADER];
+        file.read_exact(&mut header).ok()?;
+        let mut payload = vec![0; usize::try_from(length).ok()?];
+        file.read_exact(&mut payload).ok()?;
+        let hash = open(&header, &payload, key)?;
+        let used = meta.modified().ok()?;
         if now.duration_since(used).is_ok_and(|age| age >= REFRESH) {
             // Best effort: the entry was sound, whether or not this lands.
             let _ = fs::File::options()
@@ -195,7 +206,7 @@ impl Artifacts {
                 .open(&path)
                 .and_then(|f| f.set_modified(now));
         }
-        Some(payload.to_vec())
+        Some((payload, hash))
     }
 
     /// Files `payload` under `key`, replacing any entry there.
@@ -263,18 +274,18 @@ impl Artifacts {
     }
 }
 
-/// The payload of an entry filed under `key`, if the entry is sound.
-fn open(bytes: &[u8], key: Hash) -> Option<&[u8]> {
-    let (header, payload) = bytes.split_at_checked(HEADER)?;
+/// The hash of `payload`, if with `header` it is a sound entry filed
+/// under `key`.
+fn open(header: &[u8; HEADER], payload: &[u8], key: Hash) -> Option<Hash> {
     let (magic, rest) = header.split_at(MAGIC.len());
     let (filed, rest) = rest.split_at(32);
     let (length, digest) = rest.split_at(8);
     let length = u64::from_le_bytes(length.try_into().expect("eight bytes"));
-    let sound = magic == MAGIC
-        && filed == key.0
-        && length == payload.len() as u64
-        && digest == Hash::of(payload).0;
-    sound.then_some(payload)
+    if magic != MAGIC || filed != key.0 || length != payload.len() as u64 {
+        return None;
+    }
+    let hash = Hash::of(payload);
+    (digest == hash.0).then_some(hash)
 }
 
 #[cfg(test)]

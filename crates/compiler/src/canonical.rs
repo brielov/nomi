@@ -172,7 +172,7 @@ impl PartialEq<Text> for String {
 }
 
 /// `Can.Type`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
     Lambda(Box<Type>, Box<Type>),
     Var(String),
@@ -190,7 +190,7 @@ pub enum Type {
 /// What an alias in a type stands for (`Can.AliasType`): its body with
 /// the variables still free, or filled in with the arguments. Bodies are
 /// shared by every mention of the alias.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum AliasType {
     Holey(std::sync::Arc<Type>),
     Filled(std::sync::Arc<Type>),
@@ -198,7 +198,7 @@ pub enum AliasType {
 
 /// A record field's type and its place among the fields as written; 0
 /// for every field of an inferred type (`Can.FieldType`).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FieldType {
     pub order: u16,
     pub ty: Type,

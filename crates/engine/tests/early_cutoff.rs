@@ -173,3 +173,50 @@ fn optimized_graphs_are_reused() {
     // And a check after builds reuses everything too.
     assert!(project.check().is_empty());
 }
+
+#[test]
+fn documenting_reuses_the_modules_it_does_not_document() {
+    const PKG_JSON: &str = r#"{
+    "type": "package",
+    "name": "author/pkg",
+    "summary": "a package",
+    "license": "BSD-3-Clause",
+    "version": "1.0.0",
+    "exposed-modules": ["Main"],
+    "elm-version": "0.19.0 <= v < 0.20.0",
+    "dependencies": { "elm/core": "1.0.0 <= v < 2.0.0" },
+    "test-dependencies": {}
+}
+"#;
+    let project = Project::new();
+    let main = "module Main exposing (value)\n\n{-| A module.\n\n@docs value\n\n-}\n\nimport Middle\n\n\n{-| A value.\n-}\nvalue : Int\nvalue =\n    Middle.twice 2\n";
+    project.write("Main", main);
+    fs::write(project.root.join("elm.json"), PKG_JSON).unwrap();
+    let compat = Compat::V0_19_1;
+    let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages");
+    let outline = Outline::decode(PKG_JSON.as_bytes(), compat).unwrap();
+    let core = Name::core();
+    let foreigns = Foreigns::new([(core.clone(), projects::exposing(&packages, &core, compat))]);
+    let interfaces = names::visible(&projects::interfaces(&packages, compat), &[core]);
+    let env = check::env_of(&project.root, &outline, compat, foreigns)
+        .unwrap()
+        .with_cwd(&project.root);
+    let docs = |artifacts| {
+        let snapshot = Vfs::new().snapshot();
+        let (checked, json, _) = check::docs_with(
+            &snapshot,
+            &env,
+            &outline,
+            Personality::Elm,
+            (&interfaces).into(),
+            artifacts,
+        );
+        assert!(matches!(checked, Checked::Fine), "{checked:?}");
+        json.unwrap()
+    };
+    let fresh = docs(None);
+    // Cold, then warm with Middle and Base read back.
+    assert_eq!(docs(Some(&project.artifacts)), fresh);
+    assert_eq!(docs(Some(&project.artifacts)), fresh);
+    assert!(fresh.contains("A value."), "{fresh}");
+}

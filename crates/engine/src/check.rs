@@ -14,10 +14,10 @@ use nomi_base::diagnostic::json;
 use nomi_base::{Compat, Report};
 use nomi_compiler::interface::Interface;
 use nomi_compiler::optimized::LocalGraph;
-use nomi_project::{ModuleName, Name, Outline};
+use nomi_project::{ModuleName, Name, Outline, Version};
 use nomi_registry::{Http, Store, details, report as registry_report};
 
-use crate::artifacts::Artifacts;
+use crate::artifacts::{Artifacts, Key};
 use crate::console::{self, Console, Personality};
 use crate::graph::{Env, Foreigns, Graph, Owner};
 use crate::install::{details_problem, one_line};
@@ -134,6 +134,19 @@ pub fn docs(
     personality: Personality,
     packages: Packages<'_>,
 ) -> (Checked, Option<String>, usize) {
+    docs_with(snapshot, env, outline, personality, packages, None)
+}
+
+/// [`docs`], reusing what `artifacts` holds of the modules it doesn't
+/// document.
+pub fn docs_with(
+    snapshot: &Snapshot,
+    env: &Env,
+    outline: &Outline,
+    personality: Personality,
+    packages: Packages<'_>,
+    artifacts: Option<&Artifacts>,
+) -> (Checked, Option<String>, usize) {
     let built = build(
         snapshot,
         env,
@@ -141,7 +154,7 @@ pub fn docs(
         &[],
         personality,
         packages,
-        None,
+        artifacts,
         Goal::Docs,
     );
     let json = matches!(built.checked, Checked::Fine)
@@ -383,19 +396,38 @@ pub(crate) fn sources(
 ) -> Result<Sources, Report> {
     let compat = project.compat;
     let store = Store::new(cache.packages());
-    let mut registry = env::registry(
-        cache,
-        &store,
-        http,
-        compat,
-        "I need the list of published packages to check your dependencies",
-    )?;
-    let solution = details::verify(&mut registry, compat, &project.outline)
-        .map_err(|problem| details_problem(&problem, compat, personality))?;
-    let releases: Vec<(Name, _)> = solution
-        .iter()
-        .map(|(name, details)| (name.clone(), details.version))
-        .collect();
+    // elm keeps a project's dependencies as solved until its elm.json
+    // changes (`Details.load`), asking the website nothing; nomi keeps
+    // them by what elm.json says.
+    let artifacts = Artifacts::new(cache);
+    let key = Key::new("details")
+        .part("compat", compat.to_string().as_bytes())
+        .part("outline", &project.outline.write())
+        .finish();
+    let kept = artifacts
+        .get(key)
+        .and_then(|bytes| decode_releases(&bytes, compat));
+    let releases = match kept {
+        Some(releases) => releases,
+        None => {
+            let mut registry = env::registry(
+                cache,
+                &store,
+                http,
+                compat,
+                "I need the list of published packages to check your dependencies",
+            )?;
+            let solution = details::verify(&mut registry, compat, &project.outline)
+                .map_err(|problem| details_problem(&problem, compat, personality))?;
+            let releases: Vec<(Name, Version)> = solution
+                .iter()
+                .map(|(name, details)| (name.clone(), details.version))
+                .collect();
+            // A cache that can't be written only costs a solve next time.
+            let _ = artifacts.put(key, encode_releases(&releases).as_bytes());
+            releases
+        }
+    };
     let fetched = packages::fetch(Pool::global(), &store, http, compat, releases.clone());
     let direct: Vec<&Name> = match &project.outline {
         Outline::App(app) => app.direct.keys().collect(),
@@ -435,6 +467,22 @@ pub(crate) fn sources(
         direct,
         packages,
     })
+}
+
+/// `releases`, one `author/project@version` a line.
+fn encode_releases(releases: &[(Name, Version)]) -> String {
+    (releases.iter())
+        .map(|(name, version)| format!("{name}@{version}\n"))
+        .collect()
+}
+
+fn decode_releases(bytes: &[u8], compat: Compat) -> Option<Vec<(Name, Version)>> {
+    (bytes.split(|&b| b == b'\n'))
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            Name::parse_release(line, nomi_project::json::Cursor::start(compat), compat).ok()
+        })
+        .collect()
 }
 
 /// The modules each direct dependency exposes, and their interfaces, with

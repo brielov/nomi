@@ -56,3 +56,48 @@ fn nomi_build_transcripts() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// A project built once keeps its dependencies as solved until its
+/// elm.json changes, as elm keeps `elm-stuff/d.dat`: the next build
+/// reads no package list.
+#[test]
+fn a_built_project_keeps_its_dependencies_solved() {
+    let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages");
+    let cache = tempfile::tempdir().unwrap();
+    Website::with_sources(&packages).fill(cache.path());
+    let work = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(work.path()).unwrap();
+    let outline = |core: &str| {
+        format!(
+            r#"{{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {{"direct": {{"elm/core": "{core}", "elm/json": "1.1.4"}}, "indirect": {{}}}}, "test-dependencies": {{"direct": {{}}, "indirect": {{}}}}}}"#
+        )
+    };
+    fs::write(root.join("elm.json"), outline("1.0.5")).unwrap();
+    fs::create_dir(root.join("src")).unwrap();
+    fs::write(
+        root.join("src/Main.elm"),
+        "module Main exposing (value)\n\nvalue =\n    1\n",
+    )
+    .unwrap();
+    let program = Path::new(env!("CARGO_BIN_EXE_nomi"));
+    let build = || {
+        let mut command = offline(program, cache.path());
+        command.current_dir(&root).args(["check", "src/Main.elm"]);
+        command.output().unwrap()
+    };
+    let first = build();
+    assert!(first.status.success(), "{first:?}");
+    let index = cache.path().join("registry/index");
+    fs::remove_file(&index).unwrap();
+    let second = build();
+    assert!(second.status.success(), "{second:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&first.stdout),
+        String::from_utf8_lossy(&second.stdout)
+    );
+    // Changed, it is solved again, and without the package list that fails.
+    fs::write(root.join("elm.json"), outline("1.0.4")).unwrap();
+    let third = build();
+    let said = String::from_utf8_lossy(&third.stdout) + String::from_utf8_lossy(&third.stderr);
+    assert!(said.contains("PACKAGE LIST"), "{said}");
+}

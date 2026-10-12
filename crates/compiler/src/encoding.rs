@@ -1,9 +1,12 @@
-//! The bytes of interfaces: tags as one byte, lengths and numbers as
-//! little-endian fixed widths, strings as their length and UTF-8, maps in
-//! key order. Decoding takes nothing on trust: any malformed input is
-//! `None`.
+//! The bytes of interfaces: tags as one byte, lengths as LEB128, other
+//! numbers as little-endian fixed widths, maps in key order. A string is
+//! written once, its length then its UTF-8, and named by its place after
+//! that; an alias body, which every mention of the alias shares, likewise.
+//! Both are told apart by value, so equal interfaces still encode alike.
+//! Decoding takes nothing on trust: any malformed input is `None`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 use crate::canonical::{
     Alias, AliasType, Annotation, Associativity, Ctor, CtorOpts, FieldType, Home, Type, Union,
@@ -11,11 +14,16 @@ use crate::canonical::{
 use crate::interface::{self, Binop, DependencyInterface, Interface};
 
 /// Bumped whenever the encoding changes, so old bytes never decode as new.
-const VERSION: u8 = 1;
+const VERSION: u8 = 2;
 
 #[derive(Default)]
 pub struct Encoder {
     out: Vec<u8>,
+    /// Each string written, by its place.
+    strings: HashMap<String, usize>,
+    /// Each alias body written, by its place, and by where it lives.
+    bodies: HashMap<Arc<Type>, usize>,
+    body_at: HashMap<usize, usize>,
 }
 
 impl Encoder {
@@ -32,12 +40,43 @@ impl Encoder {
     }
 
     fn len(&mut self, n: usize) {
-        self.u64(n as u64);
+        let mut n = n as u64;
+        while n >= 0x80 {
+            self.out.push(n as u8 | 0x80);
+            n >>= 7;
+        }
+        self.out.push(n as u8);
     }
 
+    /// A string: 0 and the string the first time, then one more than its
+    /// place.
     fn str(&mut self, s: &str) {
+        if let Some(&place) = self.strings.get(s) {
+            self.len(place + 1);
+            return;
+        }
+        self.len(0);
         self.len(s.len());
         self.out.extend_from_slice(s.as_bytes());
+        let place = self.strings.len();
+        self.strings.insert(s.to_owned(), place);
+    }
+
+    /// An alias body as [`Encoder::str`] writes a string, its place given
+    /// once it is written.
+    fn body(&mut self, body: &Arc<Type>) {
+        let at = Arc::as_ptr(body) as usize;
+        let known = (self.body_at.get(&at).copied()).or_else(|| self.bodies.get(body).copied());
+        if let Some(place) = known {
+            self.body_at.insert(at, place);
+            self.len(place + 1);
+            return;
+        }
+        self.len(0);
+        self.ty(body);
+        let place = self.bodies.len();
+        self.bodies.insert(body.clone(), place);
+        self.body_at.insert(at, place);
     }
 
     fn strs(&mut self, items: &[String]) {
@@ -211,7 +250,7 @@ impl Encoder {
                     AliasType::Filled(t) => (1, t),
                 };
                 self.u8(tag);
-                self.ty(body);
+                self.body(body);
             }
         }
     }
@@ -219,11 +258,17 @@ impl Encoder {
 
 pub struct Decoder<'a> {
     rest: &'a [u8],
+    strings: Vec<&'a str>,
+    bodies: Vec<Arc<Type>>,
 }
 
 impl<'a> Decoder<'a> {
     pub fn new(bytes: &'a [u8]) -> Decoder<'a> {
-        Decoder { rest: bytes }
+        Decoder {
+            rest: bytes,
+            strings: Vec::new(),
+            bodies: Vec::new(),
+        }
     }
 
     /// Whether every byte was read.
@@ -248,15 +293,50 @@ impl<'a> Decoder<'a> {
         Some(u64::from_le_bytes(self.take(8)?.try_into().ok()?))
     }
 
+    /// LEB128, as [`Encoder::len`] writes it.
+    fn leb128(&mut self) -> Option<usize> {
+        let mut n: u64 = 0;
+        for shift in (0..64).step_by(7) {
+            let byte = self.u8()?;
+            n |= u64::from(byte & 0x7f).checked_shl(shift)?;
+            if byte & 0x80 == 0 {
+                return usize::try_from(n).ok();
+            }
+        }
+        None
+    }
+
     /// A length, which can't exceed what is left to read.
     fn len(&mut self) -> Option<usize> {
-        let n = usize::try_from(self.u64()?).ok()?;
+        let n = self.leb128()?;
         (n <= self.rest.len()).then_some(n)
     }
 
     fn str(&mut self) -> Option<String> {
-        let n = self.len()?;
-        String::from_utf8(self.take(n)?.to_vec()).ok()
+        Some(self.str_ref()?.to_owned())
+    }
+
+    fn str_ref(&mut self) -> Option<&'a str> {
+        match self.leb128()? {
+            0 => {
+                let n = self.len()?;
+                let s = std::str::from_utf8(self.take(n)?).ok()?;
+                self.strings.push(s);
+                Some(s)
+            }
+            place => self.strings.get(place - 1).copied(),
+        }
+    }
+
+    fn body(&mut self) -> Option<Arc<Type>> {
+        match self.leb128()? {
+            0 => {
+                let body = Arc::new(self.ty()?);
+                self.bodies.push(body.clone());
+                Some(body)
+            }
+            place => self.bodies.get(place - 1).cloned(),
+        }
     }
 
     fn strs(&mut self) -> Option<Vec<String>> {
@@ -392,13 +472,13 @@ impl<'a> Decoder<'a> {
 
     /// A number that counts something elsewhere, not bytes here.
     fn len_value(&mut self) -> Option<usize> {
-        usize::try_from(self.u64()?).ok()
+        self.leb128()
     }
 
     fn home(&mut self) -> Option<Home> {
         Some(Home {
-            package: self.str()?.into(),
-            module: self.str()?.into(),
+            package: self.str_ref()?.into(),
+            module: self.str_ref()?.into(),
         })
     }
 
@@ -448,8 +528,8 @@ impl<'a> Decoder<'a> {
                     .map(|_| Some((self.str()?, self.ty()?)))
                     .collect::<Option<_>>()?;
                 let aliased = match self.u8()? {
-                    0 => AliasType::Holey(std::sync::Arc::new(self.ty()?)),
-                    1 => AliasType::Filled(std::sync::Arc::new(self.ty()?)),
+                    0 => AliasType::Holey(self.body()?),
+                    1 => AliasType::Filled(self.body()?),
                     _ => return None,
                 };
                 Type::Alias(home, name, args, aliased)
