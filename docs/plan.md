@@ -650,7 +650,7 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
     - When a project has a `tests/` directory, those modules go to `elm-test` alone, so without elm-test they get nothing. Two cases stay unlisted for that until M10.
     - elm writes tabs raw in its JSON, `JSON.parse` rejects them, and elm-language-server drops the whole report. nomi shows it (DECISIONS.md), and the imported cases' tabs become spaces.
     - elm-language-server passes elm's code-point columns through as UTF-16. nomi converts them, which differs past astral characters.
-  - **Not yet.** Markdown messages for clients with `markupMessageSupport`, and early cutoff for checks as you type (9.18).
+  - **Not yet.** Markdown messages for clients with `markupMessageSupport`, and early cutoff for checks as you type (9.22).
 - [x] **9.4** `ide: lint rules for unused code`. `unused_import`, `unused_imported_value`, `unused_alias`, `unused_pattern`, `unused_top_level`, `unused_type_alias`, `unused_value_constructor`, `unused_incoming_port` (across modules) and `unnecessary_port_module`, with `elm-analyse.json` checks and `excludedPaths`.
 
   Done:
@@ -843,8 +843,25 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - Its CLI runs on open and save after clean diagnostics, under the same conditions: the setting, and `review/src/ReviewConfig.elm` exists. It is cleared on change.
   - Its fixes become code actions.
   - Tested with a stub `elm-review` that prints recorded JSON, since elm-review isn't pinned.
-- [ ] **9.18** `lsp: performance budgets`. Measured on exosphere against elm-language-server, in the M8b scoreboard: time to first diagnostics, keystroke to diagnostics, completion latency, and peak memory. nomi wins each, and keystroke to diagnostics is under 100 ms on the Ryzen 7.
-- [ ] **9.19** `release: 0.3`. Editor setup for VS Code, Neovim, Helix and Zed.
+- [ ] **9.18** `corpus: more apps`. Four pinned apps leave app-shaped code thin: ports, `main`, large module graphs, `tests/` folders and real `elm.json` setups. Pin these by commit in `corpus/apps.toml`, each project by its `elm.json`, with the code-generation step a project needs recorded and its output hashed, as docspell's is:
+  - **0.19.1:** rtfeldman/elm-spa-example; azimuttapp/azimutt (`frontend`); elm/elm-lang.org (the site and `editor`); evancz/elm-todomvc; ellie-app/ellie (`assets`); dillonkearns/elm-pages (`examples/docs`); dillonkearns/elm-pages-starter; roovo/obsidian-card-board; NixOS/nixos-search (`frontend`); erkal/kite; Lattyware/massivedecks (`client`); gingko/client (`client`); stil4m/elm-analyse; elm-land/elm-land (its eight `examples`); Arcitectus/Sanderling (`implement/alternate-ui/source`); Malax/elmboy; ohanhi/elm-shared-state; rogeriochaves/spades; mohsenasm/swarm-dashboard (`elm-client`); vjousse/pomodorolm; Viir/bots (its 0.19.1 projects); passiomatic/elm-designer; alexkorban/elmstatic (both scaffolds); harehare/textusm (`frontend`); dmotz/emdash; elm/package.elm-lang.org; unisonweb/unison-local-ui; unisonweb/ui-core (`examples`, `storybook`); terezka/elm-charts (`docs`); elmcraft/elmcraft.org.
+  - **0.19.2 and 0.19.3:** eikek/sharry (`modules/webapp`) and concourse/concourse (`web/elm`) on 0.19.2, and evancz/guide.elm-lang.org (`repl`) on 0.19.3.
+  - Left out: 0.19.0 apps, which no Compat builds (derrickreimer/level, w0rm/elm-flatris), and repositories with no `elm.json` (ravichugh/sketch-n-sketch, dillonkearns/mobster, huytd/kanelm, Zinggi/NoKey).
+  - **Check:** `xtask corpus stats` counts the projects per Compat, and every app suite (syntax, format, check, javascript) runs on them, with the new failures triaged into fixes or `DECISIONS.md`.
+- [ ] **9.19** `lsp: editing sessions`. The sessions so far open files and ask, while editors type.
+  - **Driver:** steps that edit an open file incrementally (`didChange`, at markers or ranges), save it, close it, cancel a request in flight, and send several requests without waiting.
+  - **Seed cases:** typing an expression a character at a time with completion and diagnostics between keystrokes; fixing an error; renaming a module while a file is open; a request cancelled mid-check.
+  - **Robustness:** a property test that applies random edit sequences to corpus modules and holds that nomi never crashes or hangs, and that its answers after the last edit equal those of a fresh open of the final text.
+  - **Check:** the seed cases match elm-language-server, and the property test passes over a sample of the corpus.
+- [ ] **9.20** `lsp: corpus differential suite`. Parity on real projects, not fixtures: for each corpus project, requests generated from its own code (hover, definition, references and completion at sampled names, plus each file's symbols, folding and formatting), recorded from elm-language-server and replayed against nomi.
+  - A tier-2 suite (`cargo xtask corpus lsp`), run at gates rather than in CI, since elm-language-server takes minutes per project.
+  - Sampling is seeded and pinned, so recordings stay comparable.
+  - Differences are triaged: nomi's bugs get fixed, and elm-language-server's own (its approximate type checker, tree-sitter's recovery) get `DECISIONS.md` entries and leave the cases unlisted.
+  - **Check:** the ratchet exists and every difference left is explained.
+- [ ] **9.21** `lsp: editor traces`. Real sessions, recorded rather than written: the JSON-RPC traffic of VS Code with elm-language-server on two corpus apps, captured with the extension's trace setting and converted to sessions. Requests that depend on timing (diagnostics mid-typing) are compared once the server settles.
+  - **Check:** both traces replay and match, differences triaged as in 9.20.
+- [ ] **9.22** `lsp: performance budgets`. Measured on exosphere, and on the 9.19 editing sessions, against elm-language-server, in the M8b scoreboard: time to first diagnostics, keystroke to diagnostics, completion latency, and peak memory. nomi wins each, and keystroke to diagnostics is under 100 ms on the Ryzen 7.
+- [ ] **9.23** `release: 0.3`. Editor setup for VS Code, Neovim, Helix and Zed.
 
 **Exit:** transcript parity, budgets met, and you've used it on a real project.
 
