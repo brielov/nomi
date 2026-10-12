@@ -235,6 +235,7 @@ impl Lint<'_> {
             code,
             unnecessary,
             relative: None,
+            fixes: Vec::new(),
         });
     }
 
@@ -407,6 +408,7 @@ impl Lint<'_> {
             code,
             unnecessary: true,
             relative: None,
+            fixes: Vec::new(),
         }
     }
 
@@ -715,6 +717,7 @@ fn found_values(imports: &[SyntaxNode], unused: &HashSet<TextRange>, path: &Path
             code: "unused_imported_value",
             unnecessary: true,
             relative: None,
+            fixes: Vec::new(),
         });
     }
     problems

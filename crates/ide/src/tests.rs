@@ -399,6 +399,7 @@ fn a_missing_module_offers_the_packages_that_expose_it() {
         severity: Severity::Error,
         source: "Elm".to_owned(),
         unnecessary: false,
+        fixes: Vec::new(),
     }];
     let packages = PackageModules::read(&store);
     let request = Request {
@@ -512,6 +513,7 @@ fn actions_for(text: &str, region: &str, message: &str) -> (String, Vec<Action>)
         severity: Severity::Error,
         source: "Elm".to_owned(),
         unnecessary: false,
+        fixes: Vec::new(),
     }];
     let packages = PackageModules::default();
     let request = Request {

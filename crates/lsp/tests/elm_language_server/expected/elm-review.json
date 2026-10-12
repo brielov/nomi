@@ -1,0 +1,87 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "elm_review",
+          "fixes": [{"range":{"end":{"character":0,"line":9},"start":{"character":0,"line":5}},"string":""}],
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Top-level variable `unused` is not used",
+        "range": {
+          "end": {"character":6,"line":5},
+          "start": {"character":0,"line":5}
+        },
+        "severity": 2,
+        "source": "elm-review",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "elm_review",
+          "fixes": [],
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Expression can be simplified",
+        "range": {
+          "end": {"character":31,"line":12},
+          "start": {"character":26,"line":12}
+        },
+        "severity": 2,
+        "source": "elm-review"
+      },
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused top level definition `unused`",
+        "range": {
+          "end": {"character":6,"line":6},
+          "start": {"character":0,"line":6}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"fixId":"elm_review_fix"},
+          "diagnostics": [{"data":{"code":"elm_review","fixes":[{"range":{"end":{"character":0,"line":9},"start":{"character":0,"line":5}},"string":""}],"uri":"<project>/src/Main.elm"},"message":"Top-level variable `unused` is not used","range":{"end":{"character":6,"line":5},"start":{"character":0,"line":5}},"severity":2,"source":"elm-review","tags":[1]}],
+          "edit": {"changes":{"<project>/src/Main.elm":[{"newText":"","range":{"end":{"character":0,"line":9},"start":{"character":0,"line":5}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Apply elm-review fix"
+        },
+        {
+          "data": {"actionName":"expose_function","range":{"end":{"character":6,"line":5},"start":{"character":0,"line":5}},"refactorName":"expose_unexpose","uri":"<project>/src/Main.elm"},
+          "edit": {"changes":{"<project>/src/Main.elm":[{"newText":", unused","range":{"end":{"character":26,"line":0},"start":{"character":26,"line":0}}}]}},
+          "isPreferred": true,
+          "kind": "refactor",
+          "title": "Expose Function"
+        }
+      ]
+    },
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"actionName":"extract_top_level","range":{"end":{"character":31,"line":12},"start":{"character":26,"line":12}},"refactorName":"extract_function","renamePosition":{"character":26,"line":12},"uri":"<project>/src/Main.elm"},
+          "edit": {"changes":{"<project>/src/Main.elm":[{"newText":"\n\nnewFunction : number\nnewFunction =\n    1 + 2\n","range":{"end":{"character":0,"line":13},"start":{"character":0,"line":13}}},{"newText":"newFunction","range":{"end":{"character":31,"line":12},"start":{"character":26,"line":12}}}]}},
+          "isPreferred": false,
+          "kind": "refactor.extract",
+          "title": "Extract function to top level"
+        }
+      ]
+    }
+  ]
+}

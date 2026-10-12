@@ -28,6 +28,8 @@ editing/07 textDocument/completion
 editing/08 textDocument/codeLens
 editing/09 workspace/symbol
 editing/diagnostics
+elm-review/00 textDocument/codeAction
+elm-review/diagnostics
 els-add-missing-case-branches-001/diagnostics
 els-add-missing-case-branches-002/diagnostics
 els-add-missing-case-branches-003/diagnostics

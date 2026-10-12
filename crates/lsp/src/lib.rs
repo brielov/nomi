@@ -457,7 +457,8 @@ impl Server {
                 }
             }
         }
-        self.revise(false);
+        let changed = document.path.clone();
+        self.revise_changed(Some(changed));
     }
 
     fn close(&mut self, uri: &Url) {
@@ -475,6 +476,15 @@ impl Server {
     /// Lays the open documents over the disk as a new revision, and has
     /// it checked: a file opened or saved for it if `saved`.
     fn revise(&mut self, saved: bool) {
+        self.check(saved, Vec::new());
+    }
+
+    /// [`Server::revise`] after the editor changed the file at `changed`.
+    fn revise_changed(&mut self, changed: Option<PathBuf>) {
+        self.check(false, changed.into_iter().collect());
+    }
+
+    fn check(&mut self, saved: bool, changed: Vec<PathBuf>) {
         let snapshot = {
             let _held = self.publishing.lock().unwrap();
             let overlays: Vec<_> = self.documents.values().collect();
@@ -490,6 +500,7 @@ impl Server {
             snapshot,
             open,
             saved,
+            changed,
         });
     }
 

@@ -41,6 +41,21 @@ pub(crate) struct Settings {
     pub skip_install_confirmation: bool,
     /// Whether the client asks where to move a function, and moves it.
     pub move_function: bool,
+    /// How elm-review's problems show: not at all, as warnings or errors.
+    pub review: Review,
+    /// The elm-review, elm and elm-format the client names, if it does.
+    pub review_path: String,
+    pub elm_path: String,
+    pub elm_format_path: String,
+}
+
+/// `elmReviewDiagnostics`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Review {
+    #[default]
+    Off,
+    Warning,
+    Error,
 }
 
 impl Settings {
@@ -49,10 +64,24 @@ impl Settings {
         let section = value.get("elmLS").unwrap_or(value);
         let section = section.as_object()?;
         let flag = |name: &str| section.get(name).and_then(Value::as_bool).unwrap_or(false);
+        let text = |name: &str| {
+            (section.get(name).and_then(Value::as_str))
+                .unwrap_or_default()
+                .trim()
+                .to_owned()
+        };
         Some(Settings {
             on_save_only: flag("onlyUpdateDiagnosticsOnSave"),
             no_lint: flag("disableElmLSDiagnostics"),
             skip_install_confirmation: flag("skipInstallPackageConfirmation"),
+            review: match section.get("elmReviewDiagnostics").and_then(Value::as_str) {
+                Some("warning") => Review::Warning,
+                Some("error") => Review::Error,
+                _ => Review::Off,
+            },
+            review_path: text("elmReviewPath"),
+            elm_path: text("elmPath"),
+            elm_format_path: text("elmFormatPath"),
             move_function: (section.get("extendedCapabilities"))
                 .and_then(|e| e.get("moveFunctionRefactoringSupport"))
                 .and_then(Value::as_bool)
@@ -116,6 +145,8 @@ pub(crate) struct Job {
     pub snapshot: Snapshot,
     pub open: Vec<(Url, PathBuf)>,
     pub saved: bool,
+    /// The files the editor changed for it, whose elm-review problems go.
+    pub changed: Vec<PathBuf>,
 }
 
 /// The worker's end of the server.
@@ -151,24 +182,32 @@ fn work(shared: &Shared, jobs: &Receiver<Job>) {
     // Files published with problems, which are cleared when they have
     // none.
     let mut published: HashSet<Url> = HashSet::new();
+    // elm-review's problems by file, from the last open or save that ran
+    // it, less the files changed since.
+    let mut reviewed: HashMap<PathBuf, Vec<Problem>> = HashMap::new();
     while let Ok(mut job) = jobs.recv() {
         let mut saved = job.saved;
+        let mut changed = std::mem::take(&mut job.changed);
         loop {
             let wait = if saved { Duration::ZERO } else { DEBOUNCE };
             match jobs.recv_timeout(wait) {
-                Ok(next) => {
+                Ok(mut next) => {
                     saved |= next.saved;
+                    changed.append(&mut next.changed);
                     job = next;
                 }
                 Err(RecvTimeoutError::Timeout) => break,
                 Err(RecvTimeoutError::Disconnected) => return,
             }
         }
+        for path in &changed {
+            reviewed.remove(path);
+        }
         let settings = shared.settings.lock().unwrap().clone();
         if settings.on_save_only && !saved {
             continue;
         }
-        let found = problems(shared, &job, &settings);
+        let found = problems(shared, &job, &settings, saved, &mut reviewed);
         let mut by_file: HashMap<PathBuf, Vec<Problem>> = HashMap::new();
         for problem in &found {
             by_file
@@ -209,7 +248,13 @@ fn work(shared: &Shared, jobs: &Receiver<Job>) {
 /// The problems of every project with an open file: elm's, the lint
 /// rules' in open files, and the annotations they leave out, as
 /// `settings` has them.
-fn problems(shared: &Shared, job: &Job, settings: &Settings) -> Vec<Problem> {
+fn problems(
+    shared: &Shared,
+    job: &Job,
+    settings: &Settings,
+    saved: bool,
+    reviewed: &mut HashMap<PathBuf, Vec<Problem>>,
+) -> Vec<Problem> {
     let snapshot = &job.snapshot;
     let mut projects: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
     let mut found = Vec::new();
@@ -224,6 +269,7 @@ fn problems(shared: &Shared, job: &Job, settings: &Settings) -> Vec<Problem> {
     let mut memo = shared.memo.lock().unwrap().clone();
     for (manifest, open) in projects {
         let root = manifest.parent().unwrap_or(Path::new(""));
+        let before = found.len();
         match live::check(snapshot, &shared.store, &manifest, &open, &mut memo) {
             Some(live) => found.extend(nomi_ide::compiler_problems(snapshot, &live, &open)),
             None => {
@@ -232,6 +278,26 @@ fn problems(shared: &Shared, job: &Job, settings: &Settings) -> Vec<Problem> {
                 }
             }
         }
+        // elm-review, on open and save, once elm finds nothing; its
+        // problems go when elm finds some.
+        let clean = found.len() == before;
+        if saved || !clean {
+            reviewed.retain(|path, _| !path.starts_with(root));
+        }
+        if saved && clean {
+            for problem in review(snapshot, root, settings, shared.unit) {
+                reviewed
+                    .entry(problem.path.clone())
+                    .or_default()
+                    .push(problem);
+            }
+        }
+        let mut review_found: Vec<&Problem> = (reviewed.iter())
+            .filter(|(path, _)| path.starts_with(root))
+            .flat_map(|(_, problems)| problems)
+            .collect();
+        review_found.sort_by(|a, b| (&a.path, a.range.start()).cmp(&(&b.path, b.range.start())));
+        found.extend(review_found.into_iter().cloned());
         let analyse = Analyse::read(snapshot, root);
         let open: Vec<&PathBuf> = open.iter().filter(|p| !analyse.excludes(p)).collect();
         let annotations = !settings.on_save_only && analyse.checks.on("MissingTypeAnnotation");
@@ -266,6 +332,100 @@ fn problems(shared: &Shared, job: &Job, settings: &Settings) -> Vec<Problem> {
     found
 }
 
+/// elm-review's problems in the project at `root`, where the client
+/// turned it on and the project configures it: its CLI's JSON report,
+/// as elm-language-server runs it.
+fn review(snapshot: &Snapshot, root: &Path, settings: &Settings, unit: ColumnUnit) -> Vec<Problem> {
+    if settings.review == Review::Off || !root.join("review/src/ReviewConfig.elm").is_file() {
+        return Vec::new();
+    }
+    let program = match settings.review_path.as_str() {
+        "" => PathBuf::from("elm-review"),
+        // A path the client gives relative is the project's.
+        path if path.contains(['/', '\\']) => root.join(path),
+        path => PathBuf::from(path),
+    };
+    let mut command = if cfg!(windows) && program.extension().is_some_and(|e| e == "js") {
+        // Windows runs no script by its first line.
+        let mut node = std::process::Command::new("node");
+        node.arg(&program);
+        node
+    } else {
+        std::process::Command::new(&program)
+    };
+    command.args(["--report", "json", "--namespace", "vscode"]);
+    if !settings.elm_path.is_empty() {
+        command.args(["--compiler", &settings.elm_path]);
+    }
+    if !settings.elm_format_path.is_empty() {
+        command.args(["--elm-format-path", &settings.elm_format_path]);
+    }
+    let Ok(output) = command
+        .current_dir(root)
+        .stdin(std::process::Stdio::null())
+        .output()
+    else {
+        return Vec::new();
+    };
+    if output.status.success() {
+        return Vec::new();
+    }
+    let Ok(report) = serde_json::from_slice::<Value>(&output.stdout) else {
+        return Vec::new();
+    };
+    if report["type"] != "review-errors" {
+        return Vec::new();
+    }
+    let severity = match settings.review {
+        Review::Error => Severity::Error,
+        _ => Severity::Warning,
+    };
+    let mut found = Vec::new();
+    for file in report["errors"].as_array().into_iter().flatten() {
+        let path = root.join(file["path"].as_str().unwrap_or_default());
+        let Ok(text) = snapshot.read(&path) else {
+            continue;
+        };
+        let text = Text::new(&text, unit);
+        let range = |region: &Value| {
+            let at = |p: &Value| {
+                let position = lsp_types::Position::new(
+                    (p["line"].as_u64().unwrap_or(1) as u32).saturating_sub(1),
+                    (p["column"].as_u64().unwrap_or(1) as u32).saturating_sub(1),
+                );
+                text.offset(position)
+            };
+            let (start, end) = (at(&region["start"]), at(&region["end"]));
+            nomi_base::TextRange::new(start, end.max(start))
+        };
+        for error in file["errors"].as_array().into_iter().flatten() {
+            if error["suppressed"].as_bool() == Some(true) {
+                continue;
+            }
+            let fixes = (error["fix"].as_array().into_iter().flatten())
+                .map(|fix| nomi_ide::Edit {
+                    range: range(&fix["range"]),
+                    text: fix["string"].as_str().unwrap_or_default().to_owned(),
+                })
+                .collect();
+            found.push(Problem {
+                path: path.clone(),
+                range: range(&error["region"]),
+                severity,
+                message: error["message"].as_str().unwrap_or_default().to_owned(),
+                source: "elm-review",
+                code: "elm_review",
+                unnecessary: error["rule"]
+                    .as_str()
+                    .is_some_and(|r| r.starts_with("NoUnused")),
+                relative: None,
+                fixes,
+            });
+        }
+    }
+    found
+}
+
 /// The syntax error in the file at `path`, for a file nomi can't check
 /// with its project: one outside any, or whose dependencies the store
 /// doesn't hold.
@@ -286,6 +446,7 @@ fn syntax(snapshot: &Snapshot, path: &Path, root: Option<&Path>) -> Vec<Problem>
             code: "elm_make",
             unnecessary: false,
             relative: Some(relative.join("/")),
+            fixes: Vec::new(),
         })
         .collect()
 }
@@ -302,7 +463,14 @@ fn diagnostic(problem: &Problem, uri: &Url, text: &Text) -> Diagnostic {
         source: Some(problem.source.to_owned()),
         message: problem.message.clone(),
         tags: (problem.unnecessary).then(|| vec![DiagnosticTag::UNNECESSARY]),
-        data: Some(json!({ "uri": data_uri, "code": problem.code })),
+        data: Some(if problem.code == "elm_review" {
+            let fixes: Vec<Value> = (problem.fixes.iter())
+                .map(|f| json!({ "string": f.text, "range": text.range(f.range) }))
+                .collect();
+            json!({ "uri": data_uri, "code": problem.code, "fixes": fixes })
+        } else {
+            json!({ "uri": data_uri, "code": problem.code })
+        }),
         ..Diagnostic::default()
     }
 }
@@ -331,8 +499,7 @@ mod tests {
             on_save_only: true,
             no_lint: false,
             expose_commands: false,
-            skip_install_confirmation: false,
-            move_function: false,
+            ..Settings::default()
         };
         let section = json!({ "onlyUpdateDiagnosticsOnSave": true });
         assert_eq!(Settings::read(&section), Some(on.clone()));

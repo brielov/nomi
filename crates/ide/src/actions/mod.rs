@@ -56,6 +56,8 @@ pub struct Diagnosed {
     pub source: String,
     /// Whether it marks code nothing needs.
     pub unnecessary: bool,
+    /// The edits that fix it, which elm-review gives.
+    pub fixes: Vec<Edit>,
 }
 
 impl Diagnosed {
@@ -67,6 +69,7 @@ impl Diagnosed {
             severity: problem.severity,
             source: problem.source.to_owned(),
             unnecessary: problem.unnecessary,
+            fixes: problem.fixes.clone(),
         }
     }
 }
@@ -312,6 +315,13 @@ const FIXES: &[Fix] = &[
             "Add all missing case branches",
             AllEdits::Here(case_branch_all),
         )),
+    },
+    Fix {
+        id: "elm_review_fix",
+        codes: &["elm_review"],
+        reports: None,
+        actions: review_actions,
+        all: None,
     },
     Fix {
         id: "add_missing_union_type",
@@ -708,4 +718,19 @@ fn merge(files: &mut FileEdits, more: FileEdits) {
             None => files.push((path, edits)),
         }
     }
+}
+
+/// `elmReviewFixAction`: elm-review's fix for each diagnostic the editor
+/// sent that has one, as elm-language-server offers all of them for each.
+fn review_actions(fixing: &Fixing<'_>, _range: TextRange) -> Vec<Offer> {
+    (fixing.given.iter())
+        .filter(|d| d.code == "elm_review" && !d.fixes.is_empty())
+        .map(|d| {
+            (
+                "Apply elm-review fix".to_owned(),
+                here(fixing, d.fixes.clone()),
+                None,
+            )
+        })
+        .collect()
 }

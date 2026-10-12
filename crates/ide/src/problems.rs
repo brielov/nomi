@@ -52,6 +52,8 @@ pub struct Problem {
     /// for elm's reports, as elm-language-server keeps them; none for its
     /// URI.
     pub relative: Option<String>,
+    /// The edits that fix it, which elm-review gives.
+    pub fixes: Vec<crate::Edit>,
 }
 
 /// The problems elm reports in the project `live` checked: each module's,
@@ -76,6 +78,7 @@ pub fn compiler_problems(snapshot: &Snapshot, live: &Live, open: &[PathBuf]) -> 
                     code: code(&report.title),
                     unnecessary: false,
                     relative: Some(relative(path)),
+                    fixes: Vec::new(),
                 })
                 .collect()
         }
@@ -96,6 +99,7 @@ pub fn compiler_problems(snapshot: &Snapshot, live: &Live, open: &[PathBuf]) -> 
                         code: code(&report.title),
                         unnecessary: false,
                         relative: Some(relative(&path)),
+                        fixes: Vec::new(),
                     });
                 }
             }
@@ -233,6 +237,7 @@ pub fn missing_annotations(index: &Index, path: &Path) -> Vec<Problem> {
             code: "missing_type_annotation",
             unnecessary: false,
             relative: None,
+            fixes: Vec::new(),
         });
     }
     problems

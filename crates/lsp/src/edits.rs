@@ -308,6 +308,20 @@ impl Server {
                 },
                 source: d.source.clone().unwrap_or_default(),
                 unnecessary: (d.tags.iter().flatten()).any(|t| *t == DiagnosticTag::UNNECESSARY),
+                // elm-review's fixes, as its diagnostic carries them.
+                fixes: (d.data.as_ref())
+                    .and_then(|data| data["fixes"].as_array())
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|fix| {
+                        let range: lsp_types::Range =
+                            serde_json::from_value(fix["range"].clone()).ok()?;
+                        Some(nomi_ide::Edit {
+                            range: text.text_range(range),
+                            text: fix["string"].as_str()?.to_owned(),
+                        })
+                    })
+                    .collect(),
             })
             .collect();
         let problems = (self.latest.lock().unwrap().get(&path).cloned()).unwrap_or_default();

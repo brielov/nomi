@@ -1,0 +1,10 @@
+{
+    "settings": { "elmReviewDiagnostics": "warning", "elmReviewPath": "./review-stub.js" },
+    "open": ["src/Main.elm"],
+    "requests": [
+        { "method": "textDocument/codeAction", "file": "src/Main.elm",
+          "at": { "line": 5, "character": 2 } },
+        { "method": "textDocument/codeAction", "file": "src/Main.elm",
+          "at": { "line": 12, "character": 28 } }
+    ]
+}
