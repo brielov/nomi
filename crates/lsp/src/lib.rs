@@ -667,14 +667,17 @@ fn completion_item(c: nomi_ide::Completion, text: &Text, label_details: bool) ->
     if c.preselect {
         item.insert("preselect".into(), serde_json::json!(true));
     }
-    if c.snippet {
+    if let Some(snippet) = c.snippet {
+        item.insert("insertText".into(), serde_json::json!(snippet));
         item.insert("insertTextFormat".into(), serde_json::json!(2));
     }
-    let edit = TextEdit::new(text.range(c.edit.range), c.edit.text);
-    item.insert(
-        "textEdit".into(),
-        serde_json::to_value(edit).expect("an edit serializes"),
-    );
+    if let Some(edit) = c.edit {
+        let edit = TextEdit::new(text.range(edit.range), edit.text);
+        item.insert(
+            "textEdit".into(),
+            serde_json::to_value(edit).expect("an edit serializes"),
+        );
+    }
     if !c.additional_edits.is_empty() {
         let edits: Vec<TextEdit> = (c.additional_edits.into_iter())
             .map(|e| TextEdit::new(text.range(e.range), e.text))

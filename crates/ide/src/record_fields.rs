@@ -119,7 +119,7 @@ fn typed_fields(
 
 /// The tree and types of `module` with `insert` in place of `replaced`, where
 /// that parses and canonicalizes: a half-written record made whole.
-fn patched(
+pub(crate) fn patched(
     index: &Index,
     module: &Indexed,
     replaced: TextRange,
@@ -249,7 +249,7 @@ fn alias_fields(alias: &Alias, range: TextRange) -> Vec<Completion> {
 }
 
 /// `createFieldOrParameterCompletion` with `createHintForTypeAliasReference`.
-fn field_completion(label: &str, ty: &str, alias: &str, range: TextRange) -> Completion {
+pub(crate) fn field_completion(label: &str, ty: &str, alias: &str, range: TextRange) -> Completion {
     let refers = if alias.is_empty() {
         format!("Refers to the `{label}` field")
     } else {
@@ -265,11 +265,11 @@ fn field_completion(label: &str, ty: &str, alias: &str, range: TextRange) -> Com
         label_detail: (ty != "unknown").then(|| format!(" : {ty}")),
         label_description: None,
         preselect: true,
-        edit: Edit {
+        edit: Some(Edit {
             range,
             text: label.to_owned(),
-        },
-        snippet: false,
+        }),
+        snippet: None,
         additional_edits: Vec::new(),
     }
 }

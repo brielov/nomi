@@ -154,7 +154,7 @@ even if advised of the possibility of such damage.
 
 ## elm-language-server
 
-Source: https://github.com/elm-tooling/elm-language-server. Ported into the ide and lsp crates.
+Source: https://github.com/elm-tooling/elm-language-server. Ported into the ide and lsp crates. Its completion data, the package ranking and the snippets, is copied into `crates/ide/src/completion_data.rs`.
 
 ```text
 MIT License

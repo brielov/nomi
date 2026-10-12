@@ -53,10 +53,11 @@ pub struct Completion {
     /// The module after the label, for an auto-import.
     pub label_description: Option<String>,
     pub preselect: bool,
-    /// What the completion replaces, and with what.
-    pub edit: Edit,
-    /// Whether the edit's text is a snippet.
-    pub snippet: bool,
+    /// What the completion replaces, and with what; none for a snippet
+    /// or a keyword, which the editor inserts as it sees fit.
+    pub edit: Option<Edit>,
+    /// A snippet's text.
+    pub snippet: Option<String>,
     pub additional_edits: Vec<Edit>,
 }
 
@@ -186,9 +187,20 @@ pub fn completions(
     {
         return Some(Completions::List(fields));
     }
-    // Everything else is the general list (plan 9.9).
-    let _ = context;
-    Some(Completions::Incomplete(Vec::new(), false))
+    // At a line's start: what may start a declaration.
+    if word_start == 0 {
+        return Some(Completions::List(crate::completion_general::start_of_line(
+            &context,
+            range(0),
+        )));
+    }
+    // Everything else: the general list.
+    Some(crate::completion_general::general(
+        &context,
+        offset,
+        range(word_start),
+        word,
+    ))
 }
 
 /// Where the word before `column` starts: letters, digits, `_` and dots.
@@ -282,6 +294,10 @@ impl Context<'_> {
                     let Some(definition) = child(&decl, SyntaxKind::Definition) else {
                         continue;
                     };
+                    // One without a body yet is no declaration to it.
+                    if !definition.children().any(|c| is_expr(c.kind())) {
+                        continue;
+                    }
                     let Some(name) = crate::lint::first_token(&definition, SyntaxKind::LowerIdent)
                     else {
                         continue;
@@ -373,8 +389,11 @@ impl Context<'_> {
 
     /// A top-level value's or constructor's type, as label details, as the
     /// module writes it.
-    fn value_detail(&self, name: &str) -> Option<String> {
-        let canonical = self.module.canonical.as_ref()?;
+    pub(crate) fn value_detail(&self, name: &str) -> Option<String> {
+        let Some(canonical) = self.module.canonical.as_ref() else {
+            // A constructor's type is in its declaration.
+            return written_constructor_type(&self.module.root, name);
+        };
         let localizer = crate::hover::Names::of(self.index, self.module);
         let annotation = match nomi_compiler::types::infer(self.index.compat, canonical) {
             Ok(inferred) => inferred.get(name).cloned(),
@@ -401,7 +420,7 @@ impl Context<'_> {
             let documentation = crate::hover::declaration_hint(&root, &exposed.name, None);
             match exposed.kind {
                 Exposed::Alias => found.push(item(
-                    exposed.name.text(),
+                    exposed.label.as_str(),
                     CompletionKind::Struct,
                     "c",
                     range,
@@ -410,7 +429,7 @@ impl Context<'_> {
                 )),
                 Exposed::Type { variants } => {
                     if !variants.is_empty() {
-                        let label = format!("{}(..)", exposed.name.text());
+                        let label = format!("{}(..)", exposed.label.as_str());
                         found.push(item(
                             &label,
                             CompletionKind::Enum,
@@ -421,7 +440,7 @@ impl Context<'_> {
                         ));
                     }
                     found.push(item(
-                        exposed.name.text(),
+                        exposed.label.as_str(),
                         CompletionKind::Enum,
                         "c",
                         range,
@@ -429,10 +448,10 @@ impl Context<'_> {
                         None,
                     ));
                 }
-                Exposed::Value => {
-                    let detail = self.foreign_detail(name, exposed.name.text());
+                Exposed::Value | Exposed::Operator => {
+                    let detail = self.foreign_detail(name, exposed.label.as_str());
                     found.push(item(
-                        exposed.name.text(),
+                        exposed.label.as_str(),
                         CompletionKind::Function,
                         "c",
                         range,
@@ -447,8 +466,9 @@ impl Context<'_> {
 
     /// The type of `name` in the module `home`, as label details, as this
     /// module writes it.
-    fn foreign_detail(&self, home: &str, name: &str) -> Option<String> {
-        let localizer = crate::hover::Names::of(self.index, self.module);
+    pub(crate) fn foreign_detail(&self, home: &str, name: &str) -> Option<String> {
+        let written = (self.module_source(home)).and_then(|(root, _)| signature_text(&root, name));
+        let localizer = crate::hover::Names::of(self.index, self.module).written_as(written);
         let interface = self.index.interfaces.get(home)?;
         if let Some(annotation) = interface.values.get(name) {
             return Some(format!(
@@ -465,7 +485,7 @@ impl Context<'_> {
     /// it, where given.
     fn importable(&self, range: TextRange, under: Option<&str>) -> Vec<Completion> {
         let mut found = Vec::new();
-        for (name, path) in importable_modules(self.snapshot, self.index, self.path) {
+        for (name, path, _) in importable_modules(self.snapshot, self.index, self.path) {
             if name == self.module.name {
                 continue;
             }
@@ -526,7 +546,7 @@ impl Context<'_> {
             }
         }
         if matched.is_empty() && !imports.iter().any(|(n, _)| n == target) {
-            for (name, _) in importable_modules(self.snapshot, self.index, self.path) {
+            for (name, _, _) in importable_modules(self.snapshot, self.index, self.path) {
                 let fits = if target.contains('.') {
                     name == target
                 } else {
@@ -545,16 +565,18 @@ impl Context<'_> {
             for exposed in exposed(&root) {
                 let mut completions = Vec::new();
                 match &exposed.kind {
+                    // `getSubmodulesOrValues` has no operators.
+                    Exposed::Operator => {}
                     Exposed::Value => {
-                        let detail = self.foreign_detail(&name, exposed.name.text());
+                        let detail = self.foreign_detail(&name, exposed.label.as_str());
                         let ty = detail
                             .as_deref()
                             .map(|d| d.trim_start_matches(" : ").to_owned());
-                        let annotation = ty.map(|ty| format!("{} : {ty}", exposed.name.text()));
+                        let annotation = ty.map(|ty| format!("{} : {ty}", exposed.label.as_str()));
                         let documentation =
                             crate::hover::declaration_hint(&root, &exposed.name, annotation);
                         completions.push(item(
-                            exposed.name.text(),
+                            exposed.label.as_str(),
                             CompletionKind::Function,
                             "a",
                             range,
@@ -566,7 +588,7 @@ impl Context<'_> {
                         let documentation =
                             crate::hover::declaration_hint(&root, &exposed.name, None);
                         completions.push(item(
-                            exposed.name.text(),
+                            exposed.label.as_str(),
                             CompletionKind::Struct,
                             "a",
                             range,
@@ -578,7 +600,7 @@ impl Context<'_> {
                         let documentation =
                             crate::hover::declaration_hint(&root, &exposed.name, None);
                         completions.push(item(
-                            exposed.name.text(),
+                            exposed.label.as_str(),
                             CompletionKind::Enum,
                             "a",
                             range,
@@ -654,12 +676,12 @@ impl Context<'_> {
     /// The source of the module `name`: a dependency's, as
     /// elm-language-server prefers where the project has one of the same
     /// name too, which elm itself refuses; or else the project's.
-    fn module_source(&self, name: &str) -> Option<(SyntaxNode, PathBuf)> {
+    pub(crate) fn module_source(&self, name: &str) -> Option<(SyntaxNode, PathBuf)> {
         let dependency = importable_modules(self.snapshot, self.index, self.path)
             .into_iter()
             .skip(self.index.modules.len())
-            .find(|(module, _)| module == name)
-            .and_then(|(_, path)| path);
+            .find(|(module, _, _)| module == name)
+            .and_then(|(_, path, _)| path);
         let path = match dependency {
             Some(path) => path,
             None => crate::navigation::module_path(self.index, name)?,
@@ -667,6 +689,47 @@ impl Context<'_> {
         let text = self.snapshot.read(&path).ok()?;
         Some((parse_module(&text).syntax(), path))
     }
+}
+
+/// A constructor's type as its custom type's declaration writes it: its
+/// arguments, then the type with its parameters.
+fn written_constructor_type(root: &SyntaxNode, name: &str) -> Option<String> {
+    let variant = root
+        .children()
+        .filter(|n| n.kind() == SyntaxKind::CustomTypeDecl)
+        .flat_map(|d| {
+            d.children()
+                .filter(|c| c.kind() == SyntaxKind::Variant)
+                .collect::<Vec<_>>()
+        })
+        .find(|v| token(v, SyntaxKind::UpperIdent).as_deref() == Some(name))?;
+    let union = variant.parent()?;
+    let mut result = token(&union, SyntaxKind::UpperIdent)?;
+    for param in union
+        .children()
+        .filter(|c| c.kind() == SyntaxKind::TypeParam)
+    {
+        result.push(' ');
+        result.push_str(&words(&param));
+    }
+    let mut parts: Vec<String> = (variant.children())
+        .filter(|c| crate::lint::is_type(c.kind()))
+        .map(|t| words(&t))
+        .collect();
+    parts.push(result);
+    Some(format!(" : {}", parts.join(" -> ")))
+}
+
+/// The annotation the top-level value `name` of the module of `root` is
+/// written with.
+fn signature_text(root: &SyntaxNode, name: &str) -> Option<String> {
+    let decl = (root.children()).find(|d| {
+        d.kind() == SyntaxKind::ValueDecl
+            && child(d, SyntaxKind::Definition)
+                .and_then(|def| crate::lint::first_token(&def, SyntaxKind::LowerIdent))
+                .is_some_and(|t| t.text() == name)
+    })?;
+    Some(child(&decl, SyntaxKind::Signature)?.text().to_string())
 }
 
 /// A constructor's type as label details: its arguments, then its
@@ -706,15 +769,24 @@ fn constructor_type(
 }
 
 /// What a module exposes, in its exposing list's order.
-enum Exposed {
+pub(crate) enum Exposed {
+    /// An operator, which an explicit list exposes, and its infix
+    /// declaration.
+    Operator,
     Value,
     Alias,
-    Type { variants: Vec<SyntaxToken> },
+    Type {
+        variants: Vec<SyntaxToken>,
+    },
 }
 
-struct ExposedName {
-    name: SyntaxToken,
-    kind: Exposed,
+pub(crate) struct ExposedName {
+    /// What it's called: an operator's symbol.
+    pub(crate) label: String,
+    /// The name its declaration has: an operator's function's, as
+    /// `TreeUtils.findOperator` finds it.
+    pub(crate) name: SyntaxToken,
+    pub(crate) kind: Exposed,
 }
 
 /// The names a module's header exposes, as `ISourceFile.exposing` has
@@ -722,7 +794,7 @@ struct ExposedName {
 /// each in the list's order. `(..)` gives the module's names in the order
 /// they first went into its scope: the default imports' names first,
 /// then its declarations'.
-fn exposed(root: &SyntaxNode) -> Vec<ExposedName> {
+pub(crate) fn exposed(root: &SyntaxNode) -> Vec<ExposedName> {
     let Some(header) = child(root, SyntaxKind::ModuleHeader) else {
         return Vec::new();
     };
@@ -759,6 +831,7 @@ fn exposed(root: &SyntaxNode) -> Vec<ExposedName> {
             _ => Exposed::Value,
         };
         ExposedName {
+            label: name.text().to_owned(),
             name: name.clone(),
             kind,
         }
@@ -785,6 +858,37 @@ fn exposed(root: &SyntaxNode) -> Vec<ExposedName> {
     let mut found = Vec::new();
     for item in items
         .iter()
+        .filter(|i| i.kind() == SyntaxKind::ExposedOperator)
+    {
+        let written = words(item);
+        let op = written
+            .trim_start_matches('(')
+            .trim_end_matches(')')
+            .trim()
+            .to_owned();
+        let infix = (root.children())
+            .filter(|n| n.kind() == SyntaxKind::InfixDecl)
+            .find(|n| {
+                n.children()
+                    .any(|c| c.kind() == SyntaxKind::Op && words(&c) == op)
+            });
+        let function = infix.and_then(|i| {
+            (i.children_with_tokens())
+                .filter_map(|e| e.into_token())
+                .filter(|t| t.kind() == SyntaxKind::LowerIdent)
+                .last()
+        });
+        let name = function.and_then(|f| declared(f.text()).map(|(_, token)| token.clone()));
+        if let Some(name) = name {
+            found.push(ExposedName {
+                label: op,
+                name,
+                kind: Exposed::Operator,
+            });
+        }
+    }
+    for item in items
+        .iter()
         .filter(|i| i.kind() == SyntaxKind::ExposedValue)
     {
         if let Some((decl, name)) = declared(&words(item)) {
@@ -802,7 +906,7 @@ fn exposed(root: &SyntaxNode) -> Vec<ExposedName> {
 }
 
 /// The modules every module imports, by name and alias.
-fn default_imports() -> Vec<(String, Option<String>)> {
+pub(crate) fn default_imports() -> Vec<(String, Option<String>)> {
     [
         ("Basics", None),
         ("List", None),
@@ -821,16 +925,16 @@ fn default_imports() -> Vec<(String, Option<String>)> {
     .collect()
 }
 
-/// The modules the project of `path` may import, each with its file:
-/// its own, then each direct dependency's exposed modules, in `elm.json`
-/// order.
+/// The modules the project of `path` may import, each with its file and
+/// package: its own, then each direct dependency's exposed modules, in
+/// `elm.json` order.
 pub(crate) fn importable_modules(
     snapshot: &Snapshot,
     index: &Index,
     path: &Path,
-) -> Vec<(String, Option<PathBuf>)> {
-    let mut found: Vec<(String, Option<PathBuf>)> = (index.modules.iter())
-        .map(|m| (m.name.clone(), Some(m.path.clone())))
+) -> Vec<(String, Option<PathBuf>, Option<String>)> {
+    let mut found: Vec<(String, Option<PathBuf>, Option<String>)> = (index.modules.iter())
+        .map(|m| (m.name.clone(), Some(m.path.clone()), None))
         .collect();
     let Some(manifest) = nomi_engine::index::manifest(snapshot, path) else {
         return found;
@@ -869,7 +973,7 @@ pub(crate) fn importable_modules(
                 .collect();
             let module = parts.join(".");
             if exposed.contains(&module) {
-                found.push((module, Some(file)));
+                found.push((module, Some(file), Some(package.clone())));
             }
         }
     }
@@ -942,11 +1046,11 @@ pub(crate) fn item(
         label_detail: label_detail.filter(|d| !d.contains("unknown")),
         label_description: None,
         preselect: false,
-        edit: Edit {
+        edit: Some(Edit {
             range,
             text: label.to_owned(),
-        },
-        snippet: false,
+        }),
+        snippet: None,
         additional_edits: Vec::new(),
     }
 }

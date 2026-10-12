@@ -115,3 +115,37 @@ pub(crate) fn code_range(node: &SyntaxNode) -> Option<TextRange> {
         last.text_range().end(),
     ))
 }
+
+/// A top-level declaration's range as tree-sitter-elm's node has it:
+/// [`code_range`], and for a custom type, the line comments after it
+/// where a block comment comes next, through blank lines.
+pub(crate) fn declaration_range(node: &SyntaxNode) -> Option<TextRange> {
+    let range = code_range(node)?;
+    // A custom type's last variant might go on with arguments, so the
+    // comments after it wait to see; an alias's don't.
+    if node.kind() != SyntaxKind::CustomTypeDecl {
+        return Some(range);
+    }
+    let last = node
+        .descendants_with_tokens()
+        .filter_map(|e| e.into_token())
+        .filter(|t| t.text_range().end() == range.end())
+        .last()?;
+    let mut comments = range.end();
+    let mut next = last.next_token();
+    while let Some(token) = next {
+        match token.kind() {
+            SyntaxKind::Whitespace | SyntaxKind::Newline => {}
+            SyntaxKind::LineComment => comments = token.text_range().end(),
+            // Its scanner ends the declaration at the next code, before
+            // the comments that lead to it, but past those that lead to a
+            // block comment, which it can't look past.
+            SyntaxKind::BlockComment | SyntaxKind::DocComment => {
+                return Some(TextRange::new(range.start(), comments));
+            }
+            _ => break,
+        }
+        next = token.next_token();
+    }
+    Some(range)
+}

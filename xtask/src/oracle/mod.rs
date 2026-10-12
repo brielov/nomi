@@ -7,6 +7,7 @@ pub mod format;
 pub mod javascript;
 pub mod lsp;
 pub mod lsp_import;
+pub mod lsp_tables;
 pub mod make;
 pub mod modules;
 pub mod names;

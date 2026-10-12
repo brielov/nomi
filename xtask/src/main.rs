@@ -284,6 +284,9 @@ enum OracleCommand {
     /// Write elm-language-server's provider tests as language-server
     /// cases (plan 9.2).
     LspImport,
+    /// Write elm-language-server's completion data: its package ranking,
+    /// snippets and keywords (plan 9.9).
+    LspTables,
 }
 
 fn main() -> ExitCode {
@@ -341,6 +344,7 @@ fn main() -> ExitCode {
             OracleCommand::Solver => oracle::solver::run(&root(), &r),
             OracleCommand::Lsp { only } => oracle::lsp::run(&root(), &r, only.as_deref()),
             OracleCommand::LspImport => oracle::lsp_import::run(&root()),
+            OracleCommand::LspTables => oracle::lsp_tables::run(&root()),
         }),
         Command::Ratchet { suite } => ratchet(&root(), &suite),
         Command::Fuzz { target, runs, jobs } => fuzz::run(

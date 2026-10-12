@@ -730,7 +730,24 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
     - An import of no module answers `null`, not an empty list.
     - The default imports' names enter scope first, so a module's own `type Maybe` comes before its other names.
     - elm-language-server qualifies a type's name only where its module is imported and no import exposes that spelling.
-- [ ] **9.9** `ide: completion everywhere else`. The general list: the module's top-level names, the scope's, what imports expose, its inline snippets and keywords, and up to 49 auto-imports with their edit and `isIncomplete`. At the start of a line: its declaration snippets, keywords, and functions used but not defined. **Check:** the rest of the completion cases.
+- [x] **9.9** `ide: completion everywhere else`. The general list: the module's top-level names, the scope's, what imports expose, its inline snippets and keywords, and up to 49 auto-imports with their edit and `isIncomplete`. At the start of a line: its declaration snippets, keywords, and functions used but not defined. **Check:** the rest of the completion cases.
+
+  Done:
+  - **General list.** `ide::completion_general` builds it as `completionProvider.ts` does:
+    - top levels as `b`, with a written annotation where nothing infers a type;
+    - the scope's names as `a0`… by their place among all the scopes' symbols;
+    - its `Imports` map ported whole (default imports first, qualified then exposed names, values then types then constructors), with its `d`, `e` and ranked `e0001` prefixes and filter texts;
+    - `List`;
+    - its inline snippets and keywords;
+    - up to 49 auto-imports, sorted as it sorts them and incomplete past 50.
+  - **Start of a line.** A snippet for each function used but not defined, then its keywords and snippets.
+  - **Data.** `cargo xtask oracle lsp-tables` copies its package ranking and snippets into `crates/ide/src/completion_data.rs`.
+  - **Result.** 44 of the 55 completion cases match, and the ratchet goes from 716 to 733 of 850. Seven of the 11 left need types in modules that don't canonicalize, where its own checker carries on past errors; four are the projects declaring their own `List` or `Maybe`.
+  - **Surprises.**
+    - An operator's documentation is the hint of the function its infix declaration names (`TreeUtils.findOperator`).
+    - tree-sitter-elm's node for a custom type takes the line comments after it, through blank lines, when a block comment comes next: elm/core's `-- NOTE: The compiler provides the real implementation.` is part of `type Int = Int`. An alias's node never does.
+    - Interfaces keep a record's fields by name. It writes them in the order the annotation does, so label details read that order from the declaring module's annotation.
+    - A value without a body yet is no declaration to it, so the function being written isn't offered.
 - [ ] **9.10** `ide: workspace symbols, folding, selection ranges and linked editing`.
 - [ ] **9.11** `ide: code lens`. Exposed or local, and reference counts, resolved lazily.
 - [ ] **9.12** `ide: code action machinery and import fixes`.

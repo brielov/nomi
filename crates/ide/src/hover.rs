@@ -172,7 +172,8 @@ pub(crate) fn declaration_hint(
         }
         SyntaxKind::TypeAliasDecl | SyntaxKind::CustomTypeDecl => {
             let comment = doc_of(&parent);
-            format_hint("", &comment, Some(&text_of(&parent)?))
+            let range = crate::symbols::declaration_range(&parent)?;
+            format_hint("", &comment, Some(&text_in(root, range)))
         }
         SyntaxKind::Variant => {
             let union = parent.parent()?;
@@ -379,6 +380,11 @@ pub(crate) fn render(localizer: &Names, ty: &canonical::Type) -> String {
         T::Record(fields, extension) => {
             let mut fields: Vec<_> = fields.iter().collect();
             fields.sort_by_key(|(_, f)| f.order);
+            if let Some(written) = &localizer.written {
+                fields.sort_by_key(|(name, _)| {
+                    written.find(&format!("{name} :")).unwrap_or(usize::MAX)
+                });
+            }
             let fields: Vec<String> = (fields.iter())
                 .map(|(name, f)| format!("{name} : {}", render(localizer, &f.ty)))
                 .collect();
@@ -488,6 +494,10 @@ fn named(localizer: &Names, home: &Home, name: &str, args: &[(String, bool)]) ->
 pub(crate) struct Names {
     exposed: std::collections::HashSet<String>,
     imports: Vec<(String, Option<String>)>,
+    /// An annotation as written, whose records' fields come in its
+    /// order: an interface's types have lost it, and elm-language-server
+    /// keeps the annotation's.
+    written: Option<String>,
 }
 
 impl Names {
@@ -548,7 +558,15 @@ impl Names {
                     )
                 })
                 .collect(),
+            written: None,
         }
+    }
+
+    /// These names, writing records' fields in the order `annotation`
+    /// writes them.
+    pub(crate) fn written_as(mut self, annotation: Option<String>) -> Names {
+        self.written = annotation;
+        self
     }
 
     fn qualify(&self, home: &Home, name: &str) -> String {
