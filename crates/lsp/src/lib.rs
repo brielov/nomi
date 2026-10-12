@@ -106,6 +106,12 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
         document_symbol_provider: Some(OneOf::Left(true)),
         definition_provider: Some(OneOf::Left(true)),
         type_definition_provider: Some(lsp_types::TypeDefinitionProviderCapability::Simple(true)),
+        folding_range_provider: Some(lsp_types::FoldingRangeProviderCapability::Simple(true)),
+        selection_range_provider: Some(lsp_types::SelectionRangeProviderCapability::Simple(true)),
+        linked_editing_range_provider: Some(
+            lsp_types::LinkedEditingRangeServerCapabilities::Simple(true),
+        ),
+        workspace_symbol_provider: Some(OneOf::Left(true)),
         rename_provider: Some(OneOf::Right(lsp_types::RenameOptions {
             prepare_provider: Some(true),
             work_done_progress_options: lsp_types::WorkDoneProgressOptions::default(),
@@ -229,6 +235,20 @@ impl Server {
             GotoTypeDefinition::METHOD => parse(request).and_then(|p: GotoDefinitionParams| {
                 self.type_definition(&p.text_document_position_params)
             }),
+            "textDocument/foldingRange" => parse(request)
+                .and_then(|p: lsp_types::FoldingRangeParams| self.folding(&p.text_document.uri)),
+            "textDocument/selectionRange" => {
+                parse(request).and_then(|p: lsp_types::SelectionRangeParams| {
+                    self.selection(&p.text_document.uri, &p.positions)
+                })
+            }
+            "textDocument/linkedEditingRange" => {
+                parse(request).and_then(|p: lsp_types::LinkedEditingRangeParams| {
+                    self.linked(&p.text_document_position_params)
+                })
+            }
+            "workspace/symbol" => parse(request)
+                .and_then(|p: lsp_types::WorkspaceSymbolParams| self.workspace_symbols(&p.query)),
             PrepareRenameRequest::METHOD => {
                 parse(request).and_then(|p: TextDocumentPositionParams| self.prepare_rename(&p))
             }
@@ -469,6 +489,101 @@ impl Server {
             .and_then(|l| self.location(&snapshot, l))
             .map(GotoDefinitionResponse::Scalar);
         Ok(serde_json::to_value(response).expect("a definition serializes"))
+    }
+
+    fn folding(&self, uri: &Url) -> Result<Value, (ErrorCode, String)> {
+        let document = self.document(uri)?;
+        let folds = nomi_ide::folding_ranges(&self.vfs.snapshot(), &document.path)
+            .map_err(|e| (ErrorCode::InternalError, e.to_string()))?;
+        let text = Text::new(&document.text, self.unit);
+        let folds: Vec<Value> = (folds.into_iter())
+            .map(|f| {
+                let (start, end) = (text.position(f.start), text.position(f.end));
+                // A branch folds from the line above it, at its column.
+                let start_line = if f.line_before {
+                    start.line.saturating_sub(1)
+                } else {
+                    start.line
+                };
+                let kind = match f.kind {
+                    nomi_ide::FoldKind::Region => "region",
+                    nomi_ide::FoldKind::Imports => "imports",
+                    nomi_ide::FoldKind::Comment => "comment",
+                };
+                serde_json::json!({
+                    "startLine": start_line, "startCharacter": start.character,
+                    "endLine": end.line, "endCharacter": end.character, "kind": kind,
+                })
+            })
+            .collect();
+        Ok(Value::Array(folds))
+    }
+
+    fn selection(
+        &self,
+        uri: &Url,
+        positions: &[lsp_types::Position],
+    ) -> Result<Value, (ErrorCode, String)> {
+        let document = self.document(uri)?;
+        let text = Text::new(&document.text, self.unit);
+        let mut found = Vec::new();
+        for position in positions {
+            let ranges = nomi_ide::selection_ranges(
+                &self.vfs.snapshot(),
+                &document.path,
+                text.offset(*position),
+            )
+            .map_err(|e| (ErrorCode::InternalError, e.to_string()))?;
+            // Innermost first, each the parent's child.
+            let mut nested: Option<Value> = None;
+            for range in ranges.iter().rev() {
+                let mut selection = serde_json::json!({ "range": text.range(*range) });
+                if let Some(parent) = nested.take() {
+                    selection["parent"] = parent;
+                }
+                nested = Some(selection);
+            }
+            found.extend(nested);
+        }
+        Ok(Value::Array(found))
+    }
+
+    fn linked(&self, position: &TextDocumentPositionParams) -> Result<Value, (ErrorCode, String)> {
+        let (document, offset) = self.at(position)?;
+        let ranges = nomi_ide::linked_editing(&self.vfs.snapshot(), &document.path, offset)
+            .map_err(|e| (ErrorCode::InternalError, e.to_string()))?;
+        let text = Text::new(&document.text, self.unit);
+        let ranges: Vec<lsp_types::Range> = ranges.into_iter().map(|r| text.range(r)).collect();
+        Ok(serde_json::json!({ "ranges": ranges }))
+    }
+
+    fn workspace_symbols(&mut self, query: &str) -> Result<Value, (ErrorCode, String)> {
+        let snapshot = self.vfs.snapshot();
+        // The project of an open document, as elm-language-server has one.
+        let Some(path) = self.documents.values().next().map(|d| d.path.clone()) else {
+            return Ok(Value::Array(Vec::new()));
+        };
+        let unit = self.unit;
+        let Some(index) = self.index(&snapshot, &path) else {
+            return Ok(Value::Array(Vec::new()));
+        };
+        let mut found = Vec::new();
+        for (file, symbol) in nomi_ide::workspace_symbols(&snapshot, index, query) {
+            let (Ok(uri), Ok(text)) = (Url::from_file_path(&file), snapshot.read(&file)) else {
+                continue;
+            };
+            let text = Text::new(&text, unit);
+            #[allow(deprecated)] // `SymbolInformation::deprecated` must be named.
+            found.push(SymbolInformation {
+                name: symbol.name,
+                kind: symbol_kind(symbol.kind),
+                tags: None,
+                deprecated: None,
+                location: Location::new(uri, text.range(symbol.range)),
+                container_name: None,
+            });
+        }
+        Ok(serde_json::to_value(found).expect("symbols serialize"))
     }
 
     fn prepare_rename(

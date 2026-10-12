@@ -17,6 +17,7 @@ mod problems;
 mod record_fields;
 mod rename;
 mod scopes;
+mod structure;
 mod symbols;
 
 use std::io;
@@ -35,6 +36,9 @@ pub use lint::{Checks, lint};
 pub use navigation::{Location, definition, highlights, references, type_definition};
 pub use problems::{Problem, Severity, compiler_problems, missing_annotations};
 pub use rename::{OUTSIDE, Rename, prepare_rename, rename};
+pub use structure::{
+    Fold, FoldKind, folding_ranges, linked_editing, selection_ranges, workspace_symbols,
+};
 pub use symbols::{Symbol, SymbolKind, document_symbols};
 
 /// A problem in a file, as elm reports it.

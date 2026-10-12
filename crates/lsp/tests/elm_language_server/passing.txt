@@ -5,9 +5,13 @@ completion-lines/diagnostics
 diagnostics/01 textDocument/hover
 diagnostics/diagnostics
 editing/00 textDocument/documentSymbol
+editing/01 textDocument/foldingRange
+editing/03 textDocument/selectionRange
+editing/04 textDocument/linkedEditingRange
 editing/05 textDocument/prepareRename
 editing/06 textDocument/rename
 editing/07 textDocument/completion
+editing/09 workspace/symbol
 editing/diagnostics
 els-add-missing-case-branches-001/diagnostics
 els-add-missing-case-branches-002/diagnostics
@@ -731,3 +735,12 @@ navigation/12 textDocument/typeDefinition
 navigation/13 textDocument/references
 navigation/14 textDocument/references
 navigation/diagnostics
+structure/00 textDocument/foldingRange
+structure/01 textDocument/selectionRange
+structure/02 textDocument/selectionRange
+structure/03 textDocument/linkedEditingRange
+structure/04 textDocument/linkedEditingRange
+structure/05 workspace/symbol
+structure/06 workspace/symbol
+structure/07 workspace/symbol
+structure/diagnostics

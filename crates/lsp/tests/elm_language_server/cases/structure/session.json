@@ -1,0 +1,14 @@
+{
+    "open": ["src/Main.elm"],
+    "requests": [
+        { "method": "textDocument/foldingRange", "file": "src/Main.elm" },
+        { "method": "textDocument/selectionRange", "file": "src/Main.elm", "at": 0 },
+        { "method": "textDocument/selectionRange", "file": "src/Main.elm", "at": 2 },
+        { "method": "textDocument/linkedEditingRange", "file": "src/Main.elm", "at": 1 },
+        { "method": "textDocument/linkedEditingRange", "file": "src/Main.elm",
+          "at": { "line": 70, "character": 1 } },
+        { "method": "workspace/symbol", "params": { "query": "" } },
+        { "method": "workspace/symbol", "params": { "query": "ar" } },
+        { "method": "workspace/symbol", "params": { "query": "Co" } }
+    ]
+}

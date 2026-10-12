@@ -1,0 +1,345 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "unused_import",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused import `Attributes`",
+        "range": {
+          "end": {"character":36,"line":6},
+          "start": {"character":0,"line":6}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused top level definition `origin`",
+        "range": {
+          "end": {"character":6,"line":58},
+          "start": {"character":0,"line":58}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/foldingRange",
+      "result": [
+        {
+          "endCharacter": 2,
+          "endLine": 3,
+          "kind": "comment",
+          "startCharacter": 0,
+          "startLine": 2
+        },
+        {
+          "endCharacter": 36,
+          "endLine": 6,
+          "kind": "imports",
+          "startCharacter": 0,
+          "startLine": 5
+        },
+        {
+          "endCharacter": 38,
+          "endLine": 8,
+          "kind": "imports",
+          "startCharacter": 0,
+          "startLine": 8
+        },
+        {
+          "endCharacter": 2,
+          "endLine": 12,
+          "kind": "comment",
+          "startCharacter": 0,
+          "startLine": 11
+        },
+        {
+          "endCharacter": 10,
+          "endLine": 16,
+          "kind": "region",
+          "startCharacter": 0,
+          "startLine": 13
+        },
+        {
+          "endCharacter": 5,
+          "endLine": 25,
+          "kind": "region",
+          "startCharacter": 0,
+          "startLine": 22
+        },
+        {
+          "endCharacter": 17,
+          "endLine": 51,
+          "kind": "region",
+          "startCharacter": 0,
+          "startLine": 32
+        },
+        {
+          "endCharacter": 17,
+          "endLine": 51,
+          "kind": "region",
+          "startCharacter": 4,
+          "startLine": 33
+        },
+        {
+          "endCharacter": 17,
+          "endLine": 35,
+          "kind": "region",
+          "startCharacter": 8,
+          "startLine": 34
+        },
+        {
+          "endCharacter": 27,
+          "endLine": 41,
+          "kind": "region",
+          "startCharacter": 8,
+          "startLine": 37
+        },
+        {
+          "endCharacter": 23,
+          "endLine": 39,
+          "kind": "region",
+          "startCharacter": 16,
+          "startLine": 38
+        },
+        {
+          "endCharacter": 27,
+          "endLine": 41,
+          "kind": "region",
+          "startCharacter": 16,
+          "startLine": 40
+        },
+        {
+          "endCharacter": 17,
+          "endLine": 51,
+          "kind": "region",
+          "startCharacter": 8,
+          "startLine": 43
+        },
+        {
+          "endCharacter": 24,
+          "endLine": 49,
+          "kind": "region",
+          "startCharacter": 12,
+          "startLine": 44
+        },
+        {
+          "endCharacter": 17,
+          "endLine": 51,
+          "kind": "region",
+          "startCharacter": 12,
+          "startLine": 50
+        },
+        {
+          "endCharacter": 26,
+          "endLine": 46,
+          "kind": "region",
+          "startCharacter": 16,
+          "startLine": 45
+        },
+        {
+          "endCharacter": 24,
+          "endLine": 49,
+          "kind": "region",
+          "startCharacter": 16,
+          "startLine": 48
+        },
+        {
+          "endCharacter": 12,
+          "endLine": 54,
+          "kind": "region",
+          "startCharacter": 0,
+          "startLine": 28
+        },
+        {
+          "endCharacter": 20,
+          "endLine": 59,
+          "kind": "region",
+          "startCharacter": 0,
+          "startLine": 58
+        },
+        {
+          "endCharacter": 20,
+          "endLine": 59,
+          "kind": "region",
+          "startCharacter": 4,
+          "startLine": 59
+        },
+        {
+          "endCharacter": 19,
+          "endLine": 66,
+          "kind": "region",
+          "startCharacter": 0,
+          "startLine": 65
+        },
+        {
+          "endCharacter": 57,
+          "endLine": 71,
+          "kind": "region",
+          "startCharacter": 0,
+          "startLine": 70
+        }
+      ]
+    },
+    {
+      "method": "textDocument/selectionRange",
+      "result": [
+        {
+          "parent": {"parent":{"parent":{"range":{"end":{"character":0,"line":73},"start":{"character":0,"line":0}}},"range":{"end":{"character":20,"line":59},"start":{"character":0,"line":58}}},"range":{"end":{"character":20,"line":59},"start":{"character":4,"line":59}}},
+          "range": {"end":{"character":11,"line":59},"start":{"character":6,"line":59}}
+        }
+      ]
+    },
+    {
+      "method": "textDocument/selectionRange",
+      "result": [
+        {
+          "parent": {"parent":{"parent":{"parent":{"parent":{"parent":{"parent":{"range":{"end":{"character":0,"line":73},"start":{"character":0,"line":0}}},"range":{"end":{"character":57,"line":71},"start":{"character":0,"line":70}}},"range":{"end":{"character":57,"line":71},"start":{"character":4,"line":71}}},"range":{"end":{"character":57,"line":71},"start":{"character":9,"line":71}}},"range":{"end":{"character":56,"line":71},"start":{"character":10,"line":71}}},"range":{"end":{"character":56,"line":71},"start":{"character":26,"line":71}}},"range":{"end":{"character":56,"line":71},"start":{"character":43,"line":71}}},
+          "range": {"end":{"character":56,"line":71},"start":{"character":50,"line":71}}
+        }
+      ]
+    },
+    {
+      "method": "textDocument/linkedEditingRange",
+      "result": {
+        "ranges": [
+          {"end":{"character":4,"line":63},"start":{"character":0,"line":63}},
+          {"end":{"character":4,"line":65},"start":{"character":0,"line":65}}
+        ]
+      }
+    },
+    {
+      "method": "textDocument/linkedEditingRange",
+      "result": {
+        "ranges": [
+          {"end":{"character":4,"line":69},"start":{"character":0,"line":69}},
+          {"end":{"character":4,"line":70},"start":{"character":0,"line":70}}
+        ]
+      }
+    },
+    {
+      "method": "workspace/symbol",
+      "result": [
+        {
+          "kind": 22,
+          "location": {"range":{"end":{"character":9,"line":14},"start":{"character":6,"line":14}},"uri":"<project>/src/Main.elm"},
+          "name": "Red"
+        },
+        {
+          "kind": 2,
+          "location": {"range":{"end":{"character":33,"line":0},"start":{"character":0,"line":0}},"uri":"<project>/src/Main.elm"},
+          "name": "Main"
+        },
+        {
+          "kind": 22,
+          "location": {"range":{"end":{"character":10,"line":16},"start":{"character":6,"line":16}},"uri":"<project>/src/Main.elm"},
+          "name": "Blue"
+        },
+        {
+          "kind": 12,
+          "location": {"range":{"end":{"character":26,"line":46},"start":{"character":16,"line":45}},"uri":"<project>/src/Main.elm"},
+          "name": "name"
+        },
+        {
+          "kind": 12,
+          "location": {"range":{"end":{"character":19,"line":66},"start":{"character":0,"line":65}},"uri":"<project>/src/Main.elm"},
+          "name": "main"
+        },
+        {
+          "kind": 12,
+          "location": {"range":{"end":{"character":57,"line":71},"start":{"character":0,"line":70}},"uri":"<project>/src/Main.elm"},
+          "name": "view"
+        },
+        {
+          "kind": 12,
+          "location": {"range":{"end":{"character":38,"line":9},"start":{"character":0,"line":8}},"uri":"<project>/src/Shapes/Circle.elm"},
+          "name": "area"
+        },
+        {
+          "kind": 10,
+          "location": {"range":{"end":{"character":10,"line":16},"start":{"character":0,"line":13}},"uri":"<project>/src/Main.elm"},
+          "name": "Color"
+        },
+        {
+          "kind": 23,
+          "location": {"range":{"end":{"character":5,"line":25},"start":{"character":0,"line":22}},"uri":"<project>/src/Main.elm"},
+          "name": "Point"
+        },
+        {
+          "kind": 12,
+          "location": {"range":{"end":{"character":24,"line":49},"start":{"character":16,"line":48}},"uri":"<project>/src/Main.elm"},
+          "name": "other"
+        },
+        {
+          "kind": 12,
+          "location": {"range":{"end":{"character":20,"line":59},"start":{"character":0,"line":58}},"uri":"<project>/src/Main.elm"},
+          "name": "origin"
+        },
+        {
+          "kind": 23,
+          "location": {"range":{"end":{"character":22,"line":4},"start":{"character":0,"line":3}},"uri":"<project>/src/Shapes/Circle.elm"},
+          "name": "Circle"
+        },
+        {
+          "kind": 12,
+          "location": {"range":{"end":{"character":17,"line":51},"start":{"character":0,"line":32}},"uri":"<project>/src/Main.elm"},
+          "name": "describe"
+        },
+        {
+          "kind": 2,
+          "location": {"range":{"end":{"character":44,"line":0},"start":{"character":0,"line":0}},"uri":"<project>/src/Shapes/Circle.elm"},
+          "name": "Shapes.Circle"
+        },
+        {
+          "kind": 22,
+          "location": {"range":{"end":{"character":25,"line":15},"start":{"character":6,"line":15}},"uri":"<project>/src/Main.elm"},
+          "name": "Green -- the second"
+        }
+      ]
+    },
+    {
+      "method": "workspace/symbol",
+      "result": [
+        {
+          "kind": 12,
+          "location": {"range":{"end":{"character":38,"line":9},"start":{"character":0,"line":8}},"uri":"<project>/src/Shapes/Circle.elm"},
+          "name": "area"
+        },
+        {
+          "kind": 2,
+          "location": {"range":{"end":{"character":44,"line":0},"start":{"character":0,"line":0}},"uri":"<project>/src/Shapes/Circle.elm"},
+          "name": "Shapes.Circle"
+        }
+      ]
+    },
+    {
+      "method": "workspace/symbol",
+      "result": [
+        {
+          "kind": 10,
+          "location": {"range":{"end":{"character":10,"line":16},"start":{"character":0,"line":13}},"uri":"<project>/src/Main.elm"},
+          "name": "Color"
+        },
+        {
+          "kind": 22,
+          "location": {"range":{"end":{"character":25,"line":15},"start":{"character":6,"line":15}},"uri":"<project>/src/Main.elm"},
+          "name": "Green -- the second"
+        }
+      ]
+    }
+  ]
+}

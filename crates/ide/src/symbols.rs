@@ -61,6 +61,18 @@ fn symbols(root: &SyntaxNode) -> Vec<Symbol> {
         if let Some((name, kind, node)) = symbol
             && let Some(range) = code_range(&node)
         {
+            // A variant's node may run on over a comment, name and all.
+            if kind == SymbolKind::EnumMember
+                && let Some(extent) = variant_range(&node).filter(|e| *e != range)
+            {
+                let text = root.text().slice(extent).to_string();
+                symbols.push(Symbol {
+                    name: text,
+                    kind,
+                    range: extent,
+                });
+                continue;
+            }
             symbols.push(Symbol { name, kind, range });
         }
     }
@@ -148,4 +160,27 @@ pub(crate) fn declaration_range(node: &SyntaxNode) -> Option<TextRange> {
         next = token.next_token();
     }
     Some(range)
+}
+
+/// A variant's extent as tree-sitter-elm's node has it: its code, and
+/// the line comments after it where another variant follows, which its
+/// node takes in.
+fn variant_range(node: &SyntaxNode) -> Option<TextRange> {
+    let range = code_range(node)?;
+    let mut end = range.end();
+    let mut comments = range.end();
+    let mut next = node.last_token().and_then(|t| t.next_token());
+    while let Some(token) = next {
+        match token.kind() {
+            SyntaxKind::Whitespace | SyntaxKind::Newline => {}
+            SyntaxKind::LineComment => comments = token.text_range().end(),
+            SyntaxKind::Pipe => {
+                end = comments;
+                break;
+            }
+            _ => break,
+        }
+        next = token.next_token();
+    }
+    Some(TextRange::new(range.start(), end))
 }

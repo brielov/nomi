@@ -748,7 +748,11 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
     - tree-sitter-elm's node for a custom type takes the line comments after it, through blank lines, when a block comment comes next: elm/core's `-- NOTE: The compiler provides the real implementation.` is part of `type Int = Int`. An alias's node never does.
     - Interfaces keep a record's fields by name. It writes them in the order the annotation does, so label details read that order from the declaring module's annotation.
     - A value without a body yet is no declaration to it, so the function being written isn't offered.
-- [ ] **9.10** `ide: workspace symbols, folding, selection ranges and linked editing`.
+- [x] **9.10** `ide: workspace symbols, folding, selection ranges and linked editing`.
+  - **Done:** every replayed folding, selection, linked-editing, document-symbol and workspace-symbol request matches.
+  - Folds are sorted by where their node starts, stable, as elm-language-server walks the tree.
+  - A selection starts at the named token under the cursor (an identifier or a literal), otherwise at the enclosing node. Value and let declarations are skipped, as their tree-sitter nodes don't exist there.
+  - A variant followed by `|` takes in its trailing line comments, in both its name and its range, because tree-sitter-elm's variant node does.
 - [ ] **9.11** `ide: code lens`. Exposed or local, and reference counts, resolved lazily.
 - [ ] **9.12** `ide: code action machinery and import fixes`.
   - **Machinery:** preferred actions, fix-all, and lazy resolve when the client supports it.
