@@ -358,29 +358,23 @@ fn hover_shows_definitions_as_elm_language_server_does() {
 }
 
 #[test]
-fn completion_offers_whats_in_scope_and_a_qualifiers_exports() {
+fn completion_after_a_qualifier_offers_what_its_module_exposes() {
     let (_dir, vfs, path, _other) = navigated();
     let (_store_dir, store) = store();
     let snapshot = vfs.snapshot();
     let index =
         nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
-    // After `Other.`: what Other exports.
+    // After `Other.`: what Other exposes, with its type.
     let at_twice = offset(NAVIGATED, "twice", 0) - TextSize::new(1);
-    let found: Vec<String> = completions(&index, &path, at_twice)
-        .into_iter()
-        .map(|c| c.label)
-        .collect();
-    assert_eq!(found, ["helper", "twice"]);
-    // At the start of a line: the module's own, what imports expose, and
-    // the qualifiers.
-    let line = TextSize::new(NAVIGATED.find("area shape =").unwrap() as u32);
-    let found = completions(&index, &path, line);
+    let Some(crate::Completions::List(found)) = completions(&snapshot, &index, &path, at_twice)
+    else {
+        panic!("a list of its own");
+    };
     let labels: Vec<&str> = found.iter().map(|c| c.label.as_str()).collect();
-    for expected in [
-        "area", "Circle", "Other", "Shape", "helper", "main", "Basics", "List",
-    ] {
-        assert!(labels.contains(&expected), "{expected} in {labels:?}");
-    }
-    let area = found.iter().find(|c| c.label == "area").unwrap();
-    assert_eq!(area.detail.as_deref(), Some("Shape -> Float"));
+    assert_eq!(labels, ["helper", "twice"]);
+    assert_eq!(
+        found[1].label_detail.as_deref(),
+        Some(" : number -> number")
+    );
+    assert_eq!(found[1].sort_text.as_deref(), Some("a_twice"));
 }

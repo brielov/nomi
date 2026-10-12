@@ -46,7 +46,7 @@ pub fn hover(snapshot: &Snapshot, index: &Index, path: &Path, offset: TextSize) 
     let text = snapshot.read(&found.path).ok()?;
     let root = parse_module(&text).syntax();
     let declaring = index.module(&found.path);
-    let localizer = localizer(index, module);
+    let localizer = Names::of(index, module);
     let name_at = name_token(&root, found.range)?;
     let parent = name_at.parent()?;
     let typed = |range: TextRange| -> Option<String> {
@@ -59,50 +59,116 @@ pub fn hover(snapshot: &Snapshot, index: &Index, path: &Path, offset: TextSize) 
         Some(render_error(&localizer, ty))
     };
     let markdown = match parent.kind() {
-        SyntaxKind::ModuleName => format_hint("", &doc(&root, SyntaxKind::Module)?, None),
-        SyntaxKind::Definition => {
+        SyntaxKind::Definition
+            if parent
+                .parent()
+                .is_some_and(|d| d.kind() == SyntaxKind::LetValue) =>
+        {
             let declaration = parent.parent()?;
             let name = name_at.text();
-            match declaration.kind() {
-                SyntaxKind::LetValue => {
-                    let annotation = match child(&declaration, SyntaxKind::Signature) {
-                        Some(signature) => text_of(&signature)?,
-                        None => {
-                            // Its parameters' types, then its body's.
-                            let mut parts = Vec::new();
-                            for part in parent.children() {
-                                let range = code_range(&part)?;
-                                if crate::lint::is_pattern(part.kind()) {
-                                    let ty = typed(range)?;
-                                    parts.push(if ty.contains("->") {
-                                        format!("({ty})")
-                                    } else {
-                                        ty
-                                    });
-                                } else {
-                                    parts.push(typed(range)?);
-                                }
-                            }
-                            format!("{name} : {}", parts.join(" -> "))
+            let annotation = match child(&declaration, SyntaxKind::Signature) {
+                Some(signature) => text_of(&signature)?,
+                None => {
+                    // Its parameters' types, then its body's.
+                    let mut parts = Vec::new();
+                    for part in parent.children() {
+                        let range = code_range(&part)?;
+                        if crate::lint::is_pattern(part.kind()) {
+                            let ty = typed(range)?;
+                            parts.push(if ty.contains("->") {
+                                format!("({ty})")
+                            } else {
+                                ty
+                            });
+                        } else {
+                            parts.push(typed(range)?);
                         }
-                    };
-                    format_hint(&annotation, "Defined in local let scope", None)
+                    }
+                    format!("{name} : {}", parts.join(" -> "))
                 }
-                _ => {
-                    let ty =
-                        value_type(index, declaring, &root, name).map(|ty| render(&localizer, &ty));
-                    let annotation = ty.map(|ty| format!("{name} : {ty}")).unwrap_or_default();
-                    let comment = (crate::lint::first_token(&declaration, SyntaxKind::DocComment))
-                        .map(|d| d.text().to_owned())
-                        .unwrap_or_default();
-                    // Its name and parameters, where anything comes before.
-                    let preceded = child(&declaration, SyntaxKind::Signature).is_some()
-                        || !comment.is_empty()
-                        || declaration.prev_sibling().is_some();
-                    let code = preceded.then(|| text_in(&parent, found.range));
-                    format_hint(&annotation, &comment, code.as_deref())
-                }
+            };
+            format_hint(&annotation, "Defined in local let scope", None)
+        }
+        SyntaxKind::ModuleName
+        | SyntaxKind::Definition
+        | SyntaxKind::TypeAliasDecl
+        | SyntaxKind::CustomTypeDecl
+        | SyntaxKind::Variant
+        | SyntaxKind::FieldType
+        | SyntaxKind::PortDecl => {
+            let name = name_at.text();
+            let annotation = (parent.kind() == SyntaxKind::Definition)
+                .then(|| value_type(index, declaring, &root, name))
+                .flatten()
+                .map(|ty| format!("{name} : {}", render(&localizer, &ty)));
+            declaration_hint(&root, &name_at, annotation)?
+        }
+        _ => {
+            // A variable a pattern binds.
+            let within = parent.ancestors().find(|a| {
+                matches!(
+                    a.kind(),
+                    SyntaxKind::LetDestructure
+                        | SyntaxKind::Definition
+                        | SyntaxKind::LambdaExpr
+                        | SyntaxKind::CaseBranch
+                )
+            })?;
+            let ty = typed(name_at.text_range());
+            let name = name_at.text();
+            if within.kind() == SyntaxKind::LetDestructure {
+                let annotation = ty.map(|ty| format!("{name} : {ty}")).unwrap_or_default();
+                format_hint(&annotation, "Defined in local let scope", None)
+            } else {
+                let link = crate::navigation::type_definition(snapshot, index, path, offset)
+                    .and_then(|location| link(snapshot, &location));
+                let markdown = match ty {
+                    Some(ty) if ty != "unknown" => {
+                        format_hint(&format!("{name} : {ty}"), "Local parameter", None)
+                    }
+                    _ => "Local parameter".to_owned(),
+                };
+                return Some(Hover { markdown, link });
             }
+        }
+    };
+    Some(Hover {
+        markdown,
+        link: None,
+    })
+}
+
+/// `HintHelper.createHint` for the declaration whose name is `name_at`:
+/// a module, a top-level value, a type, an alias, a variant, a field or a
+/// port. A value's annotation is `annotation` where given, as hover
+/// gives its type, or else the one it's written with.
+pub(crate) fn declaration_hint(
+    root: &SyntaxNode,
+    name_at: &SyntaxToken,
+    annotation: Option<String>,
+) -> Option<String> {
+    let parent = name_at.parent()?;
+    Some(match parent.kind() {
+        SyntaxKind::ModuleName => format_hint("", &doc_of(root), None),
+        SyntaxKind::Definition => {
+            let declaration = parent.parent()?;
+            let comment = (crate::lint::first_token(&declaration, SyntaxKind::DocComment))
+                .map(|d| d.text().to_owned())
+                .unwrap_or_default();
+            let signature = child(&declaration, SyntaxKind::Signature);
+            let annotation = annotation
+                .or_else(|| signature.as_ref().and_then(text_of))
+                .unwrap_or_default();
+            // Its name and parameters, where anything comes before.
+            let preceded =
+                signature.is_some() || !comment.is_empty() || declaration.prev_sibling().is_some();
+            let end = (parent.children())
+                .filter(|c| crate::lint::is_pattern(c.kind()))
+                .last()
+                .map_or(name_at.text_range().end(), |p| p.text_range().end());
+            let left = TextRange::new(name_at.text_range().start(), end);
+            let code = preceded.then(|| text_in(&parent, left));
+            format_hint(&annotation, &comment, code.as_deref())
         }
         SyntaxKind::TypeAliasDecl | SyntaxKind::CustomTypeDecl => {
             let comment = doc_of(&parent);
@@ -143,38 +209,7 @@ pub fn hover(snapshot: &Snapshot, index: &Index, path: &Path, offset: TextSize) 
                 None,
             )
         }
-        _ => {
-            // A variable a pattern binds.
-            let within = parent.ancestors().find(|a| {
-                matches!(
-                    a.kind(),
-                    SyntaxKind::LetDestructure
-                        | SyntaxKind::Definition
-                        | SyntaxKind::LambdaExpr
-                        | SyntaxKind::CaseBranch
-                )
-            })?;
-            let ty = typed(name_at.text_range());
-            let name = name_at.text();
-            if within.kind() == SyntaxKind::LetDestructure {
-                let annotation = ty.map(|ty| format!("{name} : {ty}")).unwrap_or_default();
-                format_hint(&annotation, "Defined in local let scope", None)
-            } else {
-                let link = crate::navigation::type_definition(snapshot, index, path, offset)
-                    .and_then(|location| link(snapshot, &location));
-                let markdown = match ty {
-                    Some(ty) if ty != "unknown" => {
-                        format_hint(&format!("{name} : {ty}"), "Local parameter", None)
-                    }
-                    _ => "Local parameter".to_owned(),
-                };
-                return Some(Hover { markdown, link });
-            }
-        }
-    };
-    Some(Hover {
-        markdown,
-        link: None,
+        _ => return None,
     })
 }
 
@@ -252,11 +287,6 @@ fn doc_of(node: &SyntaxNode) -> String {
         .unwrap_or_default()
 }
 
-/// The module's doc comment, after its header.
-fn doc(root: &SyntaxNode, _: SyntaxKind) -> Option<String> {
-    Some(doc_of(root))
-}
-
 /// A line comment right after `node`, on its line.
 fn trailing_comment(node: &SyntaxNode) -> Option<String> {
     let mut next = node.last_token()?.next_token();
@@ -314,7 +344,7 @@ fn strip_comment(comment: &str) -> String {
 }
 
 /// A type as elm-language-server's renderer writes it.
-fn render(localizer: &Localizer, ty: &canonical::Type) -> String {
+pub(crate) fn render(localizer: &Names, ty: &canonical::Type) -> String {
     use canonical::Type as T;
     match ty {
         T::Lambda(..) => {
@@ -379,7 +409,7 @@ fn complex(ty: &canonical::Type) -> bool {
 }
 
 /// An inferred type as elm-language-server's renderer writes it.
-fn render_error(localizer: &Localizer, ty: &error::Type) -> String {
+pub(crate) fn render_error(localizer: &Names, ty: &error::Type) -> String {
     use error::Type as E;
     let complex = |ty: &E| match ty {
         E::Lambda(..) => true,
@@ -435,11 +465,11 @@ fn render_error(localizer: &Localizer, ty: &error::Type) -> String {
 }
 
 /// A named type with its arguments, qualified as the module writes it.
-fn named(localizer: &Localizer, home: &Home, name: &str, args: &[(String, bool)]) -> String {
+fn named(localizer: &Names, home: &Home, name: &str, args: &[(String, bool)]) -> String {
     if &*home.module == "WebGL" && name == "Shader" {
         return "shader".to_owned();
     }
-    let mut written = localizer.to_chars(home, name);
+    let mut written = localizer.qualify(home, name);
     for (arg, complex) in args {
         written.push(' ');
         if *complex {
@@ -449,6 +479,91 @@ fn named(localizer: &Localizer, home: &Home, name: &str, args: &[(String, bool)]
         }
     }
     written
+}
+
+/// How elm-language-server writes a type's name in the module it's shown
+/// in (`getQualifierForName`): bare where an import exposes a name of
+/// that spelling, or where the type's module isn't imported; else
+/// qualified with the import's alias, or its module.
+pub(crate) struct Names {
+    exposed: std::collections::HashSet<String>,
+    imports: Vec<(String, Option<String>)>,
+}
+
+impl Names {
+    pub(crate) fn of(index: &Index, indexed: &Indexed) -> Names {
+        use nomi_compiler::hir::{Exposed, Exposing};
+        use nomi_compiler::interface::Union;
+        let imports = with_defaults(&index.package, &indexed.hir.imports);
+        let mut exposed = std::collections::HashSet::new();
+        for import in &imports {
+            let interface = index.interfaces.get(&import.name.text);
+            let constructors = |union: &str| -> Vec<String> {
+                (interface.and_then(|i| i.unions.get(union)))
+                    .map(|u| match u {
+                        Union::Open(u) | Union::Closed(u) | Union::Private(u) => {
+                            u.ctors.iter().map(|c| c.name.clone()).collect()
+                        }
+                    })
+                    .unwrap_or_default()
+            };
+            match &import.exposing {
+                None => {}
+                Some(Exposing::Open) => {
+                    if let Some(interface) = interface {
+                        exposed.extend(interface.values.keys().cloned());
+                        exposed.extend(interface.aliases.keys().cloned());
+                        for (name, union) in &interface.unions {
+                            exposed.insert(name.clone());
+                            if let Union::Open(_) = union {
+                                exposed.extend(constructors(name));
+                            }
+                        }
+                    }
+                }
+                Some(Exposing::Explicit(list)) => {
+                    for item in list {
+                        match item {
+                            Exposed::Lower(name) | Exposed::Operator(name) => {
+                                exposed.insert(name.text.clone());
+                            }
+                            Exposed::Upper(name, open) => {
+                                exposed.insert(name.text.clone());
+                                if open.is_some() {
+                                    exposed.extend(constructors(&name.text));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Names {
+            exposed,
+            imports: (imports.iter())
+                .map(|i| {
+                    (
+                        i.name.text.clone(),
+                        i.alias.as_ref().map(|a| a.text.clone()),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    fn qualify(&self, home: &Home, name: &str) -> String {
+        if self.exposed.contains(name) || (&*home.module == "List" && name == "List") {
+            return name.to_owned();
+        }
+        match self
+            .imports
+            .iter()
+            .find(|(module, _)| *module == *home.module)
+        {
+            Some((module, alias)) => format!("{}.{name}", alias.as_ref().unwrap_or(module)),
+            None => name.to_owned(),
+        }
+    }
 }
 
 /// The localizer of `module`, as its type errors would name types.

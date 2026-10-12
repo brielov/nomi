@@ -10,6 +10,7 @@ mod hover;
 mod lint;
 mod navigation;
 mod problems;
+mod record_fields;
 mod rename;
 mod scopes;
 mod symbols;
@@ -24,7 +25,7 @@ use nomi_engine::report::syntax_problem;
 use nomi_project::Outline;
 use nomi_syntax::{Source, Tool, parse_module, validate};
 
-pub use completion::{Completion, CompletionKind, completions};
+pub use completion::{Completion, CompletionKind, Completions, completions};
 pub use hover::{Hover, hover};
 pub use lint::{Checks, lint};
 pub use navigation::{Location, definition, highlights, references, type_definition};

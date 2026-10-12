@@ -130,6 +130,11 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
     let settings = (params.initialization_options.as_ref())
         .and_then(Settings::read)
         .unwrap_or_default();
+    let label_details = (params.capabilities.text_document.as_ref())
+        .and_then(|t| t.completion.as_ref())
+        .and_then(|c| c.completion_item.as_ref())
+        .and_then(|i| i.label_details_support)
+        .unwrap_or(false);
     let pulls_settings = (params.capabilities.workspace.as_ref())
         .and_then(|w| w.configuration)
         .unwrap_or(false);
@@ -157,6 +162,7 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
         settings,
         pulls_settings,
         settings_request: None,
+        label_details,
     };
     for message in &connection.receiver {
         match message {
@@ -200,6 +206,8 @@ struct Server {
     pulls_settings: bool,
     /// The id of the request for the client's settings, while it's out.
     settings_request: Option<lsp_server::RequestId>,
+    /// Whether the client shows completions' label details.
+    label_details: bool,
 }
 
 struct Document {
@@ -614,28 +622,79 @@ impl Server {
         position: &TextDocumentPositionParams,
     ) -> Result<Value, (ErrorCode, String)> {
         let (document, offset) = self.at(position)?;
-        let path = document.path.clone();
+        let (path, text) = (document.path.clone(), document.text.clone());
         let snapshot = self.vfs.snapshot();
         let found = (self.index(&snapshot, &path))
-            .map(|index| nomi_ide::completions(index, &path, offset))
-            .unwrap_or_default();
-        let items: Vec<lsp_types::CompletionItem> = (found.into_iter())
-            .map(|c| lsp_types::CompletionItem {
-                label: c.label,
-                kind: Some(match c.kind {
-                    nomi_ide::CompletionKind::Value => lsp_types::CompletionItemKind::VALUE,
-                    nomi_ide::CompletionKind::Type => lsp_types::CompletionItemKind::CLASS,
-                    nomi_ide::CompletionKind::Constructor => {
-                        lsp_types::CompletionItemKind::ENUM_MEMBER
-                    }
-                    nomi_ide::CompletionKind::Module => lsp_types::CompletionItemKind::MODULE,
-                }),
-                detail: c.detail,
-                ..lsp_types::CompletionItem::default()
-            })
-            .collect();
-        Ok(serde_json::to_value(items).expect("completions serialize"))
+            .and_then(|index| nomi_ide::completions(&snapshot, index, &path, offset));
+        let text = Text::new(&text, self.unit);
+        let details = self.label_details;
+        let items = |items: Vec<nomi_ide::Completion>| -> Vec<Value> {
+            (items.into_iter())
+                .map(|c| completion_item(c, &text, details))
+                .collect()
+        };
+        Ok(match found {
+            None => Value::Null,
+            Some(nomi_ide::Completions::List(list)) => Value::Array(items(list)),
+            Some(nomi_ide::Completions::Incomplete(list, incomplete)) => {
+                serde_json::json!({ "isIncomplete": incomplete, "items": items(list) })
+            }
+        })
     }
+}
+
+/// A completion as elm-language-server writes it; its label details only
+/// where the client takes them.
+fn completion_item(c: nomi_ide::Completion, text: &Text, label_details: bool) -> Value {
+    let mut item = serde_json::Map::new();
+    if let Some(documentation) = c.documentation {
+        item.insert(
+            "documentation".into(),
+            serde_json::json!({ "kind": "markdown", "value": documentation }),
+        );
+    }
+    item.insert("kind".into(), serde_json::json!(c.kind as u32));
+    item.insert("label".into(), serde_json::json!(c.label));
+    if let Some(sort) = c.sort_text {
+        item.insert("sortText".into(), serde_json::json!(sort));
+    }
+    if let Some(filter) = c.filter_text {
+        item.insert("filterText".into(), serde_json::json!(filter));
+    }
+    if let Some(detail) = c.detail {
+        item.insert("detail".into(), serde_json::json!(detail));
+    }
+    if c.preselect {
+        item.insert("preselect".into(), serde_json::json!(true));
+    }
+    if c.snippet {
+        item.insert("insertTextFormat".into(), serde_json::json!(2));
+    }
+    let edit = TextEdit::new(text.range(c.edit.range), c.edit.text);
+    item.insert(
+        "textEdit".into(),
+        serde_json::to_value(edit).expect("an edit serializes"),
+    );
+    if !c.additional_edits.is_empty() {
+        let edits: Vec<TextEdit> = (c.additional_edits.into_iter())
+            .map(|e| TextEdit::new(text.range(e.range), e.text))
+            .collect();
+        item.insert(
+            "additionalTextEdits".into(),
+            serde_json::to_value(edits).expect("edits serialize"),
+        );
+    }
+    let mut details = serde_json::Map::new();
+    if let Some(description) = c.label_description {
+        details.insert("description".into(), serde_json::json!(description));
+    }
+    if let Some(detail) = c.label_detail {
+        details.insert("detail".into(), serde_json::json!(detail));
+    }
+    if label_details && !details.is_empty() {
+        item.insert("labelDetails".into(), Value::Object(details));
+    }
+    Value::Object(item)
 }
 
 /// Runs `publish` if `snapshot` is still the latest revision, holding

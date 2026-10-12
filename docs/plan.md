@@ -716,7 +716,20 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - **Answer shape.** Both `changes` and `documentChanges`, as it answers.
   - **Oracle.** The converter now records both prepare and rename where a test calls both, and transcripts sort a rename's edits. All 9 prepare-rename and 9 rename cases match, record fields and modules included, and the ratchet goes from 671 to 689 of 846.
   - **Surprise.** A use of a constructor in a module that doesn't canonicalize, such as `Ok` made ambiguous by an import, is found as written. That now counts an exposing list's `T(..)` for its variants.
-- [ ] **9.8** `ide: completion in context`. elm-language-server answers some places with a list of their own: record fields by type (after a dot, in records, updates and record patterns), module and import exposing lists, module names after `import`, a qualifier's submodules and values, annotation names at the start of a line, and nothing in comments, pattern names or import aliases. Its items' kinds, sort texts, label details and documentation. **Check:** the completion cases with lists of their own.
+- [x] **9.8** `ide: completion in context`. elm-language-server answers some places with a list of their own: record fields by type (after a dot, in records, updates and record patterns), module and import exposing lists, module names after `import`, a qualifier's submodules and values, annotation names at the start of a line, and nothing in comments, pattern names or import aliases. Its items' kinds, sort texts, label details and documentation. **Check:** the completion cases with lists of their own.
+
+  Done:
+  - **Contexts.** `ide::completion` tells the contexts as elm-language-server does: from the line before the cursor and the tree. Its items keep its kinds, sort-text prefixes, label details and documentation, the last built as hover's hints with written annotations.
+  - **Modules.** They come in the order its glob finds their files: a directory's files, then its subdirectories'.
+  - **A module's names** follow its binder: an explicit list's values, then its types; `(..)` in the order names entered its scope, the default imports' first.
+  - **Qualifiers in types** follow its `getQualifierForName`, which hover now shares.
+  - **Record fields** come from the syntax first, through the binding parameter's or the function's annotation. Failing that, they come from inference over the module patched to parse: a dot cut, a record or pattern given a field.
+  - **Seed case.** `completion-lines` checks the annotation names at a line's start.
+  - **Result.** The ratchet goes from 689 to 716 of 850. Of the cases with lists of their own, only those whose project declares its own `List` or `Maybe` beside elm/core's still differ: elm rejects such a project, and elm-language-server prefers the project's module there.
+  - **Surprises.**
+    - An import of no module answers `null`, not an empty list.
+    - The default imports' names enter scope first, so a module's own `type Maybe` comes before its other names.
+    - elm-language-server qualifies a type's name only where its module is imported and no import exposes that spelling.
 - [ ] **9.9** `ide: completion everywhere else`. The general list: the module's top-level names, the scope's, what imports expose, its inline snippets and keywords, and up to 49 auto-imports with their edit and `isIncomplete`. At the start of a line: its declaration snippets, keywords, and functions used but not defined. **Check:** the rest of the completion cases.
 - [ ] **9.10** `ide: workspace symbols, folding, selection ranges and linked editing`.
 - [ ] **9.11** `ide: code lens`. Exposed or local, and reference counts, resolved lazily.

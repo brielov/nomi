@@ -1,3 +1,6 @@
+completion-lines/00 textDocument/completion
+completion-lines/02 textDocument/completion
+completion-lines/diagnostics
 diagnostics/01 textDocument/hover
 diagnostics/diagnostics
 editing/00 textDocument/documentSymbol
@@ -38,52 +41,76 @@ els-aliased-import-definition-006/00 textDocument/definition
 els-aliased-import-definition-006/diagnostics
 els-aliased-import-definition-007/00 textDocument/definition
 els-aliased-import-definition-007/diagnostics
+els-completion-provider-003/00 textDocument/completion
 els-completion-provider-003/diagnostics
+els-completion-provider-004/00 textDocument/completion
 els-completion-provider-004/diagnostics
+els-completion-provider-005/00 textDocument/completion
 els-completion-provider-005/diagnostics
+els-completion-provider-006/00 textDocument/completion
 els-completion-provider-006/diagnostics
 els-completion-provider-007/diagnostics
 els-completion-provider-008/diagnostics
 els-completion-provider-009/diagnostics
 els-completion-provider-010/diagnostics
+els-completion-provider-012/00 textDocument/completion
 els-completion-provider-012/diagnostics
+els-completion-provider-013/00 textDocument/completion
+els-completion-provider-014/00 textDocument/completion
 els-completion-provider-014/diagnostics
+els-completion-provider-015/00 textDocument/completion
 els-completion-provider-015/diagnostics
 els-completion-provider-017/diagnostics
 els-completion-provider-018/diagnostics
 els-completion-provider-019/diagnostics
 els-completion-provider-020/diagnostics
+els-completion-provider-021/00 textDocument/completion
 els-completion-provider-021/diagnostics
 els-completion-provider-022/diagnostics
 els-completion-provider-023/diagnostics
 els-completion-provider-024/diagnostics
+els-completion-provider-025/00 textDocument/completion
 els-completion-provider-025/diagnostics
+els-completion-provider-026/00 textDocument/completion
 els-completion-provider-026/diagnostics
+els-completion-provider-027/00 textDocument/completion
+els-completion-provider-028/00 textDocument/completion
 els-completion-provider-028/diagnostics
+els-completion-provider-029/00 textDocument/completion
 els-completion-provider-029/diagnostics
+els-completion-provider-030/00 textDocument/completion
 els-completion-provider-030/diagnostics
+els-completion-provider-031/00 textDocument/completion
 els-completion-provider-031/diagnostics
+els-completion-provider-032/00 textDocument/completion
 els-completion-provider-033/diagnostics
 els-completion-provider-034/diagnostics
+els-completion-provider-035/00 textDocument/completion
 els-completion-provider-035/diagnostics
+els-completion-provider-036/00 textDocument/completion
 els-completion-provider-036/diagnostics
 els-completion-provider-037/diagnostics
 els-completion-provider-038/diagnostics
 els-completion-provider-039/diagnostics
 els-completion-provider-040/diagnostics
+els-completion-provider-043/00 textDocument/completion
 els-completion-provider-043/diagnostics
 els-completion-provider-044/diagnostics
+els-completion-provider-045/00 textDocument/completion
 els-completion-provider-045/diagnostics
 els-completion-provider-046/00 textDocument/completion
 els-completion-provider-046/diagnostics
+els-completion-provider-047/00 textDocument/completion
 els-completion-provider-047/diagnostics
 els-completion-provider-048/diagnostics
+els-completion-provider-049/00 textDocument/completion
 els-completion-provider-049/diagnostics
 els-completion-provider-050/diagnostics
 els-completion-provider-051/diagnostics
 els-completion-provider-052/diagnostics
 els-completion-provider-053/diagnostics
 els-completion-provider-054/diagnostics
+els-completion-provider-055/00 textDocument/completion
 els-completion-provider-055/diagnostics
 els-elm-ls-diagnostics-001/diagnostics
 els-elm-ls-diagnostics-002/diagnostics

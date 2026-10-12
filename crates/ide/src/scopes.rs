@@ -19,8 +19,11 @@ pub(crate) fn local(root: &SyntaxNode, offset: TextSize) -> Option<(TextRange, S
     let parent = token.parent()?;
     let name = token.text();
     match parent.kind() {
-        // A use: unqualified, so possibly a local.
+        // A use: unqualified, so possibly a local; or an update's record.
         SyntaxKind::NameExpr if first_token(&parent, SyntaxKind::Dot).is_none() => {
+            (parent.ancestors()).find_map(|scope| bound_in(&scope, name))
+        }
+        SyntaxKind::RecordUpdateExpr => {
             (parent.ancestors()).find_map(|scope| bound_in(&scope, name))
         }
         _ => {
