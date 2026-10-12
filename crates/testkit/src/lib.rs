@@ -4,6 +4,7 @@
 //! enforces that.
 
 pub mod edit;
+pub mod lsp;
 pub mod mutation;
 pub mod ratchet;
 pub mod transcript;

@@ -1,0 +1,7 @@
+{
+    "open": ["src/Main.elm"],
+    "requests": [
+        { "method": "textDocument/codeAction", "file": "src/Main.elm", "at": 0 },
+        { "method": "textDocument/hover", "file": "src/Main.elm", "at": 1 }
+    ]
+}

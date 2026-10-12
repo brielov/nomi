@@ -1,0 +1,22 @@
+{
+    "open": ["src/Main.elm", "src/Shapes.elm"],
+    "requests": [
+        { "method": "textDocument/hover", "file": "src/Main.elm", "at": 0 },
+        { "method": "textDocument/hover", "file": "src/Main.elm", "at": 1 },
+        { "method": "textDocument/hover", "file": "src/Main.elm", "at": 3 },
+        { "method": "textDocument/hover", "file": "src/Main.elm", "at": 4 },
+        { "method": "textDocument/hover", "file": "src/Main.elm", "at": 5 },
+        { "method": "textDocument/hover", "file": "src/Shapes.elm", "at": 0 },
+        { "method": "textDocument/definition", "file": "src/Main.elm", "at": 0 },
+        { "method": "textDocument/definition", "file": "src/Main.elm", "at": 1 },
+        { "method": "textDocument/definition", "file": "src/Main.elm", "at": 3 },
+        { "method": "textDocument/definition", "file": "src/Main.elm", "at": 4 },
+        { "method": "textDocument/definition", "file": "src/Main.elm", "at": 5 },
+        { "method": "textDocument/definition", "file": "src/Shapes.elm", "at": 0 },
+        { "method": "textDocument/typeDefinition", "file": "src/Main.elm", "at": 1 },
+        { "method": "textDocument/references", "file": "src/Shapes.elm", "at": 1,
+          "params": { "context": { "includeDeclaration": true } } },
+        { "method": "textDocument/references", "file": "src/Main.elm", "at": 2,
+          "params": { "context": { "includeDeclaration": true } } }
+    ]
+}

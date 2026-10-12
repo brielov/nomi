@@ -608,12 +608,22 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
 
 **Oracle.** Sessions are recorded from the pinned 2.10.0 under Node in a sandbox. The sandbox has its own `ELM_HOME`, holding the corpus packages, the pinned elm and elm-format as its paths, and no network. Answers are normalized (roots and package paths) and stored as snapshots, which a ratchet replays against `nomi lsp`.
 
-- [ ] **9.1** `lsp: transcript oracle`. Builds on the salvaged harness and record oracle (`brielov/nomi@8e2b540:conformance/oracles/lsp`).
+- [x] **9.1** `lsp: transcript oracle`. Builds on the salvaged harness and record oracle (`brielov/nomi@8e2b540:conformance/oracles/lsp`).
   - **Recorder.** `cargo xtask oracle lsp` replays each case's session against elm-language-server: initialize, open, then requests at markers in the files (`--^`, as its own tests write them). It stores every response and notification.
   - **Replay.** `crates/lsp/tests/oracle.rs` replays the same sessions against nomi, with `passing.txt`.
   - **Seed cases.** One small project per provider.
   - **npm.** `oracle fetch` falls back to `nub ci` where npm is missing, still strictly from the lockfile.
   - **Check:** recording twice gives the same snapshots, and the replay runs in `xtask ci`.
+
+  Done:
+  - **Driver.** `nomi_testkit::lsp` plays the client for both servers, so they see the same session: the handshake with a VS Code-like set of capabilities, the opened files, then each request at its markers. Several markers may share a line. It answers `workspace/configuration` and `workspace/applyEdit`, keeping the applied edits in the transcript, waits for the server to go quiet, and normalizes project and package paths.
+  - **Recorder.** `cargo xtask oracle lsp [case]` runs elm-language-server under Node, with an `ELM_HOME` built from the fixture packages and the project built once first, so its own `elm make` settles quickly.
+  - **Replay.** `crates/lsp/tests/elm_language_server.rs` replays every case against `nomi lsp`, side by side, with packages in a store of its own. Each case's diagnostics and each answer is one ratchet entry.
+  - **Seed cases.** Three cases (navigation, editing, diagnostics) hold 27 requests over hover, definition, type definition, references, symbols, folding, formatting, selection ranges, linked editing, rename, completion, code lens, workspace symbols and code actions. 5 of their 30 entries pass.
+  - **Surprises.**
+    - With `onlyUpdateDiagnosticsOnSave`, elm-language-server still runs its lint rules on open, whatever `disableElmLSDiagnostics` says.
+    - Completion inside an identifier returns all 441 names in scope with their docs, about 280 KB, so the seed cases complete after a qualifier instead.
+    - This machine has Node without npm, so `oracle fetch` falls back to `nub ci`, which installed exactly the lockfile's versions.
 - [ ] **9.2** `lsp: elm-language-server's own cases`. Its inline-fixture tests become oracle cases: definition 159, references 37, hover 12, completion 55, rename 8, type definition 6, folding 2, find tests 14, file events 15, code actions 97 and lint 97. They are converted by script and recorded with the real elm/core instead of its stubs. Their diffs are the ratchet's starting point, and `passing.txt` grows from here.
 - [ ] **9.3** `ide: compiler diagnostics as you type`.
   - The engine checks the projects of the open files on each change, debounced like elm-language-server (200 ms), and drops stale runs by revision.

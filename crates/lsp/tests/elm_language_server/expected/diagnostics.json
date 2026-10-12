@@ -1,0 +1,390 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "missing_value",
+          "uri": "src/Main.elm"
+        },
+        "message": "NAMING ERROR - I cannot find a `lenght` variable:\n\n8|     text (String.fromInt (lenght \"elm\"))\n                             #^^^^^^#\nThese names seem close though:\n\n    #negate#\n    #not#\n    #text#\n    #count#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+        "range": {
+          "end": {
+            "character": 32,
+            "line": 7
+          },
+          "start": {
+            "character": 26,
+            "line": 7
+          }
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused top level definition `count`",
+        "range": {
+          "end": {
+            "character": 5,
+            "line": 12
+          },
+          "start": {
+            "character": 0,
+            "line": 12
+          }
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {
+            "fixId": "make_declaration_from_usage"
+          },
+          "diagnostics": [
+            {
+              "data": {
+                "code": "missing_value",
+                "uri": "src/Main.elm"
+              },
+              "message": "NAMING ERROR - I cannot find a `lenght` variable:\n\n8|     text (String.fromInt (lenght \"elm\"))\n                             #^^^^^^#\nThese names seem close though:\n\n    #negate#\n    #not#\n    #text#\n    #count#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+              "range": {
+                "end": {
+                  "character": 32,
+                  "line": 7
+                },
+                "start": {
+                  "character": 26,
+                  "line": 7
+                }
+              },
+              "severity": 1,
+              "source": "Elm"
+            }
+          ],
+          "edit": {
+            "changes": {
+              "<project>/src/Main.elm": [
+                {
+                  "newText": "\n\nlenght : String -> Int\nlenght arg1 =\n    Debug.todo \"TODO\"\n",
+                  "range": {
+                    "end": {
+                      "character": 0,
+                      "line": 8
+                    },
+                    "start": {
+                      "character": 0,
+                      "line": 8
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Create local function"
+        },
+        {
+          "data": {
+            "fixId": "make_declaration_from_usage",
+            "isFixAll": true
+          },
+          "diagnostics": [
+            {
+              "code": "missing_value",
+              "message": "No definition found for `lenght`.",
+              "range": {
+                "end": {
+                  "character": 32,
+                  "line": 7
+                },
+                "start": {
+                  "character": 26,
+                  "line": 7
+                }
+              },
+              "severity": 1,
+              "source": "Elm",
+              "uri": "<project>/src/Main.elm"
+            }
+          ],
+          "edit": {
+            "changes": {
+              "<project>/src/Main.elm": [
+                {
+                  "newText": "\n\nlenght : String -> Int\nlenght arg1 =\n    Debug.todo \"TODO\"\n",
+                  "range": {
+                    "end": {
+                      "character": 0,
+                      "line": 8
+                    },
+                    "start": {
+                      "character": 0,
+                      "line": 8
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Create all missing local functions"
+        },
+        {
+          "data": {
+            "fixId": "add_new_function_parameter"
+          },
+          "diagnostics": [
+            {
+              "data": {
+                "code": "missing_value",
+                "uri": "src/Main.elm"
+              },
+              "message": "NAMING ERROR - I cannot find a `lenght` variable:\n\n8|     text (String.fromInt (lenght \"elm\"))\n                             #^^^^^^#\nThese names seem close though:\n\n    #negate#\n    #not#\n    #text#\n    #count#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+              "range": {
+                "end": {
+                  "character": 32,
+                  "line": 7
+                },
+                "start": {
+                  "character": 26,
+                  "line": 7
+                }
+              },
+              "severity": 1,
+              "source": "Elm"
+            }
+          ],
+          "edit": {
+            "changes": {
+              "<project>/src/Main.elm": [
+                {
+                  "newText": "(String -> Int) -> ",
+                  "range": {
+                    "end": {
+                      "character": 7,
+                      "line": 5
+                    },
+                    "start": {
+                      "character": 7,
+                      "line": 5
+                    }
+                  }
+                },
+                {
+                  "newText": "lenght ",
+                  "range": {
+                    "end": {
+                      "character": 5,
+                      "line": 6
+                    },
+                    "start": {
+                      "character": 5,
+                      "line": 6
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Add new parameter to 'main'"
+        },
+        {
+          "diagnostics": [
+            {
+              "data": {
+                "code": "missing_value",
+                "uri": "src/Main.elm"
+              },
+              "message": "NAMING ERROR - I cannot find a `lenght` variable:\n\n8|     text (String.fromInt (lenght \"elm\"))\n                             #^^^^^^#\nThese names seem close though:\n\n    #negate#\n    #not#\n    #text#\n    #count#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+              "range": {
+                "end": {
+                  "character": 32,
+                  "line": 7
+                },
+                "start": {
+                  "character": 26,
+                  "line": 7
+                }
+              },
+              "severity": 1,
+              "source": "Elm"
+            }
+          ],
+          "edit": {
+            "changes": {
+              "<project>/src/Main.elm": [
+                {
+                  "newText": "negate",
+                  "range": {
+                    "end": {
+                      "character": 32,
+                      "line": 7
+                    },
+                    "start": {
+                      "character": 26,
+                      "line": 7
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "kind": "quickfix",
+          "title": "Change to `negate`"
+        },
+        {
+          "diagnostics": [
+            {
+              "data": {
+                "code": "missing_value",
+                "uri": "src/Main.elm"
+              },
+              "message": "NAMING ERROR - I cannot find a `lenght` variable:\n\n8|     text (String.fromInt (lenght \"elm\"))\n                             #^^^^^^#\nThese names seem close though:\n\n    #negate#\n    #not#\n    #text#\n    #count#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+              "range": {
+                "end": {
+                  "character": 32,
+                  "line": 7
+                },
+                "start": {
+                  "character": 26,
+                  "line": 7
+                }
+              },
+              "severity": 1,
+              "source": "Elm"
+            }
+          ],
+          "edit": {
+            "changes": {
+              "<project>/src/Main.elm": [
+                {
+                  "newText": "not",
+                  "range": {
+                    "end": {
+                      "character": 32,
+                      "line": 7
+                    },
+                    "start": {
+                      "character": 26,
+                      "line": 7
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "kind": "quickfix",
+          "title": "Change to `not`"
+        },
+        {
+          "diagnostics": [
+            {
+              "data": {
+                "code": "missing_value",
+                "uri": "src/Main.elm"
+              },
+              "message": "NAMING ERROR - I cannot find a `lenght` variable:\n\n8|     text (String.fromInt (lenght \"elm\"))\n                             #^^^^^^#\nThese names seem close though:\n\n    #negate#\n    #not#\n    #text#\n    #count#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+              "range": {
+                "end": {
+                  "character": 32,
+                  "line": 7
+                },
+                "start": {
+                  "character": 26,
+                  "line": 7
+                }
+              },
+              "severity": 1,
+              "source": "Elm"
+            }
+          ],
+          "edit": {
+            "changes": {
+              "<project>/src/Main.elm": [
+                {
+                  "newText": "text",
+                  "range": {
+                    "end": {
+                      "character": 32,
+                      "line": 7
+                    },
+                    "start": {
+                      "character": 26,
+                      "line": 7
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "kind": "quickfix",
+          "title": "Change to `text`"
+        },
+        {
+          "diagnostics": [
+            {
+              "data": {
+                "code": "missing_value",
+                "uri": "src/Main.elm"
+              },
+              "message": "NAMING ERROR - I cannot find a `lenght` variable:\n\n8|     text (String.fromInt (lenght \"elm\"))\n                             #^^^^^^#\nThese names seem close though:\n\n    #negate#\n    #not#\n    #text#\n    #count#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+              "range": {
+                "end": {
+                  "character": 32,
+                  "line": 7
+                },
+                "start": {
+                  "character": 26,
+                  "line": 7
+                }
+              },
+              "severity": 1,
+              "source": "Elm"
+            }
+          ],
+          "edit": {
+            "changes": {
+              "<project>/src/Main.elm": [
+                {
+                  "newText": "count",
+                  "range": {
+                    "end": {
+                      "character": 32,
+                      "line": 7
+                    },
+                    "start": {
+                      "character": 26,
+                      "line": 7
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "kind": "quickfix",
+          "title": "Change to `count`"
+        }
+      ]
+    },
+    {
+      "method": "textDocument/hover",
+      "result": null
+    }
+  ]
+}

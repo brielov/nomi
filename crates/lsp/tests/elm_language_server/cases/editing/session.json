@@ -1,0 +1,18 @@
+{
+    "open": ["src/Main.elm"],
+    "requests": [
+        { "method": "textDocument/documentSymbol", "file": "src/Main.elm" },
+        { "method": "textDocument/foldingRange", "file": "src/Main.elm" },
+        { "method": "textDocument/formatting", "file": "src/Main.elm",
+          "params": { "options": { "tabSize": 4, "insertSpaces": true } } },
+        { "method": "textDocument/selectionRange", "file": "src/Main.elm",
+          "at": 0 },
+        { "method": "textDocument/linkedEditingRange", "file": "src/Main.elm", "at": 1 },
+        { "method": "textDocument/prepareRename", "file": "src/Main.elm", "at": 1 },
+        { "method": "textDocument/rename", "file": "src/Main.elm", "at": 1,
+          "params": { "newName": "double" } },
+        { "method": "textDocument/completion", "file": "src/Main.elm", "at": 3 },
+        { "method": "textDocument/codeLens", "file": "src/Main.elm" },
+        { "method": "workspace/symbol", "params": { "query": "tw" } }
+    ]
+}

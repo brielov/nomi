@@ -71,8 +71,16 @@ pub fn stdio() -> Result<(), Error> {
 }
 
 /// Serves the client at the other end of `connection` until it exits:
-/// the handshake, then one message at a time.
+/// the handshake, then one message at a time. Packages come from the
+/// store in nomi's cache.
 pub fn run(connection: &Connection) -> Result<(), Error> {
+    // Without a cache directory, packages are nowhere to be found.
+    let store = Store::new(Cache::locate().map_or_else(|_| PathBuf::new(), |c| c.packages()));
+    serve(connection, store)
+}
+
+/// As [`run`], with packages from `store`.
+pub fn serve(connection: &Connection, store: Store) -> Result<(), Error> {
     let (id, params) = connection.initialize_start()?;
     let params: InitializeParams = serde_json::from_value(params).map_err(Error::Initialize)?;
     let offered = params
@@ -112,8 +120,7 @@ pub fn run(connection: &Connection) -> Result<(), Error> {
         documents: HashMap::new(),
         publishing: Arc::new(Mutex::new(())),
         sender: connection.sender.clone(),
-        // Without a cache directory, packages are nowhere to be found.
-        store: Store::new(Cache::locate().map_or_else(|_| PathBuf::new(), |c| c.packages())),
+        store,
         memo: Memo::new(),
         index: None,
     };

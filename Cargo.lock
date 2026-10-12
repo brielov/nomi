@@ -1044,6 +1044,7 @@ dependencies = [
  "nomi-base",
  "nomi-engine",
  "nomi-ide",
+ "nomi-testkit",
  "serde",
  "serde_json",
  "tempfile",
@@ -1093,6 +1094,10 @@ dependencies = [
 name = "nomi-testkit"
 version = "0.2.0"
 dependencies = [
+ "crossbeam-channel",
+ "lsp-server",
+ "serde",
+ "serde_json",
  "sha2",
 ]
 

@@ -1,0 +1,5 @@
+diagnostics/01 textDocument/hover
+editing/00 textDocument/documentSymbol
+navigation/11 textDocument/definition
+navigation/13 textDocument/references
+navigation/diagnostics

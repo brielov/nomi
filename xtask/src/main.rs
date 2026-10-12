@@ -275,6 +275,12 @@ enum OracleCommand {
     /// Build the solver oracles and store what upstream's solver answers
     /// for every solver scenario.
     Solver,
+    /// Store elm-language-server's transcript of every language-server
+    /// case (plan 9.1).
+    Lsp {
+        /// Only the case of this name.
+        only: Option<String>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -330,6 +336,7 @@ fn main() -> ExitCode {
                 oracle::corpus_runs::run(&root(), &r, Suite::Check, jobs, only.as_deref())
             }
             OracleCommand::Solver => oracle::solver::run(&root(), &r),
+            OracleCommand::Lsp { only } => oracle::lsp::run(&root(), &r, only.as_deref()),
         }),
         Command::Ratchet { suite } => ratchet(&root(), &suite),
         Command::Fuzz { target, runs, jobs } => fuzz::run(

@@ -5,6 +5,7 @@ pub mod corpus_runs;
 pub mod diff;
 pub mod format;
 pub mod javascript;
+pub mod lsp;
 pub mod make;
 pub mod modules;
 pub mod names;
@@ -36,7 +37,7 @@ pub fn cache_dir() -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(".cache").join("nomi-dev"))
 }
 
-fn oracles_dir() -> Result<PathBuf> {
+pub fn oracles_dir() -> Result<PathBuf> {
     Ok(cache_dir()?.join("oracles"))
 }
 
@@ -103,7 +104,8 @@ fn make_executable(_: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Installs `oracles/npm` with `npm ci --ignore-scripts`. The lockfile pins
+/// Installs `oracles/npm` with `npm ci --ignore-scripts`, or `nub ci` where
+/// npm is missing, which installs from the same lockfile. The lockfile pins
 /// every tarball's integrity; its hash is the install's stamp.
 fn fetch_npm(root: &Path, refs: &References) -> Result<()> {
     let source = root.join("oracles").join("npm");
@@ -121,11 +123,19 @@ fn fetch_npm(root: &Path, refs: &References) -> Result<()> {
     fs::copy(source.join("package.json"), dir.join("package.json"))?;
     fs::write(dir.join("package-lock.json"), &lock)?;
     eprintln!("  npm ci --ignore-scripts in {}", dir.display());
-    let status = Command::new(npm())
+    let status = match Command::new(npm())
         .args(["ci", "--ignore-scripts", "--no-audit", "--no-fund"])
         .current_dir(&dir)
         .status()
-        .context("running npm; is Node installed?")?;
+    {
+        // Without npm, nub installs strictly from the same lockfile.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Command::new("nub")
+            .args(["ci", "--ignore-scripts"])
+            .current_dir(&dir)
+            .status()
+            .context("running npm or nub; is Node installed?")?,
+        status => status.context("running npm; is Node installed?")?,
+    };
     if !status.success() {
         bail!("npm ci failed");
     }
