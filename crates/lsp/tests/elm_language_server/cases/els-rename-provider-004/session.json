@@ -10,6 +10,17 @@
       },
       "file": "src/Test.elm",
       "method": "textDocument/prepareRename"
+    },
+    {
+      "at": {
+        "character": 4,
+        "line": 7
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/rename",
+      "params": {
+        "newName": "NewType"
+      }
     }
   ],
   "title": "renaming a type alias"

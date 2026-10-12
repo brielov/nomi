@@ -709,7 +709,13 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
     - A variant of a documented type shows only the type's doc comment.
     - elm-language-server's parameter-annotation lookup almost never triggers: the parent chain it walks rarely ends at an annotation. So a parameter shows `name : type` from inference.
     - Missing annotations were being suggested from the recovered tree of a module that doesn't parse, as `()`. They're now only suggested for modules that parse.
-- [ ] **9.7** `ide: rename`. Prepare-rename, exposing lists, qualified names, record fields, and module rename as a `RenameFile`. Files outside the project are refused with its message.
+- [x] **9.7** `ide: rename`. Prepare-rename, exposing lists, qualified names, record fields, and module rename as a `RenameFile`. Files outside the project are refused with its message.
+
+  Done:
+  - **Rename.** `ide::rename` renames every reference, the declaration included, where each first writes the old name. A module's name is the whole qualifier, and a renamed module's new name is capitalized and its file moved by a `RenameFile`. A name declared outside the project is refused with elm-language-server's message.
+  - **Answer shape.** Both `changes` and `documentChanges`, as it answers.
+  - **Oracle.** The converter now records both prepare and rename where a test calls both, and transcripts sort a rename's edits. All 9 prepare-rename and 9 rename cases match, record fields and modules included, and the ratchet goes from 671 to 689 of 846.
+  - **Surprise.** A use of a constructor in a module that doesn't canonicalize, such as `Ok` made ambiguous by an import, is found as written. That now counts an exposing list's `T(..)` for its variants.
 - [ ] **9.8** `ide: completion in scope`. Locals, qualified names, module and import exposing lists, module names after `import`, record fields by type (in expressions, updates and record patterns), and annotation names at the start of a line.
 - [ ] **9.9** `ide: completion with auto-import, snippets and keywords`. Up to 49 auto-imports with their edit, `isIncomplete`, `labelDetails`, its snippets and keywords, and its sort order.
 - [ ] **9.10** `ide: workspace symbols, folding, selection ranges and linked editing`.

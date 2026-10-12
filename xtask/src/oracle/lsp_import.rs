@@ -426,27 +426,39 @@ fn convert(kind: Kind, test: &Test) -> Option<Case> {
             (files, vec![file], vec![step], json!({}))
         }
         Kind::Rename => {
+            // A test prepares, renames, or both; each helper reads the
+            // markers its own way, which only differs in trailing space.
             let prepare = test.body.contains("testPrepareRename(");
-            let text = if prepare {
-                source.to_owned()
-            } else {
+            let rename = string_argument(&test.body, "testRename");
+            let text = if rename.is_some() {
                 trim_trailing_whitespace(source)
+            } else {
+                source.to_owned()
             };
             let files = source_files(&text);
             let (start, _) = target(&files)?;
-            let step = if prepare {
-                request(
+            let mut steps = Vec::new();
+            if prepare {
+                steps.push(request(
                     "textDocument/prepareRename",
                     "Test.elm",
                     json!(start),
                     json!({}),
-                )
-            } else {
-                let name = string_argument(&test.body, "testRename")?;
+                ));
+            }
+            if let Some(name) = rename {
                 let params = json!({ "newName": name });
-                request("textDocument/rename", "Test.elm", json!(start), params)
-            };
-            (files, vec!["Test.elm".to_owned()], vec![step], json!({}))
+                steps.push(request(
+                    "textDocument/rename",
+                    "Test.elm",
+                    json!(start),
+                    params,
+                ));
+            }
+            if steps.is_empty() {
+                return None;
+            }
+            (files, vec!["Test.elm".to_owned()], steps, json!({}))
         }
         Kind::Folding => {
             let files = source_files(source);

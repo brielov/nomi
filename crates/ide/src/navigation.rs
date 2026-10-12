@@ -284,7 +284,7 @@ pub fn references(
             }));
             // Where canonicalization stopped short, its names as written.
             if m.canonical.is_none() {
-                for range in written_uses(m, target) {
+                for range in written_uses(index, m, target) {
                     if !found.iter().any(|l| l.path == m.path && l.range == range) {
                         found.push(Location {
                             path: m.path.clone(),
@@ -300,7 +300,8 @@ pub fn references(
 
 /// The names in `module` that name `target` as written, qualified with
 /// its module or one of its aliases, or exposed by an import of it.
-fn written_uses(module: &Indexed, target: &Target) -> Vec<TextRange> {
+fn written_uses(index: &Index, module: &Indexed, target: &Target) -> Vec<TextRange> {
+    let index_module = |_: &Indexed, home: &Home| index.named(&home.module);
     let Target::Global { home, name, kind } = target else {
         return Vec::new();
     };
@@ -323,12 +324,27 @@ fn written_uses(module: &Indexed, target: &Target) -> Vec<TextRange> {
                 .chain(std::iter::once(home.module.to_string()))
         })
         .collect();
+    // A constructor is exposed with its type's `(..)`.
+    let union = (*kind == Kind::Ctor)
+        .then(|| {
+            let declaring = index_module(module, home)?;
+            let union = (declaring.hir.unions.iter())
+                .find(|u| u.variants.iter().any(|(v, _)| v.text == **name))?;
+            Some(format!("{}(..)", union.name.text))
+        })
+        .flatten();
     let exposed = imports.iter().any(|i| {
         i.children()
             .find(|c| c.kind() == SyntaxKind::ExposingList)
             .is_some_and(|list| {
+                let written = list.text().to_string();
                 crate::lint::first_token(&list, SyntaxKind::DotDot).is_some()
-                    || list.text().to_string().contains(name.as_ref() as &str)
+                    || list
+                        .children()
+                        .any(|item| crate::symbols::words(&item) == **name)
+                    || union
+                        .as_ref()
+                        .is_some_and(|u| written.replace(' ', "").contains(u.as_str()))
             })
     });
     let mut found = Vec::new();

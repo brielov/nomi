@@ -10,6 +10,17 @@
       },
       "file": "src/Test.elm",
       "method": "textDocument/prepareRename"
+    },
+    {
+      "at": {
+        "character": 19,
+        "line": 4
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/rename",
+      "params": {
+        "newName": "bar"
+      }
     }
   ],
   "title": "renaming a qualified value function part"

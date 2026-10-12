@@ -20,7 +20,7 @@ use lsp_types::notification::{
 };
 use lsp_types::request::{
     Completion, DocumentHighlightRequest, DocumentSymbolRequest, Formatting, GotoDefinition,
-    GotoTypeDefinition, HoverRequest, References, Request as _,
+    GotoTypeDefinition, HoverRequest, PrepareRenameRequest, References, Rename, Request as _,
 };
 use lsp_types::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
@@ -106,6 +106,10 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
         document_symbol_provider: Some(OneOf::Left(true)),
         definition_provider: Some(OneOf::Left(true)),
         type_definition_provider: Some(lsp_types::TypeDefinitionProviderCapability::Simple(true)),
+        rename_provider: Some(OneOf::Right(lsp_types::RenameOptions {
+            prepare_provider: Some(true),
+            work_done_progress_options: lsp_types::WorkDoneProgressOptions::default(),
+        })),
         references_provider: Some(OneOf::Left(true)),
         document_highlight_provider: Some(OneOf::Left(true)),
         hover_provider: Some(lsp_types::HoverProviderCapability::Simple(true)),
@@ -216,6 +220,12 @@ impl Server {
             }),
             GotoTypeDefinition::METHOD => parse(request).and_then(|p: GotoDefinitionParams| {
                 self.type_definition(&p.text_document_position_params)
+            }),
+            PrepareRenameRequest::METHOD => {
+                parse(request).and_then(|p: TextDocumentPositionParams| self.prepare_rename(&p))
+            }
+            Rename::METHOD => parse(request).and_then(|p: lsp_types::RenameParams| {
+                self.rename(&p.text_document_position, &p.new_name)
             }),
             References::METHOD => parse(request).and_then(|p: ReferenceParams| {
                 self.references(&p.text_document_position, p.context.include_declaration)
@@ -451,6 +461,67 @@ impl Server {
             .and_then(|l| self.location(&snapshot, l))
             .map(GotoDefinitionResponse::Scalar);
         Ok(serde_json::to_value(response).expect("a definition serializes"))
+    }
+
+    fn prepare_rename(
+        &mut self,
+        position: &TextDocumentPositionParams,
+    ) -> Result<Value, (ErrorCode, String)> {
+        let (document, offset) = self.at(position)?;
+        let (path, text) = (document.path.clone(), document.text.clone());
+        let snapshot = self.vfs.snapshot();
+        let Some(index) = self.index(&snapshot, &path) else {
+            return Ok(Value::Null);
+        };
+        let range = nomi_ide::prepare_rename(&snapshot, index, &path, offset)
+            .map_err(|message| (ErrorCode::RequestFailed, message.to_owned()))?;
+        let text = Text::new(&text, self.unit);
+        Ok(serde_json::to_value(range.map(|r| text.range(r))).expect("a range serializes"))
+    }
+
+    fn rename(
+        &mut self,
+        position: &TextDocumentPositionParams,
+        new_name: &str,
+    ) -> Result<Value, (ErrorCode, String)> {
+        let (document, offset) = self.at(position)?;
+        let path = document.path.clone();
+        let snapshot = self.vfs.snapshot();
+        let Some(index) = self.index(&snapshot, &path) else {
+            return Ok(Value::Null);
+        };
+        let Some(found) = nomi_ide::rename(&snapshot, index, &path, offset, new_name)
+            .map_err(|message| (ErrorCode::RequestFailed, message.to_owned()))?
+        else {
+            return Ok(Value::Null);
+        };
+        // Both forms, as elm-language-server answers: `changes` for
+        // clients without document changes.
+        let mut changes = serde_json::Map::new();
+        let mut documents = Vec::new();
+        for (file, edits) in &found.files {
+            let (Ok(uri), Ok(text)) = (Url::from_file_path(file), snapshot.read(file)) else {
+                continue;
+            };
+            let text = Text::new(&text, self.unit);
+            let edits: Vec<TextEdit> = (edits.iter())
+                .map(|e| TextEdit::new(text.range(e.range), e.text.clone()))
+                .collect();
+            changes.insert(
+                uri.to_string(),
+                serde_json::to_value(&edits).expect("edits serialize"),
+            );
+            documents.push(serde_json::json!({
+                "textDocument": { "uri": uri, "version": null },
+                "edits": edits,
+            }));
+        }
+        if let Some((from, to)) = &found.moved
+            && let (Ok(from), Ok(to)) = (Url::from_file_path(from), Url::from_file_path(to))
+        {
+            documents.push(serde_json::json!({ "kind": "rename", "oldUri": from, "newUri": to }));
+        }
+        Ok(serde_json::json!({ "changes": changes, "documentChanges": documents }))
     }
 
     fn type_definition(

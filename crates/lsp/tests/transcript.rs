@@ -332,9 +332,10 @@ fn document_symbols_are_flat_as_elm_language_servers() {
 }
 
 #[test]
-fn what_v0_doesnt_answer_is_said_so() {
+fn what_nomi_doesnt_answer_is_said_so() {
     let mut client = Client::start(&[]);
-    let response = client.request("textDocument/rename", json!({}));
+    // Signature help comes after parity with elm-language-server.
+    let response = client.request("textDocument/signatureHelp", json!({}));
     assert_eq!(
         response.error.unwrap().code,
         lsp_server::ErrorCode::MethodNotFound as i32

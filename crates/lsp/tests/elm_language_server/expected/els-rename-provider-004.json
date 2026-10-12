@@ -29,6 +29,19 @@
           "line": 7
         }
       }
+    },
+    {
+      "method": "textDocument/rename",
+      "result": {
+        "changes": {
+          "<project>/src/Module/App.elm": [{"newText":"NewType","range":{"end":{"character":10,"line":4},"start":{"character":6,"line":4}}},{"newText":"NewType","range":{"end":{"character":26,"line":2},"start":{"character":22,"line":2}}}],
+          "<project>/src/Test.elm": [{"newText":"NewType","range":{"end":{"character":15,"line":2},"start":{"character":11,"line":2}}},{"newText":"NewType","range":{"end":{"character":26,"line":0},"start":{"character":22,"line":0}}},{"newText":"NewType","range":{"end":{"character":8,"line":7},"start":{"character":4,"line":7}}}]
+        },
+        "documentChanges": [
+          {"edits":[{"newText":"NewType","range":{"end":{"character":10,"line":4},"start":{"character":6,"line":4}}},{"newText":"NewType","range":{"end":{"character":26,"line":2},"start":{"character":22,"line":2}}}],"textDocument":{"uri":"<project>/src/Module/App.elm","version":null}},
+          {"edits":[{"newText":"NewType","range":{"end":{"character":15,"line":2},"start":{"character":11,"line":2}}},{"newText":"NewType","range":{"end":{"character":26,"line":0},"start":{"character":22,"line":0}}},{"newText":"NewType","range":{"end":{"character":8,"line":7},"start":{"character":4,"line":7}}}],"textDocument":{"uri":"<project>/src/Test.elm","version":null}}
+        ]
+      }
     }
   ]
 }

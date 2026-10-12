@@ -10,6 +10,17 @@
       },
       "file": "src/Test.elm",
       "method": "textDocument/prepareRename"
+    },
+    {
+      "at": {
+        "character": 15,
+        "line": 4
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/rename",
+      "params": {
+        "newName": "Module.NewApp"
+      }
     }
   ],
   "title": "renaming a qualified value module part"

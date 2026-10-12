@@ -10,6 +10,7 @@ mod hover;
 mod lint;
 mod navigation;
 mod problems;
+mod rename;
 mod scopes;
 mod symbols;
 
@@ -28,6 +29,7 @@ pub use hover::{Hover, hover};
 pub use lint::{Checks, lint};
 pub use navigation::{Location, definition, highlights, references, type_definition};
 pub use problems::{Problem, Severity, compiler_problems, missing_annotations};
+pub use rename::{OUTSIDE, Rename, prepare_rename, rename};
 pub use symbols::{Symbol, SymbolKind, document_symbols};
 
 /// A problem in a file, as elm reports it.

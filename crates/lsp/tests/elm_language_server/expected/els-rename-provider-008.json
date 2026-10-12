@@ -15,6 +15,17 @@
           "line": 8
         }
       }
+    },
+    {
+      "method": "textDocument/rename",
+      "result": {
+        "changes": {
+          "<project>/src/Test.elm": [{"newText":"baz","range":{"end":{"character":5,"line":17},"start":{"character":2,"line":17}}},{"newText":"baz","range":{"end":{"character":5,"line":25},"start":{"character":2,"line":25}}},{"newText":"baz","range":{"end":{"character":7,"line":8},"start":{"character":4,"line":8}}},{"newText":"baz","range":{"end":{"character":9,"line":15},"start":{"character":6,"line":15}}},{"newText":"baz","range":{"end":{"character":9,"line":23},"start":{"character":6,"line":23}}}]
+        },
+        "documentChanges": [
+          {"edits":[{"newText":"baz","range":{"end":{"character":5,"line":17},"start":{"character":2,"line":17}}},{"newText":"baz","range":{"end":{"character":5,"line":25},"start":{"character":2,"line":25}}},{"newText":"baz","range":{"end":{"character":7,"line":8},"start":{"character":4,"line":8}}},{"newText":"baz","range":{"end":{"character":9,"line":15},"start":{"character":6,"line":15}}},{"newText":"baz","range":{"end":{"character":9,"line":23},"start":{"character":6,"line":23}}}],"textDocument":{"uri":"<project>/src/Test.elm","version":null}}
+        ]
+      }
     }
   ]
 }

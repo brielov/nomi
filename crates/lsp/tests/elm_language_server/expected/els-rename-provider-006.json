@@ -15,6 +15,17 @@
           "line": 8
         }
       }
+    },
+    {
+      "method": "textDocument/rename",
+      "result": {
+        "changes": {
+          "<project>/src/Test.elm": [{"newText":"baz","range":{"end":{"character":19,"line":14},"start":{"character":16,"line":14}}},{"newText":"baz","range":{"end":{"character":19,"line":15},"start":{"character":16,"line":15}}},{"newText":"baz","range":{"end":{"character":9,"line":8},"start":{"character":6,"line":8}}}]
+        },
+        "documentChanges": [
+          {"edits":[{"newText":"baz","range":{"end":{"character":19,"line":14},"start":{"character":16,"line":14}}},{"newText":"baz","range":{"end":{"character":19,"line":15},"start":{"character":16,"line":15}}},{"newText":"baz","range":{"end":{"character":9,"line":8},"start":{"character":6,"line":8}}}],"textDocument":{"uri":"<project>/src/Test.elm","version":null}}
+        ]
+      }
     }
   ]
 }

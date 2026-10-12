@@ -253,10 +253,10 @@
       "method": "textDocument/rename",
       "result": {
         "changes": {
-          "<project>/src/Main.elm": [{"newText":"double","range":{"end":{"character":5,"line":35},"start":{"character":0,"line":35}}},{"newText":"double","range":{"end":{"character":5,"line":37},"start":{"character":0,"line":37}}},{"newText":"double","range":{"end":{"character":40,"line":46},"start":{"character":35,"line":46}}}]
+          "<project>/src/Main.elm": [{"newText":"double","range":{"end":{"character":40,"line":46},"start":{"character":35,"line":46}}},{"newText":"double","range":{"end":{"character":5,"line":35},"start":{"character":0,"line":35}}},{"newText":"double","range":{"end":{"character":5,"line":37},"start":{"character":0,"line":37}}}]
         },
         "documentChanges": [
-          {"edits":[{"newText":"double","range":{"end":{"character":5,"line":35},"start":{"character":0,"line":35}}},{"newText":"double","range":{"end":{"character":5,"line":37},"start":{"character":0,"line":37}}},{"newText":"double","range":{"end":{"character":40,"line":46},"start":{"character":35,"line":46}}}],"textDocument":{"uri":"<project>/src/Main.elm","version":null}}
+          {"edits":[{"newText":"double","range":{"end":{"character":40,"line":46},"start":{"character":35,"line":46}}},{"newText":"double","range":{"end":{"character":5,"line":35},"start":{"character":0,"line":35}}},{"newText":"double","range":{"end":{"character":5,"line":37},"start":{"character":0,"line":37}}}],"textDocument":{"uri":"<project>/src/Main.elm","version":null}}
         ]
       }
     },

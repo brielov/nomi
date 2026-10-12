@@ -10,6 +10,17 @@
       },
       "file": "src/Test.elm",
       "method": "textDocument/prepareRename"
+    },
+    {
+      "at": {
+        "character": 6,
+        "line": 8
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/rename",
+      "params": {
+        "newName": "baz"
+      }
     }
   ],
   "title": "Nested record field rename doesn't update all list elements"

@@ -1,6 +1,8 @@
 diagnostics/01 textDocument/hover
 diagnostics/diagnostics
 editing/00 textDocument/documentSymbol
+editing/05 textDocument/prepareRename
+editing/06 textDocument/rename
 editing/diagnostics
 els-add-missing-case-branches-001/diagnostics
 els-add-missing-case-branches-002/diagnostics
@@ -547,13 +549,29 @@ els-remove-unused-parameter-code-action-009/diagnostics
 els-remove-unused-parameter-code-action-010/diagnostics
 els-remove-unused-parameter-code-action-011/diagnostics
 els-remove-unused-parameter-code-action-012/diagnostics
+els-rename-provider-001/00 textDocument/prepareRename
+els-rename-provider-001/01 textDocument/rename
 els-rename-provider-001/diagnostics
+els-rename-provider-002/00 textDocument/prepareRename
+els-rename-provider-002/01 textDocument/rename
 els-rename-provider-002/diagnostics
+els-rename-provider-003/00 textDocument/prepareRename
+els-rename-provider-003/01 textDocument/rename
 els-rename-provider-003/diagnostics
+els-rename-provider-004/00 textDocument/prepareRename
+els-rename-provider-004/01 textDocument/rename
 els-rename-provider-004/diagnostics
+els-rename-provider-005/00 textDocument/prepareRename
+els-rename-provider-005/01 textDocument/rename
 els-rename-provider-005/diagnostics
+els-rename-provider-006/00 textDocument/prepareRename
+els-rename-provider-006/01 textDocument/rename
 els-rename-provider-006/diagnostics
+els-rename-provider-007/00 textDocument/prepareRename
+els-rename-provider-007/01 textDocument/rename
 els-rename-provider-007/diagnostics
+els-rename-provider-008/00 textDocument/prepareRename
+els-rename-provider-008/01 textDocument/rename
 els-rename-provider-008/diagnostics
 els-type-definition-provider-001/00 textDocument/typeDefinition
 els-type-definition-provider-001/diagnostics

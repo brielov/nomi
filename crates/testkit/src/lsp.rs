@@ -572,6 +572,26 @@ pub fn tidy(transcript: Value, replacements: &[(String, String)]) -> Value {
         {
             locations.sort_by_key(|l| serde_json::to_string(l).unwrap());
         }
+        // Nor do they order a rename's edits.
+        if request["method"] == "textDocument/rename" {
+            let result = &mut request["result"];
+            if let Some(changes) = result.get_mut("changes").and_then(Value::as_object_mut) {
+                for edits in changes.values_mut().filter_map(Value::as_array_mut) {
+                    edits.sort_by_key(|e| serde_json::to_string(e).unwrap());
+                }
+            }
+            if let Some(documents) = result
+                .get_mut("documentChanges")
+                .and_then(Value::as_array_mut)
+            {
+                for document in documents.iter_mut() {
+                    if let Some(edits) = document.get_mut("edits").and_then(Value::as_array_mut) {
+                        edits.sort_by_key(|e| serde_json::to_string(e).unwrap());
+                    }
+                }
+                documents.sort_by_key(|d| serde_json::to_string(d).unwrap());
+            }
+        }
         if request["method"] != "textDocument/completion" {
             continue;
         }
