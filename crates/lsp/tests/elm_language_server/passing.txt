@@ -822,6 +822,16 @@ file-events/06 workspace/didCreateFiles
 file-events/diagnostics
 find-tests/00 elm/findTests
 find-tests/diagnostics
+fixing/00 textDocument/didChange
+fixing/01 textDocument/didSave
+fixing/02 textDocument/codeAction
+fixing/03 textDocument/didChange
+fixing/04 textDocument/didSave
+fixing/05 textDocument/didChange
+fixing/06 workspace/willRenameFiles
+fixing/07 textDocument/hover
+fixing/08 textDocument/definition
+fixing/diagnostics
 make-annotations/diagnostics
 make-missing-module/diagnostics
 make-modules/diagnostics
@@ -861,3 +871,16 @@ structure/05 workspace/symbol
 structure/06 workspace/symbol
 structure/07 workspace/symbol
 structure/diagnostics
+typing/00 textDocument/didChange
+typing/01 textDocument/didChange
+typing/02 textDocument/completion
+typing/03 textDocument/didChange
+typing/04 textDocument/completion
+typing/05 textDocument/didChange
+typing/06 textDocument/didSave
+typing/07 textDocument/hover
+typing/08 textDocument/didChange
+typing/09 textDocument/didSave
+typing/10 textDocument/documentSymbol
+typing/11 textDocument/didClose
+typing/diagnostics

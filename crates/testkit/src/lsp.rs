@@ -290,6 +290,9 @@ pub struct Driver {
     applied: Vec<Value>,
     /// Opened files whose diagnostics haven't come yet, by URI.
     awaiting: std::collections::BTreeSet<String>,
+    /// The files open, by path in the project: each one's version and
+    /// text, which the editor writes to disk on a save.
+    open: BTreeMap<String, (i32, String)>,
 }
 
 impl std::fmt::Debug for Driver {
@@ -322,6 +325,7 @@ impl Driver {
             published: BTreeMap::new(),
             applied: Vec::new(),
             awaiting: std::collections::BTreeSet::new(),
+            open: BTreeMap::new(),
         };
         let params = json!({
             "processId": null,
@@ -341,17 +345,7 @@ impl Driver {
     /// transcript.
     pub fn run(mut self, session: &Session) -> Value {
         for file in &session.open {
-            let text = std::fs::read_to_string(self.root.join(file))
-                .unwrap_or_else(|e| panic!("{file}: {e}"));
-            if self.timing.publishes {
-                self.awaiting.insert(self.uri(file));
-            }
-            self.notify(
-                "textDocument/didOpen",
-                json!({ "textDocument": {
-                    "uri": self.uri(file), "languageId": "elm", "version": 1, "text": text,
-                } }),
-            );
+            self.open_file(file);
         }
         self.settle();
         let mut diagnostics = Map::new();
@@ -367,6 +361,11 @@ impl Driver {
                 std::fs::write(&path, text).unwrap();
             }
             let params = self.params(step);
+            // The editor's own: what it publishes then, once it's quiet.
+            if let Some(entry) = self.document_event(step) {
+                requests.push(entry);
+                continue;
+            }
             // A notification: what the server applies in answer, once it's
             // quiet again.
             if step.method.contains("/did") {
@@ -421,6 +420,89 @@ impl Driver {
             })
             .collect();
         json!({ "method": resolve, "result": results })
+    }
+
+    fn open_file(&mut self, file: &str) {
+        let text =
+            std::fs::read_to_string(self.root.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"));
+        if self.timing.publishes {
+            self.awaiting.insert(self.uri(file));
+        }
+        self.open.insert(file.to_owned(), (1, text.clone()));
+        self.notify(
+            "textDocument/didOpen",
+            json!({ "textDocument": {
+                "uri": self.uri(file), "languageId": "elm", "version": 1, "text": text,
+            } }),
+        );
+    }
+
+    /// A step that opens, changes, saves or closes a document, as an
+    /// editor sends them: its entry, with the diagnostics then published
+    /// for the open files on an open or save, and for the file on a close.
+    /// A change's edits are the step's `contentChanges`.
+    fn document_event(&mut self, step: &Step) -> Option<Value> {
+        let file = step.file.clone()?;
+        let uri = self.uri(&file);
+        let mut entry = json!({ "method": step.method, "file": file });
+        let reported: Vec<String> = match step.method.as_str() {
+            "textDocument/didOpen" => {
+                self.open_file(&file);
+                self.settle();
+                self.open.keys().cloned().collect()
+            }
+            "textDocument/didChange" => {
+                let (version, text) = self
+                    .open
+                    .get_mut(&file)
+                    .unwrap_or_else(|| panic!("{file} isn't open"));
+                *version += 1;
+                let changes = step
+                    .params
+                    .get("contentChanges")
+                    .cloned()
+                    .unwrap_or_else(|| json!([]));
+                for change in changes.as_array().into_iter().flatten() {
+                    apply_change(text, change);
+                }
+                let params = json!({
+                    "textDocument": { "uri": uri, "version": *version },
+                    "contentChanges": changes,
+                });
+                self.notify(&step.method, params);
+                self.settle();
+                Vec::new()
+            }
+            "textDocument/didSave" => {
+                // An editor writes the file, then says so.
+                if let Some((_, text)) = self.open.get(&file) {
+                    std::fs::write(self.root.join(&file), text).unwrap();
+                }
+                if self.timing.publishes {
+                    let open: Vec<String> = self.open.keys().map(|f| self.uri(f)).collect();
+                    self.awaiting.extend(open);
+                }
+                self.notify(&step.method, json!({ "textDocument": { "uri": uri } }));
+                self.settle();
+                self.open.keys().cloned().collect()
+            }
+            "textDocument/didClose" => {
+                self.open.remove(&file);
+                self.notify(&step.method, json!({ "textDocument": { "uri": uri } }));
+                self.settle();
+                vec![file.clone()]
+            }
+            _ => return None,
+        };
+        if !reported.is_empty() {
+            let mut diagnostics = Map::new();
+            for file in reported {
+                let published = self.published.get(&self.uri(&file)).cloned();
+                diagnostics.insert(file, published.unwrap_or_else(|| json!([])));
+            }
+            entry["diagnostics"] = Value::Object(diagnostics);
+        }
+        Some(entry)
     }
 
     fn uri(&self, file: &str) -> String {
@@ -564,6 +646,37 @@ impl Driver {
             _ => {}
         }
     }
+}
+
+/// `text` with an LSP content change made: a range in UTF-16 columns
+/// replaced, or all of it where the change has no range.
+fn apply_change(text: &mut String, change: &Value) {
+    let new = change["text"].as_str().unwrap_or_default();
+    let Some(range) = change.get("range") else {
+        *text = new.to_owned();
+        return;
+    };
+    let offset = |position: &Value| {
+        let line = position["line"].as_u64().unwrap_or(0) as usize;
+        let column = position["character"].as_u64().unwrap_or(0) as usize;
+        let start = text
+            .split_inclusive('\n')
+            .take(line)
+            .map(str::len)
+            .sum::<usize>();
+        let mut units = 0;
+        let mut at = start;
+        for c in text[start..].chars() {
+            if units >= column || c == '\n' {
+                break;
+            }
+            units += c.len_utf16();
+            at += c.len_utf8();
+        }
+        at
+    };
+    let (start, end) = (offset(&range["start"]), offset(&range["end"]));
+    text.replace_range(start..end.max(start), new);
 }
 
 /// What the driver's client supports: what VS Code offers that the

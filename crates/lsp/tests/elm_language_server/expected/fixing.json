@@ -1,0 +1,97 @@
+{
+  "diagnostics": {
+    "src/Main.elm": []
+  },
+  "requests": [
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange"
+    },
+    {
+      "diagnostics": {
+        "src/Main.elm": [
+          {"data":{"code":"missing_value","uri":"src/Main.elm"},"message":"NAMING ERROR - I cannot find a `Circle.aera` variable:\n\n9|     text (String.fromFloat (Circle.aera (Circle.circle 2)))\n                               #^^^^^^^^^^^#\nThe `Circle` module does not expose a `aera` variable. These names seem close\nthough:\n\n    #Circle.area#\n    #Circle.circle#\n    #Tuple.pair#\n    #Html.a#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":39,"line":8},"start":{"character":28,"line":8}},"severity":1,"source":"Elm"}
+        ]
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/didSave"
+    },
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"fixId":"make_external_declaration_from_usage"},
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Main.elm"},"message":"NAMING ERROR - I cannot find a `Circle.aera` variable:\n\n9|     text (String.fromFloat (Circle.aera (Circle.circle 2)))\n                               #^^^^^^^^^^^#\nThe `Circle` module does not expose a `aera` variable. These names seem close\nthough:\n\n    #Circle.area#\n    #Circle.circle#\n    #Tuple.pair#\n    #Html.a#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":39,"line":8},"start":{"character":28,"line":8}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Shapes/Circle.elm":[{"newText":"\n\naera : Circle.Circle -> Float\naera arg1 =\n    Debug.todo \"TODO\"\n","range":{"end":{"character":0,"line":15},"start":{"character":0,"line":15}}},{"newText":", aera","range":{"end":{"character":51,"line":0},"start":{"character":51,"line":0}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Create function in module 'Shapes.Circle'"
+        },
+        {
+          "data": {"fixId":"make_external_declaration_from_usage","isFixAll":true},
+          "diagnostics": [{"code":"missing_value","message":"No definition found for `Circle.aera`.","range":{"end":{"character":39,"line":8},"start":{"character":28,"line":8}},"severity":1,"source":"Elm","uri":"<project>/src/Main.elm"}],
+          "edit": {"changes":{"<project>/src/Shapes/Circle.elm":[{"newText":"\n\naera : Circle.Circle -> Float\naera arg1 =\n    Debug.todo \"TODO\"\n","range":{"end":{"character":0,"line":15},"start":{"character":0,"line":15}}},{"newText":", aera","range":{"end":{"character":51,"line":0},"start":{"character":51,"line":0}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Create all missing external functions"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Main.elm"},"message":"NAMING ERROR - I cannot find a `Circle.aera` variable:\n\n9|     text (String.fromFloat (Circle.aera (Circle.circle 2)))\n                               #^^^^^^^^^^^#\nThe `Circle` module does not expose a `aera` variable. These names seem close\nthough:\n\n    #Circle.area#\n    #Circle.circle#\n    #Tuple.pair#\n    #Html.a#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":39,"line":8},"start":{"character":28,"line":8}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Main.elm":[{"newText":"Circle.area","range":{"end":{"character":39,"line":8},"start":{"character":28,"line":8}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `Circle.area`"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Main.elm"},"message":"NAMING ERROR - I cannot find a `Circle.aera` variable:\n\n9|     text (String.fromFloat (Circle.aera (Circle.circle 2)))\n                               #^^^^^^^^^^^#\nThe `Circle` module does not expose a `aera` variable. These names seem close\nthough:\n\n    #Circle.area#\n    #Circle.circle#\n    #Tuple.pair#\n    #Html.a#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":39,"line":8},"start":{"character":28,"line":8}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Main.elm":[{"newText":"Circle.circle","range":{"end":{"character":39,"line":8},"start":{"character":28,"line":8}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `Circle.circle`"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Main.elm"},"message":"NAMING ERROR - I cannot find a `Circle.aera` variable:\n\n9|     text (String.fromFloat (Circle.aera (Circle.circle 2)))\n                               #^^^^^^^^^^^#\nThe `Circle` module does not expose a `aera` variable. These names seem close\nthough:\n\n    #Circle.area#\n    #Circle.circle#\n    #Tuple.pair#\n    #Html.a#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":39,"line":8},"start":{"character":28,"line":8}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Main.elm":[{"newText":"Tuple.pair","range":{"end":{"character":39,"line":8},"start":{"character":28,"line":8}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `Tuple.pair`"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Main.elm"},"message":"NAMING ERROR - I cannot find a `Circle.aera` variable:\n\n9|     text (String.fromFloat (Circle.aera (Circle.circle 2)))\n                               #^^^^^^^^^^^#\nThe `Circle` module does not expose a `aera` variable. These names seem close\nthough:\n\n    #Circle.area#\n    #Circle.circle#\n    #Tuple.pair#\n    #Html.a#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":39,"line":8},"start":{"character":28,"line":8}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Main.elm":[{"newText":"Html.a","range":{"end":{"character":39,"line":8},"start":{"character":28,"line":8}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `Html.a`"
+        }
+      ]
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange"
+    },
+    {
+      "diagnostics": {
+        "src/Main.elm": []
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/didSave"
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange"
+    },
+    {
+      "method": "workspace/willRenameFiles",
+      "result": {
+        "changes": {
+          "<project>/src/Main.elm": [{"newText":"Shapes.Round","range":{"end":{"character":20,"line":3},"start":{"character":7,"line":3}}}],
+          "<project>/src/Shapes/Circle.elm": [{"newText":"Shapes.Round","range":{"end":{"character":20,"line":0},"start":{"character":7,"line":0}}}]
+        }
+      }
+    },
+    {
+      "method": "textDocument/hover",
+      "result": null
+    },
+    {
+      "method": "textDocument/definition",
+      "result": null
+    }
+  ]
+}

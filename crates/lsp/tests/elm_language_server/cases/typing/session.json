@@ -1,0 +1,152 @@
+{
+    "open": [
+        "src/Main.elm"
+    ],
+    "requests": [
+        {
+            "method": "textDocument/didChange",
+            "file": "src/Main.elm",
+            "params": {
+                "contentChanges": [
+                    {
+                        "range": {
+                            "start": {
+                                "line": 7,
+                                "character": 31
+                            },
+                            "end": {
+                                "line": 7,
+                                "character": 37
+                            }
+                        },
+                        "text": ""
+                    }
+                ]
+            }
+        },
+        {
+            "method": "textDocument/didChange",
+            "file": "src/Main.elm",
+            "params": {
+                "contentChanges": [
+                    {
+                        "range": {
+                            "start": {
+                                "line": 7,
+                                "character": 31
+                            },
+                            "end": {
+                                "line": 7,
+                                "character": 31
+                            }
+                        },
+                        "text": "m"
+                    }
+                ]
+            }
+        },
+        {
+            "method": "textDocument/completion",
+            "file": "src/Main.elm",
+            "at": {
+                "line": 7,
+                "character": 32
+            }
+        },
+        {
+            "method": "textDocument/didChange",
+            "file": "src/Main.elm",
+            "params": {
+                "contentChanges": [
+                    {
+                        "range": {
+                            "start": {
+                                "line": 7,
+                                "character": 32
+                            },
+                            "end": {
+                                "line": 7,
+                                "character": 32
+                            }
+                        },
+                        "text": "a"
+                    }
+                ]
+            }
+        },
+        {
+            "method": "textDocument/completion",
+            "file": "src/Main.elm",
+            "at": {
+                "line": 7,
+                "character": 33
+            }
+        },
+        {
+            "method": "textDocument/didChange",
+            "file": "src/Main.elm",
+            "params": {
+                "contentChanges": [
+                    {
+                        "range": {
+                            "start": {
+                                "line": 7,
+                                "character": 33
+                            },
+                            "end": {
+                                "line": 7,
+                                "character": 33
+                            }
+                        },
+                        "text": "ximum"
+                    }
+                ]
+            }
+        },
+        {
+            "method": "textDocument/didSave",
+            "file": "src/Main.elm"
+        },
+        {
+            "method": "textDocument/hover",
+            "file": "src/Main.elm",
+            "at": {
+                "line": 7,
+                "character": 34
+            }
+        },
+        {
+            "method": "textDocument/didChange",
+            "file": "src/Main.elm",
+            "params": {
+                "contentChanges": [
+                    {
+                        "range": {
+                            "start": {
+                                "line": 7,
+                                "character": 31
+                            },
+                            "end": {
+                                "line": 7,
+                                "character": 38
+                            }
+                        },
+                        "text": "sum"
+                    }
+                ]
+            }
+        },
+        {
+            "method": "textDocument/didSave",
+            "file": "src/Main.elm"
+        },
+        {
+            "method": "textDocument/documentSymbol",
+            "file": "src/Main.elm"
+        },
+        {
+            "method": "textDocument/didClose",
+            "file": "src/Main.elm"
+        }
+    ]
+}

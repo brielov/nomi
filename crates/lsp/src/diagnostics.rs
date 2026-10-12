@@ -203,11 +203,21 @@ fn work(shared: &Shared, jobs: &Receiver<Job>) {
         for path in &changed {
             reviewed.remove(path);
         }
-        let settings = shared.settings.lock().unwrap().clone();
+        let settings = shared
+            .settings
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         if settings.on_save_only && !saved {
             continue;
         }
-        let found = problems(shared, &job, &settings, saved, &mut reviewed);
+        // A bug in one check publishes nothing for it rather than end
+        // diagnostics for the session.
+        let Ok(found) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            problems(shared, &job, &settings, saved, &mut reviewed)
+        })) else {
+            continue;
+        };
         let mut by_file: HashMap<PathBuf, Vec<Problem>> = HashMap::new();
         for problem in &found {
             by_file
@@ -230,7 +240,10 @@ fn work(shared: &Shared, jobs: &Receiver<Job>) {
             files.entry(uri).or_default().push(diagnostic);
         }
         publish_if_current(&shared.publishing, &job.snapshot, || {
-            *shared.latest.lock().unwrap() = by_file;
+            *shared
+                .latest
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = by_file;
             for uri in published.drain().collect::<Vec<_>>() {
                 files.entry(uri).or_default();
             }
@@ -266,7 +279,11 @@ fn problems(
     }
     // The packages are built once and kept; each check starts from what
     // was built before it.
-    let mut memo = shared.memo.lock().unwrap().clone();
+    let mut memo = shared
+        .memo
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
     for (manifest, open) in projects {
         let root = manifest.parent().unwrap_or(Path::new(""));
         let before = found.len();
@@ -328,7 +345,11 @@ fn problems(
             }
         }
     }
-    shared.memo.lock().unwrap().extend(memo);
+    shared
+        .memo
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .extend(memo);
     found
 }
 

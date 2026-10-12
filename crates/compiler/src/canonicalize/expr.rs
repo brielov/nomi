@@ -344,7 +344,7 @@ fn binop_tree(tree: binops::Tree, exprs: &mut [Option<Expr>], applied: &[Applied
         binops::Tree::Binop { op, left, right } => {
             let left = binop_tree(*left, exprs, applied);
             let right = binop_tree(*right, exprs, applied);
-            let region = TextRange::new(left.region.start(), right.region.end());
+            let region = left.region.cover(right.region);
             let (name, home, function, annotation) = applied[op].clone();
             expr(
                 region,

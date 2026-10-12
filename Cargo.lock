@@ -1045,6 +1045,7 @@ dependencies = [
  "nomi-engine",
  "nomi-ide",
  "nomi-testkit",
+ "proptest",
  "serde",
  "serde_json",
  "tempfile",

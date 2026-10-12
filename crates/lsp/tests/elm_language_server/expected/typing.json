@@ -1,0 +1,665 @@
+{
+  "diagnostics": {
+    "src/Main.elm": []
+  },
+  "requests": [
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange"
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange"
+    },
+    {
+      "method": "textDocument/completion",
+      "result": [
+        {
+          "documentation": {"sha256":"24ec08d89f441d03"},
+          "kind": 3,
+          "label": "singleton",
+          "labelDetails": {"detail":" : a -> List a"},
+          "sortText": "a_singleton",
+          "textEdit": {"newText":"singleton","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"1a3786df750f8f2c"},
+          "kind": 3,
+          "label": "repeat",
+          "labelDetails": {"detail":" : Int -> a -> List a"},
+          "sortText": "a_repeat",
+          "textEdit": {"newText":"repeat","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"d2e7f1071fbd0744"},
+          "kind": 3,
+          "label": "range",
+          "labelDetails": {"detail":" : Int -> Int -> List Int"},
+          "sortText": "a_range",
+          "textEdit": {"newText":"range","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"f478edccb0e9f672"},
+          "kind": 3,
+          "label": "map",
+          "labelDetails": {"detail":" : (a -> b) -> List a -> List b"},
+          "sortText": "a_map",
+          "textEdit": {"newText":"map","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"ff7fc91a9fad9ec9"},
+          "kind": 3,
+          "label": "indexedMap",
+          "labelDetails": {"detail":" : (Int -> a -> b) -> List a -> List b"},
+          "sortText": "a_indexedMap",
+          "textEdit": {"newText":"indexedMap","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"a2b0608f0bb2d920"},
+          "kind": 3,
+          "label": "foldl",
+          "labelDetails": {"detail":" : (a -> b -> b) -> b -> List a -> b"},
+          "sortText": "a_foldl",
+          "textEdit": {"newText":"foldl","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"ce08f64345dee874"},
+          "kind": 3,
+          "label": "foldr",
+          "labelDetails": {"detail":" : (a -> b -> b) -> b -> List a -> b"},
+          "sortText": "a_foldr",
+          "textEdit": {"newText":"foldr","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"62289761206d01a0"},
+          "kind": 3,
+          "label": "filter",
+          "labelDetails": {"detail":" : (a -> Bool) -> List a -> List a"},
+          "sortText": "a_filter",
+          "textEdit": {"newText":"filter","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"4af0afd7765e8a9d"},
+          "kind": 3,
+          "label": "filterMap",
+          "labelDetails": {"detail":" : (a -> Maybe b) -> List a -> List b"},
+          "sortText": "a_filterMap",
+          "textEdit": {"newText":"filterMap","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"9214396f13c5cbc9"},
+          "kind": 3,
+          "label": "length",
+          "labelDetails": {"detail":" : List a -> Int"},
+          "sortText": "a_length",
+          "textEdit": {"newText":"length","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"8c5f461ae611b31e"},
+          "kind": 3,
+          "label": "reverse",
+          "labelDetails": {"detail":" : List a -> List a"},
+          "sortText": "a_reverse",
+          "textEdit": {"newText":"reverse","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"bf0e4323f2fec6b1"},
+          "kind": 3,
+          "label": "member",
+          "labelDetails": {"detail":" : a -> List a -> Bool"},
+          "sortText": "a_member",
+          "textEdit": {"newText":"member","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"8764129a7eb3aea9"},
+          "kind": 3,
+          "label": "all",
+          "labelDetails": {"detail":" : (a -> Bool) -> List a -> Bool"},
+          "sortText": "a_all",
+          "textEdit": {"newText":"all","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"883e9557a7de0975"},
+          "kind": 3,
+          "label": "any",
+          "labelDetails": {"detail":" : (a -> Bool) -> List a -> Bool"},
+          "sortText": "a_any",
+          "textEdit": {"newText":"any","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"fec9b2243cd01c65"},
+          "kind": 3,
+          "label": "maximum",
+          "labelDetails": {"detail":" : List comparable -> Maybe comparable"},
+          "sortText": "a_maximum",
+          "textEdit": {"newText":"maximum","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"1be7e319c6ff78ed"},
+          "kind": 3,
+          "label": "minimum",
+          "labelDetails": {"detail":" : List comparable -> Maybe comparable"},
+          "sortText": "a_minimum",
+          "textEdit": {"newText":"minimum","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"aeb63962e98379af"},
+          "kind": 3,
+          "label": "sum",
+          "labelDetails": {"detail":" : List number -> number"},
+          "sortText": "a_sum",
+          "textEdit": {"newText":"sum","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"df93af7ed1ae06eb"},
+          "kind": 3,
+          "label": "product",
+          "labelDetails": {"detail":" : List number -> number"},
+          "sortText": "a_product",
+          "textEdit": {"newText":"product","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"6993ea909e6a4def"},
+          "kind": 3,
+          "label": "append",
+          "labelDetails": {"detail":" : List a -> List a -> List a"},
+          "sortText": "a_append",
+          "textEdit": {"newText":"append","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"5d66a86c0a3c9cae"},
+          "kind": 3,
+          "label": "concat",
+          "labelDetails": {"detail":" : List (List a) -> List a"},
+          "sortText": "a_concat",
+          "textEdit": {"newText":"concat","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"89241ab1a3634c97"},
+          "kind": 3,
+          "label": "concatMap",
+          "labelDetails": {"detail":" : (a -> List b) -> List a -> List b"},
+          "sortText": "a_concatMap",
+          "textEdit": {"newText":"concatMap","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"7ca3ab6cbe843a50"},
+          "kind": 3,
+          "label": "intersperse",
+          "labelDetails": {"detail":" : a -> List a -> List a"},
+          "sortText": "a_intersperse",
+          "textEdit": {"newText":"intersperse","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"afba6d5380198747"},
+          "kind": 3,
+          "label": "map2",
+          "labelDetails": {"detail":" : (a -> b -> result) -> List a -> List b -> List result"},
+          "sortText": "a_map2",
+          "textEdit": {"newText":"map2","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"b44c0a978c4c35c3"},
+          "kind": 3,
+          "label": "map3",
+          "labelDetails": {"detail":" : (a -> b -> c -> result) -> List a -> List b -> List c -> List result"},
+          "sortText": "a_map3",
+          "textEdit": {"newText":"map3","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"2bd16f8efa0cd4d9"},
+          "kind": 3,
+          "label": "map4",
+          "labelDetails": {"detail":" : (a -> b -> c -> d -> result) -> List a -> List b -> List c -> List d -> List result"},
+          "sortText": "a_map4",
+          "textEdit": {"newText":"map4","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"8b9a14d5808832d3"},
+          "kind": 3,
+          "label": "map5",
+          "labelDetails": {"detail":" : (a -> b -> c -> d -> e -> result) -> List a -> List b -> List c -> List d -> List e -> List result"},
+          "sortText": "a_map5",
+          "textEdit": {"newText":"map5","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"6cd6516a3cb839ba"},
+          "kind": 3,
+          "label": "sort",
+          "labelDetails": {"detail":" : List comparable -> List comparable"},
+          "sortText": "a_sort",
+          "textEdit": {"newText":"sort","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"b02790379a92a4b0"},
+          "kind": 3,
+          "label": "sortBy",
+          "labelDetails": {"detail":" : (a -> comparable) -> List a -> List a"},
+          "sortText": "a_sortBy",
+          "textEdit": {"newText":"sortBy","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"2906daee0e3c1e1c"},
+          "kind": 3,
+          "label": "sortWith",
+          "labelDetails": {"detail":" : (a -> a -> Order) -> List a -> List a"},
+          "sortText": "a_sortWith",
+          "textEdit": {"newText":"sortWith","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"6f9c7b8a2c1fcb0e"},
+          "kind": 3,
+          "label": "isEmpty",
+          "labelDetails": {"detail":" : List a -> Bool"},
+          "sortText": "a_isEmpty",
+          "textEdit": {"newText":"isEmpty","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"62e6a1342d005266"},
+          "kind": 3,
+          "label": "head",
+          "labelDetails": {"detail":" : List a -> Maybe a"},
+          "sortText": "a_head",
+          "textEdit": {"newText":"head","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"08d94fcef23c5a24"},
+          "kind": 3,
+          "label": "tail",
+          "labelDetails": {"detail":" : List a -> Maybe (List a)"},
+          "sortText": "a_tail",
+          "textEdit": {"newText":"tail","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"0ee08a7a5abdd67e"},
+          "kind": 3,
+          "label": "take",
+          "labelDetails": {"detail":" : Int -> List a -> List a"},
+          "sortText": "a_take",
+          "textEdit": {"newText":"take","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"e40f40fedfad905e"},
+          "kind": 3,
+          "label": "drop",
+          "labelDetails": {"detail":" : Int -> List a -> List a"},
+          "sortText": "a_drop",
+          "textEdit": {"newText":"drop","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"dcf813ff7622bd4b"},
+          "kind": 3,
+          "label": "partition",
+          "labelDetails": {"detail":" : (a -> Bool) -> List a -> ( List a, List a )"},
+          "sortText": "a_partition",
+          "textEdit": {"newText":"partition","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"4b4a0b71750231ed"},
+          "kind": 3,
+          "label": "unzip",
+          "labelDetails": {"detail":" : List ( a, b ) -> ( List a, List b )"},
+          "sortText": "a_unzip",
+          "textEdit": {"newText":"unzip","range":{"end":{"character":32,"line":7},"start":{"character":31,"line":7}}}
+        }
+      ]
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange"
+    },
+    {
+      "method": "textDocument/completion",
+      "result": [
+        {
+          "documentation": {"sha256":"24ec08d89f441d03"},
+          "kind": 3,
+          "label": "singleton",
+          "labelDetails": {"detail":" : a -> List a"},
+          "sortText": "a_singleton",
+          "textEdit": {"newText":"singleton","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"1a3786df750f8f2c"},
+          "kind": 3,
+          "label": "repeat",
+          "labelDetails": {"detail":" : Int -> a -> List a"},
+          "sortText": "a_repeat",
+          "textEdit": {"newText":"repeat","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"d2e7f1071fbd0744"},
+          "kind": 3,
+          "label": "range",
+          "labelDetails": {"detail":" : Int -> Int -> List Int"},
+          "sortText": "a_range",
+          "textEdit": {"newText":"range","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"f478edccb0e9f672"},
+          "kind": 3,
+          "label": "map",
+          "labelDetails": {"detail":" : (a -> b) -> List a -> List b"},
+          "sortText": "a_map",
+          "textEdit": {"newText":"map","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"ff7fc91a9fad9ec9"},
+          "kind": 3,
+          "label": "indexedMap",
+          "labelDetails": {"detail":" : (Int -> a -> b) -> List a -> List b"},
+          "sortText": "a_indexedMap",
+          "textEdit": {"newText":"indexedMap","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"a2b0608f0bb2d920"},
+          "kind": 3,
+          "label": "foldl",
+          "labelDetails": {"detail":" : (a -> b -> b) -> b -> List a -> b"},
+          "sortText": "a_foldl",
+          "textEdit": {"newText":"foldl","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"ce08f64345dee874"},
+          "kind": 3,
+          "label": "foldr",
+          "labelDetails": {"detail":" : (a -> b -> b) -> b -> List a -> b"},
+          "sortText": "a_foldr",
+          "textEdit": {"newText":"foldr","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"62289761206d01a0"},
+          "kind": 3,
+          "label": "filter",
+          "labelDetails": {"detail":" : (a -> Bool) -> List a -> List a"},
+          "sortText": "a_filter",
+          "textEdit": {"newText":"filter","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"4af0afd7765e8a9d"},
+          "kind": 3,
+          "label": "filterMap",
+          "labelDetails": {"detail":" : (a -> Maybe b) -> List a -> List b"},
+          "sortText": "a_filterMap",
+          "textEdit": {"newText":"filterMap","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"9214396f13c5cbc9"},
+          "kind": 3,
+          "label": "length",
+          "labelDetails": {"detail":" : List a -> Int"},
+          "sortText": "a_length",
+          "textEdit": {"newText":"length","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"8c5f461ae611b31e"},
+          "kind": 3,
+          "label": "reverse",
+          "labelDetails": {"detail":" : List a -> List a"},
+          "sortText": "a_reverse",
+          "textEdit": {"newText":"reverse","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"bf0e4323f2fec6b1"},
+          "kind": 3,
+          "label": "member",
+          "labelDetails": {"detail":" : a -> List a -> Bool"},
+          "sortText": "a_member",
+          "textEdit": {"newText":"member","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"8764129a7eb3aea9"},
+          "kind": 3,
+          "label": "all",
+          "labelDetails": {"detail":" : (a -> Bool) -> List a -> Bool"},
+          "sortText": "a_all",
+          "textEdit": {"newText":"all","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"883e9557a7de0975"},
+          "kind": 3,
+          "label": "any",
+          "labelDetails": {"detail":" : (a -> Bool) -> List a -> Bool"},
+          "sortText": "a_any",
+          "textEdit": {"newText":"any","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"fec9b2243cd01c65"},
+          "kind": 3,
+          "label": "maximum",
+          "labelDetails": {"detail":" : List comparable -> Maybe comparable"},
+          "sortText": "a_maximum",
+          "textEdit": {"newText":"maximum","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"1be7e319c6ff78ed"},
+          "kind": 3,
+          "label": "minimum",
+          "labelDetails": {"detail":" : List comparable -> Maybe comparable"},
+          "sortText": "a_minimum",
+          "textEdit": {"newText":"minimum","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"aeb63962e98379af"},
+          "kind": 3,
+          "label": "sum",
+          "labelDetails": {"detail":" : List number -> number"},
+          "sortText": "a_sum",
+          "textEdit": {"newText":"sum","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"df93af7ed1ae06eb"},
+          "kind": 3,
+          "label": "product",
+          "labelDetails": {"detail":" : List number -> number"},
+          "sortText": "a_product",
+          "textEdit": {"newText":"product","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"6993ea909e6a4def"},
+          "kind": 3,
+          "label": "append",
+          "labelDetails": {"detail":" : List a -> List a -> List a"},
+          "sortText": "a_append",
+          "textEdit": {"newText":"append","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"5d66a86c0a3c9cae"},
+          "kind": 3,
+          "label": "concat",
+          "labelDetails": {"detail":" : List (List a) -> List a"},
+          "sortText": "a_concat",
+          "textEdit": {"newText":"concat","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"89241ab1a3634c97"},
+          "kind": 3,
+          "label": "concatMap",
+          "labelDetails": {"detail":" : (a -> List b) -> List a -> List b"},
+          "sortText": "a_concatMap",
+          "textEdit": {"newText":"concatMap","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"7ca3ab6cbe843a50"},
+          "kind": 3,
+          "label": "intersperse",
+          "labelDetails": {"detail":" : a -> List a -> List a"},
+          "sortText": "a_intersperse",
+          "textEdit": {"newText":"intersperse","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"afba6d5380198747"},
+          "kind": 3,
+          "label": "map2",
+          "labelDetails": {"detail":" : (a -> b -> result) -> List a -> List b -> List result"},
+          "sortText": "a_map2",
+          "textEdit": {"newText":"map2","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"b44c0a978c4c35c3"},
+          "kind": 3,
+          "label": "map3",
+          "labelDetails": {"detail":" : (a -> b -> c -> result) -> List a -> List b -> List c -> List result"},
+          "sortText": "a_map3",
+          "textEdit": {"newText":"map3","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"2bd16f8efa0cd4d9"},
+          "kind": 3,
+          "label": "map4",
+          "labelDetails": {"detail":" : (a -> b -> c -> d -> result) -> List a -> List b -> List c -> List d -> List result"},
+          "sortText": "a_map4",
+          "textEdit": {"newText":"map4","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"8b9a14d5808832d3"},
+          "kind": 3,
+          "label": "map5",
+          "labelDetails": {"detail":" : (a -> b -> c -> d -> e -> result) -> List a -> List b -> List c -> List d -> List e -> List result"},
+          "sortText": "a_map5",
+          "textEdit": {"newText":"map5","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"6cd6516a3cb839ba"},
+          "kind": 3,
+          "label": "sort",
+          "labelDetails": {"detail":" : List comparable -> List comparable"},
+          "sortText": "a_sort",
+          "textEdit": {"newText":"sort","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"b02790379a92a4b0"},
+          "kind": 3,
+          "label": "sortBy",
+          "labelDetails": {"detail":" : (a -> comparable) -> List a -> List a"},
+          "sortText": "a_sortBy",
+          "textEdit": {"newText":"sortBy","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"2906daee0e3c1e1c"},
+          "kind": 3,
+          "label": "sortWith",
+          "labelDetails": {"detail":" : (a -> a -> Order) -> List a -> List a"},
+          "sortText": "a_sortWith",
+          "textEdit": {"newText":"sortWith","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"6f9c7b8a2c1fcb0e"},
+          "kind": 3,
+          "label": "isEmpty",
+          "labelDetails": {"detail":" : List a -> Bool"},
+          "sortText": "a_isEmpty",
+          "textEdit": {"newText":"isEmpty","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"62e6a1342d005266"},
+          "kind": 3,
+          "label": "head",
+          "labelDetails": {"detail":" : List a -> Maybe a"},
+          "sortText": "a_head",
+          "textEdit": {"newText":"head","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"08d94fcef23c5a24"},
+          "kind": 3,
+          "label": "tail",
+          "labelDetails": {"detail":" : List a -> Maybe (List a)"},
+          "sortText": "a_tail",
+          "textEdit": {"newText":"tail","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"0ee08a7a5abdd67e"},
+          "kind": 3,
+          "label": "take",
+          "labelDetails": {"detail":" : Int -> List a -> List a"},
+          "sortText": "a_take",
+          "textEdit": {"newText":"take","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"e40f40fedfad905e"},
+          "kind": 3,
+          "label": "drop",
+          "labelDetails": {"detail":" : Int -> List a -> List a"},
+          "sortText": "a_drop",
+          "textEdit": {"newText":"drop","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"dcf813ff7622bd4b"},
+          "kind": 3,
+          "label": "partition",
+          "labelDetails": {"detail":" : (a -> Bool) -> List a -> ( List a, List a )"},
+          "sortText": "a_partition",
+          "textEdit": {"newText":"partition","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        },
+        {
+          "documentation": {"sha256":"4b4a0b71750231ed"},
+          "kind": 3,
+          "label": "unzip",
+          "labelDetails": {"detail":" : List ( a, b ) -> ( List a, List b )"},
+          "sortText": "a_unzip",
+          "textEdit": {"newText":"unzip","range":{"end":{"character":33,"line":7},"start":{"character":31,"line":7}}}
+        }
+      ]
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange"
+    },
+    {
+      "diagnostics": {
+        "src/Main.elm": [
+          {"data":{"code":"elm_make","uri":"src/Main.elm"},"message":"TYPE MISMATCH - The 1st argument to `fromInt` is not what I expect:\n\n8|     text (String.fromInt (List.maximum numbers))\n                             #^^^^^^^^^^^^^^^^^^^^#\nThis `maximum` call produces:\n\n    #Maybe# Int\n\nBut `fromInt` needs the 1st argument to be:\n\n    Int\n\n#Hint#: Use #Maybe.withDefault# to handle possible errors. Longer term, it is\nusually better to write out the full `case` though!","range":{"end":{"character":46,"line":7},"start":{"character":26,"line":7}},"severity":1,"source":"Elm"}
+        ]
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/didSave"
+    },
+    {
+      "method": "textDocument/hover",
+      "result": {
+        "contents": {
+          "kind": "markdown",
+          "value": "\n```elm\nmaximum : List comparable -> Maybe comparable\n```\n\n\n---\n\n\n```elm\nmaximum list\n```\nFind the maximum element in a non-empty list.\n\n    maximum [1,4,2] == Just 4\n    maximum []      == Nothing"
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange"
+    },
+    {
+      "diagnostics": {
+        "src/Main.elm": []
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/didSave"
+    },
+    {
+      "method": "textDocument/documentSymbol",
+      "result": [
+        {
+          "kind": 2,
+          "location": {"range":{"end":{"character":27,"line":0},"start":{"character":0,"line":0}},"uri":"<project>/src/Main.elm"},
+          "name": "Main"
+        },
+        {
+          "kind": 12,
+          "location": {"range":{"end":{"character":44,"line":7},"start":{"character":0,"line":6}},"uri":"<project>/src/Main.elm"},
+          "name": "main"
+        },
+        {
+          "kind": 12,
+          "location": {"range":{"end":{"character":15,"line":12},"start":{"character":0,"line":11}},"uri":"<project>/src/Main.elm"},
+          "name": "numbers"
+        }
+      ]
+    },
+    {
+      "diagnostics": {
+        "src/Main.elm": []
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/didClose"
+    }
+  ]
+}

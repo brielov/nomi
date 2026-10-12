@@ -177,7 +177,7 @@ fn syntax_errors_come_and_go_with_the_text() {
     let client = Client::start(&[]);
     // The emoji takes two UTF-16 units, so the error's column says which
     // unit the server counts in.
-    let broken = "module Main exposing (x)\n\n\nx =\n    \"😀\" ++ = 1\n";
+    let broken = "module Main exposing (x)\n\n\nx : String\nx =\n    \"😀\" ++ = \"a\"\n";
     client.open(&main, broken);
     let found = client.diagnostics(&main, |d| !d.is_empty());
     assert_eq!(found.len(), 1);
@@ -188,15 +188,16 @@ fn syntax_errors_come_and_go_with_the_text() {
     assert_eq!(found[0]["severity"], 1);
     assert_eq!(
         found[0]["range"]["start"],
-        json!({ "line": 4, "character": 12 })
+        json!({ "line": 5, "character": 12 })
     );
-    // Replace `= 1` with `1`: the error goes.
+    // Replace `= "a"` with `"a"`: the error goes, whether or not the
+    // machine's package cache lets the types be checked.
     client.notify(
         "textDocument/didChange",
         json!({
             "textDocument": { "uri": main, "version": 2 },
             "contentChanges": [{
-                "range": { "start": { "line": 4, "character": 12 }, "end": { "line": 4, "character": 14 } },
+                "range": { "start": { "line": 5, "character": 12 }, "end": { "line": 5, "character": 14 } },
                 "text": "",
             }],
         }),
@@ -427,5 +428,42 @@ fn hover_and_completion_answer_without_packages() {
         .map(|c| c["label"].as_str().unwrap())
         .collect();
     assert_eq!(labels, ["helper"]);
+    client.shutdown();
+}
+
+#[test]
+fn a_cancelled_request_is_still_answered() {
+    let (_dir, main) = project();
+    let mut client = Client::start(&[]);
+    client.open(&main, "module Main exposing (x)\n\n\nx : Int\nx =\n    1\n");
+    // Asked and cancelled at once: the answer may be the result or the
+    // cancellation's error, but one comes, and the server goes on.
+    client.next_id += 1;
+    let id = RequestId::from(client.next_id);
+    let params = json!({ "textDocument": { "uri": main } });
+    let request = Request::new(
+        id.clone(),
+        "textDocument/documentSymbol".to_owned(),
+        params.clone(),
+    );
+    client
+        .connection
+        .sender
+        .send(Message::Request(request))
+        .unwrap();
+    client.notify("$/cancelRequest", json!({ "id": client.next_id }));
+    loop {
+        match client.receive() {
+            Message::Response(response) if response.id == id => {
+                if let Some(error) = &response.error {
+                    assert_eq!(error.code, -32800, "{error:?}");
+                }
+                break;
+            }
+            _ => {}
+        }
+    }
+    let after = client.request("textDocument/documentSymbol", params);
+    assert!(after.error.is_none(), "{after:?}");
     client.shutdown();
 }

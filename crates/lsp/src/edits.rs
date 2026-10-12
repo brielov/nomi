@@ -36,7 +36,12 @@ impl Server {
             .and_then(|path| index::manifest(&self.vfs.snapshot(), &path))
             .and_then(|m| m.parent().map(Path::to_path_buf))
             .ok_or_else(|| (ErrorCode::InvalidParams, format!("{uri} has no project")))?;
-        if self.settings.lock().unwrap().skip_install_confirmation {
+        if self
+            .settings
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .skip_install_confirmation
+        {
             install_package(&root, package, Some("y"));
             return Ok(Value::Null);
         }
@@ -324,7 +329,13 @@ impl Server {
                     .collect(),
             })
             .collect();
-        let problems = (self.latest.lock().unwrap().get(&path).cloned()).unwrap_or_default();
+        let problems = (self
+            .latest
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&path)
+            .cloned())
+        .unwrap_or_default();
         let snapshot = self.vfs.snapshot();
         if self.index(&snapshot, &path).is_none() {
             return Ok(Value::Array(Vec::new()));
@@ -340,7 +351,11 @@ impl Server {
             problems: &problems,
             packages,
             lazy: self.resolves_edits,
-            move_function: self.settings.lock().unwrap().move_function,
+            move_function: self
+                .settings
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .move_function,
         };
         let actions = nomi_ide::code_actions(&snapshot, index, &path, &request);
         let mut found = Vec::new();

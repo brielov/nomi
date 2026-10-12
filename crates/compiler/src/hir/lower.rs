@@ -364,8 +364,14 @@ impl Lower {
                 Expr::Call { function, args }
             }
             E::OperatorChain(chain) => {
-                let operands = chain.exprs().map(|e| self.expr(Some(e))).collect();
-                let ops = chain.ops().map(|op| words(op.syntax())).collect();
+                let mut operands: Vec<_> = chain.exprs().map(|e| self.expr(Some(e))).collect();
+                let ops: Vec<_> = chain.ops().map(|op| words(op.syntax())).collect();
+                // A recovered chain still has an operand around each
+                // operator: missing ones are `Missing`, extra ones go.
+                while operands.len() < ops.len() + 1 {
+                    operands.push(self.expr(None));
+                }
+                operands.truncate(ops.len() + 1);
                 Expr::Binops { operands, ops }
             }
             E::UnitExpr(_) => Expr::Unit,

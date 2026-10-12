@@ -1,0 +1,119 @@
+{
+    "open": [
+        "src/Main.elm"
+    ],
+    "requests": [
+        {
+            "method": "textDocument/didChange",
+            "file": "src/Main.elm",
+            "params": {
+                "contentChanges": [
+                    {
+                        "range": {
+                            "start": {
+                                "line": 8,
+                                "character": 35
+                            },
+                            "end": {
+                                "line": 8,
+                                "character": 39
+                            }
+                        },
+                        "text": "aera"
+                    }
+                ]
+            }
+        },
+        {
+            "method": "textDocument/didSave",
+            "file": "src/Main.elm"
+        },
+        {
+            "method": "textDocument/codeAction",
+            "file": "src/Main.elm",
+            "at": {
+                "start": {
+                    "line": 8,
+                    "character": 36
+                },
+                "end": {
+                    "line": 8,
+                    "character": 36
+                }
+            }
+        },
+        {
+            "method": "textDocument/didChange",
+            "file": "src/Main.elm",
+            "params": {
+                "contentChanges": [
+                    {
+                        "range": {
+                            "start": {
+                                "line": 8,
+                                "character": 35
+                            },
+                            "end": {
+                                "line": 8,
+                                "character": 39
+                            }
+                        },
+                        "text": "area"
+                    }
+                ]
+            }
+        },
+        {
+            "method": "textDocument/didSave",
+            "file": "src/Main.elm"
+        },
+        {
+            "method": "textDocument/didChange",
+            "file": "src/Main.elm",
+            "params": {
+                "contentChanges": [
+                    {
+                        "range": {
+                            "start": {
+                                "line": 8,
+                                "character": 4
+                            },
+                            "end": {
+                                "line": 8,
+                                "character": 8
+                            }
+                        },
+                        "text": "Html."
+                    }
+                ]
+            }
+        },
+        {
+            "method": "workspace/willRenameFiles",
+            "params": {
+                "files": [
+                    {
+                        "oldUri": "<project>/src/Shapes/Circle.elm",
+                        "newUri": "<project>/src/Shapes/Round.elm"
+                    }
+                ]
+            }
+        },
+        {
+            "method": "textDocument/hover",
+            "file": "src/Main.elm",
+            "at": {
+                "line": 8,
+                "character": 41
+            }
+        },
+        {
+            "method": "textDocument/definition",
+            "file": "src/Main.elm",
+            "at": {
+                "line": 8,
+                "character": 41
+            }
+        }
+    ]
+}

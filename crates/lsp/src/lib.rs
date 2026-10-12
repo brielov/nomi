@@ -212,10 +212,24 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
                 if connection.handle_shutdown(&request)? {
                     return Ok(());
                 }
-                let response = server.request(request);
+                // A bug answers its request with an error rather than end
+                // the session.
+                let id = request.id.clone();
+                let method = request.method.clone();
+                let response = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    server.request(request)
+                }))
+                .unwrap_or_else(|_| {
+                    let message = format!("nomi failed answering {method}; this is a bug in nomi");
+                    Response::new_err(id, ErrorCode::InternalError as i32, message)
+                });
                 send(&server.sender, Message::Response(response));
             }
-            Message::Notification(notification) => server.notification(notification),
+            Message::Notification(notification) => {
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    server.notification(notification)
+                }));
+            }
             Message::Response(response) => server.response(response),
         }
     }
@@ -388,7 +402,10 @@ impl Server {
             DidChangeConfiguration::METHOD => {
                 let changed = (notification.params.get("settings")).and_then(Settings::read);
                 if let Some(settings) = changed {
-                    *self.settings.lock().unwrap() = settings;
+                    *self
+                        .settings
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = settings;
                 }
                 self.pull_settings();
             }
@@ -429,7 +446,10 @@ impl Server {
             .and_then(|r| r.get(0))
             .and_then(Settings::read);
         if let Some(settings) = first {
-            *self.settings.lock().unwrap() = settings;
+            *self
+                .settings
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = settings;
         }
     }
 
@@ -464,7 +484,10 @@ impl Server {
     fn close(&mut self, uri: &Url) {
         if let Some(document) = self.documents.remove(uri) {
             {
-                let _held = self.publishing.lock().unwrap();
+                let _held = self
+                    .publishing
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 let _ = self.vfs.remove_overlay(&document.path);
             }
             self.revise(false);
@@ -486,7 +509,10 @@ impl Server {
 
     fn check(&mut self, saved: bool, changed: Vec<PathBuf>) {
         let snapshot = {
-            let _held = self.publishing.lock().unwrap();
+            let _held = self
+                .publishing
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let overlays: Vec<_> = self.documents.values().collect();
             for document in &overlays {
                 let _ = self.vfs.set_overlay(&document.path, document.text.as_str());
@@ -566,7 +592,10 @@ impl Server {
         let fresh = (self.index.as_ref()).is_some_and(|(r, m, _)| *r == revision && *m == manifest);
         if !fresh {
             let index = {
-                let mut memo = self.memo.lock().unwrap();
+                let mut memo = self
+                    .memo
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 index::index(snapshot, &self.store, path, &mut memo)?
             };
             self.index = Some((revision, manifest, index));
@@ -910,7 +939,12 @@ impl Server {
                 let root = (index::manifest(&snapshot, &path))
                     .and_then(|m| m.parent().map(Path::to_path_buf))
                     .and_then(|root| Url::from_file_path(root).ok());
-                match root.filter(|_| self.settings.lock().unwrap().expose_commands) {
+                match root.filter(|_| {
+                    self.settings
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .expose_commands
+                }) {
                     Some(root) => {
                         let verb = if exposed { "unexpose" } else { "expose" };
                         let root = root.as_str().trim_end_matches('/');
@@ -1086,7 +1120,9 @@ fn completion_item(c: nomi_ide::Completion, text: &Text, label_details: bool) ->
 }
 
 fn publish_if_current(publishing: &Mutex<()>, snapshot: &Snapshot, publish: impl FnOnce()) -> bool {
-    let _held = publishing.lock().unwrap();
+    let _held = publishing
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if snapshot.is_stale() {
         return false;
     }
