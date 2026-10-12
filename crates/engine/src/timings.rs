@@ -16,7 +16,8 @@ pub enum Phase {
     Load,
     /// Building the dependencies.
     Packages,
-    /// Finding and checking the project's modules.
+    /// Finding and checking the project's modules, as the dependencies
+    /// build.
     Modules,
     /// Merging the graphs and generating the code.
     Generate,

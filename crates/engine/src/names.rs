@@ -76,6 +76,111 @@ pub fn visible(packages: &PackageInterfaces, direct: &[Name]) -> HashMap<String,
         .collect()
 }
 
+/// Where a check finds the interfaces of the modules the direct
+/// dependencies expose.
+#[derive(Clone, Copy, Debug)]
+pub enum Packages<'a> {
+    /// Built before it.
+    Built(&'a HashMap<String, Interface>),
+    /// Built alongside it, each module starting once the packages it
+    /// imports are built.
+    Building(&'a Building<'a>),
+}
+
+impl<'a> From<&'a HashMap<String, Interface>> for Packages<'a> {
+    fn from(built: &'a HashMap<String, Interface>) -> Packages<'a> {
+        Packages::Built(built)
+    }
+}
+
+impl<'a> Packages<'a> {
+    fn get(self, module: &str) -> Option<&'a Interface> {
+        match self {
+            Packages::Built(built) => built.get(module),
+            Packages::Building(building) => building.interface(module),
+        }
+    }
+}
+
+/// A project's dependencies, to build alongside its modules: the
+/// packages, and the modules each direct dependency exposes.
+#[derive(Debug)]
+pub struct Building<'a> {
+    compat: Compat,
+    sources: Vec<(Name, PathBuf)>,
+    artifacts: Option<&'a Artifacts>,
+    direct: Vec<Name>,
+    /// Each exposed module's direct dependencies, by their place in
+    /// `direct`; where there are several, the last is the one whose
+    /// interface is read, as [`visible`] reads them.
+    exposers: HashMap<String, Vec<usize>>,
+    /// Each direct dependency's build, once it is built.
+    builds: Vec<OnceLock<Arc<objects::PackageBuild>>>,
+    built: Mutex<Option<Result<objects::Dependencies, String>>>,
+}
+
+impl<'a> Building<'a> {
+    /// `sources`, each a package and the directory of its source, to
+    /// build; `direct`, each direct dependency and the modules it exposes.
+    pub fn new(
+        compat: Compat,
+        sources: Vec<(Name, PathBuf)>,
+        artifacts: Option<&'a Artifacts>,
+        direct: Vec<(Name, Vec<ModuleName>)>,
+    ) -> Building<'a> {
+        let mut exposers: HashMap<String, Vec<usize>> = HashMap::new();
+        for (i, (_, modules)) in direct.iter().enumerate() {
+            for module in modules {
+                exposers.entry(module.to_string()).or_default().push(i);
+            }
+        }
+        Building {
+            compat,
+            sources,
+            artifacts,
+            builds: direct.iter().map(|_| OnceLock::new()).collect(),
+            direct: direct.into_iter().map(|(name, _)| name).collect(),
+            exposers,
+            built: Mutex::new(None),
+        }
+    }
+
+    /// Builds the packages, once, opening each direct dependency's gate,
+    /// its place among them, as soon as it is built.
+    pub fn build(&self, open: &(dyn Fn(usize) + Sync)) {
+        let mut built = self.built.lock().unwrap();
+        if built.is_some() {
+            return;
+        }
+        let done = |name: &Name, build: &Arc<objects::PackageBuild>| {
+            if let Some(i) = self.direct.iter().position(|d| d == name) {
+                let _ = self.builds[i].set(build.clone());
+                open(i);
+            }
+        };
+        let mut memo = objects::Memo::new();
+        *built = Some(time(Phase::Packages, || {
+            objects::build_each(self.compat, &self.sources, &mut memo, self.artifacts, &done)
+        }));
+    }
+
+    /// The direct dependencies a module importing `module` waits on.
+    fn gates(&self, module: &str) -> &[usize] {
+        self.exposers.get(module).map_or(&[], Vec::as_slice)
+    }
+
+    fn interface(&self, module: &str) -> Option<&Interface> {
+        let &i = self.gates(module).last()?;
+        self.builds[i].get()?.exposed.get(module)
+    }
+
+    /// What building the packages came to.
+    pub fn finish(self) -> Result<objects::Dependencies, String> {
+        self.build(&|_| {});
+        (self.built.into_inner().unwrap()).expect("the packages built")
+    }
+}
+
 /// Each local module's naming and type problems, by path: every module
 /// the build reached whose path isn't in `failed` and none of whose local
 /// imports failed or was blocked, checked after those imports.
@@ -85,7 +190,7 @@ pub fn canonicalize_graph(
     packages: &HashMap<String, Interface>,
     failed: &HashSet<PathBuf>,
 ) -> HashMap<PathBuf, Vec<Problem>> {
-    check_graph(env, graph, packages, failed, None, Goals::default()).problems
+    check_graph(env, graph, packages.into(), failed, None, Goals::default()).problems
 }
 
 /// What checking a graph found, and which modules it checked rather than
@@ -126,7 +231,7 @@ pub struct Goals<'a> {
 pub fn check_graph(
     env: &Env,
     graph: &Graph,
-    packages: &HashMap<String, Interface>,
+    packages: Packages<'_>,
     failed: &HashSet<PathBuf>,
     artifacts: Option<&Artifacts>,
     goals: Goals<'_>,
@@ -192,8 +297,35 @@ pub fn check_graph(
         optimized_interfaces: Mutex::new(Vec::new()),
     };
     let snapshot = crate::Vfs::new().snapshot();
-    let outcomes = schedule::run(&snapshot, &imports, |i, deps| walk.job(i, deps))
-        .expect("a snapshot nothing edits");
+    let job = |i, deps: &[&Made]| walk.job(i, deps);
+    let outcomes = match packages {
+        Packages::Built(_) => schedule::run(&snapshot, &imports, job),
+        // Each module waits on the packages exposing what it imports.
+        Packages::Building(building) => {
+            let gates: Vec<Vec<usize>> = (nodes.iter())
+                .map(|node| match node {
+                    Node::Module(module) => {
+                        let mut gates: Vec<usize> = (module.imports.iter())
+                            .flat_map(|import| building.gates(&import.name.to_string()))
+                            .copied()
+                            .collect();
+                        gates.sort_unstable();
+                        gates.dedup();
+                        gates
+                    }
+                    _ => Vec::new(),
+                })
+                .collect();
+            schedule::run_gated(
+                &snapshot,
+                &imports,
+                &gates,
+                |open| building.build(open),
+                job,
+            )
+        }
+    };
+    let outcomes = outcomes.expect("a snapshot nothing edits");
     let compiled = (nodes.iter().zip(&outcomes))
         .filter(|(node, outcome)| {
             matches!(node, Node::Module(..)) && matches!(outcome, Outcome::Done(_))
@@ -294,7 +426,7 @@ type ModuleInterface = (ModuleName, Arc<LazyInterface>);
 /// packages'.
 struct Layered<'a> {
     local: HashMap<&'a str, &'a LazyInterface>,
-    packages: &'a HashMap<String, Interface>,
+    packages: Packages<'a>,
 }
 
 impl Interfaces for Layered<'_> {
@@ -309,7 +441,7 @@ impl Interfaces for Layered<'_> {
 struct Walk<'g> {
     env: &'g Env,
     package: String,
-    packages: &'g HashMap<String, Interface>,
+    packages: Packages<'g>,
     failed: &'g HashSet<PathBuf>,
     artifacts: Option<&'g Artifacts>,
     goals: Goals<'g>,

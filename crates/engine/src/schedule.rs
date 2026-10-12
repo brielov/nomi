@@ -9,6 +9,10 @@
 //! [`Cancelled`] when the ones running finish. A run that ends stale is
 //! cancelled too, so what it returns was made from current files; a
 //! caller publishing it later checks again.
+//!
+//! A module may also wait on gates, opened by work running alongside, as
+//! a project's modules wait on the packages they import while the rest
+//! are still building.
 
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -45,6 +49,26 @@ where
     E: Send + Sync,
     F: Fn(usize, &[&T]) -> Result<T, E> + Sync,
 {
+    let gates = vec![Vec::new(); imports.len()];
+    run_gated(snapshot, imports, &gates, |_| {}, job)
+}
+
+/// [`run`], module `i` waiting on `gates[i]` too, which `open` opens
+/// alongside, each once, by calling what it is given. A module whose gate
+/// never opens doesn't run, and comes back blocked.
+pub fn run_gated<T, E, F, O>(
+    snapshot: &Snapshot,
+    imports: &[Vec<usize>],
+    gates: &[Vec<usize>],
+    open: O,
+    job: F,
+) -> Result<Vec<Outcome<T, E>>, Cancelled>
+where
+    T: Send + Sync,
+    E: Send + Sync,
+    F: Fn(usize, &[&T]) -> Result<T, E> + Sync,
+    O: FnOnce(&(dyn Fn(usize) + Sync)) + Send,
+{
     let n = imports.len();
     let mut importers = vec![Vec::new(); n];
     for (i, deps) in imports.iter().enumerate() {
@@ -52,19 +76,38 @@ where
             importers[d].push(i);
         }
     }
+    let mut waiters: Vec<Vec<usize>> = Vec::new();
+    for (i, gates) in gates.iter().enumerate() {
+        for &g in gates {
+            if waiters.len() <= g {
+                waiters.resize(g + 1, Vec::new());
+            }
+            waiters[g].push(i);
+        }
+    }
     let run = Run {
         snapshot,
         imports,
         importers,
-        waiting: imports.iter().map(|d| AtomicUsize::new(d.len())).collect(),
+        waiting: (imports.iter().zip(gates))
+            .map(|(d, g)| AtomicUsize::new(d.len() + g.len()))
+            .collect(),
         outcomes: (0..n).map(|_| OnceLock::new()).collect(),
         cancelled: AtomicBool::new(false),
         job,
     };
     Pool::global().scope(|scope| {
         let run = &run;
-        for (i, deps) in imports.iter().enumerate() {
-            if deps.is_empty() {
+        let waiters = &waiters;
+        scope.spawn(move |scope| {
+            open(&|gate| {
+                for &i in waiters.get(gate).map_or(&[][..], Vec::as_slice) {
+                    run.ready(scope, i);
+                }
+            })
+        });
+        for (i, (deps, gates)) in imports.iter().zip(gates).enumerate() {
+            if deps.is_empty() && gates.is_empty() {
                 scope.spawn(move |scope| run.module(scope, i));
             }
         }
@@ -73,11 +116,10 @@ where
     if run.cancelled.load(Ordering::Relaxed) || snapshot.is_stale() {
         return Err(Cancelled);
     }
-    let outcomes = run.outcomes.into_iter().map(|outcome| {
-        outcome
-            .into_inner()
-            .expect("the imports form no cycle, so every module ran")
-    });
+    // The imports form no cycle, so a module that didn't run waited on a
+    // gate that never opened.
+    let outcomes =
+        (run.outcomes.into_iter()).map(|outcome| outcome.into_inner().unwrap_or(Outcome::Blocked));
     Ok(outcomes.collect())
 }
 
@@ -121,11 +163,15 @@ where
             unreachable!("each module runs once");
         }
         for &importer in &self.importers[i] {
-            // The last import to finish starts its importer, and the
-            // release makes every import's outcome visible to it.
-            if self.waiting[importer].fetch_sub(1, Ordering::AcqRel) == 1 {
-                scope.spawn(move |scope| self.module(scope, importer));
-            }
+            self.ready(scope, importer);
+        }
+    }
+
+    /// One of what module `i` waits on is done. The last to finish starts
+    /// it, and the release makes every import's outcome visible to it.
+    fn ready<'s>(&'s self, scope: &rayon::Scope<'s>, i: usize) {
+        if self.waiting[i].fetch_sub(1, Ordering::AcqRel) == 1 {
+            scope.spawn(move |scope| self.module(scope, i));
         }
     }
 }

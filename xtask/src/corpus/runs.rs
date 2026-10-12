@@ -275,7 +275,7 @@ fn run(
                 &env,
                 &project.outline,
                 Personality::Elm,
-                &visible,
+                (&visible).into(),
             );
             if let Some(docs) = docs {
                 return Ok(format!("docs {}", sha256(docs.as_bytes())));
@@ -289,7 +289,7 @@ fn run(
                 &project.outline,
                 &project.paths,
                 Personality::Elm,
-                &visible,
+                (&visible).into(),
             );
             if matches!(checked, Checked::Fine) {
                 return Ok(OK.to_owned());
@@ -303,7 +303,7 @@ fn run(
                 &project.outline,
                 &project.paths,
                 Personality::Elm,
-                &visible,
+                (&visible).into(),
             );
             if matches!(checked, Checked::Fine) {
                 let graph = OBJECTS.with(|memos| {
@@ -324,7 +324,7 @@ fn run(
                 &project.outline,
                 &project.paths,
                 Personality::Elm,
-                &visible,
+                (&visible).into(),
                 None,
             );
             if matches!(checked, Checked::Fine) {
@@ -366,7 +366,7 @@ fn run(
                 &project.outline,
                 &project.paths,
                 Personality::Elm,
-                &visible,
+                (&visible).into(),
                 None,
             );
             if matches!(checked, Checked::Fine) {

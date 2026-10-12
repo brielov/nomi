@@ -22,7 +22,7 @@ use crate::console::{self, Console, Personality};
 use crate::graph::{Env, Foreigns, Graph, Owner};
 use crate::install::{details_problem, one_line};
 use crate::make::{self, Make};
-use crate::names::Goals;
+use crate::names::{Goals, Packages};
 use crate::paths::Cache;
 use crate::project::Project;
 use crate::report::{self, ModuleErrors};
@@ -71,7 +71,7 @@ pub fn check(
     outline: &Outline,
     paths: &[PathBuf],
     personality: Personality,
-    packages: &HashMap<String, Interface>,
+    packages: Packages<'_>,
 ) -> Checked {
     check_with(snapshot, env, outline, paths, personality, packages, None).0
 }
@@ -84,7 +84,7 @@ pub fn check_with(
     outline: &Outline,
     paths: &[PathBuf],
     personality: Personality,
-    packages: &HashMap<String, Interface>,
+    packages: Packages<'_>,
     artifacts: Option<&Artifacts>,
 ) -> (Checked, Vec<PathBuf>) {
     let built = build(
@@ -108,7 +108,7 @@ pub fn make_with(
     outline: &Outline,
     paths: &[PathBuf],
     personality: Personality,
-    packages: &HashMap<String, Interface>,
+    packages: Packages<'_>,
     artifacts: Option<&Artifacts>,
 ) -> (Checked, Vec<(ModuleName, bool)>, usize) {
     let built = build(
@@ -132,7 +132,7 @@ pub fn docs(
     env: &Env,
     outline: &Outline,
     personality: Personality,
-    packages: &HashMap<String, Interface>,
+    packages: Packages<'_>,
 ) -> (Checked, Option<String>, usize) {
     let built = build(
         snapshot,
@@ -210,7 +210,7 @@ pub fn optimize(
     outline: &Outline,
     paths: &[PathBuf],
     personality: Personality,
-    packages: &HashMap<String, Interface>,
+    packages: Packages<'_>,
     artifacts: Option<&Artifacts>,
 ) -> (Checked, Optimized) {
     let built = build(
@@ -241,7 +241,7 @@ fn build(
     outline: &Outline,
     paths: &[PathBuf],
     personality: Personality,
-    packages: &HashMap<String, Interface>,
+    packages: Packages<'_>,
     artifacts: Option<&Artifacts>,
     goal: Goal,
 ) -> Built {
@@ -364,15 +364,23 @@ fn no_input(personality: Personality, app: bool) -> Report {
     )
 }
 
-/// The modules each direct dependency exposes, and their interfaces, with
-/// every release the project builds with downloaded first, as
-/// `Details.load` builds them.
-pub(crate) fn foreigns(
+/// What a project builds with, as `Details.load` finds it.
+pub(crate) struct Sources {
+    pub foreigns: Foreigns,
+    /// Each direct dependency, in order of names, and the modules it
+    /// exposes.
+    pub direct: Vec<(Name, Vec<ModuleName>)>,
+    /// Every package, and the directory of its source.
+    pub packages: Vec<(Name, PathBuf)>,
+}
+
+/// What the project builds with, every release downloaded first.
+pub(crate) fn sources(
     cache: &Cache,
     http: &(impl Http + Sync),
     project: &Project,
     personality: Personality,
-) -> Result<(Foreigns, HashMap<String, Interface>, objects::Dependencies), Report> {
+) -> Result<Sources, Report> {
     let compat = project.compat;
     let store = Store::new(cache.packages());
     let mut registry = env::registry(
@@ -393,12 +401,12 @@ pub(crate) fn foreigns(
         Outline::App(app) => app.direct.keys().collect(),
         Outline::Pkg(pkg) => pkg.deps.keys().collect(),
     };
-    let mut exposing = Vec::new();
-    let mut sources = Vec::new();
+    let mut exposing = HashMap::new();
+    let mut packages = Vec::new();
     for ((name, version), dir) in releases.iter().zip(fetched) {
         let dir =
             dir.map_err(|problem| registry_report::package_problem(name, *version, &problem))?;
-        sources.push((name.clone(), dir.clone()));
+        packages.push((name.clone(), dir.clone()));
         if !direct.contains(&name) {
             continue;
         }
@@ -414,30 +422,53 @@ pub(crate) fn foreigns(
         let bytes = std::fs::read(dir.join("elm.json")).map_err(|_| unreadable())?;
         match Outline::decode(&bytes, compat) {
             Ok(Outline::Pkg(pkg)) => {
-                exposing.push((name.clone(), pkg.exposed.modules().cloned().collect()))
+                exposing.insert(name.clone(), pkg.exposed.modules().cloned().collect());
             }
             _ => return Err(unreadable()),
         }
     }
+    let direct: Vec<(Name, Vec<ModuleName>)> = (direct.into_iter())
+        .filter_map(|name| Some((name.clone(), exposing.remove(name)?)))
+        .collect();
+    Ok(Sources {
+        foreigns: Foreigns::new(direct.iter().cloned()),
+        direct,
+        packages,
+    })
+}
+
+/// The modules each direct dependency exposes, and their interfaces, with
+/// every release the project builds with downloaded first, as
+/// `Details.load` builds them.
+pub(crate) fn foreigns(
+    cache: &Cache,
+    http: &(impl Http + Sync),
+    project: &Project,
+    personality: Personality,
+) -> Result<(Foreigns, HashMap<String, Interface>, objects::Dependencies), Report> {
+    let sources = sources(cache, http, project, personality)?;
     let artifacts = Artifacts::new(cache);
     let built = objects::build(
-        compat,
-        &sources,
+        project.compat,
+        &sources.packages,
         &mut objects::Memo::new(),
         Some(&artifacts),
     );
-    let built = built.map_err(|why| {
-        one_line(
-            "PROBLEM READING PACKAGES",
-            format!("I could not read the dependencies' modules: {why}"),
-        )
-    })?;
-    let direct: Vec<Name> = direct.into_iter().cloned().collect();
+    let built = built.map_err(|why| packages_problem(&why))?;
+    let direct: Vec<Name> = sources.direct.into_iter().map(|(name, _)| name).collect();
     Ok((
-        Foreigns::new(exposing),
+        sources.foreigns,
         names::visible(&built.exposed(), &direct),
         built,
     ))
+}
+
+/// A package nomi couldn't build.
+pub(crate) fn packages_problem(why: &str) -> Report {
+    one_line(
+        "PROBLEM READING PACKAGES",
+        format!("I could not read the dependencies' modules: {why}"),
+    )
 }
 
 /// The build environment of the project at `root`.

@@ -100,7 +100,7 @@ impl Project {
                 &outline,
                 &paths,
                 Personality::Nomi,
-                &interfaces,
+                (&interfaces).into(),
                 artifacts,
             );
             let mut graphs: Vec<(String, Vec<u8>)> = (optimized.graphs.iter())
@@ -115,7 +115,7 @@ impl Project {
                 &outline,
                 &paths,
                 Personality::Nomi,
-                &interfaces,
+                (&interfaces).into(),
                 artifacts,
             );
             (checked, ran, Vec::new())

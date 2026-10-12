@@ -126,6 +126,17 @@ pub fn build(
     memo: &mut Memo,
     artifacts: Option<&Artifacts>,
 ) -> Result<Dependencies, String> {
+    build_each(compat, packages, memo, artifacts, &|_, _| {})
+}
+
+/// [`build`], telling `done` of each package as soon as it is built.
+pub fn build_each(
+    compat: Compat,
+    packages: &[(Name, PathBuf)],
+    memo: &mut Memo,
+    artifacts: Option<&Artifacts>,
+    done: &(dyn Fn(&Name, &Arc<PackageBuild>) + Sync),
+) -> Result<Dependencies, String> {
     let mut outlines = BTreeMap::new();
     for (name, dir) in packages {
         let bytes = fs::read(dir.join("elm.json")).map_err(|e| format!("{name}: {e}"))?;
@@ -160,14 +171,15 @@ pub fn build(
             .part("compat", compat.to_string().as_bytes())
             .part("name", name.to_string().as_bytes())
             .part("version", pkg.version.to_string().as_bytes());
-        let mut built: BTreeMap<Name, Arc<PackageBuild>> = BTreeMap::new();
+        let mut dependencies: BTreeMap<Name, Arc<PackageBuild>> = BTreeMap::new();
         for (&d, (dep_key, dep_build)) in imports[i].iter().zip(deps.iter().map(|d| (&d.0, &d.1))) {
             key = key.part("dependency", names[d].to_string().as_bytes());
             key = key.hash("build", *dep_key);
-            built.insert(names[d].clone(), dep_build.clone());
+            dependencies.insert(names[d].clone(), dep_build.clone());
         }
         let key = key.finish();
         if let Some(build) = memo_now.get(&key) {
+            done(name, build);
             return Ok((key, build.clone()));
         }
         let cached = time(Phase::CacheRead, || {
@@ -176,7 +188,7 @@ pub fn build(
         let build = match cached {
             Some(build) => build,
             None => {
-                let build = build_package(compat, name, pkg, dir, &built)?;
+                let build = build_package(compat, name, pkg, dir, &dependencies)?;
                 if let Some(artifacts) = artifacts {
                     // A cache that can't be written only costs a build next
                     // time.
@@ -187,7 +199,9 @@ pub fn build(
                 build
             }
         };
-        Ok((key, Arc::new(build)))
+        let build = Arc::new(build);
+        done(name, &build);
+        Ok((key, build))
     };
     let snapshot = crate::Vfs::new().snapshot();
     let outcomes =

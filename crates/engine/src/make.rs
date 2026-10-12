@@ -14,10 +14,11 @@ use nomi_project::{ModuleName, Outline};
 use crate::Vfs;
 use crate::artifacts::Artifacts;
 use crate::check::show;
-use crate::check::{self, Checked, Style, env_of, foreigns};
+use crate::check::{self, Checked, Style, env_of};
 use crate::console::{Console, Personality};
 use crate::install::one_line;
 use crate::javascript;
+use crate::names::{Building, Packages};
 use crate::paths::{Cache, Root};
 use crate::project::{self, Project, check_source_dirs};
 use crate::report;
@@ -152,14 +153,12 @@ fn build(
         compat = project.compat;
         let root = root.dir().to_owned();
         check_source_dirs(&root, &project.outline)?;
-        let (foreigns, interfaces, dependencies) = timings::time(Phase::Packages, || {
-            foreigns(cache, http, &project, personality)
-        })?;
-        let env = env_of(&root, &project.outline, compat, foreigns)?.with_cwd(dir);
-        Ok::<_, Report>((root, project.outline, env, interfaces, dependencies))
+        let sources = check::sources(cache, http, &project, personality)?;
+        let env = env_of(&root, &project.outline, compat, sources.foreigns.clone())?.with_cwd(dir);
+        Ok::<_, Report>((root, project.outline, env, sources))
     })();
     let terminal = personality == Personality::Elm && make.style == Style::Terminal;
-    let (root, outline, env, interfaces, dependencies) = match loaded {
+    let (root, outline, env, sources) = match loaded {
         Ok(loaded) => loaded,
         Err(report) => {
             if terminal {
@@ -169,17 +168,18 @@ fn build(
             return false;
         }
     };
-    if terminal {
-        details_progress(console, dependencies.packages.len());
-    }
     let snapshot = vfs.snapshot();
     let artifacts = Artifacts::new(cache);
+    // The dependencies build as the modules are found and checked, each
+    // module once the packages it imports are built.
+    let building = Building::new(compat, sources.packages, Some(&artifacts), sources.direct);
     let documenting = make.docs.is_some() && make.paths.is_empty();
     let generating = !make.paths.is_empty() && make.output != Some(Output::DevNull);
     let mut optimized = None;
     let modules = timings::time(Phase::Modules, || {
+        let packages = Packages::Building(&building);
         if documenting {
-            check::docs(&snapshot, &env, &outline, personality, &interfaces)
+            check::docs(&snapshot, &env, &outline, personality, packages)
         } else if generating {
             let (checked, made) = check::optimize(
                 &snapshot,
@@ -187,7 +187,7 @@ fn build(
                 &outline,
                 &make.paths,
                 personality,
-                &interfaces,
+                packages,
                 Some(&artifacts),
             );
             let compiled = made.compiled;
@@ -200,12 +200,28 @@ fn build(
                 &outline,
                 &make.paths,
                 personality,
-                &interfaces,
+                packages,
                 Some(&artifacts),
             );
             (checked, None, compiled)
         }
     });
+    // What the modules make counts only once the dependencies are built,
+    // as their problems come first.
+    let dependencies = match building.finish() {
+        Ok(dependencies) => dependencies,
+        Err(why) => {
+            if terminal {
+                details_progress(console, 0);
+            }
+            let report = check::packages_problem(&why);
+            show(console, dir, &Checked::Project(report), compat, make.style);
+            return false;
+        }
+    };
+    if terminal {
+        details_progress(console, dependencies.packages.len());
+    }
     let (checked, docs, compiled) = modules;
     // `elm make` without files, in an application or a package exposing
     // nothing, stops before it builds.
@@ -293,7 +309,7 @@ fn build(
     }
     // What the build checked is freed while it reports, or not at all
     // when the process ends first.
-    crate::pool::Pool::global().spawn(move || drop((checked, interfaces, env)));
+    crate::pool::Pool::global().spawn(move || drop((checked, env)));
     // elm's success line came with the build's progress; nomi's comes now.
     if !terminal {
         show(console, &root, &Checked::Fine, compat, make.style);

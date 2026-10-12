@@ -165,7 +165,7 @@ fn run(
         &project.outline,
         &project.paths,
         Personality::Elm,
-        &visible,
+        (&visible).into(),
     );
     match checked {
         Checked::Fine => Ok(()),

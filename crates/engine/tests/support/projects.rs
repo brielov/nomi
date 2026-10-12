@@ -146,7 +146,7 @@ pub fn optimized(
         &project.outline,
         &paths(case),
         Personality::Elm,
-        &project.interfaces,
+        (&project.interfaces).into(),
         None,
     );
     if !matches!(checked, check::Checked::Fine) {
@@ -185,7 +185,7 @@ pub fn javascript(
         &project.outline,
         &paths(case),
         Personality::Elm,
-        &project.interfaces,
+        (&project.interfaces).into(),
         None,
     );
     if !matches!(checked, check::Checked::Fine) {
@@ -259,7 +259,8 @@ fn build(
     );
     let snapshot = Vfs::new().snapshot();
     let (checked, written) = if docs {
-        let (checked, docs, _) = check::docs(&snapshot, env, outline, Personality::Elm, interfaces);
+        let (checked, docs, _) =
+            check::docs(&snapshot, env, outline, Personality::Elm, interfaces.into());
         (checked, docs)
     } else {
         let checked = check::check(
@@ -268,7 +269,7 @@ fn build(
             outline,
             &paths(case),
             Personality::Elm,
-            interfaces,
+            interfaces.into(),
         );
         (checked, None)
     };

@@ -972,7 +972,7 @@ pub(crate) fn local_docs_json(
         &env,
         &project.outline,
         Personality::Elm,
-        &interfaces,
+        (&interfaces).into(),
     );
     match json {
         Some(json) => Ok((

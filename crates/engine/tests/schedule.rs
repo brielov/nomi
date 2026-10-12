@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use nomi_engine::Vfs;
 use nomi_engine::artifacts::{Artifacts, Hash, Key};
 use nomi_engine::paths::Cache;
-use nomi_engine::schedule::{Cancelled, Outcome, run};
+use nomi_engine::schedule::{Cancelled, Outcome, run, run_gated};
 
 /// What building a toy module makes: its interface's hash.
 type Made = Hash;
@@ -137,4 +137,35 @@ fn a_run_that_ends_stale_is_cancelled() {
         Ok::<_, ()>(())
     });
     assert_eq!(result, Err(Cancelled));
+}
+
+#[test]
+fn modules_wait_on_their_gates() {
+    // 1 imports 0; 0 waits on gate 0, 2 on gate 1, which never opens, and
+    // 3 on nothing.
+    let imports = vec![vec![], vec![0], vec![], vec![]];
+    let gates = vec![vec![0], vec![], vec![1], vec![]];
+    let opened = Mutex::new(false);
+    let order = Mutex::new(Vec::new());
+    let outcomes = run_gated(
+        &Vfs::new().snapshot(),
+        &imports,
+        &gates,
+        |open| {
+            *opened.lock().unwrap() = true;
+            open(0);
+        },
+        |i, _: &[&()]| {
+            assert!(i == 3 || *opened.lock().unwrap(), "{i} ran before its gate");
+            order.lock().unwrap().push(i);
+            Ok::<_, ()>(())
+        },
+    )
+    .unwrap();
+    assert_eq!(outcomes[0], Outcome::Done(()));
+    assert_eq!(outcomes[1], Outcome::Done(()));
+    assert_eq!(outcomes[2], Outcome::Blocked);
+    assert_eq!(outcomes[3], Outcome::Done(()));
+    let order = order.into_inner().unwrap();
+    assert!(order.iter().position(|&i| i == 0) < order.iter().position(|&i| i == 1));
 }
