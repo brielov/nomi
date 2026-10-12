@@ -46,7 +46,7 @@ pub(super) fn refactors(
     fixing: &Fixing<'_>,
     range: TextRange,
     given: &[Diagnosed],
-) -> Vec<(&'static str, &'static str, String, ActionKind)> {
+) -> Vec<Refactor> {
     let mut found = Vec::new();
     let root = &fixing.context.module.root;
     let text = &*fixing.context.module.text;
@@ -59,13 +59,14 @@ pub(super) fn refactors(
         .and_then(|d| d.parent())
         .map(|d| child(&d, SyntaxKind::Signature).is_some());
     if annotated == Some(false) && !given.iter().any(|d| d.code == "missing_type_annotation") {
-        found.push((
+        found.push(Refactor::new(
             "add_type_annotation",
             "add_type_annotation",
-            "Add inferred annotation".to_owned(),
+            "Add inferred annotation",
             ActionKind::RefactorExtract,
         ));
     }
+    found.extend(super::extract::extract_refactors(fixing, range));
     let parent = token.parent();
     let parent_kind = parent.as_ref().map(SyntaxNode::kind);
     let named = parent.as_ref().and_then(name_of).as_ref() == Some(&token);
@@ -85,21 +86,21 @@ pub(super) fn refactors(
     } else {
         signature_type(&token).map(|ty| written(text, &ty).to_owned())
     };
-    if let Some(function) = function
+    if let Some(function) = &function
         && !in_let
     {
-        if exposes(root, text, &function, true) {
-            found.push((
+        if exposes(root, text, function, true) {
+            found.push(Refactor::new(
                 expose,
                 "unexpose_function",
-                "Unexpose Function".to_owned(),
+                "Unexpose Function",
                 ActionKind::Refactor,
             ));
         } else {
-            found.push((
+            found.push(Refactor::new(
                 expose,
                 "expose_function",
-                "Expose Function".to_owned(),
+                "Expose Function",
                 ActionKind::Refactor,
             ));
         }
@@ -117,28 +118,44 @@ pub(super) fn refactors(
             ""
         };
         if exposes(root, text, token.text(), false) {
-            found.push((
+            found.push(Refactor::new(
                 expose,
                 "unexpose_type",
                 format!("Unexpose Type{alias}"),
                 ActionKind::Refactor,
             ));
         } else {
-            found.push((
+            found.push(Refactor::new(
                 expose,
                 "expose_type",
                 format!("Expose Type{alias}"),
                 ActionKind::Refactor,
             ));
             if parent_kind == Some(SyntaxKind::CustomTypeDecl) {
-                found.push((
+                found.push(Refactor::new(
                     expose,
                     "expose_type_with_variants",
-                    "Expose Type with Variants".to_owned(),
+                    "Expose Type with Variants",
                     ActionKind::Refactor,
                 ));
             }
         }
+    }
+    // Moving a function, which the client asks where to and the server
+    // then does (9.16).
+    if fixing.move_function
+        && let Some(function) = function
+        && !in_let
+    {
+        found.push(Refactor {
+            command: Some(ActionCommand::MoveFunction { name: function }),
+            ..Refactor::new(
+                "move_function",
+                "move_function",
+                "Move Function",
+                ActionKind::RefactorMove,
+            )
+        });
     }
     found
 }
@@ -187,7 +204,7 @@ pub fn refactor_edits(
     path: &Path,
     action: &str,
     range: TextRange,
-) -> Option<Vec<Edit>> {
+) -> Option<(Vec<Edit>, Option<RenameAt>)> {
     let module = index.module(path)?;
     let context = Context {
         snapshot,
@@ -202,10 +219,18 @@ pub(super) fn refactor_edits_in(
     context: &Context<'_>,
     action: &str,
     range: TextRange,
-) -> Option<Vec<Edit>> {
+) -> Option<(Vec<Edit>, Option<RenameAt>)> {
     let module = context.module;
     match action {
-        "add_type_annotation" => annotation_edits(context, range),
+        "add_type_annotation" => annotation_edits(context, range).map(|e| (e, None)),
+        "extract_let" | "extract_top_level" => {
+            super::extract::function_edits(context, action, range)
+        }
+        "extract_type_alias"
+        | "extract_type_alias_parenthesized_expr"
+        | "extract_type_alias_partial_type_expr" => {
+            super::extract::type_alias_edits(context, action, range)
+        }
         "unexpose_function"
         | "unexpose_type"
         | "expose_function"
@@ -223,8 +248,7 @@ pub(super) fn refactor_edits_in(
                 "expose_type_with_variants" => expose_edit(&module.root, &module.text, &name, true),
                 _ => unexpose_edit(&module.root, &module.text, &name),
             };
-
-            edit.map(|edit| vec![edit])
+            edit.map(|edit| (vec![edit], None))
         }
         _ => None,
     }

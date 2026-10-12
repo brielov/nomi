@@ -403,6 +403,7 @@ fn a_missing_module_offers_the_packages_that_expose_it() {
         problems: &[],
         packages: &packages,
         lazy: false,
+        move_function: false,
     };
     let found = code_actions(&snapshot, &index, &path, &request);
     let offered: Vec<_> = (found.iter())
@@ -477,7 +478,7 @@ fn a_resolved_annotation_is_inferred_at_the_definitions_column() {
     let index =
         nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
     let at = TextSize::new(text.find("twice n").unwrap() as u32 + 1);
-    let edits = refactor_edits(
+    let (edits, rename) = refactor_edits(
         &index,
         &snapshot,
         &path,
@@ -485,6 +486,7 @@ fn a_resolved_annotation_is_inferred_at_the_definitions_column() {
         TextRange::empty(at),
     )
     .unwrap();
+    assert_eq!(rename, None);
     assert_eq!(edits.len(), 1);
     assert_eq!(edits[0].text, "twice : number -> number\n        ");
     assert_eq!(edits[0].range, TextRange::empty(at - TextSize::new(1)));
@@ -514,6 +516,7 @@ fn actions_for(text: &str, region: &str, message: &str) -> (String, Vec<Action>)
         problems: &[],
         packages: &packages,
         lazy: false,
+        move_function: false,
     };
     let found = code_actions(&snapshot, &index, &path, &request);
     (text.to_owned(), found)
@@ -536,7 +539,11 @@ fn elms_missing_patterns_get_their_branches() {
     let region = "case foo of\n        Bar ->\n            ()";
     let (text, found) = actions_for(text, region, message);
     let titles: Vec<_> = found.iter().map(|a| a.title.as_str()).collect();
-    assert_eq!(titles, ["Add missing case branches"]);
+    // The range is the whole `case`, so it can be extracted too.
+    assert_eq!(
+        titles,
+        ["Add missing case branches", "Extract function to top level"]
+    );
     assert_eq!(
         applied(&text, &found[0]),
         "module Main exposing (main)\n\n\ntype Foo\n    = Bar\n    | Biz\n    | Baz\n\n\nmain : Foo -> ()\nmain foo =\n    case foo of\n        Bar ->\n            ()\n\n        Biz ->\n            Debug.todo \"branch 'Biz' not implemented\"\n\n        Baz ->\n            Debug.todo \"branch 'Baz' not implemented\"\n"
@@ -549,7 +556,13 @@ fn a_missing_field_goes_into_its_alias_typed_by_its_use() {
     let message = "TYPE MISMATCH - This `model` record does not have a `ratio` field:";
     let (text, found) = actions_for(text, "model.ratio", message);
     let titles: Vec<_> = found.iter().map(|a| a.title.as_str()).collect();
-    assert_eq!(titles, ["Create missing record field"]);
+    assert_eq!(
+        titles,
+        [
+            "Create missing record field",
+            "Extract function to top level"
+        ]
+    );
     assert_eq!(
         applied(&text, &found[0]),
         "module Main exposing (main)\n\n\ntype alias Model =\n    { count : Int\n    , ratio : Float\n    }\n\n\nmain : Model -> Float\nmain model =\n    model.ratio\n"

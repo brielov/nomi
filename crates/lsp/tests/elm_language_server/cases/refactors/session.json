@@ -1,0 +1,16 @@
+{
+    "settings": { "extendedCapabilities": { "moveFunctionRefactoringSupport": true } },
+    "open": ["src/Main.elm"],
+    "requests": [
+        { "method": "textDocument/codeAction", "file": "src/Main.elm",
+          "at": { "line": 5, "character": 2 } },
+        { "method": "textDocument/codeAction", "file": "src/Main.elm",
+          "at": { "start": { "line": 11, "character": 24 }, "end": { "line": 11, "character": 47 } } },
+        { "method": "textDocument/codeAction", "file": "src/Main.elm",
+          "at": { "start": { "line": 9, "character": 12 }, "end": { "line": 9, "character": 22 } } },
+        { "method": "textDocument/codeAction", "file": "src/Main.elm",
+          "at": { "start": { "line": 14, "character": 30 }, "end": { "line": 14, "character": 45 } } },
+        { "method": "textDocument/codeAction", "file": "src/Main.elm",
+          "at": { "start": { "line": 14, "character": 11 }, "end": { "line": 14, "character": 26 } } }
+    ]
+}

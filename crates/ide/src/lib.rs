@@ -34,7 +34,7 @@ use nomi_syntax::{Source, Tool, parse_module, validate};
 
 pub use actions::{
     Action, ActionCommand, ActionData, ActionDiagnostics, ActionKind, Diagnosed, PackageModules,
-    Request, code_actions, exposing_edit, refactor_edits,
+    RenameAt, Request, code_actions, exposing_edit, refactor_edits,
 };
 pub use completion::{Completion, CompletionKind, Completions, completions};
 pub use hover::{Hover, hover};

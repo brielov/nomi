@@ -1,0 +1,102 @@
+{
+  "diagnostics": {
+    "src/Main.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"actionName":"unexpose_function","range":{"end":{"character":2,"line":5},"start":{"character":2,"line":5}},"refactorName":"expose_unexpose","uri":"<project>/src/Main.elm"},
+          "edit": {"changes":{"<project>/src/Main.elm":[{"newText":"","range":{"end":{"character":33,"line":0},"start":{"character":26,"line":0}}}]}},
+          "isPreferred": true,
+          "kind": "refactor",
+          "title": "Unexpose Function"
+        },
+        {
+          "command": {"arguments":["moveFunction",{"range":{"end":{"character":2,"line":5},"start":{"character":2,"line":5}},"textDocument":{"uri":"<project>/src/Main.elm"}},"scale"],"command":"elm.refactor-<project>","title":"Refactor"},
+          "data": {"actionName":"move_function","range":{"end":{"character":2,"line":5},"start":{"character":2,"line":5}},"refactorName":"move_function","uri":"<project>/src/Main.elm"},
+          "isPreferred": false,
+          "kind": "refactor.move",
+          "title": "Move Function"
+        }
+      ]
+    },
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"actionName":"extract_let","range":{"end":{"character":47,"line":11},"start":{"character":24,"line":11}},"refactorName":"extract_function","renamePosition":{"character":24,"line":15},"uri":"<project>/src/Main.elm"},
+          "edit": {"changes":{"<project>/src/Main.elm":[{"newText":"\n\n        newFunction value =\n            value * factor + offset\n","range":{"end":{"character":0,"line":10},"start":{"character":0,"line":10}}},{"newText":"newFunction value","range":{"end":{"character":47,"line":11},"start":{"character":24,"line":11}}}]}},
+          "isPreferred": false,
+          "kind": "refactor.extract",
+          "title": "Extract function to enclosing let"
+        },
+        {
+          "data": {"actionName":"extract_top_level","range":{"end":{"character":47,"line":11},"start":{"character":24,"line":11}},"refactorName":"extract_function","renamePosition":{"character":24,"line":11},"uri":"<project>/src/Main.elm"},
+          "edit": {"changes":{"<project>/src/Main.elm":[{"newText":"\n\nnewFunction : Float -> Float -> Float -> Float\nnewFunction value factor offset =\n    value * factor + offset\n","range":{"end":{"character":0,"line":12},"start":{"character":0,"line":12}}},{"newText":"newFunction value factor offset","range":{"end":{"character":47,"line":11},"start":{"character":24,"line":11}}}]}},
+          "isPreferred": false,
+          "kind": "refactor.extract",
+          "title": "Extract function to top level"
+        }
+      ]
+    },
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"actionName":"extract_let","range":{"end":{"character":22,"line":9},"start":{"character":12,"line":9}},"refactorName":"extract_function","renamePosition":{"character":12,"line":9},"uri":"<project>/src/Main.elm"},
+          "edit": {"changes":{"<project>/src/Main.elm":[{"newText":"\n\n        newFunction =\n            factor / 2\n","range":{"end":{"character":0,"line":10},"start":{"character":0,"line":10}}},{"newText":"newFunction","range":{"end":{"character":22,"line":9},"start":{"character":12,"line":9}}}]}},
+          "isPreferred": false,
+          "kind": "refactor.extract",
+          "title": "Extract function to enclosing let"
+        },
+        {
+          "data": {"actionName":"extract_top_level","range":{"end":{"character":22,"line":9},"start":{"character":12,"line":9}},"refactorName":"extract_function","renamePosition":{"character":12,"line":9},"uri":"<project>/src/Main.elm"},
+          "edit": {"changes":{"<project>/src/Main.elm":[{"newText":"\n\nnewFunction : Float -> Float\nnewFunction factor =\n    factor / 2\n","range":{"end":{"character":0,"line":12},"start":{"character":0,"line":12}}},{"newText":"newFunction factor","range":{"end":{"character":22,"line":9},"start":{"character":12,"line":9}}}]}},
+          "isPreferred": false,
+          "kind": "refactor.extract",
+          "title": "Extract function to top level"
+        }
+      ]
+    },
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"actionName":"extract_type_alias_parenthesized_expr","range":{"end":{"character":45,"line":14},"start":{"character":30,"line":14}},"refactorName":"extract_type_alias","renamePosition":{"character":30,"line":17},"uri":"<project>/src/Main.elm"},
+          "edit": {"changes":{"<project>/src/Main.elm":[{"newText":"\ntype alias NewType = Int -> String\n\n","range":{"end":{"character":0,"line":13},"start":{"character":0,"line":13}}},{"newText":"NewType","range":{"end":{"character":45,"line":14},"start":{"character":30,"line":14}}}]}},
+          "isPreferred": false,
+          "kind": "refactor.extract",
+          "title": "Extract type alias"
+        },
+        {
+          "data": {"actionName":"expose_function","range":{"end":{"character":45,"line":14},"start":{"character":30,"line":14}},"refactorName":"expose_unexpose","uri":"<project>/src/Main.elm"},
+          "edit": {"changes":{"<project>/src/Main.elm":[{"newText":", ( Int, String ) -> (Int -> String) -> String","range":{"end":{"character":33,"line":0},"start":{"character":33,"line":0}}}]}},
+          "isPreferred": true,
+          "kind": "refactor",
+          "title": "Expose Function"
+        },
+        {
+          "command": {"arguments":["moveFunction",{"range":{"end":{"character":45,"line":14},"start":{"character":30,"line":14}},"textDocument":{"uri":"<project>/src/Main.elm"}},"( Int, String ) -> (Int -> String) -> String"],"command":"elm.refactor-<project>","title":"Refactor"},
+          "data": {"actionName":"move_function","range":{"end":{"character":45,"line":14},"start":{"character":30,"line":14}},"refactorName":"move_function","uri":"<project>/src/Main.elm"},
+          "isPreferred": false,
+          "kind": "refactor.move",
+          "title": "Move Function"
+        }
+      ]
+    },
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"actionName":"extract_type_alias","range":{"end":{"character":26,"line":14},"start":{"character":11,"line":14}},"refactorName":"extract_type_alias","renamePosition":{"character":11,"line":17},"uri":"<project>/src/Main.elm"},
+          "edit": {"changes":{"<project>/src/Main.elm":[{"newText":"\ntype alias NewType = ( Int, String )\n\n","range":{"end":{"character":0,"line":13},"start":{"character":0,"line":13}}},{"newText":"NewType","range":{"end":{"character":26,"line":14},"start":{"character":11,"line":14}}}]}},
+          "isPreferred": false,
+          "kind": "refactor.extract",
+          "title": "Extract type alias"
+        }
+      ]
+    }
+  ]
+}

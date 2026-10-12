@@ -27,6 +27,7 @@ use crate::completion_general::{compare_ranking, importable};
 use crate::problems::{Problem, Severity};
 use crate::symbols::{child, code_range};
 
+mod extract;
 mod import;
 mod missing;
 mod refactor;
@@ -79,6 +80,8 @@ pub struct Request<'a> {
     pub packages: &'a PackageModules,
     /// Whether the editor resolves a refactor's edits later.
     pub lazy: bool,
+    /// Whether the editor moves functions, asking where to.
+    pub move_function: bool,
 }
 
 /// `ElmPackageCache`'s modules: the packages downloaded whose newest
@@ -111,6 +114,7 @@ pub enum ActionKind {
     QuickFix,
     Refactor,
     RefactorExtract,
+    RefactorMove,
 }
 
 /// The diagnostics an action names.
@@ -133,6 +137,8 @@ pub enum ActionData {
         name: &'static str,
         action: &'static str,
         range: TextRange,
+        /// Where the editor starts renaming what it made.
+        rename: Option<RenameAt>,
     },
     /// Elm make's suggestions carry nothing.
     None,
@@ -143,6 +149,43 @@ pub enum ActionData {
 pub enum ActionCommand {
     /// Add `package` to the project.
     InstallPackage { package: String },
+    /// Move the function `name`, asking the editor where to.
+    MoveFunction { name: String },
+}
+
+/// A position after a refactor: `lines` below and `columns` right of
+/// where `from` is now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RenameAt {
+    pub from: TextSize,
+    pub lines: u32,
+    pub columns: u32,
+}
+
+/// A refactor at a range: `IRefactorCodeAction` before its edits.
+pub(super) struct Refactor {
+    pub name: &'static str,
+    pub action: &'static str,
+    pub title: String,
+    pub kind: ActionKind,
+    pub command: Option<ActionCommand>,
+}
+
+impl Refactor {
+    pub fn new(
+        name: &'static str,
+        action: &'static str,
+        title: impl Into<String>,
+        kind: ActionKind,
+    ) -> Refactor {
+        Refactor {
+            name,
+            action,
+            title: title.into(),
+            kind,
+            command: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -325,6 +368,8 @@ struct Fixing<'a> {
     packages: &'a PackageModules,
     /// The diagnostics the editor sent.
     given: &'a [Diagnosed],
+    /// Whether the editor moves functions.
+    move_function: bool,
     /// What a fix-all removes from each import so far.
     removed_imports: std::cell::RefCell<RemovedImports>,
     /// The types usage gives the missing values, inferred once.
@@ -359,6 +404,7 @@ pub fn code_actions(
         program: program_diagnostics(&module.root, &module.text, request.problems),
         packages: request.packages,
         given: request.given,
+        move_function: request.move_function,
         removed_imports: Default::default(),
         usage: OnceCell::new(),
     };
@@ -404,22 +450,24 @@ pub fn code_actions(
             }
         }
     }
-    for (name, action, title, kind) in refactors(&fixing, range, request.given) {
+    for refactor in refactors(&fixing, range, request.given) {
         let edits = (!request.lazy)
-            .then(|| refactor_edits_in(&fixing.context, action, range))
+            .then(|| refactor_edits_in(&fixing.context, refactor.action, range))
             .flatten();
+        let rename = edits.as_ref().and_then(|(_, rename)| *rename);
         results.push(Action {
-            title,
-            kind,
+            title: refactor.title,
+            kind: refactor.kind,
             diagnostics: None,
-            edits: edits.map(|edits| vec![(path.to_owned(), edits)]),
+            edits: edits.map(|(edits, _)| vec![(path.to_owned(), edits)]),
             data: ActionData::Refactor {
-                name,
-                action,
+                name: refactor.name,
+                action: refactor.action,
                 range,
+                rename,
             },
             preferred: None,
-            command: None,
+            command: refactor.command,
         });
     }
     let preferred: Vec<Option<bool>> = (0..results.len())
@@ -612,14 +660,21 @@ fn elm_make_actions(path: &Path, i: usize, given: &Diagnosed) -> Vec<Action> {
         .collect()
 }
 
-/// The name token at `offset`, as tree-sitter's named descendant at a
-/// position finds it: the token starting there, else the one it's in or
-/// ends.
+/// The token at `offset` as elm-language-server's
+/// `getNamedDescendantForPosition` finds it: after a name's character
+/// the token that character is in, else the one starting there.
 fn token_at(root: &SyntaxNode, offset: TextSize) -> Option<SyntaxToken> {
+    // `getNamedDescendantForPosition`: after a name's character, the name
+    // that ends there.
     let found = root.token_at_offset(offset);
-    match found.clone().right_biased() {
-        Some(right) if right.kind().is_trivia() => found.left_biased(),
-        right => right,
+    let before = found.clone().left_biased().and_then(|left| {
+        let within = usize::from(offset.checked_sub(left.text_range().start())?);
+        left.text().get(..within)?.chars().last()
+    });
+    if before.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_') {
+        found.left_biased()
+    } else {
+        found.right_biased()
     }
 }
 

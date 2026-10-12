@@ -818,11 +818,17 @@ impl Server {
         let Some(index) = self.index(&snapshot, &path) else {
             return Ok(action);
         };
-        if let Some(edits) = nomi_ide::refactor_edits(index, &snapshot, &path, name, range) {
+        if let Some((edits, rename)) =
+            nomi_ide::refactor_edits(index, &snapshot, &path, name, range)
+        {
             let edits: Vec<TextEdit> = (edits.iter())
                 .map(|e| TextEdit::new(text.range(e.range), e.text.clone()))
                 .collect();
             action["edit"] = serde_json::json!({ "changes": { uri.as_str(): edits } });
+            if let Some(rename) = rename {
+                action["data"]["renamePosition"] =
+                    serde_json::json!(rename_position(&text, rename));
+            }
         }
         Ok(action)
     }
@@ -903,16 +909,19 @@ impl Server {
             problems: &problems,
             packages,
             lazy: self.resolves_edits,
+            move_function: self.settings.lock().unwrap().move_function,
         };
         let actions = nomi_ide::code_actions(&snapshot, index, &path, &request);
         let mut found = Vec::new();
         for action in actions {
+            let action_command = action.command.clone();
             let mut json = serde_json::Map::new();
             json.insert("title".into(), action.title.into());
             let kind = match action.kind {
                 nomi_ide::ActionKind::QuickFix => "quickfix",
                 nomi_ide::ActionKind::Refactor => "refactor",
                 nomi_ide::ActionKind::RefactorExtract => "refactor.extract",
+                nomi_ide::ActionKind::RefactorMove => "refactor.move",
             };
             json.insert("kind".into(), kind.into());
             match action.diagnostics {
@@ -968,21 +977,41 @@ impl Server {
                     name,
                     action,
                     range,
+                    rename,
                 } => {
-                    json.insert(
-                        "data".into(),
-                        serde_json::json!({
-                            "actionName": action, "refactorName": name,
-                            "range": text.range(range), "uri": uri,
-                        }),
-                    );
+                    let mut data = serde_json::json!({
+                        "actionName": action, "refactorName": name,
+                        "range": text.range(range), "uri": uri,
+                    });
+                    if let Some(rename) = rename {
+                        data["renamePosition"] = serde_json::json!(rename_position(&text, rename));
+                    }
+                    if let Some(nomi_ide::ActionCommand::MoveFunction { name }) = &action_command {
+                        let root = (index::manifest(&snapshot, &path))
+                            .and_then(|m| m.parent().and_then(|r| Url::from_file_path(r).ok()))
+                            .map(|r| r.as_str().trim_end_matches('/').to_owned())
+                            .unwrap_or_default();
+                        json.insert(
+                            "command".into(),
+                            serde_json::json!({
+                                "title": "Refactor",
+                                "command": format!("elm.refactor-{root}"),
+                                "arguments": [
+                                    "moveFunction",
+                                    { "textDocument": { "uri": uri }, "range": text.range(range) },
+                                    name,
+                                ],
+                            }),
+                        );
+                    }
+                    json.insert("data".into(), data);
                 }
                 nomi_ide::ActionData::None => {}
             }
             if let Some(preferred) = action.preferred {
                 json.insert("isPreferred".into(), preferred.into());
             }
-            if let Some(nomi_ide::ActionCommand::InstallPackage { package }) = action.command {
+            if let Some(nomi_ide::ActionCommand::InstallPackage { package }) = &action_command {
                 json.insert(
                     "command".into(),
                     serde_json::json!({
@@ -1280,6 +1309,12 @@ impl nomi_engine::console::Console for Captured {
     fn read_all(&mut self) -> std::io::Result<Vec<u8>> {
         Ok(Vec::new())
     }
+}
+
+/// A refactor's rename position, where the client starts renaming.
+fn rename_position(text: &Text, rename: nomi_ide::RenameAt) -> lsp_types::Position {
+    let at = text.position(rename.from);
+    lsp_types::Position::new(at.line + rename.lines, at.character + rename.columns)
 }
 
 fn severity_number(severity: nomi_ide::Severity) -> u8 {

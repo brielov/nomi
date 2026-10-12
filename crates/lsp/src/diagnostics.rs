@@ -39,6 +39,8 @@ pub(crate) struct Settings {
     pub expose_commands: bool,
     /// Whether a package is installed without asking first.
     pub skip_install_confirmation: bool,
+    /// Whether the client asks where to move a function, and moves it.
+    pub move_function: bool,
 }
 
 impl Settings {
@@ -51,6 +53,10 @@ impl Settings {
             on_save_only: flag("onlyUpdateDiagnosticsOnSave"),
             no_lint: flag("disableElmLSDiagnostics"),
             skip_install_confirmation: flag("skipInstallPackageConfirmation"),
+            move_function: (section.get("extendedCapabilities"))
+                .and_then(|e| e.get("moveFunctionRefactoringSupport"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
             expose_commands: (section.get("extendedCapabilities"))
                 .and_then(|e| e.get("exposeUnexposeSupport"))
                 .and_then(Value::as_bool)
@@ -326,6 +332,7 @@ mod tests {
             no_lint: false,
             expose_commands: false,
             skip_install_confirmation: false,
+            move_function: false,
         };
         let section = json!({ "onlyUpdateDiagnosticsOnSave": true });
         assert_eq!(Settings::read(&section), Some(on.clone()));
