@@ -165,7 +165,7 @@ pub(crate) fn declaration_range(node: &SyntaxNode) -> Option<TextRange> {
 /// A variant's extent as tree-sitter-elm's node has it: its code, and
 /// the line comments after it where another variant follows, which its
 /// node takes in.
-fn variant_range(node: &SyntaxNode) -> Option<TextRange> {
+pub(crate) fn variant_range(node: &SyntaxNode) -> Option<TextRange> {
     let range = code_range(node)?;
     let mut end = range.end();
     let mut comments = range.end();

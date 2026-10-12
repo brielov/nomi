@@ -30,11 +30,13 @@ use crate::symbols::{child, code_range};
 mod import;
 mod missing;
 mod refactor;
+mod unused;
 mod usage;
 
 use import::*;
 use missing::*;
 use refactor::*;
+use unused::*;
 use usage::*;
 
 pub use refactor::{exposing_edit, refactor_edits};
@@ -284,6 +286,23 @@ const FIXES: &[Fix] = &[
         all: None,
     },
     Fix {
+        id: "remove_unused",
+        codes: UNUSED,
+        reports: None,
+        actions: unused_actions,
+        all: Some((
+            "Remove all reported unused code",
+            AllEdits::Here(unused_all),
+        )),
+    },
+    Fix {
+        id: "remove_unused_parameter",
+        codes: &["unused_pattern"],
+        reports: None,
+        actions: parameter_removal_actions,
+        all: None,
+    },
+    Fix {
         id: "install_package",
         codes: &["import_resolve"],
         reports: None,
@@ -306,6 +325,8 @@ struct Fixing<'a> {
     packages: &'a PackageModules,
     /// The diagnostics the editor sent.
     given: &'a [Diagnosed],
+    /// What a fix-all removes from each import so far.
+    removed_imports: std::cell::RefCell<RemovedImports>,
     /// The types usage gives the missing values, inferred once.
     usage: OnceCell<Option<Usage>>,
 }
@@ -338,6 +359,7 @@ pub fn code_actions(
         program: program_diagnostics(&module.root, &module.text, request.problems),
         packages: request.packages,
         given: request.given,
+        removed_imports: Default::default(),
         usage: OnceCell::new(),
     };
     let mut results: Vec<Action> = Vec::new();

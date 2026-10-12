@@ -297,6 +297,18 @@ pub(crate) fn unexpose_edit(root: &SyntaxNode, text: &str, name: &str) -> Option
     if nodes.len() <= 1 {
         return None;
     }
+    remove_exposed(&nodes, text, name, false)
+}
+
+/// `removeValueFromExposingList`: the exposed `name` (or `name(..)`) out
+/// of its list, with the comma after it, or before it when it's last or
+/// `force` says so.
+pub(crate) fn remove_exposed(
+    nodes: &[SyntaxNode],
+    text: &str,
+    name: &str,
+    force: bool,
+) -> Option<Edit> {
     let node = (nodes.iter()).find(|n| {
         let written = written(text, n);
         written == name || written == format!("{name}(..)")
@@ -313,7 +325,7 @@ pub(crate) fn unexpose_edit(root: &SyntaxNode, text: &str, name: &str) -> Option
     };
     let mut start = range.start();
     let mut end = range.end();
-    if is(at.checked_sub(1), SyntaxKind::Comma) && is(Some(at + 1), SyntaxKind::RParen) {
+    if is(at.checked_sub(1), SyntaxKind::Comma) && (is(Some(at + 1), SyntaxKind::RParen) || force) {
         start = siblings[at - 1].text_range().start();
     }
     if is(Some(at + 1), SyntaxKind::Comma)

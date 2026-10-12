@@ -802,7 +802,7 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - A fix-all treats elm's report and the checker's form of it as one diagnostic, so a lone `case` offers no "all".
   - Upstream adds a constructor to any type it can find, packages' included. nomi only edits the project's own modules. A record field likewise goes only into an alias declared in the same file. Unit tests cover both fixes.
   - `actions.rs` passed the 1,500-line limit and became `actions/` with four modules.
-- [ ] **9.14** `ide: code actions that remove unused code`. Unused imports, aliases, values, constructors, type aliases and patterns, and unused parameters together with their call sites.
+- [x] **9.14** `ide: code actions that remove unused code`. Unused imports, aliases, values, constructors, type aliases and patterns, and unused parameters together with their call sites.
   - **Remove unused:** a port of `removeUnusedCodeAction.ts`, keyed to the lint codes of 9.4.
     - Each matching diagnostic gets an action for every unused diagnostic in the request, as upstream maps over all of them.
     - The fix-all removes a whole exposing list once each value in it goes, and takes the comma before a run of trailing values.
@@ -810,6 +810,10 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - **Unused parameter:** a port of `removeUnusedParameterCodeAction.ts`. The parameter, its arrow in the signature, and the argument at every call site across the project's files are removed together.
     - It declines where it can't be sure: `main`, a package's exposed API, an operator's function, a recursive value left without parameters, an unresolved same-name use, and partial or higher-order uses.
   - **Check:** the `remove-unused` and `remove-unused-parameter` cases, and the remove actions elsewhere.
+  - **Done:** all 58 recorded remove and fix-unused actions match: 194 of 209 overall, and 827 requests pass. Nomi also declines in the two cases where upstream declines.
+  - nomi's definitions answer with the declaring node, so a call site is matched to the function by where that node starts.
+  - The previous sibling of a parameter skips comments, while an argument's gap keeps one: a comment between them deletes just the argument.
+  - The title says "value" even for an exposed type: upstream's node at the diagnostic's start is the name, never the `exposed_type`.
 - [ ] **9.15** `ide: refactors`. Extract a function (to `let` or the top level), extract a type alias, and move a function.
 - [ ] **9.16** `lsp: file events and custom requests`.
   - **File events:** `didCreateFiles` (the module header), `willRenameFiles` (modules and folders) and `willDeleteFiles`.
