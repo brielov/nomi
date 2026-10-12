@@ -378,3 +378,54 @@ fn completion_after_a_qualifier_offers_what_its_module_exposes() {
     );
     assert_eq!(found[1].sort_text.as_deref(), Some("a_twice"));
 }
+
+#[test]
+fn a_missing_module_offers_the_packages_that_expose_it() {
+    let text = "module Main exposing (main)\n\nimport Dict\n\n\nmain =\n    Dict.empty\n";
+    let (_dir, vfs, path) = open(text);
+    let (_store_dir, store) = store();
+    let snapshot = vfs.snapshot();
+    let index =
+        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    let at = text.find("Dict").unwrap() as u32;
+    let given = [Diagnosed {
+        code: "import_resolve".to_owned(),
+        message: "MODULE NOT FOUND - You are trying to import a `Dict` module:".to_owned(),
+        range: TextRange::new(TextSize::new(at), TextSize::new(at + 4)),
+        severity: Severity::Error,
+        source: "Elm".to_owned(),
+        unnecessary: false,
+    }];
+    let packages = PackageModules::read(&store);
+    let request = Request {
+        range: given[0].range,
+        given: &given,
+        problems: &[],
+        packages: &packages,
+    };
+    let found = code_actions(&snapshot, &index, &path, &request);
+    let offered: Vec<_> = (found.iter())
+        .map(|a| (a.title.as_str(), a.command.clone()))
+        .collect();
+    assert_eq!(
+        offered,
+        [(
+            "Install package \"elm/core\"",
+            Some(ActionCommand::InstallPackage {
+                package: "elm/core".to_owned()
+            })
+        )]
+    );
+    // A module no package downloaded has: nothing to install.
+    let missing = TextRange::new(TextSize::new(at), TextSize::new(at + 2));
+    let given = [Diagnosed {
+        range: missing,
+        ..given[0].clone()
+    }];
+    let request = Request {
+        range: missing,
+        given: &given,
+        ..request
+    };
+    assert_eq!(code_actions(&snapshot, &index, &path, &request), []);
+}

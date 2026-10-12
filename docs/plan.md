@@ -762,7 +762,7 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - A value's lens sits on its signature only when the signature is its previous named node in tree-sitter-elm, so a comment between the two moves it to the definition.
   - An exposed type is matched by its source text, as elm-language-server does, so `Shape (..)` written with a space reads as local.
   - Counts include the declaration, the signature's name, the exposing entry and the module's own name, as `References.find` does.
-- [ ] **9.12a** `ide: code action machinery and import fixes`.
+- [x] **9.12a** `ide: code action machinery and import fixes`.
   - **Machinery:** a port of `codeActionProvider.ts`.
     - Each context diagnostic's `data.code` picks its fixes, in elm-language-server's registration order (`codeAction/index.ts`).
     - A fix-all comes along when the program's own diagnostics hold another of the code.
@@ -771,6 +771,9 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - **Checker diagnostics:** fix-alls list elm-language-server's own type checker's diagnostics, not elm's (`No definition found for `foo`.`). nomi writes them from its own analysis, with that checker's messages, for the fixable codes, starting with `missing_value`.
   - **Fixes:** import a missing value or module, aliased when it's written qualified (9.9's `getPossibleImports` and `addImport`), the "Change to" suggestions of elm's naming, import and module-name errors, and install a missing package (`import_resolve`). The install runs nomi's `add` after the client confirms, so it never writes `~/.elm`.
   - **Check:** the cases mix fixes from 9.12a to 9.15, so few pass whole until 9.15. Progress is counted per action across every code-action answer.
+  - **Done:** 78 of the 209 recorded actions match: every import, "Add all missing imports" and "Change to" action. Nomi offers no action elm-language-server doesn't, and 17 more requests now pass whole.
+  - The diagnostics worker keeps each file's latest problems, so fix-alls read what was published, as `getCurrentDiagnostics` does.
+  - The install command is `nomi.installPackage`, not upstream's randomly suffixed name. It asks through `window/showMessageRequest` with what nomi's install prints. `Store::newest` lists each downloaded package's newest release, which is where upstream reads exposed modules from (`~/.elm`).
 - [ ] **9.12b** `ide: annotations and exposing`.
   - **Annotations:** the inferred annotation, both as a fix for `missing_type_annotation` and as a refactor.
   - **Exposing:** the expose and unexpose refactors (a function, a type, a type with its variants), with no edit where unexposing would leave the list empty. Also the `elm.expose-` and `elm.unexpose-` commands that 9.11's lenses offer.

@@ -78,7 +78,43 @@ impl Store {
 
     /// The sources of a release already downloaded.
     pub fn get(&self, name: &Name, version: Version) -> io::Result<Option<PathBuf>> {
-        let hash = match fs::read(self.release(name, version)) {
+        self.sources_of(&self.release(name, version))
+    }
+
+    /// The releases of `name` already downloaded, oldest first.
+    pub fn versions(&self, name: &Name) -> io::Result<Vec<Version>> {
+        versions_in(
+            &self
+                .dir
+                .join("releases")
+                .join(name.author())
+                .join(name.project()),
+        )
+    }
+
+    /// Each package downloaded, as `author/project` in order, with the
+    /// sources of its newest release.
+    pub fn newest(&self) -> io::Result<Vec<(String, PathBuf)>> {
+        let releases = self.dir.join("releases");
+        let mut found = Vec::new();
+        for author in names_in(&releases)? {
+            for project in names_in(&releases.join(&author))? {
+                let dir = releases.join(&author).join(&project);
+                let Some(version) = versions_in(&dir)?.pop() else {
+                    continue;
+                };
+                if let Some(sources) = self.sources_of(&dir.join(version.to_string()))? {
+                    found.push((format!("{author}/{project}"), sources));
+                }
+            }
+        }
+        found.sort();
+        Ok(found)
+    }
+
+    /// The sources the release file at `release` names, if downloaded.
+    fn sources_of(&self, release: &Path) -> io::Result<Option<PathBuf>> {
+        let hash = match fs::read(release) {
             Ok(hash) => hash,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(e),
@@ -89,32 +125,6 @@ impl Store {
             .filter(|hash| is_hash(hash))
             .map(|hash| self.sources(hash));
         Ok(sources.filter(|dir| dir.is_dir()))
-    }
-
-    /// The releases of `name` already downloaded, oldest first.
-    pub fn versions(&self, name: &Name) -> io::Result<Vec<Version>> {
-        let dir = self
-            .dir
-            .join("releases")
-            .join(name.author())
-            .join(name.project());
-        let entries = match fs::read_dir(dir) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(e) => return Err(e),
-        };
-        let mut versions = Vec::new();
-        for entry in entries {
-            let file = entry?.file_name();
-            let parts: Option<Vec<u32>> = (file.to_str().unwrap_or("").split('.'))
-                .map(|part| part.parse().ok())
-                .collect();
-            if let Some(&[major, minor, patch]) = parts.as_deref() {
-                versions.push(Version::new(major, minor, patch));
-            }
-        }
-        versions.sort();
-        Ok(versions)
     }
 
     /// The sources of a release, downloaded unless they already are.
@@ -320,6 +330,37 @@ fn safe(path: &[u8]) -> Option<PathBuf> {
 /// `SHA.showDigest`: lowercase hex.
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The releases in a package's directory, oldest first.
+fn versions_in(dir: &Path) -> io::Result<Vec<Version>> {
+    let mut versions: Vec<Version> = (names_in(dir)?.iter())
+        .filter_map(|file| {
+            let parts: Option<Vec<u32>> = file.split('.').map(|part| part.parse().ok()).collect();
+            match parts.as_deref() {
+                Some(&[major, minor, patch]) => Some(Version::new(major, minor, patch)),
+                _ => None,
+            }
+        })
+        .collect();
+    versions.sort();
+    Ok(versions)
+}
+
+/// The names of the entries in `dir`, none if it doesn't exist.
+fn names_in(dir: &Path) -> io::Result<Vec<String>> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
+    let mut names = Vec::new();
+    for entry in entries {
+        if let Some(name) = entry?.file_name().to_str() {
+            names.push(name.to_owned());
+        }
+    }
+    Ok(names)
 }
 
 fn is_hash(hash: &str) -> bool {

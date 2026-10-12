@@ -49,6 +49,12 @@ impl<'a> Text<'a> {
         Range::new(self.position(range.start()), self.position(range.end()))
     }
 
+    /// The offsets of `range`, as [`Text::offset`] reads each end.
+    pub fn text_range(&self, range: Range) -> TextRange {
+        let (start, end) = (self.offset(range.start), self.offset(range.end));
+        TextRange::new(start, end.max(start))
+    }
+
     /// The offset of `position`. A client may name a column past a line's
     /// end, or a line past the last, which LSP reads as the end of the
     /// line or the text; one inside a character is its start.

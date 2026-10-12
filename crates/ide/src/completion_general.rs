@@ -730,7 +730,7 @@ fn rank(package: &str) -> Option<&'static str> {
 }
 
 /// `comparePackageRanking`, a ranked package after an unranked one.
-fn compare_ranking(a: &str, b: &str) -> std::cmp::Ordering {
+pub(crate) fn compare_ranking(a: &str, b: &str) -> std::cmp::Ordering {
     use std::cmp::Ordering;
     match (rank(a), rank(b)) {
         (Some(a), Some(b)) => a.cmp(b),
@@ -740,32 +740,25 @@ fn compare_ranking(a: &str, b: &str) -> std::cmp::Ordering {
     }
 }
 
-/// An auto-import's candidate.
-struct Possible {
-    module: String,
-    value: String,
-    value_to_import: Option<String>,
-    package: Option<String>,
+/// An auto-import's candidate, as `IPossibleImport` has it.
+pub(crate) struct Possible {
+    pub module: String,
+    pub value: String,
+    pub value_to_import: Option<String>,
+    pub package: Option<String>,
     kind: ImportedKind,
     root: SyntaxNode,
     name: SyntaxToken,
 }
 
-/// `getPossibleImports`: what the project's other modules expose that no
-/// import brings yet, the closest first, as auto-imports.
-fn possible_imports(
-    context: &Context<'_>,
-    imports: &Imports,
-    range: TextRange,
-    word: &str,
-) -> (Vec<Completion>, bool) {
+/// `ImportUtils.getPossibleImports`: what the project's other modules
+/// expose, the project's own first, then the packages by rank; the
+/// project's by how much of the module's name they share.
+pub(crate) fn importable(context: &Context<'_>) -> Vec<Possible> {
     let mut possible = Vec::new();
     for (module, path, package) in importable_modules(context.snapshot, context.index, context.path)
     {
-        if module == context.module.name
-            || module == "Basics"
-            || path.as_deref() == Some(context.path)
-        {
+        if module == "Basics" || path.as_deref() == Some(context.path) {
             continue;
         }
         let Some((root, _)) = context.module_source(&module) else {
@@ -802,8 +795,6 @@ fn possible_imports(
             }
         }
     }
-    // The project's own first, then the packages by rank; the project's
-    // by how much of the module's name they share.
     let current = &context.module.name;
     let score = |module: &str| -> usize {
         current
@@ -818,10 +809,23 @@ fn possible_imports(
         (Some(a), Some(b)) => compare_ranking(a, b),
         (None, None) => score(&b.module).cmp(&score(&a.module)),
     });
+    possible
+}
+
+/// The auto-imports: what [`importable`] offers that no import brings
+/// yet, the closest to `word` first.
+fn possible_imports(
+    context: &Context<'_>,
+    imports: &Imports,
+    range: TextRange,
+    word: &str,
+) -> (Vec<Completion>, bool) {
+    let mut possible = importable(context);
     possible.retain(|p| {
-        !(imports.vars.has(&p.value, &p.module)
-            || imports.types.has(&p.value, &p.module)
-            || imports.constructors.has(&p.value, &p.module))
+        p.module != context.module.name
+            && !(imports.vars.has(&p.value, &p.module)
+                || imports.types.has(&p.value, &p.module)
+                || imports.constructors.has(&p.value, &p.module))
     });
     let filter = word.to_lowercase();
     let imported = |module: &str| imports.modules.iter().any(|m| m == module);

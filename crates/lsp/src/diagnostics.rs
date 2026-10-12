@@ -7,7 +7,7 @@
 //! `onlyUpdateDiagnosticsOnSave`, only opening and saving are, and
 //! annotations aren't suggested, as elm-language-server does then.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -37,6 +37,8 @@ pub(crate) struct Settings {
     /// Whether the client runs `elm.expose-` and `elm.unexpose-`
     /// commands, which lenses then offer.
     pub expose_commands: bool,
+    /// Whether a package is installed without asking first.
+    pub skip_install_confirmation: bool,
 }
 
 impl Settings {
@@ -48,6 +50,7 @@ impl Settings {
         Some(Settings {
             on_save_only: flag("onlyUpdateDiagnosticsOnSave"),
             no_lint: flag("disableElmLSDiagnostics"),
+            skip_install_confirmation: flag("skipInstallPackageConfirmation"),
             expose_commands: (section.get("extendedCapabilities"))
                 .and_then(|e| e.get("exposeUnexposeSupport"))
                 .and_then(Value::as_bool)
@@ -122,6 +125,8 @@ pub(crate) struct Shared {
     pub sender: Sender<Message>,
     pub publishing: Arc<Mutex<()>>,
     pub settings: Arc<Mutex<Settings>>,
+    /// The problems last published, by file, which code actions read.
+    pub latest: Arc<Mutex<HashMap<PathBuf, Vec<Problem>>>>,
 }
 
 impl Diagnostics {
@@ -158,6 +163,13 @@ fn work(shared: &Shared, jobs: &Receiver<Job>) {
             continue;
         }
         let found = problems(shared, &job, &settings);
+        let mut by_file: HashMap<PathBuf, Vec<Problem>> = HashMap::new();
+        for problem in &found {
+            by_file
+                .entry(problem.path.clone())
+                .or_default()
+                .push(problem.clone());
+        }
         let mut files: BTreeMap<Url, Vec<Diagnostic>> = BTreeMap::new();
         for (uri, _) in &job.open {
             files.entry(uri.clone()).or_default();
@@ -173,6 +185,7 @@ fn work(shared: &Shared, jobs: &Receiver<Job>) {
             files.entry(uri).or_default().push(diagnostic);
         }
         publish_if_current(&shared.publishing, &job.snapshot, || {
+            *shared.latest.lock().unwrap() = by_file;
             for uri in published.drain().collect::<Vec<_>>() {
                 files.entry(uri).or_default();
             }
@@ -312,6 +325,7 @@ mod tests {
             on_save_only: true,
             no_lint: false,
             expose_commands: false,
+            skip_install_confirmation: false,
         };
         let section = json!({ "onlyUpdateDiagnosticsOnSave": true });
         assert_eq!(Settings::read(&section), Some(on.clone()));

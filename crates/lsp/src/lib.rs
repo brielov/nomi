@@ -8,6 +8,8 @@ mod diagnostics;
 mod position;
 
 use std::collections::HashMap;
+
+use lsp_types::{DiagnosticSeverity, DiagnosticTag};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -117,6 +119,11 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
             work_done_progress_options: lsp_types::WorkDoneProgressOptions::default(),
         })),
         references_provider: Some(OneOf::Left(true)),
+        code_action_provider: Some(lsp_types::CodeActionProviderCapability::Simple(true)),
+        execute_command_provider: Some(lsp_types::ExecuteCommandOptions {
+            commands: vec![INSTALL_PACKAGE.to_owned()],
+            work_done_progress_options: lsp_types::WorkDoneProgressOptions::default(),
+        }),
         code_lens_provider: Some(lsp_types::CodeLensOptions {
             resolve_provider: Some(true),
         }),
@@ -150,6 +157,7 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
     let settings = Arc::new(Mutex::new(settings));
     let publishing = Arc::new(Mutex::new(()));
     let memo = Arc::new(Mutex::new(memo));
+    let latest = Arc::new(Mutex::new(HashMap::new()));
     let diagnostics = Diagnostics::start(Shared {
         store: store.clone(),
         memo: memo.clone(),
@@ -157,6 +165,7 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
         sender: connection.sender.clone(),
         publishing: publishing.clone(),
         settings: settings.clone(),
+        latest: latest.clone(),
     });
     let mut server = Server {
         unit,
@@ -172,6 +181,9 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
         pulls_settings,
         settings_request: None,
         label_details,
+        latest,
+        packages: None,
+        installs: HashMap::new(),
     };
     for message in &connection.receiver {
         match message {
@@ -217,6 +229,20 @@ struct Server {
     settings_request: Option<lsp_server::RequestId>,
     /// Whether the client shows completions' label details.
     label_details: bool,
+    /// The problems the diagnostics worker last published, by file.
+    latest: Arc<Mutex<HashMap<PathBuf, Vec<nomi_ide::Problem>>>>,
+    /// The packages downloaded and the modules they expose, read once.
+    packages: Option<nomi_ide::PackageModules>,
+    /// Installs waiting for the user's answer, by the id of the question.
+    installs: HashMap<lsp_server::RequestId, Install>,
+}
+
+/// A package to install in a project, once the user agrees.
+struct Install {
+    root: PathBuf,
+    package: String,
+    /// What the first run printed, up to its question.
+    asked: String,
 }
 
 struct Document {
@@ -266,6 +292,12 @@ impl Server {
             Completion::METHOD => parse(request).and_then(|p: lsp_types::CompletionParams| {
                 self.completion(&p.text_document_position)
             }),
+            "workspace/executeCommand" => {
+                parse(request).and_then(|p: lsp_types::ExecuteCommandParams| self.execute(&p))
+            }
+            "textDocument/codeAction" => {
+                parse(request).and_then(|p: lsp_types::CodeActionParams| self.code_actions(&p))
+            }
             "textDocument/codeLens" => parse(request)
                 .and_then(|p: lsp_types::CodeLensParams| self.code_lenses(&p.text_document.uri)),
             "codeLens/resolve" => {
@@ -331,6 +363,17 @@ impl Server {
     }
 
     fn response(&mut self, response: Response) {
+        if let Some(install) = self.installs.remove(&response.id) {
+            let agreed = (response.result.as_ref())
+                .and_then(|r| r.get("title"))
+                .is_some_and(|t| t == "Yes");
+            if agreed {
+                let (_, printed) = install_package(&install.root, &install.package, Some("y"));
+                let printed = printed.replacen(&install.asked, "", 1);
+                self.show(lsp_types::MessageType::INFO, printed.trim());
+            }
+            return;
+        }
         if self.settings_request.as_ref() != Some(&response.id) {
             return;
         }
@@ -687,6 +730,194 @@ impl Server {
         Ok(serde_json::to_value(locations).expect("references serialize"))
     }
 
+    /// `workspace/executeCommand`: the install a code action offers,
+    /// asked about first unless the settings say not to, as
+    /// elm-language-server runs `elm install`.
+    fn execute(
+        &mut self,
+        params: &lsp_types::ExecuteCommandParams,
+    ) -> Result<Value, (ErrorCode, String)> {
+        if params.command != INSTALL_PACKAGE {
+            return Err((
+                ErrorCode::InvalidParams,
+                format!("no command {}", params.command),
+            ));
+        }
+        let (Some(uri), Some(package)) = (
+            params.arguments.first().and_then(Value::as_str),
+            params.arguments.get(1).and_then(Value::as_str),
+        ) else {
+            return Err((ErrorCode::InvalidParams, "a file and a package".to_owned()));
+        };
+        let root = (Url::parse(uri).ok())
+            .and_then(|u| u.to_file_path().ok())
+            .and_then(|path| index::manifest(&self.vfs.snapshot(), &path))
+            .and_then(|m| m.parent().map(Path::to_path_buf))
+            .ok_or_else(|| (ErrorCode::InvalidParams, format!("{uri} has no project")))?;
+        if self.settings.lock().unwrap().skip_install_confirmation {
+            install_package(&root, package, Some("y"));
+            return Ok(Value::Null);
+        }
+        let (asked, printed) = install_package(&root, package, None);
+        if !asked {
+            if !printed.trim().is_empty() {
+                self.show(lsp_types::MessageType::INFO, printed.trim());
+            }
+            return Ok(Value::Null);
+        }
+        let id = lsp_server::RequestId::from(format!("nomi/install/{package}"));
+        let question = serde_json::json!({
+            "type": lsp_types::MessageType::INFO,
+            "message": printed.replace("[Y/n]:", "").trim(),
+            "actions": [{ "title": "Yes" }, { "title": "No" }],
+        });
+        self.installs.insert(
+            id.clone(),
+            Install {
+                root,
+                package: package.to_owned(),
+                asked: printed,
+            },
+        );
+        let request = Request::new(id, "window/showMessageRequest".to_owned(), question);
+        send(&self.sender, Message::Request(request));
+        Ok(Value::Null)
+    }
+
+    fn show(&self, kind: lsp_types::MessageType, message: &str) {
+        let params = lsp_types::ShowMessageParams {
+            typ: kind,
+            message: message.to_owned(),
+        };
+        send(
+            &self.sender,
+            notification::<lsp_types::notification::ShowMessage>(params),
+        );
+    }
+
+    fn code_actions(
+        &mut self,
+        params: &lsp_types::CodeActionParams,
+    ) -> Result<Value, (ErrorCode, String)> {
+        let uri = &params.text_document.uri;
+        let document = self.document(uri)?;
+        let (path, text) = (document.path.clone(), document.text.clone());
+        let text = Text::new(&text, self.unit);
+        let given_json = &params.context.diagnostics;
+        let given: Vec<nomi_ide::Diagnosed> = (given_json.iter())
+            .map(|d| nomi_ide::Diagnosed {
+                code: (d.data.as_ref())
+                    .and_then(|data| data["code"].as_str())
+                    .unwrap_or_default()
+                    .to_owned(),
+                message: d.message.clone(),
+                range: text.text_range(d.range),
+                severity: match d.severity {
+                    Some(DiagnosticSeverity::ERROR) => nomi_ide::Severity::Error,
+                    Some(DiagnosticSeverity::INFORMATION | DiagnosticSeverity::HINT) => {
+                        nomi_ide::Severity::Information
+                    }
+                    _ => nomi_ide::Severity::Warning,
+                },
+                source: d.source.clone().unwrap_or_default(),
+                unnecessary: (d.tags.iter().flatten()).any(|t| *t == DiagnosticTag::UNNECESSARY),
+            })
+            .collect();
+        let problems = (self.latest.lock().unwrap().get(&path).cloned()).unwrap_or_default();
+        let snapshot = self.vfs.snapshot();
+        if self.index(&snapshot, &path).is_none() {
+            return Ok(Value::Array(Vec::new()));
+        }
+        let index = &self.index.as_ref().expect("indexed above").2;
+        let store = &self.store;
+        let packages = self
+            .packages
+            .get_or_insert_with(|| nomi_ide::PackageModules::read(store));
+        let request = nomi_ide::Request {
+            range: text.text_range(params.range),
+            given: &given,
+            problems: &problems,
+            packages,
+        };
+        let actions = nomi_ide::code_actions(&snapshot, index, &path, &request);
+        let mut found = Vec::new();
+        for action in actions {
+            let mut json = serde_json::Map::new();
+            json.insert("title".into(), action.title.into());
+            let kind = match action.kind {
+                nomi_ide::ActionKind::QuickFix => "quickfix",
+                nomi_ide::ActionKind::Refactor => "refactor",
+            };
+            json.insert("kind".into(), kind.into());
+            match action.diagnostics {
+                Some(nomi_ide::ActionDiagnostics::Given(i)) => {
+                    json.insert("diagnostics".into(), serde_json::json!([given_json[i]]));
+                }
+                Some(nomi_ide::ActionDiagnostics::Program(diagnostics)) => {
+                    let diagnostics: Vec<Value> = (diagnostics.iter())
+                        .map(|d| {
+                            let mut json = serde_json::json!({
+                                "code": d.code, "message": d.message,
+                                "range": text.range(d.range),
+                                "severity": severity_number(d.severity),
+                                "source": d.source, "uri": uri,
+                            });
+                            if d.unnecessary {
+                                json["tags"] = serde_json::json!([1]);
+                            }
+                            json
+                        })
+                        .collect();
+                    json.insert("diagnostics".into(), diagnostics.into());
+                }
+                None => {}
+            }
+            if let Some(files) = action.edits {
+                let mut changes = serde_json::Map::new();
+                for (file, edits) in files {
+                    let (Ok(file_uri), Ok(file_text)) =
+                        (Url::from_file_path(&file), snapshot.read(&file))
+                    else {
+                        continue;
+                    };
+                    let file_text = Text::new(&file_text, self.unit);
+                    let edits: Vec<TextEdit> = (edits.iter())
+                        .map(|e| TextEdit::new(file_text.range(e.range), e.text.clone()))
+                        .collect();
+                    changes.insert(file_uri.to_string(), serde_json::json!(edits));
+                }
+                json.insert("edit".into(), serde_json::json!({ "changes": changes }));
+            }
+            match action.data {
+                nomi_ide::ActionData::Fix { id, all: false } => {
+                    json.insert("data".into(), serde_json::json!({ "fixId": id }));
+                }
+                nomi_ide::ActionData::Fix { id, all: true } => {
+                    json.insert(
+                        "data".into(),
+                        serde_json::json!({ "fixId": id, "isFixAll": true }),
+                    );
+                }
+                nomi_ide::ActionData::None => {}
+            }
+            if let Some(preferred) = action.preferred {
+                json.insert("isPreferred".into(), preferred.into());
+            }
+            if let Some(nomi_ide::ActionCommand::InstallPackage { package }) = action.command {
+                json.insert(
+                    "command".into(),
+                    serde_json::json!({
+                        "title": "Install Package",
+                        "command": INSTALL_PACKAGE,
+                        "arguments": [uri, package],
+                    }),
+                );
+            }
+            found.push(Value::Object(json));
+        }
+        Ok(Value::Array(found))
+    }
+
     fn code_lenses(&self, uri: &Url) -> Result<Value, (ErrorCode, String)> {
         let document = self.document(uri)?;
         let lenses = nomi_ide::code_lenses(&self.vfs.snapshot(), &document.path)
@@ -917,6 +1148,69 @@ fn completion_item(c: nomi_ide::Completion, text: &Text, label_details: bool) ->
 
 /// Runs `publish` if `snapshot` is still the latest revision, holding
 /// `publishing` so that no newer one is made meanwhile. Whether it ran.
+/// The command an install action runs.
+const INSTALL_PACKAGE: &str = "nomi.installPackage";
+
+/// Runs `elm install package` in `root` as nomi does it, answering its
+/// question with `answer`: whether it asked, and what it printed.
+fn install_package(root: &Path, package: &str, answer: Option<&str>) -> (bool, String) {
+    let Ok(cache) = Cache::locate() else {
+        return (
+            false,
+            "nomi has no cache directory for packages.".to_owned(),
+        );
+    };
+    let mut console = Captured {
+        answer: answer.map(str::to_owned),
+        asked: false,
+        printed: String::new(),
+    };
+    nomi_engine::install::run(
+        &Vfs::new(),
+        &mut console,
+        nomi_engine::console::Personality::Elm,
+        root,
+        &cache,
+        &nomi_engine::Web::new(),
+        Some(package),
+    );
+    (console.asked, console.printed)
+}
+
+/// A console that keeps what is printed and answers one question.
+struct Captured {
+    answer: Option<String>,
+    asked: bool,
+    printed: String,
+}
+
+impl nomi_engine::console::Console for Captured {
+    fn out(&mut self, text: &str) {
+        self.printed.push_str(text);
+    }
+
+    fn err(&mut self, text: &str) {
+        self.printed.push_str(text);
+    }
+
+    fn read_line(&mut self) -> std::io::Result<Option<String>> {
+        self.asked = true;
+        Ok(self.answer.take())
+    }
+
+    fn read_all(&mut self) -> std::io::Result<Vec<u8>> {
+        Ok(Vec::new())
+    }
+}
+
+fn severity_number(severity: nomi_ide::Severity) -> u8 {
+    match severity {
+        nomi_ide::Severity::Error => 1,
+        nomi_ide::Severity::Warning => 2,
+        nomi_ide::Severity::Information => 3,
+    }
+}
+
 fn publish_if_current(publishing: &Mutex<()>, snapshot: &Snapshot, publish: impl FnOnce()) -> bool {
     let _held = publishing.lock().unwrap();
     if snapshot.is_stale() {
