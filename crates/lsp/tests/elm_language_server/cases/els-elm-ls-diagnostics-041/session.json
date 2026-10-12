@@ -1,0 +1,9 @@
+{
+  "open": [
+    "src/Main.elm"
+  ],
+  "settings": {
+    "disableElmLSDiagnostics": false
+  },
+  "title": "unused imported type"
+}

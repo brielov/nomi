@@ -1,0 +1,85 @@
+{
+  "diagnostics": {
+    "src/Module.elm": [
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Module.elm"
+        },
+        "message": "Unused top level definition `update`",
+        "range": {
+          "end": {"character":6,"line":11},
+          "start": {"character":0,"line":11}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Module.elm"
+        },
+        "message": "Unused top level definition `test`",
+        "range": {
+          "end": {"character":4,"line":16},
+          "start": {"character":0,"line":16}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Module.elm"
+        },
+        "message": "Unused top level definition `destructure`",
+        "range": {
+          "end": {"character":11,"line":21},
+          "start": {"character":0,"line":21}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/references",
+      "result": [
+        {
+          "range": {"end":{"character":11,"line":17},"start":{"character":6,"line":17}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":13,"line":7},"start":{"character":8,"line":7}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":17,"line":12},"start":{"character":12,"line":12}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":19,"line":21},"start":{"character":14,"line":21}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":24,"line":2},"start":{"character":19,"line":2}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":9,"line":23},"start":{"character":4,"line":23}},
+          "uri": "<project>/src/Module.elm"
+        }
+      ]
+    }
+  ]
+}

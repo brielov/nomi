@@ -1,0 +1,66 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused top level definition `foo`",
+        "range": {
+          "end": {"character":3,"line":1},
+          "start": {"character":0,"line":1}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused pattern variable `x`",
+        "range": {
+          "end": {"character":7,"line":1},
+          "start": {"character":6,"line":1}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused pattern variable `y`",
+        "range": {
+          "end": {"character":10,"line":1},
+          "start": {"character":9,"line":1}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/definition",
+      "result": {
+        "range": {
+          "end": {"character":20,"line":1},
+          "start": {"character":15,"line":1}
+        },
+        "uri": "<project>/src/Main.elm"
+      }
+    }
+  ]
+}

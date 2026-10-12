@@ -1,0 +1,16 @@
+{
+  "open": [
+    "src/main.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 23,
+        "line": 0
+      },
+      "file": "src/main.elm",
+      "method": "textDocument/definition"
+    }
+  ],
+  "title": "test type alias ref in import declaration"
+}

@@ -1,0 +1,16 @@
+{
+  "open": [
+    "src/main.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 33,
+        "line": 1
+      },
+      "file": "src/main.elm",
+      "method": "textDocument/definition"
+    }
+  ],
+  "title": "test qualified type alias ref"
+}

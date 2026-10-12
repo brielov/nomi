@@ -1,0 +1,21 @@
+{
+  "open": [
+    "src/Test.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 23,
+        "line": 14
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    }
+  ],
+  "title": "Updating a nested record should have completions"
+}

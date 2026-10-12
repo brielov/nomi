@@ -1,0 +1,22 @@
+{
+  "open": [
+    "src/Test.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 23,
+        "line": 4
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerCharacter": ".",
+          "triggerKind": 2
+        }
+      }
+    }
+  ],
+  "title": "Imported qualified modules should have value completions"
+}

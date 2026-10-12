@@ -1,0 +1,39 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused pattern variable `items`",
+        "range": {
+          "end": {"character":25,"line":12},
+          "start": {"character":20,"line":12}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused pattern variable `items`",
+        "range": {
+          "end": {"character":25,"line":15},
+          "start": {"character":20,"line":15}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": []
+}

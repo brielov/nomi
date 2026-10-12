@@ -1,0 +1,25 @@
+{
+  "open": [
+    "src/Test.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "end": {
+          "character": 5,
+          "line": 9
+        },
+        "start": {
+          "character": 5,
+          "line": 9
+        }
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/codeAction"
+    }
+  ],
+  "settings": {
+    "disableElmLSDiagnostics": false
+  },
+  "title": "exposing a type works even if another type is exposed that starts with the same"
+}

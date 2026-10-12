@@ -1,0 +1,52 @@
+{
+  "diagnostics": {
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "unused_import",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused import `Page`",
+        "range": {
+          "end": {"character":11,"line":2},
+          "start": {"character":0,"line":2}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/completion",
+      "result": [
+        {
+          "documentation": {"sha256":"eea32adf59702d02"},
+          "kind": 13,
+          "label": "Page",
+          "sortText": "a_Page",
+          "textEdit": {"newText":"Page","range":{"end":{"character":7,"line":5},"start":{"character":7,"line":5}}}
+        },
+        {
+          "documentation": {"sha256":"298fb1a9ca080e6b"},
+          "kind": 20,
+          "label": "Home",
+          "labelDetails": {"detail":" : Page.Page"},
+          "sortText": "a_Home",
+          "textEdit": {"newText":"Home","range":{"end":{"character":7,"line":5},"start":{"character":7,"line":5}}}
+        },
+        {
+          "documentation": {"sha256":"3a3a1adda813e381"},
+          "kind": 20,
+          "label": "Away",
+          "labelDetails": {"detail":" : Page.Page"},
+          "sortText": "a_Away",
+          "textEdit": {"newText":"Away","range":{"end":{"character":7,"line":5},"start":{"character":7,"line":5}}}
+        }
+      ]
+    }
+  ]
+}

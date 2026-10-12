@@ -1,0 +1,243 @@
+{
+  "diagnostics": {
+    "src/Test.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/completion",
+      "result": [
+        {
+          "documentation": {"sha256":"cf0fe333fab787ad"},
+          "kind": 9,
+          "label": "Browser",
+          "sortText": "b_Browser",
+          "textEdit": {"newText":"Browser","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"411d54db1801ef4c"},
+          "kind": 9,
+          "label": "Browser.Dom",
+          "sortText": "b_Browser.Dom",
+          "textEdit": {"newText":"Browser.Dom","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"5f3a34f0fad53987"},
+          "kind": 9,
+          "label": "Browser.Events",
+          "sortText": "b_Browser.Events",
+          "textEdit": {"newText":"Browser.Events","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"bf0b32d3348c0a32"},
+          "kind": 9,
+          "label": "Browser.Navigation",
+          "sortText": "b_Browser.Navigation",
+          "textEdit": {"newText":"Browser.Navigation","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"df4697cf69847018"},
+          "kind": 9,
+          "label": "Array",
+          "sortText": "b_Array",
+          "textEdit": {"newText":"Array","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"d7773ef82daf3a51"},
+          "kind": 9,
+          "label": "Basics",
+          "sortText": "b_Basics",
+          "textEdit": {"newText":"Basics","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"f73c29ff2d103493"},
+          "kind": 9,
+          "label": "Bitwise",
+          "sortText": "b_Bitwise",
+          "textEdit": {"newText":"Bitwise","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"d244efc040e193a8"},
+          "kind": 9,
+          "label": "Char",
+          "sortText": "b_Char",
+          "textEdit": {"newText":"Char","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"68c54cedc670cf21"},
+          "kind": 9,
+          "label": "Debug",
+          "sortText": "b_Debug",
+          "textEdit": {"newText":"Debug","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"41306cb8460f8b86"},
+          "kind": 9,
+          "label": "Dict",
+          "sortText": "b_Dict",
+          "textEdit": {"newText":"Dict","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"a56fe586afbbf7ac"},
+          "kind": 9,
+          "label": "List",
+          "sortText": "b_List",
+          "textEdit": {"newText":"List","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"8d8e03b512c21868"},
+          "kind": 9,
+          "label": "Maybe",
+          "sortText": "b_Maybe",
+          "textEdit": {"newText":"Maybe","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"2eca20e10c76398c"},
+          "kind": 9,
+          "label": "Platform",
+          "sortText": "b_Platform",
+          "textEdit": {"newText":"Platform","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"8ee4076a9af25af1"},
+          "kind": 9,
+          "label": "Process",
+          "sortText": "b_Process",
+          "textEdit": {"newText":"Process","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"8bb214a226579445"},
+          "kind": 9,
+          "label": "Result",
+          "sortText": "b_Result",
+          "textEdit": {"newText":"Result","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"0783f80ba7a82f34"},
+          "kind": 9,
+          "label": "Set",
+          "sortText": "b_Set",
+          "textEdit": {"newText":"Set","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"8a0043c0af722eac"},
+          "kind": 9,
+          "label": "String",
+          "sortText": "b_String",
+          "textEdit": {"newText":"String","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"3ed5d4d374d79ef6"},
+          "kind": 9,
+          "label": "Task",
+          "sortText": "b_Task",
+          "textEdit": {"newText":"Task","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"5df0d9b18faa8a98"},
+          "kind": 9,
+          "label": "Tuple",
+          "sortText": "b_Tuple",
+          "textEdit": {"newText":"Tuple","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"6cdf0e4f09259260"},
+          "kind": 9,
+          "label": "Platform.Cmd",
+          "sortText": "b_Platform.Cmd",
+          "textEdit": {"newText":"Platform.Cmd","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"1ee8d367b9ddb978"},
+          "kind": 9,
+          "label": "Platform.Sub",
+          "sortText": "b_Platform.Sub",
+          "textEdit": {"newText":"Platform.Sub","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"c5cf181593a4c5b8"},
+          "kind": 9,
+          "label": "Html",
+          "sortText": "b_Html",
+          "textEdit": {"newText":"Html","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"c2fa3d7142774020"},
+          "kind": 9,
+          "label": "Html.Attributes",
+          "sortText": "b_Html.Attributes",
+          "textEdit": {"newText":"Html.Attributes","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"05f93e29a004b92c"},
+          "kind": 9,
+          "label": "Html.Events",
+          "sortText": "b_Html.Events",
+          "textEdit": {"newText":"Html.Events","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"9cd11ecf1caac618"},
+          "kind": 9,
+          "label": "Html.Keyed",
+          "sortText": "b_Html.Keyed",
+          "textEdit": {"newText":"Html.Keyed","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"26676d1cafa07656"},
+          "kind": 9,
+          "label": "Html.Lazy",
+          "sortText": "b_Html.Lazy",
+          "textEdit": {"newText":"Html.Lazy","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"13db16c30c470f5f"},
+          "kind": 9,
+          "label": "Http",
+          "sortText": "b_Http",
+          "textEdit": {"newText":"Http","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"919ebe4c2db4dd16"},
+          "kind": 9,
+          "label": "Json.Decode",
+          "sortText": "b_Json.Decode",
+          "textEdit": {"newText":"Json.Decode","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"077fb3b49cbb5c12"},
+          "kind": 9,
+          "label": "Json.Encode",
+          "sortText": "b_Json.Encode",
+          "textEdit": {"newText":"Json.Encode","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"eac924c3defe2046"},
+          "kind": 9,
+          "label": "Url",
+          "sortText": "b_Url",
+          "textEdit": {"newText":"Url","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"6b3002989ef46b17"},
+          "kind": 9,
+          "label": "Url.Builder",
+          "sortText": "b_Url.Builder",
+          "textEdit": {"newText":"Url.Builder","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"b234b4e08f027794"},
+          "kind": 9,
+          "label": "Url.Parser",
+          "sortText": "b_Url.Parser",
+          "textEdit": {"newText":"Url.Parser","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        },
+        {
+          "documentation": {"sha256":"f5a538555df57b58"},
+          "kind": 9,
+          "label": "Url.Parser.Query",
+          "sortText": "b_Url.Parser.Query",
+          "textEdit": {"newText":"Url.Parser.Query","range":{"end":{"character":7,"line":2},"start":{"character":7,"line":2}}}
+        }
+      ]
+    }
+  ]
+}

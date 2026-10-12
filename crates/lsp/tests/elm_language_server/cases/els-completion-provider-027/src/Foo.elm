@@ -1,0 +1,4 @@
+module Foo exposing (..)
+
+fooOnly = ""
+

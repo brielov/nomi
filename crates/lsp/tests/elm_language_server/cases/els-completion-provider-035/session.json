@@ -1,0 +1,22 @@
+{
+  "open": [
+    "src/Test.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 17,
+        "line": 13
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerCharacter": ".",
+          "triggerKind": 2
+        }
+      }
+    }
+  ],
+  "title": "Record access in list expression"
+}

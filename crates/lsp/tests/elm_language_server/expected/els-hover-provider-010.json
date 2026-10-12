@@ -1,0 +1,16 @@
+{
+  "diagnostics": {
+    "src/Test.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/hover",
+      "result": {
+        "contents": {
+          "kind": "markdown",
+          "value": "\n```elm\nbiz: String\n```\n\n\n---\n\nThis is a comment explaining biz\n\nField on the type alias `Foo`"
+        }
+      }
+    }
+  ]
+}

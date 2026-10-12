@@ -1,0 +1,21 @@
+{
+  "open": [
+    "src/Test.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 4,
+        "line": 4
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    }
+  ],
+  "title": "Union constructor completions from pattern destructuring"
+}

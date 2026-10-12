@@ -1,0 +1,45 @@
+{
+  "diagnostics": {
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused pattern variable `model`",
+        "range": {
+          "end": {"character":18,"line":4},
+          "start": {"character":13,"line":4}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/completion",
+      "result": [
+        {
+          "documentation": {"sha256":"1c281e49f22ebabe"},
+          "kind": 5,
+          "label": "prop1",
+          "labelDetails": {"detail":" : String"},
+          "preselect": true,
+          "textEdit": {"newText":"prop1","range":{"end":{"character":12,"line":5},"start":{"character":11,"line":5}}}
+        },
+        {
+          "documentation": {"sha256":"80f0409e6b600a1a"},
+          "kind": 5,
+          "label": "prop2",
+          "labelDetails": {"detail":" : Int"},
+          "preselect": true,
+          "textEdit": {"newText":"prop2","range":{"end":{"character":12,"line":5},"start":{"character":11,"line":5}}}
+        }
+      ]
+    }
+  ]
+}

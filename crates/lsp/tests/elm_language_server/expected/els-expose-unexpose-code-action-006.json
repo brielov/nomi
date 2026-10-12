@@ -1,0 +1,59 @@
+{
+  "diagnostics": {
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "unused_value_constructor",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Value constructor `World2` is not used.",
+        "range": {
+          "end": {"character":10,"line":7},
+          "start": {"character":4,"line":7}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_value_constructor",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Value constructor `World` is not used.",
+        "range": {
+          "end": {"character":9,"line":10},
+          "start": {"character":4,"line":10}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"actionName":"expose_type","range":{"end":{"character":5,"line":9},"start":{"character":5,"line":9}},"refactorName":"expose_unexpose","uri":"<project>/src/Test.elm"},
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":", World","range":{"end":{"character":35,"line":0},"start":{"character":35,"line":0}}}]}},
+          "isPreferred": true,
+          "kind": "refactor",
+          "title": "Expose Type"
+        },
+        {
+          "data": {"actionName":"expose_type_with_variants","range":{"end":{"character":5,"line":9},"start":{"character":5,"line":9}},"refactorName":"expose_unexpose","uri":"<project>/src/Test.elm"},
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":", World(..)","range":{"end":{"character":35,"line":0},"start":{"character":35,"line":0}}}]}},
+          "isPreferred": true,
+          "kind": "refactor",
+          "title": "Expose Type with Variants"
+        }
+      ]
+    }
+  ]
+}

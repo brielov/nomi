@@ -1,0 +1,23 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused top level definition `bar`",
+        "range": {
+          "end": {"character":3,"line":7},
+          "start": {"character":0,"line":7}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": []
+}

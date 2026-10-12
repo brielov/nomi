@@ -1,0 +1,20 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "no_uncurried_prefix",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Don't use fully applied prefix notation for operators.",
+        "range": {
+          "end": {"character":13,"line":3},
+          "start": {"character":6,"line":3}
+        },
+        "severity": 2,
+        "source": "ElmLS"
+      }
+    ]
+  },
+  "requests": []
+}

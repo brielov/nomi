@@ -1,0 +1,11 @@
+{
+  "diagnostics": {
+    "src/Test.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/codeAction",
+      "result": []
+    }
+  ]
+}

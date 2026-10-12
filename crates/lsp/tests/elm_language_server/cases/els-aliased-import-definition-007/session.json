@@ -1,0 +1,16 @@
+{
+  "open": [
+    "src/main.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 9,
+        "line": 0
+      },
+      "file": "src/main.elm",
+      "method": "textDocument/definition"
+    }
+  ],
+  "title": "test an import with an alias still provides a ref for the original module name"
+}

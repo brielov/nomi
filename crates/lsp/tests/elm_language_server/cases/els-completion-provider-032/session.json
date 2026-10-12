@@ -1,0 +1,22 @@
+{
+  "open": [
+    "src/Test.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 16,
+        "line": 12
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerCharacter": ".",
+          "triggerKind": 2
+        }
+      }
+    }
+  ],
+  "title": "Record completions should not interfere with Module completions"
+}

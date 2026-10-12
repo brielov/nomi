@@ -1,0 +1,45 @@
+{
+  "diagnostics": {
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused pattern variable `prop2`",
+        "range": {
+          "end": {"character":27,"line":16},
+          "start": {"character":22,"line":16}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/completion",
+      "result": [
+        {
+          "documentation": {"sha256":"ca3375dfff18f24e"},
+          "kind": 5,
+          "label": "field1",
+          "labelDetails": {"detail":" : String"},
+          "preselect": true,
+          "textEdit": {"newText":"field1","range":{"end":{"character":19,"line":17},"start":{"character":18,"line":17}}}
+        },
+        {
+          "documentation": {"sha256":"fd6be4cddd46aa12"},
+          "kind": 5,
+          "label": "field2",
+          "labelDetails": {"detail":" : Int"},
+          "preselect": true,
+          "textEdit": {"newText":"field2","range":{"end":{"character":19,"line":17},"start":{"character":18,"line":17}}}
+        }
+      ]
+    }
+  ]
+}

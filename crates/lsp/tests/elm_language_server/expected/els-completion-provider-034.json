@@ -1,0 +1,246 @@
+{
+  "diagnostics": {
+    "src/Main.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/completion",
+      "result": [
+        {
+          "documentation": {"sha256":"e5f4022233c51806"},
+          "insertText": "encodeUser : ${1:ArgumentType} -> ${2:ReturnType}\nencodeUser ${3:arguments} =\n    ${4}",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "func encodeUser",
+          "sortText": "s_func encodeUser"
+        },
+        {
+          "kind": 1,
+          "label": "encodeUser",
+          "sortText": "a_encodeUser",
+          "textEdit": {"newText":"encodeUser","range":{"end":{"character":0,"line":23},"start":{"character":0,"line":23}}}
+        },
+        {
+          "kind": 14,
+          "label": "type",
+          "sortText": "a_type"
+        },
+        {
+          "kind": 14,
+          "label": "import",
+          "sortText": "a_import"
+        },
+        {
+          "kind": 14,
+          "label": "module",
+          "sortText": "a_module"
+        },
+        {
+          "kind": 14,
+          "label": "port",
+          "sortText": "a_port"
+        },
+        {
+          "documentation": {"sha256":"7a1dbf6b6eff576a"},
+          "insertText": "module ${1:Name} exposing (${2:..})",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "module",
+          "sortText": "s_module"
+        },
+        {
+          "documentation": {"sha256":"b40527ab4dc861d8"},
+          "insertText": "import ${1:Name} exposing (${2:..})",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "import",
+          "sortText": "s_import"
+        },
+        {
+          "documentation": {"sha256":"76feb365c09d819b"},
+          "insertText": "{-\n${0}\n-}",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "comment",
+          "sortText": "s_comment"
+        },
+        {
+          "documentation": {"sha256":"00e198e03fced16c"},
+          "insertText": "${1:recordName} =\n    { ${2:key1} = ${3:value1}\n    , ${4:key2} = ${5:value2}\n    }",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "record",
+          "sortText": "s_record"
+        },
+        {
+          "documentation": {"sha256":"cb03ef8403c737db"},
+          "insertText": "type alias ${1:RecordName} =\n    { ${2:key1} : ${3:ValueType1}\n    , ${4:key2} : ${5:ValueType2}\n    }",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "type alias",
+          "sortText": "s_type alias"
+        },
+        {
+          "documentation": {"sha256":"55d880142f2372e9"},
+          "insertText": "type ${1:Typename}\n    = ${2:Value1}\n    | ${3:Value2}",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "type",
+          "sortText": "s_type"
+        },
+        {
+          "documentation": {"sha256":"6b2eac835620836d"},
+          "insertText": "type Msg\n    = ${1:Message}\n    | ${2:Message}",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "msg",
+          "sortText": "s_msg"
+        },
+        {
+          "documentation": {"sha256":"e5f4022233c51806"},
+          "insertText": "${1:functionName} : ${2:ArgumentType} -> ${3:ReturnType}\n${1:functionName} ${4:arguments} =\n    ${5}",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "func",
+          "sortText": "s_func"
+        },
+        {
+          "documentation": {"sha256":"f66a56ea8c5424bb"},
+          "insertText": "update : Msg -> Model -> ${1|Model, ( Model\\, Cmd Msg )|}\nupdate msg model =\n    case msg of\n        ${2:option1} ->\n            ${1|Model, ( Model\\, Cmd Msg )|}\n\n        ${3:option2} ->\n            ${1|Model, ( Model\\, Cmd Msg )|}",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "update",
+          "sortText": "s_update"
+        },
+        {
+          "documentation": {"sha256":"0f932d11066feb22"},
+          "insertText": "view : Model -> Html Msg\nview model =\n    ${0}",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "view",
+          "sortText": "s_view"
+        },
+        {
+          "documentation": {"sha256":"17cba7b4d6f45106"},
+          "insertText": "port ${1:portName} : (${2:Typename} -> msg) -> Sub msg",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "port in",
+          "sortText": "s_port in"
+        },
+        {
+          "documentation": {"sha256":"aa4ebf694d964798"},
+          "insertText": "port ${1:portName} : ${2:Typename} -> Cmd msg",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "port out",
+          "sortText": "s_port out"
+        },
+        {
+          "documentation": {"sha256":"7e726c5640bcc03d"},
+          "insertText": "main : Program () Model Msg\nmain =\n    Browser.sandbox\n        { init = init\n        , view = view\n        , update = update\n        }",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "main sandbox",
+          "sortText": "s_main sandbox"
+        },
+        {
+          "documentation": {"sha256":"ecff23aa7e4d9e36"},
+          "insertText": "main : Program () Model Msg\nmain =\n    Browser.element\n        { init = init\n        , view = view\n        , update = update\n        , subscriptions = subscriptions\n        }",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "main element",
+          "sortText": "s_main element"
+        },
+        {
+          "documentation": {"sha256":"8843379e2b37ed4d"},
+          "insertText": "main : Program () Model Msg\nmain =\n    Browser.document\n        { init = init\n        , view = view\n        , update = update\n        , subscriptions = subscriptions\n        }",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "main document",
+          "sortText": "s_main document"
+        },
+        {
+          "documentation": {"sha256":"5e1c340a29627450"},
+          "insertText": "main : Program () Model Msg\nmain =\n    Browser.application\n        { init = init\n        , view = view\n        , update = update\n        , subscriptions = subscriptions\n        , onUrlChange = onUrlChange\n        , onUrlRequest = onUrlRequest\n        }",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "main application",
+          "sortText": "s_main application"
+        },
+        {
+          "documentation": {"sha256":"762ea9455dbd498d"},
+          "insertText": "subscriptions : Model -> Sub Msg\nsubscriptions model =\n    Sub.none",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "subscriptions",
+          "sortText": "s_subscriptions"
+        },
+        {
+          "documentation": {"sha256":"bcd1e72d01d2d0e4"},
+          "insertText": "type alias Model =\n    { statusText : String\n    }\n\n\nmodel : Model\nmodel =\n    { statusText = \"Ready\"\n    }",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "default model",
+          "sortText": "s_default model"
+        },
+        {
+          "documentation": {"sha256":"5e08198c91eb2c8c"},
+          "insertText": "module Main exposing (main)\n\nimport Browser\nimport Html exposing (..)\n\n\nmain : Program () Model Msg\nmain =\n    Browser.sandbox\n        { init = init\n        , view = view\n        , update = update\n        }\n\n\ntype alias Model =\n    { ${1:property} : ${2:Int}\n    , ${3:property2} : ${4:String}\n    }\n\n\ninit : Model\ninit =\n    Model ${5:0} ${6:\"modelInitialValue2\"}\n\n\ntype Msg\n    = ${7:Msg1}\n    | ${8:Msg2}\n\n\nupdate : Msg -> Model -> Model\nupdate msg model =\n    case msg of\n        ${9:Msg1} ->\n            model\n\n        ${10:Msg2} ->\n            model\n\n\nview : Model -> Html Msg\nview model =\n    div []\n        [ text \"New Sandbox\" ]\n${0}",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "Browser.sandbox",
+          "sortText": "s_Browser.sandbox"
+        },
+        {
+          "documentation": {"sha256":"1f68b3b26170916a"},
+          "insertText": "module Main exposing (main)\n\nimport Browser\nimport Html exposing (..)\n\n\nmain : Program flags Model Msg\nmain =\n    Browser.element\n        { init = init\n        , view = view\n        , update = update\n        , subscriptions = subscriptions\n        }\n\n\ntype alias Model =\n    { ${1:property} : ${2:Int}\n    , ${3:property2} : ${4:String}\n    }\n\n\ninit : flags -> ( Model, Cmd Msg )\ninit flags =\n    ( Model ${5:0} ${6:\"modelInitialValue2\"}, Cmd.none )\n\n\ntype Msg\n    = ${7:Msg1}\n    | ${8:Msg2}\n\n\nupdate : Msg -> Model -> ( Model, Cmd Msg )\nupdate msg model =\n    case msg of\n        ${9:Msg1} ->\n            ( model, Cmd.none )\n\n        ${10:Msg2} ->\n            ( model, Cmd.none )\n\n\nsubscriptions : Model -> Sub Msg\nsubscriptions model =\n    Sub.none\n\n\nview : Model -> Html Msg\nview model =\n    div []\n        [ text \"New Element\" ]\n${0}",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "Browser.element",
+          "sortText": "s_Browser.element"
+        },
+        {
+          "documentation": {"sha256":"03da60ca2a06043b"},
+          "insertText": "module Main exposing (main)\n\nimport Browser\nimport Html exposing (..)\n\n\nmain : Program flags Model Msg\nmain =\n    Browser.document\n        { init = init\n        , view = view\n        , update = update\n        , subscriptions = subscriptions\n        }\n\n\ntype alias Model =\n    { ${1:property} : ${2:Int}\n    , ${3:property2} : ${4:String}\n    }\n\n\ninit : flags -> ( Model, Cmd Msg )\ninit flags =\n    ( Model ${5:0} ${6:\"modelInitialValue\"}, Cmd.none )\n\n\ntype Msg\n    = ${7:Msg1}\n    | ${8:Msg2}\n\n\nupdate : Msg -> Model -> ( Model, Cmd Msg )\nupdate msg model =\n    case msg of\n        ${9:Msg1} ->\n            ( model, Cmd.none )\n\n        ${10:Msg2} ->\n            ( model, Cmd.none )\n\n\nsubscriptions : Model -> Sub Msg\nsubscriptions model =\n    Sub.none\n\n\nview : Model -> Browser.Document Msg\nview model =\n    { title = \"Document Title\"\n    , body =\n        [ div []\n            [ text \"New Document\" ]\n      ]\n    }\n${0}",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "Browser.document",
+          "sortText": "s_Browser.document"
+        },
+        {
+          "documentation": {"sha256":"9d7356fa72693fd4"},
+          "insertText": "module Main exposing (main)\n\nimport Browser\nimport Browser.Navigation as Nav\nimport Html exposing (..)\nimport Url\n\n\nmain : Program flags Model Msg\nmain =\n    Browser.application\n        { init = init\n        , view = view\n        , update = update\n        , subscriptions = subscriptions\n        , onUrlRequest = UrlRequested\n        , onUrlChange = UrlChanged\n        }\n\n\ntype alias Model =\n    { key : Nav.Key\n    , url : Url.Url\n    , ${1:property} : ${2:String}\n    }\n\n\ninit : flags -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )\ninit flags url key =\n    ( Model key url ${3:\"modelInitialValue\"}, Cmd.none )\n\n\ntype Msg\n    = ${4:Msg1}\n    | ${5:Msg2}\n    | UrlRequested Browser.UrlRequest\n    | UrlChanged Url.Url\n\n\nupdate : Msg -> Model -> ( Model, Cmd Msg )\nupdate msg model =\n    case msg of\n        ${6:Msg1} ->\n            ( model, Cmd.none )\n\n        ${7:Msg2} ->\n            ( model, Cmd.none )\n\n        UrlRequested urlRequest ->\n            case urlRequest of\n                Browser.Internal url ->\n                    ( model, Nav.pushUrl model.key (Url.toString url) )\n\n                Browser.External href ->\n                    ( model, Nav.load href )\n\n        UrlChanged url ->\n            ( { model | url = url }\n            , Cmd.none\n            )\n\n\nsubscriptions : Model -> Sub Msg\nsubscriptions model =\n    Sub.none\n\n\nview : Model -> Browser.Document Msg\nview model =\n    { title = \"Application Title\"\n    , body =\n        [ div []\n            [ text \"New Application\" ]\n        ]\n    }\n${0}",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "Browser.application",
+          "sortText": "s_Browser.application"
+        },
+        {
+          "documentation": {"sha256":"8dca098752338f7d"},
+          "insertText": "describe \"${1:name}\"\n    [ ${0}\n    ]",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "describe",
+          "sortText": "s_describe"
+        },
+        {
+          "documentation": {"sha256":"eb912b5879481c4c"},
+          "insertText": "test \"${1:name}\" <|\n    \\_ ->\n        ${0}",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "test",
+          "sortText": "s_test"
+        },
+        {
+          "documentation": {"sha256":"1676991ba5a6351a"},
+          "insertText": "-- TODO: ${0}",
+          "insertTextFormat": 2,
+          "kind": 15,
+          "label": "todo",
+          "sortText": "s_todo"
+        }
+      ]
+    }
+  ]
+}

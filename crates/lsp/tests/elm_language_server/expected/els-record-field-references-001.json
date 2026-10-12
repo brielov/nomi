@@ -1,0 +1,24 @@
+{
+  "diagnostics": {
+    "src/Module.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/references",
+      "result": [
+        {
+          "range": {"end":{"character":24,"line":2},"start":{"character":19,"line":2}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":29,"line":12},"start":{"character":24,"line":12}},
+          "uri": "<project>/src/Combined.elm"
+        },
+        {
+          "range": {"end":{"character":30,"line":14},"start":{"character":25,"line":14}},
+          "uri": "<project>/src/Combined.elm"
+        }
+      ]
+    }
+  ]
+}

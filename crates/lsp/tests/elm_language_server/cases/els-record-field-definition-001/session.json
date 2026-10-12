@@ -1,0 +1,16 @@
+{
+  "open": [
+    "src/Main.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 13,
+        "line": 4
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/definition"
+    }
+  ],
+  "title": "test simple field access"
+}

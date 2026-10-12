@@ -1,0 +1,21 @@
+{
+  "open": [
+    "src/Test.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 29,
+        "line": 2
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    }
+  ],
+  "title": "Exposing a value from another module should have completions"
+}

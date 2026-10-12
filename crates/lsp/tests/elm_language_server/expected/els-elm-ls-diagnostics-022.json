@@ -1,0 +1,36 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "unused_alias",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused import alias `B`",
+        "range": {
+          "end": {"character":15,"line":3},
+          "start": {"character":11,"line":3}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "no_uncurried_prefix",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Don't use fully applied prefix notation for operators.",
+        "range": {
+          "end": {"character":13,"line":5},
+          "start": {"character":6,"line":5}
+        },
+        "severity": 2,
+        "source": "ElmLS"
+      }
+    ]
+  },
+  "requests": []
+}

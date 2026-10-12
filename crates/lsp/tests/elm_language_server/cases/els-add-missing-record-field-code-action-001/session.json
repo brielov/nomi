@@ -1,0 +1,25 @@
+{
+  "open": [
+    "src/Test.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "end": {
+          "character": 10,
+          "line": 6
+        },
+        "start": {
+          "character": 10,
+          "line": 6
+        }
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/codeAction"
+    }
+  ],
+  "settings": {
+    "disableElmLSDiagnostics": false
+  },
+  "title": "should work with type alias on a single line"
+}

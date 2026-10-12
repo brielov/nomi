@@ -1,0 +1,45 @@
+{
+  "diagnostics": {
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused pattern variable `unused`",
+        "range": {
+          "end": {"character":10,"line":2},
+          "start": {"character":4,"line":2}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"fixId":"remove_unused"},
+          "diagnostics": [{"data":{"code":"unused_pattern","uri":"<project>/src/Test.elm"},"message":"Unused pattern variable `unused`","range":{"end":{"character":10,"line":2},"start":{"character":4,"line":2}},"severity":2,"source":"ElmLS","tags":[1]}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"_","range":{"end":{"character":10,"line":2},"start":{"character":4,"line":2}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Fix unused pattern `unused`"
+        },
+        {
+          "data": {"fixId":"remove_unused_parameter"},
+          "diagnostics": [{"data":{"code":"unused_pattern","uri":"<project>/src/Test.elm"},"message":"Unused pattern variable `unused`","range":{"end":{"character":10,"line":2},"start":{"character":4,"line":2}},"severity":2,"source":"ElmLS","tags":[1]}],
+          "edit": {"changes":{"<project>/src/Other.elm":[{"newText":"","range":{"end":{"character":13,"line":3},"start":{"character":11,"line":3}}},{"newText":"","range":{"end":{"character":11,"line":4},"start":{"character":9,"line":4}}}],"<project>/src/Test.elm":[{"newText":"","range":{"end":{"character":10,"line":2},"start":{"character":3,"line":2}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Remove unused parameter `unused`"
+        }
+      ]
+    }
+  ]
+}

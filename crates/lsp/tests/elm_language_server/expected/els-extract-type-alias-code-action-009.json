@@ -1,0 +1,52 @@
+{
+  "diagnostics": {
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused pattern variable `a`",
+        "range": {
+          "end": {"character":5,"line":4},
+          "start": {"character":4,"line":4}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused pattern variable `b`",
+        "range": {
+          "end": {"character":7,"line":4},
+          "start": {"character":6,"line":4}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"actionName":"extract_type_alias","range":{"end":{"character":43,"line":3},"start":{"character":6,"line":3}},"refactorName":"extract_type_alias","renamePosition":{"character":6,"line":6},"uri":"<project>/src/Test.elm"},
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"\ntype alias NewType a b = Maybe { a : a, b : b } -> a -> String\n\n","range":{"end":{"character":0,"line":2},"start":{"character":0,"line":2}}},{"newText":"NewType a b","range":{"end":{"character":43,"line":3},"start":{"character":6,"line":3}}}]}},
+          "isPreferred": false,
+          "kind": "refactor.extract",
+          "title": "Extract type alias"
+        }
+      ]
+    }
+  ]
+}

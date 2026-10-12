@@ -1,0 +1,23 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused top level definition `baz`",
+        "range": {
+          "end": {"character":3,"line":5},
+          "start": {"character":0,"line":5}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": []
+}

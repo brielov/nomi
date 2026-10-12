@@ -1,0 +1,16 @@
+{
+  "open": [
+    "src/Main.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 19,
+        "line": 4
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/definition"
+    }
+  ],
+  "title": "test value ref through destructuring in function parameter"
+}

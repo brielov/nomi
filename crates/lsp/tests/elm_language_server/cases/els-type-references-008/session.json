@@ -1,0 +1,21 @@
+{
+  "open": [
+    "src/Test.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 14,
+        "line": 2
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/references",
+      "params": {
+        "context": {
+          "includeDeclaration": true
+        }
+      }
+    }
+  ],
+  "title": "type alias used as constructor in another file"
+}

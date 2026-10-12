@@ -1,0 +1,33 @@
+{
+  "diagnostics": {
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "unused_alias",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused import alias `AnotherAlias`",
+        "range": {
+          "end": {"character":30,"line":2},
+          "start": {"character":15,"line":2}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/hover",
+      "result": {
+        "contents": {
+          "kind": "markdown",
+          "value": "\n```elm\nfoo : AnotherAlias.Foo\n```\n\n\n---\n\n\n```elm\nfoo\n```\n"
+        }
+      }
+    }
+  ]
+}

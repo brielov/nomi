@@ -1,5 +1,124 @@
 diagnostics/01 textDocument/hover
 editing/00 textDocument/documentSymbol
+els-add-missing-case-branches-001/diagnostics
+els-add-missing-case-branches-002/diagnostics
+els-add-missing-case-branches-003/diagnostics
+els-add-missing-case-branches-004/diagnostics
+els-add-missing-case-branches-005/diagnostics
+els-add-missing-case-branches-006/diagnostics
+els-add-missing-case-branches-007/diagnostics
+els-add-missing-union-type-001/diagnostics
+els-add-missing-union-type-002/diagnostics
+els-add-missing-union-type-003/diagnostics
+els-add-missing-union-type-004/diagnostics
+els-add-new-function-parameter-001/diagnostics
+els-add-new-function-parameter-002/diagnostics
+els-add-type-annotation-code-action-001/diagnostics
+els-add-type-annotation-code-action-002/diagnostics
+els-add-type-annotation-code-action-003/diagnostics
+els-aliased-import-definition-006/00 textDocument/definition
+els-completion-provider-010/diagnostics
+els-completion-provider-022/diagnostics
+els-completion-provider-033/diagnostics
+els-completion-provider-034/diagnostics
+els-completion-provider-045/diagnostics
+els-completion-provider-046/00 textDocument/completion
+els-completion-provider-047/diagnostics
+els-expose-unexpose-code-action-002/diagnostics
+els-expose-unexpose-code-action-007/diagnostics
+els-extract-function-code-action-004/diagnostics
+els-extract-type-alias-code-action-001/diagnostics
+els-extract-type-alias-code-action-002/diagnostics
+els-extract-type-alias-code-action-011/diagnostics
+els-function-definition-008/00 textDocument/definition
+els-function-definition-009/00 textDocument/definition
+els-function-references-001/00 textDocument/references
+els-function-references-001/diagnostics
+els-function-references-002/00 textDocument/references
+els-function-references-003/00 textDocument/references
+els-function-references-003/diagnostics
+els-function-references-004/00 textDocument/references
+els-function-references-005/00 textDocument/references
+els-function-references-005/diagnostics
+els-function-references-006/00 textDocument/references
+els-function-references-007/00 textDocument/references
+els-function-references-012/00 textDocument/references
+els-function-references-012/diagnostics
+els-hover-provider-002/diagnostics
+els-hover-provider-003/diagnostics
+els-hover-provider-004/diagnostics
+els-hover-provider-006/diagnostics
+els-hover-provider-007/diagnostics
+els-hover-provider-008/diagnostics
+els-hover-provider-010/diagnostics
+els-import-code-action-001/diagnostics
+els-import-code-action-002/diagnostics
+els-import-code-action-003/diagnostics
+els-import-code-action-004/diagnostics
+els-import-code-action-005/diagnostics
+els-import-definition-003/00 textDocument/definition
+els-import-definition-004/00 textDocument/definition
+els-import-definition-008/00 textDocument/definition
+els-import-definition-011/00 textDocument/definition
+els-import-definition-012/00 textDocument/definition
+els-import-definition-017/00 textDocument/definition
+els-import-definition-027/00 textDocument/definition
+els-make-external-declaration-from-usage-code-actions-001/diagnostics
+els-make-external-declaration-from-usage-code-actions-002/diagnostics
+els-make-external-declaration-from-usage-code-actions-003/diagnostics
+els-make-external-declaration-from-usage-code-actions-004/diagnostics
+els-make-external-declaration-from-usage-code-actions-005/diagnostics
+els-misc-definition-003/00 textDocument/definition
+els-misc-definition-004/00 textDocument/definition
+els-misc-definition-007/00 textDocument/definition
+els-module-references-001/diagnostics
+els-module-references-002/diagnostics
+els-module-resolve-definition-003/diagnostics
+els-move-function-code-action-001/diagnostics
+els-pattern-definition-004/00 textDocument/definition
+els-pattern-definition-006/00 textDocument/definition
+els-port-references-001/00 textDocument/references
+els-port-references-001/diagnostics
+els-port-references-002/00 textDocument/references
+els-port-references-002/diagnostics
+els-port-references-003/00 textDocument/references
+els-port-references-003/diagnostics
+els-port-references-004/00 textDocument/references
+els-record-field-references-001/diagnostics
+els-rename-provider-002/diagnostics
+els-rename-provider-003/diagnostics
+els-rename-provider-004/diagnostics
+els-rename-provider-005/diagnostics
+els-rename-provider-006/diagnostics
+els-rename-provider-007/diagnostics
+els-rename-provider-008/diagnostics
+els-type-definition-provider-001/diagnostics
+els-type-definition-provider-002/diagnostics
+els-type-definition-provider-003/diagnostics
+els-type-definition-provider-004/diagnostics
+els-type-definition-provider-005/diagnostics
+els-type-definition-provider-006/diagnostics
+els-type-references-001/00 textDocument/references
+els-type-references-001/diagnostics
+els-type-references-002/diagnostics
+els-type-references-003/00 textDocument/references
+els-type-references-003/diagnostics
+els-type-references-004/diagnostics
+els-type-references-005/00 textDocument/references
+els-type-references-005/diagnostics
+els-type-references-007/diagnostics
+els-type-references-008/diagnostics
+els-type-references-009/00 textDocument/references
+els-type-references-009/diagnostics
+els-type-references-010/00 textDocument/references
+els-type-references-010/diagnostics
+els-type-resolve-definition-005/diagnostics
+els-type-resolve-definition-010/00 textDocument/definition
+els-type-resolve-definition-011/00 textDocument/definition
+els-type-variable-references-001/diagnostics
+els-type-variable-references-003/diagnostics
+els-type-variable-references-004/diagnostics
 navigation/11 textDocument/definition
 navigation/13 textDocument/references
+navigation/14 textDocument/references
 navigation/diagnostics

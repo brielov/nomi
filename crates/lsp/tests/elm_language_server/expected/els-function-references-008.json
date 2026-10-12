@@ -1,0 +1,37 @@
+{
+  "diagnostics": {
+    "src/Module.elm": [
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Module.elm"
+        },
+        "message": "Unused top level definition `foo`",
+        "range": {
+          "end": {"character":3,"line":2},
+          "start": {"character":0,"line":2}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/references",
+      "result": [
+        {
+          "range": {"end":{"character":3,"line":0},"start":{"character":0,"line":0}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":3,"line":2},"start":{"character":0,"line":2}},
+          "uri": "<project>/src/Module.elm"
+        }
+      ]
+    }
+  ]
+}

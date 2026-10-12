@@ -1,0 +1,16 @@
+{
+  "open": [
+    "src/main.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 9,
+        "line": 1
+      },
+      "file": "src/main.elm",
+      "method": "textDocument/definition"
+    }
+  ],
+  "title": "test value ref from expression but not exposed by import"
+}

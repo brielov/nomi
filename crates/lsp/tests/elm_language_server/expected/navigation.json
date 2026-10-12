@@ -62,14 +62,8 @@
       "method": "textDocument/definition",
       "result": {
         "range": {
-          "end": {
-            "character": 10,
-            "line": 14
-          },
-          "start": {
-            "character": 0,
-            "line": 14
-          }
+          "end": {"character":10,"line":14},
+          "start": {"character":0,"line":14}
         },
         "uri": "<project>/src/Main.elm"
       }
@@ -78,14 +72,8 @@
       "method": "textDocument/definition",
       "result": {
         "range": {
-          "end": {
-            "character": 18,
-            "line": 9
-          },
-          "start": {
-            "character": 6,
-            "line": 9
-          }
+          "end": {"character":18,"line":9},
+          "start": {"character":6,"line":9}
         },
         "uri": "<project>/src/Shapes.elm"
       }
@@ -94,14 +82,8 @@
       "method": "textDocument/definition",
       "result": {
         "range": {
-          "end": {
-            "character": 14,
-            "line": 33
-          },
-          "start": {
-            "character": 0,
-            "line": 33
-          }
+          "end": {"character":14,"line":33},
+          "start": {"character":0,"line":33}
         },
         "uri": "<project>/src/Shapes.elm"
       }
@@ -110,14 +92,8 @@
       "method": "textDocument/definition",
       "result": {
         "range": {
-          "end": {
-            "character": 3,
-            "line": 12
-          },
-          "start": {
-            "character": 0,
-            "line": 0
-          }
+          "end": {"character":3,"line":12},
+          "start": {"character":0,"line":0}
         },
         "uri": "<packages>/elm/core/1.0.5/src/String.elm"
       }
@@ -126,14 +102,8 @@
       "method": "textDocument/definition",
       "result": {
         "range": {
-          "end": {
-            "character": 10,
-            "line": 22
-          },
-          "start": {
-            "character": 0,
-            "line": 22
-          }
+          "end": {"character":10,"line":22},
+          "start": {"character":0,"line":22}
         },
         "uri": "<project>/src/Shapes.elm"
       }
@@ -142,14 +112,8 @@
       "method": "textDocument/definition",
       "result": {
         "range": {
-          "end": {
-            "character": 22,
-            "line": 27
-          },
-          "start": {
-            "character": 18,
-            "line": 27
-          }
+          "end": {"character":22,"line":27},
+          "start": {"character":18,"line":27}
         },
         "uri": "<project>/src/Shapes.elm"
       }
@@ -162,29 +126,11 @@
       "method": "textDocument/references",
       "result": [
         {
-          "range": {
-            "end": {
-              "character": 13,
-              "line": 35
-            },
-            "start": {
-              "character": 8,
-              "line": 35
-            }
-          },
+          "range": {"end":{"character":13,"line":35},"start":{"character":8,"line":35}},
           "uri": "<project>/src/Shapes.elm"
         },
         {
-          "range": {
-            "end": {
-              "character": 9,
-              "line": 43
-            },
-            "start": {
-              "character": 4,
-              "line": 43
-            }
-          },
+          "range": {"end":{"character":9,"line":43},"start":{"character":4,"line":43}},
           "uri": "<project>/src/Shapes.elm"
         }
       ]
@@ -193,81 +139,27 @@
       "method": "textDocument/references",
       "result": [
         {
-          "range": {
-            "end": {
-              "character": 10,
-              "line": 8
-            },
-            "start": {
-              "character": 5,
-              "line": 8
-            }
-          },
+          "range": {"end":{"character":10,"line":8},"start":{"character":5,"line":8}},
           "uri": "<project>/src/Shapes.elm"
         },
         {
-          "range": {
-            "end": {
-              "character": 12,
-              "line": 21
-            },
-            "start": {
-              "character": 7,
-              "line": 21
-            }
-          },
-          "uri": "<project>/src/Shapes.elm"
-        },
-        {
-          "range": {
-            "end": {
-              "character": 16,
-              "line": 32
-            },
-            "start": {
-              "character": 11,
-              "line": 32
-            }
-          },
-          "uri": "<project>/src/Shapes.elm"
-        },
-        {
-          "range": {
-            "end": {
-              "character": 29,
-              "line": 0
-            },
-            "start": {
-              "character": 24,
-              "line": 0
-            }
-          },
-          "uri": "<project>/src/Shapes.elm"
-        },
-        {
-          "range": {
-            "end": {
-              "character": 29,
-              "line": 3
-            },
-            "start": {
-              "character": 24,
-              "line": 3
-            }
-          },
+          "range": {"end":{"character":12,"line":12},"start":{"character":7,"line":12}},
           "uri": "<project>/src/Main.elm"
         },
         {
-          "range": {
-            "end": {
-              "character": 12,
-              "line": 12
-            },
-            "start": {
-              "character": 7,
-              "line": 12
-            }
-          },
+          "range": {"end":{"character":12,"line":21},"start":{"character":7,"line":21}},
+          "uri": "<project>/src/Shapes.elm"
+        },
+        {
+          "range": {"end":{"character":16,"line":32},"start":{"character":11,"line":32}},
+          "uri": "<project>/src/Shapes.elm"
+        },
+        {
+          "range": {"end":{"character":29,"line":0},"start":{"character":24,"line":0}},
+          "uri": "<project>/src/Shapes.elm"
+        },
+        {
+          "range": {"end":{"character":29,"line":3},"start":{"character":24,"line":3}},
           "uri": "<project>/src/Main.elm"
         }
       ]

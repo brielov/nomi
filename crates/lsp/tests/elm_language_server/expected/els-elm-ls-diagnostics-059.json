@@ -1,0 +1,33 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "drop_concat_of_lists",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "If you concatenate two lists, then you can merge them into one list.",
+        "range": {
+          "end": {"character":17,"line":5},
+          "start": {"character":4,"line":5}
+        },
+        "severity": 2,
+        "source": "ElmLS"
+      },
+      {
+        "data": {
+          "code": "use_cons_over_concat",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "If you concatenate two lists, but the first item is a single element list, then you should use the cons operator.",
+        "range": {
+          "end": {"character":17,"line":5},
+          "start": {"character":4,"line":5}
+        },
+        "severity": 2,
+        "source": "ElmLS"
+      }
+    ]
+  },
+  "requests": []
+}

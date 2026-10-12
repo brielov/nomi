@@ -1,0 +1,16 @@
+{
+  "open": [
+    "src/Main.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 17,
+        "line": 2
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/typeDefinition"
+    }
+  ],
+  "title": "does not resolve generic type variables"
+}

@@ -1,0 +1,21 @@
+{
+  "open": [
+    "src/Main.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 0,
+        "line": 23
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    }
+  ],
+  "title": "Complete used but undefined functions, remove funcs exported from other file"
+}

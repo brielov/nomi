@@ -1,0 +1,39 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "unused_value_constructor",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Value constructor `Thing` is not used.",
+        "range": {
+          "end": {"character":17,"line":3},
+          "start": {"character":12,"line":3}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_value_constructor",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Value constructor `Other` is not used.",
+        "range": {
+          "end": {"character":25,"line":3},
+          "start": {"character":20,"line":3}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": []
+}

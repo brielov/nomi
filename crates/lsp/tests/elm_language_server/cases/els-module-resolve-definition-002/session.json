@@ -1,0 +1,16 @@
+{
+  "open": [
+    "src/Main.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 10,
+        "line": 4
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/definition"
+    }
+  ],
+  "title": "conflicting module alias and types"
+}

@@ -1,0 +1,19 @@
+{
+  "diagnostics": {
+    "src/Test.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"actionName":"extract_type_alias_parenthesized_expr","range":{"end":{"character":23,"line":4},"start":{"character":10,"line":4}},"refactorName":"extract_type_alias","renamePosition":{"character":11,"line":7},"uri":"<project>/src/Test.elm"},
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"\ntype alias NewType a = a -> String\n\n","range":{"end":{"character":0,"line":2},"start":{"character":0,"line":2}}},{"newText":"(NewType a)","range":{"end":{"character":23,"line":4},"start":{"character":10,"line":4}}}]}},
+          "isPreferred": false,
+          "kind": "refactor.extract",
+          "title": "Extract type alias"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "diagnostics": {
+    "src/Test.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"actionName":"add_type_annotation","range":{"end":{"character":2,"line":2},"start":{"character":2,"line":2}},"refactorName":"add_type_annotation","uri":"<project>/src/Test.elm"},
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"hello : String\n","range":{"end":{"character":0,"line":2},"start":{"character":0,"line":2}}}]}},
+          "isPreferred": true,
+          "kind": "refactor.extract",
+          "title": "Add inferred annotation"
+        },
+        {
+          "data": {"actionName":"unexpose_function","range":{"end":{"character":2,"line":2},"start":{"character":2,"line":2}},"refactorName":"expose_unexpose","uri":"<project>/src/Test.elm"},
+          "isPreferred": false,
+          "kind": "refactor",
+          "title": "Unexpose Function"
+        }
+      ]
+    }
+  ]
+}

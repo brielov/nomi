@@ -1,0 +1,77 @@
+{
+  "diagnostics": {
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "unused_imported_value",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused imported value `foo`",
+        "range": {
+          "end": {"character":24,"line":2},
+          "start": {"character":21,"line":2}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_imported_value",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused imported value `bar`",
+        "range": {
+          "end": {"character":29,"line":2},
+          "start": {"character":26,"line":2}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_imported_value",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused imported type `Maybe`",
+        "range": {
+          "end": {"character":36,"line":2},
+          "start": {"character":31,"line":2}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"fixId":"remove_unused"},
+          "diagnostics": [{"data":{"code":"unused_imported_value","uri":"<project>/src/Test.elm"},"message":"Unused imported value `foo`","range":{"end":{"character":24,"line":2},"start":{"character":21,"line":2}},"severity":2,"source":"ElmLS","tags":[1]}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"","range":{"end":{"character":26,"line":2},"start":{"character":21,"line":2}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Remove unused value `foo`"
+        },
+        {
+          "data": {"fixId":"remove_unused","isFixAll":true},
+          "diagnostics": [{"code":"unused_imported_value","message":"Unused imported value `foo`","range":{"end":{"character":24,"line":2},"start":{"character":21,"line":2}},"severity":2,"source":"ElmLS","tags":[1],"uri":"<project>/src/Test.elm"},{"code":"unused_imported_value","message":"Unused imported value `bar`","range":{"end":{"character":29,"line":2},"start":{"character":26,"line":2}},"severity":2,"source":"ElmLS","tags":[1],"uri":"<project>/src/Test.elm"},{"code":"unused_imported_value","message":"Unused imported type `Maybe`","range":{"end":{"character":36,"line":2},"start":{"character":31,"line":2}},"severity":2,"source":"ElmLS","tags":[1],"uri":"<project>/src/Test.elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"","range":{"end":{"character":26,"line":2},"start":{"character":21,"line":2}}},{"newText":"","range":{"end":{"character":31,"line":2},"start":{"character":26,"line":2}}},{"newText":"","range":{"end":{"character":38,"line":2},"start":{"character":31,"line":2}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Remove all reported unused code"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "open": [
+    "src/Test.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "end": {
+          "character": 2,
+          "line": 3
+        },
+        "start": {
+          "character": 2,
+          "line": 3
+        }
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/codeAction"
+    }
+  ],
+  "settings": {
+    "disableElmLSDiagnostics": false
+  },
+  "title": "unexposing a function is available"
+}

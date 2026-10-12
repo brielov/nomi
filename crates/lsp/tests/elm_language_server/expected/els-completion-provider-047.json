@@ -1,0 +1,74 @@
+{
+  "diagnostics": {
+    "src/Test.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/completion",
+      "result": [
+        {
+          "documentation": {"sha256":"ba6f54ff2e42be9d"},
+          "kind": 13,
+          "label": "Maybe",
+          "sortText": "a_Maybe",
+          "textEdit": {"newText":"Maybe","range":{"end":{"character":7,"line":6},"start":{"character":6,"line":6}}}
+        },
+        {
+          "documentation": {"sha256":"782b0910579844c6"},
+          "kind": 20,
+          "label": "Just",
+          "labelDetails": {"detail":" : a -> Maybe a"},
+          "sortText": "a_Just",
+          "textEdit": {"newText":"Just","range":{"end":{"character":7,"line":6},"start":{"character":6,"line":6}}}
+        },
+        {
+          "documentation": {"sha256":"19e5ddd50f0089b1"},
+          "kind": 20,
+          "label": "Nothing",
+          "labelDetails": {"detail":" : Maybe a"},
+          "sortText": "a_Nothing",
+          "textEdit": {"newText":"Nothing","range":{"end":{"character":7,"line":6},"start":{"character":6,"line":6}}}
+        },
+        {
+          "documentation": {"sha256":"6b0a6ea01fc91985"},
+          "kind": 3,
+          "label": "foo",
+          "labelDetails": {"detail":" : String"},
+          "sortText": "a_foo",
+          "textEdit": {"newText":"foo","range":{"end":{"character":7,"line":6},"start":{"character":6,"line":6}}}
+        },
+        {
+          "documentation": {"sha256":"d541e3e1bfe47d75"},
+          "kind": 13,
+          "label": "Result",
+          "sortText": "a_Result",
+          "textEdit": {"newText":"Result","range":{"end":{"character":7,"line":6},"start":{"character":6,"line":6}}}
+        },
+        {
+          "documentation": {"sha256":"78a3f1ba44b59a7c"},
+          "kind": 20,
+          "label": "Ok",
+          "labelDetails": {"detail":" : a -> Result e a"},
+          "sortText": "a_Ok",
+          "textEdit": {"newText":"Ok","range":{"end":{"character":7,"line":6},"start":{"character":6,"line":6}}}
+        },
+        {
+          "documentation": {"sha256":"7cfc9fd966233d51"},
+          "kind": 20,
+          "label": "Err",
+          "labelDetails": {"detail":" : e -> Result e a"},
+          "sortText": "a_Err",
+          "textEdit": {"newText":"Err","range":{"end":{"character":7,"line":6},"start":{"character":6,"line":6}}}
+        },
+        {
+          "documentation": {"sha256":"185fc169a9d373f2"},
+          "kind": 3,
+          "label": "bar",
+          "labelDetails": {"detail":" : String"},
+          "sortText": "a_bar",
+          "textEdit": {"newText":"bar","range":{"end":{"character":7,"line":6},"start":{"character":6,"line":6}}}
+        }
+      ]
+    }
+  ]
+}

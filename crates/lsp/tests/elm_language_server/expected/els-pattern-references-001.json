@@ -1,0 +1,41 @@
+{
+  "diagnostics": {
+    "src/Module.elm": [
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Module.elm"
+        },
+        "message": "Unused pattern variable `second`",
+        "range": {
+          "end": {"character":23,"line":4},
+          "start": {"character":17,"line":4}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/references",
+      "result": [
+        {
+          "range": {"end":{"character":14,"line":7},"start":{"character":9,"line":7}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":15,"line":4},"start":{"character":10,"line":4}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":21,"line":10},"start":{"character":16,"line":10}},
+          "uri": "<project>/src/Module.elm"
+        }
+      ]
+    }
+  ]
+}

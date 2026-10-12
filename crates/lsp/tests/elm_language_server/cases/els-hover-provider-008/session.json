@@ -1,0 +1,16 @@
+{
+  "open": [
+    "src/Test.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 7,
+        "line": 4
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/hover"
+    }
+  ],
+  "title": "should have module prefix if it is from the another module and the current module has one already"
+}

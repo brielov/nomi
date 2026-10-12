@@ -1,0 +1,16 @@
+{
+  "open": [
+    "src/Test.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 4,
+        "line": 8
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/prepareRename"
+    }
+  ],
+  "title": "Nested record field rename updates destructured references"
+}

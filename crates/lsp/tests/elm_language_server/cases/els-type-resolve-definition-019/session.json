@@ -1,0 +1,16 @@
+{
+  "open": [
+    "src/main.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 12,
+        "line": 6
+      },
+      "file": "src/main.elm",
+      "method": "textDocument/definition"
+    }
+  ],
+  "title": "test union constructor resolves when used in a bin op expr"
+}

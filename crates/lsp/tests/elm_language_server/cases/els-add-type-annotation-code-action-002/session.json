@@ -1,0 +1,25 @@
+{
+  "open": [
+    "src/Test.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "end": {
+          "character": 2,
+          "line": 2
+        },
+        "start": {
+          "character": 2,
+          "line": 2
+        }
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/codeAction"
+    }
+  ],
+  "settings": {
+    "disableElmLSDiagnostics": false
+  },
+  "title": "offers a refactor for top-level functions"
+}

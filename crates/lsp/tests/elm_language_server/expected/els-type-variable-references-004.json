@@ -1,0 +1,20 @@
+{
+  "diagnostics": {
+    "src/Module.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/references",
+      "result": [
+        {
+          "range": {"end":{"character":12,"line":2},"start":{"character":11,"line":2}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":12,"line":4},"start":{"character":11,"line":4}},
+          "uri": "<project>/src/Module.elm"
+        }
+      ]
+    }
+  ]
+}

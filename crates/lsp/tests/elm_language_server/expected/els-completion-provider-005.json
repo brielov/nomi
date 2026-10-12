@@ -1,0 +1,28 @@
+{
+  "diagnostics": {
+    "src/Test.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/completion",
+      "result": [
+        {
+          "documentation": {"sha256":"d5d610336ec5fb75"},
+          "kind": 5,
+          "label": "prop1",
+          "labelDetails": {"detail":" : String"},
+          "preselect": true,
+          "textEdit": {"newText":"prop1","range":{"end":{"character":5,"line":9},"start":{"character":4,"line":9}}}
+        },
+        {
+          "documentation": {"sha256":"701afdb3705b276e"},
+          "kind": 5,
+          "label": "prop2",
+          "labelDetails": {"detail":" : Int"},
+          "preselect": true,
+          "textEdit": {"newText":"prop2","range":{"end":{"character":5,"line":9},"start":{"character":4,"line":9}}}
+        }
+      ]
+    }
+  ]
+}

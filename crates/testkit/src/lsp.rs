@@ -36,6 +36,9 @@ pub struct Case {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Session {
+    /// What the case is, for a case taken from elsewhere.
+    #[serde(default)]
+    pub title: Option<String>,
     /// Settings over [`default_settings`], as `initializationOptions`
     /// and the `elmLS` section of `workspace/configuration`.
     #[serde(default)]
@@ -60,12 +63,21 @@ pub struct Step {
     pub params: Map<String, Value>,
 }
 
-/// A position or range, by marker index in the step's file.
+/// A position or range in the step's file: by marker index, or exactly.
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(untagged)]
 pub enum At {
     Position(usize),
     Range([usize; 2]),
+    Exact(Position),
+    Span { start: Position, end: Position },
+}
+
+/// A zero-based line and UTF-16 column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, serde::Serialize)]
+pub struct Position {
+    pub line: u32,
+    pub character: u32,
 }
 
 /// The cases under `dir`, each a directory holding `session.json`, by
@@ -92,7 +104,8 @@ pub fn cases(dir: &Path) -> Vec<Case> {
     cases
 }
 
-/// Copies a case's project to `to`, without its session.
+/// Copies a case's project to `to`, without its session, and with
+/// [`DEFAULT_ELM_JSON`] if it has no `elm.json`.
 pub fn copy_project(case: &Case, to: &Path) -> io::Result<()> {
     fn copy(from: &Path, to: &Path, top: bool) -> io::Result<()> {
         std::fs::create_dir_all(to)?;
@@ -110,8 +123,44 @@ pub fn copy_project(case: &Case, to: &Path) -> io::Result<()> {
         }
         Ok(())
     }
-    copy(&case.dir, to, true)
+    copy(&case.dir, to, true)?;
+    let manifest = to.join("elm.json");
+    if !manifest.exists() {
+        std::fs::write(manifest, DEFAULT_ELM_JSON)?;
+    }
+    Ok(())
 }
+
+/// The `elm.json` of a case that has none: an application of the
+/// fixture packages.
+pub const DEFAULT_ELM_JSON: &str = r#"{
+    "type": "application",
+    "source-directories": [
+        "src"
+    ],
+    "elm-version": "0.19.1",
+    "dependencies": {
+        "direct": {
+            "elm/browser": "1.0.2",
+            "elm/core": "1.0.5",
+            "elm/html": "1.0.1",
+            "elm/http": "2.0.0",
+            "elm/json": "1.1.4",
+            "elm/url": "1.0.0"
+        },
+        "indirect": {
+            "elm/bytes": "1.0.8",
+            "elm/file": "1.0.5",
+            "elm/time": "1.0.0",
+            "elm/virtual-dom": "1.0.5"
+        }
+    },
+    "test-dependencies": {
+        "direct": {},
+        "indirect": {}
+    }
+}
+"#;
 
 /// The settings every session starts from: no diagnostics as you type,
 /// so elm-language-server's own approximate type checker stays out of
@@ -198,6 +247,9 @@ pub struct Timing {
     pub quiet: Duration,
     /// The longest any one answer may take.
     pub answer: Duration,
+    /// Whether the server publishes diagnostics for every file it opens,
+    /// so settling waits for those too, however slow the machine.
+    pub publishes: bool,
 }
 
 /// The client side of a session.
@@ -213,6 +265,8 @@ pub struct Driver {
     /// Edits the server applied through `workspace/applyEdit`, since the
     /// last request.
     applied: Vec<Value>,
+    /// Opened files whose diagnostics haven't come yet, by URI.
+    awaiting: std::collections::BTreeSet<String>,
 }
 
 impl std::fmt::Debug for Driver {
@@ -244,6 +298,7 @@ impl Driver {
             next_id: 0,
             published: BTreeMap::new(),
             applied: Vec::new(),
+            awaiting: std::collections::BTreeSet::new(),
         };
         let params = json!({
             "processId": null,
@@ -265,6 +320,9 @@ impl Driver {
         for file in &session.open {
             let text = std::fs::read_to_string(self.root.join(file))
                 .unwrap_or_else(|e| panic!("{file}: {e}"));
+            if self.timing.publishes {
+                self.awaiting.insert(self.uri(file));
+            }
             self.notify(
                 "textDocument/didOpen",
                 json!({ "textDocument": {
@@ -313,28 +371,27 @@ impl Driver {
             if let Some(at) = step.at {
                 let text = std::fs::read_to_string(self.root.join(file)).unwrap();
                 let markers = markers(&text);
-                let position = |i: usize| {
+                let marker = |i: usize| {
                     let (line, character) = *markers
                         .get(i)
                         .unwrap_or_else(|| panic!("{file} has no marker {i}"));
-                    json!({ "line": line, "character": character })
+                    Position { line, character }
                 };
-                match at {
-                    At::Position(i) if step.method == "textDocument/codeAction" => {
-                        let range = json!({ "start": position(i), "end": position(i) });
-                        params.insert("range".into(), range);
+                let (start, end) = match at {
+                    At::Position(i) => (marker(i), None),
+                    At::Range([start, end]) => (marker(start), Some(marker(end))),
+                    At::Exact(position) => (position, None),
+                    At::Span { start, end } => (start, Some(end)),
+                };
+                let range = json!({ "start": start, "end": end.unwrap_or(start) });
+                match step.method.as_str() {
+                    "textDocument/codeAction" => params.insert("range".into(), range),
+                    "textDocument/selectionRange" => {
+                        params.insert("positions".into(), json!([start]))
                     }
-                    At::Position(i) if step.method == "textDocument/selectionRange" => {
-                        params.insert("positions".into(), json!([position(i)]));
-                    }
-                    At::Position(i) => {
-                        params.insert("position".into(), position(i));
-                    }
-                    At::Range([start, end]) => {
-                        let range = json!({ "start": position(start), "end": position(end) });
-                        params.insert("range".into(), range);
-                    }
-                }
+                    _ if end.is_some() => params.insert("range".into(), range),
+                    _ => params.insert("position".into(), json!(start)),
+                };
             }
             if step.method == "textDocument/codeAction" {
                 let diagnostics = self.published.get(&self.uri(file)).cloned();
@@ -395,12 +452,18 @@ impl Driver {
         }
     }
 
-    /// Handles messages until the server says nothing for a while.
+    /// Handles messages until the server says nothing for a while, and
+    /// has published for every file awaited.
     fn settle(&mut self) {
+        let deadline = Instant::now() + self.timing.answer;
         loop {
             match self.connection.receiver.recv_timeout(self.timing.quiet) {
                 Ok(message) => self.handle(message),
-                Err(RecvTimeoutError::Timeout) => return,
+                Err(RecvTimeoutError::Timeout) if self.awaiting.is_empty() => return,
+                Err(RecvTimeoutError::Timeout) if Instant::now() > deadline => {
+                    panic!("no diagnostics for {:?}", self.awaiting)
+                }
+                Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => panic!("the server left"),
             }
         }
@@ -410,6 +473,7 @@ impl Driver {
         match message {
             Message::Notification(n) if n.method == "textDocument/publishDiagnostics" => {
                 let uri = n.params["uri"].as_str().unwrap_or_default().to_owned();
+                self.awaiting.remove(&uri);
                 self.published.insert(uri, n.params["diagnostics"].clone());
             }
             Message::Request(request) => {
@@ -479,6 +543,87 @@ fn overlaps(a: &Value, b: &Value) -> bool {
     }
     key(&a["start"]) <= key(&b["end"]) && key(&b["start"]) <= key(&a["end"])
 }
+
+/// A transcript as stored: `normalize`d, references in order, and each
+/// completion item's documentation, the bulk of a completion list, kept
+/// as a digest.
+pub fn tidy(transcript: Value, replacements: &[(String, String)]) -> Value {
+    let mut transcript = normalize(transcript, replacements);
+    let requests = transcript["requests"].as_array_mut();
+    for request in requests.into_iter().flatten() {
+        // Servers find references in no particular order across files.
+        if request["method"] == "textDocument/references"
+            && let Some(locations) = request["result"].as_array_mut()
+        {
+            locations.sort_by_key(|l| serde_json::to_string(l).unwrap());
+        }
+        if request["method"] != "textDocument/completion" {
+            continue;
+        }
+        let result = &mut request["result"];
+        let items = match result {
+            Value::Array(items) => Some(items),
+            Value::Object(list) => list.get_mut("items").and_then(Value::as_array_mut),
+            _ => None,
+        };
+        for item in items.into_iter().flatten() {
+            if let Some(documentation) = item.get_mut("documentation") {
+                let text = serde_json::to_string(documentation).unwrap();
+                let digest = crate::ratchet::sha256_hex(text.as_bytes());
+                *documentation = json!({ "sha256": &digest[..16] });
+            }
+        }
+    }
+    transcript
+}
+
+/// A transcript as written to a file: indented to [`TEXT_DEPTH`], each
+/// value deeper on one line, so a completion item or a location takes a
+/// line.
+pub fn to_text(value: &Value) -> String {
+    fn write(value: &Value, depth: usize, out: &mut String) {
+        let indent = |out: &mut String, depth: usize| {
+            out.push('\n');
+            out.push_str(&"  ".repeat(depth));
+        };
+        match value {
+            Value::Array(items) if depth < TEXT_DEPTH && !items.is_empty() => {
+                out.push('[');
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    indent(out, depth + 1);
+                    write(item, depth + 1, out);
+                }
+                indent(out, depth);
+                out.push(']');
+            }
+            Value::Object(map) if depth < TEXT_DEPTH && !map.is_empty() => {
+                out.push('{');
+                for (i, (key, item)) in map.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    indent(out, depth + 1);
+                    out.push_str(&serde_json::to_string(key).unwrap());
+                    out.push_str(": ");
+                    write(item, depth + 1, out);
+                }
+                indent(out, depth);
+                out.push('}');
+            }
+            value => out.push_str(&serde_json::to_string(value).unwrap()),
+        }
+    }
+    let mut out = String::new();
+    write(value, 0, &mut out);
+    out.push('\n');
+    out
+}
+
+/// How deep [`to_text`] indents.
+pub const TEXT_DEPTH: usize = 5;
 
 /// `value` with every string's occurrences of each `from` replaced by
 /// its `to`, in order, so longer prefixes go first.

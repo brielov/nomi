@@ -1,0 +1,25 @@
+{
+  "open": [
+    "src/Test.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "end": {
+          "character": 7,
+          "line": 4
+        },
+        "start": {
+          "character": 7,
+          "line": 4
+        }
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/codeAction"
+    }
+  ],
+  "settings": {
+    "disableElmLSDiagnostics": false
+  },
+  "title": "removing unused value constructor also removes associated data type"
+}

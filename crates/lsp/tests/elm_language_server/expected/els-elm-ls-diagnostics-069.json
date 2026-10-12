@@ -1,0 +1,23 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "unused_type_alias",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Type alias `CheckboxParams` is not used.",
+        "range": {
+          "end": {"character":41,"line":11},
+          "start": {"character":0,"line":10}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": []
+}

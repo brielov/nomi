@@ -1,0 +1,70 @@
+{
+  "diagnostics": {
+    "src/Test.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/completion",
+      "result": [
+        {
+          "additionalTextEdits": [{"newText":"import Module\n","range":{"end":{"character":0,"line":1},"start":{"character":0,"line":1}}}],
+          "detail": "Auto import module 'Module'",
+          "documentation": {"sha256":"ddfe3788b7e00856"},
+          "kind": 3,
+          "label": "testFunc",
+          "labelDetails": {"detail":" : String"},
+          "sortText": "a_testFunc",
+          "textEdit": {"newText":"testFunc","range":{"end":{"character":23,"line":1},"start":{"character":23,"line":1}}}
+        },
+        {
+          "additionalTextEdits": [{"newText":"import Module\n","range":{"end":{"character":0,"line":1},"start":{"character":0,"line":1}}}],
+          "detail": "Auto import module 'Module'",
+          "documentation": {"sha256":"e69b9b6f27fdbd8d"},
+          "kind": 13,
+          "label": "Msg",
+          "sortText": "a_Msg",
+          "textEdit": {"newText":"Msg","range":{"end":{"character":23,"line":1},"start":{"character":23,"line":1}}}
+        },
+        {
+          "additionalTextEdits": [{"newText":"import Module\n","range":{"end":{"character":0,"line":1},"start":{"character":0,"line":1}}}],
+          "detail": "Auto import module 'Module'",
+          "documentation": {"sha256":"8291f2b0faeb8dad"},
+          "kind": 20,
+          "label": "Msg1",
+          "labelDetails": {"detail":" : Msg"},
+          "sortText": "a_Msg1",
+          "textEdit": {"newText":"Msg1","range":{"end":{"character":23,"line":1},"start":{"character":23,"line":1}}}
+        },
+        {
+          "additionalTextEdits": [{"newText":"import Module\n","range":{"end":{"character":0,"line":1},"start":{"character":0,"line":1}}}],
+          "detail": "Auto import module 'Module'",
+          "documentation": {"sha256":"9e6b1ed4968e0a19"},
+          "kind": 20,
+          "label": "Msg2",
+          "labelDetails": {"detail":" : Msg"},
+          "sortText": "a_Msg2",
+          "textEdit": {"newText":"Msg2","range":{"end":{"character":23,"line":1},"start":{"character":23,"line":1}}}
+        },
+        {
+          "additionalTextEdits": [{"newText":"import Module\n","range":{"end":{"character":0,"line":1},"start":{"character":0,"line":1}}}],
+          "detail": "Auto import module 'Module'",
+          "documentation": {"sha256":"e5dfdf3b19ead764"},
+          "kind": 22,
+          "label": "Model",
+          "sortText": "a_Model",
+          "textEdit": {"newText":"Model","range":{"end":{"character":23,"line":1},"start":{"character":23,"line":1}}}
+        },
+        {
+          "additionalTextEdits": [{"newText":"import Module\n","range":{"end":{"character":0,"line":1},"start":{"character":0,"line":1}}}],
+          "detail": "Auto import module 'Module'",
+          "documentation": {"sha256":"42e77eb888b52338"},
+          "kind": 3,
+          "label": "testPort",
+          "labelDetails": {"detail":" : String -> Cmd msg"},
+          "sortText": "a_testPort",
+          "textEdit": {"newText":"testPort","range":{"end":{"character":23,"line":1},"start":{"character":23,"line":1}}}
+        }
+      ]
+    }
+  ]
+}

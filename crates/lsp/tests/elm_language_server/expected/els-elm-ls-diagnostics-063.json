@@ -1,0 +1,20 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "use_cons_over_concat",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "If you concatenate two lists, but the first item is a single element list, then you should use the cons operator.",
+        "range": {
+          "end": {"character":14,"line":5},
+          "start": {"character":4,"line":5}
+        },
+        "severity": 2,
+        "source": "ElmLS"
+      }
+    ]
+  },
+  "requests": []
+}

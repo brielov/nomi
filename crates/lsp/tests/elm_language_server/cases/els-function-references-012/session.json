@@ -1,0 +1,21 @@
+{
+  "open": [
+    "src/Module.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 2,
+        "line": 2
+      },
+      "file": "src/Module.elm",
+      "method": "textDocument/references",
+      "params": {
+        "context": {
+          "includeDeclaration": true
+        }
+      }
+    }
+  ],
+  "title": "function references used both with and without module prefix in other files"
+}

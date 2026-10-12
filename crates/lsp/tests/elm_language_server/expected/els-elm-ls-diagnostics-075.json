@@ -1,0 +1,55 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused top level definition `bar`",
+        "range": {
+          "end": {"character":3,"line":3},
+          "start": {"character":0,"line":3}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_type_alias",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Type alias `Foo` is not used.",
+        "range": {
+          "end": {"character":19,"line":5},
+          "start": {"character":0,"line":5}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_value_constructor",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Value constructor `Other` is not used.",
+        "range": {
+          "end": {"character":16,"line":7},
+          "start": {"character":11,"line":7}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": []
+}

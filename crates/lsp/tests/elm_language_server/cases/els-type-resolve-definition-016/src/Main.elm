@@ -1,0 +1,4 @@
+
+  type UnitlessFloat
+  --X   --^
+    = UnitlessFloat

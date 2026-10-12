@@ -1,0 +1,44 @@
+{
+  "diagnostics": {
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "unused_import",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused import `OtherModule`",
+        "range": {
+          "end": {"character":30,"line":2},
+          "start": {"character":0,"line":2}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_imported_value",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused imported value ``",
+        "range": {
+          "end": {"character":29,"line":2},
+          "start": {"character":29,"line":2}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/completion",
+      "result": null
+    }
+  ]
+}

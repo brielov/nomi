@@ -1,0 +1,19 @@
+{
+  "diagnostics": {
+    "src/Test.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"actionName":"add_type_annotation","range":{"end":{"character":10,"line":5},"start":{"character":10,"line":5}},"refactorName":"add_type_annotation","uri":"<project>/src/Test.elm"},
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"value : String\n        ","range":{"end":{"character":8,"line":5},"start":{"character":8,"line":5}}}]}},
+          "isPreferred": true,
+          "kind": "refactor.extract",
+          "title": "Add inferred annotation"
+        }
+      ]
+    }
+  ]
+}

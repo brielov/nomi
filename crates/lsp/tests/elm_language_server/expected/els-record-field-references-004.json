@@ -1,0 +1,141 @@
+{
+  "diagnostics": {
+    "src/Module.elm": [
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Module.elm"
+        },
+        "message": "Unused top level definition `foo`",
+        "range": {
+          "end": {"character":3,"line":6},
+          "start": {"character":0,"line":6}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Module.elm"
+        },
+        "message": "Unused top level definition `update`",
+        "range": {
+          "end": {"character":6,"line":11},
+          "start": {"character":0,"line":11}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Module.elm"
+        },
+        "message": "Unused top level definition `test`",
+        "range": {
+          "end": {"character":4,"line":16},
+          "start": {"character":0,"line":16}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Module.elm"
+        },
+        "message": "Unused top level definition `destructure`",
+        "range": {
+          "end": {"character":11,"line":21},
+          "start": {"character":0,"line":21}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/references",
+      "result": [
+        {
+          "range": {"end":{"character":11,"line":17},"start":{"character":6,"line":17}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":11,"line":18},"start":{"character":6,"line":18}},
+          "uri": "<project>/src/Bar.elm"
+        },
+        {
+          "range": {"end":{"character":13,"line":25},"start":{"character":8,"line":25}},
+          "uri": "<project>/src/Indirect.elm"
+        },
+        {
+          "range": {"end":{"character":13,"line":7},"start":{"character":8,"line":7}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":13,"line":8},"start":{"character":8,"line":8}},
+          "uri": "<project>/src/Bar.elm"
+        },
+        {
+          "range": {"end":{"character":17,"line":12},"start":{"character":12,"line":12}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":17,"line":13},"start":{"character":12,"line":13}},
+          "uri": "<project>/src/Bar.elm"
+        },
+        {
+          "range": {"end":{"character":17,"line":6},"start":{"character":12,"line":6}},
+          "uri": "<project>/src/Indirect.elm"
+        },
+        {
+          "range": {"end":{"character":19,"line":19},"start":{"character":14,"line":19}},
+          "uri": "<project>/src/Indirect.elm"
+        },
+        {
+          "range": {"end":{"character":19,"line":21},"start":{"character":14,"line":21}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":19,"line":22},"start":{"character":14,"line":22}},
+          "uri": "<project>/src/Bar.elm"
+        },
+        {
+          "range": {"end":{"character":24,"line":2},"start":{"character":19,"line":2}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":31,"line":14},"start":{"character":26,"line":14}},
+          "uri": "<project>/src/Indirect.elm"
+        },
+        {
+          "range": {"end":{"character":9,"line":23},"start":{"character":4,"line":23}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":9,"line":24},"start":{"character":4,"line":24}},
+          "uri": "<project>/src/Bar.elm"
+        },
+        {
+          "range": {"end":{"character":9,"line":29},"start":{"character":4,"line":29}},
+          "uri": "<project>/src/Indirect.elm"
+        }
+      ]
+    }
+  ]
+}

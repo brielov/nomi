@@ -6,6 +6,7 @@ pub mod diff;
 pub mod format;
 pub mod javascript;
 pub mod lsp;
+pub mod lsp_import;
 pub mod make;
 pub mod modules;
 pub mod names;

@@ -1,0 +1,42 @@
+{
+  "diagnostics": {
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused pattern variable `f`",
+        "range": {
+          "end": {"character":5,"line":6},
+          "start": {"character":4,"line":6}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"actionName":"extract_type_alias_parenthesized_expr","range":{"end":{"character":3,"line":5},"start":{"character":6,"line":3}},"refactorName":"extract_type_alias","renamePosition":{"character":6,"line":6},"uri":"<project>/src/Test.elm"},
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"\ntype alias NewType = Maybe { a : Int, b : Float } -> Int\n\n","range":{"end":{"character":0,"line":2},"start":{"character":0,"line":2}}},{"newText":"NewType","range":{"end":{"character":3,"line":5},"start":{"character":6,"line":3}}}]}},
+          "isPreferred": false,
+          "kind": "refactor.extract",
+          "title": "Extract type alias"
+        },
+        {
+          "data": {"actionName":"unexpose_function","range":{"end":{"character":3,"line":5},"start":{"character":6,"line":3}},"refactorName":"expose_unexpose","uri":"<project>/src/Test.elm"},
+          "isPreferred": true,
+          "kind": "refactor",
+          "title": "Unexpose Function"
+        }
+      ]
+    }
+  ]
+}

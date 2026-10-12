@@ -1,0 +1,16 @@
+{
+  "open": [
+    "src/Test.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 30,
+        "line": 3
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/hover"
+    }
+  ],
+  "title": "links an inferred anonymous function parameter"
+}

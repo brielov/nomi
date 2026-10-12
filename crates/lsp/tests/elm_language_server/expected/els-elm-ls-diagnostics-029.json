@@ -1,0 +1,20 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "single_field_record",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Using a record is obsolete if you only plan to store a single field in it.",
+        "range": {
+          "end": {"character":36,"line":6},
+          "start": {"character":19,"line":6}
+        },
+        "severity": 2,
+        "source": "ElmLS"
+      }
+    ]
+  },
+  "requests": []
+}

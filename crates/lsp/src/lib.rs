@@ -76,11 +76,12 @@ pub fn stdio() -> Result<(), Error> {
 pub fn run(connection: &Connection) -> Result<(), Error> {
     // Without a cache directory, packages are nowhere to be found.
     let store = Store::new(Cache::locate().map_or_else(|_| PathBuf::new(), |c| c.packages()));
-    serve(connection, store)
+    serve(connection, store, Memo::new())
 }
 
-/// As [`run`], with packages from `store`.
-pub fn serve(connection: &Connection, store: Store) -> Result<(), Error> {
+/// As [`run`], with packages from `store`, and `memo` holding those
+/// already built.
+pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Error> {
     let (id, params) = connection.initialize_start()?;
     let params: InitializeParams = serde_json::from_value(params).map_err(Error::Initialize)?;
     let offered = params
@@ -121,7 +122,7 @@ pub fn serve(connection: &Connection, store: Store) -> Result<(), Error> {
         publishing: Arc::new(Mutex::new(())),
         sender: connection.sender.clone(),
         store,
-        memo: Memo::new(),
+        memo,
         index: None,
     };
     for message in &connection.receiver {

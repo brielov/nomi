@@ -1,0 +1,41 @@
+{
+  "diagnostics": {
+    "src/Module.elm": [
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Module.elm"
+        },
+        "message": "Unused top level definition `bar`",
+        "range": {
+          "end": {"character":3,"line":5},
+          "start": {"character":0,"line":5}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/references",
+      "result": [
+        {
+          "range": {"end":{"character":32,"line":0},"start":{"character":29,"line":0}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":8,"line":2},"start":{"character":5,"line":2}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":9,"line":5},"start":{"character":6,"line":5}},
+          "uri": "<project>/src/Module.elm"
+        }
+      ]
+    }
+  ]
+}

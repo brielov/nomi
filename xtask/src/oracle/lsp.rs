@@ -6,15 +6,19 @@
 //! whose registry and package cache hold the fixture packages
 //! (`crates/compiler/tests/packages`), the same sources the replay gives
 //! nomi. The server runs under Node with the pinned elm and elm-format as
-//! its paths, offline. elm builds the project once before the session, so
-//! the server's own `elm make` is quick and the session settles.
+//! its paths, offline. The `ELM_HOME` is shared, and elm builds every
+//! package in it once before any session, so the server's own `elm make`
+//! is quick and each session settles. Sessions run side by side.
 
 use std::fs;
+use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use nomi_testkit::lsp::{self, Driver, Timing};
 use serde_json::json;
 
@@ -30,6 +34,15 @@ pub const SUITE: &str = "crates/lsp/tests/elm_language_server";
 /// The packages every case may depend on.
 const PACKAGES: &str = "crates/compiler/tests/packages";
 
+/// What every session needs.
+struct Tools {
+    server: PathBuf,
+    elm: PathBuf,
+    elm_format: PathBuf,
+    home: PathBuf,
+    packages: PathBuf,
+}
+
 pub fn run(root: &Path, refs: &References, only: Option<&str>) -> Result<()> {
     node_version(refs.node_minimum)?;
     let server =
@@ -39,62 +52,98 @@ pub fn run(root: &Path, refs: &References, only: Option<&str>) -> Result<()> {
         "{} is missing; run `cargo xtask oracle fetch`",
         server.display()
     );
-    let elm_format = binary(refs, "elm-format", None)?;
+    let compat = Version::parse("0.19.1").context("a version")?;
+    let scratch = cache_dir()?.join("sandboxes").join("lsp");
+    if scratch.exists() {
+        fs::remove_dir_all(&scratch)?;
+    }
+    let home = scratch.join("home");
+    let packages = fs::canonicalize(elm_home(root, &home, compat)?)?;
+    let tools = Tools {
+        server,
+        elm: binary(refs, "elm", Some(&compat.to_string()))?,
+        elm_format: binary(refs, "elm-format", None)?,
+        home,
+        packages,
+    };
+    prebuild(&tools, &scratch.join("prebuild"))?;
+
     let suite = root.join(SUITE);
     let expected = suite.join("expected");
     fs::create_dir_all(&expected)?;
-    let scratch = cache_dir()?.join("sandboxes").join("lsp");
-    for case in lsp::cases(&suite.join("cases")) {
-        if only.is_some_and(|only| only != case.name) {
-            continue;
+    let mut cases = lsp::cases(&suite.join("cases"));
+    cases.retain(|case| only.is_none_or(|only| case.name.starts_with(only)));
+    let jobs = std::thread::available_parallelism()
+        .map_or(4, |n| n.get() / 2)
+        .clamp(1, 8);
+    let next = AtomicUsize::new(0);
+    let failures = Mutex::new(Vec::new());
+    std::thread::scope(|scope| {
+        for _ in 0..jobs {
+            scope.spawn(|| {
+                while let Some(case) = cases.get(next.fetch_add(1, Ordering::Relaxed)) {
+                    // The driver panics on a broken session; that fails
+                    // the case, not the run.
+                    let recorded = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                        record(&tools, &scratch.join("cases"), case)
+                    }))
+                    .unwrap_or_else(|_| Err(anyhow::anyhow!("the session broke")));
+                    let written = recorded.and_then(|t| {
+                        let text = lsp::to_text(&t);
+                        Ok(fs::write(
+                            expected.join(format!("{}.json", case.name)),
+                            text,
+                        )?)
+                    });
+                    if let Err(e) = written {
+                        failures
+                            .lock()
+                            .unwrap()
+                            .push(format!("{}: {e:#}", case.name));
+                    }
+                }
+            });
         }
-        eprintln!("  {}", case.name);
-        let transcript = record(root, &server, &elm_format, refs, &scratch, &case)
-            .with_context(|| format!("case {}", case.name))?;
-        let text = serde_json::to_string_pretty(&transcript)? + "\n";
-        fs::write(expected.join(format!("{}.json", case.name)), text)?;
+    });
+    eprintln!("  {} cases recorded", cases.len());
+    let failures = failures.into_inner().unwrap();
+    if !failures.is_empty() {
+        bail!("{} cases failed:\n{}", failures.len(), failures.join("\n"));
     }
     Ok(())
 }
 
-fn record(
-    root: &Path,
-    server: &Path,
-    elm_format: &Path,
-    refs: &References,
-    scratch: &Path,
-    case: &lsp::Case,
-) -> Result<serde_json::Value> {
+/// Builds every fixture package into the shared `ELM_HOME`, through an
+/// application that depends on them all.
+fn prebuild(tools: &Tools, dir: &Path) -> Result<()> {
+    fs::create_dir_all(dir.join("src"))?;
+    fs::write(dir.join("elm.json"), lsp::DEFAULT_ELM_JSON)?;
+    fs::write(
+        dir.join("src/Main.elm"),
+        "module Main exposing (zero)\n\n\nzero =\n    0\n",
+    )?;
+    let mut make = Command::new(&tools.elm);
+    make.args(["make", "src/Main.elm", "--output=/dev/null"])
+        .current_dir(dir)
+        .env("ELM_HOME", &tools.home)
+        .stdout(Stdio::null());
+    let status = offline(&mut make).status().context("running elm make")?;
+    ensure!(status.success(), "elm couldn't build the fixture packages");
+    Ok(())
+}
+
+fn record(tools: &Tools, scratch: &Path, case: &lsp::Case) -> Result<serde_json::Value> {
     let dir = scratch.join(&case.name);
-    if dir.exists() {
-        fs::remove_dir_all(&dir)?;
-    }
-    let (home, work) = (dir.join("home"), dir.join("work"));
+    let work = dir.join("work");
     lsp::copy_project(case, &work)?;
     let work = fs::canonicalize(&work)?;
-    let compat = Version::parse("0.19.1").context("a version")?;
-    let elm = binary(refs, "elm", Some(&compat.to_string()))?;
-    let packages = elm_home(root, &home, compat)?;
-    let packages = fs::canonicalize(packages)?;
-
-    // Build once, so the dependencies are built before the session.
-    let modules = elm_modules(&work.join("src"))?;
-    let mut make = Command::new(&elm);
-    make.arg("make")
-        .args(&modules)
-        .arg("--output=/dev/null")
-        .current_dir(&work)
-        .env("ELM_HOME", &home)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    offline(&mut make).status().context("running elm make")?;
 
     let mut command = Command::new("node");
     command
-        .arg(server)
+        .arg(&tools.server)
         .arg("--stdio")
         .current_dir(&work)
-        .env("ELM_HOME", &home)
+        .env("ELM_HOME", &tools.home)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
@@ -104,8 +153,8 @@ fn record(
         lsp::child_connection(child.stdin.take().unwrap(), child.stdout.take().unwrap());
     let mut session = case.session.clone();
     let paths = json!({
-        "elmPath": elm,
-        "elmFormatPath": elm_format,
+        "elmPath": tools.elm,
+        "elmFormatPath": tools.elm_format,
         "elmTestPath": dir.join("no-elm-test"),
         "elmReviewPath": dir.join("no-elm-review"),
     });
@@ -115,11 +164,14 @@ fn record(
     let timing = Timing {
         quiet: Duration::from_secs(2),
         answer: Duration::from_secs(60),
+        // It publishes only what changed, so silence alone tells.
+        publishes: false,
     };
     let root_uri = format!("file://{}", work.display());
     let driver = Driver::start(connection, &work, &root_uri, &session, timing);
     let transcript = driver.run(&session);
     lsp::reap(child);
+    let packages = &tools.packages;
     let replacements = [
         (
             format!("file://{}", packages.display()),
@@ -129,7 +181,7 @@ fn record(
         (root_uri, "<project>".to_owned()),
         (work.display().to_string(), "<project>".to_owned()),
     ];
-    Ok(lsp::normalize(transcript, &replacements))
+    Ok(lsp::tidy(transcript, &replacements))
 }
 
 /// Fills `home` as an offline `ELM_HOME` holding the fixture packages,
@@ -177,22 +229,4 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
         }
     }
     Ok(())
-}
-
-/// Every `.elm` file under `dir`, sorted.
-fn elm_modules(dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut modules = Vec::new();
-    if !dir.is_dir() {
-        return Ok(modules);
-    }
-    for entry in fs::read_dir(dir)? {
-        let path = entry?.path();
-        if path.is_dir() {
-            modules.extend(elm_modules(&path)?);
-        } else if path.extension().is_some_and(|e| e == "elm") {
-            modules.push(path);
-        }
-    }
-    modules.sort();
-    Ok(modules)
 }

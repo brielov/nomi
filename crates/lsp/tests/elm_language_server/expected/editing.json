@@ -8,14 +8,8 @@
         },
         "message": "Unused top level definition `update`",
         "range": {
-          "end": {
-            "character": 6,
-            "line": 22
-          },
-          "start": {
-            "character": 0,
-            "line": 22
-          }
+          "end": {"character":6,"line":22},
+          "start": {"character":0,"line":22}
         },
         "severity": 2,
         "source": "ElmLS",
@@ -31,155 +25,47 @@
       "result": [
         {
           "kind": 2,
-          "location": {
-            "range": {
-              "end": {
-                "character": 27,
-                "line": 0
-              },
-              "start": {
-                "character": 0,
-                "line": 0
-              }
-            },
-            "uri": "<project>/src/Main.elm"
-          },
+          "location": {"range":{"end":{"character":27,"line":0},"start":{"character":0,"line":0}},"uri":"<project>/src/Main.elm"},
           "name": "Main"
         },
         {
           "kind": 23,
-          "location": {
-            "range": {
-              "end": {
-                "character": 5,
-                "line": 8
-              },
-              "start": {
-                "character": 0,
-                "line": 5
-              }
-            },
-            "uri": "<project>/src/Main.elm"
-          },
+          "location": {"range":{"end":{"character":5,"line":8},"start":{"character":0,"line":5}},"uri":"<project>/src/Main.elm"},
           "name": "Model"
         },
         {
           "kind": 10,
-          "location": {
-            "range": {
-              "end": {
-                "character": 19,
-                "line": 13
-              },
-              "start": {
-                "character": 0,
-                "line": 11
-              }
-            },
-            "uri": "<project>/src/Main.elm"
-          },
+          "location": {"range":{"end":{"character":19,"line":13},"start":{"character":0,"line":11}},"uri":"<project>/src/Main.elm"},
           "name": "Msg"
         },
         {
           "kind": 22,
-          "location": {
-            "range": {
-              "end": {
-                "character": 15,
-                "line": 12
-              },
-              "start": {
-                "character": 6,
-                "line": 12
-              }
-            },
-            "uri": "<project>/src/Main.elm"
-          },
+          "location": {"range":{"end":{"character":15,"line":12},"start":{"character":6,"line":12}},"uri":"<project>/src/Main.elm"},
           "name": "Increment"
         },
         {
           "kind": 22,
-          "location": {
-            "range": {
-              "end": {
-                "character": 19,
-                "line": 13
-              },
-              "start": {
-                "character": 6,
-                "line": 13
-              }
-            },
-            "uri": "<project>/src/Main.elm"
-          },
+          "location": {"range":{"end":{"character":19,"line":13},"start":{"character":6,"line":13}},"uri":"<project>/src/Main.elm"},
           "name": "Rename String"
         },
         {
           "kind": 12,
-          "location": {
-            "range": {
-              "end": {
-                "character": 28,
-                "line": 18
-              },
-              "start": {
-                "character": 0,
-                "line": 17
-              }
-            },
-            "uri": "<project>/src/Main.elm"
-          },
+          "location": {"range":{"end":{"character":28,"line":18},"start":{"character":0,"line":17}},"uri":"<project>/src/Main.elm"},
           "name": "init"
         },
         {
           "kind": 12,
-          "location": {
-            "range": {
-              "end": {
-                "character": 35,
-                "line": 29
-              },
-              "start": {
-                "character": 0,
-                "line": 22
-              }
-            },
-            "uri": "<project>/src/Main.elm"
-          },
+          "location": {"range":{"end":{"character":35,"line":29},"start":{"character":0,"line":22}},"uri":"<project>/src/Main.elm"},
           "name": "update"
         },
         {
           "kind": 12,
-          "location": {
-            "range": {
-              "end": {
-                "character": 9,
-                "line": 38
-              },
-              "start": {
-                "character": 0,
-                "line": 37
-              }
-            },
-            "uri": "<project>/src/Main.elm"
-          },
+          "location": {"range":{"end":{"character":9,"line":38},"start":{"character":0,"line":37}},"uri":"<project>/src/Main.elm"},
           "name": "twice"
         },
         {
           "kind": 12,
-          "location": {
-            "range": {
-              "end": {
-                "character": 55,
-                "line": 46
-              },
-              "start": {
-                "character": 0,
-                "line": 45
-              }
-            },
-            "uri": "<project>/src/Main.elm"
-          },
+          "location": {"range":{"end":{"character":55,"line":46},"start":{"character":0,"line":45}},"uri":"<project>/src/Main.elm"},
           "name": "main"
         }
       ]
@@ -292,133 +178,43 @@
       "result": [
         {
           "newText": "",
-          "range": {
-            "end": {
-              "character": 26,
-              "line": 26
-            },
-            "start": {
-              "character": 0,
-              "line": 26
-            }
-          }
+          "range": {"end":{"character":26,"line":26},"start":{"character":0,"line":26}}
         },
         {
           "newText": "\n",
-          "range": {
-            "end": {
-              "character": 26,
-              "line": 26
-            },
-            "start": {
-              "character": 26,
-              "line": 26
-            }
-          }
+          "range": {"end":{"character":26,"line":26},"start":{"character":26,"line":26}}
         },
         {
           "newText": "",
-          "range": {
-            "end": {
-              "character": 36,
-              "line": 26
-            },
-            "start": {
-              "character": 34,
-              "line": 26
-            }
-          }
+          "range": {"end":{"character":36,"line":26},"start":{"character":34,"line":26}}
         },
         {
           "newText": "",
-          "range": {
-            "end": {
-              "character": 0,
-              "line": 27
-            },
-            "start": {
-              "character": 39,
-              "line": 26
-            }
-          }
+          "range": {"end":{"character":0,"line":27},"start":{"character":39,"line":26}}
         },
         {
           "newText": "\n",
-          "range": {
-            "end": {
-              "character": 0,
-              "line": 32
-            },
-            "start": {
-              "character": 0,
-              "line": 32
-            }
-          }
+          "range": {"end":{"character":0,"line":32},"start":{"character":0,"line":32}}
         },
         {
           "newText": "\n\n\n",
-          "range": {
-            "end": {
-              "character": 18,
-              "line": 35
-            },
-            "start": {
-              "character": 18,
-              "line": 35
-            }
-          }
+          "range": {"end":{"character":18,"line":35},"start":{"character":18,"line":35}}
         },
         {
           "newText": "\n\n",
-          "range": {
-            "end": {
-              "character": 0,
-              "line": 37
-            },
-            "start": {
-              "character": 0,
-              "line": 37
-            }
-          }
+          "range": {"end":{"character":0,"line":37},"start":{"character":0,"line":37}}
         },
         {
           "newText": "\n",
-          "range": {
-            "end": {
-              "character": 9,
-              "line": 38
-            },
-            "start": {
-              "character": 9,
-              "line": 38
-            }
-          }
+          "range": {"end":{"character":9,"line":38},"start":{"character":9,"line":38}}
         },
         {
           "newText": "",
-          "range": {
-            "end": {
-              "character": 13,
-              "line": 47
-            },
-            "start": {
-              "character": 0,
-              "line": 47
-            }
-          }
+          "range": {"end":{"character":13,"line":47},"start":{"character":0,"line":47}}
         },
         {
           "newText": "\n\n\n",
-          "range": {
-            "end": {
-              "character": 13,
-              "line": 47
-            },
-            "start": {
-              "character": 13,
-              "line": 47
-            }
-          }
+          "range": {"end":{"character":13,"line":47},"start":{"character":13,"line":47}}
         }
       ]
     },
@@ -426,112 +222,8 @@
       "method": "textDocument/selectionRange",
       "result": [
         {
-          "parent": {
-            "parent": {
-              "parent": {
-                "parent": {
-                  "parent": {
-                    "parent": {
-                      "parent": {
-                        "parent": {
-                          "range": {
-                            "end": {
-                              "character": 0,
-                              "line": 48
-                            },
-                            "start": {
-                              "character": 0,
-                              "line": 0
-                            }
-                          }
-                        },
-                        "range": {
-                          "end": {
-                            "character": 35,
-                            "line": 29
-                          },
-                          "start": {
-                            "character": 0,
-                            "line": 22
-                          }
-                        }
-                      },
-                      "range": {
-                        "end": {
-                          "character": 35,
-                          "line": 29
-                        },
-                        "start": {
-                          "character": 4,
-                          "line": 23
-                        }
-                      }
-                    },
-                    "range": {
-                      "end": {
-                        "character": 47,
-                        "line": 25
-                      },
-                      "start": {
-                        "character": 8,
-                        "line": 24
-                      }
-                    }
-                  },
-                  "range": {
-                    "end": {
-                      "character": 47,
-                      "line": 25
-                    },
-                    "start": {
-                      "character": 12,
-                      "line": 25
-                    }
-                  }
-                },
-                "range": {
-                  "end": {
-                    "character": 45,
-                    "line": 25
-                  },
-                  "start": {
-                    "character": 22,
-                    "line": 25
-                  }
-                }
-              },
-              "range": {
-                "end": {
-                  "character": 45,
-                  "line": 25
-                },
-                "start": {
-                  "character": 30,
-                  "line": 25
-                }
-              }
-            },
-            "range": {
-              "end": {
-                "character": 41,
-                "line": 25
-              },
-              "start": {
-                "character": 30,
-                "line": 25
-              }
-            }
-          },
-          "range": {
-            "end": {
-              "character": 41,
-              "line": 25
-            },
-            "start": {
-              "character": 36,
-              "line": 25
-            }
-          }
+          "parent": {"parent":{"parent":{"parent":{"parent":{"parent":{"parent":{"parent":{"range":{"end":{"character":0,"line":48},"start":{"character":0,"line":0}}},"range":{"end":{"character":35,"line":29},"start":{"character":0,"line":22}}},"range":{"end":{"character":35,"line":29},"start":{"character":4,"line":23}}},"range":{"end":{"character":47,"line":25},"start":{"character":8,"line":24}}},"range":{"end":{"character":47,"line":25},"start":{"character":12,"line":25}}},"range":{"end":{"character":45,"line":25},"start":{"character":22,"line":25}}},"range":{"end":{"character":45,"line":25},"start":{"character":30,"line":25}}},"range":{"end":{"character":41,"line":25},"start":{"character":30,"line":25}}},
+          "range": {"end":{"character":41,"line":25},"start":{"character":36,"line":25}}
         }
       ]
     },
@@ -539,26 +231,8 @@
       "method": "textDocument/linkedEditingRange",
       "result": {
         "ranges": [
-          {
-            "end": {
-              "character": 5,
-              "line": 35
-            },
-            "start": {
-              "character": 0,
-              "line": 35
-            }
-          },
-          {
-            "end": {
-              "character": 5,
-              "line": 37
-            },
-            "start": {
-              "character": 0,
-              "line": 37
-            }
-          }
+          {"end":{"character":5,"line":35},"start":{"character":0,"line":35}},
+          {"end":{"character":5,"line":37},"start":{"character":0,"line":37}}
         ]
       }
     },
@@ -579,96 +253,10 @@
       "method": "textDocument/rename",
       "result": {
         "changes": {
-          "<project>/src/Main.elm": [
-            {
-              "newText": "double",
-              "range": {
-                "end": {
-                  "character": 5,
-                  "line": 35
-                },
-                "start": {
-                  "character": 0,
-                  "line": 35
-                }
-              }
-            },
-            {
-              "newText": "double",
-              "range": {
-                "end": {
-                  "character": 5,
-                  "line": 37
-                },
-                "start": {
-                  "character": 0,
-                  "line": 37
-                }
-              }
-            },
-            {
-              "newText": "double",
-              "range": {
-                "end": {
-                  "character": 40,
-                  "line": 46
-                },
-                "start": {
-                  "character": 35,
-                  "line": 46
-                }
-              }
-            }
-          ]
+          "<project>/src/Main.elm": [{"newText":"double","range":{"end":{"character":5,"line":35},"start":{"character":0,"line":35}}},{"newText":"double","range":{"end":{"character":5,"line":37},"start":{"character":0,"line":37}}},{"newText":"double","range":{"end":{"character":40,"line":46},"start":{"character":35,"line":46}}}]
         },
         "documentChanges": [
-          {
-            "edits": [
-              {
-                "newText": "double",
-                "range": {
-                  "end": {
-                    "character": 5,
-                    "line": 35
-                  },
-                  "start": {
-                    "character": 0,
-                    "line": 35
-                  }
-                }
-              },
-              {
-                "newText": "double",
-                "range": {
-                  "end": {
-                    "character": 5,
-                    "line": 37
-                  },
-                  "start": {
-                    "character": 0,
-                    "line": 37
-                  }
-                }
-              },
-              {
-                "newText": "double",
-                "range": {
-                  "end": {
-                    "character": 40,
-                    "line": 46
-                  },
-                  "start": {
-                    "character": 35,
-                    "line": 46
-                  }
-                }
-              }
-            ],
-            "textDocument": {
-              "uri": "<project>/src/Main.elm",
-              "version": null
-            }
-          }
+          {"edits":[{"newText":"double","range":{"end":{"character":5,"line":35},"start":{"character":0,"line":35}}},{"newText":"double","range":{"end":{"character":5,"line":37},"start":{"character":0,"line":37}}},{"newText":"double","range":{"end":{"character":40,"line":46},"start":{"character":35,"line":46}}}],"textDocument":{"uri":"<project>/src/Main.elm","version":null}}
         ]
       }
     },
@@ -676,1126 +264,363 @@
       "method": "textDocument/completion",
       "result": [
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nisEmpty : String -> Bool\n```\n\n\n---\n\n\n```elm\nisEmpty string\n```\nDetermine if a string is empty.\n\n    isEmpty \"\" == True\n    isEmpty \"the world\" == False"
-          },
+          "documentation": {"sha256":"fb9ca60bb06f8c38"},
           "kind": 3,
           "label": "isEmpty",
-          "labelDetails": {
-            "detail": " : String -> Bool"
-          },
+          "labelDetails": {"detail":" : String -> Bool"},
           "sortText": "a_isEmpty",
-          "textEdit": {
-            "newText": "isEmpty",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"isEmpty","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nlength : String -> Int\n```\n\n\n---\n\n\n```elm\nlength\n```\nGet the length of a string.\n\n    length \"innumerable\" == 11\n    length \"\" == 0"
-          },
+          "documentation": {"sha256":"605e461948376d82"},
           "kind": 3,
           "label": "length",
-          "labelDetails": {
-            "detail": " : String -> Int"
-          },
+          "labelDetails": {"detail":" : String -> Int"},
           "sortText": "a_length",
-          "textEdit": {
-            "newText": "length",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"length","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nreverse : String -> String\n```\n\n\n---\n\n\n```elm\nreverse\n```\nReverse a string.\n\n    reverse \"stressed\" == \"desserts\""
-          },
+          "documentation": {"sha256":"29a0b3962f6b1c6f"},
           "kind": 3,
           "label": "reverse",
-          "labelDetails": {
-            "detail": " : String -> String"
-          },
+          "labelDetails": {"detail":" : String -> String"},
           "sortText": "a_reverse",
-          "textEdit": {
-            "newText": "reverse",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"reverse","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nrepeat : Int -> String -> String\n```\n\n\n---\n\n\n```elm\nrepeat n chunk\n```\nRepeat a string *n* times.\n\n    repeat 3 \"ha\" == \"hahaha\""
-          },
+          "documentation": {"sha256":"d3eaf1036afadcb7"},
           "kind": 3,
           "label": "repeat",
-          "labelDetails": {
-            "detail": " : Int -> String -> String"
-          },
+          "labelDetails": {"detail":" : Int -> String -> String"},
           "sortText": "a_repeat",
-          "textEdit": {
-            "newText": "repeat",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"repeat","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nreplace : String -> String -> String -> String\n```\n\n\n---\n\n\n```elm\nreplace before after string\n```\nReplace all occurrences of some substring.\n\n    replace \".\" \"-\" \"Json.Decode.succeed\" == \"Json-Decode-succeed\"\n    replace \",\" \"/\" \"a,b,c,d,e\"           == \"a/b/c/d/e\"\n\n**Note:** If you need more advanced replacements, check out the\n[`elm/parser`][parser] or [`elm/regex`][regex] package.\n\n[parser]: /packages/elm/parser/latest\n[regex]: /packages/elm/regex/latest"
-          },
+          "documentation": {"sha256":"1e8e00f436734731"},
           "kind": 3,
           "label": "replace",
-          "labelDetails": {
-            "detail": " : String -> String -> String -> String"
-          },
+          "labelDetails": {"detail":" : String -> String -> String -> String"},
           "sortText": "a_replace",
-          "textEdit": {
-            "newText": "replace",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"replace","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nappend : String -> String -> String\n```\n\n\n---\n\n\n```elm\nappend\n```\nAppend two strings. You can also use [the `(++)` operator](Basics#++)\nto do this.\n\n    append \"butter\" \"fly\" == \"butterfly\""
-          },
+          "documentation": {"sha256":"53dbabaabd2a71a9"},
           "kind": 3,
           "label": "append",
-          "labelDetails": {
-            "detail": " : String -> String -> String"
-          },
+          "labelDetails": {"detail":" : String -> String -> String"},
           "sortText": "a_append",
-          "textEdit": {
-            "newText": "append",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"append","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nconcat : List String -> String\n```\n\n\n---\n\n\n```elm\nconcat strings\n```\nConcatenate many strings into one.\n\n    concat [\"never\",\"the\",\"less\"] == \"nevertheless\""
-          },
+          "documentation": {"sha256":"b0629d3ce49dea92"},
           "kind": 3,
           "label": "concat",
-          "labelDetails": {
-            "detail": " : List String -> String"
-          },
+          "labelDetails": {"detail":" : List String -> String"},
           "sortText": "a_concat",
-          "textEdit": {
-            "newText": "concat",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"concat","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nsplit : String -> String -> List String\n```\n\n\n---\n\n\n```elm\nsplit sep string\n```\nSplit a string using a given separator.\n\n    split \",\" \"cat,dog,cow\"        == [\"cat\",\"dog\",\"cow\"]\n    split \"/\" \"home/evan/Desktop/\" == [\"home\",\"evan\",\"Desktop\", \"\"]"
-          },
+          "documentation": {"sha256":"27d243e695c4a780"},
           "kind": 3,
           "label": "split",
-          "labelDetails": {
-            "detail": " : String -> String -> List String"
-          },
+          "labelDetails": {"detail":" : String -> String -> List String"},
           "sortText": "a_split",
-          "textEdit": {
-            "newText": "split",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"split","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\njoin : String -> List String -> String\n```\n\n\n---\n\n\n```elm\njoin sep chunks\n```\nPut many strings together with a given separator.\n\n    join \"a\" [\"H\",\"w\",\"ii\",\"n\"]        == \"Hawaiian\"\n    join \" \" [\"cat\",\"dog\",\"cow\"]       == \"cat dog cow\"\n    join \"/\" [\"home\",\"evan\",\"Desktop\"] == \"home/evan/Desktop\""
-          },
+          "documentation": {"sha256":"a9e6330e0cfb5f11"},
           "kind": 3,
           "label": "join",
-          "labelDetails": {
-            "detail": " : String -> List String -> String"
-          },
+          "labelDetails": {"detail":" : String -> List String -> String"},
           "sortText": "a_join",
-          "textEdit": {
-            "newText": "join",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"join","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nwords : String -> List String\n```\n\n\n---\n\n\n```elm\nwords\n```\nBreak a string into words, splitting on chunks of whitespace.\n\n    words \"How are \\t you? \\n Good?\" == [\"How\",\"are\",\"you?\",\"Good?\"]"
-          },
+          "documentation": {"sha256":"ed09da031964ee27"},
           "kind": 3,
           "label": "words",
-          "labelDetails": {
-            "detail": " : String -> List String"
-          },
+          "labelDetails": {"detail":" : String -> List String"},
           "sortText": "a_words",
-          "textEdit": {
-            "newText": "words",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"words","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nlines : String -> List String\n```\n\n\n---\n\n\n```elm\nlines\n```\nBreak a string into lines, splitting on newlines.\n\n    lines \"How are you?\\nGood?\" == [\"How are you?\", \"Good?\"]"
-          },
+          "documentation": {"sha256":"8084835828a4fb01"},
           "kind": 3,
           "label": "lines",
-          "labelDetails": {
-            "detail": " : String -> List String"
-          },
+          "labelDetails": {"detail":" : String -> List String"},
           "sortText": "a_lines",
-          "textEdit": {
-            "newText": "lines",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"lines","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nslice : Int -> Int -> String -> String\n```\n\n\n---\n\n\n```elm\nslice\n```\nTake a substring given a start and end index. Negative indexes\nare taken starting from the *end* of the list.\n\n    slice  7  9 \"snakes on a plane!\" == \"on\"\n    slice  0  6 \"snakes on a plane!\" == \"snakes\"\n    slice  0 -7 \"snakes on a plane!\" == \"snakes on a\"\n    slice -6 -1 \"snakes on a plane!\" == \"plane\""
-          },
+          "documentation": {"sha256":"d4656a812bfdafab"},
           "kind": 3,
           "label": "slice",
-          "labelDetails": {
-            "detail": " : Int -> Int -> String -> String"
-          },
+          "labelDetails": {"detail":" : Int -> Int -> String -> String"},
           "sortText": "a_slice",
-          "textEdit": {
-            "newText": "slice",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"slice","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nleft : Int -> String -> String\n```\n\n\n---\n\n\n```elm\nleft n string\n```\nTake *n* characters from the left side of a string.\n\n    left 2 \"Mulder\" == \"Mu\""
-          },
+          "documentation": {"sha256":"8646924bf960f98e"},
           "kind": 3,
           "label": "left",
-          "labelDetails": {
-            "detail": " : Int -> String -> String"
-          },
+          "labelDetails": {"detail":" : Int -> String -> String"},
           "sortText": "a_left",
-          "textEdit": {
-            "newText": "left",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"left","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nright : Int -> String -> String\n```\n\n\n---\n\n\n```elm\nright n string\n```\nTake *n* characters from the right side of a string.\n\n    right 2 \"Scully\" == \"ly\""
-          },
+          "documentation": {"sha256":"4a7233d936f6f5a8"},
           "kind": 3,
           "label": "right",
-          "labelDetails": {
-            "detail": " : Int -> String -> String"
-          },
+          "labelDetails": {"detail":" : Int -> String -> String"},
           "sortText": "a_right",
-          "textEdit": {
-            "newText": "right",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"right","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\ndropLeft : Int -> String -> String\n```\n\n\n---\n\n\n```elm\ndropLeft n string\n```\nDrop *n* characters from the left side of a string.\n\n    dropLeft 2 \"The Lone Gunmen\" == \"e Lone Gunmen\""
-          },
+          "documentation": {"sha256":"0771d427dee48b03"},
           "kind": 3,
           "label": "dropLeft",
-          "labelDetails": {
-            "detail": " : Int -> String -> String"
-          },
+          "labelDetails": {"detail":" : Int -> String -> String"},
           "sortText": "a_dropLeft",
-          "textEdit": {
-            "newText": "dropLeft",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"dropLeft","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\ndropRight : Int -> String -> String\n```\n\n\n---\n\n\n```elm\ndropRight n string\n```\nDrop *n* characters from the right side of a string.\n\n    dropRight 2 \"Cigarette Smoking Man\" == \"Cigarette Smoking M\""
-          },
+          "documentation": {"sha256":"78df95495460711e"},
           "kind": 3,
           "label": "dropRight",
-          "labelDetails": {
-            "detail": " : Int -> String -> String"
-          },
+          "labelDetails": {"detail":" : Int -> String -> String"},
           "sortText": "a_dropRight",
-          "textEdit": {
-            "newText": "dropRight",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"dropRight","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\ncontains : String -> String -> Bool\n```\n\n\n---\n\n\n```elm\ncontains\n```\nSee if the second string contains the first one.\n\n    contains \"the\" \"theory\" == True\n    contains \"hat\" \"theory\" == False\n    contains \"THE\" \"theory\" == False"
-          },
+          "documentation": {"sha256":"cdc8bb49e8d652bf"},
           "kind": 3,
           "label": "contains",
-          "labelDetails": {
-            "detail": " : String -> String -> Bool"
-          },
+          "labelDetails": {"detail":" : String -> String -> Bool"},
           "sortText": "a_contains",
-          "textEdit": {
-            "newText": "contains",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"contains","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nstartsWith : String -> String -> Bool\n```\n\n\n---\n\n\n```elm\nstartsWith\n```\nSee if the second string starts with the first one.\n\n    startsWith \"the\" \"theory\" == True\n    startsWith \"ory\" \"theory\" == False"
-          },
+          "documentation": {"sha256":"bbc36adec4fb1fa8"},
           "kind": 3,
           "label": "startsWith",
-          "labelDetails": {
-            "detail": " : String -> String -> Bool"
-          },
+          "labelDetails": {"detail":" : String -> String -> Bool"},
           "sortText": "a_startsWith",
-          "textEdit": {
-            "newText": "startsWith",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"startsWith","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nendsWith : String -> String -> Bool\n```\n\n\n---\n\n\n```elm\nendsWith\n```\nSee if the second string ends with the first one.\n\n    endsWith \"the\" \"theory\" == False\n    endsWith \"ory\" \"theory\" == True"
-          },
+          "documentation": {"sha256":"63d597f30d608264"},
           "kind": 3,
           "label": "endsWith",
-          "labelDetails": {
-            "detail": " : String -> String -> Bool"
-          },
+          "labelDetails": {"detail":" : String -> String -> Bool"},
           "sortText": "a_endsWith",
-          "textEdit": {
-            "newText": "endsWith",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"endsWith","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nindexes : String -> String -> List Int\n```\n\n\n---\n\n\n```elm\nindexes\n```\nGet all of the indexes for a substring in another string.\n\n    indexes \"i\" \"Mississippi\"   == [1,4,7,10]\n    indexes \"ss\" \"Mississippi\"  == [2,5]\n    indexes \"needle\" \"haystack\" == []"
-          },
+          "documentation": {"sha256":"17cc936373a501b2"},
           "kind": 3,
           "label": "indexes",
-          "labelDetails": {
-            "detail": " : String -> String -> List Int"
-          },
+          "labelDetails": {"detail":" : String -> String -> List Int"},
           "sortText": "a_indexes",
-          "textEdit": {
-            "newText": "indexes",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"indexes","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nindices : String -> String -> List Int\n```\n\n\n---\n\n\n```elm\nindices\n```\nAlias for `indexes`."
-          },
+          "documentation": {"sha256":"80e0df65edc2490a"},
           "kind": 3,
           "label": "indices",
-          "labelDetails": {
-            "detail": " : String -> String -> List Int"
-          },
+          "labelDetails": {"detail":" : String -> String -> List Int"},
           "sortText": "a_indices",
-          "textEdit": {
-            "newText": "indices",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"indices","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\ntoInt : String -> Maybe Int\n```\n\n\n---\n\n\n```elm\ntoInt\n```\nTry to convert a string into an int, failing on improperly formatted strings.\n\n    String.toInt \"123\" == Just 123\n    String.toInt \"-42\" == Just -42\n    String.toInt \"3.1\" == Nothing\n    String.toInt \"31a\" == Nothing\n\nIf you are extracting a number from some raw user input, you will typically\nwant to use [`Maybe.withDefault`](Maybe#withDefault) to handle bad data:\n\n    Maybe.withDefault 0 (String.toInt \"42\") == 42\n    Maybe.withDefault 0 (String.toInt \"ab\") == 0"
-          },
+          "documentation": {"sha256":"eaea7ecdefb1b58f"},
           "kind": 3,
           "label": "toInt",
-          "labelDetails": {
-            "detail": " : String -> Maybe Int"
-          },
+          "labelDetails": {"detail":" : String -> Maybe Int"},
           "sortText": "a_toInt",
-          "textEdit": {
-            "newText": "toInt",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"toInt","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nfromInt : Int -> String\n```\n\n\n---\n\n\n```elm\nfromInt\n```\nConvert an `Int` to a `String`.\n\n    String.fromInt 123 == \"123\"\n    String.fromInt -42 == \"-42\"\n\nCheck out [`Debug.toString`](Debug#toString) to convert *any* value to a string\nfor debugging purposes."
-          },
+          "documentation": {"sha256":"250edd40ce0922bf"},
           "kind": 3,
           "label": "fromInt",
-          "labelDetails": {
-            "detail": " : Int -> String"
-          },
+          "labelDetails": {"detail":" : Int -> String"},
           "sortText": "a_fromInt",
-          "textEdit": {
-            "newText": "fromInt",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"fromInt","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\ntoFloat : String -> Maybe Float\n```\n\n\n---\n\n\n```elm\ntoFloat\n```\nTry to convert a string into a float, failing on improperly formatted strings.\n\n    String.toFloat \"123\" == Just 123.0\n    String.toFloat \"-42\" == Just -42.0\n    String.toFloat \"3.1\" == Just 3.1\n    String.toFloat \"31a\" == Nothing\n\nIf you are extracting a number from some raw user input, you will typically\nwant to use [`Maybe.withDefault`](Maybe#withDefault) to handle bad data:\n\n    Maybe.withDefault 0 (String.toFloat \"42.5\") == 42.5\n    Maybe.withDefault 0 (String.toFloat \"cats\") == 0"
-          },
+          "documentation": {"sha256":"9d3e184a029e6d85"},
           "kind": 3,
           "label": "toFloat",
-          "labelDetails": {
-            "detail": " : String -> Maybe Float"
-          },
+          "labelDetails": {"detail":" : String -> Maybe Float"},
           "sortText": "a_toFloat",
-          "textEdit": {
-            "newText": "toFloat",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"toFloat","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nfromFloat : Float -> String\n```\n\n\n---\n\n\n```elm\nfromFloat\n```\nConvert a `Float` to a `String`.\n\n    String.fromFloat 123 == \"123\"\n    String.fromFloat -42 == \"-42\"\n    String.fromFloat 3.9 == \"3.9\"\n\nCheck out [`Debug.toString`](Debug#toString) to convert *any* value to a string\nfor debugging purposes."
-          },
+          "documentation": {"sha256":"c0c2a68fc3943c99"},
           "kind": 3,
           "label": "fromFloat",
-          "labelDetails": {
-            "detail": " : Float -> String"
-          },
+          "labelDetails": {"detail":" : Float -> String"},
           "sortText": "a_fromFloat",
-          "textEdit": {
-            "newText": "fromFloat",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"fromFloat","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nfromChar : Char -> String\n```\n\n\n---\n\n\n```elm\nfromChar char\n```\nCreate a string from a given character.\n\n    fromChar 'a' == \"a\""
-          },
+          "documentation": {"sha256":"9cee590f513a84ad"},
           "kind": 3,
           "label": "fromChar",
-          "labelDetails": {
-            "detail": " : Char -> String"
-          },
+          "labelDetails": {"detail":" : Char -> String"},
           "sortText": "a_fromChar",
-          "textEdit": {
-            "newText": "fromChar",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"fromChar","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\ncons : Char -> String -> String\n```\n\n\n---\n\n\n```elm\ncons\n```\nAdd a character to the beginning of a string.\n\n    cons 'T' \"he truth is out there\" == \"The truth is out there\""
-          },
+          "documentation": {"sha256":"83925056f9f7595d"},
           "kind": 3,
           "label": "cons",
-          "labelDetails": {
-            "detail": " : Char -> String -> String"
-          },
+          "labelDetails": {"detail":" : Char -> String -> String"},
           "sortText": "a_cons",
-          "textEdit": {
-            "newText": "cons",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"cons","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nuncons : String -> Maybe ( Char, String )\n```\n\n\n---\n\n\n```elm\nuncons\n```\nSplit a non-empty string into its head and tail. This lets you\npattern match on strings exactly as you would with lists.\n\n    uncons \"abc\" == Just ('a',\"bc\")\n    uncons \"\"    == Nothing"
-          },
+          "documentation": {"sha256":"b90120c0097f3b5b"},
           "kind": 3,
           "label": "uncons",
-          "labelDetails": {
-            "detail": " : String -> Maybe ( Char, String )"
-          },
+          "labelDetails": {"detail":" : String -> Maybe ( Char, String )"},
           "sortText": "a_uncons",
-          "textEdit": {
-            "newText": "uncons",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"uncons","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\ntoList : String -> List Char\n```\n\n\n---\n\n\n```elm\ntoList string\n```\nConvert a string to a list of characters.\n\n    toList \"abc\" == ['a','b','c']\n    toList \"🙈🙉🙊\" == ['🙈','🙉','🙊']"
-          },
+          "documentation": {"sha256":"012dbca100f993b1"},
           "kind": 3,
           "label": "toList",
-          "labelDetails": {
-            "detail": " : String -> List Char"
-          },
+          "labelDetails": {"detail":" : String -> List Char"},
           "sortText": "a_toList",
-          "textEdit": {
-            "newText": "toList",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"toList","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nfromList : List Char -> String\n```\n\n\n---\n\n\n```elm\nfromList\n```\nConvert a list of characters into a String. Can be useful if you\nwant to create a string primarily by consing, perhaps for decoding\nsomething.\n\n    fromList ['a','b','c'] == \"abc\"\n    fromList ['🙈','🙉','🙊'] == \"🙈🙉🙊\""
-          },
+          "documentation": {"sha256":"bfced121eaa90527"},
           "kind": 3,
           "label": "fromList",
-          "labelDetails": {
-            "detail": " : List Char -> String"
-          },
+          "labelDetails": {"detail":" : List Char -> String"},
           "sortText": "a_fromList",
-          "textEdit": {
-            "newText": "fromList",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"fromList","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\ntoUpper : String -> String\n```\n\n\n---\n\n\n```elm\ntoUpper\n```\nConvert a string to all upper case. Useful for case-insensitive comparisons\nand VIRTUAL YELLING.\n\n    toUpper \"skinner\" == \"SKINNER\""
-          },
+          "documentation": {"sha256":"80e149d807c2c83c"},
           "kind": 3,
           "label": "toUpper",
-          "labelDetails": {
-            "detail": " : String -> String"
-          },
+          "labelDetails": {"detail":" : String -> String"},
           "sortText": "a_toUpper",
-          "textEdit": {
-            "newText": "toUpper",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"toUpper","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\ntoLower : String -> String\n```\n\n\n---\n\n\n```elm\ntoLower\n```\nConvert a string to all lower case. Useful for case-insensitive comparisons.\n\n    toLower \"X-FILES\" == \"x-files\""
-          },
+          "documentation": {"sha256":"37481430eaaf3321"},
           "kind": 3,
           "label": "toLower",
-          "labelDetails": {
-            "detail": " : String -> String"
-          },
+          "labelDetails": {"detail":" : String -> String"},
           "sortText": "a_toLower",
-          "textEdit": {
-            "newText": "toLower",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"toLower","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\npad : Int -> Char -> String -> String\n```\n\n\n---\n\n\n```elm\npad n char string\n```\nPad a string on both sides until it has a given length.\n\n    pad 5 ' ' \"1\"   == \"  1  \"\n    pad 5 ' ' \"11\"  == \"  11 \"\n    pad 5 ' ' \"121\" == \" 121 \""
-          },
+          "documentation": {"sha256":"5fff6ffb48f273a5"},
           "kind": 3,
           "label": "pad",
-          "labelDetails": {
-            "detail": " : Int -> Char -> String -> String"
-          },
+          "labelDetails": {"detail":" : Int -> Char -> String -> String"},
           "sortText": "a_pad",
-          "textEdit": {
-            "newText": "pad",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"pad","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\npadLeft : Int -> Char -> String -> String\n```\n\n\n---\n\n\n```elm\npadLeft n char string\n```\nPad a string on the left until it has a given length.\n\n    padLeft 5 '.' \"1\"   == \"....1\"\n    padLeft 5 '.' \"11\"  == \"...11\"\n    padLeft 5 '.' \"121\" == \"..121\""
-          },
+          "documentation": {"sha256":"3b0a090b67ff0c12"},
           "kind": 3,
           "label": "padLeft",
-          "labelDetails": {
-            "detail": " : Int -> Char -> String -> String"
-          },
+          "labelDetails": {"detail":" : Int -> Char -> String -> String"},
           "sortText": "a_padLeft",
-          "textEdit": {
-            "newText": "padLeft",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"padLeft","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\npadRight : Int -> Char -> String -> String\n```\n\n\n---\n\n\n```elm\npadRight n char string\n```\nPad a string on the right until it has a given length.\n\n    padRight 5 '.' \"1\"   == \"1....\"\n    padRight 5 '.' \"11\"  == \"11...\"\n    padRight 5 '.' \"121\" == \"121..\""
-          },
+          "documentation": {"sha256":"b227c63cdcf1f45f"},
           "kind": 3,
           "label": "padRight",
-          "labelDetails": {
-            "detail": " : Int -> Char -> String -> String"
-          },
+          "labelDetails": {"detail":" : Int -> Char -> String -> String"},
           "sortText": "a_padRight",
-          "textEdit": {
-            "newText": "padRight",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"padRight","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\ntrim : String -> String\n```\n\n\n---\n\n\n```elm\ntrim\n```\nGet rid of whitespace on both sides of a string.\n\n    trim \"  hats  \\n\" == \"hats\""
-          },
+          "documentation": {"sha256":"f7664ccdfef82c2f"},
           "kind": 3,
           "label": "trim",
-          "labelDetails": {
-            "detail": " : String -> String"
-          },
+          "labelDetails": {"detail":" : String -> String"},
           "sortText": "a_trim",
-          "textEdit": {
-            "newText": "trim",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"trim","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\ntrimLeft : String -> String\n```\n\n\n---\n\n\n```elm\ntrimLeft\n```\nGet rid of whitespace on the left of a string.\n\n    trimLeft \"  hats  \\n\" == \"hats  \\n\""
-          },
+          "documentation": {"sha256":"a4e6ddb7430546f1"},
           "kind": 3,
           "label": "trimLeft",
-          "labelDetails": {
-            "detail": " : String -> String"
-          },
+          "labelDetails": {"detail":" : String -> String"},
           "sortText": "a_trimLeft",
-          "textEdit": {
-            "newText": "trimLeft",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"trimLeft","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\ntrimRight : String -> String\n```\n\n\n---\n\n\n```elm\ntrimRight\n```\nGet rid of whitespace on the right of a string.\n\n    trimRight \"  hats  \\n\" == \"  hats\""
-          },
+          "documentation": {"sha256":"b6b29853e963dde0"},
           "kind": 3,
           "label": "trimRight",
-          "labelDetails": {
-            "detail": " : String -> String"
-          },
+          "labelDetails": {"detail":" : String -> String"},
           "sortText": "a_trimRight",
-          "textEdit": {
-            "newText": "trimRight",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"trimRight","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nmap : (Char -> Char) -> String -> String\n```\n\n\n---\n\n\n```elm\nmap\n```\nTransform every character in a string\n\n    map (\\c -> if c == '/' then '.' else c) \"a/b/c\" == \"a.b.c\""
-          },
+          "documentation": {"sha256":"6b74d0c2014a7c11"},
           "kind": 3,
           "label": "map",
-          "labelDetails": {
-            "detail": " : (Char -> Char) -> String -> String"
-          },
+          "labelDetails": {"detail":" : (Char -> Char) -> String -> String"},
           "sortText": "a_map",
-          "textEdit": {
-            "newText": "map",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"map","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nfilter : (Char -> Bool) -> String -> String\n```\n\n\n---\n\n\n```elm\nfilter\n```\nKeep only the characters that pass the test.\n\n    filter isDigit \"R2-D2\" == \"22\""
-          },
+          "documentation": {"sha256":"4e2faa4533e33048"},
           "kind": 3,
           "label": "filter",
-          "labelDetails": {
-            "detail": " : (Char -> Bool) -> String -> String"
-          },
+          "labelDetails": {"detail":" : (Char -> Bool) -> String -> String"},
           "sortText": "a_filter",
-          "textEdit": {
-            "newText": "filter",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"filter","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nfoldl : (Char -> b -> b) -> b -> String -> b\n```\n\n\n---\n\n\n```elm\nfoldl\n```\nReduce a string from the left.\n\n    foldl cons \"\" \"time\" == \"emit\""
-          },
+          "documentation": {"sha256":"e0a3a9266bb8dd6a"},
           "kind": 3,
           "label": "foldl",
-          "labelDetails": {
-            "detail": " : (Char -> b -> b) -> b -> String -> b"
-          },
+          "labelDetails": {"detail":" : (Char -> b -> b) -> b -> String -> b"},
           "sortText": "a_foldl",
-          "textEdit": {
-            "newText": "foldl",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"foldl","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nfoldr : (Char -> b -> b) -> b -> String -> b\n```\n\n\n---\n\n\n```elm\nfoldr\n```\nReduce a string from the right.\n\n    foldr cons \"\" \"time\" == \"time\""
-          },
+          "documentation": {"sha256":"73cfa4f89b9786e8"},
           "kind": 3,
           "label": "foldr",
-          "labelDetails": {
-            "detail": " : (Char -> b -> b) -> b -> String -> b"
-          },
+          "labelDetails": {"detail":" : (Char -> b -> b) -> b -> String -> b"},
           "sortText": "a_foldr",
-          "textEdit": {
-            "newText": "foldr",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"foldr","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nany : (Char -> Bool) -> String -> Bool\n```\n\n\n---\n\n\n```elm\nany\n```\nDetermine whether *any* characters pass the test.\n\n    any isDigit \"90210\" == True\n    any isDigit \"R2-D2\" == True\n    any isDigit \"heart\" == False"
-          },
+          "documentation": {"sha256":"9ac125670f31a9ec"},
           "kind": 3,
           "label": "any",
-          "labelDetails": {
-            "detail": " : (Char -> Bool) -> String -> Bool"
-          },
+          "labelDetails": {"detail":" : (Char -> Bool) -> String -> Bool"},
           "sortText": "a_any",
-          "textEdit": {
-            "newText": "any",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"any","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\nall : (Char -> Bool) -> String -> Bool\n```\n\n\n---\n\n\n```elm\nall\n```\nDetermine whether *all* characters pass the test.\n\n    all isDigit \"90210\" == True\n    all isDigit \"R2-D2\" == False\n    all isDigit \"heart\" == False"
-          },
+          "documentation": {"sha256":"b4f096552392ed51"},
           "kind": 3,
           "label": "all",
-          "labelDetails": {
-            "detail": " : (Char -> Bool) -> String -> Bool"
-          },
+          "labelDetails": {"detail":" : (Char -> Bool) -> String -> Bool"},
           "sortText": "a_all",
-          "textEdit": {
-            "newText": "all",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"all","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         },
         {
-          "documentation": {
-            "kind": "markdown",
-            "value": "\n```elm\ntype String = String -- NOTE: The compiler provides the real implementation.\n```\nA `String` is a chunk of text:\n\n    \"Hello!\"\n    \"How are you?\"\n    \"🙈🙉🙊\"\n\n    -- strings with escape characters\n    \"this\\n\\t\\\"that\\\"\"\n    \"\\u{1F648}\\u{1F649}\\u{1F64A}\" -- \"🙈🙉🙊\"\n\n    -- multiline strings\n    \"\"\"Triple double quotes let you\n    create \"multiline strings\" which\n    can have unescaped quotes and newlines.\n    \"\"\"\n\nA `String` can represent any sequence of [unicode characters][u]. You can use\nthe unicode escapes from `\\u{0000}` to `\\u{10FFFF}` to represent characters\nby their code point. You can also include the unicode characters directly.\nUsing the escapes can be better if you need one of the many whitespace\ncharacters with different widths.\n\n[u]: https://en.wikipedia.org/wiki/Unicode\n\n**Note:** JavaScript lets you use double quotes and single quotes interchangably.\nThis is not true in Elm. You must use double quotes for a `String`, and you must\nuse single quotes for a [`Char`](Char#Char)."
-          },
+          "documentation": {"sha256":"6242c4843d75f71a"},
           "kind": 13,
           "label": "String",
           "sortText": "a_String",
-          "textEdit": {
-            "newText": "String",
-            "range": {
-              "end": {
-                "character": 26,
-                "line": 46
-              },
-              "start": {
-                "character": 26,
-                "line": 46
-              }
-            }
-          }
+          "textEdit": {"newText":"String","range":{"end":{"character":26,"line":46},"start":{"character":26,"line":46}}}
         }
       ]
     },
@@ -1803,224 +628,56 @@
       "method": "textDocument/codeLens",
       "result": [
         {
-          "data": {
-            "codeLensType": "exposed",
-            "isFunctionOrPort": false,
-            "nameNode": "Model",
-            "uri": "<project>/src/Main.elm"
-          },
-          "range": {
-            "end": {
-              "character": 5,
-              "line": 8
-            },
-            "start": {
-              "character": 0,
-              "line": 5
-            }
-          }
+          "data": {"codeLensType":"exposed","isFunctionOrPort":false,"nameNode":"Model","uri":"<project>/src/Main.elm"},
+          "range": {"end":{"character":5,"line":8},"start":{"character":0,"line":5}}
         },
         {
-          "data": {
-            "codeLensType": "exposed",
-            "isFunctionOrPort": false,
-            "nameNode": "Msg",
-            "uri": "<project>/src/Main.elm"
-          },
-          "range": {
-            "end": {
-              "character": 19,
-              "line": 13
-            },
-            "start": {
-              "character": 0,
-              "line": 11
-            }
-          }
+          "data": {"codeLensType":"exposed","isFunctionOrPort":false,"nameNode":"Msg","uri":"<project>/src/Main.elm"},
+          "range": {"end":{"character":19,"line":13},"start":{"character":0,"line":11}}
         },
         {
-          "data": {
-            "codeLensType": "exposed",
-            "isFunctionOrPort": true,
-            "nameNode": "init",
-            "uri": "<project>/src/Main.elm"
-          },
-          "range": {
-            "end": {
-              "character": 12,
-              "line": 16
-            },
-            "start": {
-              "character": 0,
-              "line": 16
-            }
-          }
+          "data": {"codeLensType":"exposed","isFunctionOrPort":true,"nameNode":"init","uri":"<project>/src/Main.elm"},
+          "range": {"end":{"character":12,"line":16},"start":{"character":0,"line":16}}
         },
         {
-          "data": {
-            "codeLensType": "exposed",
-            "isFunctionOrPort": true,
-            "nameNode": "update",
-            "uri": "<project>/src/Main.elm"
-          },
-          "range": {
-            "end": {
-              "character": 30,
-              "line": 21
-            },
-            "start": {
-              "character": 0,
-              "line": 21
-            }
-          }
+          "data": {"codeLensType":"exposed","isFunctionOrPort":true,"nameNode":"update","uri":"<project>/src/Main.elm"},
+          "range": {"end":{"character":30,"line":21},"start":{"character":0,"line":21}}
         },
         {
-          "data": {
-            "codeLensType": "exposed",
-            "isFunctionOrPort": true,
-            "nameNode": "twice",
-            "uri": "<project>/src/Main.elm"
-          },
-          "range": {
-            "end": {
-              "character": 9,
-              "line": 38
-            },
-            "start": {
-              "character": 0,
-              "line": 37
-            }
-          }
+          "data": {"codeLensType":"exposed","isFunctionOrPort":true,"nameNode":"twice","uri":"<project>/src/Main.elm"},
+          "range": {"end":{"character":9,"line":38},"start":{"character":0,"line":37}}
         },
         {
-          "data": {
-            "codeLensType": "exposed",
-            "isFunctionOrPort": true,
-            "nameNode": "main",
-            "uri": "<project>/src/Main.elm"
-          },
-          "range": {
-            "end": {
-              "character": 15,
-              "line": 44
-            },
-            "start": {
-              "character": 0,
-              "line": 44
-            }
-          }
+          "data": {"codeLensType":"exposed","isFunctionOrPort":true,"nameNode":"main","uri":"<project>/src/Main.elm"},
+          "range": {"end":{"character":15,"line":44},"start":{"character":0,"line":44}}
         },
         {
-          "data": {
-            "codeLensType": "referenceCounter",
-            "uri": "<project>/src/Main.elm"
-          },
-          "range": {
-            "end": {
-              "character": 16,
-              "line": 5
-            },
-            "start": {
-              "character": 11,
-              "line": 5
-            }
-          }
+          "data": {"codeLensType":"referenceCounter","uri":"<project>/src/Main.elm"},
+          "range": {"end":{"character":16,"line":5},"start":{"character":11,"line":5}}
         },
         {
-          "data": {
-            "codeLensType": "referenceCounter",
-            "uri": "<project>/src/Main.elm"
-          },
-          "range": {
-            "end": {
-              "character": 8,
-              "line": 11
-            },
-            "start": {
-              "character": 5,
-              "line": 11
-            }
-          }
+          "data": {"codeLensType":"referenceCounter","uri":"<project>/src/Main.elm"},
+          "range": {"end":{"character":8,"line":11},"start":{"character":5,"line":11}}
         },
         {
-          "data": {
-            "codeLensType": "referenceCounter",
-            "uri": "<project>/src/Main.elm"
-          },
-          "range": {
-            "end": {
-              "character": 12,
-              "line": 16
-            },
-            "start": {
-              "character": 0,
-              "line": 16
-            }
-          }
+          "data": {"codeLensType":"referenceCounter","uri":"<project>/src/Main.elm"},
+          "range": {"end":{"character":12,"line":16},"start":{"character":0,"line":16}}
         },
         {
-          "data": {
-            "codeLensType": "referenceCounter",
-            "uri": "<project>/src/Main.elm"
-          },
-          "range": {
-            "end": {
-              "character": 30,
-              "line": 21
-            },
-            "start": {
-              "character": 0,
-              "line": 21
-            }
-          }
+          "data": {"codeLensType":"referenceCounter","uri":"<project>/src/Main.elm"},
+          "range": {"end":{"character":30,"line":21},"start":{"character":0,"line":21}}
         },
         {
-          "data": {
-            "codeLensType": "referenceCounter",
-            "uri": "<project>/src/Main.elm"
-          },
-          "range": {
-            "end": {
-              "character": 9,
-              "line": 38
-            },
-            "start": {
-              "character": 0,
-              "line": 37
-            }
-          }
+          "data": {"codeLensType":"referenceCounter","uri":"<project>/src/Main.elm"},
+          "range": {"end":{"character":9,"line":38},"start":{"character":0,"line":37}}
         },
         {
-          "data": {
-            "codeLensType": "referenceCounter",
-            "uri": "<project>/src/Main.elm"
-          },
-          "range": {
-            "end": {
-              "character": 15,
-              "line": 44
-            },
-            "start": {
-              "character": 0,
-              "line": 44
-            }
-          }
+          "data": {"codeLensType":"referenceCounter","uri":"<project>/src/Main.elm"},
+          "range": {"end":{"character":15,"line":44},"start":{"character":0,"line":44}}
         },
         {
-          "data": {
-            "codeLensType": "referenceCounter",
-            "uri": "<project>/src/Main.elm"
-          },
-          "range": {
-            "end": {
-              "character": 11,
-              "line": 0
-            },
-            "start": {
-              "character": 7,
-              "line": 0
-            }
-          }
+          "data": {"codeLensType":"referenceCounter","uri":"<project>/src/Main.elm"},
+          "range": {"end":{"character":11,"line":0},"start":{"character":7,"line":0}}
         }
       ]
     },
@@ -2029,19 +686,7 @@
       "result": [
         {
           "kind": 12,
-          "location": {
-            "range": {
-              "end": {
-                "character": 9,
-                "line": 38
-              },
-              "start": {
-                "character": 0,
-                "line": 37
-              }
-            },
-            "uri": "<project>/src/Main.elm"
-          },
+          "location": {"range":{"end":{"character":9,"line":38},"start":{"character":0,"line":37}},"uri":"<project>/src/Main.elm"},
           "name": "twice"
         }
       ]

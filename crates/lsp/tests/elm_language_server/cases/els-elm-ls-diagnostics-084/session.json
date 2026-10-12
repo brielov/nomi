@@ -1,0 +1,10 @@
+{
+  "open": [
+    "src/Model.elm",
+    "src/Main.elm"
+  ],
+  "settings": {
+    "disableElmLSDiagnostics": false
+  },
+  "title": "used type alias in different file"
+}

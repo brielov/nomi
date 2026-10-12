@@ -1,0 +1,23 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "unused_import",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused import `Bar`",
+        "range": {
+          "end": {"character":10,"line":3},
+          "start": {"character":0,"line":3}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": []
+}

@@ -1,0 +1,9 @@
+{
+  "open": [
+    "src/Main.elm"
+  ],
+  "settings": {
+    "disableElmLSDiagnostics": false
+  },
+  "title": "used as qualified with nested record access"
+}

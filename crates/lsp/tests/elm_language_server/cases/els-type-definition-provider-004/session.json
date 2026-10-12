@@ -1,0 +1,16 @@
+{
+  "open": [
+    "src/Main.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 7,
+        "line": 7
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/typeDefinition"
+    }
+  ],
+  "title": "prefers an alias over its underlying union type"
+}

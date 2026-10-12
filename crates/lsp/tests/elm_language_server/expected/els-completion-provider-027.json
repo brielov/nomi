@@ -1,0 +1,61 @@
+{
+  "diagnostics": {
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "unused_import",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused import `App`",
+        "range": {
+          "end": {"character":22,"line":3},
+          "start": {"character":0,"line":2}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_imported_value",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused imported value ``",
+        "range": {
+          "end": {"character":21,"line":3},
+          "start": {"character":21,"line":3}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/completion",
+      "result": [
+        {
+          "documentation": {"sha256":"56c4ff3851c8540f"},
+          "kind": 3,
+          "label": "appOne",
+          "labelDetails": {"detail":" : String"},
+          "sortText": "c_appOne",
+          "textEdit": {"newText":"appOne","range":{"end":{"character":21,"line":3},"start":{"character":21,"line":3}}}
+        },
+        {
+          "documentation": {"sha256":"3a97308b2db72e96"},
+          "kind": 3,
+          "label": "appTwo",
+          "labelDetails": {"detail":" : String"},
+          "sortText": "c_appTwo",
+          "textEdit": {"newText":"appTwo","range":{"end":{"character":21,"line":3},"start":{"character":21,"line":3}}}
+        }
+      ]
+    }
+  ]
+}

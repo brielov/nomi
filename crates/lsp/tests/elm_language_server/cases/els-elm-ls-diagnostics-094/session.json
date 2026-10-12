@@ -1,0 +1,10 @@
+{
+  "open": [
+    "src/Main.elm",
+    "src/B.elm"
+  ],
+  "settings": {
+    "disableElmLSDiagnostics": false
+  },
+  "title": "used in a different file"
+}

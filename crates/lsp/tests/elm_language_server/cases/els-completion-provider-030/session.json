@@ -1,0 +1,22 @@
+{
+  "open": [
+    "src/Test.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 20,
+        "line": 1
+      },
+      "file": "src/Test.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerCharacter": ".",
+          "triggerKind": 2
+        }
+      }
+    }
+  ],
+  "title": "Non imported qualified modules with aliases should have value completions with auto imports"
+}

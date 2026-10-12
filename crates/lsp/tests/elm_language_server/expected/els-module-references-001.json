@@ -1,0 +1,28 @@
+{
+  "diagnostics": {
+    "src/Module.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/references",
+      "result": [
+        {
+          "range": {"end":{"character":13,"line":0},"start":{"character":7,"line":0}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":13,"line":2},"start":{"character":7,"line":2}},
+          "uri": "<project>/src/Bar.elm"
+        },
+        {
+          "range": {"end":{"character":13,"line":2},"start":{"character":7,"line":2}},
+          "uri": "<project>/src/FooExtra.elm"
+        },
+        {
+          "range": {"end":{"character":17,"line":5},"start":{"character":7,"line":5}},
+          "uri": "<project>/src/FooExtra.elm"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "diagnostics": {
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "unused_type_alias",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Type alias `TestType` is not used.",
+        "range": {
+          "end": {"character":19,"line":9},
+          "start": {"character":0,"line":8}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/completion",
+      "result": [
+        {
+          "documentation": {"sha256":"e69b9b6f27fdbd8d"},
+          "kind": 13,
+          "label": "Msg",
+          "sortText": "b_Msg",
+          "textEdit": {"newText":"Msg","range":{"end":{"character":41,"line":0},"start":{"character":41,"line":0}}}
+        },
+        {
+          "kind": 20,
+          "label": "Msg1",
+          "labelDetails": {"detail":" : Msg"},
+          "sortText": "b_Msg1",
+          "textEdit": {"newText":"Msg1","range":{"end":{"character":41,"line":0},"start":{"character":41,"line":0}}}
+        },
+        {
+          "kind": 20,
+          "label": "Msg2",
+          "labelDetails": {"detail":" : Msg"},
+          "sortText": "b_Msg2",
+          "textEdit": {"newText":"Msg2","range":{"end":{"character":41,"line":0},"start":{"character":41,"line":0}}}
+        },
+        {
+          "documentation": {"sha256":"1707bdd3a037aca1"},
+          "kind": 22,
+          "label": "TestType",
+          "sortText": "b_TestType",
+          "textEdit": {"newText":"TestType","range":{"end":{"character":41,"line":0},"start":{"character":41,"line":0}}}
+        }
+      ]
+    }
+  ]
+}

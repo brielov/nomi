@@ -1,0 +1,34 @@
+{
+  "diagnostics": {
+    "src/main.elm": [
+      {
+        "data": {
+          "code": "unused_value_constructor",
+          "uri": "<project>/src/main.elm"
+        },
+        "message": "Value constructor `PersonEntity` is not used.",
+        "range": {
+          "end": {"character":33,"line":1},
+          "start": {"character":14,"line":1}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/definition",
+      "result": {
+        "range": {
+          "end": {"character":47,"line":1},
+          "start": {"character":0,"line":1}
+        },
+        "uri": "<project>/src/App.elm"
+      }
+    }
+  ]
+}

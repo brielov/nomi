@@ -1,0 +1,20 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "unnecessary_list_concat",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "You should just merge the arguments of `List.concat` to a single list.",
+        "range": {
+          "end": {"character":50,"line":12},
+          "start": {"character":18,"line":12}
+        },
+        "severity": 2,
+        "source": "ElmLS"
+      }
+    ]
+  },
+  "requests": []
+}

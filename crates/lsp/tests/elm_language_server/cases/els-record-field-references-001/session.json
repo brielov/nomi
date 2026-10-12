@@ -1,0 +1,21 @@
+{
+  "open": [
+    "src/Module.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 21,
+        "line": 2
+      },
+      "file": "src/Module.elm",
+      "method": "textDocument/references",
+      "params": {
+        "context": {
+          "includeDeclaration": true
+        }
+      }
+    }
+  ],
+  "title": "deduplicates record references through diamond-shaped imports"
+}

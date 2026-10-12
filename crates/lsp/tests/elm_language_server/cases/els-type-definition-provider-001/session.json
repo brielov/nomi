@@ -1,0 +1,16 @@
+{
+  "open": [
+    "src/Main.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 7,
+        "line": 5
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/typeDefinition"
+    }
+  ],
+  "title": "resolves an inferred local union type"
+}

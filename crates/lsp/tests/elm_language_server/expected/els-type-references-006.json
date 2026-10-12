@@ -1,0 +1,81 @@
+{
+  "diagnostics": {
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused pattern variable `exposing`",
+        "range": {
+          "end": {"character":21,"line":13},
+          "start": {"character":13,"line":13}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused pattern variable `import`",
+        "range": {
+          "end": {"character":6,"line":15},
+          "start": {"character":0,"line":15}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused pattern variable `exposing`",
+        "range": {
+          "end": {"character":20,"line":15},
+          "start": {"character":12,"line":15}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused pattern variable `test`",
+        "range": {
+          "end": {"character":4,"line":18},
+          "start": {"character":0,"line":18}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/references",
+      "result": [
+        {
+          "range": {"end":{"character":6,"line":3},"start":{"character":5,"line":3}},
+          "uri": "<project>/src/Test.elm"
+        }
+      ]
+    }
+  ]
+}

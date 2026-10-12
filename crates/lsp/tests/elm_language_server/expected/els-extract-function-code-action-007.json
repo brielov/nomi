@@ -1,0 +1,36 @@
+{
+  "diagnostics": {
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused pattern variable `field3`",
+        "range": {
+          "end": {"character":37,"line":7},
+          "start": {"character":31,"line":7}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"actionName":"extract_top_level","range":{"end":{"character":33,"line":13},"start":{"character":12,"line":8}},"refactorName":"extract_function","renamePosition":{"character":12,"line":8},"uri":"<project>/src/Test.elm"},
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"\n\nnewFunction : Maybe { a | prop1 : number, prop2 : number } -> Maybe { b | field1 : Maybe { a | prop1 : number, prop2 : number }, field2 : unknown, field3 : c } -> unknown -> Maybe unknown\nnewFunction field1 val field2 =\n    case field1 of\n        Just { prop1, prop2 } ->\n            Just (prop1 + prop2 + val + field2)\n\n        Nothing ->\n            field2 + val2\n","range":{"end":{"character":0,"line":17},"start":{"character":0,"line":17}}},{"newText":"newFunction field1 val field2","range":{"end":{"character":33,"line":13},"start":{"character":12,"line":8}}}]}},
+          "isPreferred": false,
+          "kind": "refactor.extract",
+          "title": "Extract function to top level"
+        }
+      ]
+    }
+  ]
+}

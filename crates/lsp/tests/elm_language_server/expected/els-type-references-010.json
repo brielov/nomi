@@ -1,0 +1,24 @@
+{
+  "diagnostics": {
+    "src/Test.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/references",
+      "result": [
+        {
+          "range": {"end":{"character":13,"line":2},"start":{"character":5,"line":2}},
+          "uri": "<project>/src/Test.elm"
+        },
+        {
+          "range": {"end":{"character":22,"line":5},"start":{"character":14,"line":5}},
+          "uri": "<project>/src/Foo.elm"
+        },
+        {
+          "range": {"end":{"character":30,"line":2},"start":{"character":22,"line":2}},
+          "uri": "<project>/src/Foo.elm"
+        }
+      ]
+    }
+  ]
+}

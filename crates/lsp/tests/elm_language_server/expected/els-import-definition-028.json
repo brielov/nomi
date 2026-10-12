@@ -1,0 +1,34 @@
+{
+  "diagnostics": {
+    "src/main.elm": [
+      {
+        "data": {
+          "code": "unused_import",
+          "uri": "<project>/src/main.elm"
+        },
+        "message": "Unused import `App`",
+        "range": {
+          "end": {"character":10,"line":0},
+          "start": {"character":0,"line":0}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/definition",
+      "result": {
+        "range": {
+          "end": {"character":24,"line":0},
+          "start": {"character":0,"line":0}
+        },
+        "uri": "<project>/src/App.elm"
+      }
+    }
+  ]
+}

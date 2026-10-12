@@ -1,0 +1,36 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "single_field_record",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Using a record is obsolete if you only plan to store a single field in it.",
+        "range": {
+          "end": {"character":22,"line":5},
+          "start": {"character":8,"line":5}
+        },
+        "severity": 2,
+        "source": "ElmLS"
+      },
+      {
+        "data": {
+          "code": "unused_type_alias",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Type alias `Foo` is not used.",
+        "range": {
+          "end": {"character":3,"line":6},
+          "start": {"character":0,"line":3}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": []
+}

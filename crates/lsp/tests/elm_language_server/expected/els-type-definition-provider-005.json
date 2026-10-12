@@ -1,0 +1,11 @@
+{
+  "diagnostics": {
+    "src/Main.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/typeDefinition",
+      "result": null
+    }
+  ]
+}

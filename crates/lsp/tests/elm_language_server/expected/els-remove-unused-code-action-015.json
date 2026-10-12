@@ -1,0 +1,37 @@
+{
+  "diagnostics": {
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "unused_value_constructor",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Value constructor `Baz` is not used.",
+        "range": {
+          "end": {"character":9,"line":4},
+          "start": {"character":6,"line":4}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"fixId":"remove_unused"},
+          "diagnostics": [{"data":{"code":"unused_value_constructor","uri":"<project>/src/Test.elm"},"message":"Value constructor `Baz` is not used.","range":{"end":{"character":9,"line":4},"start":{"character":6,"line":4}},"severity":2,"source":"ElmLS","tags":[1]}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"","range":{"end":{"character":9,"line":4},"start":{"character":9,"line":3}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Remove unused value constructor `Baz`"
+        }
+      ]
+    }
+  ]
+}

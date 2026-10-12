@@ -1,0 +1,17 @@
+{
+  "diagnostics": {
+    "src/Main.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/definition",
+      "result": {
+        "range": {
+          "end": {"character":1,"line":5},
+          "start": {"character":0,"line":2}
+        },
+        "uri": "<project>/src/Model.elm"
+      }
+    }
+  ]
+}

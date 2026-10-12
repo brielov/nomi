@@ -1,0 +1,44 @@
+{
+  "diagnostics": {
+    "src/main.elm": [
+      {
+        "data": {
+          "code": "unused_import",
+          "uri": "<project>/src/main.elm"
+        },
+        "message": "Unused import `Foo`",
+        "range": {
+          "end": {"character":10,"line":0},
+          "start": {"character":0,"line":0}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/main.elm"
+        },
+        "message": "Unused top level definition `main`",
+        "range": {
+          "end": {"character":4,"line":1},
+          "start": {"character":0,"line":1}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/definition",
+      "result": null
+    }
+  ]
+}

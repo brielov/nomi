@@ -1,0 +1,34 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused top level definition `f`",
+        "range": {
+          "end": {"character":1,"line":1},
+          "start": {"character":0,"line":1}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/definition",
+      "result": {
+        "range": {
+          "end": {"character":22,"line":4},
+          "start": {"character":13,"line":4}
+        },
+        "uri": "<project>/src/Main.elm"
+      }
+    }
+  ]
+}

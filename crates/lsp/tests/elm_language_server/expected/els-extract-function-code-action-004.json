@@ -1,0 +1,19 @@
+{
+  "diagnostics": {
+    "src/Test.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"actionName":"extract_top_level","range":{"end":{"character":18,"line":7},"start":{"character":4,"line":5}},"refactorName":"extract_function","renamePosition":{"character":4,"line":5},"uri":"<project>/src/Test.elm"},
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"\n\nnewFunction : number -> number\nnewFunction val =\n    val\n        + val2\n        + Foo.val2\n","range":{"end":{"character":0,"line":8},"start":{"character":0,"line":8}}},{"newText":"newFunction val","range":{"end":{"character":18,"line":7},"start":{"character":4,"line":5}}}]}},
+          "isPreferred": false,
+          "kind": "refactor.extract",
+          "title": "Extract function to top level"
+        }
+      ]
+    }
+  ]
+}

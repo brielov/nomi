@@ -1,0 +1,23 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused pattern variable `y`",
+        "range": {
+          "end": {"character":5,"line":5},
+          "start": {"character":4,"line":5}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": []
+}

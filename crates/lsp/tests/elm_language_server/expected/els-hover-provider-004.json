@@ -1,0 +1,16 @@
+{
+  "diagnostics": {
+    "src/Test.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/hover",
+      "result": {
+        "contents": {
+          "kind": "markdown",
+          "value": "\n```elm\nstatus : Status\n```\n\n\n---\n\nLocal parameter\n\n[Go to Status](<<project>/src/Test.elm#L2>)"
+        }
+      }
+    }
+  ]
+}

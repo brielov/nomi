@@ -15,7 +15,8 @@ use std::time::Duration;
 
 use lsp_server::Connection;
 use lsp_types::Url;
-use nomi_engine::Store;
+use nomi_engine::index::{self, Memo};
+use nomi_engine::{Store, Vfs};
 use nomi_testkit::lsp::{self, Driver, Timing};
 use nomi_testkit::ratchet::Suite;
 use serde_json::Value;
@@ -72,23 +73,38 @@ fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
+/// The fixture packages built once, for every server to start from: each
+/// would build them again otherwise, which is most of a session's work.
+fn built(temp: &Path, store: &Store) -> Memo {
+    let dir = temp.join("prebuild");
+    fs::create_dir_all(dir.join("src")).unwrap();
+    fs::write(dir.join("elm.json"), lsp::DEFAULT_ELM_JSON).unwrap();
+    let main = dir.join("src/Main.elm");
+    fs::write(&main, "module Main exposing (zero)\n\n\nzero =\n    0\n").unwrap();
+    let mut memo = Memo::new();
+    let snapshot = Vfs::new().snapshot();
+    index::index(&snapshot, store, &main, &mut memo).expect("the fixture packages index");
+    memo
+}
+
 #[test]
 fn sessions_answer_as_elm_language_server_does() {
     let suite = Suite::open(suite_dir());
     let temp = tempfile::tempdir().unwrap();
     let (store, packages) = store(&temp.path().join("store"));
+    let memo = built(temp.path(), &store);
     let cases = lsp::cases(&suite_dir().join("cases"));
-    // Each session waits for its server to go quiet, so they run side by
-    // side.
+    // A session spends most of its time waiting for its server to go
+    // quiet, so many run side by side.
     let next = AtomicUsize::new(0);
-    let threads = thread::available_parallelism().map_or(4, |n| n.get());
+    let threads = thread::available_parallelism().map_or(16, |n| 4 * n.get());
     let mut outcomes: Vec<_> = thread::scope(|scope| {
         let workers: Vec<_> = (0..threads)
             .map(|_| {
                 scope.spawn(|| {
                     let mut outcomes = Vec::new();
                     while let Some(case) = cases.get(next.fetch_add(1, Ordering::Relaxed)) {
-                        outcomes.extend(replay(case, temp.path(), &store, &packages));
+                        outcomes.extend(replay(case, temp.path(), &store, &memo, &packages));
                     }
                     outcomes
                 })
@@ -107,6 +123,7 @@ fn replay(
     case: &lsp::Case,
     temp: &Path,
     store: &Store,
+    memo: &Memo,
     packages: &[(String, String)],
 ) -> Vec<(String, Result<(), String>)> {
     let expected = suite_dir()
@@ -121,11 +138,12 @@ fn replay(
     let root_uri = root_uri.as_str().trim_end_matches('/').to_owned();
 
     let (server, client) = Connection::memory();
-    let store = store.clone();
-    let handle = thread::spawn(move || nomi_lsp::serve(&server, store));
+    let (store, memo) = (store.clone(), memo.clone());
+    let handle = thread::spawn(move || nomi_lsp::serve(&server, store, memo));
     let timing = Timing {
         quiet: Duration::from_millis(300),
         answer: Duration::from_secs(30),
+        publishes: true,
     };
     let driver = Driver::start(client, &work, &root_uri, &case.session, timing);
     let transcript = driver.run(&case.session);
@@ -134,7 +152,7 @@ fn replay(
     let mut replacements = packages.to_vec();
     replacements.push((root_uri, "<project>".to_owned()));
     replacements.push((work.display().to_string(), "<project>".to_owned()));
-    let actual = lsp::normalize(transcript, &replacements);
+    let actual = lsp::tidy(transcript, &replacements);
     lsp::outcomes(&case.name, &expected, &actual)
 }
 

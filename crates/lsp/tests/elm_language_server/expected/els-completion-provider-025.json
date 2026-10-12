@@ -1,0 +1,24 @@
+{
+  "diagnostics": {
+    "src/Test.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/completion",
+      "result": [
+        {
+          "kind": 9,
+          "label": "Submodule",
+          "sortText": "b_Submodule",
+          "textEdit": {"newText":"Submodule","range":{"end":{"character":14,"line":2},"start":{"character":14,"line":2}}}
+        },
+        {
+          "kind": 9,
+          "label": "Submodule.AnotherSubmodule",
+          "sortText": "b_Submodule.AnotherSubmodule",
+          "textEdit": {"newText":"Submodule.AnotherSubmodule","range":{"end":{"character":14,"line":2},"start":{"character":14,"line":2}}}
+        }
+      ]
+    }
+  ]
+}

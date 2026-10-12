@@ -1,0 +1,50 @@
+{
+  "diagnostics": {
+    "src/main.elm": [
+      {
+        "data": {
+          "code": "unused_import",
+          "uri": "<project>/src/main.elm"
+        },
+        "message": "Unused import `App`",
+        "range": {
+          "end": {"character":28,"line":0},
+          "start": {"character":0,"line":0}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_imported_value",
+          "uri": "<project>/src/main.elm"
+        },
+        "message": "Unused imported type `Person`",
+        "range": {
+          "end": {"character":27,"line":0},
+          "start": {"character":21,"line":0}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/definition",
+      "result": {
+        "range": {
+          "end": {"character":47,"line":1},
+          "start": {"character":0,"line":1}
+        },
+        "uri": "<project>/src/App.elm"
+      }
+    }
+  ]
+}

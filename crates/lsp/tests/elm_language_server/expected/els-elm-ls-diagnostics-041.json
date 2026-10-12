@@ -1,0 +1,23 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "unused_imported_value",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused imported type `Thing`",
+        "range": {
+          "end": {"character":27,"line":3},
+          "start": {"character":22,"line":3}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": []
+}

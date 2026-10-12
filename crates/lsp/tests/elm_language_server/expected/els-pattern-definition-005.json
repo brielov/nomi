@@ -1,0 +1,50 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused top level definition `f`",
+        "range": {
+          "end": {"character":1,"line":1},
+          "start": {"character":0,"line":1}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused pattern variable `x`",
+        "range": {
+          "end": {"character":3,"line":1},
+          "start": {"character":2,"line":1}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/definition",
+      "result": {
+        "range": {
+          "end": {"character":24,"line":6},
+          "start": {"character":21,"line":6}
+        },
+        "uri": "<project>/src/Main.elm"
+      }
+    }
+  ]
+}

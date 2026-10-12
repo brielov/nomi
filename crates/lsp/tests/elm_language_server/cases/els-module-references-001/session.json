@@ -1,0 +1,21 @@
+{
+  "open": [
+    "src/Module.elm"
+  ],
+  "requests": [
+    {
+      "at": {
+        "character": 10,
+        "line": 0
+      },
+      "file": "src/Module.elm",
+      "method": "textDocument/references",
+      "params": {
+        "context": {
+          "includeDeclaration": true
+        }
+      }
+    }
+  ],
+  "title": "module references in other files"
+}

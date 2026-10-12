@@ -1,0 +1,28 @@
+{
+  "diagnostics": {
+    "src/Test.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/completion",
+      "result": [
+        {
+          "documentation": {"sha256":"08f86691d7e81e4a"},
+          "kind": 5,
+          "label": "item1",
+          "labelDetails": {"detail":" : String"},
+          "preselect": true,
+          "textEdit": {"newText":"item1","range":{"end":{"character":23,"line":14},"start":{"character":22,"line":14}}}
+        },
+        {
+          "documentation": {"sha256":"5bed90985fcf5d2b"},
+          "kind": 5,
+          "label": "item2",
+          "labelDetails": {"detail":" : Int"},
+          "preselect": true,
+          "textEdit": {"newText":"item2","range":{"end":{"character":23,"line":14},"start":{"character":22,"line":14}}}
+        }
+      ]
+    }
+  ]
+}

@@ -624,7 +624,16 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
     - With `onlyUpdateDiagnosticsOnSave`, elm-language-server still runs its lint rules on open, whatever `disableElmLSDiagnostics` says.
     - Completion inside an identifier returns all 441 names in scope with their docs, about 280 KB, so the seed cases complete after a qualifier instead.
     - This machine has Node without npm, so `oracle fetch` falls back to `nub ci`, which installed exactly the lockfile's versions.
-- [ ] **9.2** `lsp: elm-language-server's own cases`. Its inline-fixture tests become oracle cases: definition 159, references 37, hover 12, completion 55, rename 8, type definition 6, folding 2, find tests 14, file events 15, code actions 97 and lint 97. They are converted by script and recorded with the real elm/core instead of its stubs. Their diffs are the ratchet's starting point, and `passing.txt` grows from here.
+- [x] **9.2** `lsp: elm-language-server's own cases`. Its inline-fixture tests become oracle cases: definition 159, references 37, hover 12, completion 55, rename 8, type definition 6, folding 2, find tests 14, file events 15, code actions 97 and lint 97. They are converted by script and recorded with the real elm/core instead of its stubs. Their diffs are the ratchet's starting point, and `passing.txt` grows from here.
+
+  Done:
+  - **Import.** `cargo xtask oracle lsp-import` writes 448 `els-*` cases from the test files of 2.10.0, leaving out 12 tests that interpolate or build their source from an array. It reads each helper's markers as that helper does (the invoke `--^`, `{-caret-}`, and the code actions' range with its stripped comment lines) into exact positions. Cases without an `elm.json` get one with every fixture package.
+  - **Moved to 9.16.** Find tests and file events build workspaces of their own, so they come with their requests.
+  - **Recording.** 451 cases take 4.5 minutes, eight servers at a time over one prebuilt `ELM_HOME`, and record identically twice.
+  - **Replay.** It runs in 5 seconds. The servers start from packages built once, and the driver waits until nomi has published for every opened file, so a slow machine gives the same answers (checked on two cores). 124 of 832 entries pass. Diagnostics wait for 9.3, and most entries wait for the provider steps.
+  - **Surprises.**
+    - Cross-file references come back in a different order on each run, so transcripts sort them.
+    - A completion list is about 440 items once elm/core is real, so transcripts keep a digest of each item's documentation and write deep values one per line: 2.6 MB for all cases, 2.2 MB of it completions.
 - [ ] **9.3** `ide: compiler diagnostics as you type`.
   - The engine checks the projects of the open files on each change, debounced like elm-language-server (200 ms), and drops stale runs by revision.
   - It publishes elm's reports in elm-language-server's shape, with Markdown when the client supports it, plus the `missing_type_annotation` information.
@@ -647,6 +656,7 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
 - [ ] **9.16** `lsp: file events and custom requests`.
   - **File events:** `didCreateFiles` (the module header), `willRenameFiles` (modules and folders) and `willDeleteFiles`.
   - **Custom requests:** `elm/findTests`, `elm/expose`, `elm/unexpose`, `elm/getMoveDestinations`, `elm/move`, `elm/getDiagnostics`, `elm/provideFileContents` and `workspace/textDocumentContent`.
+  - **Cases:** elm-language-server's find-tests (14) and file-event (15) tests, converted by hand.
 - [ ] **9.17** `lsp: elm-review`.
   - Its CLI runs on open and save after clean diagnostics, under the same conditions: the setting, and `review/src/ReviewConfig.elm` exists. It is cleared on change.
   - Its fixes become code actions.

@@ -1,0 +1,76 @@
+{
+  "diagnostics": {
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "unused_import",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused import `Other`",
+        "range": {
+          "end": {"character":12,"line":2},
+          "start": {"character":0,"line":2}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused pattern variable `var`",
+        "range": {
+          "end": {"character":7,"line":12},
+          "start": {"character":4,"line":12}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused pattern variable `test`",
+        "range": {
+          "end": {"character":8,"line":14},
+          "start": {"character":4,"line":14}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/completion",
+      "result": [
+        {
+          "documentation": {"sha256":"ddfe3788b7e00856"},
+          "kind": 3,
+          "label": "testFunc",
+          "labelDetails": {"detail":" : String"},
+          "sortText": "a_testFunc",
+          "textEdit": {"newText":"testFunc","range":{"end":{"character":16,"line":12},"start":{"character":16,"line":12}}}
+        },
+        {
+          "documentation": {"sha256":"576055ca7edf76eb"},
+          "kind": 22,
+          "label": "Data",
+          "sortText": "a_Data",
+          "textEdit": {"newText":"Data","range":{"end":{"character":16,"line":12},"start":{"character":16,"line":12}}}
+        }
+      ]
+    }
+  ]
+}

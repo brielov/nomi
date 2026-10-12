@@ -1,0 +1,34 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Unused top level definition `main`",
+        "range": {
+          "end": {"character":4,"line":13},
+          "start": {"character":0,"line":13}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/definition",
+      "result": {
+        "range": {
+          "end": {"character":14,"line":2},
+          "start": {"character":4,"line":2}
+        },
+        "uri": "<project>/src/Main.elm"
+      }
+    }
+  ]
+}

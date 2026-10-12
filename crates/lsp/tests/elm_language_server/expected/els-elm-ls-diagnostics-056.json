@@ -1,0 +1,20 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "map_nothing_to_nothing",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "`Nothing` mapped to `Nothing` in case expression. Use Maybe.map or Maybe.andThen instead.",
+        "range": {
+          "end": {"character":22,"line":5},
+          "start": {"character":4,"line":5}
+        },
+        "severity": 2,
+        "source": "ElmLS"
+      }
+    ]
+  },
+  "requests": []
+}

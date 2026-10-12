@@ -278,9 +278,12 @@ enum OracleCommand {
     /// Store elm-language-server's transcript of every language-server
     /// case (plan 9.1).
     Lsp {
-        /// Only the case of this name.
+        /// Only the cases whose names start with this.
         only: Option<String>,
     },
+    /// Write elm-language-server's provider tests as language-server
+    /// cases (plan 9.2).
+    LspImport,
 }
 
 fn main() -> ExitCode {
@@ -337,6 +340,7 @@ fn main() -> ExitCode {
             }
             OracleCommand::Solver => oracle::solver::run(&root(), &r),
             OracleCommand::Lsp { only } => oracle::lsp::run(&root(), &r, only.as_deref()),
+            OracleCommand::LspImport => oracle::lsp_import::run(&root()),
         }),
         Command::Ratchet { suite } => ratchet(&root(), &suite),
         Command::Fuzz { target, runs, jobs } => fuzz::run(

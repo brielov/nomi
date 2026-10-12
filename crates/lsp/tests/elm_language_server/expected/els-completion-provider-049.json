@@ -1,0 +1,43 @@
+{
+  "diagnostics": {
+    "src/Test.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/completion",
+      "result": [
+        {
+          "documentation": {"sha256":"0e9011f2ef2800ee"},
+          "kind": 3,
+          "label": "none",
+          "labelDetails": {"detail":" : Cmd msg"},
+          "sortText": "a_none",
+          "textEdit": {"newText":"none","range":{"end":{"character":8,"line":3},"start":{"character":8,"line":3}}}
+        },
+        {
+          "documentation": {"sha256":"1c4a0ae8653bf55a"},
+          "kind": 3,
+          "label": "batch",
+          "labelDetails": {"detail":" : List (Cmd msg) -> Cmd msg"},
+          "sortText": "a_batch",
+          "textEdit": {"newText":"batch","range":{"end":{"character":8,"line":3},"start":{"character":8,"line":3}}}
+        },
+        {
+          "documentation": {"sha256":"39afd9783be86290"},
+          "kind": 3,
+          "label": "map",
+          "labelDetails": {"detail":" : (a -> msg) -> Cmd a -> Cmd msg"},
+          "sortText": "a_map",
+          "textEdit": {"newText":"map","range":{"end":{"character":8,"line":3},"start":{"character":8,"line":3}}}
+        },
+        {
+          "documentation": {"sha256":"9e0dce71ccddeaba"},
+          "kind": 13,
+          "label": "Cmd",
+          "sortText": "a_Cmd",
+          "textEdit": {"newText":"Cmd","range":{"end":{"character":8,"line":3},"start":{"character":8,"line":3}}}
+        }
+      ]
+    }
+  ]
+}

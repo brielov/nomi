@@ -1,0 +1,85 @@
+{
+  "diagnostics": {
+    "src/Module.elm": [
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Module.elm"
+        },
+        "message": "Unused top level definition `foo`",
+        "range": {
+          "end": {"character":3,"line":0},
+          "start": {"character":0,"line":0}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Module.elm"
+        },
+        "message": "Unused pattern variable `bar`",
+        "range": {
+          "end": {"character":11,"line":5},
+          "start": {"character":8,"line":5}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_pattern",
+          "uri": "<project>/src/Module.elm"
+        },
+        "message": "Unused pattern variable `val`",
+        "range": {
+          "end": {"character":11,"line":8},
+          "start": {"character":8,"line":8}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      },
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Module.elm"
+        },
+        "message": "Unused top level definition `test`",
+        "range": {
+          "end": {"character":4,"line":12},
+          "start": {"character":0,"line":12}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/references",
+      "result": [
+        {
+          "range": {"end":{"character":12,"line":2},"start":{"character":8,"line":2}},
+          "uri": "<project>/src/Module.elm"
+        },
+        {
+          "range": {"end":{"character":18,"line":5},"start":{"character":14,"line":5}},
+          "uri": "<project>/src/Module.elm"
+        }
+      ]
+    }
+  ]
+}

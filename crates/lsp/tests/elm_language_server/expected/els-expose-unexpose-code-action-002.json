@@ -1,0 +1,19 @@
+{
+  "diagnostics": {
+    "src/Test.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"actionName":"unexpose_function","range":{"end":{"character":2,"line":3},"start":{"character":2,"line":3}},"refactorName":"expose_unexpose","uri":"<project>/src/Test.elm"},
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"","range":{"end":{"character":29,"line":0},"start":{"character":22,"line":0}}}]}},
+          "isPreferred": true,
+          "kind": "refactor",
+          "title": "Unexpose Function"
+        }
+      ]
+    }
+  ]
+}

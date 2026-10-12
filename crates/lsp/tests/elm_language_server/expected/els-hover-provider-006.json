@@ -1,0 +1,16 @@
+{
+  "diagnostics": {
+    "src/Test.elm": []
+  },
+  "requests": [
+    {
+      "method": "textDocument/hover",
+      "result": {
+        "contents": {
+          "kind": "markdown",
+          "value": "\n```elm\nfoo : Foo\n```\n\n\n---\n\n\n```elm\nfoo\n```\n"
+        }
+      }
+    }
+  ]
+}

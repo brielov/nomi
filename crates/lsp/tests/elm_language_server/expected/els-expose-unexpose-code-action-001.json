@@ -1,0 +1,44 @@
+{
+  "diagnostics": {
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "unused_top_level",
+          "uri": "<project>/src/Test.elm"
+        },
+        "message": "Unused top level definition `world`",
+        "range": {
+          "end": {"character":5,"line":7},
+          "start": {"character":0,"line":7}
+        },
+        "severity": 2,
+        "source": "ElmLS",
+        "tags": [
+          1
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "textDocument/codeAction",
+      "result": [
+        {
+          "data": {"fixId":"remove_unused"},
+          "diagnostics": [{"data":{"code":"unused_top_level","uri":"<project>/src/Test.elm"},"message":"Unused top level definition `world`","range":{"end":{"character":5,"line":7},"start":{"character":0,"line":7}},"severity":2,"source":"ElmLS","tags":[1]}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"","range":{"end":{"character":11,"line":8},"start":{"character":0,"line":6}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Remove function `world`"
+        },
+        {
+          "data": {"actionName":"expose_function","range":{"end":{"character":5,"line":7},"start":{"character":0,"line":7}},"refactorName":"expose_unexpose","uri":"<project>/src/Test.elm"},
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":", world","range":{"end":{"character":27,"line":0},"start":{"character":27,"line":0}}}]}},
+          "isPreferred": true,
+          "kind": "refactor",
+          "title": "Expose Function"
+        }
+      ]
+    }
+  ]
+}
