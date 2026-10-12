@@ -248,13 +248,21 @@ els-function-references-011/00 textDocument/references
 els-function-references-011/diagnostics
 els-function-references-012/00 textDocument/references
 els-function-references-012/diagnostics
+els-hover-provider-002/00 textDocument/hover
 els-hover-provider-002/diagnostics
+els-hover-provider-003/00 textDocument/hover
 els-hover-provider-003/diagnostics
+els-hover-provider-004/00 textDocument/hover
 els-hover-provider-004/diagnostics
+els-hover-provider-006/00 textDocument/hover
 els-hover-provider-006/diagnostics
+els-hover-provider-007/00 textDocument/hover
 els-hover-provider-007/diagnostics
+els-hover-provider-008/00 textDocument/hover
 els-hover-provider-008/diagnostics
+els-hover-provider-009/00 textDocument/hover
 els-hover-provider-009/diagnostics
+els-hover-provider-010/00 textDocument/hover
 els-hover-provider-010/diagnostics
 els-import-code-action-001/diagnostics
 els-import-code-action-002/diagnostics
@@ -645,6 +653,12 @@ make-missing-module/diagnostics
 make-modules/diagnostics
 make-package/diagnostics
 make-patterns/diagnostics
+navigation/00 textDocument/hover
+navigation/01 textDocument/hover
+navigation/02 textDocument/hover
+navigation/03 textDocument/hover
+navigation/04 textDocument/hover
+navigation/05 textDocument/hover
 navigation/06 textDocument/definition
 navigation/07 textDocument/definition
 navigation/08 textDocument/definition

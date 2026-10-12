@@ -155,10 +155,27 @@ pub fn type_definition(
     let module = index.module(path)?;
     let canonical = module.canonical.as_ref()?;
     let (_, types) = types::infer_types(index.compat, canonical);
-    let (_, ty) = (types.iter())
+    let (innermost, ty) = (types.iter())
         .filter_map(|(range, ty)| Some((crate::hover::trimmed(&module.root, *range)?, ty)))
         .filter(|(range, _)| range.contains_inclusive(offset))
         .min_by_key(|(range, _)| range.len())?;
+    // A variable's context may have taken its alias; its binding keeps it.
+    let named = |ty: &error::Type| matches!(ty, error::Type::Alias(..) | error::Type::Type(..));
+    let bound = (!named(ty))
+        .then(|| {
+            let binder = (module.references.iter())
+                .find(|r| r.range == innermost)
+                .and_then(|r| match r.target {
+                    Target::Local(binder) => Some(binder),
+                    _ => None,
+                })?;
+            (types.iter())
+                .filter(|(range, _)| crate::hover::trimmed(&module.root, *range) == Some(binder))
+                .map(|(_, ty)| ty)
+                .find(|ty| named(ty))
+        })
+        .flatten();
+    let ty = bound.unwrap_or(ty);
     let (home, name, alias) = match ty {
         error::Type::Alias(home, name, _, _) => (home, name, true),
         error::Type::Type(home, name, _) => (home, name, false),

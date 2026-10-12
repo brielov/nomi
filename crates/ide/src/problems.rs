@@ -194,11 +194,17 @@ fn strip_escapes(text: &str) -> String {
 }
 
 /// The top-level values of the module at `path` that have no annotation,
-/// each with the one inference gives it, where its types check.
+/// each with the one inference gives it, where it parses and its types
+/// check.
 pub fn missing_annotations(index: &Index, path: &Path) -> Vec<Problem> {
     let Some(module) = index.module(path) else {
         return Vec::new();
     };
+    // A module that doesn't parse has its syntax error to show, and its
+    // recovered tree's types are no one's.
+    if !nomi_syntax::parse_module(&module.text).errors().is_empty() {
+        return Vec::new();
+    }
     let Some(canonical) = &module.canonical else {
         return Vec::new();
     };

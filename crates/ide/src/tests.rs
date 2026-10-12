@@ -326,20 +326,35 @@ fn references_and_highlights_find_every_use() {
 }
 
 #[test]
-fn hover_shows_annotations_and_the_innermost_expressions_type() {
+fn hover_shows_definitions_as_elm_language_server_does() {
     let (_dir, vfs, path, _other) = navigated();
     let (_store_dir, store) = store();
     let snapshot = vfs.snapshot();
     let index =
         nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
-    // `area`'s declaration, which has no annotation: inferred.
-    let found = hover(&index, &path, offset(NAVIGATED, "area", 1)).unwrap();
-    assert_eq!(found.markdown, "```elm\narea : Shape -> Float\n```");
-    // `size` in the body, the innermost expression there: a Float, as
-    // `Circle` takes one.
-    let found = hover(&index, &path, offset(NAVIGATED, "size", 1)).unwrap();
-    assert_eq!(at(NAVIGATED, found.range), "size");
-    assert_eq!(found.markdown, "```elm\nFloat\n```");
+    // `area`, which has no annotation: its inferred type, then its name
+    // and parameters.
+    let found = hover(&snapshot, &index, &path, offset(NAVIGATED, "area", 1)).unwrap();
+    assert_eq!(
+        found.markdown,
+        "\n```elm\narea : Shape -> Float\n```\n\n\n---\n\n\n```elm\narea shape\n```\n"
+    );
+    // `size` in the body, a variable of `let`.
+    let found = hover(&snapshot, &index, &path, offset(NAVIGATED, "size", 1)).unwrap();
+    assert_eq!(
+        found.markdown,
+        "\n```elm\nsize : number\n```\n\n\n---\n\nDefined in local let scope"
+    );
+    // `r`, a case branch's variable: a parameter, linked to where its
+    // type is declared.
+    let found = hover(&snapshot, &index, &path, offset(NAVIGATED, "r * r", 0)).unwrap();
+    assert_eq!(
+        found.markdown,
+        "\n```elm\nr : Float\n```\n\n\n---\n\nLocal parameter"
+    );
+    let (name, file, _) = found.link.unwrap();
+    assert_eq!(name, "Float");
+    assert!(file.ends_with("src/Basics.elm"), "{file:?}");
 }
 
 #[test]

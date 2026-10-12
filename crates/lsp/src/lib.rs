@@ -515,16 +515,25 @@ impl Server {
         let (document, offset) = self.at(position)?;
         let path = document.path.clone();
         let snapshot = self.vfs.snapshot();
-        let found =
-            (self.index(&snapshot, &path)).and_then(|index| nomi_ide::hover(index, &path, offset));
-        let document = self.document(&position.text_document.uri)?;
-        let text = Text::new(&document.text, self.unit);
-        let response = found.map(|h| lsp_types::Hover {
-            contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
-                kind: lsp_types::MarkupKind::Markdown,
-                value: h.markdown,
-            }),
-            range: Some(text.range(h.range)),
+        let found = (self.index(&snapshot, &path))
+            .and_then(|index| nomi_ide::hover(&snapshot, index, &path, offset));
+        let response = found.map(|h| {
+            let mut value = h.markdown;
+            // As elm-language-server links a parameter's type: to its
+            // file, at a one-based line.
+            if let Some((name, path, line)) = h.link
+                && let Ok(mut uri) = Url::from_file_path(&path)
+            {
+                uri.set_fragment(Some(&format!("L{line}")));
+                value.push_str(&format!("\n\n[Go to {name}](<{uri}>)"));
+            }
+            lsp_types::Hover {
+                contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
+                    kind: lsp_types::MarkupKind::Markdown,
+                    value,
+                }),
+                range: None,
+            }
         });
         Ok(serde_json::to_value(response).expect("a hover serializes"))
     }

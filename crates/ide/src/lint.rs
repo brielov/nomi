@@ -932,7 +932,7 @@ fn is_expr(kind: SyntaxKind) -> bool {
     )
 }
 
-fn is_type(kind: SyntaxKind) -> bool {
+pub(crate) fn is_type(kind: SyntaxKind) -> bool {
     matches!(
         kind,
         SyntaxKind::NamedType

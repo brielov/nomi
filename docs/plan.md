@@ -699,7 +699,16 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - **Surprises.**
     - Unification keeps an alias on one side only: a record literal in a list, or a lambda's result, comes out as a bare record. When no alias names the type, the one record type in the project's declarations with the same fields answers, and none answers when there are several. That's a stopgap: tracking each field's origin through the solver would make it exact, and rename (9.7) will show whether that's needed.
     - A local's own recorded type is what its context expects, not its annotation's, so the alias is read from the binding.
-- [ ] **9.6c** `ide: hover as elm-language-server shows it`. Markdown with the annotation, the doc comment and, for a parameter, a link to its type. **Check:** the hover cases.
+- [x] **9.6c** `ide: hover as elm-language-server shows it`. Markdown with the annotation, the doc comment and, for a parameter, a link to its type. **Check:** the hover cases.
+
+  Done:
+  - **Hover.** It finds the definition and writes it as `hintHelper.ts` does, by kind: top-level values, `let` values, parameters (with a link to their type's line), types, variants, fields, ports and modules.
+  - **Types** are written on one line as elm-language-server's renderer writes them, qualified as the hovering module would write them. A `let` value's type is its parameters' and its body's.
+  - **Result.** All 15 hover cases match, and the ratchet goes from 657 to 671 of 838.
+  - **Surprises.**
+    - A variant of a documented type shows only the type's doc comment.
+    - elm-language-server's parameter-annotation lookup almost never triggers: the parent chain it walks rarely ends at an annotation. So a parameter shows `name : type` from inference.
+    - Missing annotations were being suggested from the recovered tree of a module that doesn't parse, as `()`. They're now only suggested for modules that parse.
 - [ ] **9.7** `ide: rename`. Prepare-rename, exposing lists, qualified names, record fields, and module rename as a `RenameFile`. Files outside the project are refused with its message.
 - [ ] **9.8** `ide: completion in scope`. Locals, qualified names, module and import exposing lists, module names after `import`, record fields by type (in expressions, updates and record patterns), and annotation names at the start of a line.
 - [ ] **9.9** `ide: completion with auto-import, snippets and keywords`. Up to 49 auto-imports with their edit, `isIncomplete`, `labelDetails`, its snippets and keywords, and its sort order.

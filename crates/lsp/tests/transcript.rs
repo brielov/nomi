@@ -248,7 +248,7 @@ fn an_edit_in_one_document_leaves_anothers_diagnostics() {
         }),
     );
     let found = client.diagnostics(&main, |d| !d.is_empty());
-    assert_eq!(found.len(), 1);
+    assert_eq!(found.len(), 1, "{found:#?}");
     client.notify(
         "textDocument/didClose",
         json!({ "textDocument": { "uri": main } }),
@@ -412,11 +412,14 @@ fn hover_and_completion_answer_without_packages() {
         "module Main exposing (main)\n\nimport Other\n\n\nmain =\n    Other.helper ()\n",
     );
     let at = |line, character| json!({ "textDocument": { "uri": main }, "position": { "line": line, "character": character } });
-    // `main`'s name: its inferred annotation.
+    // `main`'s name: its inferred annotation, then its name.
     let response = client.request("textDocument/hover", at(5, 1));
     let found = response.result.unwrap();
     assert_eq!(found["contents"]["kind"], "markdown");
-    assert_eq!(found["contents"]["value"], "```elm\nmain : ()\n```");
+    assert_eq!(
+        found["contents"]["value"],
+        "\n```elm\nmain : ()\n```\n\n\n---\n\n\n```elm\nmain\n```\n"
+    );
     // After `Other.`: what Other exposes.
     let response = client.request("textDocument/completion", at(6, 10));
     let labels: Vec<&str> = (response.result.as_ref().unwrap().as_array().unwrap().iter())
