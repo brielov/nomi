@@ -61,6 +61,10 @@ pub struct Step {
     /// More parameters, merged over the ones the driver makes.
     #[serde(default)]
     pub params: Map<String, Value>,
+    /// Whether to resolve each item of the answer, in order, recording
+    /// the resolved items as an answer of their own.
+    #[serde(default)]
+    pub resolve: bool,
 }
 
 /// A position or range in the step's file: by marker index, or exactly.
@@ -355,6 +359,10 @@ impl Driver {
         for step in &session.requests {
             let params = self.params(step);
             let answer = self.request(&step.method, params);
+            let resolved = match (&answer, step.resolve) {
+                (Ok(Value::Array(items)), true) => Some(self.resolve(&step.method, items.clone())),
+                _ => None,
+            };
             let mut entry = Map::new();
             entry.insert("method".into(), json!(step.method));
             match answer {
@@ -368,11 +376,31 @@ impl Driver {
                 );
             }
             requests.push(Value::Object(entry));
+            requests.extend(resolved);
         }
         let shutdown = self.request("shutdown", Value::Null);
         assert!(shutdown.is_ok(), "shutdown: {shutdown:?}");
         self.notify("exit", Value::Null);
         json!({ "diagnostics": diagnostics, "requests": requests })
+    }
+
+    /// Each of `items` resolved, as one entry: the resolve request of
+    /// the method that answered them, and the resolved items in order.
+    fn resolve(&mut self, method: &str, items: Vec<Value>) -> Value {
+        let resolve = match method {
+            "textDocument/codeLens" => "codeLens/resolve",
+            "textDocument/completion" => "completionItem/resolve",
+            "textDocument/codeAction" => "codeAction/resolve",
+            _ => panic!("{method} has no resolve request"),
+        };
+        let results: Vec<Value> = items
+            .into_iter()
+            .map(|item| {
+                self.request(resolve, item)
+                    .unwrap_or_else(|error| json!({ "error": error }))
+            })
+            .collect();
+        json!({ "method": resolve, "result": results })
     }
 
     fn uri(&self, file: &str) -> String {
@@ -573,6 +601,14 @@ pub fn tidy(transcript: Value, replacements: &[(String, String)]) -> Value {
             locations.sort_by_key(|l| serde_json::to_string(l).unwrap());
         }
         // Nor do they order a rename's edits.
+        if request["method"] == "codeLens/resolve" {
+            for lens in request["result"].as_array_mut().into_iter().flatten() {
+                let references = lens.pointer_mut("/command/arguments/0/references");
+                if let Some(locations) = references.and_then(Value::as_array_mut) {
+                    locations.sort_by_key(|l| serde_json::to_string(l).unwrap());
+                }
+            }
+        }
         if request["method"] == "textDocument/rename" {
             let result = &mut request["result"];
             if let Some(changes) = result.get_mut("changes").and_then(Value::as_object_mut) {

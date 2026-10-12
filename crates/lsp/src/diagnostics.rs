@@ -34,6 +34,9 @@ const DEBOUNCE: Duration = Duration::from_millis(200);
 pub(crate) struct Settings {
     pub on_save_only: bool,
     pub no_lint: bool,
+    /// Whether the client runs `elm.expose-` and `elm.unexpose-`
+    /// commands, which lenses then offer.
+    pub expose_commands: bool,
 }
 
 impl Settings {
@@ -45,6 +48,10 @@ impl Settings {
         Some(Settings {
             on_save_only: flag("onlyUpdateDiagnosticsOnSave"),
             no_lint: flag("disableElmLSDiagnostics"),
+            expose_commands: (section.get("extendedCapabilities"))
+                .and_then(|e| e.get("exposeUnexposeSupport"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         })
     }
 
@@ -304,6 +311,7 @@ mod tests {
         let on = Settings {
             on_save_only: true,
             no_lint: false,
+            expose_commands: false,
         };
         let section = json!({ "onlyUpdateDiagnosticsOnSave": true });
         assert_eq!(Settings::read(&section), Some(on.clone()));

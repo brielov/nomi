@@ -1,3 +1,13 @@
+code-lens-expose/00 textDocument/codeLens
+code-lens-expose/01 codeLens/resolve
+code-lens-expose/02 textDocument/codeLens
+code-lens-expose/03 codeLens/resolve
+code-lens-expose/diagnostics
+code-lens/00 textDocument/codeLens
+code-lens/01 codeLens/resolve
+code-lens/02 textDocument/codeLens
+code-lens/03 codeLens/resolve
+code-lens/diagnostics
 completion-lines/00 textDocument/completion
 completion-lines/01 textDocument/completion
 completion-lines/02 textDocument/completion
@@ -11,6 +21,7 @@ editing/04 textDocument/linkedEditingRange
 editing/05 textDocument/prepareRename
 editing/06 textDocument/rename
 editing/07 textDocument/completion
+editing/08 textDocument/codeLens
 editing/09 workspace/symbol
 editing/diagnostics
 els-add-missing-case-branches-001/diagnostics

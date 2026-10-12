@@ -11,6 +11,7 @@ mod completion_data;
 mod completion_general;
 mod fields;
 mod hover;
+mod lens;
 mod lint;
 mod navigation;
 mod problems;
@@ -32,6 +33,7 @@ use nomi_syntax::{Source, Tool, parse_module, validate};
 
 pub use completion::{Completion, CompletionKind, Completions, completions};
 pub use hover::{Hover, hover};
+pub use lens::{Lens, LensKind, code_lenses, is_exposed};
 pub use lint::{Checks, lint};
 pub use navigation::{Location, definition, highlights, references, type_definition};
 pub use problems::{Problem, Severity, compiler_problems, missing_annotations};

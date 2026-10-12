@@ -117,6 +117,9 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
             work_done_progress_options: lsp_types::WorkDoneProgressOptions::default(),
         })),
         references_provider: Some(OneOf::Left(true)),
+        code_lens_provider: Some(lsp_types::CodeLensOptions {
+            resolve_provider: Some(true),
+        }),
         document_highlight_provider: Some(OneOf::Left(true)),
         hover_provider: Some(lsp_types::HoverProviderCapability::Simple(true)),
         completion_provider: Some(lsp_types::CompletionOptions {
@@ -263,6 +266,11 @@ impl Server {
             Completion::METHOD => parse(request).and_then(|p: lsp_types::CompletionParams| {
                 self.completion(&p.text_document_position)
             }),
+            "textDocument/codeLens" => parse(request)
+                .and_then(|p: lsp_types::CodeLensParams| self.code_lenses(&p.text_document.uri)),
+            "codeLens/resolve" => {
+                parse(request).and_then(|lens: lsp_types::CodeLens| self.resolve_lens(lens))
+            }
             DocumentHighlightRequest::METHOD => {
                 parse(request).and_then(|p: DocumentHighlightParams| {
                     self.highlights(&p.text_document_position_params)
@@ -677,6 +685,98 @@ impl Server {
             .filter_map(|l| self.location(&snapshot, l))
             .collect();
         Ok(serde_json::to_value(locations).expect("references serialize"))
+    }
+
+    fn code_lenses(&self, uri: &Url) -> Result<Value, (ErrorCode, String)> {
+        let document = self.document(uri)?;
+        let lenses = nomi_ide::code_lenses(&self.vfs.snapshot(), &document.path)
+            .map_err(|e| (ErrorCode::InternalError, e.to_string()))?;
+        let text = Text::new(&document.text, self.unit);
+        // The data elm-language-server gives, which comes back to resolve.
+        let lenses: Vec<Value> = (lenses.into_iter())
+            .map(|lens| {
+                let data = match lens.kind {
+                    nomi_ide::LensKind::Exposed { name, function } => serde_json::json!({
+                        "codeLensType": "exposed", "uri": uri,
+                        "nameNode": name, "isFunctionOrPort": function,
+                    }),
+                    nomi_ide::LensKind::References => {
+                        serde_json::json!({ "codeLensType": "referenceCounter", "uri": uri })
+                    }
+                };
+                serde_json::json!({ "range": text.range(lens.range), "data": data })
+            })
+            .collect();
+        Ok(Value::Array(lenses))
+    }
+
+    fn resolve_lens(
+        &mut self,
+        mut lens: lsp_types::CodeLens,
+    ) -> Result<Value, (ErrorCode, String)> {
+        let data = lens.data.clone().unwrap_or_default();
+        let uri = (data["uri"].as_str())
+            .and_then(|u| Url::parse(u).ok())
+            .ok_or_else(|| {
+                (
+                    ErrorCode::InvalidParams,
+                    "a lens without its file".to_owned(),
+                )
+            })?;
+        let path = (uri.to_file_path())
+            .map_err(|()| (ErrorCode::InvalidParams, format!("{uri} isn't a file")))?;
+        let snapshot = self.vfs.snapshot();
+        let text = snapshot
+            .read(&path)
+            .map_err(|e| (ErrorCode::InternalError, e.to_string()))?;
+        let text = Text::new(&text, self.unit);
+        let command = match data["codeLensType"].as_str() {
+            Some("exposed") => {
+                let name = data["nameNode"].as_str().unwrap_or_default();
+                let function = data["isFunctionOrPort"].as_bool().unwrap_or(false);
+                let exposed = nomi_ide::is_exposed(&snapshot, &path, name, function)
+                    .map_err(|e| (ErrorCode::InternalError, e.to_string()))?;
+                let title = if exposed { "exposed" } else { "local" };
+                let root = (index::manifest(&snapshot, &path))
+                    .and_then(|m| m.parent().map(Path::to_path_buf))
+                    .and_then(|root| Url::from_file_path(root).ok());
+                match root.filter(|_| self.settings.lock().unwrap().expose_commands) {
+                    Some(root) => {
+                        let verb = if exposed { "unexpose" } else { "expose" };
+                        let root = root.as_str().trim_end_matches('/');
+                        lsp_types::Command::new(
+                            title.to_owned(),
+                            format!("elm.{verb}-{root}"),
+                            Some(vec![serde_json::json!({ "uri": uri, "name": name })]),
+                        )
+                    }
+                    None => lsp_types::Command::new(title.to_owned(), String::new(), None),
+                }
+            }
+            Some("referenceCounter") => {
+                let offset = text.offset(lens.range.start);
+                let found = (self.index(&snapshot, &path))
+                    .map(|index| nomi_ide::references(&snapshot, index, &path, offset, true))
+                    .unwrap_or_default();
+                let locations: Vec<Location> = (found.iter())
+                    .filter_map(|l| self.location(&snapshot, l))
+                    .collect();
+                let title = match locations.len() {
+                    1 => "1 reference".to_owned(),
+                    n => format!("{n} references"),
+                };
+                lsp_types::Command::new(
+                    title,
+                    "editor.action.showReferences".to_owned(),
+                    Some(vec![serde_json::json!({
+                        "range": lens.range, "references": locations, "uri": uri,
+                    })]),
+                )
+            }
+            _ => return Ok(serde_json::to_value(lens).expect("a lens serializes")),
+        };
+        lens.command = Some(command);
+        Ok(serde_json::to_value(lens).expect("a lens serializes"))
     }
 
     fn highlights(

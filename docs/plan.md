@@ -753,11 +753,15 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - Folds are sorted by where their node starts, stable, as elm-language-server walks the tree.
   - A selection starts at the named token under the cursor (an identifier or a literal), otherwise at the enclosing node. Value and let declarations are skipped, as their tree-sitter nodes don't exist there.
   - A variant followed by `|` takes in its trailing line comments, in both its name and its range, because tree-sitter-elm's variant node does.
-- [ ] **9.11** `ide: code lens`. Exposed or local, and reference counts, resolved lazily.
+- [x] **9.11** `ide: code lens`. Exposed or local, and reference counts, resolved lazily.
   - **Driver:** a step's `"resolve": true` sends `codeLens/resolve` for each lens of the answer, in order, and records the resolved list as a second answer.
   - **Seed case `code-lens`:** exposed and local values, types, aliases and ports; let-bound functions, which elm-language-server's lens walk also reaches; references from another module; and a session with `exposeUnexposeSupport` on, for the `elm.expose-` and `elm.unexpose-` commands.
   - **Lenses:** the same `data` as elm-language-server's (`codeLensType`, `uri`, `nameNode`, `isFunctionOrPort`), since clients send it back on resolve. Exposing lenses come first in declaration order, then reference lenses (types and ports, then value declarations at any depth, then the module name).
   - **Resolve:** the count comes from 9.6a's references, and its command carries their locations.
+  - **Done:** every replayed lens and resolved lens matches, with exposing commands on and off.
+  - A value's lens sits on its signature only when the signature is its previous named node in tree-sitter-elm, so a comment between the two moves it to the definition.
+  - An exposed type is matched by its source text, as elm-language-server does, so `Shape (..)` written with a space reads as local.
+  - Counts include the declaration, the signature's name, the exposing entry and the module's own name, as `References.find` does.
 - [ ] **9.12** `ide: code action machinery and import fixes`.
   - **Machinery:** preferred actions, fix-all, and lazy resolve when the client supports it.
   - **Fixes:** import a missing value or module, install a package (`elm install` through the client's confirmation), the compiler's "Change to" suggestions, add the inferred annotation, and expose or unexpose.

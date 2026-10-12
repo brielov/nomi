@@ -1,0 +1,8 @@
+{
+    "settings": { "extendedCapabilities": { "exposeUnexposeSupport": true } },
+    "open": ["src/Main.elm", "src/Shapes/Circle.elm"],
+    "requests": [
+        { "method": "textDocument/codeLens", "file": "src/Main.elm", "resolve": true },
+        { "method": "textDocument/codeLens", "file": "src/Shapes/Circle.elm", "resolve": true }
+    ]
+}
