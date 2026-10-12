@@ -1,6 +1,20 @@
 {
   "diagnostics": {
-    "src/Test.elm": []
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "TYPE MISMATCH - Something is off with the body of the `t` definition:\n\n11|     {}\n        #^^#\nThe body is a record of type:\n\n    {}\n\nBut the type annotation on `t` says it should be:\n\n    #Type#\n\n#Hint#: Looks like fields #data# and #tag# are missing.",
+        "range": {
+          "end": {"character":6,"line":10},
+          "start": {"character":4,"line":10}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": [
     {

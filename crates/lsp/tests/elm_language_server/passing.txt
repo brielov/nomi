@@ -7,6 +7,8 @@ els-add-missing-case-branches-004/diagnostics
 els-add-missing-case-branches-005/diagnostics
 els-add-missing-case-branches-006/diagnostics
 els-add-missing-case-branches-007/diagnostics
+els-add-missing-record-field-code-action-001/diagnostics
+els-add-missing-record-field-code-action-002/diagnostics
 els-add-missing-union-type-001/diagnostics
 els-add-missing-union-type-002/diagnostics
 els-add-missing-union-type-003/diagnostics
@@ -17,13 +19,85 @@ els-add-type-annotation-code-action-001/diagnostics
 els-add-type-annotation-code-action-002/diagnostics
 els-add-type-annotation-code-action-003/diagnostics
 els-aliased-import-definition-006/00 textDocument/definition
+els-completion-provider-003/diagnostics
+els-completion-provider-004/diagnostics
+els-completion-provider-005/diagnostics
 els-completion-provider-010/diagnostics
+els-completion-provider-012/diagnostics
+els-completion-provider-018/diagnostics
+els-completion-provider-019/diagnostics
 els-completion-provider-022/diagnostics
+els-completion-provider-023/diagnostics
+els-completion-provider-024/diagnostics
+els-completion-provider-025/diagnostics
+els-completion-provider-026/diagnostics
+els-completion-provider-029/diagnostics
+els-completion-provider-030/diagnostics
+els-completion-provider-031/diagnostics
 els-completion-provider-033/diagnostics
 els-completion-provider-034/diagnostics
+els-completion-provider-036/diagnostics
+els-completion-provider-037/diagnostics
+els-completion-provider-040/diagnostics
 els-completion-provider-045/diagnostics
 els-completion-provider-046/00 textDocument/completion
 els-completion-provider-047/diagnostics
+els-completion-provider-048/diagnostics
+els-completion-provider-049/diagnostics
+els-elm-ls-diagnostics-003/diagnostics
+els-elm-ls-diagnostics-005/diagnostics
+els-elm-ls-diagnostics-006/diagnostics
+els-elm-ls-diagnostics-007/diagnostics
+els-elm-ls-diagnostics-009/diagnostics
+els-elm-ls-diagnostics-010/diagnostics
+els-elm-ls-diagnostics-011/diagnostics
+els-elm-ls-diagnostics-012/diagnostics
+els-elm-ls-diagnostics-013/diagnostics
+els-elm-ls-diagnostics-014/diagnostics
+els-elm-ls-diagnostics-015/diagnostics
+els-elm-ls-diagnostics-016/diagnostics
+els-elm-ls-diagnostics-024/diagnostics
+els-elm-ls-diagnostics-025/diagnostics
+els-elm-ls-diagnostics-026/diagnostics
+els-elm-ls-diagnostics-027/diagnostics
+els-elm-ls-diagnostics-028/diagnostics
+els-elm-ls-diagnostics-030/diagnostics
+els-elm-ls-diagnostics-031/diagnostics
+els-elm-ls-diagnostics-032/diagnostics
+els-elm-ls-diagnostics-033/diagnostics
+els-elm-ls-diagnostics-034/diagnostics
+els-elm-ls-diagnostics-035/diagnostics
+els-elm-ls-diagnostics-036/diagnostics
+els-elm-ls-diagnostics-038/diagnostics
+els-elm-ls-diagnostics-039/diagnostics
+els-elm-ls-diagnostics-040/diagnostics
+els-elm-ls-diagnostics-042/diagnostics
+els-elm-ls-diagnostics-043/diagnostics
+els-elm-ls-diagnostics-044/diagnostics
+els-elm-ls-diagnostics-045/diagnostics
+els-elm-ls-diagnostics-046/diagnostics
+els-elm-ls-diagnostics-047/diagnostics
+els-elm-ls-diagnostics-048/diagnostics
+els-elm-ls-diagnostics-049/diagnostics
+els-elm-ls-diagnostics-054/diagnostics
+els-elm-ls-diagnostics-057/diagnostics
+els-elm-ls-diagnostics-060/diagnostics
+els-elm-ls-diagnostics-062/diagnostics
+els-elm-ls-diagnostics-072/diagnostics
+els-elm-ls-diagnostics-077/diagnostics
+els-elm-ls-diagnostics-078/diagnostics
+els-elm-ls-diagnostics-079/diagnostics
+els-elm-ls-diagnostics-080/diagnostics
+els-elm-ls-diagnostics-081/diagnostics
+els-elm-ls-diagnostics-082/diagnostics
+els-elm-ls-diagnostics-083/diagnostics
+els-elm-ls-diagnostics-084/diagnostics
+els-elm-ls-diagnostics-086/diagnostics
+els-elm-ls-diagnostics-087/diagnostics
+els-elm-ls-diagnostics-089/diagnostics
+els-elm-ls-diagnostics-091/diagnostics
+els-elm-ls-diagnostics-092/diagnostics
+els-elm-ls-diagnostics-094/diagnostics
 els-expose-unexpose-code-action-002/diagnostics
 els-expose-unexpose-code-action-007/diagnostics
 els-extract-function-code-action-004/diagnostics
@@ -73,6 +147,7 @@ els-misc-definition-004/00 textDocument/definition
 els-misc-definition-007/00 textDocument/definition
 els-module-references-001/diagnostics
 els-module-references-002/diagnostics
+els-module-resolve-definition-001/diagnostics
 els-module-resolve-definition-003/diagnostics
 els-move-function-code-action-001/diagnostics
 els-pattern-definition-004/00 textDocument/definition
@@ -113,11 +188,18 @@ els-type-references-009/diagnostics
 els-type-references-010/00 textDocument/references
 els-type-references-010/diagnostics
 els-type-resolve-definition-005/diagnostics
+els-type-resolve-definition-006/diagnostics
+els-type-resolve-definition-009/diagnostics
 els-type-resolve-definition-010/00 textDocument/definition
 els-type-resolve-definition-011/00 textDocument/definition
 els-type-variable-references-001/diagnostics
 els-type-variable-references-003/diagnostics
 els-type-variable-references-004/diagnostics
+make-annotations/diagnostics
+make-modules/diagnostics
+make-package/diagnostics
+make-patterns/diagnostics
+make-syntax/diagnostics
 navigation/11 textDocument/definition
 navigation/13 textDocument/references
 navigation/14 textDocument/references

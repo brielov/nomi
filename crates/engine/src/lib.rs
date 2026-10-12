@@ -18,6 +18,7 @@ pub mod index;
 pub mod init;
 pub mod install;
 pub mod javascript;
+pub mod live;
 pub mod make;
 pub mod names;
 pub mod objects;

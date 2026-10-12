@@ -1,0 +1,37 @@
+{
+  "diagnostics": {
+    "src/Clean.elm": [],
+    "src/Main.elm": [],
+    "src/Shapes.elm": [
+      {
+        "data": {
+          "code": "elm_make",
+          "uri": "src/Shapes.elm"
+        },
+        "message": "TYPE MISMATCH - Something is off with the 1st branch of this `case` expression:\n\n13|             \"four\"\n                #^^^^^^#\nThe 1st branch is a string of type:\n\n    #String#\n\nBut the type annotation on `sides` says it should be:\n\n    #Int#\n\n#Hint#: Want to convert a String into an Int? Use the #String.toInt# function!",
+        "range": {
+          "end": {"character":18,"line":12},
+          "start": {"character":12,"line":12}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ],
+    "src/Unused.elm": [
+      {
+        "data": {
+          "code": "missing_value",
+          "uri": "src/Unused.elm"
+        },
+        "message": "NAMING ERROR - I cannot find a `tw0` variable:\n\n6|     String.length \"café ✓\" * n * tw0\n                                    #^^^#\nThese names seem close though:\n\n    #tan#\n    #abs#\n    #atan#\n    #cos#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+        "range": {
+          "end": {"character":36,"line":5},
+          "start": {"character":33,"line":5}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
+  },
+  "requests": []
+}

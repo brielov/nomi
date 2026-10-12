@@ -3,6 +3,19 @@
     "src/Main.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Main.elm"
+        },
+        "message": "MODULE NAME MISSING - I need the module name to be declared at the top of this file, like this:\n\n    #module# Main #exposing# (..)\n\nTry adding that as the first line of your file!\n\n#Note#: It is best to replace (..) with an explicit list of types and functions\nyou want to expose. When you know a value is only used within this module, you\ncan refactor without worrying about uses elsewhere. Limiting exposed values can\nalso speed up compilation because I can skip a bunch of work if I see that the\nexposed API has not changed.",
+        "range": {
+          "end": {"character":0,"line":0},
+          "start": {"character":0,"line":0}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_type_alias",
           "uri": "<project>/src/Main.elm"
         },

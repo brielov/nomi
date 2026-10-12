@@ -1,11 +1,66 @@
 {
   "diagnostics": {
-    "src/Test.elm": []
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "missing_value",
+          "uri": "src/Test.elm"
+        },
+        "message": "NAMING ERROR - I cannot find a `App.foo` variable:\n\n3| func = App.foo\n          #^^^^^^^#\nI cannot find a `App` import. These names seem close though:\n\n    #acos#\n    #Cmd.map#\n    #Cmd.none#\n    #Sub.map#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+        "range": {
+          "end": {"character":14,"line":2},
+          "start": {"character":7,"line":2}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": [
     {
       "method": "textDocument/codeAction",
-      "result": []
+      "result": [
+        {
+          "data": {"fixId":"import"},
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `App.foo` variable:\n\n3| func = App.foo\n          #^^^^^^^#\nI cannot find a `App` import. These names seem close though:\n\n    #acos#\n    #Cmd.map#\n    #Cmd.none#\n    #Sub.map#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":14,"line":2},"start":{"character":7,"line":2}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"import App\n","range":{"end":{"character":0,"line":1},"start":{"character":0,"line":1}}}]}},
+          "isPreferred": true,
+          "kind": "quickfix",
+          "title": "Import module \"App\""
+        },
+        {
+          "data": {"fixId":"import","isFixAll":true},
+          "diagnostics": [{"code":"missing_value","message":"No definition found for `App.foo`.","range":{"end":{"character":14,"line":2},"start":{"character":7,"line":2}},"severity":1,"source":"Elm","uri":"<project>/src/Test.elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"import App\n","range":{"end":{"character":0,"line":1},"start":{"character":0,"line":1}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Add all missing imports"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `App.foo` variable:\n\n3| func = App.foo\n          #^^^^^^^#\nI cannot find a `App` import. These names seem close though:\n\n    #acos#\n    #Cmd.map#\n    #Cmd.none#\n    #Sub.map#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":14,"line":2},"start":{"character":7,"line":2}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"acos","range":{"end":{"character":14,"line":2},"start":{"character":7,"line":2}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `acos`"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `App.foo` variable:\n\n3| func = App.foo\n          #^^^^^^^#\nI cannot find a `App` import. These names seem close though:\n\n    #acos#\n    #Cmd.map#\n    #Cmd.none#\n    #Sub.map#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":14,"line":2},"start":{"character":7,"line":2}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"Cmd.map","range":{"end":{"character":14,"line":2},"start":{"character":7,"line":2}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `Cmd.map`"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `App.foo` variable:\n\n3| func = App.foo\n          #^^^^^^^#\nI cannot find a `App` import. These names seem close though:\n\n    #acos#\n    #Cmd.map#\n    #Cmd.none#\n    #Sub.map#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":14,"line":2},"start":{"character":7,"line":2}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"Cmd.none","range":{"end":{"character":14,"line":2},"start":{"character":7,"line":2}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `Cmd.none`"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `App.foo` variable:\n\n3| func = App.foo\n          #^^^^^^^#\nI cannot find a `App` import. These names seem close though:\n\n    #acos#\n    #Cmd.map#\n    #Cmd.none#\n    #Sub.map#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":14,"line":2},"start":{"character":7,"line":2}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"Sub.map","range":{"end":{"character":14,"line":2},"start":{"character":7,"line":2}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `Sub.map`"
+        }
+      ]
     }
   ]
 }

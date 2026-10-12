@@ -7,6 +7,7 @@
 mod completion;
 mod hover;
 mod navigation;
+mod problems;
 mod symbols;
 
 use std::io;
@@ -22,6 +23,7 @@ use nomi_syntax::{Source, Tool, parse_module, validate};
 pub use completion::{Completion, CompletionKind, completions};
 pub use hover::{Hover, hover};
 pub use navigation::{Location, definition, highlights, references};
+pub use problems::{Problem, Severity, compiler_problems, missing_annotations};
 pub use symbols::{Symbol, SymbolKind, document_symbols};
 
 /// A problem in a file, as elm reports it.

@@ -1,0 +1,21 @@
+{
+  "diagnostics": {
+    "src/Internal.elm": [
+      {
+        "data": {
+          "code": "elm_make",
+          "uri": "src/Internal.elm"
+        },
+        "message": "TYPE MISMATCH - Something is off with the body of the `count` definition:\n\n6|     \"many\"\n       #^^^^^^#\nThe body is a string of type:\n\n    #String#\n\nBut the type annotation on `count` says it should be:\n\n    #Int#\n\n#Hint#: Want to convert a String into an Int? Use the #String.toInt# function!",
+        "range": {
+          "end": {"character":10,"line":5},
+          "start": {"character":4,"line":5}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ],
+    "src/Shapes.elm": []
+  },
+  "requests": []
+}

@@ -3,6 +3,19 @@
     "src/Test.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "UNFINISHED PARENTHESES - I just saw an open parenthesis, so I was expecting to see an expression next.\n\n6|     list = List.map (_ -> p)\n                        #^#\nSomething like #(4 + 5)# or #(String.reverse \"desserts\")#. Anything where you are\nputting parentheses around normal expressions.\n\n#Note#: I can get confused by indentation in cases like this, so maybe you have an\nexpression but it is not indented enough?",
+        "range": {
+          "end": {"character":21,"line":5},
+          "start": {"character":21,"line":5}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_pattern",
           "uri": "<project>/src/Test.elm"
         },

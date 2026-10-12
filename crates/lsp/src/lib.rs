@@ -4,6 +4,7 @@
 //! disk in the engine's VFS, and diagnostics are worked out on the pool
 //! against a snapshot and published only while it is current (CR.2).
 
+mod diagnostics;
 mod position;
 
 use std::collections::HashMap;
@@ -14,27 +15,28 @@ use std::sync::{Arc, Mutex};
 use crossbeam_channel::Sender;
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, Response};
 use lsp_types::notification::{
-    DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, Notification as _,
-    PublishDiagnostics,
+    DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument,
+    DidSaveTextDocument, Initialized, Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{
     Completion, DocumentHighlightRequest, DocumentSymbolRequest, Formatting, GotoDefinition,
     HoverRequest, References, Request as _,
 };
 use lsp_types::{
-    Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentFormattingParams, DocumentHighlight,
-    DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
-    GotoDefinitionResponse, InitializeParams, Location, OneOf, PublishDiagnosticsParams,
-    ReferenceParams, ServerCapabilities, ServerInfo, SymbolInformation, SymbolKind,
-    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
+    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DocumentFormattingParams, DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams,
+    DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, InitializeParams,
+    Location, OneOf, PublishDiagnosticsParams, ReferenceParams, ServerCapabilities, ServerInfo,
+    SymbolInformation, SymbolKind, TextDocumentPositionParams, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit, Url,
 };
 use nomi_base::{ColumnUnit, TextSize};
 use nomi_engine::index::{self, Index, Memo};
 use nomi_engine::paths::Cache;
-use nomi_engine::{Pool, Revision, Snapshot, Store, Vfs};
+use nomi_engine::{Revision, Snapshot, Store, Vfs};
 use serde_json::Value;
 
+use diagnostics::{Diagnostics, Job, Settings, Shared};
 use position::Text;
 
 /// Why serving stopped before the client said to exit.
@@ -92,8 +94,13 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
     let unit = position::negotiate(offered);
     let capabilities = ServerCapabilities {
         position_encoding: Some(position::kind(unit)),
-        text_document_sync: Some(TextDocumentSyncCapability::Kind(
-            TextDocumentSyncKind::INCREMENTAL,
+        text_document_sync: Some(TextDocumentSyncCapability::Options(
+            TextDocumentSyncOptions {
+                open_close: Some(true),
+                change: Some(TextDocumentSyncKind::INCREMENTAL),
+                save: Some(TextDocumentSyncSaveOptions::Supported(true)),
+                ..TextDocumentSyncOptions::default()
+            },
         )),
         document_formatting_provider: Some(OneOf::Left(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
@@ -115,15 +122,36 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
         },
     });
     connection.initialize_finish(id, result)?;
+    let settings = (params.initialization_options.as_ref())
+        .and_then(Settings::read)
+        .unwrap_or_default();
+    let pulls_settings = (params.capabilities.workspace.as_ref())
+        .and_then(|w| w.configuration)
+        .unwrap_or(false);
+    let settings = Arc::new(Mutex::new(settings));
+    let publishing = Arc::new(Mutex::new(()));
+    let memo = Arc::new(Mutex::new(memo));
+    let diagnostics = Diagnostics::start(Shared {
+        store: store.clone(),
+        memo: memo.clone(),
+        unit,
+        sender: connection.sender.clone(),
+        publishing: publishing.clone(),
+        settings: settings.clone(),
+    });
     let mut server = Server {
         unit,
         vfs: Arc::new(Vfs::new()),
         documents: HashMap::new(),
-        publishing: Arc::new(Mutex::new(())),
+        publishing,
         sender: connection.sender.clone(),
         store,
         memo,
         index: None,
+        diagnostics,
+        settings,
+        pulls_settings,
+        settings_request: None,
     };
     for message in &connection.receiver {
         match message {
@@ -135,7 +163,7 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
                 send(&server.sender, Message::Response(response));
             }
             Message::Notification(notification) => server.notification(notification),
-            Message::Response(_) => {}
+            Message::Response(response) => server.response(response),
         }
     }
     Ok(())
@@ -154,12 +182,19 @@ struct Server {
     /// Where navigation finds the packages a project uses, never
     /// downloading them.
     store: Store,
-    /// The packages' interfaces, made once per server.
-    memo: Memo,
+    /// The packages' interfaces, made once per server and shared with
+    /// diagnostics.
+    memo: Arc<Mutex<Memo>>,
     /// The last project index, its revision and its `elm.json`: indexing
     /// a project takes a while, and navigation asks again and again
     /// between edits.
     index: Option<(Revision, PathBuf, Index)>,
+    diagnostics: Diagnostics,
+    settings: Arc<Mutex<Settings>>,
+    /// Whether the client answers `workspace/configuration`.
+    pulls_settings: bool,
+    /// The id of the request for the client's settings, while it's out.
+    settings_request: Option<lsp_server::RequestId>,
 }
 
 struct Document {
@@ -219,7 +254,42 @@ impl Server {
                     self.close(&p.text_document.uri);
                 }
             }
+            DidSaveTextDocument::METHOD => self.revise(true),
+            Initialized::METHOD => self.pull_settings(),
+            DidChangeConfiguration::METHOD => {
+                let changed = (notification.params.get("settings")).and_then(Settings::read);
+                if let Some(settings) = changed {
+                    *self.settings.lock().unwrap() = settings;
+                }
+                self.pull_settings();
+            }
             _ => {}
+        }
+    }
+
+    /// Asks the client for its `elmLS` settings, where it answers such
+    /// requests.
+    fn pull_settings(&mut self) {
+        if !self.pulls_settings {
+            return;
+        }
+        let id = lsp_server::RequestId::from("nomi/settings".to_owned());
+        let params = serde_json::json!({ "items": [{ "section": "elmLS" }] });
+        let request = Request::new(id.clone(), "workspace/configuration".to_owned(), params);
+        self.settings_request = Some(id);
+        send(&self.sender, Message::Request(request));
+    }
+
+    fn response(&mut self, response: Response) {
+        if self.settings_request.as_ref() != Some(&response.id) {
+            return;
+        }
+        self.settings_request = None;
+        let first = (response.result.as_ref())
+            .and_then(|r| r.get(0))
+            .and_then(Settings::read);
+        if let Some(settings) = first {
+            *self.settings.lock().unwrap() = settings;
         }
     }
 
@@ -228,7 +298,7 @@ impl Server {
             return;
         };
         self.documents.insert(uri, Document { path, text });
-        self.revise();
+        self.revise(true);
     }
 
     fn change(&mut self, params: DidChangeTextDocumentParams) {
@@ -247,7 +317,7 @@ impl Server {
                 }
             }
         }
-        self.revise();
+        self.revise(false);
     }
 
     fn close(&mut self, uri: &Url) {
@@ -256,16 +326,15 @@ impl Server {
                 let _held = self.publishing.lock().unwrap();
                 let _ = self.vfs.remove_overlay(&document.path);
             }
-            self.revise();
+            self.revise(false);
             let params = PublishDiagnosticsParams::new(uri.clone(), Vec::new(), None);
             send(&self.sender, notification::<PublishDiagnostics>(params));
         }
     }
 
-    /// Lays the open documents over the disk as a new revision, then works
-    /// out every open document's diagnostics against it: any change can
-    /// leave another document's diagnostics unpublished.
-    fn revise(&mut self) {
+    /// Lays the open documents over the disk as a new revision, and has
+    /// it checked: a file opened or saved for it if `saved`.
+    fn revise(&mut self, saved: bool) {
         let snapshot = {
             let _held = self.publishing.lock().unwrap();
             let overlays: Vec<_> = self.documents.values().collect();
@@ -274,34 +343,14 @@ impl Server {
             }
             self.vfs.snapshot()
         };
-        for (uri, document) in &self.documents {
-            let (uri, path, unit) = (uri.clone(), document.path.clone(), self.unit);
-            let (snapshot, publishing) = (snapshot.clone(), self.publishing.clone());
-            let sender = self.sender.clone();
-            Pool::global().spawn(move || {
-                let Ok(found) = nomi_ide::diagnostics(&snapshot, &path) else {
-                    return;
-                };
-                let Ok(text) = snapshot.read(&path) else {
-                    return;
-                };
-                let text = Text::new(&text, unit);
-                let diagnostics = found
-                    .into_iter()
-                    .map(|d| Diagnostic {
-                        range: text.range(d.range),
-                        severity: Some(DiagnosticSeverity::ERROR),
-                        source: Some("nomi".to_owned()),
-                        message: format!("{}\n\n{}", d.title, d.message),
-                        ..Diagnostic::default()
-                    })
-                    .collect();
-                let params = PublishDiagnosticsParams::new(uri, diagnostics, None);
-                publish_if_current(&publishing, &snapshot, || {
-                    send(&sender, notification::<PublishDiagnostics>(params));
-                });
-            });
-        }
+        let open = (self.documents.iter())
+            .map(|(uri, document)| (uri.clone(), document.path.clone()))
+            .collect();
+        self.diagnostics.check(Job {
+            snapshot,
+            open,
+            saved,
+        });
     }
 
     fn document(&self, uri: &Url) -> Result<&Document, (ErrorCode, String)> {
@@ -365,7 +414,10 @@ impl Server {
         let revision = snapshot.revision();
         let fresh = (self.index.as_ref()).is_some_and(|(r, m, _)| *r == revision && *m == manifest);
         if !fresh {
-            let index = index::index(snapshot, &self.store, path, &mut self.memo)?;
+            let index = {
+                let mut memo = self.memo.lock().unwrap();
+                index::index(snapshot, &self.store, path, &mut memo)?
+            };
             self.index = Some((revision, manifest, index));
         }
         self.index.as_ref().map(|(_, _, index)| index)

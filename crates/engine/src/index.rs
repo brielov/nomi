@@ -84,14 +84,29 @@ pub fn manifest(snapshot: &Snapshot, file: &Path) -> Option<PathBuf> {
         .find(|manifest| snapshot.is_file(manifest))
 }
 
-/// The index of the project that owns `file`; none where there is no
-/// project, its `elm.json` isn't readable, or its modules import each
-/// other in a cycle.
-pub fn index(snapshot: &Snapshot, store: &Store, file: &Path, memo: &mut Memo) -> Option<Index> {
-    let manifest = manifest(snapshot, file)?;
+/// A project as the editor sees it: its outline, its environment, and
+/// what the store holds of its dependencies.
+pub(crate) struct Setup {
+    pub root: PathBuf,
+    pub outline: Outline,
+    pub compat: Compat,
+    pub env: crate::graph::Env,
+    pub sources: Vec<(Name, PathBuf)>,
+    pub direct: Vec<Name>,
+    /// Whether the store holds every dependency.
+    pub complete: bool,
+}
+
+/// The project whose `elm.json` is `manifest`; none where it isn't
+/// readable.
+pub(crate) fn setup(snapshot: &Snapshot, store: &Store, manifest: &Path) -> Option<Setup> {
     let root = manifest.parent()?.to_owned();
-    let (outline, compat) = Outline::detect(&snapshot.read_bytes(&manifest).ok()?).ok()?;
+    let (outline, compat) = Outline::detect(&snapshot.read_bytes(manifest).ok()?).ok()?;
     let (sources, direct) = releases(store, &outline, compat);
+    let complete = match &outline {
+        Outline::App(app) => sources.len() == app.direct.len() + app.indirect.len(),
+        Outline::Pkg(pkg) => (pkg.deps.keys()).all(|name| sources.iter().any(|(n, _)| n == name)),
+    };
     let mut exposing = Vec::new();
     for name in &direct {
         let Some((_, dir)) = sources.iter().find(|(n, _)| n == name) else {
@@ -102,11 +117,19 @@ pub fn index(snapshot: &Snapshot, store: &Store, file: &Path, memo: &mut Memo) -
         }
     }
     let env = env_of(&root, &outline, compat, Foreigns::new(exposing)).ok()?;
-    // A package nomi can't canonicalize leaves the project's own modules
-    // to navigate.
-    let packages: PackageInterfaces =
-        names::package_interfaces_with(compat, &sources, memo).unwrap_or_default();
-    let mut interfaces = names::visible(&packages, &direct);
+    Some(Setup {
+        root,
+        outline,
+        compat,
+        env,
+        sources,
+        direct,
+        complete,
+    })
+}
+
+/// The `.elm` files under the source directories of `env`, from the disk.
+pub(crate) fn discover(env: &crate::graph::Env) -> Vec<PathBuf> {
     let vfs = Vfs::new();
     let mut paths = Vec::new();
     for dir in env.src_dirs() {
@@ -117,6 +140,27 @@ pub fn index(snapshot: &Snapshot, store: &Store, file: &Path, memo: &mut Memo) -
                 .filter(|p| p.extension().is_some_and(|e| e == "elm")),
         );
     }
+    paths
+}
+
+/// The index of the project that owns `file`; none where there is no
+/// project, its `elm.json` isn't readable, or its modules import each
+/// other in a cycle.
+pub fn index(snapshot: &Snapshot, store: &Store, file: &Path, memo: &mut Memo) -> Option<Index> {
+    let manifest = manifest(snapshot, file)?;
+    let Setup {
+        compat,
+        env,
+        sources,
+        direct,
+        ..
+    } = setup(snapshot, store, &manifest)?;
+    // A package nomi can't canonicalize leaves the project's own modules
+    // to navigate.
+    let packages: PackageInterfaces =
+        names::package_interfaces_with(compat, &sources, memo).unwrap_or_default();
+    let mut interfaces = names::visible(&packages, &direct);
+    let mut paths = discover(&env);
     // The file itself, which may be open in the editor and not yet
     // saved.
     // Discovery starts from the canonical source directories.

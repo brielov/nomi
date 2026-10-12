@@ -6,4 +6,4 @@ foo x =
         True ->
             x
         _ -> not x
-			
+            

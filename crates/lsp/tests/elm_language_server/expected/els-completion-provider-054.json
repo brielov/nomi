@@ -3,6 +3,19 @@
     "src/Test.elm": [
       {
         "data": {
+          "code": "missing_value",
+          "uri": "src/Test.elm"
+        },
+        "message": "NAMING ERROR - I cannot find a `m` variable:\n\n12|     m\n        #^#\nThese names seem close though:\n\n    #e#\n    #max#\n    #min#\n    #pi#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+        "range": {
+          "end": {"character":5,"line":11},
+          "start": {"character":4,"line":11}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_pattern",
           "uri": "<project>/src/Test.elm"
         },

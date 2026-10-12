@@ -1,6 +1,20 @@
 {
   "diagnostics": {
-    "src/Test.elm": []
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "missing_value",
+          "uri": "src/Test.elm"
+        },
+        "message": "NAMING ERROR - I cannot find a `S` variant:\n\n5| f (S n) = n\n      #^#\nThese names seem close though:\n\n    #EQ#\n    #GT#\n    #LT#\n    #Ok#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+        "range": {
+          "end": {"character":4,"line":4},
+          "start": {"character":3,"line":4}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": [
     {

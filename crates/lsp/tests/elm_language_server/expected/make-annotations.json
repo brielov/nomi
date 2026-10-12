@@ -1,0 +1,46 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "missing_type_annotation",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Missing type annotation: `String`.",
+        "range": {
+          "end": {"character":8,"line":5},
+          "start": {"character":0,"line":5}
+        },
+        "severity": 3,
+        "source": "Elm"
+      },
+      {
+        "data": {
+          "code": "missing_type_annotation",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Missing type annotation: `number -> number -> number`.",
+        "range": {
+          "end": {"character":3,"line":9},
+          "start": {"character":0,"line":9}
+        },
+        "severity": 3,
+        "source": "Elm"
+      },
+      {
+        "data": {
+          "code": "missing_type_annotation",
+          "uri": "<project>/src/Main.elm"
+        },
+        "message": "Missing type annotation: `( number, String )`.",
+        "range": {
+          "end": {"character":4,"line":13},
+          "start": {"character":0,"line":13}
+        },
+        "severity": 3,
+        "source": "Elm"
+      }
+    ]
+  },
+  "requests": []
+}

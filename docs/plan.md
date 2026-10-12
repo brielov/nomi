@@ -634,11 +634,23 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - **Surprises.**
     - Cross-file references come back in a different order on each run, so transcripts sort them.
     - A completion list is about 440 items once elm/core is real, so transcripts keep a digest of each item's documentation and write deep values one per line: 2.6 MB for all cases, 2.2 MB of it completions.
-- [ ] **9.3** `ide: compiler diagnostics as you type`.
+- [x] **9.3** `ide: compiler diagnostics as you type`.
   - The engine checks the projects of the open files on each change, debounced like elm-language-server (200 ms), and drops stale runs by revision.
   - It publishes elm's reports in elm-language-server's shape, with Markdown when the client supports it, plus the `missing_type_annotation` information.
   - Settings come from `initializationOptions`, `workspace/configuration` (`elmLS`) and `didChangeConfiguration`, and `onlyUpdateDiagnosticsOnSave` is honored.
   - **Check:** the on-save diagnostics of the corpus cases match elm-language-server's.
+
+  Done:
+  - **Engine.** `engine::live::check` checks every module under a project's source directories as `elm make` does, with paths relative to the project, over the open buffers, from the store alone. It checks nothing when the store lacks a dependency. elm-language-server compiles the modules with `main` (or a package's exposed modules), then every module they don't reach, so each module is checked once there too.
+  - **Problems.** `ide::problems` writes elm's reports as elm-language-server does: `TITLE - message`, styled parts between `#`s, its `data.code` by title, `data.uri` relative to the project, and the missing annotations of open files, written as inferred.
+  - **Worker.** One worker thread in `lsp` checks the latest revision. It waits 200 ms after a change, and runs at once on open and save. Settings come from `initializationOptions`, `workspace/configuration` and `didChangeConfiguration`. Without a project, or without its packages, a file still gets its syntax error.
+  - **Oracle environment.** The recorder now gives elm-language-server the pinned elm as `elm` on a `PATH` without `elm-test`, as most users have it. Each project lives under a root padded to 160 characters: elm reflows some reports and sizes their tables around the project's path, so both servers must see paths of one length. 462 of the 464 compiler-diagnostic sets match, and 206 of 838 entries pass.
+  - **Surprises.**
+    - Modules no `main` reaches are compiled with `elm-test`, falling back to whatever `elm` is on `PATH`, not the configured `elmPath`. So without an `elm` on `PATH`, those modules get no diagnostics at all.
+    - When a project has a `tests/` directory, those modules go to `elm-test` alone, so without elm-test they get nothing. Two cases stay unlisted for that until M10.
+    - elm writes tabs raw in its JSON, `JSON.parse` rejects them, and elm-language-server drops the whole report. nomi shows it (DECISIONS.md), and the imported cases' tabs become spaces.
+    - elm-language-server passes elm's code-point columns through as UTF-16. nomi converts them, which differs past astral characters.
+  - **Not yet.** Markdown messages for clients with `markupMessageSupport`, and early cutoff for checks as you type (9.18).
 - [ ] **9.4** `ide: lint rules for unused code`. `unused_import`, `unused_imported_value`, `unused_alias`, `unused_pattern`, `unused_top_level`, `unused_type_alias`, `unused_value_constructor`, `unused_incoming_port` (across modules) and `unnecessary_port_module`, with `elm-analyse.json` checks and `excludedPaths`.
 - [ ] **9.5** `ide: lint rules for lists, cases and records`. `map_nothing_to_nothing`, `boolean_case_expr`, `drop_concat_of_lists`, `drop_cons_of_item_and_list`, `use_cons_over_concat`, `unnecessary_list_concat`, `no_uncurried_prefix`, and `single_field_record` (opt-in).
 - [ ] **9.6** `ide: navigation parity`. Definition, type definition and references, including record fields by type, type variables, ports and modules. Hover as Markdown, with annotation and doc comment. Package sources open from nomi's store. **Check:** the definition, references and hover cases.

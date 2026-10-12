@@ -3,6 +3,32 @@
     "src/Test.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "TYPE MISMATCH - Something is off with the 2nd branch of this `case` expression:\n\n21|             \"\"\n                #^^#\nThe 2nd branch is a string of type:\n\n    #String#\n\nBut the type annotation on `testFunction` says it should be:\n\n    #a#\n\n#Hint#: Your type annotation uses type variable `a` which means ANY type of value\ncan flow through, but your code is saying it specifically wants a `String`\nvalue. Maybe change your type annotation to be more specific? Maybe change the\ncode to be more general?\n\nRead <https://elm-lang.org/0.19.1/type-annotations> for more advice!",
+        "range": {
+          "end": {"character":14,"line":20},
+          "start": {"character":12,"line":20}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "TYPE MISMATCH - This `prop1` record does not have a `f` field:\n\n18|             prop1.f\n                      #^#\nThis is usually a typo. Here are the `prop1` fields that are most similar:\n\n    { field1 : String\n    , field2 : Int\n    }\n\nSo maybe #f# should be #field1#?",
+        "range": {
+          "end": {"character":17,"line":17},
+          "start": {"character":12,"line":17}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_pattern",
           "uri": "<project>/src/Test.elm"
         },

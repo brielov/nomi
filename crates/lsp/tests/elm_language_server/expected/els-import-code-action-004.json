@@ -1,11 +1,103 @@
 {
   "diagnostics": {
-    "src/Test.elm": []
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "missing_value",
+          "uri": "src/Test.elm"
+        },
+        "message": "NAMING ERROR - I cannot find a `foo` variable:\n\n3| func = foo + bar\n          #^^^#\nThese names seem close though:\n\n    #cos#\n    #floor#\n    #not#\n    #xor#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+        "range": {
+          "end": {"character":10,"line":2},
+          "start": {"character":7,"line":2}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
+          "code": "missing_value",
+          "uri": "src/Test.elm"
+        },
+        "message": "NAMING ERROR - I cannot find a `bar` variable:\n\n3| func = foo + bar\n                #^^^#\nThese names seem close though:\n\n    #abs#\n    #max#\n    #tan#\n    #xor#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+        "range": {
+          "end": {"character":16,"line":2},
+          "start": {"character":13,"line":2}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": [
     {
       "method": "textDocument/codeAction",
-      "result": []
+      "result": [
+        {
+          "data": {"fixId":"import"},
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `foo` variable:\n\n3| func = foo + bar\n          #^^^#\nThese names seem close though:\n\n    #cos#\n    #floor#\n    #not#\n    #xor#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":10,"line":2},"start":{"character":7,"line":2}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"import App exposing (foo)\n","range":{"end":{"character":0,"line":1},"start":{"character":0,"line":1}}}]}},
+          "isPreferred": true,
+          "kind": "quickfix",
+          "title": "Import 'foo' from module \"App\""
+        },
+        {
+          "data": {"fixId":"import","isFixAll":true},
+          "diagnostics": [{"code":"missing_value","message":"No definition found for `foo`.","range":{"end":{"character":10,"line":2},"start":{"character":7,"line":2}},"severity":1,"source":"Elm","uri":"<project>/src/Test.elm"},{"code":"missing_value","message":"No definition found for `bar`.","range":{"end":{"character":16,"line":2},"start":{"character":13,"line":2}},"severity":1,"source":"Elm","uri":"<project>/src/Test.elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"import App exposing (foo)\n","range":{"end":{"character":0,"line":1},"start":{"character":0,"line":1}}},{"newText":"import App exposing (bar)\n","range":{"end":{"character":0,"line":1},"start":{"character":0,"line":1}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Add all missing imports"
+        },
+        {
+          "data": {"fixId":"make_declaration_from_usage"},
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `foo` variable:\n\n3| func = foo + bar\n          #^^^#\nThese names seem close though:\n\n    #cos#\n    #floor#\n    #not#\n    #xor#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":10,"line":2},"start":{"character":7,"line":2}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"\n\nfoo : number\nfoo =\n    Debug.todo \"TODO\"\n","range":{"end":{"character":0,"line":3},"start":{"character":0,"line":3}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Create local function"
+        },
+        {
+          "data": {"fixId":"make_declaration_from_usage","isFixAll":true},
+          "diagnostics": [{"code":"missing_value","message":"No definition found for `foo`.","range":{"end":{"character":10,"line":2},"start":{"character":7,"line":2}},"severity":1,"source":"Elm","uri":"<project>/src/Test.elm"},{"code":"missing_value","message":"No definition found for `bar`.","range":{"end":{"character":16,"line":2},"start":{"character":13,"line":2}},"severity":1,"source":"Elm","uri":"<project>/src/Test.elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"\n\nfoo : number\nfoo =\n    Debug.todo \"TODO\"\n","range":{"end":{"character":0,"line":3},"start":{"character":0,"line":3}}},{"newText":"\n\nbar : number\nbar =\n    Debug.todo \"TODO\"\n","range":{"end":{"character":0,"line":3},"start":{"character":0,"line":3}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Create all missing local functions"
+        },
+        {
+          "data": {"fixId":"add_new_function_parameter"},
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `foo` variable:\n\n3| func = foo + bar\n          #^^^#\nThese names seem close though:\n\n    #cos#\n    #floor#\n    #not#\n    #xor#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":10,"line":2},"start":{"character":7,"line":2}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"foo ","range":{"end":{"character":5,"line":2},"start":{"character":5,"line":2}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Add new parameter to 'func'"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `foo` variable:\n\n3| func = foo + bar\n          #^^^#\nThese names seem close though:\n\n    #cos#\n    #floor#\n    #not#\n    #xor#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":10,"line":2},"start":{"character":7,"line":2}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"cos","range":{"end":{"character":10,"line":2},"start":{"character":7,"line":2}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `cos`"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `foo` variable:\n\n3| func = foo + bar\n          #^^^#\nThese names seem close though:\n\n    #cos#\n    #floor#\n    #not#\n    #xor#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":10,"line":2},"start":{"character":7,"line":2}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"floor","range":{"end":{"character":10,"line":2},"start":{"character":7,"line":2}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `floor`"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `foo` variable:\n\n3| func = foo + bar\n          #^^^#\nThese names seem close though:\n\n    #cos#\n    #floor#\n    #not#\n    #xor#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":10,"line":2},"start":{"character":7,"line":2}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"not","range":{"end":{"character":10,"line":2},"start":{"character":7,"line":2}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `not`"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `foo` variable:\n\n3| func = foo + bar\n          #^^^#\nThese names seem close though:\n\n    #cos#\n    #floor#\n    #not#\n    #xor#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":10,"line":2},"start":{"character":7,"line":2}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"xor","range":{"end":{"character":10,"line":2},"start":{"character":7,"line":2}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `xor`"
+        }
+      ]
     }
   ]
 }

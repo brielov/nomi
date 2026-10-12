@@ -1,11 +1,66 @@
 {
   "diagnostics": {
-    "src/Test.elm": []
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "missing_value",
+          "uri": "src/Test.elm"
+        },
+        "message": "NAMING ERROR - I cannot find a `NewMsg` variant:\n\n12|     div [ onInput NewMsg ] []\n                      #^^^^^^#\nThese names seem close though:\n\n    #Msg1#\n    #Msg2#\n    #EQ#\n    #Err#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+        "range": {
+          "end": {"character":24,"line":11},
+          "start": {"character":18,"line":11}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": [
     {
       "method": "textDocument/codeAction",
-      "result": []
+      "result": [
+        {
+          "data": {"fixId":"add_missing_union_type"},
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `NewMsg` variant:\n\n12|     div [ onInput NewMsg ] []\n                      #^^^^^^#\nThese names seem close though:\n\n    #Msg1#\n    #Msg2#\n    #EQ#\n    #Err#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":24,"line":11},"start":{"character":18,"line":11}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"\n    | NewMsg String","range":{"end":{"character":10,"line":7},"start":{"character":10,"line":7}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Create missing union constructor"
+        },
+        {
+          "data": {"fixId":"add_missing_union_type","isFixAll":true},
+          "diagnostics": [{"code":"missing_value","message":"No definition found for `NewMsg`.","range":{"end":{"character":24,"line":11},"start":{"character":18,"line":11}},"severity":1,"source":"Elm","uri":"<project>/src/Test.elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"\n    | NewMsg String","range":{"end":{"character":10,"line":7},"start":{"character":10,"line":7}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Create all missing union constructors"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `NewMsg` variant:\n\n12|     div [ onInput NewMsg ] []\n                      #^^^^^^#\nThese names seem close though:\n\n    #Msg1#\n    #Msg2#\n    #EQ#\n    #Err#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":24,"line":11},"start":{"character":18,"line":11}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"Msg1","range":{"end":{"character":24,"line":11},"start":{"character":18,"line":11}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `Msg1`"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `NewMsg` variant:\n\n12|     div [ onInput NewMsg ] []\n                      #^^^^^^#\nThese names seem close though:\n\n    #Msg1#\n    #Msg2#\n    #EQ#\n    #Err#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":24,"line":11},"start":{"character":18,"line":11}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"Msg2","range":{"end":{"character":24,"line":11},"start":{"character":18,"line":11}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `Msg2`"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `NewMsg` variant:\n\n12|     div [ onInput NewMsg ] []\n                      #^^^^^^#\nThese names seem close though:\n\n    #Msg1#\n    #Msg2#\n    #EQ#\n    #Err#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":24,"line":11},"start":{"character":18,"line":11}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"EQ","range":{"end":{"character":24,"line":11},"start":{"character":18,"line":11}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `EQ`"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `NewMsg` variant:\n\n12|     div [ onInput NewMsg ] []\n                      #^^^^^^#\nThese names seem close though:\n\n    #Msg1#\n    #Msg2#\n    #EQ#\n    #Err#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":24,"line":11},"start":{"character":18,"line":11}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"Err","range":{"end":{"character":24,"line":11},"start":{"character":18,"line":11}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `Err`"
+        }
+      ]
     }
   ]
 }

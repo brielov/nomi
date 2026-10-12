@@ -3,6 +3,19 @@
     "src/Main.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Main.elm"
+        },
+        "message": "NO PORTS - This module does not declare any ports, but it says it will:\n\n2| port module Bar exposing (foo)\n   #^^^^^^^^^^^#\nSwitch this to #module# and you should be all set!",
+        "range": {
+          "end": {"character":11,"line":1},
+          "start": {"character":0,"line":1}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_top_level",
           "uri": "<project>/src/Main.elm"
         },

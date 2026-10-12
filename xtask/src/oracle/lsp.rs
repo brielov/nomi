@@ -6,7 +6,9 @@
 //! whose registry and package cache hold the fixture packages
 //! (`crates/compiler/tests/packages`), the same sources the replay gives
 //! nomi. The server runs under Node with the pinned elm and elm-format as
-//! its paths, offline. The `ELM_HOME` is shared, and elm builds every
+//! its paths, and as `elm` on a `PATH` without `elm-test`, offline: a
+//! file no `main` reaches is compiled with `elm-test`, or `elm` from
+//! `PATH` where there's none. The `ELM_HOME` is shared, and elm builds every
 //! package in it once before any session, so the server's own `elm make`
 //! is quick and each session settles. Sessions run side by side.
 
@@ -36,6 +38,10 @@ const PACKAGES: &str = "crates/compiler/tests/packages";
 
 /// What every session needs.
 struct Tools {
+    node: PathBuf,
+    /// The server's `PATH`: the pinned elm as `elm`, as a user has it,
+    /// and Node, and no `elm-test`.
+    path: std::ffi::OsString,
     server: PathBuf,
     elm: PathBuf,
     elm_format: PathBuf,
@@ -59,7 +65,23 @@ pub fn run(root: &Path, refs: &References, only: Option<&str>) -> Result<()> {
     }
     let home = scratch.join("home");
     let packages = fs::canonicalize(elm_home(root, &home, compat)?)?;
+    let node = which("node").context("node isn't on PATH")?;
+    let bin = scratch.join("bin");
+    fs::create_dir_all(&bin)?;
+    let elm = binary(refs, "elm", Some(&compat.to_string()))?;
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&elm, bin.join("elm"))?;
+    #[cfg(not(unix))]
+    fs::copy(&elm, bin.join(elm.file_name().context("elm's name")?))?;
+    let path = std::env::join_paths([
+        bin,
+        node.parent().context("node's directory")?.to_owned(),
+        PathBuf::from("/usr/bin"),
+        PathBuf::from("/bin"),
+    ])?;
     let tools = Tools {
+        node,
+        path,
         server,
         elm: binary(refs, "elm", Some(&compat.to_string()))?,
         elm_format: binary(refs, "elm-format", None)?,
@@ -113,6 +135,14 @@ pub fn run(root: &Path, refs: &References, only: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// The first `name` on `PATH`.
+fn which(name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(name))
+        .find(|candidate| candidate.is_file())
+}
+
 /// Builds every fixture package into the shared `ELM_HOME`, through an
 /// application that depends on them all.
 fn prebuild(tools: &Tools, dir: &Path) -> Result<()> {
@@ -133,14 +163,14 @@ fn prebuild(tools: &Tools, dir: &Path) -> Result<()> {
 }
 
 fn record(tools: &Tools, scratch: &Path, case: &lsp::Case) -> Result<serde_json::Value> {
-    let dir = scratch.join(&case.name);
-    let work = dir.join("work");
+    fs::create_dir_all(scratch)?;
+    let work = lsp::project_dir(&fs::canonicalize(scratch)?, &case.name);
     lsp::copy_project(case, &work)?;
-    let work = fs::canonicalize(&work)?;
 
-    let mut command = Command::new("node");
+    let mut command = Command::new(&tools.node);
     command
         .arg(&tools.server)
+        .env("PATH", &tools.path)
         .arg("--stdio")
         .current_dir(&work)
         .env("ELM_HOME", &tools.home)
@@ -155,8 +185,10 @@ fn record(tools: &Tools, scratch: &Path, case: &lsp::Case) -> Result<serde_json:
     let paths = json!({
         "elmPath": tools.elm,
         "elmFormatPath": tools.elm_format,
-        "elmTestPath": dir.join("no-elm-test"),
-        "elmReviewPath": dir.join("no-elm-review"),
+        // Unset, so it looks for `elm-test`, finds none, and falls back
+        // to `elm`, as it does for most users.
+        "elmTestPath": "",
+        "elmReviewPath": scratch.join("no-elm-review"),
     });
     for (key, value) in paths.as_object().unwrap() {
         session.settings.entry(key.clone()).or_insert(value.clone());

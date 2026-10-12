@@ -10,4 +10,4 @@ type alias Params x a =
 -- more type aliasses that extends from Params
 type alias CheckboxParams a =
     Params { checked : Bool } (Bool -> a)
-			
+            

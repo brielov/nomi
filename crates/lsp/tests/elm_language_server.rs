@@ -131,9 +131,10 @@ fn replay(
         .join(format!("{}.json", case.name));
     let expected: Value = serde_json::from_str(&fs::read_to_string(&expected).unwrap())
         .unwrap_or_else(|e| panic!("{}: {e}", expected.display()));
-    let work = temp.join("cases").join(&case.name);
+    let cases = temp.join("cases");
+    fs::create_dir_all(&cases).unwrap();
+    let work = lsp::project_dir(&real(&cases), &case.name);
     lsp::copy_project(case, &work).unwrap();
-    let work = real(&work);
     let root_uri = Url::from_directory_path(&work).unwrap();
     let root_uri = root_uri.as_str().trim_end_matches('/').to_owned();
 
@@ -153,6 +154,11 @@ fn replay(
     replacements.push((root_uri, "<project>".to_owned()));
     replacements.push((work.display().to_string(), "<project>".to_owned()));
     let actual = lsp::tidy(transcript, &replacements);
+    // To compare by hand: nomi's transcripts, as the oracle's are written.
+    if let Some(dir) = std::env::var_os("NOMI_LSP_DUMP") {
+        let path = Path::new(&dir).join(format!("{}.json", case.name));
+        fs::write(path, lsp::to_text(&actual)).unwrap();
+    }
     lsp::outcomes(&case.name, &expected, &actual)
 }
 

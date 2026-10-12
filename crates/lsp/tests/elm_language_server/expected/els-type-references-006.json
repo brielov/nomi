@@ -3,6 +3,19 @@
     "src/Test.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "RESERVED WORD - I was not expecting to run into the `module` keyword here:\n\n14| module Test2 exposing (..)\n    #^^^^^^#\nIt is a reserved word. Try changing the name to something else?",
+        "range": {
+          "end": {"character":6,"line":13},
+          "start": {"character":0,"line":13}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_pattern",
           "uri": "<project>/src/Test.elm"
         },

@@ -5,4 +5,4 @@ foo x =
   case x of
     Just y ->
       1
-			
+            

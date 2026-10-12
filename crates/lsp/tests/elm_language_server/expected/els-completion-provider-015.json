@@ -3,6 +3,19 @@
     "src/Test.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "PROBLEM IN EXPOSING - I got stuck while parsing these exposed values:\n\n1| module Test exposing (testFunc, Msg(..), )\n                                            #^#\nI do not have an exact recommendation, so here are some valid examples of\n`exposing` for reference:\n\n    #import# Html #exposing# (..)\n    #import# Basics #exposing# (Int, Float, Bool(..), (+), not, sqrt)\n\nThese examples show how to expose types, variants, operators, and functions.\nEverything should be some permutation of these examples, just with different\nnames.",
+        "range": {
+          "end": {"character":41,"line":0},
+          "start": {"character":41,"line":0}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_type_alias",
           "uri": "<project>/src/Test.elm"
         },

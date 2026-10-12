@@ -3,6 +3,19 @@
     "src/Test.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "TYPE MISMATCH - Something is off with the body of the `hello` definition:\n\n5|     \"hello\"\n       #^^^^^^^#\nThe body is a string of type:\n\n    #String#\n\nBut the type annotation on `hello` says it should be:\n\n    #string#\n\n#Hint#: Your type annotation uses type variable `string` which means ANY type of\nvalue can flow through, but your code is saying it specifically wants a `String`\nvalue. Maybe change your type annotation to be more specific? Maybe change the\ncode to be more general?\n\nRead <https://elm-lang.org/0.19.1/type-annotations> for more advice!",
+        "range": {
+          "end": {"character":11,"line":4},
+          "start": {"character":4,"line":4}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_value_constructor",
           "uri": "<project>/src/Test.elm"
         },

@@ -3,6 +3,19 @@
     "src/Test.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "UNFINISHED LIST - I am partway through parsing a list, but I got stuck here:\n\n5| test = div [] [ Module. ]\n                   #^#\nI was expecting to see a closing square bracket before this, so try adding a #]#\nand see if that helps?\n\n#Note#: When I get stuck like this, it usually means that there is a missing\nparenthesis or bracket somewhere earlier. It could also be a stray keyword or\noperator.",
+        "range": {
+          "end": {"character":16,"line":4},
+          "start": {"character":16,"line":4}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_import",
           "uri": "<project>/src/Test.elm"
         },

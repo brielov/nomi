@@ -3,6 +3,19 @@
     "src/Main.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Main.elm"
+        },
+        "message": "SYNTAX PROBLEM - I got stuck here:\n\n2| module Bar exposing (foo, Some(..)))\n                                      #^#\nI am not sure what is going on, but I recommend starting an Elm file with the\nfollowing lines:\n\n    #import# Html\n    \n    main =\n      Html.text #\"Hello!\"#\n\nYou should be able to copy those lines directly into your file. Check out the\nexamples at <https://elm-lang.org/examples> for more help getting started!\n\n#Note#: This can also happen when something is indented too much!",
+        "range": {
+          "end": {"character":35,"line":1},
+          "start": {"character":35,"line":1}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_top_level",
           "uri": "<project>/src/Main.elm"
         },

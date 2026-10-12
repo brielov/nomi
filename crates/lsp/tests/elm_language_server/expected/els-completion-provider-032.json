@@ -3,6 +3,19 @@
     "src/Test.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "UNFINISHED TYPE ALIAS - I am partway through parsing a type alias, but I got stuck here:\n\n5| type alias Model =\n                     #^#\nI was expecting to see a type next. Something as simple as #Int# or #Float# would\nwork!\n\n#Note#: Here is an example of a valid `type alias` for reference:\n\n    #type# #alias# Person =\n      { name : String\n      , age : Int\n      , height : Float\n      }\n\nThis would let us use `Person` as a shorthand for that record type. Using this\nshorthand makes type annotations much easier to read, and makes changing code\neasier if you decide later that there is more to a person than age and height!",
+        "range": {
+          "end": {"character":18,"line":4},
+          "start": {"character":18,"line":4}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_import",
           "uri": "<project>/src/Test.elm"
         },

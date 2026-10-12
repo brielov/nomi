@@ -6,4 +6,4 @@ foo x =
         Some ->
             x
         Other -> not x
-			
+            

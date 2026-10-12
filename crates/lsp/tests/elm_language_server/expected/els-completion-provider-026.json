@@ -1,6 +1,20 @@
 {
   "diagnostics": {
-    "src/Test.elm": []
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "EXPECTING IMPORT NAME - I was parsing an `import` until I got stuck here:\n\n3| import Module.\n                 #^#\nI was expecting to see a module name next, like in these examples:\n\n    #import# Dict\n    #import# Maybe\n    #import# Html.Attributes #as# A\n    #import# Json.Decode #exposing# (..)\n\nNotice that the module names all start with capital letters. That is required!\n\nRead <https://elm-lang.org/0.19.1/imports> to learn more.",
+        "range": {
+          "end": {"character":14,"line":2},
+          "start": {"character":14,"line":2}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": [
     {

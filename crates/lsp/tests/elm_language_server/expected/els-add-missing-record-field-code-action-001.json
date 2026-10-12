@@ -1,6 +1,20 @@
 {
   "diagnostics": {
-    "src/Test.elm": []
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "TYPE MISMATCH - This `model` record does not have a `newProp` field:\n\n7|         model.newProp\n                 #^^^^^^^#\nThis is usually a typo. Here are the `model` fields that are most similar:\n\n    { field : Int\n    }\n\nSo maybe #newProp# should be #field#?",
+        "range": {
+          "end": {"character":13,"line":6},
+          "start": {"character":8,"line":6}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": [
     {

@@ -1,6 +1,20 @@
 {
   "diagnostics": {
-    "src/Test.elm": []
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "MISSING EXPRESSION - I am partway through parsing the `testFunction` definition, but I got stuck\nhere:\n\n3| testFunction =\n4|     List.\n       #^#\nI was expecting to see an expression like #42# or #\"hello\"#. Once there is something\nthere, I can probably give a more specific hint!\n\n#Note#: This can also happen if run into reserved words like `let` or `as`\nunexpectedly. Or if I run into operators in unexpected spots. Point is, there\nare a couple ways I can get confused and give sort of weird advice!",
+        "range": {
+          "end": {"character":4,"line":3},
+          "start": {"character":4,"line":3}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": [
     {

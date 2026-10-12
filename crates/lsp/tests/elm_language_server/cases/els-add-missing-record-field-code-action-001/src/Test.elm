@@ -4,5 +4,5 @@ type alias Model = { field : Int }
 
 func : Model -> Float
 func model =
-		model.newProp
+        model.newProp
 

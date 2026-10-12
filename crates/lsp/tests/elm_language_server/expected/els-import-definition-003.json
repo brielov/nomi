@@ -3,6 +3,19 @@
     "src/main.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/main.elm"
+        },
+        "message": "UNEXPECTED FILE NAME - I am having trouble with this file name:\n\n    src/main.elm\n\nI found it in your\n<project>/src/\ndirectory which is good, but I expect all of the files in there to use the\nfollowing module naming convention:\n\n    +--------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+\n    | Module Name  | File Path                                                                                                                                                                             |\n    +--------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+\n    | Main         | <project>/src/Main.elm         |\n    | HomePage     | <project>/src/HomePage.elm     |\n    | Http.Helpers | <project>/src/Http/Helpers.elm |\n    +--------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+\n\nNotice that the names always start with capital letters! Can you make your file\nuse this naming convention?\n\nNote: Having a strict naming convention like this makes it a lot easier to find\nthings in large projects. If you see a module imported, you know where to look\nfor the corresponding file every time!",
+        "range": {
+          "end": {"character":0,"line":0},
+          "start": {"character":0,"line":0}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_import",
           "uri": "<project>/src/main.elm"
         },

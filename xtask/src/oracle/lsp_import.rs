@@ -373,7 +373,11 @@ fn string_argument(body: &str, call: &str) -> Option<String> {
 }
 
 fn convert(kind: Kind, test: &Test) -> Option<Case> {
-    let source = test.source.as_deref()?;
+    // Some of its projects indent with tabs, which elm rejects, and
+    // elm-language-server then shows nothing elm says (DECISIONS.md,
+    // 2026-10-12). Its tests never compile them, so they become spaces,
+    // before any marker is read.
+    let source = &test.source.as_deref()?.replace('\t', "    ");
     let request = |method: &str, file: &str, at: Value, params: Value| {
         let mut step = json!({ "method": method, "file": path_of(file) });
         if !at.is_null() {

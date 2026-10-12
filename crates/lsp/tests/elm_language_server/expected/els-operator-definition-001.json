@@ -3,6 +3,19 @@
     "src/Main.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Main.elm"
+        },
+        "message": "UNFINISHED PARENTHESES - I just saw an open parenthesis, but I got stuck here:\n\n2| infix right 5 (**) = power\n                  #^#\nI was expecting to see a pattern next. Maybe it will end up being something like\n#(x,y)# or #(name, _)#?",
+        "range": {
+          "end": {"character":15,"line":1},
+          "start": {"character":15,"line":1}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_pattern",
           "uri": "<project>/src/Main.elm"
         },

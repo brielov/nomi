@@ -1,11 +1,66 @@
 {
   "diagnostics": {
-    "src/Test.elm": []
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "missing_value",
+          "uri": "src/Test.elm"
+        },
+        "message": "NAMING ERROR - I cannot find a `App.bar` variable:\n\n5| func = App.bar\n          #^^^^^^^#\nThe `App` module does not expose a `bar` variable. These names seem close\nthough:\n\n    #App.foo#\n    #toPolar#\n    #Cmd.map#\n    #Sub.map#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+        "range": {
+          "end": {"character":14,"line":4},
+          "start": {"character":7,"line":4}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": [
     {
       "method": "textDocument/codeAction",
-      "result": []
+      "result": [
+        {
+          "data": {"fixId":"make_external_declaration_from_usage"},
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `App.bar` variable:\n\n5| func = App.bar\n          #^^^^^^^#\nThe `App` module does not expose a `bar` variable. These names seem close\nthough:\n\n    #App.foo#\n    #toPolar#\n    #Cmd.map#\n    #Sub.map#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":14,"line":4},"start":{"character":7,"line":4}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/App.elm":[{"newText":"\n\nbar : a\nbar =\n    Debug.todo \"TODO\"\n","range":{"end":{"character":0,"line":4},"start":{"character":0,"line":4}}},{"newText":", bar","range":{"end":{"character":24,"line":0},"start":{"character":24,"line":0}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Create function in module 'App'"
+        },
+        {
+          "data": {"fixId":"make_external_declaration_from_usage","isFixAll":true},
+          "diagnostics": [{"code":"missing_value","message":"No definition found for `App.bar`.","range":{"end":{"character":14,"line":4},"start":{"character":7,"line":4}},"severity":1,"source":"Elm","uri":"<project>/src/Test.elm"}],
+          "edit": {"changes":{"<project>/src/App.elm":[{"newText":"\n\nbar : a\nbar =\n    Debug.todo \"TODO\"\n","range":{"end":{"character":0,"line":4},"start":{"character":0,"line":4}}},{"newText":", bar","range":{"end":{"character":24,"line":0},"start":{"character":24,"line":0}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Create all missing external functions"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `App.bar` variable:\n\n5| func = App.bar\n          #^^^^^^^#\nThe `App` module does not expose a `bar` variable. These names seem close\nthough:\n\n    #App.foo#\n    #toPolar#\n    #Cmd.map#\n    #Sub.map#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":14,"line":4},"start":{"character":7,"line":4}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"App.foo","range":{"end":{"character":14,"line":4},"start":{"character":7,"line":4}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `App.foo`"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `App.bar` variable:\n\n5| func = App.bar\n          #^^^^^^^#\nThe `App` module does not expose a `bar` variable. These names seem close\nthough:\n\n    #App.foo#\n    #toPolar#\n    #Cmd.map#\n    #Sub.map#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":14,"line":4},"start":{"character":7,"line":4}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"toPolar","range":{"end":{"character":14,"line":4},"start":{"character":7,"line":4}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `toPolar`"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `App.bar` variable:\n\n5| func = App.bar\n          #^^^^^^^#\nThe `App` module does not expose a `bar` variable. These names seem close\nthough:\n\n    #App.foo#\n    #toPolar#\n    #Cmd.map#\n    #Sub.map#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":14,"line":4},"start":{"character":7,"line":4}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"Cmd.map","range":{"end":{"character":14,"line":4},"start":{"character":7,"line":4}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `Cmd.map`"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `App.bar` variable:\n\n5| func = App.bar\n          #^^^^^^^#\nThe `App` module does not expose a `bar` variable. These names seem close\nthough:\n\n    #App.foo#\n    #toPolar#\n    #Cmd.map#\n    #Sub.map#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":14,"line":4},"start":{"character":7,"line":4}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"Sub.map","range":{"end":{"character":14,"line":4},"start":{"character":7,"line":4}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `Sub.map`"
+        }
+      ]
     }
   ]
 }

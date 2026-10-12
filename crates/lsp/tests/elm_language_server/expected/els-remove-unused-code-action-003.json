@@ -3,6 +3,19 @@
     "src/Test.elm": [
       {
         "data": {
+          "code": "import_resolve",
+          "uri": "src/Test.elm"
+        },
+        "message": "MODULE NOT FOUND - You are trying to import a `Foo` module:\n\n3| import Foo exposing (foo, bar, Maybe, Result)\n          #^^^#\nI checked the \"dependencies\" and \"source-directories\" listed in your elm.json,\nbut I cannot find it! Maybe it is a typo for one of these names?\n\n#    Set\n    Url\n    Dict\n    Html#\n\n#Hint#: If it is not a typo, check the \"dependencies\" and \"source-directories\" of\nyour elm.json to make sure all the packages you need are listed there!",
+        "range": {
+          "end": {"character":10,"line":2},
+          "start": {"character":7,"line":2}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_import",
           "uri": "<project>/src/Test.elm"
         },

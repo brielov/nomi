@@ -1,6 +1,20 @@
 {
   "diagnostics": {
-    "src/Module.elm": []
+    "src/Module.elm": [
+      {
+        "data": {
+          "code": "missing_value",
+          "uri": "src/Module.elm"
+        },
+        "message": "NAMING ERROR - I cannot find a `Model` type:\n\n3| foo : Model a -> a\n         #^^^^^#\nThese names seem close though:\n\n    #Bool#\n    #Order#\n    #Cmd#\n    #Maybe#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+        "range": {
+          "end": {"character":11,"line":2},
+          "start": {"character":6,"line":2}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": [
     {

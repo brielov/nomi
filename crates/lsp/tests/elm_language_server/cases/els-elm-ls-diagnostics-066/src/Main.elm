@@ -5,4 +5,4 @@ type alias Foo =
   { x : Int
   , y : String
   }
-			
+            

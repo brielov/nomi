@@ -1,11 +1,66 @@
 {
   "diagnostics": {
-    "src/Test.elm": []
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "missing_value",
+          "uri": "src/Test.elm"
+        },
+        "message": "NAMING ERROR - I cannot find a `Modules.App.bar` variable:\n\n5| func = Modules.App.bar\n          #^^^^^^^^^^^^^^^#\nThe `Modules.App` module does not expose a `bar` variable. These names seem\nclose though:\n\n    #Modules.App.foo#\n    #Basics.toPolar#\n    #List.append#\n    #Result.mapError#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+        "range": {
+          "end": {"character":22,"line":4},
+          "start": {"character":7,"line":4}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": [
     {
       "method": "textDocument/codeAction",
-      "result": []
+      "result": [
+        {
+          "data": {"fixId":"make_external_declaration_from_usage"},
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `Modules.App.bar` variable:\n\n5| func = Modules.App.bar\n          #^^^^^^^^^^^^^^^#\nThe `Modules.App` module does not expose a `bar` variable. These names seem\nclose though:\n\n    #Modules.App.foo#\n    #Basics.toPolar#\n    #List.append#\n    #Result.mapError#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":22,"line":4},"start":{"character":7,"line":4}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Modules/App.elm":[{"newText":"\n\nbar : a\nbar =\n    Debug.todo \"TODO\"\n","range":{"end":{"character":0,"line":4},"start":{"character":0,"line":4}}},{"newText":", bar","range":{"end":{"character":32,"line":0},"start":{"character":32,"line":0}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Create function in module 'Modules.App'"
+        },
+        {
+          "data": {"fixId":"make_external_declaration_from_usage","isFixAll":true},
+          "diagnostics": [{"code":"missing_value","message":"No definition found for `Modules.App.bar`.","range":{"end":{"character":22,"line":4},"start":{"character":7,"line":4}},"severity":1,"source":"Elm","uri":"<project>/src/Test.elm"}],
+          "edit": {"changes":{"<project>/src/Modules/App.elm":[{"newText":"\n\nbar : a\nbar =\n    Debug.todo \"TODO\"\n","range":{"end":{"character":0,"line":4},"start":{"character":0,"line":4}}},{"newText":", bar","range":{"end":{"character":32,"line":0},"start":{"character":32,"line":0}}}]}},
+          "isPreferred": false,
+          "kind": "quickfix",
+          "title": "Create all missing external functions"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `Modules.App.bar` variable:\n\n5| func = Modules.App.bar\n          #^^^^^^^^^^^^^^^#\nThe `Modules.App` module does not expose a `bar` variable. These names seem\nclose though:\n\n    #Modules.App.foo#\n    #Basics.toPolar#\n    #List.append#\n    #Result.mapError#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":22,"line":4},"start":{"character":7,"line":4}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"Modules.App.foo","range":{"end":{"character":22,"line":4},"start":{"character":7,"line":4}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `Modules.App.foo`"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `Modules.App.bar` variable:\n\n5| func = Modules.App.bar\n          #^^^^^^^^^^^^^^^#\nThe `Modules.App` module does not expose a `bar` variable. These names seem\nclose though:\n\n    #Modules.App.foo#\n    #Basics.toPolar#\n    #List.append#\n    #Result.mapError#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":22,"line":4},"start":{"character":7,"line":4}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"Basics.toPolar","range":{"end":{"character":22,"line":4},"start":{"character":7,"line":4}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `Basics.toPolar`"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `Modules.App.bar` variable:\n\n5| func = Modules.App.bar\n          #^^^^^^^^^^^^^^^#\nThe `Modules.App` module does not expose a `bar` variable. These names seem\nclose though:\n\n    #Modules.App.foo#\n    #Basics.toPolar#\n    #List.append#\n    #Result.mapError#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":22,"line":4},"start":{"character":7,"line":4}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"List.append","range":{"end":{"character":22,"line":4},"start":{"character":7,"line":4}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `List.append`"
+        },
+        {
+          "diagnostics": [{"data":{"code":"missing_value","uri":"src/Test.elm"},"message":"NAMING ERROR - I cannot find a `Modules.App.bar` variable:\n\n5| func = Modules.App.bar\n          #^^^^^^^^^^^^^^^#\nThe `Modules.App` module does not expose a `bar` variable. These names seem\nclose though:\n\n    #Modules.App.foo#\n    #Basics.toPolar#\n    #List.append#\n    #Result.mapError#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.","range":{"end":{"character":22,"line":4},"start":{"character":7,"line":4}},"severity":1,"source":"Elm"}],
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"Result.mapError","range":{"end":{"character":22,"line":4},"start":{"character":7,"line":4}}}]}},
+          "kind": "quickfix",
+          "title": "Change to `Result.mapError`"
+        }
+      ]
     }
   ]
 }

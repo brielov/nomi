@@ -3,6 +3,19 @@
     "src/Main.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Main.elm"
+        },
+        "message": "MODULE NAME MISMATCH - It looks like this module name is out of sync:\n\n2| module Bar exposing (foo)\n          #^^^#\nI need it to match the file path, so I was expecting to see `Main` here. Make\nthe following change, and you should be all set!\n\n    #Bar# -> #Main#\n\n#Note#: I require that module names correspond to file paths. This makes it much\neasier to explore unfamiliar codebases! So if you want to keep the current\nmodule name, try renaming the file instead.",
+        "range": {
+          "end": {"character":10,"line":1},
+          "start": {"character":7,"line":1}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "drop_concat_of_lists",
           "uri": "<project>/src/Main.elm"
         },

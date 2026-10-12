@@ -3,6 +3,19 @@
     "src/Module.elm": [
       {
         "data": {
+          "code": "missing_value",
+          "uri": "src/Module.elm"
+        },
+        "message": "NAMING ERROR - I cannot find a `func` variable:\n\n5|         ( first, second ) = func\n                               #^^^^#\nThese names seem close though:\n\n    #foo#\n    #min#\n    #round#\n    #sin#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+        "range": {
+          "end": {"character":32,"line":4},
+          "start": {"character":28,"line":4}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_pattern",
           "uri": "<project>/src/Module.elm"
         },

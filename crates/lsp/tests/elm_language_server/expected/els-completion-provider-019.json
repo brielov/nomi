@@ -1,6 +1,20 @@
 {
   "diagnostics": {
-    "src/Test.elm": []
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "UNFINISHED DEFINITION - I got stuck while parsing the `test` definition:\n\n3| test =\n         #^#\nI was expecting to see an expression next. What is it equal to?\n\nHere is a valid definition (with a type annotation) for reference:\n\n    greet : String -> String\n    greet name =\n      #\"Hello \"# ++ name ++ #\"!\"#\n\nThe top line (called a \"type annotation\") is optional. You can leave it off if\nyou want. As you get more comfortable with Elm and as your project grows, it\nbecomes more and more valuable to add them though! They work great as\ncompiler-verified documentation, and they often improve error messages!",
+        "range": {
+          "end": {"character":6,"line":2},
+          "start": {"character":6,"line":2}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": [
     {

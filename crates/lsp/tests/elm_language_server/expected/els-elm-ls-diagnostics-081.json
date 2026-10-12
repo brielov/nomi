@@ -1,6 +1,20 @@
 {
   "diagnostics": {
-    "src/Main.elm": []
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "elm_make",
+          "uri": "src/Main.elm"
+        },
+        "message": "UNEXPECTED PORTS - You are declaring ports in a normal module.\n\n2| module Foo exposing (foo)\n   #^^^^^^#\nSwitch this to say #port module# instead, marking that this module contains port\ndeclarations.\n\n#Note#: Ports are not a traditional FFI for calling JS functions directly. They\nneed a different mindset! Read <https://elm-lang.org/0.19.1/ports> to learn the\nsyntax and how to use it effectively.",
+        "range": {
+          "end": {"character":6,"line":1},
+          "start": {"character":0,"line":1}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": []
 }

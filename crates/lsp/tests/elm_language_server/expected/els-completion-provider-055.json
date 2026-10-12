@@ -3,6 +3,19 @@
     "src/Test.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "TYPE MISMATCH - This `model` record does not have a `p` field:\n\n13|         x = model.p\n                      #^#\nThis is usually a typo. Here are the `model` fields that are most similar:\n\n    { prop1 : String\n    , prop2 : Int\n    }\n\nSo maybe #p# should be #prop1#?",
+        "range": {
+          "end": {"character":17,"line":12},
+          "start": {"character":12,"line":12}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_pattern",
           "uri": "<project>/src/Test.elm"
         },

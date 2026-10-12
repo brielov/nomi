@@ -3,6 +3,19 @@
     "src/Test.elm": [
       {
         "data": {
+          "code": "missing_value",
+          "uri": "src/Test.elm"
+        },
+        "message": "NAMING ERROR - I cannot find a `f` variable:\n\n5|     (\\{ field } -> f)\n                      #^#\nThese names seem close though:\n\n    #e#\n    #pi#\n    #abs#\n    #cos#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+        "range": {
+          "end": {"character":20,"line":4},
+          "start": {"character":19,"line":4}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_pattern",
           "uri": "<project>/src/Test.elm"
         },

@@ -1,6 +1,20 @@
 {
   "diagnostics": {
-    "src/Test.elm": []
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "PROBLEM IN TYPE ANNOTATION - I was partway through parsing the `test` type annotation, but I got stuck here:\n\n3| test : Module.\n          #^#\nI was expecting to see a type next. Try putting #Int# or #String# for now?",
+        "range": {
+          "end": {"character":7,"line":2},
+          "start": {"character":7,"line":2}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": [
     {

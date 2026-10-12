@@ -3,6 +3,19 @@
     "src/Main.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Main.elm"
+        },
+        "message": "MODULE NAME MISMATCH - It looks like this module name is out of sync:\n\n2| port module Bar exposing (foo)\n               #^^^#\nI need it to match the file path, so I was expecting to see `Main` here. Make\nthe following change, and you should be all set!\n\n    #Bar# -> #Main#\n\n#Note#: I require that module names correspond to file paths. This makes it much\neasier to explore unfamiliar codebases! So if you want to keep the current\nmodule name, try renaming the file instead.",
+        "range": {
+          "end": {"character":15,"line":1},
+          "start": {"character":12,"line":1}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_top_level",
           "uri": "<project>/src/Main.elm"
         },

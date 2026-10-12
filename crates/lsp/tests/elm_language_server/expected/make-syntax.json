@@ -1,0 +1,20 @@
+{
+  "diagnostics": {
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "elm_make",
+          "uri": "src/Main.elm"
+        },
+        "message": "UNFINISHED PARENTHESES - I was expecting to see a closing parenthesis next:\n\n8|     text (String.fromInt 1\n                             #^#\nTry adding a #)# to see if that helps!\n\n#Note#: I can get confused by indentation in cases like this, so maybe you have a\nclosing parenthesis but it is not indented enough?",
+        "range": {
+          "end": {"character":26,"line":7},
+          "start": {"character":26,"line":7}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
+  },
+  "requests": []
+}

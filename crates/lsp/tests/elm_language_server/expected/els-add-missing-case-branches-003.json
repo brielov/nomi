@@ -1,6 +1,20 @@
 {
   "diagnostics": {
-    "src/Test.elm": []
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "MISSING PATTERNS - This `case` does not have branches for all possibilities:\n\n4|#>#    (case a of\n5|#>#        1 ->\n6|#>#            \"\"\n\nMissing possibilities include:\n\n    #_#\n\nI would have to crash if I saw one of those. Add branches for them!\n\n#Hint#: If you want to write the code for each branch later, use `Debug.todo` as a\nplaceholder. Read <https://elm-lang.org/0.19.1/missing-patterns> for more\nguidance on this workflow.",
+        "range": {
+          "end": {"character":14,"line":5},
+          "start": {"character":5,"line":3}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": [
     {

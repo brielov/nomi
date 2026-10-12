@@ -1,0 +1,4 @@
+{
+    "settings": { "onlyUpdateDiagnosticsOnSave": false },
+    "open": ["src/Main.elm"]
+}

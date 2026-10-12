@@ -3,6 +3,19 @@
     "src/Test.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "MISSING EXPRESSION - I am partway through parsing the `defaultPage` definition, but I got stuck here:\n\n5| defaultPage =\n6|   Page.\n     #^#\nI was expecting to see an expression like #42# or #\"hello\"#. Once there is something\nthere, I can probably give a more specific hint!\n\n#Note#: This can also happen if run into reserved words like `let` or `as`\nunexpectedly. Or if I run into operators in unexpected spots. Point is, there\nare a couple ways I can get confused and give sort of weird advice!",
+        "range": {
+          "end": {"character":2,"line":5},
+          "start": {"character":2,"line":5}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_import",
           "uri": "<project>/src/Test.elm"
         },

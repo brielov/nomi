@@ -3,6 +3,19 @@
     "src/Main.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Main.elm"
+        },
+        "message": "UNFINISHED IMPORT - I am partway through parsing an import, but I got stuck here:\n\n6|             \n               #^#\nHere are some examples of valid `import` declarations:\n\n    #import# Html\n    #import# Html #as# H\n    #import# Html #as# H #exposing# (..)\n    #import# Html #exposing# (Html, div, text)\n\nYou are probably trying to import a different module, but try to make it look\nlike one of these examples!\n\nRead <https://elm-lang.org/0.19.1/imports> to learn more.",
+        "range": {
+          "end": {"character":12,"line":5},
+          "start": {"character":12,"line":5}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_import",
           "uri": "<project>/src/Main.elm"
         },

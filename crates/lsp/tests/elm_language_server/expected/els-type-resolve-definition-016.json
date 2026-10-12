@@ -3,6 +3,19 @@
     "src/Main.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Main.elm"
+        },
+        "message": "TOO MUCH INDENTATION - This `type` should not have any spaces before it:\n\n2|   type UnitlessFloat\n     #^#\nDelete the spaces before `type` until there are none left!",
+        "range": {
+          "end": {"character":2,"line":1},
+          "start": {"character":2,"line":1}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_value_constructor",
           "uri": "<project>/src/Main.elm"
         },

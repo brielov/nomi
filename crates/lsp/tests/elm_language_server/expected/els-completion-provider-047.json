@@ -1,6 +1,20 @@
 {
   "diagnostics": {
-    "src/Test.elm": []
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "missing_value",
+          "uri": "src/Test.elm"
+        },
+        "message": "NAMING ERROR - I cannot find a `M.f` variable:\n\n7|     M.f\n       #^^^#\nThe `M` module does not expose a `f` variable. These names seem close though:\n\n    #M.foo#\n    #max#\n    #min#\n    #M.bar#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+        "range": {
+          "end": {"character":7,"line":6},
+          "start": {"character":4,"line":6}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": [
     {

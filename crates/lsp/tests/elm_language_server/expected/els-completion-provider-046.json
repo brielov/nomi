@@ -3,6 +3,19 @@
     "src/Test.elm": [
       {
         "data": {
+          "code": "missing_value",
+          "uri": "src/Test.elm"
+        },
+        "message": "NAMING ERROR - I cannot find a `Module.f` variable:\n\n6|     Module.f\n       #^^^^^^^^#\nI cannot find a `Module` import. These names seem close though:\n\n    #modBy#\n    #round#\n    #toFloat#\n    #toPolar#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+        "range": {
+          "end": {"character":12,"line":5},
+          "start": {"character":4,"line":5}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_import",
           "uri": "<project>/src/Test.elm"
         },

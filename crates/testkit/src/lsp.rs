@@ -104,6 +104,21 @@ pub fn cases(dir: &Path) -> Vec<Case> {
     cases
 }
 
+/// How long the path of a case's project directory is, in characters:
+/// elm reflows some reports around the project's path, so both servers
+/// must see paths of one length for their reports to compare.
+pub const ROOT_LENGTH: usize = 160;
+
+/// The directory under `base` for the project of `case`, its path padded
+/// to [`ROOT_LENGTH`].
+pub fn project_dir(base: &Path, case: &str) -> PathBuf {
+    let used = base.to_string_lossy().chars().count() + 1 + case.len() + 1;
+    let pad = ROOT_LENGTH
+        .checked_sub(used)
+        .unwrap_or_else(|| panic!("{} is too long a path for a case", base.display()));
+    base.join(format!("{case}-{}", "x".repeat(pad)))
+}
+
 /// Copies a case's project to `to`, without its session, and with
 /// [`DEFAULT_ELM_JSON`] if it has no `elm.json`.
 pub fn copy_project(case: &Case, to: &Path) -> io::Result<()> {

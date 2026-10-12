@@ -3,6 +3,19 @@
     "src/Test.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "UNSAFE PATTERN - This pattern does not cover all possiblities:\n\n4| foo (Just x) unused = x\n        #^^^^^^#\nOther possibilities include:\n\n    #Nothing#\n\nI would have to crash if I saw one of those! So rather than pattern matching in\nfunction arguments, put a `case` in the function body to account for all\npossibilities.",
+        "range": {
+          "end": {"character":11,"line":3},
+          "start": {"character":5,"line":3}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_pattern",
           "uri": "<project>/src/Test.elm"
         },

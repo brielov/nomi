@@ -1,6 +1,33 @@
 {
   "diagnostics": {
-    "src/Test.elm": []
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "missing_value",
+          "uri": "src/Test.elm"
+        },
+        "message": "NAMING ERROR - I cannot find a `Foo` type:\n\n5| test : Foo -> Html.Html msg\n          #^^^#\nThese names seem close though:\n\n    #Bool#\n    #Cmd#\n    #Float#\n    #Int#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+        "range": {
+          "end": {"character":10,"line":4},
+          "start": {"character":7,"line":4}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
+          "code": "missing_value",
+          "uri": "src/Test.elm"
+        },
+        "message": "NAMING ERROR - I cannot find a `Html.Html` type:\n\n5| test : Foo -> Html.Html msg\n                 #^^^^^^^^^#\nI cannot find a `Html` import. These names seem close though:\n\n    #Cmd.Cmd#\n    #Float#\n    #List#\n    #Char.Char#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+        "range": {
+          "end": {"character":23,"line":4},
+          "start": {"character":14,"line":4}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": [
     {

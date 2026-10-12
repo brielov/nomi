@@ -3,6 +3,19 @@
     "src/Module.elm": [
       {
         "data": {
+          "code": "elm_make",
+          "uri": "src/Module.elm"
+        },
+        "message": "PROBLEM IN RECORD - I am partway through parsing a record, but I got stuck here:\n\n3|     { field : String }\n               #^#\nI just saw a field name, so I was expecting to see an equals sign next. So try\nputting an #=# sign here?\n\n#Note#: If you are trying to define a record across multiple lines, I recommend\nusing this format:\n\n    { name = #\"Alice\"#\n    , age = #42#\n    , height = #1.75#\n    }\n\nNotice that each line starts with some indentation. Usually two or four spaces.\nThis is the stylistic convention in the Elm ecosystem.",
+        "range": {
+          "end": {"character":12,"line":2},
+          "start": {"character":12,"line":2}
+        },
+        "severity": 1,
+        "source": "Elm"
+      },
+      {
+        "data": {
           "code": "unused_top_level",
           "uri": "<project>/src/Module.elm"
         },

@@ -31,6 +31,11 @@ struct Client {
 impl Client {
     /// A server started and initialized for a client that offers `encodings`.
     fn start(encodings: &[&str]) -> Client {
+        Client::start_with(encodings, Value::Null)
+    }
+
+    /// [`Client::start`], with `options` as the initialization options.
+    fn start_with(encodings: &[&str], options: Value) -> Client {
         let (server, connection) = Connection::memory();
         let handle = thread::spawn(move || nomi_lsp::run(&server));
         let mut client = Client {
@@ -44,6 +49,7 @@ impl Client {
             json!({
                 "processId": null,
                 "capabilities": { "general": { "positionEncodings": encodings } },
+                "initializationOptions": options,
             }),
         );
         client.capabilities = response.result.unwrap()["capabilities"].clone();
@@ -145,7 +151,10 @@ fn the_handshake_offers_what_v0_does() {
     let client = Client::start(&["utf-16"]);
     let capabilities = &client.capabilities;
     assert_eq!(capabilities["positionEncoding"], "utf-16");
-    assert_eq!(capabilities["textDocumentSync"], 2);
+    assert_eq!(
+        capabilities["textDocumentSync"],
+        json!({ "openClose": true, "change": 2, "save": true })
+    );
     assert_eq!(capabilities["documentFormattingProvider"], true);
     assert_eq!(capabilities["documentSymbolProvider"], true);
     assert_eq!(capabilities["definitionProvider"], true);
@@ -173,7 +182,9 @@ fn syntax_errors_come_and_go_with_the_text() {
     let found = client.diagnostics(&main, |d| !d.is_empty());
     assert_eq!(found.len(), 1);
     let message = found[0]["message"].as_str().unwrap();
-    assert!(message.starts_with("MISSING EXPRESSION\n\n"), "{message}");
+    // As elm-language-server writes elm's reports: the title, then the
+    // message.
+    assert!(message.starts_with("MISSING EXPRESSION - "), "{message}");
     assert_eq!(found[0]["severity"], 1);
     assert_eq!(
         found[0]["range"]["start"],
@@ -189,6 +200,34 @@ fn syntax_errors_come_and_go_with_the_text() {
                 "text": "",
             }],
         }),
+    );
+    client.diagnostics(&main, <[Value]>::is_empty);
+    client.shutdown();
+}
+
+#[test]
+fn diagnostics_wait_for_a_save_when_asked_to() {
+    let (_dir, main) = project();
+    let client = Client::start_with(&[], json!({ "onlyUpdateDiagnosticsOnSave": true }));
+    client.open(&main, "module Main exposing (x)\n\n\nx =\n    = 1\n");
+    assert_eq!(client.diagnostics(&main, |d| !d.is_empty()).len(), 1);
+    // Fixed, but not saved: nothing new comes.
+    let fixed = "module Main exposing (x)\n\n\nx =\n    1\n";
+    client.notify(
+        "textDocument/didChange",
+        json!({
+            "textDocument": { "uri": main, "version": 2 },
+            "contentChanges": [{ "text": fixed }],
+        }),
+    );
+    let quiet = client
+        .connection
+        .receiver
+        .recv_timeout(Duration::from_millis(600));
+    assert!(quiet.is_err(), "{quiet:?}");
+    client.notify(
+        "textDocument/didSave",
+        json!({ "textDocument": { "uri": main } }),
     );
     client.diagnostics(&main, <[Value]>::is_empty);
     client.shutdown();

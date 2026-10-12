@@ -1,6 +1,20 @@
 {
   "diagnostics": {
-    "src/Main.elm": []
+    "src/Main.elm": [
+      {
+        "data": {
+          "code": "missing_value",
+          "uri": "src/Main.elm"
+        },
+        "message": "NAMING ERROR - I cannot find a `encodeUser` variable:\n\n21|   , ( \"user\", encodeUser scope.user )\n                  #^^^^^^^^^^#\nThese names seem close though:\n\n    #encodeScope#\n    #never#\n    #Json.Encode.set#\n    #acos#\n\n#Hint#: Read <https://elm-lang.org/0.19.1/imports> to see how `import`\ndeclarations work in Elm.",
+        "range": {
+          "end": {"character":24,"line":20},
+          "start": {"character":14,"line":20}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": [
     {

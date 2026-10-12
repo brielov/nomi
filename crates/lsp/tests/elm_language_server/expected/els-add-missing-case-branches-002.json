@@ -1,11 +1,33 @@
 {
   "diagnostics": {
-    "src/Test.elm": []
+    "src/Test.elm": [
+      {
+        "data": {
+          "code": "elm_make",
+          "uri": "src/Test.elm"
+        },
+        "message": "MISSING PATTERNS - This `case` does not have branches for all possibilities:\n\n11|#>#            case b of\n12|#>#                Nothing ->\n13|#>#                    \"\"\n\nMissing possibilities include:\n\n    #Just _#\n\nI would have to crash if I saw one of those. Add branches for them!\n\n#Hint#: If you want to write the code for each branch later, use `Debug.todo` as a\nplaceholder. Read <https://elm-lang.org/0.19.1/missing-patterns> for more\nguidance on this workflow.",
+        "range": {
+          "end": {"character":22,"line":12},
+          "start": {"character":12,"line":10}
+        },
+        "severity": 1,
+        "source": "Elm"
+      }
+    ]
   },
   "requests": [
     {
       "method": "textDocument/codeAction",
-      "result": []
+      "result": [
+        {
+          "data": {"actionName":"extract_top_level","range":{"end":{"character":22,"line":12},"start":{"character":12,"line":10}},"refactorName":"extract_function","renamePosition":{"character":12,"line":10},"uri":"<project>/src/Test.elm"},
+          "edit": {"changes":{"<project>/src/Test.elm":[{"newText":"\n\nnewFunction : Maybe a -> String\nnewFunction b =\n    case b of\n        Nothing ->\n            \"\"\n","range":{"end":{"character":0,"line":16},"start":{"character":0,"line":16}}},{"newText":"newFunction b","range":{"end":{"character":22,"line":12},"start":{"character":12,"line":10}}}]}},
+          "isPreferred": false,
+          "kind": "refactor.extract",
+          "title": "Extract function to top level"
+        }
+      ]
     }
   ]
 }

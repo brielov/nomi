@@ -5,4 +5,4 @@ import Bar
 
 foo : Bar.Thing
 foo = bar
-			
+            
