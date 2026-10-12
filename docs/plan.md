@@ -670,7 +670,13 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
     - tree-sitter-elm only reads the operators Elm's packages define, so `(!!) a b` is no prefix call to it.
     - A one-field record given to an alias of a record it extends is several fields to elm-language-server's type checker. nomi tells that case by its syntax.
     - With three branches or more, the boolean-case query may match more than once; nomi reports one per `case`, which is all the cases test.
-- [ ] **9.6** `ide: navigation parity`. Definition, type definition and references, including record fields by type, type variables, ports and modules. Hover as Markdown, with annotation and doc comment. Package sources open from nomi's store. **Check:** the definition, references and hover cases.
+- [ ] **9.6a** `ide: navigation by name`.
+  - **Definition.** Answered with the declaring node's range, as elm-language-server answers. Also in files elm won't build: misnamed, unnamed or broken.
+  - **More names.** Annotation names, module names, operators, type variables and alias patterns, for definition and references.
+  - **Type definition.** Also here, with package sources opening from nomi's store.
+  - **Check:** the definition, references and type definition cases, except record fields.
+- [ ] **9.6b** `ide: record fields by type`. Definition and references of record fields through inference: field access, accessors, updates, patterns and fields declared across modules. **Check:** the record-field cases.
+- [ ] **9.6c** `ide: hover as elm-language-server shows it`. Markdown with the annotation, the doc comment and, for a parameter, a link to its type. **Check:** the hover cases.
 - [ ] **9.7** `ide: rename`. Prepare-rename, exposing lists, qualified names, record fields, and module rename as a `RenameFile`. Files outside the project are refused with its message.
 - [ ] **9.8** `ide: completion in scope`. Locals, qualified names, module and import exposing lists, module names after `import`, record fields by type (in expressions, updates and record patterns), and annotation names at the start of a line.
 - [ ] **9.9** `ide: completion with auto-import, snippets and keywords`. Up to 49 auto-imports with their edit, `isIncomplete`, `labelDetails`, its snippets and keywords, and its sort order.
