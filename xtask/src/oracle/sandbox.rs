@@ -166,6 +166,9 @@ impl Sandbox {
                 None if stderr.starts_with("elm: ") && !stderr.contains("(file is locked)") => {
                     return Ok((Outcome::Crashed, None));
                 }
+                // Death by a signal, as 0.19.3's on some recursive aliases,
+                // which then dies of a stack overflow or of SIGSEGV.
+                None if output.status.code().is_none() => return Ok((Outcome::Crashed, None)),
                 None => bail!(
                     "{} exited with {} and no report:\n{stderr}",
                     self.elm.display(),

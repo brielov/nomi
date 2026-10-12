@@ -23,3 +23,5 @@ terezka/elm-charts-alpha@4.0.1	examples/BarChart/Events1.elm	f6cb3b7837002abe918
 terezka/elm-charts-alpha@4.0.1	examples/ScatterChart/Flowers.elm	b5f42b9ba376e146a14990a918fab545e0652f63e84bcd36ed4a486769d737e5	keeps an import whose merge loses a used qualifier
 terezka/elm-charts@5.0.0	docs/src/Charts/Dashboard5.elm	3a5e1ac550149b1a233329427610c13d5cd19fb2c980b7e26e8751c16ad59ec6	keeps an import whose merge loses a used qualifier
 terezka/elm-charts@5.0.0	docs/src/Page/GettingStarted.elm	ff524546440b1042e1ff883c93c4ea388326dd33d8beb7efb7dd85c5ed451a1f	keeps an import whose merge loses a used qualifier
+app/elm-charts-docs	docs/src/Charts/Dashboard5.elm	3a5e1ac550149b1a233329427610c13d5cd19fb2c980b7e26e8751c16ad59ec6	keeps an import whose merge loses a used qualifier
+app/elm-charts-docs	docs/src/Page/GettingStarted.elm	ff524546440b1042e1ff883c93c4ea388326dd33d8beb7efb7dd85c5ed451a1f	keeps an import whose merge loses a used qualifier

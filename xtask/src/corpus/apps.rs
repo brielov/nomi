@@ -211,9 +211,13 @@ mod tests {
         let apps: Apps = toml::from_str(include_str!("../../../corpus/apps.toml")).unwrap();
         let names: Vec<&str> = apps.app.iter().map(|a| a.name.as_str()).collect();
         assert_eq!(
-            names,
+            names[..4],
             ["exosphere", "liascript", "docspell", "elm-3d-scene"]
         );
+        // The apps plan 9.18 added, each once.
+        assert_eq!(names.len(), 38);
+        let unique: std::collections::BTreeSet<&str> = names.iter().copied().collect();
+        assert_eq!(unique.len(), names.len());
         let prepare = apps.app[2].prepare.as_ref().unwrap();
         assert!(prepare.jdk.contains_key("macos-aarch64"));
     }

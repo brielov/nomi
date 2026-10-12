@@ -1,5 +1,9 @@
 # Runs where elm's o.dat is wrong, by case (`cargo xtask corpus objects`),
 # each checked by hand: rebuilt with an ELM_HOME holding no artifacts.dat,
 # elm writes the o.dat nomi makes. case<TAB>why
-EdutainmentLIVE/elm-bootstrap@2.0.1 on 0.19.1	the shared ELM_HOME's elm/browser artifacts.dat was corrupt, a race between concurrent elms; built fresh, elm's o.dat is nomi's
-jxxcarlson/elm-text-editor@7.0.8 on 0.19.3	elm reused Janiczek/architecture-test's artifacts.dat, built against elm-explorations/test 2.x for another project, here with 1.2.2, as its artifact cache keeps every fingerprint it has seen; built fresh, elm's o.dat is nomi's
+Janiczek/elm-bidict@3.1.1 on 0.19.1	elm reused Janiczek/architecture-test's artifacts.dat, last built against elm-explorations/test 1.x for another project, as its artifact cache keeps every fingerprint it has seen; built fresh, elm's o.dat is nomi's
+Janiczek/elm-bidict@3.1.1 on 0.19.2	elm reused Janiczek/architecture-test's artifacts.dat, last built against elm-explorations/test 1.x for another project, as its artifact cache keeps every fingerprint it has seen; built fresh, elm's o.dat is nomi's
+Janiczek/elm-bidict@3.1.1 on 0.19.3	elm reused Janiczek/architecture-test's artifacts.dat, last built against elm-explorations/test 1.x for another project, as its artifact cache keeps every fingerprint it has seen; built fresh, elm's o.dat is nomi's
+Janiczek/elm-common-tests@2.0.0 on 0.19.1	elm reused Janiczek/architecture-test's artifacts.dat, last built against elm-explorations/test 1.x for another project, as its artifact cache keeps every fingerprint it has seen; built fresh, elm's o.dat is nomi's
+Janiczek/elm-common-tests@2.0.0 on 0.19.2	elm reused Janiczek/architecture-test's artifacts.dat, last built against elm-explorations/test 1.x for another project, as its artifact cache keeps every fingerprint it has seen; built fresh, elm's o.dat is nomi's
+Janiczek/elm-common-tests@2.0.0 on 0.19.3	elm reused Janiczek/architecture-test's artifacts.dat, last built against elm-explorations/test 1.x for another project, as its artifact cache keeps every fingerprint it has seen; built fresh, elm's o.dat is nomi's

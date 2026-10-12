@@ -378,7 +378,8 @@ fn main_exports(cx: &Gen, mains: &[&(Home, Main)]) -> String {
 }
 
 /// `generateExports`: the subtrees by segment in the release's order of
-/// names.
+/// names, except that upstream folds all but the first onto the end it
+/// has so far, each before the last, so they come out reversed.
 fn exports(cx: &Gen, trie: &Trie) -> String {
     let mut out = String::from("{");
     let mut items = Vec::new();
@@ -387,6 +388,9 @@ fn exports(cx: &Gen, trie: &Trie) -> String {
     }
     let mut subs: Vec<(&&str, &Trie)> = trie.subs.iter().collect();
     subs.sort_by(|a, b| names(cx.compat, a.0, b.0));
+    if subs.len() > 1 {
+        subs[1..].reverse();
+    }
     for (name, sub) in subs {
         items.push(format!("'{name}':{}", exports(cx, sub)));
     }
@@ -456,6 +460,27 @@ mod tests {
                 init("Page$About")
             )
         );
+    }
+
+    #[test]
+    fn mains_after_the_first_are_exported_in_reverse() {
+        let mut graph = GlobalGraph::default();
+        let mut mains = Vec::new();
+        for module in ["Page", "Post", "Posts", "Tag"] {
+            let define = Node::Define(Expr::Int(0), BTreeSet::new());
+            graph.nodes.insert(global(module, "main"), define);
+            mains.push((home(module), Main::Static));
+        }
+        let js = program(Compat::V0_19_1, &DEV, &graph, &mains);
+        let exports = &js[js.find("_Platform_export").unwrap()..];
+        let order: Vec<&str> = ["'Page'", "'Post'", "'Posts'", "'Tag'"]
+            .into_iter()
+            .map(|name| (exports.find(name).unwrap(), name))
+            .collect::<std::collections::BTreeMap<_, _>>()
+            .into_values()
+            .collect();
+        // elm's own output for elmstatic's four layouts.
+        assert_eq!(order, ["'Page'", "'Tag'", "'Posts'", "'Post'"]);
     }
 
     #[test]

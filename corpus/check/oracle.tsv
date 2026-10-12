@@ -4,6 +4,40 @@ app/exosphere	ok	ok	ok
 app/liascript	ok	ok	ok
 app/docspell	ok	ok	ok
 app/elm-3d-scene	ok	ok	ok
+app/elm-spa-example	ok	ok	ok
+app/azimutt	error MISSING SOURCE DIRECTORIES	error MISSING SOURCE DIRECTORIES	error MISSING SOURCE DIRECTORIES
+app/elm-lang-org	ok	ok	ok
+app/elm-lang-org-editor	ok	ok	ok
+app/todomvc	ok	ok	ok
+app/ellie	error MISSING SOURCE DIRECTORY	error MISSING SOURCE DIRECTORY	error MISSING SOURCE DIRECTORY
+app/obsidian-card-board	errors 52f6b9e02ca2726eb9d74d5878d2a8b3ff6965940a22307df8bd9947fe12a9cd MODULE NOT FOUND	errors 3e75ddb6b3232f7fb189c7577e886960290bc1ac9d1496b18b33a9221d36b3a8 MODULE NOT FOUND	errors 6967a90a3a5b40b0487da049f6260d692dadb81709798507ba23de9b75376685 MODULE NOT FOUND
+app/nixos-search	ok	ok	ok
+app/kite	ok	ok	ok
+app/massivedecks	error MISSING SOURCE DIRECTORY	error MISSING SOURCE DIRECTORY	error MISSING SOURCE DIRECTORY
+app/gingko	ok	ok	ok
+app/elm-analyse	ok	ok	ok
+app/sanderling	ok	ok	ok
+app/elmboy	ok	ok	ok
+app/elm-shared-state	error TROUBLE VERIFYING DEPENDENCIES	error TROUBLE VERIFYING DEPENDENCIES	error TROUBLE VERIFYING DEPENDENCIES
+app/spades	ok	ok	ok
+app/swarm-dashboard	ok	ok	ok
+app/pomodorolm	ok	ok	ok
+app/bots-audio-message	error TROUBLE VERIFYING DEPENDENCIES	error TROUBLE VERIFYING DEPENDENCIES	error TROUBLE VERIFYING DEPENDENCIES
+app/bots-tribal-wars	ok	ok	ok
+app/bots-multi-instance	ok	ok	ok
+app/elm-designer	errors 5cf771af3ce6c61e6b5ee712f47b1f1c9ceee34832c3848d06a956b7d93ac395 MODULE NOT FOUND	errors f274bff39b8473ce88940a3fedac5dcc99c4ba7d058eeb281137920837c6caf3 MODULE NOT FOUND	errors 5cf771af3ce6c61e6b5ee712f47b1f1c9ceee34832c3848d06a956b7d93ac395 MODULE NOT FOUND
+app/elmstatic-emu	ok	ok	ok
+app/elmstatic-md	ok	ok	ok
+app/textusm	errors 13260f6e71ac0cc533bec88d0bed905883e561cc628aba258b082cca73128c4b MODULE NOT FOUND	errors 1e0ea6dc87b53ef11e714e4428c1e4785ef91f7f28e79006ba01f897ed3deba3 MODULE NOT FOUND	errors 5d69f11d2973e320b1fd8f4252875bde57ecca9b89ca761c9d3067269ddd70e1 MODULE NOT FOUND
+app/emdash	ok	ok	ok
+app/package-elm-lang-org	ok	ok	ok
+app/unison-local-ui	error MISSING SOURCE DIRECTORY	error MISSING SOURCE DIRECTORY	error MISSING SOURCE DIRECTORY
+app/ui-core-examples	ok	ok	ok
+app/ui-core-storybook	error TROUBLE VERIFYING DEPENDENCIES	error TROUBLE VERIFYING DEPENDENCIES	error TROUBLE VERIFYING DEPENDENCIES
+app/elm-charts-docs	error TROUBLE VERIFYING DEPENDENCIES	error TROUBLE VERIFYING DEPENDENCIES	error TROUBLE VERIFYING DEPENDENCIES
+app/sharry	error MISSING SOURCE DIRECTORY	error MISSING SOURCE DIRECTORY	error MISSING SOURCE DIRECTORY
+app/concourse	ok	ok	ok
+app/guide-repl	ok	ok	ok
 0ui/elm-task-parallel@2.0.0	ok	ok	ok
 1602/elm-feather@2.3.5	ok	ok	ok
 1602/json-value@3.0.1	ok	ok	ok

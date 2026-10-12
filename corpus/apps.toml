@@ -56,3 +56,316 @@ tree = "288d00b8d958993e7ce137f73d2f57994b1f7223"
 root = "examples"
 entries = ["LightingAndShadows.elm"]
 manifest-sha256 = "0648b337cf04fc8d77e2e5030baaf5a937e6f3a7b0e213aec2ed6877e8e132d3"
+
+# Apps added in plan 9.18, pinned by commit at their default branch's head
+# on 2026-10-12. elm-pages and elm-land projects are left out: their
+# generated modules come from Node tools nothing here pins.
+
+[[app]]
+name = "elm-spa-example"
+git = "https://github.com/rtfeldman/elm-spa-example.git"
+commit = "cb32acd73c3d346d0064e7923049867d8ce67193"
+tree = "0b2aebe49a4c4646aee7e36705331baf6cb84444"
+root = "."
+entries = ["src/Main.elm"]
+manifest-sha256 = "ddf8c6352a437ad6b8798d10fb268b5201ef872b708e7de67d13e15adc8fd1b9"
+
+[[app]]
+name = "azimutt"
+git = "https://github.com/azimuttapp/azimutt.git"
+commit = "3f79c2971a8a3be62ccf6003eb17a7ded7640897"
+tree = "686f8a9692b692e63d98a452ac27a4c32c164e26"
+root = "frontend"
+entries = ["src/Components/Book.elm", "src/Main.elm"]
+manifest-sha256 = "6c2c62aac258376b9b9db3ee67b3a009fc63b6bd1febcd008ff3e2cad8a92f8b"
+
+[[app]]
+name = "elm-lang-org"
+git = "https://github.com/elm/elm-lang.org.git"
+commit = "dc6062b356f8879b8f21c791da77bafdda5ab1db"
+tree = "75467fdc1452cd996cdd62d356244b018be1ff90"
+root = "."
+entries = ["pages/home.elm"]
+manifest-sha256 = "4f1d5a014bb714ec2665bb8aac618e5254aed4999d02ab262e308cb10e527d5f"
+
+[[app]]
+name = "elm-lang-org-editor"
+git = "https://github.com/elm/elm-lang.org.git"
+commit = "dc6062b356f8879b8f21c791da77bafdda5ab1db"
+tree = "75467fdc1452cd996cdd62d356244b018be1ff90"
+root = "editor"
+entries = ["src/Page/Editor.elm"]
+manifest-sha256 = "10c128f9318180e9006bcb596a74cb70227ecb28f3aeaa674455b974535eb789"
+
+[[app]]
+name = "todomvc"
+git = "https://github.com/evancz/elm-todomvc.git"
+commit = "f236e7e56941c7705aba6e42cb020ff515fe3290"
+tree = "7f03b37a09264cc8f72824ebd8dd2dda8a161867"
+root = "."
+entries = ["src/Main.elm"]
+manifest-sha256 = "1668dfeeab9d43029dab718f0525160e4ce28e3ddf5ae0381c2681e428d39179"
+
+[[app]]
+name = "ellie"
+git = "https://github.com/ellie-app/ellie.git"
+commit = "045212b56142341fc95b79659c3ca218b0d5d282"
+tree = "ba6aa2ed5bbd2021e7997574a414022608d7aad1"
+root = "assets"
+entries = ["src/Pages/Editor/Main.elm", "src/Pages/Editor/Types/Revision.elm", "src/Pages/Embed/Main.elm"]
+manifest-sha256 = "aed3adb65750151bf08d6e40eed0e1bc947c2fdc21424759f0aa9057889d185b"
+
+[[app]]
+name = "obsidian-card-board"
+git = "https://github.com/roovo/obsidian-card-board.git"
+commit = "fe34e81163474dc8f12e67a2b720ab0f42e98f7b"
+tree = "8ba84fa8460a749b041439e61f17f39a79221def"
+root = "."
+entries = ["src/Main.elm", "src/Worker.elm"]
+manifest-sha256 = "b768f59e11e98a09ff4c23e624d8bbb3fc8a70cd328a2089eb19b3c6a44b7348"
+
+[[app]]
+name = "nixos-search"
+git = "https://github.com/NixOS/nixos-search.git"
+commit = "443993a31ba921d8fa2ebf3c813aca4b01e4ba25"
+tree = "e7b0fc99dba3189152cc68fa449f7d7555290438"
+root = "frontend"
+entries = ["src/Benchmark.elm", "src/Main.elm"]
+manifest-sha256 = "54b23326cee7ef95e295702d2e583bc72ffbabc410a11b197aafcb0274159b65"
+
+[[app]]
+name = "kite"
+git = "https://github.com/erkal/kite.git"
+commit = "21e9eab94de314b2c2f64e7452407030dbb9b542"
+tree = "1c3ed1c3ace4262828c9f7e245f10c4c616aaa97"
+root = "."
+entries = ["src/Main.elm"]
+manifest-sha256 = "dc4cbf485ae65596b7b2fae22473de86c726b821b6617639c2693499085b3bd5"
+
+[[app]]
+name = "massivedecks"
+git = "https://github.com/Lattyware/massivedecks.git"
+commit = "d3e816eddb06be40dde28fa7b9db2d14719ec40a"
+tree = "6c3a84673577e20bf1cca2ae7b2e1f9a9ea11764"
+root = "client"
+entries = ["src/elm/MassiveDecks.elm"]
+manifest-sha256 = "6086889c6d8aba8b3ce9e2885b59f9f6f064fecaa27e9dd18e45f3131cc4273e"
+
+[[app]]
+name = "gingko"
+git = "https://github.com/gingko/client.git"
+commit = "63502a648229e4063a2405c895b49f50085e48e0"
+tree = "11690368788dd03f748d5ee8718c03be8e5b7686"
+root = "client"
+entries = ["src/elm/Main.elm"]
+manifest-sha256 = "16c80aa86d2907d39d6109ec50c9243a82268e9ca9967a525361e28086882d66"
+
+[[app]]
+name = "elm-analyse"
+git = "https://github.com/stil4m/elm-analyse.git"
+commit = "701b8b4013a4f057b9382d368e42adc6fe08e14e"
+tree = "90db49ad110a1ffdd9dfaf281c223651f400ad57"
+root = "."
+entries = ["docs/Docs/Main.elm", "docs/Docs/MsgDoc.elm", "src/Analyser.elm", "src/Client.elm", "src/Client/App/App.elm", "src/Editor.elm"]
+manifest-sha256 = "d0a9baf4e143c6cf8cb67ffbd5e896948b0a037a8333bee8a204a2a092ffe285"
+
+[[app]]
+name = "sanderling"
+git = "https://github.com/Arcitectus/Sanderling.git"
+commit = "ee5b1cce301e0de934603ac7cabe0319b8f4f290"
+tree = "3b06417469e6f7acf7f28a3cc608a3efaf377b3f"
+root = "implement/alternate-ui/source"
+entries = ["src/Frontend/Main.elm"]
+manifest-sha256 = "89d023a3a0ed858760face2166daf539e72f1d8495a31638151043db5350f2de"
+
+[[app]]
+name = "elmboy"
+git = "https://github.com/Malax/elmboy.git"
+commit = "921e1ff66042821b5703d3a7802315d0cc8def20"
+tree = "7430068ed94a47fd2a7239fecbf616967c17f9c2"
+root = "."
+entries = ["src/elm/Main.elm"]
+manifest-sha256 = "4277399daebbc412799f143309e6b3d03b9a3c1708fd717df379c042179c399a"
+
+[[app]]
+name = "elm-shared-state"
+git = "https://github.com/ohanhi/elm-shared-state.git"
+commit = "f7126e6373a516e6d49747ab15497b4fac8071aa"
+tree = "366dd42757fffcc3980ca939c1d4e099c313ceae"
+root = "."
+entries = ["src/Main.elm"]
+manifest-sha256 = "ef8f02fb8fa688d6d15ba3bbf4e9a2b8248368c0e5efb33f02184cde60b58ceb"
+
+[[app]]
+name = "spades"
+git = "https://github.com/rogeriochaves/spades.git"
+commit = "3e9180887f6cd7230849f7db4b20e0866b21c6a7"
+tree = "88b631a440df160d986c89f9c5a47157f3b7c992"
+root = "."
+entries = ["src/Main.elm"]
+manifest-sha256 = "d95a584aace560f16f364c9677ed9547e7c59b106c2dbd28dc01673193fb9fe0"
+
+[[app]]
+name = "swarm-dashboard"
+git = "https://github.com/mohsenasm/swarm-dashboard.git"
+commit = "9672f6a8dc8c00d78a189b67e6a4662a1de4a2c6"
+tree = "ca0ee403987aed53ebb8bbac14d19aa13b4a2ebc"
+root = "elm-client"
+entries = ["src/Main.elm"]
+manifest-sha256 = "5accbfcbd23d9d781404ede03a63b4cf00efc44f9c032a18189e0a5848a56fc1"
+
+[[app]]
+name = "pomodorolm"
+git = "https://github.com/vjousse/pomodorolm.git"
+commit = "05715cc1f98b9bab43fd7d00b13ff1089011dc8c"
+tree = "a1068e21c75abca806913fdbc4a23cff53c07bda"
+root = "."
+entries = ["src-elm/Main.elm"]
+manifest-sha256 = "f5a0f2c17df013c3143a68db766ed3b9fb1e416097e26d01cf5cf03e7e3706b0"
+
+[[app]]
+name = "bots-audio-message"
+git = "https://github.com/Viir/bots.git"
+commit = "d2432c145fd0362067b1093a3d604539f4ec7e75"
+tree = "1c9bef82d1baee3ecbbcce57a04ddb51f3632de4"
+root = "explore/2020-01-03.add-audio-message"
+entries = ["src/Main.elm"]
+manifest-sha256 = "6bb10e180aaf9dbc1a41fce483c365fa8c7b5c384bceff9fef6c1409ee33a742"
+
+[[app]]
+name = "bots-tribal-wars"
+git = "https://github.com/Viir/bots.git"
+commit = "d2432c145fd0362067b1093a3d604539f4ec7e75"
+tree = "1c9bef82d1baee3ecbbcce57a04ddb51f3632de4"
+root = "explore/2020-01-06.explore-tribal-wars-2"
+entries = ["src/Main.elm"]
+manifest-sha256 = "ec34207f9f70ebaa300107b796df3d26e0c3f2348957c27a775cff66f7b5db96"
+
+[[app]]
+name = "bots-multi-instance"
+git = "https://github.com/Viir/bots.git"
+commit = "d2432c145fd0362067b1093a3d604539f4ec7e75"
+tree = "1c9bef82d1baee3ecbbcce57a04ddb51f3632de4"
+root = "explore/2020-12-07-explore-multi-instance-scenarios/eve-online-test-coordinate-input-focus"
+entries = ["BotEngineApp.elm"]
+manifest-sha256 = "1f40afd23e1090735487a29287c6a48d091cede38bb3310620675d7c063956e0"
+
+[[app]]
+name = "elm-designer"
+git = "https://github.com/passiomatic/elm-designer.git"
+commit = "315a6e96a00fffc880f07da6267c61307f812118"
+tree = "6c886fdb3163d4c6d207e0079741388464c981e7"
+root = "."
+entries = ["src/Main.elm"]
+manifest-sha256 = "72e72553d1394a12c5c071c87a6604bebd0fddcba11967fb353cb9a54fe51f90"
+
+[[app]]
+name = "elmstatic-emu"
+git = "https://github.com/alexkorban/elmstatic.git"
+commit = "54771bc6719a0d59874ddf7b8c07dfb5d56a166d"
+tree = "86db6033fab66d2a3db4f816a1a7fd071e1a75d6"
+root = "scaffold/emu"
+entries = ["_layouts/Page.elm", "_layouts/Post.elm", "_layouts/Posts.elm", "_layouts/Tag.elm"]
+manifest-sha256 = "9e1801cebc9877fef5c88b51f68af56a5dc32634fafd054e0e271bf6caf7c568"
+
+[[app]]
+name = "elmstatic-md"
+git = "https://github.com/alexkorban/elmstatic.git"
+commit = "54771bc6719a0d59874ddf7b8c07dfb5d56a166d"
+tree = "86db6033fab66d2a3db4f816a1a7fd071e1a75d6"
+root = "scaffold/md"
+entries = ["_layouts/Page.elm", "_layouts/Post.elm", "_layouts/Posts.elm", "_layouts/Tag.elm"]
+manifest-sha256 = "09cb84199c7a9e1bc8545e6d5dce3c94b69704e619fa540d6f9052ab8f589520"
+
+[[app]]
+name = "textusm"
+git = "https://github.com/harehare/textusm.git"
+commit = "6d55e36352d98f91e198c00c446d2975ddad0713"
+tree = "a4697a137aa7addd49ac26050bc5c410e1cbddcf"
+root = "frontend"
+entries = ["src/elm/Extension/Lib.elm", "src/elm/Extension/VSCode.elm", "src/elm/Main.elm", "src/elm/View/Book.elm"]
+manifest-sha256 = "6da51fd2d3b5db4c04e4b89e06402fea0bdeaec54c5077ba6625287f8d1a8307"
+
+[[app]]
+name = "emdash"
+git = "https://github.com/dmotz/emdash.git"
+commit = "2e36916723cf829f7285814fe9dcb1e36f7b4795"
+tree = "e8451b06912a8cb371273a9ca877e9353d035e7c"
+root = "."
+entries = ["src/Main.elm"]
+manifest-sha256 = "ab4bb701f0db76a6f50c182debb6165c8150c09010ad7e5e6c7d6dd6de65b5d4"
+
+[[app]]
+name = "package-elm-lang-org"
+git = "https://github.com/elm/package.elm-lang.org.git"
+commit = "afe1a128b4bbf5ec0ebc21886d32b0b473794a9e"
+tree = "c11a571621f7d44964d29f8df9825f3e532126a4"
+root = "."
+entries = ["src/frontend/Main.elm"]
+manifest-sha256 = "20a77cd45c61d7e1e50e93c162d1fe28fd1a50eff87e9b976bb0d35c3d38db9a"
+
+[[app]]
+name = "unison-local-ui"
+git = "https://github.com/unisonweb/unison-local-ui.git"
+commit = "ae87c59c8c1260cc9fdd2f647593c7f91d6fa1fa"
+tree = "c16ad06b59d9348aff7b240e3cc1f92a14ebc3da"
+root = "."
+entries = ["src/UnisonLocal.elm"]
+manifest-sha256 = "a9fb4beae4661862b84616e1f89be2dfce77b764625f0b61977e2f7befb9affa"
+
+[[app]]
+name = "ui-core-examples"
+git = "https://github.com/unisonweb/ui-core.git"
+commit = "a0b1d5788cbabaa81f832f9b74611bfaafc426a9"
+tree = "4b3f216f454c566779d422cdcbca8f8cbf4246d0"
+root = "examples"
+entries = ["src/Main.elm"]
+manifest-sha256 = "e37df17d75634f233ffc277894c2cb256a13cb324835f927220c443e6172f113"
+
+[[app]]
+name = "ui-core-storybook"
+git = "https://github.com/unisonweb/ui-core.git"
+commit = "a0b1d5788cbabaa81f832f9b74611bfaafc426a9"
+tree = "4b3f216f454c566779d422cdcbca8f8cbf4246d0"
+root = "storybook"
+entries = ["stories/Stories/Code/PageContent.elm", "stories/Stories/Code/Workspace.elm", "stories/Stories/Code/WorkspaceItem.elm", "stories/Stories/Code/WorkspaceMinimap.elm", "stories/Stories/Lib/MermaidDiagram.elm", "stories/Stories/UI/Banner.elm", "stories/Stories/UI/Button.elm", "stories/Stories/UI/Card.elm", "stories/Stories/UI/CopyField.elm", "stories/Stories/UI/ErrorCard.elm", "stories/Stories/UI/FoldToggle.elm", "stories/Stories/UI/Form/EmailField.elm", "stories/Stories/UI/Form/SearchSelect.elm", "stories/Stories/UI/Form/SelectField.elm", "stories/Stories/UI/Form/TextField.elm", "stories/Stories/UI/Icon.elm", "stories/Stories/UI/KeyboardShortcut.elm", "stories/Stories/UI/Modal.elm", "stories/Stories/UI/Navigation.elm", "stories/Stories/UI/PageHeader.elm", "stories/Stories/UI/Placeholder.elm", "stories/Stories/UI/StatusBanner.elm", "stories/Stories/UI/Tooltip.elm"]
+manifest-sha256 = "79ae32f61045c80babb610248cc3aef93c0777b02d61ba360abcd0a60090a7c3"
+
+[[app]]
+name = "elm-charts-docs"
+git = "https://github.com/terezka/elm-charts.git"
+commit = "eed2738c83bc4fe100d87a9d06a346f3f83158c3"
+tree = "292a82d5732d058a482a52c72454b9cf3b7fb5c8"
+root = "docs"
+entries = ["src/Main.elm"]
+manifest-sha256 = "d6926a1c52e48da889956bc9ec606030ade05fcb1233c03794c877cae4a5b4ea"
+
+# Elm 0.19.2.
+[[app]]
+name = "sharry"
+git = "https://github.com/eikek/sharry.git"
+commit = "5173fcd777e56908f9f82145748a99ca12578d5e"
+tree = "97bf651c57933b7c77736a087f66242dc396021d"
+root = "modules/webapp"
+entries = ["src/main/elm/Main.elm"]
+manifest-sha256 = "5383a508bc2fba9b39dabec8758eb6914f3375834fbe258dd0903e7dcebded87"
+
+# Elm 0.19.2.
+[[app]]
+name = "concourse"
+git = "https://github.com/concourse/concourse.git"
+commit = "6a706fb849774021de31fc10fe02506e3400879a"
+tree = "c7f9a86646be96762bb2cfe5134514b14f9de2ae"
+root = "web/elm"
+entries = ["benchmarks/Benchmarks.elm", "src/Main.elm"]
+manifest-sha256 = "0882765e80df182a891c147e690af4cd7fe1db5213ad906e84a37a788637a430"
+
+# Elm 0.19.3.
+[[app]]
+name = "guide-repl"
+git = "https://github.com/evancz/guide.elm-lang.org.git"
+commit = "57567579ae4b3f75906c50d9e410c69504e29638"
+tree = "40515d80cd9101ebf2613c1e064741449fa44a41"
+root = "repl"
+entries = ["src/Repl.elm"]
+manifest-sha256 = "1e2285ff82838e3ead54fc4aef380906188e6dc21a1e4b816e928680d068c6d1"

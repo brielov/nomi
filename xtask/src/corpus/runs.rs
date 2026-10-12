@@ -370,7 +370,24 @@ fn run(
                 None,
             );
             if matches!(checked, Checked::Fine) {
+                // elm writes no `.elmo` for a root outside the source
+                // directories, which it compiles but doesn't keep.
+                let outside: Vec<String> = (project.paths.iter())
+                    .map(|p| project.root.join(p))
+                    .filter(|p| !env.src_dirs().iter().any(|d| p.starts_with(d)))
+                    .filter_map(|p| std::fs::read_to_string(p).ok())
+                    .map(|text: String| {
+                        // A module without a header is `Main`.
+                        let header = (text.lines())
+                            .find(|l| l.starts_with("module ") || l.starts_with("port module "));
+                        (header.and_then(|h| h.split("module ").nth(1)))
+                            .and_then(|after| after.split_whitespace().next())
+                            .unwrap_or("Main")
+                            .to_owned()
+                    })
+                    .collect();
                 let modules: Vec<(String, Vec<u8>)> = (optimized.graphs.into_iter())
+                    .filter(|(name, _)| !outside.contains(&name.to_string()))
                     .map(|(name, graph)| {
                         (name.to_string(), binary::encode_local_graph(&graph, compat))
                     })
