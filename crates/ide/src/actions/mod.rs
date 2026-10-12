@@ -30,6 +30,7 @@ use crate::symbols::{child, code_range};
 mod extract;
 mod import;
 mod missing;
+mod moving;
 mod refactor;
 mod unused;
 mod usage;
@@ -40,6 +41,7 @@ use refactor::*;
 use unused::*;
 use usage::*;
 
+pub use moving::{Destination, MoveEdit, move_destinations, move_function};
 pub use refactor::{exposing_edit, refactor_edits};
 
 /// A diagnostic as code actions see it: one the editor sends, or one of

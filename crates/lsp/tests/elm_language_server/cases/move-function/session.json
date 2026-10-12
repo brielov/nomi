@@ -1,0 +1,17 @@
+{
+    "settings": { "extendedCapabilities": { "moveFunctionRefactoringSupport": true } },
+    "open": ["src/Main.elm"],
+    "requests": [
+        { "method": "elm/getMoveDestinations",
+          "params": { "sourceUri": "<project>/src/Main.elm",
+                      "params": { "textDocument": { "uri": "<project>/src/Main.elm" },
+                                  "range": { "start": { "line": 9, "character": 2 }, "end": { "line": 9, "character": 2 } },
+                                  "context": { "diagnostics": [] } } } },
+        { "method": "elm/move",
+          "params": { "sourceUri": "<project>/src/Main.elm",
+                      "params": { "textDocument": { "uri": "<project>/src/Main.elm" },
+                                  "range": { "start": { "line": 9, "character": 2 }, "end": { "line": 9, "character": 2 } },
+                                  "context": { "diagnostics": [] } },
+                      "destination": { "name": "Utils.elm", "path": "src", "uri": "<project>/src/Utils.elm" } } }
+    ]
+}

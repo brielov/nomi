@@ -1,0 +1,60 @@
+{
+  "diagnostics": {
+    "src/A.elm": []
+  },
+  "requests": [
+    {
+      "method": "workspace/willRenameFiles",
+      "result": {
+        "changes": {
+          "<project>/src/A.elm": [{"newText":"Moved.B","range":{"end":{"character":13,"line":14},"start":{"character":12,"line":14}}},{"newText":"Moved.B","range":{"end":{"character":5,"line":8},"start":{"character":4,"line":8}}},{"newText":"Moved.B","range":{"end":{"character":8,"line":2},"start":{"character":7,"line":2}}},{"newText":"Moved.B","range":{"end":{"character":9,"line":13},"start":{"character":8,"line":13}}},{"newText":"Moved.B","range":{"end":{"character":9,"line":6},"start":{"character":8,"line":6}}}],
+          "<project>/src/Alias.elm": [{"newText":"Moved.B","range":{"end":{"character":8,"line":2},"start":{"character":7,"line":2}}}],
+          "<project>/src/B.elm": [{"newText":"Moved.B","range":{"end":{"character":8,"line":0},"start":{"character":7,"line":0}}}]
+        }
+      }
+    },
+    {
+      "method": "workspace/willRenameFiles",
+      "result": {
+        "changes": {
+          "<project>/src/Folder/TestA.elm": [{"newText":"Renamed.TestA","range":{"end":{"character":19,"line":0},"start":{"character":7,"line":0}}}],
+          "<project>/src/Folder/TestB.elm": [{"newText":"Renamed.TestB","range":{"end":{"character":19,"line":0},"start":{"character":7,"line":0}}}]
+        }
+      }
+    },
+    {
+      "method": "workspace/willRenameFiles",
+      "result": {
+        "changes": {}
+      }
+    },
+    {
+      "method": "workspace/willDeleteFiles",
+      "result": null
+    },
+    {
+      "applied": [
+        {
+          "changes": {"<project>/src/New/Another/Module.elm":[{"newText":"module New.Another.Module exposing (..)","range":{"end":{"character":0,"line":0},"start":{"character":0,"line":0}}}],"<project>/src/New/Module.elm":[{"newText":"module New.Module exposing (..)","range":{"end":{"character":0,"line":0},"start":{"character":0,"line":0}}}]}
+        }
+      ],
+      "method": "workspace/didCreateFiles"
+    },
+    {
+      "applied": [
+        {
+          "changes": {}
+        }
+      ],
+      "method": "workspace/didCreateFiles"
+    },
+    {
+      "applied": [
+        {
+          "changes": {}
+        }
+      ],
+      "method": "workspace/didCreateFiles"
+    }
+  ]
+}

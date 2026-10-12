@@ -11,6 +11,7 @@ mod completion;
 mod completion_data;
 mod completion_general;
 mod fields;
+mod files;
 mod hover;
 mod lens;
 mod lint;
@@ -33,10 +34,12 @@ use nomi_project::Outline;
 use nomi_syntax::{Source, Tool, parse_module, validate};
 
 pub use actions::{
-    Action, ActionCommand, ActionData, ActionDiagnostics, ActionKind, Diagnosed, PackageModules,
-    RenameAt, Request, code_actions, exposing_edit, refactor_edits,
+    Action, ActionCommand, ActionData, ActionDiagnostics, ActionKind, Destination, Diagnosed,
+    MoveEdit, PackageModules, RenameAt, Request, code_actions, exposing_edit, move_destinations,
+    move_function, refactor_edits,
 };
 pub use completion::{Completion, CompletionKind, Completions, completions};
+pub use files::{created_module_header, renamed_files};
 pub use hover::{Hover, hover};
 pub use lens::{Lens, LensKind, code_lenses, is_exposed};
 pub use lint::{Checks, lint};

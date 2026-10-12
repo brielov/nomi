@@ -65,6 +65,10 @@ pub struct Step {
     /// the resolved items as an answer of their own.
     #[serde(default)]
     pub resolve: bool,
+    /// Files written before the step, by path in the project, with their
+    /// text: a file the editor just made.
+    #[serde(default)]
+    pub create: BTreeMap<String, String>,
 }
 
 /// A position or range in the step's file: by marker index, or exactly.
@@ -357,7 +361,23 @@ impl Driver {
         }
         let mut requests = Vec::new();
         for step in &session.requests {
+            for (file, text) in &step.create {
+                let path = self.root.join(file);
+                std::fs::create_dir_all(path.parent().expect("a file in the project")).unwrap();
+                std::fs::write(&path, text).unwrap();
+            }
             let params = self.params(step);
+            // A notification: what the server applies in answer, once it's
+            // quiet again.
+            if step.method.contains("/did") {
+                self.notify(&step.method, params);
+                self.settle();
+                requests.push(json!({
+                    "method": step.method,
+                    "applied": std::mem::take(&mut self.applied),
+                }));
+                continue;
+            }
             let answer = self.request(&step.method, params);
             let resolved = match (&answer, step.resolve) {
                 (Ok(Value::Array(items)), true) => Some(self.resolve(&step.method, items.clone())),
@@ -449,7 +469,12 @@ impl Driver {
                 params.insert("context".into(), json!({ "diagnostics": within }));
             }
         }
-        params.extend(step.params.clone());
+        // `<project>` in the step's own stands for the project's URI.
+        let own = serde_json::to_string(&step.params)
+            .unwrap()
+            .replace("<project>", &self.root_uri);
+        let own: Map<String, Value> = serde_json::from_str(&own).unwrap();
+        params.extend(own);
         Value::Object(params)
     }
 
@@ -555,6 +580,7 @@ fn client_capabilities() -> Value {
                 "resourceOperations": ["create", "rename", "delete"],
             },
             "symbol": {},
+            "fileOperations": { "didCreate": true, "willRename": true, "willDelete": true },
         },
         "textDocument": {
             "synchronization": { "didSave": true },
@@ -609,7 +635,9 @@ pub fn tidy(transcript: Value, replacements: &[(String, String)]) -> Value {
                 }
             }
         }
-        if request["method"] == "textDocument/rename" {
+        if request["method"] == "textDocument/rename"
+            || request["method"] == "workspace/willRenameFiles"
+        {
             let result = &mut request["result"];
             if let Some(changes) = result.get_mut("changes").and_then(Value::as_object_mut) {
                 for edits in changes.values_mut().filter_map(Value::as_array_mut) {

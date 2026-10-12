@@ -1,0 +1,22 @@
+{
+    "open": ["src/A.elm"],
+    "requests": [
+        { "method": "workspace/willRenameFiles",
+          "params": { "files": [{ "oldUri": "<project>/src/B.elm", "newUri": "<project>/src/Moved/B.elm" }] } },
+        { "method": "workspace/willRenameFiles",
+          "params": { "files": [{ "oldUri": "<project>/src/Folder", "newUri": "<project>/src/Renamed" }] } },
+        { "method": "workspace/willRenameFiles",
+          "params": { "files": [{ "oldUri": "<project>/src/Other/TestC.elm", "newUri": "<project>/src/Other/lower.elm" }] } },
+        { "method": "workspace/willDeleteFiles",
+          "params": { "files": [{ "uri": "<project>/src/Other/TestC.elm" }] } },
+        { "method": "workspace/didCreateFiles",
+          "create": { "src/New/Module.elm": "", "src/New/Another/Module.elm": "" },
+          "params": { "files": [{ "uri": "<project>/src/New/Module.elm" }, { "uri": "<project>/src/New/Another/Module.elm" }] } },
+        { "method": "workspace/didCreateFiles",
+          "create": { "src/lowercase.elm": "", "src/Bad-Name.elm": "", "src/Notes.txt": "" },
+          "params": { "files": [{ "uri": "<project>/src/lowercase.elm" }, { "uri": "<project>/src/Bad-Name.elm" }, { "uri": "<project>/src/Notes.txt" }] } },
+        { "method": "workspace/didCreateFiles",
+          "create": { "src/Copy.elm": "module B exposing (..)\n" },
+          "params": { "files": [{ "uri": "<project>/src/Copy.elm" }] } }
+    ]
+}

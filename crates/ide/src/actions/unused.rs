@@ -190,7 +190,7 @@ fn imported_value_edits(
 
 /// `removeValueFromImport`: the whole exposing list when `name` is all
 /// it exposes, else `name` out of it.
-fn remove_from_import(
+pub(super) fn remove_from_import(
     text: &str,
     list: Option<&SyntaxNode>,
     exposed: &[SyntaxNode],

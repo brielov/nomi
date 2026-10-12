@@ -543,6 +543,16 @@ fn module_references(index: &Index, name: &str, with_declaration: bool) -> Vec<L
             path: module.path.clone(),
             range,
         };
+        // Imported with an alias, even one of the same name, its
+        // qualifiers are the alias's.
+        let aliased = (module.root.children())
+            .filter(|n| n.kind() == SyntaxKind::Import)
+            .any(|i| {
+                i.children().any(|c| c.kind() == SyntaxKind::ImportAlias)
+                    && i.children()
+                        .find(|c| c.kind() == SyntaxKind::ModuleName)
+                        .is_some_and(|n| crate::symbols::words(&n) == name)
+            });
         for node in module.root.descendants() {
             match node.kind() {
                 SyntaxKind::ModuleName => {
@@ -559,7 +569,8 @@ fn module_references(index: &Index, name: &str, with_declaration: bool) -> Vec<L
                 SyntaxKind::NameExpr | SyntaxKind::NamedType | SyntaxKind::ConstructorPattern => {
                     let qualifier = node.children().find(|c| c.kind() == SyntaxKind::Qualifier);
                     let written = qualifier.map(|q| crate::symbols::words(&q));
-                    if written.is_some_and(|w| w.trim_end_matches('.') == name)
+                    if !aliased
+                        && written.is_some_and(|w| w.trim_end_matches('.') == name)
                         && let Some(range) = qualified_range(&node)
                     {
                         found.push(at(range));
