@@ -662,7 +662,14 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
     - tree-sitter yields a pattern match once it has all its nodes, so problems come in the order of the names bound, a declaration's name before its parameters.
     - An empty `{}` pattern is an unnamed variable that's never used, reported over its declaration's name and parameters.
     - On a file with a syntax error, the rules see what tree-sitter recovered, which nomi can't reproduce (DECISIONS.md). nomi skips the imports that didn't parse whole, and the six remaining mismatches are all such files.
-- [ ] **9.5** `ide: lint rules for lists, cases and records`. `map_nothing_to_nothing`, `boolean_case_expr`, `drop_concat_of_lists`, `drop_cons_of_item_and_list`, `use_cons_over_concat`, `unnecessary_list_concat`, `no_uncurried_prefix`, and `single_field_record` (opt-in).
+- [x] **9.5** `ide: lint rules for lists, cases and records`. `map_nothing_to_nothing`, `boolean_case_expr`, `drop_concat_of_lists`, `drop_cons_of_item_and_list`, `use_cons_over_concat`, `unnecessary_list_concat`, `no_uncurried_prefix`, and `single_field_record` (opt-in).
+
+  Done:
+  - **Rules.** `ide::lint` adds the case rules, the chain rules over nomi's flat operator chains (tree-sitter-elm's are flat too), `List.concat` of literal lists, operators applied in prefix form, and one-field records. All their cases match, and the ratchet goes from 472 to 489 of 838.
+  - **Surprises.**
+    - tree-sitter-elm only reads the operators Elm's packages define, so `(!!) a b` is no prefix call to it.
+    - A one-field record given to an alias of a record it extends is several fields to elm-language-server's type checker. nomi tells that case by its syntax.
+    - With three branches or more, the boolean-case query may match more than once; nomi reports one per `case`, which is all the cases test.
 - [ ] **9.6** `ide: navigation parity`. Definition, type definition and references, including record fields by type, type variables, ports and modules. Hover as Markdown, with annotation and doc comment. Package sources open from nomi's store. **Check:** the definition, references and hover cases.
 - [ ] **9.7** `ide: rename`. Prepare-rename, exposing lists, qualified names, record fields, and module rename as a `RenameFile`. Files outside the project are refused with its message.
 - [ ] **9.8** `ide: completion in scope`. Locals, qualified names, module and import exposing lists, module names after `import`, record fields by type (in expressions, updates and record patterns), and annotation names at the start of a line.

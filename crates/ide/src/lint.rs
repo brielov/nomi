@@ -87,6 +87,27 @@ pub fn lint(
     if checks.on("UnusedPatternVariable") {
         found.unused_patterns(&root, &facts);
     }
+    if checks.on("MapNothingToNothing") {
+        found.map_nothing_to_nothing(&root);
+    }
+    if checks.on("BooleanCase") {
+        found.boolean_cases(&root);
+    }
+    if checks.on("DropConcatOfLists") {
+        found.chains(&root, "++", Pair::ListThenList);
+    }
+    if checks.on("DropConsOfItemAndList") {
+        found.chains(&root, "::", Pair::AnyThenList);
+    }
+    if checks.on("UseConsOverConcat") {
+        found.chains(&root, "++", Pair::SingletonThenAny);
+    }
+    if checks.opted_in("SingleFieldRecord") {
+        found.single_field_records(&root);
+    }
+    if checks.on("UnnecessaryListConcat") {
+        found.unnecessary_list_concats(&root);
+    }
     if checks.on("UnnecessaryPortModule") {
         found.unnecessary_port_module(&root);
     }
@@ -94,6 +115,9 @@ pub fn lint(
         && let Some(index) = index
     {
         found.unused_incoming_ports(snapshot, index, &root);
+    }
+    if checks.on("NoUncurriedPrefix") {
+        found.uncurried_prefixes(&root);
     }
     if checks.on("UnusedTypeAlias") {
         found.unused_type_aliases(&root, &facts);
@@ -393,6 +417,184 @@ impl Lint<'_> {
         (!used).then(|| self.problem(range, message, "unused_pattern"))
     }
 
+    /// `getCaseBranchMapNothingToNothingDiagnostics`: a branch
+    /// `Nothing -> Nothing`.
+    fn map_nothing_to_nothing(&mut self, root: &SyntaxNode) {
+        for branch in root
+            .descendants()
+            .filter(|n| n.kind() == SyntaxKind::CaseBranch)
+        {
+            let pattern = branch.children().find(|c| is_pattern(c.kind()));
+            let body = branch.children().filter(|c| is_expr(c.kind())).last();
+            let nothing = |node: Option<SyntaxNode>| node.is_some_and(|n| text(&n) == "Nothing");
+            let body_is_name = body
+                .as_ref()
+                .is_some_and(|b| b.kind() == SyntaxKind::NameExpr);
+            if nothing(pattern)
+                && body_is_name
+                && nothing(body)
+                && let Some(range) = code_range(&branch)
+            {
+                let message = "`Nothing` mapped to `Nothing` in case expression. Use Maybe.map or Maybe.andThen instead.";
+                self.warn(range, message.to_owned(), "map_nothing_to_nothing", false);
+            }
+        }
+    }
+
+    /// `getBooleanCaseExpressionDiagnostics`: a `case` with a branch on
+    /// `True` or `False` and a later one on `True`, `False` or `_`.
+    fn boolean_cases(&mut self, root: &SyntaxNode) {
+        for case in root
+            .descendants()
+            .filter(|n| n.kind() == SyntaxKind::CaseExpr)
+        {
+            let patterns: Vec<String> = (case.children())
+                .filter(|c| c.kind() == SyntaxKind::CaseBranch)
+                .filter_map(|b| b.children().find(|c| is_pattern(c.kind())))
+                .map(|p| text(&p))
+                .collect();
+            let boolean = |p: &String| p == "True" || p == "False";
+            let found = (patterns.iter().enumerate()).any(|(i, first)| {
+                boolean(first) && patterns[i + 1..].iter().any(|p| boolean(p) || p == "_")
+            });
+            if found && let Some(range) = code_range(&case) {
+                let message = "Use an if expression instead of a case expression.".to_owned();
+                self.warn(range, message, "boolean_case_expr", false);
+            }
+        }
+    }
+
+    /// The rules on two operands of `op` side by side in a chain, as
+    /// `pair` takes them.
+    fn chains(&mut self, root: &SyntaxNode, op: &str, pair: Pair) {
+        for chain in root
+            .descendants()
+            .filter(|n| n.kind() == SyntaxKind::OperatorChain)
+        {
+            let parts: Vec<SyntaxNode> = chain.children().collect();
+            for window in parts.windows(3) {
+                let [left, operator, right] = window else {
+                    continue;
+                };
+                if operator.kind() != SyntaxKind::Op || text(operator) != op {
+                    continue;
+                }
+                let list = |n: &SyntaxNode| n.kind() == SyntaxKind::ListExpr;
+                let singleton = |n: &SyntaxNode| {
+                    list(n) && n.children().filter(|c| is_expr(c.kind())).count() == 1
+                };
+                let (fits, message, code) = match pair {
+                    Pair::ListThenList => (
+                        list(left) && list(right),
+                        "If you concatenate two lists, then you can merge them into one list.",
+                        "drop_concat_of_lists",
+                    ),
+                    Pair::AnyThenList => (
+                        list(right),
+                        "If you cons an item to a literal list, then you can just put the item into the list.",
+                        "drop_cons_of_item_and_list",
+                    ),
+                    Pair::SingletonThenAny => (
+                        singleton(left),
+                        "If you concatenate two lists, but the first item is a single element list, then you should use the cons operator.",
+                        "use_cons_over_concat",
+                    ),
+                };
+                if fits && let (Some(start), Some(end)) = (code_range(left), code_range(right)) {
+                    let range = TextRange::new(start.start(), end.end());
+                    self.warn(range, message.to_owned(), code, false);
+                }
+            }
+        }
+    }
+
+    /// `getSingleFieldRecordDiagnostics`: a record type of one field,
+    /// unless it's given to an alias of a record it extends, which its
+    /// type checker sees as a record of more fields.
+    fn single_field_records(&mut self, root: &SyntaxNode) {
+        let extending: Vec<String> = (root.children())
+            .filter(|n| n.kind() == SyntaxKind::TypeAliasDecl)
+            .filter(|alias| {
+                (alias.children().find(|c| is_type(c.kind())))
+                    .is_some_and(|ty| child(&ty, SyntaxKind::RecordExtension).is_some())
+            })
+            .filter_map(|alias| token(&alias, SyntaxKind::UpperIdent))
+            .collect();
+        for record in root
+            .descendants()
+            .filter(|n| n.kind() == SyntaxKind::RecordType)
+        {
+            let extended = (record.parent())
+                .filter(|p| p.kind() == SyntaxKind::NamedType)
+                .is_some_and(|p| extending.contains(&qualified_name(&p)));
+            let single = !extended
+                && child(&record, SyntaxKind::RecordExtension).is_none()
+                && record
+                    .children()
+                    .filter(|c| c.kind() == SyntaxKind::FieldType)
+                    .count()
+                    == 1;
+            if single && let Some(range) = code_range(&record) {
+                let message =
+                    "Using a record is obsolete if you only plan to store a single field in it.";
+                self.warn(range, message.to_owned(), "single_field_record", false);
+            }
+        }
+    }
+
+    /// `getUnnecessaryListConcatDiagnostics`: `List.concat` of a literal
+    /// list of literal lists.
+    fn unnecessary_list_concats(&mut self, root: &SyntaxNode) {
+        for call in root
+            .descendants()
+            .filter(|n| n.kind() == SyntaxKind::CallExpr)
+        {
+            let mut parts = call.children().filter(|c| is_expr(c.kind()));
+            let Some(function) = parts.next() else {
+                continue;
+            };
+            if function.kind() != SyntaxKind::NameExpr || text(&function) != "List.concat" {
+                continue;
+            }
+            let of_lists = parts.any(|arg| {
+                let items: Vec<SyntaxNode> = arg.children().filter(|c| is_expr(c.kind())).collect();
+                arg.kind() == SyntaxKind::ListExpr
+                    && !items.is_empty()
+                    && items.iter().all(|i| i.kind() == SyntaxKind::ListExpr)
+            });
+            if of_lists && let Some(range) = code_range(&call) {
+                let message =
+                    "You should just merge the arguments of `List.concat` to a single list.";
+                self.warn(range, message.to_owned(), "unnecessary_list_concat", false);
+            }
+        }
+    }
+
+    /// `getFullyAppliedOperatorAsPrefixDiagnostics`: an operator called
+    /// as a function on two arguments or more.
+    fn uncurried_prefixes(&mut self, root: &SyntaxNode) {
+        for call in root
+            .descendants()
+            .filter(|n| n.kind() == SyntaxKind::CallExpr)
+        {
+            let parts: Vec<SyntaxNode> = call.children().filter(|c| is_expr(c.kind())).collect();
+            // tree-sitter-elm knows the operators Elm's packages define,
+            // and no others.
+            let known = parts.first().is_some_and(|f| {
+                f.kind() == SyntaxKind::OperatorFunction
+                    && OPERATORS
+                        .contains(&text(f).trim_start_matches('(').trim_end_matches(')').trim())
+            });
+            if parts.len() >= 3
+                && known
+                && let Some(range) = code_range(&call)
+            {
+                let message = "Don't use fully applied prefix notation for operators.";
+                self.warn(range, message.to_owned(), "no_uncurried_prefix", false);
+            }
+        }
+    }
+
     /// `getUnnecessaryPortModuleDiagnostics`: a `port module` without
     /// ports.
     fn unnecessary_port_module(&mut self, root: &SyntaxNode) {
@@ -686,6 +888,47 @@ fn is_pattern(kind: SyntaxKind) -> bool {
             | SyntaxKind::ConstructorPattern
             | SyntaxKind::ConsPattern
             | SyntaxKind::AliasPattern
+    )
+}
+
+/// The operators Elm's packages define, which tree-sitter-elm reads.
+const OPERATORS: &[&str] = &[
+    "+", "-", "*", "/", "//", "^", "==", "/=", "<", ">", "<=", ">=", "&&", "||", "++", "<|", "|>",
+    "<<", ">>", "::", "</>", "<?>", "|.", "|=",
+];
+
+/// Which two operands a chain rule takes.
+#[derive(Clone, Copy)]
+enum Pair {
+    ListThenList,
+    AnyThenList,
+    SingletonThenAny,
+}
+
+fn is_expr(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::LiteralExpr
+            | SyntaxKind::NameExpr
+            | SyntaxKind::OperatorFunction
+            | SyntaxKind::TupleConstructorExpr
+            | SyntaxKind::NegateExpr
+            | SyntaxKind::CallExpr
+            | SyntaxKind::OperatorChain
+            | SyntaxKind::UnitExpr
+            | SyntaxKind::ParenExpr
+            | SyntaxKind::TupleExpr
+            | SyntaxKind::ListExpr
+            | SyntaxKind::RangeExpr
+            | SyntaxKind::RecordExpr
+            | SyntaxKind::RecordUpdateExpr
+            | SyntaxKind::FieldAccessExpr
+            | SyntaxKind::AccessorExpr
+            | SyntaxKind::IfExpr
+            | SyntaxKind::CaseExpr
+            | SyntaxKind::LetExpr
+            | SyntaxKind::LambdaExpr
+            | SyntaxKind::GlslExpr
     )
 }
 
