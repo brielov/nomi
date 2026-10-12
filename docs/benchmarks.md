@@ -51,7 +51,7 @@ reads CPU time in hundredths of a second.
 
 <!-- scoreboard:start -->
 
-Measured on AMD Ryzen 7 5800H with Radeon Graphics (x86_64-linux, 16 threads, 16 GB), rustc 1.99.0. nomi is at or under upstream in 203 of 204 cells; a cell where it isn't is marked ✗.
+Measured on AMD Ryzen 7 5800H with Radeon Graphics (x86_64-linux, 16 threads, 16 GB), rustc 1.99.0. nomi is at or under upstream in 204 of 204 cells; a cell where it isn't is marked ✗.
 
 ### elm make
 
@@ -59,54 +59,54 @@ nomi, run as `elm`, against each pinned elm (its official build, with its defaul
 
 | workload | elm | nomi | speedup | elm CPU | nomi CPU | elm memory | nomi memory |
 |---|--:|--:|--:|--:|--:|--:|--:|
-| exosphere 0.19.1 cold | 2.24 s | 1.63 s | 1.37× | 8.88 s | 5.57 s | 2379 MiB | 868 MiB |
-| exosphere 0.19.1 warm | 399.1 ms | 141.3 ms | 2.82× | 560.0 ms | 380.0 ms | 534 MiB | 126 MiB |
-| exosphere 0.19.1 `--optimize` cold | 2.25 s | 1.63 s | 1.38× | 8.93 s | 5.73 s | 2376 MiB | 865 MiB |
-| exosphere 0.19.1 `--optimize` warm | 408.1 ms | 141.5 ms | 2.88× | 550.0 ms | 380.0 ms | 535 MiB | 123 MiB |
-| liascript 0.19.1 cold | 1.03 s | 543.2 ms | 1.90× | 3.55 s | 1.82 s | 2136 MiB | 231 MiB |
-| liascript 0.19.1 warm | 277.7 ms | 108.9 ms | 2.55× | 440.0 ms | 290.0 ms | 367 MiB | 89 MiB |
-| liascript 0.19.1 `--optimize` cold | 1.04 s | 538.9 ms | 1.92× | 3.57 s | 1.88 s | 2133 MiB | 235 MiB |
-| liascript 0.19.1 `--optimize` warm | 277.3 ms | 111.1 ms | 2.50× | 440.0 ms | 300.0 ms | 368 MiB | 89 MiB |
-| docspell 0.19.1 cold | 1.74 s | 1.28 s | 1.36× | 7.04 s | 5.03 s | 2303 MiB | 918 MiB |
-| docspell 0.19.1 warm | 423.8 ms | 171.8 ms | 2.47× | 770.0 ms | 550.0 ms | 579 MiB | 124 MiB |
-| docspell 0.19.1 `--optimize` cold | 1.77 s | 1.28 s | 1.38× | 7.21 s | 5.02 s | 2329 MiB | 925 MiB |
-| docspell 0.19.1 `--optimize` warm | 444.9 ms | 173.9 ms | 2.56× | 790.0 ms | 540.0 ms | 581 MiB | 122 MiB |
-| elm-3d-scene 0.19.1 cold | 1.03 s | 306.1 ms | 3.35× | 2.97 s | 1.17 s | 2105 MiB | 155 MiB |
-| elm-3d-scene 0.19.1 warm | 189.3 ms | 92.6 ms | 2.04× | 180.0 ms | 120.0 ms | 257 MiB | 65 MiB |
-| elm-3d-scene 0.19.1 `--optimize` cold | 1.03 s | 305.1 ms | 3.37× | 2.94 s | 1.18 s | 2107 MiB | 157 MiB |
-| elm-3d-scene 0.19.1 `--optimize` warm | 188.2 ms | 92.2 ms | 2.04× | 180.0 ms | 120.0 ms | 257 MiB | 65 MiB |
-| exosphere 0.19.2 cold | 2.64 s | 1.63 s | 1.62× | 8.34 s | 5.46 s | 2685 MiB | 873 MiB |
-| exosphere 0.19.2 warm | 378.8 ms | 142.3 ms | 2.66× | 530.0 ms | 390.0 ms | 518 MiB | 127 MiB |
-| exosphere 0.19.2 `--optimize` cold | 2.62 s | 1.61 s | 1.62× | 8.29 s | 5.58 s | 2680 MiB | 873 MiB |
-| exosphere 0.19.2 `--optimize` warm | 380.9 ms | 141.7 ms | 2.69× | 530.0 ms | 390.0 ms | 519 MiB | 125 MiB |
-| liascript 0.19.2 cold | 975.8 ms | 532.7 ms | 1.83× | 3.21 s | 1.86 s | 2141 MiB | 235 MiB |
-| liascript 0.19.2 warm | 263.0 ms | 109.4 ms | 2.40× | 420.0 ms | 290.0 ms | 360 MiB | 89 MiB |
-| liascript 0.19.2 `--optimize` cold | 983.8 ms | 534.7 ms | 1.84× | 3.22 s | 1.87 s | 2148 MiB | 235 MiB |
-| liascript 0.19.2 `--optimize` warm | 263.6 ms | 113.9 ms | 2.31× | 430.0 ms | 290.0 ms | 360 MiB | 88 MiB |
-| docspell 0.19.2 cold | 1.75 s | 1.28 s | 1.37× | 6.26 s | 5.05 s | 2430 MiB | 905 MiB |
-| docspell 0.19.2 warm | 402.8 ms | 172.6 ms | 2.33× | 760.0 ms | 560.0 ms | 566 MiB | 124 MiB |
-| docspell 0.19.2 `--optimize` cold | 1.77 s | 1.28 s | 1.38× | 6.38 s | 5.04 s | 2429 MiB | 902 MiB |
-| docspell 0.19.2 `--optimize` warm | 420.2 ms | 171.7 ms | 2.45× | 770.0 ms | 540.0 ms | 568 MiB | 122 MiB |
-| elm-3d-scene 0.19.2 cold | 1.05 s | 307.7 ms | 3.40× | 2.74 s | 1.16 s | 2118 MiB | 159 MiB |
-| elm-3d-scene 0.19.2 warm | 178.7 ms | 92.2 ms | 1.94× | 180.0 ms | 130.0 ms | 253 MiB | 65 MiB |
-| elm-3d-scene 0.19.2 `--optimize` cold | 1.04 s | 317.7 ms | 3.27× | 2.74 s | 1.17 s | 2120 MiB | 161 MiB |
-| elm-3d-scene 0.19.2 `--optimize` warm | 181.9 ms | 92.2 ms | 1.97× | 180.0 ms | 130.0 ms | 254 MiB | 64 MiB |
-| exosphere 0.19.3 cold | 1.72 s | 1.67 s | 1.03× | 7.00 s | 5.77 s | 2239 MiB | 869 MiB |
-| exosphere 0.19.3 warm | 414.4 ms | 140.4 ms | 2.95× | 610.0 ms | 380.0 ms | 570 MiB | 125 MiB |
-| exosphere 0.19.3 `--optimize` cold | 1.69 s | 1.70 s ✗ | 1.00× | 6.99 s | 5.79 s | 2225 MiB | 874 MiB |
-| exosphere 0.19.3 `--optimize` warm | 422.4 ms | 142.8 ms | 2.96× | 610.0 ms | 390.0 ms | 570 MiB | 124 MiB |
-| liascript 0.19.3 cold | 1.03 s | 542.3 ms | 1.89× | 3.22 s | 1.90 s | 2154 MiB | 234 MiB |
-| liascript 0.19.3 warm | 276.4 ms | 109.9 ms | 2.51× | 460.0 ms | 280.0 ms | 392 MiB | 87 MiB |
-| liascript 0.19.3 `--optimize` cold | 1.03 s | 550.6 ms | 1.87× | 3.24 s | 1.85 s | 2157 MiB | 235 MiB |
-| liascript 0.19.3 `--optimize` warm | 276.6 ms | 111.8 ms | 2.47× | 450.0 ms | 300.0 ms | 392 MiB | 89 MiB |
-| docspell 0.19.3 cold | 1.99 s | 1.30 s | 1.53× | 6.34 s | 5.17 s | 2546 MiB | 933 MiB |
-| docspell 0.19.3 warm | 430.2 ms | 171.3 ms | 2.51× | 810.0 ms | 550.0 ms | 619 MiB | 126 MiB |
-| docspell 0.19.3 `--optimize` cold | 1.98 s | 1.30 s | 1.52× | 6.34 s | 5.18 s | 2540 MiB | 911 MiB |
-| docspell 0.19.3 `--optimize` warm | 435.8 ms | 174.5 ms | 2.50× | 770.0 ms | 550.0 ms | 620 MiB | 123 MiB |
-| elm-3d-scene 0.19.3 cold | 1.07 s | 305.0 ms | 3.52× | 2.72 s | 1.20 s | 2105 MiB | 157 MiB |
-| elm-3d-scene 0.19.3 warm | 203.7 ms | 91.0 ms | 2.24× | 210.0 ms | 130.0 ms | 285 MiB | 64 MiB |
-| elm-3d-scene 0.19.3 `--optimize` cold | 1.06 s | 305.5 ms | 3.48× | 2.71 s | 1.21 s | 2105 MiB | 159 MiB |
-| elm-3d-scene 0.19.3 `--optimize` warm | 205.1 ms | 92.3 ms | 2.22× | 210.0 ms | 120.0 ms | 285 MiB | 65 MiB |
+| exosphere 0.19.1 cold | 2.30 s | 1.43 s | 1.61× | 9.02 s | 5.17 s | 2374 MiB | 691 MiB |
+| exosphere 0.19.1 warm | 414.8 ms | 137.7 ms | 3.01× | 570.0 ms | 370.0 ms | 534 MiB | 116 MiB |
+| exosphere 0.19.1 `--optimize` cold | 2.29 s | 1.42 s | 1.61× | 9.14 s | 5.11 s | 2375 MiB | 699 MiB |
+| exosphere 0.19.1 `--optimize` warm | 425.2 ms | 139.0 ms | 3.06× | 590.0 ms | 380.0 ms | 535 MiB | 113 MiB |
+| liascript 0.19.1 cold | 1.04 s | 502.5 ms | 2.07× | 3.63 s | 1.84 s | 2125 MiB | 205 MiB |
+| liascript 0.19.1 warm | 279.0 ms | 103.9 ms | 2.69× | 450.0 ms | 280.0 ms | 367 MiB | 80 MiB |
+| liascript 0.19.1 `--optimize` cold | 1.05 s | 514.7 ms | 2.04× | 3.64 s | 1.80 s | 2134 MiB | 211 MiB |
+| liascript 0.19.1 `--optimize` warm | 288.2 ms | 110.2 ms | 2.62× | 470.0 ms | 290.0 ms | 368 MiB | 83 MiB |
+| docspell 0.19.1 cold | 1.77 s | 1.08 s | 1.65× | 7.27 s | 4.70 s | 2317 MiB | 737 MiB |
+| docspell 0.19.1 warm | 442.9 ms | 170.5 ms | 2.60× | 790.0 ms | 550.0 ms | 579 MiB | 117 MiB |
+| docspell 0.19.1 `--optimize` cold | 1.78 s | 1.09 s | 1.63× | 7.18 s | 4.69 s | 2314 MiB | 720 MiB |
+| docspell 0.19.1 `--optimize` warm | 459.9 ms | 171.4 ms | 2.68× | 800.0 ms | 530.0 ms | 582 MiB | 114 MiB |
+| elm-3d-scene 0.19.1 cold | 1.04 s | 303.9 ms | 3.43× | 3.01 s | 1.20 s | 2109 MiB | 148 MiB |
+| elm-3d-scene 0.19.1 warm | 190.3 ms | 87.8 ms | 2.17× | 180.0 ms | 120.0 ms | 257 MiB | 59 MiB |
+| elm-3d-scene 0.19.1 `--optimize` cold | 1.05 s | 318.2 ms | 3.31× | 3.04 s | 1.16 s | 2104 MiB | 143 MiB |
+| elm-3d-scene 0.19.1 `--optimize` warm | 188.3 ms | 90.1 ms | 2.09× | 180.0 ms | 120.0 ms | 257 MiB | 60 MiB |
+| exosphere 0.19.2 cold | 2.67 s | 1.41 s | 1.89× | 8.50 s | 5.24 s | 2681 MiB | 706 MiB |
+| exosphere 0.19.2 warm | 394.7 ms | 140.3 ms | 2.81× | 540.0 ms | 380.0 ms | 518 MiB | 117 MiB |
+| exosphere 0.19.2 `--optimize` cold | 2.71 s | 1.41 s | 1.92× | 8.58 s | 5.22 s | 2705 MiB | 700 MiB |
+| exosphere 0.19.2 `--optimize` warm | 399.3 ms | 140.0 ms | 2.85× | 550.0 ms | 380.0 ms | 519 MiB | 111 MiB |
+| liascript 0.19.2 cold | 996.6 ms | 501.3 ms | 1.99× | 3.29 s | 1.82 s | 2140 MiB | 213 MiB |
+| liascript 0.19.2 warm | 265.5 ms | 106.9 ms | 2.48× | 440.0 ms | 280.0 ms | 360 MiB | 83 MiB |
+| liascript 0.19.2 `--optimize` cold | 1.01 s | 505.0 ms | 1.99× | 3.30 s | 1.85 s | 2145 MiB | 214 MiB |
+| liascript 0.19.2 `--optimize` warm | 266.4 ms | 107.0 ms | 2.49× | 430.0 ms | 290.0 ms | 360 MiB | 82 MiB |
+| docspell 0.19.2 cold | 1.78 s | 1.08 s | 1.65× | 6.44 s | 4.71 s | 2427 MiB | 732 MiB |
+| docspell 0.19.2 warm | 414.0 ms | 167.0 ms | 2.48× | 770.0 ms | 540.0 ms | 566 MiB | 117 MiB |
+| docspell 0.19.2 `--optimize` cold | 1.80 s | 1.08 s | 1.66× | 6.51 s | 4.71 s | 2429 MiB | 730 MiB |
+| docspell 0.19.2 `--optimize` warm | 428.2 ms | 169.0 ms | 2.53× | 780.0 ms | 540.0 ms | 568 MiB | 113 MiB |
+| elm-3d-scene 0.19.2 cold | 1.06 s | 304.1 ms | 3.48× | 2.77 s | 1.18 s | 2117 MiB | 146 MiB |
+| elm-3d-scene 0.19.2 warm | 179.8 ms | 86.8 ms | 2.07× | 180.0 ms | 120.0 ms | 253 MiB | 58 MiB |
+| elm-3d-scene 0.19.2 `--optimize` cold | 1.07 s | 300.4 ms | 3.56× | 2.78 s | 1.19 s | 2118 MiB | 148 MiB |
+| elm-3d-scene 0.19.2 `--optimize` warm | 179.8 ms | 89.1 ms | 2.02× | 170.0 ms | 120.0 ms | 254 MiB | 59 MiB |
+| exosphere 0.19.3 cold | 1.71 s | 1.47 s | 1.16× | 7.01 s | 5.29 s | 2224 MiB | 702 MiB |
+| exosphere 0.19.3 warm | 420.5 ms | 135.9 ms | 3.09× | 620.0 ms | 370.0 ms | 570 MiB | 114 MiB |
+| exosphere 0.19.3 `--optimize` cold | 1.76 s | 1.45 s | 1.21× | 7.14 s | 5.18 s | 2244 MiB | 698 MiB |
+| exosphere 0.19.3 `--optimize` warm | 425.0 ms | 135.9 ms | 3.13× | 620.0 ms | 370.0 ms | 571 MiB | 113 MiB |
+| liascript 0.19.3 cold | 1.04 s | 512.3 ms | 2.04× | 3.23 s | 1.86 s | 2160 MiB | 207 MiB |
+| liascript 0.19.3 warm | 281.6 ms | 105.8 ms | 2.66× | 460.0 ms | 280.0 ms | 392 MiB | 82 MiB |
+| liascript 0.19.3 `--optimize` cold | 1.04 s | 507.6 ms | 2.05× | 3.28 s | 1.83 s | 2153 MiB | 213 MiB |
+| liascript 0.19.3 `--optimize` warm | 284.8 ms | 109.5 ms | 2.60× | 480.0 ms | 290.0 ms | 392 MiB | 83 MiB |
+| docspell 0.19.3 cold | 2.01 s | 1.11 s | 1.81× | 6.40 s | 4.74 s | 2544 MiB | 736 MiB |
+| docspell 0.19.3 warm | 437.4 ms | 169.6 ms | 2.58× | 840.0 ms | 530.0 ms | 619 MiB | 115 MiB |
+| docspell 0.19.3 `--optimize` cold | 2.03 s | 1.12 s | 1.82× | 6.50 s | 4.75 s | 2547 MiB | 741 MiB |
+| docspell 0.19.3 `--optimize` warm | 449.4 ms | 169.7 ms | 2.65× | 840.0 ms | 540.0 ms | 620 MiB | 115 MiB |
+| elm-3d-scene 0.19.3 cold | 1.07 s | 305.3 ms | 3.51× | 2.74 s | 1.18 s | 2108 MiB | 148 MiB |
+| elm-3d-scene 0.19.3 warm | 207.3 ms | 89.0 ms | 2.33× | 200.0 ms | 120.0 ms | 284 MiB | 58 MiB |
+| elm-3d-scene 0.19.3 `--optimize` cold | 1.07 s | 300.0 ms | 3.58× | 2.74 s | 1.20 s | 2103 MiB | 146 MiB |
+| elm-3d-scene 0.19.3 `--optimize` warm | 204.4 ms | 89.0 ms | 2.30× | 200.0 ms | 120.0 ms | 285 MiB | 58 MiB |
 
 ### elm make --docs
 
@@ -114,18 +114,18 @@ As for `elm make`, documenting packages with `--docs`: the core library, three w
 
 | workload | elm | nomi | speedup | elm CPU | nomi CPU | elm memory | nomi memory |
 |---|--:|--:|--:|--:|--:|--:|--:|
-| elm/core 1.0.5, 0.19.3 cold | 83.7 ms | 22.5 ms | 3.72× | 110.0 ms | 40.0 ms | 115 MiB | 27 MiB |
-| elm/core 1.0.5, 0.19.3 warm | 72.0 ms | 19.3 ms | 3.74× | 100.0 ms | 30.0 ms | 106 MiB | 24 MiB |
-| mdgriffith/elm-ui 1.1.8, 0.19.3 cold | 268.8 ms | 111.2 ms | 2.42× | 440.0 ms | 240.0 ms | 440 MiB | 71 MiB |
-| mdgriffith/elm-ui 1.1.8, 0.19.3 warm | 91.0 ms | 46.7 ms | 1.95× | 100.0 ms | 70.0 ms | 126 MiB | 41 MiB |
-| rtfeldman/elm-css 18.0.0, 0.19.3 cold | 311.2 ms | 109.1 ms | 2.85× | 570.0 ms | 290.0 ms | 545 MiB | 79 MiB |
-| rtfeldman/elm-css 18.0.0, 0.19.3 warm | 195.5 ms | 81.5 ms | 2.40× | 260.0 ms | 130.0 ms | 283 MiB | 66 MiB |
-| dillonkearns/elm-graphql 5.0.12, 0.19.3 cold | 185.6 ms | 74.2 ms | 2.50× | 380.0 ms | 200.0 ms | 341 MiB | 52 MiB |
-| dillonkearns/elm-graphql 5.0.12, 0.19.3 warm | 62.5 ms | 21.4 ms | 2.92× | 60.0 ms | 30.0 ms | 77 MiB | 27 MiB |
-| finos/morphir-elm 22.0.2, 0.19.3 cold | 42.53 s | 365.8 ms | 116.28× | 46.00 s | 2.57 s | 2203 MiB | 282 MiB |
-| finos/morphir-elm 22.0.2, 0.19.3 warm | 249.4 ms | 145.8 ms | 1.71× | 510.0 ms | 420.0 ms | 454 MiB | 149 MiB |
-| icidasset/elm-material-icons 11.0.0, 0.19.3 cold | 1.13 s | 498.0 ms | 2.28× | 2.26 s | 1.26 s | 2219 MiB | 660 MiB |
-| icidasset/elm-material-icons 11.0.0, 0.19.3 warm | 1.06 s | 460.9 ms | 2.29× | 2.16 s | 1.18 s | 2164 MiB | 645 MiB |
+| elm/core 1.0.5, 0.19.3 cold | 78.4 ms | 22.4 ms | 3.51× | 100.0 ms | 40.0 ms | 115 MiB | 26 MiB |
+| elm/core 1.0.5, 0.19.3 warm | 77.3 ms | 18.2 ms | 4.25× | 100.0 ms | 30.0 ms | 107 MiB | 23 MiB |
+| mdgriffith/elm-ui 1.1.8, 0.19.3 cold | 275.0 ms | 102.7 ms | 2.68× | 440.0 ms | 240.0 ms | 440 MiB | 67 MiB |
+| mdgriffith/elm-ui 1.1.8, 0.19.3 warm | 97.3 ms | 45.7 ms | 2.13× | 100.0 ms | 60.0 ms | 126 MiB | 37 MiB |
+| rtfeldman/elm-css 18.0.0, 0.19.3 cold | 310.1 ms | 106.1 ms | 2.92× | 570.0 ms | 290.0 ms | 545 MiB | 77 MiB |
+| rtfeldman/elm-css 18.0.0, 0.19.3 warm | 198.7 ms | 77.3 ms | 2.57× | 260.0 ms | 130.0 ms | 283 MiB | 61 MiB |
+| dillonkearns/elm-graphql 5.0.12, 0.19.3 cold | 187.5 ms | 71.0 ms | 2.64× | 390.0 ms | 200.0 ms | 341 MiB | 49 MiB |
+| dillonkearns/elm-graphql 5.0.12, 0.19.3 warm | 66.7 ms | 20.3 ms | 3.29× | 60.0 ms | 30.0 ms | 77 MiB | 26 MiB |
+| finos/morphir-elm 22.0.2, 0.19.3 cold | 42.71 s | 359.6 ms | 118.77× | 46.25 s | 2.29 s | 2201 MiB | 250 MiB |
+| finos/morphir-elm 22.0.2, 0.19.3 warm | 256.6 ms | 132.5 ms | 1.94× | 520.0 ms | 400.0 ms | 455 MiB | 133 MiB |
+| icidasset/elm-material-icons 11.0.0, 0.19.3 cold | 1.14 s | 467.7 ms | 2.44× | 2.28 s | 1.18 s | 2220 MiB | 576 MiB |
+| icidasset/elm-material-icons 11.0.0, 0.19.3 warm | 1.08 s | 431.4 ms | 2.49× | 2.18 s | 1.11 s | 2162 MiB | 561 MiB |
 
 ### elm-format
 
@@ -133,14 +133,14 @@ nomi, run as `elm-format`, against the pinned elm-format 0.8.8 (its official bui
 
 | workload | elm-format | nomi | speedup | elm-format CPU | nomi CPU | elm-format memory | nomi memory |
 |---|--:|--:|--:|--:|--:|--:|--:|
-| exosphere `--validate`, 218 modules, 1940 KiB | 1.17 s | 53.2 ms | 22.05× | 13.31 s | 440.0 ms | 124 MiB | 43 MiB |
-| exosphere `--stdin`, 191 KiB | 154.6 ms | 23.1 ms | 6.71× | 210.0 ms | 10.0 ms | 29 MiB | 14 MiB |
-| liascript `--validate`, 189 modules, 1361 KiB | 963.5 ms | 39.3 ms | 24.51× | 11.20 s | 400.0 ms | 126 MiB | 42 MiB |
-| liascript `--stdin`, 127 KiB | 103.5 ms | 16.8 ms | 6.14× | 130.0 ms | 0.0 ms | 21 MiB | 12 MiB |
-| docspell `--validate`, 583 modules, 2478 KiB | 1.90 s | 87.8 ms | 21.68× | 22.77 s | 700.0 ms | 120 MiB | 39 MiB |
-| docspell `--stdin`, 104 KiB | 103.6 ms | 22.1 ms | 4.69× | 120.0 ms | 10.0 ms | 21 MiB | 13 MiB |
-| elm-3d-scene `--validate`, 59 modules, 929 KiB | 462.2 ms | 24.0 ms | 19.26× | 4.53 s | 170.0 ms | 108 MiB | 37 MiB |
-| elm-3d-scene `--stdin`, 132 KiB | 63.5 ms | 4.9 ms | 12.95× | 60.0 ms | 0.0 ms | 20 MiB | 7 MiB |
+| exosphere `--validate`, 218 modules, 1940 KiB | 1.17 s | 48.8 ms | 24.06× | 13.28 s | 440.0 ms | 120 MiB | 42 MiB |
+| exosphere `--stdin`, 191 KiB | 154.2 ms | 22.1 ms | 6.96× | 200.0 ms | 10.0 ms | 29 MiB | 14 MiB |
+| liascript `--validate`, 189 modules, 1361 KiB | 974.3 ms | 41.4 ms | 23.53× | 11.38 s | 400.0 ms | 126 MiB | 42 MiB |
+| liascript `--stdin`, 127 KiB | 103.3 ms | 16.5 ms | 6.25× | 120.0 ms | 0.0 ms | 21 MiB | 12 MiB |
+| docspell `--validate`, 583 modules, 2478 KiB | 1.92 s | 88.7 ms | 21.58× | 22.85 s | 710.0 ms | 123 MiB | 41 MiB |
+| docspell `--stdin`, 104 KiB | 103.6 ms | 22.0 ms | 4.72× | 130.0 ms | 10.0 ms | 21 MiB | 13 MiB |
+| elm-3d-scene `--validate`, 59 modules, 929 KiB | 472.2 ms | 24.7 ms | 19.15× | 4.59 s | 160.0 ms | 111 MiB | 36 MiB |
+| elm-3d-scene `--stdin`, 132 KiB | 63.5 ms | 5.0 ms | 12.62× | 50.0 ms | 0.0 ms | 20 MiB | 7 MiB |
 
 <!-- scoreboard:end -->
 

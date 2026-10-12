@@ -16,13 +16,26 @@ pub struct Home {
 }
 
 /// A name, a package's, a module's or a type's, interned: every `Text` of
-/// the same name
-/// points at one string, kept for the life of the process, so a clone
-/// copies a pointer, equality compares pointers, and a drop does nothing.
-/// Names are few, so keeping them costs little. It orders and hashes as
-/// its text, so nothing depends on where a name lives.
+/// the same name points at one string, kept for the life of the process,
+/// so a clone copies a pointer, equality compares pointers, and a drop
+/// does nothing. The pointer is thin, to where the string's own pointer
+/// and length are kept, so a `Text` is one word: type variables hold
+/// several. Names are few, so keeping them costs little. It orders and
+/// hashes as its text, so nothing depends on where a name lives.
 #[derive(Clone)]
-pub struct Text(&'static str);
+#[allow(clippy::borrowed_box)] // A `&Box<str>` is one word, a `&str` two.
+pub struct Text(&'static Box<str>);
+
+/// An interned name as the interner's sets hold it, found by its text.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(clippy::borrowed_box)]
+struct Interned(&'static Box<str>);
+
+impl std::borrow::Borrow<str> for Interned {
+    fn borrow(&self) -> &str {
+        self.0
+    }
+}
 
 impl Text {
     /// The interned `name`.
@@ -30,14 +43,14 @@ impl Text {
         use nomi_base::hash::FxHashSet;
         use std::cell::RefCell;
         use std::sync::{OnceLock, RwLock};
-        static NAMES: OnceLock<RwLock<FxHashSet<&'static str>>> = OnceLock::new();
+        static NAMES: OnceLock<RwLock<FxHashSet<Interned>>> = OnceLock::new();
         // Each thread keeps the names it has seen, so threads interning at
         // once don't contend for the shared set.
         thread_local! {
-            static SEEN: RefCell<FxHashSet<&'static str>> = RefCell::default();
+            static SEEN: RefCell<FxHashSet<Interned>> = RefCell::default();
         }
         if let Some(interned) = SEEN.with_borrow(|seen| seen.get(name).copied()) {
-            return Text(interned);
+            return Text(interned.0);
         }
         let names = NAMES.get_or_init(Default::default);
         let known = (names.read().unwrap_or_else(|e| e.into_inner()).get(name)).copied();
@@ -46,12 +59,16 @@ impl Text {
             if let Some(&interned) = names.get(name) {
                 return interned;
             }
-            let interned: &'static str = Box::leak(name.into());
+            let interned = Interned(Box::leak(Box::new(Box::from(name))));
             names.insert(interned);
             interned
         });
         SEEN.with_borrow_mut(|seen| seen.insert(interned));
-        Text(interned)
+        Text(interned.0)
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        self.0
     }
 }
 
@@ -80,45 +97,45 @@ impl Ord for Text {
         if self == other {
             std::cmp::Ordering::Equal
         } else {
-            self.0.cmp(other.0)
+            self.as_str().cmp(other.as_str())
         }
     }
 }
 
 impl std::hash::Hash for Text {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
+        self.as_str().hash(state);
     }
 }
 
 impl std::ops::Deref for Text {
     type Target = str;
     fn deref(&self) -> &str {
-        self.0
+        self.as_str()
     }
 }
 
 impl std::borrow::Borrow<str> for Text {
     fn borrow(&self) -> &str {
-        self.0
+        self.as_str()
     }
 }
 
 impl AsRef<str> for Text {
     fn as_ref(&self) -> &str {
-        self.0
+        self.as_str()
     }
 }
 
 impl std::fmt::Debug for Text {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self.0, f)
+        std::fmt::Debug::fmt(self.as_str(), f)
     }
 }
 
 impl std::fmt::Display for Text {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0)
+        f.write_str(self.as_str())
     }
 }
 
@@ -142,43 +159,43 @@ impl From<&String> for Text {
 
 impl From<Text> for String {
     fn from(t: Text) -> String {
-        t.0.to_string()
+        t.as_str().to_owned()
     }
 }
 
 impl PartialEq<str> for Text {
     fn eq(&self, other: &str) -> bool {
-        self.0 == other
+        self.as_str() == other
     }
 }
 
 impl PartialEq<&str> for Text {
     fn eq(&self, other: &&str) -> bool {
-        self.0 == *other
+        self.as_str() == *other
     }
 }
 
 impl PartialEq<String> for Text {
     fn eq(&self, other: &String) -> bool {
-        self.0 == other.as_str()
+        self.as_str() == other.as_str()
     }
 }
 
 impl PartialEq<Text> for str {
     fn eq(&self, other: &Text) -> bool {
-        self == other.0
+        self == other.as_str()
     }
 }
 
 impl PartialEq<Text> for &str {
     fn eq(&self, other: &Text) -> bool {
-        *self == other.0
+        *self == other.as_str()
     }
 }
 
 impl PartialEq<Text> for String {
     fn eq(&self, other: &Text) -> bool {
-        self.as_str() == other.0
+        self.as_str() == other.as_str()
     }
 }
 

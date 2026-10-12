@@ -165,6 +165,8 @@ where
         for &importer in &self.importers[i] {
             self.ready(scope, importer);
         }
+        // What the job left is freed only now its importers have started.
+        crate::trash::empty();
     }
 
     /// One of what module `i` waits on is done. The last to finish starts

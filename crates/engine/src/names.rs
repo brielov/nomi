@@ -528,7 +528,10 @@ impl Walk<'_> {
         });
         match canonical {
             Ok(canonical) => match time(Phase::Types, || {
-                nomi_compiler::types::infer(self.env.compat(), &canonical)
+                let (inferred, leftovers) =
+                    nomi_compiler::types::infer_leaving(self.env.compat(), &canonical);
+                crate::trash::defer(leftovers);
+                inferred
             }) {
                 Ok(annotations) => {
                     // Then the patterns, as upstream's `nitpick`.

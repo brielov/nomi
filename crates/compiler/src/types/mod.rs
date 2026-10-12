@@ -448,9 +448,36 @@ pub fn infer_types(
 /// The annotation of every top-level value of `module`, or its type
 /// errors, the latest first.
 pub fn infer(compat: Compat, module: &crate::canonicalize::module::Canonical) -> Inferred {
+    infer_leaving(compat, module).0
+}
+
+/// What an inference leaves behind: its variables and constraints, a
+/// large module's millions of them, for the caller to free where it
+/// costs least.
+pub struct Leftovers {
+    _vars: Variables,
+    _constraint: Constraint,
+}
+
+impl std::fmt::Debug for Leftovers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Leftovers")
+    }
+}
+
+/// [`infer`], and what it leaves behind.
+pub fn infer_leaving(
+    compat: Compat,
+    module: &crate::canonicalize::module::Canonical,
+) -> (Inferred, Leftovers) {
     let mut vars = Variables::new(compat);
     let constraint = constrain::module::constrain(&mut vars, module);
-    solve::run(&mut vars, &constraint)
+    let inferred = solve::run(&mut vars, &constraint);
+    let leftovers = Leftovers {
+        _vars: vars,
+        _constraint: constraint,
+    };
+    (inferred, leftovers)
 }
 
 #[cfg(test)]

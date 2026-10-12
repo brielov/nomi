@@ -532,7 +532,10 @@ impl Package<'_> {
         })
         .map_err(|errors| format!("{package} {name}: {errors:?}"))?;
         let annotations = time(Phase::Types, || {
-            nomi_compiler::types::infer(self.compat, &canonical)
+            let (inferred, leftovers) =
+                nomi_compiler::types::infer_leaving(self.compat, &canonical);
+            crate::trash::defer(leftovers);
+            inferred
         })
         .map_err(|errors| format!("{package} {name}: type errors {errors:?}"))?;
         let root = read.parse.syntax();
