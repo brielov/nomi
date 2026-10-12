@@ -187,8 +187,12 @@ fn failure_message(name: &str, report: &Report) -> String {
     if !report.regressions.is_empty() {
         let _ = writeln!(out, "{} listed case(s) now fail:", report.regressions.len());
         for (case, reason) in report.regressions.iter().take(SHOWN) {
-            let first_line = reason.lines().next().unwrap_or("");
-            let _ = writeln!(out, "  {case}: {first_line}");
+            // The expectation and what was found, where a reason gives both.
+            let mut lines = reason.lines();
+            let _ = writeln!(out, "  {case}: {}", lines.next().unwrap_or(""));
+            if let Some(found) = lines.next() {
+                let _ = writeln!(out, "  {found}");
+            }
         }
         if report.regressions.len() > SHOWN {
             let _ = writeln!(out, "  ... and {} more", report.regressions.len() - SHOWN);

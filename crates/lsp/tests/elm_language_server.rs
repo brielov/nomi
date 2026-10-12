@@ -52,11 +52,15 @@ fn store(dir: &Path) -> (Store, Vec<(String, String)>) {
         fs::write(&release, format!("{hash}\n")).unwrap();
         let sources = dir.join("sources").join(&hash);
         copy_tree(&packages_dir().join(&name).join(&version), &sources);
-        let sources = real(&sources);
         let to = format!("<packages>/{name}/{version}");
-        let uri = Url::from_directory_path(&sources).unwrap();
-        replacements.push((uri.as_str().trim_end_matches('/').to_owned(), to.clone()));
-        replacements.push((sources.display().to_string(), to));
+        // As resolved and as the store names it, which differ behind a
+        // link (macOS's temporary directory); the longer first, since it
+        // holds the other.
+        for sources in [real(&sources), sources] {
+            let uri = Url::from_directory_path(&sources).unwrap();
+            replacements.push((uri.as_str().trim_end_matches('/').to_owned(), to.clone()));
+            replacements.push((sources.display().to_string(), to.clone()));
+        }
     }
     (Store::new(dir.to_owned()), replacements)
 }

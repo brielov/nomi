@@ -85,7 +85,7 @@ impl Files {
 /// has one name. Of a path that doesn't exist yet, as an editor's new
 /// buffer, the longest part that does is resolved and the rest kept.
 pub(crate) fn canonical(path: &Path) -> io::Result<PathBuf> {
-    match fs::canonicalize(path) {
+    match fs::canonicalize(path).map(plain) {
         Ok(path) => return Ok(path),
         Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
         Err(_) => {}
@@ -104,7 +104,7 @@ pub(crate) fn canonical(path: &Path) -> io::Result<PathBuf> {
                 resolved.pop();
                 missing -= 1;
             }
-            _ if missing == 0 => match fs::canonicalize(resolved.join(component)) {
+            _ if missing == 0 => match fs::canonicalize(resolved.join(component)).map(plain) {
                 Ok(path) => resolved = path,
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {
                     missing = 1;
@@ -119,6 +119,29 @@ pub(crate) fn canonical(path: &Path) -> io::Result<PathBuf> {
         }
     }
     Ok(resolved)
+}
+
+/// `path` without the `\\?\` prefix Windows' canonical paths have, where
+/// the path means the same without it, as `C:\x` or `\\server\share`:
+/// with it, a path makes no `file:` URL and starts no other path given
+/// the usual way.
+fn plain(path: PathBuf) -> PathBuf {
+    let Some(text) = path.to_str() else {
+        return path;
+    };
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    match text.strip_prefix(r"\\?\") {
+        Some(rest)
+            if rest.len() >= 3
+                && rest.as_bytes()[0].is_ascii_alphabetic()
+                && rest[1..].starts_with(":\\") =>
+        {
+            PathBuf::from(rest)
+        }
+        _ => path,
+    }
 }
 
 impl Snapshot {
@@ -333,4 +356,26 @@ impl Vfs {
 fn skipped(dir: &Path) -> bool {
     dir.file_name()
         .is_some_and(|name| SKIPPED.iter().any(|s| name == *s))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_verbatim_prefixes_go_where_the_path_means_the_same() {
+        let plain = |p: &str| {
+            super::plain(PathBuf::from(p))
+                .to_string_lossy()
+                .into_owned()
+        };
+        assert_eq!(plain(r"\\?\C:\work\src\Main.elm"), r"C:\work\src\Main.elm");
+        assert_eq!(
+            plain(r"\\?\UNC\server\share\Main.elm"),
+            r"\\server\share\Main.elm"
+        );
+        // Without a drive it means something else, so it stays.
+        assert_eq!(plain(r"\\?\Volume{1}\x"), r"\\?\Volume{1}\x");
+        assert_eq!(plain("/home/elm/Main.elm"), "/home/elm/Main.elm");
+    }
 }
