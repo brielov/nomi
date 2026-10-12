@@ -68,24 +68,7 @@ pub fn hover(snapshot: &Snapshot, index: &Index, path: &Path, offset: TextSize) 
             let name = name_at.text();
             let annotation = match child(&declaration, SyntaxKind::Signature) {
                 Some(signature) => text_of(&signature)?,
-                None => {
-                    // Its parameters' types, then its body's.
-                    let mut parts = Vec::new();
-                    for part in parent.children() {
-                        let range = code_range(&part)?;
-                        if crate::lint::is_pattern(part.kind()) {
-                            let ty = typed(range)?;
-                            parts.push(if ty.contains("->") {
-                                format!("({ty})")
-                            } else {
-                                ty
-                            });
-                        } else {
-                            parts.push(typed(range)?);
-                        }
-                    }
-                    format!("{name} : {}", parts.join(" -> "))
-                }
+                None => format!("{name} : {}", composed(&parent, typed)?),
             };
             format_hint(&annotation, "Defined in local let scope", None)
         }
@@ -249,6 +232,53 @@ fn name_token(root: &SyntaxNode, range: TextRange) -> Option<SyntaxToken> {
 /// The type of the top-level value `name` the module of `root`
 /// declares: inferred where the module is the project's, from its
 /// interface where it's a dependency's.
+/// A `let` value's type as elm-language-server writes it: its
+/// parameters' types, then its body's, by `typed`.
+fn composed(
+    definition: &SyntaxNode,
+    typed: impl Fn(TextRange) -> Option<String>,
+) -> Option<String> {
+    let mut parts = Vec::new();
+    for part in definition.children() {
+        let range = code_range(&part)?;
+        if crate::lint::is_pattern(part.kind()) {
+            let ty = typed(range)?;
+            parts.push(if ty.contains("->") {
+                format!("({ty})")
+            } else {
+                ty
+            });
+        } else {
+            parts.push(typed(range)?);
+        }
+    }
+    Some(parts.join(" -> "))
+}
+
+/// The type of the value `definition` defines in `module`, as
+/// elm-language-server's `typeToString` writes it: a top-level value's
+/// inferred type, or a `let` value's [`composed`] one.
+pub(crate) fn definition_type(
+    index: &Index,
+    module: &Indexed,
+    definition: &SyntaxNode,
+) -> Option<String> {
+    let names = Names::of(index, module);
+    let top = (definition.parent()).is_some_and(|d| d.kind() == SyntaxKind::ValueDecl);
+    if top {
+        let name = token(definition, SyntaxKind::LowerIdent)?;
+        let ty = value_type(index, Some(module), &module.root, &name)?;
+        return Some(render(&names, &ty));
+    }
+    let (_, types) = types::infer_types(index.compat, module.canonical.as_ref()?);
+    composed(definition, |range| {
+        (types.iter())
+            .rev()
+            .find(|(r, _)| trimmed(&module.root, *r) == Some(range))
+            .map(|(_, ty)| render_error(&names, ty))
+    })
+}
+
 fn value_type(
     index: &Index,
     declaring: Option<&Indexed>,

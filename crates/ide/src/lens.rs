@@ -98,17 +98,22 @@ pub fn is_exposed(
 ) -> io::Result<bool> {
     let text = snapshot.read(path)?;
     let root = parse_module(&text).syntax();
+    Ok(exposes(&root, &text, name, function))
+}
+
+/// [`is_exposed`] of a module already parsed.
+pub(crate) fn exposes(root: &SyntaxNode, text: &str, name: &str, function: bool) -> bool {
     let Some(list) = (root.children())
         .find(|n| n.kind() == SyntaxKind::ModuleHeader)
         .and_then(|header| child(&header, SyntaxKind::ExposingList))
     else {
-        return Ok(false);
+        return false;
     };
     let everything = (list.children_with_tokens())
         .filter_map(|e| e.into_token())
         .any(|t| t.kind() == SyntaxKind::DotDot);
     if everything {
-        return Ok(true);
+        return true;
     }
     let wanted = if function {
         SyntaxKind::ExposedValue
@@ -117,10 +122,10 @@ pub fn is_exposed(
     };
     let as_written =
         |node: &SyntaxNode| code_range(node).map(|r| &text[std::ops::Range::<usize>::from(r)]);
-    Ok((list.descendants())
+    (list.descendants())
         .filter(|n| n.kind() == wanted)
         .filter_map(|n| as_written(&n))
-        .any(|written| written == name || (!function && written == format!("{name}(..)"))))
+        .any(|written| written == name || (!function && written == format!("{name}(..)")))
 }
 
 /// The name a value declaration defines.

@@ -402,6 +402,7 @@ fn a_missing_module_offers_the_packages_that_expose_it() {
         given: &given,
         problems: &[],
         packages: &packages,
+        lazy: false,
     };
     let found = code_actions(&snapshot, &index, &path, &request);
     let offered: Vec<_> = (found.iter())
@@ -428,4 +429,63 @@ fn a_missing_module_offers_the_packages_that_expose_it() {
         ..request
     };
     assert_eq!(code_actions(&snapshot, &index, &path, &request), []);
+}
+
+#[test]
+fn exposing_edits_keep_the_list_well_formed() {
+    let text = "module Main exposing (a, B(..), c)\n\n\na =\n    1\n";
+    let (_dir, vfs, path) = open(text);
+    let snapshot = vfs.snapshot();
+    let edit = |name, expose| {
+        let edit = exposing_edit(&snapshot, &path, name, expose)?;
+        let mut after = text.to_owned();
+        after.replace_range(std::ops::Range::<usize>::from(edit.range), &edit.text);
+        Some(after.lines().next().unwrap().to_owned())
+    };
+    // The first and middle ones take the comma after them, the last the
+    // one before it.
+    assert_eq!(
+        edit("a", false).as_deref(),
+        Some("module Main exposing (B(..), c)")
+    );
+    assert_eq!(
+        edit("B", false).as_deref(),
+        Some("module Main exposing (a, c)")
+    );
+    assert_eq!(
+        edit("c", false).as_deref(),
+        Some("module Main exposing (a, B(..))")
+    );
+    assert_eq!(
+        edit("d", true).as_deref(),
+        Some("module Main exposing (a, B(..), c, d)")
+    );
+    // Already exposed, or not there to unexpose.
+    assert_eq!(edit("a", true), None);
+    assert_eq!(edit("d", false), None);
+    // The only one exposed stays, as elm-format would add it back.
+    let (_dir, vfs, path) = open("module Main exposing (a)\n\n\na =\n    1\n");
+    assert_eq!(exposing_edit(&vfs.snapshot(), &path, "a", false), None);
+}
+
+#[test]
+fn a_resolved_annotation_is_inferred_at_the_definitions_column() {
+    let text = "module Main exposing (main)\n\n\nmain =\n    let\n        twice n =\n            n * 2\n    in\n    twice 2\n";
+    let (_dir, vfs, path) = open(text);
+    let (_store_dir, store) = store();
+    let snapshot = vfs.snapshot();
+    let index =
+        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    let at = TextSize::new(text.find("twice n").unwrap() as u32 + 1);
+    let edits = refactor_edits(
+        &index,
+        &snapshot,
+        &path,
+        "add_type_annotation",
+        TextRange::empty(at),
+    )
+    .unwrap();
+    assert_eq!(edits.len(), 1);
+    assert_eq!(edits[0].text, "twice : number -> number\n        ");
+    assert_eq!(edits[0].range, TextRange::empty(at - TextSize::new(1)));
 }

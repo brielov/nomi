@@ -774,9 +774,13 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - **Done:** 78 of the 209 recorded actions match: every import, "Add all missing imports" and "Change to" action. Nomi offers no action elm-language-server doesn't, and 17 more requests now pass whole.
   - The diagnostics worker keeps each file's latest problems, so fix-alls read what was published, as `getCurrentDiagnostics` does.
   - The install command is `nomi.installPackage`, not upstream's randomly suffixed name. It asks through `window/showMessageRequest` with what nomi's install prints. `Store::newest` lists each downloaded package's newest release, which is where upstream reads exposed modules from (`~/.elm`).
-- [ ] **9.12b** `ide: annotations and exposing`.
+- [x] **9.12b** `ide: annotations and exposing`.
   - **Annotations:** the inferred annotation, both as a fix for `missing_type_annotation` and as a refactor.
   - **Exposing:** the expose and unexpose refactors (a function, a type, a type with its variants), with no edit where unexposing would leave the list empty. Also the `elm.expose-` and `elm.unexpose-` commands that 9.11's lenses offer.
+  - **Done:** all 18 recorded annotation and exposing actions match: 96 of 209 actions overall, and 784 requests pass. The lenses' commands arrive as `elm/expose` and `elm/unexpose` requests, answered with `workspace/applyEdit`. Refactors resolve lazily when the client resolves `edit`.
+  - Refactors read the range of the last diagnostic the request carries, not the request's own, because `onCodeAction` overwrites it.
+  - A fix and a refactor with the same name share one preferred priority, so the annotation refactor (3) outranks exposing (2).
+  - tree-sitter-elm gives a signature's outer punctuation (its arrows, and the parentheses at its top) to the signature's `type_expression`. A cursor on that punctuation then offers to expose or unexpose the whole type's text as a "function".
 - [ ] **9.13** `ide: code actions that create code`. Missing case branches, missing record fields, missing union constructors, a local or external function from its usage, and a new parameter.
 - [ ] **9.14** `ide: code actions that remove unused code`. Unused imports, aliases, values, constructors, type aliases and patterns, and unused parameters together with their call sites.
 - [ ] **9.15** `ide: refactors`. Extract a function (to `let` or the top level), extract a type alias, and move a function.

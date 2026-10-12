@@ -119,7 +119,12 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
             work_done_progress_options: lsp_types::WorkDoneProgressOptions::default(),
         })),
         references_provider: Some(OneOf::Left(true)),
-        code_action_provider: Some(lsp_types::CodeActionProviderCapability::Simple(true)),
+        code_action_provider: Some(lsp_types::CodeActionProviderCapability::Options(
+            lsp_types::CodeActionOptions {
+                resolve_provider: Some(true),
+                ..lsp_types::CodeActionOptions::default()
+            },
+        )),
         execute_command_provider: Some(lsp_types::ExecuteCommandOptions {
             commands: vec![INSTALL_PACKAGE.to_owned()],
             work_done_progress_options: lsp_types::WorkDoneProgressOptions::default(),
@@ -151,6 +156,10 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
         .and_then(|c| c.completion_item.as_ref())
         .and_then(|i| i.label_details_support)
         .unwrap_or(false);
+    let resolves_edits = (params.capabilities.text_document.as_ref())
+        .and_then(|t| t.code_action.as_ref())
+        .and_then(|c| c.resolve_support.as_ref())
+        .is_some_and(|r| r.properties.iter().any(|p| p == "edit"));
     let pulls_settings = (params.capabilities.workspace.as_ref())
         .and_then(|w| w.configuration)
         .unwrap_or(false);
@@ -182,6 +191,7 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
         settings_request: None,
         label_details,
         latest,
+        resolves_edits,
         packages: None,
         installs: HashMap::new(),
     };
@@ -231,6 +241,8 @@ struct Server {
     label_details: bool,
     /// The problems the diagnostics worker last published, by file.
     latest: Arc<Mutex<HashMap<PathBuf, Vec<nomi_ide::Problem>>>>,
+    /// Whether the client resolves a code action's edit later.
+    resolves_edits: bool,
     /// The packages downloaded and the modules they expose, read once.
     packages: Option<nomi_ide::PackageModules>,
     /// Installs waiting for the user's answer, by the id of the question.
@@ -292,6 +304,11 @@ impl Server {
             Completion::METHOD => parse(request).and_then(|p: lsp_types::CompletionParams| {
                 self.completion(&p.text_document_position)
             }),
+            "codeAction/resolve" => parse(request).and_then(|a: Value| self.resolve_action(a)),
+            "elm/expose" | "elm/unexpose" => {
+                let expose = request.method == "elm/expose";
+                parse(request).and_then(|p: Value| self.expose(&p, expose))
+            }
             "workspace/executeCommand" => {
                 parse(request).and_then(|p: lsp_types::ExecuteCommandParams| self.execute(&p))
             }
@@ -784,6 +801,53 @@ impl Server {
         Ok(Value::Null)
     }
 
+    /// `codeAction/resolve`: a refactor's edits, computed now.
+    fn resolve_action(&mut self, mut action: Value) -> Result<Value, (ErrorCode, String)> {
+        let data = action["data"].clone();
+        let (Some(uri), Some(name)) = (data["uri"].as_str(), data["actionName"].as_str()) else {
+            return Ok(action);
+        };
+        let uri = Url::parse(uri).map_err(|e| (ErrorCode::InvalidParams, e.to_string()))?;
+        let document = self.document(&uri)?;
+        let (path, text) = (document.path.clone(), document.text.clone());
+        let text = Text::new(&text, self.unit);
+        let range: lsp_types::Range = serde_json::from_value(data["range"].clone())
+            .map_err(|e| (ErrorCode::InvalidParams, e.to_string()))?;
+        let range = text.text_range(range);
+        let snapshot = self.vfs.snapshot();
+        let Some(index) = self.index(&snapshot, &path) else {
+            return Ok(action);
+        };
+        if let Some(edits) = nomi_ide::refactor_edits(index, &snapshot, &path, name, range) {
+            let edits: Vec<TextEdit> = (edits.iter())
+                .map(|e| TextEdit::new(text.range(e.range), e.text.clone()))
+                .collect();
+            action["edit"] = serde_json::json!({ "changes": { uri.as_str(): edits } });
+        }
+        Ok(action)
+    }
+
+    /// `elm/expose` and `elm/unexpose`: the exposing list's edit, applied
+    /// by the client.
+    fn expose(&mut self, params: &Value, expose: bool) -> Result<Value, (ErrorCode, String)> {
+        let (Some(uri), Some(name)) = (params["uri"].as_str(), params["name"].as_str()) else {
+            return Err((ErrorCode::InvalidParams, "a file and a name".to_owned()));
+        };
+        let uri = Url::parse(uri).map_err(|e| (ErrorCode::InvalidParams, e.to_string()))?;
+        let document = self.document(&uri)?;
+        let path = document.path.clone();
+        let text = Text::new(&document.text, self.unit);
+        let snapshot = self.vfs.snapshot();
+        if let Some(edit) = nomi_ide::exposing_edit(&snapshot, &path, name, expose) {
+            let edit = TextEdit::new(text.range(edit.range), edit.text);
+            let id = lsp_server::RequestId::from(format!("nomi/expose/{name}"));
+            let params = serde_json::json!({ "edit": { "changes": { uri.as_str(): [edit] } } });
+            let request = Request::new(id, "workspace/applyEdit".to_owned(), params);
+            send(&self.sender, Message::Request(request));
+        }
+        Ok(Value::Null)
+    }
+
     fn show(&self, kind: lsp_types::MessageType, message: &str) {
         let params = lsp_types::ShowMessageParams {
             typ: kind,
@@ -838,6 +902,7 @@ impl Server {
             given: &given,
             problems: &problems,
             packages,
+            lazy: self.resolves_edits,
         };
         let actions = nomi_ide::code_actions(&snapshot, index, &path, &request);
         let mut found = Vec::new();
@@ -847,6 +912,7 @@ impl Server {
             let kind = match action.kind {
                 nomi_ide::ActionKind::QuickFix => "quickfix",
                 nomi_ide::ActionKind::Refactor => "refactor",
+                nomi_ide::ActionKind::RefactorExtract => "refactor.extract",
             };
             json.insert("kind".into(), kind.into());
             match action.diagnostics {
@@ -896,6 +962,19 @@ impl Server {
                     json.insert(
                         "data".into(),
                         serde_json::json!({ "fixId": id, "isFixAll": true }),
+                    );
+                }
+                nomi_ide::ActionData::Refactor {
+                    name,
+                    action,
+                    range,
+                } => {
+                    json.insert(
+                        "data".into(),
+                        serde_json::json!({
+                            "actionName": action, "refactorName": name,
+                            "range": text.range(range), "uri": uri,
+                        }),
                     );
                 }
                 nomi_ide::ActionData::None => {}
