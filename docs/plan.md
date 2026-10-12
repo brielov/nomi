@@ -26,7 +26,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 2. **Green at every commit.** `cargo xtask ci` passes. Write a step's check before its code. Nothing is `#[ignore]`d; unfinished parity is tracked by ratchets.
 3. **Small steps.** If a step grows past about 1,000 hand-written lines (fixtures and snapshots don't count) or one working session, split it here first, in its own commit: `plan: split N.M`.
 4. **Rolling detail.** Near milestones are detailed. Later ones get refined when they start (`plan: refine MN`). Exit criteria change only with a `DECISIONS.md` entry.
-5. **Gates.** A milestone ends when its exit criteria hold on the tier-2 suites. You review at each gate. Releases are tagged locally. Nothing is pushed or published without your go-ahead.
+5. **Gates.** A milestone ends when its exit criteria hold on the tier-2 suites. You review at each gate. Commits are pushed to `rewrite` as they land. Releases are tagged locally, and tags, releases and publishing wait for your go-ahead.
 6. **Fix representations, not symptoms.** If the same class of mismatch needs a third heuristic, the step stops, and the representation changes with a `DECISIONS.md` entry. The old formatter took about 35 single-mismatch rounds, all landing in one file.
 7. **Small files.** A file past about 1,500 lines gets split by responsibility; `xtask ci` enforces it.
 8. **Documents.** There are only four: this plan, `architecture.md`, `README.md`, and `DECISIONS.md` (one dated paragraph per decision that would be expensive to reverse). Benchmark numbers go in `docs/benchmarks.md`. If a decision can be a test, write the test. There are no handoff or status files.
@@ -38,14 +38,14 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. starts at the first unchecked box;
 2. writes the check, implements, and runs `cargo xtask ci`;
 3. ticks the box and commits;
-4. stops to ask when a step needs a decision, a download or a push.
+4. pushes the commit, and stops to ask when a step needs a decision, a download outside the plan tooling, a tag or a publish.
 
 **Picking up on another machine.**
 
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **B.n**.
+4. Resume at the first unchecked box. Right now that is **9.1**; B.n waits for the reference machine.
 
 ### Test tiers
 
@@ -599,19 +599,50 @@ The parity list comes from elm-language-server 2.10.0:
 
 Semantic tokens, inlay hints and signature help aren't in elm-language-server; they come after parity.
 
-- [ ] **9.1** `lsp: transcript oracle`. The salvaged harness, with sessions recorded from elm-language-server 2.10.0 on corpus projects.
-- [ ] **9.2** `ide: diagnostics policy and debouncing`.
-- [ ] **9.3** `ide: lint diagnostics`, porting elm-language-server's rules.
-- [ ] **9.4** `ide: completion`. Names in scope, qualified names, record fields resolved by type, and auto-import.
-- [ ] **9.5** `ide: rename`, including exposing lists and prepare-rename.
-- [ ] **9.6** `ide: workspace symbols, folding, selection ranges and linked editing`.
-- [ ] **9.7** `ide: code lens`.
-- [ ] **9.8** `ide: code actions for imports, annotations and exposing`.
-- [ ] **9.9** `ide: code actions for case branches, record fields, union variants and declarations from usage`.
-- [ ] **9.10** `ide: code actions for extracting, moving, adding parameters and removing unused code`.
-- [ ] **9.11** `lsp: custom requests and elm-review`.
-- [ ] **9.12** `lsp: performance budgets`. On the largest app: time to first diagnostics, keystroke to diagnostics, and memory.
-- [ ] **9.13** `release: 0.3`. Editor setup for VS Code, Neovim, Helix and Zed.
+Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k-line type checker of its own, 12k of providers):
+
+- **Diagnostics.** On every change, elm-language-server runs its own type checker, which approximates elm's (29 codes such as `type_mismatch`). On open and save it runs `elm make --report json`, and elm-review after a clean make. It also has 17 lint rules, configured by `elm-analyse.json`.
+- **Decision for M9.** nomi has elm's checker, so the compiler's own reports replace both the approximate checker and the external `elm make`. They come on every change, in elm-language-server's shape: source `Elm`, its message form and its `data.code` (`missing_value`, `import_resolve`, `incomplete_case_pattern`, `record_field`, `missing_type_annotation`), so the code actions keyed on those codes work. This is recorded in `DECISIONS.md`. Transcripts compare elm-language-server's on-save make diagnostics, never its approximate ones.
+- **Formatting** stays in-process (M2), where elm-language-server spawns elm-format.
+- **Not reproduced:** its quirks, such as the advertised `elmLS.elmMakeFixer-*` command with no handler and the raw `didChangeConfiguration` payload. Each one met gets a `DECISIONS.md` line.
+
+**Oracle.** Sessions are recorded from the pinned 2.10.0 under Node in a sandbox. The sandbox has its own `ELM_HOME`, holding the corpus packages, the pinned elm and elm-format as its paths, and no network. Answers are normalized (roots and package paths) and stored as snapshots, which a ratchet replays against `nomi lsp`.
+
+- [ ] **9.1** `lsp: transcript oracle`. Builds on the salvaged harness and record oracle (`brielov/nomi@8e2b540:conformance/oracles/lsp`).
+  - **Recorder.** `cargo xtask oracle lsp` replays each case's session against elm-language-server: initialize, open, then requests at markers in the files (`--^`, as its own tests write them). It stores every response and notification.
+  - **Replay.** `crates/lsp/tests/oracle.rs` replays the same sessions against nomi, with `passing.txt`.
+  - **Seed cases.** One small project per provider.
+  - **npm.** `oracle fetch` falls back to `nub ci` where npm is missing, still strictly from the lockfile.
+  - **Check:** recording twice gives the same snapshots, and the replay runs in `xtask ci`.
+- [ ] **9.2** `lsp: elm-language-server's own cases`. Its inline-fixture tests become oracle cases: definition 159, references 37, hover 12, completion 55, rename 8, type definition 6, folding 2, find tests 14, file events 15, code actions 97 and lint 97. They are converted by script and recorded with the real elm/core instead of its stubs. Their diffs are the ratchet's starting point, and `passing.txt` grows from here.
+- [ ] **9.3** `ide: compiler diagnostics as you type`.
+  - The engine checks the projects of the open files on each change, debounced like elm-language-server (200 ms), and drops stale runs by revision.
+  - It publishes elm's reports in elm-language-server's shape, with Markdown when the client supports it, plus the `missing_type_annotation` information.
+  - Settings come from `initializationOptions`, `workspace/configuration` (`elmLS`) and `didChangeConfiguration`, and `onlyUpdateDiagnosticsOnSave` is honored.
+  - **Check:** the on-save diagnostics of the corpus cases match elm-language-server's.
+- [ ] **9.4** `ide: lint rules for unused code`. `unused_import`, `unused_imported_value`, `unused_alias`, `unused_pattern`, `unused_top_level`, `unused_type_alias`, `unused_value_constructor`, `unused_incoming_port` (across modules) and `unnecessary_port_module`, with `elm-analyse.json` checks and `excludedPaths`.
+- [ ] **9.5** `ide: lint rules for lists, cases and records`. `map_nothing_to_nothing`, `boolean_case_expr`, `drop_concat_of_lists`, `drop_cons_of_item_and_list`, `use_cons_over_concat`, `unnecessary_list_concat`, `no_uncurried_prefix`, and `single_field_record` (opt-in).
+- [ ] **9.6** `ide: navigation parity`. Definition, type definition and references, including record fields by type, type variables, ports and modules. Hover as Markdown, with annotation and doc comment. Package sources open from nomi's store. **Check:** the definition, references and hover cases.
+- [ ] **9.7** `ide: rename`. Prepare-rename, exposing lists, qualified names, record fields, and module rename as a `RenameFile`. Files outside the project are refused with its message.
+- [ ] **9.8** `ide: completion in scope`. Locals, qualified names, module and import exposing lists, module names after `import`, record fields by type (in expressions, updates and record patterns), and annotation names at the start of a line.
+- [ ] **9.9** `ide: completion with auto-import, snippets and keywords`. Up to 49 auto-imports with their edit, `isIncomplete`, `labelDetails`, its snippets and keywords, and its sort order.
+- [ ] **9.10** `ide: workspace symbols, folding, selection ranges and linked editing`.
+- [ ] **9.11** `ide: code lens`. Exposed or local, and reference counts, resolved lazily.
+- [ ] **9.12** `ide: code action machinery and import fixes`.
+  - **Machinery:** preferred actions, fix-all, and lazy resolve when the client supports it.
+  - **Fixes:** import a missing value or module, install a package (`elm install` through the client's confirmation), the compiler's "Change to" suggestions, add the inferred annotation, and expose or unexpose.
+- [ ] **9.13** `ide: code actions that create code`. Missing case branches, missing record fields, missing union constructors, a local or external function from its usage, and a new parameter.
+- [ ] **9.14** `ide: code actions that remove unused code`. Unused imports, aliases, values, constructors, type aliases and patterns, and unused parameters together with their call sites.
+- [ ] **9.15** `ide: refactors`. Extract a function (to `let` or the top level), extract a type alias, and move a function.
+- [ ] **9.16** `lsp: file events and custom requests`.
+  - **File events:** `didCreateFiles` (the module header), `willRenameFiles` (modules and folders) and `willDeleteFiles`.
+  - **Custom requests:** `elm/findTests`, `elm/expose`, `elm/unexpose`, `elm/getMoveDestinations`, `elm/move`, `elm/getDiagnostics`, `elm/provideFileContents` and `workspace/textDocumentContent`.
+- [ ] **9.17** `lsp: elm-review`.
+  - Its CLI runs on open and save after clean diagnostics, under the same conditions: the setting, and `review/src/ReviewConfig.elm` exists. It is cleared on change.
+  - Its fixes become code actions.
+  - Tested with a stub `elm-review` that prints recorded JSON, since elm-review isn't pinned.
+- [ ] **9.18** `lsp: performance budgets`. Measured on exosphere against elm-language-server, in the M8b scoreboard: time to first diagnostics, keystroke to diagnostics, completion latency, and peak memory. nomi wins each, and keystroke to diagnostics is under 100 ms on the Ryzen 7.
+- [ ] **9.19** `release: 0.3`. Editor setup for VS Code, Neovim, Helix and Zed.
 
 **Exit:** transcript parity, budgets met, and you've used it on a real project.
 
