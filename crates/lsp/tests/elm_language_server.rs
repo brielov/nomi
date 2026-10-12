@@ -161,7 +161,9 @@ fn replay(
     // The transcripts were recorded on Linux; on Windows elm's report of a
     // misnamed file writes its paths with `\`.
     if cfg!(windows) {
-        for diagnostics in (actual["diagnostics"].as_object_mut().into_iter()).flat_map(|d| d.values_mut()) {
+        for diagnostics in
+            (actual["diagnostics"].as_object_mut().into_iter()).flat_map(|d| d.values_mut())
+        {
             for diagnostic in diagnostics.as_array_mut().into_iter().flatten() {
                 if let Some(message) = diagnostic["message"].as_str()
                     && message.starts_with("UNEXPECTED FILE NAME")
