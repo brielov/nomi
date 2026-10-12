@@ -285,6 +285,16 @@ pub(crate) fn field_completion(label: &str, ty: &str, alias: &str, range: TextRa
     }
 }
 
+/// The declaration of the alias of the variable `name` written at `at`.
+pub(crate) fn alias_declaration(
+    index: &Index,
+    module: &Indexed,
+    at: TextSize,
+    name: &str,
+) -> Option<SyntaxNode> {
+    alias_of_name(index, module, at, name).map(|alias| alias.decl)
+}
+
 /// The alias of the variable `name` written at `at`: by the annotation
 /// of the parameter binding it, the field a record pattern binds it as,
 /// or the function it names.

@@ -27,7 +27,6 @@ editing/09 workspace/symbol
 editing/diagnostics
 els-add-missing-case-branches-001/diagnostics
 els-add-missing-case-branches-002/diagnostics
-els-add-missing-case-branches-003/00 textDocument/codeAction
 els-add-missing-case-branches-003/diagnostics
 els-add-missing-case-branches-004/00 textDocument/codeAction
 els-add-missing-case-branches-004/diagnostics
@@ -41,9 +40,13 @@ els-add-missing-record-field-code-action-001/diagnostics
 els-add-missing-record-field-code-action-002/00 textDocument/codeAction
 els-add-missing-record-field-code-action-002/diagnostics
 els-add-missing-record-field-code-action-003/00 textDocument/codeAction
+els-add-missing-union-type-001/00 textDocument/codeAction
 els-add-missing-union-type-001/diagnostics
+els-add-missing-union-type-002/00 textDocument/codeAction
 els-add-missing-union-type-002/diagnostics
+els-add-missing-union-type-003/00 textDocument/codeAction
 els-add-missing-union-type-003/diagnostics
+els-add-missing-union-type-004/00 textDocument/codeAction
 els-add-missing-union-type-004/diagnostics
 els-add-new-function-parameter-001/00 textDocument/codeAction
 els-add-new-function-parameter-001/diagnostics

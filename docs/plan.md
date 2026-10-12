@@ -791,11 +791,17 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - A new parameter whose type is a variable, `number` included, is written in the signature as the value's own name, as upstream does.
   - An external function is only created where the target module lists what it exposes. Under `exposing (..)` upstream's expose edit is empty, so it offers nothing.
   - nomi nests `a -> b -> c` to the right where tree-sitter's type_expression is flat, so 9.12b's signature punctuation now climbs the chain.
-- [ ] **9.13b** `ide: constructors, case branches and record fields`.
+- [x] **9.13b** `ide: constructors, case branches and record fields`.
   - **Union constructors:** a missing constructor of the type the context expects is added to that type, in this file or another, with its arguments' types. Its fix-all adds each one.
   - **Case branches:** the branches a `case` misses, each `Debug.todo`, prefixed as the existing branches are.
   - **Record fields:** the field a record lacks is added to its type alias, on one line or many, and in a record update.
   - **Elm's reports:** elm-language-server keys the last two to its own checker's `incomplete_case_pattern` and `record_field`, which nomi doesn't publish (DECISIONS 2026-10-12). nomi offers them on elm's MISSING PATTERNS and record TYPE MISMATCH reports instead, so the six recorded cases where elm-language-server's on-save transcript offers nothing stay unlisted (DECISIONS).
+  - **Done:** all 8 recorded union-constructor actions match: 136 of 209 overall, and 798 requests pass.
+  - The branches come from the list in elm's own report, so nomi needs no exhaustiveness check of its own. They match upstream's expected results for its normal, nested and parenthesized cases.
+  - Only four of the six cases diverge (`case-branches` 001, 002, 003 and 006); one was listed and is now unlisted. In the record cases the request range doesn't overlap elm's region, so neither server offers anything.
+  - A fix-all treats elm's report and the checker's form of it as one diagnostic, so a lone `case` offers no "all".
+  - Upstream adds a constructor to any type it can find, packages' included. nomi only edits the project's own modules. A record field likewise goes only into an alias declared in the same file. Unit tests cover both fixes.
+  - `actions.rs` passed the 1,500-line limit and became `actions/` with four modules.
 - [ ] **9.14** `ide: code actions that remove unused code`. Unused imports, aliases, values, constructors, type aliases and patterns, and unused parameters together with their call sites.
 - [ ] **9.15** `ide: refactors`. Extract a function (to `let` or the top level), extract a type alias, and move a function.
 - [ ] **9.16** `lsp: file events and custom requests`.

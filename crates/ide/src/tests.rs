@@ -489,3 +489,76 @@ fn a_resolved_annotation_is_inferred_at_the_definitions_column() {
     assert_eq!(edits[0].text, "twice : number -> number\n        ");
     assert_eq!(edits[0].range, TextRange::empty(at - TextSize::new(1)));
 }
+
+/// The actions for one of elm's reports, at `region` in `text`.
+fn actions_for(text: &str, region: &str, message: &str) -> (String, Vec<Action>) {
+    let (_dir, vfs, path) = open(text);
+    let (_store_dir, store) = store();
+    let snapshot = vfs.snapshot();
+    let index =
+        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    let at = text.find(region).unwrap() as u32;
+    let range = TextRange::new(TextSize::new(at), TextSize::new(at + region.len() as u32));
+    let given = [Diagnosed {
+        code: "elm_make".to_owned(),
+        message: message.to_owned(),
+        range,
+        severity: Severity::Error,
+        source: "Elm".to_owned(),
+        unnecessary: false,
+    }];
+    let packages = PackageModules::default();
+    let request = Request {
+        range,
+        given: &given,
+        problems: &[],
+        packages: &packages,
+        lazy: false,
+    };
+    let found = code_actions(&snapshot, &index, &path, &request);
+    (text.to_owned(), found)
+}
+
+/// `text` with an action's edits made.
+fn applied(text: &str, action: &Action) -> String {
+    let mut after = text.to_owned();
+    let (_, edits) = &action.edits.as_ref().unwrap()[0];
+    for edit in edits.iter().rev() {
+        after.replace_range(std::ops::Range::<usize>::from(edit.range), &edit.text);
+    }
+    after
+}
+
+#[test]
+fn elms_missing_patterns_get_their_branches() {
+    let text = "module Main exposing (main)\n\n\ntype Foo\n    = Bar\n    | Biz\n    | Baz\n\n\nmain : Foo -> ()\nmain foo =\n    case foo of\n        Bar ->\n            ()\n";
+    let message = "MISSING PATTERNS - This `case` does not have branches for all possibilities:\n\n12|#>#    case foo of\n\nMissing possibilities include:\n\n    #Biz#\n    #Baz#\n\nI would have to crash if I saw one of those. Add branches for them!";
+    let region = "case foo of\n        Bar ->\n            ()";
+    let (text, found) = actions_for(text, region, message);
+    let titles: Vec<_> = found.iter().map(|a| a.title.as_str()).collect();
+    assert_eq!(titles, ["Add missing case branches"]);
+    assert_eq!(
+        applied(&text, &found[0]),
+        "module Main exposing (main)\n\n\ntype Foo\n    = Bar\n    | Biz\n    | Baz\n\n\nmain : Foo -> ()\nmain foo =\n    case foo of\n        Bar ->\n            ()\n\n        Biz ->\n            Debug.todo \"branch 'Biz' not implemented\"\n\n        Baz ->\n            Debug.todo \"branch 'Baz' not implemented\"\n"
+    );
+}
+
+#[test]
+fn a_missing_field_goes_into_its_alias_typed_by_its_use() {
+    let text = "module Main exposing (main)\n\n\ntype alias Model =\n    { count : Int\n    }\n\n\nmain : Model -> Float\nmain model =\n    model.ratio\n";
+    let message = "TYPE MISMATCH - This `model` record does not have a `ratio` field:";
+    let (text, found) = actions_for(text, "model.ratio", message);
+    let titles: Vec<_> = found.iter().map(|a| a.title.as_str()).collect();
+    assert_eq!(titles, ["Create missing record field"]);
+    assert_eq!(
+        applied(&text, &found[0]),
+        "module Main exposing (main)\n\n\ntype alias Model =\n    { count : Int\n    , ratio : Float\n    }\n\n\nmain : Model -> Float\nmain model =\n    model.ratio\n"
+    );
+    // On one line, after the last field.
+    let text = "module Main exposing (main)\n\n\ntype alias Model = { count : Int }\n\n\nmain : Model -> Float\nmain model =\n    model.ratio\n";
+    let (text, found) = actions_for(text, "model.ratio", message);
+    assert_eq!(
+        applied(&text, &found[0]),
+        "module Main exposing (main)\n\n\ntype alias Model = { count : Int, ratio : Float }\n\n\nmain : Model -> Float\nmain model =\n    model.ratio\n"
+    );
+}
