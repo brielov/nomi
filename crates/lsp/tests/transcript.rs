@@ -139,7 +139,7 @@ fn project() -> (tempfile::TempDir, Url) {
 /// the files it finds on disk; on macOS the temporary directory is behind
 /// a link.
 fn root(dir: &tempfile::TempDir) -> std::path::PathBuf {
-    fs::canonicalize(dir.path()).unwrap()
+    nomi_engine::canonical(dir.path()).unwrap()
 }
 
 fn uri(path: &Path) -> Url {

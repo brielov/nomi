@@ -38,4 +38,4 @@ mod vfs;
 
 pub use nomi_registry::{Store, Web};
 pub use pool::Pool;
-pub use vfs::{Revision, Snapshot, Vfs};
+pub use vfs::{Revision, Snapshot, Vfs, canonical};

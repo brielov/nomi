@@ -19,7 +19,7 @@ fn open(module: &str) -> (tempfile::TempDir, Vfs, std::path::PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     // Found files have their canonical names, which differ where the
     // temporary directory is behind a link, as on macOS.
-    let root = fs::canonicalize(dir.path()).unwrap();
+    let root = nomi_engine::canonical(dir.path()).unwrap();
     fs::write(root.join("elm.json"), APP).unwrap();
     fs::create_dir(root.join("src")).unwrap();
     let path = root.join("src/Main.elm");
@@ -206,7 +206,9 @@ fn navigated() -> (
     std::path::PathBuf,
 ) {
     let (dir, vfs, path) = open(NAVIGATED);
-    let other = fs::canonicalize(dir.path()).unwrap().join("src/Other.elm");
+    let other = nomi_engine::canonical(dir.path())
+        .unwrap()
+        .join("src/Other.elm");
     fs::write(&other, OTHER).unwrap();
     (dir, vfs, path, other)
 }
@@ -226,7 +228,7 @@ fn an_unsaved_buffer_behind_a_link_is_found() {
     let (dir, _, _, _) = navigated();
     let links = tempfile::tempdir().unwrap();
     let link = links.path().join("project");
-    std::os::unix::fs::symlink(fs::canonicalize(dir.path()).unwrap(), &link).unwrap();
+    std::os::unix::fs::symlink(nomi_engine::canonical(dir.path()).unwrap(), &link).unwrap();
     let path = link.join("src/Main.elm");
     let vfs = Vfs::new();
     vfs.set_overlay(&path, NAVIGATED).unwrap();
@@ -237,7 +239,9 @@ fn an_unsaved_buffer_behind_a_link_is_found() {
     let found = definition(&snapshot, &index, &path, offset(NAVIGATED, "area", 0)).unwrap();
     assert_eq!(
         found.path,
-        fs::canonicalize(dir.path()).unwrap().join("src/Main.elm")
+        nomi_engine::canonical(dir.path())
+            .unwrap()
+            .join("src/Main.elm")
     );
 }
 

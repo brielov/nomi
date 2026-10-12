@@ -166,12 +166,8 @@ fn replay(
     lsp::outcomes(&case.name, &expected, &actual)
 }
 
-/// `path` with its links resolved, as the server sees it; on Windows as
-/// it is, since a resolved path there doesn't make a URL.
+/// `path` as the server names it: resolved, and on Windows long-named
+/// and without the `\\?\` prefix.
 fn real(path: &Path) -> PathBuf {
-    if cfg!(windows) {
-        path.to_owned()
-    } else {
-        fs::canonicalize(path).unwrap()
-    }
+    nomi_engine::canonical(path).unwrap()
 }

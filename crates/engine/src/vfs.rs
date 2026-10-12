@@ -84,7 +84,7 @@ impl Files {
 /// `path` made absolute with every symbolic link resolved, so that one file
 /// has one name. Of a path that doesn't exist yet, as an editor's new
 /// buffer, the longest part that does is resolved and the rest kept.
-pub(crate) fn canonical(path: &Path) -> io::Result<PathBuf> {
+pub fn canonical(path: &Path) -> io::Result<PathBuf> {
     match fs::canonicalize(path).map(plain) {
         Ok(path) => return Ok(path),
         Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
