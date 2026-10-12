@@ -815,6 +815,10 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - The previous sibling of a parameter skips comments, while an argument's gap keeps one: a comment between them deletes just the argument.
   - The title says "value" even for an exposed type: upstream's node at the diagnostic's start is the name, never the `exposed_type`.
 - [ ] **9.15** `ide: refactors`. Extract a function (to `let` or the top level), extract a type alias, and move a function.
+  - **Extract function:** offered where the range is exactly an expression's (`*_expr`). It goes to the enclosing `let`, or to the top level with its inferred type. Its arguments are the names the expression uses that the target scope can't see, and it carries a `renamePosition`.
+  - **Extract type alias:** for a type the range covers exactly, a parenthesized one, or a run of a function type's parameters. It goes before the declaration, with the type's variables as parameters.
+  - **Move function:** the action only, a command for clients with `moveFunctionRefactoringSupport`. The requests behind it are 9.16's.
+  - **Range:** refactors read the last diagnostic's range (9.12b), which is why "Extract function to top level" shows on a `case` that elm says misses patterns.
 - [ ] **9.16** `lsp: file events and custom requests`.
   - **File events:** `didCreateFiles` (the module header), `willRenameFiles` (modules and folders) and `willDeleteFiles`.
   - **Custom requests:** `elm/findTests`, `elm/expose`, `elm/unexpose`, `elm/getMoveDestinations`, `elm/move`, `elm/getDiagnostics`, `elm/provideFileContents` and `workspace/textDocumentContent`.
