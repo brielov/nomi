@@ -37,6 +37,9 @@ pub fn definition(
             range: declared,
         });
     }
+    if let Some(found) = crate::fields::definition(snapshot, index, module, offset) {
+        return Some(found);
+    }
     if let Some(name) = module_at(&module.root, offset) {
         let path = module_path(index, &name)?;
         let text = snapshot.read(&path).ok()?;
@@ -191,6 +194,11 @@ pub fn references(
     let Some(module) = index.module(path) else {
         return Vec::new();
     };
+    if let Some(found) =
+        crate::fields::references(snapshot, index, module, offset, with_declaration)
+    {
+        return found;
+    }
     if let Some(name) = module_at(&module.root, offset) {
         return module_references(index, &name, with_declaration);
     }
@@ -477,7 +485,7 @@ fn module_at(root: &SyntaxNode, offset: TextSize) -> Option<String> {
 }
 
 /// The file of the module `name`: the project's, or a dependency's.
-fn module_path(index: &Index, name: &str) -> Option<PathBuf> {
+pub(crate) fn module_path(index: &Index, name: &str) -> Option<PathBuf> {
     if let Some(module) = index.named(name) {
         return Some(module.path.clone());
     }

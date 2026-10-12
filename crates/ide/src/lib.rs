@@ -5,6 +5,7 @@
 //! types and completion.
 
 mod completion;
+mod fields;
 mod hover;
 mod lint;
 mod navigation;

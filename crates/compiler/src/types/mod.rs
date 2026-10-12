@@ -419,7 +419,7 @@ impl Variables {
 /// first.
 pub type Inferred = Result<BTreeMap<String, canonical::Annotation>, Vec<solve::TypeError>>;
 
-/// Each expression's type, by its region.
+/// Each expression's and pattern's type, by its region.
 pub type ExprTypes = Vec<(TextRange, error::Type)>;
 
 /// `module`'s annotations or type errors, as [`infer`] gives them, and

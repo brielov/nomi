@@ -688,7 +688,17 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
     - elm-language-server's definition is the declaring node, not the name.
     - A qualifier's module stops at the part under the cursor (`Module` in `Module.Model.func`), but an import's name is always whole.
     - Most of elm-language-server's fixtures don't compile: there's shadowing, a missing header, or an annotation too short. That's why navigation had to work past canonicalization errors.
-- [ ] **9.6b** `ide: record fields by type`. Definition and references of record fields through inference: field access, accessors, updates, patterns and fields declared across modules. **Check:** the record-field cases.
+- [x] **9.6b** `ide: record fields by type`. Definition and references of record fields through inference: field access, accessors, updates, patterns and fields declared across modules. **Check:** the record-field cases.
+
+  Done:
+  - **Resolution.** `ide::fields` resolves a field written in an access, an accessor, a record, an update or a record pattern to where the record's inferred type declares it. That's the alias the type is written as, or one of the alias's arguments.
+  - **Pattern variables.** A variable a record pattern binds is its field's, as elm-language-server has it.
+  - **References** cover every field occurrence in the project that resolves to the same declaration.
+  - **Patterns are typed.** The editor's inference now records patterns' types too, so a local's alias comes from its binding's annotation.
+  - **Result.** The ratchet goes from 629 to 657 of 838, with definition at 160 of 165 and references at 38 of 39.
+  - **Surprises.**
+    - Unification keeps an alias on one side only: a record literal in a list, or a lambda's result, comes out as a bare record. When no alias names the type, the one record type in the project's declarations with the same fields answers, and none answers when there are several. That's a stopgap: tracking each field's origin through the solver would make it exact, and rename (9.7) will show whether that's needed.
+    - A local's own recorded type is what its context expects, not its annotation's, so the alias is read from the binding.
 - [ ] **9.6c** `ide: hover as elm-language-server shows it`. Markdown with the annotation, the doc comment and, for a parameter, a link to its type. **Check:** the hover cases.
 - [ ] **9.7** `ide: rename`. Prepare-rename, exposing lists, qualified names, record fields, and module rename as a `RenameFile`. Files outside the project are refused with its message.
 - [ ] **9.8** `ide: completion in scope`. Locals, qualified names, module and import exposing lists, module names after `import`, record fields by type (in expressions, updates and record patterns), and annotation names at the start of a line.

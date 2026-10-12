@@ -52,6 +52,10 @@ pub fn add(
 
 fn add_(vars: &mut Variables, pattern: &Pattern, expectation: PExpected<Type>, state: &mut State) {
     let region = pattern.region;
+    // Patterns' types too, for the editor to read records' fields by.
+    if let Some(recorded) = &mut vars.recorded {
+        recorded.push((region, expectation.ty().clone()));
+    }
     let simple = |category, ty, state: &mut State| {
         state.cons.push(Constraint::Pattern(
             region,

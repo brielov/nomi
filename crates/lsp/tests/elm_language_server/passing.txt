@@ -452,35 +452,63 @@ els-record-definition-003/00 textDocument/definition
 els-record-definition-003/diagnostics
 els-record-definition-004/00 textDocument/definition
 els-record-definition-004/diagnostics
+els-record-field-definition-001/00 textDocument/definition
 els-record-field-definition-001/diagnostics
+els-record-field-definition-002/00 textDocument/definition
 els-record-field-definition-002/diagnostics
+els-record-field-definition-003/00 textDocument/definition
 els-record-field-definition-003/diagnostics
+els-record-field-definition-004/00 textDocument/definition
 els-record-field-definition-004/diagnostics
 els-record-field-definition-005/diagnostics
+els-record-field-definition-006/00 textDocument/definition
 els-record-field-definition-006/diagnostics
 els-record-field-definition-007/diagnostics
+els-record-field-definition-008/00 textDocument/definition
 els-record-field-definition-008/diagnostics
+els-record-field-definition-009/00 textDocument/definition
 els-record-field-definition-009/diagnostics
+els-record-field-definition-010/00 textDocument/definition
 els-record-field-definition-010/diagnostics
+els-record-field-definition-011/00 textDocument/definition
 els-record-field-definition-011/diagnostics
+els-record-field-definition-012/00 textDocument/definition
 els-record-field-definition-012/diagnostics
+els-record-field-definition-013/00 textDocument/definition
 els-record-field-definition-013/diagnostics
+els-record-field-definition-014/00 textDocument/definition
 els-record-field-definition-014/diagnostics
+els-record-field-definition-015/00 textDocument/definition
 els-record-field-definition-015/diagnostics
+els-record-field-definition-016/00 textDocument/definition
 els-record-field-definition-016/diagnostics
+els-record-field-definition-017/00 textDocument/definition
 els-record-field-definition-017/diagnostics
+els-record-field-definition-018/00 textDocument/definition
 els-record-field-definition-018/diagnostics
+els-record-field-definition-019/00 textDocument/definition
 els-record-field-definition-019/diagnostics
+els-record-field-definition-020/00 textDocument/definition
 els-record-field-definition-020/diagnostics
+els-record-field-definition-021/00 textDocument/definition
 els-record-field-definition-021/diagnostics
+els-record-field-definition-022/00 textDocument/definition
 els-record-field-definition-022/diagnostics
+els-record-field-definition-023/00 textDocument/definition
 els-record-field-definition-023/diagnostics
+els-record-field-definition-024/00 textDocument/definition
 els-record-field-definition-024/diagnostics
+els-record-field-definition-025/00 textDocument/definition
 els-record-field-definition-025/diagnostics
+els-record-field-definition-026/00 textDocument/definition
 els-record-field-definition-026/diagnostics
+els-record-field-definition-027/00 textDocument/definition
 els-record-field-definition-027/diagnostics
+els-record-field-references-001/00 textDocument/references
 els-record-field-references-001/diagnostics
+els-record-field-references-002/00 textDocument/references
 els-record-field-references-002/diagnostics
+els-record-field-references-003/00 textDocument/references
 els-record-field-references-003/diagnostics
 els-record-field-references-004/diagnostics
 els-remove-unused-code-action-001/diagnostics
