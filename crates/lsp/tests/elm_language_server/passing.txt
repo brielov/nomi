@@ -12,6 +12,7 @@ completion-lines/00 textDocument/completion
 completion-lines/01 textDocument/completion
 completion-lines/02 textDocument/completion
 completion-lines/diagnostics
+diagnostics/00 textDocument/codeAction
 diagnostics/01 textDocument/hover
 diagnostics/diagnostics
 editing/00 textDocument/documentSymbol
@@ -44,9 +45,13 @@ els-add-missing-union-type-001/diagnostics
 els-add-missing-union-type-002/diagnostics
 els-add-missing-union-type-003/diagnostics
 els-add-missing-union-type-004/diagnostics
+els-add-new-function-parameter-001/00 textDocument/codeAction
 els-add-new-function-parameter-001/diagnostics
+els-add-new-function-parameter-002/00 textDocument/codeAction
 els-add-new-function-parameter-002/diagnostics
+els-add-new-function-parameter-003/00 textDocument/codeAction
 els-add-new-function-parameter-003/diagnostics
+els-add-new-function-parameter-004/00 textDocument/codeAction
 els-add-new-function-parameter-004/diagnostics
 els-add-type-annotation-code-action-001/00 textDocument/codeAction
 els-add-type-annotation-code-action-001/diagnostics
@@ -347,12 +352,15 @@ els-hover-provider-009/00 textDocument/hover
 els-hover-provider-009/diagnostics
 els-hover-provider-010/00 textDocument/hover
 els-hover-provider-010/diagnostics
+els-import-code-action-001/00 textDocument/codeAction
 els-import-code-action-001/diagnostics
 els-import-code-action-002/00 textDocument/codeAction
 els-import-code-action-002/diagnostics
 els-import-code-action-003/00 textDocument/codeAction
 els-import-code-action-003/diagnostics
+els-import-code-action-004/00 textDocument/codeAction
 els-import-code-action-004/diagnostics
+els-import-code-action-005/00 textDocument/codeAction
 els-import-code-action-005/diagnostics
 els-import-definition-001/00 textDocument/definition
 els-import-definition-001/diagnostics
@@ -434,8 +442,11 @@ els-layered-import-definition-001/00 textDocument/definition
 els-layered-import-definition-001/diagnostics
 els-layered-import-definition-002/00 textDocument/definition
 els-layered-import-definition-002/diagnostics
+els-make-external-declaration-from-usage-code-actions-001/00 textDocument/codeAction
 els-make-external-declaration-from-usage-code-actions-001/diagnostics
+els-make-external-declaration-from-usage-code-actions-002/00 textDocument/codeAction
 els-make-external-declaration-from-usage-code-actions-002/diagnostics
+els-make-external-declaration-from-usage-code-actions-003/00 textDocument/codeAction
 els-make-external-declaration-from-usage-code-actions-003/diagnostics
 els-make-external-declaration-from-usage-code-actions-004/00 textDocument/codeAction
 els-make-external-declaration-from-usage-code-actions-004/diagnostics

@@ -125,12 +125,23 @@ pub(crate) fn patched(
     replaced: TextRange,
     insert: &str,
 ) -> Option<(SyntaxNode, types::ExprTypes)> {
+    patched_all(index, module, &[(replaced, insert.to_owned())])
+}
+
+/// [`patched`] with each of `edits`, in order and apart, made at once.
+pub(crate) fn patched_all(
+    index: &Index,
+    module: &Indexed,
+    edits: &[(TextRange, String)],
+) -> Option<(SyntaxNode, types::ExprTypes)> {
     use nomi_syntax::ast::{self, AstNode};
     let mut text = module.text.to_string();
-    text.replace_range(
-        usize::from(replaced.start())..usize::from(replaced.end()),
-        insert,
-    );
+    for (replaced, insert) in edits.iter().rev() {
+        text.replace_range(
+            usize::from(replaced.start())..usize::from(replaced.end()),
+            insert,
+        );
+    }
     let parse = nomi_syntax::parse_module(&text);
     if !parse.errors().is_empty() {
         return None;

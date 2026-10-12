@@ -9,11 +9,13 @@
 //! own type checker has them, not elm's: nomi writes them from elm's
 //! reports with that checker's messages (`diagnostics.ts`).
 
+use std::cell::OnceCell;
 use std::path::{Path, PathBuf};
 
 use nomi_base::{TextRange, TextSize};
 use std::collections::BTreeMap;
 
+use nomi_compiler::types::{ExprTypes, error};
 use nomi_engine::index::Index;
 use nomi_engine::{Snapshot, Store};
 use nomi_project::Outline;
@@ -150,11 +152,19 @@ struct Fix {
     all: Option<(&'static str, AllEdits)>,
 }
 
-/// A fix's action: its title, its edits, and the command it runs.
-type Offer = (String, Vec<Edit>, Option<ActionCommand>);
+/// A fix's action: its title, each file's edits, and the command it runs.
+type Offer = (String, FileEdits, Option<ActionCommand>);
 
-/// A fix-all's edits for one diagnostic, added to those so far.
-type AllEdits = fn(&Fixing<'_>, &Diagnosed, &mut Vec<Edit>);
+/// Each file's edits, in order.
+type FileEdits = Vec<(PathBuf, Vec<Edit>)>;
+
+/// A fix-all's edits for one diagnostic, added to those so far: in the
+/// file, sorted at the end, or in any files, each file's in order.
+#[derive(Clone, Copy)]
+enum AllEdits {
+    Here(fn(&Fixing<'_>, &Diagnosed, &mut Vec<Edit>)),
+    Files(fn(&Fixing<'_>, &Diagnosed, &mut FileEdits)),
+}
 
 #[derive(Clone, Copy)]
 struct Preferred {
@@ -180,13 +190,40 @@ const FIXES: &[Fix] = &[
         id: "import",
         codes: &["missing_value"],
         actions: import_actions,
-        all: Some(("Add all missing imports", import_all)),
+        all: Some(("Add all missing imports", AllEdits::Here(import_all))),
+    },
+    Fix {
+        id: "make_declaration_from_usage",
+        codes: &["missing_value"],
+        actions: local_function_actions,
+        all: Some((
+            "Create all missing local functions",
+            AllEdits::Here(local_function_all),
+        )),
+    },
+    Fix {
+        id: "make_external_declaration_from_usage",
+        codes: &["missing_value"],
+        actions: external_function_actions,
+        all: Some((
+            "Create all missing external functions",
+            AllEdits::Files(external_function_all),
+        )),
     },
     Fix {
         id: "add_type_annotation",
         codes: &["missing_type_annotation"],
         actions: annotation_actions,
-        all: Some(("Add all missing type annotations", annotation_all)),
+        all: Some((
+            "Add all missing type annotations",
+            AllEdits::Here(annotation_all),
+        )),
+    },
+    Fix {
+        id: "add_new_function_parameter",
+        codes: &["missing_value"],
+        actions: parameter_actions,
+        all: None,
     },
     Fix {
         id: "install_package",
@@ -196,11 +233,20 @@ const FIXES: &[Fix] = &[
     },
 ];
 
+/// The module with its missing values made `Debug.todo`: its types,
+/// and where each missing value went, by its range before.
+struct Usage {
+    types: ExprTypes,
+    moved: Vec<(TextRange, TextRange)>,
+}
+
 /// What fixes read: the file, and its program diagnostics.
 struct Fixing<'a> {
     context: Context<'a>,
     program: Vec<Diagnosed>,
     packages: &'a PackageModules,
+    /// The types usage gives the missing values, inferred once.
+    usage: OnceCell<Option<Usage>>,
 }
 
 /// The code actions for `request` in the file at `path`.
@@ -230,6 +276,7 @@ pub fn code_actions(
         },
         program: program_diagnostics(&module.text, request.problems),
         packages: request.packages,
+        usage: OnceCell::new(),
     };
     let mut results: Vec<Action> = Vec::new();
     // Each diagnostic's range becomes the request's, so refactors see the
@@ -253,7 +300,7 @@ pub fn code_actions(
                     title,
                     kind: ActionKind::QuickFix,
                     diagnostics: Some(ActionDiagnostics::Given(i)),
-                    edits: Some(vec![(path.to_owned(), edits)]),
+                    edits: Some(edits),
                     data: ActionData::Fix {
                         id: fix.id,
                         all: false,
@@ -336,30 +383,33 @@ fn fix_all(
     path: &Path,
 ) -> Action {
     let mut edits = Vec::new();
+    let mut files: Vec<(PathBuf, Vec<Edit>)> = Vec::new();
     let mut diagnostics = Vec::new();
-    for diagnostic in fixing
-        .program
-        .iter()
-        .filter(|d| fix.codes.contains(&d.code.as_str()))
-    {
+    for diagnostic in (fixing.program.iter()).filter(|d| fix.codes.contains(&d.code.as_str())) {
         diagnostics.push(diagnostic.clone());
-        edits_for(fixing, diagnostic, &mut edits);
-    }
-    edits.sort_by_key(|e: &Edit| e.range.start());
-    let mut last_end: Option<TextSize> = None;
-    for edit in &mut edits {
-        if let Some(end) = last_end
-            && end > edit.range.start()
-        {
-            edit.range = TextRange::new(end, edit.range.end().max(end));
+        match edits_for {
+            AllEdits::Here(add) => add(fixing, diagnostic, &mut edits),
+            AllEdits::Files(add) => add(fixing, diagnostic, &mut files),
         }
-        last_end = Some(edit.range.end());
+    }
+    if let AllEdits::Here(_) = edits_for {
+        edits.sort_by_key(|e: &Edit| e.range.start());
+        let mut last_end: Option<TextSize> = None;
+        for edit in &mut edits {
+            if let Some(end) = last_end
+                && end > edit.range.start()
+            {
+                edit.range = TextRange::new(end, edit.range.end().max(end));
+            }
+            last_end = Some(edit.range.end());
+        }
+        files = vec![(path.to_owned(), edits)];
     }
     Action {
         title: title.to_owned(),
         kind: ActionKind::QuickFix,
         diagnostics: Some(ActionDiagnostics::Program(diagnostics)),
-        edits: Some(vec![(path.to_owned(), edits)]),
+        edits: Some(files),
         data: ActionData::Fix {
             id: fix.id,
             all: true,
@@ -517,7 +567,7 @@ fn import_actions(fixing: &Fixing<'_>, range: TextRange) -> Vec<Offer> {
                 Some(value) => format!("Import '{value}' from module \"{module}\"{alias}"),
                 None => format!("Import module \"{module}\"{alias}"),
             };
-            (title, vec![edit], None)
+            (title, here(fixing, vec![edit]), None)
         })
         .collect()
 }
@@ -541,7 +591,7 @@ fn install_actions(fixing: &Fixing<'_>, range: TextRange) -> Vec<Offer> {
             let title = format!("Install package \"{package}\"");
             (
                 title,
-                Vec::new(),
+                here(fixing, Vec::new()),
                 Some(ActionCommand::InstallPackage { package }),
             )
         })
@@ -593,7 +643,13 @@ fn annotation_edits(context: &Context<'_>, range: TextRange) -> Option<Vec<Edit>
 
 fn annotation_actions(fixing: &Fixing<'_>, range: TextRange) -> Vec<Offer> {
     (annotation_edits(&fixing.context, range).into_iter())
-        .map(|edits| ("Add inferred annotation".to_owned(), edits, None))
+        .map(|edits| {
+            (
+                "Add inferred annotation".to_owned(),
+                here(fixing, edits),
+                None,
+            )
+        })
         .collect()
 }
 
@@ -720,23 +776,29 @@ fn signature_type(token: &SyntaxToken) -> Option<SyntaxNode> {
     {
         return None;
     }
-    let parent = token.parent()?;
-    let up = parent.parent()?;
-    let top = match parent.kind() {
-        SyntaxKind::FunctionType | SyntaxKind::ParenType if up.kind() == SyntaxKind::Signature => {
-            parent
-        }
-        SyntaxKind::ParenType
-            if up.kind() == SyntaxKind::FunctionType
-                && up
-                    .parent()
-                    .is_some_and(|s| s.kind() == SyntaxKind::Signature) =>
+    // tree-sitter-elm's type_expression is flat where nomi nests a
+    // function type's arrows to the right.
+    let climb = |mut node: SyntaxNode| {
+        while let Some(up) = node
+            .parent()
+            .filter(|u| u.kind() == SyntaxKind::FunctionType)
         {
-            up
+            node = up;
         }
+        node
+    };
+    let parent = token.parent()?;
+    let top = match parent.kind() {
+        SyntaxKind::FunctionType => climb(parent),
+        SyntaxKind::ParenType => match parent.parent()? {
+            up if up.kind() == SyntaxKind::FunctionType => climb(up),
+            _ => parent,
+        },
         _ => return None,
     };
-    Some(top)
+    top.parent()
+        .is_some_and(|s| s.kind() == SyntaxKind::Signature)
+        .then_some(top)
 }
 
 /// A refactor's edits, as resolving it gives them.
@@ -880,4 +942,293 @@ pub(crate) fn unexpose_edit(root: &SyntaxNode, text: &str, name: &str) -> Option
         range: TextRange::new(start, end),
         text: String::new(),
     })
+}
+
+/// `edits` in the file the request is about.
+fn here(fixing: &Fixing<'_>, edits: Vec<Edit>) -> Vec<(PathBuf, Vec<Edit>)> {
+    vec![(fixing.context.path.to_owned(), edits)]
+}
+
+/// The type usage gives the missing value at `range`: the module with
+/// every missing value made `Debug.todo`, inferred, and that one's type.
+fn usage_type(fixing: &Fixing<'_>, range: TextRange) -> Option<error::Type> {
+    let Usage { types, moved } = fixing
+        .usage
+        .get_or_init(|| {
+            let module = fixing.context.module;
+            let mut missing: Vec<TextRange> = (fixing.program.iter())
+                .filter(|d| d.code == "missing_value")
+                .map(|d| d.range)
+                .collect();
+            missing.sort_by_key(|r| r.start());
+            missing.dedup_by(|b, a| b.start() < a.end());
+            let insert = "(Debug.todo \"\")";
+            let edits: Vec<(TextRange, String)> =
+                missing.iter().map(|r| (*r, insert.to_owned())).collect();
+            let (_, types) =
+                crate::record_fields::patched_all(fixing.context.index, module, &edits)?;
+            // Where each missing value went, by its range before.
+            let mut shift: i64 = 0;
+            let mut moved = Vec::new();
+            for range in missing {
+                let start = (i64::from(u32::from(range.start())) + shift) as u32;
+                let end = start + insert.len() as u32;
+                moved.push((
+                    range,
+                    TextRange::new(TextSize::new(start), TextSize::new(end)),
+                ));
+                shift += insert.len() as i64 - i64::from(u32::from(range.len()));
+            }
+            Some(Usage { types, moved })
+        })
+        .as_ref()?;
+    let (_, at) = moved.iter().find(|(before, _)| *before == range)?;
+    let inner = TextRange::new(at.start() + TextSize::new(1), at.end() - TextSize::new(1));
+    (types.iter())
+        .rev()
+        .find(|(r, _)| *r == *at || *r == inner)
+        .map(|(_, ty)| ty.clone())
+}
+
+fn render_usage(fixing: &Fixing<'_>, ty: &error::Type) -> String {
+    let names = crate::hover::Names::of(fixing.context.index, fixing.context.module);
+    crate::hover::render_error(&names, ty)
+}
+
+/// How many parameters a function of type `ty` takes.
+fn arity(ty: &error::Type) -> usize {
+    match ty {
+        error::Type::Lambda(_, _, rest) => 1 + rest.len(),
+        _ => 0,
+    }
+}
+
+/// `createTopLevelFunction`'s text: `name`, typed, taking `arity`
+/// arguments, as `Debug.todo`.
+fn new_function(name: &str, ty: &str, arity: usize) -> String {
+    let arguments: String = (1..=arity).map(|i| format!(" arg{i}")).collect();
+    format!("\n\n{name} : {ty}\n{name}{arguments} =\n    Debug.todo \"TODO\"\n")
+}
+
+/// The offset where `line` starts, or the text's end past its last.
+fn line_start(text: &str, line: usize) -> TextSize {
+    let at = if line == 0 {
+        0
+    } else {
+        text.match_indices('\n')
+            .nth(line - 1)
+            .map_or(text.len(), |(i, _)| i + 1)
+    };
+    TextSize::new(at as u32)
+}
+
+/// The missing value an unqualified name at `range` is, as a value's name
+/// written in an expression.
+fn missing_local(fixing: &Fixing<'_>, range: TextRange) -> Option<SyntaxToken> {
+    let token = token_at(&fixing.context.module.root, range.start())?;
+    (token.kind() == SyntaxKind::LowerIdent
+        && token.text_range() == range
+        && token
+            .parent()
+            .is_some_and(|p| p.kind() == SyntaxKind::NameExpr)
+        && token
+            .prev_token()
+            .is_none_or(|t| t.kind() != SyntaxKind::Dot))
+    .then_some(token)
+}
+
+/// `makeDeclarationFromUsageCodeAction`: a top-level function on the line
+/// after the declaration that uses it.
+fn local_function_edits(fixing: &Fixing<'_>, range: TextRange) -> Option<Edit> {
+    let token = missing_local(fixing, range)?;
+    let text = &*fixing.context.module.text;
+    let top = token
+        .parent_ancestors()
+        .find(|a| a.parent().is_some_and(|p| p.kind() == SyntaxKind::Module));
+    let line = match top.and_then(|t| code_range(&t)) {
+        Some(end) => text[..usize::from(end.end())].matches('\n').count() + 1,
+        None => text.matches('\n').count(),
+    };
+    let ty = usage_type(fixing, range);
+    let rendered = ty
+        .as_ref()
+        .map_or_else(|| "a".to_owned(), |ty| render_usage(fixing, ty));
+    Some(Edit {
+        range: TextRange::empty(line_start(text, line)),
+        text: new_function(token.text(), &rendered, ty.as_ref().map_or(0, arity)),
+    })
+}
+
+fn local_function_actions(fixing: &Fixing<'_>, range: TextRange) -> Vec<Offer> {
+    (local_function_edits(fixing, range).into_iter())
+        .map(|edit| {
+            (
+                "Create local function".to_owned(),
+                here(fixing, vec![edit]),
+                None,
+            )
+        })
+        .collect()
+}
+
+fn local_function_all(fixing: &Fixing<'_>, diagnostic: &Diagnosed, edits: &mut Vec<Edit>) {
+    edits.extend(local_function_edits(fixing, diagnostic.range));
+}
+
+/// `makeExternalDeclarationFromUsageCodeAction`: for a qualified missing
+/// value, a function at the end of each project module its qualifier
+/// imports, exposed there.
+fn external_function_edits(
+    fixing: &Fixing<'_>,
+    range: TextRange,
+) -> Vec<(String, PathBuf, Vec<Edit>)> {
+    let (qualifier, name) = missing_name(fixing, range);
+    let module = fixing.context.module;
+    let in_expression = match module.root.covering_element(range) {
+        SyntaxElement::Node(node) => node.kind() == SyntaxKind::NameExpr,
+        SyntaxElement::Token(token) => token
+            .parent()
+            .is_some_and(|p| p.kind() == SyntaxKind::NameExpr),
+    };
+    if qualifier.is_empty() || !in_expression || !name.starts_with(char::is_lowercase) {
+        return Vec::new();
+    }
+    let ty = usage_type(fixing, range);
+    let rendered = ty
+        .as_ref()
+        .map_or_else(|| "a".to_owned(), |ty| render_usage(fixing, ty));
+    let arity = ty.as_ref().map_or(0, arity);
+    let mut found = Vec::new();
+    for import in (module.root.children()).filter(|n| n.kind() == SyntaxKind::Import) {
+        let Some(imported) =
+            child(&import, SyntaxKind::ModuleName).map(|n| crate::symbols::words(&n))
+        else {
+            continue;
+        };
+        let alias = (child(&import, SyntaxKind::ImportAlias))
+            .and_then(|a| crate::symbols::token(&a, SyntaxKind::UpperIdent));
+        if imported != qualifier && alias.as_deref() != Some(qualifier.as_str()) {
+            continue;
+        }
+        // The project's own, which it may write to.
+        let Some(target) = fixing.context.index.named(&imported) else {
+            continue;
+        };
+        let Ok(target_text) = fixing.context.snapshot.read(&target.path) else {
+            continue;
+        };
+        let root = nomi_syntax::parse_module(&target_text).syntax();
+        let end = line_start(&target_text, target_text.matches('\n').count());
+        let Some(expose) = expose_edit(&root, &target_text, &name, false) else {
+            continue;
+        };
+        let function = Edit {
+            range: TextRange::empty(end),
+            text: new_function(&name, &rendered, arity),
+        };
+        found.push((imported, target.path.clone(), vec![function, expose]));
+    }
+    found
+}
+
+fn external_function_actions(fixing: &Fixing<'_>, range: TextRange) -> Vec<Offer> {
+    (external_function_edits(fixing, range).into_iter())
+        .map(|(module, path, edits)| {
+            (
+                format!("Create function in module '{module}'"),
+                vec![(path, edits)],
+                None,
+            )
+        })
+        .collect()
+}
+
+fn external_function_all(fixing: &Fixing<'_>, diagnostic: &Diagnosed, files: &mut FileEdits) {
+    if let Some((_, path, edits)) = external_function_edits(fixing, diagnostic.range)
+        .into_iter()
+        .next()
+    {
+        match files.iter_mut().find(|(p, _)| *p == path) {
+            Some((_, existing)) => existing.extend(edits),
+            None => files.push((path, edits)),
+        }
+    }
+}
+
+/// `addNewFunctionParameter`: the missing value as a new last parameter
+/// of each function around it, the innermost first, and in its
+/// signature where it has one.
+fn parameter_actions(fixing: &Fixing<'_>, range: TextRange) -> Vec<Offer> {
+    let Some(token) = missing_local(fixing, range) else {
+        return Vec::new();
+    };
+    let ty = usage_type(fixing, range);
+    let mut found = Vec::new();
+    for declaration in token
+        .parent_ancestors()
+        .filter(|a| matches!(a.kind(), SyntaxKind::ValueDecl | SyntaxKind::LetValue))
+    {
+        let Some(definition) = child(&declaration, SyntaxKind::Definition) else {
+            continue;
+        };
+        let Some(function) = name_of(&definition) else {
+            continue;
+        };
+        // After the last parameter, or the name, one column on.
+        let last = (definition.children_with_tokens())
+            .filter(|e| !e.kind().is_trivia())
+            .take_while(|e| e.kind() != SyntaxKind::Eq)
+            .last();
+        let Some(last) = last else {
+            continue;
+        };
+        let mut edits = Vec::new();
+        if let Some(at) =
+            child(&declaration, SyntaxKind::Signature).and_then(|s| last_parameter_type(&s))
+        {
+            // A type variable is written as the value's name.
+            let written = match &ty {
+                Some(
+                    error::Type::FlexVar(_)
+                    | error::Type::FlexSuper(..)
+                    | error::Type::RigidVar(_)
+                    | error::Type::RigidSuper(..),
+                )
+                | None => token.text().to_owned(),
+                Some(ty) => render_usage(fixing, ty),
+            };
+            let written = if written.contains(' ') {
+                format!("({written})")
+            } else {
+                written
+            };
+            edits.push(Edit {
+                range: TextRange::empty(at),
+                text: format!("{written} -> "),
+            });
+        }
+        edits.push(Edit {
+            range: TextRange::empty(last.text_range().end() + TextSize::new(1)),
+            text: format!("{} ", token.text()),
+        });
+        found.push((
+            format!("Add new parameter to '{}'", function.text()),
+            here(fixing, edits),
+            None,
+        ));
+    }
+    found
+}
+
+/// Where a signature's last type starts, as tree-sitter-elm's
+/// type_expression's last child: the result type, or the `)` closing it.
+fn last_parameter_type(signature: &SyntaxNode) -> Option<TextSize> {
+    let mut ty = signature.children().last()?;
+    while ty.kind() == SyntaxKind::FunctionType {
+        ty = ty.children().last()?;
+    }
+    if ty.kind() == SyntaxKind::ParenType {
+        return ty.last_token().map(|t| t.text_range().start());
+    }
+    code_range(&ty).map(|r| r.start())
 }

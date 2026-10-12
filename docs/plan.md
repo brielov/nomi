@@ -781,11 +781,16 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - Refactors read the range of the last diagnostic the request carries, not the request's own, because `onCodeAction` overwrites it.
   - A fix and a refactor with the same name share one preferred priority, so the annotation refactor (3) outranks exposing (2).
   - tree-sitter-elm gives a signature's outer punctuation (its arrows, and the parentheses at its top) to the signature's `type_expression`. A cursor on that punctuation then offers to expose or unexpose the whole type's text as a "function".
-- [ ] **9.13a** `ide: functions from their usage`.
+- [x] **9.13a** `ide: functions from their usage`.
   - **Local:** a missing value becomes a top-level function after the declaration that uses it, with `Debug.todo`, the type its usage infers, and as many parameters as it's applied to. Its fix-all creates every one.
   - **External:** a missing qualified value becomes a function in the module the qualifier names, exposed there. This applies to the project's own modules only, aliases resolved.
   - **New parameter:** the missing value becomes a parameter of each enclosing function, the innermost first, typed in the signature where there is one.
   - **Check:** the `make-*-from-usage` and `add-new-function-parameter` actions, and the "Create local function" actions of the import cases.
+  - **Done:** all 32 recorded actions match: 128 of 209 overall, and 795 requests pass.
+  - The types come from inferring the module with every missing value replaced by `(Debug.todo "")`. Each placeholder takes the type its context asks for, which is what elm-language-server's checker infers for the unknown name.
+  - A new parameter whose type is a variable, `number` included, is written in the signature as the value's own name, as upstream does.
+  - An external function is only created where the target module lists what it exposes. Under `exposing (..)` upstream's expose edit is empty, so it offers nothing.
+  - nomi nests `a -> b -> c` to the right where tree-sitter's type_expression is flat, so 9.12b's signature punctuation now climbs the chain.
 - [ ] **9.13b** `ide: constructors, case branches and record fields`.
   - **Union constructors:** a missing constructor of the type the context expects is added to that type, in this file or another, with its arguments' types. Its fix-all adds each one.
   - **Case branches:** the branches a `case` misses, each `Debug.todo`, prefixed as the existing branches are.
