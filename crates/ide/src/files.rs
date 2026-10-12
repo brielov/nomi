@@ -36,11 +36,11 @@ fn source_dirs(snapshot: &Snapshot, path: &Path) -> Vec<PathBuf> {
 /// directory, where that makes a module's name.
 fn module_name(snapshot: &Snapshot, path: &Path) -> Option<String> {
     let file = path.file_name()?;
-    let resolved = std::fs::canonicalize(path.parent()?)
+    let resolved = nomi_engine::canonical(path.parent()?)
         .ok()
         .map(|p| p.join(file));
     let relative = source_dirs(snapshot, path).into_iter().find_map(|dir| {
-        let resolved_dir = std::fs::canonicalize(&dir).ok();
+        let resolved_dir = nomi_engine::canonical(&dir).ok();
         path.strip_prefix(&dir)
             .ok()
             .map(Path::to_path_buf)
@@ -90,7 +90,7 @@ pub fn renamed_files(
         return renamed_module(snapshot, index, &module.path.clone(), new);
     }
     // A folder: each module below it.
-    let olds: Vec<PathBuf> = [Some(old.to_path_buf()), std::fs::canonicalize(old).ok()]
+    let olds: Vec<PathBuf> = [Some(old.to_path_buf()), nomi_engine::canonical(old).ok()]
         .into_iter()
         .flatten()
         .collect();
