@@ -150,9 +150,9 @@ fn add_(vars: &mut Variables, pattern: &Pattern, expectation: PExpected<Type>, s
                 .iter()
                 .map(|f| (f.clone(), vars.flex_var()))
                 .collect();
-            let field_types: BTreeMap<String, Type> = field_vars
+            let field_types: BTreeMap<Text, Type> = field_vars
                 .iter()
-                .map(|(n, v)| (n.clone(), Type::Var(*v)))
+                .map(|(n, v)| (Text::new(n), Type::Var(*v)))
                 .collect();
             let ty = Type::Record(field_types.clone(), Box::new(Type::Var(ext_var)));
             state.cons.push(Constraint::Pattern(
@@ -163,7 +163,10 @@ fn add_(vars: &mut Variables, pattern: &Pattern, expectation: PExpected<Type>, s
             ));
             // `Map.union headers …`: a name bound already keeps its type.
             for (name, ty) in field_types {
-                state.headers.entry(name).or_insert((region, ty));
+                state
+                    .headers
+                    .entry(name.to_string())
+                    .or_insert((region, ty));
             }
             let mut front: Vec<Variable> = field_vars.iter().map(|(_, v)| *v).collect();
             front.push(ext_var);

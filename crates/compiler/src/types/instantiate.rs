@@ -39,7 +39,9 @@ pub fn from_src_type(free: &BTreeMap<String, Type>, ty: &canonical::Type) -> Typ
         ),
         C::Unit => Type::Unit,
         C::Record(fields, ext) => {
-            let fields = fields.iter().map(|(n, f)| (n.clone(), go(&f.ty))).collect();
+            let fields = (fields.iter())
+                .map(|(n, f)| (Text::new(n), go(&f.ty)))
+                .collect();
             let ext = match ext {
                 None => Type::EmptyRecord,
                 Some(ext) => free[ext].clone(),

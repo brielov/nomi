@@ -7,6 +7,7 @@ mod compat;
 pub mod diagnostic;
 mod file_id;
 pub mod ghc;
+pub mod hash;
 mod line_index;
 pub mod suggest;
 

@@ -72,7 +72,7 @@ pub enum FlatType {
     App1(Home, Text, Vec<Variable>),
     Fun1(Variable, Variable),
     EmptyRecord1,
-    Record1(BTreeMap<String, Variable>, Variable),
+    Record1(BTreeMap<Text, Variable>, Variable),
     Unit1,
     Tuple1(Variable, Variable, Option<Variable>),
 }
@@ -86,7 +86,7 @@ pub enum Type {
     App(Home, Text, Vec<Type>),
     Fun(Box<Type>, Box<Type>),
     EmptyRecord,
-    Record(BTreeMap<String, Type>, Box<Type>),
+    Record(BTreeMap<Text, Type>, Box<Type>),
     Unit,
     Tuple(Box<Type>, Box<Type>, Option<Box<Type>>),
 }
@@ -275,11 +275,11 @@ impl Default for Variables {
 
 /// `map`'s entries in `compat`'s name order, as upstream's maps keep
 /// them: 0.19.3 compares names length first.
-pub fn in_name_order<T>(compat: Compat, map: &BTreeMap<String, T>) -> Vec<(&String, &T)> {
-    let mut entries: Vec<(&String, &T)> = map.iter().collect();
+pub fn in_name_order<K: AsRef<str>, T>(compat: Compat, map: &BTreeMap<K, T>) -> Vec<(&K, &T)> {
+    let mut entries: Vec<(&K, &T)> = map.iter().collect();
     if compat == Compat::V0_19_3 {
         let order = crate::canonicalize::name_order(compat);
-        entries.sort_by(|a, b| order(a.0, b.0));
+        entries.sort_by(|a, b| order(a.0.as_ref(), b.0.as_ref()));
     }
     entries
 }

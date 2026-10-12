@@ -249,7 +249,7 @@ fn flat_to_can_type(
         FlatType::Record1(fields, extension) => {
             let ordered: Vec<(String, Variable)> = (in_name_order(vars.compat, &fields)
                 .into_iter())
-            .map(|(n, v)| (n.clone(), *v))
+            .map(|(n, v)| (n.to_string(), *v))
             .collect();
             let mut fields: BTreeMap<String, FieldType> = (ordered.into_iter())
                 .map(|(n, v)| {
@@ -371,7 +371,7 @@ fn flat_to_err(vars: &mut Variables, flat: FlatType, state: &mut NameState) -> e
         FlatType::Record1(fields, extension) => {
             let ordered: Vec<(String, Variable)> = (in_name_order(vars.compat, &fields)
                 .into_iter())
-            .map(|(n, v)| (n.clone(), *v))
+            .map(|(n, v)| (n.to_string(), *v))
             .collect();
             let mut fields: BTreeMap<String, error::Type> = (ordered.into_iter())
                 .map(|(n, v)| (n, to_err(vars, v, state)))

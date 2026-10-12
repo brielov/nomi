@@ -140,11 +140,11 @@ mod unification {
         let int = app(&mut vars, "Basics", "Int", vec![]);
         // { ext1 | x : x } ~ { ext2 | y : Int }
         let one = vars.fresh(Content::Structure(FlatType::Record1(
-            BTreeMap::from([("x".to_owned(), x)]),
+            BTreeMap::from([(Text::new("x"), x)]),
             ext1,
         )));
         let two = vars.fresh(Content::Structure(FlatType::Record1(
-            BTreeMap::from([("y".to_owned(), int)]),
+            BTreeMap::from([(Text::new("y"), int)]),
             ext2,
         )));
         let Answer::Ok(fresh) = unify(&mut vars, one, two) else {

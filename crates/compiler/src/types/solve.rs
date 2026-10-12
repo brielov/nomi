@@ -415,7 +415,7 @@ impl Solver<'_> {
             }
             C::Record(fields, ext) => {
                 let fields = (fields.iter())
-                    .map(|(n, f)| (n.clone(), self.src_type_to_var(rank, flex, &f.ty)))
+                    .map(|(n, f)| (Text::new(n), self.src_type_to_var(rank, flex, &f.ty)))
                     .collect();
                 let ext = match ext {
                     None => self.register(rank, Content::Structure(FlatType::EmptyRecord1)),

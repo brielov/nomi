@@ -27,19 +27,30 @@ pub struct Text(&'static str);
 impl Text {
     /// The interned `name`.
     pub fn new(name: &str) -> Text {
-        use std::collections::HashSet;
+        use nomi_base::hash::FxHashSet;
+        use std::cell::RefCell;
         use std::sync::{OnceLock, RwLock};
-        static NAMES: OnceLock<RwLock<HashSet<&'static str>>> = OnceLock::new();
+        static NAMES: OnceLock<RwLock<FxHashSet<&'static str>>> = OnceLock::new();
+        // Each thread keeps the names it has seen, so threads interning at
+        // once don't contend for the shared set.
+        thread_local! {
+            static SEEN: RefCell<FxHashSet<&'static str>> = RefCell::default();
+        }
+        if let Some(interned) = SEEN.with_borrow(|seen| seen.get(name).copied()) {
+            return Text(interned);
+        }
         let names = NAMES.get_or_init(Default::default);
-        if let Some(&interned) = names.read().unwrap_or_else(|e| e.into_inner()).get(name) {
-            return Text(interned);
-        }
-        let mut names = names.write().unwrap_or_else(|e| e.into_inner());
-        if let Some(&interned) = names.get(name) {
-            return Text(interned);
-        }
-        let interned: &'static str = Box::leak(name.into());
-        names.insert(interned);
+        let known = (names.read().unwrap_or_else(|e| e.into_inner()).get(name)).copied();
+        let interned = known.unwrap_or_else(|| {
+            let mut names = names.write().unwrap_or_else(|e| e.into_inner());
+            if let Some(&interned) = names.get(name) {
+                return interned;
+            }
+            let interned: &'static str = Box::leak(name.into());
+            names.insert(interned);
+            interned
+        });
+        SEEN.with_borrow_mut(|seen| seen.insert(interned));
         Text(interned)
     }
 }

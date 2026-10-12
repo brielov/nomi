@@ -197,7 +197,7 @@ fn constrain_(
             let ext_var = vars.flex_var();
             let field_var = vars.flex_var();
             let record = Type::Record(
-                BTreeMap::from([(field.clone(), var(field_var))]),
+                BTreeMap::from([(Text::new(field), var(field_var))]),
                 Box::new(var(ext_var)),
             );
             exists(
@@ -214,7 +214,7 @@ fn constrain_(
             let ext_var = vars.flex_var();
             let field_var = vars.flex_var();
             let record_type = Type::Record(
-                BTreeMap::from([(field.clone(), var(field_var))]),
+                BTreeMap::from([(Text::new(field), var(field_var))]),
                 Box::new(var(ext_var)),
             );
             let context = Context::RecordAccess(
@@ -253,7 +253,7 @@ fn constrain_(
                 let v = vars.flex_var();
                 cons.push(constrain(vars, rtv, value, Expected::NoExpectation(var(v))));
                 field_vars.push(v);
-                field_types.insert(name.clone(), var(v));
+                field_types.insert(Text::new(name), var(v));
             }
             let record_type = Type::Record(field_types, Box::new(Type::EmptyRecord));
             cons.push(equal(region, Category::Record, record_type, expected));
@@ -507,7 +507,7 @@ fn update(
             Expected::FromContext(region, Context::RecordUpdateValue(field.clone()), var(v));
         field_cons.push(constrain(vars, rtv, &update.value, expected));
         field_vars.push(v);
-        field_types.insert(field.clone(), var(v));
+        field_types.insert(Text::new(field), var(v));
     }
     let record_var = vars.flex_var();
     let record_type = var(record_var);
@@ -551,7 +551,7 @@ fn shader_con(
         } else {
             let fields = inputs
                 .iter()
-                .map(|(n, t)| (n.clone(), gl_type(*t)))
+                .map(|(n, t)| (Text::new(n), gl_type(*t)))
                 .collect();
             Type::Record(fields, Box::new(base))
         }

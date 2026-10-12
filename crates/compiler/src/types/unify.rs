@@ -416,9 +416,9 @@ impl State<'_> {
     /// last.
     fn gather_fields(
         &mut self,
-        mut fields: BTreeMap<String, Variable>,
+        mut fields: BTreeMap<Text, Variable>,
         mut var: Variable,
-    ) -> (BTreeMap<String, Variable>, Variable) {
+    ) -> (BTreeMap<Text, Variable>, Variable) {
         loop {
             match self.vars.content(var) {
                 Content::Structure(FlatType::Record1(sub_fields, sub_ext)) => {
@@ -437,17 +437,17 @@ impl State<'_> {
     fn record(
         &mut self,
         context: &Context,
-        (fields1, ext1): (BTreeMap<String, Variable>, Variable),
-        (fields2, ext2): (BTreeMap<String, Variable>, Variable),
+        (fields1, ext1): (BTreeMap<Text, Variable>, Variable),
+        (fields2, ext2): (BTreeMap<Text, Variable>, Variable),
     ) -> Unify {
-        let shared: BTreeMap<String, (Variable, Variable)> = (fields1.iter())
+        let shared: BTreeMap<Text, (Variable, Variable)> = (fields1.iter())
             .filter_map(|(n, &a)| fields2.get(n).map(|&b| (n.clone(), (a, b))))
             .collect();
-        let unique1: BTreeMap<String, Variable> = (fields1.iter())
+        let unique1: BTreeMap<Text, Variable> = (fields1.iter())
             .filter(|(n, _)| !fields2.contains_key(*n))
             .map(|(n, v)| (n.clone(), *v))
             .collect();
-        let unique2: BTreeMap<String, Variable> = (fields2.iter())
+        let unique2: BTreeMap<Text, Variable> = (fields2.iter())
             .filter(|(n, _)| !fields1.contains_key(*n))
             .map(|(n, v)| (n.clone(), *v))
             .collect();
@@ -490,17 +490,17 @@ impl State<'_> {
     fn shared_fields(
         &mut self,
         context: &Context,
-        shared: BTreeMap<String, (Variable, Variable)>,
-        others: BTreeMap<String, Variable>,
+        shared: BTreeMap<Text, (Variable, Variable)>,
+        others: BTreeMap<Text, Variable>,
         ext: Variable,
     ) -> Unify {
         let count = shared.len();
         let mut matching = BTreeMap::new();
         // `Map.traverseMaybeWithKey`: in the release's name order.
-        let shared: Vec<(String, (Variable, Variable))> =
-            (in_name_order(self.vars.compat, &shared).into_iter())
-                .map(|(n, pair)| (n.clone(), *pair))
-                .collect();
+        let shared: Vec<(Text, (Variable, Variable))> = (in_name_order(self.vars.compat, &shared)
+            .into_iter())
+        .map(|(n, pair)| (n.clone(), *pair))
+        .collect();
         for (name, (actual, expected)) in shared {
             if self.guarded(actual, expected).is_ok() {
                 matching.insert(name, actual);
