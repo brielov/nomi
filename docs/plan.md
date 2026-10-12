@@ -716,8 +716,8 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - **Answer shape.** Both `changes` and `documentChanges`, as it answers.
   - **Oracle.** The converter now records both prepare and rename where a test calls both, and transcripts sort a rename's edits. All 9 prepare-rename and 9 rename cases match, record fields and modules included, and the ratchet goes from 671 to 689 of 846.
   - **Surprise.** A use of a constructor in a module that doesn't canonicalize, such as `Ok` made ambiguous by an import, is found as written. That now counts an exposing list's `T(..)` for its variants.
-- [ ] **9.8** `ide: completion in scope`. Locals, qualified names, module and import exposing lists, module names after `import`, record fields by type (in expressions, updates and record patterns), and annotation names at the start of a line.
-- [ ] **9.9** `ide: completion with auto-import, snippets and keywords`. Up to 49 auto-imports with their edit, `isIncomplete`, `labelDetails`, its snippets and keywords, and its sort order.
+- [ ] **9.8** `ide: completion in context`. elm-language-server answers some places with a list of their own: record fields by type (after a dot, in records, updates and record patterns), module and import exposing lists, module names after `import`, a qualifier's submodules and values, annotation names at the start of a line, and nothing in comments, pattern names or import aliases. Its items' kinds, sort texts, label details and documentation. **Check:** the completion cases with lists of their own.
+- [ ] **9.9** `ide: completion everywhere else`. The general list: the module's top-level names, the scope's, what imports expose, its inline snippets and keywords, and up to 49 auto-imports with their edit and `isIncomplete`. At the start of a line: its declaration snippets, keywords, and functions used but not defined. **Check:** the rest of the completion cases.
 - [ ] **9.10** `ide: workspace symbols, folding, selection ranges and linked editing`.
 - [ ] **9.11** `ide: code lens`. Exposed or local, and reference counts, resolved lazily.
 - [ ] **9.12** `ide: code action machinery and import fixes`.
