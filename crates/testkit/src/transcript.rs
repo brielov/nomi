@@ -22,18 +22,22 @@
 //! trailing spaces show, and a `\ no newline at end` line where the text
 //! doesn't end in one.
 
+use std::fmt::Write as _;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write as _};
 use std::path::Path;
-use std::process::{Command, Stdio};
-
-use sha2::{Digest, Sha256};
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 /// A parsed case file.
 #[derive(Clone, Debug, Default)]
 pub struct Case {
+    /// The command's arguments, `$ROOT` standing for its directory.
     pub args: Vec<String>,
+    /// The command's standard input.
     pub stdin: String,
+    /// The text files to create, by path, with their text.
     pub files: Vec<(String, String)>,
     /// The `bytes` sections' files, decoded.
     pub binaries: Vec<(String, Vec<u8>)>,
@@ -44,20 +48,17 @@ pub struct Case {
 /// The line that ends a text without a newline.
 const NO_NEWLINE: &str = "\\ no newline at end\n";
 
+/// How long, in bytes, the path of the directory the oracle runs a case
+/// in is: elm wraps some messages by the length of the paths they name,
+/// so a replay makes its directory as long, with
+/// [`padded_dir`](crate::padded_dir).
+pub const ROOT_LENGTH: usize = 96;
+
 impl Case {
+    /// The case a case file holds.
     pub fn parse(text: &str) -> Result<Case, String> {
         let mut case = Case::default();
-        let mut sections: Vec<(&str, String)> = Vec::new();
-        for line in text.split_inclusive('\n') {
-            if let Some(header) = line.strip_prefix("=== ") {
-                sections.push((header.trim_end_matches('\n'), String::new()));
-            } else if let Some((_, body)) = sections.last_mut() {
-                body.push_str(line);
-            } else {
-                return Err(format!("text before the first section: {line:?}"));
-            }
-        }
-        for (header, body) in sections {
+        for (header, body) in sections(text)? {
             match header.split_once(' ') {
                 None if header == "args" => case.args = body.lines().map(str::to_owned).collect(),
                 None if header == "stdin" => case.stdin = body,
@@ -99,10 +100,10 @@ impl Case {
     /// elm's terminal reports do, sorts as the case lists them and not as
     /// the file system's clock ticked.
     pub fn date_files(&self, dir: &Path) -> io::Result<()> {
-        let start = std::time::UNIX_EPOCH + std::time::Duration::from_secs(978_307_200);
+        let start = UNIX_EPOCH + Duration::from_secs(978_307_200);
         for (i, (path, _)) in self.files.iter().enumerate() {
             let file = fs::File::options().write(true).open(dir.join(path))?;
-            file.set_modified(start + std::time::Duration::from_secs(i as u64))?;
+            file.set_modified(start + Duration::from_secs(i as u64))?;
         }
         Ok(())
     }
@@ -117,32 +118,23 @@ impl Case {
 
     /// Runs `command` on the case in `dir`, which holds its files, and
     /// records what happened.
+    pub fn run(&self, command: Command, dir: &Path) -> io::Result<Transcript> {
+        let output = self.spawn(command, dir)?.wait_with_output()?;
+        Transcript::after(output.status, output.stdout, output.stderr, dir)
+    }
+
     /// [`Case::run`], killing the command once it has run for `limit`, as
     /// a command that hangs ends: by a signal.
     pub fn run_within(
         &self,
-        mut command: Command,
+        command: Command,
         dir: &Path,
-        limit: std::time::Duration,
+        limit: Duration,
     ) -> io::Result<Transcript> {
-        let mut child = command
-            .args(self.args_in(dir))
-            .current_dir(dir)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-        let _ = child.stdin.take().unwrap().write_all(self.stdin.as_bytes());
-        let read = |mut pipe: Box<dyn io::Read + Send>| {
-            std::thread::spawn(move || {
-                let mut bytes = Vec::new();
-                let _ = pipe.read_to_end(&mut bytes);
-                bytes
-            })
-        };
-        let stdout = read(Box::new(child.stdout.take().unwrap()));
-        let stderr = read(Box::new(child.stderr.take().unwrap()));
-        let started = std::time::Instant::now();
+        let mut child = self.spawn(command, dir)?;
+        let stdout = read_all(child.stdout.take().expect("piped above"));
+        let stderr = read_all(child.stderr.take().expect("piped above"));
+        let started = Instant::now();
         let status = loop {
             if let Some(status) = child.try_wait()? {
                 break status;
@@ -151,19 +143,16 @@ impl Case {
                 child.kill()?;
                 break child.wait()?;
             }
-            std::thread::sleep(std::time::Duration::from_millis(20));
+            thread::sleep(Duration::from_millis(20));
         };
-        let mut files = Vec::new();
-        list(dir, "", &mut files)?;
-        Ok(Transcript {
-            exit: status.code(),
-            stdout: stdout.join().unwrap_or_default(),
-            stderr: stderr.join().unwrap_or_default(),
-            files,
-        })
+        let stdout = stdout.join().unwrap_or_default();
+        let stderr = stderr.join().unwrap_or_default();
+        Transcript::after(status, stdout, stderr, dir)
     }
 
-    pub fn run(&self, mut command: Command, dir: &Path) -> io::Result<Transcript> {
+    /// `command` started on the case in `dir`, given the case's input,
+    /// with its output piped.
+    fn spawn(&self, mut command: Command, dir: &Path) -> io::Result<Child> {
         let mut child = command
             .args(self.args_in(dir))
             .current_dir(dir)
@@ -171,18 +160,35 @@ impl Case {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
-        // A command may exit without reading its input.
-        let _ = child.stdin.take().unwrap().write_all(self.stdin.as_bytes());
-        let output = child.wait_with_output()?;
-        let mut files = Vec::new();
-        list(dir, "", &mut files)?;
-        Ok(Transcript {
-            exit: output.status.code(),
-            stdout: output.stdout,
-            stderr: output.stderr,
-            files,
-        })
+        // A command may exit without reading its input. Dropping the pipe
+        // closes it.
+        let _ = (child.stdin.take().expect("piped above")).write_all(self.stdin.as_bytes());
+        Ok(child)
     }
+}
+
+/// Everything `pipe` gives, read on a thread of its own.
+fn read_all(mut pipe: impl Read + Send + 'static) -> JoinHandle<Vec<u8>> {
+    thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = pipe.read_to_end(&mut bytes);
+        bytes
+    })
+}
+
+/// The `=== ` sections of `text`, each a header and the lines after it.
+fn sections(text: &str) -> Result<Vec<(&str, String)>, String> {
+    let mut sections: Vec<(&str, String)> = Vec::new();
+    for line in text.split_inclusive('\n') {
+        if let Some(header) = line.strip_prefix("=== ") {
+            sections.push((header.trim_end_matches('\n'), String::new()));
+        } else if let Some((_, body)) = sections.last_mut() {
+            body.push_str(line);
+        } else {
+            return Err(format!("text before the first section: {line:?}"));
+        }
+    }
+    Ok(sections)
 }
 
 /// `text` without a closing [`NO_NEWLINE`] and the newline before it.
@@ -210,27 +216,15 @@ fn decode(text: &str) -> Option<Vec<u8>> {
                 rest = after;
             }
             [b'x', hi, lo, after @ ..] => {
-                let hex = std::str::from_utf8(&[*hi, *lo]).ok()?.to_owned();
-                bytes.push(u8::from_str_radix(&hex, 16).ok()?);
+                let digits = [*hi, *lo];
+                let hex = std::str::from_utf8(&digits).ok()?;
+                bytes.push(u8::from_str_radix(hex, 16).ok()?);
                 rest = after;
             }
             _ => return None,
         }
     }
     Some(bytes)
-}
-
-/// `bytes` as a `bytes` section writes them.
-pub fn encode(bytes: &[u8]) -> String {
-    let mut out = String::new();
-    for &byte in bytes {
-        match byte {
-            b'\\' => out.push_str("\\\\"),
-            b'\n' | b' '..=b'~' => out.push(char::from(byte)),
-            _ => out.push_str(&format!("\\x{byte:02x}")),
-        }
-    }
-    out
 }
 
 #[cfg(unix)]
@@ -248,7 +242,9 @@ fn symlink(target: &str, path: &Path) -> io::Result<()> {
 pub struct Transcript {
     /// `None` if a signal ended the command.
     pub exit: Option<i32>,
+    /// What the command wrote to its standard output.
     pub stdout: Vec<u8>,
+    /// What the command wrote to its standard error.
     pub stderr: Vec<u8>,
     /// Every file in the case's directory afterwards, by path.
     pub files: Vec<(String, Vec<u8>)>,
@@ -261,6 +257,24 @@ const LINK: &str = "symbolic link to ";
 const LARGE: usize = 16 * 1024;
 
 impl Transcript {
+    /// What a command that ended with `status`, having written `stdout`
+    /// and `stderr`, left in `dir`.
+    fn after(
+        status: ExitStatus,
+        stdout: Vec<u8>,
+        stderr: Vec<u8>,
+        dir: &Path,
+    ) -> io::Result<Transcript> {
+        let mut files = Vec::new();
+        list(dir, "", &mut files)?;
+        Ok(Transcript {
+            exit: status.code(),
+            stdout,
+            stderr,
+            files,
+        })
+    }
+
     /// The transcript of `case` run in `dir` as compared with elm's: what
     /// is left in `elm-stuff/` is elm's own, files the case wrote that
     /// are as it wrote them are left out, a large file shows by its
@@ -277,15 +291,49 @@ impl Transcript {
             .retain(|(path, bytes)| !path.starts_with("elm-stuff/") && !written(path, bytes));
         for (_, bytes) in &mut self.files {
             if bytes.len() > LARGE {
-                let hash: String = (Sha256::digest(&bytes).iter())
-                    .map(|b| format!("{b:02x}"))
-                    .collect();
+                let hash = crate::sha256_hex(bytes);
                 *bytes = format!("{} bytes, SHA-256 {hash}\n", bytes.len()).into_bytes();
             }
         }
         self.render().replace(&*dir.to_string_lossy(), "$ROOT")
     }
 
+    /// The transcript [`Transcript::render`] wrote as `text`, its texts
+    /// read back as UTF-8.
+    pub fn parse(text: &str) -> Result<Transcript, String> {
+        let mut transcript = Transcript {
+            exit: None,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            files: Vec::new(),
+        };
+        let mut sections = sections(text)?.into_iter();
+        match sections.next() {
+            Some(("killed", _)) => {}
+            Some((header, _)) => {
+                let code = header
+                    .strip_prefix("exit ")
+                    .and_then(|code| code.parse().ok());
+                transcript.exit = Some(code.ok_or_else(|| format!("`=== {header}` is no exit"))?);
+            }
+            None => return Err("an empty transcript".to_owned()),
+        }
+        for (header, body) in sections {
+            let lines = body.split_inclusive('\n');
+            let text: String = lines.map(|l| l.strip_prefix('|').unwrap_or(l)).collect();
+            let bytes = unmarked(text).into_bytes();
+            match header.split_once(' ') {
+                None if header == "stdout" => transcript.stdout = bytes,
+                None if header == "stderr" => transcript.stderr = bytes,
+                Some(("file", path)) => transcript.files.push((path.to_owned(), bytes)),
+                _ => return Err(format!("unknown section `=== {header}`")),
+            }
+        }
+        Ok(transcript)
+    }
+
+    /// The transcript as text: the exit, both output streams, then each
+    /// file, as sections.
     pub fn render(&self) -> String {
         let mut out = match self.exit {
             Some(code) => format!("=== exit {code}\n"),
@@ -300,8 +348,9 @@ impl Transcript {
     }
 }
 
+/// Writes `bytes` to `out` as a transcript's section under `header`.
 fn section(out: &mut String, header: &str, bytes: &[u8]) {
-    out.push_str(&format!("=== {header}\n"));
+    let _ = writeln!(out, "=== {header}");
     let text = String::from_utf8_lossy(bytes);
     for line in text.split_inclusive('\n') {
         out.push('|');
@@ -355,7 +404,7 @@ pub fn normalize_elm_test(output: &[u8], dir: &str, home: &str) -> Vec<u8> {
 }
 
 /// `text` with the number after each `marker`, digits and points, as `with`.
-fn digits_after(text: &str, marker: &str, with: &str) -> String {
+pub fn digits_after(text: &str, marker: &str, with: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(at) = rest.find(marker) {
@@ -397,7 +446,6 @@ mod tests {
         assert_eq!(case.binaries, [("a".to_owned(), b"\xff\\x".to_vec())]);
         assert_eq!(case.files, [("b".to_owned(), "b".to_owned())]);
         assert_eq!(case.links, [("c".to_owned(), "b".to_owned())]);
-        assert_eq!(encode(b"\xff\\x\n\r"), "\\xff\\\\x\n\\x0d");
         assert!(Case::parse("=== bytes a\n\\q\n").is_err());
         assert!(Case::parse("=== argv\n").is_err());
     }
@@ -410,9 +458,16 @@ mod tests {
             stderr: Vec::new(),
             files: vec![("x".to_owned(), b"\n".to_vec())],
         };
+        let text = transcript.render();
         assert_eq!(
-            transcript.render(),
+            text,
             "=== exit 1\n=== stdout\n|a \n|b\n\\ no newline at end\n=== stderr\n=== file x\n|\n"
         );
+        let parsed = Transcript::parse(&text).unwrap();
+        assert_eq!(parsed.exit, Some(1));
+        assert_eq!(parsed.stdout, b"a \nb");
+        assert_eq!(parsed.files, transcript.files);
+        assert!(Transcript::parse("=== killed\n").unwrap().exit.is_none());
+        assert!(Transcript::parse("=== exit x\n").is_err());
     }
 }

@@ -11,7 +11,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use nomi_base::diagnostic::json;
-use nomi_testkit::ratchet::{Suite, sha256_hex};
+use nomi_testkit::ratchet::Suite;
+use nomi_testkit::sha256_hex;
 
 /// The length of the hash prefixes the table keeps.
 const HASH: usize = 16;

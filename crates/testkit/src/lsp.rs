@@ -12,7 +12,7 @@
 //! request's answer. Paths are replaced by names that are the same for
 //! every run and server.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout};
@@ -21,13 +21,15 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{RecvTimeoutError, unbounded};
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Map, Value, json};
 
 /// A case: a project and the session run in it.
 #[derive(Debug, Clone)]
 pub struct Case {
+    /// The case's directory's name.
     pub name: String,
+    /// The project, with the session's `session.json`.
     pub dir: PathBuf,
     pub session: Session,
 }
@@ -45,6 +47,7 @@ pub struct Session {
     pub settings: Map<String, Value>,
     /// Files opened, in order, before any request.
     pub open: Vec<String>,
+    /// The steps after the files are open, in order.
     #[serde(default)]
     pub requests: Vec<Step>,
 }
@@ -53,9 +56,11 @@ pub struct Session {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Step {
-    pub method: String,
+    pub method: Method,
+    /// The file, by path in the project.
     #[serde(default)]
     pub file: Option<String>,
+    /// Where in the file.
     #[serde(default)]
     pub at: Option<At>,
     /// More parameters, merged over the ones the driver makes.
@@ -71,6 +76,97 @@ pub struct Step {
     pub create: BTreeMap<String, String>,
 }
 
+/// An LSP method a step names: the ones the driver makes its own
+/// parameters for or answers itself, or any other.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(from = "String")]
+pub enum Method {
+    DidOpen,
+    DidChange,
+    DidSave,
+    DidClose,
+    CodeAction,
+    CodeLens,
+    Completion,
+    SelectionRange,
+    /// Any other notification: a method with `/did` in its name.
+    Notification(String),
+    /// Any other request.
+    Request(String),
+}
+
+impl From<String> for Method {
+    fn from(method: String) -> Method {
+        match method.as_str() {
+            "textDocument/didOpen" => Method::DidOpen,
+            "textDocument/didChange" => Method::DidChange,
+            "textDocument/didSave" => Method::DidSave,
+            "textDocument/didClose" => Method::DidClose,
+            "textDocument/codeAction" => Method::CodeAction,
+            "textDocument/codeLens" => Method::CodeLens,
+            "textDocument/completion" => Method::Completion,
+            "textDocument/selectionRange" => Method::SelectionRange,
+            _ if method.contains("/did") => Method::Notification(method),
+            _ => Method::Request(method),
+        }
+    }
+}
+
+impl Method {
+    /// The method's name in the protocol.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Method::DidOpen => "textDocument/didOpen",
+            Method::DidChange => "textDocument/didChange",
+            Method::DidSave => "textDocument/didSave",
+            Method::DidClose => "textDocument/didClose",
+            Method::CodeAction => "textDocument/codeAction",
+            Method::CodeLens => "textDocument/codeLens",
+            Method::Completion => "textDocument/completion",
+            Method::SelectionRange => "textDocument/selectionRange",
+            Method::Notification(method) | Method::Request(method) => method,
+        }
+    }
+
+    /// Whether the client sends the method as a notification.
+    fn is_notification(&self) -> bool {
+        match self {
+            Method::DidOpen
+            | Method::DidChange
+            | Method::DidSave
+            | Method::DidClose
+            | Method::Notification(_) => true,
+            Method::CodeAction
+            | Method::CodeLens
+            | Method::Completion
+            | Method::SelectionRange
+            | Method::Request(_) => false,
+        }
+    }
+
+    /// The request that resolves an item of the method's answer, if any.
+    fn resolve(&self) -> Option<&'static str> {
+        match self {
+            Method::CodeLens => Some("codeLens/resolve"),
+            Method::Completion => Some("completionItem/resolve"),
+            Method::CodeAction => Some("codeAction/resolve"),
+            Method::DidOpen
+            | Method::DidChange
+            | Method::DidSave
+            | Method::DidClose
+            | Method::SelectionRange
+            | Method::Notification(_)
+            | Method::Request(_) => None,
+        }
+    }
+}
+
+impl Serialize for Method {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
 /// A position or range in the step's file: by marker index, or exactly.
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(untagged)]
@@ -82,9 +178,10 @@ pub enum At {
 }
 
 /// A zero-based line and UTF-16 column.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Position {
     pub line: u32,
+    /// The UTF-16 column.
     pub character: u32,
 }
 
@@ -112,41 +209,21 @@ pub fn cases(dir: &Path) -> Vec<Case> {
     cases
 }
 
-/// How long the path of a case's project directory is, in characters:
-/// elm reflows some reports around the project's path, so both servers
-/// must see paths of one length for their reports to compare.
-pub const ROOT_LENGTH: usize = 160;
+/// How long the path of a case's project directory is, in bytes: elm
+/// reflows some reports around the project's path, so both servers must
+/// see paths of one length for their reports to compare.
+const ROOT_LENGTH: usize = 160;
 
-/// The directory under `base` for the project of `case`, its path padded
-/// to [`ROOT_LENGTH`].
-pub fn project_dir(base: &Path, case: &str) -> PathBuf {
-    let used = base.to_string_lossy().chars().count() + 1 + case.len() + 1;
-    let pad = ROOT_LENGTH
-        .checked_sub(used)
-        .unwrap_or_else(|| panic!("{} is too long a path for a case", base.display()));
-    base.join(format!("{case}-{}", "x".repeat(pad)))
+/// A new directory below `base` for the project of `case`, its path
+/// padded to [`ROOT_LENGTH`].
+pub fn project_dir(base: &Path, case: &str) -> io::Result<PathBuf> {
+    crate::padded_dir(&base.join(case), ROOT_LENGTH)
 }
 
 /// Copies a case's project to `to`, without its session, and with
 /// [`DEFAULT_ELM_JSON`] if it has no `elm.json`.
 pub fn copy_project(case: &Case, to: &Path) -> io::Result<()> {
-    fn copy(from: &Path, to: &Path, top: bool) -> io::Result<()> {
-        std::fs::create_dir_all(to)?;
-        for entry in std::fs::read_dir(from)? {
-            let entry = entry?;
-            let name = entry.file_name();
-            if top && name == "session.json" {
-                continue;
-            }
-            if entry.file_type()?.is_dir() {
-                copy(&entry.path(), &to.join(&name), false)?;
-            } else {
-                std::fs::copy(entry.path(), to.join(&name))?;
-            }
-        }
-        Ok(())
-    }
-    copy(&case.dir, to, true)?;
+    crate::copy_tree(&case.dir, to, |path| path != Path::new("session.json"))?;
     let manifest = to.join("elm.json");
     if !manifest.exists() {
         std::fs::write(manifest, DEFAULT_ELM_JSON)?;
@@ -191,23 +268,22 @@ pub const DEFAULT_ELM_JSON: &str = r#"{
 /// runs `elm make`, and its lint rules too, whatever
 /// `disableElmLSDiagnostics` says.
 pub fn default_settings() -> Map<String, Value> {
-    let settings = json!({
+    let Value::Object(settings) = json!({
         "onlyUpdateDiagnosticsOnSave": true,
         "disableElmLSDiagnostics": true,
         "elmReviewDiagnostics": "off",
         "skipInstallPackageConfirmation": false,
         "trace": { "server": "off" },
-    });
-    match settings {
-        Value::Object(map) => map,
-        _ => unreachable!(),
-    }
+    }) else {
+        unreachable!("an object literal")
+    };
+    settings
 }
 
 /// The `--^` markers of `text`, in order: for each, the zero-based line
 /// above it and the UTF-16 column of its `^`. A marker line may hold
 /// several.
-pub fn markers(text: &str) -> Vec<(u32, u32)> {
+fn markers(text: &str) -> Vec<Position> {
     let mut markers = Vec::new();
     for (line, content) in text.lines().enumerate() {
         let trimmed = content.trim_start();
@@ -216,7 +292,10 @@ pub fn markers(text: &str) -> Vec<(u32, u32)> {
         }
         for (at, _) in content.match_indices("--^") {
             let column = content[..at + 2].encode_utf16().count();
-            markers.push((line as u32 - 1, column as u32));
+            markers.push(Position {
+                line: line as u32 - 1,
+                character: column as u32,
+            });
         }
     }
     markers
@@ -289,10 +368,17 @@ pub struct Driver {
     /// last request.
     applied: Vec<Value>,
     /// Opened files whose diagnostics haven't come yet, by URI.
-    awaiting: std::collections::BTreeSet<String>,
-    /// The files open, by path in the project: each one's version and
-    /// text, which the editor writes to disk on a save.
-    open: BTreeMap<String, (i32, String)>,
+    awaiting: BTreeSet<String>,
+    /// The files open, by path in the project.
+    open: BTreeMap<String, OpenFile>,
+}
+
+/// A file open in the editor.
+#[derive(Debug)]
+struct OpenFile {
+    version: i32,
+    /// What the editor writes to disk on a save.
+    text: String,
 }
 
 impl std::fmt::Debug for Driver {
@@ -324,7 +410,7 @@ impl Driver {
             next_id: 0,
             published: BTreeMap::new(),
             applied: Vec::new(),
-            awaiting: std::collections::BTreeSet::new(),
+            awaiting: BTreeSet::new(),
             open: BTreeMap::new(),
         };
         let params = json!({
@@ -348,11 +434,7 @@ impl Driver {
             self.open_file(file);
         }
         self.settle();
-        let mut diagnostics = Map::new();
-        for file in &session.open {
-            let published = self.published.get(&self.uri(file)).cloned();
-            diagnostics.insert(file.clone(), published.unwrap_or_else(|| json!([])));
-        }
+        let diagnostics = self.diagnostics(session.open.iter().cloned());
         let mut requests = Vec::new();
         for step in &session.requests {
             for (file, text) in &step.create {
@@ -368,8 +450,8 @@ impl Driver {
             }
             // A notification: what the server applies in answer, once it's
             // quiet again.
-            if step.method.contains("/did") {
-                self.notify(&step.method, params);
+            if step.method.is_notification() {
+                self.notify(step.method.as_str(), params);
                 self.settle();
                 requests.push(json!({
                     "method": step.method,
@@ -377,7 +459,7 @@ impl Driver {
                 }));
                 continue;
             }
-            let answer = self.request(&step.method, params);
+            let answer = self.request(step.method.as_str(), params);
             let resolved = match (&answer, step.resolve) {
                 (Ok(Value::Array(items)), true) => Some(self.resolve(&step.method, items.clone())),
                 _ => None,
@@ -405,13 +487,9 @@ impl Driver {
 
     /// Each of `items` resolved, as one entry: the resolve request of
     /// the method that answered them, and the resolved items in order.
-    fn resolve(&mut self, method: &str, items: Vec<Value>) -> Value {
-        let resolve = match method {
-            "textDocument/codeLens" => "codeLens/resolve",
-            "textDocument/completion" => "completionItem/resolve",
-            "textDocument/codeAction" => "codeAction/resolve",
-            _ => panic!("{method} has no resolve request"),
-        };
+    fn resolve(&mut self, method: &Method, items: Vec<Value>) -> Value {
+        let resolve = (method.resolve())
+            .unwrap_or_else(|| panic!("{} has no resolve request", method.as_str()));
         let results: Vec<Value> = items
             .into_iter()
             .map(|item| {
@@ -428,7 +506,13 @@ impl Driver {
         if self.timing.publishes {
             self.awaiting.insert(self.uri(file));
         }
-        self.open.insert(file.to_owned(), (1, text.clone()));
+        self.open.insert(
+            file.to_owned(),
+            OpenFile {
+                version: 1,
+                text: text.clone(),
+            },
+        );
         self.notify(
             "textDocument/didOpen",
             json!({ "textDocument": {
@@ -445,64 +529,74 @@ impl Driver {
         let file = step.file.clone()?;
         let uri = self.uri(&file);
         let mut entry = json!({ "method": step.method, "file": file });
-        let reported: Vec<String> = match step.method.as_str() {
-            "textDocument/didOpen" => {
+        let method = step.method.as_str();
+        let reported: Vec<String> = match step.method {
+            Method::DidOpen => {
                 self.open_file(&file);
                 self.settle();
                 self.open.keys().cloned().collect()
             }
-            "textDocument/didChange" => {
-                let (version, text) = self
-                    .open
-                    .get_mut(&file)
-                    .unwrap_or_else(|| panic!("{file} isn't open"));
-                *version += 1;
+            Method::DidChange => {
+                let open =
+                    (self.open.get_mut(&file)).unwrap_or_else(|| panic!("{file} isn't open"));
+                open.version += 1;
                 let changes = step
                     .params
                     .get("contentChanges")
                     .cloned()
                     .unwrap_or_else(|| json!([]));
                 for change in changes.as_array().into_iter().flatten() {
-                    apply_change(text, change);
+                    apply_change(&mut open.text, change);
                 }
                 let params = json!({
-                    "textDocument": { "uri": uri, "version": *version },
+                    "textDocument": { "uri": uri, "version": open.version },
                     "contentChanges": changes,
                 });
-                self.notify(&step.method, params);
+                self.notify(method, params);
                 self.settle();
                 Vec::new()
             }
-            "textDocument/didSave" => {
+            Method::DidSave => {
                 // An editor writes the file, then says so.
-                if let Some((_, text)) = self.open.get(&file) {
-                    std::fs::write(self.root.join(&file), text).unwrap();
+                if let Some(open) = self.open.get(&file) {
+                    std::fs::write(self.root.join(&file), &open.text).unwrap();
                 }
                 if self.timing.publishes {
                     let open: Vec<String> = self.open.keys().map(|f| self.uri(f)).collect();
                     self.awaiting.extend(open);
                 }
-                self.notify(&step.method, json!({ "textDocument": { "uri": uri } }));
+                self.notify(method, json!({ "textDocument": { "uri": uri } }));
                 self.settle();
                 self.open.keys().cloned().collect()
             }
-            "textDocument/didClose" => {
+            Method::DidClose => {
                 self.open.remove(&file);
-                self.notify(&step.method, json!({ "textDocument": { "uri": uri } }));
+                self.notify(method, json!({ "textDocument": { "uri": uri } }));
                 self.settle();
                 vec![file.clone()]
             }
-            _ => return None,
+            Method::CodeAction
+            | Method::CodeLens
+            | Method::Completion
+            | Method::SelectionRange
+            | Method::Notification(_)
+            | Method::Request(_) => return None,
         };
         if !reported.is_empty() {
-            let mut diagnostics = Map::new();
-            for file in reported {
-                let published = self.published.get(&self.uri(&file)).cloned();
-                diagnostics.insert(file, published.unwrap_or_else(|| json!([])));
-            }
-            entry["diagnostics"] = Value::Object(diagnostics);
+            entry["diagnostics"] = Value::Object(self.diagnostics(reported));
         }
         Some(entry)
+    }
+
+    /// The diagnostics last published for each of `files`, `[]` for one
+    /// with none.
+    fn diagnostics(&self, files: impl IntoIterator<Item = String>) -> Map<String, Value> {
+        (files.into_iter())
+            .map(|file| {
+                let published = self.published.get(&self.uri(&file)).cloned();
+                (file, published.unwrap_or_else(|| json!([])))
+            })
+            .collect()
     }
 
     fn uri(&self, file: &str) -> String {
@@ -517,10 +611,9 @@ impl Driver {
                 let text = std::fs::read_to_string(self.root.join(file)).unwrap();
                 let markers = markers(&text);
                 let marker = |i: usize| {
-                    let (line, character) = *markers
+                    *markers
                         .get(i)
-                        .unwrap_or_else(|| panic!("{file} has no marker {i}"));
-                    Position { line, character }
+                        .unwrap_or_else(|| panic!("{file} has no marker {i}"))
                 };
                 let (start, end) = match at {
                     At::Position(i) => (marker(i), None),
@@ -529,16 +622,14 @@ impl Driver {
                     At::Span { start, end } => (start, Some(end)),
                 };
                 let range = json!({ "start": start, "end": end.unwrap_or(start) });
-                match step.method.as_str() {
-                    "textDocument/codeAction" => params.insert("range".into(), range),
-                    "textDocument/selectionRange" => {
-                        params.insert("positions".into(), json!([start]))
-                    }
+                match step.method {
+                    Method::CodeAction => params.insert("range".into(), range),
+                    Method::SelectionRange => params.insert("positions".into(), json!([start])),
                     _ if end.is_some() => params.insert("range".into(), range),
                     _ => params.insert("position".into(), json!(start)),
                 };
             }
-            if step.method == "textDocument/codeAction" {
+            if step.method == Method::CodeAction {
                 let diagnostics = self.published.get(&self.uri(file)).cloned();
                 let range = params.get("range").cloned().unwrap_or(Value::Null);
                 let within: Vec<Value> = (diagnostics.unwrap_or_else(|| json!([])))
@@ -734,75 +825,85 @@ pub fn tidy(transcript: Value, replacements: &[(String, String)]) -> Value {
     let mut transcript = normalize(transcript, replacements);
     let requests = transcript["requests"].as_array_mut();
     for request in requests.into_iter().flatten() {
-        // Servers find references in no particular order across files.
-        if request["method"] == "textDocument/references"
-            && let Some(locations) = request["result"].as_array_mut()
-        {
-            locations.sort_by_key(|l| serde_json::to_string(l).unwrap());
-        }
-        // Nor do they order a rename's edits.
-        // The test modules come in the order the disk lists them.
-        if request["method"] == "elm/findTests"
-            && let Some(suites) = request
-                .pointer_mut("/result/suites")
-                .and_then(Value::as_array_mut)
-        {
-            suites.sort_by_key(|s| s["file"].as_str().unwrap_or_default().to_owned());
-        }
-        if request["method"] == "codeLens/resolve" {
-            for lens in request["result"].as_array_mut().into_iter().flatten() {
-                let references = lens.pointer_mut("/command/arguments/0/references");
-                if let Some(locations) = references.and_then(Value::as_array_mut) {
-                    locations.sort_by_key(|l| serde_json::to_string(l).unwrap());
-                }
-            }
-        }
-        if request["method"] == "textDocument/rename"
-            || request["method"] == "workspace/willRenameFiles"
-        {
-            let result = &mut request["result"];
-            if let Some(changes) = result.get_mut("changes").and_then(Value::as_object_mut) {
-                for edits in changes.values_mut().filter_map(Value::as_array_mut) {
-                    edits.sort_by_key(|e| serde_json::to_string(e).unwrap());
-                }
-            }
-            if let Some(documents) = result
-                .get_mut("documentChanges")
-                .and_then(Value::as_array_mut)
-            {
-                for document in documents.iter_mut() {
-                    if let Some(edits) = document.get_mut("edits").and_then(Value::as_array_mut) {
-                        edits.sort_by_key(|e| serde_json::to_string(e).unwrap());
-                    }
-                }
-                documents.sort_by_key(|d| serde_json::to_string(d).unwrap());
-            }
-        }
-        if request["method"] != "textDocument/completion" {
+        let Some(method) = request["method"].as_str().map(str::to_owned) else {
             continue;
-        }
-        let result = &mut request["result"];
-        let items = match result {
-            Value::Array(items) => Some(items),
-            Value::Object(list) => list.get_mut("items").and_then(Value::as_array_mut),
-            _ => None,
         };
-        for item in items.into_iter().flatten() {
-            // Tidied once already, it stays as it is.
-            if let Some(documentation) = item.get_mut("documentation")
-                && documentation.get("sha256").is_none()
-            {
-                let text = serde_json::to_string(documentation).unwrap();
-                let digest = crate::ratchet::sha256_hex(text.as_bytes());
-                *documentation = json!({ "sha256": &digest[..16] });
+        match method.as_str() {
+            // Servers find references in no particular order across files.
+            "textDocument/references" => sort_by_json(request["result"].as_array_mut()),
+            // The test modules come in the order the disk lists them.
+            "elm/findTests" => {
+                let suites = request.pointer_mut("/result/suites");
+                if let Some(suites) = suites.and_then(Value::as_array_mut) {
+                    suites.sort_by_key(|s| s["file"].as_str().unwrap_or_default().to_owned());
+                }
             }
+            "codeLens/resolve" => {
+                for lens in request["result"].as_array_mut().into_iter().flatten() {
+                    sort_by_json(
+                        lens.pointer_mut("/command/arguments/0/references")
+                            .and_then(Value::as_array_mut),
+                    );
+                }
+            }
+            "textDocument/rename" | "workspace/willRenameFiles" => {
+                tidy_rename(&mut request["result"]);
+            }
+            "textDocument/completion" => tidy_completion(&mut request["result"]),
+            _ => {}
         }
     }
     transcript
 }
 
+/// `values`, where there are some, sorted by their JSON: a list whose
+/// order a server doesn't fix.
+fn sort_by_json(values: Option<&mut Vec<Value>>) {
+    if let Some(values) = values {
+        values.sort_by_cached_key(|value| {
+            serde_json::to_string(value).expect("JSON values serialize")
+        });
+    }
+}
+
+/// A rename's edits in order: servers don't order them.
+fn tidy_rename(result: &mut Value) {
+    if let Some(changes) = result.get_mut("changes").and_then(Value::as_object_mut) {
+        for edits in changes.values_mut() {
+            sort_by_json(edits.as_array_mut());
+        }
+    }
+    let documents = result.get_mut("documentChanges");
+    if let Some(documents) = documents.and_then(Value::as_array_mut) {
+        for document in documents.iter_mut() {
+            sort_by_json(document.get_mut("edits").and_then(Value::as_array_mut));
+        }
+        sort_by_json(Some(documents));
+    }
+}
+
+/// A completion list with each item's documentation, the bulk of the
+/// list, kept as a digest.
+fn tidy_completion(result: &mut Value) {
+    let items = match result {
+        Value::Array(items) => Some(items),
+        Value::Object(list) => list.get_mut("items").and_then(Value::as_array_mut),
+        _ => None,
+    };
+    for item in items.into_iter().flatten() {
+        // Tidied once already, it stays as it is.
+        if let Some(documentation) = item.get_mut("documentation")
+            && documentation.get("sha256").is_none()
+        {
+            let text = serde_json::to_string(documentation).expect("JSON values serialize");
+            let digest = crate::sha256_hex(text.as_bytes());
+            *documentation = json!({ "sha256": &digest[..16] });
+        }
+    }
+}
+
 /// `uri` with its percent escapes decoded.
-fn percent_decoded(uri: &str) -> String {
+pub fn percent_decoded(uri: &str) -> String {
     let bytes = uri.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -868,21 +969,13 @@ pub fn to_text(value: &Value) -> String {
 }
 
 /// How deep [`to_text`] indents.
-pub const TEXT_DEPTH: usize = 5;
+const TEXT_DEPTH: usize = 5;
 
 /// `value` with every string's occurrences of each `from` replaced by
-/// its `to`, in order, so longer prefixes go first.
-pub fn normalize(value: Value, replacements: &[(String, String)]) -> Value {
+/// its `to`, in order, so longer prefixes go first; keys too.
+fn normalize(value: Value, replacements: &[(String, String)]) -> Value {
     match value {
-        Value::String(text) => {
-            let mut text = text;
-            for (from, to) in replacements {
-                if text.contains(from.as_str()) {
-                    text = text.replace(from.as_str(), to);
-                }
-            }
-            Value::String(text)
-        }
+        Value::String(text) => Value::String(replace_all(text, replacements)),
         Value::Array(items) => Value::Array(
             items
                 .into_iter()
@@ -891,16 +984,22 @@ pub fn normalize(value: Value, replacements: &[(String, String)]) -> Value {
         ),
         Value::Object(map) => Value::Object(
             map.into_iter()
-                .map(|(k, v)| {
-                    let Value::String(k) = normalize(Value::String(k), replacements) else {
-                        unreachable!()
-                    };
-                    (k, normalize(v, replacements))
-                })
+                .map(|(k, v)| (replace_all(k, replacements), normalize(v, replacements)))
                 .collect(),
         ),
         other => other,
     }
+}
+
+/// `text` with the occurrences of each `from` replaced by its `to`, in
+/// order.
+fn replace_all(mut text: String, replacements: &[(String, String)]) -> String {
+    for (from, to) in replacements {
+        if text.contains(from.as_str()) {
+            text = text.replace(from.as_str(), to);
+        }
+    }
+    text
 }
 
 /// The ratchet's outcomes for one case: its diagnostics, then each
@@ -940,7 +1039,8 @@ mod tests {
     fn markers_point_at_the_line_above() {
         let text =
             "module Main exposing (..)\n\nmain =\n    text \"hi\"\n  --^  --^\n    --^ again\n";
-        assert_eq!(markers(text), [(3, 4), (3, 9), (4, 6)]);
+        let at = |line, character| Position { line, character };
+        assert_eq!(markers(text), [at(3, 4), at(3, 9), at(4, 6)]);
     }
 
     #[test]

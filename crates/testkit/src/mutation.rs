@@ -1,28 +1,71 @@
-//! Deterministic source mutations, ported from the first attempt's parser
-//! mutation suite (`brielov/nomi@8e2b540:crates/syntax/tests/parser_mutation.rs`).
-//! The same seed always yields the same mutations, so the oracle's verdicts
-//! can be stored and the sources regenerated wherever they are needed.
+//! Deterministic source mutations: insertions, deletions and duplications
+//! at sampled character boundaries, and seeded random combinations of
+//! them. The same seed always yields the same mutations, so the oracle's
+//! verdicts can be stored and the sources regenerated wherever they are
+//! needed.
+
+use std::fs;
+use std::path::Path;
+use std::str::FromStr;
 
 /// What a mutation may insert: separators, brackets, layout and comments.
-pub const INSERTIONS: &[&str] = &[
+const INSERTIONS: &[&str] = &[
     " ", "\n", "\r", "\t", ",", ".", "=", "->", "(", ")", "[", "]", "{", "}", "--x\n", "{-x-}",
 ];
 
 /// Boundaries [`suite`] samples in each seed.
-pub const SUITE_BOUNDARIES: usize = 256;
+const SUITE_BOUNDARIES: usize = 256;
 
 /// Random mutations [`suite`] makes of each seed.
-pub const SUITE_RANDOM: usize = 512;
+const SUITE_RANDOM: usize = 512;
 
 /// One mutated source, named after what was done to the seed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mutation {
+    /// What was done, such as `insert "(" at 12` or `random 3`.
     pub name: String,
+    /// The seed with the mutation made.
     pub source: String,
 }
 
-/// The mutation suite's cases for one seed, as the first attempt's
-/// accept/reject suite made them for its module seeds.
+/// A seed of a mutation suite, as its `seeds.txt` lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Seed<K> {
+    /// What names the seed's mutations and their stored verdicts.
+    pub name: String,
+    /// The kind of project the seed's module belongs to.
+    pub kind: K,
+    pub text: String,
+}
+
+/// The seeds `seeds.txt` in `dir` lists, a `<name> <kind> <file>` line
+/// each, with each file's text from `dir/seeds/`. Blank lines and `#`
+/// comments are skipped.
+pub fn seeds<K: FromStr>(dir: &Path) -> Result<Vec<Seed<K>>, String> {
+    let list =
+        fs::read_to_string(dir.join("seeds.txt")).map_err(|e| format!("reading seeds.txt: {e}"))?;
+    (list.lines())
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|line| {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            let [name, kind, file] = words[..] else {
+                return Err(format!("seeds.txt: malformed line `{line}`"));
+            };
+            let kind = (kind.parse()).map_err(|_| format!("seeds.txt: unknown kind `{kind}`"))?;
+            let path = dir.join("seeds").join(file);
+            let text = fs::read_to_string(&path)
+                .map_err(|e| format!("reading {}: {e}", path.display()))?;
+            Ok(Seed {
+                name: name.to_owned(),
+                kind,
+                text,
+            })
+        })
+        .collect()
+}
+
+/// The mutation suite's cases for one seed: the systematic mutations at up
+/// to 256 boundaries, then 512 random ones.
 pub fn suite(seed_name: &str, source: &str) -> Vec<Mutation> {
     let mut mutations = systematic(source, SUITE_BOUNDARIES);
     mutations.extend(random(seed_name, source, SUITE_RANDOM));
@@ -39,54 +82,91 @@ pub fn digest(mutations: &[Mutation]) -> String {
         bytes.extend(m.source.as_bytes());
         bytes.push(0);
     }
-    crate::ratchet::sha256_hex(&bytes)
+    crate::sha256_hex(&bytes)
+}
+
+/// One change to a source at a character boundary.
+#[derive(Clone, Copy, Debug)]
+enum Op {
+    Insert(&'static str),
+    /// Of the character at the boundary.
+    Delete,
+    /// Of the character at the boundary.
+    Duplicate,
+}
+
+impl Op {
+    /// The `index`th of the operations [`random`] picks from: each
+    /// insertion, then deletion, then duplication.
+    fn nth(index: usize) -> Op {
+        match INSERTIONS.get(index) {
+            Some(insertion) => Op::Insert(insertion),
+            None if index == INSERTIONS.len() => Op::Delete,
+            None => Op::Duplicate,
+        }
+    }
+
+    /// The operation's name in a mutation's.
+    fn verb(self) -> &'static str {
+        match self {
+            Op::Insert(_) => "insert",
+            Op::Delete => "delete",
+            Op::Duplicate => "duplicate",
+        }
+    }
+
+    /// Makes the change in `source` at `at`, a character boundary. A
+    /// deletion or duplication at the end changes nothing.
+    fn apply(self, source: &mut String, at: usize) {
+        let next = source[at..].chars().next();
+        match (self, next) {
+            (Op::Insert(text), _) => source.insert_str(at, text),
+            (Op::Delete, Some(c)) => source.replace_range(at..at + c.len_utf8(), ""),
+            (Op::Duplicate, Some(c)) => source.insert(at, c),
+            (Op::Delete | Op::Duplicate, None) => {}
+        }
+    }
 }
 
 /// The seed itself, then every insertion at up to `max_boundaries` evenly
 /// sampled character boundaries, then the deletion and duplication of the
 /// character at each of them. Insertions rotate with the boundary, so
 /// neighbouring boundaries do not try them in the same order.
-pub fn systematic(source: &str, max_boundaries: usize) -> Vec<Mutation> {
+fn systematic(source: &str, max_boundaries: usize) -> Vec<Mutation> {
     let boundaries = sampled_boundaries(source, max_boundaries);
     let mut mutations = Vec::with_capacity(boundaries.len() * (INSERTIONS.len() + 2) + 1);
     mutations.push(Mutation {
         name: "original".to_owned(),
         source: source.to_owned(),
     });
+    let mut push = |op: Op, at: usize, name: String| {
+        let mut mutated = source.to_owned();
+        op.apply(&mut mutated, at);
+        mutations.push(Mutation {
+            name: format!("{} {name} at {at}", op.verb()),
+            source: mutated,
+        });
+    };
     for (i, &boundary) in boundaries.iter().enumerate() {
         for offset in 0..INSERTIONS.len() {
             let insertion = INSERTIONS[(i + offset) % INSERTIONS.len()];
-            let mut mutated = source.to_owned();
-            mutated.insert_str(boundary, insertion);
-            mutations.push(Mutation {
-                name: format!("insert {insertion:?} at {boundary}"),
-                source: mutated,
-            });
+            push(Op::Insert(insertion), boundary, format!("{insertion:?}"));
         }
     }
     for &start in &boundaries {
         let Some(c) = source[start..].chars().next() else {
             continue;
         };
-        let mut deleted = source.to_owned();
-        deleted.replace_range(start..start + c.len_utf8(), "");
-        mutations.push(Mutation {
-            name: format!("delete {c:?} at {start}"),
-            source: deleted,
-        });
-        let mut duplicated = source.to_owned();
-        duplicated.insert(start, c);
-        mutations.push(Mutation {
-            name: format!("duplicate {c:?} at {start}"),
-            source: duplicated,
-        });
+        for op in [Op::Delete, Op::Duplicate] {
+            push(op, start, format!("{c:?}"));
+        }
     }
     mutations
 }
 
 /// `count` mutations of two to four random insertions, deletions or
 /// duplications each, from a generator seeded by `seed_name`.
-pub fn random(seed_name: &str, source: &str, count: usize) -> Vec<Mutation> {
+fn random(seed_name: &str, source: &str, count: usize) -> Vec<Mutation> {
     let mut random = Random::new(fnv1a(seed_name.as_bytes()));
     (0..count)
         .map(|n| {
@@ -94,19 +174,7 @@ pub fn random(seed_name: &str, source: &str, count: usize) -> Vec<Mutation> {
             for _ in 0..2 + random.index(3) {
                 let boundaries = boundaries(&mutated);
                 let at = boundaries[random.index(boundaries.len())];
-                match random.index(INSERTIONS.len() + 2) {
-                    op if op < INSERTIONS.len() => mutated.insert_str(at, INSERTIONS[op]),
-                    op if op == INSERTIONS.len() => {
-                        if let Some(c) = mutated[at..].chars().next() {
-                            mutated.replace_range(at..at + c.len_utf8(), "");
-                        }
-                    }
-                    _ => {
-                        if let Some(c) = mutated[at..].chars().next() {
-                            mutated.insert(at, c);
-                        }
-                    }
-                }
+                Op::nth(random.index(INSERTIONS.len() + 2)).apply(&mut mutated, at);
             }
             Mutation {
                 name: format!("random {n}"),
@@ -202,5 +270,44 @@ mod tests {
         // Pinned, so a change to the generator cannot pass unnoticed: the
         // stored oracle verdicts are keyed by these names and sources.
         assert_eq!(fnv1a(b"seed"), 0x2cfa_d118_d3ec_c02c);
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct App;
+
+    impl FromStr for App {
+        type Err = ();
+
+        fn from_str(text: &str) -> Result<App, ()> {
+            (text == "application").then_some(App).ok_or(())
+        }
+    }
+
+    #[test]
+    fn seeds_are_read_as_listed() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        fs::create_dir_all(dir.join("seeds")).unwrap();
+        fs::write(dir.join("seeds/A.elm"), "module A exposing (..)\n").unwrap();
+        fs::write(
+            dir.join("seeds.txt"),
+            "# name kind file\n\na application A.elm\n",
+        )
+        .unwrap();
+        assert_eq!(
+            seeds::<App>(dir).unwrap(),
+            [Seed {
+                name: "a".to_owned(),
+                kind: App,
+                text: "module A exposing (..)\n".to_owned(),
+            }]
+        );
+        fs::write(dir.join("seeds.txt"), "a package A.elm\n").unwrap();
+        assert_eq!(
+            seeds::<App>(dir),
+            Err("seeds.txt: unknown kind `package`".to_owned())
+        );
+        fs::write(dir.join("seeds.txt"), "a application\n").unwrap();
+        assert!(seeds::<App>(dir).is_err());
     }
 }

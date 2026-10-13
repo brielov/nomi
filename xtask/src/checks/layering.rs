@@ -46,7 +46,7 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
         ],
     ),
     // Test support; any crate may use it, but only as a dev-dependency.
-    ("testkit", &[]),
+    ("testkit", &["base"]),
 ];
 
 /// The crate every crate may use in its tests and nowhere else.
@@ -77,6 +77,12 @@ pub(crate) fn check(crates: &[String], edges: &[Edge]) -> Vec<String> {
             if !dev {
                 violations.push(format!(
                     "nomi-{from} may depend on nomi-testkit only as a dev-dependency"
+                ));
+            }
+            // Its tests would see two copies of the crate, whose types differ.
+            if allowed(TESTKIT).is_some_and(|deps| deps.contains(&from.as_str())) {
+                violations.push(format!(
+                    "nomi-{from} may not use nomi-testkit, which depends on it"
                 ));
             }
             continue;
@@ -137,6 +143,14 @@ mod tests {
         let violations = check(&crates, &[edge("syntax", "testkit")]);
         assert_eq!(violations.len(), 1);
         assert!(violations[0].contains("only as a dev-dependency"));
+    }
+
+    #[test]
+    fn testkit_is_not_for_the_crates_it_uses() {
+        let crates = names(&["base", "testkit"]);
+        let violations = check(&crates, &[dev_edge("base", "testkit")]);
+        assert_eq!(violations.len(), 1);
+        assert!(violations[0].contains("which depends on it"));
     }
 
     #[test]

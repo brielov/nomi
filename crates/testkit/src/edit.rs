@@ -7,16 +7,22 @@ use crate::transcript::Case;
 /// A replacement of `start..end` in the seed's `file` by `text`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Edit {
+    /// The case the edit makes.
     pub id: String,
+    /// The case it edits.
     pub seed: String,
+    /// The seed's file it edits, by its path in the case.
     pub file: String,
+    /// The byte range it replaces.
     pub start: usize,
     pub end: usize,
+    /// The replacement.
     pub text: String,
     /// What the edit does, for people.
     pub note: String,
 }
 
+/// A table's header line.
 pub const HEADER: &str = "id\tseed\tfile\tstart\tend\ttext\tnote";
 
 impl Edit {
@@ -30,6 +36,7 @@ impl Edit {
         case
     }
 
+    /// The edit as a table's line.
     pub fn to_line(&self) -> String {
         format!(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}",

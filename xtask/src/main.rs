@@ -577,7 +577,7 @@ fn ratchet(root: &Path, suite: &str) -> Result<()> {
             "--",
             "--nocapture",
         ],
-        &[("NOMI_RATCHET_UPDATE", "1")],
+        &[(nomi_testkit::ratchet::UPDATE_VAR, "1")],
     )
 }
 

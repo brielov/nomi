@@ -1115,9 +1115,12 @@ version = "0.4.0"
 dependencies = [
  "crossbeam-channel",
  "lsp-server",
+ "nomi-base",
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
+ "toml",
 ]
 
 [[package]]

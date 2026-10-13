@@ -75,7 +75,7 @@ fn replay(
         .unwrap_or_else(|e| panic!("{}: {e}", expected.display()));
     let cases = temp.join("cases");
     fs::create_dir_all(&cases).unwrap();
-    let work = lsp::project_dir(&real(&cases), &case.name);
+    let work = lsp::project_dir(&real(&cases), &case.name).unwrap();
     lsp::copy_project(case, &work).unwrap();
     let root_uri = Url::from_directory_path(&work).unwrap();
     let root_uri = root_uri.as_str().trim_end_matches('/').to_owned();

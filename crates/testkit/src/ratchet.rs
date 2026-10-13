@@ -21,6 +21,8 @@ pub const UPDATE_VAR: &str = "NOMI_RATCHET_UPDATE";
 /// Regressions shown in a failure message before the rest are counted.
 const SHOWN: usize = 50;
 
+/// A suite's listed cases and expected results, which a test's run is
+/// compared with.
 #[derive(Debug)]
 pub struct Suite {
     name: String,
@@ -38,22 +40,30 @@ pub struct Suite {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expected {
     Bytes(Vec<u8>),
+    /// The lower-case hex SHA-256 of the bytes, for large ones.
     Sha256(String),
 }
 
 /// The result of comparing a run with `passing.txt`.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub struct Report {
-    /// Listed cases that failed, with the reason.
-    pub regressions: Vec<(String, String)>,
+struct Report {
+    /// Listed cases that failed.
+    regressions: Vec<Regression>,
     /// Listed cases the run did not include.
-    pub missing: Vec<String>,
+    missing: Vec<String>,
     /// Passing cases that are not listed yet.
-    pub newly_passing: Vec<String>,
+    newly_passing: Vec<String>,
     /// Cases run in total.
-    pub run: usize,
+    run: usize,
     /// Cases that passed in total.
-    pub passed: usize,
+    passed: usize,
+}
+
+/// A listed case that failed, and why.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct Regression {
+    case: String,
+    reason: String,
 }
 
 impl Suite {
@@ -103,10 +113,12 @@ impl Suite {
         self
     }
 
+    /// The suite's name, its directory's.
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// The directory holding the suite.
     pub fn dir(&self) -> &Path {
         &self.dir
     }
@@ -131,7 +143,7 @@ impl Suite {
             self.passing.len() + self.outside.len()
         );
         assert!(
-            !(!report.regressions.is_empty() || !report.missing.is_empty()),
+            report.regressions.is_empty() && report.missing.is_empty(),
             "{}",
             failure_message(&self.name, &report)
         );
@@ -162,15 +174,17 @@ impl Suite {
 }
 
 impl Expected {
+    /// Whether `actual` is what the oracle produced.
     pub fn matches(&self, actual: &[u8]) -> bool {
         match self {
             Expected::Bytes(bytes) => bytes == actual,
-            Expected::Sha256(hash) => sha256_hex(actual) == *hash,
+            Expected::Sha256(hash) => crate::sha256_hex(actual) == *hash,
         }
     }
 }
 
-pub fn compare(
+/// How a run's outcomes compare with the cases `passing` lists.
+fn compare(
     passing: &BTreeSet<String>,
     outcomes: impl IntoIterator<Item = (String, Result<(), String>)>,
 ) -> Report {
@@ -186,7 +200,10 @@ pub fn compare(
                     report.newly_passing.push(case.clone());
                 }
             }
-            Err(reason) if listed => report.regressions.push((case.clone(), reason)),
+            Err(reason) if listed => report.regressions.push(Regression {
+                case: case.clone(),
+                reason,
+            }),
             Err(_) => {}
         }
         seen.insert(case);
@@ -201,7 +218,7 @@ fn failure_message(name: &str, report: &Report) -> String {
     let mut out = format!("ratchet {name}: ");
     if !report.regressions.is_empty() {
         let _ = writeln!(out, "{} listed case(s) now fail:", report.regressions.len());
-        for (case, reason) in report.regressions.iter().take(SHOWN) {
+        for Regression { case, reason } in report.regressions.iter().take(SHOWN) {
             // The expectation and what was found, where a reason gives both.
             let mut lines = reason.lines();
             let _ = writeln!(out, "  {case}: {}", lines.next().unwrap_or(""));
@@ -260,15 +277,6 @@ fn parse_hashes(text: &str) -> Result<BTreeMap<String, String>, String> {
         .collect()
 }
 
-/// The SHA-256 of `bytes`, in lower-case hex.
-pub fn sha256_hex(bytes: &[u8]) -> String {
-    use sha2::Digest as _;
-    sha2::Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -291,7 +299,13 @@ mod tests {
             &set(&["a", "b", "gone"]),
             [pass("a"), fail("b"), pass("c"), fail("d")],
         );
-        assert_eq!(report.regressions, [("b".into(), "b differs".into())]);
+        assert_eq!(
+            report.regressions,
+            [Regression {
+                case: "b".into(),
+                reason: "b differs".into()
+            }]
+        );
         assert_eq!(report.newly_passing, ["c"]);
         assert_eq!(report.missing, ["gone"]);
         assert_eq!((report.run, report.passed), (4, 2));

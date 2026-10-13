@@ -213,7 +213,7 @@ fn prebuild(tools: &Tools, dir: &Path) -> Result<()> {
 
 pub(crate) fn record(tools: &Tools, scratch: &Path, case: &lsp::Case) -> Result<serde_json::Value> {
     fs::create_dir_all(scratch)?;
-    let work = lsp::project_dir(&fs::canonicalize(scratch)?, &case.name);
+    let work = lsp::project_dir(&fs::canonicalize(scratch)?, &case.name)?;
     // Nothing of an earlier run's copy stays.
     if work.exists() {
         fs::remove_dir_all(&work)?;
