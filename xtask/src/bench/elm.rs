@@ -59,14 +59,15 @@ struct Project<'a> {
     output: &'a str,
 }
 
-pub fn tables(root: &Path, refs: &References, setup: &Setup) -> Result<Vec<Table>> {
+/// A cache for nomi that reads the development cache's packages and
+/// registry, with nothing built.
+pub fn nomi_cache(setup: &Setup) -> Result<PathBuf> {
     let store = cache_dir()?.join("nomi");
     let releases = releases(&store.join("packages"))?;
     ensure!(
         !releases.is_empty(),
         "the development cache has no releases; run `cargo xtask corpus names`"
     );
-    // nomi's cache reads the development cache's packages and registry.
     let cache = setup.scratch.join("cache");
     if cache.exists() {
         fs::remove_dir_all(&cache)?;
@@ -74,6 +75,12 @@ pub fn tables(root: &Path, refs: &References, setup: &Setup) -> Result<Vec<Table
     fs::create_dir_all(&cache)?;
     link(&store.join("packages"), &cache.join("packages"))?;
     link(&store.join("registry"), &cache.join("registry"))?;
+    Ok(cache)
+}
+
+pub fn tables(root: &Path, refs: &References, setup: &Setup) -> Result<Vec<Table>> {
+    let releases = releases(&cache_dir()?.join("nomi").join("packages"))?;
+    let cache = nomi_cache(setup)?;
     let artifacts = cache.join("artifacts");
     let nomi = Tool {
         binary: setup.nomi("elm"),

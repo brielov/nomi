@@ -903,8 +903,25 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - tmux reads an `Escape` followed within `escape-time` by a key as Alt with that key, so the traces run on a tmux server of their own with it at 0. A `C-u` on an empty line in Helix joins it to the one before.
   - elm-language-server answers `prepareRename` with nothing for a function just typed, so the sessions look at the new function rather than renaming it.
   - Typing a word at a line's start above an annotation gets that annotation's name, as tree-sitter-elm then reads the annotation as running on from the word; a record accessor being typed gets the general list, its dot kept.
-- [ ] **9.22a** `lsp: performance scoreboard`. The language server's part of the M8b scoreboard, `cargo xtask bench lsp`: nomi's server against elm-language-server, each a child process spoken to over its standard streams, on corpus apps small to large (todomvc, elm-spa-example, exosphere). Time to first diagnostics, save to diagnostics and completion latency, with CPU time and peak memory from `/proc`. What it finds slow on the way is fixed.
+- [x] **9.22a** `lsp: performance scoreboard`. The language server's part of the M8b scoreboard, `cargo xtask bench lsp`: nomi's server against elm-language-server, each a child process spoken to over its standard streams, on corpus apps small to large (todomvc, elm-spa-example, exosphere). Time to first diagnostics, save to diagnostics and completion latency, with CPU time and peak memory from `/proc`. What it finds slow on the way is fixed.
   - **Check:** the table runs, and its numbers are in the plan.
+  - **Done:** on the Ryzen 7, best of 6, nomi against elm-language-server:
+
+    | workload | elm-language-server | nomi |
+    |---|--:|--:|
+    | todomvc: first diagnostics | 165 ms | 64 ms |
+    | todomvc: save to diagnostics | 77 ms | 8 ms |
+    | todomvc: completion | 42 ms | 34 ms |
+    | elm-spa-example: first diagnostics | 265 ms | 120 ms |
+    | elm-spa-example: save to diagnostics | 77 ms | 21 ms |
+    | elm-spa-example: completion | 36 ms | 37 ms |
+    | exosphere: first diagnostics | 2.86 s | 2.95 s |
+    | exosphere: save to diagnostics | 124 ms | 117 ms |
+    | exosphere: completion | 32 ms | 35 ms |
+
+    nomi uses less memory on the two smaller apps (46 to 94 MiB against 140 to 232) and more on exosphere (790 MiB to 1 GiB against 345 to 424), and more CPU on exosphere's saves and completions, where its pool works in the background.
+  - Found on the way: completion parsed every importable module and walked every package's directory again for each item it described (670 ms on todomvc), now read once per completion, package modules' trees kept for the process; and a module's types are inferred once per index. An index after an edit reuses each module whose text and project imports' interfaces are unchanged (2.8 s on exosphere, now 72 ms), and the diagnostics worker keeps its last one too, rather than build a fresh one for each check of a project with ports. Indexing resolved each module's path against each other's on disk, 90,000 `realpath` calls on exosphere. A check of the project reuses nomi's artifact cache, as `nomi make` does.
+  - The server is ready once it goes quiet after `initialized`: elm-language-server takes no notice of a file opened while it reads the project. A version manager's `node` runs the real one as its child, so CPU and memory are the whole process tree's.
 - [ ] **9.22b** `lsp: performance budgets`. nomi wins each cell of 9.22a's table, and keystroke to diagnostics is under 100 ms on the Ryzen 7, on exosphere too.
 - [ ] **9.23** `release: 0.3`. Editor setup for VS Code, Neovim, Helix and Zed.
 

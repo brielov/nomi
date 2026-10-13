@@ -682,7 +682,7 @@ fn apply_change(text: &mut String, change: &Value) {
 
 /// What the driver's client supports: what VS Code offers that the
 /// servers read, with edits given eagerly rather than resolved later.
-fn client_capabilities() -> Value {
+pub fn client_capabilities() -> Value {
     json!({
         "general": { "positionEncodings": ["utf-16"] },
         "workspace": {

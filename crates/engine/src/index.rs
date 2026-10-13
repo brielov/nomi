@@ -34,7 +34,7 @@ pub struct Index {
     /// The package the project's own modules are homes in;
     /// `author/project` for an application, as upstream names it.
     pub package: String,
-    pub modules: Vec<Indexed>,
+    pub modules: Vec<std::rc::Rc<Indexed>>,
     /// Each dependency's source directory, by package name.
     pub packages: HashMap<String, PathBuf>,
     /// The interface of every module the project's modules may import:
@@ -43,7 +43,7 @@ pub struct Index {
 }
 
 /// One of the project's own modules.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Indexed {
     pub path: PathBuf,
     pub name: String,
@@ -54,18 +54,46 @@ pub struct Indexed {
     /// The module canonicalized, where it canonicalizes, for hover to
     /// infer its expressions' types.
     pub canonical: Option<Canonical>,
+    /// Its types, inferred the first time they're asked for.
+    pub typed: std::sync::OnceLock<(
+        nomi_compiler::types::Inferred,
+        nomi_compiler::types::ExprTypes,
+    )>,
+}
+
+impl Indexed {
+    /// Its declarations' types and its expressions', inferred once.
+    pub fn types(
+        &self,
+        compat: Compat,
+    ) -> Option<&(
+        nomi_compiler::types::Inferred,
+        nomi_compiler::types::ExprTypes,
+    )> {
+        let canonical = self.canonical.as_ref()?;
+        Some(
+            self.typed
+                .get_or_init(|| nomi_compiler::types::infer_types(compat, canonical)),
+        )
+    }
 }
 
 impl Index {
     /// The module at `path`, which the index read as given.
     pub fn module(&self, path: &Path) -> Option<&Indexed> {
+        // Mostly the path as indexed; resolving each touches the disk.
+        if let Some(module) = self.modules.iter().find(|m| m.path == path) {
+            return Some(module);
+        }
         let path = canonical(path);
-        self.modules.iter().find(|m| canonical(&m.path) == path)
+        (self.modules.iter())
+            .find(|m| canonical(&m.path) == path)
+            .map(|m| &**m)
     }
 
     /// The project's module named `name`.
     pub fn named(&self, name: &str) -> Option<&Indexed> {
-        self.modules.iter().find(|m| m.name == name)
+        self.modules.iter().find(|m| m.name == name).map(|m| &**m)
     }
 }
 
@@ -236,6 +264,19 @@ pub(crate) fn discover(env: &crate::graph::Env) -> Vec<PathBuf> {
 /// project, its `elm.json` isn't readable, or its modules import each
 /// other in a cycle.
 pub fn index(snapshot: &Snapshot, store: &Store, file: &Path, memo: &mut Memo) -> Option<Index> {
+    index_from(snapshot, store, file, memo, None)
+}
+
+/// [`index`], reusing from `previous`, an index of the same project, each
+/// module whose text is the same and whose project imports have the same
+/// interfaces, as an editor's next index mostly is.
+pub fn index_from(
+    snapshot: &Snapshot,
+    store: &Store,
+    file: &Path,
+    memo: &mut Memo,
+    previous: Option<&Index>,
+) -> Option<Index> {
     let manifest = manifest(snapshot, file)?;
     let Setup {
         compat,
@@ -270,6 +311,13 @@ pub fn index(snapshot: &Snapshot, store: &Store, file: &Path, memo: &mut Memo) -
     // Each module after the local modules it imports.
     let mut order: Vec<&ModuleName> = graph.modules.keys().collect();
     order.sort_by(|a, b| a.compare(b, compat));
+    // Only an index of the same packages has the same interfaces of them.
+    let previous = previous.filter(|p| {
+        p.compat == compat
+            && p.package == package
+            && p.packages.len() == sources.len()
+            && (sources.iter()).all(|(name, dir)| p.packages.get(&name.to_string()) == Some(dir))
+    });
     let mut visit = Visit {
         graph: &graph,
         compat,
@@ -277,6 +325,8 @@ pub fn index(snapshot: &Snapshot, store: &Store, file: &Path, memo: &mut Memo) -
         interfaces: &mut interfaces,
         seen: HashSet::new(),
         modules: Vec::new(),
+        previous,
+        same: std::cell::RefCell::new(HashMap::new()),
     };
     for name in order {
         visit.local(name);
@@ -288,12 +338,11 @@ pub fn index(snapshot: &Snapshot, store: &Store, file: &Path, memo: &mut Memo) -
     }
     // A file no module name fits, such as `src/main.elm`, is in no graph;
     // it's read on its own.
+    // Each path resolved once: resolving touches the disk.
+    let mut indexed: HashSet<PathBuf> =
+        (visit.modules.iter()).map(|m| canonical(&m.path)).collect();
     for path in &paths {
-        if visit
-            .modules
-            .iter()
-            .any(|m| canonical(&m.path) == canonical(path))
-        {
+        if indexed.contains(&canonical(path)) {
             continue;
         }
         let Ok(text) = snapshot.read(path) else {
@@ -305,7 +354,9 @@ pub fn index(snapshot: &Snapshot, store: &Store, file: &Path, memo: &mut Memo) -
             .flat_map(crate::graph::written_imports)
             .map(|import| import.name)
             .collect();
+        let before = visit.modules.len();
         visit.visit(path, None, &text, parse.syntax(), &imports);
+        indexed.extend(visit.modules[before..].iter().map(|m| canonical(&m.path)));
     }
     let modules = visit.modules;
     Some(Index {
@@ -377,7 +428,11 @@ struct Visit<'v> {
     package: &'v str,
     interfaces: &'v mut HashMap<String, Interface>,
     seen: HashSet<ModuleName>,
-    modules: Vec<Indexed>,
+    modules: Vec<std::rc::Rc<Indexed>>,
+    previous: Option<&'v Index>,
+    /// Whether each project module's interface is as in `previous`, once
+    /// it is final.
+    same: std::cell::RefCell<HashMap<String, bool>>,
 }
 
 impl Visit<'_> {
@@ -412,6 +467,30 @@ impl Visit<'_> {
         );
     }
 
+    /// The previous index's module at `path`, where its text is `text` and
+    /// each of the project's modules it imports has the interface it had.
+    fn reusable(
+        &self,
+        path: &Path,
+        text: &Arc<str>,
+        imports: &[ModuleName],
+    ) -> Option<std::rc::Rc<Indexed>> {
+        let previous = self.previous?;
+        let module = (previous.modules.iter()).find(|m| m.path == path && *m.text == **text)?;
+        let unchanged = imports.iter().all(|import| {
+            let name = import.to_string();
+            if let Some(&same) = self.same.borrow().get(&name) {
+                return same;
+            }
+            let local = previous.modules.iter().any(|m| m.name == name)
+                || self.modules.iter().any(|m| m.name == name);
+            let same = !local || self.interfaces.get(&name) == previous.interfaces.get(&name);
+            self.same.borrow_mut().insert(name, same);
+            same
+        });
+        unchanged.then(|| std::rc::Rc::clone(module))
+    }
+
     /// Canonicalizes a module after its local imports, whatever became
     /// of them: an import without an interface adds nothing. A module
     /// without a `name` is named by its header, or `Main` without one.
@@ -425,6 +504,15 @@ impl Visit<'_> {
     ) {
         for import in imports {
             self.local(import);
+        }
+        if let Some(reused) = self.reusable(path, text, imports) {
+            if reused.canonical.is_some()
+                && let Some(interface) = self.previous.and_then(|p| p.interfaces.get(&reused.name))
+            {
+                (self.interfaces).insert(reused.name.clone(), interface.clone());
+            }
+            self.modules.push(reused);
+            return;
         }
         let Some(syntax) = ast::Module::cast(root.clone()) else {
             return;
@@ -443,7 +531,7 @@ impl Visit<'_> {
                 nomi_compiler::types::infer(self.compat, canonical).unwrap_or_default();
             (self.interfaces).insert(name.clone(), interface(canonical, &annotations));
         }
-        self.modules.push(Indexed {
+        self.modules.push(std::rc::Rc::new(Indexed {
             path: path.to_owned(),
             name,
             text: text.clone(),
@@ -451,6 +539,7 @@ impl Visit<'_> {
             hir,
             references,
             canonical,
-        });
+            typed: std::sync::OnceLock::new(),
+        }));
     }
 }

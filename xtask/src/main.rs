@@ -388,7 +388,7 @@ fn main() -> ExitCode {
         }
         Command::Bench {
             target: Some(target),
-        } if target == "elm" || target == "elm-format" => {
+        } if target == "elm" || target == "elm-format" || target == "lsp" => {
             references::load(&root()).and_then(|r| bench::run(&root(), &r, Some(&target)))
         }
         Command::Bench {

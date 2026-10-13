@@ -11,6 +11,7 @@
 //! prefix and its label, its type as label details, Markdown
 //! documentation as hover's, and the word before the cursor replaced.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use nomi_base::{TextRange, TextSize};
@@ -92,12 +93,7 @@ pub fn completions(
         .map_or(line.len(), |i| column + i);
     let name_at = &line[word_start..name_end];
     let range = |from: usize| TextRange::new(TextSize::new((line_start + from) as u32), offset);
-    let context = Context {
-        snapshot,
-        index,
-        module,
-        path,
-    };
+    let context = Context::new(snapshot, index, module, path);
     if in_comment(&module.root, offset, &line[..column]) {
         return Some(Completions::List(Vec::new()));
     }
@@ -338,11 +334,51 @@ fn exposing_list(text: &str, at: usize) -> Option<Exposing> {
 }
 
 /// What completions read.
+/// A module the project may import, its file and its package.
+pub(crate) type Importable = (String, Option<PathBuf>, Option<String>);
+
 pub(crate) struct Context<'c> {
     pub snapshot: &'c Snapshot,
     pub index: &'c Index,
     pub module: &'c Indexed,
     pub path: &'c Path,
+    /// What one completion reads again and again, read once.
+    importable: std::cell::OnceCell<Vec<Importable>>,
+    sources: std::cell::RefCell<HashMap<String, Option<(SyntaxNode, PathBuf)>>>,
+    names: std::cell::OnceCell<crate::hover::Names>,
+    signatures: std::cell::RefCell<HashMap<String, std::rc::Rc<HashMap<String, String>>>>,
+}
+
+impl<'c> Context<'c> {
+    pub(crate) fn new(
+        snapshot: &'c Snapshot,
+        index: &'c Index,
+        module: &'c Indexed,
+        path: &'c Path,
+    ) -> Context<'c> {
+        Context {
+            snapshot,
+            index,
+            module,
+            path,
+            importable: std::cell::OnceCell::new(),
+            sources: std::cell::RefCell::new(HashMap::new()),
+            names: std::cell::OnceCell::new(),
+            signatures: std::cell::RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// [`importable_modules`] of the module's project.
+    pub(crate) fn importable_modules(&self) -> &[Importable] {
+        self.importable
+            .get_or_init(|| importable_modules(self.snapshot, self.index, self.path))
+    }
+
+    /// How the module writes types' names.
+    pub(crate) fn names(&self) -> &crate::hover::Names {
+        self.names
+            .get_or_init(|| crate::hover::Names::of(self.index, self.module))
+    }
 }
 
 impl Context<'_> {
@@ -458,10 +494,15 @@ impl Context<'_> {
             // A constructor's type is in its declaration.
             return written_constructor_type(&self.module.root, name);
         };
-        let localizer = crate::hover::Names::of(self.index, self.module);
-        let annotation = match nomi_compiler::types::infer(self.index.compat, canonical) {
-            Ok(inferred) => inferred.get(name).cloned(),
-            Err(_) => None,
+        let localizer = self.names();
+        // The module's types, inferred once for every name asked about.
+        let inferred = self
+            .module
+            .types(self.index.compat)
+            .map(|(inferred, _)| inferred);
+        let annotation = match inferred {
+            Some(Ok(inferred)) => inferred.get(name).cloned(),
+            _ => None,
         }
         .or_else(|| canonical.annotations.get(name).cloned());
         let ty = match annotation {
@@ -471,13 +512,13 @@ impl Context<'_> {
                 // where the module has no interface yet.
                 return match self.index.interfaces.get(&self.module.name) {
                     Some(interface) => {
-                        constructor_type(&localizer, interface, &self.module.name, name)
+                        constructor_type(localizer, interface, &self.module.name, name)
                     }
                     None => written_constructor_type(&self.module.root, name),
                 };
             }
         };
-        Some(format!(" : {}", crate::hover::render(&localizer, &ty)))
+        Some(format!(" : {}", crate::hover::render(localizer, &ty)))
     }
 
     /// `getExposedFromModule`: what the module `name` exposes, for an
@@ -536,8 +577,8 @@ impl Context<'_> {
     /// The type of `name` in the module `home`, as label details, as this
     /// module writes it.
     pub(crate) fn foreign_detail(&self, home: &str, name: &str) -> Option<String> {
-        let written = (self.module_source(home)).and_then(|(root, _)| signature_text(&root, name));
-        let localizer = crate::hover::Names::of(self.index, self.module).written_as(written);
+        let written = self.signature(home, name);
+        let localizer = self.names().clone().written_as(written);
         let interface = self.index.interfaces.get(home)?;
         if let Some(annotation) = interface.values.get(name) {
             return Some(format!(
@@ -554,7 +595,7 @@ impl Context<'_> {
     /// it, where given.
     fn importable(&self, range: TextRange, under: Option<&str>) -> Vec<Completion> {
         let mut found = Vec::new();
-        for (name, path, _) in importable_modules(self.snapshot, self.index, self.path) {
+        for (name, path, _) in self.importable_modules().to_vec() {
             if name == self.module.name {
                 continue;
             }
@@ -615,7 +656,7 @@ impl Context<'_> {
             }
         }
         if matched.is_empty() && !imports.iter().any(|(n, _)| n == target) {
-            for (name, _, _) in importable_modules(self.snapshot, self.index, self.path) {
+            for (name, _, _) in self.importable_modules().to_vec() {
                 let fits = if target.contains('.') {
                     name == target
                 } else {
@@ -745,19 +786,99 @@ impl Context<'_> {
     /// The source of the module `name`: a dependency's, as
     /// elm-language-server prefers where the project has one of the same
     /// name too, which elm itself refuses; or else the project's.
-    pub(crate) fn module_source(&self, name: &str) -> Option<(SyntaxNode, PathBuf)> {
-        let dependency = importable_modules(self.snapshot, self.index, self.path)
-            .into_iter()
-            .skip(self.index.modules.len())
-            .find(|(module, _, _)| module == name)
-            .and_then(|(_, path, _)| path);
-        let path = match dependency {
-            Some(path) => path,
-            None => crate::navigation::module_path(self.index, name)?,
+    /// The annotation of `name` in the module `home` as written, each
+    /// module's read once.
+    fn signature(&self, home: &str, name: &str) -> Option<String> {
+        let cached = self.signatures.borrow().get(home).cloned();
+        let all = match cached {
+            Some(all) => all,
+            None => {
+                let mut all = HashMap::new();
+                if let Some((root, _)) = self.module_source(home) {
+                    for decl in root
+                        .children()
+                        .filter(|d| d.kind() == SyntaxKind::ValueDecl)
+                    {
+                        let name = child(&decl, SyntaxKind::Definition)
+                            .and_then(|def| crate::lint::first_token(&def, SyntaxKind::LowerIdent));
+                        if let (Some(name), Some(signature)) =
+                            (name, child(&decl, SyntaxKind::Signature))
+                        {
+                            all.entry(name.text().to_owned())
+                                .or_insert_with(|| signature.text().to_string());
+                        }
+                    }
+                }
+                let all = std::rc::Rc::new(all);
+                self.signatures
+                    .borrow_mut()
+                    .insert(home.to_owned(), all.clone());
+                all
+            }
         };
-        let text = self.snapshot.read(&path).ok()?;
-        Some((parse_module(&text).syntax(), path))
+        all.get(name).cloned()
     }
+
+    pub(crate) fn module_source(&self, name: &str) -> Option<(SyntaxNode, PathBuf)> {
+        if let Some(found) = self.sources.borrow().get(name) {
+            return found.clone();
+        }
+        let found = (|| {
+            // The project's own, as the index has them parsed already,
+            // where no dependency has one of the name.
+            let own = self.index.named(name);
+            let dependency = (self.importable_modules().iter())
+                .skip(self.index.modules.len())
+                .find(|(module, _, _)| module == name)
+                .and_then(|(_, path, _)| path.clone());
+            let path = match (dependency, own) {
+                (Some(path), _) => path,
+                (None, Some(own)) => return Some((own.root.clone(), own.path.clone())),
+                (None, None) => crate::navigation::module_path(self.index, name)?,
+            };
+            // A package's sources never change: each is parsed once.
+            if self
+                .index
+                .packages
+                .values()
+                .any(|dir| path.starts_with(dir))
+            {
+                return Some((package_root(&path)?, path));
+            }
+            let text = self.snapshot.read(&path).ok()?;
+            Some((parse_module(&text).syntax(), path))
+        })();
+        self.sources
+            .borrow_mut()
+            .insert(name.to_owned(), found.clone());
+        found
+    }
+}
+
+/// The tree of the package module at `path`, parsed the first time and
+/// kept for the life of the process, as a package's sources never change.
+fn package_root(path: &Path) -> Option<SyntaxNode> {
+    use std::sync::{Mutex, OnceLock};
+    static TREES: OnceLock<Mutex<HashMap<PathBuf, nomi_syntax::GreenNode>>> = OnceLock::new();
+    let trees = TREES.get_or_init(|| Mutex::new(HashMap::new()));
+    let cached = (trees
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner))
+    .get(path)
+    .cloned();
+    let green = match cached {
+        Some(green) => green,
+        None => {
+            let text = std::fs::read_to_string(path).ok()?;
+            let green = parse_module(&text).green().clone();
+            (trees
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner))
+            .insert(path.to_owned(), green.clone());
+            green
+        }
+    };
+    Some(SyntaxNode::new_root(green))
 }
 
 /// A constructor's type as its custom type's declaration writes it: its
@@ -787,18 +908,6 @@ fn written_constructor_type(root: &SyntaxNode, name: &str) -> Option<String> {
         .collect();
     parts.push(result);
     Some(format!(" : {}", parts.join(" -> ")))
-}
-
-/// The annotation the top-level value `name` of the module of `root` is
-/// written with.
-fn signature_text(root: &SyntaxNode, name: &str) -> Option<String> {
-    let decl = (root.children()).find(|d| {
-        d.kind() == SyntaxKind::ValueDecl
-            && child(d, SyntaxKind::Definition)
-                .and_then(|def| crate::lint::first_token(&def, SyntaxKind::LowerIdent))
-                .is_some_and(|t| t.text() == name)
-    })?;
-    Some(child(&decl, SyntaxKind::Signature)?.text().to_string())
 }
 
 /// A constructor's type as label details: its arguments, then its

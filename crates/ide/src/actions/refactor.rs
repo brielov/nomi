@@ -206,12 +206,7 @@ pub fn refactor_edits(
     range: TextRange,
 ) -> Option<(Vec<Edit>, Option<RenameAt>)> {
     let module = index.module(path)?;
-    let context = Context {
-        snapshot,
-        index,
-        module,
-        path,
-    };
+    let context = Context::new(snapshot, index, module, path);
     refactor_edits_in(&context, action, range)
 }
 

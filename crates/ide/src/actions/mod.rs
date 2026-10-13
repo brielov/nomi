@@ -407,12 +407,7 @@ pub fn code_actions(
         return Vec::new();
     }
     let fixing = Fixing {
-        context: Context {
-            snapshot,
-            index,
-            module,
-            path,
-        },
+        context: Context::new(snapshot, index, module, path),
         program: program_diagnostics(&module.root, &module.text, request.problems),
         packages: request.packages,
         given: request.given,

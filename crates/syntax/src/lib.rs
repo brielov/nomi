@@ -22,4 +22,5 @@ pub use invariants::check_invariants;
 pub use kind::{ElmLanguage, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 pub use lexer::{LexError, LexErrorKind, Lexed, Token, lex};
 pub use parser::{DEPTH_LIMIT, Parse, SyntaxError, SyntaxErrorKind};
+pub use rowan::GreenNode;
 pub use validation::{Source, Tool, validate};

@@ -79,13 +79,25 @@ pub fn stdio() -> Result<(), Error> {
 /// store in nomi's cache.
 pub fn run(connection: &Connection) -> Result<(), Error> {
     // Without a cache directory, packages are nowhere to be found.
-    let store = Store::new(Cache::locate().map_or_else(|_| PathBuf::new(), |c| c.packages()));
-    serve(connection, store, Memo::new())
+    let cache = Cache::locate().ok();
+    let store = Store::new(cache.as_ref().map_or_else(PathBuf::new, Cache::packages));
+    let artifacts = cache.as_ref().map(nomi_engine::artifacts::Artifacts::new);
+    serve_with(connection, store, Memo::new(), artifacts)
 }
 
 /// As [`run`], with packages from `store`, and `memo` holding those
-/// already built.
+/// already built; each check from scratch.
 pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Error> {
+    serve_with(connection, store, memo, None)
+}
+
+/// As [`serve`], checks reusing what `artifacts` holds.
+pub fn serve_with(
+    connection: &Connection,
+    store: Store,
+    memo: Memo,
+    artifacts: Option<nomi_engine::artifacts::Artifacts>,
+) -> Result<(), Error> {
     let (id, params) = connection.initialize_start()?;
     let params: InitializeParams = serde_json::from_value(params).map_err(Error::Initialize)?;
     let offered = params
@@ -180,6 +192,7 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
     let latest = Arc::new(Mutex::new(HashMap::new()));
     let diagnostics = Diagnostics::start(Shared {
         store: store.clone(),
+        artifacts,
         memo: memo.clone(),
         unit,
         sender: connection.sender.clone(),
@@ -591,12 +604,16 @@ impl Server {
         let revision = snapshot.revision();
         let fresh = (self.index.as_ref()).is_some_and(|(r, m, _)| *r == revision && *m == manifest);
         if !fresh {
+            // The last index of the project, whose unchanged modules this
+            // one takes as they were.
+            let previous =
+                (self.index.take()).and_then(|(_, m, index)| (m == manifest).then_some(index));
             let index = {
                 let mut memo = self
                     .memo
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                index::index(snapshot, &self.store, path, &mut memo)?
+                index::index_from(snapshot, &self.store, path, &mut memo, previous.as_ref())?
             };
             self.index = Some((revision, manifest, index));
         }

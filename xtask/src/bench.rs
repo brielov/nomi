@@ -1,11 +1,13 @@
 //! `cargo xtask bench`: the scoreboard (plan B.1). The release build of
 //! nomi against the pinned upstream tools on every workload they share,
 //! each measured for wall time, CPU time and peak memory, with the same
-//! output from both. `bench elm` and `bench elm-format` print their part;
+//! output from both. `bench elm`, `bench elm-format` and `bench lsp` print
+//! their part;
 //! the whole run also writes it into `docs/benchmarks.md`.
 
 pub mod elm;
 pub mod elm_format;
+pub mod lsp;
 pub mod measure;
 
 use std::fmt::Write as _;
@@ -67,7 +69,7 @@ pub fn run(root: &Path, refs: &References, part: Option<&str>) -> Result<()> {
         fs::remove_dir_all(&bin)?;
     }
     fs::create_dir_all(&bin)?;
-    for name in ["elm", "elm-format"] {
+    for name in ["elm", "elm-format", "nomi"] {
         fs::copy(root.join("target/release/nomi"), bin.join(name))?;
     }
     let setup = Setup { scratch, bin };
@@ -77,6 +79,9 @@ pub fn run(root: &Path, refs: &References, part: Option<&str>) -> Result<()> {
     }
     if part.is_none_or(|p| p == "elm-format") {
         tables.push(elm_format::table(root, refs, &setup)?);
+    }
+    if part.is_none_or(|p| p == "lsp") {
+        tables.push(lsp::table(root, refs, &setup)?);
     }
     let board = render(&tables);
     print!("{board}");

@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use nomi_base::Compat;
 
 use crate::Snapshot;
+use crate::artifacts::Artifacts;
 use crate::check::{self, Checked};
 use crate::console::Personality;
 use crate::index::{self, Memo, Setup};
@@ -28,13 +29,15 @@ pub struct Live {
 /// Checks the project whose `elm.json` is `manifest`, with `open` among
 /// its modules where they lie in its source directories; none where the
 /// project isn't readable or the store lacks a dependency, since then
-/// nothing nomi says about it would be what elm says.
+/// nothing nomi says about it would be what elm says. What `artifacts`
+/// holds of earlier checks is reused, as `nomi make` reuses it.
 pub fn check(
     snapshot: &Snapshot,
     store: &Store,
     manifest: &Path,
     open: &[PathBuf],
     memo: &mut Memo,
+    artifacts: Option<&Artifacts>,
 ) -> Option<Live> {
     let Setup {
         root,
@@ -68,13 +71,14 @@ pub fn check(
         .collect();
     paths.sort();
     let env = env.with_cwd(&root);
-    let checked = check::check(
+    let (checked, _) = check::check_with(
         snapshot,
         &env,
         &outline,
         &paths,
         Personality::Elm,
         (&visible).into(),
+        artifacts,
     );
     Some(Live {
         root,

@@ -2148,6 +2148,7 @@ dependencies = [
  "anyhow",
  "cargo_metadata",
  "clap",
+ "crossbeam-channel",
  "flate2",
  "lsp-server",
  "lsp-types",

@@ -51,8 +51,8 @@ pub fn hover(snapshot: &Snapshot, index: &Index, path: &Path, offset: TextSize) 
     let parent = name_at.parent()?;
     let typed = |range: TextRange| -> Option<String> {
         let declaring = declaring?;
-        let (_, types) = types::infer_types(index.compat, declaring.canonical.as_ref()?);
-        let ty = type_of(&declaring.root, &types, range)?;
+        let (_, types) = declaring.types(index.compat)?;
+        let ty = type_of(&declaring.root, types, range)?;
         Some(render_error(&localizer, ty))
     };
     let markdown = match parent.kind() {
@@ -282,9 +282,9 @@ pub(crate) fn definition_type(
         let ty = value_type(index, Some(module), &module.root, &name)?;
         return Some(render(&names, &ty));
     }
-    let (_, types) = types::infer_types(index.compat, module.canonical.as_ref()?);
+    let (_, types) = module.types(index.compat)?;
     composed(definition, |range| {
-        type_of(&module.root, &types, range).map(|ty| render_error(&names, ty))
+        type_of(&module.root, types, range).map(|ty| render_error(&names, ty))
     })
 }
 
@@ -532,9 +532,11 @@ fn named(localizer: &Names, home: &Home, name: &str, args: &[(String, bool)]) ->
 /// in (`getQualifierForName`): bare where an import exposes a name of
 /// that spelling, or where the type's module isn't imported; else
 /// qualified with the import's alias, or its module.
+#[derive(Clone)]
 pub(crate) struct Names {
-    exposed: std::collections::HashSet<String>,
-    imports: Vec<(String, Option<String>)>,
+    // Shared, as a completion writes many types with them.
+    exposed: std::rc::Rc<std::collections::HashSet<String>>,
+    imports: std::rc::Rc<Vec<(String, Option<String>)>>,
     /// An annotation as written, whose records' fields come in its
     /// order: an interface's types have lost it, and elm-language-server
     /// keeps the annotation's.
@@ -589,16 +591,17 @@ impl Names {
                 }
             }
         }
+        let imports: Vec<(String, Option<String>)> = (imports.iter())
+            .map(|i| {
+                (
+                    i.name.text.clone(),
+                    i.alias.as_ref().map(|a| a.text.clone()),
+                )
+            })
+            .collect();
         Names {
-            exposed,
-            imports: (imports.iter())
-                .map(|i| {
-                    (
-                        i.name.text.clone(),
-                        i.alias.as_ref().map(|a| a.text.clone()),
-                    )
-                })
-                .collect(),
+            exposed: std::rc::Rc::new(exposed),
+            imports: std::rc::Rc::new(imports),
             written: None,
         }
     }
@@ -609,8 +612,8 @@ impl Names {
     /// with no module to write it in, such as a record field's.
     pub(crate) fn bare() -> Names {
         Names {
-            exposed: std::collections::HashSet::new(),
-            imports: Vec::new(),
+            exposed: std::rc::Rc::default(),
+            imports: std::rc::Rc::default(),
             written: None,
         }
     }

@@ -27,9 +27,8 @@ pub(crate) fn definition(
         return Some(declared);
     }
     written(&module.root, offset)?;
-    let canonical = module.canonical.as_ref()?;
-    let (_, types) = types::infer_types(index.compat, canonical);
-    resolve(snapshot, index, module, &types, offset)
+    let (_, types) = module.types(index.compat)?;
+    resolve(snapshot, index, module, types, offset)
 }
 
 /// Every place the project writes the field at `offset` in `module`,

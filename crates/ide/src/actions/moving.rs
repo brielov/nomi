@@ -217,12 +217,7 @@ pub fn move_function(
         let expose = uses
             .iter()
             .any(|u| u.path == *path && u.qualifier.is_none());
-        let context = Context {
-            snapshot,
-            index,
-            module: other,
-            path,
-        };
+        let context = Context::new(snapshot, index, other, path);
         let edit = add_import(&context, &target_name, expose.then_some(name.as_str()), "");
         push(&mut files, path, MoveEdit::Edit(edit));
     }

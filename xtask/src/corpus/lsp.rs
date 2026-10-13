@@ -51,7 +51,7 @@ const COMPLETIONS: usize = 2;
 
 /// A project of the suite: its case, its directory, its `elm.json` as
 /// 0.19.1 reads it, and its session.
-pub(super) struct Project {
+pub(crate) struct Project {
     case: String,
     root: PathBuf,
     manifest: String,
@@ -361,7 +361,7 @@ fn session(case: &str, root: &Path, manifest: &str) -> Result<Session> {
 
 /// A project copied for a session: its root, less what tools write and
 /// Node version pins, with its `elm.json` as 0.19.1 reads it.
-pub(super) fn copy(project: &Project, to: &Path) -> Result<()> {
+pub(crate) fn copy(project: &Project, to: &Path) -> Result<()> {
     if to.exists() {
         fs::remove_dir_all(to)?;
     }
@@ -432,17 +432,17 @@ fn sandbox_name(case: &str) -> String {
     case.replace('/', "__").replace('@', "-")
 }
 
-pub(super) fn sandbox() -> Result<PathBuf> {
+pub(crate) fn sandbox() -> Result<PathBuf> {
     Ok(cache_dir()?.join("sandboxes/corpus/corpus-lsp"))
 }
 
 /// The `ELM_HOME` elm-language-server runs with, and its package cache.
-pub(super) fn home_for_lsp() -> Result<(PathBuf, PathBuf)> {
+pub(crate) fn home_for_lsp() -> Result<(PathBuf, PathBuf)> {
     home(Version::parse("0.19.1")?)
 }
 
 /// The project of `case`, with its session.
-pub(super) fn project(root: &Path, case: &str) -> Result<Project> {
+pub(crate) fn project(root: &Path, case: &str) -> Result<Project> {
     (projects(root)?.into_iter())
         .find(|p| p.case == case)
         .with_context(|| format!("{case} isn't one of the suite's projects"))

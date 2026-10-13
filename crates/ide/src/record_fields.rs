@@ -59,11 +59,10 @@ pub(crate) fn after(
         .descendants_with_tokens()
         .any(|e| matches!(e.kind(), SyntaxKind::Error | SyntaxKind::ErrorToken));
     if parsed
-        && let Some(canonical) = &module.canonical
+        && let Some((_, types)) = module.types(index.compat)
         && let Some(record) = before_dot(root)
     {
-        let (_, types) = types::infer_types(index.compat, canonical);
-        let fields = typed_fields(index, module, root, &types, &record, range);
+        let fields = typed_fields(index, module, root, types, &record, range);
         if !fields.is_empty() {
             return fields;
         }

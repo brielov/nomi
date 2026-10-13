@@ -19,8 +19,7 @@ use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
 use crate::Edit;
 use crate::completion::{
-    Completion, CompletionKind, Completions, Context, Exposed, default_imports, exposed,
-    importable_modules, item,
+    Completion, CompletionKind, Completions, Context, Exposed, default_imports, exposed, item,
 };
 use crate::completion_data::{LIST_MARKDOWN, RANKING, SNIPPETS_INLINE, SNIPPETS_START_OF_LINE};
 use crate::symbols::{child, code_range, token, words};
@@ -200,7 +199,7 @@ fn scope(context: &Context<'_>, offset: TextSize, range: TextRange) -> Vec<Compl
     // The module as it would be with something written at the cursor,
     // for the types of the names.
     let typed = typed_module(context, range);
-    let names = crate::hover::Names::of(context.index, context.module);
+    let names = context.names().clone();
     let type_at = |at: TextRange| -> Option<nomi_compiler::types::error::Type> {
         let (root, types) = typed.as_ref()?;
         let find = |at: TextRange| crate::hover::type_of(root, types, at).cloned();
@@ -285,15 +284,21 @@ fn scope(context: &Context<'_>, offset: TextSize, range: TextRange) -> Vec<Compl
 
 /// The module with `Debug.todo ""` in place of the word at the cursor,
 /// typed, where that canonicalizes.
-fn typed_module(
-    context: &Context<'_>,
+fn typed_module<'c>(
+    context: &'c Context<'_>,
     range: TextRange,
-) -> Option<(SyntaxNode, nomi_compiler::types::ExprTypes)> {
-    if let Some(canonical) = &context.module.canonical {
-        let (_, types) = nomi_compiler::types::infer_types(context.index.compat, canonical);
-        return Some((context.module.root.clone(), types));
+) -> Option<(
+    SyntaxNode,
+    std::borrow::Cow<'c, nomi_compiler::types::ExprTypes>,
+)> {
+    if let Some((_, types)) = context.module.types(context.index.compat) {
+        return Some((
+            context.module.root.clone(),
+            std::borrow::Cow::Borrowed(types),
+        ));
     }
     crate::record_fields::patched(context.index, context.module, range, "Debug.todo \"\"")
+        .map(|(root, types)| (root, std::borrow::Cow::Owned(types)))
 }
 
 /// A `let` declaration's type: its parameters', then its body's.
@@ -417,7 +422,7 @@ impl Imports {
             written.push((name, alias, child(&import, SyntaxKind::ExposingList)));
         }
         let packages: HashMap<String, Option<String>> =
-            (importable_modules(context.snapshot, context.index, context.path).into_iter())
+            (context.importable_modules().to_vec().into_iter())
                 .map(|(module, _, package)| (module, package))
                 .collect();
         for (i, (name, alias, list)) in written.iter().enumerate() {
@@ -767,8 +772,7 @@ pub(crate) struct Possible {
 /// project's by how much of the module's name they share.
 pub(crate) fn importable(context: &Context<'_>) -> Vec<Possible> {
     let mut possible = Vec::new();
-    for (module, path, package) in importable_modules(context.snapshot, context.index, context.path)
-    {
+    for (module, path, package) in context.importable_modules().to_vec() {
         if module == "Basics" || path.as_deref() == Some(context.path) {
             continue;
         }

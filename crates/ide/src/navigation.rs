@@ -152,10 +152,9 @@ pub fn type_definition(
     path: &Path,
     offset: TextSize,
 ) -> Option<Location> {
-    use nomi_compiler::types::{self, error};
+    use nomi_compiler::types::error;
     let module = index.module(path)?;
-    let canonical = module.canonical.as_ref()?;
-    let (_, types) = types::infer_types(index.compat, canonical);
+    let (_, types) = module.types(index.compat)?;
     let (innermost, ty) = (types.iter())
         .filter_map(|(range, ty)| Some((crate::hover::trimmed(&module.root, *range)?, ty)))
         .filter(|(range, _)| range.contains_inclusive(offset))
@@ -295,7 +294,7 @@ fn all_references(
     // A local is one module's.
     let modules: Vec<&Indexed> = match target {
         Target::Local(_) => vec![module],
-        Target::Global { .. } => index.modules.iter().collect(),
+        Target::Global { .. } => index.modules.iter().map(|m| &**m).collect(),
     };
     // A record alias is also its constructor.
     let constructor = match &target {
