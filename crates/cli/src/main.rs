@@ -1,7 +1,8 @@
-//! The `nomi` binary, which is also elm-format when invoked under that
-//! name. Command logic lives in other crates; this crate only maps
+//! The `nomi` binary, which is also elm-format, elm and elm-test when
+//! invoked under those names. Command logic lives in other crates; this crate only maps
 //! arguments onto them.
 
+use std::ffi::OsString;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -114,6 +115,13 @@ enum Command {
     /// Publish the package to package.elm-lang.org, once it passes every
     /// check `elm publish` makes.
     Publish,
+    /// Run the tests, as elm-test does, with its options.
+    #[command(disable_help_flag = true)]
+    Test {
+        /// elm-test's options and globs; `nomi test --help` lists them.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
     /// Check modules as `elm make --output=/dev/null` does, generating no
     /// code.
     Check {
@@ -150,6 +158,7 @@ fn main() -> ExitCode {
     match Path::new(&name).file_stem().and_then(|stem| stem.to_str()) {
         Some("elm-format") => return elm_format::main(args),
         Some("elm") => return elm::main(args),
+        Some("elm-test") => return elm_test(args),
         _ => {}
     }
     let cli = Cli::parse();
@@ -236,6 +245,7 @@ fn main() -> ExitCode {
         Some(Command::Bump) => in_project(|console, dir, cache, http| {
             bump::run(&Vfs::new(), console, dir, cache, http)
         }),
+        Some(Command::Test { args }) => return elm_test(args.into_iter()),
         Some(Command::Check { paths, report }) => in_project(|console, dir, cache, http| {
             let style = match report {
                 Some(ReportFormat::Json) => Style::Json,
@@ -245,6 +255,23 @@ fn main() -> ExitCode {
         }),
     };
     exit(succeeded)
+}
+
+/// elm-test's command line, as `elm-test` or `nomi test`.
+fn elm_test(args: impl Iterator<Item = OsString>) -> ExitCode {
+    let args: Vec<String> = args.map(|a| a.to_string_lossy().into_owned()).collect();
+    let (Some(cache), Some(cwd)) = (cache(), current_dir()) else {
+        return ExitCode::FAILURE;
+    };
+    let context = nomi_test::command::Context {
+        vfs: &Vfs::new(),
+        cwd: &cwd,
+        cache: &cache,
+        http: &Web::new(),
+        var: &|name| std::env::var(name).ok(),
+    };
+    let code = nomi_test::command::main(&context, &mut StdConsole, &args);
+    ExitCode::from(u8::try_from(code).unwrap_or(1))
 }
 
 fn exit(succeeded: bool) -> ExitCode {

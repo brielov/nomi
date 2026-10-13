@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, ensure};
-use nomi_testkit::transcript::Case;
+use nomi_testkit::transcript::{Case, normalize_elm_test};
 
 use super::sandbox::{elm_home, offline};
 use super::{binary_path, cache_dir};
@@ -91,50 +91,10 @@ fn elm_test(root: &Path, refs: &References) -> Result<()> {
         transcript.files.clear();
         let dir = work.display().to_string();
         let home = home.display().to_string();
-        transcript.stdout = normalize(&transcript.stdout, &dir, &home);
-        transcript.stderr = normalize(&transcript.stderr, &dir, &home);
+        transcript.stdout = normalize_elm_test(&transcript.stdout, &dir, &home);
+        transcript.stderr = normalize_elm_test(&transcript.stderr, &dir, &home);
         Ok(transcript)
     })
-}
-
-/// elm-test's output with what changes from run to run, or machine to
-/// machine, put plainly: the case's directory and `ELM_HOME` as `{dir}` and
-/// `{home}`, durations as 0, the help's core count as 8, and a stack
-/// trace's Node version and lines and columns in the JavaScript as 0.
-pub fn normalize(output: &[u8], dir: &str, home: &str) -> Vec<u8> {
-    let text = String::from_utf8_lossy(output)
-        .replace(dir, "{dir}")
-        .replace(home, "{home}");
-    let text = digits_after(&text, "\"duration\":\"", "0");
-    let text = digits_after(&text, " time=\"", "0");
-    let text = digits_after(&text, "Duration: ", "0");
-    // Colored, its label and number apart.
-    let text = digits_after(&text, "Duration: \u{1b}[22m", "0");
-    let text = digits_after(&text, "logical CPU cores, ", "8");
-    // A stack trace's Node and its lines in the JavaScript.
-    let text = digits_after(&text, "Node.js v", "0");
-    let text = digits_after(&text, ".js:", "0");
-    let text = digits_after(&text, ".js:0:", "0");
-    text.into_bytes()
-}
-
-/// `text` with the number after each `marker`, digits and points, as `with`.
-fn digits_after(text: &str, marker: &str, with: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(at) = rest.find(marker) {
-        out.push_str(&rest[..at + marker.len()]);
-        rest = &rest[at + marker.len()..];
-        let end = rest
-            .find(|c: char| !(c.is_ascii_digit() || c == '.'))
-            .unwrap_or(rest.len());
-        if end > 0 {
-            out.push_str(with);
-        }
-        rest = &rest[end..];
-    }
-    out.push_str(rest);
-    out
 }
 
 fn elm_format(root: &Path, refs: &References) -> Result<()> {

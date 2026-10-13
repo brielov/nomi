@@ -76,9 +76,20 @@ struct Message<'a> {
     exit_code: Option<i32>,
 }
 
+/// How a run ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ended {
+    /// With this exit code.
+    Code(i32),
+    /// Its one worker threw, which elm-test, running it in its own
+    /// process, catches as it catches its own errors; the message is
+    /// shown.
+    Thrown,
+}
+
 /// Runs the tests of the program at `program` as `supervise` asks,
-/// printing to `console`; the exit code elm-test's would be.
-pub fn run(console: &mut dyn Console, program: &Path, supervise: Supervise) -> io::Result<i32> {
+/// printing to `console`; how it ended.
+pub fn run(console: &mut dyn Console, program: &Path, supervise: Supervise) -> io::Result<Ended> {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
     let port = listener.local_addr()?.port();
     let (send, events) = mpsc::channel();
@@ -210,16 +221,16 @@ impl State {
         console: &mut dyn Console,
         events: &Receiver<Event>,
         workers: &mut [Worker],
-    ) -> i32 {
+    ) -> Ended {
         loop {
             match events.recv_timeout(Duration::from_millis(20)) {
                 Ok(event) => {
                     if let Some(code) = self.event(console, event) {
-                        return code;
+                        return Ended::Code(code);
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) => return 1,
+                Err(RecvTimeoutError::Disconnected) => return Ended::Code(1),
             }
             if let Some(code) = self.exits(console, events, workers) {
                 return code;
@@ -235,7 +246,7 @@ impl State {
         console: &mut dyn Console,
         events: &Receiver<Event>,
         workers: &mut [Worker],
-    ) -> Option<i32> {
+    ) -> Option<Ended> {
         for worker in workers.iter_mut().filter(|w| !w.exited) {
             let Ok(Some(status)) = worker.child.try_wait() else {
                 continue;
@@ -247,22 +258,23 @@ impl State {
             }
             while let Ok(event) = events.try_recv() {
                 if let Some(code) = self.event(console, event) {
-                    return Some(code);
+                    return Some(Ended::Code(code));
                 }
             }
             if !status.success() {
-                if self.supervise.processes > 1 {
-                    console.err(&format!(
-                        "{}\n",
-                        self.red(
-                            "\n\nThere was an unexpected runtime exception while running tests\n\n"
-                        )
-                    ));
+                if self.supervise.processes == 1 {
+                    return Some(Ended::Thrown);
                 }
-                return Some(1);
+                console.err(&format!(
+                    "{}\n",
+                    self.red(
+                        "\n\nThere was an unexpected runtime exception while running tests\n\n"
+                    )
+                ));
+                return Some(Ended::Code(1));
             }
         }
-        workers.iter().all(|w| w.exited).then_some(1)
+        workers.iter().all(|w| w.exited).then_some(Ended::Code(1))
     }
 
     fn red(&self, text: &str) -> String {

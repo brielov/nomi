@@ -3,6 +3,7 @@
 //! and later the workers that run it and the reports they make.
 
 pub mod build;
+pub mod command;
 pub mod discover;
 pub mod files;
 pub mod generate;
@@ -10,7 +11,7 @@ pub mod junit;
 pub mod runner;
 pub mod supervise;
 
-pub use build::{Failure, Runner, build};
+pub use build::{Env, Failure, Runner, Step, build};
 pub use discover::{TestModule, modules, tests};
 pub use files::{Project, resolve};
 pub use generate::{Options, Report};

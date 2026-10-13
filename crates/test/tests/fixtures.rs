@@ -10,10 +10,11 @@ use std::process::Command;
 
 use nomi_engine::console::Console;
 use nomi_engine::paths::Cache;
+use nomi_engine::test_deps::Solve;
 use nomi_engine::{Http, HttpError, Vfs};
 use nomi_project::Outline;
-use nomi_test::supervise::{self, Supervise};
-use nomi_test::{Failure, Options, Project, Report, Runner, build, modules, resolve};
+use nomi_test::supervise::{self, Ended, Supervise};
+use nomi_test::{Env, Failure, Options, Project, Report, Runner, build, modules, resolve};
 use nomi_testkit::transcript::Case;
 
 fn cases_dir() -> PathBuf {
@@ -177,19 +178,30 @@ fn options(files: &[PathBuf]) -> Options {
     }
 }
 
+/// A build's environment, offline with the fixture packages.
+fn env<'a>(vfs: &'a Vfs, cache: &'a Cache) -> Env<'a, Offline> {
+    Env {
+        vfs,
+        cache,
+        http: &Offline,
+        solve: Solve::default(),
+        color: false,
+    }
+}
+
 /// The runner of the case in `dir`, and what it showed.
 fn runner(cache: &Cache, dir: &Path, case: &Case) -> (Result<Runner, Failure>, Kept) {
     let project = Project::read(dir).unwrap();
     let files = resolve(&project, dir, &globs(case)).unwrap();
     let mut console = Kept::default();
+    let vfs = Vfs::new();
     let runner = build(
-        &Vfs::new(),
+        &env(&vfs, cache),
         &mut console,
-        cache,
-        &Offline,
         &project,
         &files,
         &options(&files),
+        &mut |_, _| {},
     );
     (runner, console)
 }
@@ -437,14 +449,14 @@ fn runs_print_what_elm_test_printed() {
         let files = resolve(&project, &dir, &globs(&case)).unwrap();
         let (options, color) = case_options(&case, &files, 3);
         let mut console = Kept::default();
+        let vfs = Vfs::new();
         let built = build(
-            &Vfs::new(),
+            &env(&vfs, &cache),
             &mut console,
-            &cache,
-            &Offline,
             &project,
             &files,
             &options,
+            &mut |_, _| {},
         );
         let runner = built.unwrap_or_else(|e| panic!("{name}: {e:?}\n{}", console.err));
         let supervise = Supervise {
@@ -452,7 +464,11 @@ fn runs_print_what_elm_test_printed() {
             processes: options.processes,
             color,
         };
-        let code = supervise::run(&mut console, &runner.js, supervise).unwrap();
+        // One worker's exception is the command's to report (plan 10.6a).
+        let code = match supervise::run(&mut console, &runner.js, supervise).unwrap() {
+            Ended::Code(code) => code,
+            Ended::Thrown => 1,
+        };
         let text =
             fs::read_to_string(cases_dir().join("expected").join(format!("{name}.txt"))).unwrap();
         let expected_code: i32 = text

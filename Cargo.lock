@@ -961,6 +961,7 @@ dependencies = [
  "nomi-lsp",
  "nomi-project",
  "nomi-registry",
+ "nomi-test",
  "nomi-testkit",
  "serde_json",
  "sha1",

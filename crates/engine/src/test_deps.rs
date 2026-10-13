@@ -25,24 +25,42 @@ const COMPAT: Compat = Compat::V0_19_3;
 /// A solution: the dependencies the constraints name, and the rest.
 pub type Dependencies = (BTreeMap<Name, Version>, BTreeMap<Name, Version>);
 
+/// How elm-test solves: `--dependencies oldest`, which only a package's
+/// ranges leave room for, and `--offline`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Solve {
+    pub oldest: bool,
+    pub offline: bool,
+}
+
 /// The generated dependencies of the project whose `elm.json` is
 /// `elm_json`, decoded as `outline`, kept in `dir` by a hash of it as
-/// elm-test keeps them by its dependencies.
+/// elm-test keeps them by its dependencies; `solving` is called before a
+/// solve, which a kept solution saves.
 pub fn dependencies(
     elm_json: &[u8],
     outline: &Outline,
     dir: &Path,
     cache: &Cache,
     http: &impl Http,
+    how: Solve,
+    solving: &mut dyn FnMut(),
 ) -> Result<Dependencies, Report> {
-    let hex: String = (Hash::of(elm_json).0.iter())
+    let oldest = how.oldest && matches!(outline, Outline::Pkg(_));
+    let mut key = elm_json.to_vec();
+    if oldest {
+        key.extend_from_slice(b"\0oldest");
+    }
+    let hex: String = (Hash::of(&key).0.iter())
         .map(|b| format!("{b:02x}"))
         .collect();
     let kept = dir.join(format!("dependencies.{hex}"));
     if let Some(dependencies) = fs::read_to_string(&kept).ok().and_then(|t| read(&t)) {
         return Ok(dependencies);
     }
-    let dependencies = solve(outline, cache, http)?;
+    solving();
+    let how = Solve { oldest, ..how };
+    let dependencies = solve(outline, cache, http, how)?;
     // A solution that can't be kept is solved again next time.
     let _ = fs::write(&kept, write(&dependencies));
     Ok(dependencies)
@@ -82,7 +100,12 @@ fn constraints(outline: &Outline) -> Result<BTreeMap<Name, Constraint>, Report> 
     Ok(constraints)
 }
 
-fn solve(outline: &Outline, cache: &Cache, http: &impl Http) -> Result<Dependencies, Report> {
+fn solve(
+    outline: &Outline,
+    cache: &Cache,
+    http: &impl Http,
+    how: Solve,
+) -> Result<Dependencies, Report> {
     let constraints = constraints(outline)?;
     let store = Store::new(cache.packages());
     let split = |solution: BTreeMap<Name, Details>| -> Dependencies {
@@ -91,8 +114,13 @@ fn solve(outline: &Outline, cache: &Cache, http: &impl Http) -> Result<Dependenc
             .partition(|(name, _)| constraints.contains_key(name))
     };
     let mut local = Local::new(&store).map_err(io_problem)?;
-    if let Ok(Some(solution)) = solver::verify(&mut local, COMPAT, &constraints) {
+    if let Ok(Some(solution)) = solver::verify_in(&mut local, COMPAT, &constraints, how.oldest) {
         return Ok(split(solution));
+    }
+    if how.offline {
+        return Err(no_solution(
+            "I could not find versions of the project's dependencies and the test runner's that work together among the packages already downloaded, and --offline keeps me from looking further.",
+        ));
     }
     let mut registry = env::registry(
         cache,
@@ -101,7 +129,7 @@ fn solve(outline: &Outline, cache: &Cache, http: &impl Http) -> Result<Dependenc
         COMPAT,
         "I need the list of published packages to find the tests' dependencies",
     )?;
-    match solver::verify(&mut registry, COMPAT, &constraints) {
+    match solver::verify_in(&mut registry, COMPAT, &constraints, how.oldest) {
         Ok(Some(solution)) => Ok(split(solution)),
         Ok(None) => Err(no_solution(
             "I could not find versions of the project's dependencies and the test runner's that work together.",

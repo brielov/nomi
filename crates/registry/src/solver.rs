@@ -71,7 +71,19 @@ pub fn verify<P: Packages>(
     compat: Compat,
     constraints: &BTreeMap<Name, Constraint>,
 ) -> Result<Option<BTreeMap<Name, Details>>, P::Error> {
+    verify_in(packages, compat, constraints, false)
+}
+
+/// [`verify`], trying each package's versions oldest first if `oldest`,
+/// as elm-test's `--dependencies oldest` asks.
+pub fn verify_in<P: Packages>(
+    packages: &mut P,
+    compat: Compat,
+    constraints: &BTreeMap<Name, Constraint>,
+    oldest: bool,
+) -> Result<Option<BTreeMap<Name, Details>>, P::Error> {
     let mut search = Search::new(packages, compat);
+    search.oldest = oldest;
     let Some(solution) = search.attempt(constraints.clone())? else {
         return Ok(None);
     };
@@ -192,6 +204,8 @@ struct Search<'p, P> {
     packages: &'p mut P,
     compat: Compat,
     releases: BTreeMap<(Name, Version), Release>,
+    /// Whether versions are tried oldest first.
+    oldest: bool,
 }
 
 /// `Goals`: what is still to pick, and what has been.
@@ -207,6 +221,7 @@ impl<'p, P: Packages> Search<'p, P> {
             packages,
             compat,
             releases: BTreeMap::new(),
+            oldest: false,
         }
     }
 
@@ -228,10 +243,13 @@ impl<'p, P: Packages> Search<'p, P> {
             return Ok(Some(goals.solved));
         };
         // `getRelevantVersions`
-        let versions: Vec<Version> = match self.packages.versions(&name) {
+        let mut versions: Vec<Version> = match self.packages.versions(&name) {
             Some(known) => known.all().filter(|&v| constraint.satisfies(v)).collect(),
             None => Vec::new(),
         };
+        if self.oldest {
+            versions.reverse();
+        }
         for version in versions {
             if let Some(next) = self.add_version(&goals, &name, version)?
                 && let Some(solution) = self.explore(next)?
