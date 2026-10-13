@@ -1,0 +1,1386 @@
+{
+  "open": [
+    "src/Main.elm"
+  ],
+  "requests": [
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/documentSymbol"
+    },
+    {
+      "at": {
+        "character": 35,
+        "line": 30
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/hover"
+    },
+    {
+      "at": {
+        "character": 35,
+        "line": 30
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/definition"
+    },
+    {
+      "at": {
+        "character": 35,
+        "line": 30
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/references",
+      "params": {
+        "context": {
+          "includeDeclaration": true
+        }
+      }
+    },
+    {
+      "at": {
+        "character": 36,
+        "line": 222
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/hover"
+    },
+    {
+      "at": {
+        "character": 36,
+        "line": 222
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/definition"
+    },
+    {
+      "at": {
+        "character": 36,
+        "line": 222
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/references",
+      "params": {
+        "context": {
+          "includeDeclaration": true
+        }
+      }
+    },
+    {
+      "at": {
+        "character": 20,
+        "line": 241
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/hover"
+    },
+    {
+      "at": {
+        "character": 20,
+        "line": 241
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/definition"
+    },
+    {
+      "at": {
+        "character": 20,
+        "line": 241
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/references",
+      "params": {
+        "context": {
+          "includeDeclaration": true
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":0,"line":420},"start":{"character":0,"line":420}},"text":"\n"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":0,"line":421},"start":{"character":0,"line":421}},"text":"c"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":1,"line":421},"start":{"character":1,"line":421}},"text":"o"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 2,
+        "line": 421
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":2,"line":421},"start":{"character":2,"line":421}},"text":"u"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 3,
+        "line": 421
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":3,"line":421},"start":{"character":3,"line":421}},"text":"n"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 4,
+        "line": 421
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":4,"line":421},"start":{"character":4,"line":421}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 5,
+        "line": 421
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":5,"line":421},"start":{"character":5,"line":421}},"text":"L"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 6,
+        "line": 421
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":6,"line":421},"start":{"character":6,"line":421}},"text":"e"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 7,
+        "line": 421
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":7,"line":421},"start":{"character":7,"line":421}},"text":"f"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 8,
+        "line": 421
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":8,"line":421},"start":{"character":8,"line":421}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 9,
+        "line": 421
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":9,"line":421},"start":{"character":9,"line":421}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":10,"line":421},"start":{"character":10,"line":421}},"text":"m"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":11,"line":421},"start":{"character":11,"line":421}},"text":"o"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 12,
+        "line": 421
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":12,"line":421},"start":{"character":12,"line":421}},"text":"d"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 13,
+        "line": 421
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":13,"line":421},"start":{"character":13,"line":421}},"text":"e"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 14,
+        "line": 421
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":14,"line":421},"start":{"character":14,"line":421}},"text":"l"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 15,
+        "line": 421
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":15,"line":421},"start":{"character":15,"line":421}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":16,"line":421},"start":{"character":16,"line":421}},"text":"="}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":17,"line":421},"start":{"character":17,"line":421}},"text":"\n"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":0,"line":422},"start":{"character":0,"line":422}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":1,"line":422},"start":{"character":1,"line":422}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":2,"line":422},"start":{"character":2,"line":422}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":3,"line":422},"start":{"character":3,"line":422}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":4,"line":422},"start":{"character":4,"line":422}},"text":"L"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":5,"line":422},"start":{"character":5,"line":422}},"text":"i"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 6,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":6,"line":422},"start":{"character":6,"line":422}},"text":"s"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":7,"line":422},"start":{"character":7,"line":422}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 8,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":8,"line":422},"start":{"character":8,"line":422}},"text":"."}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 9,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerCharacter": ".",
+          "triggerKind": 2
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":9,"line":422},"start":{"character":9,"line":422}},"text":"l"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":10,"line":422},"start":{"character":10,"line":422}},"text":"e"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":11,"line":422},"start":{"character":11,"line":422}},"text":"n"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":12,"line":422},"start":{"character":12,"line":422}},"text":"g"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":13,"line":422},"start":{"character":13,"line":422}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":14,"line":422},"start":{"character":14,"line":422}},"text":"h"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":15,"line":422},"start":{"character":15,"line":422}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":16,"line":422},"start":{"character":16,"line":422}},"text":"("}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":17,"line":422},"start":{"character":17,"line":422}},"text":"L"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":18,"line":422},"start":{"character":18,"line":422}},"text":"i"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 19,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":19,"line":422},"start":{"character":19,"line":422}},"text":"s"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 20,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":20,"line":422},"start":{"character":20,"line":422}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 21,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":21,"line":422},"start":{"character":21,"line":422}},"text":"."}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 22,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerCharacter": ".",
+          "triggerKind": 2
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":22,"line":422},"start":{"character":22,"line":422}},"text":"f"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":23,"line":422},"start":{"character":23,"line":422}},"text":"i"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":24,"line":422},"start":{"character":24,"line":422}},"text":"l"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":25,"line":422},"start":{"character":25,"line":422}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":26,"line":422},"start":{"character":26,"line":422}},"text":"e"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":27,"line":422},"start":{"character":27,"line":422}},"text":"r"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":28,"line":422},"start":{"character":28,"line":422}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":29,"line":422},"start":{"character":29,"line":422}},"text":"("}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":30,"line":422},"start":{"character":30,"line":422}},"text":"n"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":31,"line":422},"start":{"character":31,"line":422}},"text":"o"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 32,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":32,"line":422},"start":{"character":32,"line":422}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 33,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":33,"line":422},"start":{"character":33,"line":422}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":34,"line":422},"start":{"character":34,"line":422}},"text":"<"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":35,"line":422},"start":{"character":35,"line":422}},"text":"<"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":36,"line":422},"start":{"character":36,"line":422}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":37,"line":422},"start":{"character":37,"line":422}},"text":"."}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 38,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerCharacter": ".",
+          "triggerKind": 2
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":38,"line":422},"start":{"character":38,"line":422}},"text":"c"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":39,"line":422},"start":{"character":39,"line":422}},"text":"o"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":40,"line":422},"start":{"character":40,"line":422}},"text":"m"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 41,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":41,"line":422},"start":{"character":41,"line":422}},"text":"p"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 42,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":42,"line":422},"start":{"character":42,"line":422}},"text":"l"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 43,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":43,"line":422},"start":{"character":43,"line":422}},"text":"e"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 44,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":44,"line":422},"start":{"character":44,"line":422}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 45,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":45,"line":422},"start":{"character":45,"line":422}},"text":"e"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 46,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":46,"line":422},"start":{"character":46,"line":422}},"text":"d"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 47,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":47,"line":422},"start":{"character":47,"line":422}},"text":")"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":48,"line":422},"start":{"character":48,"line":422}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":49,"line":422},"start":{"character":49,"line":422}},"text":"m"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":50,"line":422},"start":{"character":50,"line":422}},"text":"o"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 51,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":51,"line":422},"start":{"character":51,"line":422}},"text":"d"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 52,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":52,"line":422},"start":{"character":52,"line":422}},"text":"e"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 53,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":53,"line":422},"start":{"character":53,"line":422}},"text":"l"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 54,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":54,"line":422},"start":{"character":54,"line":422}},"text":"."}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 55,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerCharacter": ".",
+          "triggerKind": 2
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":55,"line":422},"start":{"character":55,"line":422}},"text":"e"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":56,"line":422},"start":{"character":56,"line":422}},"text":"n"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 57,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":57,"line":422},"start":{"character":57,"line":422}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 58,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":58,"line":422},"start":{"character":58,"line":422}},"text":"r"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 59,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":59,"line":422},"start":{"character":59,"line":422}},"text":"i"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 60,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":60,"line":422},"start":{"character":60,"line":422}},"text":"e"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 61,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":61,"line":422},"start":{"character":61,"line":422}},"text":"s"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 62,
+        "line": 422
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":62,"line":422},"start":{"character":62,"line":422}},"text":")"}
+        ]
+      }
+    },
+    {
+      "file": "src/Main.elm",
+      "method": "textDocument/didSave"
+    },
+    {
+      "at": {
+        "character": 8,
+        "line": 421
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/hover"
+    },
+    {
+      "at": {
+        "character": 8,
+        "line": 421
+      },
+      "file": "src/Main.elm",
+      "method": "textDocument/references",
+      "params": {
+        "context": {
+          "includeDeclaration": true
+        }
+      }
+    }
+  ],
+  "title": "Helix editing src/Main.elm in todomvc"
+}

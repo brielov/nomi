@@ -1,0 +1,1123 @@
+{
+  "open": [
+    "src/Page/Article.elm"
+  ],
+  "requests": [
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/documentSymbol"
+    },
+    {
+      "at": {
+        "character": 38,
+        "line": 110
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/hover"
+    },
+    {
+      "at": {
+        "character": 38,
+        "line": 110
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/definition"
+    },
+    {
+      "at": {
+        "character": 38,
+        "line": 110
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/references",
+      "params": {
+        "context": {
+          "includeDeclaration": true
+        }
+      }
+    },
+    {
+      "at": {
+        "character": 66,
+        "line": 137
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/hover"
+    },
+    {
+      "at": {
+        "character": 66,
+        "line": 137
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/definition"
+    },
+    {
+      "file": "src/Article.elm",
+      "method": "textDocument/didOpen"
+    },
+    {
+      "at": {
+        "character": 66,
+        "line": 137
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/references",
+      "params": {
+        "context": {
+          "includeDeclaration": true
+        }
+      }
+    },
+    {
+      "at": {
+        "character": 13,
+        "line": 521
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/hover"
+    },
+    {
+      "at": {
+        "character": 13,
+        "line": 521
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/definition"
+    },
+    {
+      "file": "src/Api.elm",
+      "method": "textDocument/didOpen"
+    },
+    {
+      "at": {
+        "character": 13,
+        "line": 521
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/references",
+      "params": {
+        "context": {
+          "includeDeclaration": true
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":0,"line":233},"start":{"character":0,"line":233}},"text":"\n"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":0,"line":234},"start":{"character":0,"line":234}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":1,"line":234},"start":{"character":1,"line":234}},"text":"i"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 2,
+        "line": 234
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":2,"line":234},"start":{"character":2,"line":234}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 3,
+        "line": 234
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":3,"line":234},"start":{"character":3,"line":234}},"text":"l"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 4,
+        "line": 234
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":4,"line":234},"start":{"character":4,"line":234}},"text":"e"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 5,
+        "line": 234
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":5,"line":234},"start":{"character":5,"line":234}},"text":"O"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 6,
+        "line": 234
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":6,"line":234},"start":{"character":6,"line":234}},"text":"f"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 7,
+        "line": 234
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":7,"line":234},"start":{"character":7,"line":234}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":8,"line":234},"start":{"character":8,"line":234}},"text":"a"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":9,"line":234},"start":{"character":9,"line":234}},"text":"r"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 10,
+        "line": 234
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":10,"line":234},"start":{"character":10,"line":234}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 11,
+        "line": 234
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":11,"line":234},"start":{"character":11,"line":234}},"text":"i"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 12,
+        "line": 234
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":12,"line":234},"start":{"character":12,"line":234}},"text":"c"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 13,
+        "line": 234
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":13,"line":234},"start":{"character":13,"line":234}},"text":"l"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 14,
+        "line": 234
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":14,"line":234},"start":{"character":14,"line":234}},"text":"e"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 15,
+        "line": 234
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":15,"line":234},"start":{"character":15,"line":234}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":16,"line":234},"start":{"character":16,"line":234}},"text":"="}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":17,"line":234},"start":{"character":17,"line":234}},"text":"\n"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":0,"line":235},"start":{"character":0,"line":235}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":1,"line":235},"start":{"character":1,"line":235}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":2,"line":235},"start":{"character":2,"line":235}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":3,"line":235},"start":{"character":3,"line":235}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":4,"line":235},"start":{"character":4,"line":235}},"text":"H"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":5,"line":235},"start":{"character":5,"line":235}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 6,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":6,"line":235},"start":{"character":6,"line":235}},"text":"m"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":7,"line":235},"start":{"character":7,"line":235}},"text":"l"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 8,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":8,"line":235},"start":{"character":8,"line":235}},"text":"."}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 9,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerCharacter": ".",
+          "triggerKind": 2
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":9,"line":235},"start":{"character":9,"line":235}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":10,"line":235},"start":{"character":10,"line":235}},"text":"e"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":11,"line":235},"start":{"character":11,"line":235}},"text":"x"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":12,"line":235},"start":{"character":12,"line":235}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":13,"line":235},"start":{"character":13,"line":235}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":14,"line":235},"start":{"character":14,"line":235}},"text":"("}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":15,"line":235},"start":{"character":15,"line":235}},"text":"A"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":16,"line":235},"start":{"character":16,"line":235}},"text":"r"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 17,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":17,"line":235},"start":{"character":17,"line":235}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 18,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":18,"line":235},"start":{"character":18,"line":235}},"text":"i"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 19,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":19,"line":235},"start":{"character":19,"line":235}},"text":"c"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 20,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":20,"line":235},"start":{"character":20,"line":235}},"text":"l"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 21,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":21,"line":235},"start":{"character":21,"line":235}},"text":"e"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 22,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":22,"line":235},"start":{"character":22,"line":235}},"text":"."}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 23,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerCharacter": ".",
+          "triggerKind": 2
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":23,"line":235},"start":{"character":23,"line":235}},"text":"m"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":24,"line":235},"start":{"character":24,"line":235}},"text":"e"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":25,"line":235},"start":{"character":25,"line":235}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":26,"line":235},"start":{"character":26,"line":235}},"text":"a"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":27,"line":235},"start":{"character":27,"line":235}},"text":"d"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":28,"line":235},"start":{"character":28,"line":235}},"text":"a"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":29,"line":235},"start":{"character":29,"line":235}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":30,"line":235},"start":{"character":30,"line":235}},"text":"a"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":31,"line":235},"start":{"character":31,"line":235}},"text":" "}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":32,"line":235},"start":{"character":32,"line":235}},"text":"a"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":33,"line":235},"start":{"character":33,"line":235}},"text":"r"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 34,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":34,"line":235},"start":{"character":34,"line":235}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 35,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":35,"line":235},"start":{"character":35,"line":235}},"text":"i"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 36,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":36,"line":235},"start":{"character":36,"line":235}},"text":"c"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 37,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":37,"line":235},"start":{"character":37,"line":235}},"text":"l"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 38,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":38,"line":235},"start":{"character":38,"line":235}},"text":"e"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 39,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 3
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":39,"line":235},"start":{"character":39,"line":235}},"text":")"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":40,"line":235},"start":{"character":40,"line":235}},"text":"."}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 41,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerCharacter": ".",
+          "triggerKind": 2
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":41,"line":235},"start":{"character":41,"line":235}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":42,"line":235},"start":{"character":42,"line":235}},"text":"i"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":43,"line":235},"start":{"character":43,"line":235}},"text":"t"}
+        ]
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":44,"line":235},"start":{"character":44,"line":235}},"text":"l"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 45,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didChange",
+      "params": {
+        "contentChanges": [
+          {"range":{"end":{"character":45,"line":235},"start":{"character":45,"line":235}},"text":"e"}
+        ]
+      }
+    },
+    {
+      "at": {
+        "character": 46,
+        "line": 235
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/completion",
+      "params": {
+        "context": {
+          "triggerKind": 1
+        }
+      }
+    },
+    {
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/didSave"
+    },
+    {
+      "at": {
+        "character": 6,
+        "line": 234
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/hover"
+    },
+    {
+      "at": {
+        "character": 6,
+        "line": 234
+      },
+      "file": "src/Page/Article.elm",
+      "method": "textDocument/references",
+      "params": {
+        "context": {
+          "includeDeclaration": true
+        }
+      }
+    }
+  ],
+  "title": "Helix editing src/Page/Article.elm in elm-spa-example"
+}

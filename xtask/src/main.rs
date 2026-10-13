@@ -272,6 +272,12 @@ enum OracleCommand {
         #[arg(long)]
         only: Option<String>,
     },
+    /// Have Helix edit a corpus app with elm-language-server, driven
+    /// through tmux, and keep the session its messages make (plan 9.21).
+    EditorTrace {
+        /// The app, by its name in `corpus/apps.toml`.
+        app: String,
+    },
     CorpusGraphs {
         /// Concurrent elm runs; the available cores by default.
         #[arg(long)]
@@ -358,6 +364,7 @@ fn main() -> ExitCode {
             OracleCommand::CorpusLsp { jobs, only } => {
                 corpus::lsp::record(&root(), &r, jobs, only.as_deref())
             }
+            OracleCommand::EditorTrace { app } => corpus::trace::record(&root(), &r, &app),
             OracleCommand::CorpusGraphs { jobs, only } => {
                 oracle::corpus_runs::run(&root(), &r, Suite::Graphs, jobs, only.as_deref())
             }

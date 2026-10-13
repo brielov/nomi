@@ -151,6 +151,27 @@ pub(crate) fn tools(
     })
 }
 
+impl Tools {
+    /// How an editor starts the server: Node, its entry point, its
+    /// `PATH` and `ELM_HOME`.
+    pub(crate) fn command(&self) -> (&Path, &Path, &std::ffi::OsStr, &Path) {
+        (&self.node, &self.server, &self.path, &self.home)
+    }
+
+    /// The settings that point the server at the pinned tools, as the
+    /// recordings give them, with `elm-review` at `no_review`.
+    pub(crate) fn settings(&self, no_review: &Path) -> serde_json::Value {
+        json!({
+            "elmPath": self.elm,
+            "elmFormatPath": self.elm_format,
+            // Unset, so it looks for `elm-test`, finds none, and falls
+            // back to `elm`, as it does for most users.
+            "elmTestPath": "",
+            "elmReviewPath": no_review,
+        })
+    }
+}
+
 /// The pinned elm-language-server's entry point.
 pub(crate) fn server_path() -> Result<PathBuf> {
     let server =
@@ -214,14 +235,7 @@ pub(crate) fn record(tools: &Tools, scratch: &Path, case: &lsp::Case) -> Result<
     let connection =
         lsp::child_connection(child.stdin.take().unwrap(), child.stdout.take().unwrap());
     let mut session = case.session.clone();
-    let paths = json!({
-        "elmPath": tools.elm,
-        "elmFormatPath": tools.elm_format,
-        // Unset, so it looks for `elm-test`, finds none, and falls back
-        // to `elm`, as it does for most users.
-        "elmTestPath": "",
-        "elmReviewPath": scratch.join("no-elm-review"),
-    });
+    let paths = tools.settings(&scratch.join("no-elm-review"));
     for (key, value) in paths.as_object().unwrap() {
         session.settings.entry(key.clone()).or_insert(value.clone());
     }

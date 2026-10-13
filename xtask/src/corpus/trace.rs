@@ -1,0 +1,451 @@
+//! Editor traces (plan 9.21): sessions recorded rather than written.
+//!
+//! `cargo xtask oracle editor-trace APP` has Helix edit a copy of a
+//! corpus app with elm-language-server, driven through tmux by a script
+//! of keys, and turns the messages Helix sends, as its log has them, into
+//! a session in `corpus/lsp/traces/APP.json`. `cargo xtask corpus lsp`
+//! replays it as one more project, `trace/APP`, recorded and compared as
+//! the generated sessions are.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{Duration, Instant};
+
+use anyhow::{Context, Result, bail, ensure};
+use serde_json::{Map, Value, json};
+
+use crate::references::References;
+
+/// Where the traces are kept.
+pub const DIR: &str = "corpus/lsp/traces";
+
+/// A key, or keys, to give Helix.
+enum Key {
+    /// Typed as it is, at once.
+    Text(&'static str),
+    /// Typed a character at a time, as completion pops up between them.
+    Typed(&'static str),
+    /// A key tmux names, such as `Escape` or `C-o`.
+    Press(&'static str),
+    /// A search for the text, which selects it.
+    Search(&'static str),
+    /// Until the server goes quiet.
+    Settle,
+}
+
+use Key::{Press, Search, Settle, Text, Typed};
+
+/// What Helix does to an app: the file it opens, and the keys.
+struct Script {
+    app: &'static str,
+    file: &'static str,
+    keys: fn() -> Vec<Key>,
+}
+
+/// Looking at a name: hover, its definition and back, its references.
+fn look(name: &'static str) -> Vec<Key> {
+    vec![
+        Search(name),
+        Settle,
+        Text(" k"),
+        Settle,
+        Press("Escape"),
+        Text("gd"),
+        Settle,
+        Press("C-o"),
+        Text("gr"),
+        Settle,
+        Press("Escape"),
+    ]
+}
+
+/// The symbols, three names looked at, then a function added above the
+/// declaration `before`, typed so completion pops up as it goes, saved
+/// and looked at.
+fn edit(
+    names: [&'static str; 3],
+    before: &'static str,
+    head: &'static str,
+    body: &'static str,
+) -> Vec<Key> {
+    let mut keys = vec![Settle, Text(" s"), Settle, Press("Escape")];
+    for name in names {
+        keys.extend(look(name));
+    }
+    let new_name = head.split(' ').next().unwrap_or(head);
+    keys.extend([
+        Search(before),
+        Text("O"),
+        Typed(head),
+        // Out of insert mode, which closes completion, and into a new
+        // line, which Helix leaves unindented after a declaration's head.
+        Press("Escape"),
+        Text("o"),
+        Text("    "),
+        Typed(body),
+        Press("Escape"),
+        Press("Escape"),
+        Text(":w"),
+        Press("Enter"),
+        Settle,
+        // The new function, looked at.
+        Search(new_name),
+        Settle,
+        Text(" k"),
+        Settle,
+        Press("Escape"),
+        Text("gr"),
+        Settle,
+        Press("Escape"),
+    ]);
+    keys
+}
+
+const SCRIPTS: &[Script] = &[
+    Script {
+        app: "todomvc",
+        file: "src/Main.elm",
+        keys: || {
+            edit(
+                ["updateWithStorage", "viewEntries model", "onEnter"],
+                "^infoFooter :",
+                "countLeft model =",
+                "List.length (List.filter (not << .completed) model.entries)",
+            )
+        },
+    },
+    Script {
+        app: "elm-spa-example",
+        file: "src/Page/Article.elm",
+        keys: || {
+            edit(
+                ["viewButtons", "Article.body", "Api.delete"],
+                "^viewButtons :",
+                "titleOf article =",
+                "Html.text (Article.metadata article).title",
+            )
+        },
+    },
+];
+
+/// `cargo xtask oracle editor-trace`.
+pub fn record(root: &Path, refs: &References, app: &str) -> Result<()> {
+    let script = SCRIPTS
+        .iter()
+        .find(|s| s.app == app)
+        .with_context(|| format!("no script for `{app}`; there are {}", names()))?;
+    let project = super::lsp::project(root, &format!("app/{app}"))?;
+    let scratch = super::lsp::sandbox()?.join("traces");
+    let work = scratch.join(app);
+    super::lsp::copy(&project, &work)?;
+    let work = fs::canonicalize(&work)?;
+    let (home, packages) = super::lsp::home_for_lsp()?;
+    let tools = crate::oracle::lsp::tools(
+        refs,
+        crate::oracle::lsp::server_path()?,
+        &super::lsp::sandbox()?,
+        home,
+        packages,
+    )?;
+    let config = scratch.join(format!("{app}-config"));
+    write_config(&config, &tools, &scratch.join("no-elm-review"))?;
+    let log = scratch.join(format!("{app}.log"));
+    let _ = fs::remove_file(&log);
+    drive(&work, &config, &log, script)?;
+    let text = fs::read_to_string(&log).context("Helix's log")?;
+    let session = session(&text, &work, script)?;
+    let out = root.join(DIR);
+    fs::create_dir_all(&out)?;
+    let path = out.join(format!("{app}.json"));
+    fs::write(&path, nomi_testkit::lsp::to_text(&session))?;
+    eprintln!(
+        "{}: {} steps",
+        path.display(),
+        session["requests"].as_array().map_or(0, Vec::len)
+    );
+    Ok(())
+}
+
+fn names() -> String {
+    SCRIPTS.iter().map(|s| s.app).collect::<Vec<_>>().join(", ")
+}
+
+/// Helix's configuration: elm-language-server for Elm, with the
+/// recordings' settings, and completion that pops up soon.
+fn write_config(dir: &Path, tools: &crate::oracle::lsp::Tools, no_review: &Path) -> Result<()> {
+    let helix = dir.join("helix");
+    fs::create_dir_all(&helix)?;
+    let (node, server, path, home) = tools.command();
+    let mut settings = nomi_testkit::lsp::default_settings();
+    if let Value::Object(paths) = tools.settings(no_review) {
+        settings.extend(paths);
+    }
+    let toml_string = |v: &str| serde_json::to_string(v).unwrap();
+    let languages = format!(
+        "[language-server.elmls]\ncommand = {}\nargs = [{}, \"--stdio\"]\nenvironment = {{ ELM_HOME = {}, PATH = {} }}\nconfig = {}\n\n[[language]]\nname = \"elm\"\nlanguage-servers = [\"elmls\"]\nauto-format = false\n",
+        toml_string(&node.to_string_lossy()),
+        toml_string(&server.to_string_lossy()),
+        toml_string(&home.to_string_lossy()),
+        toml_string(&path.to_string_lossy()),
+        inline_table(&Value::Object(settings)),
+    );
+    fs::write(helix.join("languages.toml"), languages)?;
+    fs::write(
+        helix.join("config.toml"),
+        "[editor]\nidle-timeout = 200\ncompletion-timeout = 200\nauto-pairs = false\n",
+    )?;
+    Ok(())
+}
+
+/// `value` as a TOML inline table.
+fn inline_table(value: &Value) -> String {
+    match value {
+        Value::Object(map) => {
+            let fields: Vec<String> = map
+                .iter()
+                .map(|(k, v)| {
+                    format!(
+                        "{} = {}",
+                        serde_json::to_string(k).unwrap(),
+                        inline_table(v)
+                    )
+                })
+                .collect();
+            format!("{{ {} }}", fields.join(", "))
+        }
+        Value::Array(items) => {
+            let items: Vec<String> = items.iter().map(inline_table).collect();
+            format!("[{}]", items.join(", "))
+        }
+        Value::Null => "\"\"".to_owned(),
+        other => other.to_string(),
+    }
+}
+
+/// Runs Helix on `script.file` in a tmux session and gives it the keys.
+fn drive(work: &Path, config: &Path, log: &Path, script: &Script) -> Result<()> {
+    let session = format!("nomi-trace-{}", std::process::id());
+    let hx = which("hx").context("Helix (`hx`) isn't on PATH")?;
+    let command = format!(
+        "XDG_CONFIG_HOME={} {} -vvv --log {} {}",
+        shell(&config.to_string_lossy()),
+        shell(&hx.to_string_lossy()),
+        shell(&log.to_string_lossy()),
+        script.file,
+    );
+    // A tmux server of its own, which reads an `Escape` as itself however
+    // soon a key follows it, not as Alt with that key.
+    let status = tmux()
+        .args([
+            "new-session",
+            "-d",
+            "-s",
+            &session,
+            "-x",
+            "160",
+            "-y",
+            "50",
+            "-c",
+        ])
+        .arg(work)
+        .arg(&command)
+        .status()
+        .context("starting tmux")?;
+    ensure!(status.success(), "tmux failed to start Helix");
+    tmux().args(["set", "-s", "escape-time", "0"]).status()?;
+    let result = (|| -> Result<()> {
+        // The server publishes nothing on open for a project that
+        // compiles: it's ready once it has gone quiet after the file opens.
+        wait_for(log, "textDocument/didOpen", Duration::from_secs(120))?;
+        settle(log)?;
+        for key in (script.keys)() {
+            match key {
+                Text(text) => send(&session, &["-l", text])?,
+                Search(text) => {
+                    send(&session, &["-l", &format!("/{text}")])?;
+                    send(&session, &["Enter"])?;
+                }
+                Typed(text) => {
+                    for c in text.chars() {
+                        send(&session, &["-l", &c.to_string()])?;
+                        std::thread::sleep(Duration::from_millis(350));
+                    }
+                }
+                Press(name) => send(&session, &[name])?,
+                Settle => settle(log)?,
+            }
+            std::thread::sleep(Duration::from_millis(150));
+        }
+        send(&session, &["Escape"])?;
+        send(&session, &["-l", ":q!"])?;
+        send(&session, &["Enter"])?;
+        settle(log)
+    })();
+    let _ = tmux().args(["kill-server"]).status();
+    result
+}
+
+/// tmux, on the traces' own server.
+fn tmux() -> Command {
+    let mut command = Command::new("tmux");
+    command.args(["-L", "nomi-trace"]);
+    command
+}
+
+fn send(session: &str, args: &[&str]) -> Result<()> {
+    let status = tmux()
+        .args(["send-keys", "-t", session])
+        .args(args)
+        .status()?;
+    ensure!(status.success(), "tmux send-keys failed");
+    Ok(())
+}
+
+/// Until `log` mentions `text`.
+fn wait_for(log: &Path, text: &str, limit: Duration) -> Result<()> {
+    let start = Instant::now();
+    while !fs::read_to_string(log).is_ok_and(|t| t.contains(text)) {
+        if start.elapsed() > limit {
+            bail!("Helix's log never mentioned {text}");
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    Ok(())
+}
+
+/// Until `log` stops growing for a while.
+fn settle(log: &Path) -> Result<()> {
+    let quiet = Duration::from_millis(1500);
+    let start = Instant::now();
+    let mut size = fs::metadata(log).map_or(0, |m| m.len());
+    let mut since = Instant::now();
+    while since.elapsed() < quiet {
+        std::thread::sleep(Duration::from_millis(100));
+        let now = fs::metadata(log).map_or(0, |m| m.len());
+        if now != size {
+            size = now;
+            since = Instant::now();
+        }
+        if start.elapsed() > Duration::from_secs(60) {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn shell(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
+
+fn which(name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(name))
+        .find(|candidate| candidate.is_file())
+}
+
+/// The session Helix's messages to the server make, as Helix's log has
+/// them: its documents' opens, changes, saves and closes, and its
+/// requests about them, by path in the project.
+fn session(log: &str, work: &Path, script: &Script) -> Result<Value> {
+    let root = lsp_types::Url::from_directory_path(work)
+        .map_err(|()| anyhow::anyhow!("a path"))?
+        .as_str()
+        .trim_end_matches('/')
+        .to_owned();
+    let mut open = Vec::new();
+    let mut requests = Vec::new();
+    for line in log.lines() {
+        let Some((_, message)) = line.split_once(" -> ") else {
+            continue;
+        };
+        if !line.contains("helix_lsp::transport") {
+            continue;
+        }
+        let Ok(message) = serde_json::from_str::<Value>(message) else {
+            continue;
+        };
+        let Some(method) = message["method"].as_str() else {
+            // A reply to the server's own request.
+            continue;
+        };
+        let mut params = message["params"].as_object().cloned().unwrap_or_default();
+        let file = (params.remove("textDocument"))
+            .and_then(|d| d["uri"].as_str().map(str::to_owned))
+            .and_then(|uri| file_of(&uri, &root));
+        let Some(file) = file else {
+            continue;
+        };
+        match method {
+            // The first file, opened before anything is asked.
+            "textDocument/didOpen" if requests.is_empty() && open.is_empty() => {
+                open.push(file);
+            }
+            "textDocument/didOpen" | "textDocument/didSave" | "textDocument/didClose" => {
+                requests.push(json!({ "method": method, "file": file }));
+            }
+            "textDocument/didChange" => {
+                let changes = params.remove("contentChanges").unwrap_or(json!([]));
+                requests.push(json!({
+                    "method": method,
+                    "file": file,
+                    "params": { "contentChanges": changes },
+                }));
+            }
+            _ if message.get("id").is_some() => {
+                let mut step = Map::new();
+                step.insert("method".into(), json!(method));
+                step.insert("file".into(), json!(file));
+                if let Some(position) = params.remove("position") {
+                    step.insert("at".into(), position);
+                } else if let Some(range) = params.remove("range") {
+                    step.insert("at".into(), range);
+                }
+                // The driver gives a code action the diagnostics it has.
+                if method == "textDocument/codeAction" {
+                    params.remove("context");
+                }
+                // Progress tokens are Helix's own.
+                params.remove("workDoneToken");
+                params.remove("partialResultToken");
+                if !params.is_empty() {
+                    step.insert("params".into(), Value::Object(params));
+                }
+                requests.push(Value::Object(step));
+            }
+            _ => {}
+        }
+    }
+    ensure!(!open.is_empty(), "Helix opened nothing");
+    Ok(json!({
+        "title": format!("Helix editing {} in {}", script.file, script.app),
+        "open": open,
+        "requests": requests,
+    }))
+}
+
+/// The path in the project of `uri`, under `root`.
+fn file_of(uri: &str, root: &str) -> Option<String> {
+    let rest = uri.strip_prefix(root)?.strip_prefix('/')?;
+    Some(percent_decode(rest))
+}
+
+fn percent_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        match (bytes[i], text.get(i + 1..i + 3)) {
+            (b'%', Some(hex)) if u8::from_str_radix(hex, 16).is_ok() => {
+                out.push(u8::from_str_radix(hex, 16).unwrap());
+                i += 3;
+            }
+            (b, _) => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}

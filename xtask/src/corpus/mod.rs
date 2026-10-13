@@ -13,6 +13,7 @@ pub mod outline;
 pub mod packages;
 pub mod runs;
 pub mod syntax;
+pub mod trace;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;

@@ -51,7 +51,7 @@ const COMPLETIONS: usize = 2;
 
 /// A project of the suite: its case, its directory, its `elm.json` as
 /// 0.19.1 reads it, and its session.
-struct Project {
+pub(super) struct Project {
     case: String,
     root: PathBuf,
     manifest: String,
@@ -114,7 +114,7 @@ fn projects(root: &Path) -> Result<Vec<Project>> {
         let manifest = fs::read_to_string(dir.join("elm.json"))?;
         found.push((case, dir, manifest));
     }
-    found
+    let mut projects: Vec<Project> = found
         .into_iter()
         .map(|(case, root, manifest)| {
             let session = session(&case, &root, &manifest)?;
@@ -125,7 +125,26 @@ fn projects(root: &Path) -> Result<Vec<Project>> {
                 session,
             })
         })
-        .collect()
+        .collect::<Result<_>>()?;
+    // An editor's trace of an app is one more project, the app's again.
+    let mut traces = Vec::new();
+    for project in &projects {
+        let Some(app) = project.case.strip_prefix("app/") else {
+            continue;
+        };
+        let path = root.join(super::trace::DIR).join(format!("{app}.json"));
+        if let Ok(text) = fs::read_to_string(&path) {
+            traces.push(Project {
+                case: format!("trace/{app}"),
+                root: project.root.clone(),
+                manifest: project.manifest.clone(),
+                session: serde_json::from_str(&text)
+                    .with_context(|| format!("{}", path.display()))?,
+            });
+        }
+    }
+    projects.extend(traces);
+    Ok(projects)
 }
 
 /// `corpus/check/oracle.tsv`'s 0.19.1 cell for each case.
@@ -342,7 +361,7 @@ fn session(case: &str, root: &Path, manifest: &str) -> Result<Session> {
 
 /// A project copied for a session: its root, less what tools write and
 /// Node version pins, with its `elm.json` as 0.19.1 reads it.
-fn copy(project: &Project, to: &Path) -> Result<()> {
+pub(super) fn copy(project: &Project, to: &Path) -> Result<()> {
     if to.exists() {
         fs::remove_dir_all(to)?;
     }
@@ -413,8 +432,20 @@ fn sandbox_name(case: &str) -> String {
     case.replace('/', "__").replace('@', "-")
 }
 
-fn sandbox() -> Result<PathBuf> {
+pub(super) fn sandbox() -> Result<PathBuf> {
     Ok(cache_dir()?.join("sandboxes/corpus/corpus-lsp"))
+}
+
+/// The `ELM_HOME` elm-language-server runs with, and its package cache.
+pub(super) fn home_for_lsp() -> Result<(PathBuf, PathBuf)> {
+    home(Version::parse("0.19.1")?)
+}
+
+/// The project of `case`, with its session.
+pub(super) fn project(root: &Path, case: &str) -> Result<Project> {
+    (projects(root)?.into_iter())
+        .find(|p| p.case == case)
+        .with_context(|| format!("{case} isn't one of the suite's projects"))
 }
 
 /// The `ELM_HOME` the corpus suites share, holding every release the
