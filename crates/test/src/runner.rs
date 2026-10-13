@@ -72,6 +72,10 @@ const SOURCES: [(&str, &str); 14] = [
 const BEFORE: &str = include_str!("../runner/before.js");
 const AFTER: &str = include_str!("../runner/after.js");
 
+/// nomi's own: a worker that runs the program as elm-test does in its own
+/// process when there is one worker.
+pub const DRIVER: &str = include_str!("../runner/driver.js");
+
 /// The runner's source directory under `dir`, named by a hash of its
 /// text and written unless it already is.
 pub fn sources(dir: &Path) -> io::Result<PathBuf> {
@@ -107,12 +111,14 @@ pub fn sources(dir: &Path) -> io::Result<PathBuf> {
 }
 
 /// The compiled program `js` as elm-test runs it: between its templates,
-/// talking to the supervisor over `pipe`, without the development mode's
-/// warning. elm-test also tags `Test`'s constructors for its `check`,
-/// which nomi's `main` doesn't call.
-pub fn wrap(js: &str, pipe: &str) -> String {
+/// without the development mode's warning. elm-test also tags `Test`'s
+/// constructors for its `check`, which nomi's `main` doesn't call. elm-test
+/// writes its pipe's path in; nomi's supervisor listens on a loopback
+/// port, which `net.createConnection` takes as options, given to each
+/// worker after its index.
+pub fn wrap(js: &str) -> String {
     let js = js.replacen("console.warn", "", 1);
-    let pipe = serde_json::to_string(pipe).unwrap_or_default();
+    let pipe = "{ host: '127.0.0.1', port: Number(process.argv[3]) }";
     format!(
         "\n{BEFORE}\nvar Elm = (function() {{\n{js}\nreturn this.Elm;\n}}).call({{}});\nvar pipeFilename = {pipe};\n{AFTER}\n  "
     )

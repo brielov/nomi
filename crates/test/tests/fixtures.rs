@@ -12,6 +12,7 @@ use nomi_engine::console::Console;
 use nomi_engine::paths::Cache;
 use nomi_engine::{Http, HttpError, Vfs};
 use nomi_project::Outline;
+use nomi_test::supervise::{self, Supervise};
 use nomi_test::{Failure, Options, Project, Report, Runner, build, modules, resolve};
 use nomi_testkit::transcript::Case;
 
@@ -189,7 +190,6 @@ fn runner(cache: &Cache, dir: &Path, case: &Case) -> (Result<Runner, Failure>, K
         &project,
         &files,
         &options(&files),
-        "pipe",
     );
     (runner, console)
 }
@@ -356,4 +356,129 @@ fn errors_are_elm_tests() {
     fs::write(dir.join("src/lower/A.elm"), "module A exposing (..)\n").unwrap();
     let error = modules(&project, &[dir.join("src/lower/A.elm")]).unwrap_err();
     assert!(error.contains("lower.A"), "{error}");
+}
+
+/// The options a case's arguments give, with `workers` workers where it
+/// names none; and whether elm-test colors its own messages.
+fn case_options(case: &Case, files: &[PathBuf], workers: usize) -> (Options, bool) {
+    let value = |name: &str| {
+        let at = case.args.iter().position(|a| a == name)?;
+        case.args.get(at + 1).cloned()
+    };
+    let color = case.args.iter().any(|a| a == "--color");
+    let report = match value("--report").as_deref() {
+        Some("json") => Report::Json,
+        Some("junit") => Report::JUnit,
+        _ => Report::Console { color },
+    };
+    let options = Options {
+        runs: value("--fuzz").map_or(100, |v| v.parse().unwrap()),
+        report,
+        seed: value("--seed").unwrap().parse().unwrap(),
+        processes: value("--workers").map_or(workers, |v| v.parse().unwrap()),
+        globs: globs(case),
+        paths: files.iter().map(|f| f.display().to_string()).collect(),
+    };
+    (options, color)
+}
+
+/// `text` with the durations elm-test's transcripts normalize, and `dir`
+/// as `{dir}`.
+fn normalize(text: &str, dir: &Path) -> String {
+    let mut text = text.replace(&dir.display().to_string(), "{dir}");
+    for marker in ["\"duration\":\"", "Duration: ", "Duration: \u{1b}[22m"] {
+        let mut out = String::new();
+        let mut rest = text.as_str();
+        while let Some(at) = rest.find(marker) {
+            out.push_str(&rest[..at + marker.len()]);
+            rest = &rest[at + marker.len()..];
+            let end = rest
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(rest.len());
+            if end > 0 {
+                out.push('0');
+            }
+            rest = &rest[end..];
+        }
+        out.push_str(rest);
+        text = out;
+    }
+    text
+}
+
+#[test]
+fn runs_print_what_elm_test_printed() {
+    if Command::new("node").arg("--version").output().is_err() && std::env::var_os("CI").is_none() {
+        return;
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let cache = cache(&temp.path().join("cache"));
+    let suites = [
+        "passing",
+        "failing",
+        "distribution",
+        "nested",
+        "runtime_exception",
+        "invalid_xml",
+    ];
+    let mut names: Vec<String> = (suites.iter())
+        .flat_map(|s| ["json", "console", "color"].map(|r| format!("{s}_{r}")))
+        .collect();
+    names.extend(["no_tests".to_owned(), "no_tests_json".to_owned()]);
+    for name in names {
+        let case = case(&name);
+        let dir = nomi_engine::canonical(temp.path()).unwrap().join(&name);
+        case.create_files(&dir).unwrap();
+        let project = Project::read(&dir).unwrap();
+        let files = resolve(&project, &dir, &globs(&case)).unwrap();
+        let (options, color) = case_options(&case, &files, 3);
+        let mut console = Kept::default();
+        let built = build(
+            &Vfs::new(),
+            &mut console,
+            &cache,
+            &Offline,
+            &project,
+            &files,
+            &options,
+        );
+        let runner = built.unwrap_or_else(|e| panic!("{name}: {e:?}\n{}", console.err));
+        let supervise = Supervise {
+            report: options.report,
+            processes: options.processes,
+            color,
+        };
+        let code = supervise::run(&mut console, &runner.js, supervise).unwrap();
+        let text =
+            fs::read_to_string(cases_dir().join("expected").join(format!("{name}.txt"))).unwrap();
+        let expected_code: i32 = text
+            .strip_prefix("=== exit ")
+            .and_then(|t| t.lines().next())
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_eq!(code, expected_code, "{name}'s exit code\n{}", console.err);
+        let (stdout, stderr) = transcript(&name);
+        let stderr_lines = |s: &str| s.lines().map(str::to_owned).collect::<Vec<_>>();
+        assert_eq!(
+            stderr_lines(&normalize(&console.err, &dir)),
+            stderr_lines(&stderr),
+            "{name}'s standard error"
+        );
+        if code == 1 {
+            // elm-test's own lines, its progress and the line after it, are
+            // the command's (plan 10.6).
+            continue;
+        }
+        // The console's progress line is the command's too.
+        let expected = match options.report {
+            Report::Console { .. } => stdout.split_once('\n').unwrap().1,
+            _ => stdout.as_str(),
+        };
+        assert_eq!(
+            normalize(&console.out, &dir).trim_end_matches('\n'),
+            expected.trim_end_matches('\n'),
+            "{name}'s standard output"
+        );
+    }
 }

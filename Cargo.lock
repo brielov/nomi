@@ -1101,6 +1101,7 @@ dependencies = [
  "nomi-project",
  "nomi-syntax",
  "nomi-testkit",
+ "serde",
  "serde_json",
  "tempfile",
 ]

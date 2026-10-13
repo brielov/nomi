@@ -7,6 +7,7 @@ pub mod discover;
 pub mod files;
 pub mod generate;
 pub mod runner;
+pub mod supervise;
 
 pub use build::{Failure, Runner, build};
 pub use discover::{TestModule, modules, tests};

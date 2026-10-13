@@ -43,8 +43,7 @@ pub enum Failure {
     Shown,
 }
 
-/// Builds the runner of `files` in `project`, with `options`, talking to
-/// the supervisor over `pipe`. Only the build's errors show, as elm-test
+/// Builds the runner of `files` in `project`, with `options`. Only the build's errors show, as elm-test
 /// shows `elm make`'s standard error alone.
 #[allow(clippy::too_many_arguments)]
 pub fn build(
@@ -55,7 +54,6 @@ pub fn build(
     project: &Project,
     files: &[PathBuf],
     options: &Options,
-    pipe: &str,
 ) -> Result<Runner, Failure> {
     let found = modules(project, files).map_err(Failure::Files)?;
     let tests_dir = cache.dir().join("tests");
@@ -144,7 +142,7 @@ pub fn build(
         return Err(Failure::Shown);
     }
     let compiled = fs::read_to_string(&js).map_err(io)?;
-    fs::write(&js, runner::wrap(&compiled, pipe)).map_err(io)?;
+    fs::write(&js, runner::wrap(&compiled)).map_err(io)?;
     // Node reads the program as CommonJS, whatever a `package.json` above
     // it says.
     write_if_changed(vfs, &dir.join("package.json"), br#"{"type":"commonjs"}"#).map_err(io)?;
