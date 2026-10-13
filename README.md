@@ -2,7 +2,7 @@
 
 nomi is one Rust binary for Elm: compiler, formatter, language server, test runner and package manager, meant as a drop-in replacement for `elm`, `elm-format` and `elm-language-server`. On top of that it adds a Node platform, where `Task` runs on a structured-concurrency fiber runtime, and workspaces, so a frontend and a backend can share Elm code in one repository. See [docs/architecture.md](docs/architecture.md) for the design and [docs/plan.md](docs/plan.md) for the build order.
 
-So far nomi is a compiler, a formatter and a language server. As `elm`, it builds Elm 0.19 projects into the same JavaScript as elm 0.19.1, 0.19.2 and 0.19.3, byte for byte, with the same reports and terminal output, and it installs, diffs, bumps and publishes packages as they do. Every build measured is faster than elm's, cold or warm, by 1.2 to 3.6 times, on less CPU time and under a third of its memory. As `elm-format`, it formats Elm 0.19 modules byte for byte as elm-format 0.8.8 does, five to twenty-four times as fast. As a language server, it answers as elm-language-server 2.10.0 does, with elm's own diagnostics as you type, faster and in less memory on every workload measured. The numbers are in [docs/benchmarks.md](docs/benchmarks.md), and where nomi deliberately differs is listed in [DECISIONS.md](DECISIONS.md).
+So far nomi is a compiler, a formatter, a language server and a test runner. As `elm`, it builds Elm 0.19 projects into the same JavaScript as elm 0.19.1, 0.19.2 and 0.19.3, byte for byte, with the same reports and terminal output, and it installs, diffs, bumps and publishes packages as they do. Every build measured is faster than elm's, cold or warm, by 1.2 to 3.6 times, on less CPU time and under a third of its memory. As `elm-format`, it formats Elm 0.19 modules byte for byte as elm-format 0.8.8 does, five to twenty-four times as fast. As a language server, it answers as elm-language-server 2.10.0 does, with elm's own diagnostics as you type, faster and in less memory on every workload measured. As elm-test, it runs elm-explorations/test suites and reports them byte for byte as elm-test 0.19.3-0 does. The numbers are in [docs/benchmarks.md](docs/benchmarks.md), and where nomi deliberately differs is listed in [DECISIONS.md](DECISIONS.md).
 
 ## Install
 
@@ -53,6 +53,23 @@ ln -s "$(command -v nomi)" ~/.local/bin/elm-format
 ```
 
 Put the link ahead of any other `elm-format` on your `PATH`. Only Elm 0.19 is supported; `--elm-version=0.18` and modules detected as 0.18 are refused with a message.
+
+## Test
+
+```sh
+nomi test                         # every test in tests/
+nomi test "src/**/*Tests.elm"     # the tests in these files
+nomi test --seed 12345 --fuzz 200 --report json
+nomi test --watch                 # again each time the tests change
+```
+
+`nomi test` is elm-test 0.19.3-0's command line: its options, its `init`, `install` and `make` commands, and its console, JSON and JUnit reports, the same byte for byte for a given seed. nomi finds the tests by their type and builds them itself, so no `elm` is needed, but they run in Node, which must be on your `PATH`. `--compiler` is accepted and ignored.
+
+Invoked under the name `elm-test`, nomi is elm-test. Editors and scripts that run elm-test need only a link:
+
+```sh
+ln -s "$(command -v nomi)" ~/.local/bin/elm-test
+```
 
 ## Language server
 

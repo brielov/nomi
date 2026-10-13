@@ -191,7 +191,7 @@ fn record(
 }
 
 /// The pinned binary named `name`, at `version` if there are several.
-pub(super) fn binary(refs: &References, name: &str, version: Option<&str>) -> Result<PathBuf> {
+pub(crate) fn binary(refs: &References, name: &str, version: Option<&str>) -> Result<PathBuf> {
     let pin = refs
         .binary
         .iter()

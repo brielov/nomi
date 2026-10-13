@@ -13,6 +13,7 @@ pub mod outline;
 pub mod packages;
 pub mod runs;
 pub mod syntax;
+pub mod test_suites;
 pub mod trace;
 
 use std::path::{Path, PathBuf};

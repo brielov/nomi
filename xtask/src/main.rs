@@ -157,6 +157,13 @@ enum CorpusCommand {
         /// Only projects whose case contains this text.
         only: Option<String>,
     },
+    /// By hand: whether `nomi test` runs every corpus app's test suite as
+    /// elm-test did (`cargo xtask oracle corpus-tests`), downloading test
+    /// dependencies into the development cache.
+    Tests {
+        /// Only apps whose name contains this text.
+        only: Option<String>,
+    },
     /// Tier 2: whether every module elm accepts lowers to the HIR with its
     /// source map whole.
     Hir,
@@ -275,6 +282,13 @@ enum OracleCommand {
         #[arg(long)]
         only: Option<String>,
     },
+    /// Store elm-test's outcome on every corpus app's test suite (plan
+    /// 10.7), downloading its packages with elm into a sandbox.
+    CorpusTests {
+        /// Only apps whose name contains this text.
+        #[arg(long)]
+        only: Option<String>,
+    },
     /// Have Helix edit a corpus app with elm-language-server, driven
     /// through tmux, and keep the session its messages make (plan 9.21).
     EditorTrace {
@@ -369,6 +383,9 @@ fn main() -> ExitCode {
             OracleCommand::CorpusLsp { jobs, only } => {
                 corpus::lsp::record(&root(), &r, jobs, only.as_deref())
             }
+            OracleCommand::CorpusTests { only } => {
+                corpus::test_suites::record(&root(), &r, only.as_deref())
+            }
             OracleCommand::EditorTrace { app } => corpus::trace::record(&root(), &r, &app),
             OracleCommand::CorpusGraphs { jobs, only } => {
                 oracle::corpus_runs::run(&root(), &r, Suite::Graphs, jobs, only.as_deref())
@@ -444,6 +461,7 @@ fn main() -> ExitCode {
             }
             CorpusCommand::Outline => corpus::outline::check(&root()),
             CorpusCommand::Deps => corpus::deps::check(&root()),
+            CorpusCommand::Tests { only } => corpus::test_suites::check(&root(), only.as_deref()),
         },
     };
     match result {
