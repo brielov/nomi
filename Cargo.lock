@@ -942,7 +942,7 @@ dependencies = [
 
 [[package]]
 name = "nomi-base"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "icu_casemap",
  "icu_properties 1.5.1",
@@ -952,7 +952,7 @@ dependencies = [
 
 [[package]]
 name = "nomi-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "clap",
  "mimalloc",
@@ -970,7 +970,7 @@ dependencies = [
 
 [[package]]
 name = "nomi-codegen-js"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "nomi-base",
  "nomi-compiler",
@@ -978,7 +978,7 @@ dependencies = [
 
 [[package]]
 name = "nomi-compiler"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "nomi-base",
  "nomi-syntax",
@@ -989,7 +989,7 @@ dependencies = [
 
 [[package]]
 name = "nomi-engine"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "nomi-base",
  "nomi-codegen-js",
@@ -1010,7 +1010,7 @@ dependencies = [
 
 [[package]]
 name = "nomi-format"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "nomi-base",
  "nomi-syntax",
@@ -1022,7 +1022,7 @@ dependencies = [
 
 [[package]]
 name = "nomi-ide"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "nomi-base",
  "nomi-compiler",
@@ -1036,7 +1036,7 @@ dependencies = [
 
 [[package]]
 name = "nomi-lsp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "crossbeam-channel",
  "lsp-server",
@@ -1053,7 +1053,7 @@ dependencies = [
 
 [[package]]
 name = "nomi-project"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "nomi-base",
  "proptest",
@@ -1062,7 +1062,7 @@ dependencies = [
 
 [[package]]
 name = "nomi-registry"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "insta",
  "nomi-base",
@@ -1079,7 +1079,7 @@ dependencies = [
 
 [[package]]
 name = "nomi-syntax"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "icu_properties 1.5.1",
  "insta",
@@ -1093,7 +1093,7 @@ dependencies = [
 
 [[package]]
 name = "nomi-testkit"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "crossbeam-channel",
  "lsp-server",
@@ -2143,7 +2143,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "cargo_metadata",

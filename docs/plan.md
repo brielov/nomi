@@ -941,8 +941,9 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - Requests and the diagnostics worker share one index per project, built from the last, rather than one each; an indexed module keeps its green tree, which threads share, and makes a cursor into it when asked. The worker indexes while it checks, not after.
   - The language server keeps each file's read (its parse, header and imports) while its text is the same, and the virtual file system remembers each path as given: with a file open, every lookup of an import resolved its path on disk.
   - Completion keeps what each module exposes, and package declarations' hints, for the life of the process, and reads trees only for the auto-imports it shows; their ranking keys are worked out once.
-- [ ] **9.23** `release: 0.3`. The README says how to run nomi as an editor's language server, with Helix's configuration, which needs nothing but an entry in `languages.toml`; the workspace version becomes 0.3.0, tagged `v0.3.0`.
+- [x] **9.23** `release: 0.3`. The README says how to run nomi as an editor's language server, with Helix's configuration, which needs nothing but an entry in `languages.toml`; the workspace version becomes 0.3.0, tagged `v0.3.0`.
   - Editor extensions for VS Code, Neovim and Zed wait: Helix is enough to use the server on real projects for now.
+  - **Done:** the README's language server section gives Helix's two entries, checked in Helix itself, driven through tmux on todomvc: hover answered from `nomi lsp`, and `:format` formatted with nomi's own formatter. The workspace version is 0.3.0, tagged `v0.3.0`. `nomi lsp` takes `--stdio` and ignores it, as many editors pass it.
 
 **Exit:** transcript parity, budgets met, and you've used it on a real project.
 

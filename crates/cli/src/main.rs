@@ -69,7 +69,12 @@ enum Command {
     /// that need them.
     Tree,
     /// Start the language server, on standard input and output.
-    Lsp,
+    Lsp {
+        /// Taken and ignored, as many editors pass it: standard input and
+        /// output are the only transport.
+        #[arg(long, hide = true)]
+        stdio: bool,
+    },
     /// Build modules into JavaScript or HTML as `elm make` does.
     #[command(visible_alias = "make")]
     Build {
@@ -174,7 +179,7 @@ fn main() -> ExitCode {
         Some(Command::Tree) => in_project(|console, dir, cache, http| {
             tree::run(&Vfs::new(), console, dir, cache, http)
         }),
-        Some(Command::Lsp) => match nomi_lsp::stdio() {
+        Some(Command::Lsp { .. }) => match nomi_lsp::stdio() {
             Ok(()) => true,
             Err(e) => {
                 eprintln!("error: the language server stopped: {e}");
