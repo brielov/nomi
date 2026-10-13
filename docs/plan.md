@@ -958,6 +958,11 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - Not only JUnit varies with the workers: with several, a runtime exception's report and the "no exposed values of type Test" message come once per worker that hits them, in whatever order, so those cases take `--workers 1` too.
   - A runtime exception prints Node's stack trace, whose version and lines in the generated JavaScript are normalized. elm-test reports elm's own progress (`Compiling (3)`) on standard output, and its own (`Solving dependencies > Compiling`) without line breaks when it isn't writing to a terminal.
 - [ ] **10.2** `test: discovery by type`. Every exposed value of type `Test`.
+  - **Crate:** `crates/test`, the architecture's `test`: discovery now, then runner generation, execution and reporters.
+  - **Files:** as elm-test resolves its arguments: `tests/` when there are none; a directory's `.elm` files below it, past `elm-stuff` and `node_modules`; a file as given; and an argument that names nothing, a glob from the project's root, matched without regard to case (`*`, `**`, `?`, `[…]`, `{…}`), directories it matches walked as directories are. Each path once, in order.
+  - **Modules:** a file's module is its path under the one test source directory holding it, `tests/` and the project's source directories, or `src/` for a package. elm-test's errors in its words: no files found, a file in no source directory or in several, a path that makes no module name.
+  - **Tests:** each module's exposed values whose type is elm-explorations/test's `Test`, from the module's interface once it checks. elm-test finds candidates by syntax and asks the compiled JavaScript which are tests; the types answer the same, with no generated code to patch.
+  - **Check:** over node-test-runner's fixture suites, discovery finds the modules and tests elm-test's JSON transcripts run, `Unexposed`'s unexposed tests not among them, and the errors match the transcripts'.
 - [ ] **10.3** `test: runner generation`. A generated `main` over elm-explorations/test's runner API, built through the engine.
 - [ ] **10.4** `test: Node workers`. `--seed`, `--fuzz`, filters and the worker count.
 - [ ] **10.5** `test: reporters`. Console, JSON and JUnit, byte-identical.
