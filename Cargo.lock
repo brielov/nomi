@@ -1092,6 +1092,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "nomi-test"
+version = "0.3.0"
+dependencies = [
+ "nomi-base",
+ "nomi-compiler",
+ "nomi-engine",
+ "nomi-project",
+ "nomi-syntax",
+ "nomi-testkit",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "nomi-testkit"
 version = "0.3.0"
 dependencies = [
