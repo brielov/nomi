@@ -1,9 +1,11 @@
 //! `Parse/Type.hs`.
 
-use super::engine::{P, R, deep};
+use nomi_base::grow_large;
+
+use super::engine::{P, R};
 use super::helpers::{
-    betwixt, cap_var, commented, dot_sep1, lenient_has_type, low_var, pair, right_arrow,
-    sectioned_group, separated, space_prefix, surround__,
+    Minus, betwixt, cap_var, dot_sep1, lenient_has_type, low_var, record, right_arrow, separated,
+    space_prefix, surround_commented,
 };
 use super::whitespace::with_eol;
 
@@ -12,23 +14,8 @@ fn tvar(p: &mut P<'_>) -> R<()> {
 }
 
 fn tuple(p: &mut P<'_>) -> R<()> {
-    p.track_newline(|p| surround__(p, '(', ')', &mut |p| with_eol(p, expr)))
+    p.track_newline(|p| surround_commented(p, '(', ')', &mut |p| with_eol(p, expr)))
         .map(drop)
-}
-
-fn record(p: &mut P<'_>) -> R<()> {
-    betwixt(p, '{', '}', |p| {
-        p.track_newline(|p| {
-            p.option(|p| {
-                p.attempt(|p| {
-                    commented(p, low_var)?;
-                    p.string("|")
-                })
-            })?;
-            sectioned_group(p, &mut |p| pair(p, low_var, lenient_has_type, expr))
-        })
-    })
-    .map(drop)
 }
 
 fn constructor0(p: &mut P<'_>) -> R<()> {
@@ -37,10 +24,13 @@ fn constructor0(p: &mut P<'_>) -> R<()> {
 
 /// `term`.
 pub(super) fn term(p: &mut P<'_>) -> R<()> {
-    deep(p, |p| {
-        p.alts(&mut [&mut tuple, &mut record, &mut tvar, &mut |p| {
-            p.track_newline(constructor0).map(drop)
-        }])
+    grow_large(|| {
+        p.alts(&mut [
+            &mut tuple,
+            &mut |p| record(p, lenient_has_type, expr),
+            &mut tvar,
+            &mut |p| p.track_newline(constructor0),
+        ])
     })
 }
 
@@ -51,9 +41,8 @@ fn tuple_ctor(p: &mut P<'_>) -> R<()> {
 fn app(p: &mut P<'_>) -> R<()> {
     p.track_newline(|p| {
         p.alt(constructor0, |p| p.attempt(tuple_ctor))?;
-        space_prefix(p, &mut term)
+        space_prefix(p, Minus::Anywhere, &mut term)
     })
-    .map(drop)
 }
 
 /// `expr`.
@@ -64,5 +53,5 @@ pub(super) fn expr(p: &mut P<'_>) -> R<()> {
 /// `tag`: a variant and its arguments.
 pub(super) fn tag(p: &mut P<'_>) -> R<()> {
     cap_var(p)?;
-    space_prefix(p, &mut term)
+    space_prefix(p, Minus::Anywhere, &mut term)
 }

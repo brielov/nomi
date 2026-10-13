@@ -5,8 +5,8 @@
 //!
 //! It builds no tree. Each parser returns only what upstream's control
 //! flow reads back: where an expression ended, a name a later check
-//! compares, whether a number was a float, the ports `checkModule`
-//! counts. 0.19.2 parses as 0.19.3 does.
+//! compares, whether a number was a float, where the port `checkModule`
+//! reports is. 0.19.2 parses as 0.19.3 does.
 
 use nomi_base::Compat;
 
@@ -15,7 +15,7 @@ use crate::Source;
 mod declaration;
 pub mod docs;
 mod engine;
-pub mod error;
+mod error;
 mod expression;
 mod literal;
 mod module;
@@ -24,6 +24,7 @@ mod report;
 mod types;
 
 pub use error::Error;
+pub(crate) use literal::{Hex, chomp_hex};
 pub use report::{docs_problem, to_problem};
 
 /// What elm `compat` reports first of the module `src`, from a project

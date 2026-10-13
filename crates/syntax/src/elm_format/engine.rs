@@ -9,30 +9,55 @@
 //! column handed to the last error continuation, which is what each
 //! combinator here passes on.
 
+/// A row and column, as upstream's `Word16`s, which wrap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Pos {
+    pub(super) row: u16,
+    pub(super) col: u16,
+}
+
+impl Pos {
+    /// `n` columns right.
+    pub(super) fn right(self, n: u16) -> Pos {
+        Pos {
+            row: self.row,
+            col: self.col.wrapping_add(n),
+        }
+    }
+
+    /// The start of the next row.
+    pub(super) fn next_row(self) -> Pos {
+        Pos {
+            row: self.row.wrapping_add(1),
+            col: 1,
+        }
+    }
+}
+
 /// Why a parser failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Fail {
-    /// A parse error at a row and column.
-    At(u16, u16),
+    /// A parse error here.
+    At(Pos),
     /// A Haskell `error`, which nothing catches.
     Crash(&'static str),
 }
 
 pub(super) type R<T> = Result<T, Fail>;
 
-/// A parser the grammar passes around.
-pub(super) type Dyn<'a, 's, T> = &'a mut dyn FnMut(&mut P<'s>) -> R<T>;
+/// An alternative for [`P::alts`] and [`P::choice`], or a parser the
+/// grammar passes around.
+pub(super) type Alt<'a, 's, T> = &'a mut dyn FnMut(&mut P<'s>) -> R<T>;
 
 /// `State`, with the newline stack elm-format adds, and whether the
 /// parser running has consumed.
 pub(super) struct P<'s> {
     src: &'s str,
     pub(super) pos: usize,
-    pub(super) row: u16,
-    pub(super) col: u16,
+    pub(super) at: Pos,
     indent: u16,
     newline: Vec<bool>,
-    pub(super) consumed: bool,
+    consumed: bool,
 }
 
 /// What [`P::restore`] puts back. Of the newline stack, only its height
@@ -40,10 +65,9 @@ pub(super) struct P<'s> {
 /// alternative ends, and only the top is ever set, so what lies below
 /// the height an alternative started at is never touched.
 #[derive(Clone, Copy)]
-pub(super) struct Saved {
+struct Saved {
     pos: usize,
-    row: u16,
-    col: u16,
+    at: Pos,
     indent: u16,
     height: usize,
     top: bool,
@@ -56,8 +80,7 @@ impl<'s> P<'s> {
         P {
             src,
             pos: 0,
-            row: 1,
-            col: 1,
+            at: Pos { row: 1, col: 1 },
             indent: 1,
             newline: vec![false],
             consumed: false,
@@ -73,11 +96,10 @@ impl<'s> P<'s> {
         self.src.as_bytes().get(self.pos + off).copied()
     }
 
-    pub(super) fn save(&self) -> Saved {
+    fn save(&self) -> Saved {
         Saved {
             pos: self.pos,
-            row: self.row,
-            col: self.col,
+            at: self.at,
             indent: self.indent,
             height: self.newline.len(),
             top: self.newline.last().copied().unwrap_or(false),
@@ -85,11 +107,10 @@ impl<'s> P<'s> {
         }
     }
 
-    pub(super) fn restore(&mut self, saved: Saved) {
+    fn restore(&mut self, saved: Saved) {
         debug_assert!(self.newline.len() >= saved.height);
         self.pos = saved.pos;
-        self.row = saved.row;
-        self.col = saved.col;
+        self.at = saved.at;
         self.indent = saved.indent;
         self.newline.truncate(saved.height);
         if let Some(top) = self.newline.last_mut() {
@@ -98,30 +119,22 @@ impl<'s> P<'s> {
         self.consumed = saved.consumed;
     }
 
-    /// A failure here.
+    /// A failure here: `parserFail`, and `guard False`.
     pub(super) fn fail<T>(&self) -> R<T> {
-        Err(Fail::At(self.row, self.col))
+        Err(Fail::At(self.at))
     }
 
-    /// A consumed success, `bytes` on at `col`, in the same row.
-    pub(super) fn advance(&mut self, bytes: usize, col: u16) {
+    /// A consumed success, `bytes` on, at `to`.
+    pub(super) fn advance(&mut self, bytes: usize, to: Pos) {
         self.pos += bytes;
-        self.col = col;
+        self.at = to;
         self.consumed = true;
     }
 
-    /// A consumed success, `bytes` on at `row` and `col`.
-    pub(super) fn advance_to(&mut self, bytes: usize, row: u16, col: u16) {
-        self.pos += bytes;
-        self.row = row;
-        self.col = col;
+    /// A consumed failure at `at`.
+    pub(super) fn cerr<T>(&mut self, at: Pos) -> R<T> {
         self.consumed = true;
-    }
-
-    /// A consumed failure at `row` and `col`.
-    pub(super) fn cerr<T>(&mut self, row: u16, col: u16) -> R<T> {
-        self.consumed = true;
-        Err(Fail::At(row, col))
+        Err(Fail::At(at))
     }
 
     // PRIMITIVES
@@ -140,18 +153,14 @@ impl<'s> P<'s> {
         if !f(c) {
             return self.fail();
         }
-        let (row, col) = match c {
-            '\n' => (self.row.wrapping_add(1), 1),
-            '\t' => {
-                let col = self.col;
-                (
-                    self.row,
-                    col.wrapping_add(8).wrapping_sub(col.wrapping_sub(1) % 8),
-                )
-            }
-            _ => (self.row, self.col.wrapping_add(1)),
+        let to = match c {
+            '\n' => self.at.next_row(),
+            '\t' => self
+                .at
+                .right(8u16.wrapping_sub(self.at.col.wrapping_sub(1) % 8)),
+            _ => self.at.right(1),
         };
-        self.advance_to(c.len_utf8(), row, col);
+        self.advance(c.len_utf8(), to);
         Ok(c)
     }
 
@@ -177,12 +186,29 @@ impl<'s> P<'s> {
         self.satisfy(|c| c.is_ascii_digit())
     }
 
-    /// `parserFail`, and `guard False`.
-    pub(super) fn parser_fail<T>(&self) -> R<T> {
-        self.fail()
-    }
-
     // COMBINATORS
+
+    /// One alternative, from `saved` with a clear consumed flag: what it
+    /// gave if it succeeded or failed having consumed (`Ok`), or its
+    /// failure, with the state put back, if it failed without (`Err`).
+    fn try_alt<T>(
+        &mut self,
+        saved: Saved,
+        alt: impl FnOnce(&mut P<'s>) -> R<T>,
+    ) -> Result<R<T>, Fail> {
+        self.consumed = false;
+        match alt(self) {
+            Ok(value) => {
+                self.consumed |= saved.consumed;
+                Ok(Ok(value))
+            }
+            Err(e @ Fail::At(..)) if !self.consumed => {
+                self.restore(saved);
+                Err(e)
+            }
+            Err(e) => Ok(Err(e)),
+        }
+    }
 
     /// `<|>`: `a`, or `b` from where `a` started if `a` failed without
     /// consuming. Unlike Parsec's, the adapter keeps no error from an
@@ -193,53 +219,21 @@ impl<'s> P<'s> {
         b: impl FnOnce(&mut P<'s>) -> R<T>,
     ) -> R<T> {
         let saved = self.save();
-        self.consumed = false;
-        match a(self) {
-            Ok(value) => {
-                self.consumed |= saved.consumed;
-                Ok(value)
-            }
-            Err(Fail::At(..)) if !self.consumed => {
-                self.restore(saved);
-                self.consumed = false;
-                self.last(saved, b)
-            }
-            Err(e) => Err(e),
-        }
-    }
-
-    /// The last alternative, from `saved`.
-    fn last<T>(&mut self, saved: Saved, b: impl FnOnce(&mut P<'s>) -> R<T>) -> R<T> {
-        match b(self) {
-            Ok(value) => {
-                self.consumed |= saved.consumed;
-                Ok(value)
-            }
-            Err(e @ Fail::At(..)) if !self.consumed => {
-                self.restore(saved);
-                Err(e)
-            }
-            Err(e) => Err(e),
+        match self.try_alt(saved, a) {
+            Ok(result) => result,
+            Err(_) => self.try_alt(saved, b).unwrap_or_else(Err),
         }
     }
 
     /// `a <|> b <|> …`, which nests to the right: the first alternative
     /// to succeed or to fail having consumed, or where the last failed.
-    pub(super) fn alts<T>(&mut self, alts: &mut [Dyn<'_, 's, T>]) -> R<T> {
+    pub(super) fn alts<T>(&mut self, alts: &mut [Alt<'_, 's, T>]) -> R<T> {
         let saved = self.save();
-        let mut last = Fail::At(self.row, self.col);
+        let mut last = Fail::At(self.at);
         for alt in alts {
-            self.consumed = false;
-            match alt(self) {
-                Ok(value) => {
-                    self.consumed |= saved.consumed;
-                    return Ok(value);
-                }
-                Err(e @ Fail::At(..)) if !self.consumed => {
-                    self.restore(saved);
-                    last = e;
-                }
-                Err(e) => return Err(e),
+            match self.try_alt(saved, alt) {
+                Ok(result) => return result,
+                Err(e) => last = e,
             }
         }
         Err(last)
@@ -248,17 +242,11 @@ impl<'s> P<'s> {
     /// `choice`: [`Self::alt`] folded over `alts` and ending in
     /// `parserFail`, so when every alternative fails without consuming it
     /// fails where it started.
-    pub(super) fn choice<T>(&mut self, alts: &mut [Dyn<'_, 's, T>]) -> R<T> {
+    pub(super) fn choice<T>(&mut self, alts: &mut [Alt<'_, 's, T>]) -> R<T> {
         let saved = self.save();
         for alt in alts {
-            self.consumed = false;
-            match alt(self) {
-                Ok(value) => {
-                    self.consumed |= saved.consumed;
-                    return Ok(value);
-                }
-                Err(Fail::At(..)) if !self.consumed => self.restore(saved),
-                Err(e) => return Err(e),
+            if let Ok(result) = self.try_alt(saved, alt) {
+                return result;
             }
         }
         self.fail()
@@ -302,12 +290,12 @@ impl<'s> P<'s> {
         let saved = self.save();
         self.consumed = false;
         let result = parser(self);
-        let (row, col, consumed) = (self.row, self.col, self.consumed);
+        let (at, consumed) = (self.at, self.consumed);
         self.restore(saved);
         match result {
-            Ok(_) if consumed => Err(Fail::At(row, col)),
+            Ok(_) if consumed => Err(Fail::At(at)),
             Err(e @ Fail::Crash(_)) => Err(e),
-            _ => Ok(()),
+            Ok(_) | Err(Fail::At(..)) => Ok(()),
         }
     }
 
@@ -356,22 +344,15 @@ impl<'s> P<'s> {
         mut parser: impl FnMut(&mut P<'s>) -> R<T>,
     ) -> R<T> {
         let saved = self.save();
-        self.consumed = false;
-        let first = match self.attempt(|p| p.look_ahead(check)) {
-            Ok(()) => parser(self),
-            Err(e) => Err(e),
-        };
+        let first = self.try_alt(saved, |p| {
+            p.attempt(|p| p.look_ahead(check))?;
+            parser(p)
+        });
         match first {
-            Ok(value) => {
-                self.consumed |= saved.consumed;
-                Ok(value)
-            }
-            Err(Fail::At(..)) if !self.consumed => {
-                self.restore(saved);
-                self.consumed = false;
-                self.last(saved, |p| p.attempt(parser))
-            }
-            Err(e) => Err(e),
+            Ok(result) => result,
+            Err(_) => self
+                .try_alt(saved, |p| p.attempt(parser))
+                .unwrap_or_else(Err),
         }
     }
 
@@ -380,7 +361,7 @@ impl<'s> P<'s> {
     /// `withPos`: `parser` with the indent at the current column.
     pub(super) fn with_pos<T>(&mut self, parser: impl FnOnce(&mut P<'s>) -> R<T>) -> R<T> {
         let old = self.indent;
-        self.indent = self.col;
+        self.indent = self.at.col;
         let value = parser(self)?;
         self.indent = old;
         Ok(value)
@@ -388,7 +369,7 @@ impl<'s> P<'s> {
 
     /// `checkIndent`: here is the indent's column.
     pub(super) fn check_indent(&self) -> R<()> {
-        if self.indent == self.col {
+        if self.indent == self.at.col {
             Ok(())
         } else {
             self.fail()
@@ -397,7 +378,7 @@ impl<'s> P<'s> {
 
     /// `indented`: here is right of the indent.
     pub(super) fn indented(&self) -> R<()> {
-        if self.col <= self.indent {
+        if self.at.col <= self.indent {
             self.fail()
         } else {
             Ok(())
@@ -413,9 +394,14 @@ impl<'s> P<'s> {
         }
     }
 
-    /// `trackNewline`: `parser`, and whether a newline it parsed was
-    /// noted, which counts the newlines of `trackNewline`s inside it.
-    pub(super) fn track_newline<T>(
+    /// `trackNewline`: `parser`, with a newline context of its own.
+    pub(super) fn track_newline<T>(&mut self, parser: impl FnOnce(&mut P<'s>) -> R<T>) -> R<T> {
+        Ok(self.track_newline_seen(parser)?.0)
+    }
+
+    /// [`P::track_newline`], and whether a newline `parser` parsed was
+    /// noted, which counts the newlines of the `trackNewline`s inside it.
+    pub(super) fn track_newline_seen<T>(
         &mut self,
         parser: impl FnOnce(&mut P<'s>) -> R<T>,
     ) -> R<(T, bool)> {
@@ -431,10 +417,4 @@ impl<'s> P<'s> {
         }
         Ok((value, saw))
     }
-}
-
-/// Runs `parser` with room on the stack, as GHC's growing stack gives
-/// upstream's.
-pub(super) fn deep<'s, T>(p: &mut P<'s>, parser: impl FnOnce(&mut P<'s>) -> T) -> T {
-    nomi_base::grow_large(|| parser(p))
 }

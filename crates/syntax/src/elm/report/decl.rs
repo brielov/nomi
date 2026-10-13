@@ -2,14 +2,23 @@
 //! it leads to, but for the types, expressions and patterns inside them.
 
 use nomi_base::diagnostic::code::{Keyword, Next};
-use nomi_base::diagnostic::doc::{self, reflow, stack, vcat};
+use nomi_base::diagnostic::doc::{self, blue, cyan, dull_yellow, green, reflow, stack, vcat};
 use nomi_base::diagnostic::{Doc, Problem};
 
 use super::expr::Context;
 use super::pattern::PContext;
 use super::types::TypeContext;
-use super::{Reporter, blue, cyan, dullyellow, green, surroundings, to_region};
-use crate::elm::error::{Cursor, CustomType, Decl, DeclDef, DeclType, Port, TypeAlias};
+use super::{Reporter, surroundings, to_region};
+use crate::elm::error::{CustomType, Decl, DeclDef, DeclType, Port, Position, TypeAlias};
+
+/// What a definition was missing where it stopped, as the `*IndentType`,
+/// `*IndentEquals` and `*IndentBody` errors of `DeclDef` and `Def` say.
+#[derive(Clone, Copy)]
+pub(super) enum Missing {
+    Type,
+    Equals,
+    Body,
+}
 
 impl Reporter<'_, '_> {
     /// `toDeclarationsReport`.
@@ -33,7 +42,7 @@ impl Reporter<'_, '_> {
     }
 
     /// `toDeclStartReport`.
-    pub(super) fn decl_start(&self, cur: Cursor) -> Problem {
+    pub(super) fn decl_start(&self, cur: Position) -> Problem {
         let region = to_region(cur);
         match self.next(cur) {
             Next::Close(close) => {
@@ -44,7 +53,7 @@ impl Reporter<'_, '_> {
                     reflow(&format!("I was not expecting to see a {term} here:")),
                     reflow(&format!(
                         "This {bracket} does not match up with an earlier open {term}. Try \
-                     deleting it?"
+                         deleting it?"
                     )),
                 )
             }
@@ -54,69 +63,7 @@ impl Reporter<'_, '_> {
                 reflow(&format!(
                     "I was not expecting to run into the `{keyword}` keyword here:"
                 )),
-                match keyword {
-                    Keyword::Import => reflow(
-                        "It is reserved for declaring imports at the top of your module. If you \
-                         want another import, try moving it up top with the other imports. If \
-                         you want to define a value or function, try changing the name to \
-                         something else!",
-                    ),
-                    Keyword::Case => stack([
-                        reflow(
-                            "It is reserved for writing `case` expressions. Try using a \
-                             different name?",
-                        ),
-                        doc::simple_note(
-                            "If you are trying to write a `case` expression, it needs to be \
-                             part of a definition. So you could write something like this \
-                             instead:",
-                        ),
-                        vcat([
-                            fill!["getWidth", "maybeWidth", "="].indent(0),
-                            fill![cyan("case"), "maybeWidth", cyan("of")].indent(2),
-                            fill![blue("Just"), "width", "->"].indent(4),
-                            fill!["width", "+", dullyellow("200")].indent(6),
-                            Doc::empty(),
-                            fill![blue("Nothing"), "->"].indent(4),
-                            fill![dullyellow("400")].indent(6),
-                        ])
-                        .indent(4),
-                        reflow(
-                            "This defines a `getWidth` function that you can use elsewhere in \
-                             your program.",
-                        ),
-                    ]),
-                    Keyword::If => stack([
-                        reflow(
-                            "It is reserved for writing `if` expressions. Try using a different \
-                             name?",
-                        ),
-                        doc::simple_note(
-                            "If you are trying to write an `if` expression, it needs to be part \
-                             of a definition. So you could write something like this instead:",
-                        ),
-                        vcat([
-                            Doc::from("greet name ="),
-                            fill![
-                                " ",
-                                cyan("if"),
-                                "name",
-                                "==",
-                                dullyellow("\"Abraham Lincoln\""),
-                                cyan("then"),
-                                dullyellow("\"Greetings Mr. President.\""),
-                                cyan("else"),
-                                dullyellow("\"Hey!\""),
-                            ],
-                        ])
-                        .indent(4),
-                        reflow(
-                            "This defines a `reviewPowerLevel` function that you can use \
-                             elsewhere in your program.",
-                        ),
-                    ]),
-                    _ => reflow("It is a reserved word. Try changing the name to something else?"),
-                },
+                reserved_at_top(keyword),
             ),
             Next::Upper(c, cs) => self.at(
                 "UNEXPECTED CAPITAL LETTER",
@@ -127,10 +74,7 @@ impl Reporter<'_, '_> {
                 ),
                 stack([
                     fill![
-                        "Try",
-                        "a",
-                        "name",
-                        "like",
+                        "Try a name like",
                         green(format!("{}{cs}", c.to_lowercase())),
                         "instead?"
                     ],
@@ -163,7 +107,7 @@ impl Reporter<'_, '_> {
                     ),
                 ]),
             ),
-            _ => self.at(
+            Next::Operator(_) | Next::Lower(..) | Next::Other(_) => self.at(
                 "WEIRD DECLARATION",
                 region,
                 reflow("I am trying to parse a declaration, but I am getting stuck here:"),
@@ -185,32 +129,17 @@ impl Reporter<'_, '_> {
     // PORT
 
     /// `toPortReport`.
-    fn port(&self, port: &Port, start: Cursor) -> Problem {
-        let within = |cur: Cursor| surroundings(start, cur);
-        let stuck =
+    fn port(&self, port: &Port, start: Position) -> Problem {
+        let partway =
             || reflow("I just saw the start of a `port` declaration, but then I got stuck here:");
         let expecting_name = || {
             stack([
                 fill![
-                    "I",
-                    "was",
-                    "expecting",
-                    "to",
-                    "see",
-                    "a",
-                    "name",
-                    "like",
-                    dullyellow("send"),
+                    "I was expecting to see a name like",
+                    dull_yellow("send"),
                     "or",
-                    dullyellow("receive"),
-                    "next.",
-                    "Something",
-                    "that",
-                    "starts",
-                    "with",
-                    "a",
-                    "lower-case",
-                    "letter."
+                    dull_yellow("receive"),
+                    "next. Something that starts with a lower-case letter."
                 ],
                 port_note(),
             ])
@@ -226,52 +155,34 @@ impl Reporter<'_, '_> {
         };
         match port {
             Port::PortSpace(space, cur) => self.space(*space, *cur),
-            Port::PortName(cur) => match self.next(*cur) {
-                Next::Keyword(keyword) => self.within(
-                    "RESERVED WORD",
-                    within(*cur),
-                    self.keyword_region(*cur, keyword.as_str()),
+            Port::PortName(cur) => match self.next_keyword(*cur) {
+                Some(keyword) => self.reserved(
+                    start,
+                    *cur,
+                    keyword,
                     reflow("I cannot handle ports with names like this:"),
                     reflow(&format!(
                         "You are trying to make a port named `{keyword}` but that is a reserved \
                          word. Try using some other name?"
                     )),
                 ),
-                _ => self.within(
-                    "PORT PROBLEM",
-                    within(*cur),
-                    to_region(*cur),
-                    stuck(),
-                    expecting_name(),
-                ),
+                None => self.stuck("PORT PROBLEM", start, *cur, partway(), expecting_name()),
             },
-            Port::PortColon(cur) => self.within(
-                "PORT PROBLEM",
-                within(*cur),
-                to_region(*cur),
-                stuck(),
-                expecting_colon(),
-            ),
+            Port::PortColon(cur) => {
+                self.stuck("PORT PROBLEM", start, *cur, partway(), expecting_colon())
+            }
             Port::PortType(tipe, cur) => self.tipe(&TypeContext::Port, tipe, *cur),
-            Port::PortIndentName(cur) => self.within(
+            Port::PortIndentName(cur) => {
+                self.stuck("UNFINISHED PORT", start, *cur, partway(), expecting_name())
+            }
+            Port::PortIndentColon(cur) => {
+                self.stuck("UNFINISHED PORT", start, *cur, partway(), expecting_colon())
+            }
+            Port::PortIndentType(cur) => self.stuck(
                 "UNFINISHED PORT",
-                within(*cur),
-                to_region(*cur),
-                stuck(),
-                expecting_name(),
-            ),
-            Port::PortIndentColon(cur) => self.within(
-                "UNFINISHED PORT",
-                within(*cur),
-                to_region(*cur),
-                stuck(),
-                expecting_colon(),
-            ),
-            Port::PortIndentType(cur) => self.within(
-                "UNFINISHED PORT",
-                within(*cur),
-                to_region(*cur),
-                stuck(),
+                start,
+                *cur,
+                partway(),
                 stack([
                     reflow(
                         "I was expecting to see a type next. Here are examples of outgoing and \
@@ -294,33 +205,29 @@ impl Reporter<'_, '_> {
     // DECL TYPE
 
     /// `toDeclTypeReport`.
-    fn decl_type(&self, decl_type: &DeclType, start: Cursor) -> Problem {
-        let expecting_name = |cur: Cursor| {
-            self.within(
-                "EXPECTING TYPE NAME",
-                surroundings(start, cur),
-                to_region(cur),
-                reflow("I think I am parsing a type declaration, but I got stuck here:"),
-                stack([expecting_type_name(), custom_type_note()]),
-            )
-        };
+    fn decl_type(&self, decl_type: &DeclType, start: Position) -> Problem {
         match decl_type {
             DeclType::DtSpace(space, cur) => self.space(*space, *cur),
-            DeclType::DtName(cur) | DeclType::DtIndentName(cur) => expecting_name(*cur),
+            DeclType::DtName(cur) | DeclType::DtIndentName(cur) => self.stuck(
+                "EXPECTING TYPE NAME",
+                start,
+                *cur,
+                reflow("I think I am parsing a type declaration, but I got stuck here:"),
+                stack([expecting_type_name(), custom_type_note()]),
+            ),
             DeclType::DtAlias(alias, cur) => self.type_alias(alias, *cur),
             DeclType::DtUnion(custom, cur) => self.custom_type(custom, *cur),
         }
     }
 
     /// `toTypeAliasReport`.
-    fn type_alias(&self, alias: &TypeAlias, start: Cursor) -> Problem {
-        let partway = || reflow("I am partway through parsing a type alias, but I got stuck here:");
-        let report = |title: &'static str, cur: Cursor, message: Doc| {
-            self.within(
+    fn type_alias(&self, alias: &TypeAlias, start: Position) -> Problem {
+        let with_note = |title: &'static str, cur: Position, message: Doc| {
+            self.stuck(
                 title,
-                surroundings(start, cur),
-                to_region(cur),
-                partway(),
+                start,
+                cur,
+                reflow("I am partway through parsing a type alias, but I got stuck here:"),
                 stack([message, type_alias_note()]),
             )
         };
@@ -328,171 +235,109 @@ impl Reporter<'_, '_> {
             || reflow("I was expecting to see a type variable or an equals sign next.");
         match alias {
             TypeAlias::AliasSpace(space, cur) => self.space(*space, *cur),
-            TypeAlias::AliasName(cur) => report(
+            TypeAlias::AliasName(cur) => with_note(
                 "EXPECTING TYPE ALIAS NAME",
                 *cur,
                 fill![
-                    "I",
-                    "was",
-                    "expecting",
-                    "a",
-                    "name",
-                    "like",
-                    dullyellow("Person"),
+                    "I was expecting a name like",
+                    dull_yellow("Person"),
                     "or",
-                    dullyellow("Point"),
-                    "next.",
-                    "Just",
-                    "make",
-                    "sure",
-                    "it",
-                    "is",
-                    "a",
-                    "name",
-                    "that",
-                    "starts",
-                    "with",
-                    "a",
-                    "capital",
-                    "letter!"
+                    dull_yellow("Point"),
+                    "next. Just make sure it is a name that starts with a capital letter!"
                 ],
             ),
-            TypeAlias::AliasEquals(cur) => match self.next(*cur) {
-                Next::Keyword(keyword) => self.within(
-                    "RESERVED WORD",
-                    surroundings(start, *cur),
-                    self.keyword_region(*cur, keyword.as_str()),
+            TypeAlias::AliasEquals(cur) => match self.next_keyword(*cur) {
+                Some(keyword) => self.reserved(
+                    start,
+                    *cur,
+                    keyword,
                     reflow(
                         "I ran into a reserved word unexpectedly while parsing this type alias:",
                     ),
                     stack([reserved_type_variable(keyword), type_alias_note()]),
                 ),
-                _ => report("PROBLEM IN TYPE ALIAS", *cur, variable_or_equals()),
+                None => with_note("PROBLEM IN TYPE ALIAS", *cur, variable_or_equals()),
             },
             TypeAlias::AliasBody(tipe, cur) => self.tipe(&TypeContext::TypeAlias, tipe, *cur),
             TypeAlias::AliasIndentEquals(cur) => {
-                report("UNFINISHED TYPE ALIAS", *cur, variable_or_equals())
+                with_note("UNFINISHED TYPE ALIAS", *cur, variable_or_equals())
             }
-            TypeAlias::AliasIndentBody(cur) => report(
+            TypeAlias::AliasIndentBody(cur) => with_note(
                 "UNFINISHED TYPE ALIAS",
                 *cur,
                 fill![
-                    "I",
-                    "was",
-                    "expecting",
-                    "to",
-                    "see",
-                    "a",
-                    "type",
-                    "next.",
-                    "Something",
-                    "as",
-                    "simple",
-                    "as",
-                    dullyellow("Int"),
+                    "I was expecting to see a type next. Something as simple as",
+                    dull_yellow("Int"),
                     "or",
-                    dullyellow("Float"),
-                    "would",
-                    "work!"
+                    dull_yellow("Float"),
+                    "would work!"
                 ],
             ),
         }
     }
 
     /// `toCustomTypeReport`.
-    fn custom_type(&self, custom: &CustomType, start: Cursor) -> Problem {
-        let report = |title: &'static str, before: Doc, cur: Cursor, message: Doc| {
-            self.within(
+    fn custom_type(&self, custom: &CustomType, start: Position) -> Problem {
+        let with_note = |title: &'static str, cur: Position, message: Doc| {
+            self.stuck(
                 title,
-                surroundings(start, cur),
-                to_region(cur),
-                before,
+                start,
+                cur,
+                reflow("I am partway through parsing a custom type, but I got stuck here:"),
                 stack([message, custom_type_note()]),
             )
         };
-        let partway =
-            || reflow("I am partway through parsing a custom type, but I got stuck here:");
         let variable_or_equals =
             || reflow("I was expecting to see a type variable or an equals sign next.");
         let bar = || reflow("I was expecting to see a vertical bar like | next.");
         match custom {
             CustomType::CtSpace(space, cur) => self.space(*space, *cur),
-            CustomType::CtName(cur) => report(
+            CustomType::CtName(cur) => self.stuck(
                 "EXPECTING TYPE NAME",
-                reflow("I think I am parsing a type declaration, but I got stuck here:"),
+                start,
                 *cur,
-                expecting_type_name(),
+                reflow("I think I am parsing a type declaration, but I got stuck here:"),
+                stack([expecting_type_name(), custom_type_note()]),
             ),
-            CustomType::CtEquals(cur) => match self.next(*cur) {
-                Next::Keyword(keyword) => self.within(
-                    "RESERVED WORD",
-                    surroundings(start, *cur),
-                    self.keyword_region(*cur, keyword.as_str()),
+            CustomType::CtEquals(cur) => match self.next_keyword(*cur) {
+                Some(keyword) => self.reserved(
+                    start,
+                    *cur,
+                    keyword,
                     reflow(
                         "I ran into a reserved word unexpectedly while parsing this custom type:",
                     ),
                     stack([reserved_type_variable(keyword), custom_type_note()]),
                 ),
-                _ => report(
-                    "PROBLEM IN CUSTOM TYPE",
-                    partway(),
-                    *cur,
-                    variable_or_equals(),
-                ),
+                None => with_note("PROBLEM IN CUSTOM TYPE", *cur, variable_or_equals()),
             },
-            CustomType::CtBar(cur) => report("PROBLEM IN CUSTOM TYPE", partway(), *cur, bar()),
-            CustomType::CtVariant(cur) => report(
+            CustomType::CtBar(cur) => with_note("PROBLEM IN CUSTOM TYPE", *cur, bar()),
+            CustomType::CtVariant(cur) => with_note(
                 "PROBLEM IN CUSTOM TYPE",
-                partway(),
                 *cur,
                 fill![
-                    "I",
-                    "was",
-                    "expecting",
-                    "to",
-                    "see",
-                    "a",
-                    "variant",
-                    "name",
-                    "next.",
-                    "Something",
-                    "like",
-                    dullyellow("Success"),
+                    "I was expecting to see a variant name next. Something like",
+                    dull_yellow("Success"),
                     "or",
-                    dullyellow("Sandwich").append(Doc::from(".")),
-                    "Any",
-                    "name",
-                    "that",
-                    "starts",
-                    "with",
-                    "a",
-                    "capital",
-                    "letter",
-                    "really!"
+                    dull_yellow("Sandwich").append(Doc::from(".")),
+                    "Any name that starts with a capital letter really!"
                 ],
             ),
             CustomType::CtVariantArg(tipe, cur) => self.tipe(&TypeContext::CustomType, tipe, *cur),
-            CustomType::CtIndentEquals(cur) => report(
-                "UNFINISHED CUSTOM TYPE",
-                partway(),
-                *cur,
-                variable_or_equals(),
-            ),
-            CustomType::CtIndentBar(cur) => {
-                report("UNFINISHED CUSTOM TYPE", partway(), *cur, bar())
+            CustomType::CtIndentEquals(cur) => {
+                with_note("UNFINISHED CUSTOM TYPE", *cur, variable_or_equals())
             }
-            CustomType::CtIndentAfterBar(cur) => report(
+            CustomType::CtIndentBar(cur) => with_note("UNFINISHED CUSTOM TYPE", *cur, bar()),
+            CustomType::CtIndentAfterBar(cur) => with_note(
                 "UNFINISHED CUSTOM TYPE",
-                partway(),
                 *cur,
                 reflow(
                     "I just saw a vertical bar, so I was expecting to see another variant \
                      defined next.",
                 ),
             ),
-            CustomType::CtIndentAfterEquals(cur) => report(
+            CustomType::CtIndentAfterEquals(cur) => with_note(
                 "UNFINISHED CUSTOM TYPE",
-                partway(),
                 *cur,
                 reflow(
                     "I just saw an equals sign, so I was expecting to see the first variant \
@@ -505,21 +350,7 @@ impl Reporter<'_, '_> {
     // DECL DEF
 
     /// `toDeclDefReport`, but for the patterns and expressions inside.
-    fn decl_def(&self, name: &str, decl_def: &DeclDef, start: Cursor) -> Problem {
-        let unfinished = |before: Doc, cur: Cursor, message: &str| {
-            self.within(
-                "UNFINISHED DEFINITION",
-                surroundings(start, cur),
-                to_region(cur),
-                before,
-                stack([reflow(message), decl_def_note()]),
-            )
-        };
-        let stuck_definition = || {
-            reflow(&format!(
-                "I got stuck while parsing the `{name}` definition:"
-            ))
-        };
+    fn decl_def(&self, name: &str, decl_def: &DeclDef, start: Position) -> Problem {
         match decl_def {
             DeclDef::DeclDefSpace(space, cur) => self.space(*space, *cur),
             DeclDef::DeclDefEquals(cur) => self.def_equals(name, *cur, start),
@@ -528,10 +359,10 @@ impl Reporter<'_, '_> {
             }
             DeclDef::DeclDefArg(pattern, cur) => self.pattern(PContext::Arg, pattern, *cur),
             DeclDef::DeclDefBody(expr, cur) => self.expr(&Context::Def(name, start), expr, *cur),
-            DeclDef::DeclDefNameRepeat(cur) => self.within(
+            DeclDef::DeclDefNameRepeat(cur) => self.stuck(
                 "EXPECTING DEFINITION",
-                surroundings(start, *cur),
-                to_region(*cur),
+                start,
+                *cur,
                 reflow(&format!(
                     "I just saw the type annotation for `{name}` so I was expecting to see its \
                      definition here:"
@@ -547,29 +378,55 @@ impl Reporter<'_, '_> {
             DeclDef::DeclDefNameMatch(def_name, cur) => {
                 self.name_mismatch(name, def_name, *cur, start)
             }
-            DeclDef::DeclDefIndentType(cur) => unfinished(
+            DeclDef::DeclDefIndentType(cur) => {
+                self.unfinished_definition(name, start, *cur, Missing::Type)
+            }
+            DeclDef::DeclDefIndentEquals(cur) => {
+                self.unfinished_definition(name, start, *cur, Missing::Equals)
+            }
+            DeclDef::DeclDefIndentBody(cur) => {
+                self.unfinished_definition(name, start, *cur, Missing::Body)
+            }
+        }
+    }
+
+    /// "UNFINISHED DEFINITION": the definition of `name` stopped before
+    /// what it is `missing`. Top-level and `let` definitions alike.
+    pub(super) fn unfinished_definition(
+        &self,
+        name: &str,
+        start: Position,
+        cur: Position,
+        missing: Missing,
+    ) -> Problem {
+        let (before, expecting) = match missing {
+            Missing::Type => (
                 reflow(&format!(
                     "I got stuck while parsing the `{name}` type annotation:"
                 )),
-                *cur,
                 "I just saw a colon, so I am expecting to see a type next.",
             ),
-            DeclDef::DeclDefIndentEquals(cur) => unfinished(
-                stuck_definition(),
-                *cur,
+            Missing::Equals => (
+                stuck_in_definition(name),
                 "I was expecting to see an argument or an equals sign next.",
             ),
-            DeclDef::DeclDefIndentBody(cur) => unfinished(
-                stuck_definition(),
-                *cur,
+            Missing::Body => (
+                stuck_in_definition(name),
                 "I was expecting to see an expression next. What is it equal to?",
             ),
-        }
+        };
+        self.stuck(
+            "UNFINISHED DEFINITION",
+            start,
+            cur,
+            before,
+            stack([reflow(expecting), decl_def_note()]),
+        )
     }
 
     /// `DeclDefEquals` and `DefEquals`: what can stop a definition
     /// before its equals sign.
-    pub(super) fn def_equals(&self, name: &str, cur: Cursor, start: Cursor) -> Problem {
+    pub(super) fn def_equals(&self, name: &str, cur: Position, start: Position) -> Problem {
         let try_format = || {
             reflow(&format!(
                 "Try to use that format with your `{name}` definition!"
@@ -582,64 +439,29 @@ impl Reporter<'_, '_> {
             )
         };
         match self.next(cur) {
-            Next::Keyword(keyword) => self.within(
-                "RESERVED WORD",
-                surroundings(start, cur),
-                self.keyword_region(cur, keyword.as_str()),
+            Next::Keyword(keyword) => self.reserved(
+                start,
+                cur,
+                keyword,
                 fill![
-                    "The",
-                    "name",
+                    "The name",
                     Doc::from("`")
                         .append(cyan(keyword.as_str()))
                         .append(Doc::from("`")),
-                    "is",
-                    "reserved",
-                    "in",
-                    "Elm,",
-                    "so",
-                    "it",
-                    "cannot",
-                    "be",
-                    "used",
-                    "as",
-                    "an",
-                    "argument",
-                    "here:"
+                    "is reserved in Elm, so it cannot be used as an argument here:"
                 ],
                 stack([
                     reflow("Try renaming it to something else."),
                     if keyword == Keyword::As {
-                        doc::note(
-                            [
-                                "This", "keyword", "is", "reserved", "for", "pattern", "matches",
-                                "like", "((x,y)",
-                            ]
-                            .into_iter()
-                            .map(Doc::from)
-                            .chain([cyan("as")])
-                            .chain(
-                                [
-                                    "point)",
-                                    "where",
-                                    "you",
-                                    "want",
-                                    "to",
-                                    "name",
-                                    "a",
-                                    "tuple",
-                                    "and",
-                                    "the",
-                                    "values",
-                                    "it",
-                                    "contains.",
-                                ]
-                                .map(Doc::from),
-                            ),
-                        )
+                        doc::note(words![
+                            "This keyword is reserved for pattern matches like ((x,y)",
+                            cyan("as"),
+                            "point) where you want to name a tuple and the values it contains."
+                        ])
                     } else {
                         doc::simple_note(&format!(
-                            "The `{keyword}` keyword has a special meaning in Elm, so \
-                                     it can only be used in certain situations."
+                            "The `{keyword}` keyword has a special meaning in Elm, so it can \
+                             only be used in certain situations."
                         ))
                     },
                 ]),
@@ -651,34 +473,10 @@ impl Reporter<'_, '_> {
                 reflow("I was not expecting to see an arrow here:"),
                 stack([
                     fill![
-                        "This",
-                        "usually",
-                        "means",
-                        "a",
+                        "This usually means a",
                         green(":"),
-                        "is",
-                        "missing",
-                        "a",
-                        "bit",
-                        "earlier",
-                        "in",
-                        "a",
-                        "type",
-                        "annotation.",
-                        "It",
-                        "could",
-                        "be",
-                        "something",
-                        "else",
-                        "though,",
-                        "so",
-                        "here",
-                        "is",
-                        "a",
-                        "valid",
-                        "definition",
-                        "for",
-                        "reference:"
+                        "is missing a bit earlier in a type annotation. It could be something else \
+                         though, so here is a valid definition for reference:"
                     ],
                     greet_example().indent(4),
                     try_format(),
@@ -691,13 +489,11 @@ impl Reporter<'_, '_> {
                 reflow("I was not expecting to see this symbol here:"),
                 stack([not_sure(), greet_example().indent(4), try_format()]),
             ),
-            _ => self.within(
+            Next::Close(_) | Next::Upper(..) | Next::Lower(..) | Next::Other(_) => self.stuck(
                 "PROBLEM IN DEFINITION",
-                surroundings(start, cur),
-                to_region(cur),
-                reflow(&format!(
-                    "I got stuck while parsing the `{name}` definition:"
-                )),
+                start,
+                cur,
+                stuck_in_definition(name),
                 stack([
                     not_sure(),
                     greet_example().indent(4),
@@ -712,23 +508,87 @@ impl Reporter<'_, '_> {
         &self,
         name: &str,
         def_name: &str,
-        cur: Cursor,
-        start: Cursor,
+        cur: Position,
+        start: Position,
     ) -> Problem {
-        self.within(
+        self.stuck(
             "NAME MISMATCH",
-            surroundings(start, cur),
-            to_region(cur),
+            start,
+            cur,
             reflow(&format!(
                 "I just saw a type annotation for `{name}`, but it is followed by a definition \
                  for `{def_name}`:"
             )),
             stack([
                 reflow("These names do not match! Is there a typo?"),
-                fill![dullyellow(def_name), "->", green(name)].indent(4),
+                fill![dull_yellow(def_name), "->", green(name)].indent(4),
             ]),
         )
     }
+}
+
+/// What `toDeclStartReport` says of a reserved word starting a line.
+fn reserved_at_top(keyword: Keyword) -> Doc {
+    match keyword {
+        Keyword::Import => reflow(
+            "It is reserved for declaring imports at the top of your module. If you want another \
+             import, try moving it up top with the other imports. If you want to define a value \
+             or function, try changing the name to something else!",
+        ),
+        Keyword::Case => stack([
+            reflow("It is reserved for writing `case` expressions. Try using a different name?"),
+            doc::simple_note(
+                "If you are trying to write a `case` expression, it needs to be part of a \
+                 definition. So you could write something like this instead:",
+            ),
+            vcat([
+                reflow("getWidth maybeWidth =").indent(0),
+                fill![cyan("case"), "maybeWidth", cyan("of")].indent(2),
+                fill![blue("Just"), "width ->"].indent(4),
+                fill!["width +", dull_yellow("200")].indent(6),
+                Doc::empty(),
+                fill![blue("Nothing"), "->"].indent(4),
+                dull_yellow("400").indent(6),
+            ])
+            .indent(4),
+            reflow(
+                "This defines a `getWidth` function that you can use elsewhere in your program.",
+            ),
+        ]),
+        Keyword::If => stack([
+            reflow("It is reserved for writing `if` expressions. Try using a different name?"),
+            doc::simple_note(
+                "If you are trying to write an `if` expression, it needs to be part of a \
+                 definition. So you could write something like this instead:",
+            ),
+            vcat([
+                Doc::from("greet name ="),
+                fill![
+                    Doc::from(" "),
+                    cyan("if"),
+                    "name ==",
+                    dull_yellow("\"Abraham Lincoln\""),
+                    cyan("then"),
+                    dull_yellow("\"Greetings Mr. President.\""),
+                    cyan("else"),
+                    dull_yellow("\"Hey!\"")
+                ],
+            ])
+            .indent(4),
+            reflow(
+                "This defines a `reviewPowerLevel` function that you can use elsewhere in your \
+                 program.",
+            ),
+        ]),
+        _ => reflow("It is a reserved word. Try changing the name to something else?"),
+    }
+}
+
+/// "I got stuck while parsing the `name` definition:"
+pub(super) fn stuck_in_definition(name: &str) -> Doc {
+    reflow(&format!(
+        "I got stuck while parsing the `{name}` definition:"
+    ))
 }
 
 /// The definition of `greet`, which many reports show.
@@ -737,9 +597,9 @@ pub(super) fn greet_example() -> Doc {
         Doc::from("greet : String -> String"),
         Doc::from("greet name ="),
         Doc::from("  ")
-            .append(dullyellow("\"Hello \""))
+            .append(dull_yellow("\"Hello \""))
             .append(Doc::from(" ++ name ++ "))
-            .append(dullyellow("\"!\"")),
+            .append(dull_yellow("\"!\"")),
     ])
 }
 
@@ -755,8 +615,12 @@ fn declaration_examples() -> Doc {
 
 fn port_examples() -> Doc {
     vcat([
-        fill![cyan("port"), "send", ":", "String -> Cmd msg"],
-        fill![cyan("port"), "receive", ":", "(String -> msg) -> Sub msg"],
+        fill![cyan("port"), "send :", Doc::from("String -> Cmd msg")],
+        fill![
+            cyan("port"),
+            "receive :",
+            Doc::from("(String -> msg) -> Sub msg")
+        ],
     ])
     .indent(4)
 }
@@ -778,29 +642,11 @@ fn port_note() -> Doc {
 
 fn expecting_type_name() -> Doc {
     fill![
-        "I",
-        "was",
-        "expecting",
-        "a",
-        "name",
-        "like",
-        dullyellow("Status"),
+        "I was expecting a name like",
+        dull_yellow("Status"),
         "or",
-        dullyellow("Style"),
-        "next.",
-        "Just",
-        "make",
-        "sure",
-        "it",
-        "is",
-        "a",
-        "name",
-        "that",
-        "starts",
-        "with",
-        "a",
-        "capital",
-        "letter!"
+        dull_yellow("Style"),
+        "next. Just make sure it is a name that starts with a capital letter!"
     ]
 }
 
@@ -816,7 +662,7 @@ fn type_alias_note() -> Doc {
     stack([
         doc::simple_note("Here is an example of a valid `type alias` for reference:"),
         vcat([
-            fill![cyan("type"), cyan("alias"), "Person", "="].indent(4),
+            fill![cyan("type"), cyan("alias"), "Person ="].indent(4),
             vcat(["{ name : String", ", age : Int", ", height : Float", "}"].map(Doc::from))
                 .indent(6),
         ]),
@@ -834,9 +680,9 @@ fn custom_type_note() -> Doc {
         doc::simple_note("Here is an example of a valid `type` declaration for reference:"),
         vcat([
             fill![cyan("type"), "Status"].indent(4),
-            fill!["=", "Failure"].indent(6),
-            fill!["|", "Waiting"].indent(6),
-            fill!["|", "Success", "String"].indent(6),
+            fill!["= Failure"].indent(6),
+            fill!["| Waiting"].indent(6),
+            fill!["| Success String"].indent(6),
         ]),
         reflow(
             "This defines a new `Status` type with three variants. This could be useful if we \

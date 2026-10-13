@@ -1,19 +1,17 @@
 //! `Parse/Whitespace.hs` and `Parse/Comments.hs`: spaces, newlines and
-//! comments. Each parser returns whether it parsed a comment, all that
-//! upstream's control flow reads of the comments it collects: a pattern
-//! in parentheses with none around it is the pattern itself.
+//! comments. The whitespace a pattern's parentheses hold says whether it
+//! held a comment, all that upstream's control flow reads of the
+//! comments it collects: a pattern in parentheses with none around it is
+//! the pattern itself.
 
-use super::engine::{P, R, deep};
+use nomi_base::grow_large;
 
-/// `spaces`: blanks, `{--}` and block comments, at least one. Tabs are
-/// not whitespace.
+use super::engine::{P, R};
+
+/// `spaces`: blanks, `{--}` and block comments, at least one, and
+/// whether there was a comment. Tabs are not whitespace.
 pub(super) fn spaces(p: &mut P<'_>) -> R<bool> {
-    let mut comments = space(p)?;
-    p.many(|p| {
-        comments |= space(p)?;
-        Ok(())
-    })?;
-    Ok(comments)
+    Ok(space(p)? | any_comment(p, space)?)
 }
 
 fn space(p: &mut P<'_>) -> R<bool> {
@@ -24,87 +22,65 @@ fn space(p: &mut P<'_>) -> R<bool> {
     ])
 }
 
-/// `forcedWS`.
-pub(super) fn forced_ws(p: &mut P<'_>) -> R<bool> {
-    p.choice(&mut [
-        &mut |p| {
-            let mut comments = spaces(p)?;
-            p.many(|p| {
-                comments |= nl_space(p)?;
-                Ok(())
-            })?;
-            Ok(comments)
-        },
-        &mut |p| {
-            let mut comments = nl_space(p)?;
-            p.many(|p| {
-                comments |= nl_space(p)?;
-                Ok(())
-            })?;
-            Ok(comments)
-        },
-    ])
-}
-
-fn nl_space(p: &mut P<'_>) -> R<bool> {
-    p.attempt(|p| {
-        let mut comments = newlines1(p)?;
-        comments |= p.option(spaces)?.unwrap_or(false);
-        Ok(comments)
-    })
-}
-
-/// `many1 newline`.
-fn newlines1(p: &mut P<'_>) -> R<bool> {
-    let mut comments = newline(p)?;
+/// `many parser`, and whether any of what it parsed held a comment.
+fn any_comment<'s>(p: &mut P<'s>, mut parser: impl FnMut(&mut P<'s>) -> R<bool>) -> R<bool> {
+    let mut comments = false;
     p.many(|p| {
-        comments |= newline(p)?;
+        comments |= parser(p)?;
         Ok(())
     })?;
     Ok(comments)
 }
 
-/// `whitespace'`: whether there was any, and whether it held a comment.
-pub(super) fn whitespace_(p: &mut P<'_>) -> R<(bool, bool)> {
-    Ok(p.option(forced_ws)?.map_or((false, false), |c| (true, c)))
+/// `forcedWS`, and whether it held a comment.
+pub(super) fn forced_ws(p: &mut P<'_>) -> R<bool> {
+    // Neither alternative is under `try`, so the newlines after either
+    // can follow the choice.
+    let first = p.choice(&mut [&mut spaces, &mut nl_space])?;
+    Ok(first | any_comment(p, nl_space)?)
 }
 
-/// `whitespace`.
+fn nl_space(p: &mut P<'_>) -> R<bool> {
+    p.attempt(|p| Ok(newlines1(p)? | p.option(spaces)?.unwrap_or(false)))
+}
+
+/// `many1 newline`, and whether there was a line comment.
+fn newlines1(p: &mut P<'_>) -> R<bool> {
+    Ok(newline(p)? | any_comment(p, newline)?)
+}
+
+/// `whitespace`, and whether it held a comment.
 pub(super) fn whitespace(p: &mut P<'_>) -> R<bool> {
-    whitespace_(p).map(|(_, comments)| comments)
+    Ok(p.option(forced_ws)?.unwrap_or(false))
 }
 
 /// `freshLine`: newlines, perhaps between spaces.
-pub(super) fn fresh_line(p: &mut P<'_>) -> R<bool> {
+pub(super) fn fresh_line(p: &mut P<'_>) -> R<()> {
     p.alt(
         |p| {
             p.attempt(|p| {
-                let mut comments = newlines1(p)?;
-                p.many(|p| {
-                    comments |= space_nl(p)?;
-                    Ok(())
-                })?;
-                Ok(comments)
+                newlines1(p)?;
+                p.many(space_nl).map(drop)
             })
         },
         |p| {
             p.attempt(|p| {
-                let mut comments = space_nl(p)?;
-                p.many(|p| {
-                    comments |= space_nl(p)?;
-                    Ok(())
-                })?;
-                Ok(comments)
+                space_nl(p)?;
+                p.many(space_nl).map(drop)
             })
         },
     )
 }
 
-fn space_nl(p: &mut P<'_>) -> R<bool> {
-    p.attempt(|p| Ok(spaces(p)? | newlines1(p)?))
+fn space_nl(p: &mut P<'_>) -> R<()> {
+    p.attempt(|p| {
+        spaces(p)?;
+        newlines1(p).map(drop)
+    })
 }
 
-/// `newline`: a line break, or a line comment and its break.
+/// `newline`: a line break, or a line comment and its break, and
+/// whether it was a comment.
 fn newline(p: &mut P<'_>) -> R<bool> {
     p.alt(
         |p| simple_newline(p).map(|()| false),
@@ -164,7 +140,7 @@ fn multi_comment(p: &mut P<'_>) -> R<()> {
 
 /// `closeComment`: up to the `-}` closing it, past nested comments.
 fn close_comment(p: &mut P<'_>) -> R<()> {
-    deep(p, |p| {
+    grow_large(|| {
         any_until(p, |p| {
             p.choice(&mut [
                 &mut |p| {
@@ -193,21 +169,17 @@ pub(super) fn any_until(p: &mut P<'_>, mut end: impl FnMut(&mut P<'_>) -> R<()>)
 
 /// `withEol`: `parser`, and the rest of its line unless it spanned lines.
 pub(super) fn with_eol<'s, T>(p: &mut P<'s>, parser: impl FnOnce(&mut P<'s>) -> R<T>) -> R<T> {
-    let (value, multiline) = p.track_newline(parser)?;
+    let (value, multiline) = p.track_newline_seen(parser)?;
     if !multiline {
         rest_of_line(p)?;
     }
     Ok(value)
 }
 
-/// `padded`: `parser` between whitespace, and whether either held a
-/// comment.
-pub(super) fn padded<'s, T>(
-    p: &mut P<'s>,
-    parser: impl FnOnce(&mut P<'s>) -> R<T>,
-) -> R<(T, bool)> {
-    let pre = whitespace(p)?;
+/// `padded`, and `commented`: `parser` between whitespace.
+pub(super) fn padded<'s, T>(p: &mut P<'s>, parser: impl FnOnce(&mut P<'s>) -> R<T>) -> R<T> {
+    whitespace(p)?;
     let value = parser(p)?;
-    let post = whitespace(p)?;
-    Ok((value, pre | post))
+    whitespace(p)?;
+    Ok(value)
 }

@@ -3,18 +3,18 @@
 //! `toExprReport`.
 
 use nomi_base::Compat;
-use nomi_base::diagnostic::doc::{self, fill_sep, reflow, stack, vcat};
+use nomi_base::diagnostic::doc::{self, dull_yellow, green, reflow, stack, vcat};
 use nomi_base::diagnostic::{Doc, Problem};
 
-use super::{Reporter, dullyellow, green, to_region};
-use crate::elm::error::{Char, Cursor, Escape, Number, String};
+use super::{Reporter, to_region};
+use crate::elm::error::{self, Escape, Number, Position};
 
 impl Reporter<'_, '_> {
     /// `toCharReport`.
-    pub(super) fn char(&self, char: &Char, cur: Cursor) -> Problem {
+    pub(super) fn char(&self, char: &error::Char, cur: Position) -> Problem {
         match char {
-            Char::CharNotUtf8 => self.not_utf8(cur),
-            Char::CharEndless => self.at(
+            error::Char::CharNotUtf8 => self.not_utf8(cur),
+            error::Char::CharEndless => self.at(
                 "MISSING SINGLE QUOTE",
                 to_region(cur),
                 reflow(
@@ -23,14 +23,14 @@ impl Reporter<'_, '_> {
                 ),
                 reflow("Add a closing single quote here!"),
             ),
-            Char::CharEscape(escape) => self.escape(escape, cur),
-            Char::CharNotString(width) => self.at(
+            error::Char::CharEscape(escape) => self.escape(escape, cur),
+            error::Char::CharNotString(width) => self.at(
                 "NEEDS DOUBLE QUOTES",
-                self.wider(cur, *width as usize),
+                self.wider(cur, *width),
                 Doc::from("The following string uses single quotes:"),
                 stack([
                     Doc::from("Please switch to double quotes instead:"),
-                    dullyellow("'this'")
+                    dull_yellow("'this'")
                         .append(Doc::from(" => "))
                         .append(green("\"this\""))
                         .indent(4),
@@ -46,20 +46,20 @@ impl Reporter<'_, '_> {
     }
 
     /// `toStringReport`.
-    pub(super) fn string(&self, string: &String, cur: Cursor) -> Problem {
+    pub(super) fn string(&self, string: &error::String, cur: Position) -> Problem {
         match string {
-            String::StringNotUtf8 => self.not_utf8(cur),
-            String::StringEndlessSingle => self.at(
+            error::String::StringNotUtf8 => self.not_utf8(cur),
+            error::String::StringEndlessSingle => self.at(
                 "ENDLESS STRING",
                 to_region(cur),
                 reflow("I got to the end of the line without seeing the closing double quote:"),
                 stack([
-                    fill_sep(words![
+                    fill![
                         "Strings look like",
                         green("\"this\""),
-                        "with double quotes on each end. Is the closing double quote missing \
-                         in your code?",
-                    ]),
+                        "with double quotes on each end. Is the closing double quote missing in \
+                         your code?",
+                    ],
                     doc::simple_note(
                         "For a string that spans multiple lines, you can use the multi-line \
                          string syntax like this:",
@@ -67,7 +67,7 @@ impl Reporter<'_, '_> {
                     multi_line_string_example(),
                 ]),
             ),
-            String::StringEndlessMulti => self.at(
+            error::String::StringEndlessMulti => self.at(
                 "ENDLESS STRING",
                 self.wider(cur, 3),
                 reflow("I cannot find the end of this multi-line string:"),
@@ -77,12 +77,12 @@ impl Reporter<'_, '_> {
                     multi_line_string_example(),
                 ]),
             ),
-            String::StringEscape(escape) => self.escape(escape, cur),
+            error::String::StringEscape(escape) => self.escape(escape, cur),
         }
     }
 
     /// `toEscapeReport`.
-    fn escape(&self, escape: &Escape, cur: Cursor) -> Problem {
+    fn escape(&self, escape: &Escape, cur: Position) -> Problem {
         match *escape {
             Escape::EscapeUnknown => self.at(
                 "UNKNOWN ESCAPE",
@@ -93,7 +93,7 @@ impl Reporter<'_, '_> {
                 ),
                 stack([
                     reflow("Valid escape characters include:"),
-                    dullyellow(
+                    dull_yellow(
                         vcat(
                             ["\\n", "\\r", "\\t", "\\\"", "\\'", "\\\\", "\\u{003D}"]
                                 .map(Doc::from),
@@ -113,11 +113,11 @@ impl Reporter<'_, '_> {
             ),
             Escape::BadUnicodeFormat(width) => self.at(
                 "BAD UNICODE ESCAPE",
-                self.wider(cur, width as usize),
+                self.wider(cur, width),
                 reflow("I ran into an invalid Unicode escape:"),
                 stack([
                     reflow("Here are some examples of valid Unicode escapes:"),
-                    dullyellow(
+                    dull_yellow(
                         vcat(["\\u{0041}", "\\u{03BB}", "\\u{6728}", "\\u{1F60A}"].map(Doc::from))
                             .indent(4),
                     ),
@@ -129,37 +129,40 @@ impl Reporter<'_, '_> {
             ),
             Escape::BadUnicodeCode(width) => self.at(
                 "BAD UNICODE ESCAPE",
-                self.wider(cur, width as usize),
+                self.wider(cur, width),
                 reflow("This is not a valid code point:"),
                 reflow("The valid code points are between 0 and 10FFFF inclusive."),
             ),
-            Escape::BadUnicodeLength(width, digits, code) if digits < 4 => {
+            Escape::BadUnicodeLength {
+                width,
+                digits,
+                code,
+            } if digits < 4 => {
                 let good = format!("{}{code:X}", "0".repeat((4 - digits) as usize));
                 self.at(
                     "BAD UNICODE ESCAPE",
-                    self.wider(cur, width as usize),
+                    self.wider(cur, width),
                     reflow("Every code point needs at least four digits:"),
-                    fill_sep(words!["Try", green(format!("\\u{{{good}}}")), "instead?"]),
+                    fill!["Try", green(format!("\\u{{{good}}}")), "instead?"],
                 )
             }
-            Escape::BadUnicodeLength(width, ..) => self.at(
+            Escape::BadUnicodeLength { width, .. } => self.at(
                 "BAD UNICODE ESCAPE",
-                self.wider(cur, width as usize),
+                self.wider(cur, width),
                 reflow("This code point has too many digits:"),
-                fill_sep(words![
+                fill![
                     "Valid code points are between",
                     green("\\u{0000}"),
                     "and",
                     green("\\u{10FFFF}").append(Doc::from(",")),
-                    "so try trimming any leading zeros until you have between four and six \
-                     digits.",
-                ]),
+                    "so try trimming any leading zeros until you have between four and six digits.",
+                ],
             ),
         }
     }
 
     /// `toNumberReport`.
-    pub(super) fn number(&self, number: &Number, cur: Cursor) -> Problem {
+    pub(super) fn number(&self, number: &Number, cur: Position) -> Problem {
         let region = to_region(cur);
         match number {
             Number::NumberEnd => self.at(
@@ -176,13 +179,13 @@ impl Reporter<'_, '_> {
                 "WEIRD NUMBER",
                 region,
                 reflow("Numbers cannot end with a dot like this:"),
-                fill_sep(words![
+                fill![
                     "Switching to",
                     green(&**int),
                     "or",
                     green(format!("{int}.0")),
                     "will work though!",
-                ]),
+                ],
             ),
             Number::NumberHexDigit => self.at(
                 "WEIRD HEXIDECIMAL",
@@ -216,7 +219,7 @@ impl Reporter<'_, '_> {
 
     /// The `ShaderEndless` case of `toExprReport`, which 0.19.1 widens over
     /// the `[glsl|`.
-    pub(super) fn shader_endless(&self, cur: Cursor) -> Problem {
+    pub(super) fn shader_endless(&self, cur: Position) -> Problem {
         let region = match self.compat {
             Compat::V0_19_1 => self.wider(cur, 6),
             Compat::V0_19_2 | Compat::V0_19_3 => to_region(cur),
@@ -231,7 +234,7 @@ impl Reporter<'_, '_> {
 
     /// The `ShaderProblem` case of `toExprReport`, quoting Parsec's
     /// message.
-    pub(super) fn shader_problem(&self, problem: &str, cur: Cursor) -> Problem {
+    pub(super) fn shader_problem(&self, problem: &str, cur: Position) -> Problem {
         self.at(
             "SHADER PROBLEM",
             to_region(cur),
@@ -247,7 +250,7 @@ impl Reporter<'_, '_> {
     }
 
     /// The `UNEXPECTED ENCODING` report of chars, strings and shaders.
-    pub(super) fn not_utf8(&self, cur: Cursor) -> Problem {
+    pub(super) fn not_utf8(&self, cur: Position) -> Problem {
         self.at(
             "UNEXPECTED ENCODING",
             to_region(cur),
@@ -260,8 +263,8 @@ impl Reporter<'_, '_> {
     }
 }
 
-fn multi_line_string_example() -> Doc {
-    dullyellow(
+pub(super) fn multi_line_string_example() -> Doc {
+    dull_yellow(
         vcat(
             [
                 "\"\"\"",

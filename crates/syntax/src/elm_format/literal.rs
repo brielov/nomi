@@ -2,9 +2,10 @@
 //! parsers that read bytes rather than characters, so count a column a
 //! character whatever it is, a tab included.
 
-use nomi_base::ghc;
+use nomi_base::{Compat, ghc, utf8};
 
-use super::engine::{P, R};
+use super::engine::{P, Pos, R};
+use crate::elm::{Hex, chomp_hex};
 
 /// `literal`: a number, string or character, failing where it started
 /// if it is none.
@@ -24,32 +25,28 @@ fn num(p: &mut P<'_>) -> R<()> {
 
 // NUMBERS
 
-/// Where a number ended, or the error ending it.
-enum Outcome {
-    Ok(usize),
-    Err(usize),
-}
+/// Where a number ends, or where the error ending it is.
+type Scanned = Result<usize, usize>;
 
 /// `Parse.Number.number`.
 fn number(p: &mut P<'_>) -> R<()> {
     let start = p.pos;
-    let outcome = match p.peek(0) {
+    let scanned = match p.peek(0) {
         Some(b'0') => chomp_zero(p.src(), start + 1),
-        Some(b @ b'1'..=b'9') => chomp_int(p.src(), start + 1, b),
+        Some(b'1'..=b'9') => chomp_int(p.src(), start + 1),
         _ => return p.fail(),
     };
     // `fromIntegral` to a `Word16`, which wraps.
-    #[expect(clippy::cast_possible_truncation, reason = "Word16 arithmetic")]
-    let col = |at: usize| p.col.wrapping_add((at - start) as u16);
-    match outcome {
-        Outcome::Ok(end) => {
-            let col = col(end);
-            p.advance(end - start, col);
+    let at = |end: usize| p.at.right(cols(end - start));
+    match scanned {
+        Ok(end) => {
+            let to = at(end);
+            p.advance(end - start, to);
             Ok(())
         }
-        Outcome::Err(at) => {
-            let (row, col) = (p.row, col(at));
-            p.cerr(row, col)
+        Err(end) => {
+            let to = at(end);
+            p.cerr(to)
         }
     }
 }
@@ -71,91 +68,67 @@ fn is_digit(src: &str, pos: usize) -> bool {
     byte(src, pos).is_some_and(|b| b.is_ascii_digit())
 }
 
-fn chomp_int(src: &str, mut pos: usize, _first: u8) -> Outcome {
+fn chomp_int(src: &str, mut pos: usize) -> Scanned {
     loop {
         match byte(src, pos) {
-            None => return Outcome::Ok(pos),
+            None => return Ok(pos),
             Some(b'0'..=b'9') => pos += 1,
             Some(b'.') if byte(src, pos + 1) != Some(b'.') => return chomp_fraction(src, pos),
             Some(b'e' | b'E') => return chomp_exponent(src, pos + 1),
-            Some(_) if is_dirty_end(src, pos) => return Outcome::Err(pos),
-            Some(_) => return Outcome::Ok(pos),
+            Some(_) if is_dirty_end(src, pos) => return Err(pos),
+            Some(_) => return Ok(pos),
         }
     }
 }
 
-fn chomp_fraction(src: &str, pos: usize) -> Outcome {
+fn chomp_fraction(src: &str, pos: usize) -> Scanned {
     if !is_digit(src, pos + 1) {
-        return Outcome::Err(pos);
+        return Err(pos);
     }
     let mut pos = pos + 2;
     loop {
         match byte(src, pos) {
-            None => return Outcome::Ok(pos),
+            None => return Ok(pos),
             Some(b'0'..=b'9') => pos += 1,
             Some(b'e' | b'E') => return chomp_exponent(src, pos + 1),
-            Some(_) if is_dirty_end(src, pos) => return Outcome::Err(pos),
-            Some(_) => return Outcome::Ok(pos),
+            Some(_) if is_dirty_end(src, pos) => return Err(pos),
+            Some(_) => return Ok(pos),
         }
     }
 }
 
-fn chomp_exponent(src: &str, pos: usize) -> Outcome {
+fn chomp_exponent(src: &str, pos: usize) -> Scanned {
     let mut pos = match byte(src, pos) {
         Some(b'0'..=b'9') => pos + 1,
         Some(b'+' | b'-') if is_digit(src, pos + 1) => pos + 2,
-        _ => return Outcome::Err(pos),
+        _ => return Err(pos),
     };
     while is_digit(src, pos) {
         pos += 1;
     }
-    Outcome::Ok(pos)
+    Ok(pos)
 }
 
-fn chomp_zero(src: &str, pos: usize) -> Outcome {
+fn chomp_zero(src: &str, pos: usize) -> Scanned {
     match byte(src, pos) {
-        None => Outcome::Ok(pos),
-        Some(b'x') => {
-            let (end, answer) = chomp_hex(src, pos + 1);
-            if answer < 0 {
-                Outcome::Err(end)
-            } else {
-                Outcome::Ok(end)
-            }
-        }
+        None => Ok(pos),
+        Some(b'x') => match hex(src, pos + 1) {
+            (end, Hex::Code(_)) => Ok(end),
+            (end, Hex::None | Hex::Bad) => Err(end),
+        },
         Some(b'.') => chomp_fraction(src, pos),
-        Some(b'0'..=b'9') => Outcome::Err(pos),
-        Some(_) if is_dirty_end(src, pos) => Outcome::Err(pos),
-        Some(_) => Outcome::Ok(pos),
+        Some(b'0'..=b'9') => Err(pos),
+        Some(_) if is_dirty_end(src, pos) => Err(pos),
+        Some(_) => Ok(pos),
     }
 }
 
-/// `chompHex`, in `Int64`, which wraps: -1 if there were no digits, -2
-/// if they ran into more of a name.
-fn chomp_hex(src: &str, mut pos: usize) -> (usize, i64) {
-    let mut answer = -1;
-    loop {
-        let Some(word) = byte(src, pos) else {
-            return (pos, answer);
-        };
-        let digit = match word {
-            b'0'..=b'9' => Some(word - b'0'),
-            b'a'..=b'f' => Some(word - b'a' + 10),
-            b'A'..=b'F' => Some(word - b'A' + 10),
-            _ => None,
-        };
-        let acc = answer.max(0);
-        let new = match digit {
-            Some(d) => acc.wrapping_mul(16).wrapping_add(i64::from(d)),
-            None if is_dirty_end(src, pos) => -2,
-            None => -1,
-        };
-        if new < 0 {
-            return (pos, if new == -1 { answer } else { -2 });
-        }
-        answer = new;
-        pos += 1;
-    }
+/// `chompHex`, which elm-format takes from elm 0.19.1, in its wrapping
+/// `Int`.
+fn hex(src: &str, pos: usize) -> (usize, Hex) {
+    chomp_hex(src.as_bytes(), pos, Compat::V0_19_1, |at| {
+        is_dirty_end(src, at)
+    })
 }
 
 // STRINGS
@@ -179,7 +152,7 @@ fn eat_escape(src: &str, pos: usize) -> Escape {
             if digits >= src.len() {
                 return Escape::Problem;
             }
-            let (end, _) = chomp_hex(src, digits);
+            let (end, _) = hex(src, digits);
             if end >= src.len() {
                 Escape::Problem
             } else {
@@ -192,10 +165,10 @@ fn eat_escape(src: &str, pos: usize) -> Escape {
                 return Escape::Problem;
             }
             let digits = pos + 2;
-            let (end, code) = chomp_hex(src, digits);
+            let (end, code) = hex(src, digits);
             let n = end - digits;
             if byte(src, end) != Some(b'}')
-                || !(0..=0x10_FFFF).contains(&code)
+                || !matches!(code, Hex::Code(code) if code <= 0x10_FFFF)
                 || !(4..=6).contains(&n)
             {
                 Escape::Problem
@@ -204,16 +177,6 @@ fn eat_escape(src: &str, pos: usize) -> Escape {
             }
         }
         Some(_) => Escape::Problem,
-    }
-}
-
-/// The width of the character starting with `word`.
-fn char_width(word: u8) -> usize {
-    match word {
-        0..0x80 => 1,
-        0x80..0xE0 => 2,
-        0xE0..0xF0 => 3,
-        _ => 4,
     }
 }
 
@@ -228,32 +191,34 @@ fn character(p: &mut P<'_>) -> R<()> {
         return p.fail();
     }
     let src = p.src();
-    let (row, start) = (p.row, p.col);
+    let start = p.at;
     let mut pos = p.pos + 1;
-    let mut col = start.wrapping_add(1);
+    let mut at = start.right(1);
     let mut chars: u16 = 0;
     loop {
         match byte(src, pos) {
-            None | Some(b'\n') => return p.cerr(row, col),
+            None | Some(b'\n') => return p.cerr(at),
             Some(b'\'') => break,
             Some(b'\\') => match eat_escape(src, pos + 1) {
                 Escape::Ok(delta) => {
                     pos += delta;
-                    col = col.wrapping_add(cols(delta));
+                    at = at.right(cols(delta));
                 }
-                Escape::EndOfFile | Escape::Problem => return p.cerr(row, col),
+                Escape::EndOfFile | Escape::Problem => return p.cerr(at),
             },
-            Some(word) => {
-                pos += char_width(word);
-                col = col.wrapping_add(1);
+            // `pos` is at a character's start: escapes and characters end
+            // on one.
+            Some(lead) => {
+                pos += utf8::char_width(lead);
+                at = at.right(1);
             }
         }
         chars = chars.wrapping_add(1);
     }
     if chars != 1 {
-        return p.cerr(row, start);
+        return p.cerr(start);
     }
-    p.advance(pos + 1 - p.pos, col.wrapping_add(1));
+    p.advance(pos + 1 - p.pos, at.right(1));
     Ok(())
 }
 
@@ -263,67 +228,62 @@ fn string(p: &mut P<'_>) -> R<()> {
         return p.fail();
     }
     let src = p.src();
-    let (row, col) = (p.row, p.col);
-    let outcome = if p.peek(1) != Some(b'"') {
-        single_string(src, p.pos + 1, row, col.wrapping_add(1))
+    let start = p.at;
+    let chomped = if p.peek(1) != Some(b'"') {
+        single_string(src, p.pos + 1, start.right(1))
     } else if p.peek(2) != Some(b'"') {
-        Ok((p.pos + 2, row, col.wrapping_add(2)))
+        Ok((p.pos + 2, start.right(2)))
     } else {
-        multi_string(src, p.pos + 3, row, col.wrapping_add(3), (row, col))
+        multi_string(src, p.pos + 3, start.right(3), start)
     };
-    match outcome {
-        Ok((end, row, col)) => {
-            p.advance_to(end - p.pos, row, col);
+    match chomped {
+        Ok((end, to)) => {
+            p.advance(end - p.pos, to);
             Ok(())
         }
-        Err((row, col)) => p.cerr(row, col),
+        Err(at) => p.cerr(at),
     }
 }
 
-type Chomped = Result<(usize, u16, u16), (u16, u16)>;
+/// Where a string ends, and the position there, or where the error is.
+type Chomped = Result<(usize, Pos), Pos>;
 
-fn single_string(src: &str, mut pos: usize, mut row: u16, mut col: u16) -> Chomped {
+fn single_string(src: &str, mut pos: usize, mut at: Pos) -> Chomped {
     loop {
         match byte(src, pos) {
-            None => return Err((row, col)),
-            Some(b'"') => return Ok((pos + 1, row, col.wrapping_add(1))),
-            Some(b'\n') => (pos, row, col) = (pos + 1, row.wrapping_add(1), 1),
+            None => return Err(at),
+            Some(b'"') => return Ok((pos + 1, at.right(1))),
+            Some(b'\n') => (pos, at) = (pos + 1, at.next_row()),
             Some(b'\r') if byte(src, pos + 1) == Some(b'\n') => {
-                (pos, row, col) = (pos + 2, row.wrapping_add(1), 1);
+                (pos, at) = (pos + 2, at.next_row());
             }
             Some(b'\\') => match eat_escape(src, pos + 1) {
-                Escape::Ok(delta) => (pos, col) = (pos + delta, col.wrapping_add(cols(delta))),
-                Escape::Problem => return Err((row, col)),
-                Escape::EndOfFile => return Err((row, col.wrapping_add(1))),
+                Escape::Ok(delta) => (pos, at) = (pos + delta, at.right(cols(delta))),
+                Escape::Problem => return Err(at),
+                Escape::EndOfFile => return Err(at.right(1)),
             },
-            Some(word) => (pos, col) = (pos + char_width(word), col.wrapping_add(1)),
+            Some(lead) => (pos, at) = (pos + utf8::char_width(lead), at.right(1)),
         }
     }
 }
 
-fn multi_string(
-    src: &str,
-    mut pos: usize,
-    mut row: u16,
-    mut col: u16,
-    start: (u16, u16),
-) -> Chomped {
+fn multi_string(src: &str, mut pos: usize, mut at: Pos, start: Pos) -> Chomped {
     loop {
         match byte(src, pos) {
             None => return Err(start),
             Some(b'"') if src[pos..].starts_with("\"\"\"") => {
-                return Ok((pos + 3, row, col.wrapping_add(3)));
+                return Ok((pos + 3, at.right(3)));
             }
-            Some(b'\n') => (pos, row, col) = (pos + 1, row.wrapping_add(1), 1),
+            Some(b'\n') => (pos, at) = (pos + 1, at.next_row()),
             Some(b'\r') if byte(src, pos + 1) == Some(b'\n') => {
-                (pos, row, col) = (pos + 2, row.wrapping_add(1), 1);
+                (pos, at) = (pos + 2, at.next_row());
             }
             Some(b'\\') => match eat_escape(src, pos + 1) {
-                Escape::Ok(delta) => (pos, col) = (pos + delta, col.wrapping_add(cols(delta))),
-                Escape::Problem => return Err((row, col)),
+                Escape::Ok(delta) => (pos, at) = (pos + delta, at.right(cols(delta))),
+                Escape::Problem => return Err(at),
                 Escape::EndOfFile => return Err(start),
             },
-            Some(word) => (pos, col) = (pos + char_width(word), col.wrapping_add(1)),
+            Some(lead) => (pos, at) = (pos + utf8::char_width(lead), at.right(1)),
         }
     }
 }

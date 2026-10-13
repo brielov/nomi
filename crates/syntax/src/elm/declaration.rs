@@ -1,25 +1,20 @@
 //! `Parse/Declaration.hs`.
 
+use std::ops::ControlFlow;
+
 use super::engine::{
-    P, check_fresh_line, check_indent, chomp, chomp_and_check_indent, doc_comment, in_context,
-    one_of, one_of_with_fallback, specialize, word1,
+    P, check_fresh_line, check_indent, chomp, chomp_and_check_indent, doc_comment, fold_more,
+    in_context, one_of, one_of_with_fallback, repeat, specialize, word1,
 };
 use super::error::{
-    Cursor, CustomType as CT, Decl, DeclDef, DeclType as DT, Module, Name, Port, Region,
-    TypeAlias as TA,
+    CustomType, Decl, DeclDef, DeclType, Module, Port, Position, Region, Space, TypeAlias,
 };
-use super::literal::{keyword, lower, operator, upper};
+use super::literal::{keyword, lower, matching_name, operator, upper};
 use super::{expression, pattern, types};
 
-/// What a declaration was, as far as `checkModule` cares.
-pub(super) enum Declared {
-    Other,
-    /// A port, and where its name is.
-    Port(Name, Region),
-}
-
-/// `declaration`.
-pub(super) fn declaration(p: &mut P<'_>) -> Result<Declared, Decl> {
+/// `declaration`, and where its name is if it is a port: all that
+/// `checkModule` reads of one.
+pub(super) fn declaration(p: &mut P<'_>) -> Result<Option<Region>, Decl> {
     one_of_with_fallback(
         p,
         &mut [&mut |p| {
@@ -33,9 +28,9 @@ pub(super) fn declaration(p: &mut P<'_>) -> Result<Declared, Decl> {
         p,
         Decl::DeclStart,
         &mut [
-            &mut |p| type_decl(p).map(|()| Declared::Other),
-            &mut port_decl,
-            &mut |p| value_decl(p).map(|()| Declared::Other),
+            &mut |p| type_decl(p).map(|()| None),
+            &mut |p| port_decl(p).map(Some),
+            &mut |p| value_decl(p).map(|()| None),
         ],
     )
 }
@@ -56,7 +51,12 @@ fn value_decl(p: &mut P<'_>) -> Result<(), Decl> {
                     chomp_and_check_indent(p, DeclDef::DeclDefSpace, DeclDef::DeclDefIndentType)?;
                     specialize(p, DeclDef::DeclDefType, types::expression)?;
                     check_fresh_line(p, DeclDef::DeclDefNameRepeat)?;
-                    matching_name(p, &name)?;
+                    matching_name(
+                        p,
+                        &name,
+                        DeclDef::DeclDefNameRepeat,
+                        DeclDef::DeclDefNameMatch,
+                    )?;
                     chomp_and_check_indent(p, DeclDef::DeclDefSpace, DeclDef::DeclDefIndentEquals)?;
                     args_and_body(p)
                 },
@@ -67,39 +67,25 @@ fn value_decl(p: &mut P<'_>) -> Result<(), Decl> {
 }
 
 fn args_and_body(p: &mut P<'_>) -> Result<(), DeclDef> {
-    loop {
-        let done = one_of(
+    repeat(p, |p| {
+        one_of(
             p,
             DeclDef::DeclDefEquals,
             &mut [
                 &mut |p| {
                     specialize(p, DeclDef::DeclDefArg, pattern::term)?;
                     chomp_and_check_indent(p, DeclDef::DeclDefSpace, DeclDef::DeclDefIndentEquals)?;
-                    Ok(false)
+                    Ok(ControlFlow::Continue(()))
                 },
                 &mut |p| {
                     word1(p, b'=', DeclDef::DeclDefEquals)?;
                     chomp_and_check_indent(p, DeclDef::DeclDefSpace, DeclDef::DeclDefIndentBody)?;
                     specialize(p, DeclDef::DeclDefBody, expression::expression)?;
-                    Ok(true)
+                    Ok(ControlFlow::Break(()))
                 },
             ],
-        )?;
-        if done {
-            return Ok(());
-        }
-    }
-}
-
-/// `chompMatchingName`: the name an annotation is for, again.
-fn matching_name(p: &mut P<'_>, expected: &Name) -> Result<(), DeclDef> {
-    let start = p.cur;
-    let name = lower(p, DeclDef::DeclDefNameRepeat)?;
-    if name == *expected {
-        Ok(())
-    } else {
-        p.cerr(DeclDef::DeclDefNameMatch(name, start))
-    }
+        )
+    })
 }
 
 // TYPE DECLARATIONS
@@ -110,106 +96,89 @@ fn type_decl(p: &mut P<'_>) -> Result<(), Decl> {
         Decl::DeclType,
         |p| keyword(p, b"type", Decl::DeclStart),
         |p| {
-            chomp_and_check_indent(p, DT::DtSpace, DT::DtIndentName)?;
+            chomp_and_check_indent(p, DeclType::DtSpace, DeclType::DtIndentName)?;
             one_of(
                 p,
-                DT::DtName,
+                DeclType::DtName,
                 &mut [
                     &mut |p| {
                         in_context(
                             p,
-                            DT::DtAlias,
-                            |p| keyword(p, b"alias", DT::DtName),
-                            |p| {
-                                chomp_and_check_indent(p, TA::AliasSpace, TA::AliasIndentEquals)?;
-                                upper(p, TA::AliasName)?;
-                                chomp_and_check_indent(p, TA::AliasSpace, TA::AliasIndentEquals)?;
-                                loop {
-                                    let equals = one_of(
-                                        p,
-                                        TA::AliasEquals,
-                                        &mut [
-                                            &mut |p| {
-                                                lower(p, TA::AliasEquals)?;
-                                                chomp_and_check_indent(
-                                                    p,
-                                                    TA::AliasSpace,
-                                                    TA::AliasIndentEquals,
-                                                )?;
-                                                Ok(false)
-                                            },
-                                            &mut |p| {
-                                                word1(p, b'=', TA::AliasEquals)?;
-                                                chomp_and_check_indent(
-                                                    p,
-                                                    TA::AliasSpace,
-                                                    TA::AliasIndentBody,
-                                                )?;
-                                                Ok(true)
-                                            },
-                                        ],
-                                    )?;
-                                    if equals {
-                                        break;
-                                    }
-                                }
-                                specialize(p, TA::AliasBody, types::expression).map(drop)
-                            },
+                            DeclType::DtAlias,
+                            |p| keyword(p, b"alias", DeclType::DtName),
+                            type_alias,
                         )
                     },
-                    &mut |p| specialize(p, DT::DtUnion, custom_type),
+                    &mut |p| specialize(p, DeclType::DtUnion, custom_type),
                 ],
             )
         },
     )
 }
 
-fn custom_type(p: &mut P<'_>) -> Result<(), CT> {
-    upper(p, CT::CtName)?;
-    chomp_and_check_indent(p, CT::CtSpace, CT::CtIndentEquals)?;
-    loop {
-        let equals = one_of(
+/// `typeAlias`, after `type alias`.
+fn type_alias(p: &mut P<'_>) -> Result<(), TypeAlias> {
+    chomp_and_check_indent(p, TypeAlias::AliasSpace, TypeAlias::AliasIndentEquals)?;
+    upper(p, TypeAlias::AliasName)?;
+    chomp_and_check_indent(p, TypeAlias::AliasSpace, TypeAlias::AliasIndentEquals)?;
+    vars_to_equals(
+        p,
+        TypeAlias::AliasEquals,
+        TypeAlias::AliasSpace,
+        TypeAlias::AliasIndentEquals,
+    )?;
+    chomp_and_check_indent(p, TypeAlias::AliasSpace, TypeAlias::AliasIndentBody)?;
+    specialize(p, TypeAlias::AliasBody, types::expression).map(drop)
+}
+
+fn custom_type(p: &mut P<'_>) -> Result<(), CustomType> {
+    upper(p, CustomType::CtName)?;
+    chomp_and_check_indent(p, CustomType::CtSpace, CustomType::CtIndentEquals)?;
+    vars_to_equals(
+        p,
+        CustomType::CtEquals,
+        CustomType::CtSpace,
+        CustomType::CtIndentEquals,
+    )?;
+    chomp_and_check_indent(p, CustomType::CtSpace, CustomType::CtIndentAfterEquals)?;
+    let first = types::variant(p)?;
+    fold_more(p, first, |p, end| {
+        check_indent(p, end, CustomType::CtIndentBar)?;
+        word1(p, b'|', CustomType::CtBar)?;
+        chomp_and_check_indent(p, CustomType::CtSpace, CustomType::CtIndentAfterBar)?;
+        types::variant(p)
+    })
+    .map(drop)
+}
+
+/// `chompAliasNameToEqualsHelp` and `chompCustomNameToEqualsHelp`: a
+/// type's variables, up to its `=`.
+fn vars_to_equals<X>(
+    p: &mut P<'_>,
+    to_equals: fn(Position) -> X,
+    to_space: fn(Space, Position) -> X,
+    to_indent_equals: fn(Position) -> X,
+) -> Result<(), X> {
+    repeat(p, |p| {
+        one_of(
             p,
-            CT::CtEquals,
+            to_equals,
             &mut [
                 &mut |p| {
-                    lower(p, CT::CtEquals)?;
-                    chomp_and_check_indent(p, CT::CtSpace, CT::CtIndentEquals)?;
-                    Ok(false)
+                    lower(p, to_equals)?;
+                    chomp_and_check_indent(p, to_space, to_indent_equals)?;
+                    Ok(ControlFlow::Continue(()))
                 },
-                &mut |p| {
-                    word1(p, b'=', CT::CtEquals)?;
-                    chomp_and_check_indent(p, CT::CtSpace, CT::CtIndentAfterEquals)?;
-                    Ok(true)
-                },
+                &mut |p| word1(p, b'=', to_equals).map(ControlFlow::Break),
             ],
-        )?;
-        if equals {
-            break;
-        }
-    }
-    let mut end = types::variant(p)?;
-    loop {
-        let next = one_of_with_fallback(
-            p,
-            &mut [&mut |p| {
-                check_indent(p, end, CT::CtIndentBar)?;
-                word1(p, b'|', CT::CtBar)?;
-                chomp_and_check_indent(p, CT::CtSpace, CT::CtIndentAfterBar)?;
-                types::variant(p).map(Some)
-            }],
-            None,
-        )?;
-        match next {
-            Some(new_end) => end = new_end,
-            None => return Ok(()),
-        }
-    }
+        )
+    })
 }
 
 // PORT
 
-fn port_decl(p: &mut P<'_>) -> Result<Declared, Decl> {
+/// A port, and where its name is.
+fn port_decl(p: &mut P<'_>) -> Result<Region, Decl> {
     in_context(
         p,
         Decl::Port,
@@ -217,13 +186,13 @@ fn port_decl(p: &mut P<'_>) -> Result<Declared, Decl> {
         |p| {
             chomp_and_check_indent(p, Port::PortSpace, Port::PortIndentName)?;
             let start = p.cur;
-            let name = lower(p, Port::PortName)?;
-            let region = Region { start, end: p.cur };
+            lower(p, Port::PortName)?;
+            let name = Region { start, end: p.cur };
             chomp_and_check_indent(p, Port::PortSpace, Port::PortIndentColon)?;
             word1(p, b':', Port::PortColon)?;
             chomp_and_check_indent(p, Port::PortSpace, Port::PortIndentType)?;
             specialize(p, Port::PortType, types::expression)?;
-            Ok(Declared::Port(name, region))
+            Ok(name)
         },
     )
 }
@@ -260,10 +229,10 @@ pub(super) fn infix(p: &mut P<'_>) -> Result<(), Module> {
 }
 
 /// `precedence`: one digit.
-fn precedence<X>(p: &mut P<'_>, to_expectation: impl FnOnce(Cursor) -> X) -> Result<(), X> {
+fn precedence<X>(p: &mut P<'_>, to_expectation: impl FnOnce(Position) -> X) -> Result<(), X> {
     match p.peek(0) {
         Some(b'0'..=b'9') => {
-            p.ok_at(p.pos + 1, p.slide(p.cur, 1));
+            p.advance(1, 1);
             Ok(())
         }
         _ => Err(to_expectation(p.cur)),

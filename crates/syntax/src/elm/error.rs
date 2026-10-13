@@ -1,385 +1,385 @@
 //! The errors of `Reporting/Error/Syntax.hs`, constructor for constructor.
 //!
-//! Each carries the cursor upstream gives it: where the problem is for the
-//! innermost, where the construct started for those that wrap another.
+//! Each carries the position upstream gives it, where a report reads it:
+//! where the problem is for the innermost, where the construct started
+//! for those that wrap another.
 
 #![allow(
     clippy::enum_variant_names,
     reason = "the names follow upstream's constructors"
 )]
 
-/// A position as upstream keeps it: 0.19.1 counts rows and columns from 1
-/// in 16 bits, later releases from 0 in 32.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Cursor {
-    pub row: u32,
-    pub col: u32,
-}
-
-/// A span of the module, from cursor to cursor.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Region {
-    pub start: Cursor,
-    pub end: Cursor,
-}
+pub(super) use nomi_base::diagnostic::code::{Position, Region};
 
 /// A name as written.
-pub type Name = Box<str>;
+pub(super) type Name = Box<str>;
 
 /// The column a `case` or `let` set its branches or definitions at.
-pub type Indent = u32;
+pub(super) type Indent = u32;
 
 /// `Error`: what parsing a module can fail with. The module name checks
 /// are the build's, against the file's path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
+    /// Ports in a plain `module` or an effect module: where its header
+    /// says which it is.
     UnexpectedPort(Region),
+    /// A `port module` with no ports: where its header says so.
     NoPorts(Region),
-    NoPortsInPackage(Name, Region),
+    /// A port in a package: the last port's name.
+    NoPortsInPackage(Region),
+    /// A `port module` in a package: where its header says so.
     NoPortModulesInPackage(Region),
+    /// An `effect module` outside the kernel packages: where its header
+    /// says so.
     NoEffectsOutsideKernel(Region),
+    /// A module that doesn't parse.
     ParseError(Module),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Module {
-    ModuleSpace(Space, Cursor),
-    ModuleBadEnd(Cursor),
-    ModuleProblem(Cursor),
-    ModuleName(Cursor),
-    ModuleExposing(Exposing, Cursor),
-    PortModuleProblem(Cursor),
-    PortModuleName(Cursor),
-    PortModuleExposing(Exposing, Cursor),
-    Effect(Cursor),
-    FreshLine(Cursor),
-    ImportStart(Cursor),
-    ImportName(Cursor),
-    ImportAs(Cursor),
-    ImportAlias(Cursor),
-    ImportExposing(Cursor),
-    ImportExposingList(Exposing, Cursor),
-    ImportEnd(Cursor),
-    ImportIndentName(Cursor),
-    ImportIndentAlias(Cursor),
-    ImportIndentExposingList(Cursor),
-    Infix(Cursor),
-    Declarations(Decl, Cursor),
+    ModuleSpace(Space, Position),
+    ModuleBadEnd(Position),
+    ModuleProblem(Position),
+    ModuleName(Position),
+    ModuleExposing(Exposing, Position),
+    PortModuleProblem(Position),
+    PortModuleName(Position),
+    PortModuleExposing(Exposing, Position),
+    Effect(Position),
+    FreshLine(Position),
+    ImportStart(Position),
+    ImportName(Position),
+    ImportAs(Position),
+    ImportAlias(Position),
+    ImportExposing(Position),
+    ImportExposingList(Exposing, Position),
+    ImportEnd(Position),
+    ImportIndentName(Position),
+    ImportIndentAlias(Position),
+    ImportIndentExposingList(Position),
+    Infix(Position),
+    Declarations(Decl),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Exposing {
-    ExposingSpace(Space, Cursor),
-    ExposingStart(Cursor),
-    ExposingValue(Cursor),
-    ExposingOperator(Cursor),
-    ExposingOperatorReserved(BadOperator, Cursor),
-    ExposingOperatorRightParen(Cursor),
-    ExposingTypePrivacy(Cursor),
-    ExposingEnd(Cursor),
-    ExposingIndentEnd(Cursor),
-    ExposingIndentValue(Cursor),
+    ExposingSpace(Space, Position),
+    ExposingStart(Position),
+    ExposingValue(Position),
+    ExposingOperator(Position),
+    ExposingOperatorReserved(BadOperator, Position),
+    ExposingOperatorRightParen(Position),
+    ExposingTypePrivacy(Position),
+    ExposingEnd(Position),
+    ExposingIndentEnd(Position),
+    ExposingIndentValue(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Decl {
-    DeclStart(Cursor),
-    DeclSpace(Space, Cursor),
-    Port(Port, Cursor),
-    DeclType(DeclType, Cursor),
-    DeclDef(Name, DeclDef, Cursor),
-    DeclFreshLineAfterDocComment(Cursor),
+    DeclStart(Position),
+    DeclSpace(Space, Position),
+    Port(Port, Position),
+    DeclType(DeclType, Position),
+    DeclDef(Name, DeclDef, Position),
+    DeclFreshLineAfterDocComment(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DeclDef {
-    DeclDefSpace(Space, Cursor),
-    DeclDefEquals(Cursor),
-    DeclDefType(Type, Cursor),
-    DeclDefArg(Pattern, Cursor),
-    DeclDefBody(Expr, Cursor),
-    DeclDefNameRepeat(Cursor),
-    DeclDefNameMatch(Name, Cursor),
-    DeclDefIndentType(Cursor),
-    DeclDefIndentEquals(Cursor),
-    DeclDefIndentBody(Cursor),
+    DeclDefSpace(Space, Position),
+    DeclDefEquals(Position),
+    DeclDefType(Type, Position),
+    DeclDefArg(Pattern, Position),
+    DeclDefBody(Expr, Position),
+    DeclDefNameRepeat(Position),
+    DeclDefNameMatch(Name, Position),
+    DeclDefIndentType(Position),
+    DeclDefIndentEquals(Position),
+    DeclDefIndentBody(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Port {
-    PortSpace(Space, Cursor),
-    PortName(Cursor),
-    PortColon(Cursor),
-    PortType(Type, Cursor),
-    PortIndentName(Cursor),
-    PortIndentColon(Cursor),
-    PortIndentType(Cursor),
+    PortSpace(Space, Position),
+    PortName(Position),
+    PortColon(Position),
+    PortType(Type, Position),
+    PortIndentName(Position),
+    PortIndentColon(Position),
+    PortIndentType(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DeclType {
-    DtSpace(Space, Cursor),
-    DtName(Cursor),
-    DtAlias(TypeAlias, Cursor),
-    DtUnion(CustomType, Cursor),
-    DtIndentName(Cursor),
+    DtSpace(Space, Position),
+    DtName(Position),
+    DtAlias(TypeAlias, Position),
+    DtUnion(CustomType, Position),
+    DtIndentName(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TypeAlias {
-    AliasSpace(Space, Cursor),
-    AliasName(Cursor),
-    AliasEquals(Cursor),
-    AliasBody(Type, Cursor),
-    AliasIndentEquals(Cursor),
-    AliasIndentBody(Cursor),
+    AliasSpace(Space, Position),
+    AliasName(Position),
+    AliasEquals(Position),
+    AliasBody(Type, Position),
+    AliasIndentEquals(Position),
+    AliasIndentBody(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CustomType {
-    CtSpace(Space, Cursor),
-    CtName(Cursor),
-    CtEquals(Cursor),
-    CtBar(Cursor),
-    CtVariant(Cursor),
-    CtVariantArg(Type, Cursor),
-    CtIndentEquals(Cursor),
-    CtIndentBar(Cursor),
-    CtIndentAfterBar(Cursor),
-    CtIndentAfterEquals(Cursor),
+    CtSpace(Space, Position),
+    CtName(Position),
+    CtEquals(Position),
+    CtBar(Position),
+    CtVariant(Position),
+    CtVariantArg(Type, Position),
+    CtIndentEquals(Position),
+    CtIndentBar(Position),
+    CtIndentAfterBar(Position),
+    CtIndentAfterEquals(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Expr {
-    Let(Box<Let>, Cursor),
-    Case(Box<Case>, Cursor),
-    If(Box<If>, Cursor),
-    List(Box<List>, Cursor),
-    Record(Box<Record>, Cursor),
-    Tuple(Box<Tuple>, Cursor),
-    Func(Box<Func>, Cursor),
-    Dot(Cursor),
-    Access(Cursor),
-    OperatorRight(Name, Cursor),
-    OperatorReserved(BadOperator, Cursor),
-    Start(Cursor),
-    Char(Char, Cursor),
-    String(String, Cursor),
-    Number(Number, Cursor),
-    Space(Space, Cursor),
+    Let(Box<Let>, Position),
+    Case(Box<Case>, Position),
+    If(Box<If>, Position),
+    List(Box<List>, Position),
+    Record(Box<Record>, Position),
+    Tuple(Box<Tuple>, Position),
+    Func(Box<Func>, Position),
+    Dot(Position),
+    Access(Position),
+    OperatorRight(Name, Position),
+    OperatorReserved(BadOperator, Position),
+    Start(Position),
+    Char(Char, Position),
+    String(String, Position),
+    Number(Number, Position),
+    Space(Space, Position),
     /// 0.19.1's `EndlessShader`.
-    ShaderEndless(Cursor),
-    ShaderNotUtf8(Cursor),
-    /// Parsec's message, which nomi's GLSL parser doesn't give yet.
-    ShaderProblem(Name, Cursor),
-    IndentOperatorRight(Name, Cursor),
+    ShaderEndless(Position),
+    ShaderNotUtf8(Position),
+    /// Parsec's message.
+    ShaderProblem(Name, Position),
+    IndentOperatorRight(Name, Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Record {
-    RecordOpen(Cursor),
-    RecordEnd(Cursor),
-    RecordField(Cursor),
-    RecordEquals(Cursor),
-    RecordExpr(Expr, Cursor),
-    RecordSpace(Space, Cursor),
-    RecordIndentOpen(Cursor),
-    RecordIndentEnd(Cursor),
-    RecordIndentField(Cursor),
-    RecordIndentEquals(Cursor),
-    RecordIndentExpr(Cursor),
+    RecordOpen(Position),
+    RecordEnd(Position),
+    RecordField(Position),
+    RecordEquals(Position),
+    RecordExpr(Expr, Position),
+    RecordSpace(Space, Position),
+    RecordIndentOpen(Position),
+    RecordIndentEnd(Position),
+    RecordIndentField(Position),
+    RecordIndentEquals(Position),
+    RecordIndentExpr(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Tuple {
-    TupleExpr(Expr, Cursor),
-    TupleSpace(Space, Cursor),
-    TupleEnd(Cursor),
-    TupleOperatorClose(Cursor),
-    TupleOperatorReserved(BadOperator, Cursor),
-    TupleIndentExpr1(Cursor),
-    TupleIndentExprN(Cursor),
-    TupleIndentEnd(Cursor),
+    TupleExpr(Expr, Position),
+    TupleSpace(Space, Position),
+    TupleEnd(Position),
+    TupleOperatorClose(Position),
+    TupleOperatorReserved(BadOperator, Position),
+    TupleIndentExpr1(Position),
+    TupleIndentExprN(Position),
+    TupleIndentEnd(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum List {
-    ListSpace(Space, Cursor),
-    ListOpen(Cursor),
-    ListExpr(Expr, Cursor),
-    ListEnd(Cursor),
-    ListIndentOpen(Cursor),
-    ListIndentEnd(Cursor),
-    ListIndentExpr(Cursor),
+    ListSpace(Space, Position),
+    ListOpen(Position),
+    ListExpr(Expr, Position),
+    ListEnd(Position),
+    ListIndentOpen(Position),
+    ListIndentEnd(Position),
+    ListIndentExpr(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Func {
-    FuncSpace(Space, Cursor),
-    FuncArg(Pattern, Cursor),
-    FuncBody(Expr, Cursor),
-    FuncArrow(Cursor),
-    FuncIndentArg(Cursor),
-    FuncIndentArrow(Cursor),
-    FuncIndentBody(Cursor),
+    FuncSpace(Space, Position),
+    FuncArg(Pattern, Position),
+    FuncBody(Expr, Position),
+    FuncArrow(Position),
+    FuncIndentArg(Position),
+    FuncIndentArrow(Position),
+    FuncIndentBody(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Case {
-    CaseSpace(Space, Cursor),
-    CaseOf(Cursor),
-    CasePattern(Pattern, Cursor),
-    CaseArrow(Cursor),
-    CaseExpr(Expr, Cursor),
-    CaseBranch(Expr, Cursor),
-    CaseIndentOf(Cursor),
-    CaseIndentExpr(Cursor),
-    CaseIndentPattern(Cursor),
-    CaseIndentArrow(Cursor),
-    CaseIndentBranch(Cursor),
-    CasePatternAlignment(Indent, Cursor),
+    CaseSpace(Space, Position),
+    CaseOf(Position),
+    CasePattern(Pattern, Position),
+    CaseArrow(Position),
+    CaseExpr(Expr, Position),
+    CaseBranch(Expr, Position),
+    CaseIndentOf(Position),
+    CaseIndentExpr(Position),
+    CaseIndentPattern(Position),
+    CaseIndentArrow(Position),
+    CaseIndentBranch(Position),
+    CasePatternAlignment(Indent, Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum If {
-    IfSpace(Space, Cursor),
-    IfThen(Cursor),
-    IfElse(Cursor),
-    IfElseBranchStart(Cursor),
-    IfCondition(Expr, Cursor),
-    IfThenBranch(Expr, Cursor),
-    IfElseBranch(Expr, Cursor),
-    IfIndentCondition(Cursor),
-    IfIndentThen(Cursor),
-    IfIndentThenBranch(Cursor),
-    IfIndentElseBranch(Cursor),
-    IfIndentElse(Cursor),
+    IfSpace(Space, Position),
+    IfThen(Position),
+    IfElse(Position),
+    IfElseBranchStart(Position),
+    IfCondition(Expr, Position),
+    IfThenBranch(Expr, Position),
+    IfElseBranch(Expr, Position),
+    IfIndentCondition(Position),
+    IfIndentThen(Position),
+    IfIndentThenBranch(Position),
+    IfIndentElseBranch(Position),
+    IfIndentElse(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Let {
-    LetSpace(Space, Cursor),
-    LetIn(Cursor),
-    LetDefAlignment(Indent, Cursor),
-    LetDefName(Cursor),
-    LetDef(Name, Def, Cursor),
-    LetDestruct(Destruct, Cursor),
-    LetBody(Expr, Cursor),
-    LetIndentDef(Cursor),
-    LetIndentIn(Cursor),
-    LetIndentBody(Cursor),
+    LetSpace(Space, Position),
+    LetIn(Position),
+    LetDefAlignment(Position),
+    LetDefName(Position),
+    LetDef(Name, Def, Position),
+    LetDestruct(Destruct, Position),
+    LetBody(Expr, Position),
+    LetIndentDef(Position),
+    LetIndentIn(Position),
+    LetIndentBody(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Def {
-    DefSpace(Space, Cursor),
-    DefType(Type, Cursor),
-    DefNameRepeat(Cursor),
-    DefNameMatch(Name, Cursor),
-    DefArg(Pattern, Cursor),
-    DefEquals(Cursor),
-    DefBody(Expr, Cursor),
-    DefIndentEquals(Cursor),
-    DefIndentType(Cursor),
-    DefIndentBody(Cursor),
-    DefAlignment(Indent, Cursor),
+    DefSpace(Space, Position),
+    DefType(Type, Position),
+    DefNameRepeat(Position),
+    DefNameMatch(Name, Position),
+    DefArg(Pattern, Position),
+    DefEquals(Position),
+    DefBody(Expr, Position),
+    DefIndentEquals(Position),
+    DefIndentType(Position),
+    DefIndentBody(Position),
+    DefAlignment(Indent, Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Destruct {
-    DestructSpace(Space, Cursor),
-    DestructPattern(Pattern, Cursor),
-    DestructEquals(Cursor),
-    DestructBody(Expr, Cursor),
-    DestructIndentEquals(Cursor),
-    DestructIndentBody(Cursor),
+    DestructSpace(Space, Position),
+    DestructPattern(Pattern, Position),
+    DestructEquals(Position),
+    DestructBody(Expr, Position),
+    DestructIndentEquals(Position),
+    DestructIndentBody(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Pattern {
-    PRecord(PRecord, Cursor),
-    PTuple(Box<PTuple>, Cursor),
-    PList(Box<PList>, Cursor),
-    PStart(Cursor),
-    PChar(Char, Cursor),
-    PString(String, Cursor),
-    PNumber(Number, Cursor),
+    PRecord(PRecord, Position),
+    PTuple(Box<PTuple>, Position),
+    PList(Box<PList>, Position),
+    PStart(Position),
+    PChar(Char, Position),
+    PString(String, Position),
+    PNumber(Number, Position),
     /// The float's width.
-    PFloat(u32, Cursor),
-    PAlias(Cursor),
-    /// The name, and the width elm reports, which differs by release.
-    PWildcardNotVar(Name, u32, Cursor),
-    PSpace(Space, Cursor),
-    PIndentStart(Cursor),
-    PIndentAlias(Cursor),
+    PFloat(u32, Position),
+    PAlias(Position),
+    PWildcardNotVar {
+        name: Name,
+        /// The width elm reports, which differs by release.
+        width: u32,
+        at: Position,
+    },
+    PSpace(Space, Position),
+    PIndentStart(Position),
+    PIndentAlias(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PRecord {
-    PRecordOpen(Cursor),
-    PRecordEnd(Cursor),
-    PRecordField(Cursor),
-    PRecordSpace(Space, Cursor),
-    PRecordIndentOpen(Cursor),
-    PRecordIndentEnd(Cursor),
-    PRecordIndentField(Cursor),
+    PRecordOpen(Position),
+    PRecordEnd(Position),
+    PRecordField(Position),
+    PRecordSpace(Space, Position),
+    PRecordIndentOpen(Position),
+    PRecordIndentEnd(Position),
+    PRecordIndentField(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PTuple {
-    PTupleOpen(Cursor),
-    PTupleEnd(Cursor),
-    PTupleExpr(Pattern, Cursor),
-    PTupleSpace(Space, Cursor),
-    PTupleIndentEnd(Cursor),
-    PTupleIndentExpr1(Cursor),
-    PTupleIndentExprN(Cursor),
+    PTupleOpen(Position),
+    PTupleEnd(Position),
+    PTupleExpr(Pattern, Position),
+    PTupleSpace(Space, Position),
+    PTupleIndentEnd(Position),
+    PTupleIndentExpr1(Position),
+    PTupleIndentExprN(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PList {
-    PListOpen(Cursor),
-    PListEnd(Cursor),
-    PListExpr(Pattern, Cursor),
-    PListSpace(Space, Cursor),
-    PListIndentOpen(Cursor),
-    PListIndentEnd(Cursor),
-    PListIndentExpr(Cursor),
+    PListOpen(Position),
+    PListEnd(Position),
+    PListExpr(Pattern, Position),
+    PListSpace(Space, Position),
+    PListIndentOpen(Position),
+    PListIndentEnd(Position),
+    PListIndentExpr(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Type {
-    TRecord(Box<TRecord>, Cursor),
-    TTuple(Box<TTuple>, Cursor),
-    TStart(Cursor),
-    TSpace(Space, Cursor),
-    TIndentStart(Cursor),
+    TRecord(Box<TRecord>, Position),
+    TTuple(Box<TTuple>, Position),
+    TStart(Position),
+    TSpace(Space, Position),
+    TIndentStart(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TRecord {
-    TRecordOpen(Cursor),
-    TRecordEnd(Cursor),
-    TRecordField(Cursor),
-    TRecordColon(Cursor),
-    TRecordType(Type, Cursor),
-    TRecordSpace(Space, Cursor),
-    TRecordIndentOpen(Cursor),
-    TRecordIndentField(Cursor),
-    TRecordIndentColon(Cursor),
-    TRecordIndentType(Cursor),
-    TRecordIndentEnd(Cursor),
+    TRecordOpen(Position),
+    TRecordEnd(Position),
+    TRecordField(Position),
+    TRecordColon(Position),
+    TRecordType(Type, Position),
+    TRecordSpace(Space, Position),
+    TRecordIndentOpen(Position),
+    TRecordIndentField(Position),
+    TRecordIndentColon(Position),
+    TRecordIndentType(Position),
+    TRecordIndentEnd(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TTuple {
-    TTupleOpen(Cursor),
-    TTupleEnd(Cursor),
-    TTupleType(Type, Cursor),
-    TTupleSpace(Space, Cursor),
-    TTupleIndentType1(Cursor),
-    TTupleIndentTypeN(Cursor),
-    TTupleIndentEnd(Cursor),
+    TTupleOpen(Position),
+    TTupleEnd(Position),
+    TTupleType(Type, Position),
+    TTupleSpace(Space, Position),
+    TTupleIndentType1(Position),
+    TTupleIndentTypeN(Position),
+    TTupleIndentEnd(Position),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -405,8 +405,12 @@ pub enum Escape {
     /// The widths are the escape's, from its backslash.
     BadUnicodeFormat(u32),
     BadUnicodeCode(u32),
-    /// The width, the number of digits, and the code they spell.
-    BadUnicodeLength(u32, u32, u32),
+    BadUnicodeLength {
+        width: u32,
+        digits: u32,
+        /// The code point the digits spell.
+        code: u32,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

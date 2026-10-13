@@ -1,14 +1,19 @@
 //! `Parse/Expression.hs` and `Parse/Binop.hs`.
 
-use super::engine::{P, R, deep};
+use std::ops::ControlFlow;
+
+use nomi_base::grow_large;
+
+use super::engine::{P, R};
 use super::helpers::{
-    accessible, any_op, betwixt, comma, comma_sep1, commented, constrained_space_prefix, equals,
-    has_type, lenient_equals, low_var, pair, reserved, right_arrow, sectioned_group, shader,
-    space_prefix, surround, sym_op, var,
+    Minus, accessible, any_op, betwixt, comma, comma_sep1, equals, has_type, lenient_equals,
+    low_var, record, reserved, right_arrow, sectioned_group, shader, space_prefix, surround,
+    sym_op, var,
 };
 use super::literal::literal;
+use super::pattern::{self, Shape};
+use super::types;
 use super::whitespace::{padded, whitespace};
-use super::{pattern, types};
 
 // TERMS
 
@@ -44,7 +49,6 @@ fn list_term(p: &mut P<'_>) -> R<()> {
             betwixt(p, '[', ']', |p| {
                 p.track_newline(|p| sectioned_group(p, &mut expr))
             })
-            .map(drop)
         },
     ])
 }
@@ -61,29 +65,16 @@ fn parens_term(p: &mut P<'_>) -> R<()> {
     ])
 }
 
-fn record_term(p: &mut P<'_>) -> R<()> {
-    betwixt(p, '{', '}', |p| {
-        p.track_newline(|p| {
-            p.option(|p| {
-                p.attempt(|p| {
-                    commented(p, low_var)?;
-                    p.string("|")
-                })
-            })?;
-            sectioned_group(p, &mut |p| pair(p, low_var, lenient_equals, expr))
-        })
-    })
-    .map(drop)
-}
-
 /// `term`.
 pub(super) fn term(p: &mut P<'_>) -> R<()> {
-    deep(p, |p| {
+    grow_large(|| {
         p.alt(
             |p| p.choice(&mut [&mut literal, &mut list_term, &mut accessor, &mut negative]),
             |p| {
                 accessible(p, |p| {
-                    p.alts(&mut [&mut var, &mut parens_term, &mut record_term])
+                    p.alts(&mut [&mut var, &mut parens_term, &mut |p| {
+                        record(p, lenient_equals, expr)
+                    }])
                 })
             },
         )
@@ -92,16 +83,14 @@ pub(super) fn term(p: &mut P<'_>) -> R<()> {
 
 fn app_expr(p: &mut P<'_>) -> R<()> {
     p.track_newline(term)?;
-    constrained_space_prefix(p, &mut term)
+    space_prefix(p, Minus::AfterSpace, &mut term)
 }
 
 // EXPRESSIONS
 
 /// `expr`.
 pub(super) fn expr(p: &mut P<'_>) -> R<()> {
-    deep(p, |p| {
-        p.alts(&mut [&mut keyword_expr, &mut lambda_expr, &mut binary_expr])
-    })
+    grow_large(|| p.alts(&mut [&mut keyword_expr, &mut lambda_expr, &mut binary_expr]))
 }
 
 fn keyword_expr(p: &mut P<'_>) -> R<()> {
@@ -114,7 +103,7 @@ fn binary_expr(p: &mut P<'_>) -> R<()> {
     p.track_newline(|p| {
         app_expr(p)?;
         loop {
-            let more = p.option(|p| {
+            let step = p.option(|p| {
                 p.commit_if(
                     |p| {
                         whitespace(p)?;
@@ -125,18 +114,18 @@ fn binary_expr(p: &mut P<'_>) -> R<()> {
                         any_op(p)?;
                         whitespace(p)?;
                         p.alt(
-                            |p| p.attempt(app_expr).map(|()| true),
-                            |p| p.alt(keyword_expr, lambda_expr).map(|()| false),
+                            |p| p.attempt(app_expr).map(ControlFlow::Continue),
+                            |p| p.alt(keyword_expr, lambda_expr).map(ControlFlow::Break),
                         )
                     },
                 )
             })?;
-            if more != Some(true) {
-                return Ok(());
+            match step {
+                Some(ControlFlow::Continue(())) => {}
+                Some(ControlFlow::Break(())) | None => return Ok(()),
             }
         }
     })
-    .map(drop)
 }
 
 fn if_expr(p: &mut P<'_>) -> R<()> {
@@ -167,11 +156,10 @@ fn if_clause(p: &mut P<'_>) -> R<()> {
 fn lambda_expr(p: &mut P<'_>) -> R<()> {
     p.track_newline(|p| {
         p.alt(|p| p.char('\\'), |p| p.char('\u{03BB}'))?;
-        space_prefix(p, &mut pattern::term)?;
+        space_prefix(p, Minus::Anywhere, &mut pattern::term)?;
         padded(p, right_arrow)?;
         expr(p)
     })
-    .map(drop)
 }
 
 fn case_expr(p: &mut P<'_>) -> R<()> {
@@ -237,14 +225,14 @@ pub(super) fn definition(p: &mut P<'_>) -> R<()> {
 fn def_start(p: &mut P<'_>) -> R<()> {
     p.choice(&mut [
         &mut |p| {
-            if p.attempt(pattern::term)? {
-                space_prefix(p, &mut pattern::term)?;
+            if p.attempt(pattern::term)? == Shape::Var {
+                space_prefix(p, Minus::Anywhere, &mut pattern::term)?;
             }
             Ok(())
         },
         &mut |p| {
             betwixt(p, '(', ')', sym_op)?;
-            space_prefix(p, &mut pattern::term)
+            space_prefix(p, Minus::Anywhere, &mut pattern::term)
         },
     ])
 }

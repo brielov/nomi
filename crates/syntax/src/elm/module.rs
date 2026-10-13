@@ -1,38 +1,35 @@
 //! `Parse/Module.hs`: the module, and the checks `checkModule` makes of
 //! its ports and effects.
 
-use super::declaration::{self, Declared};
+use super::declaration;
 use super::engine::{
-    P, check_fresh_line, check_indent, chomp, chomp_and_check_indent, doc_comment, one_of,
-    one_of_with_fallback, specialize, word1, word2,
+    P, check_fresh_line, check_indent, chomp, chomp_and_check_indent, comma_until, doc_comment,
+    fold_more, one_of, one_of_with_fallback, specialize, word1, word2,
 };
-use super::error::{Error, Exposing as X, Module as M, Region};
+use super::error::{Decl, Error, Exposing, Module, Position, Region};
 use super::literal::{keyword, lower, module_name, operator, upper};
 use crate::Source;
 
 /// What the header says of effects, and where it says it.
+#[expect(clippy::enum_variant_names, reason = "upstream's `Src.Effects`")]
 enum Effects {
-    None(Region),
+    NoEffects(Region),
     Ports(Region),
     Manager(Region),
 }
 
 /// `fromByteString` then `checkModule`.
 pub(super) fn module(p: &mut P<'_>, source: Source) -> Result<(), Error> {
-    let (effects, ports) = chomp_module(p, source).map_err(Error::ParseError)?;
+    let (effects, last_port) = chomp_module(p, source).map_err(Error::ParseError)?;
     if p.pos != p.len() {
-        return Err(Error::ParseError(M::ModuleBadEnd(p.cur)));
+        return Err(Error::ParseError(Module::ModuleBadEnd(p.cur)));
     }
     let package = source != Source::Application;
-    // `categorizeDecls` gathers the ports last first.
-    let last_port = ports.last();
     match effects {
         None => Ok(()),
-        Some(Effects::None(region)) => match last_port {
+        Some(Effects::NoEffects(region)) => match last_port {
             None => Ok(()),
-            Some((name, name_region)) if package => {
-                Err(Error::NoPortsInPackage(name.clone(), *name_region))
-            }
+            Some(port) if package => Err(Error::NoPortsInPackage(port)),
             Some(_) => Err(Error::UnexpectedPort(region)),
         },
         Some(Effects::Ports(region)) if package => Err(Error::NoPortModulesInPackage(region)),
@@ -48,63 +45,45 @@ pub(super) fn module(p: &mut P<'_>, source: Source) -> Result<(), Error> {
     }
 }
 
-type Ports = Vec<(super::error::Name, Region)>;
-
-fn chomp_module(p: &mut P<'_>, source: Source) -> Result<(Option<Effects>, Ports), M> {
+/// The header's effects, and where the last port's name is, as
+/// `categorizeDecls`, which gathers the ports last first, has it.
+fn chomp_module(
+    p: &mut P<'_>,
+    source: Source,
+) -> Result<(Option<Effects>, Option<Region>), Module> {
     let effects = header(p)?;
-    loop {
-        let more = one_of_with_fallback(p, &mut [&mut |p| import(p).map(|()| true)], false)?;
-        if !more {
-            break;
-        }
-    }
+    fold_more(p, (), |p, ()| import(p))?;
     if source == Source::Kernel {
-        loop {
-            let more = one_of_with_fallback(
-                p,
-                &mut [&mut |p| declaration::infix(p).map(|()| true)],
-                false,
-            )?;
-            if !more {
-                break;
-            }
-        }
+        fold_more(p, (), |p, ()| declaration::infix(p))?;
     }
-    let ports = specialize(p, M::Declarations, |p| {
-        let mut ports = Vec::new();
-        let mut declared = Some(declaration::declaration(p)?);
-        while let Some(decl) = declared {
-            if let Declared::Port(name, region) = decl {
-                ports.push((name, region));
-            }
-            declared = one_of_with_fallback(
-                p,
-                &mut [&mut |p| {
-                    check_fresh_line(p, super::error::Decl::DeclStart)?;
-                    declaration::declaration(p).map(Some)
-                }],
-                None,
-            )?;
-        }
-        Ok(ports)
-    })?;
-    Ok((effects, ports))
+    let last_port = specialize(
+        p,
+        |decl, _| Module::Declarations(decl),
+        |p| {
+            let first = declaration::declaration(p)?;
+            fold_more(p, first, |p, last_port| {
+                check_fresh_line(p, Decl::DeclStart)?;
+                Ok(declaration::declaration(p)?.or(last_port))
+            })
+        },
+    )?;
+    Ok((effects, last_port))
 }
 
-fn fresh_line(p: &mut P<'_>, to_error: fn(super::error::Cursor) -> M) -> Result<(), M> {
-    chomp(p, M::ModuleSpace)?;
+fn fresh_line(p: &mut P<'_>, to_error: fn(Position) -> Module) -> Result<(), Module> {
+    chomp(p, Module::ModuleSpace)?;
     check_fresh_line(p, to_error)
 }
 
 /// `chompModuleDocCommentSpace`.
-fn doc_comment_space(p: &mut P<'_>) -> Result<(), M> {
-    fresh_line(p, M::FreshLine)?;
+fn doc_comment_space(p: &mut P<'_>) -> Result<(), Module> {
+    fresh_line(p, Module::FreshLine)?;
     one_of_with_fallback(
         p,
         &mut [&mut |p| {
-            doc_comment(p, M::ImportStart, M::ModuleSpace)?;
-            chomp(p, M::ModuleSpace)?;
-            check_fresh_line(p, M::FreshLine)
+            doc_comment(p, Module::ImportStart, Module::ModuleSpace)?;
+            chomp(p, Module::ModuleSpace)?;
+            check_fresh_line(p, Module::FreshLine)
         }],
         (),
     )
@@ -112,98 +91,91 @@ fn doc_comment_space(p: &mut P<'_>) -> Result<(), M> {
 
 // HEADER
 
-fn header(p: &mut P<'_>) -> Result<Option<Effects>, M> {
-    fresh_line(p, M::FreshLine)?;
+fn header(p: &mut P<'_>) -> Result<Option<Effects>, Module> {
+    fresh_line(p, Module::FreshLine)?;
     let start = p.cur;
+    let effects_at = |p: &P<'_>| Region { start, end: p.cur };
     one_of_with_fallback(
         p,
         &mut [
             &mut |p| {
-                keyword(p, b"module", M::ModuleProblem)?;
-                let effect_end = p.cur;
-                chomp_and_check_indent(p, M::ModuleSpace, M::ModuleProblem)?;
-                module_name(p, M::ModuleName)?;
-                chomp_and_check_indent(p, M::ModuleSpace, M::ModuleProblem)?;
-                keyword(p, b"exposing", M::ModuleProblem)?;
-                chomp_and_check_indent(p, M::ModuleSpace, M::ModuleProblem)?;
-                specialize(p, M::ModuleExposing, exposing)?;
+                keyword(p, b"module", Module::ModuleProblem)?;
+                let effects = Effects::NoEffects(effects_at(p));
+                chomp_and_check_indent(p, Module::ModuleSpace, Module::ModuleProblem)?;
+                module_name(p, Module::ModuleName)?;
+                chomp_and_check_indent(p, Module::ModuleSpace, Module::ModuleProblem)?;
+                keyword(p, b"exposing", Module::ModuleProblem)?;
+                chomp_and_check_indent(p, Module::ModuleSpace, Module::ModuleProblem)?;
+                specialize(p, Module::ModuleExposing, exposing)?;
                 doc_comment_space(p)?;
-                Ok(Some(Effects::None(Region {
-                    start,
-                    end: effect_end,
-                })))
+                Ok(Some(effects))
             },
             &mut |p| {
-                keyword(p, b"port", M::PortModuleProblem)?;
-                chomp_and_check_indent(p, M::ModuleSpace, M::PortModuleProblem)?;
-                keyword(p, b"module", M::PortModuleProblem)?;
-                let effect_end = p.cur;
-                chomp_and_check_indent(p, M::ModuleSpace, M::PortModuleProblem)?;
-                module_name(p, M::PortModuleName)?;
-                chomp_and_check_indent(p, M::ModuleSpace, M::PortModuleProblem)?;
-                keyword(p, b"exposing", M::PortModuleProblem)?;
-                chomp_and_check_indent(p, M::ModuleSpace, M::PortModuleProblem)?;
-                specialize(p, M::PortModuleExposing, exposing)?;
+                keyword(p, b"port", Module::PortModuleProblem)?;
+                chomp_and_check_indent(p, Module::ModuleSpace, Module::PortModuleProblem)?;
+                keyword(p, b"module", Module::PortModuleProblem)?;
+                let effects = Effects::Ports(effects_at(p));
+                chomp_and_check_indent(p, Module::ModuleSpace, Module::PortModuleProblem)?;
+                module_name(p, Module::PortModuleName)?;
+                chomp_and_check_indent(p, Module::ModuleSpace, Module::PortModuleProblem)?;
+                keyword(p, b"exposing", Module::PortModuleProblem)?;
+                chomp_and_check_indent(p, Module::ModuleSpace, Module::PortModuleProblem)?;
+                specialize(p, Module::PortModuleExposing, exposing)?;
                 doc_comment_space(p)?;
-                Ok(Some(Effects::Ports(Region {
-                    start,
-                    end: effect_end,
-                })))
+                Ok(Some(effects))
             },
             &mut |p| {
-                keyword(p, b"effect", M::Effect)?;
-                chomp_and_check_indent(p, M::ModuleSpace, M::Effect)?;
-                keyword(p, b"module", M::Effect)?;
-                let effect_end = p.cur;
-                chomp_and_check_indent(p, M::ModuleSpace, M::Effect)?;
-                module_name(p, M::ModuleName)?;
-                chomp_and_check_indent(p, M::ModuleSpace, M::Effect)?;
-                keyword(p, b"where", M::Effect)?;
-                chomp_and_check_indent(p, M::ModuleSpace, M::Effect)?;
+                keyword(p, b"effect", Module::Effect)?;
+                effect_space(p)?;
+                keyword(p, b"module", Module::Effect)?;
+                let effects = Effects::Manager(effects_at(p));
+                effect_space(p)?;
+                module_name(p, Module::ModuleName)?;
+                effect_space(p)?;
+                keyword(p, b"where", Module::Effect)?;
+                effect_space(p)?;
                 manager(p)?;
-                chomp_and_check_indent(p, M::ModuleSpace, M::Effect)?;
-                keyword(p, b"exposing", M::Effect)?;
-                chomp_and_check_indent(p, M::ModuleSpace, M::Effect)?;
-                specialize(p, |_, c| M::Effect(c), exposing)?;
+                effect_space(p)?;
+                keyword(p, b"exposing", Module::Effect)?;
+                effect_space(p)?;
+                specialize(p, |_, at| Module::Effect(at), exposing)?;
                 doc_comment_space(p)?;
-                Ok(Some(Effects::Manager(Region {
-                    start,
-                    end: effect_end,
-                })))
+                Ok(Some(effects))
             },
         ],
         None,
     )
 }
 
-fn spaces_em(p: &mut P<'_>) -> Result<(), M> {
-    chomp_and_check_indent(p, M::ModuleSpace, M::Effect)
+/// The spaces between the words of an effect module's header.
+fn effect_space(p: &mut P<'_>) -> Result<(), Module> {
+    chomp_and_check_indent(p, Module::ModuleSpace, Module::Effect)
 }
 
 /// `chompManager`: `{ command = A }`, `{ subscription = B }`, or both
 /// in either order.
-fn manager(p: &mut P<'_>) -> Result<(), M> {
-    word1(p, b'{', M::Effect)?;
-    spaces_em(p)?;
+fn manager(p: &mut P<'_>) -> Result<(), Module> {
+    word1(p, b'{', Module::Effect)?;
+    effect_space(p)?;
     let one = |first: &'static [u8], second: &'static [u8]| {
-        move |p: &mut P<'_>| -> Result<(), M> {
+        move |p: &mut P<'_>| -> Result<(), Module> {
             effect_type(p, first)?;
-            spaces_em(p)?;
+            effect_space(p)?;
             one_of(
                 p,
-                M::Effect,
+                Module::Effect,
                 &mut [
                     &mut |p| {
-                        word1(p, b'}', M::Effect)?;
-                        spaces_em(p)
+                        word1(p, b'}', Module::Effect)?;
+                        effect_space(p)
                     },
                     &mut |p| {
-                        word1(p, b',', M::Effect)?;
-                        spaces_em(p)?;
+                        word1(p, b',', Module::Effect)?;
+                        effect_space(p)?;
                         effect_type(p, second)?;
-                        spaces_em(p)?;
-                        word1(p, b'}', M::Effect)?;
-                        spaces_em(p)
+                        effect_space(p)?;
+                        word1(p, b'}', Module::Effect)?;
+                        effect_space(p)
                     },
                 ],
             )
@@ -211,7 +183,7 @@ fn manager(p: &mut P<'_>) -> Result<(), M> {
     };
     one_of(
         p,
-        M::Effect,
+        Module::Effect,
         &mut [
             &mut one(b"command", b"subscription"),
             &mut one(b"subscription", b"command"),
@@ -220,129 +192,123 @@ fn manager(p: &mut P<'_>) -> Result<(), M> {
 }
 
 /// `chompCommand` or `chompSubscription`.
-fn effect_type(p: &mut P<'_>, word: &[u8]) -> Result<(), M> {
-    keyword(p, word, M::Effect)?;
-    spaces_em(p)?;
-    word1(p, b'=', M::Effect)?;
-    spaces_em(p)?;
-    upper(p, M::Effect).map(drop)
+fn effect_type(p: &mut P<'_>, word: &[u8]) -> Result<(), Module> {
+    keyword(p, word, Module::Effect)?;
+    effect_space(p)?;
+    word1(p, b'=', Module::Effect)?;
+    effect_space(p)?;
+    upper(p, Module::Effect).map(drop)
 }
 
 // IMPORTS
 
-fn import(p: &mut P<'_>) -> Result<(), M> {
-    keyword(p, b"import", M::ImportStart)?;
-    chomp_and_check_indent(p, M::ModuleSpace, M::ImportIndentName)?;
-    module_name(p, M::ImportName)?;
+fn import(p: &mut P<'_>) -> Result<(), Module> {
+    keyword(p, b"import", Module::ImportStart)?;
+    chomp_and_check_indent(p, Module::ModuleSpace, Module::ImportIndentName)?;
+    module_name(p, Module::ImportName)?;
     let end = p.cur;
-    chomp(p, M::ModuleSpace)?;
+    chomp(p, Module::ModuleSpace)?;
     one_of(
         p,
-        M::ImportEnd,
-        &mut [&mut |p| check_fresh_line(p, M::ImportEnd), &mut |p| {
-            check_indent(p, end, M::ImportEnd)?;
-            one_of(p, M::ImportAs, &mut [&mut import_as, &mut import_exposing])
+        Module::ImportEnd,
+        &mut [&mut |p| check_fresh_line(p, Module::ImportEnd), &mut |p| {
+            check_indent(p, end, Module::ImportEnd)?;
+            one_of(
+                p,
+                Module::ImportAs,
+                &mut [&mut import_as, &mut import_exposing],
+            )
         }],
     )
 }
 
-fn import_as(p: &mut P<'_>) -> Result<(), M> {
-    keyword(p, b"as", M::ImportAs)?;
-    chomp_and_check_indent(p, M::ModuleSpace, M::ImportIndentAlias)?;
-    upper(p, M::ImportAlias)?;
+fn import_as(p: &mut P<'_>) -> Result<(), Module> {
+    keyword(p, b"as", Module::ImportAs)?;
+    chomp_and_check_indent(p, Module::ModuleSpace, Module::ImportIndentAlias)?;
+    upper(p, Module::ImportAlias)?;
     let end = p.cur;
-    chomp(p, M::ModuleSpace)?;
+    chomp(p, Module::ModuleSpace)?;
     one_of(
         p,
-        M::ImportEnd,
-        &mut [&mut |p| check_fresh_line(p, M::ImportEnd), &mut |p| {
-            check_indent(p, end, M::ImportEnd)?;
+        Module::ImportEnd,
+        &mut [&mut |p| check_fresh_line(p, Module::ImportEnd), &mut |p| {
+            check_indent(p, end, Module::ImportEnd)?;
             import_exposing(p)
         }],
     )
 }
 
-fn import_exposing(p: &mut P<'_>) -> Result<(), M> {
-    keyword(p, b"exposing", M::ImportExposing)?;
-    chomp_and_check_indent(p, M::ModuleSpace, M::ImportIndentExposingList)?;
-    specialize(p, M::ImportExposingList, exposing)?;
-    fresh_line(p, M::ImportEnd)
+fn import_exposing(p: &mut P<'_>) -> Result<(), Module> {
+    keyword(p, b"exposing", Module::ImportExposing)?;
+    chomp_and_check_indent(p, Module::ModuleSpace, Module::ImportIndentExposingList)?;
+    specialize(p, Module::ImportExposingList, exposing)?;
+    fresh_line(p, Module::ImportEnd)
 }
 
 // LISTING
 
-fn exposing(p: &mut P<'_>) -> Result<(), X> {
-    word1(p, b'(', X::ExposingStart)?;
-    chomp_and_check_indent(p, X::ExposingSpace, X::ExposingIndentValue)?;
+fn exposing(p: &mut P<'_>) -> Result<(), Exposing> {
+    word1(p, b'(', Exposing::ExposingStart)?;
+    chomp_and_check_indent(p, Exposing::ExposingSpace, Exposing::ExposingIndentValue)?;
     one_of(
         p,
-        X::ExposingValue,
+        Exposing::ExposingValue,
         &mut [
             &mut |p| {
-                word2(p, b'.', b'.', X::ExposingValue)?;
-                chomp_and_check_indent(p, X::ExposingSpace, X::ExposingIndentEnd)?;
-                word1(p, b')', X::ExposingEnd)
+                word2(p, b'.', b'.', Exposing::ExposingValue)?;
+                chomp_and_check_indent(p, Exposing::ExposingSpace, Exposing::ExposingIndentEnd)?;
+                word1(p, b')', Exposing::ExposingEnd)
             },
             &mut |p| {
                 exposed(p)?;
-                chomp_and_check_indent(p, X::ExposingSpace, X::ExposingIndentEnd)?;
-                loop {
-                    let more = one_of(
+                chomp_and_check_indent(p, Exposing::ExposingSpace, Exposing::ExposingIndentEnd)?;
+                comma_until(p, b')', Exposing::ExposingEnd, |p| {
+                    chomp_and_check_indent(
                         p,
-                        X::ExposingEnd,
-                        &mut [
-                            &mut |p| {
-                                word1(p, b',', X::ExposingEnd)?;
-                                chomp_and_check_indent(
-                                    p,
-                                    X::ExposingSpace,
-                                    X::ExposingIndentValue,
-                                )?;
-                                exposed(p)?;
-                                chomp_and_check_indent(p, X::ExposingSpace, X::ExposingIndentEnd)?;
-                                Ok(true)
-                            },
-                            &mut |p| word1(p, b')', X::ExposingEnd).map(|()| false),
-                        ],
+                        Exposing::ExposingSpace,
+                        Exposing::ExposingIndentValue,
                     )?;
-                    if !more {
-                        return Ok(());
-                    }
-                }
+                    exposed(p)?;
+                    chomp_and_check_indent(p, Exposing::ExposingSpace, Exposing::ExposingIndentEnd)
+                })
             },
         ],
     )
 }
 
-fn exposed(p: &mut P<'_>) -> Result<(), X> {
+fn exposed(p: &mut P<'_>) -> Result<(), Exposing> {
     one_of(
         p,
-        X::ExposingValue,
+        Exposing::ExposingValue,
         &mut [
-            &mut |p| lower(p, X::ExposingValue).map(drop),
+            &mut |p| lower(p, Exposing::ExposingValue).map(drop),
             &mut |p| {
-                word1(p, b'(', X::ExposingValue)?;
-                operator(p, X::ExposingOperator, X::ExposingOperatorReserved)?;
-                word1(p, b')', X::ExposingOperatorRightParen)
+                word1(p, b'(', Exposing::ExposingValue)?;
+                operator(
+                    p,
+                    Exposing::ExposingOperator,
+                    Exposing::ExposingOperatorReserved,
+                )?;
+                word1(p, b')', Exposing::ExposingOperatorRightParen)
             },
             &mut |p| {
-                upper(p, X::ExposingValue)?;
-                chomp_and_check_indent(p, X::ExposingSpace, X::ExposingIndentEnd)?;
+                upper(p, Exposing::ExposingValue)?;
+                chomp_and_check_indent(p, Exposing::ExposingSpace, Exposing::ExposingIndentEnd)?;
                 privacy(p)
             },
         ],
     )
 }
 
-fn privacy(p: &mut P<'_>) -> Result<(), X> {
+fn privacy(p: &mut P<'_>) -> Result<(), Exposing> {
     one_of_with_fallback(
         p,
         &mut [&mut |p| {
-            word1(p, b'(', X::ExposingTypePrivacy)?;
-            chomp_and_check_indent(p, X::ExposingSpace, X::ExposingTypePrivacy)?;
-            word2(p, b'.', b'.', X::ExposingTypePrivacy)?;
-            chomp_and_check_indent(p, X::ExposingSpace, X::ExposingTypePrivacy)?;
-            word1(p, b')', X::ExposingTypePrivacy)
+            word1(p, b'(', Exposing::ExposingTypePrivacy)?;
+            chomp_and_check_indent(p, Exposing::ExposingSpace, Exposing::ExposingTypePrivacy)?;
+            word2(p, b'.', b'.', Exposing::ExposingTypePrivacy)?;
+            chomp_and_check_indent(p, Exposing::ExposingSpace, Exposing::ExposingTypePrivacy)?;
+            word1(p, b')', Exposing::ExposingTypePrivacy)
         }],
         (),
     )

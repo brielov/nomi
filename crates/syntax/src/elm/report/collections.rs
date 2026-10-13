@@ -1,195 +1,106 @@
 //! The reports on expressions that collect others: `toRecordReport`,
 //! `toTupleReport` and `toListReport`.
 
-use nomi_base::diagnostic::code::{Bracket, Keyword, Next, Region};
-use nomi_base::diagnostic::doc::{self, fill_sep, reflow, stack, vcat};
+use nomi_base::diagnostic::code::{Bracket, Next};
+use nomi_base::diagnostic::doc::{self, dull_yellow, green, reflow, stack, vcat};
 use nomi_base::diagnostic::{Doc, Problem};
 
 use super::expr::{Context, Node};
-use super::{Reporter, dullyellow, green, position, surroundings, to_region};
-use crate::elm::error::{BadOperator, Cursor, Expr, List, Record, Tuple};
+use super::{
+    Reporter, closing_curly_next, closing_paren_note, convention, curly_before_this,
+    earlier_trouble_note, missing_bracket_note, reserved_field, try_adding,
+};
+use crate::elm::error::{BadOperator, Expr, List, Position, Record, Tuple};
 
 impl Reporter<'_, '_> {
     /// `toRecordReport`.
-    pub(super) fn record(&self, context: &Context<'_>, record: &Record, start: Cursor) -> Problem {
-        let stuck = |cur: Cursor, title: &'static str, before: &str, after: Doc| {
-            self.within(
-                title,
-                surroundings(start, cur),
-                to_region(cur),
-                reflow(before),
-                after,
-            )
-        };
-        let reserved = |cur: Cursor, keyword: Keyword, before: &str| {
-            self.within(
-                "RESERVED WORD",
-                surroundings(start, cur),
-                self.keyword_region(cur, keyword.as_str()),
-                reflow(before),
-                reflow(&format!(
-                    "It looks like you are trying to use `{keyword}` as a field name, but that \
-                     is a reserved word. Try using a different name!"
-                )),
-            )
-        };
-        let expecting_field = |another: &str| {
-            stack([
-                fill_sep(words![
-                    "I was expecting to see",
-                    another,
-                    "record field defined next, so I am looking for a name like",
-                    dullyellow("userName"),
-                    "or",
-                    dullyellow("plantHeight").append(Doc::from(".")),
-                ]),
-                doc::simple_note(
-                    "Field names must start with a lower-case letter. After that, you can use \
-                     any sequence of letters, numbers, and underscores.",
-                ),
-                note_for_record_error(),
-            ])
-        };
-        let partway = "I am partway through parsing a record, but I got stuck here:";
+    pub(super) fn record(
+        &self,
+        context: &Context<'_>,
+        record: &Record,
+        start: Position,
+    ) -> Problem {
+        let partway = || reflow("I am partway through parsing a record, but I got stuck here:");
         match record {
-            Record::RecordOpen(cur) => match self.next(*cur) {
-                Next::Keyword(keyword) => reserved(
+            Record::RecordOpen(cur) => match self.next_keyword(*cur) {
+                Some(keyword) => self.reserved(
+                    start,
                     *cur,
                     keyword,
-                    "I just started parsing a record, but I got stuck on this field name:",
+                    reflow("I just started parsing a record, but I got stuck on this field name:"),
+                    reserved_field(keyword),
                 ),
-                _ => stuck(
-                    *cur,
+                None => self.stuck(
                     "PROBLEM IN RECORD",
-                    "I just started parsing a record, but I got stuck here:",
+                    start,
+                    *cur,
+                    reflow("I just started parsing a record, but I got stuck here:"),
                     expecting_field("a"),
                 ),
             },
-            Record::RecordEnd(cur) => stuck(
-                *cur,
+            Record::RecordEnd(cur) => self.stuck(
                 "PROBLEM IN RECORD",
-                partway,
-                stack([
-                    fill_sep(words![
-                        "I was expecting to see a closing curly brace before this, so try adding \
-                         a",
-                        dullyellow("}"),
-                        "and see if that helps?",
-                    ]),
-                    doc::simple_note(
-                        "When I get stuck like this, it usually means that there is a missing \
-                         parenthesis or bracket somewhere earlier. It could also be a stray \
-                         keyword or operator.",
-                    ),
-                ]),
+                start,
+                *cur,
+                partway(),
+                curly_before_this(),
             ),
-            Record::RecordField(cur) => match self.next(*cur) {
-                Next::Keyword(keyword) => reserved(
-                    *cur,
-                    keyword,
-                    "I am partway through parsing a record, but I got stuck on this field name:",
-                ),
-                Next::Other(Some(',')) => stuck(
-                    *cur,
-                    "EXTRA COMMA",
-                    partway,
-                    stack([
-                        reflow("I am seeing two commas in a row. This is the second one!"),
-                        reflow("Just delete one of the commas and you should be all set!"),
-                        note_for_record_error(),
-                    ]),
-                ),
-                Next::Close(Bracket::Curly) => stuck(
-                    *cur,
-                    "EXTRA COMMA",
-                    partway,
-                    stack([
-                        reflow(
-                            "Trailing commas are not allowed in records. Try deleting the comma \
-                             that appears before this closing curly brace.",
-                        ),
-                        note_for_record_error(),
-                    ]),
-                ),
-                _ => stuck(
-                    *cur,
-                    "PROBLEM IN RECORD",
-                    partway,
-                    expecting_field("another"),
-                ),
-            },
-            Record::RecordEquals(cur) => stuck(
-                *cur,
+            Record::RecordField(cur) => self.record_field(start, *cur),
+            Record::RecordEquals(cur) => self.stuck(
                 "PROBLEM IN RECORD",
-                partway,
+                start,
+                *cur,
+                partway(),
                 stack([
-                    fill_sep(words![
+                    fill![
                         "I just saw a field name, so I was expecting to see an equals sign next. \
                          So try putting an",
                         green("="),
-                        "sign here?",
-                    ]),
+                        "sign here?"
+                    ],
                     note_for_record_error(),
                 ]),
             ),
             Record::RecordExpr(expr, cur) => {
-                self.expr(&Context::Node(Node::Record, start, context), expr, *cur)
+                self.expr(&context.node(Node::Record, start), expr, *cur)
             }
             Record::RecordSpace(space, cur) => self.space(*space, *cur),
-            Record::RecordIndentOpen(cur) => stuck(
-                *cur,
+            Record::RecordIndentOpen(cur) => self.stuck(
                 "UNFINISHED RECORD",
-                "I just saw the opening curly brace of a record, but then I got stuck here:",
+                start,
+                *cur,
+                reflow(
+                    "I just saw the opening curly brace of a record, but then I got stuck here:",
+                ),
                 stack([
-                    fill_sep(words![
+                    fill![
                         "I am expecting a record like",
-                        dullyellow("{ x = 3, y = 4 }"),
-                        "here. Try defining some fields of your own?",
-                    ]),
+                        dull_yellow("{ x = 3, y = 4 }"),
+                        "here. Try defining some fields of your own?"
+                    ],
                     note_for_record_indent_error(),
                 ]),
             ),
             Record::RecordIndentEnd(cur) => {
                 let partway = "I was partway through parsing a record, but I got stuck here:";
-                match (self.source).next_line_starts_with_close_curly(position(*cur), self.compat) {
-                    Some(curly) => self.within(
-                        "NEED MORE INDENTATION",
-                        Region {
-                            start: position(start),
-                            end: curly,
-                        },
-                        Region {
-                            start: curly,
-                            end: curly,
-                        },
-                        reflow(partway),
-                        stack([
-                            reflow(
-                                "I need this curly brace to be indented more. Try adding some \
-                                 spaces before it!",
-                            ),
-                            note_for_record_error(),
-                        ]),
-                    ),
-                    None => stuck(
-                        *cur,
-                        "UNFINISHED RECORD",
-                        partway,
-                        stack([
-                            fill_sep(words![
-                                "I was expecting to see a closing curly brace next. Try putting a",
-                                green("}"),
-                                "next and see if that helps?",
-                            ]),
-                            note_for_record_indent_error(),
-                        ]),
-                    ),
-                }
+                self.curly_needs_indent(start, *cur, partway, note_for_record_error)
+                    .unwrap_or_else(|| {
+                        self.stuck(
+                            "UNFINISHED RECORD",
+                            start,
+                            *cur,
+                            reflow(partway),
+                            stack([closing_curly_next(), note_for_record_indent_error()]),
+                        )
+                    })
             }
-            Record::RecordIndentField(cur) => stuck(
-                *cur,
+            Record::RecordIndentField(cur) => self.stuck(
                 "UNFINISHED RECORD",
-                "I am partway through parsing a record, but I got stuck after that last comma:",
+                start,
+                *cur,
+                reflow(
+                    "I am partway through parsing a record, but I got stuck after that last comma:",
+                ),
                 stack([
                     reflow(
                         "Trailing commas are not allowed in records, so the fix may be to delete \
@@ -199,58 +110,94 @@ impl Reporter<'_, '_> {
                     note_for_record_error(),
                 ]),
             ),
-            Record::RecordIndentEquals(cur) => stuck(
-                *cur,
+            Record::RecordIndentEquals(cur) => self.stuck(
                 "UNFINISHED RECORD",
-                "I am partway through parsing a record. I just saw a record field, so I was \
-                 expecting to see an equals sign next:",
+                start,
+                *cur,
+                reflow(
+                    "I am partway through parsing a record. I just saw a record field, so I was \
+                     expecting to see an equals sign next:",
+                ),
                 stack([
-                    fill_sep(words![
-                        "Try putting an",
-                        green("="),
-                        "followed by an expression?",
-                    ]),
+                    fill!["Try putting an", green("="), "followed by an expression?"],
                     note_for_record_indent_error(),
                 ]),
             ),
-            Record::RecordIndentExpr(cur) => stuck(
-                *cur,
+            Record::RecordIndentExpr(cur) => self.stuck(
                 "UNFINISHED RECORD",
-                "I am partway through parsing a record, and I was expecting to run into an \
-                 expression next:",
+                start,
+                *cur,
+                reflow(
+                    "I am partway through parsing a record, and I was expecting to run into an \
+                     expression next:",
+                ),
                 stack([
-                    fill_sep(words![
+                    fill![
                         "Try putting something like",
-                        dullyellow("42"),
+                        dull_yellow("42"),
                         "or",
-                        dullyellow("\"hello\""),
-                        "for now?",
-                    ]),
+                        dull_yellow("\"hello\""),
+                        "for now?"
+                    ],
                     note_for_record_indent_error(),
                 ]),
             ),
         }
     }
 
+    /// `RecordField`, by what is there.
+    fn record_field(&self, start: Position, cur: Position) -> Problem {
+        let partway = || reflow("I am partway through parsing a record, but I got stuck here:");
+        match self.next(cur) {
+            Next::Keyword(keyword) => self.reserved(
+                start,
+                cur,
+                keyword,
+                reflow(
+                    "I am partway through parsing a record, but I got stuck on this field name:",
+                ),
+                reserved_field(keyword),
+            ),
+            Next::Other(Some(',')) => self.stuck(
+                "EXTRA COMMA",
+                start,
+                cur,
+                partway(),
+                stack([
+                    reflow("I am seeing two commas in a row. This is the second one!"),
+                    reflow("Just delete one of the commas and you should be all set!"),
+                    note_for_record_error(),
+                ]),
+            ),
+            Next::Close(Bracket::Curly) => self.stuck(
+                "EXTRA COMMA",
+                start,
+                cur,
+                partway(),
+                stack([
+                    reflow(
+                        "Trailing commas are not allowed in records. Try deleting the comma that \
+                         appears before this closing curly brace.",
+                    ),
+                    note_for_record_error(),
+                ]),
+            ),
+            Next::Operator(_)
+            | Next::Close(_)
+            | Next::Upper(..)
+            | Next::Lower(..)
+            | Next::Other(_) => self.stuck(
+                "PROBLEM IN RECORD",
+                start,
+                cur,
+                partway(),
+                expecting_field("another"),
+            ),
+        }
+    }
+
     /// `toTupleReport`.
-    pub(super) fn tuple(&self, context: &Context<'_>, tuple: &Tuple, start: Cursor) -> Problem {
-        let stuck = |cur: Cursor, title: &'static str, before: &str, after: Doc| {
-            self.within(
-                title,
-                surroundings(start, cur),
-                to_region(cur),
-                reflow(before),
-                after,
-            )
-        };
-        let try_adding = |punctuation: &str| {
-            fill_sep(words![
-                "Try adding a",
-                dullyellow(")"),
-                "to see if that",
-                Doc::from(format!("helps{punctuation}")),
-            ])
-        };
+    pub(super) fn tuple(&self, context: &Context<'_>, tuple: &Tuple, start: Position) -> Problem {
         let not_indented = || {
             doc::simple_note(
                 "I can get confused by indentation in cases like this, so maybe you have an \
@@ -259,28 +206,23 @@ impl Reporter<'_, '_> {
         };
         match tuple {
             Tuple::TupleExpr(expr, cur) => {
-                self.expr(&Context::Node(Node::Parens, start, context), expr, *cur)
+                self.expr(&context.node(Node::Parens, start), expr, *cur)
             }
             Tuple::TupleSpace(space, cur) => self.space(*space, *cur),
-            Tuple::TupleEnd(cur) => stuck(
-                *cur,
+            Tuple::TupleEnd(cur) => self.stuck(
                 "UNFINISHED PARENTHESES",
-                "I was expecting to see a closing parentheses next, but I got stuck here:",
-                stack([
-                    try_adding("?"),
-                    doc::simple_note(
-                        "I can get stuck when I run into keywords, operators, parentheses, or \
-                         brackets unexpectedly. So there may be some earlier syntax trouble \
-                         (like extra parenthesis or missing brackets) that is confusing me.",
-                    ),
-                ]),
-            ),
-            Tuple::TupleOperatorClose(cur) => stuck(
+                start,
                 *cur,
+                reflow("I was expecting to see a closing parentheses next, but I got stuck here:"),
+                stack([try_adding(Bracket::Paren, '?'), earlier_trouble_note()]),
+            ),
+            Tuple::TupleOperatorClose(cur) => self.stuck(
                 "UNFINISHED OPERATOR FUNCTION",
-                "I was expecting a closing parenthesis here:",
+                start,
+                *cur,
+                reflow("I was expecting a closing parenthesis here:"),
                 stack([
-                    try_adding("!"),
+                    try_adding(Bracket::Paren, '!'),
                     doc::simple_note(
                         "I think I am parsing an operator function right now, so I am expecting \
                          to see something like (+) or (&&) where an operator is surrounded by \
@@ -288,111 +230,70 @@ impl Reporter<'_, '_> {
                     ),
                 ]),
             ),
-            Tuple::TupleOperatorReserved(operator, cur) => stuck(
-                *cur,
+            Tuple::TupleOperatorReserved(operator, cur) => self.stuck(
                 "UNEXPECTED SYMBOL",
-                "I ran into an unexpected symbol here:",
-                match operator {
-                    BadOperator::BadDot => fill_sep(words![
-                        "Maybe you wanted a record accessor like",
-                        dullyellow(".x"),
-                        "or",
-                        dullyellow(".name"),
-                        "instead?",
-                    ]),
-                    BadOperator::BadPipe => fill_sep(words![
-                        "Try",
-                        dullyellow("(||)"),
-                        "instead? To turn boolean OR into a function?",
-                    ]),
-                    BadOperator::BadArrow => fill_sep(words![
-                        "Maybe you wanted",
-                        dullyellow("(>)"),
-                        "or",
-                        dullyellow("(>=)"),
-                        "instead?",
-                    ]),
-                    BadOperator::BadEquals => fill_sep(words![
-                        "Try",
-                        dullyellow("(==)"),
-                        "instead? To make a function that checks equality?",
-                    ]),
-                    BadOperator::BadHasType => fill_sep(words![
-                        "Try",
-                        dullyellow("(::)"),
-                        "instead? To add values to the front of lists?",
-                    ]),
-                },
-            ),
-            Tuple::TupleIndentExpr1(cur) => stuck(
+                start,
                 *cur,
+                reflow("I ran into an unexpected symbol here:"),
+                operator_function_hint(*operator),
+            ),
+            Tuple::TupleIndentExpr1(cur) => self.stuck(
                 "UNFINISHED PARENTHESES",
-                "I just saw an open parenthesis, so I was expecting to see an expression next.",
+                start,
+                *cur,
+                reflow(
+                    "I just saw an open parenthesis, so I was expecting to see an expression next.",
+                ),
                 stack([
-                    fill_sep(words![
+                    fill![
                         "Something like",
-                        dullyellow("(4 + 5)"),
+                        dull_yellow("(4 + 5)"),
                         "or",
-                        dullyellow("(String.reverse \"desserts\")").append(Doc::from(".")),
-                        "Anything where you are putting parentheses around normal expressions.",
-                    ]),
+                        dull_yellow("(String.reverse \"desserts\")").append(Doc::from(".")),
+                        "Anything where you are putting parentheses around normal expressions."
+                    ],
                     not_indented(),
                 ]),
             ),
-            Tuple::TupleIndentExprN(cur) => stuck(
-                *cur,
+            Tuple::TupleIndentExprN(cur) => self.stuck(
                 "UNFINISHED TUPLE",
-                "I think I am in the middle of parsing a tuple. I just saw a comma, so I was \
-                 expecting to see an expression next.",
+                start,
+                *cur,
+                reflow(
+                    "I think I am in the middle of parsing a tuple. I just saw a comma, so I was \
+                     expecting to see an expression next.",
+                ),
                 stack([
-                    fill_sep(words![
+                    fill![
                         "A tuple looks like",
-                        dullyellow("(3,4)"),
+                        dull_yellow("(3,4)"),
                         "or",
-                        dullyellow("(\"Tom\",42)").append(Doc::from(",")),
-                        "so I think there is an expression missing here?",
-                    ]),
+                        dull_yellow("(\"Tom\",42)").append(Doc::from(",")),
+                        "so I think there is an expression missing here?"
+                    ],
                     not_indented(),
                 ]),
             ),
-            Tuple::TupleIndentEnd(cur) => stuck(
-                *cur,
+            Tuple::TupleIndentEnd(cur) => self.stuck(
                 "UNFINISHED PARENTHESES",
-                "I was expecting to see a closing parenthesis next:",
-                stack([
-                    try_adding("!"),
-                    doc::simple_note(
-                        "I can get confused by indentation in cases like this, so maybe you have \
-                         a closing parenthesis but it is not indented enough?",
-                    ),
-                ]),
+                start,
+                *cur,
+                reflow("I was expecting to see a closing parenthesis next:"),
+                stack([try_adding(Bracket::Paren, '!'), closing_paren_note()]),
             ),
         }
     }
 
     /// `toListReport`.
-    pub(super) fn list(&self, context: &Context<'_>, list: &List, start: Cursor) -> Problem {
-        let stuck = |cur: Cursor, before: &str, after: Doc| {
-            self.within(
-                "UNFINISHED LIST",
-                surroundings(start, cur),
-                to_region(cur),
-                reflow(before),
-                after,
-            )
-        };
+    pub(super) fn list(&self, context: &Context<'_>, list: &List, start: Position) -> Problem {
         let closing = || {
             stack([
-                fill_sep(words![
+                fill![
                     "I was expecting to see a closing square bracket before this, so try adding a",
-                    dullyellow("]"),
-                    "and see if that helps?",
-                ]),
-                doc::simple_note(
-                    "When I get stuck like this, it usually means that there is a missing \
-                     parenthesis or bracket somewhere earlier. It could also be a stray keyword \
-                     or operator.",
-                ),
+                    dull_yellow("]"),
+                    "and see if that helps?"
+                ],
+                missing_bracket_note(),
             ])
         };
         let trailing_comma = || {
@@ -405,7 +306,7 @@ impl Reporter<'_, '_> {
                     "I recommend using the following format for lists that span multiple lines:",
                 ),
                 list_example(),
-                list_convention(),
+                convention('.'),
             ])
         };
         let indentation = || {
@@ -414,93 +315,157 @@ impl Reporter<'_, '_> {
                  list across multiple lines, I recommend using this format:",
             )
         };
-        let partway = "I am partway through parsing a list, but I got stuck here:";
+        let end = || reflow("I cannot find the end of this list:");
         match list {
             List::ListSpace(space, cur) => self.space(*space, *cur),
-            List::ListOpen(cur) | List::ListEnd(cur) => stuck(*cur, partway, closing()),
-            List::ListExpr(Expr::Start(c), _) => stuck(
+            List::ListOpen(cur) | List::ListEnd(cur) => self.stuck(
+                "UNFINISHED LIST",
+                start,
+                *cur,
+                reflow("I am partway through parsing a list, but I got stuck here:"),
+                closing(),
+            ),
+            List::ListExpr(Expr::Start(c), _) => self.stuck(
+                "UNFINISHED LIST",
+                start,
                 *c,
-                "I was expecting to see another list entry after that last comma:",
+                reflow("I was expecting to see another list entry after that last comma:"),
                 trailing_comma(),
             ),
-            List::ListExpr(expr, cur) => {
-                self.expr(&Context::Node(Node::List, start, context), expr, *cur)
-            }
-            List::ListIndentOpen(cur) => stuck(
+            List::ListExpr(expr, cur) => self.expr(&context.node(Node::List, start), expr, *cur),
+            List::ListIndentOpen(cur) => self.stuck(
+                "UNFINISHED LIST",
+                start,
                 *cur,
-                "I cannot find the end of this list:",
+                end(),
                 stack([
-                    fill_sep(words![
+                    fill![
                         "You could change it to something like",
-                        dullyellow("[3,4,5]"),
+                        dull_yellow("[3,4,5]"),
                         "or even just",
-                        dullyellow("[]").append(Doc::from(".")),
+                        dull_yellow("[]").append(Doc::from(".")),
                         "Anything where there is an open and close square brace, and where the \
-                         elements of the list are separated by commas.",
-                    ]),
+                         elements of the list are separated by commas."
+                    ],
                     indentation(),
                     list_example(),
-                    list_convention(),
+                    convention('.'),
                 ]),
             ),
-            List::ListIndentEnd(cur) => stuck(
+            List::ListIndentEnd(cur) => self.stuck(
+                "UNFINISHED LIST",
+                start,
                 *cur,
-                "I cannot find the end of this list:",
+                end(),
                 stack([
-                    fill_sep(words![
+                    fill![
                         "You can just add a closing",
-                        dullyellow("]"),
-                        "right here, and I will be all set!",
-                    ]),
+                        dull_yellow("]"),
+                        "right here, and I will be all set!"
+                    ],
                     indentation(),
                     list_example(),
-                    list_convention(),
+                    convention('.'),
                 ]),
             ),
-            List::ListIndentExpr(cur) => stuck(
+            List::ListIndentExpr(cur) => self.stuck(
+                "UNFINISHED LIST",
+                start,
                 *cur,
-                "I was expecting to see another list entry after this comma:",
+                reflow("I was expecting to see another list entry after this comma:"),
                 trailing_comma(),
             ),
         }
     }
 }
 
+/// What `RecordOpen` and `RecordField` expect: `a` field or `another`.
+fn expecting_field(another: &str) -> Doc {
+    stack([
+        fill![
+            "I was expecting to see",
+            another,
+            "record field defined next, so I am looking for a name like",
+            dull_yellow("userName"),
+            "or",
+            dull_yellow("plantHeight").append(Doc::from("."))
+        ],
+        doc::simple_note(
+            "Field names must start with a lower-case letter. After that, you can use any \
+             sequence of letters, numbers, and underscores.",
+        ),
+        note_for_record_error(),
+    ])
+}
+
+/// What `TupleOperatorReserved` suggests of each reserved symbol.
+fn operator_function_hint(operator: BadOperator) -> Doc {
+    match operator {
+        BadOperator::BadDot => fill![
+            "Maybe you wanted a record accessor like",
+            dull_yellow(".x"),
+            "or",
+            dull_yellow(".name"),
+            "instead?"
+        ],
+        BadOperator::BadPipe => fill![
+            "Try",
+            dull_yellow("(||)"),
+            "instead? To turn boolean OR into a function?"
+        ],
+        BadOperator::BadArrow => fill![
+            "Maybe you wanted",
+            dull_yellow("(>)"),
+            "or",
+            dull_yellow("(>=)"),
+            "instead?"
+        ],
+        BadOperator::BadEquals => fill![
+            "Try",
+            dull_yellow("(==)"),
+            "instead? To make a function that checks equality?"
+        ],
+        BadOperator::BadHasType => fill![
+            "Try",
+            dull_yellow("(::)"),
+            "instead? To add values to the front of lists?"
+        ],
+    }
+}
+
+/// `noteForRecordError` and `noteForRecordIndentError`, by their first
+/// sentence and how their last ends.
+fn record_note(intro: &str, ending: char) -> Doc {
+    stack([
+        doc::simple_note(intro),
+        record_example(),
+        convention(ending),
+    ])
+}
+
 /// `noteForRecordError`.
 fn note_for_record_error() -> Doc {
-    stack([
-        doc::simple_note(
-            "If you are trying to define a record across multiple lines, I recommend using this \
-             format:",
-        ),
-        record_example(),
-        reflow(
-            "Notice that each line starts with some indentation. Usually two or four spaces. This \
-             is the stylistic convention in the Elm ecosystem.",
-        ),
-    ])
+    record_note(
+        "If you are trying to define a record across multiple lines, I recommend using this \
+         format:",
+        '.',
+    )
 }
 
 /// `noteForRecordIndentError`.
 fn note_for_record_indent_error() -> Doc {
-    stack([
-        doc::simple_note(
-            "I may be confused by indentation. For example, if you are trying to define a record \
-             across multiple lines, I recommend using this format:",
-        ),
-        record_example(),
-        reflow(
-            "Notice that each line starts with some indentation. Usually two or four spaces. This \
-             is the stylistic convention in the Elm ecosystem!",
-        ),
-    ])
+    record_note(
+        "I may be confused by indentation. For example, if you are trying to define a record \
+         across multiple lines, I recommend using this format:",
+        '!',
+    )
 }
 
 fn record_example() -> Doc {
     vcat([
-        Doc::from("{ name = ").append(dullyellow("\"Alice\"")),
-        Doc::from(", age = ").append(dullyellow("42")),
-        Doc::from(", height = ").append(dullyellow("1.75")),
+        Doc::from("{ name = ").append(dull_yellow("\"Alice\"")),
+        Doc::from(", age = ").append(dull_yellow("42")),
+        Doc::from(", height = ").append(dull_yellow("1.75")),
         Doc::from("}"),
     ])
     .indent(4)
@@ -508,17 +473,10 @@ fn record_example() -> Doc {
 
 fn list_example() -> Doc {
     vcat([
-        Doc::from("[ ").append(dullyellow("\"Alice\"")),
-        Doc::from(", ").append(dullyellow("\"Bob\"")),
-        Doc::from(", ").append(dullyellow("\"Chuck\"")),
+        Doc::from("[ ").append(dull_yellow("\"Alice\"")),
+        Doc::from(", ").append(dull_yellow("\"Bob\"")),
+        Doc::from(", ").append(dull_yellow("\"Chuck\"")),
         Doc::from("]"),
     ])
     .indent(4)
-}
-
-fn list_convention() -> Doc {
-    reflow(
-        "Notice that each line starts with some indentation. Usually two or four spaces. This is \
-         the stylistic convention in the Elm ecosystem.",
-    )
 }

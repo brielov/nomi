@@ -3,18 +3,23 @@
 //! The overview is parsed where it sits in the module, so positions are
 //! the module's.
 
-use nomi_base::{Compat, TextRange, TextSize};
+use std::ops::ControlFlow;
 
-use super::engine::{P, check_indent, chomp, one_of, one_of_with_fallback, word1};
-use super::error::{BadOperator, Cursor, Space};
+use nomi_base::{Compat, TextRange, TextSize, utf8};
+
+use super::engine::{P, check_indent, chomp, one_of, one_of_with_fallback, repeat, word1};
+use super::error::{Position, Space};
 use super::literal::{inner_width, lower, operator, upper};
 
 /// What a name in an `@docs` line is (0.19.3's `DocName`; earlier
 /// releases keep the three in one namespace).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DocKind {
+    /// A capitalized name: a type or type alias.
     Type,
+    /// A lower-case name: a value.
     Value,
+    /// An operator in parentheses.
     Binop,
 }
 
@@ -22,19 +27,28 @@ pub enum DocKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DocName {
     pub kind: DocKind,
+    /// The name, without an operator's parentheses.
     pub name: String,
+    /// Where it is in the module, with an operator's parentheses.
     pub range: TextRange,
 }
 
-/// `Reporting.Error.Docs.SyntaxProblem`.
+/// `Reporting.Error.Docs.SyntaxProblem`: what stops an `@docs` line, and
+/// where.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SyntaxProblem {
-    Op(Cursor),
-    OpBad(BadOperator, Cursor),
-    Name(Cursor),
-    Space(Space, Cursor),
-    Comma(Cursor),
-    BadEnd(Cursor),
+    /// Something other than an operator in parentheses.
+    Op(Position),
+    /// A reserved symbol in parentheses.
+    OpBad(Position),
+    /// Something other than a name.
+    Name(Position),
+    /// A tab, bytes that aren't UTF-8, or an endless comment.
+    Space(Space, Position),
+    /// Something other than a comma after a name.
+    Comma(Position),
+    /// What is left over after the `@docs` lines.
+    BadEnd(Position),
 }
 
 /// `parseOverview`: the names the `@docs` lines of the doc comment whose
@@ -65,7 +79,7 @@ pub fn overview(
 /// Where the parser stands at `offset`: past the module's lines, and the
 /// characters of the last one, but carriage returns, which `eatSpaces`
 /// skips without a column.
-fn cursor_at(p: &P<'_>, src: &str, offset: usize) -> Cursor {
+fn cursor_at(p: &P<'_>, src: &str, offset: usize) -> Position {
     let mut cur = p.cur;
     for c in src[..offset].chars() {
         match c {
@@ -79,7 +93,7 @@ fn cursor_at(p: &P<'_>, src: &str, offset: usize) -> Cursor {
 
 /// `chompDocs`: one name, then more after commas.
 fn docs(p: &mut P<'_>, names: &mut Vec<DocName>) -> Result<(), SyntaxProblem> {
-    loop {
+    repeat(p, |p| {
         let start = p.pos;
         let (kind, name) = one_of(
             p,
@@ -96,21 +110,18 @@ fn docs(p: &mut P<'_>, names: &mut Vec<DocName>) -> Result<(), SyntaxProblem> {
             range: TextRange::new(size(start), size(p.pos)),
         });
         chomp(p, SyntaxProblem::Space)?;
-        let more = one_of_with_fallback(
+        one_of_with_fallback(
             p,
             &mut [&mut |p| {
                 let pos = p.cur;
                 check_indent(p, pos, SyntaxProblem::Comma)?;
                 word1(p, b',', SyntaxProblem::Comma)?;
                 chomp(p, SyntaxProblem::Space)?;
-                Ok(true)
+                Ok(ControlFlow::Continue(()))
             }],
-            false,
-        )?;
-        if !more {
-            return Ok(());
-        }
-    }
+            ControlFlow::Break(()),
+        )
+    })
 }
 
 fn size(offset: usize) -> TextSize {
@@ -120,7 +131,7 @@ fn size(offset: usize) -> TextSize {
 /// `chompOperator`: an operator in parentheses.
 fn chomp_operator(p: &mut P<'_>) -> Result<Box<str>, SyntaxProblem> {
     word1(p, b'(', SyntaxProblem::Op)?;
-    let op = operator(p, SyntaxProblem::Op, SyntaxProblem::OpBad)?;
+    let op = operator(p, SyntaxProblem::Op, |_, at| SyntaxProblem::OpBad(at))?;
     word1(p, b')', SyntaxProblem::Op)?;
     Ok(op)
 }
@@ -129,38 +140,25 @@ fn chomp_operator(p: &mut P<'_>) -> Result<Box<str>, SyntaxProblem> {
 /// more of a name, and whether there was one. 0.19.1 takes one ending
 /// the comment; later releases want a character after it.
 fn until_docs(p: &mut P<'_>) -> bool {
-    let (mut pos, mut cur) = (p.pos, p.cur);
+    let mut at = p.here();
     let end = p.len();
     let found = loop {
-        let Some(byte) = p.byte(pos) else {
+        let Some(byte) = p.byte(at.pos) else {
             break false;
         };
         if byte == b'\n' {
-            pos += 1;
-            cur = p.newline(cur);
+            at = at.next_line(p);
             continue;
         }
-        let pos5 = pos + 5;
+        let pos5 = at.pos + 5;
         let room = if p.v1() { pos5 <= end } else { pos5 < end };
-        if room && p.bytes(pos, pos5) == b"@docs" && inner_width(p, pos5) == 0 {
-            pos = pos5;
-            cur = p.slide(cur, 5);
+        if room && p.bytes(at.pos, pos5) == b"@docs" && inner_width(p, pos5) == 0 {
+            at = at.step(p, 5, 5);
             break true;
         }
-        pos += char_width(byte);
-        cur = p.slide(cur, 1);
+        at = at.step(p, utf8::char_width(byte), 1);
     };
-    p.pos = pos;
-    p.cur = cur;
+    p.pos = at.pos;
+    p.cur = at.cur;
     found
-}
-
-/// `getCharWidth`, of a byte that starts a character.
-fn char_width(byte: u8) -> usize {
-    match byte {
-        0xC0..0xE0 => 2,
-        0xE0..0xF0 => 3,
-        0xF0.. => 4,
-        _ => 1,
-    }
 }

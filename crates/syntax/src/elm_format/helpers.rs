@@ -1,15 +1,11 @@
 //! `Parse/Helpers.hs` and `Parse/Common.hs`: names, operators, symbols
 //! and the combinators the grammar is built from.
 
-use nomi_base::ghc;
+use nomi_base::diagnostic::code::Keyword;
+use nomi_base::{ghc, grow_large};
 
-use super::engine::{Dyn, P, R, deep};
-use super::whitespace::{padded, rest_of_line, whitespace, whitespace_, with_eol};
-
-const RESERVEDS: [&str; 14] = [
-    "if", "then", "else", "case", "of", "let", "in", "type", "module", "where", "import",
-    "exposing", "as", "port",
-];
+use super::engine::{Alt, P, R};
+use super::whitespace::{forced_ws, padded, rest_of_line, whitespace, with_eol};
 
 // VARIABLES
 
@@ -24,8 +20,8 @@ fn make_var<'s>(p: &mut P<'s>, first: fn(char) -> bool) -> R<&'s str> {
     p.satisfy(first)?;
     p.many(inner_var_char)?;
     let name = &p.src()[start..p.pos];
-    if RESERVEDS.contains(&name) {
-        return p.parser_fail();
+    if Keyword::from_name(name).is_some() {
+        return p.fail();
     }
     Ok(name)
 }
@@ -81,7 +77,7 @@ pub(super) fn any_op(p: &mut P<'_>) -> R<()> {
     )
 }
 
-/// `Help.isSymbol`.
+/// `Help.isSymbol`: GHC's symbols, and these ASCII ones.
 fn is_symbol(c: char) -> bool {
     ghc::is_symbol(c) || "+-/*=.$<>:&|^?%#@~!".contains(c)
 }
@@ -92,7 +88,7 @@ pub(super) fn sym_op<'s>(p: &mut P<'s>) -> R<&'s str> {
     p.many1(|p| p.satisfy(is_symbol))?;
     let op = &p.src()[start..p.pos];
     if ["=", "..", "->", "--", "|", "\u{2192}", ":"].contains(&op) {
-        return p.parser_fail();
+        return p.fail();
     }
     if op == "." {
         p.not_followed_by(|p| p.satisfy(ghc::is_lower))?;
@@ -145,7 +141,7 @@ pub(super) fn vertical_bar(p: &mut P<'_>) -> R<()> {
 pub(super) fn spacey_sep_by1<'s>(
     p: &mut P<'s>,
     sep: fn(&mut P<'s>) -> R<()>,
-    parser: Dyn<'_, 's, ()>,
+    parser: Alt<'_, 's, ()>,
 ) -> R<()> {
     loop {
         with_eol(p, &mut *parser)?;
@@ -156,7 +152,7 @@ pub(super) fn spacey_sep_by1<'s>(
 }
 
 /// `commaSep1`, and `commaSep1'`.
-pub(super) fn comma_sep1<'s>(p: &mut P<'s>, parser: Dyn<'_, 's, ()>) -> R<()> {
+pub(super) fn comma_sep1<'s>(p: &mut P<'s>, parser: Alt<'_, 's, ()>) -> R<()> {
     spacey_sep_by1(p, comma, parser)
 }
 
@@ -179,9 +175,9 @@ pub(super) fn key_value<'s>(
 pub(super) fn separated<'s, T>(
     p: &mut P<'s>,
     sep: fn(&mut P<'s>) -> R<()>,
-    e: Dyn<'_, 's, T>,
+    e: Alt<'_, 's, T>,
 ) -> R<Option<T>> {
-    deep(p, |p| {
+    grow_large(|| {
         p.track_newline(|p| {
             let first = e(p)?;
             let arrow = p.option(|p| {
@@ -200,7 +196,6 @@ pub(super) fn separated<'s, T>(
             }
             Ok(None)
         })
-        .map(|(value, _)| value)
     })
 }
 
@@ -218,26 +213,23 @@ pub(super) fn dot_sep1<'s>(
     Ok((n + 1, last))
 }
 
-/// `spacePrefix`.
-pub(super) fn space_prefix<'s, T>(p: &mut P<'s>, parser: Dyn<'_, 's, T>) -> R<()> {
-    constrained_space_prefix_(p, parser, false)
+/// Whether an argument may be a `-` right after what it follows.
+#[derive(Clone, Copy)]
+pub(super) enum Minus {
+    /// It may: `spacePrefix`.
+    Anywhere,
+    /// Only after whitespace: `constrainedSpacePrefix`.
+    AfterSpace,
 }
 
-/// `constrainedSpacePrefix`: an argument must follow whitespace or not
-/// be a `-`.
-pub(super) fn constrained_space_prefix<'s, T>(p: &mut P<'s>, parser: Dyn<'_, 's, T>) -> R<()> {
-    constrained_space_prefix_(p, parser, true)
-}
-
-fn constrained_space_prefix_<'s, T>(
-    p: &mut P<'s>,
-    parser: Dyn<'_, 's, T>,
-    constrained: bool,
-) -> R<()> {
+/// `spacePrefix` and `constrainedSpacePrefix`: arguments, each after
+/// whitespace, right of the indent.
+pub(super) fn space_prefix<'s, T>(p: &mut P<'s>, minus: Minus, parser: Alt<'_, 's, T>) -> R<()> {
     let spacing = |p: &mut P<'s>| -> R<()> {
-        let (saw, _) = whitespace_(p)?;
-        if constrained && !saw {
-            p.not_followed_by(|p| p.char('-'))?;
+        let spaced = p.option(forced_ws)?.is_some();
+        match minus {
+            Minus::AfterSpace if !spaced => p.not_followed_by(|p| p.char('-'))?,
+            Minus::Anywhere | Minus::AfterSpace => {}
         }
         p.indented()
     };
@@ -293,21 +285,26 @@ pub(super) fn surround<'s, T>(
 ) -> R<T> {
     p.track_newline(|p| {
         p.char(a)?;
-        let (value, _) = padded(p, parser)?;
+        let value = padded(p, parser)?;
         p.char(z)?;
         Ok(value)
     })
-    .map(|(value, _)| value)
+}
+
+/// A value, and whether a comment was around it.
+pub(super) struct Commented<T> {
+    pub(super) commented: bool,
+    pub(super) value: T,
 }
 
 /// `surround''`: `inner`s separated by commas between `left` and
 /// `right`, each with whether a comment was around it.
-pub(super) fn surround__<'s, T>(
+pub(super) fn surround_commented<'s, T>(
     p: &mut P<'s>,
     left: char,
     right: char,
-    inner: Dyn<'_, 's, T>,
-) -> R<Vec<(bool, T)>> {
+    inner: Alt<'_, 's, T>,
+) -> R<Vec<Commented<T>>> {
     p.char(left)?;
     let mut items = Vec::new();
     let pre = whitespace(p)?;
@@ -316,12 +313,18 @@ pub(super) fn surround__<'s, T>(
         Ok((value, whitespace(p)?))
     })?;
     if let Some((value, post)) = first {
-        items.push((pre | post, value));
+        items.push(Commented {
+            commented: pre | post,
+            value,
+        });
         while p.option(|p| p.char(','))?.is_some() {
             let pre = whitespace(p)?;
             let value = inner(p)?;
             let post = whitespace(p)?;
-            items.push((pre | post, value));
+            items.push(Commented {
+                commented: pre | post,
+                value,
+            });
         }
     }
     p.char(right)?;
@@ -368,11 +371,6 @@ pub(super) fn shader(p: &mut P<'_>) -> R<()> {
 
 // COMMON
 
-/// `commented`.
-pub(super) fn commented<'s, T>(p: &mut P<'s>, parser: impl FnOnce(&mut P<'s>) -> R<T>) -> R<T> {
-    padded(p, parser).map(|(value, _)| value)
-}
-
 /// `pair`.
 pub(super) fn pair<'s>(
     p: &mut P<'s>,
@@ -387,11 +385,31 @@ pub(super) fn pair<'s>(
         whitespace(p)?;
         b(p)
     })
-    .map(drop)
+}
+
+/// A record or a record type in its braces (`recordTerm`, `Type.record`):
+/// perhaps a record it extends, then its fields, each a name, `sep` and
+/// a `value`.
+pub(super) fn record<'s>(
+    p: &mut P<'s>,
+    sep: fn(&mut P<'s>) -> R<()>,
+    value: fn(&mut P<'s>) -> R<()>,
+) -> R<()> {
+    betwixt(p, '{', '}', |p| {
+        p.track_newline(|p| {
+            p.option(|p| {
+                p.attempt(|p| {
+                    padded(p, low_var)?;
+                    p.string("|")
+                })
+            })?;
+            sectioned_group(p, &mut |p| pair(p, low_var, sep, value))
+        })
+    })
 }
 
 /// `sectionedGroup`.
-pub(super) fn sectioned_group<'s>(p: &mut P<'s>, term: Dyn<'_, 's, ()>) -> R<()> {
+pub(super) fn sectioned_group<'s>(p: &mut P<'s>, term: Alt<'_, 's, ()>) -> R<()> {
     p.choice(&mut [
         &mut |p| {
             p.attempt(|p| {

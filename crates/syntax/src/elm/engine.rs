@@ -8,27 +8,59 @@
 //! primitive that fails without consuming leaves the state as it found
 //! it; a parser that fails after an empty success may not, so whatever
 //! catches the failure puts back the state it saved.
+//!
+//! Upstream loops by recursion; here a loop's step says whether to go on
+//! with a [`ControlFlow`], and [`repeat`], [`fold_more`] and
+//! [`comma_until`] run the three loops upstream writes over and over.
 
-use nomi_base::Compat;
+use std::ops::ControlFlow;
 
-use super::error::{Cursor, Space};
+use nomi_base::{Compat, utf8};
+
+use super::error::{Position, Space};
 
 /// `State`, and whether the parser running has consumed.
 pub(super) struct P<'s> {
     src: &'s [u8],
     pub(super) pos: usize,
-    pub(super) indent: u32,
-    pub(super) cur: Cursor,
-    pub(super) consumed: bool,
+    indent: u32,
+    pub(super) cur: Position,
+    consumed: bool,
     pub(super) compat: Compat,
 }
 
+/// What [`P::restore`] puts back.
 #[derive(Clone, Copy)]
-pub(super) struct Saved {
+struct Saved {
     pos: usize,
     indent: u32,
-    cur: Cursor,
+    cur: Position,
     consumed: bool,
+}
+
+/// A place in the module: its byte offset, and the row and column there.
+#[derive(Clone, Copy)]
+pub(super) struct Loc {
+    pub(super) pos: usize,
+    pub(super) cur: Position,
+}
+
+impl Loc {
+    /// `bytes` on and `cols` columns right, in the same row.
+    pub(super) fn step(self, p: &P<'_>, bytes: usize, cols: u32) -> Loc {
+        Loc {
+            pos: self.pos + bytes,
+            cur: p.slide(self.cur, cols),
+        }
+    }
+
+    /// Past the newline here, at the start of the next row.
+    pub(super) fn next_line(self, p: &P<'_>) -> Loc {
+        Loc {
+            pos: self.pos + 1,
+            cur: p.newline(self.cur),
+        }
+    }
 }
 
 /// An alternative for [`one_of`].
@@ -36,12 +68,12 @@ pub(super) type Alt<'a, 's, T, X> = &'a mut dyn FnMut(&mut P<'s>) -> Result<T, X
 
 impl<'s> P<'s> {
     pub(super) fn new(src: &'s [u8], compat: Compat) -> P<'s> {
-        let first = u32::from(compat == Compat::V0_19_1);
+        let first = compat.first_position();
         P {
             src,
             pos: 0,
             indent: 0,
-            cur: Cursor {
+            cur: Position {
                 row: first,
                 col: first,
             },
@@ -56,16 +88,28 @@ impl<'s> P<'s> {
 
     /// The column a line starts at.
     pub(super) fn first(&self) -> u32 {
-        u32::from(self.v1())
+        self.compat.first_position()
     }
 
-    /// A 16-bit `Word` on 0.19.1, a 32-bit one later.
-    pub(super) fn word(&self, n: u32) -> u32 {
-        if self.v1() { n & 0xFFFF } else { n }
+    /// A row or column as a `Word`: 16 bits on 0.19.1, 32 later.
+    pub(super) fn wrap(&self, n: u32) -> u32 {
+        self.compat.wrap(n)
+    }
+
+    pub(super) fn src(&self) -> &'s [u8] {
+        self.src
     }
 
     pub(super) fn len(&self) -> usize {
         self.src.len()
+    }
+
+    /// Where the parser stands.
+    pub(super) fn here(&self) -> Loc {
+        Loc {
+            pos: self.pos,
+            cur: self.cur,
+        }
     }
 
     /// The byte `off` past the position, if there is one.
@@ -86,26 +130,26 @@ impl<'s> P<'s> {
     }
 
     /// `slide`: `n` columns on.
-    pub(super) fn slide(&self, cur: Cursor, n: u32) -> Cursor {
-        Cursor {
+    pub(super) fn slide(&self, cur: Position, n: u32) -> Position {
+        Position {
             row: cur.row,
-            col: self.word(cur.col.wrapping_add(n)),
+            col: self.wrap(cur.col.wrapping_add(n)),
         }
     }
 
     /// `newline`: the start of the next row.
-    pub(super) fn newline(&self, cur: Cursor) -> Cursor {
-        Cursor {
-            row: self.word(cur.row.wrapping_add(1)),
+    pub(super) fn newline(&self, cur: Position) -> Position {
+        Position {
+            row: self.wrap(cur.row.wrapping_add(1)),
             col: self.first(),
         }
     }
 
-    pub(super) fn is_indented(&self, cur: Cursor) -> bool {
+    fn is_indented(&self, cur: Position) -> bool {
         cur.col > self.indent && cur.col > self.first()
     }
 
-    pub(super) fn save(&self) -> Saved {
+    fn save(&self) -> Saved {
         Saved {
             pos: self.pos,
             indent: self.indent,
@@ -114,18 +158,23 @@ impl<'s> P<'s> {
         }
     }
 
-    pub(super) fn restore(&mut self, saved: Saved) {
+    fn restore(&mut self, saved: Saved) {
         self.pos = saved.pos;
         self.indent = saved.indent;
         self.cur = saved.cur;
         self.consumed = saved.consumed;
     }
 
-    /// A consumed success: `bytes` on, at `cur`.
-    pub(super) fn ok_at(&mut self, pos: usize, cur: Cursor) {
-        self.pos = pos;
-        self.cur = cur;
+    /// A consumed success, at `at`.
+    pub(super) fn ok_at(&mut self, at: Loc) {
+        self.pos = at.pos;
+        self.cur = at.cur;
         self.consumed = true;
+    }
+
+    /// A consumed success, `bytes` on and `cols` columns right.
+    pub(super) fn advance(&mut self, bytes: usize, cols: u32) {
+        self.ok_at(self.here().step(self, bytes, cols));
     }
 
     /// A consumed failure.
@@ -143,22 +192,12 @@ impl<'s> P<'s> {
             return 0;
         };
         if self.v1() {
-            return match b {
-                0x00..0x80 | 0x80..0xC0 | 0xF8.. => 1,
-                0xC0..0xE0 => 2,
-                0xE0..0xF0 => 3,
-                0xF0..0xF8 => 4,
-            };
+            return if b >= 0xF8 { 1 } else { utf8::char_width(b) };
         }
         if b == 0 {
             return 0;
         }
-        let width = match b {
-            0x01..0x80 => return 1,
-            0xC0..0xE0 => 2,
-            0xE0..0xF0 => 3,
-            _ => 4,
-        };
+        let width = utf8::char_width(b);
         match self.src.get(pos..pos + width) {
             Some(bytes) if std::str::from_utf8(bytes).is_ok() => width,
             _ => 0,
@@ -170,7 +209,7 @@ impl<'s> P<'s> {
 /// or `to_error` where it started.
 pub(super) fn one_of<'s, T, X>(
     p: &mut P<'s>,
-    to_error: impl FnOnce(Cursor) -> X,
+    to_error: impl FnOnce(Position) -> X,
     alts: &mut [Alt<'_, 's, T, X>],
 ) -> Result<T, X> {
     first_of(p, alts).unwrap_or_else(|| Err(to_error(p.cur)))
@@ -204,12 +243,70 @@ fn first_of<'s, T, X>(p: &mut P<'s>, alts: &mut [Alt<'_, 's, T, X>]) -> Option<R
     None
 }
 
+/// `step` again and again, until it breaks with a value.
+pub(super) fn repeat<'s, T, X>(
+    p: &mut P<'s>,
+    mut step: impl FnMut(&mut P<'s>) -> Result<ControlFlow<T>, X>,
+) -> Result<T, X> {
+    loop {
+        if let ControlFlow::Break(value) = step(p)? {
+            return Ok(value);
+        }
+    }
+}
+
+/// `first`, then each value `next` parses from the one before, for as
+/// long as it parses, as upstream loops through `oneOfWithFallback`: the
+/// last value.
+pub(super) fn fold_more<'s, T: Copy, X>(
+    p: &mut P<'s>,
+    first: T,
+    mut next: impl FnMut(&mut P<'s>, T) -> Result<T, X>,
+) -> Result<T, X> {
+    let mut last = first;
+    loop {
+        let step = one_of_with_fallback(
+            p,
+            &mut [&mut |p| next(p, last).map(ControlFlow::Continue)],
+            ControlFlow::Break(last),
+        )?;
+        match step {
+            ControlFlow::Continue(value) => last = value,
+            ControlFlow::Break(value) => return Ok(value),
+        }
+    }
+}
+
+/// A `,` and `item`, for as long as a comma comes, then `close`: how
+/// lists, tuples, records and exposing lists end, with `to_end` where
+/// neither comes.
+pub(super) fn comma_until<'s, X>(
+    p: &mut P<'s>,
+    close: u8,
+    to_end: fn(Position) -> X,
+    mut item: impl FnMut(&mut P<'s>) -> Result<(), X>,
+) -> Result<(), X> {
+    repeat(p, |p| {
+        one_of(
+            p,
+            to_end,
+            &mut [
+                &mut |p| {
+                    word1(p, b',', to_end)?;
+                    item(p).map(ControlFlow::Continue)
+                },
+                &mut |p| word1(p, close, to_end).map(ControlFlow::Break),
+            ],
+        )
+    })
+}
+
 /// `inContext`: `start`, then `parser`, whose errors are wrapped with
 /// where `start` began.
-pub(super) fn in_context<'s, S, T, X, Y>(
+pub(super) fn in_context<'s, T, X, Y>(
     p: &mut P<'s>,
-    add: impl FnOnce(X, Cursor) -> Y,
-    start: impl FnOnce(&mut P<'s>) -> Result<S, Y>,
+    add: impl FnOnce(X, Position) -> Y,
+    start: impl FnOnce(&mut P<'s>) -> Result<(), Y>,
     parser: impl FnOnce(&mut P<'s>) -> Result<T, X>,
 ) -> Result<T, Y> {
     let cur = p.cur;
@@ -220,11 +317,16 @@ pub(super) fn in_context<'s, S, T, X, Y>(
 /// `specialize`: `parser`, whose errors are wrapped with where it began.
 pub(super) fn specialize<'s, T, X, Y>(
     p: &mut P<'s>,
-    add: impl FnOnce(X, Cursor) -> Y,
+    add: impl FnOnce(X, Position) -> Y,
     parser: impl FnOnce(&mut P<'s>) -> Result<T, X>,
 ) -> Result<T, Y> {
     let cur = p.cur;
     parser(p).map_err(|e| add(e, cur))
+}
+
+/// The error constructor `wrap`, boxing the error it wraps.
+pub(super) fn boxed<X, Y>(wrap: fn(Box<X>, Position) -> Y) -> impl FnOnce(X, Position) -> Y {
+    move |x, cur| wrap(Box::new(x), cur)
 }
 
 /// `withIndent`: `parser` with the indent at the current column.
@@ -243,7 +345,7 @@ pub(super) fn with_backset_indent<'s, T, X>(
     parser: impl FnOnce(&mut P<'s>) -> Result<T, X>,
 ) -> Result<T, X> {
     let old = p.indent;
-    p.indent = p.word(p.cur.col.wrapping_sub(backset));
+    p.indent = p.wrap(p.cur.col.wrapping_sub(backset));
     let value = parser(p)?;
     p.indent = old;
     Ok(value)
@@ -253,10 +355,10 @@ pub(super) fn with_backset_indent<'s, T, X>(
 pub(super) fn word1<X>(
     p: &mut P<'_>,
     word: u8,
-    to_error: impl FnOnce(Cursor) -> X,
+    to_error: impl FnOnce(Position) -> X,
 ) -> Result<(), X> {
     if p.peek(0) == Some(word) {
-        p.ok_at(p.pos + 1, p.slide(p.cur, 1));
+        p.advance(1, 1);
         Ok(())
     } else {
         Err(to_error(p.cur))
@@ -268,10 +370,10 @@ pub(super) fn word2<X>(
     p: &mut P<'_>,
     w1: u8,
     w2: u8,
-    to_error: impl FnOnce(Cursor) -> X,
+    to_error: impl FnOnce(Position) -> X,
 ) -> Result<(), X> {
     if p.peek(0) == Some(w1) && p.peek(1) == Some(w2) {
-        p.ok_at(p.pos + 2, p.slide(p.cur, 2));
+        p.advance(2, 2);
         Ok(())
     } else {
         Err(to_error(p.cur))
@@ -280,136 +382,110 @@ pub(super) fn word2<X>(
 
 // SPACE
 
-enum Multi {
-    Good,
-    Tab,
-    NonUtf8,
-    Endless,
-}
-
-/// `eatSpaces`: the spaces and comments from `pos`, and where they end.
-fn eat_spaces(p: &P<'_>, mut pos: usize, mut cur: Cursor) -> (Option<Space>, usize, Cursor) {
+/// `eatSpaces`: the spaces and comments from `at`, and where they end,
+/// or what stopped them and where.
+fn eat_spaces(p: &P<'_>, mut at: Loc) -> Result<Loc, (Space, Position)> {
     loop {
-        let Some(b) = p.byte(pos) else {
-            return (None, pos, cur);
+        let Some(b) = p.byte(at.pos) else {
+            return Ok(at);
         };
         match b {
-            b' ' => {
-                pos += 1;
-                cur = p.slide(cur, 1);
-            }
-            b'\n' => {
-                pos += 1;
-                cur = p.newline(cur);
-            }
-            b'\r' => pos += 1,
-            b'\t' => return (Some(Space::HasTab), pos, cur),
+            b' ' => at = at.step(p, 1, 1),
+            b'\n' => at = at.next_line(p),
+            b'\r' => at.pos += 1,
+            b'\t' => return Err((Space::HasTab, at.cur)),
             b'{' => {
-                if pos + 2 >= p.len() || !p.is_word(pos + 1, b'-') || p.is_word(pos + 2, b'|') {
-                    return (None, pos, cur);
+                if at.pos + 2 >= p.len()
+                    || !p.is_word(at.pos + 1, b'-')
+                    || p.is_word(at.pos + 2, b'|')
+                {
+                    return Ok(at);
                 }
-                let (status, new_pos, new_cur) = eat_multi_comment(p, pos + 2, p.slide(cur, 2));
-                match status {
-                    Multi::Good => (pos, cur) = (new_pos, new_cur),
-                    Multi::Tab => return (Some(Space::HasTab), new_pos, new_cur),
-                    Multi::NonUtf8 => return (Some(Space::HasNonUtf8), new_pos, new_cur),
-                    Multi::Endless => return (Some(Space::EndlessMultiComment), pos, cur),
-                }
+                at = eat_multi_comment(p, at, 2)?;
             }
-            b'-' if p.is_word(pos + 1, b'-') => {
-                pos += 2;
-                cur = p.slide(cur, 2);
+            b'-' if p.is_word(at.pos + 1, b'-') => {
+                at = at.step(p, 2, 2);
                 loop {
-                    match p.byte(pos) {
-                        None => return (None, pos, cur),
+                    match p.byte(at.pos) {
+                        None => return Ok(at),
                         Some(b'\n') => {
-                            pos += 1;
-                            cur = p.newline(cur);
+                            at = at.next_line(p);
                             break;
                         }
-                        Some(_) => {
-                            let width = p.skip_utf8(pos);
-                            if width == 0 {
-                                return (Some(Space::HasNonUtf8), pos, cur);
-                            }
-                            pos += width;
-                            cur = p.slide(cur, 1);
-                        }
+                        Some(_) => match p.skip_utf8(at.pos) {
+                            0 => return Err((Space::HasNonUtf8, at.cur)),
+                            width => at = at.step(p, width, 1),
+                        },
                     }
                 }
             }
-            _ => return (None, pos, cur),
+            _ => return Ok(at),
         }
     }
 }
 
-/// `eatMultiCommentHelp`, from inside the first `{-`.
-fn eat_multi_comment(p: &P<'_>, mut pos: usize, mut cur: Cursor) -> (Multi, usize, Cursor) {
-    let mut open = 1u32;
+/// `eatMultiCommentHelp`, from the `{-` (or `{-|`, `open` bytes long) at
+/// `start`: where the comment ends, or what stopped it and where, an
+/// endless one where it started.
+fn eat_multi_comment(p: &P<'_>, start: Loc, open: usize) -> Result<Loc, (Space, Position)> {
+    let mut at = start.step(p, open, open as u32);
+    let mut depth = 1u32;
     loop {
-        let Some(b) = p.byte(pos) else {
-            return (Multi::Endless, pos, cur);
+        let Some(b) = p.byte(at.pos) else {
+            return Err((Space::EndlessMultiComment, start.cur));
         };
         match b {
-            b'\n' => {
-                pos += 1;
-                cur = p.newline(cur);
-            }
-            b'\t' => return (Multi::Tab, pos, cur),
-            b'-' if p.is_word(pos + 1, b'}') => {
-                pos += 2;
-                cur = p.slide(cur, 2);
-                if open == 1 {
-                    return (Multi::Good, pos, cur);
+            b'\n' => at = at.next_line(p),
+            b'\t' => return Err((Space::HasTab, at.cur)),
+            b'-' if p.is_word(at.pos + 1, b'}') => {
+                at = at.step(p, 2, 2);
+                if depth == 1 {
+                    return Ok(at);
                 }
-                open -= 1;
+                depth -= 1;
             }
-            b'{' if p.is_word(pos + 1, b'-') => {
-                pos += 2;
-                cur = p.slide(cur, 2);
-                open += 1;
+            b'{' if p.is_word(at.pos + 1, b'-') => {
+                at = at.step(p, 2, 2);
+                depth += 1;
             }
-            _ => {
-                let width = p.skip_utf8(pos);
-                if width == 0 {
-                    return (Multi::NonUtf8, pos, cur);
-                }
-                pos += width;
-                cur = p.slide(cur, 1);
-            }
+            _ => match p.skip_utf8(at.pos) {
+                0 => return Err((Space::HasNonUtf8, at.cur)),
+                width => at = at.step(p, width, 1),
+            },
         }
     }
 }
 
 /// `Space.chomp`.
-pub(super) fn chomp<X>(p: &mut P<'_>, to_error: impl FnOnce(Space, Cursor) -> X) -> Result<(), X> {
-    let (status, pos, cur) = eat_spaces(p, p.pos, p.cur);
-    match status {
-        None => {
-            p.ok_at(pos, cur);
+pub(super) fn chomp<X>(
+    p: &mut P<'_>,
+    to_error: impl FnOnce(Space, Position) -> X,
+) -> Result<(), X> {
+    match eat_spaces(p, p.here()) {
+        Ok(at) => {
+            p.ok_at(at);
             Ok(())
         }
-        Some(space) => p.cerr(to_error(space, cur)),
+        Err((space, cur)) => p.cerr(to_error(space, cur)),
     }
 }
 
 /// `chompAndCheckIndent`.
 pub(super) fn chomp_and_check_indent<X>(
     p: &mut P<'_>,
-    to_space_error: impl FnOnce(Space, Cursor) -> X,
-    to_indent_error: impl FnOnce(Cursor) -> X,
+    to_space_error: impl FnOnce(Space, Position) -> X,
+    to_indent_error: impl FnOnce(Position) -> X,
 ) -> Result<(), X> {
-    let (status, pos, cur) = eat_spaces(p, p.pos, p.cur);
-    match status {
-        None if p.is_indented(cur) => {
-            p.ok_at(pos, cur);
+    match eat_spaces(p, p.here()) {
+        Ok(at) if p.is_indented(at.cur) => {
+            p.ok_at(at);
             Ok(())
         }
-        None => {
+        Ok(_) => {
             let x = to_indent_error(p.cur);
             p.cerr(x)
         }
-        Some(space) => p.cerr(to_space_error(space, cur)),
+        Err((space, cur)) => p.cerr(to_space_error(space, cur)),
     }
 }
 
@@ -417,8 +493,8 @@ pub(super) fn chomp_and_check_indent<X>(
 /// `to_error` where they began.
 pub(super) fn check_indent<X>(
     p: &P<'_>,
-    end: Cursor,
-    to_error: impl FnOnce(Cursor) -> X,
+    end: Position,
+    to_error: impl FnOnce(Position) -> X,
 ) -> Result<(), X> {
     if p.is_indented(p.cur) {
         Ok(())
@@ -430,7 +506,7 @@ pub(super) fn check_indent<X>(
 /// `checkAligned`.
 pub(super) fn check_aligned<X>(
     p: &P<'_>,
-    to_error: impl FnOnce(u32, Cursor) -> X,
+    to_error: impl FnOnce(u32, Position) -> X,
 ) -> Result<(), X> {
     if p.cur.col == p.indent {
         Ok(())
@@ -440,7 +516,10 @@ pub(super) fn check_aligned<X>(
 }
 
 /// `checkFreshLine`.
-pub(super) fn check_fresh_line<X>(p: &P<'_>, to_error: impl FnOnce(Cursor) -> X) -> Result<(), X> {
+pub(super) fn check_fresh_line<X>(
+    p: &P<'_>,
+    to_error: impl FnOnce(Position) -> X,
+) -> Result<(), X> {
     if p.cur.col == p.first() {
         Ok(())
     } else {
@@ -451,29 +530,17 @@ pub(super) fn check_fresh_line<X>(p: &P<'_>, to_error: impl FnOnce(Cursor) -> X)
 /// `docComment`.
 pub(super) fn doc_comment<X>(
     p: &mut P<'_>,
-    to_expectation: impl FnOnce(Cursor) -> X,
-    to_space_error: impl FnOnce(Space, Cursor) -> X,
+    to_expectation: impl FnOnce(Position) -> X,
+    to_space_error: impl FnOnce(Space, Position) -> X,
 ) -> Result<(), X> {
     if !(p.peek(0) == Some(b'{') && p.peek(1) == Some(b'-') && p.peek(2) == Some(b'|')) {
         return Err(to_expectation(p.cur));
     }
-    let (status, pos, cur) = eat_multi_comment(p, p.pos + 3, p.slide(p.cur, 3));
-    match status {
-        Multi::Good => {
-            p.ok_at(pos, cur);
+    match eat_multi_comment(p, p.here(), 3) {
+        Ok(at) => {
+            p.ok_at(at);
             Ok(())
         }
-        Multi::Tab => p.cerr(to_space_error(Space::HasTab, cur)),
-        Multi::NonUtf8 => p.cerr(to_space_error(Space::HasNonUtf8, cur)),
-        Multi::Endless => {
-            let x = to_space_error(Space::EndlessMultiComment, p.cur);
-            p.cerr(x)
-        }
+        Err((space, cur)) => p.cerr(to_space_error(space, cur)),
     }
-}
-
-/// Runs `parser` with room on the stack, as GHC's growing stack gives
-/// upstream's.
-pub(super) fn deep<'s, T>(p: &mut P<'s>, parser: impl FnOnce(&mut P<'s>) -> T) -> T {
-    nomi_base::grow_large(|| parser(p))
 }

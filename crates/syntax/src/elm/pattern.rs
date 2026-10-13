@@ -1,72 +1,28 @@
 //! `Parse/Pattern.hs`.
 
+use std::ops::ControlFlow;
+
+use nomi_base::grow_large;
+
 use super::engine::{
-    P, check_indent, chomp, chomp_and_check_indent, deep, in_context, one_of, one_of_with_fallback,
-    specialize, word1, word2,
+    P, boxed, check_indent, chomp, chomp_and_check_indent, comma_until, fold_more, in_context,
+    one_of, one_of_with_fallback, specialize, word1, word2,
 };
-use super::error::{Cursor, PList as L, PRecord as R, PTuple as T, Pattern};
-use super::literal::{self, Number, character, foreign_upper, inner_width, keyword, lower, string};
-
-fn tuple(e: T, cur: Cursor) -> Pattern {
-    Pattern::PTuple(Box::new(e), cur)
-}
-
-fn list(e: L, cur: Cursor) -> Pattern {
-    Pattern::PList(Box::new(e), cur)
-}
+use super::error::{PList, PRecord, PTuple, Pattern, Position};
+use super::literal::{
+    self, Number, character, chomp_inners, foreign_upper, keyword, lower, string,
+};
 
 /// `term`.
 pub(super) fn term(p: &mut P<'_>) -> Result<(), Pattern> {
-    deep(p, |p| {
+    grow_large(|| {
         one_of(
             p,
             Pattern::PStart,
             &mut [
                 &mut record,
-                &mut |p| {
-                    in_context(
-                        p,
-                        tuple,
-                        |p| word1(p, b'(', Pattern::PStart),
-                        |p| {
-                            chomp_and_check_indent(p, T::PTupleSpace, T::PTupleIndentExpr1)?;
-                            one_of(
-                                p,
-                                T::PTupleOpen,
-                                &mut [
-                                    &mut |p| {
-                                        let end = specialize(p, T::PTupleExpr, expression)?;
-                                        check_indent(p, end, T::PTupleIndentEnd)?;
-                                        tuple_end(p)
-                                    },
-                                    &mut |p| word1(p, b')', T::PTupleEnd),
-                                ],
-                            )
-                        },
-                    )
-                },
-                &mut |p| {
-                    in_context(
-                        p,
-                        list,
-                        |p| word1(p, b'[', Pattern::PStart),
-                        |p| {
-                            chomp_and_check_indent(p, L::PListSpace, L::PListIndentOpen)?;
-                            one_of(
-                                p,
-                                L::PListOpen,
-                                &mut [
-                                    &mut |p| {
-                                        let end = specialize(p, L::PListExpr, expression)?;
-                                        check_indent(p, end, L::PListIndentEnd)?;
-                                        list_end(p)
-                                    },
-                                    &mut |p| word1(p, b']', L::PListEnd),
-                                ],
-                            )
-                        },
-                    )
-                },
+                &mut tuple,
+                &mut list,
                 &mut wildcard,
                 &mut |p| lower(p, Pattern::PStart).map(drop),
                 &mut |p| foreign_upper(p, Pattern::PStart),
@@ -76,12 +32,11 @@ pub(super) fn term(p: &mut P<'_>) -> Result<(), Pattern> {
                         Number::Int => Ok(()),
                         Number::Float => {
                             let width = (p.pos - start) as u32;
-                            let at = p.cur;
-                            let at = Cursor {
-                                row: at.row,
-                                col: p.word(at.col.wrapping_sub(width)),
+                            let at = Position {
+                                row: p.cur.row,
+                                col: p.wrap(p.cur.col.wrapping_sub(width)),
                             };
-                            p.cerr(Pattern::PFloat(p.word(width), at))
+                            p.cerr(Pattern::PFloat(p.wrap(width), at))
                         }
                     }
                 },
@@ -97,24 +52,18 @@ fn wildcard(p: &mut P<'_>) -> Result<(), Pattern> {
     if p.peek(0) != Some(b'_') {
         return Err(Pattern::PStart(p.cur));
     }
-    let (mut pos, mut count) = (p.pos + 1, 0u32);
-    loop {
-        let width = inner_width(p, pos);
-        if width == 0 {
-            break;
-        }
-        pos += width;
-        count += 1;
-    }
-    if count == 0 {
-        p.ok_at(p.pos + 1, p.slide(p.cur, 1));
+    let underscore = p.here().step(p, 1, 1);
+    let end = chomp_inners(p, underscore);
+    if end.pos == underscore.pos {
+        p.ok_at(underscore);
         return Ok(());
     }
-    let name = String::from_utf8_lossy(p.bytes(p.pos, pos)).into();
+    let name = literal::name(p, p.pos, end.pos);
     // 0.19.1 measures from before the underscore, later releases from after.
-    let width = if p.v1() { p.word(count + 1) } else { count };
+    let from = if p.v1() { p.cur } else { underscore.cur };
+    let width = p.wrap(end.cur.col.wrapping_sub(from.col));
     let at = p.cur;
-    p.cerr(Pattern::PWildcardNotVar(name, width, at))
+    p.cerr(Pattern::PWildcardNotVar { name, width, at })
 }
 
 fn record(p: &mut P<'_>) -> Result<(), Pattern> {
@@ -123,149 +72,148 @@ fn record(p: &mut P<'_>) -> Result<(), Pattern> {
         Pattern::PRecord,
         |p| word1(p, b'{', Pattern::PStart),
         |p| {
-            chomp_and_check_indent(p, R::PRecordSpace, R::PRecordIndentOpen)?;
+            chomp_and_check_indent(p, PRecord::PRecordSpace, PRecord::PRecordIndentOpen)?;
             one_of(
                 p,
-                R::PRecordOpen,
+                PRecord::PRecordOpen,
                 &mut [
                     &mut |p| {
-                        lower(p, R::PRecordField)?;
-                        chomp_and_check_indent(p, R::PRecordSpace, R::PRecordIndentEnd)?;
-                        record_end(p)
+                        lower(p, PRecord::PRecordField)?;
+                        chomp_and_check_indent(
+                            p,
+                            PRecord::PRecordSpace,
+                            PRecord::PRecordIndentEnd,
+                        )?;
+                        comma_until(p, b'}', PRecord::PRecordEnd, |p| {
+                            chomp_and_check_indent(
+                                p,
+                                PRecord::PRecordSpace,
+                                PRecord::PRecordIndentField,
+                            )?;
+                            lower(p, PRecord::PRecordField)?;
+                            chomp_and_check_indent(
+                                p,
+                                PRecord::PRecordSpace,
+                                PRecord::PRecordIndentEnd,
+                            )
+                        })
                     },
-                    &mut |p| word1(p, b'}', R::PRecordEnd),
+                    &mut |p| word1(p, b'}', PRecord::PRecordEnd),
                 ],
             )
         },
     )
 }
 
-fn record_end(p: &mut P<'_>) -> Result<(), R> {
-    loop {
-        let more = one_of(
-            p,
-            R::PRecordEnd,
-            &mut [
-                &mut |p| {
-                    word1(p, b',', R::PRecordEnd)?;
-                    chomp_and_check_indent(p, R::PRecordSpace, R::PRecordIndentField)?;
-                    lower(p, R::PRecordField)?;
-                    chomp_and_check_indent(p, R::PRecordSpace, R::PRecordIndentEnd)?;
-                    Ok(true)
-                },
-                &mut |p| word1(p, b'}', R::PRecordEnd).map(|()| false),
-            ],
-        )?;
-        if !more {
-            return Ok(());
-        }
-    }
+fn tuple(p: &mut P<'_>) -> Result<(), Pattern> {
+    in_context(
+        p,
+        boxed(Pattern::PTuple),
+        |p| word1(p, b'(', Pattern::PStart),
+        |p| {
+            chomp_and_check_indent(p, PTuple::PTupleSpace, PTuple::PTupleIndentExpr1)?;
+            one_of(
+                p,
+                PTuple::PTupleOpen,
+                &mut [
+                    &mut |p| {
+                        let end = specialize(p, PTuple::PTupleExpr, expression)?;
+                        check_indent(p, end, PTuple::PTupleIndentEnd)?;
+                        comma_until(p, b')', PTuple::PTupleEnd, |p| {
+                            chomp_and_check_indent(
+                                p,
+                                PTuple::PTupleSpace,
+                                PTuple::PTupleIndentExprN,
+                            )?;
+                            let end = specialize(p, PTuple::PTupleExpr, expression)?;
+                            check_indent(p, end, PTuple::PTupleIndentEnd)
+                        })
+                    },
+                    &mut |p| word1(p, b')', PTuple::PTupleEnd),
+                ],
+            )
+        },
+    )
 }
 
-fn tuple_end(p: &mut P<'_>) -> Result<(), T> {
-    loop {
-        let more = one_of(
-            p,
-            T::PTupleEnd,
-            &mut [
-                &mut |p| {
-                    word1(p, b',', T::PTupleEnd)?;
-                    chomp_and_check_indent(p, T::PTupleSpace, T::PTupleIndentExprN)?;
-                    let end = specialize(p, T::PTupleExpr, expression)?;
-                    check_indent(p, end, T::PTupleIndentEnd)?;
-                    Ok(true)
-                },
-                &mut |p| word1(p, b')', T::PTupleEnd).map(|()| false),
-            ],
-        )?;
-        if !more {
-            return Ok(());
-        }
-    }
-}
-
-fn list_end(p: &mut P<'_>) -> Result<(), L> {
-    loop {
-        let more = one_of(
-            p,
-            L::PListEnd,
-            &mut [
-                &mut |p| {
-                    word1(p, b',', L::PListEnd)?;
-                    chomp_and_check_indent(p, L::PListSpace, L::PListIndentExpr)?;
-                    let end = specialize(p, L::PListExpr, expression)?;
-                    check_indent(p, end, L::PListIndentEnd)?;
-                    Ok(true)
-                },
-                &mut |p| word1(p, b']', L::PListEnd).map(|()| false),
-            ],
-        )?;
-        if !more {
-            return Ok(());
-        }
-    }
+fn list(p: &mut P<'_>) -> Result<(), Pattern> {
+    in_context(
+        p,
+        boxed(Pattern::PList),
+        |p| word1(p, b'[', Pattern::PStart),
+        |p| {
+            chomp_and_check_indent(p, PList::PListSpace, PList::PListIndentOpen)?;
+            one_of(
+                p,
+                PList::PListOpen,
+                &mut [
+                    &mut |p| {
+                        let end = specialize(p, PList::PListExpr, expression)?;
+                        check_indent(p, end, PList::PListIndentEnd)?;
+                        comma_until(p, b']', PList::PListEnd, |p| {
+                            chomp_and_check_indent(p, PList::PListSpace, PList::PListIndentExpr)?;
+                            let end = specialize(p, PList::PListExpr, expression)?;
+                            check_indent(p, end, PList::PListIndentEnd)
+                        })
+                    },
+                    &mut |p| word1(p, b']', PList::PListEnd),
+                ],
+            )
+        },
+    )
 }
 
 /// `expression`: a pattern, and where it ends before the spaces after it.
-pub(super) fn expression(p: &mut P<'_>) -> Result<Cursor, Pattern> {
-    deep(p, |p| {
+pub(super) fn expression(p: &mut P<'_>) -> Result<Position, Pattern> {
+    grow_large(|| {
         let mut end = expr_part(p)?;
         loop {
-            // `None` to go on after a `::`, the end once there is no more.
-            let next = one_of_with_fallback(
+            let step = one_of_with_fallback(
                 p,
                 &mut [
                     &mut |p| {
                         check_indent(p, end, Pattern::PIndentStart)?;
                         word2(p, b':', b':', Pattern::PStart)?;
                         chomp_and_check_indent(p, Pattern::PSpace, Pattern::PIndentStart)?;
-                        expr_part(p).map(|end| (false, end))
+                        expr_part(p).map(ControlFlow::Continue)
                     },
                     &mut |p| {
                         check_indent(p, end, Pattern::PIndentStart)?;
                         keyword(p, b"as", Pattern::PStart)?;
                         chomp_and_check_indent(p, Pattern::PSpace, Pattern::PIndentAlias)?;
                         lower(p, Pattern::PAlias)?;
-                        let new_end = p.cur;
+                        let alias_end = p.cur;
                         chomp(p, Pattern::PSpace)?;
-                        Ok((true, new_end))
+                        Ok(ControlFlow::Break(alias_end))
                     },
                 ],
-                (true, end),
+                ControlFlow::Break(end),
             )?;
-            end = next.1;
-            if next.0 {
-                return Ok(end);
+            match step {
+                ControlFlow::Continue(new_end) => end = new_end,
+                ControlFlow::Break(end) => return Ok(end),
             }
         }
     })
 }
 
 /// `exprPart`: a term, or a constructor and its arguments.
-fn expr_part(p: &mut P<'_>) -> Result<Cursor, Pattern> {
+fn expr_part(p: &mut P<'_>) -> Result<Position, Pattern> {
     one_of(
         p,
         Pattern::PStart,
         &mut [
             &mut |p| {
                 foreign_upper(p, Pattern::PStart)?;
-                let mut end = p.cur;
+                let end = p.cur;
                 chomp(p, Pattern::PSpace)?;
-                loop {
-                    let more = one_of_with_fallback(
-                        p,
-                        &mut [&mut |p| {
-                            check_indent(p, end, Pattern::PIndentStart)?;
-                            term(p).map(|()| true)
-                        }],
-                        false,
-                    )?;
-                    if !more {
-                        return Ok(end);
-                    }
-                    end = p.cur;
+                fold_more(p, end, |p, end| {
+                    check_indent(p, end, Pattern::PIndentStart)?;
+                    term(p)?;
+                    let new_end = p.cur;
                     chomp(p, Pattern::PSpace)?;
-                }
+                    Ok(new_end)
+                })
             },
             &mut |p| {
                 term(p)?;

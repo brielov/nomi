@@ -2,10 +2,10 @@
 
 use nomi_base::ghc;
 
-use super::engine::{Dyn, P, R};
+use super::engine::{Alt, P, R};
 use super::helpers::{
-    any_op, betwixt, cap_var, comma_sep1, commented_keyword, dot_sep1, equals, has_type, key_value,
-    low_var, reserved, space_prefix, spacey_sep_by1, surround, sym_op, vertical_bar,
+    Minus, any_op, betwixt, cap_var, comma_sep1, commented_keyword, dot_sep1, equals, has_type,
+    key_value, low_var, reserved, space_prefix, spacey_sep_by1, surround, sym_op, vertical_bar,
 };
 use super::whitespace::{doc_comment, forced_ws, fresh_line, padded, spaces, whitespace};
 use super::{expression, types};
@@ -73,18 +73,14 @@ fn module_decl_0_16(p: &mut P<'_>) -> R<()> {
 }
 
 fn module_decl_0_17(p: &mut P<'_>) -> R<()> {
+    let kind = |word: &'static str| {
+        move |p: &mut P<'_>| -> R<()> {
+            reserved(p, word)?;
+            whitespace(p).map(drop)
+        }
+    };
     p.attempt(|p| {
-        p.choice(&mut [
-            &mut |p| {
-                reserved(p, "port")?;
-                whitespace(p).map(drop)
-            },
-            &mut |p| {
-                reserved(p, "effect")?;
-                whitespace(p).map(drop)
-            },
-            &mut |_| Ok(()),
-        ])?;
+        p.choice(&mut [&mut kind("port"), &mut kind("effect"), &mut |_| Ok(())])?;
         reserved(p, "module")
     })?;
     whitespace(p)?;
@@ -140,7 +136,7 @@ fn exposing(p: &mut P<'_>) -> R<()> {
 }
 
 /// `listing`: `(..)`, or `explicit` in parentheses.
-fn listing<'s>(p: &mut P<'s>, explicit: Dyn<'_, 's, ()>) -> R<()> {
+fn listing<'s>(p: &mut P<'s>, explicit: Alt<'_, 's, ()>) -> R<()> {
     p.attempt(|p| p.char('('))?;
     p.track_newline(|p| {
         whitespace(p)?;
@@ -191,7 +187,7 @@ fn type_decl(p: &mut P<'_>) -> R<()> {
         forced_ws(p)
     })?;
     cap_var(p)?;
-    space_prefix(p, &mut low_var)?;
+    space_prefix(p, Minus::Anywhere, &mut low_var)?;
     padded(p, equals)?;
     if alias.is_some() {
         types::expr(p)

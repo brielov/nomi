@@ -1,22 +1,25 @@
 //! `Parse/Expression.hs`.
 
-use super::engine::{
-    P, check_aligned, check_indent, chomp, chomp_and_check_indent, deep, in_context, one_of,
-    one_of_with_fallback, specialize, with_backset_indent, with_indent, word1, word2,
-};
-use super::error::{Case, Cursor, Def, Destruct, Expr, Func, If, Let, List, Name, Record, Tuple};
-use super::literal::{self, character, foreign_alpha, keyword, lower, operator, string};
-use super::{pattern, types};
+use std::ops::ControlFlow;
 
-fn boxed<X, Y>(wrap: fn(Box<X>, Cursor) -> Y) -> impl FnOnce(X, Cursor) -> Y {
-    move |x, cur| wrap(Box::new(x), cur)
-}
+use nomi_base::grow_large;
+
+use super::engine::{
+    P, boxed, check_aligned, check_indent, chomp, chomp_and_check_indent, comma_until, fold_more,
+    in_context, one_of, one_of_with_fallback, repeat, specialize, with_backset_indent, with_indent,
+    word1, word2,
+};
+use super::error::{Case, Def, Destruct, Expr, Func, If, Let, List, Name, Position, Record, Tuple};
+use super::literal::{
+    self, character, foreign_alpha, keyword, lower, matching_name, operator, string,
+};
+use super::{pattern, types};
 
 // TERMS
 
 /// `term`.
 pub(super) fn term(p: &mut P<'_>) -> Result<(), Expr> {
-    deep(p, |p| {
+    grow_large(|| {
         one_of(
             p,
             Expr::Start,
@@ -49,19 +52,10 @@ pub(super) fn term(p: &mut P<'_>) -> Result<(), Expr> {
 
 /// `accessible`: the fields taken of what was just read.
 fn accessible(p: &mut P<'_>) -> Result<(), Expr> {
-    loop {
-        let more = one_of_with_fallback(
-            p,
-            &mut [&mut |p| {
-                word1(p, b'.', Expr::Dot)?;
-                lower(p, Expr::Access).map(|_| true)
-            }],
-            false,
-        )?;
-        if !more {
-            return Ok(());
-        }
-    }
+    fold_more(p, (), |p, ()| {
+        word1(p, b'.', Expr::Dot)?;
+        lower(p, Expr::Access).map(drop)
+    })
 }
 
 // LISTS
@@ -80,35 +74,17 @@ fn list(p: &mut P<'_>) -> Result<(), Expr> {
                     &mut |p| {
                         let end = specialize(p, List::ListExpr, expression)?;
                         check_indent(p, end, List::ListIndentEnd)?;
-                        list_end(p)
+                        comma_until(p, b']', List::ListEnd, |p| {
+                            chomp_and_check_indent(p, List::ListSpace, List::ListIndentExpr)?;
+                            let end = specialize(p, List::ListExpr, expression)?;
+                            check_indent(p, end, List::ListIndentEnd)
+                        })
                     },
                     &mut |p| word1(p, b']', List::ListOpen),
                 ],
             )
         },
     )
-}
-
-fn list_end(p: &mut P<'_>) -> Result<(), List> {
-    loop {
-        let more = one_of(
-            p,
-            List::ListEnd,
-            &mut [
-                &mut |p| {
-                    word1(p, b',', List::ListEnd)?;
-                    chomp_and_check_indent(p, List::ListSpace, List::ListIndentExpr)?;
-                    let end = specialize(p, List::ListExpr, expression)?;
-                    check_indent(p, end, List::ListIndentEnd)?;
-                    Ok(true)
-                },
-                &mut |p| word1(p, b']', List::ListEnd).map(|()| false),
-            ],
-        )?;
-        if !more {
-            return Ok(());
-        }
-    }
 }
 
 // TUPLES
@@ -167,25 +143,11 @@ fn first_entry(p: &mut P<'_>) -> Result<(), Tuple> {
 }
 
 fn tuple_end(p: &mut P<'_>) -> Result<(), Tuple> {
-    loop {
-        let more = one_of(
-            p,
-            Tuple::TupleEnd,
-            &mut [
-                &mut |p| {
-                    word1(p, b',', Tuple::TupleEnd)?;
-                    chomp_and_check_indent(p, Tuple::TupleSpace, Tuple::TupleIndentExprN)?;
-                    let end = specialize(p, Tuple::TupleExpr, expression)?;
-                    check_indent(p, end, Tuple::TupleIndentEnd)?;
-                    Ok(true)
-                },
-                &mut |p| word1(p, b')', Tuple::TupleEnd).map(|()| false),
-            ],
-        )?;
-        if !more {
-            return Ok(());
-        }
-    }
+    comma_until(p, b')', Tuple::TupleEnd, |p| {
+        chomp_and_check_indent(p, Tuple::TupleSpace, Tuple::TupleIndentExprN)?;
+        let end = specialize(p, Tuple::TupleExpr, expression)?;
+        check_indent(p, end, Tuple::TupleIndentEnd)
+    })
 }
 
 // RECORDS
@@ -237,23 +199,10 @@ fn record(p: &mut P<'_>) -> Result<(), Expr> {
 }
 
 fn fields(p: &mut P<'_>) -> Result<(), Record> {
-    loop {
-        let more = one_of(
-            p,
-            Record::RecordEnd,
-            &mut [
-                &mut |p| {
-                    word1(p, b',', Record::RecordEnd)?;
-                    chomp_and_check_indent(p, Record::RecordSpace, Record::RecordIndentField)?;
-                    field(p).map(|()| true)
-                },
-                &mut |p| word1(p, b'}', Record::RecordEnd).map(|()| false),
-            ],
-        )?;
-        if !more {
-            return Ok(());
-        }
-    }
+    comma_until(p, b'}', Record::RecordEnd, |p| {
+        chomp_and_check_indent(p, Record::RecordSpace, Record::RecordIndentField)?;
+        field(p)
+    })
 }
 
 fn field(p: &mut P<'_>) -> Result<(), Record> {
@@ -269,8 +218,8 @@ fn field(p: &mut P<'_>) -> Result<(), Record> {
 
 /// `expression`: an expression, and where it ends before the spaces
 /// after it.
-pub(super) fn expression(p: &mut P<'_>) -> Result<Cursor, Expr> {
-    deep(p, |p| {
+pub(super) fn expression(p: &mut P<'_>) -> Result<Position, Expr> {
+    grow_large(|| {
         one_of(
             p,
             Expr::Start,
@@ -284,14 +233,9 @@ pub(super) fn expression(p: &mut P<'_>) -> Result<Cursor, Expr> {
     })
 }
 
-/// What one more step of `chompExprEnd` read.
-enum Step {
-    More(Cursor),
-    Done(Cursor),
-}
-
-/// `chompExprEnd`: arguments and operators after a term ending at `end`.
-fn expr_end(p: &mut P<'_>, mut end: Cursor) -> Result<Cursor, Expr> {
+/// `chompExprEnd`: arguments and operators after a term ending at `end`,
+/// and where the last ends.
+fn expr_end(p: &mut P<'_>, mut end: Position) -> Result<Position, Expr> {
     loop {
         let step = one_of_with_fallback(
             p,
@@ -301,7 +245,7 @@ fn expr_end(p: &mut P<'_>, mut end: Cursor) -> Result<Cursor, Expr> {
                     term(p)?;
                     let new_end = p.cur;
                     chomp(p, Expr::Space)?;
-                    Ok(Step::More(new_end))
+                    Ok(ControlFlow::Continue(new_end))
                 },
                 &mut |p| {
                     check_indent(p, end, Expr::Start)?;
@@ -316,23 +260,23 @@ fn expr_end(p: &mut P<'_>, mut end: Cursor) -> Result<Cursor, Expr> {
                         term(p)?;
                         let new_end = p.cur;
                         chomp(p, Expr::Space)?;
-                        return Ok(Step::More(new_end));
+                        return Ok(ControlFlow::Continue(new_end));
                     }
                     operand(p, &op)
                 },
             ],
-            Step::Done(end),
+            ControlFlow::Break(end),
         )?;
         match step {
-            Step::More(new_end) => end = new_end,
-            Step::Done(end) => return Ok(end),
+            ControlFlow::Continue(new_end) => end = new_end,
+            ControlFlow::Break(end) => return Ok(end),
         }
     }
 }
 
-/// What may follow an operator: a term, or a final `let`, `case`, `if` or
-/// lambda.
-fn operand(p: &mut P<'_>, op: &Name) -> Result<Step, Expr> {
+/// What may follow an operator: a term, and more after it, or a final
+/// `let`, `case`, `if` or lambda, and where it ends.
+fn operand(p: &mut P<'_>, op: &Name) -> Result<ControlFlow<Position, Position>, Expr> {
     let err = |c| Expr::OperatorRight(op.clone(), c);
     one_of(
         p,
@@ -342,10 +286,11 @@ fn operand(p: &mut P<'_>, op: &Name) -> Result<Step, Expr> {
                 possibly_negative_term(p)?;
                 let new_end = p.cur;
                 chomp(p, Expr::Space)?;
-                Ok(Step::More(new_end))
+                Ok(ControlFlow::Continue(new_end))
             },
             &mut |p| {
-                one_of(p, err, &mut [&mut let_, &mut case, &mut if_, &mut function]).map(Step::Done)
+                one_of(p, err, &mut [&mut let_, &mut case, &mut if_, &mut function])
+                    .map(ControlFlow::Break)
             },
         ],
     )
@@ -367,39 +312,42 @@ fn possibly_negative_term(p: &mut P<'_>) -> Result<(), Expr> {
 
 // IF EXPRESSION
 
-fn if_(p: &mut P<'_>) -> Result<Cursor, Expr> {
+fn if_(p: &mut P<'_>) -> Result<Position, Expr> {
     in_context(
         p,
         boxed(Expr::If),
         |p| keyword(p, b"if", Expr::Start),
-        |p| loop {
-            chomp_and_check_indent(p, If::IfSpace, If::IfIndentCondition)?;
-            let cond_end = specialize(p, If::IfCondition, expression)?;
-            check_indent(p, cond_end, If::IfIndentThen)?;
-            keyword(p, b"then", If::IfThen)?;
-            chomp_and_check_indent(p, If::IfSpace, If::IfIndentThenBranch)?;
-            let then_end = specialize(p, If::IfThenBranch, expression)?;
-            check_indent(p, then_end, If::IfIndentElse)?;
-            keyword(p, b"else", If::IfElse)?;
-            chomp_and_check_indent(p, If::IfSpace, If::IfIndentElseBranch)?;
-            let else_end = one_of(
-                p,
-                If::IfElseBranchStart,
-                &mut [
-                    &mut |p| keyword(p, b"if", If::IfElseBranchStart).map(|()| None),
-                    &mut |p| specialize(p, If::IfElseBranch, expression).map(Some),
-                ],
-            )?;
-            if let Some(end) = else_end {
-                return Ok(end);
-            }
+        |p| {
+            repeat(p, |p| {
+                chomp_and_check_indent(p, If::IfSpace, If::IfIndentCondition)?;
+                let cond_end = specialize(p, If::IfCondition, expression)?;
+                check_indent(p, cond_end, If::IfIndentThen)?;
+                keyword(p, b"then", If::IfThen)?;
+                chomp_and_check_indent(p, If::IfSpace, If::IfIndentThenBranch)?;
+                let then_end = specialize(p, If::IfThenBranch, expression)?;
+                check_indent(p, then_end, If::IfIndentElse)?;
+                keyword(p, b"else", If::IfElse)?;
+                chomp_and_check_indent(p, If::IfSpace, If::IfIndentElseBranch)?;
+                one_of(
+                    p,
+                    If::IfElseBranchStart,
+                    &mut [
+                        &mut |p| {
+                            keyword(p, b"if", If::IfElseBranchStart).map(ControlFlow::Continue)
+                        },
+                        &mut |p| {
+                            specialize(p, If::IfElseBranch, expression).map(ControlFlow::Break)
+                        },
+                    ],
+                )
+            })
         },
     )
 }
 
 // LAMBDA EXPRESSION
 
-fn function(p: &mut P<'_>) -> Result<Cursor, Expr> {
+fn function(p: &mut P<'_>) -> Result<Position, Expr> {
     in_context(
         p,
         boxed(Expr::Func),
@@ -408,23 +356,20 @@ fn function(p: &mut P<'_>) -> Result<Cursor, Expr> {
             chomp_and_check_indent(p, Func::FuncSpace, Func::FuncIndentArg)?;
             specialize(p, Func::FuncArg, pattern::term)?;
             chomp_and_check_indent(p, Func::FuncSpace, Func::FuncIndentArrow)?;
-            loop {
-                let more = one_of(
+            repeat(p, |p| {
+                one_of(
                     p,
                     Func::FuncArrow,
                     &mut [
                         &mut |p| {
                             specialize(p, Func::FuncArg, pattern::term)?;
                             chomp_and_check_indent(p, Func::FuncSpace, Func::FuncIndentArrow)?;
-                            Ok(true)
+                            Ok(ControlFlow::Continue(()))
                         },
-                        &mut |p| word2(p, b'-', b'>', Func::FuncArrow).map(|()| false),
+                        &mut |p| word2(p, b'-', b'>', Func::FuncArrow).map(ControlFlow::Break),
                     ],
-                )?;
-                if !more {
-                    break;
-                }
-            }
+                )
+            })?;
             chomp_and_check_indent(p, Func::FuncSpace, Func::FuncIndentBody)?;
             specialize(p, Func::FuncBody, expression)
         },
@@ -433,7 +378,7 @@ fn function(p: &mut P<'_>) -> Result<Cursor, Expr> {
 
 // CASE EXPRESSIONS
 
-fn case(p: &mut P<'_>) -> Result<Cursor, Expr> {
+fn case(p: &mut P<'_>) -> Result<Position, Expr> {
     in_context(
         p,
         boxed(Expr::Case),
@@ -445,27 +390,17 @@ fn case(p: &mut P<'_>) -> Result<Cursor, Expr> {
             keyword(p, b"of", Case::CaseOf)?;
             chomp_and_check_indent(p, Case::CaseSpace, Case::CaseIndentPattern)?;
             with_indent(p, |p| {
-                let mut end = branch(p)?;
-                loop {
-                    let next = one_of_with_fallback(
-                        p,
-                        &mut [&mut |p| {
-                            check_aligned(p, Case::CasePatternAlignment)?;
-                            branch(p).map(Some)
-                        }],
-                        None,
-                    )?;
-                    match next {
-                        Some(new_end) => end = new_end,
-                        None => return Ok(end),
-                    }
-                }
+                let first = branch(p)?;
+                fold_more(p, first, |p, _| {
+                    check_aligned(p, Case::CasePatternAlignment)?;
+                    branch(p)
+                })
             })
         },
     )
 }
 
-fn branch(p: &mut P<'_>) -> Result<Cursor, Case> {
+fn branch(p: &mut P<'_>) -> Result<Position, Case> {
     let pattern_end = specialize(p, Case::CasePattern, pattern::expression)?;
     check_indent(p, pattern_end, Case::CaseIndentArrow)?;
     word2(p, b'-', b'>', Case::CaseArrow)?;
@@ -475,7 +410,7 @@ fn branch(p: &mut P<'_>) -> Result<Cursor, Case> {
 
 // LET EXPRESSION
 
-fn let_(p: &mut P<'_>) -> Result<Cursor, Expr> {
+fn let_(p: &mut P<'_>) -> Result<Position, Expr> {
     in_context(
         p,
         boxed(Expr::Let),
@@ -484,21 +419,11 @@ fn let_(p: &mut P<'_>) -> Result<Cursor, Expr> {
             let defs_end = with_backset_indent(p, 3, |p| {
                 chomp_and_check_indent(p, Let::LetSpace, Let::LetIndentDef)?;
                 with_indent(p, |p| {
-                    let mut end = let_def(p)?;
-                    loop {
-                        let next = one_of_with_fallback(
-                            p,
-                            &mut [&mut |p| {
-                                check_aligned(p, Let::LetDefAlignment)?;
-                                let_def(p).map(Some)
-                            }],
-                            None,
-                        )?;
-                        match next {
-                            Some(new_end) => end = new_end,
-                            None => return Ok(end),
-                        }
-                    }
+                    let first = let_def(p)?;
+                    fold_more(p, first, |p, _| {
+                        check_aligned(p, |_, at| Let::LetDefAlignment(at))?;
+                        let_def(p)
+                    })
                 })
             })?;
             check_indent(p, defs_end, Let::LetIndentIn)?;
@@ -509,11 +434,11 @@ fn let_(p: &mut P<'_>) -> Result<Cursor, Expr> {
     )
 }
 
-fn let_def(p: &mut P<'_>) -> Result<Cursor, Let> {
+fn let_def(p: &mut P<'_>) -> Result<Position, Let> {
     one_of(p, Let::LetDefName, &mut [&mut definition, &mut destructure])
 }
 
-fn definition(p: &mut P<'_>) -> Result<Cursor, Let> {
+fn definition(p: &mut P<'_>) -> Result<Position, Let> {
     let name = lower(p, Let::LetDefName)?;
     let wrap = |e, c| Let::LetDef(name.clone(), e, c);
     specialize(p, wrap, |p| {
@@ -527,7 +452,7 @@ fn definition(p: &mut P<'_>) -> Result<Cursor, Let> {
                     chomp_and_check_indent(p, Def::DefSpace, Def::DefIndentType)?;
                     specialize(p, Def::DefType, types::expression)?;
                     check_aligned(p, Def::DefAlignment)?;
-                    matching_name(p, &name)?;
+                    matching_name(p, &name, Def::DefNameRepeat, Def::DefNameMatch)?;
                     chomp_and_check_indent(p, Def::DefSpace, Def::DefIndentEquals)?;
                     args_and_body(p)
                 },
@@ -537,42 +462,28 @@ fn definition(p: &mut P<'_>) -> Result<Cursor, Let> {
     })
 }
 
-fn args_and_body(p: &mut P<'_>) -> Result<Cursor, Def> {
-    loop {
-        let body_end = one_of(
+fn args_and_body(p: &mut P<'_>) -> Result<Position, Def> {
+    repeat(p, |p| {
+        one_of(
             p,
             Def::DefEquals,
             &mut [
                 &mut |p| {
                     specialize(p, Def::DefArg, pattern::term)?;
                     chomp_and_check_indent(p, Def::DefSpace, Def::DefIndentEquals)?;
-                    Ok(None)
+                    Ok(ControlFlow::Continue(()))
                 },
                 &mut |p| {
                     word1(p, b'=', Def::DefEquals)?;
                     chomp_and_check_indent(p, Def::DefSpace, Def::DefIndentBody)?;
-                    specialize(p, Def::DefBody, expression).map(Some)
+                    specialize(p, Def::DefBody, expression).map(ControlFlow::Break)
                 },
             ],
-        )?;
-        if let Some(end) = body_end {
-            return Ok(end);
-        }
-    }
+        )
+    })
 }
 
-/// `chompMatchingName`: the name a type annotation is for, again.
-fn matching_name(p: &mut P<'_>, expected: &Name) -> Result<(), Def> {
-    let start = p.cur;
-    let name = lower(p, Def::DefNameRepeat)?;
-    if name == *expected {
-        Ok(())
-    } else {
-        p.cerr(Def::DefNameMatch(name, start))
-    }
-}
-
-fn destructure(p: &mut P<'_>) -> Result<Cursor, Let> {
+fn destructure(p: &mut P<'_>) -> Result<Position, Let> {
     specialize(p, Let::LetDestruct, |p| {
         specialize(p, Destruct::DestructPattern, pattern::term)?;
         chomp_and_check_indent(p, Destruct::DestructSpace, Destruct::DestructIndentEquals)?;

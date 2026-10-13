@@ -24,7 +24,8 @@ mod whitespace;
 pub enum Error {
     /// The position it reports.
     Position(ElmPosition),
-    /// A Haskell `error`: elm-format crashes, with this message.
+    /// A Haskell `error`: elm-format crashes, with this message, which
+    /// nothing but debugging reads.
     Crash(&'static str),
 }
 
@@ -33,9 +34,9 @@ pub enum Error {
 pub fn parse(src: &str) -> Result<(), Error> {
     let mut p = engine::P::new(src);
     module::module(&mut p).map_err(|fail| match fail {
-        engine::Fail::At(row, col) => Error::Position(ElmPosition {
-            row: u32::from(row),
-            column: u32::from(col),
+        engine::Fail::At(at) => Error::Position(ElmPosition {
+            row: u32::from(at.row),
+            column: u32::from(at.col),
         }),
         engine::Fail::Crash(message) => Error::Crash(message),
     })
