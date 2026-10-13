@@ -28,3 +28,80 @@
 |[2mFailed:   [22m1
 |
 === stderr
+=== file elm.json
+|{
+|    "type": "application",
+|    "source-directories": [
+|        "src"
+|    ],
+|    "elm-version": "0.19.3",
+|    "dependencies": {
+|        "direct": {
+|            "elm/core": "1.0.5"
+|        },
+|        "indirect": {}
+|    },
+|    "test-dependencies": {
+|        "direct": {
+|            "elm-explorations/test": "2.2.1"
+|        },
+|        "indirect": {
+|            "elm/bytes": "1.0.8",
+|            "elm/html": "1.0.1",
+|            "elm/json": "1.1.4",
+|            "elm/random": "1.0.0",
+|            "elm/time": "1.0.0",
+|            "elm/virtual-dom": "1.0.5"
+|        }
+|    }
+|}
+=== file src/Port1.elm
+|port module Port1 exposing (check)
+|
+|
+|port check : String -> Cmd msg
+=== file src/Port2.elm
+|port module Port2 exposing (check)
+|
+|
+|port check : String -> Cmd msg
+=== file tests/Nested/Module/Test.elm
+|module Nested.Module.Test exposing (..)
+|
+|import Char
+|import Expect
+|import Fuzz exposing (..)
+|import String
+|import Test exposing (..)
+|
+|
+|withoutNums : String -> String
+|withoutNums =
+|    String.filter (\ch -> not (Char.isDigit ch || ch == '.'))
+|
+|
+|testWithoutNums : Test
+|testWithoutNums =
+|    describe "withoutNums"
+|        [ fuzzWith { runs = 100, distribution = Test.noDistribution } (triple string int string) "adding numbers to strings has no effect" <|
+|            \( prefix, num, suffix ) ->
+|                withoutNums (prefix ++ String.fromInt num ++ suffix)
+|                    |> Expect.equal (withoutNums (prefix ++ suffix))
+|        ]
+|
+|
+|testEqual : Test
+|testEqual =
+|    test "Expect.equal works" <|
+|        \() ->
+|            42
+|                |> Expect.equal 42
+|
+|
+|testTrue : Test
+|testTrue =
+|    test "Expect.equal True works" <|
+|        \() ->
+|            True
+|                |> Expect.equal True
+|                |> Expect.onFail "this should never fail!"

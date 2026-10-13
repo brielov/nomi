@@ -55,7 +55,9 @@ fn elm_test_transcripts() {
         let mut command = offline(&elm_test, cache.path());
         command.env_remove("FORCE_COLOR").env_remove("NO_COLOR");
         let mut transcript = case.run(command, &root).unwrap();
-        transcript.files.clear();
+        transcript
+            .files
+            .retain(|(path, _)| !path.starts_with("elm-stuff/"));
         let dir = root.display().to_string();
         let home = cache.path().display().to_string();
         transcript.stdout = normalize_elm_test(&transcript.stdout, &dir, &home);

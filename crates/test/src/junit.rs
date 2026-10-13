@@ -1,87 +1,9 @@
 //! The JUnit report's XML (`XMLBuilder.toString`): the JUnit reporter's
 //! summary, a JSON description of the XML, with the results added to its
 //! test cases, written as elm-test writes it. Fields come in the order
-//! the reporter encoded them, which `serde_json::Value` doesn't keep.
+//! the reporter encoded them, which [`Json`] keeps.
 
-use std::fmt;
-
-use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
-
-/// A JSON value with its objects' fields in order.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Json {
-    Null,
-    Bool(bool),
-    Number(serde_json::Number),
-    String(String),
-    Array(Vec<Json>),
-    Object(Vec<(String, Json)>),
-}
-
-impl<'de> Deserialize<'de> for Json {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Json, D::Error> {
-        deserializer.deserialize_any(JsonVisitor)
-    }
-}
-
-struct JsonVisitor;
-
-impl<'de> Visitor<'de> for JsonVisitor {
-    type Value = Json;
-
-    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("JSON")
-    }
-
-    fn visit_unit<E: de::Error>(self) -> Result<Json, E> {
-        Ok(Json::Null)
-    }
-
-    fn visit_bool<E: de::Error>(self, b: bool) -> Result<Json, E> {
-        Ok(Json::Bool(b))
-    }
-
-    fn visit_i64<E: de::Error>(self, n: i64) -> Result<Json, E> {
-        Ok(Json::Number(n.into()))
-    }
-
-    fn visit_u64<E: de::Error>(self, n: u64) -> Result<Json, E> {
-        Ok(Json::Number(n.into()))
-    }
-
-    fn visit_f64<E: de::Error>(self, n: f64) -> Result<Json, E> {
-        Ok(serde_json::Number::from_f64(n).map_or(Json::Null, Json::Number))
-    }
-
-    fn visit_str<E: de::Error>(self, s: &str) -> Result<Json, E> {
-        Ok(Json::String(s.to_owned()))
-    }
-
-    fn visit_string<E: de::Error>(self, s: String) -> Result<Json, E> {
-        Ok(Json::String(s))
-    }
-
-    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Json, A::Error> {
-        let mut items = Vec::new();
-        while let Some(item) = seq.next_element()? {
-            items.push(item);
-        }
-        Ok(Json::Array(items))
-    }
-
-    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Json, A::Error> {
-        let mut fields: Vec<(String, Json)> = Vec::new();
-        while let Some((key, value)) = map.next_entry::<String, Json>()? {
-            // A repeated key keeps its first place and its last value, as
-            // `JSON.parse` keeps them.
-            match fields.iter_mut().find(|(k, _)| *k == key) {
-                Some(field) => field.1 = value,
-                None => fields.push((key, value)),
-            }
-        }
-        Ok(Json::Object(fields))
-    }
-}
+use crate::json::Json;
 
 /// The JUnit reporter's `summary` with `results` added to its test
 /// suite's test cases, as XML.

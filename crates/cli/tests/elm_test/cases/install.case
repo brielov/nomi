@@ -1,0 +1,40 @@
+=== note
+`install` adds a package and what it needs to an application's test dependencies
+=== args
+install
+elm/http
+=== stdin
+y
+=== file elm.json
+{
+    "type": "application",
+    "source-directories": [
+        "src"
+    ],
+    "elm-version": "0.19.3",
+    "dependencies": {
+        "direct": {
+            "elm/core": "1.0.5",
+            "elm/json": "1.1.4"
+        },
+        "indirect": {}
+    },
+    "test-dependencies": {
+        "direct": {
+            "elm-explorations/test": "2.2.1"
+        },
+        "indirect": {
+            "elm/bytes": "1.0.8",
+            "elm/html": "1.0.1",
+            "elm/random": "1.0.0",
+            "elm/time": "1.0.0",
+            "elm/virtual-dom": "1.0.5"
+        }
+    }
+}
+=== file src/Main.elm
+module Main exposing (main)
+
+main : Int
+main =
+    1

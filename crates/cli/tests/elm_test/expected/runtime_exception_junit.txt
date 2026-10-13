@@ -2,3 +2,59 @@
 === stdout
 === stderr
 |There can only be one port named `check`, but your program has multiple.
+=== file elm.json
+|{
+|    "type": "application",
+|    "source-directories": [
+|        "src"
+|    ],
+|    "elm-version": "0.19.3",
+|    "dependencies": {
+|        "direct": {
+|            "elm/core": "1.0.5"
+|        },
+|        "indirect": {}
+|    },
+|    "test-dependencies": {
+|        "direct": {
+|            "elm-explorations/test": "2.2.1"
+|        },
+|        "indirect": {
+|            "elm/bytes": "1.0.8",
+|            "elm/html": "1.0.1",
+|            "elm/json": "1.1.4",
+|            "elm/random": "1.0.0",
+|            "elm/time": "1.0.0",
+|            "elm/virtual-dom": "1.0.5"
+|        }
+|    }
+|}
+=== file src/Port1.elm
+|port module Port1 exposing (check)
+|
+|
+|port check : String -> Cmd msg
+=== file src/Port2.elm
+|port module Port2 exposing (check)
+|
+|
+|port check : String -> Cmd msg
+=== file tests/RuntimeException/OnePort.elm
+|module RuntimeException.OnePort exposing (testRuntimeException)
+|
+|import Expect
+|import Port1
+|import Port2
+|import Test exposing (..)
+|
+|
+|testRuntimeException : Test
+|testRuntimeException =
+|    test "This should error because the module imports two ports with the same name." <|
+|        \() ->
+|            -- To induce a crash, we need to reference Port1.check and Port2.check.
+|            -- Otherwise they will get DCE'd and there won't be a runtime exception!
+|            [ Port1.check "foo", Port2.check "bar" ]
+|                |> List.drop 2
+|                |> List.length
+|                |> Expect.equal 1234

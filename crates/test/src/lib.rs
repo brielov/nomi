@@ -7,6 +7,8 @@ pub mod command;
 pub mod discover;
 pub mod files;
 pub mod generate;
+pub mod install;
+pub mod json;
 pub mod junit;
 pub mod runner;
 pub mod supervise;

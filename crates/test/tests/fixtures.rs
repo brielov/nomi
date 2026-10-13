@@ -93,7 +93,11 @@ fn transcript(name: &str) -> (String, String) {
             return String::new();
         };
         let rest = &text[start + header.len()..];
-        let end = rest.find("\n=== ").map_or(rest.len(), |i| i + 1);
+        let end = if rest.starts_with("=== ") {
+            0
+        } else {
+            rest.find("\n=== ").map_or(rest.len(), |i| i + 1)
+        };
         rest[..end]
             .lines()
             .map(|l| l.strip_prefix('|').unwrap_or(l))

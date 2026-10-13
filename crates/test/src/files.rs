@@ -28,9 +28,7 @@ pub struct Project {
 }
 
 impl Project {
-    /// The project whose `elm.json` is in `root`, its directories checked
-    /// as `validateTestsSourceDirs` checks them; elm-test's message where
-    /// one is missing.
+    /// The project whose `elm.json` is in `root` (`Project.init`).
     pub fn read(root: &Path) -> Result<Project, String> {
         let root = absolute(root, Path::new("/"));
         let bytes = fs::read(root.join("elm.json")).map_err(|e| e.to_string())?;
@@ -56,7 +54,20 @@ impl Project {
         if !source_dirs.contains(&tests_dir) && tests_dir.exists() {
             source_dirs.push(tests_dir.clone());
         }
-        for dir in &source_dirs {
+        Ok(Project {
+            root,
+            tests_dir,
+            source_dirs,
+            package,
+            outline,
+            elm_json: bytes,
+        })
+    }
+
+    /// `validateTestsSourceDirs`: elm-test's message where a source
+    /// directory is missing.
+    pub fn validate(&self) -> Result<(), String> {
+        for dir in &self.source_dirs {
             let problem = match fs::metadata(dir) {
                 Ok(meta) if meta.is_dir() => continue,
                 Ok(_) => "It exists but isn't a directory!".to_owned(),
@@ -70,14 +81,7 @@ impl Project {
                 dir.display()
             ));
         }
-        Ok(Project {
-            root,
-            tests_dir,
-            source_dirs,
-            package,
-            outline,
-            elm_json: bytes,
-        })
+        Ok(())
     }
 }
 

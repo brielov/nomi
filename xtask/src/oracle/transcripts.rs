@@ -87,8 +87,10 @@ fn elm_test(root: &Path, refs: &References) -> Result<()> {
             .env_remove("NO_COLOR");
         offline(&mut command);
         let mut transcript = case.run(command, &work)?;
-        // What elm-test leaves behind is its build's.
-        transcript.files.clear();
+        // What elm-test leaves in `elm-stuff` is its build's.
+        transcript
+            .files
+            .retain(|(path, _)| !path.starts_with("elm-stuff/"));
         let dir = work.display().to_string();
         let home = home.display().to_string();
         transcript.stdout = normalize_elm_test(&transcript.stdout, &dir, &home);

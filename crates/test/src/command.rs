@@ -14,6 +14,7 @@ use nomi_project::Outline;
 use crate::build::{self, Env, Failure, Step};
 use crate::files::{Project, resolve};
 use crate::generate::{Options, Report};
+use crate::install::Installed;
 use crate::supervise::{self, ELM_TEST_VERSION, Ended, Supervise};
 
 /// The options elm-test takes, before or after its command.
@@ -518,10 +519,8 @@ pub fn main<H: Http + Sync>(
         }
         Parsed::Run(flags, globs) => run(context, console, &flags, &globs, color, cores),
         Parsed::Make(flags, globs) => make(context, console, &flags, &globs, color),
-        Parsed::Init(_) | Parsed::Install(..) => {
-            console.err("nomi doesn't answer to `elm-test init` and `elm-test install` yet.\n");
-            1
-        }
+        Parsed::Init(_) => install(context, console, "init", None),
+        Parsed::Install(_, package) => install(context, console, "install", Some(&package)),
     }
 }
 
@@ -643,7 +642,12 @@ fn run<H: Http + Sync>(
         console.err(&format!("{message}\n"));
         1
     };
-    let project = match Project::read(&root).and_then(|p| require_test_package(&p).map(|()| p)) {
+    let project = Project::read(&root).and_then(|project| {
+        require_test_package(&project)?;
+        project.validate()?;
+        Ok(project)
+    });
+    let project = match project {
         Ok(project) => project,
         Err(message) => return fail(console, &mut progress, &message),
     };
@@ -718,6 +722,47 @@ fn run<H: Http + Sync>(
             1
         }
         Err(e) => fail(console, &mut progress, &format!("{e}")),
+    }
+}
+
+/// `elm-test init`, or `install` of `package`.
+fn install<H: Http + Sync>(
+    context: &Context<'_, H>,
+    console: &mut dyn Console,
+    command: &str,
+    package: Option<&str>,
+) -> i32 {
+    let project = (project_root(context.cwd, &format!("elm-test {command}")))
+        .and_then(|root| Project::read(&root));
+    let project = match project {
+        Ok(project) => project,
+        Err(message) => {
+            console.err(&format!("{message}\n"));
+            return 1;
+        }
+    };
+    let env = Env {
+        vfs: context.vfs,
+        cache: context.cache,
+        http: context.http,
+        solve: Solve::default(),
+        color: false,
+    };
+    let done = match package {
+        None => crate::install::init(&env, console, &project).map(|()| Installed::Added),
+        Some(package) => crate::install::install(&env, console, &project, package),
+    };
+    match done {
+        Ok(Installed::Already) if package.is_some() => {
+            console.out("It is already installed!\n");
+            0
+        }
+        Ok(_) => 0,
+        Err(Some(message)) => {
+            console.err(&format!("{message}\n"));
+            1
+        }
+        Err(None) => 1,
     }
 }
 

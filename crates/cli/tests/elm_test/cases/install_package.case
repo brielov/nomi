@@ -1,0 +1,32 @@
+=== note
+`install` into a package's test dependencies
+=== args
+install
+elm/random
+=== stdin
+y
+=== file elm.json
+{
+    "type": "package",
+    "name": "author/project",
+    "summary": "A package to test",
+    "license": "BSD-3-Clause",
+    "version": "1.0.0",
+    "exposed-modules": [
+        "Thing"
+    ],
+    "elm-version": "0.19.0 <= v < 0.20.0",
+    "dependencies": {
+        "elm/core": "1.0.0 <= v < 2.0.0"
+    },
+    "test-dependencies": {
+        "elm-explorations/test": "2.0.0 <= v < 3.0.0"
+    }
+}
+=== file src/Thing.elm
+module Thing exposing (thing)
+
+
+thing : Int
+thing =
+    1

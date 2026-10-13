@@ -21,7 +21,8 @@ use serde_json::value::RawValue;
 use serde_json::{Value, json};
 
 use crate::generate::Report;
-use crate::junit::{self, Json};
+use crate::json::Json;
+use crate::junit;
 use crate::runner::DRIVER;
 
 /// The elm-test whose behaviour nomi's is, which the console's header

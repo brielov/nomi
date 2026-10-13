@@ -38,3 +38,362 @@
 |{"event":"testCompleted","status":"fail","labels":["Failing.SplitSocketMessage","scce"],"failures":[{"given":null,"message":"Expect.equal","reason":{"type":"Equality","data":{"expected":"Array.fromList [0]","actual":"Array.fromList [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]","comparison":"Expect.equal"}}}],"distributionReports":[{"type":"NoDistribution","data":null}],"duration":"0"}
 |{"event":"runComplete","passed":"2","failed":"29","duration":"0","autoFail":null}
 === stderr
+=== file elm.json
+|{
+|    "type": "application",
+|    "source-directories": [
+|        "src"
+|    ],
+|    "elm-version": "0.19.3",
+|    "dependencies": {
+|        "direct": {
+|            "elm/core": "1.0.5"
+|        },
+|        "indirect": {}
+|    },
+|    "test-dependencies": {
+|        "direct": {
+|            "elm-explorations/test": "2.2.1"
+|        },
+|        "indirect": {
+|            "elm/bytes": "1.0.8",
+|            "elm/html": "1.0.1",
+|            "elm/json": "1.1.4",
+|            "elm/random": "1.0.0",
+|            "elm/time": "1.0.0",
+|            "elm/virtual-dom": "1.0.5"
+|        }
+|    }
+|}
+=== file src/Port1.elm
+|port module Port1 exposing (check)
+|
+|
+|port check : String -> Cmd msg
+=== file src/Port2.elm
+|port module Port2 exposing (check)
+|
+|
+|port check : String -> Cmd msg
+=== file tests/Failing/Fuzz.elm
+|module Failing.Fuzz exposing (..)
+|
+|import Char
+|import Expect
+|import Fuzz exposing (..)
+|import String
+|import Test exposing (..)
+|
+|
+|withoutNums : String -> String
+|withoutNums =
+|    String.filter (\ch -> not (Char.isDigit ch || ch == '.'))
+|
+|
+|testWithoutNums : Test
+|testWithoutNums =
+|    describe "withoutNums"
+|        [ fuzzWith { runs = 100, distribution = Test.noDistribution } (triple string float string) "adding numbers to strings has no effect" <|
+|            \( prefix, num, suffix ) ->
+|                withoutNums (prefix ++ String.fromFloat num ++ suffix)
+|                    |> Expect.equal (withoutNums (prefix ++ suffix))
+|        ]
+|
+|
+|testExpectations : Test
+|testExpectations =
+|    describe "basic expectations"
+|        [ test "this should succeed" <|
+|            \() ->
+|                "blah"
+|                    |> Expect.equal " blah"
+|        , test "this should fail" <|
+|            \() ->
+|                "something"
+|                    |> Expect.equal "someting else"
+|        , test "another failure" <|
+|            \() ->
+|                "forty-two"
+|                    |> Expect.equal "forty-three"
+|        ]
+|
+|
+|oxfordify : a -> b -> c -> String
+|oxfordify _ _ _ =
+|    "Alice, Bob, and Claire"
+|
+|
+|testFuzz : Test
+|testFuzz =
+|    describe "fuzzing"
+|        [ fuzz2 string string "empty list etc" <|
+|            \name punctuation ->
+|                oxfordify "This sentence is empty" "." []
+|                    |> Expect.equal ""
+|                    |> Expect.onFail "given an empty list, did not return an empty string"
+|        , fuzz2 string string "further testing" <|
+|            \name punctuation ->
+|                oxfordify "This sentence contains " "." [ "one item" ]
+|                    |> Expect.equal "This sentence contains one item."
+|        , fuzz2 string string "custom onFail here" <|
+|            \name punctuation ->
+|                oxfordify "This sentence contains " "." [ "one item", "two item" ]
+|                    |> Expect.equal "This sentence contains one item and two item."
+|                    |> Expect.onFail "given an empty list, did not return an empty string"
+|        , fuzz2 string string "This is a test." <|
+|            \name punctuation ->
+|                oxfordify "This sentence contains " "." [ "one item", "two item", "three item" ]
+|                    |> Expect.equal "This sentence contains one item, two item, and three item."
+|                    |> Expect.onFail "given a list of length 3, did not return an oxford-style sentence"
+|        ]
+|
+|
+|testFailingFuzzTests : Test
+|testFailingFuzzTests =
+|    describe "the first element in this fuzz tuple"
+|        [ fuzz2 string string "is always \"foo\"" <|
+|            \str1 str2 ->
+|                str1
+|                    |> Expect.equal "foo"
+|        ]
+|
+|
+|testOxfordify : Test
+|testOxfordify =
+|    describe "oxfordify"
+|        [ describe "given an empty sentence"
+|            [ test "returns an empty string" <|
+|                \() ->
+|                    oxfordify "This sentence is empty" "." []
+|                        |> Expect.equal ""
+|            ]
+|        , describe "given a sentence with one item"
+|            [ test "still contains one item" <|
+|                \() ->
+|                    oxfordify "This sentence contains " "." [ "one item" ]
+|                        |> Expect.equal "This sentence contains one item."
+|            ]
+|        , describe "given a sentence with multiple items"
+|            [ test "returns an oxford-style sentence" <|
+|                \() ->
+|                    oxfordify "This sentence contains " "." [ "one item", "two item" ]
+|                        |> Expect.equal "This sentence contains one item and two item."
+|            , test "returns an oxford-style sentence" <|
+|                \() ->
+|                    oxfordify "This sentence contains " "." [ "one item", "two item", "three item" ]
+|                        |> Expect.equal "This sentence contains one item, two item, and three item."
+|            , test "runs a Debug.todo on purpose" <|
+|                \() ->
+|                    oxfordify "Everything is normal"
+|                        |> Debug.todo "this test runs a Debug.todo on purpose!"
+|            ]
+|        ]
+|
+|
+|testShrinkables : Test
+|testShrinkables =
+|    describe "Some tests that should fail and produce shrunken values"
+|        [ describe "a randomly generated integer"
+|            [ fuzz int "is for sure exactly 0" <| Expect.equal 0
+|            , fuzz int "is <42" <| Expect.lessThan 42
+|            , fuzz int "is also >42" <| Expect.greaterThan 42
+|            ]
+|        , describe "a randomly generated string"
+|            [ fuzz string "equals its reverse" <|
+|                \str ->
+|                    Expect.equal str (String.reverse str)
+|            ]
+|        ]
+=== file tests/Failing/One.elm
+|module Failing.One exposing (suite)
+|
+|import Expect
+|import Test exposing (..)
+|
+|
+|suite : Test
+|suite =
+|    test "intentional failure" <|
+|        \() ->
+|            Expect.fail "This should fail!"
+=== file tests/Failing/OneRuntimeException.elm
+|module Failing.OneRuntimeException exposing (suite)
+|
+|import Expect
+|import Test exposing (..)
+|
+|
+|suite : Test
+|suite =
+|    test "intentional failure" <|
+|        \() ->
+|            Debug.todo "This is intentionally failing with a runtime exception!"
+=== file tests/Failing/OneTodo.elm
+|module Failing.OneTodo exposing (..)
+|
+|import Expect
+|import Test exposing (..)
+|
+|
+|suite : Test
+|suite =
+|    Test.describe "Todo tests"
+|        [ Test.todo "write a test here"
+|        ]
+|
+|
+|aPassingTest : Test
+|aPassingTest =
+|    test "this should pass" <|
+|        \() ->
+|            Expect.equal "success" "success"
+=== file tests/Failing/Several.elm
+|module Failing.Several exposing (..)
+|
+|import Char
+|import Expect
+|import Fuzz exposing (..)
+|import String
+|import Test exposing (..)
+|
+|
+|withoutNums : String -> String
+|withoutNums =
+|    String.filter (\ch -> not (Char.isDigit ch || ch == '.'))
+|
+|
+|testWithoutNums : Test
+|testWithoutNums =
+|    describe "withoutNums"
+|        [ fuzzWith { runs = 100, distribution = Test.noDistribution } (triple string float string) "adding numbers to strings has no effect" <|
+|            \( prefix, num, suffix ) ->
+|                withoutNums (prefix ++ String.fromFloat num ++ suffix)
+|                    |> Expect.equal (withoutNums (prefix ++ suffix))
+|        ]
+|
+|
+|testExpectations : Test
+|testExpectations =
+|    describe "basic expectations"
+|        [ test "this should succeed" <|
+|            \() ->
+|                "blah"
+|                    |> Expect.equal " blah"
+|        , test "this should fail" <|
+|            \() ->
+|                "something"
+|                    |> Expect.equal "someting else"
+|        , test "another failure" <|
+|            \() ->
+|                "forty-two"
+|                    |> Expect.equal "forty-three"
+|        ]
+|
+|
+|testFailingFuzzTests : Test
+|testFailingFuzzTests =
+|    describe "the first element in this fuzz tuple"
+|        [ fuzz2 string string "is always \"foo\"" <|
+|            \str1 str2 ->
+|                str1
+|                    |> Expect.equal "foo"
+|        ]
+=== file tests/Failing/SeveralTodos.elm
+|module Failing.SeveralTodos exposing (..)
+|
+|import Expect
+|import Test exposing (..)
+|
+|
+|someTodos : Test
+|someTodos =
+|    Test.describe "three Todo tests"
+|        [ Test.todo "write a test here"
+|        , Test.todo "write a second test here"
+|        , Test.todo "write a third test here"
+|        ]
+|
+|
+|aPassingTest : Test
+|aPassingTest =
+|    test "this should pass" <|
+|        \() ->
+|            Expect.equal "success" "success"
+=== file tests/Failing/SeveralWithComments.elm
+|module Failing.SeveralWithComments exposing (testExpectations, testFailingFuzzTests, {- hello -} testWithoutNums, withoutNums)
+|
+|import Char
+|import Expect
+|import Fuzz exposing (..)
+|import String
+|import Test exposing (..)
+|
+|
+|withoutNums : String -> String
+|withoutNums =
+|    String.filter (\ch -> not (Char.isDigit ch || ch == '.'))
+|
+|
+|testWithoutNums : Test
+|testWithoutNums =
+|    describe "withoutNums"
+|        [ fuzzWith { runs = 100, distribution = Test.noDistribution } (triple string float string) "adding numbers to strings has no effect" <|
+|            \( prefix, num, suffix ) ->
+|                withoutNums (prefix ++ String.fromFloat num ++ suffix)
+|                    |> Expect.equal (withoutNums (prefix ++ suffix))
+|        ]
+|
+|
+|testExpectations : Test
+|testExpectations =
+|    describe "basic expectations"
+|        [ test "this should succeed" <|
+|            \() ->
+|                "blah"
+|                    |> Expect.equal " blah"
+|        , test "this should fail" <|
+|            \() ->
+|                "something"
+|                    |> Expect.equal "someting else"
+|        , test "another failure" <|
+|            \() ->
+|                "forty-two"
+|                    |> Expect.equal "forty-three"
+|        ]
+|
+|
+|testFailingFuzzTests : Test
+|testFailingFuzzTests =
+|    describe "the first element in this fuzz tuple"
+|        [ fuzz2 string string "is always \"foo\"" <|
+|            \str1 str2 ->
+|                str1
+|                    |> Expect.equal "foo"
+|        ]
+=== file tests/Failing/SplitSocketMessage.elm
+|module Failing.SplitSocketMessage exposing (..)
+|
+|import Array
+|import Expect exposing (Expectation)
+|import Test exposing (..)
+|
+|
+|
+|{- This is a regression test.
+|
+|   For some reason, the failure output of this specific test ends up being read
+|   from the socket in 2 separate chunks. This breaks our assumption and leads to
+|   a crash.
+|
+|   I'm not sure to what degree this can be reproduced on platforms _other_ than
+|   OSX.
+|-}
+|
+|
+|suite : Test
+|suite =
+|    test "scce" <|
+|        \_ ->
+|            Expect.equal
+|                (Array.repeat 1 0)
+|                (Array.repeat 49 0)

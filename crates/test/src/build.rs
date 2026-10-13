@@ -82,7 +82,7 @@ fn prepare<H: Http + Sync>(
     progress: &mut dyn FnMut(&mut dyn Console, Step),
 ) -> Result<PathBuf, Failure> {
     let tests_dir = env.cache.dir().join("tests");
-    let dir = tests_dir.join(hex(project.root.to_string_lossy().as_bytes()));
+    let dir = generated_dir(env.cache, project);
     let src = dir.join("src");
     fs::create_dir_all(src.join("Test/Generated")).map_err(|e| io(&dir, e))?;
     let runner = runner::sources(&tests_dir).map_err(|e| io(&dir, e))?;
@@ -229,6 +229,14 @@ pub fn make<H: Http + Sync>(
     Ok(make::run(
         env.vfs, console, &dir, env.cache, env.http, &make,
     ))
+}
+
+/// Where `project`'s generated project is: elm-test's
+/// `elm-stuff/generated-code/elm-community/elm-test/<version>`, in nomi's
+/// cache by the project's root.
+pub(crate) fn generated_dir(cache: &Cache, project: &Project) -> PathBuf {
+    let root = project.root.to_string_lossy();
+    cache.dir().join("tests").join(hex(root.as_bytes()))
 }
 
 /// A short hex name for `bytes`.

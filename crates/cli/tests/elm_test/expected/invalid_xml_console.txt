@@ -15,3 +15,55 @@
 |Failed:   0
 |
 === stderr
+=== file elm.json
+|{
+|    "type": "application",
+|    "source-directories": [
+|        "src"
+|    ],
+|    "elm-version": "0.19.3",
+|    "dependencies": {
+|        "direct": {
+|            "elm/core": "1.0.5"
+|        },
+|        "indirect": {}
+|    },
+|    "test-dependencies": {
+|        "direct": {
+|            "elm-explorations/test": "2.2.1"
+|        },
+|        "indirect": {
+|            "elm/bytes": "1.0.8",
+|            "elm/html": "1.0.1",
+|            "elm/json": "1.1.4",
+|            "elm/random": "1.0.0",
+|            "elm/time": "1.0.0",
+|            "elm/virtual-dom": "1.0.5"
+|        }
+|    }
+|}
+=== file src/Port1.elm
+|port module Port1 exposing (check)
+|
+|
+|port check : String -> Cmd msg
+=== file src/Port2.elm
+|port module Port2 exposing (check)
+|
+|
+|port check : String -> Cmd msg
+=== file tests/InvalidXMLCharacter/Test.elm
+|module InvalidXMLCharacter.Test exposing (invalidCharacter)
+|
+|import Expect
+|import Test exposing (..)
+|
+|
+|invalidCharacter : Test
+|invalidCharacter =
+|    describe "The junit reporter should not crash due to invalid (for XML) characters in the output"
+|        [ test "backspace: \u{0008}" <|
+|            \() -> Expect.pass
+|        , test "escape: \u{001B}" <|
+|            \() -> Expect.pass
+|        ]

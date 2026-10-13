@@ -1,0 +1,31 @@
+=== note
+`init` adds elm-explorations/test to an application's test dependencies and writes tests/Example.elm
+=== args
+init
+=== stdin
+y
+=== file elm.json
+{
+    "type": "application",
+    "source-directories": [
+        "src"
+    ],
+    "elm-version": "0.19.3",
+    "dependencies": {
+        "direct": {
+            "elm/core": "1.0.5",
+            "elm/json": "1.1.4"
+        },
+        "indirect": {}
+    },
+    "test-dependencies": {
+        "direct": {},
+        "indirect": {}
+    }
+}
+=== file src/Main.elm
+module Main exposing (main)
+
+main : Int
+main =
+    1
