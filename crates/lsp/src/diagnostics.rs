@@ -211,34 +211,36 @@ fn work(shared: &Shared, jobs: &Receiver<Job>) {
         if settings.on_save_only && !saved {
             continue;
         }
-        // A bug in one check publishes nothing for it rather than end
-        // diagnostics for the session.
-        let Ok(found) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            problems(shared, &job, &settings, saved, &mut reviewed)
-        })) else {
-            continue;
-        };
-        let mut by_file: HashMap<PathBuf, Vec<Problem>> = HashMap::new();
-        for problem in &found {
-            by_file
-                .entry(problem.path.clone())
-                .or_default()
-                .push(problem.clone());
-        }
         let mut files: BTreeMap<Url, Vec<Diagnostic>> = BTreeMap::new();
         for (uri, _) in &job.open {
             files.entry(uri.clone()).or_default();
         }
-        for problem in found {
-            let Ok(uri) = Url::from_file_path(&problem.path) else {
-                continue;
-            };
-            let Ok(text) = job.snapshot.read(&problem.path) else {
-                continue;
-            };
-            let diagnostic = diagnostic(&problem, &uri, &Text::new(&text, shared.unit));
-            files.entry(uri).or_default().push(diagnostic);
-        }
+        // A bug in one check, or in turning its problems into diagnostics,
+        // publishes none for it rather than end diagnostics for the
+        // session, or leave the client waiting.
+        let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let found = problems(shared, &job, &settings, saved, &mut reviewed);
+            let mut by_file: HashMap<PathBuf, Vec<Problem>> = HashMap::new();
+            for problem in &found {
+                by_file
+                    .entry(problem.path.clone())
+                    .or_default()
+                    .push(problem.clone());
+            }
+            let mut files = files.clone();
+            for problem in found {
+                let Ok(uri) = Url::from_file_path(&problem.path) else {
+                    continue;
+                };
+                let Ok(text) = job.snapshot.read(&problem.path) else {
+                    continue;
+                };
+                let diagnostic = diagnostic(&problem, &uri, &Text::new(&text, shared.unit));
+                files.entry(uri).or_default().push(diagnostic);
+            }
+            (by_file, files)
+        }));
+        let (by_file, mut files) = checked.unwrap_or_else(|_| (HashMap::new(), files));
         publish_if_current(&shared.publishing, &job.snapshot, || {
             *shared
                 .latest
