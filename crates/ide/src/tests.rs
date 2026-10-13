@@ -581,3 +581,62 @@ fn a_missing_field_goes_into_its_alias_typed_by_its_use() {
         "module Main exposing (main)\n\n\ntype alias Model = { count : Int, ratio : Float }\n\n\nmain : Model -> Float\nmain model =\n    model.ratio\n"
     );
 }
+
+#[test]
+fn a_qualified_type_is_one_name() {
+    // As tree-sitter-elm reads it: from its qualifier on, `Dict.Dict` is
+    // the type, where a value's qualifier would be its module.
+    let main =
+        "module Main exposing (x)\n\nimport Dict\n\n\nx : Dict.Dict Int Int -> Int\nx v =\n    1\n";
+    let (_dir, vfs, path) = open(main);
+    let (_store_dir, store) = store();
+    let snapshot = vfs.snapshot();
+    let index =
+        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    let qualifier = TextSize::new(main.find("Dict.Dict").unwrap() as u32);
+    let name = qualifier + TextSize::new(5);
+    let found = crate::navigation::definition(&snapshot, &index, &path, qualifier).unwrap();
+    assert_eq!(
+        Some(found),
+        crate::navigation::definition(&snapshot, &index, &path, name)
+    );
+    let hovered = hover(&snapshot, &index, &path, qualifier).unwrap();
+    assert!(
+        hovered.markdown.contains("type Dict k v"),
+        "{}",
+        hovered.markdown
+    );
+}
+
+#[test]
+fn an_alias_pattern_is_typed_as_its_pattern() {
+    let main = "module Main exposing (f)\n\n\nf : { a : Int, b : String } -> Int\nf ({ a } as whole) =\n    a\n";
+    let (_dir, vfs, path) = open(main);
+    let (_store_dir, store) = store();
+    let snapshot = vfs.snapshot();
+    let index =
+        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    let at = TextSize::new(main.find("whole").unwrap() as u32 + 1);
+    let found = hover(&snapshot, &index, &path, at).unwrap();
+    assert_eq!(
+        found.markdown,
+        "\n```elm\nwhole : { a : Int, b : String }\n```\n\n\n---\n\nLocal parameter"
+    );
+}
+
+#[test]
+fn a_call_is_typed_through_its_last_arguments_parentheses() {
+    // elm's region for `matrix (size - 1)` ends before the `)`.
+    let main = "module Main exposing (matrix)\n\n\nmatrix : Int -> List Int\nmatrix size =\n    if size <= 0 then\n        []\n\n    else\n        let\n            subMatrix =\n                matrix (size - 1)\n        in\n        subMatrix\n";
+    let (_dir, vfs, path) = open(main);
+    let (_store_dir, store) = store();
+    let snapshot = vfs.snapshot();
+    let index =
+        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    let at = TextSize::new(main.find("subMatrix").unwrap() as u32 + 1);
+    let found = hover(&snapshot, &index, &path, at).unwrap();
+    assert_eq!(
+        found.markdown,
+        "\n```elm\nsubMatrix : List Int\n```\n\n\n---\n\nDefined in local let scope"
+    );
+}

@@ -58,9 +58,13 @@ pub(crate) fn start_of_line(context: &Context<'_>, range: TextRange) -> Vec<Comp
         .filter(|n| n.kind() == SyntaxKind::ExposedValue)
         .map(|n| words(&n))
         .collect();
+    // elm-language-server compares a call's name with a declaration's
+    // name and parameters as written, so only a value without them
+    // declares it.
     let top_levels: Vec<String> = (root.children())
         .filter(|n| n.kind() == SyntaxKind::ValueDecl)
         .filter_map(|d| child(&d, SyntaxKind::Definition))
+        .filter(|d| !d.children().any(|c| crate::lint::is_pattern(c.kind())))
         .filter_map(|d| crate::lint::first_token(&d, SyntaxKind::LowerIdent))
         .map(|t| t.text().to_owned())
         .collect();
@@ -199,10 +203,14 @@ fn scope(context: &Context<'_>, offset: TextSize, range: TextRange) -> Vec<Compl
     let names = crate::hover::Names::of(context.index, context.module);
     let type_at = |at: TextRange| -> Option<nomi_compiler::types::error::Type> {
         let (root, types) = typed.as_ref()?;
-        (types.iter())
-            .rev()
-            .find(|(r, _)| crate::hover::trimmed(root, *r) == Some(at))
-            .map(|(_, ty)| ty.clone())
+        let find = |at: TextRange| crate::hover::type_of(root, types, at).cloned();
+        // An alias's type is its whole pattern's.
+        find(at).or_else(|| {
+            let alias = (root.token_at_offset(at.start()).right_biased())
+                .and_then(|t| t.parent())
+                .filter(|p| p.kind() == SyntaxKind::AliasPattern)?;
+            find(code_range(&alias)?)
+        })
     };
     let mut found = Vec::new();
     for (i, (name, at, bound, definition)) in symbols.into_iter().enumerate() {

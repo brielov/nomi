@@ -43,13 +43,35 @@ pub(crate) fn after(
             return fields;
         }
     }
-    // As far as inference reaches: the expression before the dot, in
-    // the module as it would be with a field after it.
-    let _ = (snapshot, root);
-    // Without the dot and what follows it, the record is typed by its
-    // context alone.
-    // The field's whole name goes, the part after the cursor too, so the
-    // record's name doesn't run into it.
+    let _ = snapshot;
+    // The innermost expression before the dot, which the access binds
+    // tighter than anything around it.
+    let before_dot = |root: &SyntaxNode| {
+        let before = root.token_at_offset(dot).left_biased()?;
+        before
+            .parent_ancestors()
+            .take_while(|a| a.text_range().end() == dot)
+            .find(|a| crate::completion::is_expr(a.kind()))
+    };
+    // A module that parses and compiles as written types it best; where
+    // it doesn't parse, elm-language-server's tree is broken there too.
+    let parsed = !root
+        .descendants_with_tokens()
+        .any(|e| matches!(e.kind(), SyntaxKind::Error | SyntaxKind::ErrorToken));
+    if parsed
+        && let Some(canonical) = &module.canonical
+        && let Some(record) = before_dot(root)
+    {
+        let (_, types) = types::infer_types(index.compat, canonical);
+        let fields = typed_fields(index, module, root, &types, &record, range);
+        if !fields.is_empty() {
+            return fields;
+        }
+    }
+    // Else as far as inference reaches without the dot and what follows
+    // it, the record typed by its context alone. The field's whole name
+    // goes, the part after the cursor too, so the record's name doesn't
+    // run into it.
     let rest = text[usize::from(range.end())..]
         .find(|c: char| !(c.is_alphanumeric() || c == '_'))
         .unwrap_or(text.len() - usize::from(range.end()));
@@ -57,16 +79,7 @@ pub(crate) fn after(
     let Some((patched, types)) = patched(index, module, cut, "") else {
         return Vec::new();
     };
-    let Some(before) = patched.token_at_offset(dot).left_biased() else {
-        return Vec::new();
-    };
-    // The access binds tighter than anything around it: the innermost
-    // expression before the dot.
-    let record = before
-        .parent_ancestors()
-        .take_while(|a| a.text_range().end() == dot)
-        .find(|a| crate::completion::is_expr(a.kind()));
-    let Some(record) = record else {
+    let Some(record) = before_dot(&patched) else {
         return Vec::new();
     };
     typed_fields(index, module, &patched, &types, &record, range)

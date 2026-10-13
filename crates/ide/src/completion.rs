@@ -149,7 +149,14 @@ pub fn completions(
                 None,
             )]));
         }
-        if let Some(name) = name(below).filter(|n| below[n.len()..].contains('=')) {
+        // An annotation below too, under a line of just a word being
+        // typed, which tree-sitter-elm then reads as running on into it.
+        let alone = !word.is_empty() && line.trim_end() == name_at;
+        let wanted = |n: &String| {
+            let rest = &below[n.len()..];
+            rest.contains('=') || (alone && rest.trim_start().starts_with(':'))
+        };
+        if let Some(name) = name(below).filter(wanted) {
             let label = format!("{name} : ");
             return Some(Completions::List(vec![item(
                 &label,
@@ -188,8 +195,10 @@ pub fn completions(
             context.importable(range(word_start), None),
         ));
     }
-    // After a dot: a module's names, or a record's fields.
-    if let Some(dot) = word.rfind('.') {
+    // After a dot: a module's names, or a record's fields; but an
+    // accessor being typed, `.name`, gets the general list.
+    let accessor = word.starts_with('.') && word.len() > 1 && !word[1..].contains('.');
+    if let Some(dot) = word.rfind('.').filter(|_| !accessor) {
         let target = &word[..dot];
         let replace = range(word_start + dot + 1);
         let importing = before.ends_with("import");
@@ -225,11 +234,13 @@ pub fn completions(
     } else {
         name_at
     };
+    // An accessor's name is replaced, its dot stays.
+    let start = if accessor { word_start + 1 } else { word_start };
     Some(crate::completion_general::general(
         &context,
         offset,
-        range(word_start),
-        word,
+        range(start),
+        &line[start..column],
         name,
     ))
 }
@@ -456,9 +467,14 @@ impl Context<'_> {
         let ty = match annotation {
             Some(annotation) => (*annotation.ty).clone(),
             None => {
-                // A constructor: its type from its union.
-                let interface = self.index.interfaces.get(&self.module.name)?;
-                return constructor_type(&localizer, interface, &self.module.name, name);
+                // A constructor: its type from its union, or as written
+                // where the module has no interface yet.
+                return match self.index.interfaces.get(&self.module.name) {
+                    Some(interface) => {
+                        constructor_type(&localizer, interface, &self.module.name, name)
+                    }
+                    None => written_constructor_type(&self.module.root, name),
+                };
             }
         };
         Some(format!(" : {}", crate::hover::render(&localizer, &ty)))

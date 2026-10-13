@@ -52,10 +52,7 @@ pub fn hover(snapshot: &Snapshot, index: &Index, path: &Path, offset: TextSize) 
     let typed = |range: TextRange| -> Option<String> {
         let declaring = declaring?;
         let (_, types) = types::infer_types(index.compat, declaring.canonical.as_ref()?);
-        let ty = (types.iter())
-            .rev()
-            .find(|(r, _)| trimmed(&declaring.root, *r) == Some(range))
-            .map(|(_, ty)| ty)?;
+        let ty = type_of(&declaring.root, &types, range)?;
         Some(render_error(&localizer, ty))
     };
     let markdown = match parent.kind() {
@@ -97,13 +94,26 @@ pub fn hover(snapshot: &Snapshot, index: &Index, path: &Path, offset: TextSize) 
                         | SyntaxKind::CaseBranch
                 )
             })?;
-            let ty = typed(name_at.text_range());
+            // An alias's type is its whole pattern's.
+            let ty = typed(name_at.text_range()).or_else(|| {
+                (parent.kind() == SyntaxKind::AliasPattern)
+                    .then(|| crate::symbols::code_range(&parent).and_then(typed))
+                    .flatten()
+            });
             let name = name_at.text();
             if within.kind() == SyntaxKind::LetDestructure {
                 let annotation = ty.map(|ty| format!("{name} : {ty}")).unwrap_or_default();
                 format_hint(&annotation, "Defined in local let scope", None)
             } else {
-                let link = crate::navigation::type_definition(snapshot, index, path, offset)
+                // A record update's base has no type of its own to
+                // elm-language-server, so nothing to link to.
+                let base = (module.root.token_at_offset(offset))
+                    .find(|t| t.kind() == SyntaxKind::LowerIdent)
+                    .and_then(|t| t.parent())
+                    .is_some_and(|p| p.kind() == SyntaxKind::RecordUpdateExpr);
+                let link = (!base)
+                    .then(|| crate::navigation::type_definition(snapshot, index, path, offset))
+                    .flatten()
                     .and_then(|location| link(snapshot, &location));
                 let markdown = match ty {
                     Some(ty) if ty != "unknown" => {
@@ -274,10 +284,7 @@ pub(crate) fn definition_type(
     }
     let (_, types) = types::infer_types(index.compat, module.canonical.as_ref()?);
     composed(definition, |range| {
-        (types.iter())
-            .rev()
-            .find(|(r, _)| trimmed(&module.root, *r) == Some(range))
-            .map(|(_, ty)| render_error(&names, ty))
+        type_of(&module.root, &types, range).map(|ty| render_error(&names, ty))
     })
 }
 
@@ -449,12 +456,14 @@ fn complex(ty: &canonical::Type) -> bool {
 /// An inferred type as elm-language-server's renderer writes it.
 pub(crate) fn render_error(localizer: &Names, ty: &error::Type) -> String {
     use error::Type as E;
-    let complex = |ty: &E| match ty {
-        E::Lambda(..) => true,
-        E::Type(_, _, args) => !args.is_empty(),
-        E::Alias(_, _, args, _) => !args.is_empty(),
-        _ => false,
-    };
+    fn complex(ty: &error::Type) -> bool {
+        match ty {
+            error::Type::Lambda(..) => true,
+            error::Type::Type(_, _, args) => !args.is_empty(),
+            error::Type::Alias(_, _, args, _) => !args.is_empty(),
+            _ => false,
+        }
+    }
     match ty {
         E::Lambda(a, b, rest) => {
             let parts: Vec<String> = (std::iter::once(&**a)
@@ -630,6 +639,32 @@ impl Names {
 pub(crate) fn localizer(index: &Index, indexed: &Indexed) -> Localizer {
     let imports = with_defaults(&index.package, &indexed.hir.imports);
     Localizer::from_module(index.compat, module::name(&indexed.hir), &imports)
+}
+
+/// The type inferred for the expression or pattern at `range` in
+/// `root`. elm's region for a call ends with its last argument's, inside
+/// any parentheses around it, so where no region is `range`, the longest
+/// that starts with it and leaves only closing parentheses out.
+pub(crate) fn type_of<'t>(
+    root: &SyntaxNode,
+    types: &'t types::ExprTypes,
+    range: TextRange,
+) -> Option<&'t error::Type> {
+    let exact = (types.iter())
+        .rev()
+        .find(|(r, _)| trimmed(root, *r) == Some(range))
+        .map(|(_, ty)| ty);
+    exact.or_else(|| {
+        let text = root.text().to_string();
+        (types.iter())
+            .filter(|(r, _)| r.start() == range.start() && r.end() < range.end())
+            .filter(|(r, _)| {
+                text.get(usize::from(r.end())..usize::from(range.end()))
+                    .is_some_and(|rest| rest.chars().all(|c| c == ')' || c.is_whitespace()))
+            })
+            .max_by_key(|(r, _)| r.end())
+            .map(|(_, ty)| ty)
+    })
 }
 
 /// `range` from its first token that isn't trivia.

@@ -266,6 +266,9 @@ ContaSystemer/elm-menu@1.1.2/29 textDocument/foldingRange
 ContaSystemer/elm-menu@1.1.2/30 textDocument/hover
 ContaSystemer/elm-menu@1.1.2/31 textDocument/definition
 ContaSystemer/elm-menu@1.1.2/32 textDocument/references
+ContaSystemer/elm-menu@1.1.2/33 textDocument/hover
+ContaSystemer/elm-menu@1.1.2/34 textDocument/definition
+ContaSystemer/elm-menu@1.1.2/35 textDocument/references
 ContaSystemer/elm-menu@1.1.2/36 textDocument/hover
 ContaSystemer/elm-menu@1.1.2/37 textDocument/definition
 ContaSystemer/elm-menu@1.1.2/40 textDocument/definition
@@ -298,6 +301,9 @@ ContaSystemer/elm-menu@1.1.2/69 textDocument/references
 ContaSystemer/elm-menu@1.1.2/70 textDocument/hover
 ContaSystemer/elm-menu@1.1.2/71 textDocument/definition
 ContaSystemer/elm-menu@1.1.2/72 textDocument/references
+ContaSystemer/elm-menu@1.1.2/73 textDocument/hover
+ContaSystemer/elm-menu@1.1.2/74 textDocument/definition
+ContaSystemer/elm-menu@1.1.2/75 textDocument/references
 ContaSystemer/elm-menu@1.1.2/76 textDocument/hover
 ContaSystemer/elm-menu@1.1.2/77 textDocument/definition
 ContaSystemer/elm-menu@1.1.2/78 textDocument/references
@@ -504,6 +510,9 @@ Janiczek/elm-benchmark-cli-runner@1.0.0/07 textDocument/references
 Janiczek/elm-benchmark-cli-runner@1.0.0/08 textDocument/hover
 Janiczek/elm-benchmark-cli-runner@1.0.0/09 textDocument/definition
 Janiczek/elm-benchmark-cli-runner@1.0.0/10 textDocument/references
+Janiczek/elm-benchmark-cli-runner@1.0.0/11 textDocument/hover
+Janiczek/elm-benchmark-cli-runner@1.0.0/12 textDocument/definition
+Janiczek/elm-benchmark-cli-runner@1.0.0/13 textDocument/references
 Janiczek/elm-benchmark-cli-runner@1.0.0/14 textDocument/hover
 Janiczek/elm-benchmark-cli-runner@1.0.0/15 textDocument/definition
 Janiczek/elm-benchmark-cli-runner@1.0.0/16 textDocument/references
@@ -512,6 +521,7 @@ Janiczek/elm-benchmark-cli-runner@1.0.0/18 textDocument/definition
 Janiczek/elm-benchmark-cli-runner@1.0.0/20 textDocument/hover
 Janiczek/elm-benchmark-cli-runner@1.0.0/21 textDocument/definition
 Janiczek/elm-benchmark-cli-runner@1.0.0/22 textDocument/references
+Janiczek/elm-benchmark-cli-runner@1.0.0/23 textDocument/hover
 Janiczek/elm-benchmark-cli-runner@1.0.0/24 textDocument/definition
 Janiczek/elm-benchmark-cli-runner@1.0.0/25 textDocument/references
 Janiczek/elm-benchmark-cli-runner@1.0.0/diagnostics
@@ -529,6 +539,7 @@ MartinSStewart/elm-bayer-matrix@1.0.0/10 textDocument/references
 MartinSStewart/elm-bayer-matrix@1.0.0/11 textDocument/hover
 MartinSStewart/elm-bayer-matrix@1.0.0/12 textDocument/definition
 MartinSStewart/elm-bayer-matrix@1.0.0/13 textDocument/references
+MartinSStewart/elm-bayer-matrix@1.0.0/14 textDocument/hover
 MartinSStewart/elm-bayer-matrix@1.0.0/15 textDocument/definition
 MartinSStewart/elm-bayer-matrix@1.0.0/16 textDocument/references
 MartinSStewart/elm-bayer-matrix@1.0.0/17 textDocument/hover
@@ -559,6 +570,9 @@ MartinSStewart/elm-nonempty-string@2.0.0/16 textDocument/references
 MartinSStewart/elm-nonempty-string@2.0.0/17 textDocument/hover
 MartinSStewart/elm-nonempty-string@2.0.0/18 textDocument/definition
 MartinSStewart/elm-nonempty-string@2.0.0/19 textDocument/references
+MartinSStewart/elm-nonempty-string@2.0.0/20 textDocument/hover
+MartinSStewart/elm-nonempty-string@2.0.0/21 textDocument/definition
+MartinSStewart/elm-nonempty-string@2.0.0/22 textDocument/references
 MartinSStewart/elm-nonempty-string@2.0.0/23 textDocument/hover
 MartinSStewart/elm-nonempty-string@2.0.0/24 textDocument/definition
 MartinSStewart/elm-nonempty-string@2.0.0/25 textDocument/references
@@ -597,17 +611,24 @@ NoRedInk/datetimepicker-legacy@3.1.0/29 textDocument/foldingRange
 NoRedInk/datetimepicker-legacy@3.1.0/30 textDocument/hover
 NoRedInk/datetimepicker-legacy@3.1.0/31 textDocument/definition
 NoRedInk/datetimepicker-legacy@3.1.0/32 textDocument/references
+NoRedInk/datetimepicker-legacy@3.1.0/33 textDocument/hover
+NoRedInk/datetimepicker-legacy@3.1.0/34 textDocument/definition
+NoRedInk/datetimepicker-legacy@3.1.0/35 textDocument/references
 NoRedInk/datetimepicker-legacy@3.1.0/36 textDocument/hover
 NoRedInk/datetimepicker-legacy@3.1.0/37 textDocument/definition
 NoRedInk/datetimepicker-legacy@3.1.0/38 textDocument/references
 NoRedInk/datetimepicker-legacy@3.1.0/39 textDocument/hover
 NoRedInk/datetimepicker-legacy@3.1.0/40 textDocument/definition
 NoRedInk/datetimepicker-legacy@3.1.0/41 textDocument/references
+NoRedInk/datetimepicker-legacy@3.1.0/42 textDocument/hover
 NoRedInk/datetimepicker-legacy@3.1.0/43 textDocument/definition
 NoRedInk/datetimepicker-legacy@3.1.0/44 textDocument/references
 NoRedInk/datetimepicker-legacy@3.1.0/45 textDocument/hover
 NoRedInk/datetimepicker-legacy@3.1.0/46 textDocument/definition
 NoRedInk/datetimepicker-legacy@3.1.0/47 textDocument/references
+NoRedInk/datetimepicker-legacy@3.1.0/48 textDocument/hover
+NoRedInk/datetimepicker-legacy@3.1.0/49 textDocument/definition
+NoRedInk/datetimepicker-legacy@3.1.0/50 textDocument/references
 NoRedInk/datetimepicker-legacy@3.1.0/51 textDocument/hover
 NoRedInk/datetimepicker-legacy@3.1.0/52 textDocument/definition
 NoRedInk/datetimepicker-legacy@3.1.0/53 textDocument/references
@@ -632,6 +653,9 @@ NoRedInk/datetimepicker-legacy@3.1.0/72 textDocument/references
 NoRedInk/datetimepicker-legacy@3.1.0/73 textDocument/hover
 NoRedInk/datetimepicker-legacy@3.1.0/74 textDocument/definition
 NoRedInk/datetimepicker-legacy@3.1.0/75 textDocument/references
+NoRedInk/datetimepicker-legacy@3.1.0/76 textDocument/hover
+NoRedInk/datetimepicker-legacy@3.1.0/77 textDocument/definition
+NoRedInk/datetimepicker-legacy@3.1.0/78 textDocument/references
 NoRedInk/datetimepicker-legacy@3.1.0/79 textDocument/hover
 NoRedInk/datetimepicker-legacy@3.1.0/80 textDocument/definition
 NoRedInk/datetimepicker-legacy@3.1.0/81 textDocument/references
@@ -861,6 +885,7 @@ Yagger/elm-odata4@2.0.1/22 textDocument/references
 Yagger/elm-odata4@2.0.1/23 textDocument/hover
 Yagger/elm-odata4@2.0.1/24 textDocument/definition
 Yagger/elm-odata4@2.0.1/25 textDocument/references
+Yagger/elm-odata4@2.0.1/27 textDocument/completion
 Yagger/elm-odata4@2.0.1/28 textDocument/documentSymbol
 Yagger/elm-odata4@2.0.1/29 textDocument/foldingRange
 Yagger/elm-odata4@2.0.1/30 textDocument/hover
@@ -975,6 +1000,9 @@ app/bots-multi-instance/04 textDocument/references
 app/bots-multi-instance/05 textDocument/hover
 app/bots-multi-instance/06 textDocument/definition
 app/bots-multi-instance/07 textDocument/references
+app/bots-multi-instance/08 textDocument/hover
+app/bots-multi-instance/09 textDocument/definition
+app/bots-multi-instance/10 textDocument/references
 app/bots-multi-instance/11 textDocument/hover
 app/bots-multi-instance/12 textDocument/definition
 app/bots-multi-instance/13 textDocument/references
@@ -1008,6 +1036,9 @@ app/bots-multi-instance/41 textDocument/references
 app/bots-multi-instance/42 textDocument/hover
 app/bots-multi-instance/43 textDocument/definition
 app/bots-multi-instance/44 textDocument/references
+app/bots-multi-instance/45 textDocument/hover
+app/bots-multi-instance/46 textDocument/definition
+app/bots-multi-instance/47 textDocument/references
 app/bots-multi-instance/48 textDocument/hover
 app/bots-multi-instance/49 textDocument/definition
 app/bots-multi-instance/50 textDocument/references
@@ -1071,6 +1102,9 @@ app/bots-tribal-wars/30 textDocument/references
 app/bots-tribal-wars/31 textDocument/hover
 app/bots-tribal-wars/32 textDocument/definition
 app/bots-tribal-wars/33 textDocument/references
+app/bots-tribal-wars/34 textDocument/hover
+app/bots-tribal-wars/35 textDocument/definition
+app/bots-tribal-wars/36 textDocument/references
 app/bots-tribal-wars/37 textDocument/hover
 app/bots-tribal-wars/38 textDocument/definition
 app/bots-tribal-wars/39 textDocument/references
@@ -1082,6 +1116,9 @@ app/bots-tribal-wars/44 textDocument/definition
 app/bots-tribal-wars/45 textDocument/references
 app/bots-tribal-wars/46 textDocument/hover
 app/bots-tribal-wars/47 textDocument/definition
+app/bots-tribal-wars/49 textDocument/hover
+app/bots-tribal-wars/50 textDocument/definition
+app/bots-tribal-wars/51 textDocument/references
 app/bots-tribal-wars/52 textDocument/completion
 app/bots-tribal-wars/53 textDocument/completion
 app/bots-tribal-wars/54 textDocument/documentSymbol
@@ -1207,6 +1244,9 @@ app/docspell/10 textDocument/references
 app/docspell/11 textDocument/hover
 app/docspell/12 textDocument/definition
 app/docspell/13 textDocument/references
+app/docspell/14 textDocument/hover
+app/docspell/15 textDocument/definition
+app/docspell/16 textDocument/references
 app/docspell/17 textDocument/hover
 app/docspell/18 textDocument/definition
 app/docspell/19 textDocument/references
@@ -1263,6 +1303,7 @@ app/docspell/78 textDocument/references
 app/docspell/79 textDocument/hover
 app/docspell/80 textDocument/definition
 app/docspell/81 textDocument/references
+app/docspell/83 textDocument/completion
 app/docspell/diagnostics
 app/elm-analyse/00 textDocument/documentSymbol
 app/elm-analyse/01 textDocument/foldingRange
@@ -1777,6 +1818,9 @@ app/elmstatic-md/31 textDocument/definition
 app/elmstatic-md/33 textDocument/hover
 app/elmstatic-md/34 textDocument/definition
 app/elmstatic-md/35 textDocument/references
+app/elmstatic-md/36 textDocument/hover
+app/elmstatic-md/37 textDocument/definition
+app/elmstatic-md/38 textDocument/references
 app/elmstatic-md/39 textDocument/hover
 app/elmstatic-md/40 textDocument/definition
 app/elmstatic-md/41 textDocument/references
@@ -1806,6 +1850,9 @@ app/elmstatic-md/66 textDocument/references
 app/elmstatic-md/67 textDocument/hover
 app/elmstatic-md/68 textDocument/definition
 app/elmstatic-md/69 textDocument/references
+app/elmstatic-md/70 textDocument/hover
+app/elmstatic-md/71 textDocument/definition
+app/elmstatic-md/72 textDocument/references
 app/elmstatic-md/73 textDocument/hover
 app/elmstatic-md/74 textDocument/definition
 app/elmstatic-md/75 textDocument/references
@@ -1844,6 +1891,7 @@ app/emdash/22 textDocument/references
 app/emdash/23 textDocument/hover
 app/emdash/24 textDocument/definition
 app/emdash/25 textDocument/references
+app/emdash/27 textDocument/completion
 app/emdash/28 textDocument/documentSymbol
 app/emdash/29 textDocument/foldingRange
 app/emdash/30 textDocument/hover
@@ -1885,6 +1933,9 @@ app/emdash/66 textDocument/references
 app/emdash/67 textDocument/hover
 app/emdash/68 textDocument/definition
 app/emdash/69 textDocument/references
+app/emdash/70 textDocument/hover
+app/emdash/71 textDocument/definition
+app/emdash/72 textDocument/references
 app/emdash/73 textDocument/hover
 app/emdash/74 textDocument/definition
 app/emdash/75 textDocument/references
@@ -2017,6 +2068,7 @@ app/gingko/46 textDocument/definition
 app/gingko/48 textDocument/hover
 app/gingko/49 textDocument/definition
 app/gingko/50 textDocument/references
+app/gingko/51 textDocument/hover
 app/gingko/52 textDocument/definition
 app/gingko/53 textDocument/references
 app/gingko/56 textDocument/documentSymbol
@@ -2055,6 +2107,9 @@ app/guide-repl/06 textDocument/definition
 app/guide-repl/08 textDocument/hover
 app/guide-repl/09 textDocument/definition
 app/guide-repl/10 textDocument/references
+app/guide-repl/11 textDocument/hover
+app/guide-repl/12 textDocument/definition
+app/guide-repl/13 textDocument/references
 app/guide-repl/14 textDocument/hover
 app/guide-repl/15 textDocument/definition
 app/guide-repl/16 textDocument/references
@@ -2091,6 +2146,9 @@ app/guide-repl/46 textDocument/definition
 app/guide-repl/47 textDocument/references
 app/guide-repl/48 textDocument/hover
 app/guide-repl/49 textDocument/definition
+app/guide-repl/51 textDocument/hover
+app/guide-repl/52 textDocument/definition
+app/guide-repl/53 textDocument/references
 app/guide-repl/56 textDocument/documentSymbol
 app/guide-repl/57 textDocument/foldingRange
 app/guide-repl/58 textDocument/hover
@@ -2220,6 +2278,7 @@ app/liascript/22 textDocument/references
 app/liascript/23 textDocument/hover
 app/liascript/24 textDocument/definition
 app/liascript/25 textDocument/references
+app/liascript/26 textDocument/completion
 app/liascript/28 textDocument/documentSymbol
 app/liascript/29 textDocument/foldingRange
 app/liascript/30 textDocument/hover
@@ -2340,6 +2399,9 @@ app/nixos-search/69 textDocument/references
 app/nixos-search/70 textDocument/hover
 app/nixos-search/71 textDocument/definition
 app/nixos-search/72 textDocument/references
+app/nixos-search/73 textDocument/hover
+app/nixos-search/74 textDocument/definition
+app/nixos-search/75 textDocument/references
 app/nixos-search/76 textDocument/hover
 app/nixos-search/77 textDocument/definition
 app/nixos-search/78 textDocument/references
@@ -2355,6 +2417,7 @@ app/package-elm-lang-org/04 textDocument/references
 app/package-elm-lang-org/05 textDocument/hover
 app/package-elm-lang-org/06 textDocument/definition
 app/package-elm-lang-org/07 textDocument/references
+app/package-elm-lang-org/08 textDocument/hover
 app/package-elm-lang-org/09 textDocument/definition
 app/package-elm-lang-org/10 textDocument/references
 app/package-elm-lang-org/11 textDocument/hover
@@ -2397,6 +2460,7 @@ app/package-elm-lang-org/50 textDocument/references
 app/package-elm-lang-org/51 textDocument/hover
 app/package-elm-lang-org/52 textDocument/definition
 app/package-elm-lang-org/53 textDocument/references
+app/package-elm-lang-org/54 textDocument/completion
 app/package-elm-lang-org/55 textDocument/completion
 app/package-elm-lang-org/56 textDocument/documentSymbol
 app/package-elm-lang-org/57 textDocument/foldingRange
@@ -2692,6 +2756,7 @@ app/swarm-dashboard/22 textDocument/references
 app/swarm-dashboard/23 textDocument/hover
 app/swarm-dashboard/24 textDocument/definition
 app/swarm-dashboard/25 textDocument/references
+app/swarm-dashboard/27 textDocument/completion
 app/swarm-dashboard/28 textDocument/documentSymbol
 app/swarm-dashboard/29 textDocument/foldingRange
 app/swarm-dashboard/30 textDocument/hover
@@ -2707,6 +2772,7 @@ app/swarm-dashboard/40 textDocument/definition
 app/swarm-dashboard/41 textDocument/references
 app/swarm-dashboard/42 textDocument/hover
 app/swarm-dashboard/43 textDocument/definition
+app/swarm-dashboard/45 textDocument/hover
 app/swarm-dashboard/46 textDocument/definition
 app/swarm-dashboard/47 textDocument/references
 app/swarm-dashboard/48 textDocument/hover
@@ -2730,6 +2796,7 @@ app/swarm-dashboard/68 textDocument/definition
 app/swarm-dashboard/70 textDocument/hover
 app/swarm-dashboard/71 textDocument/definition
 app/swarm-dashboard/72 textDocument/references
+app/swarm-dashboard/73 textDocument/hover
 app/swarm-dashboard/74 textDocument/definition
 app/swarm-dashboard/75 textDocument/references
 app/swarm-dashboard/76 textDocument/hover
@@ -2738,6 +2805,7 @@ app/swarm-dashboard/78 textDocument/references
 app/swarm-dashboard/79 textDocument/hover
 app/swarm-dashboard/80 textDocument/definition
 app/swarm-dashboard/81 textDocument/references
+app/swarm-dashboard/82 textDocument/completion
 app/todomvc/00 textDocument/documentSymbol
 app/todomvc/01 textDocument/foldingRange
 app/todomvc/02 textDocument/hover
@@ -2894,6 +2962,9 @@ b0oh/elm-do@1.0.0/83 textDocument/completion
 b0oh/elm-do@1.0.0/diagnostics
 bcardiff/elm-rad@1.0.0/00 textDocument/documentSymbol
 bcardiff/elm-rad@1.0.0/01 textDocument/foldingRange
+bcardiff/elm-rad@1.0.0/02 textDocument/hover
+bcardiff/elm-rad@1.0.0/03 textDocument/definition
+bcardiff/elm-rad@1.0.0/04 textDocument/references
 bcardiff/elm-rad@1.0.0/05 textDocument/hover
 bcardiff/elm-rad@1.0.0/06 textDocument/definition
 bcardiff/elm-rad@1.0.0/07 textDocument/references
@@ -3203,6 +3274,9 @@ damjack/elm-newrelic-nreum@1.0.0/16 textDocument/references
 damjack/elm-newrelic-nreum@1.0.0/17 textDocument/hover
 damjack/elm-newrelic-nreum@1.0.0/18 textDocument/definition
 damjack/elm-newrelic-nreum@1.0.0/19 textDocument/references
+damjack/elm-newrelic-nreum@1.0.0/20 textDocument/hover
+damjack/elm-newrelic-nreum@1.0.0/21 textDocument/definition
+damjack/elm-newrelic-nreum@1.0.0/22 textDocument/references
 damjack/elm-newrelic-nreum@1.0.0/23 textDocument/hover
 damjack/elm-newrelic-nreum@1.0.0/24 textDocument/definition
 damjack/elm-newrelic-nreum@1.0.0/25 textDocument/references
@@ -3233,9 +3307,13 @@ damjack/elm-newrelic-nreum@1.0.0/49 textDocument/definition
 damjack/elm-newrelic-nreum@1.0.0/51 textDocument/hover
 damjack/elm-newrelic-nreum@1.0.0/52 textDocument/definition
 damjack/elm-newrelic-nreum@1.0.0/53 textDocument/references
+damjack/elm-newrelic-nreum@1.0.0/54 textDocument/completion
 damjack/elm-newrelic-nreum@1.0.0/55 textDocument/completion
 damjack/elm-newrelic-nreum@1.0.0/56 textDocument/documentSymbol
 damjack/elm-newrelic-nreum@1.0.0/57 textDocument/foldingRange
+damjack/elm-newrelic-nreum@1.0.0/58 textDocument/hover
+damjack/elm-newrelic-nreum@1.0.0/59 textDocument/definition
+damjack/elm-newrelic-nreum@1.0.0/60 textDocument/references
 damjack/elm-newrelic-nreum@1.0.0/61 textDocument/hover
 damjack/elm-newrelic-nreum@1.0.0/62 textDocument/definition
 damjack/elm-newrelic-nreum@1.0.0/63 textDocument/references
@@ -3348,6 +3426,9 @@ decioferreira/elm-review-zen-css@1.0.0/13 textDocument/references
 decioferreira/elm-review-zen-css@1.0.0/14 textDocument/hover
 decioferreira/elm-review-zen-css@1.0.0/15 textDocument/definition
 decioferreira/elm-review-zen-css@1.0.0/16 textDocument/references
+decioferreira/elm-review-zen-css@1.0.0/17 textDocument/hover
+decioferreira/elm-review-zen-css@1.0.0/18 textDocument/definition
+decioferreira/elm-review-zen-css@1.0.0/19 textDocument/references
 decioferreira/elm-review-zen-css@1.0.0/20 textDocument/hover
 decioferreira/elm-review-zen-css@1.0.0/21 textDocument/definition
 decioferreira/elm-review-zen-css@1.0.0/22 textDocument/references
@@ -3416,6 +3497,9 @@ dillonkearns/elm-sitemap@1.0.2/35 textDocument/references
 dillonkearns/elm-sitemap@1.0.2/39 textDocument/hover
 dillonkearns/elm-sitemap@1.0.2/40 textDocument/definition
 dillonkearns/elm-sitemap@1.0.2/41 textDocument/references
+dillonkearns/elm-sitemap@1.0.2/42 textDocument/hover
+dillonkearns/elm-sitemap@1.0.2/43 textDocument/definition
+dillonkearns/elm-sitemap@1.0.2/44 textDocument/references
 dillonkearns/elm-sitemap@1.0.2/45 textDocument/hover
 dillonkearns/elm-sitemap@1.0.2/46 textDocument/definition
 dillonkearns/elm-sitemap@1.0.2/47 textDocument/references
@@ -3435,12 +3519,18 @@ drathier/elm-graph@4.0.0/04 textDocument/references
 drathier/elm-graph@4.0.0/05 textDocument/hover
 drathier/elm-graph@4.0.0/06 textDocument/definition
 drathier/elm-graph@4.0.0/07 textDocument/references
+drathier/elm-graph@4.0.0/08 textDocument/hover
+drathier/elm-graph@4.0.0/09 textDocument/definition
+drathier/elm-graph@4.0.0/10 textDocument/references
 drathier/elm-graph@4.0.0/11 textDocument/hover
 drathier/elm-graph@4.0.0/12 textDocument/definition
 drathier/elm-graph@4.0.0/13 textDocument/references
 drathier/elm-graph@4.0.0/14 textDocument/hover
 drathier/elm-graph@4.0.0/15 textDocument/definition
 drathier/elm-graph@4.0.0/16 textDocument/references
+drathier/elm-graph@4.0.0/17 textDocument/hover
+drathier/elm-graph@4.0.0/18 textDocument/definition
+drathier/elm-graph@4.0.0/19 textDocument/references
 drathier/elm-graph@4.0.0/20 textDocument/hover
 drathier/elm-graph@4.0.0/21 textDocument/definition
 drathier/elm-graph@4.0.0/23 textDocument/hover
@@ -3521,6 +3611,9 @@ dtwrks/elm-book-interop-elm-css@1.0.2/16 textDocument/references
 dtwrks/elm-book-interop-elm-css@1.0.2/17 textDocument/hover
 dtwrks/elm-book-interop-elm-css@1.0.2/18 textDocument/definition
 dtwrks/elm-book-interop-elm-css@1.0.2/19 textDocument/references
+dtwrks/elm-book-interop-elm-css@1.0.2/20 textDocument/hover
+dtwrks/elm-book-interop-elm-css@1.0.2/21 textDocument/definition
+dtwrks/elm-book-interop-elm-css@1.0.2/22 textDocument/references
 dtwrks/elm-book-interop-elm-css@1.0.2/23 textDocument/hover
 dtwrks/elm-book-interop-elm-css@1.0.2/24 textDocument/definition
 dtwrks/elm-book-interop-elm-css@1.0.2/25 textDocument/references
@@ -3901,12 +3994,18 @@ eriktim/elm-protocol-buffers@1.2.0/31 textDocument/definition
 eriktim/elm-protocol-buffers@1.2.0/33 textDocument/hover
 eriktim/elm-protocol-buffers@1.2.0/34 textDocument/definition
 eriktim/elm-protocol-buffers@1.2.0/35 textDocument/references
+eriktim/elm-protocol-buffers@1.2.0/36 textDocument/hover
+eriktim/elm-protocol-buffers@1.2.0/37 textDocument/definition
+eriktim/elm-protocol-buffers@1.2.0/38 textDocument/references
 eriktim/elm-protocol-buffers@1.2.0/39 textDocument/hover
 eriktim/elm-protocol-buffers@1.2.0/40 textDocument/definition
 eriktim/elm-protocol-buffers@1.2.0/41 textDocument/references
 eriktim/elm-protocol-buffers@1.2.0/42 textDocument/hover
 eriktim/elm-protocol-buffers@1.2.0/43 textDocument/definition
 eriktim/elm-protocol-buffers@1.2.0/44 textDocument/references
+eriktim/elm-protocol-buffers@1.2.0/48 textDocument/hover
+eriktim/elm-protocol-buffers@1.2.0/49 textDocument/definition
+eriktim/elm-protocol-buffers@1.2.0/50 textDocument/references
 eriktim/elm-protocol-buffers@1.2.0/51 textDocument/hover
 eriktim/elm-protocol-buffers@1.2.0/52 textDocument/definition
 eriktim/elm-protocol-buffers@1.2.0/53 textDocument/references
@@ -3931,6 +4030,9 @@ eriktim/elm-protocol-buffers@1.2.0/72 textDocument/references
 eriktim/elm-protocol-buffers@1.2.0/73 textDocument/hover
 eriktim/elm-protocol-buffers@1.2.0/74 textDocument/definition
 eriktim/elm-protocol-buffers@1.2.0/75 textDocument/references
+eriktim/elm-protocol-buffers@1.2.0/76 textDocument/hover
+eriktim/elm-protocol-buffers@1.2.0/77 textDocument/definition
+eriktim/elm-protocol-buffers@1.2.0/78 textDocument/references
 eriktim/elm-protocol-buffers@1.2.0/79 textDocument/hover
 eriktim/elm-protocol-buffers@1.2.0/80 textDocument/definition
 eriktim/elm-protocol-buffers@1.2.0/81 textDocument/references
@@ -3991,6 +4093,9 @@ figbus/elm-urbit-api@4.0.1/53 textDocument/references
 figbus/elm-urbit-api@4.0.1/55 textDocument/completion
 figbus/elm-urbit-api@4.0.1/56 textDocument/documentSymbol
 figbus/elm-urbit-api@4.0.1/57 textDocument/foldingRange
+figbus/elm-urbit-api@4.0.1/58 textDocument/hover
+figbus/elm-urbit-api@4.0.1/59 textDocument/definition
+figbus/elm-urbit-api@4.0.1/60 textDocument/references
 figbus/elm-urbit-api@4.0.1/62 textDocument/definition
 figbus/elm-urbit-api@4.0.1/63 textDocument/references
 figbus/elm-urbit-api@4.0.1/64 textDocument/hover
@@ -4132,6 +4237,9 @@ getto-systems/elm-html-table@1.0.0/44 textDocument/references
 getto-systems/elm-html-table@1.0.0/45 textDocument/hover
 getto-systems/elm-html-table@1.0.0/46 textDocument/definition
 getto-systems/elm-html-table@1.0.0/47 textDocument/references
+getto-systems/elm-html-table@1.0.0/48 textDocument/hover
+getto-systems/elm-html-table@1.0.0/49 textDocument/definition
+getto-systems/elm-html-table@1.0.0/50 textDocument/references
 getto-systems/elm-html-table@1.0.0/51 textDocument/hover
 getto-systems/elm-html-table@1.0.0/52 textDocument/definition
 getto-systems/elm-html-table@1.0.0/53 textDocument/references
@@ -4634,8 +4742,12 @@ johnathanbostrom/elm-dice@2.0.0/13 textDocument/references
 johnathanbostrom/elm-dice@2.0.0/14 textDocument/hover
 johnathanbostrom/elm-dice@2.0.0/15 textDocument/definition
 johnathanbostrom/elm-dice@2.0.0/16 textDocument/references
+johnathanbostrom/elm-dice@2.0.0/17 textDocument/hover
 johnathanbostrom/elm-dice@2.0.0/18 textDocument/definition
 johnathanbostrom/elm-dice@2.0.0/19 textDocument/references
+johnathanbostrom/elm-dice@2.0.0/20 textDocument/hover
+johnathanbostrom/elm-dice@2.0.0/21 textDocument/definition
+johnathanbostrom/elm-dice@2.0.0/22 textDocument/references
 johnathanbostrom/elm-dice@2.0.0/23 textDocument/hover
 johnathanbostrom/elm-dice@2.0.0/24 textDocument/definition
 johnathanbostrom/elm-dice@2.0.0/25 textDocument/references
@@ -4675,6 +4787,7 @@ justgage/tachyons-elm@4.1.3/35 textDocument/references
 justgage/tachyons-elm@4.1.3/36 textDocument/hover
 justgage/tachyons-elm@4.1.3/37 textDocument/definition
 justgage/tachyons-elm@4.1.3/38 textDocument/references
+justgage/tachyons-elm@4.1.3/41 textDocument/references
 justgage/tachyons-elm@4.1.3/42 textDocument/hover
 justgage/tachyons-elm@4.1.3/43 textDocument/definition
 justgage/tachyons-elm@4.1.3/44 textDocument/references
@@ -4980,6 +5093,7 @@ klazuka/elm-json-tree-view@2.1.0/07 textDocument/references
 klazuka/elm-json-tree-view@2.1.0/08 textDocument/hover
 klazuka/elm-json-tree-view@2.1.0/09 textDocument/definition
 klazuka/elm-json-tree-view@2.1.0/10 textDocument/references
+klazuka/elm-json-tree-view@2.1.0/11 textDocument/hover
 klazuka/elm-json-tree-view@2.1.0/12 textDocument/definition
 klazuka/elm-json-tree-view@2.1.0/13 textDocument/references
 klazuka/elm-json-tree-view@2.1.0/14 textDocument/hover
@@ -5206,6 +5320,9 @@ lucamug/elm-box-drawing@1.0.1/19 textDocument/references
 lucamug/elm-box-drawing@1.0.1/20 textDocument/hover
 lucamug/elm-box-drawing@1.0.1/21 textDocument/definition
 lucamug/elm-box-drawing@1.0.1/22 textDocument/references
+lucamug/elm-box-drawing@1.0.1/23 textDocument/hover
+lucamug/elm-box-drawing@1.0.1/24 textDocument/definition
+lucamug/elm-box-drawing@1.0.1/25 textDocument/references
 lucamug/elm-box-drawing@1.0.1/26 textDocument/completion
 lucamug/elm-box-drawing@1.0.1/27 textDocument/completion
 lucamug/elm-box-drawing@1.0.1/28 textDocument/documentSymbol
@@ -5338,6 +5455,9 @@ lue-bird/elm-alternative-benchmark-runner@1.0.0/83 textDocument/completion
 lue-bird/elm-alternative-benchmark-runner@1.0.0/diagnostics
 lue-bird/elm-docs-diff@1.0.2/00 textDocument/documentSymbol
 lue-bird/elm-docs-diff@1.0.2/01 textDocument/foldingRange
+lue-bird/elm-docs-diff@1.0.2/02 textDocument/hover
+lue-bird/elm-docs-diff@1.0.2/03 textDocument/definition
+lue-bird/elm-docs-diff@1.0.2/04 textDocument/references
 lue-bird/elm-docs-diff@1.0.2/05 textDocument/hover
 lue-bird/elm-docs-diff@1.0.2/06 textDocument/definition
 lue-bird/elm-docs-diff@1.0.2/07 textDocument/references
@@ -5360,6 +5480,9 @@ lue-bird/elm-docs-diff@1.0.2/25 textDocument/references
 lue-bird/elm-docs-diff@1.0.2/26 textDocument/completion
 lue-bird/elm-docs-diff@1.0.2/28 textDocument/documentSymbol
 lue-bird/elm-docs-diff@1.0.2/29 textDocument/foldingRange
+lue-bird/elm-docs-diff@1.0.2/30 textDocument/hover
+lue-bird/elm-docs-diff@1.0.2/31 textDocument/definition
+lue-bird/elm-docs-diff@1.0.2/32 textDocument/references
 lue-bird/elm-docs-diff@1.0.2/34 textDocument/definition
 lue-bird/elm-docs-diff@1.0.2/35 textDocument/references
 lue-bird/elm-docs-diff@1.0.2/36 textDocument/hover
@@ -5514,6 +5637,7 @@ maca/elm-rose-tree@1.2.1/41 textDocument/references
 maca/elm-rose-tree@1.2.1/42 textDocument/hover
 maca/elm-rose-tree@1.2.1/43 textDocument/definition
 maca/elm-rose-tree@1.2.1/44 textDocument/references
+maca/elm-rose-tree@1.2.1/45 textDocument/hover
 maca/elm-rose-tree@1.2.1/46 textDocument/definition
 maca/elm-rose-tree@1.2.1/47 textDocument/references
 maca/elm-rose-tree@1.2.1/48 textDocument/hover
@@ -5914,6 +6038,9 @@ niho/elm-stomp@1.0.0/63 textDocument/references
 niho/elm-stomp@1.0.0/64 textDocument/hover
 niho/elm-stomp@1.0.0/65 textDocument/definition
 niho/elm-stomp@1.0.0/66 textDocument/references
+niho/elm-stomp@1.0.0/67 textDocument/hover
+niho/elm-stomp@1.0.0/68 textDocument/definition
+niho/elm-stomp@1.0.0/69 textDocument/references
 niho/elm-stomp@1.0.0/70 textDocument/hover
 niho/elm-stomp@1.0.0/71 textDocument/definition
 niho/elm-stomp@1.0.0/73 textDocument/hover
@@ -6132,6 +6259,7 @@ panthershark/snackbar@1.0.0/44 textDocument/references
 panthershark/snackbar@1.0.0/45 textDocument/hover
 panthershark/snackbar@1.0.0/46 textDocument/definition
 panthershark/snackbar@1.0.0/47 textDocument/references
+panthershark/snackbar@1.0.0/48 textDocument/hover
 panthershark/snackbar@1.0.0/49 textDocument/definition
 panthershark/snackbar@1.0.0/50 textDocument/references
 panthershark/snackbar@1.0.0/51 textDocument/hover
@@ -6417,11 +6545,15 @@ scrive/elm-form@1.0.0/62 textDocument/definition
 scrive/elm-form@1.0.0/64 textDocument/hover
 scrive/elm-form@1.0.0/65 textDocument/definition
 scrive/elm-form@1.0.0/66 textDocument/references
+scrive/elm-form@1.0.0/67 textDocument/hover
+scrive/elm-form@1.0.0/68 textDocument/definition
+scrive/elm-form@1.0.0/69 textDocument/references
 scrive/elm-form@1.0.0/71 textDocument/definition
 scrive/elm-form@1.0.0/72 textDocument/references
 scrive/elm-form@1.0.0/73 textDocument/hover
 scrive/elm-form@1.0.0/74 textDocument/definition
 scrive/elm-form@1.0.0/75 textDocument/references
+scrive/elm-form@1.0.0/76 textDocument/hover
 scrive/elm-form@1.0.0/77 textDocument/definition
 scrive/elm-form@1.0.0/78 textDocument/references
 scrive/elm-form@1.0.0/80 textDocument/definition
@@ -6550,6 +6682,9 @@ the-sett/elm-aws-messaging@1.0.0/16 textDocument/references
 the-sett/elm-aws-messaging@1.0.0/17 textDocument/hover
 the-sett/elm-aws-messaging@1.0.0/18 textDocument/definition
 the-sett/elm-aws-messaging@1.0.0/19 textDocument/references
+the-sett/elm-aws-messaging@1.0.0/20 textDocument/hover
+the-sett/elm-aws-messaging@1.0.0/21 textDocument/definition
+the-sett/elm-aws-messaging@1.0.0/22 textDocument/references
 the-sett/elm-aws-messaging@1.0.0/23 textDocument/hover
 the-sett/elm-aws-messaging@1.0.0/24 textDocument/definition
 the-sett/elm-aws-messaging@1.0.0/25 textDocument/references
@@ -6674,6 +6809,7 @@ tkuriyama/elm-generator@1.1.0/22 textDocument/references
 tkuriyama/elm-generator@1.1.0/23 textDocument/hover
 tkuriyama/elm-generator@1.1.0/24 textDocument/definition
 tkuriyama/elm-generator@1.1.0/25 textDocument/references
+tkuriyama/elm-generator@1.1.0/26 textDocument/completion
 tkuriyama/elm-generator@1.1.0/28 textDocument/documentSymbol
 tkuriyama/elm-generator@1.1.0/29 textDocument/foldingRange
 tkuriyama/elm-generator@1.1.0/30 textDocument/hover
@@ -6885,6 +7021,7 @@ w0rm/elm-obj-file@1.4.0/78 textDocument/references
 w0rm/elm-obj-file@1.4.0/79 textDocument/hover
 w0rm/elm-obj-file@1.4.0/80 textDocument/definition
 w0rm/elm-obj-file@1.4.0/81 textDocument/references
+w0rm/elm-obj-file@1.4.0/82 textDocument/completion
 w0rm/elm-obj-file@1.4.0/diagnostics
 wernerdegroot/listzipper@4.0.0/00 textDocument/documentSymbol
 wernerdegroot/listzipper@4.0.0/01 textDocument/foldingRange
@@ -6910,6 +7047,7 @@ wernerdegroot/listzipper@4.0.0/21 textDocument/definition
 wernerdegroot/listzipper@4.0.0/22 textDocument/references
 wernerdegroot/listzipper@4.0.0/23 textDocument/hover
 wernerdegroot/listzipper@4.0.0/24 textDocument/definition
+wernerdegroot/listzipper@4.0.0/26 textDocument/completion
 wernerdegroot/listzipper@4.0.0/diagnostics
 wolfadex/elm-text-adventure@2.0.0/00 textDocument/documentSymbol
 wolfadex/elm-text-adventure@2.0.0/01 textDocument/foldingRange

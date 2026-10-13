@@ -210,7 +210,14 @@ pub fn references(
     with_declaration: bool,
 ) -> Vec<Location> {
     // Only the project's own files, as elm-language-server keeps to the
-    // writeable ones: a package's declaration and uses are left out.
+    // writeable ones: a package's declaration and uses are left out. Not
+    // for a field, whose references it never filters.
+    if let Some(module) = index.module(path)
+        && let Some(found) =
+            crate::fields::references(snapshot, index, module, offset, with_declaration)
+    {
+        return found;
+    }
     let mut found = all_references(snapshot, index, path, offset, with_declaration);
     found.retain(|location| index.module(&location.path).is_some());
     found
@@ -243,7 +250,21 @@ fn all_references(
             })
             .collect();
     }
-    let Some(target) = target_at(index, module, offset) else {
+    let target = target_at(index, module, offset);
+    // The `List` type, declared nowhere, is its module to
+    // elm-language-server.
+    if let Some(Target::Global {
+        home,
+        name,
+        kind: Kind::Type,
+    }) = &target
+        && &*home.package == "elm/core"
+        && &*home.module == "List"
+        && name == "List"
+    {
+        return module_references(index, "List", with_declaration);
+    }
+    let Some(target) = target else {
         let Some((binder, scope)) = crate::scopes::local(&module.root, offset) else {
             return Vec::new();
         };
@@ -774,6 +795,7 @@ fn declaration(
     let text = snapshot.read(&path).ok()?;
     let parse = parse_module(&text);
     let hir = hir::lower(&ast::Module::cast(parse.syntax())?);
+    // `List`, which elm/core never declares, is its module.
     Some(Location {
         range: declared(&hir, name, kind).unwrap_or_default(),
         path,
@@ -854,7 +876,11 @@ fn name_range(root: &SyntaxNode, range: TextRange, kind: Option<Kind>) -> Option
         .collect();
     let last = tokens.last()?.text_range();
     match kind {
-        Some(Kind::Module) => Some(TextRange::new(tokens[0].text_range().start(), last.end())),
+        // A qualified type or constructor is one name to tree-sitter-elm,
+        // qualifier and all; a value's qualifier is its module's.
+        Some(Kind::Module | Kind::Type | Kind::Ctor) => {
+            Some(TextRange::new(tokens[0].text_range().start(), last.end()))
+        }
         _ => Some(last),
     }
 }

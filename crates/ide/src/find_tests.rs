@@ -64,11 +64,7 @@ impl<'a> Finder<'a> {
     }
 
     fn type_of(&self, node: &SyntaxNode) -> Option<&error::Type> {
-        let range = code_range(node)?;
-        (self.types.iter())
-            .rev()
-            .find(|(r, _)| crate::hover::trimmed(&self.module.root, *r) == Some(range))
-            .map(|(_, ty)| ty)
+        crate::hover::type_of(&self.module.root, &self.types, code_range(node)?)
     }
 
     /// `findTestFunctionCall`: through `let`s, the first call in `node`,
