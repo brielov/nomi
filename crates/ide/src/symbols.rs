@@ -1,7 +1,8 @@
 //! The symbols a file declares, as elm-language-server 2.10.0 lists them
 //! (`documentSymbolProvider.ts`, `symbolTranslator.ts`): one flat list
 //! in source order of the module, every value with a definition, `let`'s
-//! included, each custom type and its variants, and each type alias.
+//! included, each `let` destructuring by its pattern, each custom type
+//! and its variants, and each type alias.
 //! A declaration's range leaves out its doc comment, and a value's its
 //! signature, as tree-sitter-elm's nodes do.
 
@@ -51,11 +52,27 @@ fn symbols(root: &SyntaxNode) -> Vec<Symbol> {
                     let name = token(&definition, SyntaxKind::LowerIdent)?;
                     Some((name, SymbolKind::Function, definition))
                 }),
+            // A `let` that destructures: named by its pattern's first part
+            // as tree-sitter-elm has it, the whole pattern as written, or a
+            // parenthesized one's `(`.
+            SyntaxKind::LetDestructure => (node.children())
+                .find(|c| crate::lint::is_pattern(c.kind()))
+                .and_then(|pattern| {
+                    if pattern.kind() == SyntaxKind::ParenPattern {
+                        return Some("(".to_owned());
+                    }
+                    code_range(&pattern).map(|range| root.text().slice(range).to_string())
+                })
+                .map(|name| (name, SymbolKind::Function, node.clone())),
             SyntaxKind::CustomTypeDecl => token(&node, SyntaxKind::UpperIdent)
                 .map(|name| (name, SymbolKind::Enum, node.clone())),
             SyntaxKind::TypeAliasDecl => token(&node, SyntaxKind::UpperIdent)
                 .map(|name| (name, SymbolKind::Struct, node.clone())),
-            SyntaxKind::Variant => Some((words(&node), SymbolKind::EnumMember, node.clone())),
+            // A variant is named by its text as written, lines and all.
+            SyntaxKind::Variant => code_range(&node).map(|range| {
+                let name = root.text().slice(range).to_string();
+                (name, SymbolKind::EnumMember, node.clone())
+            }),
             _ => None,
         };
         if let Some((name, kind, node)) = symbol
@@ -163,8 +180,8 @@ pub(crate) fn declaration_range(node: &SyntaxNode) -> Option<TextRange> {
 }
 
 /// A variant's extent as tree-sitter-elm's node has it: its code, and
-/// the line comments after it where another variant follows, which its
-/// node takes in.
+/// the line comments after it where another variant or a block comment
+/// follows, which its node takes in.
 pub(crate) fn variant_range(node: &SyntaxNode) -> Option<TextRange> {
     let range = code_range(node)?;
     let mut end = range.end();
@@ -174,7 +191,9 @@ pub(crate) fn variant_range(node: &SyntaxNode) -> Option<TextRange> {
         match token.kind() {
             SyntaxKind::Whitespace | SyntaxKind::Newline => {}
             SyntaxKind::LineComment => comments = token.text_range().end(),
-            SyntaxKind::Pipe => {
+            // The last variant's take those before a block comment, as its
+            // declaration's do.
+            SyntaxKind::Pipe | SyntaxKind::BlockComment | SyntaxKind::DocComment => {
                 end = comments;
                 break;
             }

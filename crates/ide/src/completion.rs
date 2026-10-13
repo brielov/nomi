@@ -86,6 +86,11 @@ pub fn completions(
     // The word before the cursor, qualified names included.
     let word_start = word_start(line, column);
     let word = &line[word_start..column];
+    // The whole name the cursor is in, what follows it too.
+    let name_end = line[column..]
+        .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .map_or(line.len(), |i| column + i);
+    let name_at = &line[word_start..name_end];
     let range = |from: usize| TextRange::new(TextSize::new((line_start + from) as u32), offset);
     let context = Context {
         snapshot,
@@ -97,7 +102,13 @@ pub fn completions(
         return Some(Completions::List(Vec::new()));
     }
     let before = line[..word_start].trim_end();
-    if before.ends_with("module") && before.split_whitespace().count() == 1 {
+    // A module's name, after `module`, `port module` or `effect module`.
+    if before.ends_with("module")
+        && matches!(
+            before.split_whitespace().collect::<Vec<_>>()[..],
+            ["module"] | ["port", "module"] | ["effect", "module"]
+        )
+    {
         return None;
     }
     // Not a pattern's name, nor an import's alias.
@@ -106,8 +117,11 @@ pub fn completions(
         .token_at_offset(offset)
         .find(|t| t.kind() == SyntaxKind::LowerIdent)
         .and_then(|t| t.parent());
+    // Nor an import's `as`, which tree-sitter-elm reads as part of it.
+    let import = line.trim_start().starts_with("import ");
     if named.is_some_and(|p| p.kind() == SyntaxKind::VarPattern)
-        || (line.trim_start().starts_with("import ") && before.ends_with(" as"))
+        || (import && before.ends_with(" as"))
+        || (import && name_at == "as")
     {
         return Some(Completions::List(Vec::new()));
     }
@@ -147,8 +161,16 @@ pub fn completions(
             )]));
         }
     }
-    // An exposing list: the module's own, or an import's.
-    if let Some(list) = exposing_list(text, at) {
+    // An exposing list: the module's own, or an import's. A header's
+    // `exposing` is part of its list to tree-sitter-elm.
+    let header = ["module ", "port module ", "effect module "]
+        .iter()
+        .any(|h| line.starts_with(h));
+    let list_at = match line[name_end..].find('(') {
+        Some(open) if header && name_at == "exposing" => line_start + name_end + open + 1,
+        _ => at,
+    };
+    if let Some(list) = exposing_list(text, list_at) {
         let replace = range(word_start);
         return Some(Completions::List(match list {
             Exposing::Module(written) => context
@@ -194,14 +216,29 @@ pub fn completions(
             range(0),
         )));
     }
-    // Everything else: the general list.
+    // Everything else: the general list. Its auto-imports rank by the
+    // whole name the cursor is in, as tree-sitter's node there has it. A
+    // keyword is no node of its own, so the expression around it is, which
+    // ranks nothing first.
+    let name = if KEYWORDS.contains(&name_at) {
+        ""
+    } else {
+        name_at
+    };
     Some(crate::completion_general::general(
         &context,
         offset,
         range(word_start),
         word,
+        name,
     ))
 }
+
+/// Elm's reserved words.
+const KEYWORDS: &[&str] = &[
+    "if", "then", "else", "case", "of", "let", "in", "type", "alias", "module", "exposing",
+    "import", "as", "port", "where",
+];
 
 /// Where the word before `column` starts: letters, digits, `_` and dots.
 fn word_start(line: &str, column: usize) -> usize {
@@ -255,10 +292,6 @@ fn exposing_list(text: &str, at: usize) -> Option<Exposing> {
     // The declaration the list belongs to: its line's start.
     let start = before[..open].rfind('\n').map_or(0, |i| i + 1);
     let head = &before[start..open];
-    let written: Vec<String> = (inside.split(','))
-        .map(|w| w.trim().to_owned())
-        .filter(|w| !w.is_empty())
-        .collect();
     if let Some(name) = head.trim_start().strip_prefix("import ") {
         let name = name.split_whitespace().next()?;
         return Some(Exposing::Import(name.to_owned()));
@@ -268,6 +301,26 @@ fn exposing_list(text: &str, at: usize) -> Option<Exposing> {
         || header.starts_with("port module ")
         || header.starts_with("effect module ")
     {
+        // The whole list, through the name at the cursor and after it.
+        let after = &text[at..];
+        let mut depth = 0;
+        let close = after
+            .char_indices()
+            .find(|&(_, c)| {
+                match c {
+                    '(' => depth += 1,
+                    ')' if depth == 0 => return true,
+                    ')' => depth -= 1,
+                    _ => {}
+                }
+                false
+            })
+            .map_or(after.len(), |(i, _)| i);
+        let whole = format!("{inside}{}", &after[..close]);
+        let written: Vec<String> = (whole.split(','))
+            .map(|w| w.trim().to_owned())
+            .filter(|w| !w.is_empty())
+            .collect();
         return Some(Exposing::Module(written));
     }
     None
@@ -936,6 +989,15 @@ pub(crate) fn importable_modules(
     let mut found: Vec<(String, Option<PathBuf>, Option<String>)> = (index.modules.iter())
         .map(|m| (m.name.clone(), Some(m.path.clone()), None))
         .collect();
+    // As elm-language-server finds the files: a directory's files, then
+    // its subdirectories', each by name.
+    found.sort_by_cached_key(|(_, path, _)| {
+        let components: Vec<_> = path.iter().flatten().collect();
+        let last = components.len().saturating_sub(1);
+        (components.into_iter().enumerate())
+            .map(|(i, c)| (i != last, c.to_owned()))
+            .collect::<Vec<_>>()
+    });
     let Some(manifest) = nomi_engine::index::manifest(snapshot, path) else {
         return found;
     };
@@ -947,7 +1009,18 @@ pub(crate) fn importable_modules(
     };
     let direct: Vec<String> = match &outline {
         Outline::App(app) => app.direct.keys().map(ToString::to_string).collect(),
-        Outline::Pkg(pkg) => pkg.deps.keys().map(ToString::to_string).collect(),
+        Outline::Pkg(pkg) => {
+            // A package's own modules are of its package, which ranks them
+            // among the dependencies.
+            for module in &mut found {
+                module.2 = Some(pkg.name.to_string());
+            }
+            // elm-language-server offers its test dependencies' modules
+            // too, everywhere in it.
+            (pkg.deps.keys().chain(pkg.test_deps.keys()))
+                .map(ToString::to_string)
+                .collect()
+        }
     };
     for package in direct {
         let Some(dir) = index.packages.get(&package) else {

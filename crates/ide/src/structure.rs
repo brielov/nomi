@@ -137,20 +137,56 @@ pub fn folding_ranges(snapshot: &Snapshot, path: &Path) -> std::io::Result<Vec<F
                             });
                         }
                     }
-                    SyntaxKind::IfExpr => {
-                        for branch in node
-                            .children()
-                            .filter(|c| crate::completion::is_expr(c.kind()))
-                            .skip(1)
-                        {
-                            if let Some(range) = code_range(&branch) {
-                                folds.push(Fold {
-                                    start: range.start(),
-                                    end: range.end(),
-                                    line_before: true,
-                                    kind: FoldKind::Region,
-                                });
+                    // An `else if` chain is one expression, as tree-sitter-elm
+                    // reads it: its conditions, branches and comments fold,
+                    // but the first, and the `if` after an `else` doesn't
+                    // again.
+                    SyntaxKind::IfExpr if !is_else_if(&node) => {
+                        let mut parts = Vec::new();
+                        let mut chain = Some(node.clone());
+                        while let Some(link) = chain.take() {
+                            for part in link
+                                .children()
+                                .filter(|c| crate::completion::is_expr(c.kind()))
+                            {
+                                // Comments are parts of their own to
+                                // tree-sitter-elm, those before a part too.
+                                parts.extend(
+                                    (part.descendants_with_tokens())
+                                        .filter_map(|e| e.into_token())
+                                        .take_while(|t| t.kind().is_trivia())
+                                        .filter(|t| {
+                                            matches!(
+                                                t.kind(),
+                                                SyntaxKind::LineComment | SyntaxKind::BlockComment
+                                            )
+                                        })
+                                        .map(|t| t.text_range()),
+                                );
+                                if part.kind() == SyntaxKind::IfExpr && is_else_if(&part) {
+                                    chain = Some(part);
+                                } else {
+                                    parts.extend(code_range(&part));
+                                }
                             }
+                        }
+                        for range in parts.into_iter().skip(1) {
+                            folds.push(Fold {
+                                start: range.start(),
+                                end: range.end(),
+                                line_before: true,
+                                kind: FoldKind::Region,
+                            });
+                        }
+                    }
+                    // tree-sitter-elm's `case` in parentheses takes them in.
+                    SyntaxKind::CaseExpr
+                        if node
+                            .parent()
+                            .is_some_and(|p| p.kind() == SyntaxKind::ParenExpr) =>
+                    {
+                        if let Some(range) = node.parent().as_ref().and_then(code_range) {
+                            folds.push(fold(range, FoldKind::Region));
                         }
                     }
                     SyntaxKind::Definition
@@ -393,6 +429,18 @@ fn match_in_symbol(typed: &str, symbol: &str) -> Option<(isize, isize, u8)> {
     };
     let casing = u8::from(chars[from..to].iter().collect::<String>() != typed);
     Some((position, length_difference, casing))
+}
+
+/// Whether `node`, an `if`, is the `else` branch of another.
+fn is_else_if(node: &SyntaxNode) -> bool {
+    node.parent().is_some_and(|parent| {
+        parent.kind() == SyntaxKind::IfExpr
+            && (parent.children())
+                .filter(|c| crate::completion::is_expr(c.kind()))
+                .last()
+                .as_ref()
+                == Some(node)
+    })
 }
 
 #[cfg(test)]

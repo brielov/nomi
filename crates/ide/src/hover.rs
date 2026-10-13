@@ -115,7 +115,9 @@ pub fn hover(snapshot: &Snapshot, index: &Index, path: &Path, offset: TextSize) 
             }
         }
     };
-    Some(Hover {
+    // A hint with nothing to say, such as a module's without a doc
+    // comment, is no hover at all.
+    (!markdown.is_empty()).then_some(Hover {
         markdown,
         link: None,
     })
@@ -594,6 +596,16 @@ impl Names {
 
     /// These names, writing records' fields in the order `annotation`
     /// writes them.
+    /// Every name bare, as elm-language-server writes a type it renders
+    /// with no module to write it in, such as a record field's.
+    pub(crate) fn bare() -> Names {
+        Names {
+            exposed: std::collections::HashSet::new(),
+            imports: Vec::new(),
+            written: None,
+        }
+    }
+
     pub(crate) fn written_as(mut self, annotation: Option<String>) -> Names {
         self.written = annotation;
         self

@@ -22,6 +22,10 @@ pub(crate) fn definition(
     module: &Indexed,
     offset: TextSize,
 ) -> Option<Location> {
+    // A field's declaration is its own.
+    if let Some(declared) = declaration_at(module, offset) {
+        return Some(declared);
+    }
     written(&module.root, offset)?;
     let canonical = module.canonical.as_ref()?;
     let (_, types) = types::infer_types(index.compat, canonical);

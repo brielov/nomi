@@ -82,6 +82,15 @@ fn projects(root: &Path) -> Result<Vec<Project>> {
             continue;
         }
         let manifest = compat::sandbox_manifest(&classification, &app, v)?;
+        // A source directory outside the app's root would have to come
+        // along outside the session's copy too, which the recorder's copy
+        // leaves behind; inside, it's inside `.` as well.
+        let elm: Value = serde_json::from_str(&manifest)?;
+        let outside = (elm["source-directories"].as_array().into_iter().flatten())
+            .any(|d| d.as_str().is_some_and(|d| d.starts_with("..")));
+        if outside {
+            continue;
+        }
         let dir = apps::app_dir(&corpus, &app).join(&app.root);
         found.push((case, dir, manifest));
     }
@@ -332,13 +341,19 @@ fn session(case: &str, root: &Path, manifest: &str) -> Result<Session> {
 }
 
 /// A project copied for a session: its root, less what tools write and
-/// Node version pins, with
-/// its `elm.json` as 0.19.1 reads it.
+/// Node version pins, with its `elm.json` as 0.19.1 reads it.
 fn copy(project: &Project, to: &Path) -> Result<()> {
     if to.exists() {
         fs::remove_dir_all(to)?;
     }
-    let mut pending = vec![(project.root.clone(), to.to_owned())];
+    copy_tree(&project.root, to)?;
+    fs::write(to.join("elm.json"), &project.manifest)?;
+    Ok(())
+}
+
+/// `from` copied to `to`, less what tools write and Node version pins.
+fn copy_tree(from: &Path, to: &Path) -> Result<()> {
+    let mut pending = vec![(from.to_owned(), to.to_owned())];
     while let Some((from, to)) = pending.pop() {
         fs::create_dir_all(&to)?;
         for entry in fs::read_dir(&from)? {
@@ -367,7 +382,6 @@ fn copy(project: &Project, to: &Path) -> Result<()> {
             }
         }
     }
-    fs::write(to.join("elm.json"), &project.manifest)?;
     Ok(())
 }
 
@@ -639,7 +653,9 @@ pub fn check(root: &Path, record: bool, only: Option<&str>) -> Result<()> {
         eprintln!("  {}", project.case);
     }
     outcomes.sort_by(|a, b| a.0.cmp(&b.0));
+    let run: Vec<String> = projects.iter().map(|p| format!("{}/", p.case)).collect();
     Suite::open(root.join(DIR))
+        .within(|case| run.iter().any(|p| case.starts_with(p.as_str())))
         .run_by("cargo xtask corpus lsp --record", record)
         .finish(outcomes);
     Ok(())

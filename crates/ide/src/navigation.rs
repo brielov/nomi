@@ -132,12 +132,13 @@ fn declaring_node(root: &SyntaxNode, range: TextRange) -> Option<TextRange> {
                 .map_or(token.text_range().end(), |last| last.text_range().end());
             Some(TextRange::new(token.text_range().start(), end))
         }
-        SyntaxKind::TypeAliasDecl
-        | SyntaxKind::CustomTypeDecl
-        | SyntaxKind::PortDecl
-        | SyntaxKind::Variant
-        | SyntaxKind::FieldType
-        | SyntaxKind::ModuleHeader => crate::symbols::code_range(&node),
+        SyntaxKind::TypeAliasDecl | SyntaxKind::CustomTypeDecl => {
+            crate::symbols::declaration_range(&node)
+        }
+        SyntaxKind::Variant => crate::symbols::variant_range(&node),
+        SyntaxKind::PortDecl | SyntaxKind::FieldType | SyntaxKind::ModuleHeader => {
+            crate::symbols::code_range(&node)
+        }
         _ => None,
     }
 }
@@ -202,6 +203,20 @@ pub fn type_definition(
 /// project, in the order of the project's modules and then of the text;
 /// its definition first where `with_declaration`.
 pub fn references(
+    snapshot: &Snapshot,
+    index: &Index,
+    path: &Path,
+    offset: TextSize,
+    with_declaration: bool,
+) -> Vec<Location> {
+    // Only the project's own files, as elm-language-server keeps to the
+    // writeable ones: a package's declaration and uses are left out.
+    let mut found = all_references(snapshot, index, path, offset, with_declaration);
+    found.retain(|location| index.module(&location.path).is_some());
+    found
+}
+
+fn all_references(
     snapshot: &Snapshot,
     index: &Index,
     path: &Path,
@@ -476,29 +491,29 @@ fn target_at(index: &Index, module: &Indexed, offset: TextSize) -> Option<Target
 }
 
 /// The module named at `offset`: in a header, an import, or a name's
-/// qualifier, an import's alias standing for its module.
-fn module_at(root: &SyntaxNode, offset: TextSize) -> Option<String> {
+/// qualifier, an import's alias, a default import's too, standing for
+/// its module.
+pub(crate) fn module_at(root: &SyntaxNode, offset: TextSize) -> Option<String> {
     let token = root
         .token_at_offset(offset)
         .find(|t| t.kind() == SyntaxKind::UpperIdent)?;
     let parent = token.parent()?;
-    // A qualifier names the module up to the part at `offset`.
-    let upto = |node: &SyntaxNode| -> String {
-        let parts: Vec<String> = (node.descendants_with_tokens())
-            .filter_map(|e| e.into_token())
-            .filter(|t| {
-                t.kind() == SyntaxKind::UpperIdent
-                    && t.text_range().start() <= token.text_range().start()
-            })
-            .map(|t| t.text().to_owned())
-            .collect();
-        parts.join(".")
-    };
     match parent.kind() {
         // An import or a header names its whole module.
         SyntaxKind::ModuleName => Some(crate::symbols::words(&parent)),
         SyntaxKind::Qualifier => {
-            let written = upto(&parent);
+            // tree-sitter-elm reads a qualified type or constructor as one
+            // name, which the qualifier is part of, and a value's as its
+            // whole module.
+            let owner = parent.parent()?;
+            let names_value = owner.kind() == SyntaxKind::NameExpr
+                && crate::lint::first_token(&owner, SyntaxKind::LowerIdent).is_some();
+            if !names_value {
+                return None;
+            }
+            let written = crate::symbols::words(&parent)
+                .trim_end_matches('.')
+                .to_owned();
             let aliased = (root.children())
                 .filter(|n| n.kind() == SyntaxKind::Import)
                 .find_map(|import| {
@@ -511,7 +526,13 @@ fn module_at(root: &SyntaxNode, offset: TextSize) -> Option<String> {
                         .find(|c| c.kind() == SyntaxKind::ModuleName)?;
                     (alias.text() == written).then(|| crate::symbols::words(&name))
                 });
-            Some(aliased.unwrap_or(written))
+            // The default imports alias `Platform.Cmd` and `Platform.Sub`.
+            let default = || {
+                (crate::completion::default_imports().into_iter())
+                    .find(|(_, alias)| alias.as_deref() == Some(written.as_str()))
+                    .map(|(name, _)| name)
+            };
+            Some(aliased.or_else(default).unwrap_or(written))
         }
         _ => None,
     }
@@ -544,15 +565,17 @@ fn module_references(index: &Index, name: &str, with_declaration: bool) -> Vec<L
             range,
         };
         // Imported with an alias, even one of the same name, its
-        // qualifiers are the alias's.
-        let aliased = (module.root.children())
-            .filter(|n| n.kind() == SyntaxKind::Import)
-            .any(|i| {
-                i.children().any(|c| c.kind() == SyntaxKind::ImportAlias)
-                    && i.children()
-                        .find(|c| c.kind() == SyntaxKind::ModuleName)
-                        .is_some_and(|n| crate::symbols::words(&n) == name)
-            });
+        // qualifiers are the alias's. The default imports alias
+        // `Platform.Cmd` and `Platform.Sub` everywhere.
+        let aliased = matches!(name, "Platform.Cmd" | "Platform.Sub")
+            || (module.root.children())
+                .filter(|n| n.kind() == SyntaxKind::Import)
+                .any(|i| {
+                    i.children().any(|c| c.kind() == SyntaxKind::ImportAlias)
+                        && i.children()
+                            .find(|c| c.kind() == SyntaxKind::ModuleName)
+                            .is_some_and(|n| crate::symbols::words(&n) == name)
+                });
         for node in module.root.descendants() {
             match node.kind() {
                 SyntaxKind::ModuleName => {

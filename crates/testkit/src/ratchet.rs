@@ -26,6 +26,8 @@ pub struct Suite {
     name: String,
     dir: PathBuf,
     passing: BTreeSet<String>,
+    /// Listed cases outside the run's scope, kept as they are.
+    outside: BTreeSet<String>,
     hashes: BTreeMap<String, String>,
     update: bool,
     /// How to rerun the suite so it records newly passing cases.
@@ -76,6 +78,7 @@ impl Suite {
         Suite {
             dir,
             passing,
+            outside: BTreeSet::new(),
             hashes,
             update: std::env::var(UPDATE_VAR).is_ok_and(|v| v == "1"),
             command: format!("cargo xtask ratchet {name}"),
@@ -88,6 +91,15 @@ impl Suite {
     pub fn run_by(mut self, command: &str, record: bool) -> Suite {
         self.command = command.to_owned();
         self.update = record;
+        self
+    }
+
+    /// Limits the run to the listed cases `keep` takes, as a run of some
+    /// projects does: the others are neither missing nor dropped.
+    pub fn within(mut self, keep: impl Fn(&str) -> bool) -> Suite {
+        let (kept, outside) = self.passing.into_iter().partition(|case| keep(case));
+        self.passing = kept;
+        self.outside = outside;
         self
     }
 
@@ -116,7 +128,7 @@ impl Suite {
             self.name,
             report.passed,
             report.run,
-            self.passing.len()
+            self.passing.len() + self.outside.len()
         );
         if !report.regressions.is_empty() || !report.missing.is_empty() {
             panic!("{}", failure_message(&self.name, &report));
@@ -126,6 +138,7 @@ impl Suite {
         }
         if self.update {
             let mut passing = self.passing;
+            passing.extend(self.outside);
             passing.extend(report.newly_passing.iter().cloned());
             let path = self.dir.join("passing.txt");
             std::fs::write(&path, render_passing(&passing))

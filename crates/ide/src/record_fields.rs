@@ -48,7 +48,12 @@ pub(crate) fn after(
     let _ = (snapshot, root);
     // Without the dot and what follows it, the record is typed by its
     // context alone.
-    let cut = TextRange::new(dot, range.end());
+    // The field's whole name goes, the part after the cursor too, so the
+    // record's name doesn't run into it.
+    let rest = text[usize::from(range.end())..]
+        .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .unwrap_or(text.len() - usize::from(range.end()));
+    let cut = TextRange::new(dot, range.end() + TextSize::new(rest as u32));
     let Some((patched, types)) = patched(index, module, cut, "") else {
         return Vec::new();
     };
@@ -95,7 +100,8 @@ fn typed_fields(
     let Some(ty) = ty else {
         return Vec::new();
     };
-    let names = crate::hover::Names::of(index, module);
+    // Its fields' types are written with every name bare.
+    let names = crate::hover::Names::bare();
     let (alias, record) = match ty {
         error::Type::Alias(_, name, _, body) => (name.as_str(), &**body),
         ty => ("", *ty),
@@ -170,6 +176,16 @@ pub(crate) fn inside(
     let text = &*module.text;
     let at = usize::from(range.start());
     let open = open_brace(text, at)?;
+    // A record type's field is named, not completed: the general list.
+    let brace = (module.root.token_at_offset(TextSize::new(open as u32))).right_biased();
+    if brace.and_then(|t| t.parent()).is_some_and(|p| {
+        matches!(
+            p.kind(),
+            SyntaxKind::RecordType | SyntaxKind::RecordExtension
+        )
+    }) {
+        return None;
+    }
     let between = &text[open + 1..at];
     // A field's name goes after `{`, `,` or `|`, alone.
     let last = between.rfind([',', '|']).map_or(0, |i| i + 1);

@@ -25,12 +25,14 @@ use crate::completion::{
 use crate::completion_data::{LIST_MARKDOWN, RANKING, SNIPPETS_INLINE, SNIPPETS_START_OF_LINE};
 use crate::symbols::{child, code_range, token, words};
 
-/// The general list at `offset`, replacing `range`, `word` typed.
+/// The general list at `offset`, replacing `range`, `word` typed of the
+/// name `name` the cursor is in.
 pub(crate) fn general(
     context: &Context<'_>,
     offset: TextSize,
     range: TextRange,
     word: &str,
+    name: &str,
 ) -> Completions {
     let mut items = top_levels(context, range);
     items.extend(scope(context, offset, range));
@@ -44,7 +46,7 @@ pub(crate) fn general(
     items.extend(keywords(&[
         "if", "then", "else", "let", "in", "case", "alias", "exposing",
     ]));
-    let (possible, incomplete) = possible_imports(context, &imports, range, word);
+    let (possible, incomplete) = possible_imports(context, &imports, range, name);
     items.extend(possible);
     Completions::Incomplete(items, incomplete)
 }
@@ -257,7 +259,8 @@ fn scope(context: &Context<'_>, offset: TextSize, range: TextRange) -> Vec<Compl
                 };
                 if let Some(nomi_compiler::types::error::Type::Record(fields, _)) = record {
                     for (field, field_type) in fields {
-                        let rendered = crate::hover::render_error(&names, field_type);
+                        let rendered =
+                            crate::hover::render_error(&crate::hover::Names::bare(), field_type);
                         let label = format!("{name}.{field}");
                         let mut completion =
                             crate::record_fields::field_completion(field, &rendered, &name, range);
