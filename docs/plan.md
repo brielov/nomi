@@ -1000,6 +1000,9 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - commander parses the program's options wherever they are on the line, even after an unknown one, and checks each value as it reads it, so a bad value is reported before an unknown option that came first.
   - `elm-test make` builds with `elm make`'s own progress, which the engine's elm personality already prints as the recordings have it.
 - [ ] **10.6b** `cli: elm-test init and install`. A package added to the test dependencies, as `Install.js` adds it, and `tests/Example.elm`.
+  - **install:** as `Install.install`: nothing to do when the package is already a direct test dependency; otherwise `elm install` (the engine's, as elm) in a scratch copy of the project, its source directories `.` for an application, then what that added moved to the test dependencies and the source directories put back, written as elm-test writes `elm.json` (`JSON.stringify` with four spaces, fields in the order they were read, moved ones last). The scratch copy is in nomi's cache.
+  - **init:** elm-explorations/test installed so, then `tests/Example.elm`, elm-test's template, and the line pointing at the documentation.
+  - **Check:** new transcripts recorded from elm-test 0.19.3-0, `init` and `install` into an application and a package, and with the package already there; the elm-test transcripts now keep the project's files, apart from `elm-stuff`, so they hold the `elm.json` each leaves.
 - [ ] **10.6c** `test: --watch`. Runs again as the test source directories and `elm.json` change.
 - [ ] **10.7** `release: 0.4`.
 
