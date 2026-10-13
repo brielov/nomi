@@ -1,0 +1,126 @@
+=== exit 2
+=== stdout
+|<?xml version="1.0"?><testsuite name="elm-test" package="elm-test" tests="35" failures="33" errors="0" time="0"><testcase classname="Failing.Fuzz withoutNums" name="adding numbers to strings has no effect" time="0"><failure>Given ("",-2147483648,"")
+|
+|""
+|
+|was not equal to
+|
+|"-"</failure></testcase><testcase classname="Failing.Fuzz basic expectations" name="this should succeed" time="0"><failure>" blah"
+|
+|was not equal to
+|
+|"blah"</failure></testcase><testcase classname="Failing.Fuzz basic expectations" name="this should fail" time="0"><failure>"someting else"
+|
+|was not equal to
+|
+|"something"</failure></testcase><testcase classname="Failing.Fuzz basic expectations" name="another failure" time="0"><failure>"forty-three"
+|
+|was not equal to
+|
+|"forty-two"</failure></testcase><testcase classname="Failing.Fuzz fuzzing" name="empty list etc" time="0"><failure>Given ("","")
+|
+|given an empty list, did not return an empty string</failure></testcase><testcase classname="Failing.Fuzz fuzzing" name="further testing" time="0"><failure>Given ("","")
+|
+|"This sentence contains one item."
+|
+|was not equal to
+|
+|"Alice, Bob, and Claire"</failure></testcase><testcase classname="Failing.Fuzz fuzzing" name="custom onFail here" time="0"><failure>Given ("","")
+|
+|given an empty list, did not return an empty string</failure></testcase><testcase classname="Failing.Fuzz fuzzing" name="This is a test." time="0"><failure>Given ("","")
+|
+|given a list of length 3, did not return an oxford-style sentence</failure></testcase><testcase classname="Failing.Fuzz the first element in this fuzz tuple" name="is always &quot;foo&quot;" time="0"><failure>Given ("","")
+|
+|"foo"
+|
+|was not equal to
+|
+|""</failure></testcase><testcase classname="Failing.Fuzz oxfordify given an empty sentence" name="returns an empty string" time="0"><failure>""
+|
+|was not equal to
+|
+|"Alice, Bob, and Claire"</failure></testcase><testcase classname="Failing.Fuzz oxfordify given a sentence with one item" name="still contains one item" time="0"><failure>"This sentence contains one item."
+|
+|was not equal to
+|
+|"Alice, Bob, and Claire"</failure></testcase><testcase classname="Failing.Fuzz oxfordify" name="given a sentence with multiple items" time="0"><failure>Invalid test: Contains multiple tests named 'returns an oxford-style sentence'. Let's rename them so we know which is which.</failure></testcase><testcase classname="Failing.Fuzz Some tests that should fail and produce shrunken values a randomly generated integer" name="is for sure exactly 0" time="0"><failure>Given 1
+|
+|0
+|
+|was not equal to
+|
+|1</failure></testcase><testcase classname="Failing.Fuzz Some tests that should fail and produce shrunken values a randomly generated integer" name="is &lt;42" time="0"><failure>Given 42
+|
+|42
+|
+|failed when compared with Expect.lessThan on
+|
+|42</failure></testcase><testcase classname="Failing.Fuzz Some tests that should fail and produce shrunken values a randomly generated integer" name="is also >42" time="0"><failure>Given 0
+|
+|42
+|
+|failed when compared with Expect.greaterThan on
+|
+|0</failure></testcase><testcase classname="Failing.Fuzz Some tests that should fail and produce shrunken values a randomly generated string" name="equals its reverse" time="0"><failure>Given " !"
+|
+|" !"
+|
+|was not equal to
+|
+|"! "</failure></testcase><testcase classname="Failing.One" name="intentional failure" time="0"><failure>This should fail!</failure></testcase><testcase classname="Failing.OneRuntimeException" name="intentional failure" time="0"><failure>This test failed because it threw an exception: "Error: TODO in module `Failing.OneRuntimeException` on line 11
+|
+|This is intentionally failing with a runtime exception!"</failure></testcase><testcase classname="Failing.OneTodo" name="Todo tests" time="0"><failure>TODO: write a test here</failure></testcase><testcase classname="Failing.OneTodo" name="this should pass" time="0"/><testcase classname="Failing.Several withoutNums" name="adding numbers to strings has no effect" time="0"><failure>Given ("",-1,"")
+|
+|""
+|
+|was not equal to
+|
+|"-"</failure></testcase><testcase classname="Failing.Several basic expectations" name="this should succeed" time="0"><failure>" blah"
+|
+|was not equal to
+|
+|"blah"</failure></testcase><testcase classname="Failing.Several basic expectations" name="this should fail" time="0"><failure>"someting else"
+|
+|was not equal to
+|
+|"something"</failure></testcase><testcase classname="Failing.Several basic expectations" name="another failure" time="0"><failure>"forty-three"
+|
+|was not equal to
+|
+|"forty-two"</failure></testcase><testcase classname="Failing.Several the first element in this fuzz tuple" name="is always &quot;foo&quot;" time="0"><failure>Given ("","")
+|
+|"foo"
+|
+|was not equal to
+|
+|""</failure></testcase><testcase classname="Failing.SeveralTodos" name="three Todo tests" time="0"><failure>TODO: write a test here</failure></testcase><testcase classname="Failing.SeveralTodos" name="three Todo tests" time="0"><failure>TODO: write a second test here</failure></testcase><testcase classname="Failing.SeveralTodos" name="three Todo tests" time="0"><failure>TODO: write a third test here</failure></testcase><testcase classname="Failing.SeveralTodos" name="this should pass" time="0"/><testcase classname="Failing.SeveralWithComments basic expectations" name="this should succeed" time="0"><failure>" blah"
+|
+|was not equal to
+|
+|"blah"</failure></testcase><testcase classname="Failing.SeveralWithComments basic expectations" name="this should fail" time="0"><failure>"someting else"
+|
+|was not equal to
+|
+|"something"</failure></testcase><testcase classname="Failing.SeveralWithComments basic expectations" name="another failure" time="0"><failure>"forty-three"
+|
+|was not equal to
+|
+|"forty-two"</failure></testcase><testcase classname="Failing.SeveralWithComments the first element in this fuzz tuple" name="is always &quot;foo&quot;" time="0"><failure>Given ("","")
+|
+|"foo"
+|
+|was not equal to
+|
+|""</failure></testcase><testcase classname="Failing.SeveralWithComments withoutNums" name="adding numbers to strings has no effect" time="0"><failure>Given ("",-1,"")
+|
+|""
+|
+|was not equal to
+|
+|"-"</failure></testcase><testcase classname="Failing.SplitSocketMessage" name="scce" time="0"><failure>Array.fromList [0]
+|
+|was not equal to
+|
+|Array.fromList [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]</failure></testcase></testsuite>
+=== stderr

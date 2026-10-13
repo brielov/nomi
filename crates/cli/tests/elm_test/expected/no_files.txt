@@ -1,0 +1,9 @@
+=== exit 1
+=== stdout
+|
+=== stderr
+|No files found matching:
+|
+|tests/Nothing/*.elm
+|
+|Are the above patterns correct? Maybe try running elm-test with no arguments?

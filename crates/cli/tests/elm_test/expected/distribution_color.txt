@@ -1,0 +1,143 @@
+=== exit 2
+=== stdout
+|Solving dependenciesSolving dependencies > CompilingSolving dependencies > Compiling > Starting tests
+|
+|elm-test 0.19.3-0
+|-----------------
+|
+|Running 10 tests. To reproduce these results, run: elm-test --fuzz 100 --seed 12345 tests/Distribution
+|
+|[2m↓ Distribution.Everything
+|[22m[31m✗ expectDistribution: failing because of distribution
+|[39m[2m
+|    Distribution report:
+|    ====================
+|      in between:   90%  (9000x)  ███████████████████████████░░░
+|      high:        5.2%   (520x)  ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      low:         4.8%   (480x)  █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      one:         4.8%   (480x)  █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      outside:       0%     (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|    
+|    Combinations (included in the above base counts):
+|      low, one:    4.8%   (480x)  █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|[22m
+|    Distribution of label "one" was insufficient:
+|      expected:  exactly 0%
+|      got:       4.800%.
+|    
+|    (Generated 10000 values.)
+|
+|
+|[2m↓ Distribution.Everything
+|[22m[31m✗ expectDistribution: failing because of test
+|[39m[2m
+|    Distribution report:
+|    ====================
+|      in between:  100%  (1x)  ██████████████████████████████
+|      high:          0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      low:           0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      one:           0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      outside:       0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|[22m[2m
+|Given 1
+|[22m
+|    This test is supposed to fail
+|
+|
+|[2m↓ Distribution.Everything
+|[22m[31m✗ reportDistribution: failing
+|[39m[2m
+|    Distribution report:
+|    ====================
+|      in between:  100%  (1x)  ██████████████████████████████
+|      high:          0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      low:           0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      outside:       0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|[22m[2m
+|Given 1
+|[22m
+|    The test is supposed to fail
+|
+|
+|[2m↓ Distribution.Everything
+|[22m[32m✓ reportDistribution: passing
+|[39m[2m
+|    Distribution report:
+|    ====================
+|      in between:  89.7%  (8968x)  ███████████████████████████░░░
+|      high:         5.3%   (529x)  ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      low:            5%   (503x)  ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      outside:        0%     (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|
+|[22m
+|[2m↓ Distribution.ExpectDistributionFailingDistribution
+|[22m[31m✗ expectDistribution: failing because of distribution
+|[39m[2m
+|    Distribution report:
+|    ====================
+|      in between:   90%  (8996x)  ███████████████████████████░░░
+|      high:        5.1%   (507x)  ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      low:           5%   (497x)  █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      one:           5%   (497x)  █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      outside:       0%     (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|    
+|    Combinations (included in the above base counts):
+|      low, one:      5%   (497x)  █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|[22m
+|    Distribution of label "one" was insufficient:
+|      expected:  exactly 0%
+|      got:       4.970%.
+|    
+|    (Generated 10000 values.)
+|
+|
+|[2m↓ Distribution.ExpectDistributionFailingTest
+|[22m[31m✗ expectDistribution: failing because of test
+|[39m[2m
+|    Distribution report:
+|    ====================
+|      in between:  100%  (1x)  ██████████████████████████████
+|      high:          0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      low:           0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      one:           0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      outside:       0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|[22m[2m
+|Given 1
+|[22m
+|    This test is supposed to fail
+|
+|
+|[2m↓ Distribution.ReportDistributionFailing
+|[22m[31m✗ reportDistribution: failing
+|[39m[2m
+|    Distribution report:
+|    ====================
+|      low:         100%  (1x)  ██████████████████████████████
+|      high:          0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      in between:    0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      outside:       0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|[22m[2m
+|Given 1
+|[22m
+|    The test is supposed to fail
+|
+|
+|[2m↓ Distribution.ReportDistributionPassing
+|[22m[32m✓ reportDistribution: passing
+|[39m[2m
+|    Distribution report:
+|    ====================
+|      in between:  90.2%  (9015x)  ███████████████████████████░░░
+|      high:           5%   (498x)  █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      low:          4.9%   (487x)  █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|      outside:        0%     (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|
+|[22m
+|[4m[31m
+|TEST RUN FAILED[39m[24m[31m
+|
+|[39m[2mDuration: [22m0 ms
+|[2mPassed:   [22m4
+|[2mFailed:   [22m6
+|
+=== stderr

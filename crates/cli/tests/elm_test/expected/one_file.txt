@@ -1,0 +1,23 @@
+=== exit 2
+=== stdout
+|Solving dependenciesSolving dependencies > CompilingSolving dependencies > Compiling > Starting tests
+|
+|elm-test 0.19.3-0
+|-----------------
+|
+|Running 1 test. To reproduce these results, run: elm-test --fuzz 100 --seed 12345 tests/Failing/One.elm
+|
+|↓ Failing.One
+|✗ intentional failure
+|
+|    This should fail!
+|
+|
+|
+|TEST RUN FAILED
+|
+|Duration: 0 ms
+|Passed:   0
+|Failed:   1
+|
+=== stderr

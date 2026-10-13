@@ -33,9 +33,108 @@ pub const ELM_FORMAT_CASES: &str = "crates/cli/tests/elm_format";
 /// elm's cases, laid out the same way.
 pub const ELM_CASES: &str = "crates/cli/tests/elm";
 
-pub fn run(root: &Path, refs: &References) -> Result<()> {
-    elm_format(root, refs)?;
-    elm(root, refs)
+pub fn run(root: &Path, refs: &References, tool: Option<&str>) -> Result<()> {
+    if tool.is_none_or(|t| t == "elm-format") {
+        elm_format(root, refs)?;
+    }
+    if tool.is_none_or(|t| t == "elm") {
+        elm(root, refs)?;
+    }
+    if tool.is_none_or(|t| t == "elm-test") {
+        elm_test(root, refs)?;
+    }
+    Ok(())
+}
+
+/// elm-test's cases, laid out the same way (plan 10.1).
+pub const ELM_TEST_CASES: &str = "crates/cli/tests/elm_test";
+
+/// elm-test 0.19.3-0, which builds with elm 0.19.3, run by Node with that
+/// elm on its path and the fixture packages in an offline `ELM_HOME`.
+fn elm_test(root: &Path, refs: &References) -> Result<()> {
+    let version = Version::parse("0.19.3")?;
+    let elm = binary(refs, "elm", Some(&version.to_string()))?;
+    let runner = super::oracles_dir()?.join("npm/node_modules/elm-test/bin/elm-test");
+    ensure!(
+        runner.exists(),
+        "{} is missing; run `cargo xtask oracle fetch`",
+        runner.display()
+    );
+    let node = std::env::var_os("PATH")
+        .and_then(|path| {
+            std::env::split_paths(&path)
+                .map(|dir| dir.join("node"))
+                .find(|candidate| candidate.is_file())
+        })
+        .context("node isn't on PATH")?;
+    let scratch = cache_dir()?.join("sandboxes").join("elm-test-transcripts");
+    record(&root.join(ELM_TEST_CASES), |_, case| {
+        let (home, work) = fresh(&scratch)?;
+        super::lsp::elm_home(root, &home, version)?;
+        let bin = scratch.join("bin");
+        fs::create_dir_all(&bin)?;
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&elm, bin.join("elm"))?;
+        let path =
+            std::env::join_paths([bin, node.parent().context("node's directory")?.to_owned()])?;
+        case.create_files(&work)?;
+        let mut command = Command::new(&node);
+        command
+            .arg(&runner)
+            .env("PATH", path)
+            .env("ELM_HOME", &home)
+            .env_remove("FORCE_COLOR")
+            .env_remove("NO_COLOR");
+        offline(&mut command);
+        let mut transcript = case.run(command, &work)?;
+        // What elm-test leaves behind is its build's.
+        transcript.files.clear();
+        let dir = work.display().to_string();
+        let home = home.display().to_string();
+        transcript.stdout = normalize(&transcript.stdout, &dir, &home);
+        transcript.stderr = normalize(&transcript.stderr, &dir, &home);
+        Ok(transcript)
+    })
+}
+
+/// elm-test's output with what changes from run to run, or machine to
+/// machine, put plainly: the case's directory and `ELM_HOME` as `{dir}` and
+/// `{home}`, durations as 0, the help's core count as 8, and a stack
+/// trace's Node version and lines and columns in the JavaScript as 0.
+pub fn normalize(output: &[u8], dir: &str, home: &str) -> Vec<u8> {
+    let text = String::from_utf8_lossy(output)
+        .replace(dir, "{dir}")
+        .replace(home, "{home}");
+    let text = digits_after(&text, "\"duration\":\"", "0");
+    let text = digits_after(&text, " time=\"", "0");
+    let text = digits_after(&text, "Duration: ", "0");
+    // Colored, its label and number apart.
+    let text = digits_after(&text, "Duration: \u{1b}[22m", "0");
+    let text = digits_after(&text, "logical CPU cores, ", "8");
+    // A stack trace's Node and its lines in the JavaScript.
+    let text = digits_after(&text, "Node.js v", "0");
+    let text = digits_after(&text, ".js:", "0");
+    let text = digits_after(&text, ".js:0:", "0");
+    text.into_bytes()
+}
+
+/// `text` with the number after each `marker`, digits and points, as `with`.
+fn digits_after(text: &str, marker: &str, with: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(marker) {
+        out.push_str(&rest[..at + marker.len()]);
+        rest = &rest[at + marker.len()..];
+        let end = rest
+            .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+            .unwrap_or(rest.len());
+        if end > 0 {
+            out.push_str(with);
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
 }
 
 fn elm_format(root: &Path, refs: &References) -> Result<()> {

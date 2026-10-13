@@ -1,0 +1,4 @@
+=== exit 1
+=== stdout
+=== stderr
+|error: option '--report <format>' argument 'tap' is invalid. Allowed choices are json, junit, console.

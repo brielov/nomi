@@ -1,0 +1,4 @@
+=== exit 1
+=== stdout
+=== stderr
+|error: option '--seed <int>' argument 'abc' is invalid. Expected one or more digits.

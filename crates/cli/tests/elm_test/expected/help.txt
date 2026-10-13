@@ -1,0 +1,44 @@
+=== exit 0
+=== stdout
+|Usage: elm-test [options] [globs...]
+|
+|elm-test
+|  Run tests in the tests/ folder
+|
+|elm-test "src/**/*Tests.elm"
+|  Run tests in files matching the glob
+|
+|Options:
+|  --watch                    Run tests on file changes (default: false)
+|  --no-clear-console         Don't clear the console when running with --watch
+|  --seed <int>               Run with a specific fuzzer seed (default: random)
+|  --fuzz <int>               Define how many times each fuzz-test should run
+|                             (default: 100)
+|  --workers <int>            Number of worker threads (default: number of
+|                             logical CPU cores, 8 on this machine)
+|  --report <format>          Specify which format to use for reporting test
+|                             results (choices: "json", "junit", "console",
+|                             default: "console")
+|  --no-color                 Disable colored console output (setting
+|                             FORCE_COLOR=0 also works)
+|  --color                    Force colored console output (setting FORCE_COLOR
+|                             to anything but 0 also works)
+|  --compiler <path>          Use a custom path to an Elm executable (default:
+|                             elm)
+|  --dependencies <strategy>  Choose newest or oldest compatible dependencies
+|                             for a package project (ignored for applications)
+|                             (choices: "newest", "oldest", default: "newest")
+|  --offline                  Do not make any HTTP requests when solving
+|                             dependencies
+|  --version                  Print version and exit
+|  -h, --help                 Show help
+|
+|Commands:
+|  init                       Install elm-explorations/test and create
+|                             tests/Example.elm
+|  install <package>          Like `elm install package`, except it installs to
+|                             "test-dependencies" in your elm.json
+|  make [globs...]            Check files matching the globs for compilation
+|                             errors
+|  help [command]             Show help
+=== stderr

@@ -1,0 +1,4 @@
+=== exit 0
+=== stdout
+|<?xml version="1.0"?><testsuite name="elm-test" package="elm-test" tests="2" failures="0" errors="0" time="0"><testcase classname="InvalidXMLCharacter.Test The junit reporter should not crash due to invalid (for XML) characters in the output" name="backspace: \u{0008}" time="0"/><testcase classname="InvalidXMLCharacter.Test The junit reporter should not crash due to invalid (for XML) characters in the output" name="escape: \u{001b}" time="0"/></testsuite>
+=== stderr

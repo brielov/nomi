@@ -1,0 +1,7 @@
+=== exit 0
+=== stdout
+|{"event":"runStart","testCount":"2","fuzzRuns":"100","globs":["tests/InvalidXMLCharacter"],"paths":["{dir}/tests/InvalidXMLCharacter/Test.elm"],"initialSeed":"12345"}
+|{"event":"testCompleted","status":"pass","labels":["InvalidXMLCharacter.Test","The junit reporter should not crash due to invalid (for XML) characters in the output","backspace: \b"],"failures":[],"distributionReports":[{"type":"NoDistribution","data":null}],"duration":"0"}
+|{"event":"testCompleted","status":"pass","labels":["InvalidXMLCharacter.Test","The junit reporter should not crash due to invalid (for XML) characters in the output","escape: \u001b"],"failures":[],"distributionReports":[{"type":"NoDistribution","data":null}],"duration":"0"}
+|{"event":"runComplete","passed":"2","failed":"0","duration":"0","autoFail":null}
+=== stderr

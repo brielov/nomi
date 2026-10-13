@@ -1,0 +1,17 @@
+=== exit 0
+=== stdout
+|Solving dependenciesSolving dependencies > CompilingSolving dependencies > Compiling > Starting tests
+|
+|elm-test 0.19.3-0
+|-----------------
+|
+|Running 2 tests. To reproduce these results, run: elm-test --fuzz 100 --seed 12345 tests/InvalidXMLCharacter
+|
+|[4m[32m
+|TEST RUN PASSED
+|
+|[39m[24m[2mDuration: [22m0 ms
+|[2mPassed:   [22m2
+|[2mFailed:   [22m0
+|
+=== stderr

@@ -197,8 +197,11 @@ enum OracleCommand {
         #[arg(long)]
         jobs: Option<usize>,
     },
-    /// Store elm-format's and elm's transcript of every command-line case.
-    Transcripts,
+    /// Store elm-format's, elm's and elm-test's transcript of every command-line case.
+    Transcripts {
+        /// Only this tool's: `elm-format`, `elm` or `elm-test`.
+        tool: Option<String>,
+    },
     /// Store what each elm reports for every `elm.json` fixture.
     Outline,
     /// Store what each elm reports for every module-graph case.
@@ -340,7 +343,9 @@ fn main() -> ExitCode {
                 });
                 oracle::format::run(&root(), &r, inputs, jobs)
             }
-            OracleCommand::Transcripts => oracle::transcripts::run(&root(), &r),
+            OracleCommand::Transcripts { tool } => {
+                oracle::transcripts::run(&root(), &r, tool.as_deref())
+            }
             OracleCommand::Outline => oracle::outline::run(&root(), &r),
             OracleCommand::Modules => oracle::modules::run(&root(), &r),
             OracleCommand::Names => oracle::names::run(&root(), &r),

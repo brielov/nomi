@@ -1,0 +1,346 @@
+=== exit 2
+=== stdout
+|Solving dependenciesSolving dependencies > CompilingSolving dependencies > Compiling > Starting tests
+|
+|elm-test 0.19.3-0
+|-----------------
+|
+|Running 35 tests. To reproduce these results, run: elm-test --fuzz 100 --seed 12345 tests/Failing
+|
+|[2m↓ Failing.Fuzz
+|[22m[2m↓ withoutNums
+|[22m[31m✗ adding numbers to strings has no effect
+|[39m[2m
+|Given ("",-2147483648,"")
+|[22m
+|    "-"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    ""
+|
+|
+|[2m↓ Failing.Fuzz
+|[22m[2m↓ basic expectations
+|[22m[31m✗ this should succeed
+|[39m
+|    "blah"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "[7m [27mblah"
+|
+|
+|[2m↓ Failing.Fuzz
+|[22m[2m↓ basic expectations
+|[22m[31m✗ this should fail
+|[39m
+|    "somet[7mh[27ming"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "someting[7m [27m[7me[27m[7ml[27m[7ms[27m[7me[27m"
+|
+|
+|[2m↓ Failing.Fuzz
+|[22m[2m↓ basic expectations
+|[22m[31m✗ another failure
+|[39m
+|    "forty-t[7mw[27m[7mo[27m"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "forty-t[7mh[27m[7mr[27m[7me[27m[7me[27m"
+|
+|
+|[2m↓ Failing.Fuzz
+|[22m[2m↓ fuzzing
+|[22m[31m✗ empty list etc
+|[39m[2m
+|Given ("","")
+|[22m
+|    given an empty list, did not return an empty string
+|
+|
+|[2m↓ Failing.Fuzz
+|[22m[2m↓ fuzzing
+|[22m[31m✗ further testing
+|[39m[2m
+|Given ("","")
+|[22m
+|    "Alice, Bob, and Claire"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "This sentence contains one item."
+|
+|
+|[2m↓ Failing.Fuzz
+|[22m[2m↓ fuzzing
+|[22m[31m✗ custom onFail here
+|[39m[2m
+|Given ("","")
+|[22m
+|    given an empty list, did not return an empty string
+|
+|
+|[2m↓ Failing.Fuzz
+|[22m[2m↓ fuzzing
+|[22m[31m✗ This is a test.
+|[39m[2m
+|Given ("","")
+|[22m
+|    given a list of length 3, did not return an oxford-style sentence
+|
+|
+|[2m↓ Failing.Fuzz
+|[22m[2m↓ the first element in this fuzz tuple
+|[22m[31m✗ is always "foo"
+|[39m[2m
+|Given ("","")
+|[22m
+|    ""
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "foo"
+|
+|
+|[2m↓ Failing.Fuzz
+|[22m[2m↓ oxfordify
+|[22m[2m↓ given an empty sentence
+|[22m[31m✗ returns an empty string
+|[39m
+|    "Alice, Bob, and Claire"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    ""
+|
+|
+|[2m↓ Failing.Fuzz
+|[22m[2m↓ oxfordify
+|[22m[2m↓ given a sentence with one item
+|[22m[31m✗ still contains one item
+|[39m
+|    "Alice, Bob, and Claire"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "This sentence contains one item."
+|
+|
+|[2m↓ Failing.Fuzz
+|[22m[2m↓ oxfordify
+|[22m[31m✗ given a sentence with multiple items
+|[39m
+|    Contains multiple tests named 'returns an oxford-style sentence'. Let's rename them so we know which is which.
+|
+|
+|[2m↓ Failing.Fuzz
+|[22m[2m↓ Some tests that should fail and produce shrunken values
+|[22m[2m↓ a randomly generated integer
+|[22m[31m✗ is for sure exactly 0
+|[39m[2m
+|Given 1
+|[22m
+|    1
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    0
+|
+|
+|[2m↓ Failing.Fuzz
+|[22m[2m↓ Some tests that should fail and produce shrunken values
+|[22m[2m↓ a randomly generated integer
+|[22m[31m✗ is <42
+|[39m[2m
+|Given 42
+|[22m
+|    42
+|    ╷
+|    │ Expect.lessThan
+|    ╵
+|    42
+|
+|
+|[2m↓ Failing.Fuzz
+|[22m[2m↓ Some tests that should fail and produce shrunken values
+|[22m[2m↓ a randomly generated integer
+|[22m[31m✗ is also >42
+|[39m[2m
+|Given 0
+|[22m
+|    0
+|    ╷
+|    │ Expect.greaterThan
+|    ╵
+|    42
+|
+|
+|[2m↓ Failing.Fuzz
+|[22m[2m↓ Some tests that should fail and produce shrunken values
+|[22m[2m↓ a randomly generated string
+|[22m[31m✗ equals its reverse
+|[39m[2m
+|Given " !"
+|[22m
+|    "[7m![27m "
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "[7m [27m!"
+|
+|
+|[2m↓ Failing.One
+|[22m[31m✗ intentional failure
+|[39m
+|    This should fail!
+|
+|
+|[2m↓ Failing.OneRuntimeException
+|[22m[31m✗ intentional failure
+|[39m
+|    This test failed because it threw an exception: "Error: TODO in module `Failing.OneRuntimeException` on line 11
+|    
+|    This is intentionally failing with a runtime exception!"
+|
+|
+|[2m↓ Failing.Several
+|[22m[2m↓ withoutNums
+|[22m[31m✗ adding numbers to strings has no effect
+|[39m[2m
+|Given ("",-1,"")
+|[22m
+|    "-"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    ""
+|
+|
+|[2m↓ Failing.Several
+|[22m[2m↓ basic expectations
+|[22m[31m✗ this should succeed
+|[39m
+|    "blah"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "[7m [27mblah"
+|
+|
+|[2m↓ Failing.Several
+|[22m[2m↓ basic expectations
+|[22m[31m✗ this should fail
+|[39m
+|    "somet[7mh[27ming"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "someting[7m [27m[7me[27m[7ml[27m[7ms[27m[7me[27m"
+|
+|
+|[2m↓ Failing.Several
+|[22m[2m↓ basic expectations
+|[22m[31m✗ another failure
+|[39m
+|    "forty-t[7mw[27m[7mo[27m"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "forty-t[7mh[27m[7mr[27m[7me[27m[7me[27m"
+|
+|
+|[2m↓ Failing.Several
+|[22m[2m↓ the first element in this fuzz tuple
+|[22m[31m✗ is always "foo"
+|[39m[2m
+|Given ("","")
+|[22m
+|    ""
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "foo"
+|
+|
+|[2m↓ Failing.SeveralWithComments
+|[22m[2m↓ basic expectations
+|[22m[31m✗ this should succeed
+|[39m
+|    "blah"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "[7m [27mblah"
+|
+|
+|[2m↓ Failing.SeveralWithComments
+|[22m[2m↓ basic expectations
+|[22m[31m✗ this should fail
+|[39m
+|    "somet[7mh[27ming"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "someting[7m [27m[7me[27m[7ml[27m[7ms[27m[7me[27m"
+|
+|
+|[2m↓ Failing.SeveralWithComments
+|[22m[2m↓ basic expectations
+|[22m[31m✗ another failure
+|[39m
+|    "forty-t[7mw[27m[7mo[27m"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "forty-t[7mh[27m[7mr[27m[7me[27m[7me[27m"
+|
+|
+|[2m↓ Failing.SeveralWithComments
+|[22m[2m↓ the first element in this fuzz tuple
+|[22m[31m✗ is always "foo"
+|[39m[2m
+|Given ("","")
+|[22m
+|    ""
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "foo"
+|
+|
+|[2m↓ Failing.SeveralWithComments
+|[22m[2m↓ withoutNums
+|[22m[31m✗ adding numbers to strings has no effect
+|[39m[2m
+|Given ("",-1,"")
+|[22m
+|    "-"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    ""
+|
+|
+|[2m↓ Failing.SplitSocketMessage
+|[22m[31m✗ scce
+|[39m
+|    Array.fromList [0[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m[7m,[27m[7m0[27m]
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    Array.fromList [0]
+|
+|
+|[4m[31m
+|TEST RUN FAILED[39m[24m[31m
+|
+|[39m[2mDuration: [22m0 ms
+|[2mPassed:   [22m2
+|[2mFailed:   [22m29
+|[2mTodo:     [22m4
+|
+=== stderr

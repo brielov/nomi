@@ -1,0 +1,10 @@
+=== exit 2
+=== stdout
+|<?xml version="1.0"?><testsuite name="elm-test" package="elm-test" tests="3" failures="1" errors="0" time="0"><testcase classname="Nested.Module.Test withoutNums" name="adding numbers to strings has no effect" time="0"><failure>Given ("",-1,"")
+|
+|""
+|
+|was not equal to
+|
+|"-"</failure></testcase><testcase classname="Nested.Module.Test" name="Expect.equal works" time="0"/><testcase classname="Nested.Module.Test" name="Expect.equal True works" time="0"/></testsuite>
+=== stderr

@@ -1,0 +1,12 @@
+=== exit 1
+=== stdout
+=== stderr
+|No exposed values of type Test found in files matching:
+|
+|tests/CompileError/NoTests.elm
+|
+|Are the above patterns correct? Maybe try running elm-test with no arguments?
+|
+|Are there tests in any of the matched files?
+|If not – add some!
+|If there are – are they exposed?

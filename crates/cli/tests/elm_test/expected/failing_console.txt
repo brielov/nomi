@@ -1,0 +1,368 @@
+=== exit 2
+=== stdout
+|Solving dependenciesSolving dependencies > CompilingSolving dependencies > Compiling > Starting tests
+|
+|elm-test 0.19.3-0
+|-----------------
+|
+|Running 35 tests. To reproduce these results, run: elm-test --fuzz 100 --seed 12345 tests/Failing
+|
+|↓ Failing.Fuzz
+|↓ withoutNums
+|✗ adding numbers to strings has no effect
+|
+|Given ("",-2147483648,"")
+|
+|    "-"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    ""
+|
+|
+|↓ Failing.Fuzz
+|↓ basic expectations
+|✗ this should succeed
+|
+|          
+|    "blah"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    " blah"
+|     ▲     
+|
+|
+|↓ Failing.Fuzz
+|↓ basic expectations
+|✗ this should fail
+|
+|          ▼    
+|    "something"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "someting else"
+|             ▲▲▲▲▲ 
+|
+|
+|↓ Failing.Fuzz
+|↓ basic expectations
+|✗ another failure
+|
+|            ▼▼ 
+|    "forty-two"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "forty-three"
+|            ▲▲▲▲ 
+|
+|
+|↓ Failing.Fuzz
+|↓ fuzzing
+|✗ empty list etc
+|
+|Given ("","")
+|
+|    given an empty list, did not return an empty string
+|
+|
+|↓ Failing.Fuzz
+|↓ fuzzing
+|✗ further testing
+|
+|Given ("","")
+|
+|    "Alice, Bob, and Claire"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "This sentence contains one item."
+|
+|
+|↓ Failing.Fuzz
+|↓ fuzzing
+|✗ custom onFail here
+|
+|Given ("","")
+|
+|    given an empty list, did not return an empty string
+|
+|
+|↓ Failing.Fuzz
+|↓ fuzzing
+|✗ This is a test.
+|
+|Given ("","")
+|
+|    given a list of length 3, did not return an oxford-style sentence
+|
+|
+|↓ Failing.Fuzz
+|↓ the first element in this fuzz tuple
+|✗ is always "foo"
+|
+|Given ("","")
+|
+|    ""
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "foo"
+|
+|
+|↓ Failing.Fuzz
+|↓ oxfordify
+|↓ given an empty sentence
+|✗ returns an empty string
+|
+|    "Alice, Bob, and Claire"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    ""
+|
+|
+|↓ Failing.Fuzz
+|↓ oxfordify
+|↓ given a sentence with one item
+|✗ still contains one item
+|
+|    "Alice, Bob, and Claire"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "This sentence contains one item."
+|
+|
+|↓ Failing.Fuzz
+|↓ oxfordify
+|✗ given a sentence with multiple items
+|
+|    Contains multiple tests named 'returns an oxford-style sentence'. Let's rename them so we know which is which.
+|
+|
+|↓ Failing.Fuzz
+|↓ Some tests that should fail and produce shrunken values
+|↓ a randomly generated integer
+|✗ is for sure exactly 0
+|
+|Given 1
+|
+|    1
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    0
+|
+|
+|↓ Failing.Fuzz
+|↓ Some tests that should fail and produce shrunken values
+|↓ a randomly generated integer
+|✗ is <42
+|
+|Given 42
+|
+|    42
+|    ╷
+|    │ Expect.lessThan
+|    ╵
+|    42
+|
+|
+|↓ Failing.Fuzz
+|↓ Some tests that should fail and produce shrunken values
+|↓ a randomly generated integer
+|✗ is also >42
+|
+|Given 0
+|
+|    0
+|    ╷
+|    │ Expect.greaterThan
+|    ╵
+|    42
+|
+|
+|↓ Failing.Fuzz
+|↓ Some tests that should fail and produce shrunken values
+|↓ a randomly generated string
+|✗ equals its reverse
+|
+|Given " !"
+|
+|     ▼  
+|    "! "
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    " !"
+|     ▲  
+|
+|
+|↓ Failing.One
+|✗ intentional failure
+|
+|    This should fail!
+|
+|
+|↓ Failing.OneRuntimeException
+|✗ intentional failure
+|
+|    This test failed because it threw an exception: "Error: TODO in module `Failing.OneRuntimeException` on line 11
+|    
+|    This is intentionally failing with a runtime exception!"
+|
+|
+|↓ Failing.Several
+|↓ withoutNums
+|✗ adding numbers to strings has no effect
+|
+|Given ("",-1,"")
+|
+|    "-"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    ""
+|
+|
+|↓ Failing.Several
+|↓ basic expectations
+|✗ this should succeed
+|
+|          
+|    "blah"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    " blah"
+|     ▲     
+|
+|
+|↓ Failing.Several
+|↓ basic expectations
+|✗ this should fail
+|
+|          ▼    
+|    "something"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "someting else"
+|             ▲▲▲▲▲ 
+|
+|
+|↓ Failing.Several
+|↓ basic expectations
+|✗ another failure
+|
+|            ▼▼ 
+|    "forty-two"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "forty-three"
+|            ▲▲▲▲ 
+|
+|
+|↓ Failing.Several
+|↓ the first element in this fuzz tuple
+|✗ is always "foo"
+|
+|Given ("","")
+|
+|    ""
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "foo"
+|
+|
+|↓ Failing.SeveralWithComments
+|↓ basic expectations
+|✗ this should succeed
+|
+|          
+|    "blah"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    " blah"
+|     ▲     
+|
+|
+|↓ Failing.SeveralWithComments
+|↓ basic expectations
+|✗ this should fail
+|
+|          ▼    
+|    "something"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "someting else"
+|             ▲▲▲▲▲ 
+|
+|
+|↓ Failing.SeveralWithComments
+|↓ basic expectations
+|✗ another failure
+|
+|            ▼▼ 
+|    "forty-two"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "forty-three"
+|            ▲▲▲▲ 
+|
+|
+|↓ Failing.SeveralWithComments
+|↓ the first element in this fuzz tuple
+|✗ is always "foo"
+|
+|Given ("","")
+|
+|    ""
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "foo"
+|
+|
+|↓ Failing.SeveralWithComments
+|↓ withoutNums
+|✗ adding numbers to strings has no effect
+|
+|Given ("",-1,"")
+|
+|    "-"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    ""
+|
+|
+|↓ Failing.SplitSocketMessage
+|✗ scce
+|
+|                     ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ 
+|    Array.fromList [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    Array.fromList [0]
+|                      
+|
+|
+|
+|TEST RUN FAILED
+|
+|Duration: 0 ms
+|Passed:   2
+|Failed:   29
+|Todo:     4
+|
+=== stderr

@@ -949,11 +949,14 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
 
 ## M10: Test runner, release 0.4
 
-- [ ] **10.1** `oracle: elm-test transcripts`. elm-test 0.19.3-0 on sample suites with fixed seeds, using the console, JSON and JUnit reporters.
+- [x] **10.1** `oracle: elm-test transcripts`. elm-test 0.19.3-0 on sample suites with fixed seeds, using the console, JSON and JUnit reporters.
   - **Cases:** `crates/cli/tests/elm_test/cases/*.case`, as the CLI transcripts lay them out: a project and the arguments. The suites are node-test-runner's own fixtures (passing, failing, fuzz, distributions, todos, runtime exceptions, nested modules, compile errors, an invalid XML character), under its BSD-3-Clause license, and the CLI's own: help, version, unknown options, no tests, `make`.
   - **Runs:** each suite with `--seed 12345 --fuzz 100`, through every reporter, colored and not. elm-test 0.19.3-0 builds with elm 0.19.3, so that's the elm on its path, with an `ELM_HOME` holding the pinned fixture packages, and it runs `--offline`. JUnit lists tests as workers finish them, so its runs take `--workers 1`.
   - **Recording:** `cargo xtask oracle transcripts` records them into `crates/cli/tests/elm_test/expected/`: exit code, standard output and error. Durations, absolute paths and the help's core count are normalized; nothing else is.
   - **Check:** the transcripts are recorded, and a second recording changes none.
+  - **Done:** 37 cases: six suites through four reporters (console plain and colored, JSON, JUnit), compile errors, no tests, no files, one file of several, the default glob, `make` and its error, and the CLI's help, version and bad arguments. Three recordings in a row are byte for byte the same. `cargo xtask oracle transcripts elm-test` records them alone.
+  - Not only JUnit varies with the workers: with several, a runtime exception's report and the "no exposed values of type Test" message come once per worker that hits them, in whatever order, so those cases take `--workers 1` too.
+  - A runtime exception prints Node's stack trace, whose version and lines in the generated JavaScript are normalized. elm-test reports elm's own progress (`Compiling (3)`) on standard output, and its own (`Solving dependencies > Compiling`) without line breaks when it isn't writing to a terminal.
 - [ ] **10.2** `test: discovery by type`. Every exposed value of type `Test`.
 - [ ] **10.3** `test: runner generation`. A generated `main` over elm-explorations/test's runner API, built through the engine.
 - [ ] **10.4** `test: Node workers`. `--seed`, `--fuzz`, filters and the worker count.

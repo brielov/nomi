@@ -1,0 +1,17 @@
+=== exit 1
+=== stdout
+|Verifying dependencies (0/8)Verifying dependencies (1/8)Verifying dependencies (2/8)Verifying dependencies (3/8)Verifying dependencies (4/8)Verifying dependencies (5/8)Verifying dependencies (6/8)Verifying dependencies (7/8)Verifying dependencies (8/8)                            Dependencies ready!
+|Compiling ...Detected problems in 1 module.
+=== stderr
+|-- ENDLESS COMMENT - {dir}/tests/CompileError/InvalidSyntax.elm
+|
+|I cannot find the end of this multi-line comment:
+|
+|3| {-
+|   ^^
+|Add a -} somewhere after this to end the comment.
+|
+|Hint: Multi-line comments can be nested in Elm, so {- {- -} -} is a comment that
+|happens to contain another comment. Like parentheses and curly braces, the start
+|and end markers must always be balanced. Maybe that is the problem?
+|

@@ -1,0 +1,6 @@
+=== exit 1
+=== stdout
+|Solving dependenciesSolving dependencies > CompilingSolving dependencies > Compiling > Starting tests
+|
+=== stderr
+|There can only be one port named `check`, but your program has multiple.

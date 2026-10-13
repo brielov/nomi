@@ -1,0 +1,8 @@
+=== exit 2
+=== stdout
+|{"event":"runStart","testCount":"3","fuzzRuns":"100","globs":["tests/Nested"],"paths":["{dir}/tests/Nested/Module/Test.elm"],"initialSeed":"12345"}
+|{"event":"testCompleted","status":"fail","labels":["Nested.Module.Test","withoutNums","adding numbers to strings has no effect"],"failures":[{"given":"(\"\",-1,\"\")","message":"Expect.equal","reason":{"type":"Equality","data":{"expected":"\"\"","actual":"\"-\"","comparison":"Expect.equal"}}}],"distributionReports":[{"type":"NoDistribution","data":null}],"duration":"0"}
+|{"event":"testCompleted","status":"pass","labels":["Nested.Module.Test","Expect.equal works"],"failures":[],"distributionReports":[{"type":"NoDistribution","data":null}],"duration":"0"}
+|{"event":"testCompleted","status":"pass","labels":["Nested.Module.Test","Expect.equal True works"],"failures":[],"distributionReports":[{"type":"NoDistribution","data":null}],"duration":"0"}
+|{"event":"runComplete","passed":"2","failed":"1","duration":"0","autoFail":null}
+=== stderr

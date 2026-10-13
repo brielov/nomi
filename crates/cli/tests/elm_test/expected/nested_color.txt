@@ -1,0 +1,30 @@
+=== exit 2
+=== stdout
+|Solving dependenciesSolving dependencies > CompilingSolving dependencies > Compiling > Starting tests
+|
+|elm-test 0.19.3-0
+|-----------------
+|
+|Running 3 tests. To reproduce these results, run: elm-test --fuzz 100 --seed 12345 tests/Nested
+|
+|[2m↓ Nested.Module.Test
+|[22m[2m↓ withoutNums
+|[22m[31m✗ adding numbers to strings has no effect
+|[39m[2m
+|Given ("",-1,"")
+|[22m
+|    "-"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    ""
+|
+|
+|[4m[31m
+|TEST RUN FAILED[39m[24m[31m
+|
+|[39m[2mDuration: [22m0 ms
+|[2mPassed:   [22m2
+|[2mFailed:   [22m1
+|
+=== stderr

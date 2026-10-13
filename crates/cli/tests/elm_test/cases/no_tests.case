@@ -1,0 +1,60 @@
+=== note
+a module that exposes no tests
+=== args
+--seed
+12345
+--workers
+1
+--fuzz
+100
+--offline
+--no-color
+tests/CompileError/NoTests.elm
+=== stdin
+=== file elm.json
+{
+    "type": "application",
+    "source-directories": [
+        "src"
+    ],
+    "elm-version": "0.19.3",
+    "dependencies": {
+        "direct": {
+            "elm/core": "1.0.5"
+        },
+        "indirect": {}
+    },
+    "test-dependencies": {
+        "direct": {
+            "elm-explorations/test": "2.2.1"
+        },
+        "indirect": {
+            "elm/bytes": "1.0.8",
+            "elm/html": "1.0.1",
+            "elm/json": "1.1.4",
+            "elm/random": "1.0.0",
+            "elm/time": "1.0.0",
+            "elm/virtual-dom": "1.0.5"
+        }
+    }
+}
+=== file src/Port1.elm
+port module Port1 exposing (check)
+
+
+port check : String -> Cmd msg
+=== file src/Port2.elm
+port module Port2 exposing (check)
+
+
+port check : String -> Cmd msg
+=== file tests/CompileError/NoTests.elm
+module CompileError.NoTests exposing (somethingElse)
+
+import Expect
+import Test exposing (..)
+
+
+somethingElse : Int
+somethingElse =
+    6

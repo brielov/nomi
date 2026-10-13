@@ -1,0 +1,14 @@
+=== exit 0
+=== stdout
+|{"event":"runStart","testCount":"9","fuzzRuns":"100","globs":["tests/Passing"],"paths":["{dir}/tests/Passing/Dedup/One.elm","{dir}/tests/Passing/One.elm","{dir}/tests/Passing/Ports.elm","{dir}/tests/Passing/Several.elm","{dir}/tests/Passing/TrickyMultilines.elm","{dir}/tests/Passing/Unexposed.elm"],"initialSeed":"12345"}
+|{"event":"testCompleted","status":"pass","labels":["Passing.Dedup.One","this should pass"],"failures":[],"distributionReports":[{"type":"NoDistribution","data":null}],"duration":"0"}
+|{"event":"testCompleted","status":"pass","labels":["Passing.One","this should pass"],"failures":[],"distributionReports":[{"type":"NoDistribution","data":null}],"duration":"0"}
+|{"event":"testCompleted","status":"pass","labels":["Passing.Ports","test with ports should pass"],"failures":[],"distributionReports":[{"type":"NoDistribution","data":null}],"duration":"0"}
+|{"event":"testCompleted","status":"pass","labels":["Passing.Several","Expect.equal works"],"failures":[],"distributionReports":[{"type":"NoDistribution","data":null}],"duration":"0"}
+|{"event":"testCompleted","status":"pass","labels":["Passing.Several","Expect.equal True works"],"failures":[],"distributionReports":[{"type":"NoDistribution","data":null}],"duration":"0"}
+|{"event":"testCompleted","status":"pass","labels":["Passing.Several","Expect.equal False works"],"failures":[],"distributionReports":[{"type":"NoDistribution","data":null}],"duration":"0"}
+|{"event":"testCompleted","status":"pass","labels":["Passing.TrickyMultilines","Multiline string is not changed by mistake"],"failures":[],"distributionReports":[{"type":"NoDistribution","data":null}],"duration":"0"}
+|{"event":"testCompleted","status":"pass","labels":["Passing.Unexposed","all","Expect.equal works"],"failures":[],"distributionReports":[{"type":"NoDistribution","data":null}],"duration":"0"}
+|{"event":"testCompleted","status":"pass","labels":["Passing.Unexposed","all","Expect.equal True works"],"failures":[],"distributionReports":[{"type":"NoDistribution","data":null}],"duration":"0"}
+|{"event":"runComplete","passed":"9","failed":"0","duration":"0","autoFail":null}
+=== stderr

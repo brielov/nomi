@@ -1,0 +1,70 @@
+=== exit 2
+=== stdout
+|<?xml version="1.0"?><testsuite name="elm-test" package="elm-test" tests="10" failures="6" errors="0" time="0"><testcase classname="Distribution.Everything" name="expectDistribution: failing because of distribution" time="0"><failure>Invalid test: Distribution of label "one" was insufficient:
+|  expected:  exactly 0%
+|  got:       4.800%.
+|
+|(Generated 10000 values.)</failure><system-out>Distribution report:
+|====================
+|  in between:   90%  (9000x)  ███████████████████████████░░░
+|  high:        5.2%   (520x)  ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  low:         4.8%   (480x)  █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  one:         4.8%   (480x)  █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  outside:       0%     (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|
+|Combinations (included in the above base counts):
+|  low, one:    4.8%   (480x)  █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░</system-out></testcase><testcase classname="Distribution.Everything" name="expectDistribution: failing because of test" time="0"><failure>Given 1
+|
+|This test is supposed to fail</failure><system-out>Distribution report:
+|====================
+|  in between:  100%  (1x)  ██████████████████████████████
+|  high:          0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  low:           0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  one:           0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  outside:       0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░</system-out></testcase><testcase classname="Distribution.Everything" name="expectDistribution: passing" time="0"/><testcase classname="Distribution.Everything" name="reportDistribution: failing" time="0"><failure>Given 1
+|
+|The test is supposed to fail</failure><system-out>Distribution report:
+|====================
+|  in between:  100%  (1x)  ██████████████████████████████
+|  high:          0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  low:           0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  outside:       0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░</system-out></testcase><testcase classname="Distribution.Everything" name="reportDistribution: passing" time="0"><system-out>Distribution report:
+|====================
+|  in between:  89.7%  (8968x)  ███████████████████████████░░░
+|  high:         5.3%   (529x)  ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  low:            5%   (503x)  ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  outside:        0%     (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░</system-out></testcase><testcase classname="Distribution.ExpectDistributionFailingDistribution" name="expectDistribution: failing because of distribution" time="0"><failure>Invalid test: Distribution of label "one" was insufficient:
+|  expected:  exactly 0%
+|  got:       4.970%.
+|
+|(Generated 10000 values.)</failure><system-out>Distribution report:
+|====================
+|  in between:   90%  (8996x)  ███████████████████████████░░░
+|  high:        5.1%   (507x)  ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  low:           5%   (497x)  █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  one:           5%   (497x)  █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  outside:       0%     (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|
+|Combinations (included in the above base counts):
+|  low, one:      5%   (497x)  █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░</system-out></testcase><testcase classname="Distribution.ExpectDistributionFailingTest" name="expectDistribution: failing because of test" time="0"><failure>Given 1
+|
+|This test is supposed to fail</failure><system-out>Distribution report:
+|====================
+|  in between:  100%  (1x)  ██████████████████████████████
+|  high:          0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  low:           0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  one:           0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  outside:       0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░</system-out></testcase><testcase classname="Distribution.ExpectDistributionPassing" name="expectDistribution: passing" time="0"/><testcase classname="Distribution.ReportDistributionFailing" name="reportDistribution: failing" time="0"><failure>Given 1
+|
+|The test is supposed to fail</failure><system-out>Distribution report:
+|====================
+|  low:         100%  (1x)  ██████████████████████████████
+|  high:          0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  in between:    0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  outside:       0%  (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░</system-out></testcase><testcase classname="Distribution.ReportDistributionPassing" name="reportDistribution: passing" time="0"><system-out>Distribution report:
+|====================
+|  in between:  90.2%  (9015x)  ███████████████████████████░░░
+|  high:           5%   (498x)  █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  low:          4.9%   (487x)  █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+|  outside:        0%     (0x)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░</system-out></testcase></testsuite>
+=== stderr

@@ -267,7 +267,7 @@ pub(crate) fn record(tools: &Tools, scratch: &Path, case: &lsp::Case) -> Result<
 
 /// Fills `home` as an offline `ELM_HOME` holding the fixture packages,
 /// and gives back their directory.
-fn elm_home(root: &Path, home: &Path, compat: Version) -> Result<PathBuf> {
+pub(crate) fn elm_home(root: &Path, home: &Path, compat: Version) -> Result<PathBuf> {
     let packages = home.join(compat.to_string()).join("packages");
     let fixtures = root.join(PACKAGES);
     let mut releases = Vec::new();
