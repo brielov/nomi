@@ -1,6 +1,8 @@
 //! Types, such as `Maybe (List a) -> { r | name : String }`.
 
-use super::{expect_indented, qualified_name, skip_junk};
+use super::{
+    at_tuple_constructor, expect_indented, qualified_name, sequence_tail, tuple_constructor_tail,
+};
 use crate::SyntaxKind as K;
 use crate::parser::{CompletedMarker, Parser, SyntaxErrorKind};
 
@@ -37,22 +39,18 @@ fn function_type(p: &mut Parser<'_>) {
 /// A type with its arguments: `Dict String (List a)`.
 fn applied_type(p: &mut Parser<'_>) -> CompletedMarker {
     if !at_type(p) {
-        p.error(SyntaxErrorKind::ExpectedType);
-        return p.missing();
+        return p.missing(SyntaxErrorKind::ExpectedType);
     }
     let (m, kind) = match p.current() {
         K::UpperIdent => {
             let m = p.start();
-            type_name(p);
+            qualified_name(p, &[K::UpperIdent]);
             (m, K::NamedType)
         }
-        K::LParen if at_tuple_constructor(p) => {
+        K::LParen if at_tuple_constructor(p, 1) => {
             let m = p.start();
             p.bump();
-            while p.at(K::Comma) {
-                p.bump();
-            }
-            p.bump();
+            tuple_constructor_tail(p);
             (m, K::TupleConstructorType)
         }
         _ => return type_atom(p),
@@ -68,7 +66,7 @@ pub(super) fn type_atom(p: &mut Parser<'_>) -> CompletedMarker {
     match p.current() {
         K::UpperIdent => {
             let m = p.start();
-            type_name(p);
+            qualified_name(p, &[K::UpperIdent]);
             m.complete(p, K::NamedType)
         }
         K::LowerIdent => {
@@ -82,20 +80,6 @@ pub(super) fn type_atom(p: &mut Parser<'_>) -> CompletedMarker {
     }
 }
 
-/// `Maybe` or `Maybe.Maybe`.
-fn type_name(p: &mut Parser<'_>) {
-    qualified_name(p, &[K::UpperIdent]);
-}
-
-/// `(,)`, `(,,)` and so on.
-fn at_tuple_constructor(p: &mut Parser<'_>) -> bool {
-    let mut n = 1;
-    while p.nth(n) == K::Comma {
-        n += 1;
-    }
-    n > 1 && p.nth(n) == K::RParen
-}
-
 /// `()`, `(a)` or `(a, b, c)`.
 fn paren_type(p: &mut Parser<'_>) -> CompletedMarker {
     let m = p.start();
@@ -104,27 +88,11 @@ fn paren_type(p: &mut Parser<'_>) -> CompletedMarker {
         return m.complete(p, K::UnitType);
     }
     type_(p);
-    let mut kind = K::ParenType;
-    loop {
-        if p.at(K::RParen) {
-            p.bump();
-            break;
-        }
-        if p.at(K::Comma) {
-            p.bump();
-            kind = K::TupleType;
-            type_(p);
-        } else if p.at_indented_strictly() {
-            skip_junk(
-                p,
-                SyntaxErrorKind::Expected(K::RParen),
-                &[K::Comma, K::RParen],
-            );
-        } else {
-            p.error(SyntaxErrorKind::Expected(K::RParen));
-            break;
-        }
-    }
+    let kind = if sequence_tail(p, K::RParen, type_) {
+        K::TupleType
+    } else {
+        K::ParenType
+    };
     m.complete(p, kind)
 }
 
@@ -143,33 +111,14 @@ fn record_type(p: &mut Parser<'_>) -> CompletedMarker {
         extension.complete(p, K::RecordExtension);
     }
     field_type(p);
-    loop {
-        if p.at(K::RBrace) {
-            p.bump();
-            break;
-        }
-        if p.at(K::Comma) {
-            p.bump();
-            field_type(p);
-        } else if p.at_indented_strictly() {
-            skip_junk(
-                p,
-                SyntaxErrorKind::Expected(K::RBrace),
-                &[K::Comma, K::RBrace],
-            );
-        } else {
-            p.error(SyntaxErrorKind::Expected(K::RBrace));
-            break;
-        }
-    }
+    sequence_tail(p, K::RBrace, field_type);
     m.complete(p, K::RecordType)
 }
 
 /// `name : String`, or elm-format's legacy `name = String`.
 fn field_type(p: &mut Parser<'_>) {
     if !p.at(K::LowerIdent) {
-        p.error(SyntaxErrorKind::Expected(K::LowerIdent));
-        p.missing();
+        p.missing(SyntaxErrorKind::Expected(K::LowerIdent));
         return;
     }
     let m = p.start();

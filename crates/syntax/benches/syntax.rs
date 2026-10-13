@@ -3,15 +3,11 @@
 //! must take less than three times as long, or the run fails: parsing
 //! scales linearly. Times are the fastest of several runs.
 
-use std::time::{Duration, Instant};
-
 use nomi_base::Compat;
 use nomi_syntax::{Source, Tool, parse_module, validate};
+use nomi_testkit::bench::{SCALING, fail_if_slow, fastest, kib, ms, ratio};
 
 const DECLARATIONS: &str = include_str!("../tests/syntax_mutations/seeds/Declarations.elm");
-
-/// How much slower twice the input may be.
-const SCALING: f64 = 3.0;
 
 struct Shape {
     name: &'static str,
@@ -81,25 +77,9 @@ fn parse_and_validate(text: &str) {
     validate(&parse, Tool::Elm(Source::Application, Compat::V0_19_1));
 }
 
-/// The fastest of runs taking at least a second together, and at least
-/// five.
-fn fastest(run: fn(&str), text: &str) -> Duration {
-    run(text);
-    let (mut best, mut total, mut runs) = (Duration::MAX, Duration::ZERO, 0);
-    while runs < 5 || total < Duration::from_secs(1) {
-        let start = Instant::now();
-        run(text);
-        let took = start.elapsed();
-        best = best.min(took);
-        total += took;
-        runs += 1;
-    }
-    best
-}
-
 fn main() {
     // Deep trees need the stack the shell gives core work.
-    let failed = stacker::grow(nomi_base::STACK_SIZE, || {
+    let failed = nomi_base::on_core_stack(|| {
         println!(
             "| {:<24} | {:>9} | {:>9} | {:>9} | {:>9} | {:>5} |",
             "shape", "size", "time", "2× size", "time", "ratio"
@@ -111,8 +91,9 @@ fn main() {
         let mut failed = Vec::new();
         for shape in SHAPES {
             let (small, large) = ((shape.input)(shape.size), (shape.input)(2 * shape.size));
-            let (t1, t2) = (fastest(shape.run, &small), fastest(shape.run, &large));
-            let ratio = t2.as_secs_f64() / t1.as_secs_f64();
+            let t1 = fastest(|| (shape.run)(&small));
+            let t2 = fastest(|| (shape.run)(&large));
+            let ratio = ratio(&[t1, t2]);
             println!(
                 "| {:<24} | {:>9} | {:>9} | {:>9} | {:>9} | {ratio:>5.2} |",
                 shape.name,
@@ -127,19 +108,5 @@ fn main() {
         }
         failed
     });
-    if !failed.is_empty() {
-        eprintln!(
-            "twice the input took {SCALING} times as long or more: {}",
-            failed.join(", ")
-        );
-        std::process::exit(1);
-    }
-}
-
-fn kib(bytes: usize) -> String {
-    format!("{} KiB", bytes / 1024)
-}
-
-fn ms(time: Duration) -> String {
-    format!("{:.2} ms", time.as_secs_f64() * 1e3)
+    fail_if_slow(&failed);
 }

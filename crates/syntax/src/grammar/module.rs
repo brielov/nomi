@@ -2,10 +2,7 @@
 //! declarations that follow.
 
 use super::declarations::declarations;
-use super::{
-    at_parenthesized_op, expect_indented, is_parenthesized_op, module_name, parenthesized_op,
-    skip_junk,
-};
+use super::{expect_indented, is_parenthesized_op, module_name, parenthesized_op, skip_junk};
 use crate::SyntaxKind as K;
 use crate::parser::{Parser, SyntaxErrorKind};
 
@@ -174,19 +171,28 @@ fn exposing_list(p: &mut Parser<'_>) {
     }
     if p.at(K::LParen) {
         p.bump();
-        exposed_items(p, true);
-        closing_paren(p);
+        exposed_items(p, Delimiters::Parenthesized);
+        expect_indented(p, K::RParen);
     } else if p.at_indented() && matches!(p.current(), K::DotDot | K::LowerIdent | K::UpperIdent) {
-        exposed_items(p, false);
+        exposed_items(p, Delimiters::Bare);
     } else {
         p.error(SyntaxErrorKind::Expected(K::LParen));
     }
     m.complete(p, K::ExposingList);
 }
 
+/// Whether an exposing list stands in parentheses.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Delimiters {
+    Parenthesized,
+    /// An import's list without them, which elm-format takes, as in
+    /// `import A exposing a`.
+    Bare,
+}
+
 /// `..` or a comma-separated list. In parentheses, junk before the next
 /// comma is skipped.
-fn exposed_items(p: &mut Parser<'_>, parenthesized: bool) {
+fn exposed_items(p: &mut Parser<'_>, delimiters: Delimiters) {
     // Both tools read `..` by its characters: `(..--x` is `(..` and a
     // comment.
     if p.at_symbol(K::DotDot) {
@@ -198,7 +204,10 @@ fn exposed_items(p: &mut Parser<'_>, parenthesized: bool) {
         if p.at(K::Comma) && p.at_indented() {
             p.bump();
             exposed(p);
-        } else if parenthesized && p.at_indented_strictly() && !p.at(K::RParen) {
+        } else if delimiters == Delimiters::Parenthesized
+            && p.at_indented_strictly()
+            && !p.at(K::RParen)
+        {
             p.error_and_bump(SyntaxErrorKind::Expected(K::RParen));
         } else {
             break;
@@ -208,8 +217,7 @@ fn exposed_items(p: &mut Parser<'_>, parenthesized: bool) {
 
 fn exposed(p: &mut Parser<'_>) {
     if !p.at_indented() {
-        p.error(SyntaxErrorKind::ExpectedExposed);
-        p.missing();
+        p.missing(SyntaxErrorKind::ExpectedExposed);
         return;
     }
     match p.current() {
@@ -229,18 +237,16 @@ fn exposed(p: &mut Parser<'_>) {
         K::LParen => {
             let m = p.start();
             p.bump();
-            if at_parenthesized_op(p) {
+            if is_parenthesized_op(p.current()) {
                 parenthesized_op(p);
             } else {
-                p.error(SyntaxErrorKind::Expected(K::Op));
-                p.missing();
+                p.missing(SyntaxErrorKind::Expected(K::Op));
             }
-            closing_paren(p);
+            expect_indented(p, K::RParen);
             m.complete(p, K::ExposedOperator);
         }
         K::Comma | K::RParen => {
-            p.error(SyntaxErrorKind::ExpectedExposed);
-            p.missing();
+            p.missing(SyntaxErrorKind::ExpectedExposed);
         }
         _ => p.error_and_bump(SyntaxErrorKind::ExpectedExposed),
     }
@@ -261,10 +267,6 @@ fn exposed_variants(p: &mut Parser<'_>) {
             expect_indented(p, K::UpperIdent);
         }
     }
-    closing_paren(p);
-    m.complete(p, K::ExposedVariants);
-}
-
-fn closing_paren(p: &mut Parser<'_>) {
     expect_indented(p, K::RParen);
+    m.complete(p, K::ExposedVariants);
 }

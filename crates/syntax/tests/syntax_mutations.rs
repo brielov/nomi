@@ -5,6 +5,7 @@
 
 mod common;
 
+use common::Verdict;
 use nomi_syntax::Tool;
 use nomi_testkit::ratchet::Suite;
 
@@ -18,39 +19,32 @@ type Outcome = (String, Result<(), String>);
 
 fn seed_outcomes(seed: &common::Seed) -> Vec<Outcome> {
     let mut outcomes = Vec::with_capacity(seed.cases.len());
-    for (m, cells) in &seed.cases {
+    for (m, verdicts) in &seed.cases {
         let parse = nomi_syntax::parse_module(&m.source);
         // Releases rarely differ; validate each tool once.
-        let mut verdicts: Vec<(Tool, bool)> = Vec::new();
+        let mut seen: Vec<(Tool, bool)> = Vec::new();
         let mut accepts = |tool: Tool| {
-            if let Some(&(_, accepted)) = verdicts.iter().find(|(t, _)| *t == tool) {
+            if let Some(&(_, accepted)) = seen.iter().find(|(t, _)| *t == tool) {
                 accepted
             } else {
                 let accepted =
                     parse.errors().is_empty() && nomi_syntax::validate(&parse, tool).is_empty();
-                verdicts.push((tool, accepted));
+                seen.push((tool, accepted));
                 accepted
             }
         };
-        let mismatch = seed
-            .columns
-            .iter()
-            .zip(cells)
-            .find_map(
-                |((column, tool), cell)| match (cell.as_str(), accepts(*tool)) {
-                    // A crash gives no verdict to match.
-                    ("crash", _) => None,
-                    ("ok", false) => Some(format!("{column} accepts, nomi rejects")),
-                    (_, true) if cell != "ok" => {
-                        Some(format!("{column} rejects ({cell}), nomi accepts"))
-                    }
-                    _ => None,
-                },
-            );
-        outcomes.push((
-            format!("{} / {}", seed.name, m.name),
-            mismatch.map_or(Ok(()), Err),
-        ));
+        let mismatch = (seed.columns.iter().zip(verdicts)).find_map(|((column, tool), verdict)| {
+            match (verdict, accepts(*tool)) {
+                (Verdict::Accepted, false) => Some(format!("{column} accepts, nomi rejects")),
+                (Verdict::Rejected(cell), true) => {
+                    Some(format!("{column} rejects ({cell}), nomi accepts"))
+                }
+                (Verdict::Accepted, true)
+                | (Verdict::Rejected(_), false)
+                | (Verdict::Crashed, _) => None,
+            }
+        });
+        outcomes.push((seed.case_id(m), mismatch.map_or(Ok(()), Err)));
     }
     outcomes
 }

@@ -4,8 +4,8 @@
 use super::definitions::{at_value_name, value};
 use super::patterns::{at_pattern_argument, at_pattern_atom, pattern, pattern_atom};
 use super::{
-    at_aligned, at_parenthesized_op, expect_indented, expect_part, parenthesized_op,
-    qualified_name, skip_junk,
+    at_tuple_constructor, expect_indented, expect_part, is_parenthesized_op, parenthesized_op,
+    qualified_name, sequence_tail, skip_junk, tuple_constructor_tail,
 };
 use crate::SyntaxKind as K;
 use crate::parser::{CompletedMarker, Parser, SyntaxErrorKind};
@@ -129,15 +129,7 @@ fn case_expr(p: &mut Parser<'_>) -> CompletedMarker {
     if of {
         if at_pattern_atom(p) {
             let column = p.current_column();
-            p.with_min_column(column + 1, |p| {
-                p.anchor();
-                loop {
-                    case_branch(p);
-                    if !at_aligned(p, column, at_pattern_atom) {
-                        break;
-                    }
-                }
-            });
+            aligned_block(p, column, case_branch);
         } else {
             p.error(SyntaxErrorKind::ExpectedPattern);
         }
@@ -166,15 +158,7 @@ fn let_expr(p: &mut Parser<'_>) -> CompletedMarker {
         if column <= let_column {
             p.misindented();
         }
-        p.with_min_column(column + 1, |p| {
-            p.anchor();
-            loop {
-                let_decl(p);
-                if !at_aligned(p, column, at_pattern_atom) {
-                    break;
-                }
-            }
-        });
+        aligned_block(p, column, let_decl);
     } else {
         p.error(SyntaxErrorKind::Expected(K::Definition));
     }
@@ -182,6 +166,36 @@ fn let_expr(p: &mut Parser<'_>) -> CompletedMarker {
         expr(p);
     }
     m.complete(p, K::LetExpr)
+}
+
+/// Items aligned at `column`, the current token's, as a case's branches
+/// and a let's definitions are: each starts with a pattern at that
+/// column, and the rest of it is further right.
+fn aligned_block(p: &mut Parser<'_>, column: u32, item: impl Fn(&mut Parser<'_>)) {
+    p.with_min_column(column + 1, |p| {
+        p.anchor();
+        loop {
+            item(p);
+            if !at_aligned(p, column) {
+                break;
+            }
+        }
+    });
+}
+
+/// Whether the current token lines up at `column` with the items of a
+/// block and starts another. It is then anchored: it counts as indented,
+/// though the rest of the item must be further right.
+fn at_aligned(p: &mut Parser<'_>, column: u32) -> bool {
+    if p.at(K::Eof) || p.current_column() != column {
+        return false;
+    }
+    p.anchor();
+    let at = at_pattern_atom(p);
+    if !at {
+        p.unanchor();
+    }
+    at
 }
 
 /// `name args = body`, maybe with a signature, or `( a, b ) = pair`.
@@ -204,14 +218,11 @@ fn lambda(p: &mut Parser<'_>) -> CompletedMarker {
     let m = p.start();
     p.bump();
     // elm-format wants every parameter indented, the first too.
-    if at_pattern_argument(p) {
+    if !at_pattern_argument(p) {
+        p.missing(SyntaxErrorKind::ExpectedPattern);
+    }
+    while at_pattern_argument(p) {
         pattern_atom(p);
-        while at_pattern_argument(p) {
-            pattern_atom(p);
-        }
-    } else {
-        p.error(SyntaxErrorKind::ExpectedPattern);
-        p.missing();
     }
     if expect_part(p, K::Arrow) {
         expr(p);
@@ -253,8 +264,7 @@ fn operand(p: &mut Parser<'_>) -> CompletedMarker {
         return negate(p);
     }
     if !at_atom(p) {
-        p.error(SyntaxErrorKind::ExpectedExpression);
-        return p.missing();
+        return p.missing(SyntaxErrorKind::ExpectedExpression);
     }
     atom(p)
 }
@@ -378,50 +388,21 @@ fn paren(p: &mut Parser<'_>) -> K {
         p.bump();
         return K::UnitExpr;
     }
-    if at_parenthesized_op(p) && p.nth(1) == K::RParen {
+    if is_parenthesized_op(p.current()) && p.nth(1) == K::RParen {
         parenthesized_op(p);
         p.bump();
         return K::OperatorFunction;
     }
-    if p.at(K::Comma) && at_tuple_constructor(p) {
-        while p.at(K::Comma) {
-            p.bump();
-        }
-        p.bump();
+    if at_tuple_constructor(p, 0) {
+        tuple_constructor_tail(p);
         return K::TupleConstructorExpr;
     }
     expr(p);
-    let mut kind = K::ParenExpr;
-    loop {
-        if p.at(K::RParen) {
-            p.bump();
-            break;
-        }
-        if p.at(K::Comma) {
-            p.bump();
-            kind = K::TupleExpr;
-            expr(p);
-        } else if p.at_indented_strictly() {
-            skip_junk(
-                p,
-                SyntaxErrorKind::Expected(K::RParen),
-                &[K::Comma, K::RParen],
-            );
-        } else {
-            p.error(SyntaxErrorKind::Expected(K::RParen));
-            break;
-        }
+    if sequence_tail(p, K::RParen, expr) {
+        K::TupleExpr
+    } else {
+        K::ParenExpr
     }
-    kind
-}
-
-/// `,` up to `)`, after the `(`.
-fn at_tuple_constructor(p: &mut Parser<'_>) -> bool {
-    let mut n = 0;
-    while p.nth(n) == K::Comma {
-        n += 1;
-    }
-    p.nth(n) == K::RParen
 }
 
 /// `[]` or `[a, b]`.
@@ -441,25 +422,7 @@ fn list(p: &mut Parser<'_>) -> K {
             return K::RangeExpr;
         }
     }
-    loop {
-        if p.at(K::RBracket) {
-            p.bump();
-            break;
-        }
-        if p.at(K::Comma) {
-            p.bump();
-            expr(p);
-        } else if p.at_indented_strictly() {
-            skip_junk(
-                p,
-                SyntaxErrorKind::Expected(K::RBracket),
-                &[K::Comma, K::RBracket],
-            );
-        } else {
-            p.error(SyntaxErrorKind::Expected(K::RBracket));
-            break;
-        }
-    }
+    sequence_tail(p, K::RBracket, expr);
     K::ListExpr
 }
 
@@ -478,33 +441,14 @@ fn record(p: &mut Parser<'_>) -> K {
         K::RecordExpr
     };
     field(p);
-    loop {
-        if p.at(K::RBrace) {
-            p.bump();
-            break;
-        }
-        if p.at(K::Comma) {
-            p.bump();
-            field(p);
-        } else if p.at_indented_strictly() {
-            skip_junk(
-                p,
-                SyntaxErrorKind::Expected(K::RBrace),
-                &[K::Comma, K::RBrace],
-            );
-        } else {
-            p.error(SyntaxErrorKind::Expected(K::RBrace));
-            break;
-        }
-    }
+    sequence_tail(p, K::RBrace, field);
     kind
 }
 
 /// `name = value`, or elm-format's `name : value`.
 fn field(p: &mut Parser<'_>) {
     if !p.at(K::LowerIdent) {
-        p.error(SyntaxErrorKind::Expected(K::LowerIdent));
-        p.missing();
+        p.missing(SyntaxErrorKind::Expected(K::LowerIdent));
         return;
     }
     let m = p.start();

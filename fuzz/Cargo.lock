@@ -277,10 +277,8 @@ dependencies = [
 name = "nomi-syntax"
 version = "0.4.0"
 dependencies = [
- "icu_properties",
  "nomi-base",
  "rowan",
- "stacker",
 ]
 
 [[package]]

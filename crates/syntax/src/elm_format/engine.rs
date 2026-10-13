@@ -9,8 +9,6 @@
 //! column handed to the last error continuation, which is what each
 //! combinator here passes on.
 
-use crate::parser::{RED_ZONE, STACK_SEGMENT};
-
 /// Why a parser failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Fail {
@@ -438,5 +436,5 @@ impl<'s> P<'s> {
 /// Runs `parser` with room on the stack, as GHC's growing stack gives
 /// upstream's.
 pub(super) fn deep<'s, T>(p: &mut P<'s>, parser: impl FnOnce(&mut P<'s>) -> T) -> T {
-    stacker::maybe_grow(RED_ZONE, STACK_SEGMENT, || parser(p))
+    nomi_base::grow_large(|| parser(p))
 }

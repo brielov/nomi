@@ -1083,13 +1083,11 @@ dependencies = [
 name = "nomi-syntax"
 version = "0.4.0"
 dependencies = [
- "icu_properties 1.5.1",
  "insta",
  "nomi-base",
  "nomi-testkit",
  "proptest",
  "rowan",
- "stacker",
  "ungrammar",
 ]
 

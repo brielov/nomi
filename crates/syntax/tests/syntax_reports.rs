@@ -8,7 +8,6 @@ mod common;
 mod elm_reports;
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use nomi_base::diagnostic::json;
 use nomi_testkit::ratchet::Suite;
@@ -23,12 +22,11 @@ fn syntax_reports() {
         let hashes = hashes(&seed.name);
         elm_reports::rejections(&seed)
             .into_iter()
-            .map(|(case, rejections)| {
-                let name = case.split_once(" / ").map_or("", |(_, m)| m);
-                let outcome = rejections.into_iter().try_for_each(|r| {
+            .map(|case| {
+                let row = hashes.get(&case.mutation.name);
+                let outcome = case.rejections.into_iter().try_for_each(|r| {
                     let problem = r.problem.map_err(|e| format!("{}: {e}", r.column))?;
-                    let expected = hashes
-                        .get(&(name.to_owned(), r.column.clone()))
+                    let expected = (row.and_then(|row| row.get(&r.column)))
                         .ok_or_else(|| format!("{}: no hash; {}", r.column, common::RERUN))?;
                     let report = json::compile_errors(vec![json::module(
                         "A.elm",
@@ -43,16 +41,15 @@ fn syntax_reports() {
                         Err(format!("{}: elm's report differs ({})", r.column, r.cell))
                     }
                 });
-                (case, outcome)
+                (seed.case_id(case.mutation), outcome)
             })
             .collect()
     });
-    Suite::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/syntax_reports"))
-        .finish(outcomes);
+    Suite::open(common::tests_dir("syntax_reports")).finish(outcomes);
 }
 
-/// `reports/<seed>.tsv`, by mutation and column.
-fn hashes(seed: &str) -> HashMap<(String, String), String> {
+/// `reports/<seed>.tsv`, by mutation, then by column.
+fn hashes(seed: &str) -> HashMap<String, HashMap<String, String>> {
     let path = common::dir().join("reports").join(format!("{seed}.tsv"));
     let table = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("reading {}: {e}; {}", path.display(), common::RERUN));
@@ -61,12 +58,10 @@ fn hashes(seed: &str) -> HashMap<(String, String), String> {
     let mut hashes = HashMap::new();
     for line in lines {
         let cells: Vec<&str> = line.split('\t').collect();
-        for (column, cell) in columns.iter().zip(&cells).skip(1) {
-            hashes.insert(
-                (cells[0].to_owned(), (*column).to_owned()),
-                (*cell).to_owned(),
-            );
-        }
+        let row = (columns.iter().zip(&cells).skip(1))
+            .map(|(column, cell)| ((*column).to_owned(), (*cell).to_owned()))
+            .collect();
+        hashes.insert(cells[0].to_owned(), row);
     }
     hashes
 }

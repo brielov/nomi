@@ -30,7 +30,7 @@ pub struct Parse {
     /// Tokens consumed though not indented, which elm rejects and
     /// elm-format takes. Only the parser knows the indentation context, so
     /// it records them for [`crate::validate`].
-    pub(crate) unindented: Vec<TextRange>,
+    unindented: Vec<TextRange>,
     /// Indentation checks a token passed at [`FAR_COLUMN`] or further
     /// right, where a release that keeps columns in 16 bits sees another
     /// column.
@@ -49,14 +49,14 @@ impl Drop for Parse {
         if self.deepest > SHALLOW {
             let empty = GreenNode::new(SyntaxKind::Error.into(), []);
             let green = std::mem::replace(&mut self.green, empty);
-            stacker::grow(nomi_base::STACK_SIZE, move || drop(green));
+            nomi_base::on_core_stack(move || drop(green));
         }
     }
 }
 
 /// The leftmost column, counting from 0, where a 16-bit 1-based column
 /// wraps.
-pub(crate) const FAR_COLUMN: u32 = u16::MAX as u32;
+const FAR_COLUMN: u32 = u16::MAX as u32;
 
 /// A token that passed an indentation check far right on its line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,16 +68,27 @@ pub(crate) struct FarCheck {
 }
 
 impl Parse {
+    /// The tree's root.
     pub fn syntax(&self) -> SyntaxNode {
         SyntaxNode::new_root(self.green.clone())
     }
 
+    /// The tree's root, as rowan stores it.
     pub fn green(&self) -> &GreenNode {
         &self.green
     }
 
+    /// The lexer's and the grammar's problems, in source order.
     pub fn errors(&self) -> &[SyntaxError] {
         &self.errors
+    }
+
+    /// What elm reports of the tokens consumed though not indented.
+    pub(crate) fn unindented_errors(&self) -> impl Iterator<Item = SyntaxError> + '_ {
+        self.unindented.iter().map(|&range| SyntaxError {
+            kind: SyntaxErrorKind::ExpectedIndent,
+            range,
+        })
     }
 
     /// The errors and the unindented tokens elm reports, in source order;
@@ -85,12 +96,17 @@ impl Parse {
     #[cfg(test)]
     pub(crate) fn elm_errors(&self) -> Vec<SyntaxError> {
         let mut errors = self.errors.clone();
-        errors.extend(self.unindented.iter().map(|&range| SyntaxError {
-            kind: SyntaxErrorKind::ExpectedIndent,
-            range,
-        }));
+        errors.extend(self.unindented_errors());
         errors.sort_by_key(|e| e.range.start());
         errors
+    }
+
+    /// How many times nesting passed [`DEPTH_LIMIT`]; for tests.
+    #[cfg(test)]
+    pub(crate) fn too_deep(&self) -> usize {
+        (self.errors.iter())
+            .filter(|e| e.kind == SyntaxErrorKind::TooDeep)
+            .count()
     }
 
     /// The tree as indented `Kind@start..end` lines, tokens with their
@@ -125,14 +141,19 @@ impl Parse {
     }
 }
 
+/// A problem in the text, and where: an empty range where something is
+/// missing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SyntaxError {
     pub kind: SyntaxErrorKind,
     pub range: TextRange,
 }
 
+/// What is wrong: what the lexer, the grammar or a tool's validation
+/// found.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SyntaxErrorKind {
+    /// What the lexer found.
     Lexical(LexErrorKind),
     /// The grammar needed this token here.
     Expected(SyntaxKind),
@@ -252,13 +273,8 @@ pub enum SyntaxErrorKind {
 /// deepest tree this admits.
 pub const DEPTH_LIMIT: u32 = 25_000;
 
-/// Stack kept free before a guarded rule runs, and the size of each new
-/// segment when it isn't.
-pub(crate) const RED_ZONE: usize = 128 * 1024;
-pub(crate) const STACK_SEGMENT: usize = 2 * 1024 * 1024;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Event {
+enum Event {
     /// Opens a node. `forward_parent` points at a later `Start` that
     /// [`CompletedMarker::precede`] made this node's parent.
     Start {
@@ -293,6 +309,7 @@ pub(crate) struct Parser<'t> {
     /// Tokens lexed but not consumed, next first: the lookahead.
     ahead: VecDeque<Ahead>,
     /// Tokens lexed, those lexed again after a split included.
+    #[cfg(test)]
     lexed: usize,
     /// Tokens consumed so far, trivia included, in source order.
     consumed: Vec<Token>,
@@ -344,6 +361,7 @@ impl<'t> Parser<'t> {
             },
             lexer_column: 0,
             ahead: VecDeque::new(),
+            #[cfg(test)]
             lexed: 0,
             consumed: Vec::new(),
             events: Vec::new(),
@@ -404,7 +422,10 @@ impl<'t> Parser<'t> {
             let token = self.lexer.next_token()?;
             let column = self.lexer_column;
             self.lexer_column = advance_column(column, &self.text[token.range]);
-            self.lexed += 1;
+            #[cfg(test)]
+            {
+                self.lexed += 1;
+            }
             self.ahead.push_back(Ahead {
                 token,
                 column,
@@ -652,8 +673,6 @@ impl<'t> Parser<'t> {
         self.errors.push(SyntaxError { kind, range });
     }
 
-    /// Reports a problem and skips the current token inside an
-    /// [`SyntaxKind::Error`] node. At the end it only reports.
     /// Reports the current token as indented too little by a rule of its
     /// construct's own, as `let` definitions must be right of the `let`:
     /// an error in the strict layout, and in the loose one, which
@@ -669,6 +688,8 @@ impl<'t> Parser<'t> {
         }
     }
 
+    /// Reports a problem and skips the current token inside an
+    /// [`SyntaxKind::Error`] node. At the end it only reports.
     pub(crate) fn error_and_bump(&mut self, kind: SyntaxErrorKind) {
         self.error(kind);
         if !self.at(SyntaxKind::Eof) {
@@ -678,8 +699,10 @@ impl<'t> Parser<'t> {
         }
     }
 
-    /// An empty [`SyntaxKind::Missing`] node where something was expected.
-    pub(crate) fn missing(&mut self) -> CompletedMarker {
+    /// Reports a problem, and leaves an empty [`SyntaxKind::Missing`] node
+    /// where something was expected.
+    pub(crate) fn missing(&mut self, kind: SyntaxErrorKind) -> CompletedMarker {
+        self.error(kind);
         self.start().complete(self, SyntaxKind::Missing)
     }
 
@@ -707,7 +730,7 @@ impl<'t> Parser<'t> {
         }
         self.depth += 1;
         self.deepest = self.deepest.max(self.depth);
-        let result = stacker::maybe_grow(RED_ZONE, STACK_SEGMENT, || rule(self));
+        let result = nomi_base::grow_large(|| rule(self));
         self.depth -= 1;
         Some(result)
     }

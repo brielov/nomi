@@ -17,76 +17,29 @@ fn render(text: &str, parse: impl Fn(&str) -> Parse) -> String {
     out
 }
 
-#[test]
-fn module() {
-    insta::glob!("../test_data/parser", "module/*.elm", |path| {
-        let text = std::fs::read_to_string(path).unwrap();
-        insta::assert_snapshot!(render(&text, nomi_syntax::parse_module));
-    });
-}
-
-#[test]
-fn declarations() {
-    insta::glob!("../test_data/parser", "declarations/*.elm", |path| {
-        let text = std::fs::read_to_string(path).unwrap();
-        insta::assert_snapshot!(render(&text, nomi_syntax::parse_module));
-    });
-}
-
-#[test]
-fn recovery() {
-    insta::glob!("../test_data/parser", "recovery/*.elm", |path| {
-        let text = std::fs::read_to_string(path).unwrap();
-        insta::assert_snapshot!(render(&text, nomi_syntax::parse_module));
-    });
-}
-
-#[test]
-fn declarations_fragment() {
-    insta::glob!(
-        "../test_data/parser",
-        "declarations_fragment/*.elm",
-        |path| {
-            let text = std::fs::read_to_string(path).unwrap();
-            insta::assert_snapshot!(render(&text, nomi_syntax::parse_declarations));
+/// A test per directory, named after it, snapshotting each file's tree
+/// as `parse` builds it.
+macro_rules! fixtures {
+    ($($dir:ident => $parse:path,)*) => {$(
+        #[test]
+        fn $dir() {
+            insta::glob!("../test_data/parser", concat!(stringify!($dir), "/*.elm"), |path| {
+                let text = std::fs::read_to_string(path).unwrap();
+                insta::assert_snapshot!(render(&text, $parse));
+            });
         }
-    );
+    )*};
 }
 
-#[test]
-fn expressions_fragment() {
-    insta::glob!(
-        "../test_data/parser",
-        "expressions_fragment/*.elm",
-        |path| {
-            let text = std::fs::read_to_string(path).unwrap();
-            insta::assert_snapshot!(render(&text, nomi_syntax::parse_expressions));
-        }
-    );
-}
-
-#[test]
-fn types() {
-    insta::glob!("../test_data/parser", "types/*.elm", |path| {
-        let text = std::fs::read_to_string(path).unwrap();
-        insta::assert_snapshot!(render(&text, nomi_syntax::parse_type));
-    });
-}
-
-#[test]
-fn patterns() {
-    insta::glob!("../test_data/parser", "patterns/*.elm", |path| {
-        let text = std::fs::read_to_string(path).unwrap();
-        insta::assert_snapshot!(render(&text, nomi_syntax::parse_pattern));
-    });
-}
-
-#[test]
-fn expressions() {
-    insta::glob!("../test_data/parser", "expressions/*.elm", |path| {
-        let text = std::fs::read_to_string(path).unwrap();
-        insta::assert_snapshot!(render(&text, nomi_syntax::parse_expr));
-    });
+fixtures! {
+    module => nomi_syntax::parse_module,
+    declarations => nomi_syntax::parse_module,
+    recovery => nomi_syntax::parse_module,
+    declarations_fragment => nomi_syntax::parse_declarations,
+    expressions_fragment => nomi_syntax::parse_expressions,
+    types => nomi_syntax::parse_type,
+    patterns => nomi_syntax::parse_pattern,
+    expressions => nomi_syntax::parse_expr,
 }
 
 /// What each tool rejects in a module that parses cleanly. Releases

@@ -3,59 +3,60 @@
 //! input never stops the lexer; it keeps the token and reports a
 //! [`LexError`].
 
-use icu_properties::GeneralCategory;
-use icu_properties::maps::{self, CodePointMapDataBorrowed};
-use nomi_base::{TextRange, TextSize};
+use nomi_base::{TextRange, TextSize, ghc};
 
 use crate::SyntaxKind;
 
-/// Elm's identifier classes come from GHC's `Data.Char`, whose tables are
-/// Unicode 15.1 for the reference compilers; `icu_properties` is pinned to
-/// the release with the same tables.
-pub(crate) const GENERAL_CATEGORY: CodePointMapDataBorrowed<'static, GeneralCategory> =
-    maps::general_category();
-
+/// A token: its kind and the text it spans.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Token {
     pub kind: SyntaxKind,
     pub range: TextRange,
 }
 
+/// A problem the lexer found, and where.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LexError {
     pub kind: LexErrorKind,
     pub range: TextRange,
 }
 
+/// What the lexer found wrong.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LexErrorKind {
+    /// A tab, which Elm doesn't take as whitespace.
     Tab,
     /// A NUL byte inside a comment.
     UnexpectedEncoding,
+    /// A `{-` comment the text ends inside.
     UnterminatedBlockComment,
     /// `1.` with no digit after the dot; `integer` is the `1`.
-    MissingFractionDigits {
-        integer: TextRange,
-    },
+    MissingFractionDigits { integer: TextRange },
+    /// An exponent without digits, as in `1e`.
     MissingExponentDigits,
+    /// `0x` without hexadecimal digits, or with a letter after them.
     InvalidHexDigit,
+    /// A decimal number starting with `0`, as in `012`.
     LeadingZero,
+    /// A number joined to a name after it, as in `1x`.
     NumberFollowedByIdentifier,
+    /// A character literal the line or the text ends inside.
     UnterminatedCharacter,
     /// A character literal holding other than one character.
-    CharacterLength {
-        characters: u32,
-    },
+    CharacterLength { characters: u32 },
+    /// A backslash escape neither tool knows, as in `\q`.
     UnknownEscape,
+    /// `\u` without braces around its digits.
     InvalidUnicodeEscapeFormat,
+    /// `\u{}` without digits, or past U+10FFFF.
     InvalidUnicodeCodePoint,
     /// `\u{…}` with fewer than 4 or more than 6 digits.
-    InvalidUnicodeEscapeLength {
-        digits: usize,
-        value: u32,
-    },
+    InvalidUnicodeEscapeLength { digits: usize, value: u32 },
+    /// A `"` string left open.
     UnterminatedString,
+    /// A `"""` string the text ends inside.
     UnterminatedMultilineString,
+    /// A `[glsl|` block the text ends inside.
     UnterminatedShaderBlock,
     /// A character that starts no token.
     InvalidToken,
@@ -70,10 +71,12 @@ pub struct Lexed {
 }
 
 impl Lexed {
+    /// The tokens, in order.
     pub fn tokens(&self) -> &[Token] {
         &self.tokens
     }
 
+    /// The problems, in source order.
     pub fn errors(&self) -> &[LexError] {
         &self.errors
     }
@@ -372,8 +375,11 @@ impl<'a> Lexer<'a> {
         self.offset += 1;
         let digits_start = self.offset;
         let mut value = 0_u32;
-        while let Some(digit) = self.byte_at(self.offset).and_then(hex_value) {
-            value = value.saturating_mul(16).saturating_add(u32::from(digit));
+        while let Some(digit) = self
+            .byte_at(self.offset)
+            .and_then(|b| char::from(b).to_digit(16))
+        {
+            value = value.saturating_mul(16).saturating_add(digit);
             self.offset += 1;
         }
         let digits = self.offset - digits_start;
@@ -496,9 +502,7 @@ impl<'a> Lexer<'a> {
 
     fn operator(&mut self) -> SyntaxKind {
         let start = self.offset;
-        while let Some(next) = self.char_at(self.offset).filter(|&c| is_operator_char(c)) {
-            self.offset += next.len_utf8();
-        }
+        self.offset = self.chars_end(start, is_operator_char);
         // `-`, `=`, `..` and the like have kinds of their own, and
         // elm-format reads a lone `→` as `->`.
         match &self.text[start..self.offset] {
@@ -514,9 +518,7 @@ impl<'a> Lexer<'a> {
         loop {
             let segment = end;
             let kind = identifier_kind(self.char_at(end)?)?;
-            while let Some(c) = self.char_at(end).filter(|&c| is_identifier_continue(c)) {
-                end += c.len_utf8();
-            }
+            end = self.chars_end(end, is_identifier_continue);
             match (kind, self.byte_at(end)?) {
                 (SyntaxKind::UpperIdent, b'.') => end += 1,
                 (SyntaxKind::LowerIdent, b'`')
@@ -546,12 +548,7 @@ impl<'a> Lexer<'a> {
             self.error(LexErrorKind::InvalidToken, start, self.offset);
             return SyntaxKind::ErrorToken;
         };
-        while let Some(next) = self
-            .char_at(self.offset)
-            .filter(|&c| is_identifier_continue(c))
-        {
-            self.offset += next.len_utf8();
-        }
+        self.offset = self.chars_end(self.offset, is_identifier_continue);
         if kind == SyntaxKind::LowerIdent
             && let Some(keyword) = SyntaxKind::from_text(&self.text[start..self.offset])
             && keyword.is_keyword()
@@ -565,6 +562,14 @@ impl<'a> Lexer<'a> {
         while self.byte_at(self.offset).is_some_and(&predicate) {
             self.offset += 1;
         }
+    }
+
+    /// The end of the characters from `from` on that `predicate` takes.
+    fn chars_end(&self, mut from: usize, predicate: impl Fn(char) -> bool) -> usize {
+        while let Some(c) = self.char_at(from).filter(|&c| predicate(c)) {
+            from += c.len_utf8();
+        }
+        from
     }
 
     fn byte_at(&self, offset: usize) -> Option<u8> {
@@ -633,14 +638,14 @@ fn identifier_kind(c: char) -> Option<SyntaxKind> {
     if c.is_ascii() {
         return None;
     }
-    // Rust's case properties are broader than Elm's general categories:
-    // they call `ª` lowercase and `Ⅷ` uppercase, and Elm accepts neither.
-    match GENERAL_CATEGORY.get(c) {
-        GeneralCategory::LowercaseLetter => Some(SyntaxKind::LowerIdent),
-        GeneralCategory::UppercaseLetter | GeneralCategory::TitlecaseLetter => {
-            Some(SyntaxKind::UpperIdent)
-        }
-        _ => None,
+    // Rust's case properties are broader than GHC's: they call `ª`
+    // lowercase and `Ⅷ` uppercase, and Elm accepts neither.
+    if ghc::is_lower(c) {
+        Some(SyntaxKind::LowerIdent)
+    } else if ghc::is_upper(c) {
+        Some(SyntaxKind::UpperIdent)
+    } else {
+        None
     }
 }
 
@@ -648,14 +653,7 @@ fn is_identifier_continue(c: char) -> bool {
     if c.is_ascii() {
         return c.is_ascii_alphanumeric() || c == '_';
     }
-    matches!(
-        GENERAL_CATEGORY.get(c),
-        GeneralCategory::LowercaseLetter
-            | GeneralCategory::UppercaseLetter
-            | GeneralCategory::TitlecaseLetter
-            | GeneralCategory::ModifierLetter
-            | GeneralCategory::OtherLetter
-    )
+    ghc::is_alpha(c)
 }
 
 /// Whether elm-format takes `c` in an operator: elm's characters, a few
@@ -665,20 +663,12 @@ fn is_operator_char(c: char) -> bool {
     if c.is_ascii() {
         return is_operator(c as u8);
     }
-    matches!(
-        GENERAL_CATEGORY.get(c),
-        GeneralCategory::MathSymbol
-            | GeneralCategory::CurrencySymbol
-            | GeneralCategory::ModifierSymbol
-            | GeneralCategory::OtherSymbol
-    )
+    ghc::is_symbol(c)
 }
 
-/// Whether elm takes `c` in an operator.
-pub(crate) fn is_elm_operator_char(c: char) -> bool {
-    c.is_ascii() && is_operator(c as u8) && !matches!(c, '$' | '#' | '@' | '~')
-}
-
+/// Whether elm-format takes the ASCII `byte` in an operator: elm's
+/// [`BINOP_CHARS`](nomi_base::diagnostic::code::BINOP_CHARS), and `$`, `#`,
+/// `@` and `~`.
 fn is_operator(byte: u8) -> bool {
     matches!(
         byte,
@@ -701,13 +691,4 @@ fn is_operator(byte: u8) -> bool {
             | b'@'
             | b'~'
     )
-}
-
-fn hex_value(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
-        _ => None,
-    }
 }

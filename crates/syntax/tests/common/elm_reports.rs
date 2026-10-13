@@ -5,8 +5,15 @@
 use nomi_base::Compat;
 use nomi_base::diagnostic::{Problem, code};
 use nomi_syntax::{Tool, elm};
+use nomi_testkit::mutation::Mutation;
 
-use crate::common::Seed;
+use crate::common::{Seed, Verdict};
+
+/// A mutation some elm rejects, with each rejection.
+pub(crate) struct Case<'s> {
+    pub mutation: &'s Mutation,
+    pub rejections: Vec<Rejection>,
+}
 
 /// One elm's rejection of a mutation.
 pub(crate) struct Rejection {
@@ -19,20 +26,17 @@ pub(crate) struct Rejection {
     pub problem: Result<Problem, String>,
 }
 
-/// Each mutation of `seed` some elm rejects, by case id, with each
-/// rejection. Crashes give no report to match.
-pub(crate) fn rejections(seed: &Seed) -> Vec<(String, Vec<Rejection>)> {
+/// Each mutation of `seed` some elm rejects. Crashes give no report to
+/// match.
+pub(crate) fn rejections(seed: &Seed) -> Vec<Case<'_>> {
     let mut cases = Vec::new();
-    for (m, cells) in &seed.cases {
+    for (m, verdicts) in &seed.cases {
         let source = code::Source::new(&m.source);
-        let rejections: Vec<Rejection> = (seed.columns.iter().zip(cells))
-            .filter_map(|((column, tool), cell)| {
-                let Tool::Elm(kind, compat) = *tool else {
+        let rejections: Vec<Rejection> = (seed.columns.iter().zip(verdicts))
+            .filter_map(|((column, tool), verdict)| {
+                let (Tool::Elm(kind, compat), Verdict::Rejected(cell)) = (*tool, verdict) else {
                     return None;
                 };
-                if cell == "ok" || cell == "crash" {
-                    return None;
-                }
                 let problem = match elm::parse(m.source.as_bytes(), kind, compat) {
                     Ok(()) => Err("the port accepts".to_owned()),
                     Err(error) => Ok(elm::to_problem(&source, &error, compat)),
@@ -46,7 +50,10 @@ pub(crate) fn rejections(seed: &Seed) -> Vec<(String, Vec<Rejection>)> {
             })
             .collect();
         if !rejections.is_empty() {
-            cases.push((format!("{} / {}", seed.name, m.name), rejections));
+            cases.push(Case {
+                mutation: m,
+                rejections,
+            });
         }
     }
     cases

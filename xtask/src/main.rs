@@ -337,7 +337,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Command::Ci => ci(),
         Command::Check => architecture(&root()),
-        Command::Codegen => codegen::run(&root(), false),
+        Command::Codegen => codegen::run(&root(), codegen::Mode::Write),
         Command::Refs => references::load(&root()).and_then(|r| refs::sync(&root(), &r)),
         Command::Oracle { command } => references::load(&root()).and_then(|r| match command {
             OracleCommand::Fetch => oracle::fetch(&root(), &r),
@@ -486,7 +486,7 @@ fn root() -> PathBuf {
 fn ci() -> Result<()> {
     let root = root();
     eprintln!("==> codegen --check");
-    codegen::run(&root, true)?;
+    codegen::run(&root, codegen::Mode::Check)?;
     cargo(&root, &["fmt", "--all", "--check"])?;
     cargo(
         &root,

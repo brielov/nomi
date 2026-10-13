@@ -1,11 +1,11 @@
 // The Elm concrete syntax tree, the single source for the typed views
 // that `cargo xtask codegen` writes to src/ast/generated.rs. Quoted names
-// are tokens: fixed text such as 'if' or '::', or a class from
-// SyntaxKind::ungram_name such as 'lower_ident'. A rule that only
-// chooses between nodes, such as Expr, is an enum with no kind of its
-// own. Trivia, Missing and Error nodes are left out; any node may hold
-// them. A label names an accessor; labeled nodes of one type are told
-// apart by the token beside them, or else by position.
+// are tokens: fixed text such as 'if' or '::', or a class named in
+// kind.rs's table such as 'lower_ident'. A rule that only chooses
+// between nodes, such as Expr, is an enum with no kind of its own.
+// Trivia, Missing and Error nodes are left out; any node may hold them.
+// A label names an accessor; labeled nodes of one type are told apart by
+// the token beside them, or else by position.
 //
 // Operator chains stay flat: `a + b * c` is one OperatorChain, resolved
 // after canonicalization from the imported fixities.
@@ -73,8 +73,9 @@ ImportAlias =
 Qualifier =
   'upper_ident' '.' ('upper_ident' '.')*
 
+// Only elm-format takes '.', and only elm '..'; validation flags them.
 Op =
-  'operator' | '-' | '::'
+  'operator' | '-' | '::' | '.' | '..'
 
 // Declarations
 
@@ -98,7 +99,7 @@ DocDecl =
 ValueDecl =
   'doc_comment'? Signature? Definition?
 
-// The name is one of the two; a token in an alternative gets no accessor.
+// The name is one of the two.
 Signature =
   'lower_ident'? OperatorName? ':' Type
 

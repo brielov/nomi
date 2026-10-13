@@ -5,7 +5,7 @@ use super::definitions::{at_value_name, value};
 use super::expressions::expr;
 use super::patterns::{at_pattern_atom, pattern_atom};
 use super::types::{at_type_argument, type_, type_atom};
-use super::{at_parenthesized_op, expect_indented, expect_part, parenthesized_op, skip_junk};
+use super::{expect_indented, expect_part, is_parenthesized_op, parenthesized_op, skip_junk};
 use crate::SyntaxKind as K;
 use crate::parser::{Marker, Parser, SyntaxErrorKind};
 
@@ -117,8 +117,7 @@ fn type_head(p: &mut Parser<'_>) {
 /// `Just a`: a constructor and the types it holds, each an atom.
 fn variant(p: &mut Parser<'_>) {
     if !(p.at(K::UpperIdent) && p.at_indented()) {
-        p.error(SyntaxErrorKind::Expected(K::UpperIdent));
-        p.missing();
+        p.missing(SyntaxErrorKind::Expected(K::UpperIdent));
         return;
     }
     let m = p.start();
@@ -154,12 +153,13 @@ fn at_infix(p: &mut Parser<'_>) -> bool {
         return false;
     }
     match associativity(p, 1) {
-        Some(Associativity::Spelled) => p.nth(2) == K::Int,
-        Some(Associativity::Joined) => p.nth(2) == K::LParen,
+        Some((Associativity::Spelled, _)) => p.nth(2) == K::Int,
+        Some((Associativity::Joined, _)) => p.nth(2) == K::LParen,
         None => false,
     }
 }
 
+/// How an associativity is written.
 enum Associativity {
     Spelled,
     /// Joined to its precedence, as in `right0`, which elm-format reads
@@ -167,26 +167,43 @@ enum Associativity {
     Joined,
 }
 
-fn associativity(p: &mut Parser<'_>, n: usize) -> Option<Associativity> {
-    let kinds = [K::LeftKw, K::RightKw, K::NonKw];
-    if kinds.into_iter().any(|kind| p.nth_at_contextual(n, kind)) {
-        return Some(Associativity::Spelled);
+/// The associativities' contextual keywords.
+const ASSOCIATIVITIES: [K; 3] = [K::LeftKw, K::RightKw, K::NonKw];
+
+/// How the `n`th token ahead writes an associativity, and which, if it is
+/// one.
+fn associativity(p: &mut Parser<'_>, n: usize) -> Option<(Associativity, K)> {
+    if let Some(kind) = (ASSOCIATIVITIES.into_iter()).find(|&kind| p.nth_at_contextual(n, kind)) {
+        return Some((Associativity::Spelled, kind));
     }
     let text = p.nth_text(n)?;
-    let joined = kinds.into_iter().any(|kind| {
+    let joined = ASSOCIATIVITIES.into_iter().find(|kind| {
         text.strip_prefix(kind.text().expect("a keyword"))
             .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
     });
-    (p.nth(n) == K::LowerIdent && joined).then_some(Associativity::Joined)
+    match joined {
+        Some(kind) if p.nth(n) == K::LowerIdent => Some((Associativity::Joined, kind)),
+        _ => None,
+    }
+}
+
+/// The keyword starting Elm 0.18's infix declarations, if it is current.
+fn legacy_infix_keyword(p: &mut Parser<'_>) -> Option<K> {
+    [K::InfixlKw, K::InfixrKw, K::InfixKw]
+        .into_iter()
+        .find(|&kind| p.nth_at_contextual(0, kind))
 }
 
 /// Elm 0.18's `infixl 6 +`, an associativity then a precedence then an
 /// operator, which elm-format still reads.
 fn at_legacy_infix(p: &mut Parser<'_>) -> bool {
-    let keyword = [K::InfixlKw, K::InfixrKw, K::InfixKw]
-        .into_iter()
-        .any(|kind| p.nth_at_contextual(0, kind));
-    keyword && p.nth(1) == K::Int && at_legacy_infix_op(p, 2)
+    legacy_infix_keyword(p).is_some() && p.nth(1) == K::Int && at_legacy_infix_op(p, 2)
+}
+
+/// Whether the current token is a single decimal digit, the only
+/// precedence upstream reads.
+fn at_single_digit(p: &mut Parser<'_>) -> bool {
+    matches!(p.current_text().as_bytes(), [b'0'..=b'9'])
 }
 
 /// Upstream's `anyOp`: a symbol or a backticked function, which lexes
@@ -201,13 +218,10 @@ fn at_legacy_infix_op(p: &mut Parser<'_>, n: usize) -> bool {
 
 /// `infixl 6 +`.
 fn legacy_infix(p: &mut Parser<'_>, m: Marker) {
-    let kind = [K::InfixlKw, K::InfixrKw, K::InfixKw]
-        .into_iter()
-        .find(|&kind| p.nth_at_contextual(0, kind))
-        .expect("at_legacy_infix checked the keyword");
+    let kind = legacy_infix_keyword(p).expect("at_legacy_infix checked the keyword");
     p.bump_as(kind);
     // Upstream reads a single digit, then whitespace.
-    if !matches!(p.current_text().as_bytes(), [b'0'..=b'9']) || p.nth_is_joined(1) {
+    if !at_single_digit(p) || p.nth_is_joined(1) {
         p.error(SyntaxErrorKind::BadPrecedence);
     }
     expect_indented(p, K::Int);
@@ -216,8 +230,7 @@ fn legacy_infix(p: &mut Parser<'_>, m: Marker) {
         p.bump();
         op.complete(p, K::Op);
     } else {
-        p.error(SyntaxErrorKind::Expected(K::Op));
-        p.missing();
+        p.missing(SyntaxErrorKind::Expected(K::Op));
     }
     m.complete(p, K::LegacyInfixDecl);
 }
@@ -225,24 +238,18 @@ fn legacy_infix(p: &mut Parser<'_>, m: Marker) {
 /// `infix left 5 (+) = add`.
 fn infix(p: &mut Parser<'_>, m: Marker) {
     p.bump_as(K::InfixKw);
-    let kinds = [K::LeftKw, K::RightKw, K::NonKw];
-    let text = p.current_text();
-    let kind = kinds
-        .into_iter()
-        .find(|kind| text.starts_with(kind.text().expect("a keyword")))
-        .expect("at_infix checked the associativity");
+    let (_, kind) = associativity(p, 0).expect("at_infix checked the associativity");
     p.bump_prefix_as(kind);
     // Upstream reads a single digit, then expects `(`.
-    if p.at(K::Int) && !matches!(p.current_text().as_bytes(), [b'0'..=b'9']) {
+    if p.at(K::Int) && !at_single_digit(p) {
         p.error(SyntaxErrorKind::BadPrecedence);
     }
     expect_indented(p, K::Int);
     if expect_indented(p, K::LParen) {
-        if at_parenthesized_op(p) && p.at_indented() {
+        if is_parenthesized_op(p.current()) && p.at_indented() {
             parenthesized_op(p);
         } else {
-            p.error(SyntaxErrorKind::Expected(K::Op));
-            p.missing();
+            p.missing(SyntaxErrorKind::Expected(K::Op));
         }
         expect_indented(p, K::RParen);
     }

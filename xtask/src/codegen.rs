@@ -8,13 +8,13 @@
 //! - labeled nodes of one type are told apart by the token next to them
 //!   (`'then' then_branch:Expr` is the node right after `then`, `None` if
 //!   the parser put a Missing node there), or else by position;
-//! - a token outside any alternative gives `name_token()`, its first
-//!   occurrence.
+//! - a token gives `name_token()`, its first occurrence, unless it only
+//!   repeats, as the commas of a list do.
 //!
 //! Token kinds come from the `syntax_kinds!` table in `kind.rs`, not from
 //! the crate itself, so a stale or broken output can always be rebuilt.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::Path;
@@ -27,20 +27,33 @@ const GRAMMAR: &str = "crates/syntax/elm.ungram";
 const KINDS: &str = "crates/syntax/src/kind.rs";
 const OUTPUT: &str = "crates/syntax/src/ast/generated.rs";
 
-/// Writes the views, or with `check` fails if the file on disk differs.
-pub(crate) fn run(root: &Path, check: bool) -> Result<()> {
+/// What [`run`] does with the views.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Mode {
+    /// Writes them.
+    Write,
+    /// Fails if the file on disk differs.
+    Check,
+}
+
+/// Generates the views, and writes or checks them by `mode`.
+pub(crate) fn run(root: &Path, mode: Mode) -> Result<()> {
     let grammar: Grammar = std::fs::read_to_string(root.join(GRAMMAR))
         .context("reading elm.ungram")?
         .parse()
         .map_err(|e| anyhow::anyhow!("parsing elm.ungram: {e}"))?;
     let tokens = token_kinds(&std::fs::read_to_string(root.join(KINDS))?)?;
+    for token in grammar.tokens() {
+        let name = &grammar[token].name;
+        ensure!(tokens.contains_key(name), "token {name:?} has no kind");
+    }
     let code = format(root, &generate(&grammar, &tokens)?)?;
     let path = root.join(OUTPUT);
     let current = std::fs::read_to_string(&path).unwrap_or_default();
     if current == code {
         return Ok(());
     }
-    if check {
+    if mode == Mode::Check {
         bail!("{OUTPUT} is stale; run `cargo xtask codegen`");
     }
     std::fs::write(&path, code).with_context(|| format!("writing {OUTPUT}"))?;
@@ -82,18 +95,14 @@ fn generate(grammar: &Grammar, tokens: &BTreeMap<String, String>) -> Result<Stri
             enum_view(&mut out, &data.name, &variants);
         } else {
             struct_view(&mut out, grammar, tokens, &data.name, &data.rule)?;
-            structs.push(data.name.clone());
+            structs.push(format!("SyntaxKind::{}", data.name));
         }
     }
     let _ = write!(
         out,
         "\n/// Whether some view casts a node of `kind`.\n\
-         pub fn has_view(kind: SyntaxKind) -> bool {{\n    {}\n}}\n",
-        structs
-            .iter()
-            .map(|s| format!("{s}::can_cast(kind)"))
-            .collect::<Vec<_>>()
-            .join(" || ")
+         pub fn has_view(kind: SyntaxKind) -> bool {{\n    matches!(kind, {})\n}}\n",
+        structs.join(" | ")
     );
     Ok(out)
 }
@@ -112,7 +121,8 @@ fn enum_variants(grammar: &Grammar, rule: &Rule) -> Option<Vec<String>> {
 fn enum_view(out: &mut String, name: &str, variants: &[String]) {
     let _ = write!(
         out,
-        "\n#[derive(Clone, Debug, PartialEq, Eq, Hash)]\npub enum {name} {{\n"
+        "\n/// A `{name}`: a node of any of its variants' kinds.\n\
+         #[derive(Clone, Debug, PartialEq, Eq, Hash)]\npub enum {name} {{\n"
     );
     for v in variants {
         let _ = writeln!(out, "    {v}({v}),");
@@ -149,11 +159,18 @@ fn enum_view(out: &mut String, name: &str, variants: &[String]) {
     }
 }
 
+/// Whether a part of a rule may repeat.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Count {
+    One,
+    Many,
+}
+
 /// One node child of a rule, as written in it.
 struct Occurrence {
     ty: String,
     label: Option<String>,
-    repeated: bool,
+    count: Count,
     /// The plain tokens directly before and after it in its sequence.
     before: Option<String>,
     after: Option<String>,
@@ -168,10 +185,11 @@ fn struct_view(
 ) -> Result<()> {
     let mut nodes = Vec::new();
     let mut token_fields = Vec::new();
-    collect(grammar, rule, false, false, &mut nodes, &mut token_fields)?;
+    collect(grammar, rule, Count::One, &mut nodes, &mut token_fields)?;
     let _ = write!(
         out,
-        "\n#[derive(Clone, Debug, PartialEq, Eq, Hash)]\n\
+        "\n/// A view of a [`SyntaxKind::{name}`] node.\n\
+         #[derive(Clone, Debug, PartialEq, Eq, Hash)]\n\
          pub struct {name} {{\n    pub(super) syntax: SyntaxNode,\n}}\n\n\
          impl AstNode for {name} {{\n\
          fn can_cast(kind: SyntaxKind) -> bool {{\nkind == SyntaxKind::{name}\n}}\n\n\
@@ -183,21 +201,19 @@ fn struct_view(
     for accessor in node_accessors(name, tokens, &nodes)? {
         let _ = writeln!(methods, "{accessor}");
     }
-    let mut seen = Vec::new();
-    for token in token_fields {
-        if seen.contains(&token) {
+    let mut seen = BTreeSet::new();
+    for token in &token_fields {
+        if !seen.insert(token) {
             continue;
         }
-        let kind = tokens
-            .get(&token)
-            .with_context(|| format!("{name}: token {token:?} has no kind"))?;
+        let kind = &tokens[token];
         let method = format!("{}_token", snake(kind.strip_suffix("Kw").unwrap_or(kind)));
         let _ = write!(
             methods,
-            "pub fn {method}(&self) -> Option<SyntaxToken> {{\n\
+            "/// The first `{token}` token.\n\
+             pub fn {method}(&self) -> Option<SyntaxToken> {{\n\
              support::token(&self.syntax, SyntaxKind::{kind})\n}}\n\n"
         );
-        seen.push(token);
     }
     if !methods.is_empty() {
         let _ = write!(out, "\nimpl {name} {{\n{}}}\n", methods.trim_end());
@@ -206,44 +222,43 @@ fn struct_view(
     Ok(())
 }
 
-/// Gathers a rule's node children and its tokens outside alternatives.
+/// Gathers a rule's node children and its tokens that may come once.
 fn collect(
     grammar: &Grammar,
     rule: &Rule,
-    repeated: bool,
-    in_alt: bool,
+    count: Count,
     nodes: &mut Vec<Occurrence>,
     tokens: &mut Vec<String>,
 ) -> Result<()> {
     match rule {
-        Rule::Node(node) => nodes.push(occurrence(grammar, *node, None, repeated)),
+        Rule::Node(node) => nodes.push(occurrence(grammar, *node, None, count)),
         Rule::Labeled { label, rule } => {
-            let (node, repeated) = match &**rule {
-                Rule::Node(node) => (*node, repeated),
+            let (node, count) = match &**rule {
+                Rule::Node(node) => (*node, count),
                 Rule::Rep(rule) => match &**rule {
-                    Rule::Node(node) => (*node, true),
+                    Rule::Node(node) => (*node, Count::Many),
                     _ => bail!("label {label} must name a node"),
                 },
                 _ => bail!("label {label} must name a node"),
             };
-            nodes.push(occurrence(grammar, node, Some(label.clone()), repeated));
+            nodes.push(occurrence(grammar, node, Some(label.clone()), count));
         }
         Rule::Token(token) => {
-            if !in_alt {
+            if count == Count::One {
                 tokens.push(grammar[*token].name.clone());
             }
         }
-        Rule::Opt(rule) => collect(grammar, rule, repeated, in_alt, nodes, tokens)?,
-        Rule::Rep(rule) => collect(grammar, rule, true, in_alt, nodes, tokens)?,
-        Rule::Alt(alts) => {
-            for alt in alts {
-                collect(grammar, alt, repeated, true, nodes, tokens)?;
+        Rule::Opt(rule) => collect(grammar, rule, count, nodes, tokens)?,
+        Rule::Rep(rule) => collect(grammar, rule, Count::Many, nodes, tokens)?,
+        Rule::Alt(rules) => {
+            for rule in rules {
+                collect(grammar, rule, count, nodes, tokens)?;
             }
         }
         Rule::Seq(items) => {
             let start = nodes.len();
             for item in items {
-                collect(grammar, item, repeated, in_alt, nodes, tokens)?;
+                collect(grammar, item, count, nodes, tokens)?;
             }
             // Record the plain tokens around each node written directly in
             // this sequence.
@@ -277,11 +292,11 @@ fn count_nodes(rules: &[Rule]) -> usize {
         .sum()
 }
 
-fn occurrence(grammar: &Grammar, node: Node, label: Option<String>, repeated: bool) -> Occurrence {
+fn occurrence(grammar: &Grammar, node: Node, label: Option<String>, count: Count) -> Occurrence {
     Occurrence {
         ty: grammar[node].name.clone(),
         label,
-        repeated,
+        count,
         before: None,
         after: None,
     }
@@ -298,83 +313,111 @@ fn node_accessors(
         by_type.entry(&o.ty).or_default().push(o);
     }
     let mut accessors = Vec::new();
-    let mut done = Vec::new();
+    let mut done = BTreeSet::new();
     for o in nodes {
-        if done.contains(&o.ty) {
+        if !done.insert(o.ty.as_str()) {
             continue;
         }
-        done.push(o.ty.clone());
         let all = &by_type[o.ty.as_str()];
-        let labels: Vec<_> = all.iter().map(|o| o.label.clone()).collect();
-        let shared = labels.iter().all(|l| *l == labels[0]);
-        if shared {
-            let base = labels[0].clone().unwrap_or_else(|| snake(&o.ty));
-            let ty = &o.ty;
-            let accessor = if all.len() == 1 && !o.repeated {
-                format!(
-                    "pub fn {}(&self) -> Option<{ty}> {{\nsupport::child(&self.syntax)\n}}\n",
-                    escape(&base)
-                )
-            } else {
-                let method = if labels[0].is_some() {
-                    base
-                } else {
-                    plural(&base)
-                };
-                format!(
-                    "pub fn {method}(&self) -> AstChildren<{ty}> {{\nsupport::children(&self.syntax)\n}}\n"
-                )
-            };
-            accessors.push(accessor);
-            continue;
-        }
-        // Distinct labels: tell them apart by neighbouring tokens or by
-        // position.
-        for (index, field) in all.iter().enumerate() {
-            let label = field
-                .label
-                .as_ref()
-                .with_context(|| format!("{name}: label every {} or none", field.ty))?;
-            let ty = &field.ty;
-            let accessor = if field.repeated {
-                ensure!(
-                    index + 1 == all.len(),
-                    "{name}: only the last {ty} may repeat"
-                );
-                format!(
-                    "pub fn {label}(&self) -> impl Iterator<Item = {ty}> + use<> {{\n\
-                     support::children(&self.syntax).skip({index})\n}}\n"
-                )
-            } else if let Some(token) = &field.before {
-                format!(
-                    "pub fn {label}(&self) -> Option<{ty}> {{\n\
-                     support::child_after(&self.syntax, SyntaxKind::{})\n}}\n",
-                    tokens[token]
-                )
-            } else if let Some(token) = &field.after {
-                format!(
-                    "pub fn {label}(&self) -> Option<{ty}> {{\n\
-                     support::child_before(&self.syntax, SyntaxKind::{})\n}}\n",
-                    tokens[token]
-                )
-            } else {
-                ensure!(
-                    all[..index].iter().all(|o| !o.repeated),
-                    "{name}: {label} has no fixed position"
-                );
-                let nth = match index {
-                    0 => "next()".to_string(),
-                    _ => format!("nth({index})"),
-                };
-                format!(
-                    "pub fn {label}(&self) -> Option<{ty}> {{\n\
-                     support::children::<{ty}>(&self.syntax).{nth}\n}}\n"
-                )
-            };
-            accessors.push(accessor);
+        if all.iter().all(|other| other.label == all[0].label) {
+            accessors.push(shared_accessor(all));
+        } else {
+            // Distinct labels: tell them apart by neighbouring tokens or by
+            // position.
+            for (index, field) in all.iter().enumerate() {
+                accessors.push(labeled_accessor(name, tokens, all, index, field)?);
+            }
         }
     }
     Ok(accessors)
+}
+
+/// The accessor of every occurrence of a type, which share their label or
+/// have none.
+fn shared_accessor(all: &[&Occurrence]) -> String {
+    let first = all[0];
+    let ty = &first.ty;
+    let base = first.label.clone().unwrap_or_else(|| snake(ty));
+    if all.len() == 1 && first.count == Count::One {
+        return format!(
+            "/// The `{ty}` child.\n\
+             pub fn {}(&self) -> Option<{ty}> {{\nsupport::child(&self.syntax)\n}}\n",
+            escape(&base)
+        );
+    }
+    let method = if first.label.is_some() {
+        base
+    } else {
+        plural(&base)
+    };
+    format!(
+        "/// Every `{ty}` child.\n\
+         pub fn {method}(&self) -> AstChildren<{ty}> {{\nsupport::children(&self.syntax)\n}}\n"
+    )
+}
+
+/// The accessor of the occurrence `field`, the `index`th of `all`, those of
+/// its type, by its label.
+fn labeled_accessor(
+    name: &str,
+    tokens: &BTreeMap<String, String>,
+    all: &[&Occurrence],
+    index: usize,
+    field: &Occurrence,
+) -> Result<String> {
+    let label = field
+        .label
+        .as_ref()
+        .with_context(|| format!("{name}: label every {} or none", field.ty))?;
+    let ty = &field.ty;
+    if field.count == Count::Many {
+        ensure!(
+            index + 1 == all.len(),
+            "{name}: only the last {ty} may repeat"
+        );
+        let which = match index {
+            1 => "but the first".to_owned(),
+            _ => format!("after the first {index}"),
+        };
+        return Ok(format!(
+            "/// Every `{ty}` child {which}.\n\
+             pub fn {label}(&self) -> impl Iterator<Item = {ty}> + use<> {{\n\
+             support::children(&self.syntax).skip({index})\n}}\n"
+        ));
+    }
+    if let Some(token) = &field.before {
+        return Ok(format!(
+            "/// The `{ty}` right after `{token}`.\n\
+             pub fn {label}(&self) -> Option<{ty}> {{\n\
+             support::child_after(&self.syntax, SyntaxKind::{})\n}}\n",
+            tokens[token]
+        ));
+    }
+    if let Some(token) = &field.after {
+        return Ok(format!(
+            "/// The `{ty}` right before `{token}`.\n\
+             pub fn {label}(&self) -> Option<{ty}> {{\n\
+             support::child_before(&self.syntax, SyntaxKind::{})\n}}\n",
+            tokens[token]
+        ));
+    }
+    ensure!(
+        all[..index].iter().all(|o| o.count == Count::One),
+        "{name}: {label} has no fixed position"
+    );
+    Ok(if index == 0 {
+        format!(
+            "/// The first `{ty}` child.\n\
+             pub fn {label}(&self) -> Option<{ty}> {{\n\
+             support::child(&self.syntax)\n}}\n"
+        )
+    } else {
+        format!(
+            "/// The `{ty}` child after the first {index}.\n\
+             pub fn {label}(&self) -> Option<{ty}> {{\n\
+             support::children::<{ty}>(&self.syntax).nth({index})\n}}\n"
+        )
+    })
 }
 
 fn snake(camel: &str) -> String {

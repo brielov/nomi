@@ -8,14 +8,17 @@ use std::marker::PhantomData;
 
 pub use generated::*;
 
-use crate::{SyntaxKind, SyntaxNode, SyntaxToken};
+use crate::{SyntaxKind, SyntaxNode};
 
 /// A typed view of one node kind, or of a choice between kinds.
 pub trait AstNode: Sized {
+    /// Whether a node of `kind` has this view.
     fn can_cast(kind: SyntaxKind) -> bool;
 
+    /// The view of `syntax`, if its kind has this one.
     fn cast(syntax: SyntaxNode) -> Option<Self>;
 
+    /// The node viewed.
     fn syntax(&self) -> &SyntaxNode;
 }
 
@@ -23,7 +26,7 @@ pub trait AstNode: Sized {
 #[derive(Clone, Debug)]
 pub struct AstChildren<N> {
     inner: rowan::SyntaxNodeChildren<crate::ElmLanguage>,
-    ph: PhantomData<N>,
+    item: PhantomData<N>,
 }
 
 impl<N: AstNode> Iterator for AstChildren<N> {
@@ -35,7 +38,9 @@ impl<N: AstNode> Iterator for AstChildren<N> {
 }
 
 mod support {
-    use super::{AstChildren, AstNode, PhantomData, SyntaxKind, SyntaxNode, SyntaxToken};
+    pub(super) use crate::child_token as token;
+
+    use super::{AstChildren, AstNode, PhantomData, SyntaxKind, SyntaxNode};
 
     pub(super) fn child<N: AstNode>(parent: &SyntaxNode) -> Option<N> {
         parent.children().find_map(N::cast)
@@ -44,7 +49,7 @@ mod support {
     pub(super) fn children<N: AstNode>(parent: &SyntaxNode) -> AstChildren<N> {
         AstChildren {
             inner: parent.children(),
-            ph: PhantomData,
+            item: PhantomData,
         }
     }
 
@@ -67,12 +72,5 @@ mod support {
             .filter_map(rowan::NodeOrToken::into_node)
             .last()
             .and_then(N::cast)
-    }
-
-    pub(super) fn token(parent: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxToken> {
-        parent
-            .children_with_tokens()
-            .filter_map(rowan::NodeOrToken::into_token)
-            .find(|t| t.kind() == kind)
     }
 }

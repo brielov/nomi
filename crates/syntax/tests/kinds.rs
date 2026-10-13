@@ -72,18 +72,6 @@ fn elm_reserved_words_are_exactly_the_keywords() {
 }
 
 #[test]
-fn ungram_tokens_have_kinds() {
-    let grammar = grammar();
-    for token in grammar.tokens() {
-        let name = &grammar[token].name;
-        let kind = SyntaxKind::ALL
-            .iter()
-            .find(|k| k.ungram_name() == Some(name.as_str()));
-        assert!(kind.is_some(), "ungram token {name:?} has no kind");
-    }
-}
-
-#[test]
 fn ungram_nodes_and_node_kinds_match() {
     let grammar = grammar();
     let mut named = BTreeSet::new();

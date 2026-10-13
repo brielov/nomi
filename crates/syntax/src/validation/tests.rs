@@ -4,7 +4,7 @@ use crate::{
     LexErrorKind, SyntaxErrorKind as E, parse_declarations, parse_expressions, parse_module,
 };
 
-use super::{Source, Tool, validate};
+use super::{Source, Tool, UnknownSource, validate};
 
 const ELM: Tool = Tool::Elm(Source::Application, Compat::LATEST);
 
@@ -202,4 +202,12 @@ fn escapes_end_with_the_literal() {
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].kind, E::Lexical(LexErrorKind::UnknownEscape));
     assert_eq!(&text[errors[0].range], "\\x");
+}
+
+#[test]
+fn sources_parse_from_their_names() {
+    assert_eq!("application".parse(), Ok(Source::Application));
+    assert_eq!("package".parse(), Ok(Source::Package));
+    assert_eq!("kernel".parse(), Ok(Source::Kernel));
+    assert_eq!("Kernel".parse::<Source>(), Err(UnknownSource));
 }

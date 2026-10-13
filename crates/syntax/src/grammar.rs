@@ -105,11 +105,7 @@ fn expect_part(p: &mut Parser<'_>, kind: K) -> bool {
     if !p.at_symbol(kind) {
         p.error(SyntaxErrorKind::Expected(kind));
         if p.at_indented_strictly() {
-            let m = p.start();
-            while p.at_indented_strictly() && !p.at_symbol(kind) {
-                p.bump();
-            }
-            m.complete(p, K::Error);
+            skip_indented(p, |p| p.at_symbol(kind));
         }
         if !p.at_symbol(kind) {
             return false;
@@ -119,13 +115,8 @@ fn expect_part(p: &mut Parser<'_>, kind: K) -> bool {
     true
 }
 
-/// Whether the current token is an operator that may stand in
-/// parentheses: elm takes `..` too (`Parse/Symbol.hs`, `operator`), and
-/// elm-format `.`.
-fn at_parenthesized_op(p: &mut Parser<'_>) -> bool {
-    is_parenthesized_op(p.current())
-}
-
+/// Whether `kind` is an operator that may stand in parentheses: elm takes
+/// `..` too (`Parse/Symbol.hs`, `operator`), and elm-format `.`.
 fn is_parenthesized_op(kind: K) -> bool {
     matches!(
         kind,
@@ -147,19 +138,47 @@ fn parenthesized_op(p: &mut Parser<'_>) {
     }
 }
 
-/// Whether the current token lines up at `column` with the items of a
-/// block and, by `starts`, starts another. It is then anchored: it counts
-/// as indented, though the rest of the item must be further right.
-fn at_aligned(p: &mut Parser<'_>, column: u32, starts: fn(&mut Parser<'_>) -> bool) -> bool {
-    if p.at(K::Eof) || p.current_column() != column {
-        return false;
+/// The rest of a comma-separated sequence, after its first item: each `,`
+/// and the `item` after it, up to and including `close`. Indented junk
+/// before a comma or `close` is skipped with one error; anything else
+/// ends the sequence, `close` missing. Returns whether a comma came.
+fn sequence_tail(p: &mut Parser<'_>, close: K, item: impl Fn(&mut Parser<'_>)) -> bool {
+    let mut comma = false;
+    loop {
+        if p.at(close) {
+            p.bump();
+            break;
+        }
+        if p.at(K::Comma) {
+            p.bump();
+            comma = true;
+            item(p);
+        } else if p.at_indented_strictly() {
+            skip_junk(p, SyntaxErrorKind::Expected(close), &[K::Comma, close]);
+        } else {
+            p.error(SyntaxErrorKind::Expected(close));
+            break;
+        }
     }
-    p.anchor();
-    let at = starts(p);
-    if !at {
-        p.unanchor();
+    comma
+}
+
+/// Whether the tokens from the `n`th on are commas, at least one, then
+/// `)`: the inside of `(,)`, `(,,)` and so on.
+fn at_tuple_constructor(p: &mut Parser<'_>, n: usize) -> bool {
+    let mut end = n;
+    while p.nth(end) == K::Comma {
+        end += 1;
     }
-    at
+    end > n && p.nth(end) == K::RParen
+}
+
+/// The commas and the `)` of a tuple constructor, after its `(`.
+fn tuple_constructor_tail(p: &mut Parser<'_>) {
+    while p.at(K::Comma) {
+        p.bump();
+    }
+    p.bump();
 }
 
 /// A name with an optional qualifier: `Maybe`, `Maybe.Maybe`, or
@@ -210,9 +229,76 @@ fn skip_junk(p: &mut Parser<'_>, error: SyntaxErrorKind, stops: &[K]) {
         return;
     }
     p.error(error);
+    skip_indented(p, |p| stops.contains(&p.current()));
+}
+
+/// Wraps the continuation tokens before the first where `stop` holds in
+/// one [`K::Error`] node, reporting nothing. The current token is one.
+fn skip_indented(p: &mut Parser<'_>, stop: impl Fn(&mut Parser<'_>) -> bool) {
     let m = p.start();
-    while p.at_indented_strictly() && !stops.contains(&p.current()) {
+    while p.at_indented_strictly() && !stop(p) {
         p.bump();
     }
     m.complete(p, K::Error);
+}
+
+#[cfg(test)]
+mod testing {
+    use super::K;
+    use crate::parser::{Parse, Parser, SyntaxErrorKind};
+
+    /// A rule parsed where the fixtures' fragments can't reach it: at the
+    /// top level, after `prefix` tokens at the margin, with what the rule
+    /// leaves swept into an [`K::Error`] node.
+    pub(super) struct TopLevel {
+        pub(super) prefix: usize,
+        pub(super) rule: fn(&mut Parser<'_>),
+        pub(super) root: K,
+    }
+
+    impl TopLevel {
+        pub(super) fn parse(&self, text: &str) -> Parse {
+            let mut p = Parser::new(text);
+            let m = p.start();
+            p.anchor();
+            for _ in 0..self.prefix {
+                p.bump();
+            }
+            (self.rule)(&mut p);
+            if !p.at(K::Eof) {
+                let rest = p.start();
+                p.with_min_column(0, |p| {
+                    while !p.at(K::Eof) {
+                        p.bump();
+                    }
+                });
+                rest.complete(&mut p, K::Error);
+            }
+            m.complete(&mut p, self.root);
+            p.finish()
+        }
+
+        /// The tree, then the errors elm reports, a line each.
+        pub(super) fn render(&self, text: &str) -> String {
+            use std::fmt::Write;
+            let parse = self.parse(text);
+            let mut out = parse.debug_tree();
+            for error in parse.elm_errors() {
+                let _ = writeln!(out, "error {:?}: {:?}", error.range, error.kind);
+            }
+            out
+        }
+
+        #[track_caller]
+        pub(super) fn check(&self, text: &str, expected: &str) {
+            assert_eq!(self.render(text).trim(), expected.trim());
+        }
+
+        /// The errors elm reports, in source order.
+        pub(super) fn errors(&self, text: &str) -> Vec<SyntaxErrorKind> {
+            (self.parse(text).elm_errors().iter())
+                .map(|e| e.kind)
+                .collect()
+        }
+    }
 }

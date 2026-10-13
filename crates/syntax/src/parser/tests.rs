@@ -1,6 +1,8 @@
 //! The machinery driven by a toy grammar: `name = expr` lines, where an
 //! expression is names and parentheses joined by operators.
 
+use nomi_base::on_core_stack;
+
 use super::*;
 use crate::lex;
 use SyntaxKind as K;
@@ -53,10 +55,7 @@ fn atom(p: &mut Parser<'_>) -> CompletedMarker {
             }
             m.complete(p, K::ParenExpr)
         }
-        _ => {
-            p.error(SyntaxErrorKind::Expected(K::LowerIdent));
-            p.missing()
-        }
+        _ => p.missing(SyntaxErrorKind::Expected(K::LowerIdent)),
     }
 }
 
@@ -421,19 +420,6 @@ fn nested(depth: usize) -> String {
     format!("x = {}y{}", "(".repeat(depth), ")".repeat(depth))
 }
 
-/// Runs `f` on the stack the shell gives threads that run core work.
-fn on_core_stack(f: impl FnOnce()) {
-    stacker::grow(nomi_base::STACK_SIZE, f);
-}
-
-fn too_deep(parse: &Parse) -> usize {
-    parse
-        .errors()
-        .iter()
-        .filter(|e| e.kind == SyntaxErrorKind::TooDeep)
-        .count()
-}
-
 #[test]
 fn nesting_up_to_the_limit_parses_and_drops() {
     on_core_stack(|| {
@@ -444,7 +430,7 @@ fn nesting_up_to_the_limit_parses_and_drops() {
         assert_eq!(usize::from(deepest.green().text_len()), text.len());
         drop(deepest);
 
-        assert_eq!(too_deep(&parse(&nested(DEPTH_LIMIT as usize))), 1);
+        assert_eq!(parse(&nested(DEPTH_LIMIT as usize)).too_deep(), 1);
     });
 }
 
@@ -453,7 +439,7 @@ fn nesting_far_past_the_limit_is_an_error() {
     on_core_stack(|| {
         let text = nested(100_000);
         let parse = parse(&text);
-        assert_eq!(too_deep(&parse), 1);
+        assert_eq!(parse.too_deep(), 1);
         assert_eq!(parse.syntax().to_string(), text);
     });
 }

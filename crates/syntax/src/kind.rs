@@ -1,7 +1,8 @@
 //! Token and node kinds, and the rowan language that stores them.
 
 /// Declares [`SyntaxKind`] and its tables from one list, so the tables
-/// cannot drift from the enum.
+/// cannot drift from the enum. The token classes' names are `elm.ungram`'s,
+/// which `cargo xtask codegen` reads from this list's text.
 macro_rules! syntax_kinds {
     (
         punctuation { $($punct:ident = $punct_text:literal,)* }
@@ -69,15 +70,6 @@ macro_rules! syntax_kinds {
             /// [`SyntaxKind::LowerIdent`] and the parser remaps it.
             pub fn is_contextual_keyword(self) -> bool {
                 matches!(self, $(SyntaxKind::$contextual)|*)
-            }
-
-            /// How `elm.ungram` names this token: its text, or a class name
-            /// such as `lower_ident`. `None` for nodes.
-            pub fn ungram_name(self) -> Option<&'static str> {
-                match self {
-                    $(SyntaxKind::$class => Some($class_name),)*
-                    _ => self.text(),
-                }
             }
         }
     };
@@ -253,14 +245,17 @@ syntax_kinds! {
 }
 
 impl SyntaxKind {
+    /// The kind whose `repr` is `raw`, if there is one.
     pub fn from_raw(raw: u16) -> Option<SyntaxKind> {
         SyntaxKind::ALL.get(usize::from(raw)).copied()
     }
 
+    /// Whether this is a token kind, trivia included.
     pub fn is_token(self) -> bool {
         (self as usize) < SyntaxKind::TOKEN_COUNT
     }
 
+    /// Whether this is a node kind.
     pub fn is_node(self) -> bool {
         !self.is_token()
     }
@@ -300,6 +295,9 @@ impl rowan::Language for ElmLanguage {
     }
 }
 
+/// A node of an Elm tree.
 pub type SyntaxNode = rowan::SyntaxNode<ElmLanguage>;
+/// A token of an Elm tree.
 pub type SyntaxToken = rowan::SyntaxToken<ElmLanguage>;
+/// A node or a token of an Elm tree.
 pub type SyntaxElement = rowan::SyntaxElement<ElmLanguage>;

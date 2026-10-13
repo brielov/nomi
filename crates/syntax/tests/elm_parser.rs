@@ -4,41 +4,34 @@
 //! ratcheted.
 
 mod common;
+#[path = "common/mismatches.rs"]
+mod mismatches;
 
+use common::Verdict;
 use nomi_syntax::{Tool, elm};
 
 #[test]
 fn elm_parser_matches_each_elm() {
     let mismatches = common::each_seed(|seed| {
         let mut mismatches = Vec::new();
-        for (m, cells) in &seed.cases {
-            for ((column, tool), cell) in seed.columns.iter().zip(cells) {
+        for (m, verdicts) in &seed.cases {
+            for ((column, tool), verdict) in seed.columns.iter().zip(verdicts) {
                 let Tool::Elm(source, compat) = *tool else {
                     continue;
                 };
-                if cell == "crash" {
+                if matches!(verdict, Verdict::Crashed) {
                     continue;
                 }
-                let verdict = elm::parse(m.source.as_bytes(), source, compat);
-                if verdict.is_ok() != (cell == "ok") {
+                let port = elm::parse(m.source.as_bytes(), source, compat);
+                if port.is_ok() != matches!(verdict, Verdict::Accepted) {
                     mismatches.push(format!(
-                        "{} / {} / {column}: elm {cell}, the port {verdict:?}",
-                        seed.name, m.name
+                        "{} / {column}: elm {verdict}, the port {port:?}",
+                        seed.case_id(m)
                     ));
                 }
             }
         }
         mismatches
     });
-    assert!(
-        mismatches.is_empty(),
-        "{} mismatches, the first:\n{}",
-        mismatches.len(),
-        mismatches
-            .iter()
-            .take(40)
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("\n")
-    );
+    mismatches::assert_none(&mismatches);
 }

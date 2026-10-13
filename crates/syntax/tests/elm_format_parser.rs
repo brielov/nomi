@@ -4,7 +4,10 @@
 //! format from, so it is held to every case, not ratcheted.
 
 mod common;
+#[path = "common/mismatches.rs"]
+mod mismatches;
 
+use common::Verdict;
 use nomi_base::ElmPosition;
 use nomi_syntax::{Tool, elm_format};
 
@@ -12,38 +15,30 @@ use nomi_syntax::{Tool, elm_format};
 fn elm_format_parser_matches_elm_format() {
     let mismatches = common::each_seed(|seed| {
         let mut mismatches = Vec::new();
-        for (m, cells) in &seed.cases {
-            for ((_, tool), cell) in seed.columns.iter().zip(cells) {
-                if *tool != Tool::ElmFormat || cell == "crash" {
-                    continue;
-                }
-                let expected = match cell.split_once(':') {
-                    None => Ok(()),
-                    Some((row, column)) => Err(elm_format::Error::Position(ElmPosition {
-                        row: row.parse().expect("a row"),
-                        column: column.parse().expect("a column"),
-                    })),
+        for (m, verdicts) in &seed.cases {
+            for ((_, tool), verdict) in seed.columns.iter().zip(verdicts) {
+                let expected = match verdict {
+                    _ if *tool != Tool::ElmFormat => continue,
+                    Verdict::Crashed => continue,
+                    Verdict::Accepted => Ok(()),
+                    Verdict::Rejected(cell) => {
+                        let (row, column) = cell.split_once(':').expect("a row and a column");
+                        Err(elm_format::Error::Position(ElmPosition {
+                            row: row.parse().expect("a row"),
+                            column: column.parse().expect("a column"),
+                        }))
+                    }
                 };
-                let verdict = elm_format::parse(&m.source);
-                if verdict != expected {
+                let port = elm_format::parse(&m.source);
+                if port != expected {
                     mismatches.push(format!(
-                        "{} / {}: elm-format {cell}, the port {verdict:?}",
-                        seed.name, m.name
+                        "{}: elm-format {verdict}, the port {port:?}",
+                        seed.case_id(m)
                     ));
                 }
             }
         }
         mismatches
     });
-    assert!(
-        mismatches.is_empty(),
-        "{} mismatches, the first:\n{}",
-        mismatches.len(),
-        mismatches
-            .iter()
-            .take(40)
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("\n")
-    );
+    mismatches::assert_none(&mismatches);
 }

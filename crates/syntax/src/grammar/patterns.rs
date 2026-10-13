@@ -1,6 +1,6 @@
 //! Patterns, such as `(Just x) :: rest as all`.
 
-use super::{expect_indented, qualified_name, skip_junk};
+use super::{expect_indented, qualified_name, sequence_tail};
 use crate::SyntaxKind as K;
 use crate::parser::{CompletedMarker, Parser, SyntaxErrorKind};
 
@@ -66,8 +66,7 @@ fn cons_pattern(p: &mut Parser<'_>) -> CompletedMarker {
 /// A constructor with its arguments, or an atom.
 fn applied_pattern(p: &mut Parser<'_>) -> CompletedMarker {
     if !at_pattern_atom(p) {
-        p.error(SyntaxErrorKind::ExpectedPattern);
-        return p.missing();
+        return p.missing(SyntaxErrorKind::ExpectedPattern);
     }
     if !p.at(K::UpperIdent) {
         return pattern_atom(p);
@@ -125,28 +124,11 @@ fn paren_pattern(p: &mut Parser<'_>) -> K {
         return K::UnitPattern;
     }
     pattern(p);
-    let mut kind = K::ParenPattern;
-    loop {
-        if p.at(K::RParen) {
-            p.bump();
-            break;
-        }
-        if p.at(K::Comma) {
-            p.bump();
-            kind = K::TuplePattern;
-            pattern(p);
-        } else if p.at_indented_strictly() {
-            skip_junk(
-                p,
-                SyntaxErrorKind::Expected(K::RParen),
-                &[K::Comma, K::RParen],
-            );
-        } else {
-            p.error(SyntaxErrorKind::Expected(K::RParen));
-            break;
-        }
+    if sequence_tail(p, K::RParen, pattern) {
+        K::TuplePattern
+    } else {
+        K::ParenPattern
     }
-    kind
 }
 
 /// `[]` or `[a, b]`.
@@ -155,25 +137,7 @@ fn list_pattern(p: &mut Parser<'_>) -> K {
     if !p.at(K::RBracket) {
         pattern(p);
     }
-    loop {
-        if p.at(K::RBracket) {
-            p.bump();
-            break;
-        }
-        if p.at(K::Comma) {
-            p.bump();
-            pattern(p);
-        } else if p.at_indented_strictly() {
-            skip_junk(
-                p,
-                SyntaxErrorKind::Expected(K::RBracket),
-                &[K::Comma, K::RBracket],
-            );
-        } else {
-            p.error(SyntaxErrorKind::Expected(K::RBracket));
-            break;
-        }
-    }
+    sequence_tail(p, K::RBracket, pattern);
     K::ListPattern
 }
 
@@ -183,32 +147,13 @@ fn record_pattern(p: &mut Parser<'_>) -> K {
     if !p.at(K::RBrace) {
         field_pattern(p);
     }
-    loop {
-        if p.at(K::RBrace) {
-            p.bump();
-            break;
-        }
-        if p.at(K::Comma) {
-            p.bump();
-            field_pattern(p);
-        } else if p.at_indented_strictly() {
-            skip_junk(
-                p,
-                SyntaxErrorKind::Expected(K::RBrace),
-                &[K::Comma, K::RBrace],
-            );
-        } else {
-            p.error(SyntaxErrorKind::Expected(K::RBrace));
-            break;
-        }
-    }
+    sequence_tail(p, K::RBrace, field_pattern);
     K::RecordPattern
 }
 
 fn field_pattern(p: &mut Parser<'_>) {
     if !p.at(K::LowerIdent) {
-        p.error(SyntaxErrorKind::Expected(K::LowerIdent));
-        p.missing();
+        p.missing(SyntaxErrorKind::Expected(K::LowerIdent));
         return;
     }
     let m = p.start();

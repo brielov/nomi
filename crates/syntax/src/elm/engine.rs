@@ -475,9 +475,5 @@ pub(super) fn doc_comment<X>(
 /// Runs `parser` with room on the stack, as GHC's growing stack gives
 /// upstream's.
 pub(super) fn deep<'s, T>(p: &mut P<'s>, parser: impl FnOnce(&mut P<'s>) -> T) -> T {
-    stacker::maybe_grow(
-        crate::parser::RED_ZONE,
-        crate::parser::STACK_SEGMENT,
-        || parser(p),
-    )
+    nomi_base::grow_large(|| parser(p))
 }

@@ -47,16 +47,15 @@ pub(super) fn build(text: &str, tokens: &[Token], mut events: Vec<Event>) -> Gre
                 let mut forward = forward_parent;
                 while let Some(offset) = forward {
                     at += offset.get() as usize;
-                    match std::mem::replace(&mut events[at], Event::Tombstone) {
-                        Event::Start {
-                            kind,
-                            forward_parent,
-                        } => {
-                            parents.push(kind);
-                            forward = forward_parent;
-                        }
-                        _ => unreachable!("a forward parent is a Start"),
-                    }
+                    let Event::Start {
+                        kind,
+                        forward_parent,
+                    } = std::mem::replace(&mut events[at], Event::Tombstone)
+                    else {
+                        unreachable!("a forward parent is a Start");
+                    };
+                    parents.push(kind);
+                    forward = forward_parent;
                 }
                 for kind in parents.drain(..).rev() {
                     sink.start(kind);

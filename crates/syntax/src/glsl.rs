@@ -17,12 +17,11 @@
 mod error;
 mod words;
 
-use icu_properties::GeneralCategory;
+use nomi_base::ghc;
 
-use self::error::{Error, Kind, Text};
+use self::error::{Detail, Error, Kind, Text};
 use self::words::{KEYWORDS, RESERVED_WORDS, TYPES};
-use crate::lexer::GENERAL_CATEGORY;
-use crate::parser::{DEPTH_LIMIT, RED_ZONE, STACK_SEGMENT};
+use crate::parser::DEPTH_LIMIT;
 
 /// Why a shader doesn't parse.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -35,21 +34,30 @@ pub(crate) enum Rejection {
     TooDeep(usize),
 }
 
-/// Checks a shader block's text, between `[glsl|` and `|]`: quietly, and
-/// again for the message only when it fails.
+/// Checks a shader block's text, between `[glsl|` and `|]`: for where it
+/// fails, and again for the message only when it does.
 pub(crate) fn check(text: &str) -> Result<(), Rejection> {
-    match parse(text, true) {
-        Err(Rejection::At { .. }) => parse(text, false),
+    match parse(text, Detail::Offset) {
+        Err(Rejection::At { .. }) => parse(text, Detail::Messages),
         checked => checked,
     }
 }
 
-fn parse(text: &str, quiet: bool) -> Result<(), Rejection> {
+/// Where upstream stops parsing a shader block's text, if it fails:
+/// [`check`] without the message.
+pub(crate) fn rejection_offset(text: &str) -> Option<usize> {
+    match parse(text, Detail::Offset) {
+        Ok(()) => None,
+        Err(Rejection::At { offset, .. } | Rejection::TooDeep(offset)) => Some(offset),
+    }
+}
+
+fn parse(text: &str, detail: Detail) -> Result<(), Rejection> {
     let mut p = Glsl {
         text,
         pos: 0,
-        error: Error::unknown(0, quiet),
-        quiet,
+        error: Error::unknown(0, detail),
+        detail,
         depth: 0,
         too_deep: None,
     };
@@ -63,7 +71,10 @@ fn parse(text: &str, quiet: bool) -> Result<(), Rejection> {
         (None, Ok(())) => Ok(()),
         (None, Err(Fail)) => Err(Rejection::At {
             offset: p.error.offset,
-            message: if quiet { String::new() } else { p.error.show() },
+            message: match detail {
+                Detail::Offset => String::new(),
+                Detail::Messages => p.error.show(),
+            },
         }),
     }
 }
@@ -71,7 +82,7 @@ fn parse(text: &str, quiet: bool) -> Result<(), Rejection> {
 /// A rule failed. Whether it consumed input shows in the position.
 struct Fail;
 
-type P<T = ()> = Result<T, Fail>;
+type Parsed<T = ()> = Result<T, Fail>;
 
 struct Glsl<'t> {
     text: &'t str,
@@ -79,13 +90,13 @@ struct Glsl<'t> {
     /// The error of the input consumed so far, as Parsec carries it: a
     /// consuming rule replaces it, a failing one merges into it.
     error: Error,
-    /// Whether errors keep their messages; see [`Error`].
-    quiet: bool,
+    /// What errors keep.
+    detail: Detail,
     depth: u32,
     too_deep: Option<usize>,
 }
 
-type Rule<'r, 't, T = ()> = &'r dyn Fn(&mut Glsl<'t>) -> P<T>;
+type Rule<'r, 't, T = ()> = &'r dyn Fn(&mut Glsl<'t>) -> Parsed<T>;
 
 /// An infix operator of `buildExpressionParser`'s tables.
 #[derive(Clone, Copy)]
@@ -133,42 +144,20 @@ const ASSIGNMENT: &[&[Op]] = {
     ]
 };
 
-/// GHC's `isAlpha`.
+/// GHC's `isAlpha`, ASCII first.
 fn is_letter(c: char) -> bool {
     if c.is_ascii() {
         return c.is_ascii_alphabetic();
     }
-    matches!(
-        GENERAL_CATEGORY.get(c),
-        GeneralCategory::UppercaseLetter
-            | GeneralCategory::LowercaseLetter
-            | GeneralCategory::TitlecaseLetter
-            | GeneralCategory::ModifierLetter
-            | GeneralCategory::OtherLetter
-    )
+    ghc::is_alpha(c)
 }
 
-/// GHC's `isAlphaNum`: letters and numbers of any kind.
+/// GHC's `isAlphaNum`, ASCII first.
 fn is_alpha_num(c: char) -> bool {
     if c.is_ascii() {
         return c.is_ascii_alphanumeric();
     }
-    is_letter(c)
-        || matches!(
-            GENERAL_CATEGORY.get(c),
-            GeneralCategory::DecimalNumber
-                | GeneralCategory::LetterNumber
-                | GeneralCategory::OtherNumber
-        )
-}
-
-/// GHC's `isSpace`.
-fn is_space(c: char) -> bool {
-    match c {
-        ' ' | '\t'..='\r' | '\u{a0}' => true,
-        _ if (c as u32) <= 0x377 => false,
-        _ => GENERAL_CATEGORY.get(c) == GeneralCategory::SpaceSeparator,
-    }
+    ghc::is_alpha_num(c)
 }
 
 impl<'t> Glsl<'t> {
@@ -180,14 +169,15 @@ impl<'t> Glsl<'t> {
 
     /// Fails with a message at `offset`, merged into the error.
     fn fail_at(&mut self, offset: usize, kind: Kind, text: Text) -> Fail {
-        self.error.merge(Error::new(offset, kind, text, self.quiet));
+        self.error
+            .merge(Error::new(offset, kind, text, self.detail));
         Fail
     }
 
     /// Consumes `len` bytes, which starts the error afresh.
     fn advance(&mut self, len: usize) {
         self.pos += len;
-        self.error = Error::unknown(self.pos, self.quiet);
+        self.error = Error::unknown(self.pos, self.detail);
     }
 
     /// What a token parser met here: `show [c]`, or nothing at the end.
@@ -198,7 +188,7 @@ impl<'t> Glsl<'t> {
         }
     }
 
-    fn satisfy(&mut self, f: impl Fn(char) -> bool) -> P<char> {
+    fn satisfy(&mut self, f: impl Fn(char) -> bool) -> Parsed<char> {
         match self.peek() {
             Some(c) if f(c) => {
                 self.advance(c.len_utf8());
@@ -209,13 +199,13 @@ impl<'t> Glsl<'t> {
     }
 
     /// `char`, which labels itself with its `show`.
-    fn char(&mut self, c: char) -> P<char> {
+    fn char(&mut self, c: char) -> Parsed<char> {
         self.label(Text::ShowString(c), |p| p.satisfy(|d| d == c))
     }
 
     /// `string`: consumes what matches, so a partial match fails having
     /// consumed input, with the error where it started.
-    fn string(&mut self, s: &'static str) -> P {
+    fn string(&mut self, s: &'static str) -> Parsed {
         let start = self.pos;
         let rest = &self.text[start..];
         if rest.starts_with(s) {
@@ -230,7 +220,7 @@ impl<'t> Glsl<'t> {
             start,
             Kind::SysUnExpect,
             self.met(start + matched),
-            self.quiet,
+            self.detail,
         );
         error.expect(Text::Show(s));
         if matched == 0 {
@@ -244,10 +234,10 @@ impl<'t> Glsl<'t> {
 
     /// `eof`: `notFollowedBy anyToken <?> "end of input"`, which leaves
     /// its error even when it succeeds.
-    fn eof(&mut self) -> P {
+    fn eof(&mut self) -> Parsed {
         let mut error = match self.peek() {
-            None => Error::new(self.pos, Kind::SysUnExpect, Text::Str(""), self.quiet),
-            Some(c) => Error::new(self.pos, Kind::UnExpect, Text::ShowChar(c), self.quiet),
+            None => Error::new(self.pos, Kind::SysUnExpect, Text::Str(""), self.detail),
+            Some(c) => Error::new(self.pos, Kind::UnExpect, Text::ShowChar(c), self.detail),
         };
         error.expect(Text::Str("end of input"));
         self.error.merge(error);
@@ -260,9 +250,9 @@ impl<'t> Glsl<'t> {
 
     /// `<?>`: when `rule` consumes nothing, `label` replaces what its
     /// error expects.
-    fn label<T>(&mut self, label: Text, rule: impl FnOnce(&mut Self) -> P<T>) -> P<T> {
+    fn label<T>(&mut self, label: Text, rule: impl FnOnce(&mut Self) -> Parsed<T>) -> Parsed<T> {
         let start = self.pos;
-        let outer = std::mem::replace(&mut self.error, Error::unknown(start, self.quiet));
+        let outer = std::mem::replace(&mut self.error, Error::unknown(start, self.detail));
         let result = rule(self);
         if self.pos == start {
             if result.is_err() || self.error.is_known() {
@@ -275,9 +265,9 @@ impl<'t> Glsl<'t> {
     }
 
     /// `try`: a failure consumes nothing.
-    fn attempt<T>(&mut self, rule: impl FnOnce(&mut Self) -> P<T>) -> P<T> {
+    fn attempt<T>(&mut self, rule: impl FnOnce(&mut Self) -> Parsed<T>) -> Parsed<T> {
         let start = self.pos;
-        let outer = std::mem::replace(&mut self.error, Error::unknown(start, self.quiet));
+        let outer = std::mem::replace(&mut self.error, Error::unknown(start, self.detail));
         let result = rule(self);
         if result.is_err() {
             self.pos = start;
@@ -289,12 +279,16 @@ impl<'t> Glsl<'t> {
         result
     }
 
-    /// `<|>` over `rules`: each runs only if those before failed without
-    /// consuming.
-    fn choice<T>(&mut self, rules: &[Rule<'_, 't, T>]) -> P<T> {
+    /// `<|>` over `rule` of each of `items`: each runs only if those
+    /// before failed without consuming.
+    fn first_of<I: Copy, T>(
+        &mut self,
+        items: &[I],
+        rule: impl Fn(&mut Self, I) -> Parsed<T>,
+    ) -> Parsed<T> {
         let start = self.pos;
-        for rule in rules {
-            match rule(self) {
+        for &item in items {
+            match rule(self, item) {
                 Err(Fail) if self.pos == start => {}
                 result => return result,
             }
@@ -302,8 +296,13 @@ impl<'t> Glsl<'t> {
         Err(Fail)
     }
 
+    /// `<|>` over `rules`.
+    fn choice<T>(&mut self, rules: &[Rule<'_, 't, T>]) -> Parsed<T> {
+        self.first_of(rules, |p, rule| rule(p))
+    }
+
     /// `optionMaybe`: whether `rule` ran.
-    fn optional(&mut self, rule: impl FnOnce(&mut Self) -> P) -> P<bool> {
+    fn option_maybe(&mut self, rule: impl FnOnce(&mut Self) -> Parsed) -> Parsed<bool> {
         let start = self.pos;
         match rule(self) {
             Ok(()) => Ok(true),
@@ -312,14 +311,19 @@ impl<'t> Glsl<'t> {
         }
     }
 
+    /// `optional`: `rule`, unless it fails without consuming.
+    fn optional(&mut self, rule: impl FnOnce(&mut Self) -> Parsed) -> Parsed {
+        self.option_maybe(rule).map(drop)
+    }
+
     /// `many`. Each repetition after the first starts with a fresh error,
     /// as Parsec's does.
-    fn many(&mut self, rule: impl Fn(&mut Self) -> P) -> P {
+    fn many(&mut self, rule: impl Fn(&mut Self) -> Parsed) -> Parsed {
         let mut first = true;
         loop {
             let start = self.pos;
             if !first {
-                self.error = Error::unknown(start, self.quiet);
+                self.error = Error::unknown(start, self.detail);
             }
             match rule(self) {
                 Ok(()) if self.pos == start => return Ok(()),
@@ -330,15 +334,16 @@ impl<'t> Glsl<'t> {
         }
     }
 
-    fn many1(&mut self, rule: impl Fn(&mut Self) -> P) -> P {
+    fn many1(&mut self, rule: impl Fn(&mut Self) -> Parsed) -> Parsed {
         rule(self)?;
         self.many(rule)
     }
 
-    fn sep_by(&mut self, rule: impl Fn(&mut Self) -> P, sep: impl Fn(&mut Self) -> P) -> P {
-        if self.optional(&rule)? {
+    /// `sepBy rule comma`.
+    fn comma_sep(&mut self, rule: impl Fn(&mut Self) -> Parsed) -> Parsed {
+        if self.option_maybe(&rule)? {
             self.many(|p| {
-                sep(p)?;
+                p.symbol(',')?;
                 rule(p)
             })?;
         }
@@ -347,9 +352,9 @@ impl<'t> Glsl<'t> {
 
     /// `notFollowedBy`, which never consumes: it fails where `rule`
     /// stopped, with `unexpected (show c)` for what `rule` returned.
-    fn not_followed_by(&mut self, rule: impl FnOnce(&mut Self) -> P<char>) -> P {
+    fn not_followed_by(&mut self, rule: impl FnOnce(&mut Self) -> Parsed<char>) -> Parsed {
         let start = self.pos;
-        let outer = std::mem::replace(&mut self.error, Error::unknown(start, self.quiet));
+        let outer = std::mem::replace(&mut self.error, Error::unknown(start, self.detail));
         let result = rule(self);
         if let Ok(c) = result {
             self.fail_at(self.pos, Kind::UnExpect, Text::ShowChar(c));
@@ -364,7 +369,7 @@ impl<'t> Glsl<'t> {
     }
 
     /// `manyTill anyChar end`.
-    fn skip_till(&mut self, end: impl Fn(&mut Self) -> P) -> P {
+    fn skip_till(&mut self, end: impl Fn(&mut Self) -> Parsed) -> Parsed {
         loop {
             let start = self.pos;
             match end(self) {
@@ -377,7 +382,7 @@ impl<'t> Glsl<'t> {
     }
 
     /// Runs a rule that may recurse, growing the stack as needed.
-    fn guarded(&mut self, rule: impl FnOnce(&mut Self) -> P) -> P {
+    fn guarded(&mut self, rule: impl FnOnce(&mut Self) -> Parsed) -> Parsed {
         if self.depth >= DEPTH_LIMIT {
             self.too_deep.get_or_insert(self.pos);
             // Consumed, so nothing backtracks over it.
@@ -385,7 +390,7 @@ impl<'t> Glsl<'t> {
             return Err(Fail);
         }
         self.depth += 1;
-        let result = stacker::maybe_grow(RED_ZONE, STACK_SEGMENT, || rule(self));
+        let result = nomi_base::grow_large(|| rule(self));
         self.depth -= 1;
         result
     }
@@ -396,14 +401,14 @@ impl<'t> Glsl<'t> {
     fn blanks(&mut self) {
         let blank = |p: &mut Self| {
             p.choice(&[&|p| p.attempt(Self::comment), &|p| {
-                p.label(Text::Str("space"), |p| p.satisfy(is_space))
+                p.label(Text::Str("space"), |p| p.satisfy(ghc::is_space))
                     .map(drop)
             }])
         };
         let _ = self.many(blank);
     }
 
-    fn comment(&mut self) -> P {
+    fn comment(&mut self) -> Parsed {
         self.char('/')?;
         self.choice(&[
             &|p| {
@@ -426,15 +431,28 @@ impl<'t> Glsl<'t> {
     }
 
     /// A one-character token and the blanks after it.
-    fn symbol(&mut self, c: char) -> P {
+    fn symbol(&mut self, c: char) -> Parsed {
         self.char(c)?;
         self.blanks();
         Ok(())
     }
 
+    /// `brackets inner`.
+    fn brackets(&mut self, inner: impl FnOnce(&mut Self) -> Parsed) -> Parsed {
+        self.symbol('[')?;
+        inner(self)?;
+        self.symbol(']')
+    }
+
+    /// An array's size, which may be left out, in brackets that may be
+    /// too.
+    fn array_size(&mut self) -> Parsed {
+        self.optional(|p| p.brackets(|p| p.optional(Self::constant_expression)))
+    }
+
     /// `keyword w`: `w` not followed by an identifier's character, and
     /// the blanks after it.
-    fn keyword(&mut self, word: &'static str) -> P {
+    fn keyword(&mut self, word: &'static str) -> Parsed {
         self.attempt(|p| {
             p.string(word)?;
             p.not_followed_by(Self::identifier_tail)
@@ -444,19 +462,12 @@ impl<'t> Glsl<'t> {
     }
 
     /// `choice (map keyword words)`.
-    fn keywords(&mut self, words: &[&'static str]) -> P {
-        let start = self.pos;
-        for &word in words {
-            match self.keyword(word) {
-                Err(Fail) if self.pos == start => {}
-                result => return result,
-            }
-        }
-        Err(Fail)
+    fn keywords(&mut self, words: &[&'static str]) -> Parsed {
+        self.first_of(words, Self::keyword)
     }
 
     /// `identifierTail`: `alphaNum <|> char '_'`.
-    fn identifier_tail(&mut self) -> P<char> {
+    fn identifier_tail(&mut self) -> Parsed<char> {
         self.choice(&[
             &|p| p.label(Text::Str("letter or digit"), |p| p.satisfy(is_alpha_num)),
             &|p| p.char('_'),
@@ -464,7 +475,7 @@ impl<'t> Glsl<'t> {
     }
 
     /// An identifier: its check fails after consuming it.
-    fn identifier(&mut self) -> P {
+    fn identifier(&mut self) -> Parsed {
         let start = self.pos;
         self.choice(&[
             &|p| p.label(Text::Str("letter"), |p| p.satisfy(is_letter)),
@@ -487,7 +498,7 @@ impl<'t> Glsl<'t> {
     }
 
     /// `operator` and the tables' operators: `lexeme (try …)`.
-    fn operator(&mut self, op: Op) -> P {
+    fn operator(&mut self, op: Op) -> Parsed {
         self.attempt(|p| match op {
             Op::Plain(s) => p.string(s),
             Op::NoEq(s) => {
@@ -503,23 +514,22 @@ impl<'t> Glsl<'t> {
         Ok(())
     }
 
-    fn token_with(&mut self, rule: impl FnOnce(&mut Self) -> P) -> P {
+    fn token_with(&mut self, rule: impl FnOnce(&mut Self) -> Parsed) -> Parsed {
         self.attempt(rule)?;
         self.blanks();
         Ok(())
     }
 
     /// `many1` of a labelled digit parser.
-    fn digits(&mut self, label: &'static str, f: fn(char) -> bool) -> P {
+    fn digits(&mut self, label: &'static str, f: fn(char) -> bool) -> Parsed {
         self.many1(|p| p.label(Text::Str(label), |p| p.satisfy(f)).map(drop))
     }
 
-    fn suffix(&mut self, letters: &str) -> P {
+    fn suffix(&mut self, letters: &str) -> Parsed {
         self.optional(|p| p.satisfy(|c| letters.contains(c)).map(drop))
-            .map(drop)
     }
 
-    fn int_constant(&mut self) -> P {
+    fn int_constant(&mut self) -> Parsed {
         self.choice(&[
             // hexadecimal
             &|p| {
@@ -563,7 +573,7 @@ impl<'t> Glsl<'t> {
         ])
     }
 
-    fn floating_constant(&mut self) -> P {
+    fn floating_constant(&mut self) -> Parsed {
         self.choice(&[
             // floatExponent
             &|p| {
@@ -599,7 +609,7 @@ impl<'t> Glsl<'t> {
     }
 
     /// An exponent, a lexeme of its own.
-    fn exponent(&mut self) -> P {
+    fn exponent(&mut self) -> Parsed {
         self.token_with(|p| {
             p.satisfy(|c| c == 'e' || c == 'E')?;
             p.suffix("+-")?;
@@ -609,7 +619,7 @@ impl<'t> Glsl<'t> {
 
     // Expressions.
 
-    fn primary_expression(&mut self) -> P {
+    fn primary_expression(&mut self) -> Parsed {
         self.choice(&[
             &|p| p.attempt(Self::identifier),
             &Self::int_constant,
@@ -624,18 +634,14 @@ impl<'t> Glsl<'t> {
         ])
     }
 
-    fn postfix_expression(&mut self) -> P {
+    fn postfix_expression(&mut self) -> Parsed {
         self.choice(&[
             &|p| p.attempt(Self::function_call_generic),
             &Self::primary_expression,
         ])?;
         self.many(|p| {
             p.choice(&[
-                &|p| {
-                    p.symbol('[')?;
-                    p.expression()?;
-                    p.symbol(']')
-                },
+                &|p| p.brackets(Self::expression),
                 &|p| {
                     p.token_with(|p| {
                         p.string(".")?;
@@ -654,17 +660,17 @@ impl<'t> Glsl<'t> {
         })
     }
 
-    fn function_call_generic(&mut self) -> P {
+    fn function_call_generic(&mut self) -> Parsed {
         // functionIdentifier
         self.choice(&[&|p| p.attempt(Self::identifier), &Self::type_specifier])?;
         self.symbol('(')?;
         self.choice(&[&|p| p.keyword("void"), &|p| {
-            p.sep_by(Self::assignment_expression, |p| p.symbol(','))
+            p.comma_sep(Self::assignment_expression)
         }])?;
         self.symbol(')')
     }
 
-    fn unary_expression(&mut self) -> P {
+    fn unary_expression(&mut self) -> Parsed {
         self.many(|p| {
             p.choice(&[
                 &|p| p.operator(Op::Plain("++")),
@@ -683,12 +689,12 @@ impl<'t> Glsl<'t> {
     /// mixes associativities, so its operators are tried twice before the
     /// first (once to call them ambiguous) and once before each after,
     /// failing the same way each time.
-    fn levels(&mut self, table: &[&[Op]], term: fn(&mut Self) -> P) -> P {
+    fn levels(&mut self, table: &[&[Op]], term: fn(&mut Self) -> Parsed) -> Parsed {
         let Some((ops, inner)) = table.split_last() else {
             return term(self);
         };
         // `termP`, between prefix and postfix operators the row lacks.
-        let term_p = |p: &mut Self| -> P {
+        let term_p = |p: &mut Self| -> Parsed {
             p.no_operator();
             p.levels(inner, term)?;
             p.no_operator();
@@ -709,7 +715,7 @@ impl<'t> Glsl<'t> {
     /// `prefixP` or `postfixP` with no operators: `choice [] <?> ""`,
     /// whose error expects nothing but is known.
     fn no_operator(&mut self) {
-        let nothing = Error::new(self.pos, Kind::Expect, Text::Str(""), self.quiet);
+        let nothing = Error::new(self.pos, Kind::Expect, Text::Str(""), self.detail);
         self.error.merge(nothing);
     }
 
@@ -724,7 +730,7 @@ impl<'t> Glsl<'t> {
         false
     }
 
-    fn conditional_expression(&mut self) -> P {
+    fn conditional_expression(&mut self) -> Parsed {
         self.levels(CONDITIONAL, Self::unary_expression)?;
         self.optional(|p| {
             p.symbol('?')?;
@@ -732,35 +738,34 @@ impl<'t> Glsl<'t> {
             p.symbol(':')?;
             p.assignment_expression()
         })
-        .map(drop)
     }
 
-    fn assignment_expression(&mut self) -> P {
+    fn assignment_expression(&mut self) -> Parsed {
         self.guarded(|p| p.levels(ASSIGNMENT, Self::conditional_expression))
     }
 
-    fn expression(&mut self) -> P {
+    fn expression(&mut self) -> Parsed {
         self.guarded(|p| p.levels(&[&[Op::Plain(",")]], Self::assignment_expression))
     }
 
-    fn constant_expression(&mut self) -> P {
+    fn constant_expression(&mut self) -> Parsed {
         self.guarded(Self::conditional_expression)
     }
 
     // Declarations and types.
 
-    fn declaration(&mut self) -> P {
+    fn declaration(&mut self) -> Parsed {
         self.choice(&[
             &|p| {
                 p.attempt(|p| {
                     p.fully_specified_type()?;
-                    p.sep_by(Self::init_declarator, |p| p.symbol(','))?;
+                    p.comma_sep(Self::init_declarator)?;
                     p.symbol(';')
                 })
             },
             &|p| {
                 p.keyword("invariant")?;
-                p.sep_by(Self::init_declarator, |p| p.symbol(','))?;
+                p.comma_sep(Self::init_declarator)?;
                 p.symbol(';')
             },
             &|p| {
@@ -778,12 +783,7 @@ impl<'t> Glsl<'t> {
                     p.symbol('}')?;
                     p.optional(|p| {
                         p.identifier()?;
-                        p.optional(|p| {
-                            p.symbol('[')?;
-                            p.optional(Self::constant_expression)?;
-                            p.symbol(']')
-                        })
-                        .map(drop)
+                        p.array_size()
                     })?;
                     p.symbol(';')
                 }])
@@ -792,29 +792,24 @@ impl<'t> Glsl<'t> {
     }
 
     /// `idecl`.
-    fn init_declarator(&mut self) -> P {
+    fn init_declarator(&mut self) -> Parsed {
         self.identifier()?;
-        self.optional(|p| {
-            p.symbol('[')?;
-            p.optional(Self::constant_expression)?;
-            p.symbol(']')
-        })?;
+        self.array_size()?;
         self.optional(|p| {
             p.symbol('=')?;
             p.assignment_expression()
         })
-        .map(drop)
     }
 
-    fn function_prototype(&mut self) -> P {
+    fn function_prototype(&mut self) -> Parsed {
         self.fully_specified_type()?;
         self.identifier()?;
         self.symbol('(')?;
-        self.sep_by(Self::parameter_declaration, |p| p.symbol(','))?;
+        self.comma_sep(Self::parameter_declaration)?;
         self.symbol(')')
     }
 
-    fn parameter_declaration(&mut self) -> P {
+    fn parameter_declaration(&mut self) -> Parsed {
         self.optional(|p| p.keyword("const"))?;
         // Without a keyword's boundary: `int` reads as `in` `t`.
         self.optional(|p| {
@@ -827,54 +822,44 @@ impl<'t> Glsl<'t> {
         self.type_specifier()?;
         self.optional(|p| {
             p.identifier()?;
-            p.optional(|p| {
-                p.symbol('[')?;
-                p.constant_expression()?;
-                p.symbol(']')
-            })
-            .map(drop)
+            p.optional(|p| p.brackets(Self::constant_expression))
         })
-        .map(drop)
     }
 
-    fn fully_specified_type(&mut self) -> P {
+    fn fully_specified_type(&mut self) -> Parsed {
         self.choice(&[&|p| p.attempt(Self::type_specifier), &|p| {
             p.type_qualifier()?;
             p.type_specifier()
         }])
     }
 
-    fn interpolation_qualifier(&mut self) -> P {
+    fn interpolation_qualifier(&mut self) -> Parsed {
         self.keywords(&["smooth", "flat", "noperspective"])
     }
 
-    fn layout_qualifier(&mut self) -> P {
+    fn layout_qualifier(&mut self) -> Parsed {
         self.keyword("layout")?;
         self.symbol('(')?;
-        self.sep_by(
-            |p| {
-                p.identifier()?;
-                p.optional(|p| {
-                    p.symbol('=')?;
-                    p.int_constant()
-                })
-                .map(drop)
-            },
-            |p| p.symbol(','),
-        )?;
+        self.comma_sep(|p| {
+            p.identifier()?;
+            p.optional(|p| {
+                p.symbol('=')?;
+                p.int_constant()
+            })
+        })?;
         self.symbol(')')
     }
 
-    fn type_qualifier(&mut self) -> P {
+    fn type_qualifier(&mut self) -> Parsed {
         self.choice(&[
             &Self::storage_qualifier,
             &|p| {
                 p.layout_qualifier()?;
-                p.optional(Self::storage_qualifier).map(drop)
+                p.optional(Self::storage_qualifier)
             },
             &|p| {
                 p.interpolation_qualifier()?;
-                p.optional(Self::storage_qualifier).map(drop)
+                p.optional(Self::storage_qualifier)
             },
             &|p| {
                 p.keyword("invariant")?;
@@ -883,13 +868,13 @@ impl<'t> Glsl<'t> {
                         p.interpolation_qualifier()?;
                         p.storage_qualifier()
                     },
-                    &|p| p.optional(Self::storage_qualifier).map(drop),
+                    &|p| p.optional(Self::storage_qualifier),
                 ])
             },
         ])
     }
 
-    fn storage_qualifier(&mut self) -> P {
+    fn storage_qualifier(&mut self) -> Parsed {
         self.choice(&[
             &|p| p.keywords(&["const", "attribute", "varying", "in", "out"]),
             &|p| {
@@ -900,7 +885,7 @@ impl<'t> Glsl<'t> {
         ])
     }
 
-    fn type_specifier(&mut self) -> P {
+    fn type_specifier(&mut self) -> Parsed {
         self.choice(&[
             &|p| {
                 p.attempt(Self::precision_qualifier)?;
@@ -910,7 +895,7 @@ impl<'t> Glsl<'t> {
         ])
     }
 
-    fn type_specifier_no_precision(&mut self) -> P {
+    fn type_specifier_no_precision(&mut self) -> Parsed {
         // typeSpecifierNonArray
         self.choice(&[
             &|p| p.keywords(TYPES),
@@ -924,20 +909,16 @@ impl<'t> Glsl<'t> {
                     p.symbol(']')
                 })
             },
-            &|p| {
-                p.symbol('[')?;
-                p.constant_expression()?;
-                p.symbol(']')
-            },
+            &|p| p.brackets(Self::constant_expression),
             &|_| Ok(()),
         ])
     }
 
-    fn precision_qualifier(&mut self) -> P {
+    fn precision_qualifier(&mut self) -> Parsed {
         self.keywords(&["highp", "mediump", "lowp"])
     }
 
-    fn struct_specifier(&mut self) -> P {
+    fn struct_specifier(&mut self) -> Parsed {
         self.keyword("struct")?;
         self.optional(Self::identifier)?;
         self.symbol('{')?;
@@ -945,33 +926,25 @@ impl<'t> Glsl<'t> {
         self.symbol('}')
     }
 
-    fn struct_declaration(&mut self) -> P {
+    fn struct_declaration(&mut self) -> Parsed {
         self.guarded(|p| {
             p.optional(Self::type_qualifier)?;
             p.type_specifier()?;
-            p.sep_by(
-                |p| {
-                    p.identifier()?;
-                    p.optional(|p| {
-                        p.symbol('[')?;
-                        p.optional(Self::constant_expression)?;
-                        p.symbol(']')
-                    })
-                    .map(drop)
-                },
-                |p| p.symbol(','),
-            )?;
+            p.comma_sep(|p| {
+                p.identifier()?;
+                p.array_size()
+            })?;
             p.symbol(';')
         })
     }
 
     // Statements.
 
-    fn statement(&mut self) -> P {
+    fn statement(&mut self) -> Parsed {
         self.guarded(|p| p.choice(&[&Self::compound_statement, &Self::simple_statement]))
     }
 
-    fn simple_statement(&mut self) -> P {
+    fn simple_statement(&mut self) -> Parsed {
         self.choice(&[
             &Self::declaration,
             &Self::expression_statement,
@@ -983,7 +956,7 @@ impl<'t> Glsl<'t> {
         ])
     }
 
-    fn compound_statement(&mut self) -> P {
+    fn compound_statement(&mut self) -> Parsed {
         self.choice(&[
             &|p| {
                 p.attempt(|p| {
@@ -999,14 +972,14 @@ impl<'t> Glsl<'t> {
         ])
     }
 
-    fn expression_statement(&mut self) -> P {
+    fn expression_statement(&mut self) -> Parsed {
         self.choice(&[&|p| p.symbol(';'), &|p| {
             p.expression()?;
             p.symbol(';')
         }])
     }
 
-    fn selection_statement(&mut self) -> P {
+    fn selection_statement(&mut self) -> Parsed {
         self.keyword("if")?;
         self.symbol('(')?;
         self.expression()?;
@@ -1016,10 +989,9 @@ impl<'t> Glsl<'t> {
             p.keyword("else")?;
             p.statement()
         })
-        .map(drop)
     }
 
-    fn condition(&mut self) -> P {
+    fn condition(&mut self) -> Parsed {
         self.choice(&[&Self::expression, &|p| {
             p.fully_specified_type()?;
             p.identifier()?;
@@ -1028,7 +1000,7 @@ impl<'t> Glsl<'t> {
         }])
     }
 
-    fn switch_statement(&mut self) -> P {
+    fn switch_statement(&mut self) -> Parsed {
         self.keyword("switch")?;
         self.symbol('(')?;
         self.expression()?;
@@ -1038,7 +1010,7 @@ impl<'t> Glsl<'t> {
         self.symbol('}')
     }
 
-    fn case_label(&mut self) -> P {
+    fn case_label(&mut self) -> Parsed {
         self.choice(&[
             &|p| {
                 p.keyword("case")?;
@@ -1052,7 +1024,7 @@ impl<'t> Glsl<'t> {
         ])
     }
 
-    fn iteration_statement(&mut self) -> P {
+    fn iteration_statement(&mut self) -> Parsed {
         self.choice(&[
             &|p| {
                 p.keyword("while")?;
@@ -1084,7 +1056,7 @@ impl<'t> Glsl<'t> {
         ])
     }
 
-    fn jump_statement(&mut self) -> P {
+    fn jump_statement(&mut self) -> Parsed {
         self.choice(&[
             &|p| {
                 p.keyword("continue")?;
@@ -1112,7 +1084,7 @@ impl<'t> Glsl<'t> {
         ])
     }
 
-    fn external_declaration(&mut self) -> P {
+    fn external_declaration(&mut self) -> Parsed {
         self.choice(&[
             &|p| {
                 p.attempt(Self::function_prototype)?;

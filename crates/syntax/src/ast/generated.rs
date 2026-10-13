@@ -3,6 +3,7 @@
 use super::{AstChildren, AstNode, support};
 use crate::{SyntaxKind, SyntaxNode, SyntaxToken};
 
+/// A view of a [`SyntaxKind::Module`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Module {
     pub(super) syntax: SyntaxNode,
@@ -23,23 +24,28 @@ impl AstNode for Module {
 }
 
 impl Module {
+    /// The `ModuleHeader` child.
     pub fn module_header(&self) -> Option<ModuleHeader> {
         support::child(&self.syntax)
     }
 
+    /// Every `Import` child.
     pub fn imports(&self) -> AstChildren<Import> {
         support::children(&self.syntax)
     }
 
+    /// Every `Decl` child.
     pub fn decls(&self) -> AstChildren<Decl> {
         support::children(&self.syntax)
     }
 
+    /// The first `doc_comment` token.
     pub fn doc_comment_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::DocComment)
     }
 }
 
+/// A view of a [`SyntaxKind::ModuleHeader`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ModuleHeader {
     pub(super) syntax: SyntaxNode,
@@ -60,35 +66,43 @@ impl AstNode for ModuleHeader {
 }
 
 impl ModuleHeader {
+    /// The `ModuleName` child.
     pub fn module_name(&self) -> Option<ModuleName> {
         support::child(&self.syntax)
     }
 
+    /// The `EffectFields` child.
     pub fn effect_fields(&self) -> Option<EffectFields> {
         support::child(&self.syntax)
     }
 
+    /// The `ExposingList` child.
     pub fn exposing_list(&self) -> Option<ExposingList> {
         support::child(&self.syntax)
     }
 
+    /// The first `port` token.
     pub fn port_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::PortKw)
     }
 
+    /// The first `effect` token.
     pub fn effect_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::EffectKw)
     }
 
+    /// The first `module` token.
     pub fn module_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::ModuleKw)
     }
 
+    /// The first `where` token.
     pub fn where_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::WhereKw)
     }
 }
 
+/// A view of a [`SyntaxKind::Import`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Import {
     pub(super) syntax: SyntaxNode,
@@ -109,23 +123,28 @@ impl AstNode for Import {
 }
 
 impl Import {
+    /// The `ModuleName` child.
     pub fn module_name(&self) -> Option<ModuleName> {
         support::child(&self.syntax)
     }
 
+    /// The `ImportAlias` child.
     pub fn import_alias(&self) -> Option<ImportAlias> {
         support::child(&self.syntax)
     }
 
+    /// The `ExposingList` child.
     pub fn exposing_list(&self) -> Option<ExposingList> {
         support::child(&self.syntax)
     }
 
+    /// The first `import` token.
     pub fn import_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::ImportKw)
     }
 }
 
+/// A `Decl`: a node of any of its variants' kinds.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Decl {
     ValueDecl(ValueDecl),
@@ -236,6 +255,7 @@ impl From<DocDecl> for Decl {
     }
 }
 
+/// A view of a [`SyntaxKind::DeclarationsFragment`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DeclarationsFragment {
     pub(super) syntax: SyntaxNode,
@@ -256,11 +276,13 @@ impl AstNode for DeclarationsFragment {
 }
 
 impl DeclarationsFragment {
+    /// Every `Decl` child.
     pub fn decls(&self) -> AstChildren<Decl> {
         support::children(&self.syntax)
     }
 }
 
+/// A view of a [`SyntaxKind::ExpressionsFragment`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ExpressionsFragment {
     pub(super) syntax: SyntaxNode,
@@ -281,11 +303,13 @@ impl AstNode for ExpressionsFragment {
 }
 
 impl ExpressionsFragment {
+    /// Every `Expr` child.
     pub fn exprs(&self) -> AstChildren<Expr> {
         support::children(&self.syntax)
     }
 }
 
+/// A `Expr`: a node of any of its variants' kinds.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Expr {
     LiteralExpr(LiteralExpr),
@@ -522,6 +546,7 @@ impl From<GlslExpr> for Expr {
     }
 }
 
+/// A view of a [`SyntaxKind::ModuleName`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ModuleName {
     pub(super) syntax: SyntaxNode,
@@ -542,15 +567,13 @@ impl AstNode for ModuleName {
 }
 
 impl ModuleName {
+    /// The first `upper_ident` token.
     pub fn upper_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::UpperIdent)
     }
-
-    pub fn dot_token(&self) -> Option<SyntaxToken> {
-        support::token(&self.syntax, SyntaxKind::Dot)
-    }
 }
 
+/// A view of a [`SyntaxKind::EffectFields`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EffectFields {
     pub(super) syntax: SyntaxNode,
@@ -571,27 +594,28 @@ impl AstNode for EffectFields {
 }
 
 impl EffectFields {
+    /// Every `EffectField` child.
     pub fn effect_fields(&self) -> AstChildren<EffectField> {
         support::children(&self.syntax)
     }
 
+    /// The first `where` token.
     pub fn where_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::WhereKw)
     }
 
+    /// The first `{` token.
     pub fn l_brace_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LBrace)
     }
 
-    pub fn comma_token(&self) -> Option<SyntaxToken> {
-        support::token(&self.syntax, SyntaxKind::Comma)
-    }
-
+    /// The first `}` token.
     pub fn r_brace_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RBrace)
     }
 }
 
+/// A view of a [`SyntaxKind::ExposingList`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ExposingList {
     pub(super) syntax: SyntaxNode,
@@ -612,23 +636,33 @@ impl AstNode for ExposingList {
 }
 
 impl ExposingList {
+    /// Every `Exposed` child.
     pub fn items(&self) -> AstChildren<Exposed> {
         support::children(&self.syntax)
     }
 
+    /// The first `exposing` token.
     pub fn exposing_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::ExposingKw)
     }
 
+    /// The first `(` token.
     pub fn l_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LParen)
     }
 
+    /// The first `..` token.
+    pub fn dot_dot_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::DotDot)
+    }
+
+    /// The first `)` token.
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RParen)
     }
 }
 
+/// A view of a [`SyntaxKind::EffectField`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EffectField {
     pub(super) syntax: SyntaxNode,
@@ -649,19 +683,23 @@ impl AstNode for EffectField {
 }
 
 impl EffectField {
+    /// The first `lower_ident` token.
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
     }
 
+    /// The first `=` token.
     pub fn eq_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Eq)
     }
 
+    /// The first `upper_ident` token.
     pub fn upper_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::UpperIdent)
     }
 }
 
+/// A `Exposed`: a node of any of its variants' kinds.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Exposed {
     ExposedValue(ExposedValue),
@@ -714,6 +752,7 @@ impl From<ExposedOperator> for Exposed {
     }
 }
 
+/// A view of a [`SyntaxKind::ExposedValue`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ExposedValue {
     pub(super) syntax: SyntaxNode,
@@ -734,11 +773,13 @@ impl AstNode for ExposedValue {
 }
 
 impl ExposedValue {
+    /// The first `lower_ident` token.
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
     }
 }
 
+/// A view of a [`SyntaxKind::ExposedType`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ExposedType {
     pub(super) syntax: SyntaxNode,
@@ -759,15 +800,18 @@ impl AstNode for ExposedType {
 }
 
 impl ExposedType {
+    /// The `ExposedVariants` child.
     pub fn exposed_variants(&self) -> Option<ExposedVariants> {
         support::child(&self.syntax)
     }
 
+    /// The first `upper_ident` token.
     pub fn upper_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::UpperIdent)
     }
 }
 
+/// A view of a [`SyntaxKind::ExposedOperator`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ExposedOperator {
     pub(super) syntax: SyntaxNode,
@@ -788,19 +832,23 @@ impl AstNode for ExposedOperator {
 }
 
 impl ExposedOperator {
+    /// The `Op` child.
     pub fn op(&self) -> Option<Op> {
         support::child(&self.syntax)
     }
 
+    /// The first `(` token.
     pub fn l_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LParen)
     }
 
+    /// The first `)` token.
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RParen)
     }
 }
 
+/// A view of a [`SyntaxKind::ExposedVariants`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ExposedVariants {
     pub(super) syntax: SyntaxNode,
@@ -821,15 +869,28 @@ impl AstNode for ExposedVariants {
 }
 
 impl ExposedVariants {
+    /// The first `(` token.
     pub fn l_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LParen)
     }
 
+    /// The first `..` token.
+    pub fn dot_dot_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::DotDot)
+    }
+
+    /// The first `upper_ident` token.
+    pub fn upper_ident_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::UpperIdent)
+    }
+
+    /// The first `)` token.
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RParen)
     }
 }
 
+/// A view of a [`SyntaxKind::Op`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Op {
     pub(super) syntax: SyntaxNode,
@@ -849,6 +910,34 @@ impl AstNode for Op {
     }
 }
 
+impl Op {
+    /// The first `operator` token.
+    pub fn operator_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::Operator)
+    }
+
+    /// The first `-` token.
+    pub fn minus_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::Minus)
+    }
+
+    /// The first `::` token.
+    pub fn colon_colon_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::ColonColon)
+    }
+
+    /// The first `.` token.
+    pub fn dot_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::Dot)
+    }
+
+    /// The first `..` token.
+    pub fn dot_dot_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::DotDot)
+    }
+}
+
+/// A view of a [`SyntaxKind::ImportAlias`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ImportAlias {
     pub(super) syntax: SyntaxNode,
@@ -869,15 +958,18 @@ impl AstNode for ImportAlias {
 }
 
 impl ImportAlias {
+    /// The first `as` token.
     pub fn as_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::AsKw)
     }
 
+    /// The first `upper_ident` token.
     pub fn upper_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::UpperIdent)
     }
 }
 
+/// A view of a [`SyntaxKind::Qualifier`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Qualifier {
     pub(super) syntax: SyntaxNode,
@@ -898,15 +990,18 @@ impl AstNode for Qualifier {
 }
 
 impl Qualifier {
+    /// The first `upper_ident` token.
     pub fn upper_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::UpperIdent)
     }
 
+    /// The first `.` token.
     pub fn dot_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Dot)
     }
 }
 
+/// A view of a [`SyntaxKind::ValueDecl`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ValueDecl {
     pub(super) syntax: SyntaxNode,
@@ -927,19 +1022,23 @@ impl AstNode for ValueDecl {
 }
 
 impl ValueDecl {
+    /// The `Signature` child.
     pub fn signature(&self) -> Option<Signature> {
         support::child(&self.syntax)
     }
 
+    /// The `Definition` child.
     pub fn definition(&self) -> Option<Definition> {
         support::child(&self.syntax)
     }
 
+    /// The first `doc_comment` token.
     pub fn doc_comment_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::DocComment)
     }
 }
 
+/// A view of a [`SyntaxKind::DestructureDecl`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DestructureDecl {
     pub(super) syntax: SyntaxNode,
@@ -960,23 +1059,28 @@ impl AstNode for DestructureDecl {
 }
 
 impl DestructureDecl {
+    /// The `Pattern` child.
     pub fn pattern(&self) -> Option<Pattern> {
         support::child(&self.syntax)
     }
 
+    /// The `Expr` child.
     pub fn expr(&self) -> Option<Expr> {
         support::child(&self.syntax)
     }
 
+    /// The first `doc_comment` token.
     pub fn doc_comment_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::DocComment)
     }
 
+    /// The first `=` token.
     pub fn eq_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Eq)
     }
 }
 
+/// A view of a [`SyntaxKind::TypeAliasDecl`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TypeAliasDecl {
     pub(super) syntax: SyntaxNode,
@@ -997,35 +1101,43 @@ impl AstNode for TypeAliasDecl {
 }
 
 impl TypeAliasDecl {
+    /// Every `TypeParam` child.
     pub fn type_params(&self) -> AstChildren<TypeParam> {
         support::children(&self.syntax)
     }
 
+    /// The `Type` child.
     pub fn ty(&self) -> Option<Type> {
         support::child(&self.syntax)
     }
 
+    /// The first `doc_comment` token.
     pub fn doc_comment_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::DocComment)
     }
 
+    /// The first `type` token.
     pub fn type_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::TypeKw)
     }
 
+    /// The first `alias` token.
     pub fn alias_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::AliasKw)
     }
 
+    /// The first `upper_ident` token.
     pub fn upper_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::UpperIdent)
     }
 
+    /// The first `=` token.
     pub fn eq_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Eq)
     }
 }
 
+/// A view of a [`SyntaxKind::CustomTypeDecl`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct CustomTypeDecl {
     pub(super) syntax: SyntaxNode,
@@ -1046,35 +1158,38 @@ impl AstNode for CustomTypeDecl {
 }
 
 impl CustomTypeDecl {
+    /// Every `TypeParam` child.
     pub fn type_params(&self) -> AstChildren<TypeParam> {
         support::children(&self.syntax)
     }
 
+    /// Every `Variant` child.
     pub fn variants(&self) -> AstChildren<Variant> {
         support::children(&self.syntax)
     }
 
+    /// The first `doc_comment` token.
     pub fn doc_comment_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::DocComment)
     }
 
+    /// The first `type` token.
     pub fn type_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::TypeKw)
     }
 
+    /// The first `upper_ident` token.
     pub fn upper_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::UpperIdent)
     }
 
+    /// The first `=` token.
     pub fn eq_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Eq)
     }
-
-    pub fn pipe_token(&self) -> Option<SyntaxToken> {
-        support::token(&self.syntax, SyntaxKind::Pipe)
-    }
 }
 
+/// A view of a [`SyntaxKind::PortDecl`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PortDecl {
     pub(super) syntax: SyntaxNode,
@@ -1095,27 +1210,33 @@ impl AstNode for PortDecl {
 }
 
 impl PortDecl {
+    /// The `Type` child.
     pub fn ty(&self) -> Option<Type> {
         support::child(&self.syntax)
     }
 
+    /// The first `doc_comment` token.
     pub fn doc_comment_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::DocComment)
     }
 
+    /// The first `port` token.
     pub fn port_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::PortKw)
     }
 
+    /// The first `lower_ident` token.
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
     }
 
+    /// The first `:` token.
     pub fn colon_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Colon)
     }
 }
 
+/// A view of a [`SyntaxKind::LegacyPortDecl`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LegacyPortDecl {
     pub(super) syntax: SyntaxNode,
@@ -1136,27 +1257,33 @@ impl AstNode for LegacyPortDecl {
 }
 
 impl LegacyPortDecl {
+    /// The `Expr` child.
     pub fn expr(&self) -> Option<Expr> {
         support::child(&self.syntax)
     }
 
+    /// The first `doc_comment` token.
     pub fn doc_comment_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::DocComment)
     }
 
+    /// The first `port` token.
     pub fn port_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::PortKw)
     }
 
+    /// The first `lower_ident` token.
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
     }
 
+    /// The first `=` token.
     pub fn eq_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Eq)
     }
 }
 
+/// A view of a [`SyntaxKind::InfixDecl`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct InfixDecl {
     pub(super) syntax: SyntaxNode,
@@ -1177,39 +1304,63 @@ impl AstNode for InfixDecl {
 }
 
 impl InfixDecl {
+    /// The `Op` child.
     pub fn op(&self) -> Option<Op> {
         support::child(&self.syntax)
     }
 
+    /// The first `doc_comment` token.
     pub fn doc_comment_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::DocComment)
     }
 
+    /// The first `infix` token.
     pub fn infix_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::InfixKw)
     }
 
+    /// The first `left` token.
+    pub fn left_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::LeftKw)
+    }
+
+    /// The first `right` token.
+    pub fn right_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::RightKw)
+    }
+
+    /// The first `non` token.
+    pub fn non_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::NonKw)
+    }
+
+    /// The first `int` token.
     pub fn int_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Int)
     }
 
+    /// The first `(` token.
     pub fn l_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LParen)
     }
 
+    /// The first `)` token.
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RParen)
     }
 
+    /// The first `=` token.
     pub fn eq_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Eq)
     }
 
+    /// The first `lower_ident` token.
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
     }
 }
 
+/// A view of a [`SyntaxKind::LegacyInfixDecl`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LegacyInfixDecl {
     pub(super) syntax: SyntaxNode,
@@ -1230,19 +1381,38 @@ impl AstNode for LegacyInfixDecl {
 }
 
 impl LegacyInfixDecl {
+    /// The `Op` child.
     pub fn op(&self) -> Option<Op> {
         support::child(&self.syntax)
     }
 
+    /// The first `doc_comment` token.
     pub fn doc_comment_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::DocComment)
     }
 
+    /// The first `infixl` token.
+    pub fn infixl_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::InfixlKw)
+    }
+
+    /// The first `infixr` token.
+    pub fn infixr_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::InfixrKw)
+    }
+
+    /// The first `infix` token.
+    pub fn infix_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::InfixKw)
+    }
+
+    /// The first `int` token.
     pub fn int_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Int)
     }
 }
 
+/// A view of a [`SyntaxKind::DocDecl`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DocDecl {
     pub(super) syntax: SyntaxNode,
@@ -1263,11 +1433,13 @@ impl AstNode for DocDecl {
 }
 
 impl DocDecl {
+    /// The first `doc_comment` token.
     pub fn doc_comment_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::DocComment)
     }
 }
 
+/// A view of a [`SyntaxKind::Signature`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Signature {
     pub(super) syntax: SyntaxNode,
@@ -1288,23 +1460,28 @@ impl AstNode for Signature {
 }
 
 impl Signature {
+    /// The `OperatorName` child.
     pub fn operator_name(&self) -> Option<OperatorName> {
         support::child(&self.syntax)
     }
 
+    /// The `Type` child.
     pub fn ty(&self) -> Option<Type> {
         support::child(&self.syntax)
     }
 
+    /// The first `lower_ident` token.
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
     }
 
+    /// The first `:` token.
     pub fn colon_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Colon)
     }
 }
 
+/// A view of a [`SyntaxKind::Definition`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Definition {
     pub(super) syntax: SyntaxNode,
@@ -1325,27 +1502,33 @@ impl AstNode for Definition {
 }
 
 impl Definition {
+    /// The `OperatorName` child.
     pub fn operator_name(&self) -> Option<OperatorName> {
         support::child(&self.syntax)
     }
 
+    /// Every `Pattern` child.
     pub fn patterns(&self) -> AstChildren<Pattern> {
         support::children(&self.syntax)
     }
 
+    /// The `Expr` child.
     pub fn expr(&self) -> Option<Expr> {
         support::child(&self.syntax)
     }
 
+    /// The first `lower_ident` token.
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
     }
 
+    /// The first `=` token.
     pub fn eq_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Eq)
     }
 }
 
+/// A view of a [`SyntaxKind::OperatorName`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OperatorName {
     pub(super) syntax: SyntaxNode,
@@ -1366,19 +1549,23 @@ impl AstNode for OperatorName {
 }
 
 impl OperatorName {
+    /// The `Op` child.
     pub fn op(&self) -> Option<Op> {
         support::child(&self.syntax)
     }
 
+    /// The first `(` token.
     pub fn l_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LParen)
     }
 
+    /// The first `)` token.
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RParen)
     }
 }
 
+/// A `Type`: a node of any of its variants' kinds.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
     NamedType(NamedType),
@@ -1481,6 +1668,7 @@ impl From<RecordType> for Type {
     }
 }
 
+/// A `Pattern`: a node of any of its variants' kinds.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Pattern {
     VarPattern(VarPattern),
@@ -1615,6 +1803,7 @@ impl From<AliasPattern> for Pattern {
     }
 }
 
+/// A view of a [`SyntaxKind::TypeParam`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TypeParam {
     pub(super) syntax: SyntaxNode,
@@ -1635,11 +1824,13 @@ impl AstNode for TypeParam {
 }
 
 impl TypeParam {
+    /// The first `lower_ident` token.
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
     }
 }
 
+/// A view of a [`SyntaxKind::Variant`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Variant {
     pub(super) syntax: SyntaxNode,
@@ -1660,15 +1851,18 @@ impl AstNode for Variant {
 }
 
 impl Variant {
+    /// Every `Type` child.
     pub fn types(&self) -> AstChildren<Type> {
         support::children(&self.syntax)
     }
 
+    /// The first `upper_ident` token.
     pub fn upper_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::UpperIdent)
     }
 }
 
+/// A view of a [`SyntaxKind::TypeFragment`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TypeFragment {
     pub(super) syntax: SyntaxNode,
@@ -1689,11 +1883,13 @@ impl AstNode for TypeFragment {
 }
 
 impl TypeFragment {
+    /// The `Type` child.
     pub fn ty(&self) -> Option<Type> {
         support::child(&self.syntax)
     }
 }
 
+/// A view of a [`SyntaxKind::NamedType`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct NamedType {
     pub(super) syntax: SyntaxNode,
@@ -1714,19 +1910,23 @@ impl AstNode for NamedType {
 }
 
 impl NamedType {
+    /// The `Qualifier` child.
     pub fn qualifier(&self) -> Option<Qualifier> {
         support::child(&self.syntax)
     }
 
+    /// Every `Type` child.
     pub fn types(&self) -> AstChildren<Type> {
         support::children(&self.syntax)
     }
 
+    /// The first `upper_ident` token.
     pub fn upper_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::UpperIdent)
     }
 }
 
+/// A view of a [`SyntaxKind::TypeVar`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TypeVar {
     pub(super) syntax: SyntaxNode,
@@ -1747,11 +1947,13 @@ impl AstNode for TypeVar {
 }
 
 impl TypeVar {
+    /// The first `lower_ident` token.
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
     }
 }
 
+/// A view of a [`SyntaxKind::FunctionType`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FunctionType {
     pub(super) syntax: SyntaxNode,
@@ -1772,19 +1974,23 @@ impl AstNode for FunctionType {
 }
 
 impl FunctionType {
+    /// The `Type` right before `->`.
     pub fn param(&self) -> Option<Type> {
         support::child_before(&self.syntax, SyntaxKind::Arrow)
     }
 
+    /// The `Type` right after `->`.
     pub fn result(&self) -> Option<Type> {
         support::child_after(&self.syntax, SyntaxKind::Arrow)
     }
 
+    /// The first `->` token.
     pub fn arrow_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Arrow)
     }
 }
 
+/// A view of a [`SyntaxKind::UnitType`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct UnitType {
     pub(super) syntax: SyntaxNode,
@@ -1805,15 +2011,18 @@ impl AstNode for UnitType {
 }
 
 impl UnitType {
+    /// The first `(` token.
     pub fn l_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LParen)
     }
 
+    /// The first `)` token.
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RParen)
     }
 }
 
+/// A view of a [`SyntaxKind::ParenType`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ParenType {
     pub(super) syntax: SyntaxNode,
@@ -1834,19 +2043,23 @@ impl AstNode for ParenType {
 }
 
 impl ParenType {
+    /// The `Type` child.
     pub fn ty(&self) -> Option<Type> {
         support::child(&self.syntax)
     }
 
+    /// The first `(` token.
     pub fn l_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LParen)
     }
 
+    /// The first `)` token.
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RParen)
     }
 }
 
+/// A view of a [`SyntaxKind::TupleType`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TupleType {
     pub(super) syntax: SyntaxNode,
@@ -1867,23 +2080,28 @@ impl AstNode for TupleType {
 }
 
 impl TupleType {
+    /// Every `Type` child.
     pub fn types(&self) -> AstChildren<Type> {
         support::children(&self.syntax)
     }
 
+    /// The first `(` token.
     pub fn l_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LParen)
     }
 
+    /// The first `,` token.
     pub fn comma_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Comma)
     }
 
+    /// The first `)` token.
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RParen)
     }
 }
 
+/// A view of a [`SyntaxKind::TupleConstructorType`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TupleConstructorType {
     pub(super) syntax: SyntaxNode,
@@ -1904,23 +2122,28 @@ impl AstNode for TupleConstructorType {
 }
 
 impl TupleConstructorType {
+    /// Every `Type` child.
     pub fn types(&self) -> AstChildren<Type> {
         support::children(&self.syntax)
     }
 
+    /// The first `(` token.
     pub fn l_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LParen)
     }
 
+    /// The first `,` token.
     pub fn comma_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Comma)
     }
 
+    /// The first `)` token.
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RParen)
     }
 }
 
+/// A view of a [`SyntaxKind::RecordType`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RecordType {
     pub(super) syntax: SyntaxNode,
@@ -1941,27 +2164,28 @@ impl AstNode for RecordType {
 }
 
 impl RecordType {
+    /// The `RecordExtension` child.
     pub fn record_extension(&self) -> Option<RecordExtension> {
         support::child(&self.syntax)
     }
 
+    /// Every `FieldType` child.
     pub fn field_types(&self) -> AstChildren<FieldType> {
         support::children(&self.syntax)
     }
 
+    /// The first `{` token.
     pub fn l_brace_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LBrace)
     }
 
-    pub fn comma_token(&self) -> Option<SyntaxToken> {
-        support::token(&self.syntax, SyntaxKind::Comma)
-    }
-
+    /// The first `}` token.
     pub fn r_brace_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RBrace)
     }
 }
 
+/// A view of a [`SyntaxKind::RecordExtension`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RecordExtension {
     pub(super) syntax: SyntaxNode,
@@ -1982,15 +2206,18 @@ impl AstNode for RecordExtension {
 }
 
 impl RecordExtension {
+    /// The first `lower_ident` token.
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
     }
 
+    /// The first `|` token.
     pub fn pipe_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Pipe)
     }
 }
 
+/// A view of a [`SyntaxKind::FieldType`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FieldType {
     pub(super) syntax: SyntaxNode,
@@ -2011,15 +2238,28 @@ impl AstNode for FieldType {
 }
 
 impl FieldType {
+    /// The `Type` child.
     pub fn ty(&self) -> Option<Type> {
         support::child(&self.syntax)
     }
 
+    /// The first `lower_ident` token.
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
     }
+
+    /// The first `:` token.
+    pub fn colon_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::Colon)
+    }
+
+    /// The first `=` token.
+    pub fn eq_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::Eq)
+    }
 }
 
+/// A view of a [`SyntaxKind::PatternFragment`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PatternFragment {
     pub(super) syntax: SyntaxNode,
@@ -2040,11 +2280,13 @@ impl AstNode for PatternFragment {
 }
 
 impl PatternFragment {
+    /// The `Pattern` child.
     pub fn pattern(&self) -> Option<Pattern> {
         support::child(&self.syntax)
     }
 }
 
+/// A view of a [`SyntaxKind::VarPattern`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct VarPattern {
     pub(super) syntax: SyntaxNode,
@@ -2065,11 +2307,13 @@ impl AstNode for VarPattern {
 }
 
 impl VarPattern {
+    /// The first `lower_ident` token.
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
     }
 }
 
+/// A view of a [`SyntaxKind::WildcardPattern`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct WildcardPattern {
     pub(super) syntax: SyntaxNode,
@@ -2090,11 +2334,13 @@ impl AstNode for WildcardPattern {
 }
 
 impl WildcardPattern {
+    /// The first `_` token.
     pub fn underscore_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Underscore)
     }
 }
 
+/// A view of a [`SyntaxKind::LiteralPattern`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LiteralPattern {
     pub(super) syntax: SyntaxNode,
@@ -2114,6 +2360,39 @@ impl AstNode for LiteralPattern {
     }
 }
 
+impl LiteralPattern {
+    /// The first `-` token.
+    pub fn minus_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::Minus)
+    }
+
+    /// The first `int` token.
+    pub fn int_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::Int)
+    }
+
+    /// The first `float` token.
+    pub fn float_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::Float)
+    }
+
+    /// The first `char` token.
+    pub fn char_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::Char)
+    }
+
+    /// The first `string` token.
+    pub fn string_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::String)
+    }
+
+    /// The first `multiline_string` token.
+    pub fn multiline_string_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::MultilineString)
+    }
+}
+
+/// A view of a [`SyntaxKind::UnitPattern`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct UnitPattern {
     pub(super) syntax: SyntaxNode,
@@ -2134,15 +2413,18 @@ impl AstNode for UnitPattern {
 }
 
 impl UnitPattern {
+    /// The first `(` token.
     pub fn l_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LParen)
     }
 
+    /// The first `)` token.
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RParen)
     }
 }
 
+/// A view of a [`SyntaxKind::ParenPattern`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ParenPattern {
     pub(super) syntax: SyntaxNode,
@@ -2163,19 +2445,23 @@ impl AstNode for ParenPattern {
 }
 
 impl ParenPattern {
+    /// The `Pattern` child.
     pub fn pattern(&self) -> Option<Pattern> {
         support::child(&self.syntax)
     }
 
+    /// The first `(` token.
     pub fn l_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LParen)
     }
 
+    /// The first `)` token.
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RParen)
     }
 }
 
+/// A view of a [`SyntaxKind::TuplePattern`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TuplePattern {
     pub(super) syntax: SyntaxNode,
@@ -2196,23 +2482,28 @@ impl AstNode for TuplePattern {
 }
 
 impl TuplePattern {
+    /// Every `Pattern` child.
     pub fn patterns(&self) -> AstChildren<Pattern> {
         support::children(&self.syntax)
     }
 
+    /// The first `(` token.
     pub fn l_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LParen)
     }
 
+    /// The first `,` token.
     pub fn comma_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Comma)
     }
 
+    /// The first `)` token.
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RParen)
     }
 }
 
+/// A view of a [`SyntaxKind::ListPattern`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ListPattern {
     pub(super) syntax: SyntaxNode,
@@ -2233,23 +2524,23 @@ impl AstNode for ListPattern {
 }
 
 impl ListPattern {
+    /// Every `Pattern` child.
     pub fn patterns(&self) -> AstChildren<Pattern> {
         support::children(&self.syntax)
     }
 
+    /// The first `[` token.
     pub fn l_bracket_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LBracket)
     }
 
-    pub fn comma_token(&self) -> Option<SyntaxToken> {
-        support::token(&self.syntax, SyntaxKind::Comma)
-    }
-
+    /// The first `]` token.
     pub fn r_bracket_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RBracket)
     }
 }
 
+/// A view of a [`SyntaxKind::RecordPattern`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RecordPattern {
     pub(super) syntax: SyntaxNode,
@@ -2270,23 +2561,23 @@ impl AstNode for RecordPattern {
 }
 
 impl RecordPattern {
+    /// Every `FieldPattern` child.
     pub fn field_patterns(&self) -> AstChildren<FieldPattern> {
         support::children(&self.syntax)
     }
 
+    /// The first `{` token.
     pub fn l_brace_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LBrace)
     }
 
-    pub fn comma_token(&self) -> Option<SyntaxToken> {
-        support::token(&self.syntax, SyntaxKind::Comma)
-    }
-
+    /// The first `}` token.
     pub fn r_brace_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RBrace)
     }
 }
 
+/// A view of a [`SyntaxKind::ConstructorPattern`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ConstructorPattern {
     pub(super) syntax: SyntaxNode,
@@ -2307,19 +2598,23 @@ impl AstNode for ConstructorPattern {
 }
 
 impl ConstructorPattern {
+    /// The `Qualifier` child.
     pub fn qualifier(&self) -> Option<Qualifier> {
         support::child(&self.syntax)
     }
 
+    /// Every `Pattern` child.
     pub fn patterns(&self) -> AstChildren<Pattern> {
         support::children(&self.syntax)
     }
 
+    /// The first `upper_ident` token.
     pub fn upper_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::UpperIdent)
     }
 }
 
+/// A view of a [`SyntaxKind::ConsPattern`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ConsPattern {
     pub(super) syntax: SyntaxNode,
@@ -2340,19 +2635,23 @@ impl AstNode for ConsPattern {
 }
 
 impl ConsPattern {
+    /// The `Pattern` right before `::`.
     pub fn head(&self) -> Option<Pattern> {
         support::child_before(&self.syntax, SyntaxKind::ColonColon)
     }
 
+    /// The `Pattern` right after `::`.
     pub fn tail(&self) -> Option<Pattern> {
         support::child_after(&self.syntax, SyntaxKind::ColonColon)
     }
 
+    /// The first `::` token.
     pub fn colon_colon_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::ColonColon)
     }
 }
 
+/// A view of a [`SyntaxKind::AliasPattern`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct AliasPattern {
     pub(super) syntax: SyntaxNode,
@@ -2373,19 +2672,23 @@ impl AstNode for AliasPattern {
 }
 
 impl AliasPattern {
+    /// The `Pattern` child.
     pub fn pattern(&self) -> Option<Pattern> {
         support::child(&self.syntax)
     }
 
+    /// The first `as` token.
     pub fn as_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::AsKw)
     }
 
+    /// The first `lower_ident` token.
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
     }
 }
 
+/// A view of a [`SyntaxKind::FieldPattern`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FieldPattern {
     pub(super) syntax: SyntaxNode,
@@ -2406,11 +2709,13 @@ impl AstNode for FieldPattern {
 }
 
 impl FieldPattern {
+    /// The first `lower_ident` token.
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
     }
 }
 
+/// A view of a [`SyntaxKind::ExprFragment`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ExprFragment {
     pub(super) syntax: SyntaxNode,
@@ -2431,11 +2736,13 @@ impl AstNode for ExprFragment {
 }
 
 impl ExprFragment {
+    /// The `Expr` child.
     pub fn expr(&self) -> Option<Expr> {
         support::child(&self.syntax)
     }
 }
 
+/// A view of a [`SyntaxKind::LiteralExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LiteralExpr {
     pub(super) syntax: SyntaxNode,
@@ -2455,6 +2762,34 @@ impl AstNode for LiteralExpr {
     }
 }
 
+impl LiteralExpr {
+    /// The first `int` token.
+    pub fn int_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::Int)
+    }
+
+    /// The first `float` token.
+    pub fn float_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::Float)
+    }
+
+    /// The first `char` token.
+    pub fn char_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::Char)
+    }
+
+    /// The first `string` token.
+    pub fn string_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::String)
+    }
+
+    /// The first `multiline_string` token.
+    pub fn multiline_string_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::MultilineString)
+    }
+}
+
+/// A view of a [`SyntaxKind::NameExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct NameExpr {
     pub(super) syntax: SyntaxNode,
@@ -2475,11 +2810,23 @@ impl AstNode for NameExpr {
 }
 
 impl NameExpr {
+    /// The `Qualifier` child.
     pub fn qualifier(&self) -> Option<Qualifier> {
         support::child(&self.syntax)
     }
+
+    /// The first `lower_ident` token.
+    pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::LowerIdent)
+    }
+
+    /// The first `upper_ident` token.
+    pub fn upper_ident_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::UpperIdent)
+    }
 }
 
+/// A view of a [`SyntaxKind::OperatorFunction`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OperatorFunction {
     pub(super) syntax: SyntaxNode,
@@ -2500,19 +2847,23 @@ impl AstNode for OperatorFunction {
 }
 
 impl OperatorFunction {
+    /// The `Op` child.
     pub fn op(&self) -> Option<Op> {
         support::child(&self.syntax)
     }
 
+    /// The first `(` token.
     pub fn l_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LParen)
     }
 
+    /// The first `)` token.
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RParen)
     }
 }
 
+/// A view of a [`SyntaxKind::TupleConstructorExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TupleConstructorExpr {
     pub(super) syntax: SyntaxNode,
@@ -2533,19 +2884,23 @@ impl AstNode for TupleConstructorExpr {
 }
 
 impl TupleConstructorExpr {
+    /// The first `(` token.
     pub fn l_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LParen)
     }
 
+    /// The first `,` token.
     pub fn comma_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Comma)
     }
 
+    /// The first `)` token.
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RParen)
     }
 }
 
+/// A view of a [`SyntaxKind::NegateExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct NegateExpr {
     pub(super) syntax: SyntaxNode,
@@ -2566,15 +2921,18 @@ impl AstNode for NegateExpr {
 }
 
 impl NegateExpr {
+    /// The `Expr` child.
     pub fn expr(&self) -> Option<Expr> {
         support::child(&self.syntax)
     }
 
+    /// The first `-` token.
     pub fn minus_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Minus)
     }
 }
 
+/// A view of a [`SyntaxKind::CallExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct CallExpr {
     pub(super) syntax: SyntaxNode,
@@ -2595,15 +2953,18 @@ impl AstNode for CallExpr {
 }
 
 impl CallExpr {
+    /// The first `Expr` child.
     pub fn function(&self) -> Option<Expr> {
-        support::children::<Expr>(&self.syntax).next()
+        support::child(&self.syntax)
     }
 
+    /// Every `Expr` child but the first.
     pub fn arguments(&self) -> impl Iterator<Item = Expr> + use<> {
         support::children(&self.syntax).skip(1)
     }
 }
 
+/// A view of a [`SyntaxKind::OperatorChain`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OperatorChain {
     pub(super) syntax: SyntaxNode,
@@ -2624,15 +2985,18 @@ impl AstNode for OperatorChain {
 }
 
 impl OperatorChain {
+    /// Every `Expr` child.
     pub fn exprs(&self) -> AstChildren<Expr> {
         support::children(&self.syntax)
     }
 
+    /// Every `Op` child.
     pub fn ops(&self) -> AstChildren<Op> {
         support::children(&self.syntax)
     }
 }
 
+/// A view of a [`SyntaxKind::UnitExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct UnitExpr {
     pub(super) syntax: SyntaxNode,
@@ -2653,15 +3017,18 @@ impl AstNode for UnitExpr {
 }
 
 impl UnitExpr {
+    /// The first `(` token.
     pub fn l_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LParen)
     }
 
+    /// The first `)` token.
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RParen)
     }
 }
 
+/// A view of a [`SyntaxKind::ParenExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ParenExpr {
     pub(super) syntax: SyntaxNode,
@@ -2682,19 +3049,23 @@ impl AstNode for ParenExpr {
 }
 
 impl ParenExpr {
+    /// The `Expr` child.
     pub fn expr(&self) -> Option<Expr> {
         support::child(&self.syntax)
     }
 
+    /// The first `(` token.
     pub fn l_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LParen)
     }
 
+    /// The first `)` token.
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RParen)
     }
 }
 
+/// A view of a [`SyntaxKind::TupleExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TupleExpr {
     pub(super) syntax: SyntaxNode,
@@ -2715,23 +3086,28 @@ impl AstNode for TupleExpr {
 }
 
 impl TupleExpr {
+    /// Every `Expr` child.
     pub fn exprs(&self) -> AstChildren<Expr> {
         support::children(&self.syntax)
     }
 
+    /// The first `(` token.
     pub fn l_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LParen)
     }
 
+    /// The first `,` token.
     pub fn comma_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Comma)
     }
 
+    /// The first `)` token.
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RParen)
     }
 }
 
+/// A view of a [`SyntaxKind::ListExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ListExpr {
     pub(super) syntax: SyntaxNode,
@@ -2752,23 +3128,23 @@ impl AstNode for ListExpr {
 }
 
 impl ListExpr {
+    /// Every `Expr` child.
     pub fn exprs(&self) -> AstChildren<Expr> {
         support::children(&self.syntax)
     }
 
+    /// The first `[` token.
     pub fn l_bracket_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LBracket)
     }
 
-    pub fn comma_token(&self) -> Option<SyntaxToken> {
-        support::token(&self.syntax, SyntaxKind::Comma)
-    }
-
+    /// The first `]` token.
     pub fn r_bracket_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RBracket)
     }
 }
 
+/// A view of a [`SyntaxKind::RangeExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RangeExpr {
     pub(super) syntax: SyntaxNode,
@@ -2789,23 +3165,28 @@ impl AstNode for RangeExpr {
 }
 
 impl RangeExpr {
+    /// Every `Expr` child.
     pub fn exprs(&self) -> AstChildren<Expr> {
         support::children(&self.syntax)
     }
 
+    /// The first `[` token.
     pub fn l_bracket_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LBracket)
     }
 
+    /// The first `..` token.
     pub fn dot_dot_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::DotDot)
     }
 
+    /// The first `]` token.
     pub fn r_bracket_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RBracket)
     }
 }
 
+/// A view of a [`SyntaxKind::RecordExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RecordExpr {
     pub(super) syntax: SyntaxNode,
@@ -2826,23 +3207,23 @@ impl AstNode for RecordExpr {
 }
 
 impl RecordExpr {
+    /// Every `Field` child.
     pub fn fields(&self) -> AstChildren<Field> {
         support::children(&self.syntax)
     }
 
+    /// The first `{` token.
     pub fn l_brace_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LBrace)
     }
 
-    pub fn comma_token(&self) -> Option<SyntaxToken> {
-        support::token(&self.syntax, SyntaxKind::Comma)
-    }
-
+    /// The first `}` token.
     pub fn r_brace_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RBrace)
     }
 }
 
+/// A view of a [`SyntaxKind::RecordUpdateExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RecordUpdateExpr {
     pub(super) syntax: SyntaxNode,
@@ -2863,31 +3244,33 @@ impl AstNode for RecordUpdateExpr {
 }
 
 impl RecordUpdateExpr {
+    /// Every `Field` child.
     pub fn fields(&self) -> AstChildren<Field> {
         support::children(&self.syntax)
     }
 
+    /// The first `{` token.
     pub fn l_brace_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LBrace)
     }
 
+    /// The first `lower_ident` token.
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
     }
 
+    /// The first `|` token.
     pub fn pipe_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Pipe)
     }
 
-    pub fn comma_token(&self) -> Option<SyntaxToken> {
-        support::token(&self.syntax, SyntaxKind::Comma)
-    }
-
+    /// The first `}` token.
     pub fn r_brace_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::RBrace)
     }
 }
 
+/// A view of a [`SyntaxKind::FieldAccessExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FieldAccessExpr {
     pub(super) syntax: SyntaxNode,
@@ -2908,19 +3291,23 @@ impl AstNode for FieldAccessExpr {
 }
 
 impl FieldAccessExpr {
+    /// The `Expr` child.
     pub fn expr(&self) -> Option<Expr> {
         support::child(&self.syntax)
     }
 
+    /// The first `.` token.
     pub fn dot_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Dot)
     }
 
+    /// The first `lower_ident` token.
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
     }
 }
 
+/// A view of a [`SyntaxKind::AccessorExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct AccessorExpr {
     pub(super) syntax: SyntaxNode,
@@ -2941,15 +3328,18 @@ impl AstNode for AccessorExpr {
 }
 
 impl AccessorExpr {
+    /// The first `.` token.
     pub fn dot_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Dot)
     }
 
+    /// The first `lower_ident` token.
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
     }
 }
 
+/// A view of a [`SyntaxKind::IfExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct IfExpr {
     pub(super) syntax: SyntaxNode,
@@ -2970,31 +3360,38 @@ impl AstNode for IfExpr {
 }
 
 impl IfExpr {
+    /// The `Expr` right after `if`.
     pub fn condition(&self) -> Option<Expr> {
         support::child_after(&self.syntax, SyntaxKind::IfKw)
     }
 
+    /// The `Expr` right after `then`.
     pub fn then_branch(&self) -> Option<Expr> {
         support::child_after(&self.syntax, SyntaxKind::ThenKw)
     }
 
+    /// The `Expr` right after `else`.
     pub fn else_branch(&self) -> Option<Expr> {
         support::child_after(&self.syntax, SyntaxKind::ElseKw)
     }
 
+    /// The first `if` token.
     pub fn if_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::IfKw)
     }
 
+    /// The first `then` token.
     pub fn then_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::ThenKw)
     }
 
+    /// The first `else` token.
     pub fn else_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::ElseKw)
     }
 }
 
+/// A view of a [`SyntaxKind::CaseExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct CaseExpr {
     pub(super) syntax: SyntaxNode,
@@ -3015,19 +3412,33 @@ impl AstNode for CaseExpr {
 }
 
 impl CaseExpr {
+    /// The `Expr` child.
     pub fn expr(&self) -> Option<Expr> {
         support::child(&self.syntax)
     }
 
+    /// Every `CaseBranch` child.
     pub fn case_branches(&self) -> AstChildren<CaseBranch> {
         support::children(&self.syntax)
     }
 
+    /// The first `case` token.
     pub fn case_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::CaseKw)
     }
+
+    /// The first `of` token.
+    pub fn of_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::OfKw)
+    }
+
+    /// The first `then` token.
+    pub fn then_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::ThenKw)
+    }
 }
 
+/// A view of a [`SyntaxKind::LetExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LetExpr {
     pub(super) syntax: SyntaxNode,
@@ -3048,23 +3459,28 @@ impl AstNode for LetExpr {
 }
 
 impl LetExpr {
+    /// Every `LetDecl` child.
     pub fn let_decls(&self) -> AstChildren<LetDecl> {
         support::children(&self.syntax)
     }
 
+    /// The `Expr` child.
     pub fn expr(&self) -> Option<Expr> {
         support::child(&self.syntax)
     }
 
+    /// The first `let` token.
     pub fn let_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LetKw)
     }
 
+    /// The first `in` token.
     pub fn in_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::InKw)
     }
 }
 
+/// A view of a [`SyntaxKind::LambdaExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LambdaExpr {
     pub(super) syntax: SyntaxNode,
@@ -3085,23 +3501,28 @@ impl AstNode for LambdaExpr {
 }
 
 impl LambdaExpr {
+    /// Every `Pattern` child.
     pub fn patterns(&self) -> AstChildren<Pattern> {
         support::children(&self.syntax)
     }
 
+    /// The `Expr` child.
     pub fn expr(&self) -> Option<Expr> {
         support::child(&self.syntax)
     }
 
+    /// The first `\` token.
     pub fn backslash_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Backslash)
     }
 
+    /// The first `->` token.
     pub fn arrow_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Arrow)
     }
 }
 
+/// A view of a [`SyntaxKind::GlslExpr`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct GlslExpr {
     pub(super) syntax: SyntaxNode,
@@ -3122,11 +3543,13 @@ impl AstNode for GlslExpr {
 }
 
 impl GlslExpr {
+    /// The first `glsl` token.
     pub fn glsl_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Glsl)
     }
 }
 
+/// A view of a [`SyntaxKind::Field`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Field {
     pub(super) syntax: SyntaxNode,
@@ -3147,15 +3570,28 @@ impl AstNode for Field {
 }
 
 impl Field {
+    /// The `Expr` child.
     pub fn expr(&self) -> Option<Expr> {
         support::child(&self.syntax)
     }
 
+    /// The first `lower_ident` token.
     pub fn lower_ident_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::LowerIdent)
     }
+
+    /// The first `=` token.
+    pub fn eq_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::Eq)
+    }
+
+    /// The first `:` token.
+    pub fn colon_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, SyntaxKind::Colon)
+    }
 }
 
+/// A view of a [`SyntaxKind::CaseBranch`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct CaseBranch {
     pub(super) syntax: SyntaxNode,
@@ -3176,19 +3612,23 @@ impl AstNode for CaseBranch {
 }
 
 impl CaseBranch {
+    /// The `Pattern` child.
     pub fn pattern(&self) -> Option<Pattern> {
         support::child(&self.syntax)
     }
 
+    /// The `Expr` child.
     pub fn expr(&self) -> Option<Expr> {
         support::child(&self.syntax)
     }
 
+    /// The first `->` token.
     pub fn arrow_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Arrow)
     }
 }
 
+/// A `LetDecl`: a node of any of its variants' kinds.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum LetDecl {
     LetValue(LetValue),
@@ -3228,6 +3668,7 @@ impl From<LetDestructure> for LetDecl {
     }
 }
 
+/// A view of a [`SyntaxKind::LetValue`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LetValue {
     pub(super) syntax: SyntaxNode,
@@ -3248,15 +3689,18 @@ impl AstNode for LetValue {
 }
 
 impl LetValue {
+    /// The `Signature` child.
     pub fn signature(&self) -> Option<Signature> {
         support::child(&self.syntax)
     }
 
+    /// The `Definition` child.
     pub fn definition(&self) -> Option<Definition> {
         support::child(&self.syntax)
     }
 }
 
+/// A view of a [`SyntaxKind::LetDestructure`] node.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LetDestructure {
     pub(super) syntax: SyntaxNode,
@@ -3277,14 +3721,17 @@ impl AstNode for LetDestructure {
 }
 
 impl LetDestructure {
+    /// The `Pattern` child.
     pub fn pattern(&self) -> Option<Pattern> {
         support::child(&self.syntax)
     }
 
+    /// The `Expr` child.
     pub fn expr(&self) -> Option<Expr> {
         support::child(&self.syntax)
     }
 
+    /// The first `=` token.
     pub fn eq_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, SyntaxKind::Eq)
     }
@@ -3292,84 +3739,87 @@ impl LetDestructure {
 
 /// Whether some view casts a node of `kind`.
 pub fn has_view(kind: SyntaxKind) -> bool {
-    Module::can_cast(kind)
-        || ModuleHeader::can_cast(kind)
-        || Import::can_cast(kind)
-        || DeclarationsFragment::can_cast(kind)
-        || ExpressionsFragment::can_cast(kind)
-        || ModuleName::can_cast(kind)
-        || EffectFields::can_cast(kind)
-        || ExposingList::can_cast(kind)
-        || EffectField::can_cast(kind)
-        || ExposedValue::can_cast(kind)
-        || ExposedType::can_cast(kind)
-        || ExposedOperator::can_cast(kind)
-        || ExposedVariants::can_cast(kind)
-        || Op::can_cast(kind)
-        || ImportAlias::can_cast(kind)
-        || Qualifier::can_cast(kind)
-        || ValueDecl::can_cast(kind)
-        || DestructureDecl::can_cast(kind)
-        || TypeAliasDecl::can_cast(kind)
-        || CustomTypeDecl::can_cast(kind)
-        || PortDecl::can_cast(kind)
-        || LegacyPortDecl::can_cast(kind)
-        || InfixDecl::can_cast(kind)
-        || LegacyInfixDecl::can_cast(kind)
-        || DocDecl::can_cast(kind)
-        || Signature::can_cast(kind)
-        || Definition::can_cast(kind)
-        || OperatorName::can_cast(kind)
-        || TypeParam::can_cast(kind)
-        || Variant::can_cast(kind)
-        || TypeFragment::can_cast(kind)
-        || NamedType::can_cast(kind)
-        || TypeVar::can_cast(kind)
-        || FunctionType::can_cast(kind)
-        || UnitType::can_cast(kind)
-        || ParenType::can_cast(kind)
-        || TupleType::can_cast(kind)
-        || TupleConstructorType::can_cast(kind)
-        || RecordType::can_cast(kind)
-        || RecordExtension::can_cast(kind)
-        || FieldType::can_cast(kind)
-        || PatternFragment::can_cast(kind)
-        || VarPattern::can_cast(kind)
-        || WildcardPattern::can_cast(kind)
-        || LiteralPattern::can_cast(kind)
-        || UnitPattern::can_cast(kind)
-        || ParenPattern::can_cast(kind)
-        || TuplePattern::can_cast(kind)
-        || ListPattern::can_cast(kind)
-        || RecordPattern::can_cast(kind)
-        || ConstructorPattern::can_cast(kind)
-        || ConsPattern::can_cast(kind)
-        || AliasPattern::can_cast(kind)
-        || FieldPattern::can_cast(kind)
-        || ExprFragment::can_cast(kind)
-        || LiteralExpr::can_cast(kind)
-        || NameExpr::can_cast(kind)
-        || OperatorFunction::can_cast(kind)
-        || TupleConstructorExpr::can_cast(kind)
-        || NegateExpr::can_cast(kind)
-        || CallExpr::can_cast(kind)
-        || OperatorChain::can_cast(kind)
-        || UnitExpr::can_cast(kind)
-        || ParenExpr::can_cast(kind)
-        || TupleExpr::can_cast(kind)
-        || ListExpr::can_cast(kind)
-        || RangeExpr::can_cast(kind)
-        || RecordExpr::can_cast(kind)
-        || RecordUpdateExpr::can_cast(kind)
-        || FieldAccessExpr::can_cast(kind)
-        || AccessorExpr::can_cast(kind)
-        || IfExpr::can_cast(kind)
-        || CaseExpr::can_cast(kind)
-        || LetExpr::can_cast(kind)
-        || LambdaExpr::can_cast(kind)
-        || GlslExpr::can_cast(kind)
-        || Field::can_cast(kind)
-        || CaseBranch::can_cast(kind)
-        || LetValue::can_cast(kind)
-        || LetDestructure::can_cast(kind)
+    matches!(
+        kind,
+        SyntaxKind::Module
+            | SyntaxKind::ModuleHeader
+            | SyntaxKind::Import
+            | SyntaxKind::DeclarationsFragment
+            | SyntaxKind::ExpressionsFragment
+            | SyntaxKind::ModuleName
+            | SyntaxKind::EffectFields
+            | SyntaxKind::ExposingList
+            | SyntaxKind::EffectField
+            | SyntaxKind::ExposedValue
+            | SyntaxKind::ExposedType
+            | SyntaxKind::ExposedOperator
+            | SyntaxKind::ExposedVariants
+            | SyntaxKind::Op
+            | SyntaxKind::ImportAlias
+            | SyntaxKind::Qualifier
+            | SyntaxKind::ValueDecl
+            | SyntaxKind::DestructureDecl
+            | SyntaxKind::TypeAliasDecl
+            | SyntaxKind::CustomTypeDecl
+            | SyntaxKind::PortDecl
+            | SyntaxKind::LegacyPortDecl
+            | SyntaxKind::InfixDecl
+            | SyntaxKind::LegacyInfixDecl
+            | SyntaxKind::DocDecl
+            | SyntaxKind::Signature
+            | SyntaxKind::Definition
+            | SyntaxKind::OperatorName
+            | SyntaxKind::TypeParam
+            | SyntaxKind::Variant
+            | SyntaxKind::TypeFragment
+            | SyntaxKind::NamedType
+            | SyntaxKind::TypeVar
+            | SyntaxKind::FunctionType
+            | SyntaxKind::UnitType
+            | SyntaxKind::ParenType
+            | SyntaxKind::TupleType
+            | SyntaxKind::TupleConstructorType
+            | SyntaxKind::RecordType
+            | SyntaxKind::RecordExtension
+            | SyntaxKind::FieldType
+            | SyntaxKind::PatternFragment
+            | SyntaxKind::VarPattern
+            | SyntaxKind::WildcardPattern
+            | SyntaxKind::LiteralPattern
+            | SyntaxKind::UnitPattern
+            | SyntaxKind::ParenPattern
+            | SyntaxKind::TuplePattern
+            | SyntaxKind::ListPattern
+            | SyntaxKind::RecordPattern
+            | SyntaxKind::ConstructorPattern
+            | SyntaxKind::ConsPattern
+            | SyntaxKind::AliasPattern
+            | SyntaxKind::FieldPattern
+            | SyntaxKind::ExprFragment
+            | SyntaxKind::LiteralExpr
+            | SyntaxKind::NameExpr
+            | SyntaxKind::OperatorFunction
+            | SyntaxKind::TupleConstructorExpr
+            | SyntaxKind::NegateExpr
+            | SyntaxKind::CallExpr
+            | SyntaxKind::OperatorChain
+            | SyntaxKind::UnitExpr
+            | SyntaxKind::ParenExpr
+            | SyntaxKind::TupleExpr
+            | SyntaxKind::ListExpr
+            | SyntaxKind::RangeExpr
+            | SyntaxKind::RecordExpr
+            | SyntaxKind::RecordUpdateExpr
+            | SyntaxKind::FieldAccessExpr
+            | SyntaxKind::AccessorExpr
+            | SyntaxKind::IfExpr
+            | SyntaxKind::CaseExpr
+            | SyntaxKind::LetExpr
+            | SyntaxKind::LambdaExpr
+            | SyntaxKind::GlslExpr
+            | SyntaxKind::Field
+            | SyntaxKind::CaseBranch
+            | SyntaxKind::LetValue
+            | SyntaxKind::LetDestructure
+    )
 }

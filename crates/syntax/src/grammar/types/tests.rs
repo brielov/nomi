@@ -2,40 +2,18 @@
 //! a type ends at the first token that isn't indented.
 
 use super::*;
-use crate::parser::Parse;
+use crate::grammar::testing::TopLevel;
 
-/// Parses a type as in a top-level annotation, then sweeps up the rest.
-fn top_level(text: &str) -> Parse {
-    let mut p = Parser::new(text);
-    let m = p.start();
-    p.anchor();
-    p.bump();
-    type_(&mut p);
-    if !p.at(K::Eof) {
-        let rest = p.start();
-        p.with_min_column(0, |p| {
-            while !p.at(K::Eof) {
-                p.bump();
-            }
-        });
-        rest.complete(&mut p, K::Error);
-    }
-    m.complete(&mut p, K::TypeFragment);
-    p.finish()
-}
-
-fn check(text: &str, expected: &str) {
-    let parse = top_level(text);
-    let mut out = parse.debug_tree();
-    for error in parse.elm_errors() {
-        out.push_str(&format!("error {:?}: {:?}\n", error.range, error.kind));
-    }
-    assert_eq!(out.trim(), expected.trim());
-}
+/// A type as in a top-level annotation, after the `:`.
+const TYPE: TopLevel = TopLevel {
+    prefix: 1,
+    rule: type_,
+    root: K::TypeFragment,
+};
 
 #[test]
 fn arguments_stop_at_column_zero() {
-    check(
+    TYPE.check(
         ": List\nx",
         r#"
 TypeFragment@0..8
@@ -52,7 +30,7 @@ TypeFragment@0..8
 
 #[test]
 fn an_arrow_at_column_zero_ends_the_type() {
-    check(
+    TYPE.check(
         ": a\n-> b",
         r#"
 TypeFragment@0..8
@@ -71,7 +49,7 @@ TypeFragment@0..8
 
 #[test]
 fn a_type_at_column_zero_is_missing() {
-    check(
+    TYPE.check(
         ":\nInt",
         r#"
 TypeFragment@0..5
@@ -87,7 +65,7 @@ error 2..5: ExpectedType
 
 #[test]
 fn record_punctuation_must_be_indented() {
-    check(
+    TYPE.check(
         ": { a : Int\n, b : Int\n}",
         r#"
 TypeFragment@0..23
@@ -123,7 +101,7 @@ error 22..23: ExpectedIndent
 
 #[test]
 fn an_empty_record_closes_indented() {
-    check(
+    TYPE.check(
         ": {\n}",
         r#"
 TypeFragment@0..5
@@ -140,7 +118,7 @@ error 4..5: ExpectedIndent
 
 #[test]
 fn an_unclosed_tuple_stops_at_column_zero() {
-    check(
+    TYPE.check(
         ": (a, b\nc",
         r#"
 TypeFragment@0..9
@@ -165,8 +143,8 @@ error 8..9: Expected(RParen)
 #[test]
 fn deep_nesting_gives_up_on_the_rest() {
     let text = format!(": {}a{}", "(".repeat(30_000), ")".repeat(30_000));
-    stacker::grow(nomi_base::STACK_SIZE, || {
-        let parse = top_level(&text);
+    nomi_base::on_core_stack(|| {
+        let parse = TYPE.parse(&text);
         let kinds: Vec<_> = parse.errors().iter().map(|e| e.kind).collect();
         assert_eq!(kinds, [SyntaxErrorKind::TooDeep]);
         assert_eq!(parse.syntax().to_string(), text);

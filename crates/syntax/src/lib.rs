@@ -9,6 +9,7 @@ mod invariants;
 mod kind;
 mod lexer;
 mod parser;
+mod tree;
 mod validation;
 
 pub use grammar::{
@@ -19,4 +20,5 @@ pub use kind::{ElmLanguage, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 pub use lexer::{LexError, LexErrorKind, Lexed, Token, lex};
 pub use parser::{DEPTH_LIMIT, Parse, SyntaxError, SyntaxErrorKind};
 pub use rowan::GreenNode;
-pub use validation::{Source, Tool, validate};
+pub use tree::{child_token, literal_body, significant_tokens, tokens, trimmed_range};
+pub use validation::{Source, Tool, UnknownSource, validate};
