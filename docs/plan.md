@@ -903,7 +903,9 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - tmux reads an `Escape` followed within `escape-time` by a key as Alt with that key, so the traces run on a tmux server of their own with it at 0. A `C-u` on an empty line in Helix joins it to the one before.
   - elm-language-server answers `prepareRename` with nothing for a function just typed, so the sessions look at the new function rather than renaming it.
   - Typing a word at a line's start above an annotation gets that annotation's name, as tree-sitter-elm then reads the annotation as running on from the word; a record accessor being typed gets the general list, its dot kept.
-- [ ] **9.22** `lsp: performance budgets`. Measured on exosphere, and on the 9.19 editing sessions, against elm-language-server, in the M8b scoreboard: time to first diagnostics, keystroke to diagnostics, completion latency, and peak memory. nomi wins each, and keystroke to diagnostics is under 100 ms on the Ryzen 7.
+- [ ] **9.22a** `lsp: performance scoreboard`. The language server's part of the M8b scoreboard, `cargo xtask bench lsp`: nomi's server against elm-language-server, each a child process spoken to over its standard streams, on corpus apps small to large (todomvc, elm-spa-example, exosphere). Time to first diagnostics, save to diagnostics and completion latency, with CPU time and peak memory from `/proc`. What it finds slow on the way is fixed.
+  - **Check:** the table runs, and its numbers are in the plan.
+- [ ] **9.22b** `lsp: performance budgets`. nomi wins each cell of 9.22a's table, and keystroke to diagnostics is under 100 ms on the Ryzen 7, on exosphere too.
 - [ ] **9.23** `release: 0.3`. Editor setup for VS Code, Neovim, Helix and Zed.
 
 **Exit:** transcript parity, budgets met, and you've used it on a real project.
