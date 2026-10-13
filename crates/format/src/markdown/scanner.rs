@@ -11,17 +11,27 @@
 pub(super) struct Scanner<'a> {
     rest: &'a str,
     /// Counted in characters from 1, as upstream's `Position`.
-    pub(super) column: i64,
+    column: i64,
     last: Option<char>,
 }
 
 impl<'a> Scanner<'a> {
     pub(super) fn new(text: &'a str) -> Self {
+        Scanner::at_column(text, 1)
+    }
+
+    /// A scanner of `text`, which starts at `column`.
+    pub(super) fn at_column(text: &'a str, column: i64) -> Self {
         Scanner {
             rest: text,
-            column: 1,
+            column,
             last: None,
         }
+    }
+
+    /// The column the rest starts at.
+    pub(super) fn column(&self) -> i64 {
+        self.column
     }
 
     /// What is left, unconsumed.
@@ -131,16 +141,12 @@ impl<'a> Scanner<'a> {
 
     /// Up to `count` characters meeting `f`; upstream's `upToCountChars`.
     pub(super) fn up_to(&mut self, count: i64, f: impl Fn(char) -> bool) -> &'a str {
-        let mut n = 0;
         let len = self
             .rest
             .char_indices()
-            .find(|&(_, c)| {
-                let stop = n >= count || !f(c);
-                n += 1;
-                stop
-            })
-            .map_or(self.rest.len(), |(i, _)| i);
+            .zip(0..)
+            .find(|&((_, c), n)| n >= count || !f(c))
+            .map_or(self.rest.len(), |((i, _), _)| i);
         self.advance(len)
     }
 

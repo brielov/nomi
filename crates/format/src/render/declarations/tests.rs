@@ -1,9 +1,6 @@
 //! Expected outputs are elm-format 0.8.8's, for whole modules.
 
-#[track_caller]
-fn assert_formats(text: &str, expected: &str) {
-    assert_eq!(crate::format(text).as_deref(), Some(expected), "{text}");
-}
+use crate::test_support::assert_formats;
 
 #[test]
 fn declarations_and_comments_take_their_spacing() {

@@ -1,6 +1,7 @@
 //! Nesting as deep as generated code goes formats on the stack the shell
-//! gives threads that run core work: lowering and rendering recurse with
-//! the tree, and grow the stack as the parser does.
+//! gives threads that run core work: lowering, rendering and the doc
+//! comments' Markdown recurse with what they read, and grow the stack as
+//! the parser does.
 
 /// How deeply each shape nests.
 const DEPTH: usize = 5_000;
@@ -26,6 +27,7 @@ fn deep_nesting_formats() {
         ("lambdas", nested("\\a -> ", "")),
         ("else ifs", nested("if a then 1 else ", "")),
         ("negations", nested("-(", ")")),
+        ("left pipes", nested("f <| ", "")),
         (
             "types",
             format!(
@@ -56,8 +58,15 @@ fn deep_nesting_formats() {
                 "a :: ".repeat(DEPTH)
             ),
         ),
+        (
+            "block quotes",
+            format!(
+                "module A exposing (x)\n\n{{-| {}x\n-}}\n\n\nx =\n    1\n",
+                "> ".repeat(DEPTH)
+            ),
+        ),
     ];
-    stacker::grow(nomi_base::STACK_SIZE, || {
+    nomi_base::on_core_stack(|| {
         for (name, text) in shapes {
             assert!(nomi_format::format(&text).is_some(), "{name}");
         }

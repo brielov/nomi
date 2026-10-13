@@ -34,17 +34,44 @@ pub(crate) enum Block<C> {
     },
     Html(String),
     HRule,
-    /// Each reference's label, URL and title.
-    References(Vec<(String, String, String)>),
+    References(Vec<Reference>),
     /// Each `@docs` line's names.
     ElmDocs(Vec<Vec<String>>),
 }
 
-/// A fenced code block's info string: its first word, and the rest.
+/// A link reference definition, `[label]: url "title"`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Reference {
+    pub(crate) label: String,
+    pub(crate) url: String,
+    /// Empty when there is none.
+    pub(crate) title: String,
+}
+
+impl Reference {
+    /// What upstream keeps of a line that doesn't parse as a reference.
+    fn unparsed() -> Reference {
+        let unknown = || "??".to_owned();
+        Reference {
+            label: unknown(),
+            url: unknown(),
+            title: unknown(),
+        }
+    }
+}
+
+/// A code block's language: the first word of a fenced block's info
+/// string, and none for an indented block.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodeAttr {
     pub(crate) lang: String,
-    pub(crate) info: String,
+}
+
+impl CodeAttr {
+    /// Whether the block holds Elm: marked `elm`, or not at all.
+    pub(crate) fn is_elm(&self) -> bool {
+        self.lang == "elm" || self.lang.is_empty()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,10 +95,18 @@ pub(crate) enum Inline {
     Emph(Vec<Inline>),
     Strong(Vec<Inline>),
     Code(String),
-    /// The text, the target and the title.
-    Link(Vec<Inline>, LinkTarget, String),
-    /// The text, the URL and the title.
-    Image(Vec<Inline>, String, String),
+    Link {
+        text: Vec<Inline>,
+        target: LinkTarget,
+        /// Empty when there is none.
+        title: String,
+    },
+    Image {
+        text: Vec<Inline>,
+        url: String,
+        /// Empty when there is none.
+        title: String,
+    },
     Entity(String),
     RawHtml(String),
 }
@@ -80,15 +115,6 @@ pub(crate) enum Inline {
 pub(crate) enum LinkTarget {
     Url(String),
     Ref(String),
-}
-
-/// Haskell's `lines`: no last, empty line after a final newline.
-fn lines(text: &str) -> Vec<&str> {
-    let mut lines: Vec<&str> = text.split('\n').collect();
-    if lines.last() == Some(&"") {
-        lines.pop();
-    }
-    lines
 }
 
 /// `Data.Text`'s `strip`, with GHC's `isSpace`.

@@ -5,16 +5,16 @@
 //! Decoding does the same, so `"\u{D835}\u{DC00}"` stays two surrogates
 //! and the `\x` escapes elm-format still reads come out as it reads them.
 
-use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
-
-use super::{VALID, significant};
-use crate::tree::{FloatRepr, IntRepr, LiteralValue, StringRepr};
 use nomi_base::ghc::is_alpha;
+use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, significant_tokens};
+
+use super::VALID;
+use crate::tree::{FloatRepr, IntRepr, LiteralValue, StringRepr};
 
 /// The literal `node` holds: a number with an optional `-` before it, a
 /// character or a string.
 pub(super) fn literal(node: &SyntaxNode) -> LiteralValue {
-    let mut tokens = significant(node);
+    let mut tokens = significant_tokens(node);
     let mut token = tokens.next().expect(VALID);
     if token.kind() == SyntaxKind::Minus {
         token = tokens.next().expect(VALID);
@@ -23,10 +23,17 @@ pub(super) fn literal(node: &SyntaxNode) -> LiteralValue {
     unsigned(&token)
 }
 
-/// Whether `node` is a number, which a `-` touching it negates.
-pub(super) fn is_number(node: &SyntaxNode) -> bool {
-    let token = significant(node).next().expect(VALID);
-    matches!(token.kind(), SyntaxKind::Int | SyntaxKind::Float)
+/// Whether a token of `kind` is a number.
+pub(crate) fn is_number(kind: SyntaxKind) -> bool {
+    matches!(kind, SyntaxKind::Int | SyntaxKind::Float)
+}
+
+/// Whether a token of `kind` is a character or a string.
+pub(crate) fn is_text(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::Char | SyntaxKind::String | SyntaxKind::MultilineString
+    )
 }
 
 /// A number, negated; upstream's `num`, which reads the `-` itself.

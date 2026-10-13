@@ -1,17 +1,19 @@
 //! Top-level declarations, after upstream's `Parse/Declaration.hs` and
 //! `topLevel` in `Parse/Module.hs`.
 
-use nomi_base::TextSize;
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxKind, SyntaxToken};
+use nomi_syntax::{SyntaxKind, SyntaxToken, child_token};
 
 use super::cursor::Cursor;
-use super::definitions::{annotation, definition, destructure};
+use super::definitions::{destructure, value_parts};
 use super::expressions::expr;
 use super::types::ty;
-use super::{VALID, c, lower_name, significant, start, symbol, token, upper_name};
+use super::{
+    VALID, child_tokens, comments_before, lower_name, preceded, start, symbol, upper_name,
+};
 use crate::tree::{
-    Assoc, C1, C2, Declaration, Lower, NameWithArgs, OpenCommentedList, TopLevelStructure, Upper,
+    Around, AroundEol, Assoc, BeforeEol, Declaration, Lower, NameWithArgs, OpenCommentedList,
+    TopLevelStructure, c,
 };
 
 type Body = Vec<TopLevelStructure<Declaration>>;
@@ -19,34 +21,17 @@ type Body = Vec<TopLevelStructure<Declaration>>;
 /// `decl` onto `body`: its doc comment, its parts, and the comments
 /// before each, which upstream reads as comments between declarations.
 pub(super) fn declaration(cx: &mut Cursor, body: &mut Body, decl: &ast::Decl) {
-    let doc = match decl {
-        ast::Decl::ValueDecl(d) => d.doc_comment_token(),
-        ast::Decl::DestructureDecl(d) => d.doc_comment_token(),
-        ast::Decl::TypeAliasDecl(d) => d.doc_comment_token(),
-        ast::Decl::CustomTypeDecl(d) => d.doc_comment_token(),
-        ast::Decl::PortDecl(d) => d.doc_comment_token(),
-        ast::Decl::LegacyPortDecl(d) => d.doc_comment_token(),
-        ast::Decl::DocDecl(d) => d.doc_comment_token(),
-        ast::Decl::InfixDecl(d) => d.doc_comment_token(),
-        ast::Decl::LegacyInfixDecl(d) => d.doc_comment_token(),
-    };
-    if let Some(doc) = doc {
+    if let Some(doc) = child_token(decl.syntax(), SyntaxKind::DocComment) {
         comments_before(cx, body, start(&doc));
         body.push(TopLevelStructure::DocComment(super::docs::docs(&doc)));
     }
     let entry = |d| TopLevelStructure::Entry(Declaration::Common(d));
     match decl {
         ast::Decl::ValueDecl(d) => {
-            if let Some(signature) = d.signature() {
-                comments_before(cx, body, cx.range(signature.syntax()).start());
-                body.push(entry(annotation(cx, &signature)));
-            }
-            // Upstream reads an annotation on its own, so either may be
-            // missing.
-            if let Some(value) = d.definition() {
-                comments_before(cx, body, cx.range(value.syntax()).start());
-                body.push(entry(definition(cx, &value)));
-            }
+            value_parts(cx, d.signature(), d.definition(), |comments, part| {
+                body.extend(comments.into_iter().map(TopLevelStructure::BodyComment));
+                body.push(entry(part));
+            });
         }
         ast::Decl::DestructureDecl(d) => {
             let target = d.pattern().expect(VALID);
@@ -75,36 +60,32 @@ pub(super) fn declaration(cx: &mut Cursor, body: &mut Body, decl: &ast::Decl) {
             body.push(TopLevelStructure::Entry(infix(cx, d)));
         }
         ast::Decl::LegacyInfixDecl(d) => {
-            let keyword = significant(d.syntax())
-                .find(|t| t.kind() != SyntaxKind::DocComment)
-                .expect(VALID);
+            let (assoc, keyword) = associativity([
+                (Assoc::Left, d.infixl_token()),
+                (Assoc::Right, d.infixr_token()),
+                (Assoc::Non, d.infix_token()),
+            ]);
             comments_before(cx, body, start(&keyword));
-            body.push(TopLevelStructure::Entry(legacy_infix(cx, d, &keyword)));
+            body.push(TopLevelStructure::Entry(legacy_infix(cx, d, assoc)));
         }
         ast::Decl::DocDecl(_) => {}
     }
 }
 
-/// The comments before `end` onto `body`.
-fn comments_before(cx: &mut Cursor, body: &mut Body, end: TextSize) {
-    let comments = cx.take(end);
-    body.extend(comments.into_iter().map(TopLevelStructure::BodyComment));
-}
-
 /// `type alias Name args = type`.
 fn alias(cx: &mut Cursor, node: &ast::TypeAliasDecl) -> Declaration {
-    let after_type = cx.take(start(&node.alias_token().expect(VALID)));
+    let before_alias = cx.take(start(&node.alias_token().expect(VALID)));
     let name = node.upper_ident_token().expect(VALID);
     let after_alias = cx.take(start(&name));
     let name_with_args = name_with_args(cx, &name, node.type_params());
     let before_eq = cx.take(start(&node.eq_token().expect(VALID)));
     let aliased = node.ty().expect(VALID);
     let after_eq = cx.take(cx.range(aliased.syntax()).start());
-    Declaration::TypeAlias(
-        after_type,
-        c((after_alias, before_eq), name_with_args),
-        c(after_eq, ty(cx, &aliased)),
-    )
+    Declaration::TypeAlias {
+        before_alias,
+        name_with_args: c(Around::new(after_alias, before_eq), name_with_args),
+        ty: c(after_eq, ty(cx, &aliased)),
+    }
 }
 
 /// `type Name args = A | B`: each variant with the `--` comment that may
@@ -115,32 +96,25 @@ fn custom_type(cx: &mut Cursor, node: &ast::CustomTypeDecl) -> Declaration {
     let after_type = cx.take(start(&name));
     let name_with_args = name_with_args(cx, &name, node.type_params());
     let before_eq = cx.take(start(&node.eq_token().expect(VALID)));
-    let mut pipes = node
-        .syntax()
-        .children_with_tokens()
-        .filter_map(|e| e.into_token())
-        .filter(|t| t.kind() == SyntaxKind::Pipe);
+    let mut pipes = child_tokens(node.syntax(), SyntaxKind::Pipe);
     let mut variants = node.variants().peekable();
     let mut items = Vec::new();
     let last = loop {
         // After `=` or `|`, which the previous slot stopped before.
         let variant = variants.next().expect(VALID);
-        let pre = cx.take(cx.range(variant.syntax()).start());
+        let before = cx.take(cx.range(variant.syntax()).start());
         let name = upper_name(&variant.upper_ident_token().expect(VALID));
-        let args = variant
-            .types()
-            .map(|arg| c(cx.take(cx.range(arg.syntax()).start()), ty(cx, &arg)))
-            .collect();
+        let args = preceded(cx, variant.types(), ty);
         let value = NameWithArgs { name, args };
         let eol = cx.eol(cx.range(variant.syntax()));
         if variants.peek().is_none() {
-            break c((pre, eol), value);
+            break c(BeforeEol { before, eol }, value);
         }
-        let post = cx.take(start(&pipes.next().expect(VALID)));
-        items.push(c((pre, post, eol), value));
+        let after = cx.take(start(&pipes.next().expect(VALID)));
+        items.push(c(AroundEol { before, after, eol }, value));
     };
     Declaration::Datatype {
-        name_with_args: c((after_type, before_eq), name_with_args),
+        name_with_args: c(Around::new(after_type, before_eq), name_with_args),
         variants: OpenCommentedList { items, last },
     }
 }
@@ -150,13 +124,10 @@ fn name_with_args(
     cx: &mut Cursor,
     name: &SyntaxToken,
     params: impl Iterator<Item = ast::TypeParam>,
-) -> NameWithArgs<Upper, Lower> {
-    let args = params
-        .map(|param| {
-            let param = param.lower_ident_token().expect(VALID);
-            c(cx.take(start(&param)), lower_name(&param))
-        })
-        .collect();
+) -> NameWithArgs<Lower> {
+    let args = preceded(cx, params, |_, param| {
+        lower_name(&param.lower_ident_token().expect(VALID))
+    });
     NameWithArgs {
         name: upper_name(name),
         args,
@@ -166,76 +137,77 @@ fn name_with_args(
 /// `port name : type`.
 fn port(cx: &mut Cursor, node: &ast::PortDecl) -> Declaration {
     let name = node.lower_ident_token().expect(VALID);
-    let before_name = cx.take(start(&name));
-    let after_name = cx.take(start(&node.colon_token().expect(VALID)));
+    let before = cx.take(start(&name));
+    let after = cx.take(start(&node.colon_token().expect(VALID)));
     let annotation = node.ty().expect(VALID);
     let before_type = cx.take(cx.range(annotation.syntax()).start());
-    Declaration::PortAnnotation(
-        c((before_name, after_name), lower_name(&name)),
+    Declaration::PortAnnotation {
+        name: c(Around { before, after }, lower_name(&name)),
         before_type,
-        ty(cx, &annotation),
-    )
+        ty: ty(cx, &annotation),
+    }
 }
 
 /// Elm 0.16's `port name = expr`.
 fn legacy_port(cx: &mut Cursor, node: &ast::LegacyPortDecl) -> Declaration {
     let name = node.lower_ident_token().expect(VALID);
-    let before_name = cx.take(start(&name));
-    let after_name = cx.take(start(&node.eq_token().expect(VALID)));
+    let before = cx.take(start(&name));
+    let after = cx.take(start(&node.eq_token().expect(VALID)));
     let value = node.expr().expect(VALID);
-    let before_value = cx.take(cx.range(value.syntax()).start());
-    Declaration::PortDefinition(
-        c((before_name, after_name), lower_name(&name)),
-        before_value,
-        expr(cx, &value),
-    )
+    let before_body = cx.take(cx.range(value.syntax()).start());
+    Declaration::PortDefinition {
+        name: c(Around { before, after }, lower_name(&name)),
+        before_body,
+        body: expr(cx, &value),
+    }
+}
+
+/// The associativity whose keyword a fixity declaration has, and the
+/// keyword.
+fn associativity(keywords: [(Assoc, Option<SyntaxToken>); 3]) -> (Assoc, SyntaxToken) {
+    keywords
+        .into_iter()
+        .find_map(|(assoc, keyword)| keyword.map(|k| (assoc, k)))
+        .expect(VALID)
 }
 
 /// `infix left 6 (+) = add`.
 fn infix(cx: &mut Cursor, node: &ast::InfixDecl) -> Declaration {
-    let syntax = node.syntax();
-    let (assoc, keyword) = [
-        (Assoc::Left, SyntaxKind::LeftKw),
-        (Assoc::Right, SyntaxKind::RightKw),
-        (Assoc::Non, SyntaxKind::NonKw),
-    ]
-    .into_iter()
-    .find_map(|(assoc, kind)| token(syntax, kind).map(|t| (assoc, t)))
-    .expect(VALID);
-    let assoc: C1<Assoc> = c(cx.take(start(&keyword)), assoc);
+    let (assoc, keyword) = associativity([
+        (Assoc::Left, node.left_token()),
+        (Assoc::Right, node.right_token()),
+        (Assoc::Non, node.non_token()),
+    ]);
+    let assoc = c(cx.take(start(&keyword)), assoc);
     let int = node.int_token().expect(VALID);
     let precedence = c(cx.take(start(&int)), int.text().parse().expect(VALID));
-    let before_op = cx.take(start(&node.l_paren_token().expect(VALID)));
-    let after_op = cx.take(start(&node.eq_token().expect(VALID)));
-    let op: C2<_> = c((before_op, after_op), symbol(&node.op().expect(VALID)));
+    let before = cx.take(start(&node.l_paren_token().expect(VALID)));
+    let after = cx.take(start(&node.eq_token().expect(VALID)));
+    let op = c(Around { before, after }, symbol(&node.op().expect(VALID)));
     let function = node.lower_ident_token().expect(VALID);
     let function = c(cx.take(start(&function)), lower_name(&function));
-    Declaration::Fixity(assoc, precedence, op, function)
+    Declaration::Fixity {
+        assoc,
+        precedence,
+        op,
+        function,
+    }
 }
 
 /// Elm 0.18's `infixl 6 +`, with comments before the precedence and the
 /// operator.
-fn legacy_infix(
-    cx: &mut Cursor,
-    node: &ast::LegacyInfixDecl,
-    keyword: &SyntaxToken,
-) -> Declaration {
-    let assoc = match keyword.kind() {
-        SyntaxKind::InfixlKw => Assoc::Left,
-        SyntaxKind::InfixrKw => Assoc::Right,
-        _ => Assoc::Non,
-    };
+fn legacy_infix(cx: &mut Cursor, node: &ast::LegacyInfixDecl, assoc: Assoc) -> Declaration {
     let int = node.int_token().expect(VALID);
     let before_precedence = cx.take(start(&int));
     let op = node.op().expect(VALID);
     let before_op = cx.take(cx.range(op.syntax()).start());
-    Declaration::LegacyFixity(
+    Declaration::LegacyFixity {
         assoc,
         before_precedence,
-        int.text().parse().expect(VALID),
+        precedence: int.text().parse().expect(VALID),
         before_op,
-        symbol(&op),
-    )
+        op: symbol(&op),
+    }
 }
 
 #[cfg(test)]

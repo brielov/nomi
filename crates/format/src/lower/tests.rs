@@ -1,49 +1,28 @@
-use nomi_syntax::{Tool, parse_module, validate};
-
 use super::*;
+use crate::test_support::{block, line, lowered, upper};
 use crate::tree::{
-    C1, C2, Comment, CommentedMap, Comments, DetailedListing, Docs, Header, ImportMethod, Listing,
-    Lower, SourceTag, Upper,
+    Around, C1, CommentedMap, DetailedListing, Docs, ForceMultiline, Header, ImportKey,
+    ImportMethod, Listing, SourceSetting, SourceTag,
 };
-
-fn lower(text: &str) -> Module {
-    let parse = parse_module(text);
-    assert!(parse.errors().is_empty(), "{:?}", parse.errors());
-    assert!(validate(&parse, Tool::ElmFormat).is_empty());
-    module(&parse.syntax(), text)
-}
 
 /// Every comment in `text`, in order.
 fn comments(text: &str) -> Comments {
-    let root = parse_module(text).syntax();
+    let root = nomi_syntax::parse_module(text).syntax();
     let mut cx = Cursor::new(&root, text);
-    cx.take(text_end(text))
-}
-
-fn line(text: &str) -> Comment {
-    Comment::Line(text.to_owned())
-}
-
-fn block(lines: &[&str]) -> Comment {
-    Comment::Block(lines.iter().map(|l| (*l).to_owned()).collect())
-}
-
-fn upper(name: &str) -> Upper {
-    Upper(name.to_owned())
+    cx.take(TextSize::of(text))
 }
 
 fn names(names: &[&str]) -> Vec<Upper> {
     names.iter().map(|n| upper(n)).collect()
 }
 
-fn none<T>(value: T) -> C2<T> {
-    c((Vec::new(), Vec::new()), value)
-}
-
 fn values(items: &[(&str, Comments, Comments)]) -> CommentedMap<Lower, ()> {
     items
         .iter()
-        .map(|(n, pre, post)| (Lower((*n).to_owned()), c((pre.clone(), post.clone()), ())))
+        .map(|(n, before, after)| {
+            let comments = Around::new(before.clone(), after.clone());
+            (Lower((*n).to_owned()), c(comments, ()))
+        })
         .collect()
 }
 
@@ -59,7 +38,11 @@ fn exports(module: &Module) -> &Listing<DetailedListing> {
 }
 
 fn import<'a>(module: &'a Module, name: &[&str]) -> &'a C1<ImportMethod> {
-    &module.imports.value[&(names(name), 0)]
+    let key = ImportKey {
+        module: names(name),
+        group: 0,
+    };
+    &module.imports.value[&key]
 }
 
 #[test]
@@ -74,8 +57,8 @@ fn comments_read_as_upstream_reads_them() {
             line(" y"),
             Comment::TrickOpener,
             Comment::TrickBlock("t".to_owned()),
-            block(&[]),
-            block(&["a"]),
+            Comment::Block(Vec::new()),
+            block("a"),
         ]
     );
 }
@@ -83,26 +66,30 @@ fn comments_read_as_upstream_reads_them() {
 #[test]
 fn block_comments_lose_their_shared_indentation() {
     let text = "module A exposing (a)\n{- one\n      two\n\n    three {- in -}\n   -}\na = 1\n";
+    let lines = ["one", "  two", "", "three {- in -}"];
     assert_eq!(
         comments(text),
-        [block(&["one", "  two", "", "three {- in -}"])]
+        [Comment::Block(lines.map(str::to_owned).to_vec())]
     );
 }
 
 #[test]
 fn header_comments() {
     let module =
-        lower("-- a\nport {- b -} module {- c -} A.B {- d -} exposing {- e -} (..)\n\na = 1\n");
+        lowered("-- a\nport {- b -} module {- c -} A.B {- d -} exposing {- e -} (..)\n\na = 1\n");
     assert_eq!(module.initial_comments, [line(" a")]);
     assert_eq!(
         module.header,
         Some(Header {
-            source_tag: SourceTag::Port(vec![block(&["b"])]),
-            name: c((vec![block(&["c"])], Vec::new()), names(&["A", "B"])),
+            source_tag: SourceTag::Port(vec![block("b")]),
+            name: c(
+                Around::new(vec![block("c")], Vec::new()),
+                names(&["A", "B"])
+            ),
             settings: None,
             exports: Some(c(
-                (vec![block(&["d"])], vec![block(&["e"])]),
-                Listing::Open(Vec::new(), Vec::new())
+                Around::new(vec![block("d")], vec![block("e")]),
+                Listing::Open(Around::default())
             )),
         })
     );
@@ -110,15 +97,15 @@ fn header_comments() {
 
 #[test]
 fn header_of_elm_0_16() {
-    let module = lower("module A {- x -} (a) {- y -} where\n\na = 1\n");
+    let module = lowered("module A {- x -} (a) {- y -} where\n\na = 1\n");
     let header = module.header.unwrap();
     assert_eq!(
         header.name,
-        c((Vec::new(), vec![block(&["x"])]), names(&["A"]))
+        c(Around::new(Vec::new(), vec![block("x")]), names(&["A"]))
     );
     let exports = header.exports.unwrap();
-    assert_eq!(exports.comments, (vec![block(&["y"])], Vec::new()));
-    let Listing::Explicit(listing, false) = exports.value else {
+    assert_eq!(exports.comments, Around::new(vec![block("y")], Vec::new()));
+    let Listing::Explicit(listing, ForceMultiline(false)) = exports.value else {
         panic!("{:?}", exports.value)
     };
     assert_eq!(listing.values, values(&[("a", vec![], vec![])]));
@@ -127,58 +114,58 @@ fn header_of_elm_0_16() {
 #[test]
 fn effect_settings() {
     let text = "effect module A where { command = {- k -} MyCmd } exposing (a)\n\na = 1\n";
-    let header = lower(text).header.unwrap();
+    let header = lowered(text).header.unwrap();
     assert_eq!(header.source_tag, SourceTag::Effect(Vec::new()));
     assert_eq!(
         header.settings,
-        Some(none(vec![(
-            none(Lower("command".to_owned())),
-            c((vec![block(&["k"])], Vec::new()), upper("MyCmd"))
-        )]))
+        Some(C2::bare(vec![SourceSetting {
+            key: C2::bare(Lower("command".to_owned())),
+            value: c(Around::new(vec![block("k")], Vec::new()), upper("MyCmd")),
+        }]))
     );
 }
 
 #[test]
 fn listing_items_keep_comments_ending_their_lines() {
-    let module = lower(
+    let module = lowered(
         "module A exposing\n    ( a -- one\n    , b {- two -}\n    , C(..)\n    , D {- i -} (E, F -- f\n      )\n    )\n\na = 1\n",
     );
-    let Listing::Explicit(listing, true) = exports(&module) else {
+    let Listing::Explicit(listing, ForceMultiline(true)) = exports(&module) else {
         panic!("{:?}", exports(&module))
     };
     assert_eq!(
         listing.values,
         values(&[
             ("a", vec![], vec![line(" one")]),
-            ("b", vec![], vec![block(&["two"])]),
+            ("b", vec![], vec![block("two")]),
         ])
     );
     assert_eq!(
         listing.types[&upper("C")],
-        none(c(Vec::new(), Listing::Open(Vec::new(), Vec::new())))
+        C2::bare(c(Vec::new(), Listing::Open(Around::default())))
     );
     let ctors = [
-        (upper("E"), none(())),
-        (upper("F"), c((Vec::new(), vec![line(" f")]), ())),
+        (upper("E"), C2::bare(())),
+        (upper("F"), c(Around::new(Vec::new(), vec![line(" f")]), ())),
     ];
     assert_eq!(
         listing.types[&upper("D")],
-        none(c(
-            vec![block(&["i"])],
-            Listing::Explicit(ctors.into_iter().collect(), true)
+        C2::bare(c(
+            vec![block("i")],
+            Listing::Explicit(ctors.into_iter().collect(), ForceMultiline(true))
         ))
     );
 }
 
 #[test]
 fn an_item_over_lines_ends_no_line_comment() {
-    let module = lower("module A exposing (A\n  (..) -- c\n  )\n\na = 1\n");
-    let Listing::Explicit(listing, true) = exports(&module) else {
+    let module = lowered("module A exposing (A\n  (..) -- c\n  )\n\na = 1\n");
+    let Listing::Explicit(listing, ForceMultiline(true)) = exports(&module) else {
         panic!("{:?}", exports(&module))
     };
     assert_eq!(
         listing.types[&upper("A")].comments,
-        (vec![], vec![line(" c")])
+        Around::new(vec![], vec![line(" c")])
     );
     // Only `withEol` reads one, so the comment reaches the list as a
     // comment, not as the item's own.
@@ -190,7 +177,7 @@ fn an_item_over_lines_ends_no_line_comment() {
 
 #[test]
 fn comments_between_imports_go_before_them_all() {
-    let module = lower(
+    let module = lowered(
         "module A exposing (a)\n\n{-| Docs. -}\n-- h\nimport B\n-- between\nimport {- n -} C as {- p -} D exposing (x)\n-- after\na = 1\n",
     );
     assert_eq!(
@@ -205,44 +192,48 @@ fn comments_between_imports_go_before_them_all() {
         module.body[0],
         TopLevelStructure::BodyComment(line(" after"))
     );
-    assert_eq!(import(&module, &["B"]).value.exposed, none(Listing::Closed));
+    assert_eq!(
+        import(&module, &["B"]).value.exposed,
+        C2::bare(Listing::Closed)
+    );
     let c_import = import(&module, &["C"]);
-    assert_eq!(c_import.comments, [block(&["n"])]);
+    assert_eq!(c_import.comments, [block("n")]);
     assert_eq!(
         c_import.value.alias,
-        Some(c((Vec::new(), vec![block(&["p"])]), upper("D")))
+        Some(c(Around::new(Vec::new(), vec![block("p")]), upper("D")))
     );
 }
 
 #[test]
 fn without_imports_comments_before_the_body_go_before_imports() {
-    let module = lower("module A exposing (a)\n\n-- c\n\na = 1\n");
+    let module = lowered("module A exposing (a)\n\n-- c\n\na = 1\n");
     assert_eq!(module.imports.comments, [line(" c")]);
     assert!(matches!(module.body[..], [TopLevelStructure::Entry(_)]));
 }
 
 #[test]
 fn imports_of_one_module_merge_later_first() {
-    let module = lower(
+    let module = lowered(
         "module A exposing (a)\n\nimport {- 1 -} B exposing (a {- x -})\nimport {- 2 -} B as C exposing (b, a {- y -}, T(U), T {- i -} (V))\n\na = 1\n",
     );
     let b = import(&module, &["B"]);
-    assert_eq!(b.comments, [block(&["2"]), block(&["1"])]);
-    assert_eq!(b.value.alias, Some(none(upper("C"))));
-    let Listing::Explicit(listing, false) = &b.value.exposed.value else {
+    assert_eq!(b.comments, [block("2"), block("1")]);
+    assert_eq!(b.value.alias, Some(C2::bare(upper("C"))));
+    let Listing::Explicit(listing, ForceMultiline(false)) = &b.value.exposed.value else {
         panic!("{:?}", b.value.exposed)
     };
     assert_eq!(
         listing.values,
         values(&[
-            ("a", vec![], vec![block(&["y"]), block(&["x"])]),
+            ("a", vec![], vec![block("y"), block("x")]),
             ("b", vec![], vec![])
         ])
     );
-    let Listing::Explicit(ctors, false) = &listing.types[&upper("T")].value.value else {
+    let Listing::Explicit(ctors, ForceMultiline(false)) = &listing.types[&upper("T")].value.value
+    else {
         panic!("{:?}", listing.types)
     };
-    assert_eq!(listing.types[&upper("T")].value.comments, [block(&["i"])]);
+    assert_eq!(listing.types[&upper("T")].value.comments, [block("i")]);
     assert_eq!(
         ctors.keys().cloned().collect::<Vec<_>>(),
         names(&["U", "V"])
@@ -251,23 +242,22 @@ fn imports_of_one_module_merge_later_first() {
 
 #[test]
 fn a_value_listed_twice_keeps_its_last_comments() {
-    let module = lower("module A exposing (a {- 1 -}, (-), a {- 2 -})\n\na = 1\n");
-    let Listing::Explicit(listing, false) = exports(&module) else {
+    let module = lowered("module A exposing (a {- 1 -}, (-), a {- 2 -})\n\na = 1\n");
+    let Listing::Explicit(listing, ForceMultiline(false)) = exports(&module) else {
         panic!("{:?}", exports(&module))
     };
-    assert_eq!(
-        listing.values,
-        values(&[("a", vec![], vec![block(&["2"])])])
-    );
+    assert_eq!(listing.values, values(&[("a", vec![], vec![block("2")])]));
     assert!(listing.operators.contains_key(&Symbol("-".to_owned())));
 }
 
 #[test]
 fn imports_without_parentheses() {
-    let module = lower(
+    let module = lowered(
         "module A exposing (a)\n\nimport B exposing a, b -- c\nimport C exposing ..\n\na = 1\n",
     );
-    let Listing::Explicit(listing, false) = &import(&module, &["B"]).value.exposed.value else {
+    let Listing::Explicit(listing, ForceMultiline(false)) =
+        &import(&module, &["B"]).value.exposed.value
+    else {
         panic!()
     };
     assert_eq!(
@@ -276,6 +266,6 @@ fn imports_without_parentheses() {
     );
     assert_eq!(
         import(&module, &["C"]).value.exposed,
-        none(Listing::Open(Vec::new(), Vec::new()))
+        C2::bare(Listing::Open(Around::default()))
     );
 }

@@ -4,11 +4,14 @@ use nomi_syntax::ast::{self, AstNode};
 
 use super::cursor::Cursor;
 use super::literal::literal;
-use super::{VALID, c, lower_name, separated, start, surround, upper_ref};
-use crate::tree::{LiteralValue, Pattern, Upper};
+use super::{
+    VALID, bool_literal, lower_name, parens_or_bare, preceded, separated, start, surround,
+    upper_ref,
+};
+use crate::tree::{LiteralValue, Pattern, c};
 
 pub(super) fn pattern(cx: &mut Cursor, node: &ast::Pattern) -> Pattern {
-    crate::guarded(|| pattern_unguarded(cx, node))
+    nomi_base::grow_large(|| pattern_unguarded(cx, node))
 }
 
 fn pattern_unguarded(cx: &mut Cursor, node: &ast::Pattern) -> Pattern {
@@ -27,12 +30,7 @@ fn pattern_unguarded(cx: &mut Cursor, node: &ast::Pattern) -> Pattern {
             let item = surround(cx, p.syntax(), p.pattern().into_iter(), &close, pattern)
                 .pop()
                 .expect(VALID);
-            // Without comments, upstream drops the parentheses.
-            if item.comments.0.is_empty() && item.comments.1.is_empty() {
-                item.value
-            } else {
-                Pattern::Parens(Box::new(item))
-            }
+            parens_or_bare(item, Pattern::Parens)
         }
         ast::Pattern::TuplePattern(p) => {
             let close = p.r_paren_token().expect(VALID);
@@ -75,22 +73,14 @@ fn pattern_unguarded(cx: &mut Cursor, node: &ast::Pattern) -> Pattern {
 /// A constructor and its arguments, each with the comments before it;
 /// an unqualified `True` or `False` is a literal.
 fn constructor(cx: &mut Cursor, node: &ast::ConstructorPattern) -> Pattern {
-    let (namespace, name) = upper_ref(node.syntax(), node.qualifier());
+    let name = upper_ref(node.syntax(), node.qualifier());
     let mut args = node.patterns().peekable();
-    if namespace.is_empty() && args.peek().is_none() {
-        match name {
-            Upper(ref n) if n == "True" => return Pattern::Literal(LiteralValue::Bool(true)),
-            Upper(ref n) if n == "False" => return Pattern::Literal(LiteralValue::Bool(false)),
-            _ => {}
-        }
+    if args.peek().is_none()
+        && let Some(value) = bool_literal(&name.namespace, &name.name)
+    {
+        return Pattern::Literal(LiteralValue::Bool(value));
     }
-    let args = args
-        .map(|arg| {
-            let comments = cx.take(cx.range(arg.syntax()).start());
-            c(comments, pattern(cx, &arg))
-        })
-        .collect();
-    Pattern::Data((namespace, name), args)
+    Pattern::Data(name, preceded(cx, args, pattern))
 }
 
 /// `a :: b :: c`, which the syntax tree nests to the right.

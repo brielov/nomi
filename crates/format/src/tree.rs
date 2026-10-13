@@ -9,7 +9,8 @@
 //!
 //! Upstream's node kinds are separate types here, one per kind, and the
 //! type-level labels on its comment slots (`'BeforeTerm`, `'AfterTerm`, …)
-//! are field docs. Left out: the `ContainedCommentedList` and `ExposedCommentedList` that no node holds.
+//! are field names and docs. Left out: the `ContainedCommentedList` and
+//! `ExposedCommentedList` that no node holds.
 
 use std::collections::BTreeMap;
 
@@ -27,19 +28,38 @@ pub(crate) struct Upper(pub(crate) String);
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Symbol(pub(crate) String);
 
+impl Symbol {
+    /// Whether this is `<|`, which puts what follows it below it.
+    pub(crate) fn is_left_pipe(&self) -> bool {
+        self.0 == "<|"
+    }
+}
+
 /// A module name, or the qualifier before a name; empty when there is
 /// none.
 pub(crate) type Namespace = Vec<Upper>;
 
 /// A qualified type or constructor name; upstream's `typeRef` and
 /// `ctorRef`.
-pub(crate) type UpperRef = (Namespace, Upper);
-
-/// A name an expression refers to; upstream's `varRef` is `Ref Namespace`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Ref<Ns = Namespace> {
-    Var(Ns, Lower),
-    Tag(Ns, Upper),
+pub(crate) struct UpperRef {
+    pub(crate) namespace: Namespace,
+    pub(crate) name: Upper,
+}
+
+/// A name an expression refers to; upstream's `varRef`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Ref {
+    Var(Namespace, Lower),
+    Tag(Namespace, Upper),
+    Op(Symbol),
+}
+
+/// The name a type annotation gives a type: upstream's `Ref ()`, which
+/// its parser makes only of these.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum AnnotatedName {
+    Var(Lower),
     Op(Symbol),
 }
 
@@ -66,31 +86,85 @@ pub(crate) struct Commented<C, T> {
     pub(crate) value: T,
 }
 
+/// `value` with `comments` around it; upstream's `C`.
+pub(crate) fn c<C, T>(comments: C, value: T) -> Commented<C, T> {
+    Commented { comments, value }
+}
+
+impl<C: Default, T> Commented<C, T> {
+    /// `value` with no comments around it.
+    pub(crate) fn bare(value: T) -> Self {
+        c(C::default(), value)
+    }
+}
+
+/// The comments before a value and those after it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Around {
+    pub(crate) before: Comments,
+    pub(crate) after: Comments,
+}
+
+impl Around {
+    pub(crate) fn new(before: Comments, after: Comments) -> Around {
+        Around { before, after }
+    }
+
+    /// Whether no comment is on either side.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.before.is_empty() && self.after.is_empty()
+    }
+}
+
+/// The comments before a value, and the `--` comment ending its line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BeforeEol {
+    pub(crate) before: Comments,
+    pub(crate) eol: Option<String>,
+}
+
+/// The comments before and after a value, and the `--` comment ending
+/// its line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AroundEol {
+    pub(crate) before: Comments,
+    pub(crate) after: Comments,
+    pub(crate) eol: Option<String>,
+}
+
+/// The comments of an item after a separator: before the separator,
+/// after it, and the `--` comment ending the item's line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SeparatorComments {
+    pub(crate) before_separator: Comments,
+    pub(crate) after_separator: Comments,
+    pub(crate) eol: Option<String>,
+}
+
 /// Comments on one side.
 pub(crate) type C1<T> = Commented<Comments, T>;
 /// Comments before and after.
-pub(crate) type C2<T> = Commented<(Comments, Comments), T>;
+pub(crate) type C2<T> = Commented<Around, T>;
 /// The `--` comment ending the value's line.
 pub(crate) type C0Eol<T> = Commented<Option<String>, T>;
-/// Comments on one side, and the `--` comment ending the value's line.
-pub(crate) type C1Eol<T> = Commented<(Comments, Option<String>), T>;
+/// Comments before, and the `--` comment ending the value's line.
+pub(crate) type C1Eol<T> = Commented<BeforeEol, T>;
 /// Comments before and after, and the `--` comment ending the value's
 /// line.
-pub(crate) type C2Eol<T> = Commented<(Comments, Comments, Option<String>), T>;
+pub(crate) type C2Eol<T> = Commented<AroundEol, T>;
 
-/// Items after separators, each with the comments before its separator,
-/// after it, and ending its line. Only a leading separator, which Elm
-/// lacks, would put comments before the first item.
+/// Items after separators, each with its comments. Only a leading
+/// separator, which Elm lacks, would put comments before the first item.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Sequence<T>(pub(crate) Vec<C2Eol<T>>);
+pub(crate) struct Sequence<T>(pub(crate) Vec<Commented<SeparatorComments, T>>);
 
-/// Items without delimiters around them, like a custom type's variants:
-/// all but the last with comments before and after, the last with
-/// comments before.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct OpenCommentedList<T> {
-    pub(crate) items: Vec<C2Eol<T>>,
-    pub(crate) last: C1Eol<T>,
+/// A custom type's variants, without delimiters around them: all but the
+/// last with comments before and after, the last with comments before;
+/// upstream's `OpenCommentedList`.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct OpenCommentedList {
+    pub(crate) items: Vec<C2Eol<NameWithArgs<Type>>>,
+    pub(crate) last: C1Eol<NameWithArgs<Type>>,
 }
 
 /// Set when the source breaks a line inside the construct, which keeps
@@ -100,9 +174,9 @@ pub(crate) struct ForceMultiline(pub(crate) bool);
 
 /// `key = value` or `key : value`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Pair<K, V> {
+pub(crate) struct Pair<V> {
     /// Comments after the key.
-    pub(crate) key: C1<K>,
+    pub(crate) key: C1<Lower>,
     /// Comments before the value.
     pub(crate) value: C1<V>,
     pub(crate) force_multiline: ForceMultiline,
@@ -133,10 +207,11 @@ pub(crate) enum Assoc {
     Right,
 }
 
-/// A name and its arguments, each with comments before it.
+/// A type's name and its arguments, each with comments before it: the
+/// parameters of a type it declares, or the types a variant holds.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct NameWithArgs<N, A> {
-    pub(crate) name: N,
+pub(crate) struct NameWithArgs<A> {
+    pub(crate) name: Upper,
     pub(crate) args: Vec<C1<A>>,
 }
 
@@ -195,24 +270,27 @@ pub(crate) enum LiteralValue {
     Bool(bool),
 }
 
-/// Upstream's `UnaryOperator`; Elm has only negation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum UnaryOperator {
-    Negative,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Expr {
     /// `()`, with the comments inside.
     Unit(Comments),
     Literal(LiteralValue),
     Var(Ref),
-    /// The function, its arguments with comments before each, and how it
-    /// breaks.
-    App(Box<Expr>, Vec<C1<Expr>>, ApplicationMultiline),
-    Unary(UnaryOperator, Box<Expr>),
-    /// The first operand, then at least one clause; multiline.
-    Binops(Box<Expr>, Vec<BinopsClause>, bool),
+    App {
+        function: Box<Expr>,
+        /// Each with the comments before it.
+        args: Vec<C1<Expr>>,
+        multiline: ApplicationMultiline,
+    },
+    /// `-expr`; upstream's `Unary Negative`, as Elm has no other unary
+    /// operator.
+    Negate(Box<Expr>),
+    /// The first operand, then at least one clause.
+    Binops {
+        first: Box<Expr>,
+        clauses: Vec<BinopsClause>,
+        multiline: ForceMultiline,
+    },
     Parens(Box<C2<Expr>>),
     List {
         terms: Sequence<Expr>,
@@ -220,17 +298,20 @@ pub(crate) enum Expr {
         trailing: Comments,
         force_multiline: ForceMultiline,
     },
-    /// `[a..b]`, which Elm 0.19 rejects and elm-format still formats;
-    /// multiline.
-    Range(Box<C2<Expr>>, Box<C2<Expr>>, bool),
-    /// Two or more elements; multiline.
-    Tuple(Vec<C2<Expr>>, bool),
+    /// `[low..high]`, which Elm 0.19 rejects and elm-format still
+    /// formats.
+    Range {
+        low: Box<C2<Expr>>,
+        high: Box<C2<Expr>>,
+    },
+    /// Two or more elements.
+    Tuple(Vec<C2<Expr>>, ForceMultiline),
     /// `(,)` and longer; the number of elements.
     TupleFunction(usize),
     Record {
         /// The record a `{ base | … }` updates.
         base: Option<C2<Lower>>,
-        fields: Sequence<Pair<Lower, Expr>>,
+        fields: Sequence<Pair<Expr>>,
         /// Comments before `}`.
         trailing: Comments,
         force_multiline: ForceMultiline,
@@ -239,17 +320,34 @@ pub(crate) enum Expr {
     Access(Box<Expr>, Lower),
     /// `.field`.
     AccessFunction(Lower),
-    /// The arguments with comments before each, comments before `->`, the
-    /// body, and multiline.
-    Lambda(Vec<C1<Pattern>>, Comments, Box<Expr>, bool),
-    /// The first clause, each `else if` with comments before it, and the
-    /// `else` body with comments before it.
-    If(Box<IfClause>, Vec<C1<IfClause>>, Box<C1<Expr>>),
-    /// The declarations, comments after `in`, and the body.
-    Let(Vec<LetDeclaration>, Comments, Box<Expr>),
-    /// The subject with comments around it, whether `case … of` breaks,
-    /// and the branches.
-    Case(Box<C2<Expr>>, bool, Vec<CaseBranch>),
+    Lambda {
+        /// Each with the comments before it.
+        args: Vec<C1<Pattern>>,
+        /// The comments before `->` and after it.
+        before_body: Comments,
+        body: Box<Expr>,
+        multiline: ForceMultiline,
+    },
+    If {
+        first: Box<IfClause>,
+        /// Each `else if`, with the comments before it.
+        else_ifs: Vec<C1<IfClause>>,
+        /// The `else` body, with the comments before it.
+        else_body: Box<C1<Expr>>,
+    },
+    Let {
+        declarations: Vec<LetDeclaration>,
+        /// The comments after `in`.
+        before_body: Comments,
+        body: Box<Expr>,
+    },
+    Case {
+        /// With the comments around it.
+        subject: Box<C2<Expr>>,
+        /// Whether `case … of` breaks.
+        multiline: ForceMultiline,
+        branches: Vec<CaseBranch>,
+    },
     /// `[glsl| … |]`, the source between the delimiters.
     GlShader(String),
 }
@@ -299,15 +397,19 @@ pub(crate) enum Type {
     /// `()`, with the comments inside.
     Unit(Comments),
     Variable(Lower),
-    /// A constructor and its arguments, with comments before each.
-    Construction(TypeConstructor, Vec<C1<Type>>, ForceMultiline),
+    Construction {
+        ctor: TypeConstructor,
+        /// Each with the comments before it.
+        args: Vec<C1<Type>>,
+        force_multiline: ForceMultiline,
+    },
     Parens(Box<C2<Type>>),
     /// Two or more elements.
     Tuple(Vec<C2Eol<Type>>, ForceMultiline),
     Record {
         /// The variable a `{ base | … }` extends.
         base: Option<C2<Lower>>,
-        fields: Sequence<Pair<Lower, Type>>,
+        fields: Sequence<Pair<Type>>,
         /// Comments before `}`.
         trailing: Comments,
         force_multiline: ForceMultiline,
@@ -323,12 +425,23 @@ pub(crate) enum Type {
 /// What may appear both at the top level and in a `let`.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum CommonDeclaration {
-    /// The name or pattern, the arguments with comments before each,
-    /// comments before `=`, and the body.
-    Definition(Pattern, Vec<C1<Pattern>>, Comments, Expr),
-    /// The name with comments after it, and the type with comments before
-    /// it.
-    TypeAnnotation(C1<Ref<()>>, C1<Type>),
+    /// `name args = body`.
+    Definition {
+        /// The name, or the pattern a destructuring binds.
+        name: Pattern,
+        /// Each with the comments before it.
+        args: Vec<C1<Pattern>>,
+        /// The comments before `=` and after it.
+        before_body: Comments,
+        body: Expr,
+    },
+    /// `name : type`.
+    TypeAnnotation {
+        /// With the comments after it.
+        name: C1<AnnotatedName>,
+        /// With the comments before it.
+        ty: C1<Type>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -343,25 +456,52 @@ pub(crate) enum Declaration {
     Common(CommonDeclaration),
     /// `type Name args = variants`.
     Datatype {
-        name_with_args: C2<NameWithArgs<Upper, Lower>>,
-        variants: OpenCommentedList<NameWithArgs<Upper, Type>>,
+        name_with_args: C2<NameWithArgs<Lower>>,
+        variants: OpenCommentedList,
     },
-    /// Comments after `alias`, the name and arguments with comments
-    /// around them, and the type with comments before it.
-    TypeAlias(Comments, C2<NameWithArgs<Upper, Lower>>, C1<Type>),
-    /// The name with comments around it, comments after `:`, and the type.
-    PortAnnotation(C2<Lower>, Comments, Type),
-    /// Elm 0.16's `port name = expr`: the name with comments around it,
-    /// comments after `=`, and the value; upstream's
+    /// `type alias Name args = type`.
+    TypeAlias {
+        /// The comments between `type` and `alias`.
+        before_alias: Comments,
+        /// With the comments around it.
+        name_with_args: C2<NameWithArgs<Lower>>,
+        /// With the comments before it.
+        ty: C1<Type>,
+    },
+    /// `port name : type`.
+    PortAnnotation {
+        /// With the comments around it.
+        name: C2<Lower>,
+        /// The comments after `:`.
+        before_type: Comments,
+        ty: Type,
+    },
+    /// Elm 0.16's `port name = expr`; upstream's
     /// `PortDefinition_until_0_16`.
-    PortDefinition(C2<Lower>, Comments, Expr),
-    /// `infix left 6 (+) = add`, each part with comments before it, and
-    /// after the operator.
-    Fixity(C1<Assoc>, C1<i64>, C2<Symbol>, C1<Lower>),
-    /// Elm 0.18's `infixl 6 +`, with comments before the precedence and
-    /// before the operator, a symbol or a backticked function; upstream's
-    /// `Fixity_until_0_18`.
-    LegacyFixity(Assoc, Comments, i64, Comments, Symbol),
+    PortDefinition {
+        /// With the comments around it.
+        name: C2<Lower>,
+        /// The comments after `=`.
+        before_body: Comments,
+        body: Expr,
+    },
+    /// `infix left 6 (+) = add`, each part with the comments before it.
+    Fixity {
+        assoc: C1<Assoc>,
+        precedence: C1<i64>,
+        /// With the comments after it too.
+        op: C2<Symbol>,
+        function: C1<Lower>,
+    },
+    /// Elm 0.18's `infixl 6 +`, whose operator is a symbol or a
+    /// backticked function; upstream's `Fixity_until_0_18`.
+    LegacyFixity {
+        assoc: Assoc,
+        before_precedence: Comments,
+        precedence: i64,
+        before_op: Comments,
+        op: Symbol,
+    },
 }
 
 /// An entry at the top level, or a comment between them.
@@ -399,9 +539,9 @@ pub(crate) type CommentedMap<K, V> = BTreeMap<K, C2<V>>;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Listing<T> {
     /// The items, and whether the source breaks the list.
-    Explicit(T, bool),
+    Explicit(T, ForceMultiline),
     /// `(..)`, with the comments inside.
-    Open(Comments, Comments),
+    Open(Around),
     /// Nothing exposed, as with an `import` that has no `exposing`.
     Closed,
 }
@@ -435,15 +575,19 @@ pub(crate) enum SourceTag {
     Port(Comments),
 }
 
-/// An effect module's `where { command = MyCmd, … }`.
-pub(crate) type SourceSettings = Vec<(C2<Lower>, C2<Upper>)>;
+/// One of an effect module's `where { command = MyCmd, … }`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SourceSetting {
+    pub(crate) key: C2<Lower>,
+    pub(crate) value: C2<Upper>,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Header {
     pub(crate) source_tag: SourceTag,
     pub(crate) name: C2<Namespace>,
     /// Comments before and after `where`'s settings.
-    pub(crate) settings: Option<C2<SourceSettings>>,
+    pub(crate) settings: Option<C2<Vec<SourceSetting>>>,
     /// Comments before and after `exposing`.
     pub(crate) exports: Option<C2<Listing<DetailedListing>>>,
 }
@@ -456,6 +600,15 @@ pub(crate) struct ImportMethod {
     pub(crate) exposed: C2<Listing<DetailedListing>>,
 }
 
+/// Where a module's imports of one module go: by name, then group, as
+/// imports of one module stay apart where merging them would lose a
+/// qualifier the module uses.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct ImportKey {
+    pub(crate) module: Namespace,
+    pub(crate) group: usize,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Module {
     /// Comments before the header.
@@ -465,9 +618,7 @@ pub(crate) struct Module {
     /// The module's doc comment.
     pub(crate) docs: Option<Docs>,
     /// One per module, merged and sorted, with comments before each, and
-    /// comments before them all; keyed by name, then group, as imports of
-    /// one module stay apart where merging them would lose a qualifier
-    /// the module uses.
-    pub(crate) imports: C1<BTreeMap<(Namespace, usize), C1<ImportMethod>>>,
+    /// comments before them all.
+    pub(crate) imports: C1<BTreeMap<ImportKey, C1<ImportMethod>>>,
     pub(crate) body: Vec<TopLevelStructure<Declaration>>,
 }

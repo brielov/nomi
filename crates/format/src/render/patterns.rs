@@ -1,13 +1,13 @@
 //! Patterns; upstream's `formatPattern`.
 
-use crate::block::{Block, Line};
-use crate::structure::{application, group};
-use crate::tree::{ApplicationMultiline, Multiline, Pattern};
+use crate::tree::{ApplicationMultiline, C2, ForceMultiline, Multiline, Pattern};
 
 use super::SyntaxContext::{SpaceSeparated, SyntaxSeparated};
+use super::block::{Block, Line};
+use super::structure::{Delimiters, application, group};
 use super::{
-    BinaryOp, SyntaxContext, binary, c2, c2_eol, eol_commented, literal::literal, name, parens,
-    pre_commented, syntax_parens, tail_commented, unit, upper_ref,
+    BinaryOp, SyntaxContext, binary, c2, c2_eol, eol_commented, literal::literal, name, operator,
+    parens, pre_commented, syntax_parens, tail_commented, text, unit, upper_ref,
 };
 
 /// `pattern` as an argument or an operand: in parentheses unless it is
@@ -21,13 +21,9 @@ pub(super) fn pattern_alone(pattern: &Pattern) -> Block {
     syntax_parens(SyntaxSeparated, format_pattern(pattern))
 }
 
-fn text(text: impl Into<String>) -> Block {
-    Block::line(Line::text(text))
-}
-
 /// Upstream's `formatPattern`.
 pub(super) fn format_pattern(pattern: &Pattern) -> (SyntaxContext, Block) {
-    crate::guarded(|| format_pattern_unguarded(pattern))
+    nomi_base::grow_large(|| format_pattern_unguarded(pattern))
 }
 
 fn format_pattern_unguarded(pattern: &Pattern) -> (SyntaxContext, Block) {
@@ -36,23 +32,28 @@ fn format_pattern_unguarded(pattern: &Pattern) -> (SyntaxContext, Block) {
         Pattern::Unit(comments) => (SyntaxSeparated, unit('(', ')', comments)),
         Pattern::Literal(value) => (SyntaxSeparated, literal(value)),
         Pattern::Var(var) => (SyntaxSeparated, Block::line(name(&var.0))),
-        Pattern::Op(op) => (SyntaxSeparated, text(format!("({})", op.0))),
+        Pattern::Op(op) => (SyntaxSeparated, Block::line(operator(op))),
         Pattern::Cons { first, rest } => {
             let left = eol_commented(first.comments.as_deref(), pattern_argument(&first.value));
             let ops = rest
                 .0
                 .iter()
                 .map(|item| {
-                    let (pre_op, post_op, eol) = &item.comments;
+                    let around = &item.comments;
                     BinaryOp {
                         left_pipe: false,
-                        comments: pre_op,
+                        comments: &around.before_separator,
                         op: text("::"),
-                        next: c2_eol(post_op, &[], eol.as_deref(), pattern_argument(&item.value)),
+                        next: c2_eol(
+                            &around.after_separator,
+                            &[],
+                            around.eol.as_deref(),
+                            pattern_argument(&item.value),
+                        ),
                     }
                 })
                 .collect();
-            (SpaceSeparated, binary(false, left, ops))
+            (SpaceSeparated, binary(ForceMultiline(false), left, ops))
         }
         Pattern::Data(ctor, args) if args.is_empty() => {
             (SyntaxSeparated, Block::line(upper_ref(ctor)))
@@ -72,16 +73,22 @@ fn format_pattern_unguarded(pattern: &Pattern) -> (SyntaxContext, Block) {
             )
         }
         Pattern::Parens(inner) => (SyntaxSeparated, parens(c2(inner, pattern_alone))),
-        Pattern::Tuple(items) => (SyntaxSeparated, delimited("(", ")", items)),
+        Pattern::Tuple(items) => (SyntaxSeparated, delimited(Delimiters::PADDED_PARENS, items)),
         Pattern::EmptyList(comments) => (SyntaxSeparated, unit('[', ']', comments)),
-        Pattern::List(items) => (SyntaxSeparated, delimited("[", "]", items)),
+        Pattern::List(items) => (
+            SyntaxSeparated,
+            delimited(Delimiters::PADDED_BRACKETS, items),
+        ),
         Pattern::EmptyRecord(comments) => (SyntaxSeparated, unit('{', '}', comments)),
         Pattern::Record(fields) => {
             let fields = fields
                 .iter()
                 .map(|f| c2(f, |field| Block::line(name(&field.0))))
                 .collect();
-            (SyntaxSeparated, group(true, "{", ",", "}", false, fields))
+            (
+                SyntaxSeparated,
+                group(Delimiters::PADDED_BRACES, ForceMultiline(false), fields),
+            )
         }
         Pattern::Alias(pattern, alias) => {
             let pattern = tail_commented(pattern_argument(&pattern.value), &pattern.comments);
@@ -101,9 +108,9 @@ fn format_pattern_unguarded(pattern: &Pattern) -> (SyntaxContext, Block) {
     }
 }
 
-fn delimited(left: &str, right: &str, items: &[crate::tree::C2<Pattern>]) -> Block {
+fn delimited(delimiters: Delimiters, items: &[C2<Pattern>]) -> Block {
     let items = items.iter().map(|i| c2(i, pattern_alone)).collect();
-    group(true, left, ",", right, false, items)
+    group(delimiters, ForceMultiline(false), items)
 }
 
 #[cfg(test)]

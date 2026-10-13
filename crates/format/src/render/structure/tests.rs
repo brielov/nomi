@@ -1,11 +1,11 @@
 //! Upstream's `ElmStructureTest`, and each layout's other cases.
 
+use super::super::text as word;
 use super::*;
 use crate::tree::{ApplicationMultiline::*, Multiline::*};
 
-fn word(text: &str) -> Block {
-    Block::line(Line::text(text))
-}
+const FORCED: ForceMultiline = ForceMultiline(true);
+const FREE: ForceMultiline = ForceMultiline(false);
 
 /// Two lines, each `text` twice.
 fn block(text: &str) -> Block {
@@ -18,7 +18,7 @@ fn comment(text: &str) -> Block {
 }
 
 fn words(texts: &[&str]) -> Vec<Block> {
-    texts.iter().map(|t| word(t)).collect()
+    texts.iter().map(|&t| word(t)).collect()
 }
 
 #[test]
@@ -49,65 +49,51 @@ fn applications() {
 
 #[test]
 fn groups() {
-    assert_eq!(group(true, "(", ",", ")", false, vec![]).render(), "()\n");
-    assert_eq!(group(true, "(", ",", ")", true, vec![]).render(), "()\n");
+    let padded = Delimiters::PADDED_PARENS;
+    assert_eq!(group(padded, FREE, vec![]).render(), "()\n");
+    assert_eq!(group(padded, FORCED, vec![]).render(), "()\n");
+    assert_eq!(group(padded, FREE, words(&["foo"])).render(), "( foo )\n");
     assert_eq!(
-        group(true, "(", ",", ")", false, words(&["foo"])).render(),
-        "( foo )\n"
-    );
-    assert_eq!(
-        group(true, "(", ",", ")", false, words(&["foo", "bar"])).render(),
+        group(padded, FREE, words(&["foo", "bar"])).render(),
         "( foo, bar )\n"
     );
     assert_eq!(
-        group(false, "(", ",", ")", false, words(&["foo", "bar"])).render(),
+        group(Delimiters::PARENS, FREE, words(&["foo", "bar"])).render(),
         "(foo, bar)\n"
     );
     assert_eq!(
-        group(
-            true,
-            "(",
-            ",",
-            ")",
-            false,
-            vec![block("a"), word("b"), block("c")]
-        )
-        .render(),
+        group(Delimiters::NONE, FREE, words(&["foo", "bar"])).render(),
+        "foo, bar\n"
+    );
+    assert_eq!(
+        group(padded, FREE, vec![block("a"), word("b"), block("c")]).render(),
         "( aa\n  aa\n, b\n, cc\n  cc\n)\n"
     );
     assert_eq!(
-        group(true, "(", ",", ")", true, words(&["a", "b", "c"])).render(),
+        group(padded, FORCED, words(&["a", "b", "c"])).render(),
         "( a\n, b\n, c\n)\n"
     );
 }
 
 #[test]
 fn groups_with_footers() {
+    let padded = Delimiters::PADDED_PARENS;
     let footer = || vec![word("{-c-}")];
     assert_eq!(
-        group_with_footer(true, "(", ",", footer(), ")", false, vec![]).render(),
+        group_with_footer(padded, footer(), FREE, vec![]).render(),
         "({-c-})\n"
     );
     assert_eq!(
-        group_with_footer(true, "(", ",", footer(), ")", false, words(&["a", "b"])).render(),
+        group_with_footer(padded, footer(), FREE, words(&["a", "b"])).render(),
         "( a, b {-c-} )\n"
     );
     assert_eq!(
-        group_with_footer(
-            true,
-            "(",
-            ",",
-            vec![comment("c")],
-            ")",
-            false,
-            words(&["a"])
-        )
-        .render(),
+        group_with_footer(padded, vec![comment("c")], FREE, words(&["a"])).render(),
         "( a\n-- c\n)\n"
     );
     // Upstream drops a multiline footer when there are no children.
     assert_eq!(
-        group_with_footer(true, "(", ",", vec![comment("c")], ")", false, vec![]).render(),
+        group_with_footer(padded, vec![comment("c")], FREE, vec![]).render(),
         "()\n"
     );
 }
@@ -119,7 +105,7 @@ fn space_separated() {
         "a b c\n"
     );
     assert_eq!(
-        forceable_space_sep_or_stack(true, word("a"), words(&["b"])).render(),
+        forceable_space_sep_or_stack(FORCED, word("a"), words(&["b"])).render(),
         "a\nb\n"
     );
     assert_eq!(
@@ -127,11 +113,11 @@ fn space_separated() {
         "-- a\nb\n"
     );
     assert_eq!(
-        forceable_row_or_stack(false, word("a"), words(&["b"])).render(),
+        forceable_row_or_stack(FREE, word("a"), words(&["b"])).render(),
         "ab\n"
     );
     assert_eq!(
-        forceable_space_sep_or_stack1(false, words(&["a", "b"])).render(),
+        forceable_space_sep_or_stack1(FREE, words(&["a", "b"])).render(),
         "a b\n"
     );
     assert_eq!(
@@ -175,35 +161,45 @@ fn prefixed() {
 #[test]
 fn equals_pairs() {
     assert_eq!(
-        equals_pair("=", false, word("a"), word("b")).render(),
+        equals_pair("=", FREE, word("a"), word("b")).render(),
         "a = b\n"
     );
     assert_eq!(
-        equals_pair("=", true, word("a"), word("b")).render(),
+        equals_pair("=", FORCED, word("a"), word("b")).render(),
         "a =\n    b\n"
     );
     assert_eq!(
-        equals_pair("=", true, word("a"), comment("b")).render(),
+        equals_pair("=", FORCED, word("a"), comment("b")).render(),
         "a = -- b\n"
     );
     assert_eq!(
-        equals_pair(":", false, block("a"), word("b")).render(),
+        equals_pair(":", FREE, block("a"), word("b")).render(),
         "aa\naa\n    :\n    b\n"
     );
     assert_eq!(
-        definition("=", false, word("f"), words(&["x", "y"]), word("x")).render(),
-        "f x y = x\n"
+        definition(
+            DefinitionKind::Annotation,
+            word("f"),
+            words(&["x", "y"]),
+            word("x")
+        )
+        .render(),
+        "f x y : x\n"
+    );
+    assert_eq!(
+        definition(DefinitionKind::Value, word("f"), words(&["x"]), word("x")).render(),
+        "f x =\n    x\n"
     );
 }
 
 #[test]
 fn extension_groups() {
     assert_eq!(
-        extension_group_fields(false, word("r"), word("| a")).render(),
+        extension_group_fields(FREE, word("r"), word("| a")).render(),
         "{ r | a }\n"
     );
     assert_eq!(
-        extension_group_fields(false, word("r"), block("a")).render(),
+        extension_group_fields(FREE, word("r"), block("a")).render(),
         "{ r\n    aa\n    aa\n}\n"
     );
 }

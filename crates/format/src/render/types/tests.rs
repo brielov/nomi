@@ -1,18 +1,17 @@
 //! Expected outputs are elm-format 0.8.8's, for `x : <type>`.
 
-use crate::block::{Block, Line};
 use crate::lower::type_fragment;
-use crate::structure::definition;
 
+use super::super::structure::{DefinitionKind, definition};
+use super::super::text;
 use super::type_alone;
 
-/// `x : text`, as upstream's `formatTypeAnnotation` lays it out.
-fn annotation(text: &str) -> String {
-    let ty = type_fragment(text);
+/// `x : source`, as upstream's `formatTypeAnnotation` lays it out.
+fn annotation(source: &str) -> String {
+    let ty = type_fragment(source);
     let block = definition(
-        ":",
-        false,
-        Block::line(Line::text("x")),
+        DefinitionKind::Annotation,
+        text("x"),
         Vec::new(),
         type_alone(&ty),
     );

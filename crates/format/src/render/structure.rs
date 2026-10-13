@@ -3,15 +3,14 @@
 //! when they are all single lines and nothing forces a break, and stacks
 //! them otherwise.
 
-use crate::block::{Block, Line};
-use crate::tree::{ApplicationMultiline, Multiline};
-
-fn punc(text: &str) -> Line {
-    Line::text(text)
-}
+use super::block::{Block, Line};
+use crate::tree::{ApplicationMultiline, ForceMultiline, Multiline};
 
 /// `lines` with `separator` between each two.
-fn intersperse(lines: impl IntoIterator<Item = Line>, separator: impl Fn() -> Line) -> Line {
+pub(super) fn intersperse(
+    lines: impl IntoIterator<Item = Line>,
+    separator: impl Fn() -> Line,
+) -> Line {
     let mut row = Line::default();
     for (i, line) in lines.into_iter().enumerate() {
         if i > 0 {
@@ -20,6 +19,17 @@ fn intersperse(lines: impl IntoIterator<Item = Line>, separator: impl Fn() -> Li
         row.push(line);
     }
     row
+}
+
+/// `items` with `separator()` between each two.
+pub(super) fn interleave<T>(
+    items: impl IntoIterator<Item = T>,
+    mut separator: impl FnMut() -> T,
+) -> impl Iterator<Item = T> {
+    items
+        .into_iter()
+        .enumerate()
+        .flat_map(move |(i, item)| (i > 0).then(&mut separator).into_iter().chain([item]))
 }
 
 fn all_lines(blocks: &[Block]) -> bool {
@@ -34,13 +44,13 @@ fn lines(blocks: Vec<Block>) -> Vec<Line> {
 /// all are single lines, or stacks them. The first item is the parts, in
 /// order.
 fn joined_or(
-    force: bool,
+    force: ForceMultiline,
     first: Block,
     rest: Vec<Block>,
     join: impl Fn(Vec<Line>) -> Line,
     stack: impl FnOnce(Block, Vec<Block>) -> Block,
 ) -> Block {
-    if !force && first.is_line() && all_lines(&rest) {
+    if !force.0 && first.is_line() && all_lines(&rest) {
         let mut parts = lines(vec![first]);
         parts.extend(lines(rest));
         return Block::line(join(parts));
@@ -55,11 +65,15 @@ fn joined_or(
 /// rest0
 /// rest1
 /// ```
-pub(crate) fn space_sep_or_stack(first: Block, rest: Vec<Block>) -> Block {
-    forceable_space_sep_or_stack(false, first, rest)
+pub(super) fn space_sep_or_stack(first: Block, rest: Vec<Block>) -> Block {
+    forceable_space_sep_or_stack(ForceMultiline(false), first, rest)
 }
 
-pub(crate) fn forceable_space_sep_or_stack(force: bool, first: Block, rest: Vec<Block>) -> Block {
+pub(super) fn forceable_space_sep_or_stack(
+    force: ForceMultiline,
+    first: Block,
+    rest: Vec<Block>,
+) -> Block {
     joined_or(
         force,
         first,
@@ -70,7 +84,11 @@ pub(crate) fn forceable_space_sep_or_stack(force: bool, first: Block, rest: Vec<
 }
 
 /// As `forceable_space_sep_or_stack`, without the spaces.
-pub(crate) fn forceable_row_or_stack(force: bool, first: Block, rest: Vec<Block>) -> Block {
+pub(super) fn forceable_row_or_stack(
+    force: ForceMultiline,
+    first: Block,
+    rest: Vec<Block>,
+) -> Block {
     joined_or(force, first, rest, Line::row, |first, rest| {
         Block::stack1(std::iter::once(first).chain(rest))
     })
@@ -78,7 +96,7 @@ pub(crate) fn forceable_row_or_stack(force: bool, first: Block, rest: Vec<Block>
 
 /// As `forceable_space_sep_or_stack`, from one list. Panics on an empty
 /// one, as upstream errors.
-pub(crate) fn forceable_space_sep_or_stack1(force: bool, blocks: Vec<Block>) -> Block {
+pub(super) fn forceable_space_sep_or_stack1(force: ForceMultiline, blocks: Vec<Block>) -> Block {
     let mut blocks = blocks.into_iter();
     let first = blocks
         .next()
@@ -94,12 +112,12 @@ pub(crate) fn forceable_space_sep_or_stack1(force: bool, blocks: Vec<Block>) -> 
 ///     rest1
 ///     rest2
 /// ```
-pub(crate) fn space_sep_or_indented(first: Block, rest: Vec<Block>) -> Block {
-    forceable_space_sep_or_indented(false, first, rest)
+pub(super) fn space_sep_or_indented(first: Block, rest: Vec<Block>) -> Block {
+    forceable_space_sep_or_indented(ForceMultiline(false), first, rest)
 }
 
-pub(crate) fn forceable_space_sep_or_indented(
-    force: bool,
+pub(super) fn forceable_space_sep_or_indented(
+    force: ForceMultiline,
     first: Block,
     rest: Vec<Block>,
 ) -> Block {
@@ -123,7 +141,7 @@ pub(crate) fn forceable_space_sep_or_indented(
 /// opLong
 ///     rest
 /// ```
-pub(crate) fn space_sep_or_prefix(op: Block, rest: Block) -> Block {
+pub(super) fn space_sep_or_prefix(op: Block, rest: Block) -> Block {
     match (op, rest) {
         (Block::SingleLine(op), Block::SingleLine(rest)) => {
             Block::line(Line::row([op, Line::space(), rest]))
@@ -141,7 +159,7 @@ pub(crate) fn space_sep_or_prefix(op: Block, rest: Block) -> Block {
 /// a
 ///     b
 /// ```
-pub(crate) fn prefix_or_indented(a: Block, b: Block) -> Block {
+pub(super) fn prefix_or_indented(a: Block, b: Block) -> Block {
     match (a, b) {
         (Block::SingleLine(a), Block::SingleLine(b)) => {
             Block::line(Line::row([a, Line::space(), b]))
@@ -163,34 +181,49 @@ pub(crate) fn prefix_or_indented(a: Block, b: Block) -> Block {
 ///     =
 ///     right
 /// ```
-pub(crate) fn equals_pair(symbol: &str, force: bool, left: Block, right: Block) -> Block {
+pub(super) fn equals_pair(symbol: &str, force: ForceMultiline, left: Block, right: Block) -> Block {
     match (left, right) {
-        (Block::SingleLine(left), Block::SingleLine(right)) if !force => Block::line(Line::row([
-            left,
-            Line::space(),
-            punc(symbol),
-            Line::space(),
-            right,
-        ])),
+        (Block::SingleLine(left), Block::SingleLine(right)) if !force.0 => {
+            Block::line(Line::row([
+                left,
+                Line::space(),
+                Line::text(symbol),
+                Line::space(),
+                right,
+            ]))
+        }
         (Block::SingleLine(left), Block::MustBreak(right)) => Block::must_break(Line::row([
             left,
             Line::space(),
-            punc(symbol),
+            Line::text(symbol),
             Line::space(),
             right,
         ])),
         (Block::SingleLine(left), right) => Block::stack1([
-            Block::line(Line::row([left, Line::space(), punc(symbol)])),
+            Block::line(Line::row([left, Line::space(), Line::text(symbol)])),
             right.indent(),
         ]),
-        (left, right) => Block::stack1([left, Block::line(punc(symbol)).indent(), right.indent()]),
+        (left, right) => Block::stack1([
+            left,
+            Block::line(Line::text(symbol)).indent(),
+            right.indent(),
+        ]),
     }
 }
 
+/// What a definition gives its name: a value, which goes below the `=`
+/// whenever it can, or a type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DefinitionKind {
+    /// `name = value`.
+    Value,
+    /// `name : type`.
+    Annotation,
+}
+
 /// An `equals_pair` whose left side is an application.
-pub(crate) fn definition(
-    symbol: &str,
-    force: bool,
+pub(super) fn definition(
+    kind: DefinitionKind,
     first: Block,
     rest: Vec<Block>,
     right: Block,
@@ -200,7 +233,10 @@ pub(crate) fn definition(
         first,
         rest,
     );
-    equals_pair(symbol, force, left, right)
+    match kind {
+        DefinitionKind::Value => equals_pair("=", ForceMultiline(true), left, right),
+        DefinitionKind::Annotation => equals_pair(":", ForceMultiline(false), left, right),
+    }
 }
 
 /// ```text
@@ -215,7 +251,7 @@ pub(crate) fn definition(
 ///     rest1
 ///     rest2
 /// ```
-pub(crate) fn application(
+pub(super) fn application(
     multiline: ApplicationMultiline,
     first: Block,
     args: Vec<Block>,
@@ -246,88 +282,116 @@ pub(crate) fn application(
     }
 }
 
-/// `group(true, "<", ";", ">", …)` formats as:
+/// What a `group` stands between, and whether spaces pad its inside.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Delimiters {
+    left: &'static str,
+    right: &'static str,
+    padded: bool,
+}
+
+impl Delimiters {
+    /// `( a, b )`.
+    pub(super) const PADDED_PARENS: Delimiters = Delimiters {
+        left: "(",
+        right: ")",
+        padded: true,
+    };
+    /// `[ a, b ]`.
+    pub(super) const PADDED_BRACKETS: Delimiters = Delimiters {
+        left: "[",
+        right: "]",
+        padded: true,
+    };
+    /// `{ a, b }`.
+    pub(super) const PADDED_BRACES: Delimiters = Delimiters {
+        left: "{",
+        right: "}",
+        padded: true,
+    };
+    /// `(a, b)`.
+    pub(super) const PARENS: Delimiters = Delimiters {
+        left: "(",
+        right: ")",
+        padded: false,
+    };
+    /// `a, b`.
+    pub(super) const NONE: Delimiters = Delimiters {
+        left: "",
+        right: "",
+        padded: false,
+    };
+}
+
+/// `group(Delimiters::PADDED_PARENS, …)` formats as:
 ///
 /// ```text
-/// <>
+/// ()
 ///
-/// < child0 >
+/// ( child0 )
 ///
-/// < child0; child1; child2 >
+/// ( child0, child1, child2 )
 ///
-/// < child0
-/// ; child1
-/// ; child2
-/// >
+/// ( child0
+/// , child1
+/// , child2
+/// )
 /// ```
-pub(crate) fn group(
-    inner_spaces: bool,
-    left: &str,
-    separator: &str,
-    right: &str,
-    force: bool,
-    children: Vec<Block>,
-) -> Block {
-    group_with_footer(
-        inner_spaces,
-        left,
-        separator,
-        Vec::new(),
-        right,
-        force,
-        children,
-    )
+pub(super) fn group(delimiters: Delimiters, force: ForceMultiline, children: Vec<Block>) -> Block {
+    group_with_footer(delimiters, Vec::new(), force, children)
 }
 
 /// A `group` whose `footer` follows the children: after a space, or
-/// stacked before `right`. Upstream's `group'`, which joins the footer
-/// like a child, `(x, {- c -})`, so a module line doesn't parse; nomi
-/// deviates (`DECISIONS.md`).
-pub(crate) fn group_with_footer(
-    inner_spaces: bool,
-    left: &str,
-    separator: &str,
+/// stacked before the right delimiter. Upstream's `group'`, which joins
+/// the footer like a child, `(x, {- c -})`, so a module line doesn't
+/// parse; nomi deviates (`DECISIONS.md`).
+pub(super) fn group_with_footer(
+    delimiters: Delimiters,
     footer: Vec<Block>,
-    right: &str,
-    force: bool,
+    force: ForceMultiline,
     children: Vec<Block>,
 ) -> Block {
+    let Delimiters {
+        left,
+        right,
+        padded,
+    } = delimiters;
     let singles = all_lines(&children) && all_lines(&footer);
     if singles && children.is_empty() {
         return Block::line(Line::row(
-            std::iter::once(punc(left))
+            std::iter::once(Line::text(left))
                 .chain(lines(footer))
-                .chain([punc(right)]),
+                .chain([Line::text(right)]),
         ));
     }
-    if singles && !force {
-        let mut row = punc(left);
-        if inner_spaces {
+    if singles && !force.0 {
+        let mut row = Line::text(left);
+        if padded {
             row.push(Line::space());
         }
         row.push(intersperse(lines(children), || {
-            Line::row([punc(separator), Line::space()])
+            Line::row([Line::text(","), Line::space()])
         }));
         for line in lines(footer) {
             row.push(Line::space());
             row.push(line);
         }
-        if inner_spaces {
+        if padded {
             row.push(Line::space());
         }
-        row.push(punc(right));
+        row.push(Line::text(right));
         return Block::line(row);
     }
     let mut children = children.into_iter();
     let Some(first) = children.next() else {
         // Upstream drops the footer here, and notes it may never happen.
-        return Block::line(Line::row([punc(left), punc(right)]));
+        return Block::line(Line::row([Line::text(left), Line::text(right)]));
     };
     Block::stack1(
-        std::iter::once(first.prefix(&Line::row([punc(left), Line::space()])))
-            .chain(children.map(|c| c.prefix(&Line::row([punc(separator), Line::space()]))))
+        std::iter::once(first.prefix(&Line::row([Line::text(left), Line::space()])))
+            .chain(children.map(|c| c.prefix(&Line::row([Line::text(","), Line::space()]))))
             .chain(footer)
-            .chain([Block::line(punc(right))]),
+            .chain([Block::line(Line::text(right))]),
     )
 }
 
@@ -342,15 +406,22 @@ pub(crate) fn group_with_footer(
 ///
 /// The fields come already joined, `|` and `,` in place. Upstream's
 /// `extensionGroup'`.
-pub(crate) fn extension_group_fields(multiline: bool, base: Block, fields: Block) -> Block {
+pub(super) fn extension_group_fields(
+    multiline: ForceMultiline,
+    base: Block,
+    fields: Block,
+) -> Block {
     match (base, fields) {
-        (Block::SingleLine(base), Block::SingleLine(fields)) if !multiline => Block::line(
-            intersperse([punc("{"), base, fields, punc("}")], Line::space),
-        ),
+        (Block::SingleLine(base), Block::SingleLine(fields)) if !multiline.0 => {
+            Block::line(intersperse(
+                [Line::text("{"), base, fields, Line::text("}")],
+                Line::space,
+            ))
+        }
         (base, fields) => Block::stack1([
-            base.prefix(&Line::row([punc("{"), Line::space()])),
+            base.prefix(&Line::row([Line::text("{"), Line::space()])),
             fields.indent(),
-            Block::line(punc("}")),
+            Block::line(Line::text("}")),
         ]),
     }
 }

@@ -8,34 +8,50 @@ use super::cursor::Cursor;
 use super::expressions::expr;
 use super::patterns::pattern;
 use super::types::ty;
-use super::{VALID, c, lower_name, start, symbol};
-use crate::tree::{C1, CommonDeclaration, Pattern, Ref, Symbol};
+use super::{VALID, lower_name, preceded, start, symbol};
+use crate::tree::{AnnotatedName, C1, Comments, CommonDeclaration, Pattern, Symbol, c};
+
+/// A value's annotation and its definition, each to `part` with the
+/// comments before it. Upstream reads an annotation on its own, so either
+/// may be missing.
+pub(super) fn value_parts(
+    cx: &mut Cursor,
+    signature: Option<ast::Signature>,
+    def: Option<ast::Definition>,
+    mut part: impl FnMut(Comments, CommonDeclaration),
+) {
+    if let Some(signature) = signature {
+        let comments = cx.take(cx.range(signature.syntax()).start());
+        part(comments, annotation(cx, &signature));
+    }
+    if let Some(def) = def {
+        let comments = cx.take(cx.range(def.syntax()).start());
+        part(comments, definition(cx, &def));
+    }
+}
 
 /// `name : type`, with the comments before `:` and after it.
-pub(super) fn annotation(cx: &mut Cursor, node: &ast::Signature) -> CommonDeclaration {
+fn annotation(cx: &mut Cursor, node: &ast::Signature) -> CommonDeclaration {
     let name = match node.lower_ident_token() {
-        Some(name) => Ref::Var((), lower_name(&name)),
-        None => Ref::Op(operator(node.operator_name())),
+        Some(name) => AnnotatedName::Var(lower_name(&name)),
+        None => AnnotatedName::Op(operator(node.operator_name())),
     };
     let before_colon = cx.take(start(&node.colon_token().expect(VALID)));
     let annotation = node.ty().expect(VALID);
     let before_type = cx.take(cx.range(annotation.syntax()).start());
-    CommonDeclaration::TypeAnnotation(c(before_colon, name), c(before_type, ty(cx, &annotation)))
+    CommonDeclaration::TypeAnnotation {
+        name: c(before_colon, name),
+        ty: c(before_type, ty(cx, &annotation)),
+    }
 }
 
 /// `name args = body`; a name, unlike a pattern, takes arguments.
-pub(super) fn definition(cx: &mut Cursor, node: &ast::Definition) -> CommonDeclaration {
+fn definition(cx: &mut Cursor, node: &ast::Definition) -> CommonDeclaration {
     let name = match node.lower_ident_token() {
         Some(name) => Pattern::Var(lower_name(&name)),
         None => Pattern::Op(operator(node.operator_name())),
     };
-    let args = node
-        .patterns()
-        .map(|arg| {
-            let comments = cx.take(cx.range(arg.syntax()).start());
-            c(comments, pattern(cx, &arg))
-        })
-        .collect();
+    let args = preceded(cx, node.patterns(), pattern);
     let eq = node.eq_token().expect(VALID);
     body(cx, name, args, &eq, &node.expr().expect(VALID))
 }
@@ -60,9 +76,14 @@ fn body(
     eq: &SyntaxToken,
     value: &ast::Expr,
 ) -> CommonDeclaration {
-    let mut comments = cx.take(start(eq));
-    comments.extend(cx.take(cx.range(value.syntax()).start()));
-    CommonDeclaration::Definition(name, args, comments, expr(cx, value))
+    let mut before_body = cx.take(start(eq));
+    before_body.extend(cx.take(cx.range(value.syntax()).start()));
+    CommonDeclaration::Definition {
+        name,
+        args,
+        before_body,
+        body: expr(cx, value),
+    }
 }
 
 /// The operator of `(op)`.

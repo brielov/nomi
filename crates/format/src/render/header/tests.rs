@@ -1,11 +1,7 @@
 //! Expected outputs are elm-format 0.8.8's. The declarations in each
 //! input are already formatted, so each case checks the header alone.
 
-use crate::format;
-
-fn assert_formats(input: &str, expected: &str) {
-    assert_eq!(format(input).as_deref(), Some(expected));
-}
+use crate::test_support::assert_formats;
 
 #[test]
 fn a_module_without_a_header_exposes_what_it_defines() {

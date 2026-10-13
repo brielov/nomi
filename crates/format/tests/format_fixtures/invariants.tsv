@@ -1,5 +1,5 @@
 # Where elm-format 0.8.8 breaks the formatter's invariants and nomi breaks
-# them the same way, checked against the oracle (plan 2.14); each class is
+# them the same way, checked against the oracle; each class is
 # one of nomi_format::upstream_breaks, kept as `DECISIONS.md` says.
 elm-format/tests/test-files/good/Elm-0.18/AllSyntax/BlockComments/Module.elm	keeps-comments
 elm-format/tests/test-files/good/Elm-0.18/AllSyntax/LineComments/Module.elm	keeps-comments

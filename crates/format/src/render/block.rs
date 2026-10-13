@@ -26,7 +26,7 @@ enum Atom {
 /// the shorter one's pieces into the longer, so each piece moves at most
 /// a logarithmic number of times however rows nest.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Line {
+pub(super) struct Line {
     /// Prefixed pieces, in reverse.
     before: Vec<Atom>,
     after: Vec<Atom>,
@@ -41,14 +41,14 @@ fn tab_length(column: usize) -> usize {
 impl Line {
     /// Upstream's `identifier`, `keyword`, `punc` and `literal`, which are
     /// all the same.
-    pub(crate) fn text(text: impl Into<String>) -> Line {
+    pub(super) fn text(text: impl Into<String>) -> Line {
         Line {
             before: Vec::new(),
             after: vec![Atom::Text(text.into())],
         }
     }
 
-    pub(crate) fn space() -> Line {
+    pub(super) fn space() -> Line {
         Line {
             before: Vec::new(),
             after: vec![Atom::Space],
@@ -56,7 +56,7 @@ impl Line {
     }
 
     /// Joins lines into one.
-    pub(crate) fn row(lines: impl IntoIterator<Item = Line>) -> Line {
+    pub(super) fn row(lines: impl IntoIterator<Item = Line>) -> Line {
         let mut row = Line::default();
         for line in lines {
             row.push(line);
@@ -65,7 +65,7 @@ impl Line {
     }
 
     /// Appends `line`.
-    pub(crate) fn push(&mut self, mut line: Line) {
+    pub(super) fn push(&mut self, mut line: Line) {
         if line.len() > self.len() {
             let prefix = std::mem::take(self);
             line.before.extend(prefix.after.into_iter().rev());
@@ -94,7 +94,7 @@ impl Line {
 
     /// The column the line ends at when it starts at `start`; upstream's
     /// `lineLength`. Text counts characters, as `Data.Text` does.
-    pub(crate) fn length(&self, start: usize) -> usize {
+    pub(super) fn length(&self, start: usize) -> usize {
         self.atoms().fold(start, |column, atom| match atom {
             Atom::Text(text) => column + text.chars().count(),
             Atom::Space => column + 1,
@@ -132,7 +132,7 @@ impl Line {
 
 /// Lines, at least one.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Block {
+pub(super) enum Block {
     /// One line that can join others.
     SingleLine(Line),
     /// Two or more lines.
@@ -142,15 +142,15 @@ pub(crate) enum Block {
 }
 
 impl Block {
-    pub(crate) fn line(line: Line) -> Block {
+    pub(super) fn line(line: Line) -> Block {
         Block::SingleLine(line)
     }
 
-    pub(crate) fn must_break(line: Line) -> Block {
+    pub(super) fn must_break(line: Line) -> Block {
         Block::MustBreak(line)
     }
 
-    pub(crate) fn blank_line() -> Block {
+    pub(super) fn blank_line() -> Block {
         Block::line(Line::text(""))
     }
 
@@ -162,7 +162,7 @@ impl Block {
     }
 
     /// `self`'s lines, then `other`'s; upstream's `stack'`.
-    pub(crate) fn stack(self, other: Block) -> Block {
+    pub(super) fn stack(self, other: Block) -> Block {
         let mut lines = self.into_lines();
         match other {
             Block::SingleLine(line) | Block::MustBreak(line) => lines.push(line),
@@ -172,13 +172,13 @@ impl Block {
     }
 
     /// Stacks `rest` below `self`; upstream's `andThen rest self`.
-    pub(crate) fn and_then(self, rest: impl IntoIterator<Item = Block>) -> Block {
+    pub(super) fn and_then(self, rest: impl IntoIterator<Item = Block>) -> Block {
         rest.into_iter().fold(self, Block::stack)
     }
 
     /// Stacks blocks; one block comes back as it is. Panics on none, as
     /// upstream errors.
-    pub(crate) fn stack1(blocks: impl IntoIterator<Item = Block>) -> Block {
+    pub(super) fn stack1(blocks: impl IntoIterator<Item = Block>) -> Block {
         let mut blocks = blocks.into_iter();
         let first = blocks.next().expect("stack1: empty structure");
         match blocks.next() {
@@ -207,7 +207,7 @@ impl Block {
     }
 
     /// A tab before every line.
-    pub(crate) fn indent(self) -> Block {
+    pub(super) fn indent(self) -> Block {
         let tab = Line {
             before: Vec::new(),
             after: vec![Atom::Tab],
@@ -222,7 +222,7 @@ impl Block {
     /// abcde        myPrefix abcde
     /// xyz    -->            xyz
     /// ```
-    pub(crate) fn prefix(self, prefix: &Line) -> Block {
+    pub(super) fn prefix(self, prefix: &Line) -> Block {
         let padding = Line {
             before: Vec::new(),
             after: vec![Atom::Space; prefix.length(0)],
@@ -232,7 +232,7 @@ impl Block {
 
     /// `suffix` after the last line. A single line comes back joinable,
     /// even from `MustBreak`, as upstream's does.
-    pub(crate) fn add_suffix(self, suffix: Line) -> Block {
+    pub(super) fn add_suffix(self, suffix: Line) -> Block {
         match self {
             Block::SingleLine(mut line) | Block::MustBreak(mut line) => {
                 line.push(suffix);
@@ -246,19 +246,19 @@ impl Block {
     }
 
     /// The line, if this is a joinable single line; upstream's `isLine`.
-    pub(crate) fn into_line(self) -> Result<Line, Block> {
+    pub(super) fn into_line(self) -> Result<Line, Block> {
         match self {
             Block::SingleLine(line) => Ok(line),
             block => Err(block),
         }
     }
 
-    pub(crate) fn is_line(&self) -> bool {
+    pub(super) fn is_line(&self) -> bool {
         matches!(self, Block::SingleLine(_))
     }
 
     /// Every block's line, if they are all joinable single lines.
-    pub(crate) fn all_singles(blocks: Vec<Block>) -> Result<Vec<Line>, Vec<Block>> {
+    pub(super) fn all_singles(blocks: Vec<Block>) -> Result<Vec<Line>, Vec<Block>> {
         if !blocks.iter().all(Block::is_line) {
             return Err(blocks);
         }
@@ -270,7 +270,7 @@ impl Block {
 
     /// Each line from column 0, without trailing whitespace, and ending in
     /// a newline.
-    pub(crate) fn render(&self) -> String {
+    pub(super) fn render(&self) -> String {
         let mut out = String::new();
         match self {
             Block::SingleLine(line) | Block::MustBreak(line) => line.render_into(&mut out),

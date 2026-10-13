@@ -1,10 +1,8 @@
-use nomi_syntax::{Tool, parse_module, validate};
-
-use super::super::{c, module};
+use crate::test_support::{block, line, lower, lowered, named, upper};
 use crate::tree::{
-    Assoc, Comment, CommonDeclaration, Declaration, Docs, Expr, ForceMultiline, IntRepr,
-    LiteralValue, Lower, NameWithArgs, OpenCommentedList, Pattern, Ref, Symbol, TopLevelStructure,
-    Type, TypeConstructor, Upper,
+    AnnotatedName, Around, AroundEol, Assoc, BeforeEol, Comment, CommonDeclaration, Declaration,
+    Docs, Expr, IntRepr, LiteralValue, NameWithArgs, OpenCommentedList, Pattern, Symbol,
+    TopLevelStructure, Type, c,
 };
 
 type Body = Vec<TopLevelStructure<Declaration>>;
@@ -12,19 +10,10 @@ type Body = Vec<TopLevelStructure<Declaration>>;
 /// The declarations of `text`, after a header and an import, without
 /// which the first doc comment would be the module's.
 fn body(text: &str) -> Body {
-    let text = format!("port module A exposing (..)\n\nimport B\n\n\n{text}");
-    let parse = parse_module(&text);
-    assert!(parse.errors().is_empty(), "{:?}", parse.errors());
-    assert!(validate(&parse, Tool::ElmFormat).is_empty());
-    module(&parse.syntax(), &text).body
-}
-
-fn block(text: &str) -> Comment {
-    Comment::Block(vec![text.to_owned()])
-}
-
-fn line(text: &str) -> Comment {
-    Comment::Line(text.to_owned())
+    lowered(&format!(
+        "port module A exposing (..)\n\nimport B\n\n\n{text}"
+    ))
+    .body
 }
 
 fn comment(c: Comment) -> TopLevelStructure<Declaration> {
@@ -35,27 +24,16 @@ fn entry(d: Declaration) -> TopLevelStructure<Declaration> {
     TopLevelStructure::Entry(d)
 }
 
-fn lower(name: &str) -> Lower {
-    Lower(name.to_owned())
-}
-
-fn upper(name: &str) -> Upper {
-    Upper(name.to_owned())
-}
-
-fn named(name: &str) -> Type {
-    Type::Construction(
-        TypeConstructor::Named((vec![], upper(name))),
-        vec![],
-        ForceMultiline(false),
-    )
-}
-
-fn simple<A>(name: &str) -> NameWithArgs<Upper, A> {
+fn simple<A>(name: &str) -> NameWithArgs<A> {
     NameWithArgs {
         name: upper(name),
         args: vec![],
     }
+}
+
+/// One comment before, and one after.
+fn around(before: Comment, after: Comment) -> Around {
+    Around::new(vec![before], vec![after])
 }
 
 #[test]
@@ -70,17 +48,17 @@ fn values_split_into_their_parts() {
                 source: "{-| Doc. -}".to_owned(),
             }),
             comment(line(" b")),
-            entry(Declaration::Common(CommonDeclaration::TypeAnnotation(
-                c(vec![], Ref::Var((), lower("x"))),
-                c(vec![], named("Int"))
-            ))),
+            entry(Declaration::Common(CommonDeclaration::TypeAnnotation {
+                name: c(vec![], AnnotatedName::Var(lower("x"))),
+                ty: c(vec![], named(&[], "Int", vec![])),
+            })),
             comment(line(" c")),
-            entry(Declaration::Common(CommonDeclaration::Definition(
-                Pattern::Var(lower("x")),
-                vec![],
-                vec![],
-                Expr::Literal(LiteralValue::Int(1, IntRepr::Decimal))
-            ))),
+            entry(Declaration::Common(CommonDeclaration::Definition {
+                name: Pattern::Var(lower("x")),
+                args: vec![],
+                before_body: vec![],
+                body: Expr::Literal(LiteralValue::Int(1, IntRepr::Decimal)),
+            })),
             comment(line(" d")),
         ]
     );
@@ -101,7 +79,7 @@ fn custom_types_keep_comments_around_each_variant() {
     assert_eq!(
         *name_with_args,
         c(
-            (vec![block("t")], vec![block("e")]),
+            around(block("t"), block("e")),
             NameWithArgs {
                 name: upper("T"),
                 args: vec![c(vec![block("p")], lower("a"))],
@@ -112,13 +90,23 @@ fn custom_types_keep_comments_around_each_variant() {
         *variants,
         OpenCommentedList {
             items: vec![c(
-                (vec![block("f")], vec![], Some(" one".to_owned())),
+                AroundEol {
+                    before: vec![block("f")],
+                    after: vec![],
+                    eol: Some(" one".to_owned()),
+                },
                 NameWithArgs {
                     name: upper("A"),
                     args: vec![c(vec![], Type::Variable(lower("a")))],
                 }
             )],
-            last: c((vec![block("g")], None), simple("B")),
+            last: c(
+                BeforeEol {
+                    before: vec![block("g")],
+                    eol: None,
+                },
+                simple("B")
+            ),
         }
     );
     // The `--` comment ending the last variant's line is its own; any
@@ -126,7 +114,7 @@ fn custom_types_keep_comments_around_each_variant() {
     let Declaration::Datatype { variants, .. } = datatype("type T = A -- e\n") else {
         panic!()
     };
-    assert_eq!(variants.last.comments.1, Some(" e".to_owned()));
+    assert_eq!(variants.last.comments.eol, Some(" e".to_owned()));
     assert_eq!(body("type T = A {- h -}\n")[1], comment(block("h")));
 }
 
@@ -141,34 +129,34 @@ fn datatype(text: &str) -> Declaration {
 fn aliases_and_ports() {
     assert_eq!(
         body("type {- a -} alias {- b -} T {- c -} = {- d -} Int\n"),
-        [entry(Declaration::TypeAlias(
-            vec![block("a")],
-            c((vec![block("b")], vec![block("c")]), simple("T")),
-            c(vec![block("d")], named("Int"))
-        ))]
+        [entry(Declaration::TypeAlias {
+            before_alias: vec![block("a")],
+            name_with_args: c(around(block("b"), block("c")), simple("T")),
+            ty: c(vec![block("d")], named(&[], "Int", vec![])),
+        })]
     );
     assert_eq!(
         body("port {- a -} out {- b -} : {- c -} Int\n"),
-        [entry(Declaration::PortAnnotation(
-            c((vec![block("a")], vec![block("b")]), lower("out")),
-            vec![block("c")],
-            named("Int")
-        ))]
+        [entry(Declaration::PortAnnotation {
+            name: c(around(block("a"), block("b")), lower("out")),
+            before_type: vec![block("c")],
+            ty: named(&[], "Int", vec![]),
+        })]
     );
 }
 
 #[test]
 fn fixities() {
     let text = "infix {- a -} left {- b -} 6 {- c -} (+) {- d -} = {- e -} add\n";
-    let parse = parse_module(text);
+    let parse = nomi_syntax::parse_module(text);
     assert!(parse.errors().is_empty(), "{:?}", parse.errors());
     assert_eq!(
-        module(&parse.syntax(), text).body,
-        [entry(Declaration::Fixity(
-            c(vec![block("a")], Assoc::Left),
-            c(vec![block("b")], 6),
-            c((vec![block("c")], vec![block("d")]), Symbol("+".to_owned())),
-            c(vec![block("e")], lower("add"))
-        ))]
+        super::super::module(&parse.syntax(), text).body,
+        [entry(Declaration::Fixity {
+            assoc: c(vec![block("a")], Assoc::Left),
+            precedence: c(vec![block("b")], 6),
+            op: c(around(block("c"), block("d")), Symbol("+".to_owned())),
+            function: c(vec![block("e")], lower("add")),
+        })]
     );
 }

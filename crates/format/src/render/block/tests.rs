@@ -1,14 +1,11 @@
 //! Upstream's `BoxTest`, and the edges of `Box.hs` the formatter leans on.
 
+use super::super::text;
 use super::*;
-
-fn word(text: &str) -> Block {
-    Block::line(Line::text(text))
-}
 
 #[test]
 fn lines_render_their_pieces() {
-    assert_eq!(word("module").render(), "module\n");
+    assert_eq!(text("module").render(), "module\n");
     assert_eq!(
         Block::line(Line::row([Line::text("a"), Line::text("b")])).render(),
         "ab\n"
@@ -21,16 +18,16 @@ fn lines_render_their_pieces() {
 
 #[test]
 fn stacks_and_indents() {
-    let ab = || Block::stack1([word("a"), word("b")]);
+    let ab = || Block::stack1([text("a"), text("b")]);
     assert_eq!(
-        Block::stack1([word("foo"), word("bar")]).render(),
+        Block::stack1([text("foo"), text("bar")]).render(),
         "foo\nbar\n"
     );
     assert_eq!(ab().indent().render(), "    a\n    b\n");
     assert_eq!(ab().indent().indent().render(), "        a\n        b\n");
     // A tab advances to the next multiple of four.
     assert_eq!(
-        word("a").indent().prefix(&Line::space()).render(),
+        text("a").indent().prefix(&Line::space()).render(),
         "    a\n"
     );
     assert_eq!(
@@ -38,20 +35,20 @@ fn stacks_and_indents() {
         "[   a\n    b\n"
     );
     assert_eq!(
-        word("a").indent().prefix(&Line::text("12345")).render(),
+        text("a").indent().prefix(&Line::text("12345")).render(),
         "12345   a\n"
     );
 }
 
 #[test]
 fn prefixes_pad_the_lines_after_the_first() {
-    let block = Block::stack1([word("abcde"), word("xyz")]);
+    let block = Block::stack1([text("abcde"), text("xyz")]);
     assert_eq!(
         block.prefix(&Line::text("myPrefix ")).render(),
         "myPrefix abcde\n         xyz\n"
     );
     // Padding counts characters, not bytes.
-    let block = Block::stack1([word("a"), word("b")]);
+    let block = Block::stack1([text("a"), text("b")]);
     assert_eq!(block.prefix(&Line::text("→ ")).render(), "→ a\n  b\n");
 }
 
@@ -62,36 +59,36 @@ fn single_lines_and_must_breaks() {
     assert!(comment.clone().indent().into_line().is_err());
     // Upstream's `addSuffix` makes any single line joinable again.
     assert!(comment.add_suffix(Line::text("!")).is_line());
-    let stack = Block::stack1([word("a"), word("b")]).add_suffix(Line::text(","));
+    let stack = Block::stack1([text("a"), text("b")]).add_suffix(Line::text(","));
     assert_eq!(stack.render(), "a\nb,\n");
     // Stacking a single line makes a stack, whatever its kind.
-    let stacked = Block::must_break(Line::text("-- a")).stack(word("b"));
+    let stacked = Block::must_break(Line::text("-- a")).stack(text("b"));
     assert!(matches!(stacked, Block::Stack(ref lines) if lines.len() == 2));
 }
 
 #[test]
 fn and_then_stacks_below() {
-    let block = word("a").and_then([word("b"), Block::stack1([word("c"), word("d")])]);
+    let block = text("a").and_then([text("b"), Block::stack1([text("c"), text("d")])]);
     assert_eq!(block.render(), "a\nb\nc\nd\n");
-    assert_eq!(word("a").and_then([]), word("a"));
+    assert_eq!(text("a").and_then([]), text("a"));
 }
 
 #[test]
 fn all_singles_needs_every_block_joinable() {
     assert_eq!(
-        Block::all_singles(vec![word("a"), word("b")]),
+        Block::all_singles(vec![text("a"), text("b")]),
         Ok(vec![Line::text("a"), Line::text("b")])
     );
-    let mixed = vec![word("a"), Block::must_break(Line::text("-- b"))];
+    let mixed = vec![text("a"), Block::must_break(Line::text("-- b"))];
     assert_eq!(Block::all_singles(mixed.clone()), Err(mixed));
 }
 
 #[test]
 fn rendering_strips_what_haskell_calls_space() {
-    assert_eq!(word("a \t\u{a0}\u{3000}").render(), "a\n");
+    assert_eq!(text("a \t\u{a0}\u{3000}").render(), "a\n");
     // `isSpace` is false for these, unlike `char::is_whitespace`.
     for kept in ["a\u{85}", "a\u{2028}", "a\u{2029}"] {
-        assert_eq!(word(kept).render(), format!("{kept}\n"));
+        assert_eq!(text(kept).render(), format!("{kept}\n"));
     }
     // An indented blank line is empty.
     assert_eq!(Block::blank_line().indent().render(), "\n");
@@ -102,7 +99,7 @@ fn lengths_follow_tabs_from_the_start_column() {
     let line = Line::row([Line::text("ab"), Line::space()]);
     assert_eq!(line.length(0), 3);
     assert_eq!(line.length(5), 8);
-    let indented = word("x").indent().into_line().unwrap();
+    let indented = text("x").indent().into_line().unwrap();
     assert_eq!(indented.length(0), 5);
     assert_eq!(indented.length(2), 5);
 }
@@ -110,7 +107,7 @@ fn lengths_follow_tabs_from_the_start_column() {
 #[test]
 fn deep_indentation_is_linear() {
     // Each level prepends one tab to each line; nothing is copied.
-    let mut block = word("x");
+    let mut block = text("x");
     for _ in 0..20_000 {
         block = block.indent();
     }

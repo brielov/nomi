@@ -2,51 +2,35 @@
 //! `formatModuleHeader`, `formatModuleLine`, `formatImports` and the
 //! listings they share.
 
-use crate::block::{Block, Line};
 use crate::markdown;
-use crate::structure::{equals_pair, group, group_with_footer, space_sep_or_indented};
 use crate::tree::{
-    C1, C2, CommentedMap, Comments, CommonDeclaration, Declaration, DetailedListing, Header,
-    ImportMethod, Listing, Lower, Module, Namespace, Pattern, SourceSettings, SourceTag, Symbol,
-    TopLevelStructure, Upper, Value,
+    Around, C1, C2, CommentedMap, Comments, CommonDeclaration, Declaration, DetailedListing,
+    ForceMultiline, Header, ImportKey, ImportMethod, Listing, Lower, Module, Pattern,
+    SourceSetting, SourceTag, Symbol, TopLevelStructure, Upper, Value, c,
 };
 
+use super::block::{Block, Line};
+use super::structure::{
+    Delimiters, equals_pair, group, group_with_footer, interleave, intersperse,
+    space_sep_or_indented,
+};
 use super::{
-    commented, comments, doc_comment, keyword_commented, name, parens, please_report,
-    pre_commented, qualified, tail_commented,
+    ModuleContext, c2, commented, comments, doc_comment, keyword_commented, name, operator, parens,
+    please_report, pre_commented, qualified, tail_commented, text,
 };
-
-fn text(text: &str) -> Block {
-    Block::line(Line::text(text))
-}
 
 /// The module line, the module's docs and the imports, with a blank line
-/// between each two. A module with no line gets the default one if
-/// `add_default_header`, else none; upstream's `formatModuleHeader`. But
-/// for a deviation (`DECISIONS.md`): where the module declares ports, the
-/// default line is a port module's, as Elm reads the module, where
-/// upstream's makes Elm reject it.
-pub(super) fn module_header(module: &Module, add_default_header: bool) -> Vec<Block> {
-    let ports = (module.body.iter()).any(|item| {
-        matches!(
-            item,
-            TopLevelStructure::Entry(Declaration::PortAnnotation(..))
-        )
-    });
-    let default = Header {
-        source_tag: if ports {
-            SourceTag::Port(Vec::new())
-        } else {
-            SourceTag::Normal
-        },
-        name: c((Vec::new(), Vec::new()), vec![Upper("Main".to_owned())]),
-        settings: None,
-        exports: None,
-    };
-    let header = match &module.header {
-        Some(header) => Some(header),
-        None if add_default_header => Some(&default),
-        None => None,
+/// between each two. A module with no line gets the default one as a
+/// file, but none in a code block; upstream's `formatModuleHeader`.
+pub(super) fn module_header(module: &Module, context: ModuleContext) -> Vec<Block> {
+    let default;
+    let header = match (&module.header, context) {
+        (Some(header), _) => Some(header),
+        (None, ModuleContext::File) => {
+            default = default_header(module);
+            Some(&default)
+        }
+        (None, ModuleContext::CodeBlock) => None,
     };
     let mut parts = Vec::new();
     if let Some(header) = header {
@@ -60,6 +44,29 @@ pub(super) fn module_header(module: &Module, add_default_header: bool) -> Vec<Bl
         parts.push(imports);
     }
     join_with_blank_lines(parts)
+}
+
+/// The header a module without one gets, `module Main`, but for a
+/// deviation (`DECISIONS.md`): where the module declares ports, a port
+/// module's, as Elm reads the module, where upstream's makes Elm reject
+/// it.
+fn default_header(module: &Module) -> Header {
+    let ports = module.body.iter().any(|item| {
+        matches!(
+            item,
+            TopLevelStructure::Entry(Declaration::PortAnnotation { .. })
+        )
+    });
+    Header {
+        source_tag: if ports {
+            SourceTag::Port(Vec::new())
+        } else {
+            SourceTag::Normal
+        },
+        name: C2::bare(vec![Upper("Main".to_owned())]),
+        settings: None,
+        exports: None,
+    }
 }
 
 /// The module line of `header`, with the values it exposes sorted into
@@ -79,12 +86,11 @@ fn module_line(module: &Module, header: &Header) -> Block {
             })
             .collect(),
     };
-    let force = matches!(
-        header.exports.as_ref().map(|e| &e.value),
-        Some(Listing::Explicit(_, true))
-    );
-    let sorted = sort_values(force, to_expose, &documented);
-    module_line_block(header, sorted)
+    let force = match header.exports.as_ref().map(|e| &e.value) {
+        Some(Listing::Explicit(_, force)) => *force,
+        Some(Listing::Open(_) | Listing::Closed) | None => ForceMultiline(false),
+    };
+    module_line_block(header, &sort_values(force, to_expose, &documented))
 }
 
 /// The names of each `@docs` line of the module's docs, at their top
@@ -98,25 +104,23 @@ fn documented(module: &Module) -> Vec<Vec<String>> {
         .iter()
         .flat_map(|block| match block {
             markdown::Block::ElmDocs(groups) => groups.as_slice(),
-            _ => &[],
+            markdown::Block::Para(_)
+            | markdown::Block::Header(..)
+            | markdown::Block::Blockquote(_)
+            | markdown::Block::List { .. }
+            | markdown::Block::Code { .. }
+            | markdown::Block::Html(_)
+            | markdown::Block::HRule
+            | markdown::Block::References(_) => &[],
         })
         .map(|group| group.iter().map(|n| ref_name(n).to_owned()).collect())
         .collect()
 }
 
-fn c<C, T>(comments: C, value: T) -> crate::tree::Commented<C, T> {
-    crate::tree::Commented { comments, value }
-}
-
 fn join_with_blank_lines(parts: Vec<Vec<Block>>) -> Vec<Block> {
-    let mut blocks = Vec::new();
-    for (i, part) in parts.into_iter().enumerate() {
-        if i > 0 {
-            blocks.push(Block::blank_line());
-        }
-        blocks.extend(part);
-    }
-    blocks
+    interleave(parts, || vec![Block::blank_line()])
+        .flatten()
+        .collect()
 }
 
 /// The name a doc comment's `@docs` term refers to; upstream's
@@ -152,26 +156,37 @@ fn defined_values(module: &Module) -> Vec<C2<Value>> {
             continue;
         };
         match decl {
-            Declaration::PortAnnotation(name, ..) => values.push(var(&name.value)),
-            Declaration::Common(CommonDeclaration::Definition(pattern, ..)) => match pattern {
+            Declaration::PortAnnotation { name, .. } => values.push(var(&name.value)),
+            Declaration::Common(CommonDeclaration::Definition { name, .. }) => match name {
                 Pattern::Var(name) => values.push(var(name)),
                 Pattern::Record(fields) => values.extend(fields.iter().map(|f| var(&f.value))),
-                _ => {}
+                Pattern::Anything
+                | Pattern::Unit(_)
+                | Pattern::Literal(_)
+                | Pattern::Op(_)
+                | Pattern::Data(..)
+                | Pattern::Parens(_)
+                | Pattern::Tuple(_)
+                | Pattern::EmptyList(_)
+                | Pattern::List(_)
+                | Pattern::Cons { .. }
+                | Pattern::EmptyRecord(_)
+                | Pattern::Alias(..) => {}
             },
             Declaration::Datatype { name_with_args, .. } => values.push(union(
                 &name_with_args.value.name,
-                Listing::Open(Vec::new(), Vec::new()),
+                Listing::Open(Around::default()),
             )),
-            Declaration::TypeAlias(_, name_with_args, _) => {
+            Declaration::TypeAlias { name_with_args, .. } => {
                 values.push(union(&name_with_args.value.name, Listing::Closed));
             }
-            _ => {}
+            Declaration::Common(CommonDeclaration::TypeAnnotation { .. })
+            | Declaration::PortDefinition { .. }
+            | Declaration::Fixity { .. }
+            | Declaration::LegacyFixity { .. } => {}
         }
     }
-    values
-        .into_iter()
-        .map(|v| c((Vec::new(), Vec::new()), v))
-        .collect()
+    values.into_iter().map(C2::bare).collect()
 }
 
 /// An `exposing` list's items, with their comments; upstream's
@@ -198,14 +213,20 @@ fn listing_values(listing: &Listing<DetailedListing>) -> Vec<C2<Value>> {
     values.chain(operators).chain(types).collect()
 }
 
-/// The exposed items in groups: one per `@docs` line, in its order, then
-/// the rest; and the comments of the items the docs moved, which lose
-/// their place. Upstream's `sortVars`.
+/// The exposed items as the module line lists them.
+struct SortedExports {
+    /// One group per `@docs` line, in its order, then the rest.
+    groups: Vec<Vec<C2<Value>>>,
+    /// The comments of the items the docs moved, which lose their place.
+    moved_comments: Comments,
+}
+
+/// The exposed items in groups; upstream's `sortVars`.
 fn sort_values(
-    force_multiline: bool,
+    force: ForceMultiline,
     exposing: Vec<C2<Value>>,
     documented: &[Vec<String>],
-) -> (Vec<Vec<C2<Value>>>, Comments) {
+) -> SortedExports {
     let kind = |v: &Value| match v {
         Value::Op(_) => 1,
         Value::Union(..) => 2,
@@ -217,7 +238,7 @@ fn sort_values(
     let listing = |v: &Value| match v {
         Value::Union(_, Listing::Explicit(..)) => 0,
         Value::Union(_, Listing::Open(..)) => 1,
-        _ => 2,
+        Value::Union(_, Listing::Closed) | Value::Var(_) | Value::Op(_) => 2,
     };
     let mut exposing = exposing;
     exposing.sort_by(|a, b| {
@@ -234,10 +255,10 @@ fn sort_values(
             .iter()
             .rev()
             .find(|v| value_name(&v.value) == name)
-            .map(|v| c((Vec::new(), Vec::new()), v.value.clone()))
+            .map(|v| C2::bare(v.value.clone()))
     };
     let mut seen: Vec<C2<Value>> = Vec::new();
-    let mut in_docs = Vec::new();
+    let mut groups = Vec::new();
     for group in documented {
         let mut kept = Vec::new();
         for value in group.iter().filter_map(|n| allowed(n)) {
@@ -247,7 +268,7 @@ fn sort_values(
             }
         }
         if !kept.is_empty() {
-            in_docs.push(kept);
+            groups.push(kept);
         }
     }
     let is_in_docs = |v: &C2<Value>| {
@@ -258,27 +279,30 @@ fn sort_values(
     let mut remaining = Vec::new();
     for value in exposing {
         if is_in_docs(&value) {
-            let (pre, post) = value.comments;
-            moved_comments.extend(pre);
-            moved_comments.extend(post);
+            let Around { before, after } = value.comments;
+            moved_comments.extend(before);
+            moved_comments.extend(after);
         } else {
             remaining.push(value);
         }
     }
-    if in_docs.is_empty() && force_multiline {
-        return (
-            remaining.into_iter().map(|v| vec![v]).collect(),
+    if groups.is_empty() && force.0 {
+        return SortedExports {
+            groups: remaining.into_iter().map(|v| vec![v]).collect(),
             moved_comments,
-        );
+        };
     }
     if !remaining.is_empty() {
-        in_docs.push(remaining);
+        groups.push(remaining);
     }
-    (in_docs, moved_comments)
+    SortedExports {
+        groups,
+        moved_comments,
+    }
 }
 
 /// `module Name exposing (…)`; upstream's `formatModuleLine`.
-fn module_line_block(header: &Header, (groups, extra): (Vec<Vec<C2<Value>>>, Comments)) -> Block {
+fn module_line_block(header: &Header, exposed: &SortedExports) -> Block {
     let tag = match &header.source_tag {
         SourceTag::Normal => text("module"),
         SourceTag::Port(comments) => {
@@ -289,65 +313,21 @@ fn module_line_block(header: &Header, (groups, extra): (Vec<Vec<C2<Value>>>, Com
             vec![text("module")],
         ),
     };
-    let footer: Vec<Block> = comments(&extra).into_iter().collect();
-    let exports = match &groups[..] {
-        [] => text("(..)"),
-        [group] => group_with_footer(
-            false,
-            "(",
-            ",",
-            footer,
-            ")",
-            false,
-            group.iter().map(commented_value).collect(),
-        ),
-        groups => group_with_footer(
-            false,
-            "(",
-            ",",
-            footer,
-            ")",
-            true,
-            groups
-                .iter()
-                .map(|values| {
-                    let pre: Comments = values.iter().flat_map(|v| v.comments.0.clone()).collect();
-                    let post: Comments = values.iter().flat_map(|v| v.comments.1.clone()).collect();
-                    let inner = group(
-                        false,
-                        "",
-                        ",",
-                        "",
-                        false,
-                        values.iter().map(|v| value(&v.value)).collect(),
-                    );
-                    commented(&pre, inner, &post)
-                })
-                .collect(),
-        ),
-    };
+    let exports = exports(&exposed.groups, comments(&exposed.moved_comments));
     let where_clause = header.settings.as_ref().map(|settings| {
-        let (pre, post) = &settings.comments;
-        keyword_commented("where", pre, post, source_settings(&settings.value))
+        let Around { before, after } = &settings.comments;
+        keyword_commented("where", before, after, source_settings(&settings.value))
     });
-    let (pre_name, post_name) = &header.name.comments;
-    let name_clause = match (
-        tag,
-        commented(
-            pre_name,
-            Block::line(qualified(&header.name.value)),
-            post_name,
-        ),
-    ) {
+    let name_clause = match (tag, c2(&header.name, |names| Block::line(qualified(names)))) {
         (Block::SingleLine(tag), Block::SingleLine(name)) => {
             Block::line(Line::row([tag, Line::space(), name]))
         }
         (tag, name) => Block::stack1([tag, name.indent()]),
     };
-    let (pre_exposing, post_exposing) = header.exports.as_ref().map_or((&[][..], &[][..]), |e| {
-        (&e.comments.0[..], &e.comments.1[..])
-    });
-    let exposing = commented(pre_exposing, text("exposing"), post_exposing);
+    let exposing = match &header.exports {
+        Some(e) => commented(&e.comments.before, text("exposing"), &e.comments.after),
+        None => commented(&[], text("exposing"), &[]),
+    };
     space_sep_or_indented(
         space_sep_or_indented(
             name_clause,
@@ -357,31 +337,69 @@ fn module_line_block(header: &Header, (groups, extra): (Vec<Vec<C2<Value>>>, Com
     )
 }
 
+/// The exposing list of `groups`, with `footer` after them; one group
+/// shares a line, and more stack, each on its own.
+fn exports(groups: &[Vec<C2<Value>>], footer: Option<Block>) -> Block {
+    let footer: Vec<Block> = footer.into_iter().collect();
+    match groups {
+        [] => text("(..)"),
+        [group] => group_with_footer(
+            Delimiters::PARENS,
+            footer,
+            ForceMultiline(false),
+            group.iter().map(commented_value).collect(),
+        ),
+        groups => group_with_footer(
+            Delimiters::PARENS,
+            footer,
+            ForceMultiline(true),
+            groups
+                .iter()
+                .map(|values| {
+                    let before: Comments = values
+                        .iter()
+                        .flat_map(|v| v.comments.before.clone())
+                        .collect();
+                    let after: Comments = values
+                        .iter()
+                        .flat_map(|v| v.comments.after.clone())
+                        .collect();
+                    let inner = group(
+                        Delimiters::NONE,
+                        ForceMultiline(false),
+                        values.iter().map(|v| value(&v.value)).collect(),
+                    );
+                    commented(&before, inner, &after)
+                })
+                .collect(),
+        ),
+    }
+}
+
 fn commented_value(v: &C2<Value>) -> Block {
-    commented(&v.comments.0, value(&v.value), &v.comments.1)
+    commented(&v.comments.before, value(&v.value), &v.comments.after)
 }
 
 /// `{ command = MyCmd, … }`; upstream's `formatSettings` over
 /// `formatRecordPair`.
-fn source_settings(settings: &SourceSettings) -> Block {
+fn source_settings(settings: &[SourceSetting]) -> Block {
     let pairs = settings
         .iter()
-        .map(|(key, value)| {
-            let (pre, post_key) = &key.comments;
+        .map(|SourceSetting { key, value }| {
             let pair = equals_pair(
                 "=",
-                false,
-                commented(&[], Block::line(name(&key.value.0)), post_key),
+                ForceMultiline(false),
+                commented(&[], Block::line(name(&key.value.0)), &key.comments.after),
                 commented(
-                    &value.comments.0,
+                    &value.comments.before,
                     Block::line(name(&value.value.0)),
-                    &value.comments.1,
+                    &value.comments.after,
                 ),
             );
-            pre_commented(pre, pair)
+            pre_commented(&key.comments.before, pair)
         })
         .collect();
-    group(true, "{", ",", "}", false, pairs)
+    group(Delimiters::PADDED_BRACES, ForceMultiline(false), pairs)
 }
 
 /// The comments before the imports, then each import; upstream's
@@ -395,7 +413,7 @@ fn imports(module: &Module) -> Vec<Block> {
         .imports
         .value
         .iter()
-        .map(|((name, _), method)| import(name, method))
+        .map(|(ImportKey { module, .. }, method)| import(module, method))
         .collect();
     if !imports.is_empty() {
         parts.push(imports);
@@ -404,16 +422,16 @@ fn imports(module: &Module) -> Vec<Block> {
 }
 
 /// Upstream's `formatImport`.
-fn import(module: &Namespace, method: &C1<ImportMethod>) -> Block {
+fn import(module: &[Upper], method: &C1<ImportMethod>) -> Block {
     let ImportMethod { alias, exposed } = &method.value;
-    let name = pre_commented(&method.comments, Block::line(qualified(module)));
+    let module_name = pre_commented(&method.comments, Block::line(qualified(module)));
     // An alias that repeats the module's one-part name goes.
     let alias = alias
         .as_ref()
-        .filter(|alias| !matches!(&module[..], [only] if *only == alias.value));
+        .filter(|alias| !matches!(module, [only] if *only == alias.value));
     let alias = alias.and_then(|alias| {
         import_clause(
-            Some(Block::line(name_of(&alias.value))),
+            Some(Block::line(name(&alias.value.0))),
             "as",
             &alias.comments,
         )
@@ -425,14 +443,12 @@ fn import(module: &Namespace, method: &C1<ImportMethod>) -> Block {
     );
     let keyword = || text("import");
     let row = |parts: Vec<Line>| {
-        let mut row = Line::text("import");
-        for part in parts {
-            row.push(Line::space());
-            row.push(part);
-        }
-        Block::line(row)
+        Block::line(intersperse(
+            std::iter::once(Line::text("import")).chain(parts),
+            Line::space,
+        ))
     };
-    match (name, alias, exposing) {
+    match (module_name, alias, exposing) {
         (Block::SingleLine(name), alias, exposing)
             if alias.as_ref().is_none_or(Block::is_line)
                 && exposing.as_ref().is_none_or(Block::is_line) =>
@@ -460,19 +476,11 @@ fn import(module: &Namespace, method: &C1<ImportMethod>) -> Block {
     }
 }
 
-fn name_of(upper: &Upper) -> Line {
-    name(&upper.0)
-}
-
 /// `keyword clause`, or `None` without a clause; upstream's
 /// `formatImportClause`.
-fn import_clause(
-    clause: Option<Block>,
-    keyword: &str,
-    (pre, post): &(Comments, Comments),
-) -> Option<Block> {
+fn import_clause(clause: Option<Block>, keyword: &str, comments: &Around) -> Option<Block> {
     let Some(clause) = clause else {
-        if pre.is_empty() && post.is_empty() {
+        if comments.is_empty() {
             return None;
         }
         return Some(please_report(
@@ -481,8 +489,8 @@ fn import_clause(
         ));
     };
     match (
-        pre_commented(pre, text(keyword)),
-        pre_commented(post, clause),
+        pre_commented(&comments.before, text(keyword)),
+        pre_commented(&comments.after, clause),
     ) {
         (Block::SingleLine(keyword), Block::SingleLine(clause)) => {
             Some(Block::line(Line::row([keyword, Line::space(), clause])))
@@ -495,10 +503,14 @@ fn import_clause(
 fn listing<T>(listing: &Listing<T>, items: impl Fn(&T) -> Vec<Block>) -> Option<Block> {
     match listing {
         Listing::Closed => None,
-        Listing::Open(pre, post) => Some(parens(commented(pre, text(".."), post))),
+        Listing::Open(comments) => Some(parens(commented(
+            &comments.before,
+            text(".."),
+            &comments.after,
+        ))),
         Listing::Explicit(values, multiline) => {
             let items = items(values);
-            (!items.is_empty()).then(|| group(false, "(", ",", ")", *multiline, items))
+            (!items.is_empty()).then(|| group(Delimiters::PARENS, *multiline, items))
         }
     }
 }
@@ -509,18 +521,18 @@ fn detailed_listing(listing: &DetailedListing) -> Vec<Block> {
     let operators = listing
         .operators
         .iter()
-        .map(|(symbol, v)| commented(&v.comments.0, op(symbol), &v.comments.1));
+        .map(|(symbol, v)| commented(&v.comments.before, op(symbol), &v.comments.after));
     let types = listing.types.iter().map(|(name, v)| {
         commented(
-            &v.comments.0,
+            &v.comments.before,
             union(name, &v.value.comments, &v.value.value),
-            &v.comments.1,
+            &v.comments.after,
         )
     });
     let values = listing
         .values
         .iter()
-        .map(|(name, v)| commented(&v.comments.0, var(name), &v.comments.1));
+        .map(|(name, v)| commented(&v.comments.before, var(name), &v.comments.after));
     operators.chain(types).chain(values).collect()
 }
 
@@ -538,7 +550,7 @@ fn var(lower: &Lower) -> Block {
 }
 
 fn op(symbol: &Symbol) -> Block {
-    Block::line(Line::text(format!("({})", symbol.0)))
+    Block::line(operator(symbol))
 }
 
 /// A type, with `(..)` for any constructors, as Elm 0.19 exposes them.
@@ -546,10 +558,16 @@ fn union(type_name: &Upper, post: &Comments, ctors: &Listing<CommentedMap<Upper,
     let ctors = listing(ctors, |ctors| {
         ctors
             .iter()
-            .map(|(ctor, v)| commented(&v.comments.0, Block::line(name_of(ctor)), &v.comments.1))
+            .map(|(ctor, v)| {
+                commented(
+                    &v.comments.before,
+                    Block::line(name(&ctor.0)),
+                    &v.comments.after,
+                )
+            })
             .collect()
     });
-    let mut line = name_of(type_name);
+    let mut line = name(&type_name.0);
     if ctors.is_some() {
         line.push(Line::text("(..)"));
     }

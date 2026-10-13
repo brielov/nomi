@@ -12,6 +12,7 @@ use std::fmt;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail, ensure};
+use nomi_format::{Invariant, invariant_mismatch};
 use nomi_testkit::ratchet::Suite;
 
 use super::parallel;
@@ -115,7 +116,7 @@ fn mismatch(text: &[u8], expected: &Outcome) -> Option<String> {
 
 /// The invariants elm-format breaks in each module where it breaks one,
 /// by case and path.
-fn parse_invariants(text: &str) -> Result<BTreeMap<(String, String), String>> {
+fn parse_invariants(text: &str) -> Result<BTreeMap<(String, String), Vec<Invariant>>> {
     let mut lines = text.lines().filter(|l| !l.starts_with('#'));
     ensure!(
         lines.next() == Some("case\tpath\tinvariant"),
@@ -126,33 +127,13 @@ fn parse_invariants(text: &str) -> Result<BTreeMap<(String, String), String>> {
         let [case, path, invariants] = line.split('\t').collect::<Vec<_>>()[..] else {
             bail!("malformed row `{line}`");
         };
-        for name in invariants.split(',') {
-            ensure!(
-                nomi_format::Invariant::ALL.iter().any(|i| i.name() == name),
-                "no invariant `{name}`"
-            );
-        }
-        broken.insert((case.to_owned(), path.to_owned()), invariants.to_owned());
+        let invariants = invariants
+            .split(',')
+            .map(str::parse)
+            .collect::<Result<_, _>>()?;
+        broken.insert((case.to_owned(), path.to_owned()), invariants);
     }
     Ok(broken)
-}
-
-/// Why formatting `text` breaks invariants other than `listed`, those
-/// elm-format breaks.
-fn invariant_mismatch(text: &[u8], listed: &str) -> Option<String> {
-    let found =
-        std::str::from_utf8(text).map_or_else(|_| Vec::new(), nomi_format::broken_invariants);
-    let names: Vec<_> = found.iter().map(|(i, _)| i.name()).collect();
-    match found.first() {
-        _ if names.join(",") == listed => None,
-        Some((invariant, how)) if listed.is_empty() => {
-            Some(format!("breaks `{}`: {how}", invariant.name()))
-        }
-        _ => Some(format!(
-            "breaks `{}`, where invariants.tsv lists `{listed}`",
-            names.join(",")
-        )),
-    }
 }
 
 /// nomi's output where it deviates, and why, by case and path.
@@ -211,8 +192,8 @@ pub(crate) fn check(root: &Path, record: bool) -> Result<()> {
         let expected = (deviation.as_ref())
             .or_else(|| table.changed.get(&key))
             .unwrap_or(&Outcome::Same);
-        let why = mismatch(&text, expected)
-            .or_else(|| invariant_mismatch(&text, broken.get(&key).map_or("", String::as_str)));
+        let listed = broken.get(&key).map_or(&[][..], Vec::as_slice);
+        let why = mismatch(&text, expected).or_else(|| invariant_mismatch(&text, listed));
         Ok(why.map(|why| format!("{}: {why}", m.path)))
     });
     let mut cases: BTreeMap<&str, Vec<String>> = BTreeMap::new();
@@ -281,18 +262,10 @@ mod tests {
         let broken = parse_invariants(text).unwrap();
         assert_eq!(
             broken[&("a/b@1.0.0".to_owned(), "src/A.elm".to_owned())],
-            "parses,idempotent"
+            [Invariant::Parses, Invariant::Idempotent]
         );
         assert!(parse_invariants("case\tpath\tinvariant\na\tb\tnonsense\n").is_err());
         assert!(parse_invariants("a\tb\tidempotent\n").is_err());
-    }
-
-    #[test]
-    fn invariant_mismatches_follow_the_table() {
-        let formatted = b"module Main exposing (x)\n\n\nx =\n    1\n";
-        assert_eq!(invariant_mismatch(formatted, ""), None);
-        assert!(invariant_mismatch(formatted, "idempotent").is_some());
-        assert_eq!(invariant_mismatch(b"x =", ""), None);
     }
 
     #[test]

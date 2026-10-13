@@ -1,7 +1,6 @@
 //! Expected outputs are elm-format 0.8.8's, for a module's declarations.
 
-use nomi_syntax::parse_module;
-
+use crate::test_support::lowered;
 use crate::tree::{Declaration, TopLevelStructure};
 
 use super::super::declarations::common;
@@ -9,11 +8,7 @@ use super::super::declarations::common;
 /// The definitions and annotations in `decls`, rendered one after the
 /// other.
 fn render(decls: &str) -> String {
-    let text = format!("module M exposing (..)\n\n\n{decls}");
-    let parse = parse_module(&text);
-    assert!(parse.errors().is_empty(), "{:?}", parse.errors());
-    let module = crate::lower::module(&parse.syntax(), &text);
-    module
+    lowered(&format!("module M exposing (..)\n\n\n{decls}"))
         .body
         .iter()
         .filter_map(|item| match item {

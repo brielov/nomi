@@ -4,13 +4,14 @@
 
 use super::inlines::{html_tag, link_label, parse_inlines, reference};
 use super::scanner::{Scanner, is_whitespace};
-use super::{Block, CodeAttr, ListType, NumWrapper, strip};
+use super::{Block, CodeAttr, ListType, NumWrapper, Reference, strip};
 
 /// The blocks of `text`, with `code` making each code block's payload of
-/// its info string and text.
+/// its language and text.
 pub(crate) fn parse<C>(text: &str, code: &mut impl FnMut(&CodeAttr, &str) -> C) -> Vec<Block<C>> {
     let mut stack = Stack(vec![Container::new(Kind::Document)]);
-    for line in super::lines(text) {
+    // Haskell's `lines`: no last line after a final newline.
+    for line in text.split_terminator('\n') {
         stack.process_line(&tab_filter(line));
     }
     while stack.0.len() > 1 {
@@ -101,46 +102,44 @@ impl Stack {
         let (rest, unmatched) = self.try_open_containers(text);
         let offset = (text.chars().count() - rest.chars().count()) as i64;
         let top = self.0.last().expect("the document");
-        let (kind, top_last_is_text) = (top.kind.clone(), top.last_is_text());
+        let top_last_is_text = top.last_is_text();
         let last_line_is_text = unmatched == 0 && top_last_is_text;
         let line = || Leaf::TextLine(rest.to_owned());
-        match kind {
+        match &top.kind {
             Kind::RawHtmlBlock | Kind::IndentedCode if unmatched == 0 => self.add_leaf(line()),
-            Kind::FencedCode { fence, .. } => {
-                if rest.starts_with(&fence) {
-                    self.close();
-                } else {
-                    self.add_leaf(line());
-                }
-            }
+            Kind::FencedCode { fence, .. } if rest.starts_with(fence.as_str()) => self.close(),
+            Kind::FencedCode { .. } => self.add_leaf(line()),
             Kind::Reference => {
                 let new = try_new_containers(last_line_is_text, offset, rest);
                 self.close();
                 self.add_new(new);
             }
-            kind => match try_new_containers(last_line_is_text, offset, rest) {
-                (ns, Leaf::TextLine(t))
-                    if ns.is_empty()
-                        && unmatched > 0
-                        && top_last_is_text
-                        && kind != Kind::IndentedCode =>
-                {
-                    self.add_leaf(Leaf::TextLine(t));
-                }
-                (ns, Leaf::SetextHeader(level, _)) if ns.is_empty() && unmatched == 0 => {
-                    let children = &mut self.top().children;
-                    let Some(Elt::Leaf(Leaf::TextLine(t))) = children.pop() else {
-                        unreachable!("a setext underline follows text")
-                    };
-                    children.push(Elt::Leaf(Leaf::SetextHeader(level, t)));
-                }
-                new => {
-                    for _ in 0..unmatched {
-                        self.close();
+            kind => {
+                let in_indented_code = *kind == Kind::IndentedCode;
+                match try_new_containers(last_line_is_text, offset, rest) {
+                    (ns, Leaf::TextLine(t))
+                        if ns.is_empty()
+                            && unmatched > 0
+                            && top_last_is_text
+                            && !in_indented_code =>
+                    {
+                        self.add_leaf(Leaf::TextLine(t));
                     }
-                    self.add_new(new);
+                    (ns, Leaf::SetextHeader(level, _)) if ns.is_empty() && unmatched == 0 => {
+                        let children = &mut self.top().children;
+                        let Some(Elt::Leaf(Leaf::TextLine(t))) = children.pop() else {
+                            unreachable!("a setext underline follows text")
+                        };
+                        children.push(Elt::Leaf(Leaf::SetextHeader(level, t)));
+                    }
+                    new => {
+                        for _ in 0..unmatched {
+                            self.close();
+                        }
+                        self.add_new(new);
+                    }
                 }
-            },
+            }
         }
     }
 
@@ -216,7 +215,11 @@ impl Stack {
                     parent.children.push(Elt::Container(top));
                 }
             }
-            _ => parent.children.push(Elt::Container(top)),
+            Kind::Document
+            | Kind::BlockQuote
+            | Kind::FencedCode { .. }
+            | Kind::IndentedCode
+            | Kind::RawHtmlBlock => parent.children.push(Elt::Container(top)),
         }
     }
 }
@@ -255,8 +258,7 @@ fn container_continue(kind: &Kind, s: &mut Scanner) -> Option<()> {
 /// `tryNewContainers`, with `offset` the characters the open containers
 /// took.
 fn try_new_containers(last_line_is_text: bool, offset: i64, text: &str) -> (Vec<Kind>, Leaf) {
-    let mut s = Scanner::new(text);
-    s.column = offset + 1;
+    let mut s = Scanner::at_column(text, offset + 1);
     let mut containers = s.many(container_start);
     match s.attempt(|s| verbatim_container_start(last_line_is_text, s)) {
         Some(verbatim) => {
@@ -369,7 +371,7 @@ fn scan_reference(s: &mut Scanner) -> Option<()> {
 }
 
 fn code_fence(s: &mut Scanner) -> Option<Kind> {
-    let start_column = s.column;
+    let start_column = s.column();
     let fence = s
         .take_while1(|c| c == '`')
         .or_else(|| s.take_while1(|c| c == '~'))?;
@@ -389,14 +391,10 @@ fn code_fence(s: &mut Scanner) -> Option<Kind> {
 /// A block-level tag or an HTML comment's start or end; upstream's
 /// `parseHtmlBlockStart`.
 fn html_block_start(s: &mut Scanner) -> Option<()> {
-    if s.sees(|s| html_tag(s).filter(|(name, _)| BLOCK_HTML_TAGS.contains(&name.as_str())))
+    (s.sees(|s| html_tag(s).filter(|tag| BLOCK_HTML_TAGS.contains(&tag.name.as_str())))
         || s.rest().starts_with("<!--")
-        || s.rest().starts_with("-->")
-    {
-        Some(())
-    } else {
-        None
-    }
+        || s.rest().starts_with("-->"))
+    .then_some(())
 }
 
 const BLOCK_HTML_TAGS: &[&str] = &[
@@ -451,7 +449,7 @@ const BLOCK_HTML_TAGS: &[&str] = &[
 
 /// Upstream's `parseListMarker`.
 fn list_marker(s: &mut Scanner) -> Option<Kind> {
-    let marker_column = s.column;
+    let marker_column = s.column();
     let list_type = s.attempt(bullet).or_else(|| s.attempt(list_number))?;
     // One space of padding before a blank line or indented code.
     let padding = if s.attempt(Scanner::blank_line).is_some()
@@ -509,154 +507,185 @@ fn list_number(s: &mut Scanner) -> Option<ListType> {
 fn text_of(elt: &Elt) -> &str {
     match elt {
         Elt::Leaf(Leaf::TextLine(t)) => t,
-        _ => "",
+        Elt::Leaf(
+            Leaf::BlankLine(_) | Leaf::AtxHeader(..) | Leaf::SetextHeader(..) | Leaf::Rule,
+        )
+        | Elt::Container(_) => "",
     }
 }
 
 /// The blocks of a container's children; upstream's `processElts`.
 fn process_elts<C>(elts: &[Elt], code: &mut impl FnMut(&CodeAttr, &str) -> C) -> Vec<Block<C>> {
-    let mut blocks = Vec::new();
-    let mut rest = elts;
-    while let Some((first, after)) = rest.split_first() {
-        rest = after;
-        match first {
-            Elt::Leaf(Leaf::TextLine(t)) => {
-                if let Some(terms) = t.strip_prefix("@docs") {
-                    // Every text line after an `@docs` line names more.
-                    let count = rest
-                        .iter()
-                        .take_while(|e| matches!(e, Elt::Leaf(Leaf::TextLine(_))))
-                        .count();
-                    let lines = std::iter::once(terms).chain(rest[..count].iter().map(|e| {
-                        let t = text_of(e);
-                        t.strip_prefix("@docs").unwrap_or(t)
-                    }));
-                    rest = &rest[count..];
-                    let groups = lines
-                        .map(|line| {
-                            line.split(',')
-                                .map(|term| strip(term).to_owned())
-                                .filter(|term| !term.is_empty())
-                                .collect::<Vec<_>>()
-                        })
-                        .filter(|group| !group.is_empty())
-                        .collect();
-                    blocks.push(Block::ElmDocs(groups));
-                } else {
-                    let count = rest
-                        .iter()
-                        .take_while(|e| {
-                            matches!(e, Elt::Leaf(Leaf::TextLine(t)) if !t.starts_with("@docs"))
-                        })
-                        .count();
-                    let text = std::iter::once(t.as_str())
-                        .chain(rest[..count].iter().map(text_of))
-                        .map(|line| line.trim_start_matches(nomi_base::ghc::is_space))
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    rest = &rest[count..];
-                    let text = text.trim_end_matches(nomi_base::ghc::is_space);
-                    blocks.push(Block::Para(parse_inlines(text)));
-                }
-            }
-            Elt::Leaf(Leaf::BlankLine(_)) => {}
-            Elt::Leaf(Leaf::AtxHeader(level, t) | Leaf::SetextHeader(level, t)) => {
-                blocks.push(Block::Header(*level, parse_inlines(t)));
-            }
-            Elt::Leaf(Leaf::Rule) => blocks.push(Block::HRule),
-            Elt::Container(container) => match &container.kind {
-                Kind::Document => unreachable!("the document holds no document"),
-                Kind::BlockQuote => {
-                    blocks.push(Block::Blockquote(process_elts(&container.children, code)));
-                }
-                Kind::ListItem { list_type, .. } => {
-                    let taken = take_list_items(*list_type, rest);
-                    let (more, after) = rest.split_at(taken);
-                    rest = after;
-                    let items: Vec<&Container> = std::iter::once(container)
-                        .chain(more.iter().filter_map(|e| match e {
-                            Elt::Container(c) => Some(c),
-                            Elt::Leaf(_) => None,
-                        }))
-                        .collect();
-                    let is_blank = |e: &Elt| matches!(e, Elt::Leaf(Leaf::BlankLine(_)));
-                    let tight = !more.iter().any(is_blank)
-                        && items.iter().all(|c| !c.children.iter().any(is_blank));
-                    blocks.push(Block::List {
-                        tight,
-                        kind: *list_type,
-                        items: items
-                            .iter()
-                            .map(|c| process_elts(&c.children, code))
-                            .collect(),
-                    });
-                }
-                Kind::FencedCode { info, .. } => {
-                    let (lang, info) = info.split_at(info.find(' ').unwrap_or(info.len()));
-                    let attr = CodeAttr {
-                        lang: lang.to_owned(),
-                        info: strip(info).to_owned(),
-                    };
-                    let text = joined(&container.children);
-                    blocks.push(code_block(attr, text, code));
-                }
-                Kind::IndentedCode => {
-                    let count = rest
-                        .iter()
-                        .take_while(|e| match e {
-                            Elt::Leaf(Leaf::BlankLine(_)) => true,
-                            Elt::Container(c) => c.kind == Kind::IndentedCode,
-                            Elt::Leaf(_) => false,
-                        })
-                        .count();
-                    let mut lines: Vec<&str> = std::iter::once(first)
-                        .chain(&rest[..count])
-                        .flat_map(|e| match e {
-                            // The blank line lost up to three spaces, and
-                            // code four.
-                            Elt::Leaf(Leaf::BlankLine(t)) => {
-                                vec![t.char_indices().nth(1).map_or("", |(i, _)| &t[i..])]
-                            }
-                            Elt::Container(c) => c.children.iter().map(text_of).collect(),
-                            Elt::Leaf(_) => Vec::new(),
-                        })
-                        .collect();
-                    rest = &rest[count..];
-                    while lines.last().is_some_and(|l| l.chars().all(|c| c == ' ')) {
-                        lines.pop();
-                    }
-                    let attr = CodeAttr {
-                        lang: String::new(),
-                        info: String::new(),
-                    };
-                    blocks.push(code_block(attr, lines.join("\n"), code));
-                }
-                Kind::RawHtmlBlock => blocks.push(Block::Html(joined(&container.children))),
-                Kind::Reference => {
-                    // Each line of each reference in a row, parsed alone.
-                    let count = rest
-                        .iter()
-                        .take_while(|e| matches!(e, Elt::Container(c) if c.kind == Kind::Reference))
-                        .count();
-                    let references = std::iter::once(first)
-                        .chain(&rest[..count])
-                        .flat_map(|e| match e {
-                            Elt::Container(c) => c.children.iter().map(text_of).collect(),
-                            Elt::Leaf(_) => Vec::new(),
-                        })
-                        .map(|line| {
-                            reference(strip(line)).unwrap_or_else(|| {
-                                ("??".to_owned(), "??".to_owned(), "??".to_owned())
-                            })
-                        })
-                        .collect();
-                    rest = &rest[count..];
-                    blocks.push(Block::References(references));
-                }
-            },
+    nomi_base::grow_large(|| {
+        let mut blocks = Vec::new();
+        let mut rest = elts;
+        while let Some((first, after)) = rest.split_first() {
+            let (block, used) = element(first, after, code);
+            blocks.extend(block);
+            rest = &after[used..];
         }
+        blocks
+    })
+}
+
+/// The block `first` starts, if any, and how many of the elements `after`
+/// it the block takes.
+fn element<C>(
+    first: &Elt,
+    after: &[Elt],
+    code: &mut impl FnMut(&CodeAttr, &str) -> C,
+) -> (Option<Block<C>>, usize) {
+    let (block, used) = match first {
+        Elt::Leaf(Leaf::TextLine(t)) => match t.strip_prefix("@docs") {
+            Some(terms) => docs(terms, after),
+            None => paragraph(t, after),
+        },
+        Elt::Leaf(Leaf::BlankLine(_)) => return (None, 0),
+        Elt::Leaf(Leaf::AtxHeader(level, t) | Leaf::SetextHeader(level, t)) => {
+            (Block::Header(*level, parse_inlines(t)), 0)
+        }
+        Elt::Leaf(Leaf::Rule) => (Block::HRule, 0),
+        Elt::Container(container) => match &container.kind {
+            Kind::Document => unreachable!("the document holds no document"),
+            Kind::BlockQuote => (
+                Block::Blockquote(process_elts(&container.children, code)),
+                0,
+            ),
+            Kind::ListItem { list_type, .. } => list(container, *list_type, after, code),
+            Kind::FencedCode { info, .. } => {
+                let lang = info.split_once(' ').map_or(info.as_str(), |(lang, _)| lang);
+                let attr = CodeAttr {
+                    lang: lang.to_owned(),
+                };
+                (code_block(attr, joined(&container.children), code), 0)
+            }
+            Kind::IndentedCode => indented_code(first, after, code),
+            Kind::RawHtmlBlock => (Block::Html(joined(&container.children)), 0),
+            Kind::Reference => references(first, after),
+        },
+    };
+    (Some(block), used)
+}
+
+/// `@docs` and the names after it, and those of every text line after
+/// it, each line a group.
+fn docs<C>(terms: &str, after: &[Elt]) -> (Block<C>, usize) {
+    let count = after
+        .iter()
+        .take_while(|e| matches!(e, Elt::Leaf(Leaf::TextLine(_))))
+        .count();
+    let lines = std::iter::once(terms).chain(after[..count].iter().map(|e| {
+        let t = text_of(e);
+        t.strip_prefix("@docs").unwrap_or(t)
+    }));
+    let groups = lines
+        .map(|line| {
+            line.split(',')
+                .map(|term| strip(term).to_owned())
+                .filter(|term| !term.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .filter(|group| !group.is_empty())
+        .collect();
+    (Block::ElmDocs(groups), count)
+}
+
+/// `first` and the text lines after it up to an `@docs` line.
+fn paragraph<C>(first: &str, after: &[Elt]) -> (Block<C>, usize) {
+    let count = after
+        .iter()
+        .take_while(|e| matches!(e, Elt::Leaf(Leaf::TextLine(t)) if !t.starts_with("@docs")))
+        .count();
+    let text = std::iter::once(first)
+        .chain(after[..count].iter().map(text_of))
+        .map(|line| line.trim_start_matches(nomi_base::ghc::is_space))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let text = text.trim_end_matches(nomi_base::ghc::is_space);
+    (Block::Para(parse_inlines(text)), count)
+}
+
+/// The list `item` starts, of `list_type`, with the items of its type
+/// after it.
+fn list<C>(
+    item: &Container,
+    list_type: ListType,
+    after: &[Elt],
+    code: &mut impl FnMut(&CodeAttr, &str) -> C,
+) -> (Block<C>, usize) {
+    let taken = take_list_items(list_type, after);
+    let more = &after[..taken];
+    let items: Vec<&Container> = std::iter::once(item)
+        .chain(more.iter().filter_map(|e| match e {
+            Elt::Container(c) => Some(c),
+            Elt::Leaf(_) => None,
+        }))
+        .collect();
+    let is_blank = |e: &Elt| matches!(e, Elt::Leaf(Leaf::BlankLine(_)));
+    let tight =
+        !more.iter().any(is_blank) && items.iter().all(|c| !c.children.iter().any(is_blank));
+    let block = Block::List {
+        tight,
+        kind: list_type,
+        items: items
+            .iter()
+            .map(|c| process_elts(&c.children, code))
+            .collect(),
+    };
+    (block, taken)
+}
+
+/// The indented code `first` starts, with the code and blank lines after
+/// it, but for its last blank lines.
+fn indented_code<C>(
+    first: &Elt,
+    after: &[Elt],
+    code: &mut impl FnMut(&CodeAttr, &str) -> C,
+) -> (Block<C>, usize) {
+    let count = after
+        .iter()
+        .take_while(|e| match e {
+            Elt::Leaf(Leaf::BlankLine(_)) => true,
+            Elt::Container(c) => c.kind == Kind::IndentedCode,
+            Elt::Leaf(_) => false,
+        })
+        .count();
+    let mut lines: Vec<&str> = std::iter::once(first)
+        .chain(&after[..count])
+        .flat_map(|e| match e {
+            // The blank line lost up to three spaces, and code four.
+            Elt::Leaf(Leaf::BlankLine(t)) => {
+                vec![t.char_indices().nth(1).map_or("", |(i, _)| &t[i..])]
+            }
+            Elt::Container(c) => c.children.iter().map(text_of).collect(),
+            Elt::Leaf(_) => Vec::new(),
+        })
+        .collect();
+    while lines.last().is_some_and(|l| l.chars().all(|c| c == ' ')) {
+        lines.pop();
     }
-    blocks
+    let attr = CodeAttr {
+        lang: String::new(),
+    };
+    (code_block(attr, lines.join("\n"), code), count)
+}
+
+/// The references `first` starts and those right after it, each line
+/// parsed alone.
+fn references<C>(first: &Elt, after: &[Elt]) -> (Block<C>, usize) {
+    let count = after
+        .iter()
+        .take_while(|e| matches!(e, Elt::Container(c) if c.kind == Kind::Reference))
+        .count();
+    let references = std::iter::once(first)
+        .chain(&after[..count])
+        .flat_map(|e| match e {
+            Elt::Container(c) => c.children.iter().map(text_of).collect(),
+            Elt::Leaf(_) => Vec::new(),
+        })
+        .map(|line| reference(strip(line)).unwrap_or_else(Reference::unparsed))
+        .collect();
+    (Block::References(references), count)
 }
 
 fn joined(elts: &[Elt]) -> String {
@@ -682,9 +711,10 @@ fn take_list_items(list_type: ListType, elts: &[Elt]) -> usize {
         }) => match (t, list_type) {
             (ListType::Bullet(a), ListType::Bullet(b)) => *a == b,
             (ListType::Numbered(a, _), ListType::Numbered(b, _)) => *a == b,
-            _ => false,
+            (ListType::Bullet(_), ListType::Numbered(..))
+            | (ListType::Numbered(..), ListType::Bullet(_)) => false,
         },
-        _ => false,
+        Elt::Container(_) | Elt::Leaf(_) => false,
     };
     let mut taken = 0;
     loop {

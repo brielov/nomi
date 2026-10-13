@@ -4,7 +4,7 @@
 //! comments, every invariant applies.
 
 use nomi_format::Invariant;
-use nomi_syntax::{SyntaxKind, parse_module};
+use nomi_syntax::{SyntaxKind, parse_module, tokens};
 use proptest::prelude::*;
 
 const SEEDS: &[&str] = &[
@@ -26,10 +26,7 @@ const COMMENTS: &[&str] = &["{- c -}", "{-c-}", "-- c\n", "\n-- c\n", "{-| d -}"
 
 /// `seed` without its comments.
 fn uncommented(seed: &str) -> String {
-    parse_module(seed)
-        .syntax()
-        .descendants_with_tokens()
-        .filter_map(|e| e.into_token())
+    tokens(&parse_module(seed).syntax())
         .filter(|t| {
             !matches!(
                 t.kind(),

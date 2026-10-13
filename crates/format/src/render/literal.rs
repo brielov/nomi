@@ -4,11 +4,11 @@
 //! Numbers print as GHC's `printf` prints them, and strings escape what
 //! GHC's `isPrint` and `isSpace` reject.
 
+use nomi_base::ghc::{is_print, is_space};
 use num_bigint::BigUint;
 
-use crate::block::{Block, Line};
+use super::block::{Block, Line};
 use crate::tree::{FloatRepr, IntRepr, LiteralValue, StringRepr};
-use nomi_base::ghc::{is_print, is_space};
 
 /// Upstream's `formatLiteral`.
 pub(super) fn literal(value: &LiteralValue) -> Block {
@@ -45,11 +45,28 @@ fn hexadecimal(i: i64) -> String {
 /// to a neighbour they are passed over (`1.0e23` prints as
 /// `9.999999999999999e22`).
 fn digits(f: f64) -> (Vec<u8>, i32) {
-    const P: i32 = 53;
-    const MIN_EXP: i32 = -1021 - P;
     if f == 0.0 {
         return (vec![0], 0);
     }
+    let (scaled, k) = scaled(f);
+    (generate(scaled), k)
+}
+
+/// `floatToDigits`'s state: `r / s` is what is left of the number to
+/// spell, and `m_up` and `m_dn` how far its neighbours lie above and
+/// below, in the same units.
+struct Scaled {
+    r: BigUint,
+    s: BigUint,
+    m_up: BigUint,
+    m_dn: BigUint,
+}
+
+/// The state for `f`, scaled so that `r / s` is below 1, and the power of
+/// ten it was scaled by.
+fn scaled(f: f64) -> (Scaled, i32) {
+    const P: i32 = 53;
+    const MIN_EXP: i32 = -1021 - P;
     // `decodeFloat`, with denormals at `MIN_EXP` as GHC adjusts them.
     let bits = f.to_bits();
     let biased = ((bits >> 52) & 0x7FF) as i32;
@@ -100,12 +117,34 @@ fn digits(f: f64) -> (Vec<u8>, i32) {
         }
         k += 1;
     }
-    let (mut r, s, mut m_up, mut m_dn) = if k >= 0 {
-        (r, s * pow(10, k), m_up, m_dn)
+    let scaled = if k >= 0 {
+        Scaled {
+            r,
+            s: s * pow(10, k),
+            m_up,
+            m_dn,
+        }
     } else {
         let bk = pow(10, -k);
-        (r * &bk, s, m_up * &bk, m_dn * bk)
+        Scaled {
+            r: r * &bk,
+            s,
+            m_up: m_up * &bk,
+            m_dn: m_dn * bk,
+        }
     };
+    (scaled, k)
+}
+
+/// The digits `state` spells, up to where they tell the number from its
+/// neighbours.
+fn generate(state: Scaled) -> Vec<u8> {
+    let Scaled {
+        mut r,
+        s,
+        mut m_up,
+        mut m_dn,
+    } = state;
     let mut digits = Vec::new();
     loop {
         let scaled = r * 10u32;
@@ -123,14 +162,19 @@ fn digits(f: f64) -> (Vec<u8>, i32) {
             (true, true) => break digits.push(if &rest * 2u32 < s { d } else { d + 1 }),
         }
     }
-    (digits, k)
+    digits
+}
+
+/// Digits as their characters.
+fn digit_string(digits: &[u8]) -> String {
+    digits.iter().map(|d| char::from(b'0' + d)).collect()
 }
 
 /// Upstream's `printf "%f"`, which is GHC's `showFFloat Nothing`.
 fn fixed(f: f64) -> String {
     signed(f, &format!("1{}.0", "0".repeat(309)), |f| {
         let (digits, e) = digits(f);
-        let digits: String = digits.iter().map(|d| char::from(b'0' + d)).collect();
+        let digits = digit_string(&digits);
         if e <= 0 {
             return format!("0.{}{digits}", "0".repeat(e.unsigned_abs() as usize));
         }
@@ -156,10 +200,7 @@ fn exponent(f: f64) -> String {
         match &digits[..] {
             [0] => "0.0e0".to_owned(),
             [d] => format!("{d}.0e{e}"),
-            [d, rest @ ..] => {
-                let rest: String = rest.iter().map(|d| char::from(b'0' + d)).collect();
-                format!("{d}.{rest}e{e}")
-            }
+            [d, rest @ ..] => format!("{d}.{}e{e}", digit_string(rest)),
             [] => unreachable!("a number has digits"),
         }
     })

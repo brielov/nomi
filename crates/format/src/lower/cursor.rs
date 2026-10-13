@@ -5,11 +5,11 @@
 //! comment slot takes the comments before the next token its parser
 //! reads, so the comments go out in source order, each once.
 
-use nomi_base::{TextRange, TextSize};
-use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
-
-use crate::tree::{Comment, Comments};
 use nomi_base::ghc::is_space;
+use nomi_base::{TextRange, TextSize};
+use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, tokens};
+
+use crate::tree::{Comment, Comments, ForceMultiline};
 
 #[derive(Debug)]
 pub(super) struct Cursor<'a> {
@@ -28,10 +28,7 @@ impl<'a> Cursor<'a> {
         let mut comments = Vec::new();
         let mut newlines = Vec::new();
         let mut significant = Vec::new();
-        for token in root
-            .descendants_with_tokens()
-            .filter_map(|e| e.into_token())
-        {
+        for token in tokens(root) {
             match token.kind() {
                 SyntaxKind::LineComment | SyntaxKind::BlockComment => comments.push(token),
                 SyntaxKind::Newline => newlines.push(token.text_range().start()),
@@ -110,6 +107,12 @@ impl<'a> Cursor<'a> {
         self.newlines.get(first).is_some_and(|&n| n < range.end())
     }
 
+    /// Whether a newline outside block comments falls in `node`, which
+    /// keeps it broken.
+    pub(super) fn force_multiline(&self, node: &SyntaxNode) -> ForceMultiline {
+        ForceMultiline(self.multiline(self.range(node)))
+    }
+
     /// Checks every comment was taken.
     pub(super) fn finish(self) {
         debug_assert!(
@@ -130,10 +133,15 @@ fn comment(token: &SyntaxToken) -> Comment {
     if text == "{--}" {
         return Comment::TrickOpener;
     }
-    match text[2..].strip_prefix('-') {
-        Some(_) => Comment::TrickBlock(block_body(&text[3..])),
-        None => Comment::Block(trim_indent(lines(&block_body(&text[2..])))),
+    if text[2..].starts_with('-') {
+        return Comment::TrickBlock(block_body(&text[3..]));
     }
+    // Haskell's `lines`: no last line after a final newline.
+    let lines = block_body(&text[2..])
+        .split_terminator('\n')
+        .map(str::to_owned)
+        .collect();
+    Comment::Block(trim_indent(lines))
 }
 
 /// A line comment's text after `--`.
@@ -152,15 +160,6 @@ pub(super) fn block_body(text: &str) -> String {
     text.trim_start_matches(' ')
         .trim_end_matches(' ')
         .to_owned()
-}
-
-/// Haskell's `lines`: no last line after a final newline.
-fn lines(text: &str) -> Vec<String> {
-    let mut lines: Vec<String> = text.split('\n').map(str::to_owned).collect();
-    if lines.last().is_some_and(String::is_empty) {
-        lines.pop();
-    }
-    lines
 }
 
 /// Removes from each line after the first the indentation they all

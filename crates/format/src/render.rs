@@ -4,42 +4,67 @@
 //! Each function builds the block its upstream namesake does, from the
 //! same parts in the same order, so the two can be read side by side.
 
+mod block;
 mod declarations;
 mod expressions;
 mod header;
 mod literal;
 mod patterns;
+mod structure;
 mod types;
 
 use nomi_syntax::SyntaxKind;
 
-use crate::block::{Block, Line};
-use crate::markdown;
-use crate::structure::{
+use block::{Block, Line};
+use structure::{
     extension_group_fields, forceable_row_or_stack, forceable_space_sep_or_indented,
-    forceable_space_sep_or_stack, forceable_space_sep_or_stack1, space_sep_or_indented,
-    space_sep_or_prefix, space_sep_or_stack,
+    forceable_space_sep_or_stack, forceable_space_sep_or_stack1, intersperse,
+    space_sep_or_indented, space_sep_or_prefix, space_sep_or_stack,
 };
+
+use crate::markdown;
 use crate::tree::{
-    C2, Comment, Docs, ElmCode, ForceMultiline, Module, Pair, Sequence, TopLevelStructure, UpperRef,
+    C2, Comment, Docs, ElmCode, ForceMultiline, Lower, Module, Pair, SeparatorComments, Sequence,
+    Symbol, TopLevelStructure, Upper, UpperRef,
 };
 
 /// `module` as elm-format prints it.
 pub(crate) fn module(module: &Module) -> String {
-    format_module(module, true, 2).map_or_else(String::new, |b| b.render())
+    format_module(module, ModuleContext::File).map_or_else(String::new, |b| b.render())
 }
 
-/// `module`, with `spacing` blank lines between top-level parts, and the
-/// default module line if it has none and `add_default_header`;
-/// upstream's `formatModule`. Nothing at all only for a module in a code
-/// block, which can have no parts.
-fn format_module(module: &Module, add_default_header: bool, spacing: usize) -> Option<Block> {
+/// Where a module is formatted, which decides its spacing and whether it
+/// gets a module line it lacks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ModuleContext {
+    /// A file of its own, which gets the default module line if it has
+    /// none.
+    File,
+    /// A code block in a doc comment.
+    CodeBlock,
+}
+
+impl ModuleContext {
+    /// The blank lines between top-level parts.
+    fn spacing(self) -> usize {
+        match self {
+            ModuleContext::File => 2,
+            ModuleContext::CodeBlock => 1,
+        }
+    }
+}
+
+/// `module`, as `context` lays it out; upstream's `formatModule`.
+/// Nothing at all only for a module in a code block, which can have no
+/// parts.
+fn format_module(module: &Module, context: ModuleContext) -> Option<Block> {
+    let spacing = context.spacing();
     let mut blocks = Vec::new();
     if !module.initial_comments.is_empty() {
         blocks.extend(module.initial_comments.iter().map(comment));
         blocks.extend([Block::blank_line(), Block::blank_line()]);
     }
-    blocks.extend(header::module_header(module, add_default_header));
+    blocks.extend(header::module_header(module, context));
     let space_before_body = match module.body.first() {
         None => 0,
         Some(TopLevelStructure::BodyComment(_)) => spacing + 1,
@@ -50,12 +75,14 @@ fn format_module(module: &Module, add_default_header: bool, spacing: usize) -> O
     (!blocks.is_empty()).then(|| Block::stack1(blocks))
 }
 
+/// A line of `text`.
+fn text(text: impl Into<String>) -> Block {
+    Block::line(Line::text(text))
+}
+
 /// `(inner)`; upstream's `parens`.
 fn parens(inner: Block) -> Block {
-    match inner {
-        Block::SingleLine(line) => Block::line(Line::row([Line::text("("), line, Line::text(")")])),
-        inner => Block::stack1([inner.prefix(&Line::text("(")), Block::line(Line::text(")"))]),
-    }
+    surround('(', ')', inner)
 }
 
 /// Where a construct stands, which decides whether it needs parentheses
@@ -109,42 +136,56 @@ fn unit(left: char, right: char, comments: &[Comment]) -> Block {
             left,
             right,
             match Block::all_singles(comments.iter().map(comment).collect()) {
-                Ok(lines) => Block::line(Line::row(spaced(lines))),
+                Ok(lines) => Block::line(intersperse(lines, Line::space)),
                 Err(blocks) => Block::stack1(blocks),
             },
         ),
     }
 }
 
-/// `lines` with a space between each two.
-fn spaced(lines: Vec<Line>) -> Vec<Line> {
-    let mut row = Vec::with_capacity(lines.len() * 2);
-    for (i, line) in lines.into_iter().enumerate() {
+/// Writes a lowercase or uppercase name onto `text`, with Elm 0.19's `_`
+/// for `'`.
+fn push_name(text: &mut String, name: &str) {
+    for (i, part) in name.split('\'').enumerate() {
         if i > 0 {
-            row.push(Line::space());
+            text.push('_');
         }
-        row.push(line);
+        text.push_str(part);
     }
-    row
 }
 
-/// A lowercase or uppercase name, with Elm 0.19's `_` for `'`; upstream's
-/// `formatVarName'`.
+/// A lowercase or uppercase name; upstream's `formatVarName'`.
 fn name(name: &str) -> Line {
-    Line::text(name.replace('\'', "_"))
+    let mut text = String::with_capacity(name.len());
+    push_name(&mut text, name);
+    Line::text(text)
 }
 
 /// `A.B.C`; upstream's `formatQualifiedUppercaseIdentifier`.
-fn qualified(names: &[crate::tree::Upper]) -> Line {
-    let names: Vec<String> = names.iter().map(|n| n.0.replace('\'', "_")).collect();
-    Line::text(names.join("."))
+fn qualified<'a>(names: impl IntoIterator<Item = &'a Upper>) -> Line {
+    let mut text = String::new();
+    for (i, name) in names.into_iter().enumerate() {
+        if i > 0 {
+            text.push('.');
+        }
+        push_name(&mut text, &name.0);
+    }
+    Line::text(text)
 }
 
 /// `A.B.C.D`, a namespace and the name in it.
-fn upper_ref((namespace, name): &UpperRef) -> Line {
-    let mut names = namespace.clone();
-    names.push(name.clone());
-    qualified(&names)
+fn upper_ref(name: &UpperRef) -> Line {
+    qualified(name.namespace.iter().chain([&name.name]))
+}
+
+/// An operator as a name, `(op)`.
+fn operator(op: &Symbol) -> Line {
+    Line::text(format!("({})", op.0))
+}
+
+/// The function making tuples of `n` elements, `(,)` and longer.
+fn tuple_function(n: usize) -> Line {
+    Line::text(format!("({})", ",".repeat(n - 1)))
 }
 
 fn comment(comment: &Comment) -> Block {
@@ -194,16 +235,16 @@ fn comments(comments: &[Comment]) -> Option<Block> {
 /// `inner` between the comments before and after it; upstream's
 /// `formatCommented`.
 fn commented(pre: &[Comment], inner: Block, post: &[Comment]) -> Block {
-    commented_with(false, pre, inner, post)
+    commented_with(ForceMultiline(false), pre, inner, post)
 }
 
 /// `commented`, stacked even when it would fit on a line; upstream's
 /// `formatCommented_ True`.
 fn commented_forced(pre: &[Comment], inner: Block, post: &[Comment]) -> Block {
-    commented_with(true, pre, inner, post)
+    commented_with(ForceMultiline(true), pre, inner, post)
 }
 
-fn commented_with(force: bool, pre: &[Comment], inner: Block, post: &[Comment]) -> Block {
+fn commented_with(force: ForceMultiline, pre: &[Comment], inner: Block, post: &[Comment]) -> Block {
     forceable_space_sep_or_stack1(
         force,
         comments(pre)
@@ -246,8 +287,11 @@ fn c2_eol(pre: &[Comment], post: &[Comment], eol: Option<&str>, inner: Block) ->
 
 /// Upstream's `formatCommented` of a `C2`.
 fn c2<T>(value: &C2<T>, render: impl FnOnce(&T) -> Block) -> Block {
-    let (pre, post) = &value.comments;
-    commented(pre, render(&value.value), post)
+    commented(
+        &value.comments.before,
+        render(&value.value),
+        &value.comments.after,
+    )
 }
 
 /// An operator and its right operand after a binary expression's left
@@ -262,12 +306,12 @@ struct BinaryOp<'a> {
 }
 
 /// Operands joined by operators; upstream's `formatBinary`.
-fn binary(multiline: bool, left: Block, ops: Vec<BinaryOp>) -> Block {
+fn binary(multiline: ForceMultiline, left: Block, ops: Vec<BinaryOp>) -> Block {
     binary_from(multiline, left, &mut ops.into_iter())
 }
 
 fn binary_from(
-    multiline: bool,
+    multiline: ForceMultiline,
     mut left: Block,
     ops: &mut std::vec::IntoIter<BinaryOp<'_>>,
 ) -> Block {
@@ -277,7 +321,7 @@ fn binary_from(
                 left,
                 comments(op.comments).into_iter().chain([op.op]).collect(),
             );
-            let rest = binary_from(multiline, op.next, ops);
+            let rest = nomi_base::grow_large(|| binary_from(multiline, op.next, ops));
             return forceable_space_sep_or_indented(multiline, head, vec![rest]);
         }
         let right = pre_commented(op.comments, space_sep_or_prefix(op.op, op.next));
@@ -292,18 +336,21 @@ fn sequence<T>(
     left: char,
     delim: char,
     right: Option<char>,
-    ForceMultiline(multiline): ForceMultiline,
+    multiline: ForceMultiline,
     trailing: &[Comment],
     items: &Sequence<T>,
     render: impl Fn(&T) -> Block,
 ) -> Block {
-    let item = |delim: char,
-                (pre, post, eol): &(Vec<Comment>, Vec<Comment>, Option<String>),
-                value: &T| {
-        let item = c2_eol(post, &[], eol.as_deref(), render(value))
-            .prefix(&Line::row([Line::text(delim), Line::space()]));
-        match comments(pre) {
-            Some(pre) => Block::blank_line().stack(pre).stack(item),
+    let item = |delim: char, around: &SeparatorComments, value: &T| {
+        let item = c2_eol(
+            &around.after_separator,
+            &[],
+            around.eol.as_deref(),
+            render(value),
+        )
+        .prefix(&Line::row([Line::text(delim), Line::space()]));
+        match comments(&around.before_separator) {
+            Some(before) => Block::blank_line().stack(before).stack(item),
             None => item,
         }
     };
@@ -329,7 +376,7 @@ fn sequence<T>(
 
 /// A record, or with a base an extension; upstream's `formatRecordLike`.
 fn record_like<T>(
-    base: Option<&C2<crate::tree::Lower>>,
+    base: Option<&C2<Lower>>,
     fields: &Sequence<T>,
     trailing: &[Comment],
     multiline: ForceMultiline,
@@ -337,7 +384,7 @@ fn record_like<T>(
 ) -> Block {
     match base {
         Some(base) => extension_group_fields(
-            multiline.0,
+            multiline,
             c2(base, |b| Block::line(name(&b.0))),
             sequence('|', ',', None, multiline, trailing, fields, render),
         ),
@@ -346,16 +393,11 @@ fn record_like<T>(
 }
 
 /// `key delim value`; upstream's `formatPair`.
-fn pair<K, V>(
-    delim: &str,
-    pair: &Pair<K, V>,
-    key: impl FnOnce(&K) -> Line,
-    value: impl FnOnce(&V) -> Block,
-) -> Block {
-    crate::structure::equals_pair(
+fn pair<V>(delim: &str, pair: &Pair<V>, value: impl FnOnce(&V) -> Block) -> Block {
+    structure::equals_pair(
         delim,
-        pair.force_multiline.0,
-        tail_commented(Block::line(key(&pair.key.value)), &pair.key.comments),
+        pair.force_multiline,
+        tail_commented(Block::line(name(&pair.key.value.0)), &pair.key.comments),
         pre_commented(&pair.value.comments, value(&pair.value.value)),
     )
 }
@@ -367,15 +409,6 @@ fn keyword_commented(word: &str, pre: &[Comment], post: &[Comment], value: Block
         commented(pre, Block::line(Line::text(word)), post),
         vec![value],
     )
-}
-
-/// Haskell's `lines`: no last line after a final newline.
-fn lines(text: &str) -> Vec<&str> {
-    let mut lines: Vec<&str> = text.split('\n').collect();
-    if lines.last() == Some(&"") {
-        lines.pop();
-    }
-    lines
 }
 
 /// A doc comment: its Markdown, with the Elm in code blocks formatted
@@ -414,9 +447,13 @@ fn one_doc_comment(text: &str) -> bool {
 /// top-level parts.
 fn elm_code(code: &ElmCode) -> String {
     let block = match code {
-        ElmCode::Module(module) => format_module(module, false, 1),
-        ElmCode::Declarations(decls) => declarations::body(1, decls),
-        ElmCode::Expressions(exprs) => declarations::expressions(1, exprs),
+        ElmCode::Module(module) => format_module(module, ModuleContext::CodeBlock),
+        ElmCode::Declarations(decls) => {
+            declarations::body(ModuleContext::CodeBlock.spacing(), decls)
+        }
+        ElmCode::Expressions(exprs) => {
+            declarations::expressions(ModuleContext::CodeBlock.spacing(), exprs)
+        }
     };
     block.map_or_else(String::new, |b| b.render())
 }
@@ -424,28 +461,29 @@ fn elm_code(code: &ElmCode) -> String {
 /// A doc comment of `docs`, already rendered; upstream's
 /// `formatDocCommentString`.
 fn doc_comment_string(docs: &str) -> Block {
-    let close = Block::line(Line::text("-}"));
-    match &lines(docs)[..] {
-        [] => Block::line(Line::row([
+    // Haskell's `lines`: no last line after a final newline.
+    let mut lines = docs.split_terminator('\n');
+    let Some(first) = lines.next() else {
+        return Block::line(Line::row([
             Line::text("{-|"),
             Line::space(),
             Line::text("-}"),
-        ])),
-        [first, rest @ ..] => Block::line(Line::row([
-            Line::text("{-|"),
-            Line::space(),
-            Line::text(*first),
-        ]))
-        .and_then(rest.iter().map(|l| Block::line(Line::text(*l))))
-        .and_then([close]),
-    }
+        ]));
+    };
+    Block::line(Line::row([
+        Line::text("{-|"),
+        Line::space(),
+        Line::text(first),
+    ]))
+    .and_then(lines.map(|l| Block::line(Line::text(l))))
+    .and_then([Block::line(Line::text("-}"))])
 }
 
 /// What upstream prints where it meets what it believes can't happen.
 fn please_report(what: &str, details: &str) -> Block {
-    Block::line(Line::text(format!(
+    text(format!(
         "<elm-format: {what}: {details} -- please report this at https://github.com/avh4/elm-format/issues >"
-    )))
+    ))
 }
 
 #[cfg(test)]

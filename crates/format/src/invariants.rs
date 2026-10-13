@@ -2,12 +2,17 @@
 //! the property tests, the fuzz target and the corpus check these.
 
 use std::collections::BTreeSet;
+use std::fmt;
+use std::str::FromStr;
 
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxError, SyntaxKind, SyntaxNode, SyntaxToken, Tool, parse_module, validate};
+use nomi_syntax::{
+    SyntaxError, SyntaxKind, SyntaxNode, SyntaxToken, Tool, child_token, parse_module,
+    significant_tokens, tokens, validate,
+};
 
 use crate::format;
-use crate::lower::{literal_token, negative};
+use crate::lower::{is_number, is_text, literal_token, negative};
 use crate::tree::LiteralValue;
 
 /// A property of formatting that every module it accepts must keep.
@@ -28,6 +33,7 @@ pub enum Invariant {
 }
 
 impl Invariant {
+    /// Every invariant, in the order reports list them.
     pub const ALL: [Invariant; 5] = [
         Invariant::Parses,
         Invariant::KeepsComments,
@@ -45,6 +51,30 @@ impl Invariant {
             Invariant::KeepsTokens => "keeps-tokens",
             Invariant::Idempotent => "idempotent",
         }
+    }
+}
+
+/// A name that is no invariant's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnknownInvariant(pub String);
+
+impl fmt::Display for UnknownInvariant {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "no invariant `{}`", self.0)
+    }
+}
+
+impl std::error::Error for UnknownInvariant {}
+
+impl FromStr for Invariant {
+    type Err = UnknownInvariant;
+
+    /// The invariant [`Invariant::name`] names.
+    fn from_str(name: &str) -> Result<Invariant, UnknownInvariant> {
+        Invariant::ALL
+            .into_iter()
+            .find(|i| i.name() == name)
+            .ok_or_else(|| UnknownInvariant(name.to_owned()))
     }
 }
 
@@ -109,9 +139,32 @@ pub fn broken_invariants(text: &str) -> Vec<(Invariant, String)> {
     broken
 }
 
+/// Why formatting `text` breaks invariants other than `listed`, those
+/// elm-format breaks there; `None` where it breaks just those, or `text`
+/// isn't UTF-8.
+pub fn invariant_mismatch(text: &[u8], listed: &[Invariant]) -> Option<String> {
+    let found = std::str::from_utf8(text).map_or_else(|_| Vec::new(), broken_invariants);
+    let broken: Vec<Invariant> = found.iter().map(|(i, _)| *i).collect();
+    let names = |invariants: &[Invariant]| {
+        let names: Vec<_> = invariants.iter().map(|i| i.name()).collect();
+        names.join(",")
+    };
+    match found.first() {
+        _ if broken == listed => None,
+        Some((invariant, how)) if listed.is_empty() => {
+            Some(format!("breaks `{}`: {how}", invariant.name()))
+        }
+        _ => Some(format!(
+            "breaks `{}`, where invariants.tsv lists `{}`",
+            names(&broken),
+            names(listed),
+        )),
+    }
+}
+
 /// The invariants elm-format 0.8.8 breaks for some modules like `text`,
-/// in the order of [`Invariant::ALL`],
-/// as nomi does, by what `text` holds:
+/// in the order of [`Invariant::ALL`], as nomi does, by what `text`
+/// holds:
 ///
 /// - comments: comments in the module header and exposing lists vanish,
 ///   and comments and doc comments' Markdown can move or respace on a
@@ -124,39 +177,82 @@ pub fn broken_invariants(text: &str) -> Vec<(Invariant, String)> {
 /// - an Elm 0.18 infix declaration spanning lines for a comment in it,
 ///   which elm-format prints as a request to report it, which doesn't
 ///   parse;
+/// - a negated zero in parentheses, `-(0)`, which elm-format prints as
+///   `-0`, and a second run as `0`;
 /// - a module without a header, declaring a type alias and a custom
 ///   type of one name, which the exposing list elm-format writes names
 ///   twice and a second run once.
 ///
 /// The fixtures' and the corpus's `invariants.tsv` record the modules.
 pub fn upstream_breaks(text: &str) -> Vec<Invariant> {
-    let mut breaks = Vec::new();
     let root = parse_module(text).syntax();
-    let tokens = || {
-        root.descendants_with_tokens()
-            .filter_map(|e| e.into_token())
-    };
-    if tokens().any(|t| {
+    let broken: Vec<Invariant> = UPSTREAM_BREAKS
+        .iter()
+        .filter(|kind| (kind.holds)(&root))
+        .flat_map(|kind| kind.breaks.iter().copied())
+        .collect();
+    Invariant::ALL
+        .into_iter()
+        .filter(|i| broken.contains(i))
+        .collect()
+}
+
+/// What of a module makes elm-format break invariants, and which.
+struct UpstreamBreak {
+    holds: fn(&SyntaxNode) -> bool,
+    breaks: &'static [Invariant],
+}
+
+/// Each kind of module [`upstream_breaks`] lists.
+const UPSTREAM_BREAKS: &[UpstreamBreak] = &[
+    UpstreamBreak {
+        holds: has_comments,
+        breaks: &[Invariant::KeepsComments, Invariant::Idempotent],
+    },
+    UpstreamBreak {
+        holds: has_hex_escape,
+        breaks: &[
+            Invariant::Parses,
+            Invariant::KeepsTokens,
+            Invariant::Idempotent,
+        ],
+    },
+    UpstreamBreak {
+        holds: multiline_call_of_call_or_range,
+        breaks: &[Invariant::Idempotent],
+    },
+    UpstreamBreak {
+        holds: legacy_infix_with_comment,
+        breaks: &[Invariant::Parses, Invariant::KeepsTokens],
+    },
+    UpstreamBreak {
+        holds: negated_parenthesized_zero,
+        breaks: &[Invariant::KeepsTokens, Invariant::Idempotent],
+    },
+    UpstreamBreak {
+        holds: headless_alias_and_type_share_name,
+        breaks: &[Invariant::Idempotent],
+    },
+];
+
+fn has_comments(root: &SyntaxNode) -> bool {
+    tokens(root).any(|t| {
         matches!(
             t.kind(),
             SyntaxKind::LineComment | SyntaxKind::BlockComment | SyntaxKind::DocComment
         )
-    }) {
-        breaks.extend([Invariant::KeepsComments, Invariant::Idempotent]);
-    }
-    if tokens().any(|t| {
-        matches!(
-            t.kind(),
-            SyntaxKind::Char | SyntaxKind::String | SyntaxKind::MultilineString
-        ) && t.text().contains("\\x")
-    }) {
-        breaks.extend([
-            Invariant::Parses,
-            Invariant::KeepsTokens,
-            Invariant::Idempotent,
-        ]);
-    }
-    if root.descendants().any(|call| {
+    })
+}
+
+/// Whether a character or string holds a `\x` escape.
+fn has_hex_escape(root: &SyntaxNode) -> bool {
+    tokens(root).any(|t| is_text(t.kind()) && t.text().contains("\\x"))
+}
+
+/// Whether a call spanning lines calls a range, or a call or a range in
+/// parentheses.
+fn multiline_call_of_call_or_range(root: &SyntaxNode) -> bool {
+    root.descendants().any(|call| {
         call.kind() == SyntaxKind::CallExpr
             && call.text().to_string().trim().contains('\n')
             && call.first_child().is_some_and(|function| {
@@ -166,25 +262,23 @@ pub fn upstream_breaks(text: &str) -> Vec<Invariant> {
                             matches!(inner.kind(), SyntaxKind::CallExpr | SyntaxKind::RangeExpr)
                         })
             })
-    }) {
-        breaks.push(Invariant::Idempotent);
-    }
-    if root
-        .descendants()
+    })
+}
+
+/// Whether an Elm 0.18 infix declaration spans lines for a comment in it.
+fn legacy_infix_with_comment(root: &SyntaxNode) -> bool {
+    root.descendants()
         .filter(|decl| decl.kind() == SyntaxKind::LegacyInfixDecl)
-        .flat_map(|decl| {
-            decl.descendants_with_tokens()
-                .filter_map(|e| e.into_token())
-        })
+        .flat_map(|decl| tokens(&decl))
         .any(|t| {
             t.kind() == SyntaxKind::LineComment
                 || t.kind() == SyntaxKind::BlockComment && t.text().contains('\n')
         })
-    {
-        breaks.extend([Invariant::Parses, Invariant::KeepsTokens]);
-    }
-    // `-(0)` prints as `-0`, which reads as `0`; `-(-0)` as `-0` too.
-    if tokens().any(|minus| {
+}
+
+/// Whether a zero is negated in parentheses, as in `-(0)` or `-(-0)`.
+fn negated_parenthesized_zero(root: &SyntaxNode) -> bool {
+    tokens(root).any(|minus| {
         parent_is(&minus, SyntaxKind::NegateExpr)
             && minus
                 .next_token()
@@ -198,32 +292,24 @@ pub fn upstream_breaks(text: &str) -> Vec<Invariant> {
                     zero.kind() == SyntaxKind::Int
                         && matches!(literal_token(&zero), LiteralValue::Int(0, _))
                 })
-    }) {
-        breaks.extend([Invariant::KeepsTokens, Invariant::Idempotent]);
-    }
-    let type_name = |kind| {
+    })
+}
+
+/// Whether a module without a header declares a type alias and a custom
+/// type of one name.
+fn headless_alias_and_type_share_name(root: &SyntaxNode) -> bool {
+    let type_names = |kind| {
         root.children()
             .filter(move |decl| decl.kind() == kind)
-            .filter_map(|decl| {
-                decl.children_with_tokens()
-                    .filter_map(|e| e.into_token())
-                    .find(|t| t.kind() == SyntaxKind::UpperIdent)
-                    .map(|name| name.text().to_owned())
-            })
+            .filter_map(|decl| child_token(&decl, SyntaxKind::UpperIdent))
+            .map(|name| name.text().to_owned())
             .collect::<BTreeSet<_>>()
     };
-    let headless = !root
+    !root
         .children()
-        .any(|n| n.kind() == SyntaxKind::ModuleHeader);
-    if headless
-        && !type_name(SyntaxKind::TypeAliasDecl).is_disjoint(&type_name(SyntaxKind::CustomTypeDecl))
-    {
-        breaks.push(Invariant::Idempotent);
-    }
-    Invariant::ALL
-        .into_iter()
-        .filter(|i| breaks.contains(i))
-        .collect()
+        .any(|n| n.kind() == SyntaxKind::ModuleHeader)
+        && !type_names(SyntaxKind::TypeAliasDecl)
+            .is_disjoint(&type_names(SyntaxKind::CustomTypeDecl))
 }
 
 /// Formats `text` and panics if formatting breaks an invariant
@@ -261,20 +347,10 @@ impl Summary {
     /// What `root` holds, where `errors` are its parse's: a literal one
     /// covers is compared by its text, as it has no value.
     fn of(root: &SyntaxNode, errors: &[SyntaxError]) -> Self {
-        let valid = |token: &SyntaxToken| {
-            errors
-                .iter()
-                .all(|e| e.range.intersect(token.text_range()).is_none())
-        };
         let mut comments = Vec::new();
         let mut doc_comments = 0;
-        let mut body = Vec::new();
-        // Where in `body` the last `-` that negates went.
-        let mut negation = None;
-        for token in root
-            .descendants_with_tokens()
-            .filter_map(|e| e.into_token())
-        {
+        let mut body = Body::default();
+        for token in tokens(root) {
             match token.kind() {
                 SyntaxKind::LineComment | SyntaxKind::BlockComment => {
                     comments.push(letters(&token));
@@ -282,59 +358,7 @@ impl Summary {
                 SyntaxKind::DocComment => doc_comments += 1,
                 SyntaxKind::LParen | SyntaxKind::RParen => {}
                 kind if kind.is_trivia() || in_header(&token) => {}
-                // A negative number is one literal, as wrapping can print a
-                // positive one and upstream drops the parentheses of `-(1)`.
-                SyntaxKind::Minus if negates(&token) => {
-                    negation = Some(body.len());
-                    body.push(Token::Other(SyntaxKind::Minus, "-".to_owned()));
-                }
-                _ if is_literal(&token) && !valid(&token) => {
-                    body.push(Token::Other(token.kind(), token.text().to_owned()));
-                }
-                _ if is_number(&token) => {
-                    let value = literal_token(&token);
-                    let value = if negation.take().is_some_and(|i| i + 1 == body.len()) {
-                        body.pop();
-                        negative(value)
-                    } else {
-                        value
-                    };
-                    body.push(Token::Literal(value));
-                }
-                // Elm 0.18's `[a..b]` becomes `List.range a b`, a record
-                // type's `=` a `:`, a record's `:` an `=`, and a case's
-                // `then` an `of`.
-                SyntaxKind::LBracket if parent_is(&token, SyntaxKind::RangeExpr) => {
-                    body.extend([
-                        Token::Other(SyntaxKind::UpperIdent, "List".to_owned()),
-                        Token::Other(SyntaxKind::Dot, ".".to_owned()),
-                        Token::Other(SyntaxKind::LowerIdent, "range".to_owned()),
-                    ]);
-                }
-                SyntaxKind::DotDot | SyntaxKind::RBracket
-                    if parent_is(&token, SyntaxKind::RangeExpr) => {}
-                SyntaxKind::Eq if parent_is(&token, SyntaxKind::FieldType) => {
-                    body.push(Token::Other(SyntaxKind::Colon, ":".to_owned()));
-                }
-                SyntaxKind::Colon if parent_is(&token, SyntaxKind::Field) => {
-                    body.push(Token::Other(SyntaxKind::Eq, "=".to_owned()));
-                }
-                // elm-format reads `→` and `=>` as `->`.
-                SyntaxKind::Arrow => body.push(Token::Other(SyntaxKind::Arrow, "->".to_owned())),
-                SyntaxKind::ThenKw if parent_is(&token, SyntaxKind::CaseExpr) => {
-                    body.push(Token::Other(SyntaxKind::OfKw, "of".to_owned()));
-                }
-                SyntaxKind::Char | SyntaxKind::String | SyntaxKind::MultilineString => {
-                    body.push(Token::Literal(literal_token(&token)));
-                }
-                // elm-format drops a shader's carriage returns.
-                SyntaxKind::Glsl => {
-                    body.push(Token::Other(
-                        SyntaxKind::Glsl,
-                        token.text().replace('\r', ""),
-                    ));
-                }
-                kind => body.push(Token::Other(kind, token.text().to_owned())),
+                _ => body.push(&token, errors),
             }
         }
         comments.sort();
@@ -343,10 +367,7 @@ impl Summary {
             .filter_map(ast::Import::cast)
             .filter_map(|import| import.module_name())
             .map(|name| {
-                name.syntax()
-                    .descendants_with_tokens()
-                    .filter_map(|e| e.into_token())
-                    .filter(|t| !t.kind().is_trivia())
+                significant_tokens(name.syntax())
                     .map(|t| t.text().to_owned())
                     .collect()
             })
@@ -355,7 +376,80 @@ impl Summary {
             comments,
             doc_comments,
             imports,
-            body,
+            body: body.tokens,
+        }
+    }
+}
+
+/// The declarations' tokens, as formatting must keep them.
+#[derive(Default)]
+struct Body {
+    tokens: Vec<Token>,
+    /// Where in `tokens` the last `-` that negates went.
+    negation: Option<usize>,
+}
+
+impl Body {
+    /// Adds what `token`, a token of the declarations that is neither
+    /// trivia nor a parenthesis, stands for, where `errors` are its
+    /// parse's.
+    fn push(&mut self, token: &SyntaxToken, errors: &[SyntaxError]) {
+        let tokens = &mut self.tokens;
+        let other = |kind, text: &str| Token::Other(kind, text.to_owned());
+        match token.kind() {
+            // A negative number is one literal, as wrapping can print a
+            // positive one and upstream drops the parentheses of `-(1)`.
+            SyntaxKind::Minus if negates(token) => {
+                self.negation = Some(tokens.len());
+                tokens.push(other(SyntaxKind::Minus, "-"));
+            }
+            kind if (is_number(kind) || is_text(kind))
+                && errors
+                    .iter()
+                    .any(|e| e.range.intersect(token.text_range()).is_some()) =>
+            {
+                tokens.push(other(kind, token.text()));
+            }
+            kind if is_number(kind) => {
+                let value = literal_token(token);
+                let value = if self.negation.take().is_some_and(|i| i + 1 == tokens.len()) {
+                    tokens.pop();
+                    negative(value)
+                } else {
+                    value
+                };
+                tokens.push(Token::Literal(value));
+            }
+            // Elm 0.18's `[a..b]` becomes `List.range a b`, a record
+            // type's `=` a `:`, a record's `:` an `=`, and a case's
+            // `then` an `of`.
+            SyntaxKind::LBracket if parent_is(token, SyntaxKind::RangeExpr) => {
+                tokens.extend([
+                    other(SyntaxKind::UpperIdent, "List"),
+                    other(SyntaxKind::Dot, "."),
+                    other(SyntaxKind::LowerIdent, "range"),
+                ]);
+            }
+            SyntaxKind::DotDot | SyntaxKind::RBracket
+                if parent_is(token, SyntaxKind::RangeExpr) => {}
+            SyntaxKind::Eq if parent_is(token, SyntaxKind::FieldType) => {
+                tokens.push(other(SyntaxKind::Colon, ":"));
+            }
+            SyntaxKind::Colon if parent_is(token, SyntaxKind::Field) => {
+                tokens.push(other(SyntaxKind::Eq, "="));
+            }
+            // elm-format reads `→` and `=>` as `->`.
+            SyntaxKind::Arrow => tokens.push(other(SyntaxKind::Arrow, "->")),
+            SyntaxKind::ThenKw if parent_is(token, SyntaxKind::CaseExpr) => {
+                tokens.push(other(SyntaxKind::OfKw, "of"));
+            }
+            kind if is_text(kind) => tokens.push(Token::Literal(literal_token(token))),
+            // elm-format drops a shader's carriage returns.
+            SyntaxKind::Glsl => tokens.push(Token::Other(
+                SyntaxKind::Glsl,
+                token.text().replace('\r', ""),
+            )),
+            kind => tokens.push(other(kind, token.text())),
         }
     }
 }
@@ -372,18 +466,6 @@ fn letters(comment: &SyntaxToken) -> String {
     comment.text().split_whitespace().collect()
 }
 
-fn is_literal(token: &SyntaxToken) -> bool {
-    is_number(token)
-        || matches!(
-            token.kind(),
-            SyntaxKind::Char | SyntaxKind::String | SyntaxKind::MultilineString
-        )
-}
-
-fn is_number(token: &SyntaxToken) -> bool {
-    matches!(token.kind(), SyntaxKind::Int | SyntaxKind::Float)
-}
-
 /// Whether `minus` negates what follows: a negation's, or a pattern's
 /// literal's; a `-` in an operator chain subtracts.
 fn negates(minus: &SyntaxToken) -> bool {
@@ -392,9 +474,34 @@ fn negates(minus: &SyntaxToken) -> bool {
         .is_some_and(|p| p.kind() == SyntaxKind::NegateExpr)
         || minus
             .next_token()
-            .is_some_and(|number| is_number(&number) && number.parent() == minus.parent())
+            .is_some_and(|number| is_number(number.kind()) && number.parent() == minus.parent())
 }
 
 fn parent_is(token: &SyntaxToken, kind: SyntaxKind) -> bool {
     token.parent().is_some_and(|p| p.kind() == kind)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invariants_parse_from_their_names() {
+        for invariant in Invariant::ALL {
+            assert_eq!(invariant.name().parse(), Ok(invariant));
+        }
+        assert_eq!(
+            "nonsense".parse::<Invariant>(),
+            Err(UnknownInvariant("nonsense".to_owned()))
+        );
+    }
+
+    #[test]
+    fn invariant_mismatches_follow_the_table() {
+        let formatted = b"module Main exposing (x)\n\n\nx =\n    1\n";
+        assert_eq!(invariant_mismatch(formatted, &[]), None);
+        assert!(invariant_mismatch(formatted, &[Invariant::Idempotent]).is_some());
+        assert_eq!(invariant_mismatch(b"x =", &[]), None);
+        assert_eq!(invariant_mismatch(b"\xff", &[]), None);
+    }
 }

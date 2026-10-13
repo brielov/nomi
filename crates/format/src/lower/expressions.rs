@@ -2,23 +2,23 @@
 
 use nomi_base::{TextRange, TextSize};
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
+use nomi_syntax::{SyntaxNode, SyntaxToken, significant_tokens};
 
 use super::cursor::Cursor;
-use super::definitions::{annotation, definition, destructure};
+use super::definitions::{destructure, value_parts};
 use super::literal::{is_number, literal, negative};
 use super::patterns::pattern;
 use super::{
-    VALID, c, commas, lower_name, namespace, pair, sectioned, start, surround, symbol, token,
-    upper_name,
+    VALID, bool_literal, commas, eol_after, lower_name, namespace, pair, preceded, sectioned,
+    start, surround, symbol, upper_name, with_eol,
 };
 use crate::tree::{
-    ApplicationMultiline, BinopsClause, C0Eol, C2, CaseBranch, Comment, Expr, ForceMultiline,
-    IfClause, LetDeclaration, LiteralValue, Lower, Multiline, Ref, UnaryOperator,
+    ApplicationMultiline, Around, BinopsClause, C2, CaseBranch, Comments, CommonDeclaration, Expr,
+    ForceMultiline, IfClause, LetDeclaration, LiteralValue, Lower, Multiline, Ref, c,
 };
 
 pub(super) fn expr(cx: &mut Cursor, node: &ast::Expr) -> Expr {
-    crate::guarded(|| expr_unguarded(cx, node))
+    nomi_base::grow_large(|| expr_unguarded(cx, node))
 }
 
 fn expr_unguarded(cx: &mut Cursor, node: &ast::Expr) -> Expr {
@@ -31,10 +31,12 @@ fn expr_unguarded(cx: &mut Cursor, node: &ast::Expr) -> Expr {
             let operand = e.expr().expect(VALID);
             // Upstream reads a `-` touching a number as part of it.
             match &operand {
-                ast::Expr::LiteralExpr(n) if is_number(n.syntax()) => {
+                ast::Expr::LiteralExpr(n)
+                    if is_number(significant_tokens(n.syntax()).next().expect(VALID).kind()) =>
+                {
                     Expr::Literal(negative(literal(n.syntax())))
                 }
-                _ => Expr::Unary(UnaryOperator::Negative, Box::new(expr(cx, &operand))),
+                _ => Expr::Negate(Box::new(expr(cx, &operand))),
             }
         }
         ast::Expr::CallExpr(e) => application(cx, e),
@@ -42,18 +44,21 @@ fn expr_unguarded(cx: &mut Cursor, node: &ast::Expr) -> Expr {
         ast::Expr::UnitExpr(e) => Expr::Unit(cx.take(start(&e.r_paren_token().expect(VALID)))),
         ast::Expr::ParenExpr(e) => {
             let close = e.r_paren_token().expect(VALID);
-            let item = surround(cx, e.syntax(), e.expr().into_iter(), &close, with_eol)
+            let items = e.expr().into_iter();
+            let item = surround(cx, e.syntax(), items, &close, |cx, e| with_eol(cx, e, expr))
                 .pop()
                 .expect(VALID);
             Expr::Parens(Box::new(eol_after(item)))
         }
         ast::Expr::TupleExpr(e) => {
             let close = e.r_paren_token().expect(VALID);
-            let items = surround(cx, e.syntax(), e.exprs(), &close, with_eol)
-                .into_iter()
-                .map(eol_after)
-                .collect();
-            Expr::Tuple(items, cx.multiline(cx.range(e.syntax())))
+            let items = surround(cx, e.syntax(), e.exprs(), &close, |cx, e| {
+                with_eol(cx, e, expr)
+            })
+            .into_iter()
+            .map(eol_after)
+            .collect();
+            Expr::Tuple(items, cx.force_multiline(e.syntax()))
         }
         ast::Expr::ListExpr(e) => {
             let close = e.r_bracket_token().expect(VALID);
@@ -61,31 +66,19 @@ fn expr_unguarded(cx: &mut Cursor, node: &ast::Expr) -> Expr {
             Expr::List {
                 terms,
                 trailing,
-                force_multiline: ForceMultiline(cx.multiline(cx.range(e.syntax()))),
+                force_multiline: cx.force_multiline(e.syntax()),
             }
         }
-        ast::Expr::RangeExpr(e) => {
-            let mut bounds = e.exprs();
-            let (low, high) = (bounds.next().expect(VALID), bounds.next().expect(VALID));
-            let dots = e.dot_dot_token().expect(VALID);
-            let close = e.r_bracket_token().expect(VALID);
-            let low = bounded(cx, &low, start(&dots));
-            let high = bounded(cx, &high, start(&close));
-            Expr::Range(
-                Box::new(low),
-                Box::new(high),
-                cx.multiline(cx.range(e.syntax())),
-            )
-        }
+        ast::Expr::RangeExpr(e) => range(cx, e),
         ast::Expr::RecordExpr(e) => {
             let close = e.r_brace_token().expect(VALID);
             record(cx, e.syntax(), None, e.fields(), &close)
         }
         ast::Expr::RecordUpdateExpr(e) => {
             let name = e.lower_ident_token().expect(VALID);
-            let pre = cx.take(start(&name));
-            let post = cx.take(start(&e.pipe_token().expect(VALID)));
-            let base = c((pre, post), lower_name(&name));
+            let before = cx.take(start(&name));
+            let after = cx.take(start(&e.pipe_token().expect(VALID)));
+            let base = c(Around { before, after }, lower_name(&name));
             let close = e.r_brace_token().expect(VALID);
             record(cx, e.syntax(), Some(base), e.fields(), &close)
         }
@@ -102,75 +95,67 @@ fn expr_unguarded(cx: &mut Cursor, node: &ast::Expr) -> Expr {
         ast::Expr::IfExpr(e) => if_expr(cx, e),
         ast::Expr::CaseExpr(e) => case(cx, e),
         ast::Expr::LetExpr(e) => let_expr(cx, e),
-        ast::Expr::LambdaExpr(e) => {
-            let args = e
-                .patterns()
-                .map(|arg| {
-                    let comments = cx.take(cx.range(arg.syntax()).start());
-                    c(comments, pattern(cx, &arg))
-                })
-                .collect();
-            let body = e.expr().expect(VALID);
-            let mut comments = cx.take(start(&e.arrow_token().expect(VALID)));
-            comments.extend(cx.take(cx.range(body.syntax()).start()));
-            let body = expr(cx, &body);
-            Expr::Lambda(
-                args,
-                comments,
-                Box::new(body),
-                cx.multiline(cx.range(e.syntax())),
-            )
-        }
-        ast::Expr::GlslExpr(e) => {
-            let text = e.glsl_token().expect(VALID);
-            let source = text.text()["[glsl|".len()..text.text().len() - "|]".len()]
-                .chars()
-                .filter(|&c| c != '\r')
-                .collect();
-            Expr::GlShader(source)
-        }
+        ast::Expr::LambdaExpr(e) => lambda(cx, e),
+        ast::Expr::GlslExpr(e) => glsl(e),
     }
 }
 
 /// A name; an unqualified `True` or `False` is a literal.
 fn name(node: &ast::NameExpr) -> Expr {
     let namespace = namespace(node.qualifier());
-    if let Some(name) = token(node.syntax(), SyntaxKind::LowerIdent) {
+    if let Some(name) = node.lower_ident_token() {
         return Expr::Var(Ref::Var(namespace, lower_name(&name)));
     }
-    let name = upper_name(&token(node.syntax(), SyntaxKind::UpperIdent).expect(VALID));
-    if namespace.is_empty() {
-        match name.0.as_str() {
-            "True" => return Expr::Literal(LiteralValue::Bool(true)),
-            "False" => return Expr::Literal(LiteralValue::Bool(false)),
-            _ => {}
-        }
+    let name = upper_name(&node.upper_ident_token().expect(VALID));
+    match bool_literal(&namespace, &name) {
+        Some(value) => Expr::Literal(LiteralValue::Bool(value)),
+        None => Expr::Var(Ref::Tag(namespace, name)),
     }
-    Expr::Var(Ref::Tag(namespace, name))
 }
 
-/// An expression with the `--` comment ending its line, unless it spans
-/// lines.
-fn with_eol(cx: &mut Cursor, node: &ast::Expr) -> C0Eol<Expr> {
-    let value = expr(cx, node);
-    c(cx.eol(cx.range(node.syntax())), value)
+/// `[low..high]`.
+fn range(cx: &mut Cursor, node: &ast::RangeExpr) -> Expr {
+    let mut bounds = node.exprs();
+    let (low, high) = (bounds.next().expect(VALID), bounds.next().expect(VALID));
+    let low = bounded(cx, &low, start(&node.dot_dot_token().expect(VALID)));
+    let high = bounded(cx, &high, start(&node.r_bracket_token().expect(VALID)));
+    Expr::Range {
+        low: Box::new(low),
+        high: Box::new(high),
+    }
 }
 
-/// An item of a parenthesized list, its `--` comment first among those
-/// after it; upstream's `spaceySepBy1''`.
-fn eol_after(item: C2<C0Eol<Expr>>) -> C2<Expr> {
-    let ((pre, mut post), inner) = (item.comments, item.value);
-    if let Some(eol) = inner.comments {
-        post.insert(0, Comment::Line(eol));
+/// `\args -> body`, with the comments before `->` and after it as one.
+fn lambda(cx: &mut Cursor, node: &ast::LambdaExpr) -> Expr {
+    let args = preceded(cx, node.patterns(), pattern);
+    let body = node.expr().expect(VALID);
+    let mut before_body = cx.take(start(&node.arrow_token().expect(VALID)));
+    before_body.extend(cx.take(cx.range(body.syntax()).start()));
+    Expr::Lambda {
+        args,
+        before_body,
+        body: Box::new(expr(cx, &body)),
+        multiline: cx.force_multiline(node.syntax()),
     }
-    c((pre, post), inner.value)
+}
+
+/// `[glsl| … |]`, without the carriage returns.
+fn glsl(node: &ast::GlslExpr) -> Expr {
+    let token = node.glsl_token().expect(VALID);
+    let text = token.text();
+    let source = text["[glsl|".len()..text.len() - "|]".len()]
+        .chars()
+        .filter(|&c| c != '\r')
+        .collect();
+    Expr::GlShader(source)
 }
 
 /// `node`, with the comments before it and those before `end`.
 fn bounded(cx: &mut Cursor, node: &ast::Expr, end: TextSize) -> C2<Expr> {
-    let pre = cx.take(cx.range(node.syntax()).start());
+    let before = cx.take(cx.range(node.syntax()).start());
     let value = expr(cx, node);
-    c((pre, cx.take(end)), value)
+    let after = cx.take(end);
+    c(Around { before, after }, value)
 }
 
 /// A function and its arguments, breaking as the source does; upstream's
@@ -202,7 +187,11 @@ fn application(cx: &mut Cursor, node: &ast::CallExpr) -> Expr {
         (false, true) => ApplicationMultiline::JoinFirst(Multiline::SplitAll),
         (false, false) => ApplicationMultiline::JoinFirst(Multiline::JoinAll),
     };
-    Expr::App(Box::new(function), args, multiline)
+    Expr::App {
+        function: Box::new(function),
+        args,
+        multiline,
+    }
 }
 
 /// `a + b * c`, flat as upstream reads it; fixities apply later.
@@ -223,11 +212,11 @@ fn binops(cx: &mut Cursor, node: &ast::OperatorChain) -> Expr {
             }
         })
         .collect();
-    Expr::Binops(
-        Box::new(first),
+    Expr::Binops {
+        first: Box::new(first),
         clauses,
-        cx.multiline(cx.range(node.syntax())),
-    )
+        multiline: cx.force_multiline(node.syntax()),
+    }
 }
 
 /// A record, or with `base` an update of one.
@@ -245,7 +234,7 @@ fn record(
         base,
         fields,
         trailing,
-        force_multiline: ForceMultiline(cx.multiline(cx.range(node))),
+        force_multiline: cx.force_multiline(node),
     }
 }
 
@@ -253,19 +242,23 @@ fn record(
 /// the chain.
 fn if_expr(cx: &mut Cursor, node: &ast::IfExpr) -> Expr {
     let first = if_clause(cx, node);
-    let mut rest = Vec::new();
+    let mut else_ifs = Vec::new();
     let mut link = node.clone();
     loop {
         match link.else_branch().expect(VALID) {
             ast::Expr::IfExpr(next) => {
                 let comments = cx.take(start(&next.if_token().expect(VALID)));
-                rest.push(c(comments, if_clause(cx, &next)));
+                else_ifs.push(c(comments, if_clause(cx, &next)));
                 link = next;
             }
             last => {
                 let comments = cx.take(cx.range(last.syntax()).start());
                 let body = expr(cx, &last);
-                return Expr::If(Box::new(first), rest, Box::new(c(comments, body)));
+                return Expr::If {
+                    first: Box::new(first),
+                    else_ifs,
+                    else_body: Box::new(c(comments, body)),
+                };
             }
         }
     }
@@ -282,14 +275,11 @@ fn if_clause(cx: &mut Cursor, node: &ast::IfExpr) -> IfClause {
 
 fn case(cx: &mut Cursor, node: &ast::CaseExpr) -> Expr {
     // Upstream reads `then` for `of`.
-    let of = [SyntaxKind::OfKw, SyntaxKind::ThenKw]
-        .into_iter()
-        .find_map(|kind| token(node.syntax(), kind))
-        .expect(VALID);
+    let of = node.of_token().or_else(|| node.then_token()).expect(VALID);
     let subject = bounded(cx, &node.expr().expect(VALID), start(&of));
     // Upstream tracks the newlines around the subject too.
     let after_case = node.case_token().expect(VALID).text_range().end();
-    let multiline = cx.multiline(TextRange::new(after_case, start(&of)));
+    let multiline = ForceMultiline(cx.multiline(TextRange::new(after_case, start(&of))));
     let branches = node
         .case_branches()
         .map(|branch| {
@@ -308,47 +298,47 @@ fn case(cx: &mut Cursor, node: &ast::CaseExpr) -> Expr {
             }
         })
         .collect();
-    Expr::Case(Box::new(subject), multiline, branches)
+    Expr::Case {
+        subject: Box::new(subject),
+        multiline,
+        branches,
+    }
 }
 
 /// `let … in body`: upstream keeps each comment between declarations as
 /// one of them, and an annotation apart from its definition.
 fn let_expr(cx: &mut Cursor, node: &ast::LetExpr) -> Expr {
     let mut declarations = Vec::new();
-    let comments = |cx: &mut Cursor, end, declarations: &mut Vec<LetDeclaration>| {
-        let taken = cx.take(end);
-        declarations.extend(taken.into_iter().map(LetDeclaration::Comment));
+    let mut push = |comments: Comments, declaration: CommonDeclaration| {
+        declarations.extend(comments.into_iter().map(LetDeclaration::Comment));
+        declarations.push(LetDeclaration::Common(Box::new(declaration)));
     };
     for declaration in node.let_decls() {
         match declaration {
             ast::LetDecl::LetValue(value) => {
-                if let Some(signature) = value.signature() {
-                    comments(cx, cx.range(signature.syntax()).start(), &mut declarations);
-                    let lowered = annotation(cx, &signature);
-                    declarations.push(LetDeclaration::Common(Box::new(lowered)));
-                }
-                if let Some(def) = value.definition() {
-                    comments(cx, cx.range(def.syntax()).start(), &mut declarations);
-                    let lowered = definition(cx, &def);
-                    declarations.push(LetDeclaration::Common(Box::new(lowered)));
-                }
+                value_parts(cx, value.signature(), value.definition(), &mut push);
             }
             ast::LetDecl::LetDestructure(value) => {
-                comments(cx, cx.range(value.syntax()).start(), &mut declarations);
+                let comments = cx.take(cx.range(value.syntax()).start());
                 let lowered = destructure(
                     cx,
                     &value.pattern().expect(VALID),
                     &value.eq_token().expect(VALID),
                     &value.expr().expect(VALID),
                 );
-                declarations.push(LetDeclaration::Common(Box::new(lowered)));
+                push(comments, lowered);
             }
         }
     }
-    comments(cx, start(&node.in_token().expect(VALID)), &mut declarations);
+    let comments = cx.take(start(&node.in_token().expect(VALID)));
+    declarations.extend(comments.into_iter().map(LetDeclaration::Comment));
     let body = node.expr().expect(VALID);
     let before_body = cx.take(cx.range(body.syntax()).start());
-    Expr::Let(declarations, before_body, Box::new(expr(cx, &body)))
+    Expr::Let {
+        declarations,
+        before_body,
+        body: Box::new(expr(cx, &body)),
+    }
 }
 
 #[cfg(test)]

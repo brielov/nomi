@@ -2,7 +2,7 @@
 //! `formatDocComment`'s `cleanBlock`, which drops `(..)` from the `@docs`
 //! names at the top level.
 
-use super::{Block, Inline, LinkTarget, ListType, lines};
+use super::{Block, Inline, LinkTarget, ListType, Reference};
 
 /// The text of a doc comment of `blocks`, with `format_code` giving Elm
 /// code blocks their formatted code; upstream's `formatMarkdown`.
@@ -24,7 +24,38 @@ pub(crate) fn render<C>(blocks: &[Block<C>], format_code: &dyn Fn(&C) -> Option<
         format_code,
         top_level: true,
     };
-    cx.blocks(false, initial_blanks, trailing_blanks, blocks)
+    format!(
+        "{}{}{}",
+        if initial_blanks { "\n\n" } else { "" },
+        cx.blocks(Container::Other, blocks),
+        if trailing_blanks { "\n" } else { "" },
+    )
+}
+
+/// What holds the blocks `Context::blocks` prints.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Container {
+    ListItem,
+    Other,
+}
+
+/// Where a block stands; upstream's `Context`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BlockContext {
+    Normal,
+    /// Right after a list, where an indented code block would read as
+    /// part of the list's last item.
+    AfterIndentedList,
+}
+
+/// Whether inline text escapes what Markdown would read as markup, the
+/// flag upstream's `formatMarkdownInline` takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Escape {
+    /// `\`, `` ` ``, `_` and `*` escaped.
+    Markup,
+    /// As it is.
+    Verbatim,
 }
 
 struct Context<'a, C> {
@@ -43,37 +74,30 @@ impl<C> Context<'_, C> {
     }
 
     /// Upstream's `formatMarkdown'`.
-    fn blocks(
-        &self,
-        is_list_item: bool,
-        initial_blanks: bool,
-        trailing_blanks: bool,
-        blocks: &[Block<C>],
-    ) -> String {
-        let separator = match (is_list_item, blocks) {
-            (true, [Block::Para(_), Block::List { .. }]) => "",
-            _ => "\n",
-        };
-        let mut out = String::new();
-        if initial_blanks {
-            out.push_str("\n\n");
-        }
-        for (i, block) in blocks.iter().enumerate() {
-            if i > 0 {
-                out.push_str(separator);
+    fn blocks(&self, container: Container, blocks: &[Block<C>]) -> String {
+        nomi_base::grow_large(|| {
+            let separator = match (container, blocks) {
+                (Container::ListItem, [Block::Para(_), Block::List { .. }]) => "",
+                _ => "\n",
+            };
+            let mut out = String::new();
+            for (i, block) in blocks.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(separator);
+                }
+                let context = if i > 0 && matches!(blocks[i - 1], Block::List { .. }) {
+                    BlockContext::AfterIndentedList
+                } else {
+                    BlockContext::Normal
+                };
+                out.push_str(&self.block(context, block));
             }
-            let after_list = i > 0 && matches!(blocks[i - 1], Block::List { .. });
-            out.push_str(&self.block(after_list, block));
-        }
-        if trailing_blanks {
-            out.push('\n');
-        }
-        out
+            out
+        })
     }
 
-    /// Upstream's `formatMardownBlock`, where `after_list` is the
-    /// `AfterIndentedList` context.
-    fn block(&self, after_list: bool, block: &Block<C>) -> String {
+    /// Upstream's `formatMardownBlock`.
+    fn block(&self, context: BlockContext, block: &Block<C>) -> String {
         match block {
             Block::ElmDocs(groups) => {
                 let groups: Vec<String> = groups
@@ -94,22 +118,20 @@ impl<C> Context<'_, C> {
                     .collect();
                 format!("{}\n", groups.join("\n"))
             }
-            Block::Para(inlines) => format!("{}\n", self::inlines(true, inlines)),
+            Block::Para(inlines) => format!("{}\n", self::inlines(Escape::Markup, inlines)),
             Block::Header(level, inlines) => {
                 format!(
                     "\n{} {}\n",
                     "#".repeat(*level),
-                    self::inlines(true, inlines)
+                    self::inlines(Escape::Markup, inlines)
                 )
             }
-            Block::Blockquote(blocks) => prefix(
-                "> ",
-                "> ",
-                &self.nested().blocks(false, false, false, blocks),
-            ),
+            Block::Blockquote(blocks) => {
+                prefix("> ", "> ", &self.nested().blocks(Container::Other, blocks))
+            }
             Block::List { tight, kind, items } => {
                 let items = items.iter().enumerate().map(|(i, item)| {
-                    let text = self.nested().blocks(true, false, false, item);
+                    let text = self.nested().blocks(Container::ListItem, item);
                     match kind {
                         ListType::Bullet(_) => prefix("  - ", "    ", &text),
                         ListType::Numbered(..) => {
@@ -128,8 +150,8 @@ impl<C> Context<'_, C> {
                     .join(if *tight { "" } else { "\n" })
             }
             Block::Code { attr, text, code } => {
-                let is_elm = attr.lang == "elm" || attr.lang.is_empty();
-                let formatted = is_elm
+                let formatted = attr
+                    .is_elm()
                     .then(|| (self.format_code)(code))
                     .flatten()
                     .unwrap_or_else(|| {
@@ -141,9 +163,10 @@ impl<C> Context<'_, C> {
                             format!("{text}\n")
                         }
                     });
-                if is_elm && !after_list {
-                    lines(&formatted)
-                        .iter()
+                if attr.is_elm() && context == BlockContext::Normal {
+                    // Haskell's `lines`: no last line after a final newline.
+                    formatted
+                        .split_terminator('\n')
                         .map(|line| format!("    {line}\n"))
                         .collect()
                 } else {
@@ -154,13 +177,8 @@ impl<C> Context<'_, C> {
             Block::HRule => "---\n".to_owned(),
             Block::References(references) => references
                 .iter()
-                .map(|(label, url, title)| {
-                    let title = if title.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" \"{title}\"")
-                    };
-                    format!("[{label}]: {url}{title}\n")
+                .map(|Reference { label, url, title }| {
+                    format!("[{label}]: {url}{}\n", quoted_title(title))
                 })
                 .collect(),
         }
@@ -170,36 +188,36 @@ impl<C> Context<'_, C> {
 /// `text`'s first line after `first`, and the rest after `rest`;
 /// upstream's `prefix'`.
 fn prefix(first: &str, rest: &str, text: &str) -> String {
-    lines(text)
-        .iter()
+    text.split_terminator('\n')
         .enumerate()
         .map(|(i, line)| format!("{}{line}\n", if i == 0 { first } else { rest }))
         .collect()
 }
 
-fn inlines(fix: bool, inlines: &[Inline]) -> String {
-    inlines.iter().map(|i| inline(fix, i)).collect()
+fn inlines(escape: Escape, inlines: &[Inline]) -> String {
+    inlines.iter().map(|i| inline(escape, i)).collect()
 }
 
-/// Upstream's `formatMarkdownInline`, where `fix` escapes what Markdown
-/// would read as markup.
-fn inline(fix: bool, inline: &Inline) -> String {
-    match inline {
-        Inline::Str(text) if fix => {
-            let mut out = String::with_capacity(text.len());
-            for c in text.chars() {
-                if matches!(c, '\\' | '`' | '_' | '*') {
-                    out.push('\\');
+/// Upstream's `formatMarkdownInline`.
+fn inline(escape: Escape, inline: &Inline) -> String {
+    nomi_base::grow_large(|| match inline {
+        Inline::Str(text) => match escape {
+            Escape::Markup => {
+                let mut out = String::with_capacity(text.len());
+                for c in text.chars() {
+                    if matches!(c, '\\' | '`' | '_' | '*') {
+                        out.push('\\');
+                    }
+                    out.push(c);
                 }
-                out.push(c);
+                out
             }
-            out
-        }
-        Inline::Str(text) => text.clone(),
+            Escape::Verbatim => text.clone(),
+        },
         Inline::Space => " ".to_owned(),
         Inline::SoftBreak | Inline::LineBreak => "\n".to_owned(),
-        Inline::Emph(content) => format!("_{}_", inlines(true, content)),
-        Inline::Strong(content) => format!("**{}**", inlines(true, content)),
+        Inline::Emph(content) => format!("_{}_", inlines(Escape::Markup, content)),
+        Inline::Strong(content) => format!("**{}**", inlines(Escape::Markup, content)),
         Inline::Code(text) => match longest_backtick_run(text) {
             0 => format!("`{text}`"),
             n => {
@@ -207,26 +225,37 @@ fn inline(fix: bool, inline: &Inline) -> String {
                 format!("{delimiter} {text} {delimiter}")
             }
         },
-        Inline::Link(content, LinkTarget::Url(url), title) => {
-            if title.is_empty() && is_absolute_url(url) && inlines(false, content) == *url {
-                if fix { format!("<{url}>") } else { url.clone() }
+        Inline::Link {
+            text,
+            target: LinkTarget::Url(url),
+            title,
+        } => {
+            if title.is_empty() && is_absolute_url(url) && inlines(Escape::Verbatim, text) == *url {
+                match escape {
+                    Escape::Markup => format!("<{url}>"),
+                    Escape::Verbatim => url.clone(),
+                }
             } else {
-                format!("[{}]({url}{})", inlines(fix, content), quoted_title(title))
+                format!("[{}]({url}{})", inlines(escape, text), quoted_title(title))
             }
         }
-        Inline::Link(content, LinkTarget::Ref(reference), _) => {
-            let text = inlines(fix, content);
+        Inline::Link {
+            text,
+            target: LinkTarget::Ref(reference),
+            ..
+        } => {
+            let text = inlines(escape, text);
             if text == *reference || reference.is_empty() {
                 format!("[{text}]")
             } else {
                 format!("[{text}][{reference}]")
             }
         }
-        Inline::Image(content, url, title) => {
-            format!("![{}]({url}{})", inlines(fix, content), quoted_title(title))
+        Inline::Image { text, url, title } => {
+            format!("![{}]({url}{})", inlines(escape, text), quoted_title(title))
         }
         Inline::Entity(text) | Inline::RawHtml(text) => text.clone(),
-    }
+    })
 }
 
 fn quoted_title(title: &str) -> String {

@@ -1,15 +1,15 @@
 //! Types; upstream's `formatType` and the parentheses it decides on.
 
-use crate::block::{Block, Line};
-use crate::structure::{
-    application, forceable_space_sep_or_stack, forceable_space_sep_or_stack1, group,
-    prefix_or_indented,
-};
 use crate::tree::{ApplicationMultiline, ForceMultiline, Multiline, Type, TypeConstructor};
 
+use super::block::{Block, Line};
+use super::structure::{
+    Delimiters, application, forceable_space_sep_or_stack, forceable_space_sep_or_stack1, group,
+    prefix_or_indented,
+};
 use super::{
-    c2, c2_eol, comments, eol_commented, name, pair, parens, pre_commented, record_like, unit,
-    upper_ref,
+    c2, c2_eol, comments, eol_commented, name, pair, parens, pre_commented, record_like,
+    tuple_function, unit, upper_ref,
 };
 
 /// Where a type stands, from needing no parentheses to needing them most;
@@ -54,13 +54,13 @@ pub(super) fn type_alone(ty: &Type) -> Block {
 fn type_constructor(ctor: &TypeConstructor) -> Block {
     Block::line(match ctor {
         TypeConstructor::Named(name) => upper_ref(name),
-        TypeConstructor::Tuple(n) => Line::text(format!("({})", ",".repeat(n - 1))),
+        TypeConstructor::Tuple(n) => tuple_function(*n),
     })
 }
 
 /// Upstream's `formatType`.
 pub(super) fn format_type(ty: &Type) -> (TypeParensInner, Block) {
-    crate::guarded(|| format_type_unguarded(ty))
+    nomi_base::grow_large(|| format_type_unguarded(ty))
 }
 
 fn format_type_unguarded(ty: &Type) -> (TypeParensInner, Block) {
@@ -70,7 +70,7 @@ fn format_type_unguarded(ty: &Type) -> (TypeParensInner, Block) {
         Type::Function {
             first,
             rest,
-            force_multiline: ForceMultiline(force),
+            force_multiline,
         } => {
             let first = eol_commented(
                 first.comments.as_deref(),
@@ -80,28 +80,35 @@ fn format_type_unguarded(ty: &Type) -> (TypeParensInner, Block) {
                 .0
                 .iter()
                 .map(|item| {
-                    let (pre_op, post_op, eol) = &item.comments;
+                    let around = &item.comments;
                     let term = c2_eol(
-                        post_op,
+                        &around.after_separator,
                         &[],
-                        eol.as_deref(),
+                        around.eol.as_deref(),
                         type_parens(ForLambda, format_type(&item.value)),
                     );
                     let arrow = prefix_or_indented(Block::line(Line::text("->")), term);
                     forceable_space_sep_or_stack1(
-                        false,
-                        comments(pre_op).into_iter().chain([arrow]).collect(),
+                        ForceMultiline(false),
+                        comments(&around.before_separator)
+                            .into_iter()
+                            .chain([arrow])
+                            .collect(),
                     )
                 })
                 .collect();
             (
                 TypeParensInner::ForFunctionType,
-                forceable_space_sep_or_stack(*force, first, rest),
+                forceable_space_sep_or_stack(*force_multiline, first, rest),
             )
         }
         Type::Variable(var) => (TypeParensInner::NotNeeded, Block::line(name(&var.0))),
-        Type::Construction(ctor, args, ForceMultiline(force)) => {
-            let join = if *force {
+        Type::Construction {
+            ctor,
+            args,
+            force_multiline,
+        } => {
+            let join = if force_multiline.0 {
                 ApplicationMultiline::SplitFirst
             } else {
                 ApplicationMultiline::JoinFirst(Multiline::JoinAll)
@@ -118,17 +125,22 @@ fn format_type_unguarded(ty: &Type) -> (TypeParensInner, Block) {
             (inner, application(join, type_constructor(ctor), args))
         }
         Type::Parens(inner) => (TypeParensInner::NotNeeded, parens(c2(inner, type_alone))),
-        Type::Tuple(types, ForceMultiline(force)) => {
+        Type::Tuple(types, force) => {
             let types = types
                 .iter()
                 .map(|t| {
-                    let (pre, post, eol) = &t.comments;
-                    c2_eol(pre, post, eol.as_deref(), type_alone(&t.value))
+                    let around = &t.comments;
+                    c2_eol(
+                        &around.before,
+                        &around.after,
+                        around.eol.as_deref(),
+                        type_alone(&t.value),
+                    )
                 })
                 .collect();
             (
                 TypeParensInner::NotNeeded,
-                group(true, "(", ",", ")", *force, types),
+                group(Delimiters::PADDED_PARENS, *force, types),
             )
         }
         Type::Record {
@@ -139,7 +151,7 @@ fn format_type_unguarded(ty: &Type) -> (TypeParensInner, Block) {
         } => (
             TypeParensInner::NotNeeded,
             record_like(base.as_ref(), fields, trailing, *force_multiline, |field| {
-                pair(":", field, |key| name(&key.0), type_alone)
+                pair(":", field, type_alone)
             }),
         ),
     }

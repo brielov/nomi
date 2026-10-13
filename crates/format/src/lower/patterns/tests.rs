@@ -1,6 +1,7 @@
 use super::super::c;
+use crate::test_support::{block, lower as name, separated, upper};
 use crate::tree::{
-    Comment, FloatRepr, IntRepr, LiteralValue, Lower, Pattern, Sequence, StringRepr, Upper,
+    Around, C2, FloatRepr, IntRepr, LiteralValue, Pattern, Sequence, StringRepr, UpperRef,
 };
 
 fn lower(text: &str) -> Pattern {
@@ -14,16 +15,15 @@ fn literal(text: &str) -> LiteralValue {
     value
 }
 
-fn block(text: &str) -> Comment {
-    Comment::Block(vec![text.to_owned()])
-}
-
 fn var(name: &str) -> Pattern {
-    Pattern::Var(Lower(name.to_owned()))
+    Pattern::Var(self::name(name))
 }
 
-fn none<T>(value: T) -> crate::tree::C2<T> {
-    c((Vec::new(), Vec::new()), value)
+fn ctor(namespace: &[&str], name: &str) -> UpperRef {
+    UpperRef {
+        namespace: namespace.iter().map(|n| upper(n)).collect(),
+        name: upper(name),
+    }
 }
 
 fn chars(text: &str) -> Vec<u32> {
@@ -40,35 +40,29 @@ fn cons_and_alias() {
                 Pattern::Cons {
                     first: Box::new(c(Some(" e".to_owned()), var("x"))),
                     rest: Sequence(vec![
-                        c((vec![], vec![block("c")], None), var("y")),
-                        c((vec![block("d")], vec![], None), var("rest")),
+                        c(separated(vec![], vec![block("c")], None), var("y")),
+                        c(separated(vec![block("d")], vec![], None), var("rest")),
                     ]),
                 }
             )),
-            c(vec![block("n")], Lower("all".to_owned()))
+            c(vec![block("n")], name("all"))
         )
     );
 }
 
 #[test]
 fn constructors() {
-    let just = |arg| Pattern::Data((vec![], Upper("Just".to_owned())), vec![arg]);
+    let just = |arg| Pattern::Data(ctor(&[], "Just"), vec![arg]);
     assert_eq!(
         lower("Just {- a -} True"),
-        Pattern::Data(
-            (vec![], Upper("Just".to_owned())),
-            vec![c(
-                vec![block("a")],
-                Pattern::Literal(LiteralValue::Bool(true))
-            )]
-        )
+        just(c(
+            vec![block("a")],
+            Pattern::Literal(LiteralValue::Bool(true))
+        ))
     );
     assert_eq!(
         lower("Basics.False"),
-        Pattern::Data(
-            (vec![Upper("Basics".to_owned())], Upper("False".to_owned())),
-            vec![]
-        )
+        Pattern::Data(ctor(&["Basics"], "False"), vec![])
     );
     assert_eq!(lower("Just (_)"), just(c(vec![], Pattern::Anything)));
 }
@@ -78,24 +72,24 @@ fn delimited_patterns() {
     assert_eq!(lower("((x))"), var("x"));
     assert_eq!(
         lower("( x {- p -} )"),
-        Pattern::Parens(Box::new(c((vec![], vec![block("p")]), var("x"))))
+        Pattern::Parens(Box::new(c(Around::new(vec![], vec![block("p")]), var("x"))))
     );
     assert_eq!(
         lower("( {- a -} x, y )"),
         Pattern::Tuple(vec![
-            c((vec![block("a")], vec![]), var("x")),
-            none(var("y"))
+            c(Around::new(vec![block("a")], vec![]), var("x")),
+            C2::bare(var("y"))
         ])
     );
     assert_eq!(lower("( {- u -} )"), Pattern::Unit(vec![block("u")]));
     assert_eq!(lower("[ {- e -} ]"), Pattern::EmptyList(vec![block("e")]));
-    assert_eq!(lower("[ x ]"), Pattern::List(vec![none(var("x"))]));
+    assert_eq!(lower("[ x ]"), Pattern::List(vec![C2::bare(var("x"))]));
     assert_eq!(lower("{}"), Pattern::EmptyRecord(vec![]));
     assert_eq!(
         lower("{ a {- x -}, b }"),
         Pattern::Record(vec![
-            c((vec![], vec![block("x")]), Lower("a".to_owned())),
-            none(Lower("b".to_owned())),
+            c(Around::new(vec![], vec![block("x")]), name("a")),
+            C2::bare(name("b")),
         ])
     );
 }

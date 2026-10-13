@@ -2,20 +2,19 @@
 //! `formatModuleBody`, `formatDeclaration`, and what declarations share
 //! with `let`: `formatDefinition` and `formatTypeAnnotation`.
 
-use crate::block::{Block, Line};
-use crate::structure::{definition, space_sep_or_indented};
 use crate::tree::{
-    Assoc, C0Eol, C1Eol, C2Eol, Comment, CommonDeclaration, Declaration, Docs, Expr, Lower,
-    NameWithArgs, OpenCommentedList, Pattern, Ref, TopLevelStructure, Type, Upper,
+    AnnotatedName, Assoc, C0Eol, C1, C1Eol, C2, C2Eol, Comment, CommonDeclaration, Declaration,
+    Docs, Expr, Lower, NameWithArgs, OpenCommentedList, Pattern, Symbol, TopLevelStructure, Type,
 };
 
-use super::SyntaxContext::{SpaceSeparated, SyntaxSeparated};
-use super::expressions::format_expression;
-use super::patterns::{format_pattern, pattern_argument};
+use super::block::{Block, Line};
+use super::expressions::expression_alone;
+use super::patterns::pattern_argument;
+use super::structure::{DefinitionKind, definition, intersperse, space_sep_or_indented};
 use super::types::{TypeParensRequired, format_type, type_alone, type_parens};
 use super::{
-    c2, c2_eol, comment, doc_comment, eol_commented, name, please_report, pre_commented,
-    syntax_parens, tail_commented,
+    c2, c2_eol, comment, doc_comment, eol_commented, name, operator, please_report, pre_commented,
+    tail_commented, text,
 };
 
 /// What an entry is to the spacing around it; upstream's `BodyEntryType`.
@@ -50,28 +49,36 @@ enum Kind<'a> {
 
 fn entry(decl: &Declaration) -> Entry<'_> {
     match decl {
-        Declaration::Common(CommonDeclaration::Definition(pattern, ..)) => match pattern {
+        Declaration::Common(CommonDeclaration::Definition { name, .. }) => match name {
             Pattern::Var(var) => Entry::Named(NamedRef::Var(&var.0)),
             Pattern::Op(op) => Entry::Named(NamedRef::Op(&op.0)),
-            _ => Entry::Unnamed,
+            Pattern::Anything
+            | Pattern::Unit(_)
+            | Pattern::Literal(_)
+            | Pattern::Data(..)
+            | Pattern::Parens(_)
+            | Pattern::Tuple(_)
+            | Pattern::EmptyList(_)
+            | Pattern::List(_)
+            | Pattern::Cons { .. }
+            | Pattern::EmptyRecord(_)
+            | Pattern::Record(_)
+            | Pattern::Alias(..) => Entry::Unnamed,
         },
-        Declaration::Common(CommonDeclaration::TypeAnnotation(var, _)) => {
-            Entry::Named(match &var.value {
-                Ref::Var((), n) => NamedRef::Var(&n.0),
-                Ref::Tag((), n) => NamedRef::Tag(&n.0),
-                Ref::Op(op) => NamedRef::Op(&op.0),
+        Declaration::Common(CommonDeclaration::TypeAnnotation { name, .. }) => {
+            Entry::Named(match &name.value {
+                AnnotatedName::Var(n) => NamedRef::Var(&n.0),
+                AnnotatedName::Op(op) => NamedRef::Op(&op.0),
             })
         }
-        Declaration::Datatype { name_with_args, .. } => {
+        Declaration::Datatype { name_with_args, .. }
+        | Declaration::TypeAlias { name_with_args, .. } => {
             Entry::Named(NamedRef::Tag(&name_with_args.value.name.0))
         }
-        Declaration::TypeAlias(_, name_with_args, _) => {
-            Entry::Named(NamedRef::Tag(&name_with_args.value.name.0))
+        Declaration::PortAnnotation { name, .. } | Declaration::PortDefinition { name, .. } => {
+            Entry::Named(NamedRef::Var(&name.value.0))
         }
-        Declaration::PortAnnotation(var, ..) | Declaration::PortDefinition(var, ..) => {
-            Entry::Named(NamedRef::Var(&var.value.0))
-        }
-        Declaration::Fixity(..) | Declaration::LegacyFixity(..) => Entry::Fixity,
+        Declaration::Fixity { .. } | Declaration::LegacyFixity { .. } => Entry::Fixity,
     }
 }
 
@@ -105,7 +112,9 @@ fn kind<'a>(item: &Item<'a>) -> Kind<'a> {
         Item::DocComment(_) => Kind::DocComment,
         Item::Comment(Comment::TrickOpener) => Kind::Starter,
         Item::Comment(Comment::TrickCloser) => Kind::Closer,
-        Item::Comment(_) => Kind::Comment,
+        Item::Comment(Comment::Block(_) | Comment::Line(_) | Comment::TrickBlock(_)) => {
+            Kind::Comment
+        }
     }
 }
 
@@ -155,7 +164,7 @@ pub(super) fn expressions(lines: usize, exprs: &[TopLevelStructure<C0Eol<Expr>>]
         lines,
         exprs.iter().map(|i| {
             item(i, |expr| {
-                let block = syntax_parens(SyntaxSeparated, format_expression(&expr.value));
+                let block = expression_alone(&expr.value);
                 (
                     Entry::Unnamed,
                     eol_commented(expr.comments.as_deref(), block),
@@ -195,27 +204,16 @@ fn declaration(decl: &Declaration) -> Block {
         Declaration::Datatype {
             name_with_args,
             variants,
-        } => {
-            let mut variants = open_commented_list(variants, variant).into_iter();
-            let first = variants.next().expect("a custom type has a variant");
-            let variants = first
-                .prefix(&Line::row([Line::text("="), Line::space()]))
-                .and_then(variants.map(|v| v.prefix(&Line::row([Line::text("|"), Line::space()]))))
-                .indent();
-            match c2(name_with_args, name_with_args_block) {
-                Block::SingleLine(head) => Block::stack1([
-                    Block::line(Line::row([Line::text("type"), Line::space(), head])),
-                    variants,
-                ]),
-                head => Block::stack1([text("type"), head.indent(), variants]),
-            }
-        }
-        Declaration::TypeAlias(pre_alias, name_with_args, ty) => definition(
-            "=",
-            true,
+        } => datatype(name_with_args, variants),
+        Declaration::TypeAlias {
+            before_alias,
+            name_with_args,
+            ty,
+        } => definition(
+            DefinitionKind::Value,
             text("type"),
             vec![
-                pre_commented(pre_alias, text("alias")),
+                pre_commented(before_alias, text("alias")),
                 c2(name_with_args, name_with_args_block),
             ],
             Block::stack1(
@@ -225,70 +223,120 @@ fn declaration(decl: &Declaration) -> Block {
                     .chain([type_alone(&ty.value)]),
             ),
         ),
-        Declaration::PortAnnotation(var, type_comments, ty) => definition(
-            ":",
-            false,
+        Declaration::PortAnnotation {
+            name: port,
+            before_type,
+            ty,
+        } => definition(
+            DefinitionKind::Annotation,
             text("port"),
-            vec![c2(var, |v| Block::line(name(&v.0)))],
-            pre_commented(type_comments, type_alone(ty)),
+            vec![c2(port, |v| Block::line(name(&v.0)))],
+            pre_commented(before_type, type_alone(ty)),
         ),
-        Declaration::PortDefinition(var, body_comments, body) => definition(
-            "=",
-            true,
+        Declaration::PortDefinition {
+            name: port,
+            before_body,
+            body,
+        } => definition(
+            DefinitionKind::Value,
             text("port"),
-            vec![c2(var, |v| Block::line(name(&v.0)))],
-            pre_commented(
-                body_comments,
-                syntax_parens(SyntaxSeparated, format_expression(body)),
-            ),
+            vec![c2(port, |v| Block::line(name(&v.0)))],
+            pre_commented(before_body, expression_alone(body)),
         ),
-        Declaration::Fixity(assoc, precedence, op, value) => {
-            let assoc_word = match assoc.value {
-                Assoc::Left => "left ",
-                Assoc::Right => "right",
-                Assoc::Non => "non  ",
-            };
-            space_sep_or_indented(
-                text("infix"),
-                vec![
-                    pre_commented(&assoc.comments, text(assoc_word)),
-                    pre_commented(&precedence.comments, text(precedence.value.to_string())),
-                    c2(op, |op| text(format!("({})", op.0))),
-                    text("="),
-                    pre_commented(&value.comments, Block::line(name(&value.value.0))),
-                ],
-            )
-        }
-        Declaration::LegacyFixity(assoc, before_precedence, precedence, before_op, op) => {
-            let keyword = match assoc {
-                Assoc::Left => "infixl",
-                Assoc::Right => "infixr",
-                Assoc::Non => "infix",
-            };
-            match (
-                pre_commented(before_op, text(op.0.as_str())),
-                pre_commented(before_precedence, text(precedence.to_string())),
-            ) {
-                (Block::SingleLine(op), Block::SingleLine(precedence)) => Block::line(Line::row([
-                    Line::text(keyword),
-                    Line::space(),
-                    precedence,
-                    Line::space(),
-                    op,
-                ])),
-                _ => please_report("TODO", "multiline fixity declaration"),
-            }
-        }
+        Declaration::Fixity {
+            assoc,
+            precedence,
+            op,
+            function,
+        } => fixity(assoc, precedence, op, function),
+        Declaration::LegacyFixity {
+            assoc,
+            before_precedence,
+            precedence,
+            before_op,
+            op,
+        } => legacy_fixity(*assoc, before_precedence, *precedence, before_op, op),
     }
 }
 
-fn text(text: impl Into<String>) -> Block {
-    Block::line(Line::text(text))
+/// `type Name args = variants`.
+fn datatype(name_with_args: &C2<NameWithArgs<Lower>>, variants: &OpenCommentedList) -> Block {
+    let mut variants = open_commented_list(variants).into_iter();
+    let first = variants.next().expect("a custom type has a variant");
+    let variants = first
+        .prefix(&Line::row([Line::text("="), Line::space()]))
+        .and_then(variants.map(|v| v.prefix(&Line::row([Line::text("|"), Line::space()]))))
+        .indent();
+    match c2(name_with_args, name_with_args_block) {
+        Block::SingleLine(head) => Block::stack1([
+            Block::line(Line::row([Line::text("type"), Line::space(), head])),
+            variants,
+        ]),
+        head => Block::stack1([text("type"), head.indent(), variants]),
+    }
+}
+
+/// `infix left 6 (+) = add`, the associativity padded to one width.
+fn fixity(assoc: &C1<Assoc>, precedence: &C1<i64>, op: &C2<Symbol>, function: &C1<Lower>) -> Block {
+    let assoc_word = match assoc.value {
+        Assoc::Left => "left ",
+        Assoc::Right => "right",
+        Assoc::Non => "non  ",
+    };
+    space_sep_or_indented(
+        text("infix"),
+        vec![
+            pre_commented(&assoc.comments, text(assoc_word)),
+            pre_commented(&precedence.comments, text(precedence.value.to_string())),
+            c2(op, |op| Block::line(operator(op))),
+            text("="),
+            pre_commented(&function.comments, Block::line(name(&function.value.0))),
+        ],
+    )
+}
+
+/// Elm 0.18's `infixl 6 +`, which upstream can print only on one line.
+fn legacy_fixity(
+    assoc: Assoc,
+    before_precedence: &[Comment],
+    precedence: i64,
+    before_op: &[Comment],
+    op: &Symbol,
+) -> Block {
+    let keyword = match assoc {
+        Assoc::Left => "infixl",
+        Assoc::Right => "infixr",
+        Assoc::Non => "infix",
+    };
+    match (
+        pre_commented(before_op, text(op.0.as_str())),
+        pre_commented(before_precedence, text(precedence.to_string())),
+    ) {
+        (Block::SingleLine(op), Block::SingleLine(precedence)) => Block::line(Line::row([
+            Line::text(keyword),
+            Line::space(),
+            precedence,
+            Line::space(),
+            op,
+        ])),
+        _ => please_report("TODO", "multiline fixity declaration"),
+    }
+}
+
+/// `head args`, on one line if they all fit, else the arguments below,
+/// each indented.
+fn name_and_args(head: Line, args: Vec<Block>) -> Block {
+    match Block::all_singles(args) {
+        Ok(args) => Block::line(intersperse(std::iter::once(head).chain(args), Line::space)),
+        Err(args) => Block::stack1(
+            std::iter::once(Block::line(head)).chain(args.into_iter().map(Block::indent)),
+        ),
+    }
 }
 
 /// A custom type's variant; `ctor` in upstream's `formatDeclaration`.
-fn variant(variant: &NameWithArgs<Upper, Type>) -> Block {
-    let args: Vec<Block> = variant
+fn variant(variant: &NameWithArgs<Type>) -> Block {
+    let args = variant
         .args
         .iter()
         .map(|a| {
@@ -298,45 +346,38 @@ fn variant(variant: &NameWithArgs<Upper, Type>) -> Block {
             )
         })
         .collect();
-    let tag = name(&variant.name.0);
-    if args.is_empty() {
-        return Block::line(tag);
-    }
-    match Block::all_singles(args) {
-        Ok(args) => Block::line(Line::row(super::spaced(
-            std::iter::once(tag).chain(args).collect(),
-        ))),
-        Err(args) => Block::stack1([Block::line(tag), Block::stack1(args).indent()]),
-    }
+    name_and_args(name(&variant.name.0), args)
 }
 
 /// Upstream's `formatNameWithArgs`.
-fn name_with_args_block(value: &NameWithArgs<Upper, Lower>) -> Block {
+fn name_with_args_block(value: &NameWithArgs<Lower>) -> Block {
     let args = value
         .args
         .iter()
         .map(|a| pre_commented(&a.comments, Block::line(name(&a.value.0))))
         .collect();
-    let head = name(&value.name.0);
-    match Block::all_singles(args) {
-        Ok(args) => Block::line(Line::row(super::spaced(
-            std::iter::once(head).chain(args).collect(),
-        ))),
-        Err(args) => Block::stack1(
-            std::iter::once(Block::line(head)).chain(args.into_iter().map(Block::indent)),
-        ),
-    }
+    name_and_args(name(&value.name.0), args)
 }
 
-/// Upstream's `formatOpenCommentedList`.
-fn open_commented_list<T>(list: &OpenCommentedList<T>, render: impl Fn(&T) -> Block) -> Vec<Block> {
-    let item = |item: &C2Eol<T>| {
-        let (pre, post, eol) = &item.comments;
-        c2_eol(pre, post, eol.as_deref(), render(&item.value))
+/// The variants of a custom type; upstream's `formatOpenCommentedList`.
+fn open_commented_list(list: &OpenCommentedList) -> Vec<Block> {
+    let item = |item: &C2Eol<NameWithArgs<Type>>| {
+        let around = &item.comments;
+        c2_eol(
+            &around.before,
+            &around.after,
+            around.eol.as_deref(),
+            variant(&item.value),
+        )
     };
-    let last = |last: &C1Eol<T>| {
-        let (pre, eol) = &last.comments;
-        c2_eol(pre, &[], eol.as_deref(), render(&last.value))
+    let last = |last: &C1Eol<NameWithArgs<Type>>| {
+        let before = &last.comments;
+        c2_eol(
+            &before.before,
+            &[],
+            before.eol.as_deref(),
+            variant(&last.value),
+        )
     };
     list.items
         .iter()
@@ -348,33 +389,38 @@ fn open_commented_list<T>(list: &OpenCommentedList<T>, render: impl Fn(&T) -> Bl
 /// A definition or a type annotation, at the top level or in a `let`.
 pub(super) fn common(decl: &CommonDeclaration) -> Block {
     match decl {
-        CommonDeclaration::Definition(pattern, args, comments, body) => {
+        CommonDeclaration::Definition {
+            name,
+            args,
+            before_body,
+            body,
+        } => {
             let body = Block::stack1(
-                comments
+                before_body
                     .iter()
                     .map(comment)
-                    .chain([syntax_parens(SyntaxSeparated, format_expression(body))]),
+                    .chain([expression_alone(body)]),
             );
             definition(
-                "=",
-                true,
-                syntax_parens(SpaceSeparated, format_pattern(pattern)),
+                DefinitionKind::Value,
+                pattern_argument(name),
                 args.iter()
                     .map(|a| pre_commented(&a.comments, pattern_argument(&a.value)))
                     .collect(),
                 body,
             )
         }
-        CommonDeclaration::TypeAnnotation(var, ty) => {
-            let var_name = match &var.value {
-                Ref::Var((), n) => name(&n.0),
-                Ref::Tag((), n) => name(&n.0),
-                Ref::Op(op) => Line::text(format!("({})", op.0)),
+        CommonDeclaration::TypeAnnotation {
+            name: annotated,
+            ty,
+        } => {
+            let annotated_name = match &annotated.value {
+                AnnotatedName::Var(n) => name(&n.0),
+                AnnotatedName::Op(op) => operator(op),
             };
             definition(
-                ":",
-                false,
-                tail_commented(Block::line(var_name), &var.comments),
+                DefinitionKind::Annotation,
+                tail_commented(Block::line(annotated_name), &annotated.comments),
                 Vec::new(),
                 pre_commented(&ty.comments, type_alone(&ty.value)),
             )

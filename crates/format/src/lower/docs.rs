@@ -8,9 +8,9 @@ use nomi_syntax::{
 };
 
 use super::cursor::{self, Cursor};
-use super::{VALID, c, declarations, expressions};
+use super::{VALID, comments_before, declarations, expressions};
 use crate::markdown::{self, CodeAttr};
-use crate::tree::{Declaration, Docs, ElmCode, TopLevelStructure};
+use crate::tree::{C0Eol, Declaration, Docs, ElmCode, Expr, TopLevelStructure, c};
 
 /// The doc comment `token`: the Markdown between `{-|` and `-}`.
 pub(super) fn docs(token: &SyntaxToken) -> Docs {
@@ -25,7 +25,7 @@ pub(super) fn docs(token: &SyntaxToken) -> Docs {
 /// else expressions, else a module, as the first that elm-format
 /// parses.
 fn elm_code(attr: &CodeAttr, text: &str) -> Option<ElmCode> {
-    if !(attr.lang == "elm" || attr.lang.is_empty()) {
+    if !attr.is_elm() {
         return None;
     }
     let valid =
@@ -65,10 +65,7 @@ fn declarations_fragment(root: &SyntaxNode, text: &str) -> Vec<TopLevelStructure
 
 /// Expressions, each with the `--` comment ending its line, and the
 /// comments before each; upstream's `topLevel (withEol expr)`.
-fn expressions_fragment(
-    root: &SyntaxNode,
-    text: &str,
-) -> Vec<TopLevelStructure<crate::tree::C0Eol<crate::tree::Expr>>> {
+fn expressions_fragment(root: &SyntaxNode, text: &str) -> Vec<TopLevelStructure<C0Eol<Expr>>> {
     let mut cx = Cursor::new(root, text);
     let mut body = Vec::new();
     for expr in ast::ExpressionsFragment::cast(root.clone())
@@ -76,11 +73,7 @@ fn expressions_fragment(
         .exprs()
     {
         let expr_range = cx.range(expr.syntax());
-        body.extend(
-            cx.take(expr_range.start())
-                .into_iter()
-                .map(TopLevelStructure::BodyComment),
-        );
+        comments_before(&mut cx, &mut body, expr_range.start());
         let value = expressions::expr(&mut cx, &expr);
         let eol = cx.eol(expr_range);
         body.push(TopLevelStructure::Entry(c(eol, value)));
