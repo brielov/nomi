@@ -21,6 +21,7 @@ use serde_json::value::RawValue;
 use serde_json::{Value, json};
 
 use crate::generate::Report;
+use crate::junit::{self, Json};
 use crate::runner::DRIVER;
 
 /// The elm-test whose behaviour nomi's is, which the console's header
@@ -180,6 +181,8 @@ struct State {
     finished: usize,
     /// Each result by its index.
     results: HashMap<usize, Sent>,
+    /// The indices in the order their results came, which JUnit lists.
+    order: Vec<usize>,
     failures: usize,
     todos: Vec<Value>,
     started: Instant,
@@ -194,6 +197,7 @@ impl State {
             tests: None,
             finished: 0,
             results: HashMap::new(),
+            order: Vec::new(),
             failures: 0,
             todos: Vec::new(),
             started: Instant::now(),
@@ -323,6 +327,11 @@ impl State {
                     console.err(&format!("{text}\n"));
                 } else {
                     self.print(console, sent.as_ref());
+                    if self.supervise.report == Report::JUnit
+                        && let Some(sent) = &sent
+                    {
+                        console.out(&format!("{}\n", self.junit(sent)));
+                    }
                 }
                 Some(message.exit_code.unwrap_or(1))
             }
@@ -388,7 +397,9 @@ impl State {
                     _ => {}
                 },
             }
-            self.results.insert(index, result);
+            if self.results.insert(index, result).is_none() {
+                self.order.push(index);
+            }
         }
         self.flush(console);
     }
@@ -406,6 +417,17 @@ impl State {
             next += 1;
         }
         self.next = Some(next);
+    }
+
+    /// The JUnit report: the summary's XML with every result, in the
+    /// order they came.
+    fn junit(&self, summary: &Sent) -> String {
+        let parse = |text: &str| serde_json::from_str::<Json>(text).unwrap_or(Json::Null);
+        let results = (self.order.iter())
+            .filter_map(|index| self.results.get(index))
+            .map(|result| parse(&result.text))
+            .collect();
+        junit::report(parse(&summary.text), results)
     }
 
     fn print(&self, console: &mut dyn Console, result: Option<&Sent>) {

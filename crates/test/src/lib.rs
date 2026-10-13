@@ -6,6 +6,7 @@ pub mod build;
 pub mod discover;
 pub mod files;
 pub mod generate;
+pub mod junit;
 pub mod runner;
 pub mod supervise;
 

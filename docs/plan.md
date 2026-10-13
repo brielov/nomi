@@ -985,9 +985,11 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - **Done:** `nomi_test::supervise::run` runs a built runner's program in Node workers and prints as elm-test's supervisor does. The six fixture suites through the JSON, console and colored console reporters, with three workers where the case names none, and the two no-tests cases, give elm-test's standard output (past its progress line), standard error and exit code; the runtime exception through one worker shows its message alone. `random_seed` and `default_workers` are elm-test's defaults, for 10.6's options.
   - The program no longer holds the supervisor's address: each worker is given the port after its index, so a program built once serves every run.
   - A worker's results come keyed by index, which JavaScript lists in numeric order, so the supervisor sorts them so before keeping them: JUnit prints them in the order they came (10.5).
-- [ ] **10.5** `test: reporters`. Console, JSON and JUnit, byte-identical.
+- [x] **10.5** `test: reporters`. Console, JSON and JUnit, byte-identical.
   - **Reporters:** the console and JSON reporters print the Elm reporters' text as 10.4 does. JUnit's is `XMLBuilder`: the reporter's summary describes the XML as JSON, its fields in the order they were encoded, which `serde_json::Value` sorts, so the supervisor reads it into a value of its own that keeps them; the results join its test cases in the order the workers sent them; attribute values and text are escaped as elm-test escapes them, characters XML can't hold written `\u{…}`.
   - **Check:** the six fixture suites through every reporter, console plain and colored, JSON and JUnit, print elm-test's transcripts byte for byte, up to durations; and the XML's escaping, against elm-test's rules.
+  - **Done:** `nomi_test::junit` writes the XML. All 24 runs of the six suites, and the two with no tests, give elm-test's standard output, standard error and exit code; JUnit's runs take one worker, as their recordings did. The transcripts' remaining cases are the command's: its progress line, its arguments and their errors, `make` (10.6).
+  - The JUnit reporter gives each test's time as a float of seconds (`0.001`), and the transcripts normalize the digits and points after ` time="`.
 - [ ] **10.6** `cli: nomi test and the elm-test personality`.
 - [ ] **10.7** `release: 0.4`.
 

@@ -386,15 +386,19 @@ fn case_options(case: &Case, files: &[PathBuf], workers: usize) -> (Options, boo
 /// as `{dir}`.
 fn normalize(text: &str, dir: &Path) -> String {
     let mut text = text.replace(&dir.display().to_string(), "{dir}");
-    for marker in ["\"duration\":\"", "Duration: ", "Duration: \u{1b}[22m"] {
+    for marker in [
+        "\"duration\":\"",
+        " time=\"",
+        "Duration: ",
+        "Duration: \u{1b}[22m",
+    ] {
         let mut out = String::new();
         let mut rest = text.as_str();
         while let Some(at) = rest.find(marker) {
             out.push_str(&rest[..at + marker.len()]);
             rest = &rest[at + marker.len()..];
-            let end = rest
-                .find(|c: char| !c.is_ascii_digit())
-                .unwrap_or(rest.len());
+            let end =
+                (rest.find(|c: char| !(c.is_ascii_digit() || c == '.'))).unwrap_or(rest.len());
             if end > 0 {
                 out.push('0');
             }
@@ -422,7 +426,7 @@ fn runs_print_what_elm_test_printed() {
         "invalid_xml",
     ];
     let mut names: Vec<String> = (suites.iter())
-        .flat_map(|s| ["json", "console", "color"].map(|r| format!("{s}_{r}")))
+        .flat_map(|s| ["json", "console", "color", "junit"].map(|r| format!("{s}_{r}")))
         .collect();
     names.extend(["no_tests".to_owned(), "no_tests_json".to_owned()]);
     for name in names {
