@@ -147,6 +147,16 @@ enum CorpusCommand {
         /// Only projects whose case contains this text.
         only: Option<String>,
     },
+    /// Tier 2, by hand: whether nomi answers the language-server session
+    /// of every sampled corpus project as elm-language-server did (`cargo
+    /// xtask oracle corpus-lsp`).
+    Lsp {
+        /// Record newly passing answers in corpus/lsp/passing.txt.
+        #[arg(long)]
+        record: bool,
+        /// Only projects whose case contains this text.
+        only: Option<String>,
+    },
     /// Tier 2: whether every module elm accepts lowers to the HIR with its
     /// source map whole.
     Hir,
@@ -252,6 +262,16 @@ enum OracleCommand {
     },
     /// Store a digest of the `.elmo` of every module each elm builds for
     /// every corpus app and package, as `corpus-check` runs elm.
+    /// Store a digest of each answer elm-language-server gives in the
+    /// session of every sampled corpus project (plan 9.20a).
+    CorpusLsp {
+        /// Concurrent sessions; two by default.
+        #[arg(long)]
+        jobs: Option<usize>,
+        /// Only projects whose case contains this text.
+        #[arg(long)]
+        only: Option<String>,
+    },
     CorpusGraphs {
         /// Concurrent elm runs; the available cores by default.
         #[arg(long)]
@@ -335,6 +355,9 @@ fn main() -> ExitCode {
             OracleCommand::CorpusObjects { jobs, only } => {
                 oracle::corpus_runs::run(&root(), &r, Suite::Objects, jobs, only.as_deref())
             }
+            OracleCommand::CorpusLsp { jobs, only } => {
+                corpus::lsp::record(&root(), &r, jobs, only.as_deref())
+            }
             OracleCommand::CorpusGraphs { jobs, only } => {
                 oracle::corpus_runs::run(&root(), &r, Suite::Graphs, jobs, only.as_deref())
             }
@@ -400,6 +423,9 @@ fn main() -> ExitCode {
             }
             CorpusCommand::GraphDiff { release, nomi, elm } => {
                 corpus::runs::graph_diff(&release, &nomi, &elm)
+            }
+            CorpusCommand::Lsp { record, only } => {
+                corpus::lsp::check(&root(), record, only.as_deref())
             }
             CorpusCommand::Graphs { only } => {
                 corpus::runs::check(&root(), Suite::Graphs, only.as_deref())

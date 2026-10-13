@@ -622,7 +622,8 @@ impl Driver {
     fn handle(&mut self, message: Message) {
         match message {
             Message::Notification(n) if n.method == "textDocument/publishDiagnostics" => {
-                let uri = n.params["uri"].as_str().unwrap_or_default().to_owned();
+                // elm-language-server percent-encodes them, `@` as `%40`.
+                let uri = percent_decoded(n.params["uri"].as_str().unwrap_or_default());
                 self.awaiting.remove(&uri);
                 self.published.insert(uri, n.params["diagnostics"].clone());
             }
@@ -787,7 +788,10 @@ pub fn tidy(transcript: Value, replacements: &[(String, String)]) -> Value {
             _ => None,
         };
         for item in items.into_iter().flatten() {
-            if let Some(documentation) = item.get_mut("documentation") {
+            // Tidied once already, it stays as it is.
+            if let Some(documentation) = item.get_mut("documentation")
+                && documentation.get("sha256").is_none()
+            {
                 let text = serde_json::to_string(documentation).unwrap();
                 let digest = crate::ratchet::sha256_hex(text.as_bytes());
                 *documentation = json!({ "sha256": &digest[..16] });
@@ -795,6 +799,30 @@ pub fn tidy(transcript: Value, replacements: &[(String, String)]) -> Value {
         }
     }
     transcript
+}
+
+/// `uri` with its percent escapes decoded.
+fn percent_decoded(uri: &str) -> String {
+    let bytes = uri.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let escaped = (bytes[i] == b'%')
+            .then(|| uri.get(i + 1..i + 3))
+            .flatten()
+            .and_then(|hex| u8::from_str_radix(hex, 16).ok());
+        match escaped {
+            Some(byte) => {
+                out.push(byte);
+                i += 3;
+            }
+            None => {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// A transcript as written to a file: indented to [`TEXT_DEPTH`], each

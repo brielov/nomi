@@ -37,7 +37,7 @@ pub const SUITE: &str = "crates/lsp/tests/elm_language_server";
 const PACKAGES: &str = "crates/compiler/tests/packages";
 
 /// What every session needs.
-struct Tools {
+pub(crate) struct Tools {
     node: PathBuf,
     /// The server's `PATH`: the pinned elm as `elm`, as a user has it,
     /// and Node, and no `elm-test`.
@@ -65,29 +65,7 @@ pub fn run(root: &Path, refs: &References, only: Option<&str>) -> Result<()> {
     }
     let home = scratch.join("home");
     let packages = fs::canonicalize(elm_home(root, &home, compat)?)?;
-    let node = which("node").context("node isn't on PATH")?;
-    let bin = scratch.join("bin");
-    fs::create_dir_all(&bin)?;
-    let elm = binary(refs, "elm", Some(&compat.to_string()))?;
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(&elm, bin.join("elm"))?;
-    #[cfg(not(unix))]
-    fs::copy(&elm, bin.join(elm.file_name().context("elm's name")?))?;
-    let path = std::env::join_paths([
-        bin,
-        node.parent().context("node's directory")?.to_owned(),
-        PathBuf::from("/usr/bin"),
-        PathBuf::from("/bin"),
-    ])?;
-    let tools = Tools {
-        node,
-        path,
-        server,
-        elm: binary(refs, "elm", Some(&compat.to_string()))?,
-        elm_format: binary(refs, "elm-format", None)?,
-        home,
-        packages,
-    };
+    let tools = tools(refs, server, &scratch, home, packages)?;
     prebuild(&tools, &scratch.join("prebuild"))?;
 
     let suite = root.join(SUITE);
@@ -135,6 +113,56 @@ pub fn run(root: &Path, refs: &References, only: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// What every session needs, with `home` as the `ELM_HOME` whose package
+/// cache is `packages`, and a `PATH` of its own under `scratch`.
+pub(crate) fn tools(
+    refs: &References,
+    server: PathBuf,
+    scratch: &Path,
+    home: PathBuf,
+    packages: PathBuf,
+) -> Result<Tools> {
+    let compat = Version::parse("0.19.1").context("a version")?;
+    let node = which("node").context("node isn't on PATH")?;
+    let bin = scratch.join("bin");
+    fs::create_dir_all(&bin)?;
+    let elm = binary(refs, "elm", Some(&compat.to_string()))?;
+    let link = bin.join(elm.file_name().context("elm's name")?);
+    if !link.exists() {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&elm, &link)?;
+        #[cfg(not(unix))]
+        fs::copy(&elm, &link)?;
+    }
+    let path = std::env::join_paths([
+        bin,
+        node.parent().context("node's directory")?.to_owned(),
+        PathBuf::from("/usr/bin"),
+        PathBuf::from("/bin"),
+    ])?;
+    Ok(Tools {
+        node,
+        path,
+        server,
+        elm: binary(refs, "elm", Some(&compat.to_string()))?,
+        elm_format: binary(refs, "elm-format", None)?,
+        home,
+        packages,
+    })
+}
+
+/// The pinned elm-language-server's entry point.
+pub(crate) fn server_path() -> Result<PathBuf> {
+    let server =
+        oracles_dir()?.join("npm/node_modules/@elm-tooling/elm-language-server/out/node/index.js");
+    ensure!(
+        server.exists(),
+        "{} is missing; run `cargo xtask oracle fetch`",
+        server.display()
+    );
+    Ok(server)
+}
+
 /// The first `name` on `PATH`.
 fn which(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
@@ -162,9 +190,13 @@ fn prebuild(tools: &Tools, dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn record(tools: &Tools, scratch: &Path, case: &lsp::Case) -> Result<serde_json::Value> {
+pub(crate) fn record(tools: &Tools, scratch: &Path, case: &lsp::Case) -> Result<serde_json::Value> {
     fs::create_dir_all(scratch)?;
     let work = lsp::project_dir(&fs::canonicalize(scratch)?, &case.name);
+    // Nothing of an earlier run's copy stays.
+    if work.exists() {
+        fs::remove_dir_all(&work)?;
+    }
     lsp::copy_project(case, &work)?;
 
     let mut command = Command::new(&tools.node);
@@ -210,6 +242,9 @@ fn record(tools: &Tools, scratch: &Path, case: &lsp::Case) -> Result<serde_json:
             "<packages>".to_owned(),
         ),
         (packages.display().to_string(), "<packages>".to_owned()),
+        // It writes URIs percent-encoded, so `@` as `%40` in a package's
+        // copy.
+        (root_uri.replace('@', "%40"), "<project>".to_owned()),
         (root_uri, "<project>".to_owned()),
         (work.display().to_string(), "<project>".to_owned()),
     ];
