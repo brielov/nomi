@@ -990,7 +990,9 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - **Check:** the six fixture suites through every reporter, console plain and colored, JSON and JUnit, print elm-test's transcripts byte for byte, up to durations; and the XML's escaping, against elm-test's rules.
   - **Done:** `nomi_test::junit` writes the XML. All 24 runs of the six suites, and the two with no tests, give elm-test's standard output, standard error and exit code; JUnit's runs take one worker, as their recordings did. The transcripts' remaining cases are the command's: its progress line, its arguments and their errors, `make` (10.6).
   - The JUnit reporter gives each test's time as a float of seconds (`0.001`), and the transcripts normalize the digits and points after ` time="`.
-- [ ] **10.6** `cli: nomi test and the elm-test personality`.
+- [ ] **10.6a** `cli: nomi test and the elm-test personality`. elm-test's arguments as `commander` parses them, its help, version and errors; a run as `RunTests.js` makes it, with its progress line; and `make`.
+- [ ] **10.6b** `cli: elm-test init and install`. A package added to the test dependencies, as `Install.js` adds it, and `tests/Example.elm`.
+- [ ] **10.6c** `test: --watch`. Runs again as the test source directories and `elm.json` change.
 - [ ] **10.7** `release: 0.4`.
 
 **Exit:** output matches elm-test for fixed seeds, and the corpus apps' test suites pass.
