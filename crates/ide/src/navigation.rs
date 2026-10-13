@@ -77,12 +77,13 @@ pub fn definition(
     }
     // An operator is its infix declaration's function.
     let found = match kind(&target) {
-        Some(Kind::Binop) => {
-            infix_function(&root, found.range).map_or(found.clone(), |range| Location {
+        Some(Kind::Binop) => infix_function(&root, found.range).map_or_else(
+            || found.clone(),
+            |range| Location {
                 path: found.path.clone(),
                 range,
-            })
-        }
+            },
+        ),
         _ => found,
     };
     Some(Location {
@@ -129,7 +130,7 @@ fn declaring_node(root: &SyntaxNode, range: TextRange) -> Option<TextRange> {
             let end = (node.children())
                 .filter(|c| ast::Pattern::can_cast(c.kind()))
                 .last()
-                .map_or(token.text_range().end(), |last| last.text_range().end());
+                .map_or_else(|| token.text_range().end(), |last| last.text_range().end());
             Some(TextRange::new(token.text_range().start(), end))
         }
         SyntaxKind::TypeAliasDecl | SyntaxKind::CustomTypeDecl => {
@@ -167,7 +168,7 @@ pub fn type_definition(
                 .find(|r| r.range == innermost)
                 .and_then(|r| match r.target {
                     Target::Local(binder) => Some(binder),
-                    _ => None,
+                    Target::Global { .. } => None,
                 })?;
             (types.iter())
                 .filter(|(range, _)| crate::hover::trimmed(&module.root(), *range) == Some(binder))

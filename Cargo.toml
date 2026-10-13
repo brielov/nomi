@@ -50,13 +50,56 @@ ureq = { version = "3.4", features = ["gzip", "platform-verifier"] }
 walkdir = "2.5"
 zip = { version = "8.6", default-features = false, features = ["deflate"] }
 
+# architecture.md §13, where a lint can check it.
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
 
 [workspace.lints.clippy]
 dbg_macro = "warn"
 todo = "warn"
+allow_attributes_without_reason = "warn"
+# T2, T4
+fn_params_excessive_bools = "warn"
+option_option = "warn"
+struct_excessive_bools = "warn"
+# T5
+match_wildcard_for_single_variants = "warn"
+# F3
+needless_pass_by_ref_mut = "warn"
+needless_pass_by_value = "warn"
+ref_option = "warn"
+trivially_copy_pass_by_ref = "warn"
+unnecessary_wraps = "warn"
+unused_self = "warn"
+# F4
+implicit_clone = "warn"
+needless_collect = "warn"
+or_fun_call = "warn"
+redundant_clone = "warn"
+stable_sort_primitive = "warn"
+# Plain code
+bool_to_int_with_if = "warn"
+cast_lossless = "warn"
+doc_markdown = "warn"
+enum_glob_use = "warn"
+explicit_iter_loop = "warn"
+filter_map_next = "warn"
+if_not_else = "warn"
+items_after_statements = "warn"
+manual_assert = "warn"
+manual_let_else = "warn"
+map_unwrap_or = "warn"
+needless_for_each = "warn"
+nonminimal_bool = "warn"
+range_plus_one = "warn"
+redundant_else = "warn"
+semicolon_if_nothing_returned = "warn"
+single_match_else = "warn"
+unnested_or_patterns = "warn"
+useless_let_if_seq = "warn"
 
 # The artifact cache hashes nomi's own executable once per run (CR.6);
 # unoptimized, that takes seconds in a development build.

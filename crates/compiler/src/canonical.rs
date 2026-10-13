@@ -23,12 +23,18 @@ pub struct Home {
 /// several. Names are few, so keeping them costs little. It orders and
 /// hashes as its text, so nothing depends on where a name lives.
 #[derive(Clone)]
-#[allow(clippy::borrowed_box)] // A `&Box<str>` is one word, a `&str` two.
+#[expect(
+    clippy::borrowed_box,
+    reason = "a `&Box<str>` is one word, a `&str` two"
+)]
 pub struct Text(&'static Box<str>);
 
 /// An interned name as the interner's sets hold it, found by its text.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(clippy::borrowed_box)]
+#[expect(
+    clippy::borrowed_box,
+    reason = "it holds the one-word pointer a `Text` holds"
+)]
 struct Interned(&'static Box<str>);
 
 impl std::borrow::Borrow<str> for Interned {

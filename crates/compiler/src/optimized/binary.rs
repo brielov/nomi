@@ -49,7 +49,7 @@ pub fn encode_global_graph(graph: &GlobalGraph, compat: Compat) -> Vec<u8> {
 pub fn decode_local_graph(bytes: &[u8], compat: Compat) -> Option<LocalGraph> {
     let mut input = In::new(bytes, compat);
     let graph = LocalGraph {
-        main: input.maybe(In::main)?,
+        main: input.maybe(In::main)?.into(),
         nodes: input.nodes()?,
         fields: input.fields()?,
     };
@@ -814,6 +814,22 @@ impl Out {
     }
 }
 
+/// A `Maybe` read from the bytes, kept apart from the reader's `None`,
+/// which means they don't decode.
+enum Maybe<T> {
+    Nothing,
+    Just(T),
+}
+
+impl<T> From<Maybe<T>> for Option<T> {
+    fn from(maybe: Maybe<T>) -> Option<T> {
+        match maybe {
+            Maybe::Nothing => None,
+            Maybe::Just(value) => Some(value),
+        }
+    }
+}
+
 struct In<'a> {
     bytes: &'a [u8],
     at: usize,
@@ -925,10 +941,10 @@ impl<'a> In<'a> {
         String::from_utf8(self.take(n)?.to_vec()).ok()
     }
 
-    fn maybe<T>(&mut self, get: impl FnOnce(&mut Self) -> Option<T>) -> Option<Option<T>> {
+    fn maybe<T>(&mut self, get: impl FnOnce(&mut Self) -> Option<T>) -> Option<Maybe<T>> {
         match self.u8()? {
-            0 => Some(None),
-            1 => Some(Some(get(self)?)),
+            0 => Some(Maybe::Nothing),
+            1 => Some(Maybe::Just(get(self)?)),
             _ => None,
         }
     }
@@ -1161,7 +1177,7 @@ impl<'a> In<'a> {
                 self.name()?,
                 self.home()?,
                 self.region()?,
-                self.maybe(In::name)?,
+                self.maybe(In::name)?.into(),
             ),
             11 => Expr::VarKernel(self.name()?, self.name()?),
             12 => Expr::List(self.list(In::expr)?),
@@ -1206,7 +1222,7 @@ impl<'a> In<'a> {
             25 => Expr::Tuple(
                 boxed(self.expr()?),
                 boxed(self.expr()?),
-                self.maybe(In::expr)?.map(Box::new),
+                Option::from(self.maybe(In::expr)?).map(Box::new),
             ),
             26 => Expr::Shader(self.byte_string()?, self.name_set()?, self.name_set()?),
             _ => return None,
@@ -1227,21 +1243,21 @@ impl<'a> In<'a> {
                         ty: input.ty()?,
                     })
                 })?,
-                self.maybe(In::name)?,
+                self.maybe(In::name)?.into(),
             ),
             3 => Type::Unit,
             4 => Type::Tuple(
                 Box::new(self.ty()?),
                 Box::new(self.ty()?),
-                self.maybe(In::ty)?.map(Box::new),
+                Option::from(self.maybe(In::ty)?).map(Box::new),
             ),
             5 => Type::Alias(
                 self.home()?,
                 self.name()?,
                 self.list(|input| Some((input.name()?, input.ty()?)))?,
                 match self.u8()? {
-                    0 => AliasType::Holey(std::sync::Arc::new(self.ty()?)),
-                    1 => AliasType::Filled(std::sync::Arc::new(self.ty()?)),
+                    0 => AliasType::Holey(Arc::new(self.ty()?)),
+                    1 => AliasType::Filled(Arc::new(self.ty()?)),
                     _ => return None,
                 },
             ),
@@ -1273,7 +1289,7 @@ impl<'a> In<'a> {
                         ty: input.ty3()?,
                     })
                 })?,
-                self.maybe(In::var)?,
+                self.maybe(In::var)?.into(),
             ),
             3 => Type::Unit,
             4 => Type::Tuple(Box::new(self.ty3()?), Box::new(self.ty3()?), None),
@@ -1290,8 +1306,8 @@ impl<'a> In<'a> {
                     .map(|_| Some((self.var()?, self.ty3()?)))
                     .collect::<Option<_>>()?;
                 let body = match self.u8()? {
-                    0 => AliasType::Holey(std::sync::Arc::new(self.ty3()?)),
-                    1 => AliasType::Filled(std::sync::Arc::new(self.ty3()?)),
+                    0 => AliasType::Holey(Arc::new(self.ty3()?)),
+                    1 => AliasType::Filled(Arc::new(self.ty3()?)),
                     _ => return None,
                 };
                 Type::Alias(home, name, args, body)

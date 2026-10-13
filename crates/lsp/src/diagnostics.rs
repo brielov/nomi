@@ -1,4 +1,4 @@
-//! Diagnostics (plan 9.3): every project with an open file checked as
+//! Diagnostics: every project with an open file checked as
 //! `elm make` checks it, and published as elm-language-server publishes
 //! its `elm make` diagnostics, with the annotations an open file leaves
 //! out. One worker thread runs the checks in turn. A change waits a
@@ -34,19 +34,25 @@ const DEBOUNCE: Duration = Duration::from_millis(200);
 pub(crate) struct Settings {
     pub on_save_only: bool,
     pub no_lint: bool,
-    /// Whether the client runs `elm.expose-` and `elm.unexpose-`
-    /// commands, which lenses then offer.
-    pub expose_commands: bool,
     /// Whether a package is installed without asking first.
     pub skip_install_confirmation: bool,
-    /// Whether the client asks where to move a function, and moves it.
-    pub move_function: bool,
+    pub extended_capabilities: ExtendedCapabilities,
     /// How elm-review's problems show: not at all, as warnings or errors.
     pub review: Review,
     /// The elm-review, elm and elm-format the client names, if it does.
     pub review_path: String,
     pub elm_path: String,
     pub elm_format_path: String,
+}
+
+/// `IExtendedCapabilites`: what the client does beyond the protocol.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ExtendedCapabilities {
+    /// Whether the client asks where to move a function, and moves it.
+    pub move_function: bool,
+    /// Whether the client runs `elm.expose-` and `elm.unexpose-`
+    /// commands, which lenses then offer.
+    pub expose_commands: bool,
 }
 
 /// `elmReviewDiagnostics`.
@@ -60,10 +66,16 @@ pub(crate) enum Review {
 
 impl Settings {
     /// Reads `value`: the `elmLS` section, or settings that hold it.
-    pub fn read(value: &Value) -> Option<Settings> {
+    pub(crate) fn read(value: &Value) -> Option<Settings> {
         let section = value.get("elmLS").unwrap_or(value);
         let section = section.as_object()?;
         let flag = |name: &str| section.get(name).and_then(Value::as_bool).unwrap_or(false);
+        let extended = |name: &str| {
+            (section.get("extendedCapabilities"))
+                .and_then(|e| e.get(name))
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        };
         let text = |name: &str| {
             (section.get(name).and_then(Value::as_str))
                 .unwrap_or_default()
@@ -82,14 +94,10 @@ impl Settings {
             review_path: text("elmReviewPath"),
             elm_path: text("elmPath"),
             elm_format_path: text("elmFormatPath"),
-            move_function: (section.get("extendedCapabilities"))
-                .and_then(|e| e.get("moveFunctionRefactoringSupport"))
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
-            expose_commands: (section.get("extendedCapabilities"))
-                .and_then(|e| e.get("exposeUnexposeSupport"))
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
+            extended_capabilities: ExtendedCapabilities {
+                move_function: extended("moveFunctionRefactoringSupport"),
+                expose_commands: extended("exposeUnexposeSupport"),
+            },
         })
     }
 
@@ -171,13 +179,13 @@ pub(crate) struct Shared {
 }
 
 impl Diagnostics {
-    pub fn start(shared: Shared) -> Diagnostics {
+    pub(crate) fn start(shared: Shared) -> Diagnostics {
         let (jobs, received) = unbounded();
         thread::spawn(move || work(&shared, &received));
         Diagnostics { jobs }
     }
 
-    pub fn check(&self, job: Job) {
+    pub(crate) fn check(&self, job: Job) {
         let _ = self.jobs.send(job);
     }
 }
@@ -250,7 +258,7 @@ fn work(shared: &Shared, jobs: &Receiver<Job>) {
                 .latest
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner) = by_file;
-            for uri in published.drain().collect::<Vec<_>>() {
+            for uri in published.drain() {
                 files.entry(uri).or_default();
             }
             for (uri, diagnostics) in files {
@@ -291,7 +299,7 @@ fn problems(
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clone();
     for (manifest, open) in projects {
-        let root = manifest.parent().unwrap_or(Path::new(""));
+        let root = manifest.parent().unwrap_or_else(|| Path::new(""));
         let before = found.len();
         let analyse = Analyse::read(snapshot, root);
         let open_read: Vec<&PathBuf> = open.iter().filter(|p| !analyse.excludes(p)).collect();
@@ -304,7 +312,7 @@ fn problems(
         let wanted = (annotations || (settings.lint() && ports))
             .then(|| open_read.first())
             .flatten();
-        let (checked, index) = std::thread::scope(|scope| {
+        let (checked, index) = thread::scope(|scope| {
             let indexing = wanted.map(|first| {
                 let mut memo = memo.clone();
                 scope.spawn(move || {
@@ -550,7 +558,6 @@ mod tests {
         let on = Settings {
             on_save_only: true,
             no_lint: false,
-            expose_commands: false,
             ..Settings::default()
         };
         let section = json!({ "onlyUpdateDiagnosticsOnSave": true });

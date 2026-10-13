@@ -1,14 +1,14 @@
-//! `cargo xtask bench`: the scoreboard (plan B.1). The release build of
+//! `cargo xtask bench`: the scoreboard. The release build of
 //! nomi against the pinned upstream tools on every workload they share,
 //! each measured for wall time, CPU time and peak memory, with the same
 //! output from both. `bench elm`, `bench elm-format` and `bench lsp` print
 //! their part;
 //! the whole run also writes it into `docs/benchmarks.md`.
 
-pub mod elm;
-pub mod elm_format;
-pub mod lsp;
-pub mod measure;
+pub(crate) mod elm;
+pub(crate) mod elm_format;
+pub(crate) mod lsp;
+pub(crate) mod measure;
 
 use std::fmt::Write as _;
 use std::fs;
@@ -27,20 +27,20 @@ const END: &str = "<!-- scoreboard:end -->";
 
 /// What every workload shares: the scratch directory and nomi's release
 /// build in it under each name it answers to.
-pub struct Setup {
+pub(crate) struct Setup {
     pub scratch: PathBuf,
     pub bin: PathBuf,
 }
 
 impl Setup {
     /// nomi, run as `name`.
-    pub fn nomi(&self, name: &str) -> PathBuf {
+    pub(crate) fn nomi(&self, name: &str) -> PathBuf {
         self.bin.join(name)
     }
 }
 
 /// One workload family's results.
-pub struct Table {
+pub(crate) struct Table {
     pub title: String,
     /// What the workloads are and how they were run.
     pub about: String,
@@ -50,7 +50,7 @@ pub struct Table {
     pub refused: Vec<String>,
 }
 
-pub struct Row {
+pub(crate) struct Row {
     pub name: String,
     pub upstream: Cost,
     pub nomi: Cost,
@@ -58,7 +58,7 @@ pub struct Row {
 
 /// Runs `part`, `elm` or `elm-format`, or with none every workload,
 /// writing the scoreboard.
-pub fn run(root: &Path, refs: &References, part: Option<&str>) -> Result<()> {
+pub(crate) fn run(root: &Path, refs: &References, part: Option<&str>) -> Result<()> {
     crate::cargo(
         root,
         &["build", "--locked", "--release", "--package", "nomi-cli"],

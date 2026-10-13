@@ -15,7 +15,7 @@ const APP: &str = r#"{
 "#;
 
 /// A project with `module` at `src/Main.elm`, open in an editor.
-fn open(module: &str) -> (tempfile::TempDir, Vfs, std::path::PathBuf) {
+fn open(module: &str) -> (tempfile::TempDir, Vfs, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     // Found files have their canonical names, which differ where the
     // temporary directory is behind a link, as on macOS.
@@ -199,12 +199,7 @@ twice x =
 ";
 
 /// The NAVIGATED project, with `Other` saved beside `Main`.
-fn navigated() -> (
-    tempfile::TempDir,
-    Vfs,
-    std::path::PathBuf,
-    std::path::PathBuf,
-) {
+fn navigated() -> (tempfile::TempDir, Vfs, PathBuf, PathBuf) {
     let (dir, vfs, path) = open(NAVIGATED);
     let other = nomi_engine::canonical(dir.path())
         .unwrap()
@@ -370,8 +365,7 @@ fn completion_after_a_qualifier_offers_what_its_module_exposes() {
         nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
     // After `Other.`: what Other exposes, with its type.
     let at_twice = offset(NAVIGATED, "twice", 0) - TextSize::new(1);
-    let Some(crate::Completions::List(found)) = completions(&snapshot, &index, &path, at_twice)
-    else {
+    let Some(Completions::List(found)) = completions(&snapshot, &index, &path, at_twice) else {
         panic!("a list of its own");
     };
     let labels: Vec<&str> = found.iter().map(|c| c.label.as_str()).collect();
@@ -595,11 +589,8 @@ fn a_qualified_type_is_one_name() {
         nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
     let qualifier = TextSize::new(main.find("Dict.Dict").unwrap() as u32);
     let name = qualifier + TextSize::new(5);
-    let found = crate::navigation::definition(&snapshot, &index, &path, qualifier).unwrap();
-    assert_eq!(
-        Some(found),
-        crate::navigation::definition(&snapshot, &index, &path, name)
-    );
+    let found = definition(&snapshot, &index, &path, qualifier).unwrap();
+    assert_eq!(Some(found), definition(&snapshot, &index, &path, name));
     let hovered = hover(&snapshot, &index, &path, qualifier).unwrap();
     assert!(
         hovered.markdown.contains("type Dict k v"),

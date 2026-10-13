@@ -17,7 +17,7 @@ use crate::interface::{self, Binop, DependencyInterface, Interface};
 const VERSION: u8 = 2;
 
 #[derive(Default)]
-pub struct Encoder {
+pub(crate) struct Encoder {
     out: Vec<u8>,
     /// Each string written, by its place.
     strings: HashMap<String, usize>,
@@ -27,7 +27,7 @@ pub struct Encoder {
 }
 
 impl Encoder {
-    pub fn finish(self) -> Vec<u8> {
+    pub(crate) fn finish(self) -> Vec<u8> {
         self.out
     }
 
@@ -94,7 +94,7 @@ impl Encoder {
         }
     }
 
-    pub fn interface(&mut self, i: &Interface) {
+    pub(crate) fn interface(&mut self, i: &Interface) {
         self.u8(VERSION);
         self.interface_body(i);
     }
@@ -131,7 +131,7 @@ impl Encoder {
         });
     }
 
-    pub fn dependency(&mut self, d: &DependencyInterface) {
+    pub(crate) fn dependency(&mut self, d: &DependencyInterface) {
         self.u8(VERSION);
         match d {
             DependencyInterface::Public(i) => {
@@ -256,14 +256,14 @@ impl Encoder {
     }
 }
 
-pub struct Decoder<'a> {
+pub(crate) struct Decoder<'a> {
     rest: &'a [u8],
     strings: Vec<&'a str>,
     bodies: Vec<Arc<Type>>,
 }
 
 impl<'a> Decoder<'a> {
-    pub fn new(bytes: &'a [u8]) -> Decoder<'a> {
+    pub(crate) fn new(bytes: &'a [u8]) -> Decoder<'a> {
         Decoder {
             rest: bytes,
             strings: Vec::new(),
@@ -272,7 +272,7 @@ impl<'a> Decoder<'a> {
     }
 
     /// Whether every byte was read.
-    pub fn end(&self) -> bool {
+    pub(crate) fn end(&self) -> bool {
         self.rest.is_empty()
     }
 
@@ -363,7 +363,7 @@ impl<'a> Decoder<'a> {
         Some(entries.into_iter().collect())
     }
 
-    pub fn interface(&mut self) -> Option<Interface> {
+    pub(crate) fn interface(&mut self) -> Option<Interface> {
         (self.u8()? == VERSION).then_some(())?;
         self.interface_body()
     }
@@ -416,7 +416,7 @@ impl<'a> Decoder<'a> {
         })
     }
 
-    pub fn dependency(&mut self) -> Option<DependencyInterface> {
+    pub(crate) fn dependency(&mut self) -> Option<DependencyInterface> {
         (self.u8()? == VERSION).then_some(())?;
         match self.u8()? {
             0 => Some(DependencyInterface::Public(self.interface_body()?)),

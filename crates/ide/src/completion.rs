@@ -1,4 +1,4 @@
-//! Completion (plans 9.8 and 9.9) as elm-language-server answers it
+//! Completion as elm-language-server answers it
 //! (`completionProvider.ts`). Some places have lists of their own:
 //!
 //! - after `import`, the modules the project may import;
@@ -102,7 +102,7 @@ pub fn completions(
     if before.ends_with("module")
         && matches!(
             before.split_whitespace().collect::<Vec<_>>()[..],
-            ["module"] | ["port", "module"] | ["effect", "module"]
+            ["module"] | ["port" | "effect", "module"]
         )
     {
         return None;
@@ -734,10 +734,10 @@ impl Context<'_> {
                 }
                 for mut completion in completions {
                     if let Some(edit) = &import_edit {
-                        let alias = if target != name {
-                            format!(" as '{target}'")
-                        } else {
+                        let alias = if target == name {
                             String::new()
+                        } else {
+                            format!(" as '{target}'")
                         };
                         completion.detail = Some(format!("Auto import module '{name}'{alias}"));
                         completion.additional_edits = vec![edit.clone()];
@@ -772,10 +772,10 @@ impl Context<'_> {
             .nth(line.saturating_sub(1))
             .map_or(text.len(), |(i, _)| i + 1);
         let at = if line == 0 { 0 } else { at };
-        let alias = if alias != name {
-            format!(" as {alias}")
-        } else {
+        let alias = if alias == name {
             String::new()
+        } else {
+            format!(" as {alias}")
         };
         Edit {
             range: TextRange::empty(TextSize::new(at as u32)),
@@ -795,14 +795,13 @@ impl Context<'_> {
         let cache = EXPOSED.get_or_init(|| Mutex::new(HashMap::new()));
         // A project module's text, as indexed; a package's, which never
         // changes, as it was first read.
-        let (path, text) = match self.index.named(name) {
-            Some(own) => (own.path.clone(), Some(own.text.clone())),
-            None => {
-                let path = (self.importable_modules().iter())
-                    .find(|(module, _, _)| module == name)
-                    .and_then(|(_, path, _)| path.clone())?;
-                (path, None)
-            }
+        let (path, text) = if let Some(own) = self.index.named(name) {
+            (own.path.clone(), Some(own.text.clone()))
+        } else {
+            let path = (self.importable_modules().iter())
+                .find(|(module, _, _)| module == name)
+                .and_then(|(_, path, _)| path.clone())?;
+            (path, None)
         };
         if let Some((was, names)) = (cache
             .lock()
@@ -883,31 +882,30 @@ impl Context<'_> {
     /// module's read once.
     fn signature(&self, home: &str, name: &str) -> Option<String> {
         let cached = self.signatures.borrow().get(home).cloned();
-        let all = match cached {
-            Some(all) => all,
-            None => {
-                let mut all = HashMap::new();
-                if let Some((root, _)) = self.module_source(home) {
-                    for decl in root
-                        .children()
-                        .filter(|d| d.kind() == SyntaxKind::ValueDecl)
+        let all = if let Some(all) = cached {
+            all
+        } else {
+            let mut all = HashMap::new();
+            if let Some((root, _)) = self.module_source(home) {
+                for decl in root
+                    .children()
+                    .filter(|d| d.kind() == SyntaxKind::ValueDecl)
+                {
+                    let name = child(&decl, SyntaxKind::Definition)
+                        .and_then(|def| crate::lint::first_token(&def, SyntaxKind::LowerIdent));
+                    if let (Some(name), Some(signature)) =
+                        (name, child(&decl, SyntaxKind::Signature))
                     {
-                        let name = child(&decl, SyntaxKind::Definition)
-                            .and_then(|def| crate::lint::first_token(&def, SyntaxKind::LowerIdent));
-                        if let (Some(name), Some(signature)) =
-                            (name, child(&decl, SyntaxKind::Signature))
-                        {
-                            all.entry(name.text().to_owned())
-                                .or_insert_with(|| signature.text().to_string());
-                        }
+                        all.entry(name.text().to_owned())
+                            .or_insert_with(|| signature.text().to_string());
                     }
                 }
-                let all = std::rc::Rc::new(all);
-                self.signatures
-                    .borrow_mut()
-                    .insert(home.to_owned(), all.clone());
-                all
             }
+            let all = std::rc::Rc::new(all);
+            self.signatures
+                .borrow_mut()
+                .insert(home.to_owned(), all.clone());
+            all
         };
         all.get(name).cloned()
     }
@@ -926,7 +924,7 @@ impl Context<'_> {
                 .and_then(|(_, path, _)| path.clone());
             let path = match (dependency, own) {
                 (Some(path), _) => path,
-                (None, Some(own)) => return Some((own.root().clone(), own.path.clone())),
+                (None, Some(own)) => return Some((own.root(), own.path.clone())),
                 (None, None) => crate::navigation::module_path(self.index, name)?,
             };
             // A package's sources never change: each is parsed once.
@@ -959,17 +957,16 @@ fn package_root(path: &Path) -> Option<SyntaxNode> {
         .unwrap_or_else(std::sync::PoisonError::into_inner))
     .get(path)
     .cloned();
-    let green = match cached {
-        Some(green) => green,
-        None => {
-            let text = std::fs::read_to_string(path).ok()?;
-            let green = parse_module(&text).green().clone();
-            (trees
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner))
-            .insert(path.to_owned(), green.clone());
-            green
-        }
+    let green = if let Some(green) = cached {
+        green
+    } else {
+        let text = std::fs::read_to_string(path).ok()?;
+        let green = parse_module(&text).green().clone();
+        (trees
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner))
+        .insert(path.to_owned(), green.clone());
+        green
     };
     Some(SyntaxNode::new_root(green))
 }

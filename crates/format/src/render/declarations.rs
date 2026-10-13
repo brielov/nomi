@@ -199,8 +199,8 @@ fn declaration(decl: &Declaration) -> Block {
             let mut variants = open_commented_list(variants, variant).into_iter();
             let first = variants.next().expect("a custom type has a variant");
             let variants = first
-                .prefix(Line::row([Line::text("="), Line::space()]))
-                .and_then(variants.map(|v| v.prefix(Line::row([Line::text("|"), Line::space()]))))
+                .prefix(&Line::row([Line::text("="), Line::space()]))
+                .and_then(variants.map(|v| v.prefix(&Line::row([Line::text("|"), Line::space()]))))
                 .indent();
             match c2(name_with_args, name_with_args_block) {
                 Block::SingleLine(head) => Block::stack1([

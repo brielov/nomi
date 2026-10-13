@@ -196,7 +196,7 @@ impl Source<'_> {
         let row = at.row + 1;
         let line = self.line(row, compat)?;
         let rest = line.trim_start_matches(' ');
-        #[allow(clippy::cast_possible_truncation, reason = "a line is shorter")]
+        #[expect(clippy::cast_possible_truncation, reason = "a line is shorter")]
         let spaces = (line.len() - rest.len()) as u32;
         let col = compat.first_position() + spaces;
         starts(rest).then(|| Position {

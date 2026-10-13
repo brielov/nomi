@@ -125,7 +125,7 @@ impl DependencyInterface {
                     .map(|(name, a)| (name, a.whole().clone()))
                     .collect(),
             },
-            private => private,
+            private @ DependencyInterface::Private { .. } => private,
         }
     }
 }

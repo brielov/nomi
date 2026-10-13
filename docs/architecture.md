@@ -477,14 +477,14 @@ Process rules:
 
 ## 13. Code
 
-The tests say what nomi does; this section says how its code reads. Each rule is checked by clippy or `xtask ci` where it can be, and by review where it can't. A rule is broken only where upstream parity forces it, and the code says so where it does.
+The tests say what nomi does; this section says how its code reads. Each rule is checked by clippy (the workspace's `[workspace.lints]`) or `xtask ci` where it can be, and by review where it can't. A rule is broken only where upstream parity forces it, and the code says so where it does.
 
 **Types carry the meaning.**
 - **T1. No stringly-typed values.** A closed set of values is an enum. Text from outside, such as a JSON field, a command-line word or an event name, is parsed into the enum where it enters and printed from it where it leaves. Strings hold only open text: names, paths, messages and source.
 - **T2. No boolean blindness.** A flag whose meaning isn't plain at the call site is an enum with two named variants. So are two or more `bool`s that travel together.
 - **T3. Records, not tuples.** A value with three or more parts, or two parts of the same type whose order isn't obvious, is a struct with named fields. A type alias for a tuple is a struct waiting to be written.
 - **T4. Illegal states are unrepresentable.** Fields that are only set together are one `Option` of a struct, and fields that exclude each other are one enum. `Option<Option<T>>` and `Result<T, Option<E>>` are named enums.
-- **T5. Matches are exhaustive.** A `match` on nomi's own enum lists its variants rather than ending in `_`, so a new variant is a compile error wherever it needs a decision.
+- **T5. Matches are exhaustive.** A `match` that decides something for each variant of nomi's own enum lists the variants rather than ending in `_`, so a new variant is a compile error wherever it needs a decision. A `_` that means "any other kind", as over the hundreds of `SyntaxKind`s, is fine.
 - **T6. Visibility is the smallest that compiles.** An item is private unless another module uses it, and `pub` only when another crate does.
 
 **Functions are small and honest.**
@@ -504,6 +504,6 @@ The tests say what nomi does; this section says how its code reads. Each rule is
 **Names and comments.**
 - **N1. Names say what a thing is**, in the domain's words: upstream's names where nomi ports upstream, Rust's conventions everywhere. No `data`, `info`, `helper`, `util` or `handle` as a whole name.
 - **N2. Comments say why, or what upstream does.** Naming the upstream function a piece of code ports (`watcherEventMessage`) is useful. A comment never restates the code, narrates a change or names a plan step: git has the history.
-- **N3. Every `pub` item has a doc comment**, one sentence when one does. No commented-out code.
+- **N3. Every `pub` module, type and function has a doc comment**, one sentence when one does; a field or variant has one when its name and type don't say enough. No commented-out code.
 
 The code-quality milestone (MQ) changes no behavior: every ratchet, transcript and corpus suite is unchanged by it, and no hot path gets slower. Speed is the business of a profiling pass after the milestones.

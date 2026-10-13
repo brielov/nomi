@@ -1,7 +1,7 @@
 //! Canonicalizing expressions (`Canonicalize/Expression.hs`): each
 //! variable, constructor and operator resolved, every scope's bindings
 //! checked, and the locals each scope uses counted (`FreeLocals`), which
-//! the cycle checks of plan 5.12 read. A scope's uses count only when it
+//! the cycle checks read. A scope's uses count only when it
 //! canonicalized cleanly, as upstream discards them otherwise.
 
 use std::collections::BTreeMap;
@@ -238,7 +238,7 @@ fn canonicalize_(
             let (function, args) = both(function, args)?;
             // `A.merge func lastArg`: a parenthesized argument's region is
             // its inner expression's, so the call ends inside the paren.
-            let end = args.last().map_or(region.end(), |a| a.region.end());
+            let end = args.last().map_or_else(|| region.end(), |a| a.region.end());
             let region = TextRange::new(function.region.start(), end);
             return Ok(expr(region, ExprKind::Call(Box::new(function), args)));
         }
@@ -422,7 +422,7 @@ fn lambda(
     params: &[PatId],
     body: ExprId,
 ) -> R<((Vec<Pattern>, Expr), FreeLocals)> {
-    let (params, bindings) = pattern::verify(env, DuplicatePatternContext::LambdaArgs, |b| {
+    let (params, bindings) = pattern::verify(env, &DuplicatePatternContext::LambdaArgs, |b| {
         pattern::each(env, module, params, b)
     })?;
     let scope = env.add_locals(&bindings)?;
@@ -437,7 +437,7 @@ fn case_branch(
     pattern: PatId,
     body: ExprId,
 ) -> R<((Pattern, Expr), FreeLocals)> {
-    let (pattern, bindings) = pattern::verify(env, DuplicatePatternContext::CaseBranch, |b| {
+    let (pattern, bindings) = pattern::verify(env, &DuplicatePatternContext::CaseBranch, |b| {
         pattern::canonicalize(env, module, pattern, b)
     })?;
     let scope = env.add_locals(&bindings)?;
@@ -549,7 +549,7 @@ fn let_(
     for &def in defs {
         match &module.defs[def] {
             Def_::Define { name, .. } => {
-                dups.insert(env.compat, &name.text, name.range, name.range)
+                dups.insert(env.compat, &name.text, name.range, name.range);
             }
             Def_::Destruct { pattern, .. } => add_bindings(env, module, *pattern, &mut dups),
         }
@@ -589,9 +589,9 @@ fn add_bindings(env: &Env<'_>, module: &hir::Module, id: PatId, dups: &mut Bindi
             }
         }
         hir::Pattern::Tuple(items) | hir::Pattern::List(items) => {
-            items
-                .iter()
-                .for_each(|&p| add_bindings(env, module, p, dups));
+            for &p in items {
+                add_bindings(env, module, p, dups);
+            }
         }
         hir::Pattern::Ctor { args, .. } => args
             .iter()
@@ -644,7 +644,7 @@ fn def_node(
             Ok(())
         }
         Def_::Destruct { pattern, body } => {
-            let (cpattern, _) = pattern::verify(env, DuplicatePatternContext::Destruct, |b| {
+            let (cpattern, _) = pattern::verify(env, &DuplicatePatternContext::Destruct, |b| {
                 pattern::canonicalize(env, module, *pattern, b)
             })?;
             let mut inner = FreeLocals::new();
@@ -688,7 +688,7 @@ pub fn definition(
     match annotation {
         None => {
             let (params, bindings) =
-                pattern::verify(env, context, |b| pattern::each(env, module, params, b))?;
+                pattern::verify(env, &context, |b| pattern::each(env, module, params, b))?;
             let scope = env.add_locals(&bindings)?;
             let (body, free) =
                 verify_bindings(&bindings, |free| canonicalize(&scope, module, body, free))?;
@@ -702,7 +702,7 @@ pub fn definition(
         }
         Some(ty) => {
             let annotation = types::to_annotation(env, module, ty)?;
-            let ((params, result), bindings) = pattern::verify(env, context, |b| {
+            let ((params, result), bindings) = pattern::verify(env, &context, |b| {
                 super::module::typed_args(env, module, &name.text, params, &annotation.ty, b)
             })?;
             let scope = env.add_locals(&bindings)?;
@@ -745,10 +745,14 @@ fn pattern_names(compat: Compat, module: &hir::Module, id: PatId) -> Vec<(String
                 go(compat, module, *inner, names);
             }
             hir::Pattern::Tuple(items) | hir::Pattern::List(items) => {
-                items.iter().for_each(|&p| go(compat, module, p, names))
+                for &p in items {
+                    go(compat, module, p, names);
+                }
             }
             hir::Pattern::Ctor { args, .. } => {
-                args.iter().for_each(|&p| go(compat, module, p, names))
+                for &p in args {
+                    go(compat, module, p, names);
+                }
             }
             hir::Pattern::Cons(head, tail) => {
                 go(compat, module, *head, names);

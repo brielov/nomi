@@ -22,7 +22,7 @@ impl Indexes {
     /// The index of the project that owns `path`, as of `snapshot`: the
     /// latest where it's as new, or else one made from it, with the
     /// packages `memo` has built.
-    pub fn get(
+    pub(crate) fn get(
         &self,
         snapshot: &Snapshot,
         store: &Store,

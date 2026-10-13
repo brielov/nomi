@@ -3,7 +3,7 @@
 
 use super::purity::strip_comments_and_strings;
 
-pub fn check(label: &str, source: &str) -> Vec<String> {
+pub(crate) fn check(label: &str, source: &str) -> Vec<String> {
     strip_comments_and_strings(source)
         .lines()
         .enumerate()

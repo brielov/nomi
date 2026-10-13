@@ -27,7 +27,7 @@ use crate::corpus::compat::{self, Version};
 use crate::download::sha256;
 use crate::references::References;
 
-pub const CASES: &str = "crates/engine/tests/javascript";
+pub(crate) const CASES: &str = "crates/engine/tests/javascript";
 
 /// The packages the cases may depend on.
 const DEPENDENCIES: [&str; 7] = [
@@ -41,13 +41,13 @@ const DEPENDENCIES: [&str; 7] = [
 ];
 
 /// Each mode, by the name a case's id gives it, and its flag.
-pub const MODES: [(&str, Option<&str>); 3] = [
+pub(crate) const MODES: [(&str, Option<&str>); 3] = [
     ("dev", None),
     ("debug", Some("--debug")),
     ("optimize", Some("--optimize")),
 ];
 
-pub fn run(root: &Path, refs: &References) -> Result<()> {
+pub(crate) fn run(root: &Path, refs: &References) -> Result<()> {
     let dir = root.join(CASES);
     let pinned = pinned(root, &DEPENDENCIES)?;
     let default = fs::read_to_string(dir.join("default.elm.json"))?;
@@ -143,7 +143,7 @@ fn build(
     }
     let report: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap_or_default();
     let title = (report["title"].as_str())
-        .or(report["errors"][0]["problems"][0]["title"].as_str())
+        .or_else(|| report["errors"][0]["problems"][0]["title"].as_str())
         .unwrap_or("?");
     Ok(Err(title.to_owned()))
 }

@@ -1,7 +1,7 @@
 //! `cargo xtask corpus hir`: every corpus module elm accepts (as the
 //! newest release, which accepts the most) lowers to a HIR with nothing
-//! missing, whose every ID maps to a node of its kind (plan 5.1), and
-//! formatting it leaves that HIR's shape unchanged (plan 5.15).
+//! missing, whose every ID maps to a node of its kind, and
+//! formatting it leaves that HIR's shape unchanged.
 
 use std::path::Path;
 
@@ -13,7 +13,7 @@ use nomi_syntax::{Tool, parse_module, validate};
 use super::parallel;
 use super::syntax::modules;
 
-pub fn check(root: &Path) -> Result<()> {
+pub(crate) fn check(root: &Path) -> Result<()> {
     let modules = modules(root)?;
     let results = parallel(&modules, |m| -> Result<Option<Vec<String>>> {
         let bytes = std::fs::read(&m.file)?;

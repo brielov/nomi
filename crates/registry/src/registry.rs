@@ -136,7 +136,7 @@ impl<H: Http> Packages for Registry<'_, H> {
 
 /// Writes `bytes` at `path` in one step, creating its directory.
 fn keep(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let dir = path.parent().unwrap_or(Path::new("."));
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(dir)?;
     let mut temp = tempfile::NamedTempFile::new_in(dir)?;
     temp.write_all(bytes)?;

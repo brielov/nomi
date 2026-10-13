@@ -48,7 +48,7 @@ pub fn parse_error(source: &Source<'_>, compat: Compat, error: &ParseError) -> R
     };
     let snippet = |title: &'static str, problem: &str, details: Doc| Report {
         title: title.into(),
-        path: path(),
+        path: Some(path()),
         message: source.snippet(
             compat,
             reflow(&format!("{REASON} {problem}")),
@@ -324,7 +324,7 @@ fn expectation_report(
     };
     let snippet = |title: &'static str, a_thing: Vec<Doc>| Report {
         title: title.into(),
-        path: path(),
+        path: Some(path()),
         message: source.snippet(
             compat,
             reflow(&format!("{REASON} {introduction}")),

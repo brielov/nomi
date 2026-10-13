@@ -1,4 +1,4 @@
-//! Record fields to complete (plan 9.8): after a record's dot, or where a
+//! Record fields to complete: after a record's dot, or where a
 //! record, an update or a record pattern names its fields. As
 //! elm-language-server, the record's alias is found from the syntax
 //! first: the annotation of the parameter that binds it, of the function
@@ -73,7 +73,7 @@ pub(crate) fn after(
     // run into it.
     let rest = text[usize::from(range.end())..]
         .find(|c: char| !(c.is_alphanumeric() || c == '_'))
-        .unwrap_or(text.len() - usize::from(range.end()));
+        .unwrap_or_else(|| text.len() - usize::from(range.end()));
     let cut = TextRange::new(dot, range.end() + TextSize::new(rest as u32));
     let Some((patched, types)) = patched(index, module, cut, "") else {
         return Vec::new();
@@ -331,21 +331,17 @@ fn alias_of_name(index: &Index, module: &Indexed, at: TextSize, name: &str) -> O
     if let Some((binder, _)) = crate::scopes::local(root, at) {
         let token = root.token_at_offset(binder.start()).right_biased()?;
         let parent = token.parent()?;
-        return match parent.kind() {
-            // A record pattern's field: that field's type in the pattern's.
-            SyntaxKind::FieldPattern => {
-                let pattern = parent.parent()?;
-                let outer = pattern_alias(index, module, &pattern)?;
-                field_alias(index, module, &outer, name)
-            }
-            _ => {
-                let pattern = parent
-                    .ancestors()
-                    .take_while(|a| crate::lint::is_pattern(a.kind()))
-                    .last()?;
-                param_alias(index, module, &pattern)
-            }
-        };
+        // A record pattern's field: that field's type in the pattern's.
+        if parent.kind() == SyntaxKind::FieldPattern {
+            let pattern = parent.parent()?;
+            let outer = pattern_alias(index, module, &pattern)?;
+            return field_alias(index, module, &outer, name);
+        }
+        let pattern = parent
+            .ancestors()
+            .take_while(|a| crate::lint::is_pattern(a.kind()))
+            .last()?;
+        return param_alias(index, module, &pattern);
     }
     // A top-level value: what it is.
     let decl = (root.children())

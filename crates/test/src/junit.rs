@@ -1,11 +1,11 @@
-//! The JUnit report's XML (`XMLBuilder.toString`): the JUnit reporter's
+//! The `JUnit` report's XML (`XMLBuilder.toString`): the `JUnit` reporter's
 //! summary, a JSON description of the XML, with the results added to its
 //! test cases, written as elm-test writes it. Fields come in the order
 //! the reporter encoded them, which [`Json`] keeps.
 
 use crate::json::Json;
 
-/// The JUnit reporter's `summary` with `results` added to its test
+/// The `JUnit` reporter's `summary` with `results` added to its test
 /// suite's test cases, as XML.
 pub fn report(mut summary: Json, results: Vec<Json>) -> String {
     if let Json::Object(fields) = &mut summary

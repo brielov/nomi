@@ -3,7 +3,7 @@
 //! `ElmFormat/Render/Markdown.hs`, which prints it back.
 //!
 //! The port is faithful, quirks included, because a doc comment comes out
-//! as upstream reads it: a CommonMark parser would see other blocks. Code
+//! as upstream reads it: a `CommonMark` parser would see other blocks. Code
 //! blocks carry a payload, `C`, which lowering fills with the Elm code it
 //! finds in them, so rendering never parses.
 

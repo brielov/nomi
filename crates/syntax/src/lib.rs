@@ -8,10 +8,6 @@ mod grammar;
 mod invariants;
 mod kind;
 mod lexer;
-#[allow(
-    dead_code,
-    reason = "the expression grammar (plan 1.8 on) uses the rest"
-)]
 mod parser;
 mod validation;
 

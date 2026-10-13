@@ -92,7 +92,7 @@ fn format_expression_unguarded(expr: &Expr) -> (SyntaxContext, Block) {
             } else {
                 syntax_parens(SpaceSeparated, operand)
             };
-            (SyntaxSeparated, operand.prefix(Line::text("-")))
+            (SyntaxSeparated, operand.prefix(&Line::text("-")))
         }
         Expr::App(left, args, _) if args.is_empty() => format_expression(left),
         Expr::App(left, args, multiline) => (
@@ -300,7 +300,7 @@ fn lambda(
             indented_body(body),
         ]),
         (Err(patterns), body) => Block::stack1([
-            Block::stack1(patterns).prefix(Line::text("\\")),
+            Block::stack1(patterns).prefix(&Line::text("\\")),
             text("->"),
             indented_body(body),
         ]),

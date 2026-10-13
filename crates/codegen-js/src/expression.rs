@@ -479,13 +479,13 @@ impl Gen<'_> {
 
     /// `generateIf`, the `if`s of the last branch crushed into this one.
     fn if_(&self, branches: &[(Expr, Expr)], last: &Expr) -> Code {
-        let mut all: Vec<&(Expr, Expr)> = branches.iter().collect();
+        let mut crushed: Vec<&(Expr, Expr)> = Vec::new();
         let mut last = last;
         while let Expr::If(more, after) = last {
-            all.extend(more);
+            crushed.extend(more);
             last = after;
         }
-        let branches: Vec<(Js, Code)> = (all.into_iter())
+        let branches: Vec<(Js, Code)> = (branches.iter().chain(crushed))
             .map(|(condition, branch)| (self.js(condition), self.generate(branch)))
             .collect();
         let last = self.generate(last);
@@ -940,7 +940,7 @@ mod tests {
         assert_eq!(dev(&basics("not", vec![x.clone()])), "!x");
         assert_eq!(dev(&basics("toFloat", vec![x.clone()])), "x");
         assert_eq!(
-            dev(&basics("max", vec![x.clone(), y.clone()])),
+            dev(&basics("max", vec![x, y])),
             "A2($elm$core$Basics$max, x, y)"
         );
     }

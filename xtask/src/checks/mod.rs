@@ -1,11 +1,12 @@
 //! Architecture checks run by `cargo xtask ci`. Each check is a pure function
 //! over inputs gathered here, so its tests can feed it failing fixtures.
 
-pub mod ignore;
-pub mod layering;
-pub mod pool;
-pub mod purity;
-pub mod size;
+pub(crate) mod comments;
+pub(crate) mod ignore;
+pub(crate) mod layering;
+pub(crate) mod pool;
+pub(crate) mod purity;
+pub(crate) mod size;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -17,7 +18,7 @@ use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package, Package
 const PREFIX: &str = "nomi-";
 
 /// Runs every check and returns the violations, sorted.
-pub fn run(root: &Path) -> Result<Vec<String>> {
+pub(crate) fn run(root: &Path) -> Result<Vec<String>> {
     let metadata = MetadataCommand::new()
         .manifest_path(root.join("Cargo.toml"))
         .exec()
@@ -52,7 +53,7 @@ pub fn run(root: &Path) -> Result<Vec<String>> {
                 .dependencies
                 .iter()
                 .filter(|d| d.kind == DependencyKind::Normal && !d.name.starts_with(PREFIX))
-                .map(|d| d.name.to_string())
+                .map(|d| d.name.clone())
                 .collect();
             (short(&p.name).to_string(), deps)
         })
@@ -87,6 +88,7 @@ pub fn run(root: &Path) -> Result<Vec<String>> {
             let source = read(&file)?;
             let label = label(root, &file);
             violations.extend(size::check(&label, &source));
+            violations.extend(comments::check(&label, &source));
             violations.extend(ignore::check(&label, &source));
         }
     }

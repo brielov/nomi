@@ -1,4 +1,4 @@
-//! Editor traces (plan 9.21): sessions recorded rather than written.
+//! Editor traces: sessions recorded rather than written.
 //!
 //! `cargo xtask oracle editor-trace APP` has Helix edit a copy of a
 //! corpus app with elm-language-server, driven through tmux by a script
@@ -18,7 +18,7 @@ use serde_json::{Map, Value, json};
 use crate::references::References;
 
 /// Where the traces are kept.
-pub const DIR: &str = "corpus/lsp/traces";
+pub(crate) const DIR: &str = "corpus/lsp/traces";
 
 /// A key, or keys, to give Helix.
 enum Key {
@@ -130,7 +130,7 @@ const SCRIPTS: &[Script] = &[
 ];
 
 /// `cargo xtask oracle editor-trace`.
-pub fn record(root: &Path, refs: &References, app: &str) -> Result<()> {
+pub(crate) fn record(root: &Path, refs: &References, app: &str) -> Result<()> {
     let script = SCRIPTS
         .iter()
         .find(|s| s.app == app)
@@ -258,7 +258,7 @@ fn drive(work: &Path, config: &Path, log: &Path, script: &Script) -> Result<()> 
         // The server publishes nothing on open for a project that
         // compiles: it's ready once it has gone quiet after the file opens.
         wait_for(log, "textDocument/didOpen", Duration::from_secs(120))?;
-        settle(log)?;
+        settle(log);
         for key in (script.keys)() {
             match key {
                 Text(text) => send(&session, &["-l", text])?,
@@ -273,14 +273,15 @@ fn drive(work: &Path, config: &Path, log: &Path, script: &Script) -> Result<()> 
                     }
                 }
                 Press(name) => send(&session, &[name])?,
-                Settle => settle(log)?,
+                Settle => settle(log),
             }
             std::thread::sleep(Duration::from_millis(150));
         }
         send(&session, &["Escape"])?;
         send(&session, &["-l", ":q!"])?;
         send(&session, &["Enter"])?;
-        settle(log)
+        settle(log);
+        Ok(())
     })();
     let _ = tmux().args(["kill-server"]).status();
     result
@@ -315,7 +316,7 @@ fn wait_for(log: &Path, text: &str, limit: Duration) -> Result<()> {
 }
 
 /// Until `log` stops growing for a while.
-fn settle(log: &Path) -> Result<()> {
+fn settle(log: &Path) {
     let quiet = Duration::from_millis(1500);
     let start = Instant::now();
     let mut size = fs::metadata(log).map_or(0, |m| m.len());
@@ -331,7 +332,6 @@ fn settle(log: &Path) -> Result<()> {
             break;
         }
     }
-    Ok(())
 }
 
 fn shell(text: &str) -> String {

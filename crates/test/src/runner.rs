@@ -1,4 +1,4 @@
-//! node-test-runner's own runner (plan 10.3): the Elm program its
+//! node-test-runner's own runner: the Elm program its
 //! generated `main` runs, whose reporters report as elm-test's once nomi
 //! builds them, and the JavaScript around the compiled program
 //! (`Generate.prepareCompiledJsFile`).

@@ -152,7 +152,7 @@ pub(super) fn missing_field(
     match owner.kind() {
         SyntaxKind::FieldAccessExpr => Some((owner.clone(), field_name(&owner)?)),
         SyntaxKind::Field => {
-            let name = crate::symbols::code_range(&owner).and_then(|_| {
+            let name = code_range(&owner).and_then(|_| {
                 (owner.children_with_tokens())
                     .filter_map(|e| e.into_token())
                     .find(|t| t.kind() == SyntaxKind::LowerIdent)
@@ -191,13 +191,10 @@ pub(super) fn record_field_edits(fixing: &Fixing<'_>, diagnostic: &Diagnosed) ->
         return Vec::new();
     };
     // The record: the access's target, or the update's.
-    let Some(target) = (owner.children_with_tokens())
-        .filter_map(|e| match e {
-            SyntaxElement::Node(n) => crate::lint::first_token(&n, SyntaxKind::LowerIdent),
-            SyntaxElement::Token(t) => (t.kind() == SyntaxKind::LowerIdent).then_some(t),
-        })
-        .next()
-    else {
+    let Some(target) = (owner.children_with_tokens()).find_map(|e| match e {
+        SyntaxElement::Node(n) => crate::lint::first_token(&n, SyntaxKind::LowerIdent),
+        SyntaxElement::Token(t) => (t.kind() == SyntaxKind::LowerIdent).then_some(t),
+    }) else {
         return Vec::new();
     };
     let Some(alias) = crate::record_fields::alias_declaration(
@@ -274,8 +271,8 @@ pub(super) fn expression_type(fixing: &Fixing<'_>, range: TextRange) -> Option<S
     let insert = "(Debug.todo \"\")";
     let mut edits: Vec<(TextRange, String)> = (fixing.program.iter())
         .filter(|d| {
-            d.code == "missing_value" && d.range.end() <= range.start()
-                || d.code == "missing_value" && d.range.start() >= range.end()
+            d.code == "missing_value"
+                && (d.range.end() <= range.start() || d.range.start() >= range.end())
         })
         .map(|d| (d.range, insert.to_owned()))
         .collect();

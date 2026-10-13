@@ -48,7 +48,9 @@ fn atom(p: &mut Parser<'_>) -> CompletedMarker {
             let m = p.start();
             p.bump();
             expr(p);
-            p.expect(K::RParen);
+            if !p.eat(K::RParen) {
+                p.error(SyntaxErrorKind::Expected(K::RParen));
+            }
             m.complete(p, K::ParenExpr)
         }
         _ => {

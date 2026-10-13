@@ -130,9 +130,11 @@ impl Suite {
             report.run,
             self.passing.len() + self.outside.len()
         );
-        if !report.regressions.is_empty() || !report.missing.is_empty() {
-            panic!("{}", failure_message(&self.name, &report));
-        }
+        assert!(
+            !(!report.regressions.is_empty() || !report.missing.is_empty()),
+            "{}",
+            failure_message(&self.name, &report)
+        );
         if report.newly_passing.is_empty() {
             return;
         }
@@ -272,7 +274,7 @@ mod tests {
     use super::*;
 
     fn set(xs: &[&str]) -> BTreeSet<String> {
-        xs.iter().map(|s| s.to_string()).collect()
+        xs.iter().map(ToString::to_string).collect()
     }
 
     fn pass(case: &str) -> (String, Result<(), String>) {

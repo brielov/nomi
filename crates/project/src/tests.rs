@@ -269,7 +269,7 @@ fn package_names_nearby() {
     let nearby: Vec<String> = target
         .nearby(&names)
         .iter()
-        .map(|n| n.to_string())
+        .map(ToString::to_string)
         .collect();
     // Official authors cost nothing; ties keep their order.
     assert_eq!(

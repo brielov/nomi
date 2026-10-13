@@ -146,7 +146,7 @@ mod elm_format;
 mod terminal;
 
 /// mimalloc, which builds cold about a fifth faster than the system's
-/// allocator and jemalloc a tenth (plan B.3). Without transparent huge
+/// allocator and jemalloc a tenth. Without transparent huge
 /// pages, which would make cold builds faster still but cost warm ones
 /// CPU time and memory.
 #[global_allocator]
@@ -360,7 +360,7 @@ fn format_paths(paths: &[PathBuf], mode: Mode) -> bool {
                     file.display(),
                     at.row,
                     at.column
-                )
+                );
             }
             Outcome::Failed(e) => eprintln!("error: {}: {e}", file.display()),
         }

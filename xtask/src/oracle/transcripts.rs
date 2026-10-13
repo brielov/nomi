@@ -28,12 +28,12 @@ use crate::references::References;
 
 /// elm-format's cases, beside `expected/` and the hand-written
 /// `deviations/`.
-pub const ELM_FORMAT_CASES: &str = "crates/cli/tests/elm_format";
+pub(crate) const ELM_FORMAT_CASES: &str = "crates/cli/tests/elm_format";
 
 /// elm's cases, laid out the same way.
-pub const ELM_CASES: &str = "crates/cli/tests/elm";
+pub(crate) const ELM_CASES: &str = "crates/cli/tests/elm";
 
-pub fn run(root: &Path, refs: &References, tool: Option<&str>) -> Result<()> {
+pub(crate) fn run(root: &Path, refs: &References, tool: Option<&str>) -> Result<()> {
     if tool.is_none_or(|t| t == "elm-format") {
         elm_format(root, refs)?;
     }
@@ -46,8 +46,8 @@ pub fn run(root: &Path, refs: &References, tool: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-/// elm-test's cases, laid out the same way (plan 10.1).
-pub const ELM_TEST_CASES: &str = "crates/cli/tests/elm_test";
+/// elm-test's cases, laid out the same way.
+pub(crate) const ELM_TEST_CASES: &str = "crates/cli/tests/elm_test";
 
 /// elm-test 0.19.3-0, which builds with elm 0.19.3, run by Node with that
 /// elm on its path and the fixture packages in an offline `ELM_HOME`.

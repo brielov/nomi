@@ -259,11 +259,7 @@ fn a_value_listed_twice_keeps_its_last_comments() {
         listing.values,
         values(&[("a", vec![], vec![block(&["2"])])])
     );
-    assert!(
-        listing
-            .operators
-            .contains_key(&crate::tree::Symbol("-".to_owned()))
-    );
+    assert!(listing.operators.contains_key(&Symbol("-".to_owned())));
 }
 
 #[test]

@@ -1,6 +1,6 @@
 //! The first naming ratchet: each naming project as each release, passing
 //! when nomi reports the problems elm does, by title and region, in each
-//! module elm names (plan 5.4; climbs in 5.5 to 5.13).
+//! module elm names.
 #![cfg(unix)]
 
 #[path = "support/projects.rs"]

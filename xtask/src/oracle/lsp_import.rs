@@ -1,5 +1,5 @@
 //! `cargo xtask oracle lsp-import`: elm-language-server's own provider
-//! tests as language-server cases (plan 9.2), named `els-*`.
+//! tests as language-server cases, named `els-*`.
 //!
 //! Its tests write each project as a template string, files split at
 //! `--@ File.elm` lines, and point into it with comment markers. Each
@@ -10,7 +10,7 @@
 //! project needs anything else (an interpolated string, a table of
 //! cases) is left out and counted.
 //!
-//! Left for later steps: find tests and file events (9.16), whose
+//! Left out: find tests and file events, whose
 //! helpers build workspaces of their own, and the type checker's
 //! diagnostics, which nomi takes from the compiler (DECISIONS.md,
 //! 2026-10-12).
@@ -54,7 +54,7 @@ const FILES: &[(&str, Kind)] = &[
     ("diagnosticTests/elmLsDiagnostics.test.ts", Kind::Lint),
 ];
 
-pub fn run(root: &Path) -> Result<()> {
+pub(crate) fn run(root: &Path) -> Result<()> {
     let tests = root.join(TESTS);
     let cases = root.join(SUITE).join("cases");
     for entry in fs::read_dir(&cases)? {
@@ -145,7 +145,7 @@ fn tests_of(text: &str) -> Vec<Test> {
             let Some(end) = rest[1..].find(quote) else {
                 continue;
             };
-            starts.push((at, rest[1..1 + end].to_owned()));
+            starts.push((at, rest[1..=end].to_owned()));
         }
     }
     starts.sort();
@@ -369,7 +369,7 @@ fn string_argument(body: &str, call: &str) -> Option<String> {
         .next()
         .filter(|c| matches!(c, '"' | '\'' | '`'))?;
     let end = rest[1..].find(quote)?;
-    Some(rest[1..1 + end].to_owned())
+    Some(rest[1..=end].to_owned())
 }
 
 fn convert(kind: Kind, test: &Test) -> Option<Case> {

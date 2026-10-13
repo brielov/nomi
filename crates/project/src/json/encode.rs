@@ -75,7 +75,7 @@ fn encode_help(out: &mut Vec<u8>, indent: &mut Vec<u8>, value: &Value) {
     match value {
         Value::Array(entries) if entries.is_empty() => out.extend_from_slice(b"[]"),
         Value::Array(entries) => sequence(out, indent, b'[', b']', entries, |out, indent, v| {
-            encode_help(out, indent, v)
+            encode_help(out, indent, v);
         }),
         Value::Object(fields) if fields.is_empty() => out.extend_from_slice(b"{}"),
         Value::Object(fields) => {
@@ -84,7 +84,7 @@ fn encode_help(out: &mut Vec<u8>, indent: &mut Vec<u8>, value: &Value) {
                 out.extend_from_slice(key);
                 out.extend_from_slice(b"\": ");
                 encode_help(out, indent, v);
-            })
+            });
         }
         Value::String(bytes) => {
             out.push(b'"');
@@ -119,7 +119,7 @@ fn sequence<T>(
         out.push(b'\n');
         out.extend_from_slice(indent);
         out.push(close);
-    })
+    });
 }
 
 /// A parsed value as upstream would write it back: strings and keys keep

@@ -1,6 +1,6 @@
 //! The port of elm-format's parser rejects exactly what elm-format
 //! rejected in the mutation suite's oracle tables, at the position it
-//! reported (plan 4.6a). It is where nomi reports a module it cannot
+//! reported. It is where nomi reports a module it cannot
 //! format from, so it is held to every case, not ratcheted.
 
 mod common;

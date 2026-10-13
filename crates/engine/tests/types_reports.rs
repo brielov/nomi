@@ -1,6 +1,6 @@
 //! The second type ratchet: each type-error project as each release,
 //! passing when nomi's `--report=json` and terminal report are elm's,
-//! whole (plan 6.11; climbs in 6.12 to 6.14).
+//! whole.
 #![cfg(unix)]
 
 #[path = "support/projects.rs"]

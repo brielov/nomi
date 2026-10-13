@@ -3,8 +3,10 @@
 //! with the case's files dated a second apart, and an application's
 //! `elm-version` set to the release under test. Shared by the suites
 //! whose cases are projects.
-// Each test target uses only part of the support it shares.
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    reason = "shared by several test binaries, each using part of it"
+)]
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -23,20 +25,20 @@ use nomi_project::{ModuleName, Name, Outline};
 use nomi_testkit::transcript::Case;
 use serde_json::Value;
 
-pub const ALL: [Compat; 3] = [Compat::V0_19_1, Compat::V0_19_2, Compat::V0_19_3];
+pub(crate) const ALL: [Compat; 3] = [Compat::V0_19_1, Compat::V0_19_2, Compat::V0_19_3];
 
 /// What a cell holds where elm crashed; nothing to compare.
-pub const CRASH: &str = "crash";
+pub(crate) const CRASH: &str = "crash";
 
 /// As long as the project directory the oracle ran elm in.
 const ROOT_LENGTH: usize = 96;
 
-pub fn compat_name(compat: Compat) -> String {
+pub(crate) fn compat_name(compat: Compat) -> String {
     format!("elm {compat}")
 }
 
 /// A table an oracle recorded, by case and elm.
-pub fn table(path: &Path) -> BTreeMap<(String, String), String> {
+pub(crate) fn table(path: &Path) -> BTreeMap<(String, String), String> {
     let text = fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("{}: {e}; run the oracle", path.display()));
     let mut out = BTreeMap::new();
@@ -58,7 +60,7 @@ pub fn table(path: &Path) -> BTreeMap<(String, String), String> {
 /// `--report=json` and without, building with the packages stored under
 /// `packages` (`<author>/<project>/<version>/elm.json`) and
 /// `default_elm_json` where the case has no `elm.json`.
-pub fn run(
+pub(crate) fn run(
     case: &Case,
     compat: Compat,
     default_elm_json: &str,
@@ -70,7 +72,7 @@ pub fn run(
 
 /// [`run`] as `elm make --docs` runs, and the `docs.json` it writes, if
 /// it writes one.
-pub fn run_docs(
+pub(crate) fn run_docs(
     case: &Case,
     compat: Compat,
     default_elm_json: &str,
@@ -133,7 +135,7 @@ fn paths(case: &Case) -> Vec<PathBuf> {
 /// What `elm make` optimizes of `case`, built as [`run`] builds it: each
 /// module's graph, by name, as `compat` writes it to `<Module>.elmo`; or
 /// why there is none.
-pub fn optimized(
+pub(crate) fn optimized(
     case: &Case,
     compat: Compat,
     default_elm_json: &str,
@@ -171,7 +173,7 @@ pub fn optimized(
 /// The JavaScript `elm make` would generate for `case` in `mode` (`dev`,
 /// `debug` or `optimize`), built as [`run`] builds it; or why there is
 /// none.
-pub fn javascript(
+pub(crate) fn javascript(
     case: &Case,
     compat: Compat,
     mode: &str,
@@ -283,7 +285,7 @@ fn build(
 }
 
 /// Whether nomi's `--report=json` says what elm's cell does.
-pub fn same_json(elm: &str, nomi: &str) -> bool {
+pub(crate) fn same_json(elm: &str, nomi: &str) -> bool {
     match elm {
         "accepted" => nomi.is_empty(),
         elm => {
@@ -317,7 +319,7 @@ fn with_elm_version(text: &str, compat: Compat) -> String {
 
 /// The interfaces of every package stored under `packages`, as `compat`
 /// reads them, made once per run.
-pub fn interfaces(packages: &Path, compat: Compat) -> Arc<names::PackageInterfaces> {
+pub(crate) fn interfaces(packages: &Path, compat: Compat) -> Arc<names::PackageInterfaces> {
     type Made = HashMap<(PathBuf, Compat), Arc<names::PackageInterfaces>>;
     static MADE: OnceLock<Mutex<Made>> = OnceLock::new();
     let made = MADE.get_or_init(Default::default);
@@ -359,7 +361,7 @@ pub fn interfaces(packages: &Path, compat: Compat) -> Arc<names::PackageInterfac
 }
 
 /// The modules `dep`'s stored `elm.json` exposes.
-pub fn exposing(packages: &Path, dep: &Name, compat: Compat) -> Vec<ModuleName> {
+pub(crate) fn exposing(packages: &Path, dep: &Name, compat: Compat) -> Vec<ModuleName> {
     let dir = packages.join(dep.to_string());
     let version = fs::read_dir(&dir)
         .unwrap_or_else(|_| panic!("{dep} isn't stored"))

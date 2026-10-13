@@ -23,10 +23,6 @@ fn named(namespace: &[&str], name: &str, args: Vec<Type>) -> Type {
     )
 }
 
-fn eol(text: &str) -> Option<String> {
-    Some(text.to_owned())
-}
-
 #[test]
 fn arrows_keep_the_comments_ending_each_line() {
     let text = "a -- one\n -> {- p -} b -- two\n -> (c -> d) {- q -} -> e -- three";
@@ -38,7 +34,7 @@ fn arrows_keep_the_comments_ending_each_line() {
     else {
         panic!()
     };
-    assert_eq!(*first, c(eol(" one"), var("a")));
+    assert_eq!(*first, c(Some(" one".to_owned()), var("a")));
     let function = Type::Function {
         first: Box::new(c(None, var("c"))),
         rest: Sequence(vec![c((vec![], vec![], None), var("d"))]),
@@ -47,9 +43,15 @@ fn arrows_keep_the_comments_ending_each_line() {
     assert_eq!(
         rest,
         Sequence(vec![
-            c((vec![], vec![block("p")], eol(" two")), var("b")),
+            c(
+                (vec![], vec![block("p")], Some(" two".to_owned())),
+                var("b")
+            ),
             c((vec![], vec![], None), function),
-            c((vec![block("q")], vec![], eol(" three")), var("e")),
+            c(
+                (vec![block("q")], vec![], Some(" three".to_owned())),
+                var("e")
+            ),
         ])
     );
     assert_eq!(force_multiline, ForceMultiline(true));
@@ -71,7 +73,7 @@ fn parentheses_without_comments_go() {
 #[test]
 fn tuples() {
     let items: Vec<_> = vec![
-        c((vec![], vec![], eol(" e")), var("a")),
+        c((vec![], vec![], Some(" e".to_owned())), var("a")),
         c((vec![block("x")], vec![block("y")], None), var("b")),
     ];
     assert_eq!(
@@ -124,7 +126,7 @@ fn records() {
             )),
             fields: Sequence(vec![
                 c(
-                    (vec![], vec![block("x")], eol(" e")),
+                    (vec![], vec![block("x")], Some(" e".to_owned())),
                     pair("a", vec![], vec![], named(&[], "Int", vec![]))
                 ),
                 c(

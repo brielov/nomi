@@ -262,11 +262,9 @@ impl Checker {
                 self.expr(record);
             }
             ExprKind::Record(fields) => {
-                let ordered: Vec<&Expr> = in_name_order(self.compat, fields)
-                    .into_iter()
-                    .map(|(_, e)| e)
-                    .collect();
-                ordered.into_iter().rev().for_each(|e| self.expr(e));
+                for (_, e) in in_name_order(self.compat, fields).into_iter().rev() {
+                    self.expr(e);
+                }
             }
             ExprKind::Tuple(a, b, c) => {
                 if let Some(c) = c {
@@ -337,7 +335,7 @@ fn is_exhaustive(matrix: &[Vec<Pattern>], n: usize) -> Vec<Vec<Pattern>> {
                 .iter()
                 .filter_map(|r| specialize_anything(r))
                 .collect();
-            return prepend(Pattern::Anything, is_exhaustive(&rest, n - 1));
+            return prepend(&Pattern::Anything, is_exhaustive(&rest, n - 1));
         }
         let alts = (*ctors.values().next().expect("a constructor")).clone();
         if ctors.len() < alts.count {
@@ -386,7 +384,7 @@ fn is_exhaustive(matrix: &[Vec<Pattern>], n: usize) -> Vec<Vec<Pattern>> {
     })
 }
 
-fn prepend(head: Pattern, rows: Vec<Vec<Pattern>>) -> Vec<Vec<Pattern>> {
+fn prepend(head: &Pattern, rows: Vec<Vec<Pattern>>) -> Vec<Vec<Pattern>> {
     (rows.into_iter())
         .map(|row| {
             let mut new = vec![head.clone()];

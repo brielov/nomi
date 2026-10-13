@@ -15,7 +15,7 @@ fn touch(root: &Path, path: &str) {
 }
 
 /// `paths` relative to `root`, as `/`-separated strings.
-fn relative(root: &Path, paths: Vec<PathBuf>) -> Vec<String> {
+fn relative(root: &Path, paths: &[PathBuf]) -> Vec<String> {
     paths
         .iter()
         .map(|p| {
@@ -49,7 +49,7 @@ fn discovery_finds_elm_files_in_name_order() {
     }
     let files = Vfs::new().discover(root).unwrap();
     assert_eq!(
-        relative(root, files),
+        relative(root, &files),
         [
             ".hidden/D.elm",
             "H.elm",
@@ -92,7 +92,7 @@ fn discovery_follows_symbolic_links() {
     touch(root, "a/F.elm");
     std::os::unix::fs::symlink(root.join("a"), root.join("z")).unwrap();
     let files = Vfs::new().discover(root).unwrap();
-    assert_eq!(relative(root, files), ["a/F.elm", "z/F.elm"]);
+    assert_eq!(relative(root, &files), ["a/F.elm", "z/F.elm"]);
 }
 
 #[test]

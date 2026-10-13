@@ -262,7 +262,7 @@ pub struct Variables {
     /// walked.
     pub compat: Compat,
     /// Where constraint generation records each expression's type, when
-    /// asked to (plan 6.8): its region and the type it is expected to
+    /// asked to: its region and the type it is expected to
     /// have, which solving makes its type.
     pub recorded: Option<Vec<(TextRange, Type)>>,
 }

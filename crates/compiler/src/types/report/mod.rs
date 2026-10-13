@@ -476,7 +476,7 @@ fn from_context(
             expr_region,
             region,
             *record_region,
-            name,
+            name.as_deref(),
             *field_region,
             field,
             category,

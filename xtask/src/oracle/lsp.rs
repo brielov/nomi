@@ -1,5 +1,5 @@
 //! `cargo xtask oracle lsp`: elm-language-server 2.10.0's transcript of
-//! each language-server case (plan 9.1), stored under `expected/` for
+//! each language-server case, stored under `expected/` for
 //! `crates/lsp/tests/elm_language_server.rs` to replay against nomi.
 //!
 //! Each case runs in a sandbox: a copy of its project, and an `ELM_HOME`
@@ -31,7 +31,7 @@ use crate::corpus::compat::Version;
 use crate::references::References;
 
 /// The suite: `cases/`, `expected/` and `passing.txt`.
-pub const SUITE: &str = "crates/lsp/tests/elm_language_server";
+pub(crate) const SUITE: &str = "crates/lsp/tests/elm_language_server";
 
 /// The packages every case may depend on.
 const PACKAGES: &str = "crates/compiler/tests/packages";
@@ -49,7 +49,7 @@ pub(crate) struct Tools {
     packages: PathBuf,
 }
 
-pub fn run(root: &Path, refs: &References, only: Option<&str>) -> Result<()> {
+pub(crate) fn run(root: &Path, refs: &References, only: Option<&str>) -> Result<()> {
     node_version(refs.node_minimum)?;
     let server =
         oracles_dir()?.join("npm/node_modules/@elm-tooling/elm-language-server/out/node/index.js");

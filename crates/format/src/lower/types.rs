@@ -98,7 +98,7 @@ fn function(cx: &mut Cursor, node: &ast::FunctionType) -> Type {
             }
         }
     }
-    let (first, rest) = separated(cx, terms, arrows, ty);
+    let (first, rest) = separated(cx, terms, &arrows, ty);
     Type::Function {
         first: Box::new(first),
         rest,

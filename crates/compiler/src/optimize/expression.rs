@@ -14,7 +14,7 @@ use crate::canonical::{self, CtorOpts, Def as CDef, ExprKind, PatternKind};
 use crate::optimized::{Def, Destructor, Expr, Path, Region};
 
 /// What optimizing a module's expressions needs to know.
-pub struct Context<'a> {
+pub(super) struct Context<'a> {
     pub compat: Compat,
     /// The module's home, for `Debug` values.
     pub home: &'a canonical::Home,
@@ -24,10 +24,10 @@ pub struct Context<'a> {
 
 /// Names of the definitions of a cycle that take no arguments, which are
 /// referred to through the cycle.
-pub type Cycle = BTreeSet<String>;
+pub(super) type Cycle = BTreeSet<String>;
 
 /// `optimize`.
-pub fn optimize(
+pub(super) fn optimize(
     cx: &Context,
     tracker: &mut Tracker,
     cycle: &Cycle,
@@ -101,17 +101,16 @@ fn optimize_(cx: &Context, t: &mut Tracker, cycle: &Cycle, expr: &canonical::Exp
             let body = optimize(cx, t, cycle, body);
             optimize_def(cx, t, cycle, def, body)
         }
-        ExprKind::LetRec(defs, body) => match defs.as_slice() {
-            [def] => {
+        ExprKind::LetRec(defs, body) => {
+            if let [def] = defs.as_slice() {
                 let def = potential_tail_call_def(cx, t, cycle, def);
                 Expr::Let(Box::new(def), Box::new(optimize(cx, t, cycle, body)))
-            }
-            _ => {
+            } else {
                 let body = optimize(cx, t, cycle, body);
                 defs.iter()
                     .fold(body, |body, def| optimize_def(cx, t, cycle, def, body))
             }
-        },
+        }
         ExprKind::LetDestruct(pattern, expr, body) => {
             let (name, destructors) = destruct(cx, t, pattern);
             let expr = optimize(cx, t, cycle, expr);
@@ -210,12 +209,12 @@ fn fast(a: &str, b: &str) -> Ordering {
 }
 
 /// `foldr Opt.Destruct body destructors`.
-pub fn wrap(destructors: Vec<Destructor>, body: Expr) -> Expr {
+pub(super) fn wrap(destructors: Vec<Destructor>, body: Expr) -> Expr {
     (destructors.into_iter().rev()).fold(body, |body, d| Expr::Destruct(d, Box::new(body)))
 }
 
 /// A definition's name, parameters and body.
-pub fn parts(def: &CDef) -> (&str, Vec<&canonical::Pattern>, &canonical::Expr) {
+pub(super) fn parts(def: &CDef) -> (&str, Vec<&canonical::Pattern>, &canonical::Expr) {
     match def {
         CDef::Def {
             name, params, body, ..
@@ -241,7 +240,7 @@ fn optimize_def(cx: &Context, t: &mut Tracker, cycle: &Cycle, def: &CDef, body: 
 
 /// `destructArgs`: a name for each argument, and what to take from those
 /// that are patterns.
-pub fn destruct_args<'p>(
+pub(super) fn destruct_args<'p>(
     cx: &Context,
     t: &mut Tracker,
     args: impl IntoIterator<Item = &'p canonical::Pattern>,
@@ -329,16 +328,15 @@ fn destruct_help(
         }
         PatternKind::Tuple(a, b, None) => destruct_two(cx, t, path, a, b, rev),
         PatternKind::Tuple(a, b, Some(c)) => {
-            let root = match path {
-                Path::Root(_) => path,
-                _ => {
-                    let name = t.generate();
-                    rev.push(Destructor {
-                        name: name.clone(),
-                        path,
-                    });
-                    Path::Root(name)
-                }
+            let root = if let Path::Root(_) = path {
+                path
+            } else {
+                let name = t.generate();
+                rev.push(Destructor {
+                    name: name.clone(),
+                    path,
+                });
+                Path::Root(name)
             };
             destruct_help(cx, t, at(0, &root), a, rev);
             destruct_help(cx, t, at(1, &root), b, rev);
@@ -352,31 +350,29 @@ fn destruct_help(
             destruct_two(cx, t, path, &items[0], &rest, rev);
         }
         PatternKind::Cons(head, tail) => destruct_two(cx, t, path, head, tail, rev),
-        PatternKind::Ctor { union, args, .. } => match args.as_slice() {
-            [arg] => {
+        PatternKind::Ctor { union, args, .. } => {
+            if let [arg] = args.as_slice() {
                 let path = match union.opts {
                     CtorOpts::Unbox => Path::Unbox(Box::new(path)),
                     CtorOpts::Normal | CtorOpts::Enum => at(0, &path),
                 };
                 destruct_help(cx, t, path, &arg.arg, rev);
-            }
-            _ => {
-                let root = match path {
-                    Path::Root(_) => path,
-                    _ => {
-                        let name = t.generate();
-                        rev.push(Destructor {
-                            name: name.clone(),
-                            path,
-                        });
-                        Path::Root(name)
-                    }
+            } else {
+                let root = if let Path::Root(_) = path {
+                    path
+                } else {
+                    let name = t.generate();
+                    rev.push(Destructor {
+                        name: name.clone(),
+                        path,
+                    });
+                    Path::Root(name)
                 };
                 for arg in args {
                     destruct_help(cx, t, at(arg.index, &root), &arg.arg, rev);
                 }
             }
-        },
+        }
     }
 }
 
@@ -389,16 +385,15 @@ fn destruct_two(
     b: &canonical::Pattern,
     rev: &mut Vec<Destructor>,
 ) {
-    let root = match path {
-        Path::Root(_) => path,
-        _ => {
-            let name = t.generate();
-            rev.push(Destructor {
-                name: name.clone(),
-                path,
-            });
-            Path::Root(name)
-        }
+    let root = if let Path::Root(_) = path {
+        path
+    } else {
+        let name = t.generate();
+        rev.push(Destructor {
+            name: name.clone(),
+            path,
+        });
+        Path::Root(name)
     };
     destruct_help(cx, t, Path::Index(0, Box::new(root.clone())), a, rev);
     destruct_help(cx, t, Path::Index(1, Box::new(root)), b, rev);
@@ -412,7 +407,7 @@ fn potential_tail_call_def(cx: &Context, t: &mut Tracker, cycle: &Cycle, def: &C
 
 /// `optimizePotentialTailCall`: a function, as a loop if it calls itself
 /// in tail position.
-pub fn potential_tail_call(
+pub(super) fn potential_tail_call(
     cx: &Context,
     t: &mut Tracker,
     cycle: &Cycle,
@@ -474,20 +469,19 @@ fn optimize_tail(
             let body = optimize_tail(cx, t, cycle, root, args, body);
             optimize_def(cx, t, cycle, def, body)
         }
-        ExprKind::LetRec(defs, body) => match defs.as_slice() {
-            [def] => {
+        ExprKind::LetRec(defs, body) => {
+            if let [def] = defs.as_slice() {
                 let def = potential_tail_call_def(cx, t, cycle, def);
                 Expr::Let(
                     Box::new(def),
                     Box::new(optimize_tail(cx, t, cycle, root, args, body)),
                 )
-            }
-            _ => {
+            } else {
                 let body = optimize_tail(cx, t, cycle, root, args, body);
                 defs.iter()
                     .fold(body, |body, def| optimize_def(cx, t, cycle, def, body))
             }
-        },
+        }
         ExprKind::LetDestruct(pattern, value, body) => {
             let (name, destructors) = destruct(cx, t, pattern);
             let value = optimize(cx, t, cycle, value);

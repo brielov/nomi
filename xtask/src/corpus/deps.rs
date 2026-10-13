@@ -14,7 +14,7 @@ use nomi_registry::{Index, Registry, Store, Web, details};
 use super::{apps, compat, parallel};
 use crate::oracle::cache_dir;
 
-pub fn check(root: &Path) -> Result<()> {
+pub(crate) fn check(root: &Path) -> Result<()> {
     let classification = compat::load(root)?;
     // A nomi cache of the development cache's own, never the user's.
     let cache = cache_dir()?.join("nomi");

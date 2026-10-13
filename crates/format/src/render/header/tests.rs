@@ -1,6 +1,5 @@
 //! Expected outputs are elm-format 0.8.8's. The declarations in each
-//! input are already formatted, as the body keeps its source text until
-//! plan 2.11.
+//! input are already formatted, so each case checks the header alone.
 
 use crate::format;
 

@@ -15,11 +15,11 @@ use crate::download;
 const REGISTRY: &str = "https://package.elm-lang.org";
 const FILE: &str = "corpus/packages.toml";
 /// Written into a package's directory once its zipball has been verified.
-pub const STAMP: &str = ".nomi-sha1";
+pub(crate) const STAMP: &str = ".nomi-sha1";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Packages {
+pub(crate) struct Packages {
     #[serde(default)]
     pub packages: Vec<Package>,
     /// Listed by the registry, but its zipball cannot be fetched or does not
@@ -30,19 +30,19 @@ pub struct Packages {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Package {
+pub(crate) struct Package {
     pub name: String,
     pub version: String,
     pub sha1: String,
 }
 
-pub fn load(root: &Path) -> Result<Packages> {
+pub(crate) fn load(root: &Path) -> Result<Packages> {
     let path = root.join(FILE);
     let text = std::fs::read_to_string(&path).with_context(|| format!("reading {FILE}"))?;
     toml::from_str(&text).with_context(|| format!("parsing {FILE}"))
 }
 
-pub fn package_dir(corpus: &Path, package: &Package) -> PathBuf {
+pub(crate) fn package_dir(corpus: &Path, package: &Package) -> PathBuf {
     corpus
         .join("packages")
         .join(&package.name)
@@ -51,7 +51,7 @@ pub fn package_dir(corpus: &Path, package: &Package) -> PathBuf {
 
 /// Re-pins the corpus from the live registry: every package's latest
 /// version, kept only if its zipball downloads and matches the registry.
-pub fn pin(root: &Path) -> Result<()> {
+pub(crate) fn pin(root: &Path) -> Result<()> {
     #[derive(Deserialize)]
     struct Listed {
         name: String,
@@ -130,7 +130,7 @@ fn render(packages: &[Package], unavailable: &BTreeMap<String, String>) -> Strin
 }
 
 /// Downloads and unpacks every pinned package that is not already verified.
-pub fn fetch(root: &Path) -> Result<()> {
+pub(crate) fn fetch(root: &Path) -> Result<()> {
     let pins = load(root)?;
     let corpus = corpus_dir()?;
     let results = parallel(&pins.packages, |p| {

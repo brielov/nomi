@@ -1,4 +1,4 @@
-//! Robustness under editing (plan 9.19): random edits to an open module,
+//! Robustness under editing: random edits to an open module,
 //! with requests between them, never crash or hang the server, and once
 //! it settles its answers are those of a server that opens the final
 //! text fresh.
@@ -112,8 +112,8 @@ const FILE: &str = "src/Main.elm";
 /// The requests whose answers a settled server must agree on.
 fn final_requests(text: &str) -> Vec<Step> {
     let mut steps = vec![
-        step("textDocument/documentSymbol", None, json!({})),
-        step("textDocument/foldingRange", None, json!({})),
+        step("textDocument/documentSymbol", None, &json!({})),
+        step("textDocument/foldingRange", None, &json!({})),
     ];
     for i in 1..6 {
         let o = offset(text, f64::from(i) / 6.0);
@@ -122,13 +122,13 @@ fn final_requests(text: &str) -> Vec<Step> {
             "textDocument/definition",
             "textDocument/references",
         ] {
-            steps.push(step(method, Some(at(text, o)), json!({})));
+            steps.push(step(method, Some(at(text, o)), &json!({})));
         }
     }
     steps
 }
 
-fn step(method: &str, at: Option<lsp::At>, params: Value) -> Step {
+fn step(method: &str, at: Option<lsp::At>, params: &Value) -> Step {
     serde_json::from_value(json!({
         "method": method,
         "file": FILE,
@@ -209,7 +209,7 @@ fn edits_leave_the_server_as_a_fresh_one() {
                         let o = offset(&text, at);
                         let start = position(&text, o);
                         let change = json!({ "range": { "start": start, "end": start }, "text": FRAGMENTS[f] });
-                        steps.push(step("textDocument/didChange", None, json!({ "contentChanges": [change] })));
+                        steps.push(step("textDocument/didChange", None, &json!({ "contentChanges": [change] })));
                         text.insert_str(o, FRAGMENTS[f]);
                     }
                     Op::Delete(at, n) => {
@@ -219,16 +219,16 @@ fn edits_leave_the_server_as_a_fresh_one() {
                             end -= 1;
                         }
                         let range = json!({ "start": position(&text, o), "end": position(&text, end) });
-                        steps.push(step("textDocument/didChange", None, json!({ "contentChanges": [{ "range": range, "text": "" }] })));
+                        steps.push(step("textDocument/didChange", None, &json!({ "contentChanges": [{ "range": range, "text": "" }] })));
                         text.replace_range(o..end, "");
                     }
                     Op::Ask(at_, m) => {
                         let o = offset(&text, at_);
-                        steps.push(step(ASKED[m], Some(at(&text, o)), json!({})));
+                        steps.push(step(ASKED[m], Some(at(&text, o)), &json!({})));
                     }
                 }
             }
-            steps.push(step("textDocument/didSave", None, json!({})));
+            steps.push(step("textDocument/didSave", None, &json!({})));
             let finals = final_requests(&text);
             steps.extend(finals.iter().cloned());
             let edited = Session {

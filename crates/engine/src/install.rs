@@ -84,7 +84,7 @@ impl Install<'_> {
         let src = self.vfs.read_bytes(&path).map_err(|e| {
             one_line(
                 "PROBLEM READING ELM.JSON",
-                format!("I could not read elm.json: {e}"),
+                &format!("I could not read elm.json: {e}"),
             )
         })?;
         // Upstream loads the registry before it reads the outline, so its
@@ -107,7 +107,7 @@ impl Install<'_> {
         })?;
         project::check_source_dirs(root.dir(), &old)?;
         let plan = install::plan(&mut registry, self.compat, package, &old)
-            .map_err(|problem| self.install_problem(&registry, package, &old, problem))?;
+            .map_err(|problem| install_problem(&registry, package, &old, problem))?;
         let (question, new) = match plan {
             Plan::AlreadyInstalled => {
                 self.console.out("It is already installed!\n");
@@ -121,7 +121,7 @@ impl Install<'_> {
             } => (plan_question(&changes), Outline::Pkg(outline)),
         };
         match console::ask(self.console, &question, self.compat) {
-            Err(e) => Err(one_line("PROBLEM READING ANSWER", e.to_string())),
+            Err(e) => Err(one_line("PROBLEM READING ANSWER", &e.to_string())),
             Ok(None) => {
                 console::no_answer(self.console, self.personality);
                 Ok(false)
@@ -153,7 +153,7 @@ impl Install<'_> {
         self.vfs.write(path, bytes).map_err(|e| {
             one_line(
                 "PROBLEM WRITING ELM.JSON",
-                format!("I could not write elm.json: {e}"),
+                &format!("I could not write elm.json: {e}"),
             )
         })
     }
@@ -218,30 +218,29 @@ impl Install<'_> {
             ],
         )
     }
+}
 
-    fn install_problem<H: Http>(
-        &self,
-        registry: &Registry<'_, H>,
-        package: &Name,
-        outline: &Outline,
-        problem: InstallProblem<SolverProblem>,
-    ) -> Report {
-        match problem {
-            InstallProblem::UnknownPackage => {
-                let nearby = registry
-                    .index
-                    .versions_or_nearby(package)
-                    .err()
-                    .unwrap_or_default();
-                unknown_package(package, &nearby, registry.connection)
-            }
-            InstallProblem::NoSolution => no_solution(
-                package,
-                matches!(outline, Outline::App(_)),
-                registry.connection,
-            ),
-            InstallProblem::Solver(problem) => report::solver_problem(&problem),
+fn install_problem<H: Http>(
+    registry: &Registry<'_, H>,
+    package: &Name,
+    outline: &Outline,
+    problem: InstallProblem<SolverProblem>,
+) -> Report {
+    match problem {
+        InstallProblem::UnknownPackage => {
+            let nearby = registry
+                .index
+                .versions_or_nearby(package)
+                .err()
+                .unwrap_or_default();
+            unknown_package(package, &nearby, registry.connection)
         }
+        InstallProblem::NoSolution => no_solution(
+            package,
+            matches!(outline, Outline::App(_)),
+            registry.connection,
+        ),
+        InstallProblem::Solver(problem) => report::solver_problem(&problem),
     }
 }
 
@@ -291,14 +290,14 @@ pub(crate) fn parse_name(arg: &str) -> Result<Name, Report> {
     Name::parse(arg.as_bytes(), Cursor::start(compat), compat).map_err(|_| {
         one_line(
             "BAD PACKAGE NAME",
-            format!("{arg} is not a package name, which looks like elm/http."),
+            &format!("{arg} is not a package name, which looks like elm/http."),
         )
     })
 }
 
 /// A report of nomi's own whose message is one sentence.
-pub(crate) fn one_line(title: &'static str, message: String) -> Report {
-    Report::new(title, None, &message, [])
+pub(crate) fn one_line(title: &'static str, message: &str) -> Report {
+    Report::new(title, None, message, [])
 }
 
 pub(crate) fn words(text: &str) -> impl Iterator<Item = Doc> + '_ {

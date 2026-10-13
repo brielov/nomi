@@ -3,7 +3,7 @@
 /// Allowed dependencies between nomi crates, by short name (`nomi-` stripped).
 /// This table is the enforced form of docs/architecture.md §4; change both
 /// together, with a DECISIONS.md entry.
-pub const ALLOWED: &[(&str, &[&str])] = &[
+pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
     ("base", &[]),
     ("syntax", &["base"]),
     ("format", &["base", "syntax"]),
@@ -54,7 +54,7 @@ const TESTKIT: &str = "testkit";
 
 /// A dependency of one nomi crate on another, by short name.
 #[derive(Debug)]
-pub struct Edge {
+pub(crate) struct Edge {
     pub from: String,
     pub to: String,
     pub dev: bool,
@@ -62,7 +62,7 @@ pub struct Edge {
 
 /// `crates` are the nomi crates in the workspace and `edges` their
 /// dependencies on each other, all by short name.
-pub fn check(crates: &[String], edges: &[Edge]) -> Vec<String> {
+pub(crate) fn check(crates: &[String], edges: &[Edge]) -> Vec<String> {
     let allowed = |name: &str| ALLOWED.iter().find(|(c, _)| *c == name).map(|(_, d)| *d);
     let mut violations = Vec::new();
     for name in crates {

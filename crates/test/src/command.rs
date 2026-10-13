@@ -1,4 +1,4 @@
-//! elm-test's command line (`elm-test.js`, plan 10.6a): its arguments as
+//! elm-test's command line (`elm-test.js`): its arguments as
 //! commander 9.5 parses them for elm-test, its help, version and errors,
 //! and its commands: a run (`RunTests.run`) and `make`.
 
@@ -27,8 +27,8 @@ pub struct Flags {
     pub workers: Option<usize>,
     pub report: ReportName,
     pub compiler: Option<String>,
-    pub oldest: bool,
-    pub offline: bool,
+    /// `--dependencies` and `--offline`.
+    pub solve: Solve,
 }
 
 impl Default for Flags {
@@ -41,8 +41,7 @@ impl Default for Flags {
             workers: None,
             report: ReportName::Console,
             compiler: None,
-            oldest: false,
-            offline: false,
+            solve: Solve::default(),
         }
     }
 }
@@ -251,7 +250,10 @@ pub fn parse(args: &[String], cores: usize) -> Parsed {
 /// `parseOptions` for the program: its options taken, wherever they are,
 /// and the operands and, from the first unknown option on, the rest;
 /// `None` for `--version`.
-#[allow(clippy::type_complexity)]
+#[expect(
+    clippy::type_complexity,
+    reason = "the pair is commander's operands and unknown arguments, destructured once by `parse`"
+)]
 fn options(
     args: &[String],
     flags: &mut Flags,
@@ -366,8 +368,8 @@ fn set(flags: &mut Flags, spec: &Spec, value: Option<&str>) -> Result<bool, Stri
             }
         }
         "--compiler" => flags.compiler = value.map(str::to_owned),
-        "--dependencies" => flags.oldest = choice(&["newest", "oldest"])? == "oldest",
-        "--offline" => flags.offline = true,
+        "--dependencies" => flags.solve.oldest = choice(&["newest", "oldest"])? == "oldest",
+        "--offline" => flags.solve.offline = true,
         "--output" if value != Some("/dev/null") => return Err(invalid(OUTPUT_ERROR)),
         "--version" => return Ok(false),
         // `--color` and `--no-color` are read from the whole line, as
@@ -441,7 +443,7 @@ fn suggest_similar<'a>(word: &str, candidates: impl Iterator<Item = &'a str>) ->
             }
         }
     }
-    similar.sort();
+    similar.sort_unstable();
     let similar: Vec<String> = similar.iter().map(|c| format!("--{c}")).collect();
     match similar.as_slice() {
         [] => String::new(),
@@ -678,7 +680,10 @@ fn run<H: Http + Sync>(
 
 /// `RunTests.run`: its exit code, and the test source directories it
 /// found.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the run's context, output and options, passed on as `run` has them"
+)]
 fn run_once<H: Http + Sync>(
     context: &Context<'_, H>,
     console: &mut dyn Console,
@@ -713,7 +718,10 @@ fn run_once<H: Http + Sync>(
 }
 
 /// The rest of `RunTests.run`, once the project is read.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the run's context, output and options, passed on as `run_once` has them"
+)]
 fn run_project<H: Http + Sync>(
     context: &Context<'_, H>,
     console: &mut dyn Console,
@@ -750,10 +758,7 @@ fn run_project<H: Http + Sync>(
         vfs: context.vfs,
         cache: context.cache,
         http: context.http,
-        solve: Solve {
-            oldest: flags.oldest,
-            offline: flags.offline,
-        },
+        solve: flags.solve,
         color,
     };
     let built = build::build(
@@ -862,10 +867,7 @@ fn make<H: Http + Sync>(
         vfs: context.vfs,
         cache: context.cache,
         http: context.http,
-        solve: Solve {
-            oldest: flags.oldest,
-            offline: flags.offline,
-        },
+        solve: flags.solve,
         color,
     };
     let style = match flags.report {
@@ -986,7 +988,7 @@ mod tests {
         let Parsed::Make(flags, globs) = parse_line("make --offline src/A.elm") else {
             panic!()
         };
-        assert!(flags.offline);
+        assert!(flags.solve.offline);
         assert_eq!(globs, ["src/A.elm"]);
     }
 }

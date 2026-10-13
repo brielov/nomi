@@ -185,19 +185,18 @@ pub fn build_each(
         let cached = time(Phase::CacheRead, || {
             (artifacts.and_then(|a| a.get(key))).and_then(|bytes| decode_build(&bytes, compat))
         });
-        let build = match cached {
-            Some(build) => build,
-            None => {
-                let build = build_package(compat, name, pkg, dir, &dependencies)?;
-                if let Some(artifacts) = artifacts {
-                    // A cache that can't be written only costs a build next
-                    // time.
-                    let _ = time(Phase::CacheWrite, || {
-                        artifacts.put(key, &encode_build(&build, compat))
-                    });
-                }
-                build
+        let build = if let Some(build) = cached {
+            build
+        } else {
+            let build = build_package(compat, name, pkg, dir, &dependencies)?;
+            if let Some(artifacts) = artifacts {
+                // A cache that can't be written only costs a build next
+                // time.
+                let _ = time(Phase::CacheWrite, || {
+                    artifacts.put(key, &encode_build(&build, compat))
+                });
             }
+            build
         };
         let build = Arc::new(build);
         done(name, &build);
@@ -396,7 +395,10 @@ impl Package<'_> {
     /// crawl reached: every module's interface, and what each became. The
     /// crawl reads each wave of modules on the pool, and the modules
     /// compile on it along their imports.
-    #[allow(clippy::type_complexity)]
+    #[expect(
+        clippy::type_complexity,
+        reason = "the interfaces and the built modules, which the one caller takes apart at once"
+    )]
     fn build(
         &self,
         exposed: &[String],

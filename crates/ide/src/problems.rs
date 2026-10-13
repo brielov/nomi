@@ -1,5 +1,5 @@
-//! A project's problems as elm-language-server publishes them (plan 9.3,
-//! DECISIONS.md 2026-10-12): elm's own reports, in its words, where its
+//! A project's problems as elm-language-server publishes them
+//! (DECISIONS.md 2026-10-12): elm's own reports, in its words, where its
 //! `elm make` diagnostics would put them, and the annotations a module
 //! leaves out, as its type checker suggests them.
 //!

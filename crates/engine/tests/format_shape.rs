@@ -1,4 +1,4 @@
-//! Formatting leaves what elm reads unchanged (plan 5.15): every fixture
+//! Formatting leaves what elm reads unchanged: every fixture
 //! module elm accepts formats to a module of the same HIR shape. The
 //! formatter's own fixtures and the compiler's packages; `cargo xtask
 //! corpus hir` checks the corpus alike.

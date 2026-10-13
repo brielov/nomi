@@ -141,8 +141,10 @@ pub enum Choice {
 /// `DecisionTree.Path`: where in the tested value a test looks. Paths
 /// share their prefixes, as the case compiler copies them at every node,
 /// and a shared prefix is equal without a look.
-// The equality below is the structural one, so the derived hash agrees.
-#[allow(clippy::derived_hash_with_manual_eq)]
+#[expect(
+    clippy::derived_hash_with_manual_eq,
+    reason = "the equality below is the structural one, so the derived hash agrees"
+)]
 #[derive(Clone, Debug, Eq, Hash)]
 pub enum DtPath {
     Index(usize, std::sync::Arc<DtPath>),

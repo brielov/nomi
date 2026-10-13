@@ -22,7 +22,7 @@ const RUNS: usize = 5;
 /// A workload: its name, the arguments, and what goes to standard input.
 type Input<'a> = (String, Vec<OsString>, Option<&'a [u8]>);
 
-pub fn table(root: &std::path::Path, refs: &References, setup: &Setup) -> Result<Table> {
+pub(crate) fn table(root: &std::path::Path, refs: &References, setup: &Setup) -> Result<Table> {
     let pin = (refs.binary.iter())
         .find(|b| b.name == "elm-format")
         .context("elm-format is not pinned")?;
@@ -35,7 +35,7 @@ pub fn table(root: &std::path::Path, refs: &References, setup: &Setup) -> Result
     let nomi = setup.nomi("elm-format");
     let home = setup.scratch.join("elm-format-home");
     fs::create_dir_all(&home)?;
-    let env = [("ELM_HOME", home.clone())];
+    let env = [("ELM_HOME", home)];
     let report = setup.scratch.join("time.txt");
     let corpus = corpus_dir()?;
     let mut rows = Vec::new();

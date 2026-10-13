@@ -6,14 +6,14 @@
 use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, reflow, text, vcat};
 
 /// `Parser`: what a flag's value or an argument is, and how to read it.
-pub struct Parser<T> {
+pub(crate) struct Parser<T> {
     pub singular: &'static str,
     pub parse: fn(&str) -> Option<T>,
     pub examples: &'static [&'static str],
 }
 
 /// A flag a command declares: on/off, or with a value.
-pub enum Flag {
+pub(crate) enum Flag {
     OnOff(&'static str),
     Value(&'static str, &'static str),
 }
@@ -27,7 +27,7 @@ impl Flag {
 }
 
 /// `Chunk`s not yet taken by a flag.
-pub struct Chunks<'a> {
+pub(crate) struct Chunks<'a> {
     chunks: Vec<&'a str>,
     declared: &'a [Flag],
 }
@@ -43,7 +43,7 @@ enum Found<'a> {
 }
 
 impl<'a> Chunks<'a> {
-    pub fn new(args: &'a [&'a str], declared: &'a [Flag]) -> Chunks<'a> {
+    pub(crate) fn new(args: &'a [&'a str], declared: &'a [Flag]) -> Chunks<'a> {
         Chunks {
             chunks: args.to_vec(),
             declared,
@@ -69,7 +69,7 @@ impl<'a> Chunks<'a> {
     }
 
     /// `chompOnOffFlag`.
-    pub fn on_off(&mut self, name: &'static str) -> Result<bool, Error> {
+    pub(crate) fn on_off(&mut self, name: &'static str) -> Result<bool, Error> {
         match self.find(name) {
             None => Ok(false),
             Some((_, Found::Nope)) => Ok(true),
@@ -85,7 +85,11 @@ impl<'a> Chunks<'a> {
     }
 
     /// `chompNormalFlag`.
-    pub fn value<T>(&mut self, name: &'static str, parser: &Parser<T>) -> Result<Option<T>, Error> {
+    pub(crate) fn value<T>(
+        &mut self,
+        name: &'static str,
+        parser: &Parser<T>,
+    ) -> Result<Option<T>, Error> {
         let value = match self.find(name) {
             None => return Ok(None),
             Some((_, Found::Nope)) => {
@@ -104,7 +108,7 @@ impl<'a> Chunks<'a> {
     }
 
     /// `checkForUnknownFlags`, then `zeroOrMore` arguments.
-    pub fn zero_or_more<T>(self, parser: &Parser<T>) -> Result<Vec<T>, Error> {
+    pub(crate) fn zero_or_more<T>(self, parser: &Parser<T>) -> Result<Vec<T>, Error> {
         if let Some(unknown) = self.chunks.iter().find(|c| c.starts_with('-')) {
             return Err(Error::FlagUnknown(
                 unknown.to_string(),
@@ -131,14 +135,14 @@ impl<T> Parser<T> {
 
 /// `Expectation`: what a value should look like.
 #[derive(Debug)]
-pub struct Expectation {
+pub(crate) struct Expectation {
     singular: &'static str,
     examples: &'static [&'static str],
 }
 
 /// The errors `elm make`'s parsing can find (`Terminal.Error`).
 #[derive(Debug)]
-pub enum Error {
+pub(crate) enum Error {
     FlagWithValue(&'static str, String),
     FlagWithNoValue(&'static str, Expectation),
     FlagWithBadValue(&'static str, String, Expectation),
@@ -179,7 +183,7 @@ fn token(singular: &str) -> String {
 
 impl Error {
     /// `exitWithError`'s documents, each to be followed by a blank line.
-    pub fn to_docs(&self) -> Vec<Doc> {
+    pub(crate) fn to_docs(&self) -> Vec<Doc> {
         let red = |s: String| text(s).color(Color::Red);
         let green = |s: String| text(s).color(Color::Green);
         let yellow = |s: &str| text(token(s)).color(Color::Yellow);

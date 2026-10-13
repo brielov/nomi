@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
-pub struct References {
+pub(crate) struct References {
     pub node_minimum: u32,
     #[serde(default)]
     pub source: Vec<Source>,
@@ -23,7 +23,7 @@ pub struct References {
 /// A source tree synced to `reference/<name>`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Source {
+pub(crate) struct Source {
     pub name: String,
     pub repo: String,
     pub tag: String,
@@ -33,7 +33,7 @@ pub struct Source {
 /// A released executable, fetched from the repo's GitHub release `version`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Binary {
+pub(crate) struct Binary {
     pub name: String,
     pub version: String,
     pub repo: String,
@@ -44,7 +44,7 @@ pub struct Binary {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Format {
+pub(crate) enum Format {
     /// A gzipped executable.
     Gz,
     /// A gzipped tarball whose only file is the executable.
@@ -53,7 +53,7 @@ pub enum Format {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Asset {
+pub(crate) struct Asset {
     pub file: String,
     pub sha256: String,
 }
@@ -61,7 +61,7 @@ pub struct Asset {
 /// A tool installed from npm; its integrity lives in the lockfile.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Npm {
+pub(crate) struct Npm {
     pub name: String,
     pub version: String,
     pub repo: String,
@@ -70,7 +70,7 @@ pub struct Npm {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
-pub struct ElmPackage {
+pub(crate) struct ElmPackage {
     pub name: String,
     pub version: String,
     pub commit: String,
@@ -78,7 +78,7 @@ pub struct ElmPackage {
 }
 
 impl Binary {
-    pub fn url(&self, asset: &Asset) -> String {
+    pub(crate) fn url(&self, asset: &Asset) -> String {
         format!(
             "https://github.com/{}/releases/download/{}/{}",
             self.repo, self.version, asset.file
@@ -87,18 +87,18 @@ impl Binary {
 }
 
 /// The current platform as `references.toml` spells it.
-pub fn platform() -> String {
+pub(crate) fn platform() -> String {
     format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
 }
 
-pub fn load(root: &Path) -> Result<References> {
+pub(crate) fn load(root: &Path) -> Result<References> {
     let path = root.join("references.toml");
     let text =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     parse(&text)
 }
 
-pub fn parse(text: &str) -> Result<References> {
+pub(crate) fn parse(text: &str) -> Result<References> {
     let refs: References = toml::from_str(text).context("parsing references.toml")?;
     validate(&refs)?;
     Ok(refs)

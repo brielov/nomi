@@ -2,7 +2,7 @@
 //! environment or clock, and depend only on crates known to do none of that.
 
 /// Crates that take values and return values (docs/architecture.md R2).
-pub const PURE: &[&str] = &[
+pub(crate) const PURE: &[&str] = &[
     "base",
     "syntax",
     "format",
@@ -14,7 +14,7 @@ pub const PURE: &[&str] = &[
 /// External crates a pure crate may reach through normal dependencies,
 /// directly or transitively. Before adding one, check that it does no I/O,
 /// spawns no threads and reads no clock or environment.
-pub const ALLOWED_EXTERNAL: &[&str] = &[
+pub(crate) const ALLOWED_EXTERNAL: &[&str] = &[
     // rowan and its dependencies
     "rowan",
     "countme",
@@ -108,7 +108,7 @@ const FORBIDDEN_TOKENS: &[&str] = &[
 
 /// `closures` pairs each pure crate with the external crates its normal
 /// dependencies reach.
-pub fn check_dependencies(closures: &[(String, Vec<String>)]) -> Vec<String> {
+pub(crate) fn check_dependencies(closures: &[(String, Vec<String>)]) -> Vec<String> {
     let mut violations = Vec::new();
     for (krate, deps) in closures {
         for dep in deps {
@@ -123,7 +123,7 @@ pub fn check_dependencies(closures: &[(String, Vec<String>)]) -> Vec<String> {
 }
 
 /// Scans one source file of a pure crate. `label` names it in messages.
-pub fn scan_source(label: &str, source: &str) -> Vec<String> {
+pub(crate) fn scan_source(label: &str, source: &str) -> Vec<String> {
     let code = strip_comments_and_strings(source);
     let mut violations = Vec::new();
     let mut report = |offset: usize, what: &str| {
@@ -156,7 +156,7 @@ fn token_offsets(code: &str, token: &str) -> Vec<usize> {
         .filter(|(i, _)| {
             let before = code[..*i].chars().next_back();
             let after = code[i + token.len()..].chars().next();
-            !before.is_some_and(is_ident) && !(ends_in_ident && after.is_some_and(is_ident))
+            !(before.is_some_and(is_ident) || (ends_in_ident && after.is_some_and(is_ident)))
         })
         .map(|(i, _)| i)
         .collect()
@@ -202,7 +202,7 @@ fn std_modules(code: &str) -> Vec<(usize, String)> {
 
 /// Replaces comments and the contents of string and char literals with
 /// spaces, keeping newlines so offsets still map to the right lines.
-pub fn strip_comments_and_strings(source: &str) -> String {
+pub(crate) fn strip_comments_and_strings(source: &str) -> String {
     let chars: Vec<char> = source.chars().collect();
     let mut out = String::with_capacity(source.len());
     let blank = |c: char| if c == '\n' { '\n' } else { ' ' };

@@ -14,7 +14,7 @@ use nomi_base::diagnostic::render::{self, Styles};
 use nomi_base::{Compat, TextRange};
 use nomi_syntax::elm::docs::{self as syntax, DocKind, DocName, SyntaxProblem};
 
-use crate::canonical::{self, Associativity, Decl, Def, Type};
+use crate::canonical::{Associativity, Decl, Def, Type};
 use crate::canonicalize::module::{Canonical, Export, Exports};
 use crate::canonicalize::name_order;
 use crate::hir;
@@ -335,14 +335,13 @@ fn gather_types(decls: &[Decl]) -> BTreeMap<String, Result<Type, TextRange>> {
 /// Each declaration's doc comment, between its `{-|` and `-}`, by name
 /// (`getComments`).
 fn comments(module: &hir::Module) -> BTreeMap<&str, &str> {
-    fn inner(docs: &Option<hir::Spanned>) -> Option<&str> {
-        docs.as_ref()
-            .map(|d| &d.text[3..d.text.len().saturating_sub(2).max(3)])
+    fn inner(docs: Option<&hir::Spanned>) -> Option<&str> {
+        docs.map(|d| &d.text[3..d.text.len().saturating_sub(2).max(3)])
     }
     let mut comments = BTreeMap::new();
     for &id in &module.values {
         if let hir::Def::Define { name, docs, .. } = &module.defs[id]
-            && let Some(comment) = inner(docs)
+            && let Some(comment) = inner(docs.as_ref())
         {
             comments.insert(name.text.as_str(), comment);
         }
@@ -351,7 +350,7 @@ fn comments(module: &hir::Module) -> BTreeMap<&str, &str> {
         .chain(module.aliases.iter().map(|a| (&a.name, &a.docs)))
         .chain(module.ports.iter().map(|p| (&p.name, &p.docs)));
     for (name, docs) in rest {
-        if let Some(comment) = inner(docs) {
+        if let Some(comment) = inner(docs.as_ref()) {
             comments.insert(name.text.as_str(), comment);
         }
     }
@@ -376,7 +375,7 @@ fn from_comment(comment: &str) -> String {
 
 /// `Type.encode`'s text: `toDoc L.empty`, every type named by its
 /// module, laid out on one line (`D.toLine`).
-fn type_to_string(compat: Compat, localizer: &Localizer, ty: &canonical::Type) -> String {
+fn type_to_string(compat: Compat, localizer: &Localizer, ty: &Type) -> String {
     let doc = can_to_doc(localizer, Context::None, ty);
     render::render(&doc, compat, usize::MAX / 4, Styles::Plain)
 }

@@ -1,4 +1,4 @@
-//! `elm-test --watch` (`RunTests.runTests` with `watch`, plan 10.6c): a
+//! `elm-test --watch` (`RunTests.runTests` with `watch`): a
 //! run, then another each time the tests change. elm-test watches with
 //! chokidar; nomi polls the watched files' sizes and modification times,
 //! which for a test suite's few files costs little and needs no

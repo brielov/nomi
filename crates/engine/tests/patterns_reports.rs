@@ -1,6 +1,6 @@
 //! The pattern ratchet: each pattern-error project as each release,
 //! passing when nomi's `--report=json` and terminal report are elm's,
-//! whole (plan 7.1).
+//! whole.
 #![cfg(unix)]
 
 #[path = "support/projects.rs"]

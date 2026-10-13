@@ -638,15 +638,6 @@ impl<'t> Parser<'t> {
         at
     }
 
-    /// Consumes `kind`, or reports that it is missing.
-    pub(crate) fn expect(&mut self, kind: SyntaxKind) -> bool {
-        let eaten = self.eat(kind);
-        if !eaten {
-            self.error(SyntaxErrorKind::Expected(kind));
-        }
-        eaten
-    }
-
     /// Reports a problem at the current token, or at the end. Only the
     /// first problem at a token counts: a construct that ends early leaves
     /// the expectations of those around it unmet at the same place.

@@ -1,12 +1,12 @@
 //! No hand-written source file exceeds the line limit.
 
-pub const MAX_LINES: usize = 1500;
+pub(crate) const MAX_LINES: usize = 1500;
 
 /// Directories whose files are data, not hand-written source.
-pub const SKIPPED_DIRS: &[&str] = &["target", "fixtures", "snapshots", "testdata"];
+pub(crate) const SKIPPED_DIRS: &[&str] = &["target", "fixtures", "snapshots", "testdata"];
 
 /// Checks one file. Files whose first line says `@generated` are exempt.
-pub fn check(label: &str, source: &str) -> Option<String> {
+pub(crate) fn check(label: &str, source: &str) -> Option<String> {
     if source
         .lines()
         .next()

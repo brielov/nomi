@@ -1,4 +1,4 @@
-//! The corpus differential suite of the language server (plan 9.20a): a
+//! The corpus differential suite of the language server: a
 //! session for each project, generated from its own code, recorded from
 //! elm-language-server by `cargo xtask oracle corpus-lsp` and replayed
 //! against nomi by `cargo xtask corpus lsp`.
@@ -333,7 +333,7 @@ fn session(case: &str, root: &Path, manifest: &str) -> Result<Session> {
         let mut at: Vec<(u64, (u32, u32))> = (names(&text).into_iter())
             .map(|p| (pick(&[case, module, &format!("{}:{}", p.0, p.1)]), p))
             .collect();
-        at.sort();
+        at.sort_unstable();
         for (_, p) in at.iter().take(NAMES) {
             for method in [
                 "textDocument/hover",
@@ -485,7 +485,7 @@ fn oracle(root: &Path) -> Result<BTreeMap<String, Vec<(String, String)>>> {
 }
 
 /// `cargo xtask oracle corpus-lsp`.
-pub fn record(
+pub(crate) fn record(
     root: &Path,
     refs: &References,
     jobs: Option<usize>,
@@ -584,7 +584,7 @@ fn store() -> Result<(Store, Vec<(String, String)>)> {
     let mut replacements = Vec::new();
     for (name, version, sources) in crate::oracle::corpus_runs::releases(&dir)? {
         let to = format!("<packages>/{name}/{version}");
-        let real = fs::canonicalize(&sources).unwrap_or(sources.clone());
+        let real = fs::canonicalize(&sources).unwrap_or_else(|_| sources.clone());
         for path in [real, sources] {
             if let Ok(uri) = Url::from_directory_path(&path) {
                 replacements.push((uri.as_str().trim_end_matches('/').to_owned(), to.clone()));
@@ -596,7 +596,7 @@ fn store() -> Result<(Store, Vec<(String, String)>)> {
 }
 
 /// `cargo xtask corpus lsp`.
-pub fn check(root: &Path, record: bool, only: Option<&str>) -> Result<()> {
+pub(crate) fn check(root: &Path, record: bool, only: Option<&str>) -> Result<()> {
     let expected = oracle(root)?;
     let mut projects = projects(root)?;
     projects.retain(|p| expected.contains_key(&p.case) && only.is_none_or(|o| p.case.contains(o)));

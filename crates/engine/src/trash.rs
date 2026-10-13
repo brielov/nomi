@@ -10,12 +10,12 @@ thread_local! {
 }
 
 /// Frees `value` at the next [`empty`] on this thread.
-pub fn defer(value: impl Any) {
+pub(crate) fn defer(value: impl Any) {
     TRASH.with_borrow_mut(|trash| trash.push(Box::new(value)));
 }
 
 /// Frees what this thread deferred.
-pub fn empty() {
+pub(crate) fn empty() {
     let trash = TRASH.with_borrow_mut(std::mem::take);
     drop(trash);
 }

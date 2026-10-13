@@ -1,5 +1,5 @@
-//! nomi invoked as `elm-test`, against elm-test 0.19.3-0's own transcripts
-//! (plan 10.6a): each case under `elm_test/cases/` must reproduce the
+//! nomi invoked as `elm-test`, against elm-test 0.19.3-0's own
+//! transcripts: each case under `elm_test/cases/` must reproduce the
 //! transcript of the same name under `expected/`, which `cargo xtask
 //! oracle transcripts elm-test` records, normalized as the recordings
 //! are.
@@ -80,7 +80,7 @@ fn elm_test_transcripts() {
 
 /// `elm-test --watch` runs the tests, then again when a test file
 /// changes, naming it, and keeps watching after a run that fails to
-/// build (plan 10.6c).
+/// build.
 #[test]
 fn watch_runs_again_on_changes() {
     use std::io::Read;
@@ -141,9 +141,11 @@ fn watch_runs_again_on_changes() {
             if seen >= times {
                 return;
             }
-            if started.elapsed() > Duration::from_secs(120) {
-                panic!("no {times} of {what:?} in:\n{}", output.lock().unwrap());
-            }
+            assert!(
+                started.elapsed() <= Duration::from_secs(120),
+                "no {times} of {what:?} in:\n{}",
+                output.lock().unwrap()
+            );
             std::thread::sleep(Duration::from_millis(50));
         }
     };

@@ -36,7 +36,7 @@ pub fn find_tests(index: &Index, root: &Path) -> Vec<TestSuite> {
         let top: Vec<TestSuite> = (module.root().children())
             .filter(|n| n.kind() == SyntaxKind::ValueDecl)
             .filter_map(|decl| child(&decl, SyntaxKind::Definition))
-            .filter_map(|definition| finder.suite(finder.test_call(&definition)?))
+            .filter_map(|definition| finder.suite(&finder.test_call(&definition)?))
             .collect();
         if !top.is_empty() {
             found.push(TestSuite {
@@ -93,7 +93,7 @@ impl<'a> Finder<'a> {
 
     /// `findTestSuite`: a call labelled by one string literal, a suite
     /// where it's `describe` with tests.
-    fn suite(&self, call: SyntaxNode) -> Option<TestSuite> {
+    fn suite(&self, call: &SyntaxNode) -> Option<TestSuite> {
         let mut parts = call.children();
         let target = parts.next()?;
         let args: Vec<SyntaxNode> = parts.collect();
@@ -114,7 +114,7 @@ impl<'a> Finder<'a> {
         let [label] = literals.as_slice() else {
             return None;
         };
-        let at = code_range(&call)?.start();
+        let at = code_range(call)?.start();
         let leaf = TestSuite {
             label: label.clone(),
             path: self.module.path.clone(),
@@ -130,7 +130,7 @@ impl<'a> Finder<'a> {
         let tests: Vec<TestSuite> = (list.iter())
             .flat_map(|l| l.children())
             .filter_map(|e| self.test_call(&e))
-            .filter_map(|call| self.suite(call))
+            .filter_map(|call| self.suite(&call))
             .collect();
         (!tests.is_empty()).then_some(TestSuite {
             tests: Some(tests),

@@ -40,7 +40,7 @@ pub fn to_problem(source: &code::Source<'_>, error: &Error, compat: Compat) -> P
     match error {
         Error::UnexpectedPort(region) => r.at(
             "UNEXPECTED PORTS",
-            r.region(*region),
+            report_region(*region),
             reflow("You are declaring ports in a normal module."),
             stack([
                 fill![
@@ -69,7 +69,7 @@ pub fn to_problem(source: &code::Source<'_>, error: &Error, compat: Compat) -> P
         ),
         Error::NoPorts(region) => r.at(
             "NO PORTS",
-            r.region(*region),
+            report_region(*region),
             reflow("This module does not declare any ports, but it says it will:"),
             fill![
                 "Switch",
@@ -86,7 +86,7 @@ pub fn to_problem(source: &code::Source<'_>, error: &Error, compat: Compat) -> P
         ),
         Error::NoPortsInPackage(_, region) => r.at(
             "PACKAGES CANNOT HAVE PORTS",
-            r.region(*region),
+            report_region(*region),
             reflow("Packages cannot declare any ports, so I am getting stuck here:"),
             stack([
                 reflow("Remove this port declaration."),
@@ -95,7 +95,7 @@ pub fn to_problem(source: &code::Source<'_>, error: &Error, compat: Compat) -> P
         ),
         Error::NoPortModulesInPackage(region) => r.at(
             "PACKAGES CANNOT HAVE PORTS",
-            r.region(*region),
+            report_region(*region),
             reflow("Packages cannot declare any ports, so I am getting stuck here:"),
             stack([
                 fill![
@@ -116,7 +116,7 @@ pub fn to_problem(source: &code::Source<'_>, error: &Error, compat: Compat) -> P
         ),
         Error::NoEffectsOutsideKernel(region) => r.at(
             "INVALID EFFECT MODULE",
-            r.region(*region),
+            report_region(*region),
             reflow(
                 "It is not possible to declare an `effect module` outside the @elm \
                  organization, so I am getting stuck here:",
@@ -279,17 +279,10 @@ impl Reporter<'_, '_> {
         self.source.what_is_next(position(cur), self.compat)
     }
 
-    fn region(&self, region: super::error::Region) -> Region {
-        Region {
-            start: position(region.start),
-            end: position(region.end),
-        }
-    }
-
     /// `toWiderRegion`, and `toKeywordRegion` with the keyword's length:
     /// `n` columns from `cur`, which 0.19.1 counts in 16 bits.
     fn wider(&self, cur: Cursor, n: usize) -> Region {
-        #[allow(clippy::cast_possible_truncation, reason = "a column")]
+        #[expect(clippy::cast_possible_truncation, reason = "a column")]
         let col = cur.col.wrapping_add(n as u32);
         let end = Position {
             row: cur.row,
@@ -1031,6 +1024,14 @@ fn position(cur: Cursor) -> Position {
     Position {
         row: cur.row,
         col: cur.col,
+    }
+}
+
+/// `region` as a report has it.
+fn report_region(region: super::error::Region) -> Region {
+    Region {
+        start: position(region.start),
+        end: position(region.end),
     }
 }
 

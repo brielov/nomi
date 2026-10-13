@@ -72,10 +72,7 @@ impl Server {
     }
 
     /// `codeAction/resolve`: a refactor's edits, computed now.
-    pub(crate) fn resolve_action(
-        &mut self,
-        mut action: Value,
-    ) -> Result<Value, (ErrorCode, String)> {
+    pub(crate) fn resolve_action(&self, mut action: Value) -> Result<Value, (ErrorCode, String)> {
         let data = action["data"].clone();
         let (Some(uri), Some(name)) = (data["uri"].as_str(), data["actionName"].as_str()) else {
             return Ok(action);
@@ -109,7 +106,7 @@ impl Server {
     /// `elm/expose` and `elm/unexpose`: the exposing list's edit, applied
     /// by the client.
     pub(crate) fn expose(
-        &mut self,
+        &self,
         params: &Value,
         expose: bool,
     ) -> Result<Value, (ErrorCode, String)> {
@@ -133,7 +130,7 @@ impl Server {
 
     /// `workspace/didCreateFiles`: a header for each new, empty module,
     /// applied by the client in one edit.
-    pub(crate) fn created_files(&mut self, params: &lsp_types::CreateFilesParams) {
+    pub(crate) fn created_files(&self, params: &lsp_types::CreateFilesParams) {
         let snapshot = self.vfs.snapshot();
         let mut changes = serde_json::Map::new();
         for file in &params.files {
@@ -158,10 +155,7 @@ impl Server {
 
     /// `workspace/willRenameFiles`: each module renamed after its new
     /// place, wherever it's named.
-    pub(crate) fn rename_files(
-        &mut self,
-        params: &lsp_types::RenameFilesParams,
-    ) -> Result<Value, (ErrorCode, String)> {
+    pub(crate) fn rename_files(&self, params: &lsp_types::RenameFilesParams) -> Value {
         let snapshot = self.vfs.snapshot();
         let unit = self.unit;
         let mut changes = serde_json::Map::new();
@@ -179,22 +173,21 @@ impl Server {
                     continue;
                 };
                 let text = Text::new(&text, unit);
-                let edits: Vec<TextEdit> = (edits.iter())
-                    .map(|e| TextEdit::new(text.range(e.range), e.text.clone()))
-                    .collect();
                 let entry = changes
                     .entry(uri.to_string())
                     .or_insert_with(|| Value::Array(Vec::new()));
                 if let Value::Array(existing) = entry {
-                    existing.extend(edits.into_iter().map(|e| serde_json::json!(e)));
+                    existing.extend(edits.iter().map(|e| {
+                        serde_json::json!(TextEdit::new(text.range(e.range), e.text.clone()))
+                    }));
                 }
             }
         }
-        Ok(serde_json::json!({ "changes": changes }))
+        serde_json::json!({ "changes": changes })
     }
 
     /// The file a move request is about, and where in it.
-    pub(crate) fn move_source(&mut self, params: &Value) -> Option<(PathBuf, TextSize)> {
+    pub(crate) fn move_source(&self, params: &Value) -> Option<(PathBuf, TextSize)> {
         let uri = Url::parse(params["sourceUri"].as_str()?).ok()?;
         let path = uri.to_file_path().ok()?;
         let position: lsp_types::Position =
@@ -204,18 +197,15 @@ impl Server {
     }
 
     /// `elm/getMoveDestinations`: the project's other modules.
-    pub(crate) fn move_destinations(
-        &mut self,
-        params: &Value,
-    ) -> Result<Value, (ErrorCode, String)> {
+    pub(crate) fn move_destinations(&self, params: &Value) -> Value {
         let snapshot = self.vfs.snapshot();
         let Some((path, _)) = self.move_source(params) else {
-            return Ok(serde_json::json!({ "destinations": [] }));
+            return serde_json::json!({ "destinations": [] });
         };
         let root =
             index::manifest(&snapshot, &path).and_then(|m| m.parent().map(Path::to_path_buf));
         let (Some(root), Some(index)) = (root, self.index(&snapshot, &path)) else {
-            return Ok(serde_json::json!({ "destinations": [] }));
+            return serde_json::json!({ "destinations": [] });
         };
         let destinations: Vec<Value> = (nomi_ide::move_destinations(&index, &root, &path)
             .into_iter())
@@ -224,27 +214,27 @@ impl Server {
             Some(serde_json::json!({ "name": d.name, "path": d.folder, "uri": uri }))
         })
         .collect();
-        Ok(serde_json::json!({ "destinations": destinations }))
+        serde_json::json!({ "destinations": destinations })
     }
 
     /// `elm/move`: the function moved, applied by the client as one
     /// refactoring.
-    pub(crate) fn move_to(&mut self, params: &Value) -> Result<Value, (ErrorCode, String)> {
+    pub(crate) fn move_to(&self, params: &Value) -> Value {
         let snapshot = self.vfs.snapshot();
         let destination = (params["destination"]["uri"].as_str())
             .and_then(|u| Url::parse(u).ok())
             .and_then(|u| u.to_file_path().ok());
         let (Some((path, offset)), Some(destination)) = (self.move_source(params), destination)
         else {
-            return Ok(Value::Null);
+            return Value::Null;
         };
         let unit = self.unit;
         let Some(index) = self.index(&snapshot, &path) else {
-            return Ok(Value::Null);
+            return Value::Null;
         };
         let Some(files) = nomi_ide::move_function(&snapshot, &index, &path, offset, &destination)
         else {
-            return Ok(Value::Null);
+            return Value::Null;
         };
         let mut changes = serde_json::Map::new();
         for (file, edits) in files {
@@ -273,7 +263,7 @@ impl Server {
             &self.sender,
             Message::Request(Request::new(id, "workspace/applyEdit".to_owned(), params)),
         );
-        Ok(Value::Null)
+        Value::Null
     }
 
     pub(crate) fn show(&self, kind: lsp_types::MessageType, message: &str) {
@@ -355,6 +345,7 @@ impl Server {
                 .settings
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .extended_capabilities
                 .move_function,
         };
         let actions = nomi_ide::code_actions(&snapshot, index, &path, &request);

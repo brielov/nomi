@@ -1,4 +1,4 @@
-//! The runner a run builds (plan 10.3): elm-test's generated project, in
+//! The runner a run builds: elm-test's generated project, in
 //! nomi's cache rather than `elm-stuff`, its `main` over the tests the
 //! types find, built through the engine and wrapped for Node.
 
@@ -84,8 +84,8 @@ fn prepare<H: Http + Sync>(
     let tests_dir = env.cache.dir().join("tests");
     let dir = generated_dir(env.cache, project);
     let src = dir.join("src");
-    fs::create_dir_all(src.join("Test/Generated")).map_err(|e| io(&dir, e))?;
-    let runner = runner::sources(&tests_dir).map_err(|e| io(&dir, e))?;
+    fs::create_dir_all(src.join("Test/Generated")).map_err(|e| io(&dir, &e))?;
+    let runner = runner::sources(&tests_dir).map_err(|e| io(&dir, &e))?;
     let (direct, indirect) = test_deps::dependencies(
         &project.elm_json,
         &project.outline,
@@ -112,11 +112,11 @@ fn prepare<H: Http + Sync>(
         test_direct: Default::default(),
         test_indirect: Default::default(),
     });
-    write_if_changed(env.vfs, &dir.join("elm.json"), &outline.write()).map_err(|e| io(&dir, e))?;
+    write_if_changed(env.vfs, &dir.join("elm.json"), &outline.write()).map_err(|e| io(&dir, &e))?;
     Ok(dir)
 }
 
-fn io(dir: &Path, e: io::Error) -> Failure {
+fn io(dir: &Path, e: &io::Error) -> Failure {
     Failure::Project(Report::new(
         "PROBLEM GENERATING TESTS",
         None,
@@ -182,7 +182,7 @@ pub fn build<H: Http + Sync>(
         .join("src")
         .join(format!("{}.elm", MAIN.replace('.', "/")));
     let text = main_module(options, &imports, &found_tests);
-    write_if_changed(env.vfs, &main, text.as_bytes()).map_err(|e| io(&dir, e))?;
+    write_if_changed(env.vfs, &main, text.as_bytes()).map_err(|e| io(&dir, &e))?;
     let js = dir.join("elmTestOutput.js");
     let mut quiet = Quiet::new(env.color && console.err_is_terminal());
     let made = make::run(
@@ -197,8 +197,8 @@ pub fn build<H: Http + Sync>(
         console.err(&quiet.err);
         return Err(Failure::Shown);
     }
-    let compiled = fs::read_to_string(&js).map_err(|e| io(&dir, e))?;
-    fs::write(&js, runner::wrap(&compiled)).map_err(|e| io(&dir, e))?;
+    let compiled = fs::read_to_string(&js).map_err(|e| io(&dir, &e))?;
+    fs::write(&js, runner::wrap(&compiled)).map_err(|e| io(&dir, &e))?;
     // Node reads the program as CommonJS, whatever a `package.json` above
     // it says.
     write_if_changed(
@@ -206,7 +206,7 @@ pub fn build<H: Http + Sync>(
         &dir.join("package.json"),
         br#"{"type":"commonjs"}"#,
     )
-    .map_err(|e| io(&dir, e))?;
+    .map_err(|e| io(&dir, &e))?;
     Ok(Runner {
         dir,
         js,

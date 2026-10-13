@@ -28,7 +28,7 @@ const KINDS: &str = "crates/syntax/src/kind.rs";
 const OUTPUT: &str = "crates/syntax/src/ast/generated.rs";
 
 /// Writes the views, or with `check` fails if the file on disk differs.
-pub fn run(root: &Path, check: bool) -> Result<()> {
+pub(crate) fn run(root: &Path, check: bool) -> Result<()> {
     let grammar: Grammar = std::fs::read_to_string(root.join(GRAMMAR))
         .context("reading elm.ungram")?
         .parse()
@@ -78,12 +78,11 @@ fn generate(grammar: &Grammar, tokens: &BTreeMap<String, String>) -> Result<Stri
     let mut structs = Vec::new();
     for node in grammar.iter() {
         let data = &grammar[node];
-        match enum_variants(grammar, &data.rule) {
-            Some(variants) => enum_view(&mut out, &data.name, &variants),
-            None => {
-                struct_view(&mut out, grammar, tokens, &data.name, &data.rule)?;
-                structs.push(data.name.clone());
-            }
+        if let Some(variants) = enum_variants(grammar, &data.rule) {
+            enum_view(&mut out, &data.name, &variants);
+        } else {
+            struct_view(&mut out, grammar, tokens, &data.name, &data.rule)?;
+            structs.push(data.name.clone());
         }
     }
     let _ = write!(

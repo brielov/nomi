@@ -61,7 +61,7 @@ struct Project<'a> {
 
 /// A cache for nomi that reads the development cache's packages and
 /// registry, with nothing built.
-pub fn nomi_cache(setup: &Setup) -> Result<PathBuf> {
+pub(crate) fn nomi_cache(setup: &Setup) -> Result<PathBuf> {
     let store = cache_dir()?.join("nomi");
     let releases = releases(&store.join("packages"))?;
     ensure!(
@@ -78,13 +78,13 @@ pub fn nomi_cache(setup: &Setup) -> Result<PathBuf> {
     Ok(cache)
 }
 
-pub fn tables(root: &Path, refs: &References, setup: &Setup) -> Result<Vec<Table>> {
+pub(crate) fn tables(root: &Path, refs: &References, setup: &Setup) -> Result<Vec<Table>> {
     let releases = releases(&cache_dir()?.join("nomi").join("packages"))?;
     let cache = nomi_cache(setup)?;
     let artifacts = cache.join("artifacts");
     let nomi = Tool {
         binary: setup.nomi("elm"),
-        env: vec![("NOMI_CACHE", cache.clone())],
+        env: vec![("NOMI_CACHE", cache)],
         clear: Box::new(move || match fs::remove_dir_all(&artifacts) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
             _ => Ok(()),

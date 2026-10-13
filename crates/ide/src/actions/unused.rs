@@ -153,7 +153,7 @@ fn imported_value_edits(
     let fix_all = removed.is_some();
     let mut gone = BTreeSet::new();
     if let Some(removed) = removed {
-        let set = removed.entry(module.clone()).or_default();
+        let set = removed.entry(module).or_default();
         set.insert(name.to_owned());
         gone = set.clone();
         // Every value of the list goes: the list goes.
@@ -387,7 +387,7 @@ fn remove_parameter(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> Option<Offer
         .find(|t| !t.kind().is_trivia())?;
     let path = context.path.to_owned();
     let mut changes: FileEdits = vec![(
-        path.clone(),
+        path,
         vec![remove_argument(
             text,
             previous.text_range().end(),
@@ -539,7 +539,7 @@ fn flat_type(signature: &SyntaxNode) -> Option<Vec<SyntaxElement>> {
         for element in ty.children_with_tokens().filter(|e| !e.kind().is_trivia()) {
             match &element {
                 SyntaxElement::Node(n) if n.kind() == SyntaxKind::FunctionType => {
-                    next = Some(n.clone())
+                    next = Some(n.clone());
                 }
                 _ => parts.push(element),
             }
@@ -608,9 +608,9 @@ fn is_recursive(context: &Context<'_>, declaration: &SyntaxNode) -> bool {
                 continue;
             };
             // Only functions: a definition's name.
-            if !at
+            if at
                 .parent()
-                .is_some_and(|p| p.kind() == SyntaxKind::Definition)
+                .is_none_or(|p| p.kind() != SyntaxKind::Definition)
             {
                 continue;
             }

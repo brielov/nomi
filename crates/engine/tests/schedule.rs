@@ -45,7 +45,7 @@ fn build(
     })
     .unwrap();
     let mut compiled = compiled.into_inner().unwrap();
-    compiled.sort();
+    compiled.sort_unstable();
     (outcomes, compiled)
 }
 

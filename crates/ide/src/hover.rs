@@ -1,4 +1,4 @@
-//! Hover (plan 9.6c) as elm-language-server shows it
+//! Hover as elm-language-server shows it
 //! (`hoverProvider.ts`, `hintHelper.ts`): the definition of the name
 //! under the cursor, written as Markdown by what it is.
 //!
@@ -97,7 +97,7 @@ pub fn hover(snapshot: &Snapshot, index: &Index, path: &Path, offset: TextSize) 
             // An alias's type is its whole pattern's.
             let ty = typed(name_at.text_range()).or_else(|| {
                 (parent.kind() == SyntaxKind::AliasPattern)
-                    .then(|| crate::symbols::code_range(&parent).and_then(typed))
+                    .then(|| code_range(&parent).and_then(typed))
                     .flatten()
             });
             let name = name_at.text();
@@ -160,7 +160,7 @@ pub(crate) fn declaration_hint(
             let end = (parent.children())
                 .filter(|c| crate::lint::is_pattern(c.kind()))
                 .last()
-                .map_or(name_at.text_range().end(), |p| p.text_range().end());
+                .map_or_else(|| name_at.text_range().end(), |p| p.text_range().end());
             let left = TextRange::new(name_at.text_range().start(), end);
             let code = preceded.then(|| text_in(&parent, left));
             format_hint(&annotation, &comment, code.as_deref())

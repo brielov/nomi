@@ -502,10 +502,9 @@ impl Read {
         KEEP.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    fn all() -> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, Read>> {
-        static ALL: std::sync::OnceLock<
-            std::sync::Mutex<std::collections::HashMap<PathBuf, Read>>,
-        > = std::sync::OnceLock::new();
+    fn all() -> &'static std::sync::Mutex<HashMap<PathBuf, Read>> {
+        static ALL: std::sync::OnceLock<std::sync::Mutex<HashMap<PathBuf, Read>>> =
+            std::sync::OnceLock::new();
         ALL.get_or_init(Default::default)
     }
 
@@ -586,8 +585,8 @@ fn read_file(
                 .read_bytes(&path)
                 .map_err(|e| unreadable(&path, e))?;
             return Err(BadModule {
-                path: path.clone(),
-                source: Some((file, Arc::from(nomi_base::ghc::lenient_utf8(&bytes)))),
+                path,
+                source: Some((file, Arc::from(ghc::lenient_utf8(&bytes)))),
                 parse: None,
                 problem: ModuleProblem::Encoding(bytes),
             });
@@ -803,15 +802,15 @@ fn root_info(
         [(src_dir, names, false)] => {
             return Err(Problem::RootNameInvalid {
                 path: path.to_owned(),
-                src_dir: src_dir.to_path_buf(),
+                src_dir: (*src_dir).clone(),
                 names: names.clone(),
             });
         }
         [(first, ..), (second, ..), ..] => {
             return Err(Problem::WithAmbiguousSrcDir {
                 path: path.to_owned(),
-                first: first.to_path_buf(),
-                second: second.to_path_buf(),
+                first: (*first).clone(),
+                second: (*second).clone(),
             });
         }
     };

@@ -70,12 +70,12 @@ fn plan_app<P: Packages>(
             RemoveProblem::NotADependency
         });
     }
-    let indirect = reached(packages, &old, &direct, [&direct])?;
+    let indirect = reached(packages, &old, &direct, &[&direct])?;
     let test_indirect = reached(
         packages,
         &old,
         &test_direct,
-        [&direct, &indirect, &test_direct],
+        &[&direct, &indirect, &test_direct],
     )?;
     let outline = AppOutline {
         elm: app.elm,
@@ -112,11 +112,11 @@ fn plan_pkg<E>(pkg: &Name, outline: &PkgOutline) -> Result<Plan, RemoveProblem<E
 
 /// The packages of `solution` that `roots` need, directly or not, at
 /// their versions there, leaving out those in `known`.
-fn reached<'a, P: Packages>(
+fn reached<P: Packages>(
     packages: &mut P,
     solution: &BTreeMap<Name, Version>,
     roots: &BTreeMap<Name, Version>,
-    known: impl IntoIterator<Item = &'a BTreeMap<Name, Version>> + Clone,
+    known: &[&BTreeMap<Name, Version>],
 ) -> Result<BTreeMap<Name, Version>, RemoveProblem<P::Error>> {
     let mut visited = BTreeSet::new();
     let mut unvisited: Vec<Name> = roots.keys().cloned().collect();
@@ -128,12 +128,7 @@ fn reached<'a, P: Packages>(
     }
     Ok(visited
         .into_iter()
-        .filter(|name| {
-            !known
-                .clone()
-                .into_iter()
-                .any(|deps| deps.contains_key(name))
-        })
+        .filter(|name| !known.iter().any(|deps| deps.contains_key(name)))
         .map(|name| {
             let version = solution[&name];
             (name, version)

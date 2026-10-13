@@ -38,14 +38,13 @@ pub fn unify(vars: &mut Variables, v1: Variable, v2: Variable) -> Answer {
     let State { vars, mut fresh } = state;
     // Upstream's list has the latest first.
     fresh.reverse();
-    match result {
-        Ok(()) => Answer::Ok(fresh),
-        Err(Mismatch) => {
-            let t1 = vars.to_error_type(v1);
-            let t2 = vars.to_error_type(v2);
-            vars.union(v1, v2, Descriptor::new(Content::Error));
-            Answer::Err(fresh, Box::new(t1), Box::new(t2))
-        }
+    if let Ok(()) = result {
+        Answer::Ok(fresh)
+    } else {
+        let t1 = vars.to_error_type(v1);
+        let t2 = vars.to_error_type(v2);
+        vars.union(v1, v2, Descriptor::new(Content::Error));
+        Answer::Err(fresh, Box::new(t1), Box::new(t2))
     }
 }
 
@@ -118,6 +117,10 @@ fn combine_rigid_supers(rigid: SuperType, flex: SuperType) -> bool {
 
 impl State<'_> {
     /// `merge`: both variables one, with `content`, at the lower rank.
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "each unifier step ends in a merge or a mismatch, so a merge is a `Unify` too, as upstream's is"
+    )]
     fn merge(&mut self, context: &Context, content: Content) -> Unify {
         let descriptor = Descriptor {
             content,
@@ -152,24 +155,24 @@ impl State<'_> {
             second: right,
             second_desc: self.vars.get(right).clone(),
         };
-        stacker::maybe_grow(64 * 1024, 1024 * 1024, || self.actually(context))
+        stacker::maybe_grow(64 * 1024, 1024 * 1024, || self.actually(&context))
     }
 
     /// `actuallyUnify`.
-    fn actually(&mut self, context: Context) -> Unify {
+    fn actually(&mut self, context: &Context) -> Unify {
         let first = context.first_desc.content.clone();
         let second = context.second_desc.content.clone();
         match &first {
-            Content::FlexVar(_) => self.flex(&context, first, second),
-            Content::FlexSuper(s, _) => self.flex_super(&context, *s, first.clone(), second),
-            Content::RigidVar(_) => self.rigid(&context, None, first, second),
-            Content::RigidSuper(s, _) => self.rigid(&context, Some(*s), first.clone(), second),
+            Content::FlexVar(_) => self.flex(context, first, second),
+            Content::FlexSuper(s, _) => self.flex_super(context, *s, first.clone(), second),
+            Content::RigidVar(_) => self.rigid(context, None, first, &second),
+            Content::RigidSuper(s, _) => self.rigid(context, Some(*s), first.clone(), &second),
             Content::Alias(home, name, args, real) => {
-                self.alias(&context, home, name, args, *real, second)
+                self.alias(context, home, name, args, *real, second)
             }
-            Content::Structure(flat) => self.structure(&context, flat, first.clone(), second),
+            Content::Structure(flat) => self.structure(context, flat, first.clone(), second),
             // Pretend it is fine, so one error doesn't cascade.
-            Content::Error => self.merge(&context, Content::Error),
+            Content::Error => self.merge(context, Content::Error),
         }
     }
 
@@ -188,12 +191,12 @@ impl State<'_> {
         context: &Context,
         super_type: Option<SuperType>,
         content: Content,
-        other: Content,
+        other: &Content,
     ) -> Unify {
         match other {
             Content::FlexVar(_) => self.merge(context, content),
             Content::FlexSuper(other_super, _) => match super_type {
-                Some(s) if combine_rigid_supers(s, other_super) => self.merge(context, content),
+                Some(s) if combine_rigid_supers(s, *other_super) => self.merge(context, content),
                 _ => Err(Mismatch),
             },
             Content::RigidVar(_)
@@ -454,7 +457,7 @@ impl State<'_> {
         match (unique1.is_empty(), unique2.is_empty()) {
             (true, true) => {
                 self.guarded(ext1, ext2)?;
-                self.shared_fields(context, shared, BTreeMap::new(), ext1)
+                self.shared_fields(context, &shared, BTreeMap::new(), ext1)
             }
             (true, false) => {
                 let sub = self.fresh(
@@ -462,7 +465,7 @@ impl State<'_> {
                     Content::Structure(FlatType::Record1(unique2, ext2)),
                 );
                 self.guarded(ext1, sub)?;
-                self.shared_fields(context, shared, BTreeMap::new(), sub)
+                self.shared_fields(context, &shared, BTreeMap::new(), sub)
             }
             (false, true) => {
                 let sub = self.fresh(
@@ -470,7 +473,7 @@ impl State<'_> {
                     Content::Structure(FlatType::Record1(unique1, ext1)),
                 );
                 self.guarded(sub, ext2)?;
-                self.shared_fields(context, shared, BTreeMap::new(), sub)
+                self.shared_fields(context, &shared, BTreeMap::new(), sub)
             }
             (false, false) => {
                 let mut others = unique1.clone();
@@ -480,7 +483,7 @@ impl State<'_> {
                 let sub2 = self.fresh(context, Content::Structure(FlatType::Record1(unique2, ext)));
                 self.guarded(ext1, sub2)?;
                 self.guarded(sub1, ext2)?;
-                self.shared_fields(context, shared, others, ext)
+                self.shared_fields(context, &shared, others, ext)
             }
         }
     }
@@ -490,14 +493,14 @@ impl State<'_> {
     fn shared_fields(
         &mut self,
         context: &Context,
-        shared: BTreeMap<Text, (Variable, Variable)>,
+        shared: &BTreeMap<Text, (Variable, Variable)>,
         others: BTreeMap<Text, Variable>,
         ext: Variable,
     ) -> Unify {
         let count = shared.len();
         let mut matching = BTreeMap::new();
         // `Map.traverseMaybeWithKey`: in the release's name order.
-        let shared: Vec<(Text, (Variable, Variable))> = (in_name_order(self.vars.compat, &shared)
+        let shared: Vec<(Text, (Variable, Variable))> = (in_name_order(self.vars.compat, shared)
             .into_iter())
         .map(|(n, pair)| (n.clone(), *pair))
         .collect();

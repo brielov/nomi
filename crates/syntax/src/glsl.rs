@@ -100,7 +100,7 @@ enum Op {
 
 /// `conditionalTable`, tightest first.
 const CONDITIONAL: &[&[Op]] = {
-    use Op::*;
+    use Op::{NoEq, Plain, Single};
     &[
         &[NoEq("*"), NoEq("/"), NoEq("%")],
         &[NoEq("+"), NoEq("-")],
@@ -117,7 +117,7 @@ const CONDITIONAL: &[&[Op]] = {
 
 /// `assignmentTable`, a level for each operator.
 const ASSIGNMENT: &[&[Op]] = {
-    use Op::*;
+    use Op::Plain;
     &[
         &[Plain("=")],
         &[Plain("+=")],
@@ -695,12 +695,12 @@ impl<'t> Glsl<'t> {
             Ok(())
         };
         term_p(self)?;
-        if !self.label(Text::Str("operator"), |p| p.operators(ops))? {
+        if !self.label(Text::Str("operator"), |p| Ok(p.operators(ops)))? {
             return Ok(());
         }
         loop {
             term_p(self)?;
-            if !self.operators(ops)? {
+            if !self.operators(ops) {
                 return Ok(());
             }
         }
@@ -715,13 +715,13 @@ impl<'t> Glsl<'t> {
 
     /// The `choice` of a row's operators: whether one was there. Each is
     /// `try`, so none fails having consumed.
-    fn operators(&mut self, ops: &[Op]) -> P<bool> {
+    fn operators(&mut self, ops: &[Op]) -> bool {
         for &op in ops {
             if self.operator(op).is_ok() {
-                return Ok(true);
+                return true;
             }
         }
-        Ok(false)
+        false
     }
 
     fn conditional_expression(&mut self) -> P {

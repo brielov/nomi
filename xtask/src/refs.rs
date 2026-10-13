@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::references::{References, Source};
 
-pub fn sync(root: &Path, refs: &References) -> Result<()> {
+pub(crate) fn sync(root: &Path, refs: &References) -> Result<()> {
     let dir = root.join("reference");
     for source in &refs.source {
         sync_one(&dir.join(&source.name), source)
@@ -37,7 +37,7 @@ fn sync_one(dir: &Path, source: &Source) -> Result<()> {
 
 /// Puts the git repository at `dir` on `commit`, fetching only that commit.
 /// Refuses to touch a tree with local changes.
-pub fn checkout(dir: &Path, url: &str, commit: &str, label: &str) -> Result<()> {
+pub(crate) fn checkout(dir: &Path, url: &str, commit: &str, label: &str) -> Result<()> {
     if !dir.join(".git").exists() {
         std::fs::create_dir_all(dir)?;
         git(dir, &["init", "--quiet"])?;
@@ -63,7 +63,7 @@ pub fn checkout(dir: &Path, url: &str, commit: &str, label: &str) -> Result<()> 
 }
 
 /// The hash of `HEAD`'s tree, which pins the checked-out files exactly.
-pub fn tree(dir: &Path) -> Result<String> {
+pub(crate) fn tree(dir: &Path) -> Result<String> {
     let out = Command::new("git")
         .args(["rev-parse", "HEAD^{tree}"])
         .current_dir(dir)

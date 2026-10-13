@@ -1,6 +1,6 @@
 //! JSON with its objects' fields in the order they came, which
-//! `serde_json::Value` sorts: the JUnit reporter's description of its XML
-//! (plan 10.5), and `elm.json` as elm-test reads and writes it (10.6b).
+//! `serde_json::Value` sorts: the `JUnit` reporter's description of its XML,
+//! and `elm.json` as elm-test reads and writes it.
 
 use std::fmt;
 

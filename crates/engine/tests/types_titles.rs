@@ -1,6 +1,6 @@
 //! The first type ratchet: each type-error project as each release,
 //! passing when nomi reports the problems elm does, by title and region,
-//! in each module elm names (plan 6.9; climbs in 6.11 to 6.14).
+//! in each module elm names.
 #![cfg(unix)]
 
 #[path = "support/projects.rs"]

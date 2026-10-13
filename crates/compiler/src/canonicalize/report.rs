@@ -1179,41 +1179,35 @@ fn messed_up_alias(
         _ => {
             let unused: Vec<&str> = unused.iter().map(|a| a.name.as_str()).collect();
             let unbound: Vec<&str> = unbound.iter().map(|a| a.name.as_str()).collect();
-            let mut used = match &unbound[..] {
-                [x] => {
-                    let mut docs = words("Type variable");
-                    docs.push(yellow(format!("`{x}`")));
-                    docs.extend(words(
-                        "appears in the definition, but I do not see it declared.",
-                    ));
-                    docs
-                }
-                _ => {
-                    let mut docs = words("Type variables");
-                    docs.extend(comma_sep(
-                        "and",
-                        unbound.iter().map(|n| yellow(*n)).collect(),
-                    ));
-                    docs.extend(words(
-                        "are used in the definition, but I do not see them declared.",
-                    ));
-                    docs
-                }
+            let mut used = if let [x] = &unbound[..] {
+                let mut docs = words("Type variable");
+                docs.push(yellow(format!("`{x}`")));
+                docs.extend(words(
+                    "appears in the definition, but I do not see it declared.",
+                ));
+                docs
+            } else {
+                let mut docs = words("Type variables");
+                docs.extend(comma_sep(
+                    "and",
+                    unbound.iter().map(|n| yellow(*n)).collect(),
+                ));
+                docs.extend(words(
+                    "are used in the definition, but I do not see them declared.",
+                ));
+                docs
             };
-            match &unused[..] {
-                [x] => {
-                    used.extend(words("Likewise, type variable"));
-                    used.push(yellow(format!("`{x}`")));
-                    used.extend(words("is delared, but not used."));
-                }
-                _ => {
-                    used.extend(words("Likewise, type variables"));
-                    used.extend(comma_sep(
-                        "and",
-                        unused.iter().map(|n| yellow(*n)).collect(),
-                    ));
-                    used.extend(words("are delared, but not used."));
-                }
+            if let [x] = &unused[..] {
+                used.extend(words("Likewise, type variable"));
+                used.push(yellow(format!("`{x}`")));
+                used.extend(words("is delared, but not used."));
+            } else {
+                used.extend(words("Likewise, type variables"));
+                used.extend(comma_sep(
+                    "and",
+                    unused.iter().map(|n| yellow(*n)).collect(),
+                ));
+                used.extend(words("are delared, but not used."));
             }
             let mut declaration = vec![text("type"), text("alias"), text(name)];
             declaration.extend(
@@ -1352,7 +1346,7 @@ fn source_type(module: &hir::Module, id: TypeId, context: Parens) -> Doc {
             let entries: Vec<Doc> = (fields.iter())
                 .map(|(n, t)| {
                     doc::sep([
-                        text(n.text.to_string()).space(text(":")),
+                        text(n.text.clone()).space(text(":")),
                         source_type(module, *t, Parens::None),
                     ])
                     .hang(4)

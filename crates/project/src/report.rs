@@ -39,7 +39,7 @@ pub fn outline(
     command: &dyn Fn(&str) -> String,
 ) -> Report {
     let missing = |start: &str, after: String| {
-        Report::new("MISSING DEPENDENCY", path(), start, [reflow(&after)])
+        Report::new("MISSING DEPENDENCY", Some(path()), start, [reflow(&after)])
     };
     let by_hand = "If you modified your elm.json by hand, try to change it back! And if you are \
                    having trouble getting back to a working elm.json, it may be easier to";
@@ -81,7 +81,7 @@ pub fn missing_src_dirs(dirs: &[String]) -> Report {
     match dirs {
         [dir] => Report::new(
             "MISSING SOURCE DIRECTORY",
-            path(),
+            Some(path()),
             "I need a valid elm.json file, but the \"source-directories\" field lists the \
              following directory:",
             [
@@ -91,7 +91,7 @@ pub fn missing_src_dirs(dirs: &[String]) -> Report {
         ),
         _ => Report::new(
             "MISSING SOURCE DIRECTORIES",
-            path(),
+            Some(path()),
             "I need a valid elm.json file, but the \"source-directories\" field lists the \
              following directories:",
             [
@@ -105,12 +105,12 @@ pub fn missing_src_dirs(dirs: &[String]) -> Report {
 /// `OutlineHasDuplicateSrcDirs`: two source directories, as `elm.json`
 /// writes them, that are the directory `canonical`.
 pub fn duplicate_src_dirs(canonical: &str, dir1: &str, dir2: &str) -> Report {
-    let dirs = vcat([dir1, dir2].map(|dir| text(dir).color(Color::Red))).indent(4);
     const TITLE: &str = "REDUNDANT SOURCE DIRECTORIES";
+    let dirs = vcat([dir1, dir2].map(|dir| text(dir).color(Color::Red))).indent(4);
     if dir1 == dir2 {
         return Report::new(
             TITLE,
-            path(),
+            Some(path()),
             "I need a valid elm.json file, but the \"source-directories\" field lists the same \
              directory twice:",
             [dirs, reflow("Remove one of the entries!")],
@@ -118,7 +118,7 @@ pub fn duplicate_src_dirs(canonical: &str, dir1: &str, dir2: &str) -> Report {
     }
     Report::new(
         TITLE,
-        path(),
+        Some(path()),
         "I need a valid elm.json file, but the \"source-directories\" field has some redundant \
          directories:",
         [
@@ -135,7 +135,7 @@ pub fn duplicate_src_dirs(canonical: &str, dir1: &str, dir2: &str) -> Report {
 pub fn app_elm(version: Version, compat: Compat) -> Report {
     Report::new(
         "ELM VERSION MISMATCH",
-        path(),
+        Some(path()),
         "Your elm.json says this application needs a different version of Elm.",
         [fill_sep([
             text("It"),
@@ -158,7 +158,7 @@ pub fn app_elm(version: Version, compat: Compat) -> Report {
 pub fn pkg_elm(constraint: &Constraint, compat: Compat) -> Report {
     Report::new(
         "ELM VERSION MISMATCH",
-        path(),
+        Some(path()),
         "Your elm.json says this package needs a version of Elm in this range:",
         [
             text(constraint.to_string())
@@ -178,8 +178,8 @@ pub fn pkg_elm(constraint: &Constraint, compat: Compat) -> Report {
     )
 }
 
-fn path() -> Option<String> {
-    Some(ELM_JSON.to_owned())
+fn path() -> String {
+    ELM_JSON.to_owned()
 }
 
 /// A region of `elm.json`, as `compat` keeps it: the JSON parser's
@@ -216,7 +216,7 @@ fn outline_problem(
     let snippet =
         |title: &'static str, highlight: Option<Region>, before: &str, after: Doc| Report {
             title: title.into(),
-            path: path(),
+            path: Some(path()),
             message: source.snippet(
                 compat,
                 reflow(before),

@@ -1,4 +1,4 @@
-//! The commands nomi leaves out as `elm` (plan 8.15): `elm repl` and `elm
+//! The commands nomi leaves out as `elm`: `elm repl` and `elm
 //! reactor` exit with one line saying so, the reactor's pointing to
 //! `nomi run --watch`.
 //!

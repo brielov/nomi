@@ -18,10 +18,10 @@ fn syntax_titles() {
             .map(|(case, rejections)| {
                 let outcome = rejections.into_iter().try_for_each(|r| {
                     let problem = r.problem.map_err(|e| format!("{}: {e}", r.column))?;
-                    let shift =
-                        r.compat.first_json_position() as i64 - r.compat.first_position() as i64;
+                    let shift = i64::from(r.compat.first_json_position())
+                        - i64::from(r.compat.first_position());
                     let at = |p: nomi_base::diagnostic::code::Position| {
-                        format!("{}:{}", p.row as i64 + shift, p.col as i64 + shift)
+                        format!("{}:{}", i64::from(p.row) + shift, i64::from(p.col) + shift)
                     };
                     let (start, end) = (problem.region.start, problem.region.end);
                     let got = format!("{} {}-{}", problem.title, at(start), at(end));

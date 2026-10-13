@@ -21,7 +21,7 @@ pub type Bindings = Dict<TextRange>;
 /// are checked after.
 pub fn verify<T>(
     env: &Env<'_>,
-    context: DuplicatePatternContext,
+    context: &DuplicatePatternContext,
     work: impl FnOnce(&mut Bindings) -> R<T>,
 ) -> R<(T, BTreeMap<String, TextRange>)> {
     let mut bindings = Bindings::default();

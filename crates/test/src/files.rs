@@ -331,20 +331,19 @@ pub fn absolute(path: &Path, cwd: &Path) -> PathBuf {
 
 /// `path` relative to `root`, `/`-separated, as Node's `path.relative`.
 fn relative(path: &Path, root: &Path) -> String {
-    match path.strip_prefix(root) {
-        Ok(rest) => relative_path(&root.join(rest), root),
-        Err(_) => {
-            let (path, root): (Vec<_>, Vec<_>) =
-                (path.components().collect(), root.components().collect());
-            let shared = path.iter().zip(&root).take_while(|(a, b)| a == b).count();
-            let mut parts: Vec<String> = vec!["..".to_owned(); root.len() - shared];
-            parts.extend(
-                path[shared..]
-                    .iter()
-                    .map(|c| c.as_os_str().to_string_lossy().into_owned()),
-            );
-            parts.join("/")
-        }
+    if let Ok(rest) = path.strip_prefix(root) {
+        relative_path(&root.join(rest), root)
+    } else {
+        let (path, root): (Vec<_>, Vec<_>) =
+            (path.components().collect(), root.components().collect());
+        let shared = path.iter().zip(&root).take_while(|(a, b)| a == b).count();
+        let mut parts: Vec<String> = vec!["..".to_owned(); root.len() - shared];
+        parts.extend(
+            path[shared..]
+                .iter()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned()),
+        );
+        parts.join("/")
     }
 }
 

@@ -19,13 +19,13 @@ const PREPARED: &str = ".git/nomi-prepared";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Apps {
+pub(crate) struct Apps {
     pub app: Vec<App>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
-pub struct App {
+pub(crate) struct App {
     pub name: String,
     pub git: String,
     pub commit: String,
@@ -39,7 +39,7 @@ pub struct App {
 /// Code generation with sbt that must run before the app compiles.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
-pub struct Prepare {
+pub(crate) struct Prepare {
     pub sbt_task: String,
     pub input: String,
     pub input_sha256: String,
@@ -52,22 +52,22 @@ pub struct Prepare {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Pinned {
+pub(crate) struct Pinned {
     pub url: String,
     pub sha256: String,
 }
 
-pub fn load(root: &Path) -> Result<Apps> {
+pub(crate) fn load(root: &Path) -> Result<Apps> {
     let text =
         std::fs::read_to_string(root.join(FILE)).with_context(|| format!("reading {FILE}"))?;
     toml::from_str(&text).with_context(|| format!("parsing {FILE}"))
 }
 
-pub fn app_dir(corpus: &Path, app: &App) -> PathBuf {
+pub(crate) fn app_dir(corpus: &Path, app: &App) -> PathBuf {
     corpus.join("apps").join(&app.name)
 }
 
-pub fn fetch(root: &Path) -> Result<()> {
+pub(crate) fn fetch(root: &Path) -> Result<()> {
     let corpus = corpus_dir()?;
     for app in load(root)?.app {
         fetch_one(&corpus, &app).with_context(|| format!("app {}", app.name))?;
@@ -214,7 +214,7 @@ mod tests {
             names[..4],
             ["exosphere", "liascript", "docspell", "elm-3d-scene"]
         );
-        // The apps plan 9.18 added, each once.
+        // The apps added for app-shaped code, each once.
         assert_eq!(names.len(), 38);
         let unique: std::collections::BTreeSet<&str> = names.iter().copied().collect();
         assert_eq!(unique.len(), names.len());

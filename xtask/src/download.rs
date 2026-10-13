@@ -11,13 +11,13 @@ use sha2::{Digest, Sha256};
 /// Largest download accepted; the biggest pinned asset is about 15 MB.
 const LIMIT: u64 = 256 * 1024 * 1024;
 
-pub fn get(url: &str) -> Result<Vec<u8>> {
+pub(crate) fn get(url: &str) -> Result<Vec<u8>> {
     eprintln!("    downloading {url}");
     get_quiet(url)
 }
 
 /// [`get`] without the progress line, for bulk downloads.
-pub fn get_quiet(url: &str) -> Result<Vec<u8>> {
+pub(crate) fn get_quiet(url: &str) -> Result<Vec<u8>> {
     let mut response = agent()
         .get(url)
         .call()
@@ -32,7 +32,7 @@ pub fn get_quiet(url: &str) -> Result<Vec<u8>> {
 
 /// The body of an empty `POST` to `url`, as the package website answers
 /// `/all-packages`.
-pub fn post_quiet(url: &str) -> Result<Vec<u8>> {
+pub(crate) fn post_quiet(url: &str) -> Result<Vec<u8>> {
     let mut response = agent()
         .post(url)
         .send_empty()
@@ -62,11 +62,11 @@ fn agent() -> &'static ureq::Agent {
     })
 }
 
-pub fn sha256(bytes: &[u8]) -> String {
+pub(crate) fn sha256(bytes: &[u8]) -> String {
     hex(&Sha256::digest(bytes))
 }
 
-pub fn sha1(bytes: &[u8]) -> String {
+pub(crate) fn sha1(bytes: &[u8]) -> String {
     hex(&Sha1::digest(bytes))
 }
 
@@ -75,14 +75,14 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 /// Fails unless `actual` is `expected`; `what` names the download.
-pub fn verify(what: &str, expected: &str, actual: &str) -> Result<()> {
+pub(crate) fn verify(what: &str, expected: &str, actual: &str) -> Result<()> {
     if !expected.eq_ignore_ascii_case(actual) {
         bail!("{what}: hash mismatch\n  pinned:     {expected}\n  downloaded: {actual}");
     }
     Ok(())
 }
 
-pub fn gunzip(bytes: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn gunzip(bytes: &[u8]) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     flate2::read::GzDecoder::new(bytes)
         .read_to_end(&mut out)
@@ -91,7 +91,7 @@ pub fn gunzip(bytes: &[u8]) -> Result<Vec<u8>> {
 }
 
 /// The contents of the one regular file named `name` in a gzipped tarball.
-pub fn untgz_file(bytes: &[u8], name: &str) -> Result<Vec<u8>> {
+pub(crate) fn untgz_file(bytes: &[u8], name: &str) -> Result<Vec<u8>> {
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(bytes));
     for entry in archive.entries().context("reading tarball")? {
         let mut entry = entry?;
@@ -107,7 +107,7 @@ pub fn untgz_file(bytes: &[u8], name: &str) -> Result<Vec<u8>> {
 
 /// Writes `bytes` next to `path` and renames it into place, so a failed run
 /// never leaves a half-written file behind.
-pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let dir = path.parent().context("path has no parent")?;
     fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     let tmp = path.with_extension("partial");

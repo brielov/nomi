@@ -2,7 +2,7 @@
 //! in every supported release). nomi must pick what upstream picks, not
 //! just some solution, so this is upstream's search: packages in name
 //! order, each one's versions newest first, depth first, keeping the first
-//! solution found. PubGrub, which would pick differently, only explains
+//! solution found. `PubGrub`, which would pick differently, only explains
 //! why there is none ([`explain`]).
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -161,13 +161,13 @@ pub fn update_app<P: Packages>(
     for held in [&all_deps, &all_directs] {
         let mut constraints = BTreeMap::new();
         for (name, &version) in &all_deps {
-            let constraint = if !free.contains(name) {
-                held.contains_key(name)
-                    .then(|| Constraint::exactly(version))
-            } else {
+            let constraint = if free.contains(name) {
                 all_directs
                     .contains_key(name)
                     .then(|| Constraint::until_next_major(version, compat))
+            } else {
+                held.contains_key(name)
+                    .then(|| Constraint::exactly(version))
             };
             if let Some(constraint) = constraint {
                 constraints.insert(name.clone(), constraint);

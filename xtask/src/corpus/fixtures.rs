@@ -1,5 +1,5 @@
 //! `cargo xtask corpus fixtures`: the elm/* packages tier 1 compiles
-//! against (plan 5.3), copied from the corpus, whose zipballs were
+//! against, copied from the corpus, whose zipballs were
 //! checked against the registry's hashes when fetched. Each copy keeps
 //! `elm.json`, `LICENSE` and `src/`; `manifest.toml` names its release,
 //! the registry's hash and a digest of the files, which the compiler's
@@ -13,7 +13,7 @@ use anyhow::{Context, Result, ensure};
 
 use super::{corpus_dir, files_below, packages, tree_digest};
 
-pub const DIR: &str = "crates/compiler/tests/packages";
+pub(crate) const DIR: &str = "crates/compiler/tests/packages";
 
 /// The packages the corpus apps build with that tier 1 needs, and the
 /// test framework the language server finds tests with.
@@ -32,7 +32,7 @@ const PACKAGES: [&str; 12] = [
     "elm-explorations/test",
 ];
 
-pub fn run(root: &Path) -> Result<()> {
+pub(crate) fn run(root: &Path) -> Result<()> {
     let corpus = corpus_dir()?;
     let pins = packages::load(root)?;
     let dir = root.join(DIR);

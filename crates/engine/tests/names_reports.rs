@@ -1,6 +1,6 @@
 //! The second naming ratchet: each naming project as each release,
 //! passing when nomi's `--report=json` and terminal report are elm's,
-//! whole (plan 5.4; climbs in 5.14).
+//! whole.
 #![cfg(unix)]
 
 #[path = "support/projects.rs"]

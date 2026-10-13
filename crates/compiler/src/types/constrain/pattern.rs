@@ -46,7 +46,7 @@ pub fn add(
     state: &mut State,
 ) {
     stacker::maybe_grow(64 * 1024, 1024 * 1024, || {
-        add_(vars, pattern, expectation, state)
+        add_(vars, pattern, expectation, state);
     });
 }
 
@@ -185,7 +185,10 @@ fn add_(vars: &mut Variables, pattern: &Pattern, expectation: PExpected<Type>, s
 
 /// `addCtor`: the union's variables made flexible, each argument against
 /// the type the constructor gives it, then the union itself.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "upstream's `addCtor` takes these"
+)]
 fn add_ctor(
     vars: &mut Variables,
     region: TextRange,

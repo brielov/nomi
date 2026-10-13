@@ -1,7 +1,7 @@
 //! The formatter tree, mirroring elm-format's AST: `AST/V0_16.hs`,
 //! `AST/Module.hs`, `AST/Listing.hs` and `ElmFormat/AST/Shared.hs`.
 //!
-//! Lowering (plan 2.4 to 2.7) builds it from the syntax tree, and
+//! Lowering builds it from the syntax tree, and
 //! rendering reads it, so the two meet in upstream's terms. It keeps what
 //! the output depends on: the comments each slot holds, the multiline
 //! flags the source's line breaks set, and literals as values. It keeps no
@@ -182,7 +182,7 @@ pub(crate) enum StringRepr {
     TripleQuoted,
 }
 
-/// A literal's value, decoded; rendering spells it anew (plan 2.12).
+/// A literal's value, decoded; rendering spells it anew.
 ///
 /// Characters are code points as elm-format holds them, which a Rust
 /// `char` can't: escapes give lone surrogates, and `\x` larger values.

@@ -1,23 +1,23 @@
 //! `cargo xtask oracle`: the pinned upstream tools that parity is measured
 //! against, installed under the development cache and never on `PATH`.
 
-pub mod corpus_runs;
-pub mod diff;
-pub mod format;
-pub mod javascript;
-pub mod lsp;
-pub mod lsp_import;
-pub mod lsp_tables;
-pub mod make;
-pub mod modules;
-pub mod names;
-pub mod optimized;
-pub mod outline;
-pub mod sandbox;
-pub mod solver;
-pub mod syntax;
-pub mod transcripts;
-pub mod types;
+pub(crate) mod corpus_runs;
+pub(crate) mod diff;
+pub(crate) mod format;
+pub(crate) mod javascript;
+pub(crate) mod lsp;
+pub(crate) mod lsp_import;
+pub(crate) mod lsp_tables;
+pub(crate) mod make;
+pub(crate) mod modules;
+pub(crate) mod names;
+pub(crate) mod optimized;
+pub(crate) mod outline;
+pub(crate) mod sandbox;
+pub(crate) mod solver;
+pub(crate) mod syntax;
+pub(crate) mod transcripts;
+pub(crate) mod types;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -29,7 +29,7 @@ use crate::download;
 use crate::references::{Binary, Format, References, platform};
 
 /// `$NOMI_DEV_CACHE`, or `~/.cache/nomi-dev`.
-pub fn cache_dir() -> Result<PathBuf> {
+pub(crate) fn cache_dir() -> Result<PathBuf> {
     if let Some(dir) = std::env::var_os("NOMI_DEV_CACHE") {
         return Ok(PathBuf::from(dir));
     }
@@ -39,19 +39,19 @@ pub fn cache_dir() -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(".cache").join("nomi-dev"))
 }
 
-pub fn oracles_dir() -> Result<PathBuf> {
+pub(crate) fn oracles_dir() -> Result<PathBuf> {
     Ok(cache_dir()?.join("oracles"))
 }
 
 /// Where a binary oracle is installed, e.g. `oracles/elm-0.19.3/elm`.
-pub fn binary_path(binary: &Binary) -> Result<PathBuf> {
+pub(crate) fn binary_path(binary: &Binary) -> Result<PathBuf> {
     let exe = format!("{}{}", binary.name, std::env::consts::EXE_SUFFIX);
     Ok(oracles_dir()?
         .join(format!("{}-{}", binary.name, binary.version))
         .join(exe))
 }
 
-pub fn fetch(root: &Path, refs: &References) -> Result<()> {
+pub(crate) fn fetch(root: &Path, refs: &References) -> Result<()> {
     let platform = platform();
     for binary in &refs.binary {
         fetch_binary(binary, &platform)
@@ -149,7 +149,7 @@ fn npm() -> &'static str {
 }
 
 /// Each npm pin must be the version the lockfile installs.
-pub fn check_lock_versions(lock: &str, refs: &References) -> Result<()> {
+pub(crate) fn check_lock_versions(lock: &str, refs: &References) -> Result<()> {
     #[derive(serde::Deserialize)]
     struct Lock {
         packages: std::collections::BTreeMap<String, Entry>,
@@ -194,7 +194,7 @@ fn fetch_elm_package(package: &crate::references::ElmPackage) -> Result<()> {
 }
 
 /// Node's major version, which must be at least `minimum`.
-pub fn node_version(minimum: u32) -> Result<String> {
+pub(crate) fn node_version(minimum: u32) -> Result<String> {
     let out = Command::new("node")
         .arg("--version")
         .output()
@@ -212,7 +212,7 @@ pub fn node_version(minimum: u32) -> Result<String> {
     Ok(version)
 }
 
-pub fn versions(refs: &References) -> Result<()> {
+pub(crate) fn versions(refs: &References) {
     println!("platform  {}", platform());
     match node_version(refs.node_minimum) {
         Ok(v) => println!("node      {v} (minimum v{})", refs.node_minimum),
@@ -225,15 +225,13 @@ pub fn versions(refs: &References) -> Result<()> {
     }
     println!("binaries");
     for b in &refs.binary {
-        let installed = binary_path(b)
-            .map(|p| {
-                if p.exists() {
-                    "installed"
-                } else {
-                    "not fetched"
-                }
-            })
-            .unwrap_or("not fetched");
+        let installed = binary_path(b).map_or("not fetched", |p| {
+            if p.exists() {
+                "installed"
+            } else {
+                "not fetched"
+            }
+        });
         println!(
             "  {:<34} {:<10} {}  {installed}",
             b.name, b.version, b.commit
@@ -253,7 +251,6 @@ pub fn versions(refs: &References) -> Result<()> {
             p.name, p.version, p.commit, p.endpoint_hash
         );
     }
-    Ok(())
 }
 
 #[cfg(test)]

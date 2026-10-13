@@ -7,15 +7,15 @@ use nomi_base::Compat;
 use nomi_syntax::{Source, Tool};
 use nomi_testkit::mutation::{self, Mutation};
 
-pub const RERUN: &str = "rerun `cargo xtask oracle syntax mutations`";
+pub(crate) const RERUN: &str = "rerun `cargo xtask oracle syntax mutations`";
 
 /// `tests/syntax_mutations`.
-pub fn dir() -> PathBuf {
+pub(crate) fn dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/syntax_mutations")
 }
 
 /// A seed's mutations, each with what every tool in its table did.
-pub struct Seed {
+pub(crate) struct Seed {
     pub name: String,
     /// The table's columns, by header and tool.
     pub columns: Vec<(String, Tool)>,
@@ -25,7 +25,7 @@ pub struct Seed {
 
 /// The lines of `seeds.txt`, run a thread each: the suite has tens of
 /// thousands of cases.
-pub fn each_seed<T: Send>(run: impl Fn(Seed) -> Vec<T> + Sync) -> Vec<T> {
+pub(crate) fn each_seed<T: Send>(run: impl Fn(Seed) -> Vec<T> + Sync) -> Vec<T> {
     let dir = dir();
     let seeds = std::fs::read_to_string(dir.join("seeds.txt")).expect("reading seeds.txt");
     let lines: Vec<&str> = seeds

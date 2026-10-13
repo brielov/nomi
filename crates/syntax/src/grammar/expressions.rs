@@ -34,7 +34,7 @@ pub(super) fn expressions(p: &mut Parser<'_>) {
         p.anchor();
         // elm-format reads a `-` starting a later line as a subtraction
         // from the expression before, which only the loose layout takes.
-        if at_expr(p) && !(p.at(K::Minus) && !first) {
+        if at_expr(p) && (first || !p.at(K::Minus)) {
             first = false;
             expr(p);
             skip_junk(p, SyntaxErrorKind::Unexpected, &[]);
@@ -470,12 +470,13 @@ fn record(p: &mut Parser<'_>) -> K {
         p.bump();
         return K::RecordExpr;
     }
-    let mut kind = K::RecordExpr;
-    if p.at(K::LowerIdent) && p.nth_at_symbol(1, K::Pipe) {
+    let kind = if p.at(K::LowerIdent) && p.nth_at_symbol(1, K::Pipe) {
         p.bump();
         expect_indented(p, K::Pipe);
-        kind = K::RecordUpdateExpr;
-    }
+        K::RecordUpdateExpr
+    } else {
+        K::RecordExpr
+    };
     field(p);
     loop {
         if p.at(K::RBrace) {

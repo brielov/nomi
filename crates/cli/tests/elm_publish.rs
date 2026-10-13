@@ -1,4 +1,4 @@
-//! nomi invoked as `elm`, against each elm's transcripts of `elm publish` failing (plan 8.14c), which `cargo xtask oracle publish`
+//! nomi invoked as `elm`, against each elm's transcripts of `elm publish` failing, which `cargo xtask oracle publish`
 //! recorded online. `support/registry.rs` runs them against a fixture
 //! registry served on the loopback interface.
 #![cfg(unix)]

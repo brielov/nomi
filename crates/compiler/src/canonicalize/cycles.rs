@@ -177,7 +177,7 @@ pub fn let_cycles(compat: Compat, region: TextRange, nodes: Vec<LetNode>, body: 
     let sccs = strongly_connected(graph, |a: &String, b: &String| order(a, b));
     let steps = all(sccs.into_iter().map(|scc| match scc {
         Scc::Acyclic((binding, _, _)) => Ok(Step::One(Box::new(binding))),
-        Scc::Cyclic(bindings) => check_cycle(compat, bindings).map(Step::Rec),
+        Scc::Cyclic(bindings) => check_cycle(compat, &bindings).map(Step::Rec),
     }))?;
     let wrap = |kind| Expr { region, kind };
     Ok(steps.into_iter().rev().fold(body, |body, step| match step {
@@ -203,7 +203,7 @@ enum Step {
 /// `checkCycle`: the first binding of the component that isn't a
 /// function is reported, with the others; or the functions, last first,
 /// as upstream gathers them.
-fn check_cycle(compat: Compat, bindings: Vec<(LetBinding, String, Vec<String>)>) -> R<Vec<Def>> {
+fn check_cycle(compat: Compat, bindings: &[(LetBinding, String, Vec<String>)]) -> R<Vec<Def>> {
     let mut defs: Vec<Def> = Vec::new();
     for (i, (binding, _, _)) in bindings.iter().enumerate() {
         let name = match binding {

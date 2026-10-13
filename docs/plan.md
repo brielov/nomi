@@ -46,7 +46,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **Q.1**; B.n waits for the reference machine.
+4. Resume at the first unchecked box. Right now that is **Q.2**; B.n waits for the reference machine.
 
 ### Test tiers
 
@@ -1027,7 +1027,9 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
 
 Every crate brought up to [architecture.md §13](architecture.md#13-code) before the Node platform builds on it: smaller, with no duplication, no stringly-typed values and pure decisions. Behavior doesn't change, and speed waits for a profiling pass after the milestones; this milestone only makes sure no hot path gets slower. Steps go bottom-up through the crate graph, so a crate's own API is settled before the crates above it adapt.
 
-- [ ] **Q.1** `quality: lints`. The clippy lints that check §13 mechanically, on for the workspace and their findings fixed; and an `xtask ci` check that no comment names a plan step.
+- [x] **Q.1** `quality: lints`. The clippy lints that check §13 mechanically, on for the workspace and their findings fixed; and an `xtask ci` check that no comment names a plan step.
+
+  Done: 37 lints on in `[workspace.lints]`, grouped by the §13 rule each checks: `unreachable_pub` and `unused_qualifications` from rustc, and from clippy the ones for bool-heavy structs and parameters, `Option<Option<_>>`, wildcards matching one variant, parameters taken by value or `&mut` but not used so, `self` unused, `Result`s that never fail, needless clones and collects, and plain-code rules such as `let … else` and `if let` for one-arm matches; an `allow` or `expect` must give its reason. About 800 findings: `clippy --fix` took most, the rest by hand, among them the three §13 shapes the lints found (elm-test's `oldest` and `offline` flags as the engine's `Solve`, the language server's two extended capabilities as one struct, and the optimized-graph decoder's `Option<Option<T>>` as `Option<Maybe<T>>`). `xtask ci` fails on a comment naming a plan step or milestone; 119 did, now rewritten to say what the code does. Surprises: three lints that read as §13 cost more than they give and stay off (closures to method paths names paths such as `std::sync::PoisonError::into_inner` and `rowan::api::SyntaxToken::text` the crates can't reach; `missing_docs` wants about 2,000 comments on fields and variants whose names say enough, so N3 now asks for them only where they don't; and `_` arms over the hundreds of `SyntaxKind`s are the right call, so T5 now says so); and `allow_attributes` would have forced `expect` on test support modules that several test binaries share, each using part of them.
 - [ ] **Q.2** `quality: base and testkit`. The two crates every other one builds on, so the helpers the survey found copied across crates land here first and later steps adopt them:
   - base: `doc::words`, `labelled`, `hint` and the color helpers public; name order (`compareFast`, written 9 times) as `Compat::compare_names`, the region shift and column wrap as `Compat` methods; the stack guard (`stacker::maybe_grow` with constants written about 30 times) as `nomi_base::grow`; one `hex`, one UTF-8 width table, one keyword list and operator set; a `lock` that recovers a poisoned mutex; `suggest` gains the ranking its four callers re-implement.
   - base's own: FxHash from `rustc-hash` rather than hand-written (rule 9), `Next::Keyword` an enum, the diagnostic model's fate left to Q.10 (ide keeps a second model; one of them goes).

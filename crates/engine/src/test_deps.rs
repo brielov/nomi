@@ -1,4 +1,4 @@
-//! The dependencies of elm-test's generated project (plan 10.3), as it
+//! The dependencies of elm-test's generated project, as it
 //! solves them
 //! (`Solve.getDependencies`): the project's direct and test-direct
 //! dependencies, held exactly in an application, and what the runner
@@ -113,7 +113,7 @@ fn solve(
             .map(|(name, details)| (name, details.version))
             .partition(|(name, _)| constraints.contains_key(name))
     };
-    let mut local = Local::new(&store).map_err(io_problem)?;
+    let mut local = Local::new(&store).map_err(|e| io_problem(&e))?;
     if let Ok(Some(solution)) = solver::verify_in(&mut local, COMPAT, &constraints, how.oldest) {
         return Ok(split(solution));
     }
@@ -142,7 +142,7 @@ fn no_solution(message: &str) -> Report {
     Report::new("NO SOLUTION FOR THE TESTS", None, message, [])
 }
 
-fn io_problem(e: io::Error) -> Report {
+fn io_problem(e: &io::Error) -> Report {
     Report::new(
         "PROBLEM READING PACKAGES",
         None,

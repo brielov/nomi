@@ -1,4 +1,4 @@
-//! `nomi build` (plan 8.13b): each case under `nomi_build/cases/` must
+//! `nomi build`: each case under `nomi_build/cases/` must
 //! reproduce the transcript of the same name under `expected/`. nomi's
 //! own messages have no oracle, so the transcripts are snapshots, read
 //! when written: `NOMI_BLESS=1` writes them anew.

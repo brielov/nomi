@@ -1,4 +1,4 @@
-//! The language server's part of the scoreboard (plan 9.22): nomi's
+//! The language server's part of the scoreboard: nomi's
 //! server against the pinned elm-language-server, each a child process
 //! spoken to over its standard streams as an editor would, on corpus apps
 //! of three sizes.
@@ -39,7 +39,7 @@ const BROKEN: &str = "\n\nnomiBenchBroken : Int\nnomiBenchBroken =\n    1 + \"on
 /// How long an answer may take before the run counts as hung.
 const LIMIT: Duration = Duration::from_secs(300);
 
-pub fn table(root: &Path, refs: &References, setup: &Setup) -> Result<Table> {
+pub(crate) fn table(root: &Path, refs: &References, setup: &Setup) -> Result<Table> {
     ensure!(
         cfg!(target_os = "linux"),
         "the language server's part reads /proc, so runs on Linux"
@@ -439,7 +439,7 @@ impl Client {
 
     /// Waits until diagnostics for `uri` are published with errors, or
     /// with none where `errors` is false.
-    fn diagnostics(&mut self, uri: &Url, errors: bool) -> Result<()> {
+    fn diagnostics(&self, uri: &Url, errors: bool) -> Result<()> {
         let deadline = Instant::now() + LIMIT;
         loop {
             if let Message::Notification(n) = self.receive(deadline)?
@@ -456,7 +456,7 @@ impl Client {
     }
 
     /// Until the server has said nothing for a while.
-    fn settle(&mut self) -> Result<()> {
+    fn settle(&self) -> Result<()> {
         let deadline = Instant::now() + LIMIT;
         loop {
             match self.receive(Instant::now() + Duration::from_millis(1500)) {
@@ -468,7 +468,7 @@ impl Client {
     }
 
     /// The next message from the server, answering its requests.
-    fn receive(&mut self, deadline: Instant) -> Result<Message> {
+    fn receive(&self, deadline: Instant) -> Result<Message> {
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
             let message = match self.connection.receiver.recv_timeout(left) {

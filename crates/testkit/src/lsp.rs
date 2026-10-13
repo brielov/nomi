@@ -1,4 +1,4 @@
-//! Language-server sessions (plan 9.1): one driver plays the client for
+//! Language-server sessions: one driver plays the client for
 //! both elm-language-server, recorded as the oracle, and `nomi lsp`,
 //! replayed against it, so both see the same session.
 //!
@@ -811,15 +811,12 @@ fn percent_decoded(uri: &str) -> String {
             .then(|| uri.get(i + 1..i + 3))
             .flatten()
             .and_then(|hex| u8::from_str_radix(hex, 16).ok());
-        match escaped {
-            Some(byte) => {
-                out.push(byte);
-                i += 3;
-            }
-            None => {
-                out.push(bytes[i]);
-                i += 1;
-            }
+        if let Some(byte) = escaped {
+            out.push(byte);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
         }
     }
     String::from_utf8_lossy(&out).into_owned()
@@ -895,9 +892,8 @@ pub fn normalize(value: Value, replacements: &[(String, String)]) -> Value {
         Value::Object(map) => Value::Object(
             map.into_iter()
                 .map(|(k, v)| {
-                    let k = match normalize(Value::String(k), replacements) {
-                        Value::String(k) => k,
-                        _ => unreachable!(),
+                    let Value::String(k) = normalize(Value::String(k), replacements) else {
+                        unreachable!()
                     };
                     (k, normalize(v, replacements))
                 })

@@ -37,7 +37,7 @@ const TIMEOUT: Duration = Duration::from_secs(60);
 
 /// What a tool made of one module's syntax.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Outcome {
+pub(crate) enum Outcome {
     Accepted,
     /// The title and region elm reports, or where elm-format stopped.
     Rejected(String),
@@ -49,7 +49,7 @@ pub enum Outcome {
 
 /// One elm release, ready to check modules of every kind.
 #[derive(Debug)]
-pub struct Sandbox {
+pub(crate) struct Sandbox {
     elm: PathBuf,
     home: PathBuf,
     dir: PathBuf,
@@ -58,7 +58,7 @@ pub struct Sandbox {
 impl Sandbox {
     /// Creates a fresh sandbox in `dir` for the `elm` binary of `compat`,
     /// and builds each project once so later runs only parse.
-    pub fn create(dir: &Path, elm: &Path, compat: Version, root: &Path) -> Result<Sandbox> {
+    pub(crate) fn create(dir: &Path, elm: &Path, compat: Version, root: &Path) -> Result<Sandbox> {
         if dir.exists() {
             fs::remove_dir_all(dir).with_context(|| format!("removing {}", dir.display()))?;
         }
@@ -125,7 +125,7 @@ impl Sandbox {
     /// after parsing, such as unknown imports, count as accepted.
     ///
     /// When elm rejects it, also the report elm wrote, as it wrote it.
-    pub fn check(&self, source: Source, text: &[u8]) -> Result<(Outcome, Option<Vec<u8>>)> {
+    pub(crate) fn check(&self, source: Source, text: &[u8]) -> Result<(Outcome, Option<Vec<u8>>)> {
         let project = self.project(source);
         fs::write(project.join(MODULE), text)?;
         let mut attempt = 1;
@@ -243,7 +243,7 @@ fn parse_report(json: &[u8]) -> Result<Outcome> {
 }
 
 /// Whether elm-format reads `text`, and where it stopped if not.
-pub fn elm_format(binary: &Path, text: &[u8]) -> Result<Outcome> {
+pub(crate) fn elm_format(binary: &Path, text: &[u8]) -> Result<Outcome> {
     let mut child = Command::new(binary)
         .args(["--stdin", "--elm-version=0.19"])
         .stdin(Stdio::piped())
@@ -268,7 +268,7 @@ pub fn elm_format(binary: &Path, text: &[u8]) -> Result<Outcome> {
 
 /// Fills `home` as an offline `ELM_HOME` for `compat`: a registry listing
 /// exactly `pinned`, and their sources in the package cache.
-pub fn elm_home(home: &Path, compat: Version, pinned: &[packages::Package]) -> Result<()> {
+pub(crate) fn elm_home(home: &Path, compat: Version, pinned: &[packages::Package]) -> Result<()> {
     let packages_dir = home.join(compat.to_string()).join("packages");
     fs::create_dir_all(&packages_dir)?;
     fs::write(packages_dir.join("registry.dat"), registry(compat, pinned))?;
@@ -291,7 +291,7 @@ pub fn elm_home(home: &Path, compat: Version, pinned: &[packages::Package]) -> R
 
 /// Points elm's proxy nowhere, so it never reaches the network and falls
 /// back to the registry it has.
-pub fn offline(command: &mut Command) -> &mut Command {
+pub(crate) fn offline(command: &mut Command) -> &mut Command {
     command
         .env("HTTPS_PROXY", "http://127.0.0.1:9")
         .env("HTTP_PROXY", "http://127.0.0.1:9")
@@ -332,7 +332,7 @@ fn registry(compat: Version, pinned: &[packages::Package]) -> Vec<u8> {
 /// (big-endian `Int64` counts); 0.19.3 switched to its own encoding
 /// (little-endian, `Int64` count and `Word32` lengths). Both read the
 /// packages in ascending order of author, then project.
-pub fn registry_of(compat: Version, releases: &[(&str, Version)]) -> Vec<u8> {
+pub(crate) fn registry_of(compat: Version, releases: &[(&str, Version)]) -> Vec<u8> {
     let legacy = compat < Version::parse("0.19.3").expect("a version");
     let mut packages: std::collections::BTreeMap<(&str, &str), Vec<Version>> =
         std::collections::BTreeMap::new();

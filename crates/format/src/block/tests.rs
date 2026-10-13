@@ -29,13 +29,16 @@ fn stacks_and_indents() {
     assert_eq!(ab().indent().render(), "    a\n    b\n");
     assert_eq!(ab().indent().indent().render(), "        a\n        b\n");
     // A tab advances to the next multiple of four.
-    assert_eq!(word("a").indent().prefix(Line::space()).render(), "    a\n");
     assert_eq!(
-        ab().indent().prefix(Line::text("[ ")).render(),
+        word("a").indent().prefix(&Line::space()).render(),
+        "    a\n"
+    );
+    assert_eq!(
+        ab().indent().prefix(&Line::text("[ ")).render(),
         "[   a\n    b\n"
     );
     assert_eq!(
-        word("a").indent().prefix(Line::text("12345")).render(),
+        word("a").indent().prefix(&Line::text("12345")).render(),
         "12345   a\n"
     );
 }
@@ -44,12 +47,12 @@ fn stacks_and_indents() {
 fn prefixes_pad_the_lines_after_the_first() {
     let block = Block::stack1([word("abcde"), word("xyz")]);
     assert_eq!(
-        block.prefix(Line::text("myPrefix ")).render(),
+        block.prefix(&Line::text("myPrefix ")).render(),
         "myPrefix abcde\n         xyz\n"
     );
     // Padding counts characters, not bytes.
     let block = Block::stack1([word("a"), word("b")]);
-    assert_eq!(block.prefix(Line::text("→ ")).render(), "→ a\n  b\n");
+    assert_eq!(block.prefix(&Line::text("→ ")).render(), "→ a\n  b\n");
 }
 
 #[test]

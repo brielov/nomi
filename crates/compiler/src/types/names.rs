@@ -103,7 +103,7 @@ fn var_names(vars: &mut Variables, var: Variable, taken: &mut BTreeMap<String, V
     match descriptor.content {
         Content::Error | Content::FlexVar(None) | Content::FlexSuper(_, None) => {}
         Content::FlexVar(Some(name)) => {
-            add_name(vars, 0, &name, var, |n| Content::FlexVar(Some(n)), taken)
+            add_name(vars, 0, &name, var, |n| Content::FlexVar(Some(n)), taken);
         }
         Content::FlexSuper(s, Some(name)) => {
             add_name(
@@ -117,7 +117,7 @@ fn var_names(vars: &mut Variables, var: Variable, taken: &mut BTreeMap<String, V
         }
         Content::RigidVar(name) => add_name(vars, 0, &name, var, Content::RigidVar, taken),
         Content::RigidSuper(s, name) => {
-            add_name(vars, 0, &name, var, |n| Content::RigidSuper(s, n), taken)
+            add_name(vars, 0, &name, var, |n| Content::RigidSuper(s, n), taken);
         }
         Content::Alias(_, _, args, _) => {
             for (_, arg) in args.iter().rev() {
@@ -181,7 +181,7 @@ fn add_name(
     }
 }
 
-pub fn to_annotation(vars: &mut Variables, var: Variable) -> canonical::Annotation {
+pub(super) fn to_annotation(vars: &mut Variables, var: Variable) -> canonical::Annotation {
     let mut taken = BTreeMap::new();
     var_names(vars, var, &mut taken);
     let mut state = NameState::new(&taken);
@@ -247,21 +247,18 @@ fn flat_to_can_type(
         }
         FlatType::EmptyRecord1 => T::Record(BTreeMap::new(), None),
         FlatType::Record1(fields, extension) => {
-            let ordered: Vec<(String, Variable)> = (in_name_order(vars.compat, &fields)
+            let mut fields: BTreeMap<String, FieldType> = (in_name_order(vars.compat, &fields)
                 .into_iter())
-            .map(|(n, v)| (n.to_string(), *v))
+            .map(|(n, &v)| {
+                (
+                    n.to_string(),
+                    FieldType {
+                        order: 0,
+                        ty: to_can_type(vars, v, state),
+                    },
+                )
+            })
             .collect();
-            let mut fields: BTreeMap<String, FieldType> = (ordered.into_iter())
-                .map(|(n, v)| {
-                    (
-                        n,
-                        FieldType {
-                            order: 0,
-                            ty: to_can_type(vars, v, state),
-                        },
-                    )
-                })
-                .collect();
             match iterated_dealias(to_can_type(vars, extension, state)) {
                 // `Map.union subFields canFields`: the extension's fields
                 // win.
@@ -293,7 +290,7 @@ fn iterated_dealias(ty: canonical::Type) -> canonical::Type {
     }
 }
 
-pub fn to_error_type(vars: &mut Variables, var: Variable) -> error::Type {
+pub(super) fn to_error_type(vars: &mut Variables, var: Variable) -> error::Type {
     let mut taken = BTreeMap::new();
     var_names(vars, var, &mut taken);
     let mut state = NameState::new(&taken);
@@ -369,13 +366,10 @@ fn flat_to_err(vars: &mut Variables, flat: FlatType, state: &mut NameState) -> e
         }
         FlatType::EmptyRecord1 => E::Record(BTreeMap::new(), Extension::Closed),
         FlatType::Record1(fields, extension) => {
-            let ordered: Vec<(String, Variable)> = (in_name_order(vars.compat, &fields)
+            let mut fields: BTreeMap<String, error::Type> = (in_name_order(vars.compat, &fields)
                 .into_iter())
-            .map(|(n, v)| (n.to_string(), *v))
+            .map(|(n, &v)| (n.to_string(), to_err(vars, v, state)))
             .collect();
-            let mut fields: BTreeMap<String, error::Type> = (ordered.into_iter())
-                .map(|(n, v)| (n, to_err(vars, v, state)))
-                .collect();
             match error::iterated_dealias(to_err(vars, extension, state)) {
                 E::Record(sub_fields, sub_ext) => {
                     fields.extend(sub_fields);

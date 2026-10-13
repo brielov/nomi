@@ -1,6 +1,6 @@
 //! `cargo xtask corpus names`: whether every corpus app and package each
-//! Compat accepts (1.15a) canonicalizes cleanly, as `nomi check` runs it
-//! (plan 5.13). Each project's dependencies are checked out and
+//! Compat accepts canonicalizes cleanly, as `nomi check` runs it.
+//! Each project's dependencies are checked out and
 //! downloaded as `corpus deps` does, through nomi's registry code against
 //! the live registry, into the development cache; so this runs by hand,
 //! never in CI.
@@ -33,7 +33,7 @@ pub(super) struct Project {
     pub paths: Vec<PathBuf>,
 }
 
-pub fn check(root: &Path, only: Option<&str>) -> Result<()> {
+pub(crate) fn check(root: &Path, only: Option<&str>) -> Result<()> {
     let classification = compat::load(root)?;
     let mut failures: Vec<(String, String)> = Vec::new();
     let mut unavailable: Vec<String> = Vec::new();

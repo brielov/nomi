@@ -664,19 +664,6 @@ fn a_module_constrains_its_values_in_dependency_order() {
 /// The annotations inference gives `text`'s values, or its errors.
 fn infer(text: &str) -> Result<BTreeMap<String, String>, Vec<crate::types::solve::TypeError>> {
     use crate::types::{Variables, constrain::module::constrain, solve::run};
-    let interfaces = interfaces();
-    let parse = parse_module(text);
-    let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
-    let canonical = super::module::canonicalize(
-        nomi_base::Compat::V0_19_1,
-        "author/project",
-        &interfaces,
-        &module,
-    )
-    .unwrap();
-    let mut vars = Variables::default();
-    let constraint = constrain(&mut vars, &canonical);
-    let annotations = run(&mut vars, &constraint)?;
     fn show(t: &Type) -> String {
         match t {
             Type::Var(v) => v.clone(),
@@ -692,6 +679,19 @@ fn infer(text: &str) -> Result<BTreeMap<String, String>, Vec<crate::types::solve
             other => format!("{other:?}"),
         }
     }
+    let interfaces = interfaces();
+    let parse = parse_module(text);
+    let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
+    let canonical = super::module::canonicalize(
+        nomi_base::Compat::V0_19_1,
+        "author/project",
+        &interfaces,
+        &module,
+    )
+    .unwrap();
+    let mut vars = Variables::default();
+    let constraint = constrain(&mut vars, &canonical);
+    let annotations = run(&mut vars, &constraint)?;
     Ok(annotations
         .into_iter()
         .map(|(n, a)| (n, show(&a.ty)))

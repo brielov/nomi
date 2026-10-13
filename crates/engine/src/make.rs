@@ -280,7 +280,7 @@ fn build(
         if let Err(e) = vfs.create(&path, docs.as_bytes()) {
             let report = one_line(
                 "PROBLEM WRITING DOCS",
-                format!("I could not write {}: {e}", path.display()),
+                &format!("I could not write {}: {e}", path.display()),
             );
             return fail(console, report);
         }
@@ -328,7 +328,7 @@ fn build(
             if let Err(e) = written {
                 let report = one_line(
                     "PROBLEM WRITING OUTPUT",
-                    format!("I could not write {}: {e}", path.display()),
+                    &format!("I could not write {}: {e}", path.display()),
                 );
                 return fail(console, report);
             }

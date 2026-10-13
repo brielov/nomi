@@ -371,11 +371,7 @@ mod tests {
 
     #[test]
     fn windows_verbatim_prefixes_go_where_the_path_means_the_same() {
-        let plain = |p: &str| {
-            super::plain(PathBuf::from(p))
-                .to_string_lossy()
-                .into_owned()
-        };
+        let plain = |p: &str| plain(PathBuf::from(p)).to_string_lossy().into_owned();
         assert_eq!(plain(r"\\?\C:\work\src\Main.elm"), r"C:\work\src\Main.elm");
         assert_eq!(
             plain(r"\\?\UNC\server\share\Main.elm"),

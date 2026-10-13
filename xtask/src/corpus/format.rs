@@ -19,11 +19,11 @@ use super::syntax::{self as corpus_syntax, CRASH};
 use crate::download::sha256;
 
 /// The suite's directory: the oracle's table and `passing.txt`.
-pub const DIR: &str = "corpus/format";
+pub(crate) const DIR: &str = "corpus/format";
 
 /// What elm-format made of one module.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Outcome {
+pub(crate) enum Outcome {
     /// The module, unchanged.
     Same,
     /// Different text, with this hash.
@@ -31,7 +31,7 @@ pub enum Outcome {
     /// Rejected, where it stopped parsing.
     Rejected(String),
     /// Crashed. nomi may format the module as it sees fit, a deviation
-    /// `DECISIONS.md` records (plan 2.15).
+    /// `DECISIONS.md` records.
     Crashed,
 }
 
@@ -176,7 +176,7 @@ fn parse_deviations(text: &str) -> Result<BTreeMap<(String, String), String>> {
     Ok(deviations)
 }
 
-pub fn check(root: &Path, record: bool) -> Result<()> {
+pub(crate) fn check(root: &Path, record: bool) -> Result<()> {
     let dir = root.join(DIR);
     let deviations = parse_deviations(
         &std::fs::read_to_string(dir.join("deviations.tsv"))

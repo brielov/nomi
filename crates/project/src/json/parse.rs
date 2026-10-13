@@ -134,10 +134,10 @@ impl<'a> Parser<'a> {
     }
 
     fn error(&self, kind: ParseErrorKind) -> ParseError {
-        self.error_at(self.cur, kind)
+        Self::error_at(self.cur, kind)
     }
 
-    fn error_at(&self, cur: Cursor, kind: ParseErrorKind) -> ParseError {
+    fn error_at(cur: Cursor, kind: ParseErrorKind) -> ParseError {
         ParseError {
             kind,
             at: cur.position(),
@@ -187,7 +187,7 @@ impl<'a> Parser<'a> {
                     } else if self.keyword(b"null") {
                         Kind::Null
                     } else {
-                        return Err(self.error_at(start, ParseErrorKind::Start));
+                        return Err(Self::error_at(start, ParseErrorKind::Start));
                     }
                 }
             };
@@ -319,7 +319,7 @@ impl<'a> Parser<'a> {
                     let width = match self.compat {
                         Compat::V0_19_1 => match char_width(byte) {
                             Some(width) => width,
-                            None => return Err(self.error_at(cur, ParseErrorKind::Crash)),
+                            None => return Err(Self::error_at(cur, ParseErrorKind::Crash)),
                         },
                         Compat::V0_19_2 | Compat::V0_19_3 => match utf8_width(&self.src[pos..]) {
                             Some(width) => width,
@@ -343,10 +343,11 @@ impl<'a> Parser<'a> {
             .count();
         if self.src[self.pos] == b'0' {
             return match self.src.get(self.pos + 1) {
-                Some(b'0'..=b'9') => {
-                    Err(self.error_at(self.cur.slide(1), ParseErrorKind::NoLeadingZeros))
-                }
-                Some(b'.') => Err(self.error_at(self.cur.slide(1), ParseErrorKind::NoFloats)),
+                Some(b'0'..=b'9') => Err(Self::error_at(
+                    self.cur.slide(1),
+                    ParseErrorKind::NoLeadingZeros,
+                )),
+                Some(b'.') => Err(Self::error_at(self.cur.slide(1), ParseErrorKind::NoFloats)),
                 _ => {
                     self.advance(1);
                     Ok(Kind::Int(0))
@@ -359,7 +360,10 @@ impl<'a> Parser<'a> {
                 n.wrapping_mul(10).wrapping_add(i64::from(d - b'0'))
             });
         if let Some(b'.' | b'e' | b'E') = self.src.get(self.pos + digits) {
-            return Err(self.error_at(self.cur.slide(digits), ParseErrorKind::NoFloats));
+            return Err(Self::error_at(
+                self.cur.slide(digits),
+                ParseErrorKind::NoFloats,
+            ));
         }
         self.advance(digits);
         Ok(Kind::Int(n))

@@ -76,16 +76,17 @@ fn last_of(node: &SyntaxNode, kinds: &[SyntaxKind]) -> Option<SyntaxToken> {
 /// From `keyword` to the end of `node`, which ends with code.
 fn from_keyword(keyword: Option<SyntaxToken>, node: &SyntaxNode) -> TextRange {
     let end = node.text_range().end();
-    let start = keyword.map_or(node.text_range().start(), |k| k.text_range().start());
+    let start = keyword.map_or_else(|| node.text_range().start(), |k| k.text_range().start());
     TextRange::new(start, end)
 }
 
 /// A name, located from its qualifier when it has one, as upstream
 /// locates `TTypeQual` and `PCtorQual`.
 fn qualified_name(q: Option<&ast::Qualifier>, name: &SyntaxToken) -> Spanned {
-    let start = q.map_or(name.text_range().start(), |q| {
-        words(q.syntax()).range.start()
-    });
+    let start = q.map_or_else(
+        || name.text_range().start(),
+        |q| words(q.syntax()).range.start(),
+    );
     Spanned {
         text: name.text().to_owned(),
         range: TextRange::new(start, name.text_range().end()),
@@ -94,10 +95,6 @@ fn qualified_name(q: Option<&ast::Qualifier>, name: &SyntaxToken) -> Spanned {
 
 fn qualifier(q: Option<ast::Qualifier>) -> Option<String> {
     q.map(|q| words(q.syntax()).text.trim_end_matches('.').to_owned())
-}
-
-fn doc(token: Option<SyntaxToken>) -> Option<Spanned> {
-    token.as_ref().map(spanned)
 }
 
 impl Lower {
@@ -128,20 +125,21 @@ impl Lower {
                 let range = words(list.syntax()).range;
                 let open = (list.syntax().children_with_tokens())
                     .find(|e| e.kind() == SyntaxKind::LParen)
-                    .map_or(range.start(), |e| e.text_range().start());
+                    .map_or_else(|| range.start(), |e| e.text_range().start());
                 self.module.exports_range = TextRange::new(open, range.end());
                 let mut next = list.syntax().last_token().and_then(|t| t.next_token());
                 while let Some(token) = next.as_ref().filter(|t| t.kind().is_trivia()) {
                     next = token.next_token();
                 }
-                let end = next.map_or(module.syntax().text_range().end(), |t| {
-                    t.text_range().start()
-                });
+                let end = next.map_or_else(
+                    || module.syntax().text_range().end(),
+                    |t| t.text_range().start(),
+                );
                 let start = self.module.exports_range.end();
                 self.module.docs_gap = TextRange::new(start, end.max(start));
             }
         }
-        self.module.docs = doc(module.doc_comment_token());
+        self.module.docs = module.doc_comment_token().map(|t| spanned(&t));
         self.module.imports = module.imports().filter_map(|i| import(&i)).collect();
         for decl in module.decls() {
             self.decl(&decl);
@@ -157,10 +155,13 @@ impl Lower {
         let node = NodePtr::new(decl.syntax());
         match decl {
             ast::Decl::ValueDecl(value) => {
-                let docs = doc(value.doc_comment_token());
-                if let Some(def) =
-                    self.value(value.signature(), value.definition(), docs, decl.syntax())
-                {
+                let docs = value.doc_comment_token().map(|t| spanned(&t));
+                if let Some(def) = self.value(
+                    value.signature(),
+                    value.definition().as_ref(),
+                    docs,
+                    decl.syntax(),
+                ) {
                     self.module.values.push(def);
                 }
             }
@@ -184,7 +185,7 @@ impl Lower {
                     name: spanned(&name),
                     params,
                     body,
-                    docs: doc(alias.doc_comment_token()),
+                    docs: alias.doc_comment_token().map(|t| spanned(&t)),
                     node,
                     range: from_keyword(alias.type_token(), decl.syntax()),
                 });
@@ -210,7 +211,7 @@ impl Lower {
                     name: spanned(&name),
                     params,
                     variants,
-                    docs: doc(union.doc_comment_token()),
+                    docs: union.doc_comment_token().map(|t| spanned(&t)),
                     node,
                     range: from_keyword(union.type_token(), decl.syntax()),
                 });
@@ -223,7 +224,7 @@ impl Lower {
                 self.module.ports.push(Port {
                     name: spanned(&name),
                     ty,
-                    docs: doc(port.doc_comment_token()),
+                    docs: port.doc_comment_token().map(|t| spanned(&t)),
                     node,
                     range: from_keyword(port.port_token(), decl.syntax()),
                 });
@@ -265,12 +266,11 @@ impl Lower {
     fn value(
         &mut self,
         signature: Option<ast::Signature>,
-        definition: Option<ast::Definition>,
+        definition: Option<&ast::Definition>,
         docs: Option<Spanned>,
         node: &SyntaxNode,
     ) -> Option<DefId> {
         let name = definition
-            .as_ref()
             .and_then(|d| {
                 d.lower_ident_token()
                     .map(|t| spanned(&t))
@@ -288,7 +288,7 @@ impl Lower {
             .flat_map(|d| d.patterns())
             .map(|p| self.pattern(Some(p)))
             .collect();
-        let body = self.expr(definition.as_ref().and_then(|d| d.expr()));
+        let body = self.expr(definition.and_then(|d| d.expr()));
         let def = Def::Define {
             name,
             params,
@@ -432,9 +432,12 @@ impl Lower {
                 let defs = let_
                     .let_decls()
                     .filter_map(|decl| match decl {
-                        ast::LetDecl::LetValue(value) => {
-                            self.value(value.signature(), value.definition(), None, value.syntax())
-                        }
+                        ast::LetDecl::LetValue(value) => self.value(
+                            value.signature(),
+                            value.definition().as_ref(),
+                            None,
+                            value.syntax(),
+                        ),
                         ast::LetDecl::LetDestructure(d) => {
                             let pattern = self.pattern(d.pattern());
                             let body = self.expr(d.expr());
@@ -623,7 +626,7 @@ fn exposing(list: &ast::ExposingList) -> Exposing {
                     t.exposed_variants().map(|v| {
                         let dots = (v.syntax().children_with_tokens())
                             .find(|e| e.kind() == SyntaxKind::DotDot);
-                        dots.map_or(v.syntax().text_range(), |d| d.text_range())
+                        dots.map_or_else(|| v.syntax().text_range(), |d| d.text_range())
                     }),
                 )),
                 // An operator is located with its parentheses.

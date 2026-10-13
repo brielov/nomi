@@ -238,7 +238,7 @@ fn check<T>(
         console,
         compat,
         &messages.waiting,
-        |_| messages.success.clone(),
+        |_| messages.success,
         &messages.failure,
         work,
     )
@@ -267,25 +267,22 @@ fn custom_check<T>(
             .saturating_sub(message.chars().count());
         format!("{message}{}", " ".repeat(pad))
     };
-    match &result {
-        Ok(value) => {
-            console::print(
-                console,
-                &text("\r  ")
-                    .append(good)
-                    .space(text(padded(&success(value)))),
-                compat,
-            );
-            console.out("\n");
-        }
-        Err(_) => {
-            console::print(
-                console,
-                &text("\r  ").append(bad).space(text(padded(failure))),
-                compat,
-            );
-            console.out("\n\n");
-        }
+    if let Ok(value) = &result {
+        console::print(
+            console,
+            &text("\r  ")
+                .append(good)
+                .space(text(padded(&success(value)))),
+            compat,
+        );
+        console.out("\n");
+    } else {
+        console::print(
+            console,
+            &text("\r  ").append(bad).space(text(padded(failure))),
+            compat,
+        );
+        console.out("\n\n");
     }
     result
 }
@@ -309,7 +306,10 @@ fn marks() -> (Doc, Doc, Doc) {
 
 /// `verifyVersion`: 1.0.0 for a new package; otherwise not published yet,
 /// and the bump the API changes call for from a version it may follow.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "upstream's `verifyVersion` takes these, with its environment spread out"
+)]
 fn verify_version(
     console: &mut dyn Console,
     cache: &Cache,
@@ -408,7 +408,6 @@ fn verify_tag(dir: &Path, http: &impl Http, name: &Name, version: Version) -> Re
 
 /// `verifyZip`: GitHub's zipball of the tag downloaded and built, and its
 /// hash.
-#[allow(clippy::too_many_arguments)]
 fn verify_zip(
     console: &mut dyn Console,
     compat: Compat,

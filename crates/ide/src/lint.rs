@@ -1,5 +1,5 @@
-//! elm-language-server's own lint rules (plan 9.4,
-//! `elmLsDiagnostics.ts`), over nomi's syntax tree. They are
+//! elm-language-server's own lint rules
+//! (`elmLsDiagnostics.ts`), over nomi's syntax tree. They are
 //! tree-sitter queries there that compare the text of nodes, so they are
 //! ported as such: a value is used where some expression writes its name
 //! as written, unqualified, shadowing and all, not where it resolves.
@@ -69,7 +69,7 @@ pub fn lint(
         problems: Vec::new(),
     };
     let unused_exposures = if checks.on("UnusedImport") || checks.on("UnusedImportedVariable") {
-        found.unused_imported_values(&imports, &facts)
+        unused_imported_values(&imports, &facts)
     } else {
         HashSet::new()
     };
@@ -237,25 +237,6 @@ impl Lint<'_> {
             relative: None,
             fixes: Vec::new(),
         });
-    }
-
-    /// `getUnusedImportValueAndTypeDiagnostics`: the exposed values and
-    /// types of the imports that nothing writes, each but `T(..)`. Gives
-    /// back where they are, for `getUnusedImportDiagnostics`.
-    fn unused_imported_values(&self, imports: &[SyntaxNode], facts: &Facts) -> HashSet<TextRange> {
-        let mut unused = HashSet::new();
-        for (exposed, _, range) in import_exposures(imports) {
-            let text = text(&exposed);
-            if text.ends_with("(..)") {
-                continue;
-            }
-            let used = (facts.values.iter().chain(&facts.record_bases)).any(|(t, _)| *t == text)
-                || facts.types.contains(&text);
-            if !used {
-                unused.insert(range);
-            }
-        }
-        unused
     }
 
     /// `getUnusedImportDiagnostics`: an import whose exposed names are
@@ -696,6 +677,25 @@ impl Lint<'_> {
     }
 }
 
+/// `getUnusedImportValueAndTypeDiagnostics`: the exposed values and
+/// types of the imports that nothing writes, each but `T(..)`. Gives
+/// back where they are, for `getUnusedImportDiagnostics`.
+fn unused_imported_values(imports: &[SyntaxNode], facts: &Facts) -> HashSet<TextRange> {
+    let mut unused = HashSet::new();
+    for (exposed, _, range) in import_exposures(imports) {
+        let text = text(&exposed);
+        if text.ends_with("(..)") {
+            continue;
+        }
+        let used = (facts.values.iter().chain(&facts.record_bases)).any(|(t, _)| *t == text)
+            || facts.types.contains(&text);
+        if !used {
+            unused.insert(range);
+        }
+    }
+    unused
+}
+
 /// The problems for the unused exposed names `unused` holds, in order.
 fn found_values(imports: &[SyntaxNode], unused: &HashSet<TextRange>, path: &Path) -> Vec<Problem> {
     let mut problems = Vec::new();
@@ -863,7 +863,7 @@ fn imports<'r>(
     root.children().filter(move |n| {
         let end = n
             .next_sibling()
-            .map_or(n.text_range().end(), |next| next.text_range().start());
+            .map_or_else(|| n.text_range().end(), |next| next.text_range().start());
         n.kind() == SyntaxKind::Import
             && !errors
                 .iter()

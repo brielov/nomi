@@ -1,4 +1,4 @@
-//! `elm-test install` and `init` (`Install.js`, plan 10.6b): a package
+//! `elm-test install` and `init` (`Install.js`): a package
 //! added to the test dependencies by `elm install` in a scratch copy of
 //! the project, what it added moved there, and `elm.json` written as
 //! elm-test writes it.

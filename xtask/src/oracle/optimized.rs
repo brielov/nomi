@@ -23,12 +23,12 @@ use super::{binary_path, cache_dir};
 use crate::corpus::compat::{self, Version};
 use crate::references::References;
 
-pub const CASES: &str = "crates/compiler/tests/optimized";
+pub(crate) const CASES: &str = "crates/compiler/tests/optimized";
 
 /// The packages every case may depend on.
 const DEPENDENCIES: [&str; 4] = ["elm/core", "elm/html", "elm/json", "elm/virtual-dom"];
 
-pub fn run(root: &Path, refs: &References) -> Result<()> {
+pub(crate) fn run(root: &Path, refs: &References) -> Result<()> {
     let dir = root.join(CASES);
     let pinned = pinned(root, &DEPENDENCIES)?;
     let default = fs::read_to_string(dir.join("default.elm.json"))?;

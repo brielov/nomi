@@ -117,7 +117,7 @@ fn solver() {
     suite.finish(outcomes);
 }
 
-/// Whenever a package's dependencies have no solution, PubGrub says why,
+/// Whenever a package's dependencies have no solution, `PubGrub` says why,
 /// and it finds none exactly when the search finds none.
 #[test]
 fn explanations() {

@@ -2,7 +2,7 @@
 //! §9). This crate holds the protocol, positions and the order of work;
 //! what the answers are is `nomi_ide`'s. The editor's text lies over the
 //! disk in the engine's VFS, and diagnostics are worked out on the pool
-//! against a snapshot and published only while it is current (CR.2).
+//! against a snapshot and published only while it is current.
 
 mod diagnostics;
 mod position;
@@ -244,10 +244,10 @@ pub fn serve_with(
             }
             Message::Notification(notification) => {
                 let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    server.notification(notification)
+                    server.notification(notification);
                 }));
             }
-            Message::Response(response) => server.response(response),
+            Message::Response(response) => server.response(&response),
         }
     }
     Ok(())
@@ -328,7 +328,7 @@ impl Server {
                 })
             }
             "workspace/symbol" => parse(request)
-                .and_then(|p: lsp_types::WorkspaceSymbolParams| self.workspace_symbols(&p.query)),
+                .map(|p: lsp_types::WorkspaceSymbolParams| self.workspace_symbols(&p.query)),
             PrepareRenameRequest::METHOD => {
                 parse(request).and_then(|p: TextDocumentPositionParams| self.prepare_rename(&p))
             }
@@ -349,7 +349,7 @@ impl Server {
                 parse(request).and_then(|p: Value| self.expose(&p, expose))
             }
             "workspace/willRenameFiles" => {
-                parse(request).and_then(|p: lsp_types::RenameFilesParams| self.rename_files(&p))
+                parse(request).map(|p: lsp_types::RenameFilesParams| self.rename_files(&p))
             }
             "workspace/willDeleteFiles" => Ok(Value::Null),
             "elm/findTests" => parse(request).and_then(|p: Value| self.find_tests(&p)),
@@ -362,10 +362,8 @@ impl Server {
                 self.revise(true);
                 Ok(Value::Null)
             }
-            "elm/getMoveDestinations" => {
-                parse(request).and_then(|p: Value| self.move_destinations(&p))
-            }
-            "elm/move" => parse(request).and_then(|p: Value| self.move_to(&p)),
+            "elm/getMoveDestinations" => parse(request).map(|p: Value| self.move_destinations(&p)),
+            "elm/move" => parse(request).map(|p: Value| self.move_to(&p)),
             "workspace/executeCommand" => {
                 parse(request).and_then(|p: lsp_types::ExecuteCommandParams| self.execute(&p))
             }
@@ -444,7 +442,7 @@ impl Server {
         send(&self.sender, Message::Request(request));
     }
 
-    fn response(&mut self, response: Response) {
+    fn response(&mut self, response: &Response) {
         if let Some(install) = self.installs.remove(&response.id) {
             let agreed = (response.result.as_ref())
                 .and_then(|r| r.get("title"))
@@ -516,16 +514,16 @@ impl Server {
 
     /// Lays the open documents over the disk as a new revision, and has
     /// it checked: a file opened or saved for it if `saved`.
-    fn revise(&mut self, saved: bool) {
+    fn revise(&self, saved: bool) {
         self.check(saved, Vec::new());
     }
 
     /// [`Server::revise`] after the editor changed the file at `changed`.
-    fn revise_changed(&mut self, changed: Option<PathBuf>) {
+    fn revise_changed(&self, changed: Option<PathBuf>) {
         self.check(false, changed.into_iter().collect());
     }
 
-    fn check(&mut self, saved: bool, changed: Vec<PathBuf>) {
+    fn check(&self, saved: bool, changed: Vec<PathBuf>) {
         let snapshot = {
             let _held = self
                 .publishing
@@ -568,7 +566,7 @@ impl Server {
         Ok(serde_json::to_value(edits).expect("edits serialize"))
     }
 
-    #[allow(deprecated)] // `SymbolInformation::deprecated` must be named.
+    #[expect(deprecated, reason = "`SymbolInformation::deprecated` must be named")]
     fn symbols(&self, uri: &Url) -> Result<Value, (ErrorCode, String)> {
         let document = self.document(uri)?;
         let symbols = nomi_ide::document_symbols(&self.vfs.snapshot(), &document.path)
@@ -604,7 +602,7 @@ impl Server {
 
     /// The index of the project that owns `path`, made anew only when the
     /// editor's text changed since the last.
-    fn index(&mut self, snapshot: &Snapshot, path: &Path) -> Option<Arc<Index>> {
+    fn index(&self, snapshot: &Snapshot, path: &Path) -> Option<Arc<Index>> {
         let mut memo = self
             .memo
             .lock()
@@ -624,7 +622,7 @@ impl Server {
     }
 
     fn definition(
-        &mut self,
+        &self,
         position: &TextDocumentPositionParams,
     ) -> Result<Value, (ErrorCode, String)> {
         let (document, offset) = self.at(position)?;
@@ -704,15 +702,15 @@ impl Server {
         Ok(serde_json::json!({ "ranges": ranges }))
     }
 
-    fn workspace_symbols(&mut self, query: &str) -> Result<Value, (ErrorCode, String)> {
+    fn workspace_symbols(&self, query: &str) -> Value {
         let snapshot = self.vfs.snapshot();
         // The project of an open document, as elm-language-server has one.
         let Some(path) = self.documents.values().next().map(|d| d.path.clone()) else {
-            return Ok(Value::Array(Vec::new()));
+            return Value::Array(Vec::new());
         };
         let unit = self.unit;
         let Some(index) = self.index(&snapshot, &path) else {
-            return Ok(Value::Array(Vec::new()));
+            return Value::Array(Vec::new());
         };
         let mut found = Vec::new();
         for (file, symbol) in nomi_ide::workspace_symbols(&snapshot, &index, query) {
@@ -720,7 +718,7 @@ impl Server {
                 continue;
             };
             let text = Text::new(&text, unit);
-            #[allow(deprecated)] // `SymbolInformation::deprecated` must be named.
+            #[expect(deprecated, reason = "`SymbolInformation::deprecated` must be named")]
             found.push(SymbolInformation {
                 name: symbol.name,
                 kind: symbol_kind(symbol.kind),
@@ -730,11 +728,11 @@ impl Server {
                 container_name: None,
             });
         }
-        Ok(serde_json::to_value(found).expect("symbols serialize"))
+        serde_json::to_value(found).expect("symbols serialize")
     }
 
     fn prepare_rename(
-        &mut self,
+        &self,
         position: &TextDocumentPositionParams,
     ) -> Result<Value, (ErrorCode, String)> {
         let (document, offset) = self.at(position)?;
@@ -750,7 +748,7 @@ impl Server {
     }
 
     fn rename(
-        &mut self,
+        &self,
         position: &TextDocumentPositionParams,
         new_name: &str,
     ) -> Result<Value, (ErrorCode, String)> {
@@ -795,7 +793,7 @@ impl Server {
     }
 
     fn type_definition(
-        &mut self,
+        &self,
         position: &TextDocumentPositionParams,
     ) -> Result<Value, (ErrorCode, String)> {
         let (document, offset) = self.at(position)?;
@@ -810,7 +808,7 @@ impl Server {
     }
 
     fn references(
-        &mut self,
+        &self,
         position: &TextDocumentPositionParams,
         with_declaration: bool,
     ) -> Result<Value, (ErrorCode, String)> {
@@ -828,7 +826,7 @@ impl Server {
 
     /// `elm/provideFileContents`: the text of a file of the project or of
     /// a package it uses, as the editor or the disk has it.
-    fn file_contents(&mut self, params: &Value) -> Result<Value, (ErrorCode, String)> {
+    fn file_contents(&self, params: &Value) -> Result<Value, (ErrorCode, String)> {
         let path = (params["uri"].as_str())
             .and_then(|u| Url::parse(u).ok())
             .and_then(|u| u.to_file_path().ok())
@@ -847,29 +845,11 @@ impl Server {
         let text = snapshot
             .read(&path)
             .map_err(|e| (ErrorCode::InternalError, e.to_string()))?;
-        Ok(Value::String(text.to_string()))
+        Ok(Value::String(text))
     }
 
     /// `elm/findTests`: the suites of the project's test modules.
-    fn find_tests(&mut self, params: &Value) -> Result<Value, (ErrorCode, String)> {
-        let root = (params["projectFolder"].as_str())
-            .and_then(|u| Url::parse(u).ok())
-            .and_then(|u| u.to_file_path().ok())
-            .ok_or_else(|| (ErrorCode::InvalidParams, "a project folder".to_owned()))?;
-        let snapshot = self.vfs.snapshot();
-        let unit = self.unit;
-        // A file of the project, for the index to start from: an open one,
-        // or else its `elm.json`.
-        let file = (self.documents.values())
-            .map(|d| d.path.clone())
-            .find(|p| p.starts_with(&root))
-            .unwrap_or_else(|| root.join("elm.json"));
-        let Some(index) = self.index(&snapshot, &file) else {
-            return Err((
-                ErrorCode::RequestFailed,
-                format!("no Elm project at {}", root.display()),
-            ));
-        };
+    fn find_tests(&self, params: &Value) -> Result<Value, (ErrorCode, String)> {
         fn json(
             suite: &nomi_ide::TestSuite,
             snapshot: &Snapshot,
@@ -889,6 +869,24 @@ impl Server {
             }
             Some(value)
         }
+        let root = (params["projectFolder"].as_str())
+            .and_then(|u| Url::parse(u).ok())
+            .and_then(|u| u.to_file_path().ok())
+            .ok_or_else(|| (ErrorCode::InvalidParams, "a project folder".to_owned()))?;
+        let snapshot = self.vfs.snapshot();
+        let unit = self.unit;
+        // A file of the project, for the index to start from: an open one,
+        // or else its `elm.json`.
+        let file = (self.documents.values())
+            .map(|d| d.path.clone())
+            .find(|p| p.starts_with(&root))
+            .unwrap_or_else(|| root.join("elm.json"));
+        let Some(index) = self.index(&snapshot, &file) else {
+            return Err((
+                ErrorCode::RequestFailed,
+                format!("no Elm project at {}", root.display()),
+            ));
+        };
         let suites: Vec<Value> = (nomi_ide::find_tests(&index, &root).iter())
             .filter_map(|s| json(s, &snapshot, unit))
             .collect();
@@ -918,10 +916,7 @@ impl Server {
         Ok(Value::Array(lenses))
     }
 
-    fn resolve_lens(
-        &mut self,
-        mut lens: lsp_types::CodeLens,
-    ) -> Result<Value, (ErrorCode, String)> {
+    fn resolve_lens(&self, mut lens: lsp_types::CodeLens) -> Result<Value, (ErrorCode, String)> {
         let data = lens.data.clone().unwrap_or_default();
         let uri = (data["uri"].as_str())
             .and_then(|u| Url::parse(u).ok())
@@ -952,6 +947,7 @@ impl Server {
                     self.settings
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .extended_capabilities
                         .expose_commands
                 }) {
                     Some(root) => {
@@ -993,7 +989,7 @@ impl Server {
     }
 
     fn highlights(
-        &mut self,
+        &self,
         position: &TextDocumentPositionParams,
     ) -> Result<Value, (ErrorCode, String)> {
         let (document, offset) = self.at(position)?;
@@ -1015,10 +1011,7 @@ impl Server {
 }
 
 impl Server {
-    fn hover(
-        &mut self,
-        position: &TextDocumentPositionParams,
-    ) -> Result<Value, (ErrorCode, String)> {
+    fn hover(&self, position: &TextDocumentPositionParams) -> Result<Value, (ErrorCode, String)> {
         let (document, offset) = self.at(position)?;
         let path = document.path.clone();
         let snapshot = self.vfs.snapshot();
@@ -1046,7 +1039,7 @@ impl Server {
     }
 
     fn completion(
-        &mut self,
+        &self,
         position: &TextDocumentPositionParams,
     ) -> Result<Value, (ErrorCode, String)> {
         let (document, offset) = self.at(position)?;
@@ -1187,7 +1180,7 @@ mod tests {
         let source = "a😀b\nc";
         for (unit, column) in [(ColumnUnit::Utf16, 3), (ColumnUnit::Utf8, 5)] {
             let text = Text::new(source, unit);
-            let b = nomi_base::TextSize::new(5);
+            let b = TextSize::new(5);
             assert_eq!(text.position(b), lsp_types::Position::new(0, column));
             assert_eq!(text.offset(text.position(b)), b);
             // Past the line's end is its end; past the text, the text's.

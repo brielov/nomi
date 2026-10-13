@@ -1,4 +1,4 @@
-//! The corpus apps' test suites (plan 10.7): each app with an
+//! The corpus apps' test suites: each app with an
 //! elm-explorations/test suite, run by elm-test 0.19.3-0 (`cargo xtask
 //! oracle corpus-tests`) and by `nomi test` (`cargo xtask corpus tests`)
 //! with a fixed seed and the JSON reporter, in a copy of the app outside
@@ -44,7 +44,9 @@ struct Outcome {
 
 impl Outcome {
     fn row(&self, app: &str) -> String {
-        let exit = self.exit.map_or("killed".to_owned(), |c| c.to_string());
+        let exit = self
+            .exit
+            .map_or_else(|| "killed".to_owned(), |c| c.to_string());
         format!(
             "{app}\t{exit}\t{}\t{}\t{}\t{}",
             self.passed, self.failed, self.digest, self.errors
@@ -176,7 +178,7 @@ fn oracle(root: &Path) -> Result<BTreeMap<String, String>> {
 }
 
 /// `cargo xtask oracle corpus-tests`: elm-test's outcome on each suite.
-pub fn record(root: &Path, refs: &References, only: Option<&str>) -> Result<()> {
+pub(crate) fn record(root: &Path, refs: &References, only: Option<&str>) -> Result<()> {
     let elm = crate::oracle::transcripts::binary(refs, "elm", Some("0.19.3"))?;
     let runner = crate::oracle::oracles_dir()?.join("npm/node_modules/elm-test/bin/elm-test");
     let node = std::env::var_os("PATH")
@@ -234,7 +236,7 @@ pub fn record(root: &Path, refs: &References, only: Option<&str>) -> Result<()> 
 
 /// `cargo xtask corpus tests`: whether `nomi test` gives elm-test's
 /// outcome on each suite.
-pub fn check(root: &Path, only: Option<&str>) -> Result<()> {
+pub(crate) fn check(root: &Path, only: Option<&str>) -> Result<()> {
     crate::cargo(
         root,
         &["build", "--locked", "--release", "--package", "nomi-cli"],

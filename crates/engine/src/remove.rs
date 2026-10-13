@@ -65,7 +65,7 @@ fn remove(
         Err(problem) => return Err(remove_problem(&package, problem)),
     };
     match console::ask(console, &question, *compat) {
-        Err(e) => Err(one_line("PROBLEM READING ANSWER", e.to_string())),
+        Err(e) => Err(one_line("PROBLEM READING ANSWER", &e.to_string())),
         Ok(None) => {
             console::no_answer(console, Personality::Nomi);
             Ok(false)
@@ -86,7 +86,7 @@ fn remove_problem(package: &Name, problem: RemoveProblem<SolverProblem>) -> Repo
     match problem {
         RemoveProblem::NotADependency => one_line(
             "NOT A DEPENDENCY",
-            format!("Your elm.json does not depend on {package}, so there is nothing to remove."),
+            &format!("Your elm.json does not depend on {package}, so there is nothing to remove."),
         ),
         RemoveProblem::Indirect(dependents) => Report::new(
             "INDIRECT DEPENDENCY",
@@ -104,7 +104,7 @@ fn remove_problem(package: &Name, problem: RemoveProblem<SolverProblem>) -> Repo
         ),
         RemoveProblem::Unavailable(name, version) => one_line(
             "PROBLEM LOADING PACKAGE",
-            format!(
+            &format!(
                 "I need the elm.json of {name} {version} to know what it depends on, but I \
                  could not get it."
             ),

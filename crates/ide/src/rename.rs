@@ -1,4 +1,4 @@
-//! Rename (plan 9.7) as elm-language-server does it (`renameProvider.ts`,
+//! Rename as elm-language-server does it (`renameProvider.ts`,
 //! `renameUtils.ts`): every reference of the name under the cursor, its
 //! declaration included, gets the new name in place of the old one, the
 //! first place the reference writes it. Renaming a module also renames its

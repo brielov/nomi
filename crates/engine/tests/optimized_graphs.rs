@@ -1,4 +1,4 @@
-//! The optimizer ratchet (plan 8.1b): each module of each optimizer case
+//! The optimizer ratchet: each module of each optimizer case
 //! (`crates/compiler/tests/optimized/cases`) as each release, passing
 //! when nomi's graph encodes to the bytes of the `.elmo` that elm wrote
 //! (`cargo xtask oracle optimized`).

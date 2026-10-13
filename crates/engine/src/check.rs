@@ -77,7 +77,7 @@ pub fn check(
 }
 
 /// [`check`], reusing what `artifacts` holds of earlier checks; and the
-/// modules it checked rather than reused (plan 6.15).
+/// modules it checked rather than reused.
 pub fn check_with(
     snapshot: &Snapshot,
     env: &Env,
@@ -247,7 +247,10 @@ pub fn optimize(
 }
 
 /// [`check_with`], making what `goal` asks for too.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each of the checks above passes its own mix of these"
+)]
 fn build(
     snapshot: &Snapshot,
     env: &Env,
@@ -326,7 +329,7 @@ pub fn show(
 ) {
     match (checked, style) {
         (Checked::Fine, Style::Terminal) => {
-            console.out("No problems in syntax, module names, imports, names or types.\n")
+            console.out("No problems in syntax, module names, imports, names or types.\n");
         }
         (Checked::Fine, Style::Json) => {}
         (Checked::Project(report), Style::Terminal) => console::report(console, report, compat),
@@ -407,26 +410,25 @@ pub(crate) fn sources(
     let kept = artifacts
         .get(key)
         .and_then(|bytes| decode_releases(&bytes, compat));
-    let releases = match kept {
-        Some(releases) => releases,
-        None => {
-            let mut registry = env::registry(
-                cache,
-                &store,
-                http,
-                compat,
-                "I need the list of published packages to check your dependencies",
-            )?;
-            let solution = details::verify(&mut registry, compat, &project.outline)
-                .map_err(|problem| details_problem(&problem, compat, personality))?;
-            let releases: Vec<(Name, Version)> = solution
-                .iter()
-                .map(|(name, details)| (name.clone(), details.version))
-                .collect();
-            // A cache that can't be written only costs a solve next time.
-            let _ = artifacts.put(key, encode_releases(&releases).as_bytes());
-            releases
-        }
+    let releases = if let Some(releases) = kept {
+        releases
+    } else {
+        let mut registry = env::registry(
+            cache,
+            &store,
+            http,
+            compat,
+            "I need the list of published packages to check your dependencies",
+        )?;
+        let solution = details::verify(&mut registry, compat, &project.outline)
+            .map_err(|problem| details_problem(&problem, compat, personality))?;
+        let releases: Vec<(Name, Version)> = solution
+            .iter()
+            .map(|(name, details)| (name.clone(), details.version))
+            .collect();
+        // A cache that can't be written only costs a solve next time.
+        let _ = artifacts.put(key, encode_releases(&releases).as_bytes());
+        releases
     };
     let fetched = packages::fetch(Pool::global(), &store, http, compat, releases.clone());
     let direct: Vec<&Name> = match &project.outline {
@@ -445,7 +447,7 @@ pub(crate) fn sources(
         let unreadable = || {
             one_line(
                 "CORRUPT PACKAGE DATA",
-                format!(
+                &format!(
                     "I could not read the elm.json of {name} {version} in {}.",
                     dir.display()
                 ),
@@ -515,7 +517,7 @@ pub(crate) fn foreigns(
 pub(crate) fn packages_problem(why: &str) -> Report {
     one_line(
         "PROBLEM READING PACKAGES",
-        format!("I could not read the dependencies' modules: {why}"),
+        &format!("I could not read the dependencies' modules: {why}"),
     )
 }
 
@@ -540,7 +542,7 @@ pub fn env_of(
     Env::new(compat, root, owner, &src_dirs, foreigns).map_err(|e| {
         one_line(
             "PROBLEM READING PROJECT",
-            format!("I could not read the project at {}: {e}", root.display()),
+            &format!("I could not read the project at {}: {e}", root.display()),
         )
     })
 }

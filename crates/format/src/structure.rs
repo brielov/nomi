@@ -129,7 +129,7 @@ pub(crate) fn space_sep_or_prefix(op: Block, rest: Block) -> Block {
             Block::line(Line::row([op, Line::space(), rest]))
         }
         (Block::SingleLine(op), rest) if op.length(0) < 4 => {
-            rest.prefix(Line::row([op, Line::space()]))
+            rest.prefix(&Line::row([op, Line::space()]))
         }
         (op, rest) => Block::stack1([op, rest.indent()]),
     }
@@ -324,8 +324,8 @@ pub(crate) fn group_with_footer(
         return Block::line(Line::row([punc(left), punc(right)]));
     };
     Block::stack1(
-        std::iter::once(first.prefix(Line::row([punc(left), Line::space()])))
-            .chain(children.map(|c| c.prefix(Line::row([punc(separator), Line::space()]))))
+        std::iter::once(first.prefix(&Line::row([punc(left), Line::space()])))
+            .chain(children.map(|c| c.prefix(&Line::row([punc(separator), Line::space()]))))
             .chain(footer)
             .chain([Block::line(punc(right))]),
     )
@@ -348,7 +348,7 @@ pub(crate) fn extension_group_fields(multiline: bool, base: Block, fields: Block
             intersperse([punc("{"), base, fields, punc("}")], Line::space),
         ),
         (base, fields) => Block::stack1([
-            base.prefix(Line::row([punc("{"), Line::space()])),
+            base.prefix(&Line::row([punc("{"), Line::space()])),
             fields.indent(),
             Block::line(punc("}")),
         ]),

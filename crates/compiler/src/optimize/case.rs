@@ -17,7 +17,7 @@ use crate::optimized::{Choice, Decider, DtPath, Expr, Test};
 
 /// `Case.optimize`: the case on `root`, labelled `temp`, of `branches`,
 /// each a pattern and its optimized body.
-pub fn optimize(
+pub(super) fn optimize(
     compat: Compat,
     temp: String,
     root: String,
@@ -96,7 +96,7 @@ enum P {
 /// `pattern` as [`P`], each character and string literal as the release
 /// keeps it.
 fn lower(compat: Compat, pattern: &Pattern) -> Rc<P> {
-    let lower = |p: &Pattern| self::lower(compat, p);
+    let lower = |p: &Pattern| lower(compat, p);
     Rc::new(match &pattern.kind {
         PatternKind::Ctor {
             home,
@@ -391,20 +391,17 @@ fn needs_tests(pattern: &P) -> bool {
 /// `pickPath`: the path whose test leaves the fewest branches to the
 /// default, then the one with the fewest edges.
 fn pick_path(branches: &[Branch]) -> DtPath {
-    let all: Vec<DtPath> = (branches.iter())
-        .flat_map(|b| &b.patterns)
-        .filter(|(_, p)| needs_tests(p))
-        .map(|(path, _)| path.clone())
-        .collect();
     let defaults = |path: &DtPath| {
         (branches.iter())
             .filter(|b| is_irrelevant_to(path, b))
             .count()
     };
-    let tied = bests(all.into_iter().map(|p| {
-        let weight = defaults(&p);
-        (p, weight)
-    }));
+    let tied = bests(
+        (branches.iter())
+            .flat_map(|b| &b.patterns)
+            .filter(|(_, p)| needs_tests(p))
+            .map(|(path, _)| (path.clone(), defaults(path))),
+    );
     if tied.len() == 1 {
         return tied.into_iter().next().expect("one path");
     }

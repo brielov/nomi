@@ -439,14 +439,13 @@ fn equivalent_renaming(pairs: &[(String, String)]) -> bool {
 
 /// `compatibleVars`.
 fn compatible_vars(old: &str, new: &str) -> bool {
-    use Category::*;
+    use Category::{Any, Appendable, CompAppend, Comparable, Number};
     matches!(
         (category(old), category(new)),
         (CompAppend, CompAppend)
-            | (Comparable, Comparable)
+            | (Comparable | Number, Comparable)
             | (Appendable, Appendable)
             | (Number, Number)
-            | (Number, Comparable)
             | (_, Any)
     )
 }
@@ -777,8 +776,8 @@ pub fn run(
             false
         }
         Err(Stop::Build(checked)) => {
-            let root = root.map_or(dir.to_owned(), |r| r.dir().to_owned());
-            crate::make::show_reports(console, &root, &checked, compat);
+            let root = root.as_ref().map_or(dir, Root::dir);
+            crate::make::show_reports(console, root, &checked, compat);
             false
         }
     }
@@ -802,8 +801,7 @@ fn diff_args(
     match args {
         Args::Global(name, v1, v2) => {
             if let Err(nearby) = index.versions_or_nearby(name) {
-                let nearby = nearby.into_iter().cloned().collect();
-                return Err(unknown_package(name, nearby).into());
+                return Err(unknown_package(name, &nearby).into());
             }
             let old = docs(name, *v1.min(v2))?;
             let new = docs(name, *v1.max(v2))?;
@@ -899,12 +897,11 @@ pub(crate) fn fetch_docs(
     let path = docs_path(cache, name, version);
     let context = format!("I need the docs for {version} to {purpose}");
     if let Ok(bytes) = std::fs::read(&path) {
-        return match decode(compat, &bytes) {
-            Some(docs) => Ok(docs),
-            None => {
-                let _ = std::fs::remove_file(&path);
-                Err(docs_problem(&context, DocsProblem::Cache).into())
-            }
+        return if let Some(docs) = decode(compat, &bytes) {
+            Ok(docs)
+        } else {
+            let _ = std::fs::remove_file(&path);
+            Err(docs_problem(&context, DocsProblem::Cache).into())
         };
     }
     let url = format!(
@@ -1073,7 +1070,7 @@ fn unpublished() -> Report {
 }
 
 /// `DiffUnknownPackage`.
-fn unknown_package(name: &Name, nearby: Vec<Name>) -> Report {
+fn unknown_package(name: &Name, nearby: &[&Name]) -> Report {
     Report::new(
         "UNKNOWN PACKAGE",
         None,

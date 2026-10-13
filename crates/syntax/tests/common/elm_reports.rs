@@ -9,7 +9,7 @@ use nomi_syntax::{Tool, elm};
 use crate::common::Seed;
 
 /// One elm's rejection of a mutation.
-pub struct Rejection {
+pub(crate) struct Rejection {
     /// The column, as `elm 0.19.1`.
     pub column: String,
     pub compat: Compat,
@@ -21,7 +21,7 @@ pub struct Rejection {
 
 /// Each mutation of `seed` some elm rejects, by case id, with each
 /// rejection. Crashes give no report to match.
-pub fn rejections(seed: &Seed) -> Vec<(String, Vec<Rejection>)> {
+pub(crate) fn rejections(seed: &Seed) -> Vec<(String, Vec<Rejection>)> {
     let mut cases = Vec::new();
     for (m, cells) in &seed.cases {
         let source = code::Source::new(&m.source);

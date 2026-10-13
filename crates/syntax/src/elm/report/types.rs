@@ -52,21 +52,22 @@ impl Reporter<'_, '_> {
         match tipe {
             Type::TRecord(record, cur) => self.record_type(context, record, *cur),
             Type::TTuple(tuple, cur) => self.tuple_type(context, tuple, *cur),
-            Type::TStart(cur) => match self.next(*cur) {
-                Next::Keyword(keyword) => self.within(
-                    "RESERVED WORD",
-                    surroundings(start, *cur),
-                    self.keyword_region(*cur, keyword),
-                    reflow(
-                        "I was expecting to see a type next, but I got stuck on this reserved \
-                         word:",
-                    ),
-                    reflow(&format!(
-                        "It looks like you are trying to use `{keyword}` as a type variable, \
-                         but it is a reserved word. Try using a different name!"
-                    )),
-                ),
-                _ => {
+            Type::TStart(cur) => {
+                if let Next::Keyword(keyword) = self.next(*cur) {
+                    self.within(
+                        "RESERVED WORD",
+                        surroundings(start, *cur),
+                        self.keyword_region(*cur, keyword),
+                        reflow(
+                            "I was expecting to see a type next, but I got stuck on this reserved \
+                     word:",
+                        ),
+                        reflow(&format!(
+                            "It looks like you are trying to use `{keyword}` as a type variable, \
+                     but it is a reserved word. Try using a different name!"
+                        )),
+                    )
+                } else {
                     let something = match context {
                         TypeContext::Annotation(name) => format!("the `{name}` type annotation"),
                         TypeContext::CustomType => "a custom type".to_owned(),
@@ -83,7 +84,7 @@ impl Reporter<'_, '_> {
                         try_int(),
                     )
                 }
-            },
+            }
             Type::TSpace(space, cur) => self.space(*space, *cur),
             Type::TIndentStart(cur) => self.within(
                 format!("UNFINISHED {}", context.thing().to_uppercase()),

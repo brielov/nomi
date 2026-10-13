@@ -20,7 +20,7 @@ struct Case {
     json: [&'static str; 3],
 }
 
-fn check(case: Case) {
+fn check(case: &Case) {
     let source = Source::new(case.source);
     for (i, compat) in Compat::ALL.into_iter().enumerate() {
         let message = expand(&case.message, &source, compat);
@@ -58,7 +58,7 @@ fn redundant_export(source: &'static str, text: [&'static str; 3], json: [&'stat
             reflow("Remove one of them and you should be all set!"),
         ),
     );
-    check(Case {
+    check(&Case {
         source,
         name: "A",
         title: "REDUNDANT EXPORT",
@@ -105,7 +105,7 @@ fn a_region_over_rows_marks_them() {
                 .chain([text("String.toInt").color(Color::Green), text("function!")]),
         ),
     ]);
-    check(Case {
+    check(&Case {
         source: MULTI_SOURCE,
         name: "A",
         title: "TYPE MISMATCH",
@@ -124,7 +124,7 @@ fn a_region_over_rows_marks_them() {
 #[test]
 fn an_empty_highlight_gets_one_caret_and_tabs_stay_raw() {
     let region = TextRange::empty(find(TAB_SOURCE, "\t", 0).start());
-    check(Case {
+    check(&Case {
         source: TAB_SOURCE,
         name: "???",
         title: "NO TABS",

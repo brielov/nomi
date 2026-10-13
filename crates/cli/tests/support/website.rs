@@ -1,6 +1,9 @@
 //! The registry the recordings had, served from fixture releases, and
 //! nomi run against it offline.
-#![allow(dead_code)] // Each test target uses part.
+#![allow(
+    dead_code,
+    reason = "shared by several test binaries, each using part of it"
+)]
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -16,7 +19,7 @@ use sha1::{Digest, Sha1};
 
 /// `program` with the cache at `cache`, where every request fails, as
 /// the recordings' did.
-pub fn offline(program: &Path, cache: &Path) -> Command {
+pub(crate) fn offline(program: &Path, cache: &Path) -> Command {
     let mut command = Command::new(program);
     command.env("NOMI_CACHE", cache);
     for var in [
@@ -34,19 +37,19 @@ pub fn offline(program: &Path, cache: &Path) -> Command {
 
 /// The registry the recordings had: one release of each fixture package,
 /// whose archive holds its `elm.json`, or all its files.
-pub struct Website {
+pub(crate) struct Website {
     archives: BTreeMap<(Name, String), Vec<u8>>,
 }
 
 impl Website {
     /// The releases under `packages`, at `<author>/<project>/<version>/`,
     /// each archive holding only its `elm.json`.
-    pub fn new(packages: &Path) -> Website {
+    pub(crate) fn new(packages: &Path) -> Website {
         Website::serving(packages, false)
     }
 
     /// The releases under `packages`, each archive holding every file.
-    pub fn with_sources(packages: &Path) -> Website {
+    pub(crate) fn with_sources(packages: &Path) -> Website {
         Website::serving(packages, true)
     }
 
@@ -92,7 +95,7 @@ impl Website {
 
     /// Saves the index in the cache at `dir` and downloads every release
     /// into its store.
-    pub fn fill(&self, dir: &Path) {
+    pub(crate) fn fill(&self, dir: &Path) {
         let compat = Compat::LATEST;
         let index = Index::fetch(self, compat).unwrap();
         index.write(&dir.join("registry").join("index")).unwrap();

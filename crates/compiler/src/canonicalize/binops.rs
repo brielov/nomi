@@ -97,7 +97,7 @@ fn next_(make: Hole, root: Op, middle: Vec<(Tree, Op)>, last: Tree) -> Step {
         return match next(inner, op, rest, last) {
             Step::Done(new_last) => Step::Done(make(new_last)),
             Step::More(new_middle, new_last) => next(make, root, new_middle, new_last),
-            error => error,
+            error @ Step::Error(..) => error,
         };
     }
     match (root.associativity, op.associativity) {

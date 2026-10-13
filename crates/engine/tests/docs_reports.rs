@@ -1,6 +1,6 @@
 //! The documentation ratchet: each documentation project as each
 //! release, passing when nomi's `--report=json`, terminal report and
-//! `docs.json` are elm's, whole (plan 7.4).
+//! `docs.json` are elm's, whole.
 #![cfg(unix)]
 
 #[path = "support/projects.rs"]

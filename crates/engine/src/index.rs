@@ -1,4 +1,4 @@
-//! What the editor navigates by (plan 5.16): every module of the project
+//! What the editor navigates by: every module of the project
 //! that owns a file, canonicalized as far as it goes, with what each name
 //! it writes refers to, and where the packages it uses keep their
 //! sources. Read from the package store alone, never the network: an
@@ -110,8 +110,7 @@ fn canonical(path: &Path) -> PathBuf {
     crate::vfs::canonical(path).unwrap_or_else(|_| path.to_owned())
 }
 
-/// The `elm.json` of the project that owns `file`: the nearest above it
-/// (R7).
+/// The `elm.json` of the project that owns `file`: the nearest above it.
 pub fn manifest(snapshot: &Snapshot, file: &Path) -> Option<PathBuf> {
     file.ancestors()
         .skip(1)
@@ -362,7 +361,7 @@ pub fn index_from(
             .map(|import| import.name)
             .collect();
         let before = visit.modules.len();
-        visit.visit(path, None, &text, parse.syntax(), &imports);
+        visit.visit(path, None, &text, &parse.syntax(), &imports);
         indexed.extend(visit.modules[before..].iter().map(|m| canonical(&m.path)));
     }
     let modules = visit.modules;
@@ -455,7 +454,7 @@ impl Visit<'_> {
                 if let (Some(parse), Some((_, text))) = (&bad.parse, &bad.source) {
                     let imports: Vec<ModuleName> =
                         bad.imports().into_iter().map(|i| i.name).collect();
-                    self.visit(&bad.path, None, text, parse.syntax(), &imports);
+                    self.visit(&bad.path, None, text, &parse.syntax(), &imports);
                 }
             }
             _ => {}
@@ -469,7 +468,7 @@ impl Visit<'_> {
             &module.path,
             Some(&module.name),
             &module.text,
-            syntax,
+            &syntax,
             &imports,
         );
     }
@@ -506,7 +505,7 @@ impl Visit<'_> {
         path: &Path,
         name: Option<&ModuleName>,
         text: &Arc<str>,
-        root: SyntaxNode,
+        root: &SyntaxNode,
         imports: &[ModuleName],
     ) {
         for import in imports {

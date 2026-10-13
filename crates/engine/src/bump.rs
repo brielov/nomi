@@ -157,12 +157,9 @@ fn change_version(
     question: &Doc,
     compat: Compat,
 ) -> bool {
-    let approved = match console::ask(console, question, compat) {
-        Ok(Some(approved)) => approved,
-        _ => {
-            console::no_answer(console, Personality::Elm);
-            return false;
-        }
+    let Ok(Some(approved)) = console::ask(console, question, compat) else {
+        console::no_answer(console, Personality::Elm);
+        return false;
     };
     if !approved {
         console.out("Okay, I did not change anything!\n");

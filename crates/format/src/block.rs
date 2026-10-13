@@ -222,12 +222,12 @@ impl Block {
     /// abcde        myPrefix abcde
     /// xyz    -->            xyz
     /// ```
-    pub(crate) fn prefix(self, prefix: Line) -> Block {
+    pub(crate) fn prefix(self, prefix: &Line) -> Block {
         let padding = Line {
             before: Vec::new(),
             after: vec![Atom::Space; prefix.length(0)],
         };
-        self.map_lines(|l| l.prepend(&prefix), |l| l.prepend(&padding))
+        self.map_lines(|l| l.prepend(prefix), |l| l.prepend(&padding))
     }
 
     /// `suffix` after the last line. A single line comes back joinable,

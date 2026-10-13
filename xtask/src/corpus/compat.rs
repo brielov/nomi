@@ -22,10 +22,10 @@ const FILE: &str = "corpus/compat.toml";
 
 /// An elm release, such as 0.19.1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Version([u32; 3]);
+pub(crate) struct Version([u32; 3]);
 
 impl Version {
-    pub fn parse(text: &str) -> Result<Version> {
+    pub(crate) fn parse(text: &str) -> Result<Version> {
         let parts: Vec<&str> = text.split('.').collect();
         let [major, minor, patch] = parts[..] else {
             bail!("`{text}` is not a version");
@@ -37,7 +37,7 @@ impl Version {
         Ok(Version([number(major)?, number(minor)?, number(patch)?]))
     }
 
-    pub fn parts(self) -> [u32; 3] {
+    pub(crate) fn parts(self) -> [u32; 3] {
         self.0
     }
 }
@@ -51,7 +51,7 @@ impl fmt::Display for Version {
 
 /// A package's `elm-version`, such as `0.19.0 <= v < 0.20.0`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Range {
+pub(crate) struct Range {
     lower: Version,
     lower_inclusive: bool,
     upper: Version,
@@ -59,7 +59,7 @@ pub struct Range {
 }
 
 impl Range {
-    pub fn parse(text: &str) -> Result<Range> {
+    pub(crate) fn parse(text: &str) -> Result<Range> {
         let words: Vec<&str> = text.split_whitespace().collect();
         let [lower, lower_op, "v", upper_op, upper] = words[..] else {
             bail!("`{text}` is not a version range");
@@ -77,7 +77,7 @@ impl Range {
         })
     }
 
-    pub fn admits(self, version: Version) -> bool {
+    pub(crate) fn admits(self, version: Version) -> bool {
         let above = if self.lower_inclusive {
             self.lower <= version
         } else {
@@ -93,7 +93,7 @@ impl Range {
 }
 
 /// The pinned elm releases, oldest first.
-pub fn compats(refs: &references::References) -> Result<Vec<Version>> {
+pub(crate) fn compats(refs: &references::References) -> Result<Vec<Version>> {
     let mut versions = refs
         .binary
         .iter()
@@ -106,7 +106,7 @@ pub fn compats(refs: &references::References) -> Result<Vec<Version>> {
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
-pub struct Classification {
+pub(crate) struct Classification {
     pub compats: Vec<String>,
     /// Packages whose range leaves out a Compat; every other pinned
     /// package admits them all.
@@ -118,7 +118,7 @@ pub struct Classification {
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
-pub struct Excluding {
+pub(crate) struct Excluding {
     pub name: String,
     pub version: String,
     /// Absent when the package has no `elm.json`, which no release can
@@ -129,13 +129,13 @@ pub struct Excluding {
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
-pub struct AppPins {
+pub(crate) struct AppPins {
     pub name: String,
     /// The hash of the app's `elm.json` rewritten for each Compat.
     pub manifest_sha256: BTreeMap<String, String>,
 }
 
-pub fn load(root: &Path) -> Result<Classification> {
+pub(crate) fn load(root: &Path) -> Result<Classification> {
     let text =
         std::fs::read_to_string(root.join(FILE)).with_context(|| format!("reading {FILE}"))?;
     toml::from_str(&text).with_context(|| format!("parsing {FILE}"))
@@ -143,7 +143,7 @@ pub fn load(root: &Path) -> Result<Classification> {
 
 /// `elm.json` with its `elm-version` set to `compat`, every other byte
 /// kept. Only applications name one version.
-pub fn rewrite_manifest(text: &str, compat: Version) -> Result<String> {
+pub(crate) fn rewrite_manifest(text: &str, compat: Version) -> Result<String> {
     let json: serde_json::Value = serde_json::from_str(text).context("parsing elm.json")?;
     ensure!(
         json["type"] == "application",
@@ -169,7 +169,7 @@ pub fn rewrite_manifest(text: &str, compat: Version) -> Result<String> {
 
 /// An app's `elm.json` for a sandbox under `compat`, checked against the
 /// pinned hash.
-pub fn sandbox_manifest(
+pub(crate) fn sandbox_manifest(
     classification: &Classification,
     app: &apps::App,
     compat: Version,
@@ -298,7 +298,7 @@ fn render(classification: &Classification) -> String {
 }
 
 /// `cargo xtask corpus classify`: rewrites `corpus/compat.toml`.
-pub fn classify(root: &Path) -> Result<()> {
+pub(crate) fn classify(root: &Path) -> Result<()> {
     let text = classify_fetched(root)?;
     std::fs::write(root.join(FILE), text).with_context(|| format!("writing {FILE}"))?;
     println!("wrote {FILE}");
@@ -306,7 +306,7 @@ pub fn classify(root: &Path) -> Result<()> {
 }
 
 /// The per-Compat lines of `cargo xtask corpus stats`.
-pub fn stats(root: &Path) -> Result<()> {
+pub(crate) fn stats(root: &Path) -> Result<()> {
     let classification = load(root)?;
     let pinned = packages::load(root)?.packages.len();
     let apps = apps::load(root)?.app;

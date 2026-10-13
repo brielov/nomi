@@ -164,7 +164,7 @@ impl Index {
 
     /// Saves the index at `path` in one step, creating its directory.
     pub fn write(&self, path: &Path) -> io::Result<()> {
-        let dir = path.parent().unwrap_or(Path::new("."));
+        let dir = path.parent().unwrap_or_else(|| Path::new("."));
         fs::create_dir_all(dir)?;
         let mut temp = tempfile::NamedTempFile::new_in(dir)?;
         temp.write_all(&self.encode())?;
@@ -209,18 +209,15 @@ impl Index {
     fn add(&mut self, news: Vec<(Name, Version)>) {
         self.count += news.len();
         for (name, version) in news.into_iter().rev() {
-            match self.packages.get_mut(&name) {
-                Some(known) => {
-                    let previous = std::mem::replace(&mut known.newest, version);
-                    known.previous.insert(0, previous);
-                }
-                None => {
-                    let known = Known {
-                        newest: version,
-                        previous: Vec::new(),
-                    };
-                    self.packages.insert(name, known);
-                }
+            if let Some(known) = self.packages.get_mut(&name) {
+                let previous = std::mem::replace(&mut known.newest, version);
+                known.previous.insert(0, previous);
+            } else {
+                let known = Known {
+                    newest: version,
+                    previous: Vec::new(),
+                };
+                self.packages.insert(name, known);
             }
         }
     }

@@ -2,8 +2,6 @@
 //! store as nomi's cache keeps them, and paths named as the server names
 //! them.
 
-#![allow(dead_code)]
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -12,13 +10,13 @@ use nomi_engine::index::{self, Memo};
 use nomi_engine::{Store, Vfs};
 use nomi_testkit::lsp;
 
-pub fn packages_dir() -> PathBuf {
+pub(crate) fn packages_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages")
 }
 
 /// A store holding the fixture packages, laid out as nomi's cache keeps
 /// downloads, and what to write for each package's directory in it.
-pub fn store(dir: &Path) -> (Store, Vec<(String, String)>) {
+pub(crate) fn store(dir: &Path) -> (Store, Vec<(String, String)>) {
     let manifest = fs::read_to_string(packages_dir().join("manifest.toml")).unwrap();
     let mut packages = Vec::new();
     let (mut name, mut version) = (String::new(), String::new());
@@ -52,7 +50,7 @@ pub fn store(dir: &Path) -> (Store, Vec<(String, String)>) {
     (Store::new(dir.to_owned()), replacements)
 }
 
-pub fn copy_tree(from: &Path, to: &Path) {
+pub(crate) fn copy_tree(from: &Path, to: &Path) {
     fs::create_dir_all(to).unwrap();
     for entry in fs::read_dir(from).unwrap() {
         let entry = entry.unwrap();
@@ -66,7 +64,7 @@ pub fn copy_tree(from: &Path, to: &Path) {
 
 /// The fixture packages built once, for every server to start from: each
 /// would build them again otherwise, which is most of a session's work.
-pub fn built(temp: &Path, store: &Store) -> Memo {
+pub(crate) fn built(temp: &Path, store: &Store) -> Memo {
     let dir = temp.join("prebuild");
     fs::create_dir_all(dir.join("src")).unwrap();
     fs::write(dir.join("elm.json"), lsp::DEFAULT_ELM_JSON).unwrap();
@@ -80,6 +78,6 @@ pub fn built(temp: &Path, store: &Store) -> Memo {
 
 /// `path` as the server names it: resolved, and on Windows long-named
 /// and without the `\\?\` prefix.
-pub fn real(path: &Path) -> PathBuf {
+pub(crate) fn real(path: &Path) -> PathBuf {
     nomi_engine::canonical(path).unwrap()
 }

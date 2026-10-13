@@ -1,4 +1,4 @@
-//! `--optimize` refusing `Debug` (plan 7.2): the report, as elm 0.19.1
+//! `--optimize` refusing `Debug`: the report, as elm 0.19.1
 //! printed it for a project whose modules `Main` and `Other` use
 //! `Debug`, captured from `elm make src/Main.elm --optimize`.
 

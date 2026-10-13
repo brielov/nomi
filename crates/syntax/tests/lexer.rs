@@ -98,13 +98,13 @@ fn qualification_and_negation_remain_parser_decisions() {
 
 #[test]
 fn only_reserved_words_are_lexical_keywords() {
+    use SyntaxKind::*;
     let text = "if then else case of let in type module where import exposing as port \
                 alias infix left right non effect command subscription";
     let keywords: Vec<_> = significant(text)
         .into_iter()
         .map(|(kind, _)| kind)
         .collect();
-    use SyntaxKind::*;
     assert_eq!(
         keywords,
         [
@@ -222,10 +222,7 @@ fn lines_end_at_line_feeds() {
         ]
     );
     // A bare carriage return doesn't end a line comment.
-    assert_eq!(
-        kinds("-- a\rb\r\n"),
-        [SyntaxKind::LineComment, SyntaxKind::Newline]
-    );
+    assert_eq!(kinds("-- a\rb\r\n"), [LineComment, Newline]);
     assert_eq!(
         texts("c\rd \r \r\n", &lex("c\rd \r \r\n")),
         ["c", "\r", "d", " \r ", "\r\n"]
@@ -245,6 +242,7 @@ fn malformed_tokens_are_preserved_with_precise_errors() {
 
 #[test]
 fn independent_malformed_tokens_report_without_losing_input() {
+    use SyntaxKind::*;
     let text = "\"open\n'' 01 0x 1e+ [glsl|open";
     assert_eq!(
         errors(text),
@@ -259,7 +257,6 @@ fn independent_malformed_tokens_report_without_losing_input() {
     );
     assert_lossless(text);
     // Malformed literals keep their kinds for the parser.
-    use SyntaxKind::*;
     assert_eq!(
         significant(text),
         [
@@ -359,6 +356,7 @@ fn error_ranges_point_at_the_problem() {
 
 #[test]
 fn number_boundaries_follow_the_reference_chompers() {
+    use SyntaxKind::*;
     let text = "0e3 1e2name 1.2name";
     assert_eq!(
         errors(text),
@@ -367,7 +365,6 @@ fn number_boundaries_follow_the_reference_chompers() {
             LexErrorKind::NumberFollowedByIdentifier,
         ]
     );
-    use SyntaxKind::*;
     assert_eq!(
         significant(text),
         [
@@ -451,7 +448,7 @@ fn unicode_escape_failures_retain_the_reason_and_literal_text() {
 
 /// Text built from fragments that exercise every lexer path, so random
 /// inputs reach the interesting states more often than arbitrary strings.
-fn elmish() -> impl Strategy<Value = std::string::String> {
+fn elmish() -> impl Strategy<Value = String> {
     let fragment = prop_oneof![
         Just("{-"),
         Just("-}"),
@@ -484,7 +481,7 @@ fn elmish() -> impl Strategy<Value = std::string::String> {
         Just("|>"),
     ]
     .prop_map(str::to_owned);
-    let any = any::<char>().prop_map(std::string::String::from);
+    let any = any::<char>().prop_map(String::from);
     prop::collection::vec(prop_oneof![3 => fragment, 1 => any], 0..40)
         .prop_map(|parts| parts.concat())
 }
@@ -503,7 +500,7 @@ proptest! {
     }
 
     #[test]
-    fn arbitrary_strings_are_lossless(text in any::<std::string::String>()) {
+    fn arbitrary_strings_are_lossless(text in any::<String>()) {
         assert_lossless(&text);
     }
 }

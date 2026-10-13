@@ -89,7 +89,7 @@ fn elm(root: &SyntaxNode, source: Source, errors: &mut Vec<SyntaxError>) {
                 // The `(,)` itself, not a constructor type's arguments.
                 let start = trimmed(&node).start();
                 let end = token(&node, K::RParen)
-                    .map_or(node.text_range().end(), |t| t.text_range().end());
+                    .map_or_else(|| node.text_range().end(), |t| t.text_range().end());
                 push(errors, E::TupleConstructor, TextRange::new(start, end));
             }
             K::FieldType => {
@@ -170,7 +170,7 @@ fn wrapped_columns(parse: &Parse, wrap: u32, errors: &mut Vec<SyntaxError>) {
 fn trimmed(node: &SyntaxNode) -> TextRange {
     let mut tokens = node
         .descendants_with_tokens()
-        .filter_map(|e| e.into_token())
+        .filter_map(rowan::NodeOrToken::into_token)
         .filter(|t| !t.kind().is_trivia());
     let Some(first) = tokens.next() else {
         return node.text_range();
@@ -184,7 +184,7 @@ fn trimmed(node: &SyntaxNode) -> TextRange {
 /// (`Parse/Module.hs`, `infix_`); elm-format reads its characters.
 fn joined_precedence(node: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
     let precedence = token(node, K::Int);
-    let previous = precedence.as_ref().and_then(|t| t.prev_token());
+    let previous = precedence.as_ref().and_then(rowan::SyntaxToken::prev_token);
     if let (Some(precedence), Some(previous)) = (precedence, previous)
         && matches!(previous.kind(), K::LeftKw | K::RightKw | K::NonKw)
     {
@@ -195,7 +195,7 @@ fn joined_precedence(node: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
 
 fn token(node: &SyntaxNode, kind: K) -> Option<SyntaxToken> {
     node.children_with_tokens()
-        .filter_map(|e| e.into_token())
+        .filter_map(rowan::NodeOrToken::into_token)
         .find(|t| t.kind() == kind)
 }
 
@@ -314,7 +314,7 @@ fn keywords(header: &ast::ModuleHeader) -> TextRange {
     let start = trimmed(node).start();
     let end = header
         .module_token()
-        .map_or(node.text_range().end(), |t| t.text_range().end());
+        .map_or_else(|| node.text_range().end(), |t| t.text_range().end());
     TextRange::new(start, end)
 }
 
@@ -406,7 +406,7 @@ fn last_import(module: &ast::Module, errors: &mut Vec<SyntaxError>) {
 
 /// elm's rules on tokens, in one walk over them.
 fn elm_tokens(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
-    for token in (root.descendants_with_tokens()).filter_map(|e| e.into_token()) {
+    for token in (root.descendants_with_tokens()).filter_map(rowan::NodeOrToken::into_token) {
         match token.kind() {
             K::BlockComment | K::DocComment => comment_tabs(&token, errors),
             K::Operator | K::Arrow => operator_chars(&token, errors),
@@ -476,7 +476,7 @@ fn hex_escapes_in(token: &SyntaxToken) -> impl Iterator<Item = (TextRange, &str)
 
 fn literals(root: &SyntaxNode) -> impl Iterator<Item = SyntaxToken> {
     (root.descendants_with_tokens())
-        .filter_map(|e| e.into_token())
+        .filter_map(rowan::NodeOrToken::into_token)
         .filter(|t| matches!(t.kind(), K::String | K::MultilineString | K::Char))
 }
 
@@ -544,7 +544,7 @@ fn string_spanning_lines(token: &SyntaxToken, errors: &mut Vec<SyntaxError>) {
 /// return.
 fn bare_carriage_returns(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
     let whitespace = (root.descendants_with_tokens())
-        .filter_map(|e| e.into_token())
+        .filter_map(rowan::NodeOrToken::into_token)
         .filter(|t| t.kind() == K::Whitespace);
     for token in whitespace {
         if let Some(i) = token.text().find('\r') {
@@ -586,14 +586,14 @@ fn code_block(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
         push(errors, E::LeadingBlockComment, first.text_range());
     }
     let range = last.as_ref().map(trimmed);
-    let end = range.map_or(0.into(), TextRange::end);
+    let end = range.map_or_else(TextSize::default, TextRange::end);
     let text = root.text().to_string();
     let rest = &text[usize::from(end)..];
     let eol_comment = rest.trim_start_matches(' ');
     let one_line = |node: &SyntaxNode, range: TextRange| {
         !node
             .descendants_with_tokens()
-            .filter_map(|e| e.into_token())
+            .filter_map(rowan::NodeOrToken::into_token)
             .any(|t| t.kind() == K::Newline && range.contains_range(t.text_range()))
     };
     // Upstream's `withEol` reads a `--` comment ending the line of an

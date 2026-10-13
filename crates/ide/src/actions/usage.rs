@@ -283,7 +283,7 @@ pub(super) fn parameter_actions(fixing: &Fixing<'_>, range: TextRange) -> Vec<Of
 }
 
 /// Where a signature's last type starts, as tree-sitter-elm's
-/// type_expression's last child: the result type, or the `)` closing it.
+/// `type_expression`'s last child: the result type, or the `)` closing it.
 pub(super) fn last_parameter_type(signature: &SyntaxNode) -> Option<TextSize> {
     let mut ty = signature.children().last()?;
     while ty.kind() == SyntaxKind::FunctionType {

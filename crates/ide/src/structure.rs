@@ -1,4 +1,4 @@
-//! A file's structure as elm-language-server shows it (plan 9.10):
+//! A file's structure as elm-language-server shows it:
 //! folding ranges (`foldingProvider.ts`), selection ranges
 //! (`selectionRangeProvider.ts`), the linked editing of a name and its
 //! annotation (`linkedEditingRangesProvider.ts`), and the project's
@@ -75,7 +75,8 @@ pub fn folding_ranges(snapshot: &Snapshot, path: &Path) -> std::io::Result<Vec<F
                 _ => {}
             },
             SyntaxElement::Node(node) => {
-                let key = code_range(&node).map_or(node.text_range().start(), |r| r.start());
+                let key =
+                    code_range(&node).map_or_else(|| node.text_range().start(), |r| r.start());
                 let mut folds: Vec<Fold> = Vec::new();
                 match node.kind() {
                     SyntaxKind::Import => {
@@ -237,7 +238,7 @@ fn comment_between(a: &SyntaxNode, b: &SyntaxNode) -> bool {
             token.kind(),
             SyntaxKind::LineComment | SyntaxKind::BlockComment | SyntaxKind::DocComment
         ) && token.text_range().end()
-            <= code_range(b).map_or(b.text_range().start(), |r| r.start())
+            <= code_range(b).map_or_else(|| b.text_range().start(), |r| r.start())
         {
             return true;
         }
@@ -345,7 +346,7 @@ fn lines_linked(text: &str, offset: TextSize) -> Vec<TextRange> {
     let start_of = |l: usize| -> TextSize {
         TextSize::new(lines[..l].iter().map(|x| x.len() + 1).sum::<usize>() as u32)
     };
-    let here = lines.get(line).map(|l| l.trim()).unwrap_or("");
+    let here = lines.get(line).map_or("", |l| l.trim());
     if here.starts_with(':') && lines.get(line + 1).is_some_and(|n| n.trim().ends_with('=')) {
         return vec![
             TextRange::empty(start_of(line)),

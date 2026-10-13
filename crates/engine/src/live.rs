@@ -1,4 +1,4 @@
-//! What an editor shows of a project's problems (plan 9.3): every module
+//! What an editor shows of a project's problems: every module
 //! under its source directories checked as `elm make` checks them, over
 //! the editor's open buffers, with dependencies from the package store
 //! alone. elm-language-server compiles the modules that define `main`,

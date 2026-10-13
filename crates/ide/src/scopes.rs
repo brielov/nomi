@@ -1,4 +1,4 @@
-//! Local names by their syntax alone (plan 9.6a), where canonicalization
+//! Local names by their syntax alone, where canonicalization
 //! stopped before reaching them: a module elm rejects, for a shadowed
 //! name or an annotation too short, is still the editor's to navigate.
 //! A name is bound by the nearest pattern around it that binds it, as

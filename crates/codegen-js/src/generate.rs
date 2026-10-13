@@ -476,7 +476,7 @@ mod tests {
         let order: Vec<&str> = ["'Page'", "'Post'", "'Posts'", "'Tag'"]
             .into_iter()
             .map(|name| (exports.find(name).unwrap(), name))
-            .collect::<std::collections::BTreeMap<_, _>>()
+            .collect::<BTreeMap<_, _>>()
             .into_values()
             .collect();
         // elm's own output for elmstatic's four layouts.

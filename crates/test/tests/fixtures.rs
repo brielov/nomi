@@ -1,5 +1,5 @@
-//! Discovery and the runner over node-test-runner's fixture suites
-//! (plans 10.2 and 10.3): the files and modules elm-test's JSON
+//! Discovery and the runner over node-test-runner's fixture suites:
+//! the files and modules elm-test's JSON
 //! transcripts ran, its errors, and the runner it would build.
 
 use std::collections::BTreeSet;
@@ -468,7 +468,7 @@ fn runs_print_what_elm_test_printed() {
             processes: options.processes,
             color,
         };
-        // One worker's exception is the command's to report (plan 10.6a).
+        // One worker's exception is the command's to report.
         let code = match supervise::run(&mut console, &runner.js, supervise).unwrap() {
             Ended::Code(code) => code,
             Ended::Thrown => 1,
@@ -491,7 +491,7 @@ fn runs_print_what_elm_test_printed() {
         );
         if code == 1 {
             // elm-test's own lines, its progress and the line after it, are
-            // the command's (plan 10.6).
+            // the command's.
             continue;
         }
         // The console's progress line is the command's too.

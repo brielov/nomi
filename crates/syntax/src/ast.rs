@@ -54,7 +54,7 @@ mod support {
         parent
             .children_with_tokens()
             .skip_while(|e| e.kind() != token)
-            .find_map(|e| e.into_node())
+            .find_map(rowan::NodeOrToken::into_node)
             .and_then(N::cast)
     }
 
@@ -64,7 +64,7 @@ mod support {
         parent
             .children_with_tokens()
             .take_while(|e| e.kind() != token)
-            .filter_map(|e| e.into_node())
+            .filter_map(rowan::NodeOrToken::into_node)
             .last()
             .and_then(N::cast)
     }
@@ -72,7 +72,7 @@ mod support {
     pub(super) fn token(parent: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxToken> {
         parent
             .children_with_tokens()
-            .filter_map(|e| e.into_token())
+            .filter_map(rowan::NodeOrToken::into_token)
             .find(|t| t.kind() == kind)
     }
 }

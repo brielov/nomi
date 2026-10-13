@@ -1,4 +1,4 @@
-//! Why there is no solution, which upstream doesn't say. PubGrub searches
+//! Why there is no solution, which upstream doesn't say. `PubGrub` searches
 //! the same releases and, when it finds none, derives the reason.
 
 use std::cell::RefCell;
@@ -38,7 +38,7 @@ pub fn explain<P: Packages>(
     }
 }
 
-/// A package to PubGrub: the project's dependencies are a package's.
+/// A package to `PubGrub`: the project's dependencies are a package's.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum Pkg {
     Project,

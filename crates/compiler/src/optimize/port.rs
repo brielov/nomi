@@ -52,7 +52,7 @@ fn fields(compat: Compat, fields: &BTreeMap<String, FieldType>) -> Vec<(&String,
 }
 
 /// `toEncoder`.
-pub fn to_encoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
+pub(super) fn to_encoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
     match ty {
         Type::Alias(_, _, args, alias) => to_encoder(compat, t, &dealias(args, alias)),
         Type::Unit => Expr::Function(vec!["$".to_owned()], Box::new(encode(t, "null"))),
@@ -135,7 +135,7 @@ pub fn to_encoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
 }
 
 /// `toFlagsDecoder`.
-pub fn to_flags_decoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
+pub(super) fn to_flags_decoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
     match ty {
         Type::Unit => {
             let succeed = decode(t, "succeed");
@@ -146,7 +146,7 @@ pub fn to_flags_decoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
 }
 
 /// `toDecoder`.
-pub fn to_decoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
+pub(super) fn to_decoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
     match ty {
         Type::Alias(_, _, args, alias) => to_decoder(compat, t, &dealias(args, alias)),
         Type::Unit => {

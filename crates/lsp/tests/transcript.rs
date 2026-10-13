@@ -31,11 +31,11 @@ struct Client {
 impl Client {
     /// A server started and initialized for a client that offers `encodings`.
     fn start(encodings: &[&str]) -> Client {
-        Client::start_with(encodings, Value::Null)
+        Client::start_with(encodings, &Value::Null)
     }
 
     /// [`Client::start`], with `options` as the initialization options.
-    fn start_with(encodings: &[&str], options: Value) -> Client {
+    fn start_with(encodings: &[&str], options: &Value) -> Client {
         let (server, connection) = Connection::memory();
         let handle = thread::spawn(move || nomi_lsp::run(&server));
         let mut client = Client {
@@ -209,7 +209,7 @@ fn syntax_errors_come_and_go_with_the_text() {
 #[test]
 fn diagnostics_wait_for_a_save_when_asked_to() {
     let (_dir, main) = project();
-    let client = Client::start_with(&[], json!({ "onlyUpdateDiagnosticsOnSave": true }));
+    let client = Client::start_with(&[], &json!({ "onlyUpdateDiagnosticsOnSave": true }));
     client.open(&main, "module Main exposing (x)\n\n\nx =\n    = 1\n");
     assert_eq!(client.diagnostics(&main, |d| !d.is_empty()).len(), 1);
     // Fixed, but not saved: nothing new comes.

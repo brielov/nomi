@@ -2,7 +2,7 @@
 //! elm reports for it, as `cargo xtask oracle outline` stored it in
 //! `oracle.tsv`: whether elm accepts the outline, or the report's title
 //! and the shape of its code excerpt, or that elm loops or crashes. The
-//! report itself is plan 4.4; here it is reduced to that shape with
+//! report itself is checked whole in `reports.rs`; here it is reduced to that shape with
 //! upstream's choices of region (`Reporting/Error/Json.hs`,
 //! `Reporting/Exit.hs`) and of rendering (`Reporting/Render/Code.hs`), so
 //! the test pins the problem and its positions. Every accepted outline

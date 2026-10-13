@@ -1,4 +1,4 @@
-//! nomi invoked as `elm`, against each elm's transcripts of `elm diff` and `elm bump` (plan 8.14), which `cargo xtask oracle diff`
+//! nomi invoked as `elm`, against each elm's transcripts of `elm diff` and `elm bump`, which `cargo xtask oracle diff`
 //! recorded online. `support/registry.rs` runs them against a fixture
 //! registry served on the loopback interface.
 #![cfg(unix)]

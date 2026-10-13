@@ -556,7 +556,7 @@ fn shader_con(
             Type::Record(fields, Box::new(base))
         }
     };
-    let webgl = crate::canonical::Home {
+    let webgl = canonical::Home {
         package: "elm-explorations/webgl".into(),
         module: "WebGL".into(),
     };

@@ -7,13 +7,16 @@ use crate::types::in_name_order;
 use crate::types::render;
 
 /// `toExprReport`'s `RecordAccess`: a field the record lacks.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the problem's fields and the expression's regions, as `toExprReport` has them"
+)]
 pub(super) fn record_access(
     cx: &ReportContext<'_>,
     expr_region: TextRange,
     region: TextRange,
     record_region: TextRange,
-    name: &Option<String>,
+    name: Option<&str>,
     field_region: TextRange,
     field: &str,
     category: &Category,
@@ -21,52 +24,52 @@ pub(super) fn record_access(
     expected: &t::Type,
 ) -> (&'static str, TextRange, Doc) {
     let localizer = cx.localizer;
-    let quoted = name.as_ref().map_or(String::new(), |n| format!("`{n}`"));
-    match t::iterated_dealias(actual.clone()) {
-        t::Type::Record(fields, ext) => {
-            let details = match nearby(localizer, field, &fields, &ext) {
-                None => reflow("In fact, it is a record with NO fields!"),
-                Some((nearest, record)) => stack([
-                    reflow(&format!(
-                        "This is usually a typo. Here are the {quoted} fields that are most similar:"
-                    )),
-                    record,
-                    so_maybe(field, &nearest),
-                ]),
-            };
-            let problem = reflow(&format!(
-                "This {quoted} record does not have a `{field}` field:"
-            ));
-            (
-                "TYPE MISMATCH",
-                expr_region,
-                snip(cx, region, Some(field_region), problem, details),
-            )
-        }
-        _ => {
-            let mut need = words("But I need a record with a");
-            need.push(yellow(text(field.to_owned())));
-            need.push(text("field!"));
-            let lone = lone_type(
-                localizer,
-                actual,
-                expected,
-                reflow(&add_category("It is", category)),
-                vec![fill_sep(need)],
-            );
-            let problem = reflow("This is not a record, so it has no fields to access!");
-            (
-                "TYPE MISMATCH",
-                expr_region,
-                snip(cx, region, Some(record_region), problem, lone),
-            )
-        }
+    let quoted = name.map_or(String::new(), |n| format!("`{n}`"));
+    if let t::Type::Record(fields, ext) = t::iterated_dealias(actual.clone()) {
+        let details = match nearby(localizer, field, &fields, &ext) {
+            None => reflow("In fact, it is a record with NO fields!"),
+            Some((nearest, record)) => stack([
+                reflow(&format!(
+                    "This is usually a typo. Here are the {quoted} fields that are most similar:"
+                )),
+                record,
+                so_maybe(field, &nearest),
+            ]),
+        };
+        let problem = reflow(&format!(
+            "This {quoted} record does not have a `{field}` field:"
+        ));
+        (
+            "TYPE MISMATCH",
+            expr_region,
+            snip(cx, region, Some(field_region), problem, details),
+        )
+    } else {
+        let mut need = words("But I need a record with a");
+        need.push(yellow(text(field.to_owned())));
+        need.push(text("field!"));
+        let lone = lone_type(
+            localizer,
+            actual,
+            expected,
+            reflow(&add_category("It is", category)),
+            vec![fill_sep(need)],
+        );
+        let problem = reflow("This is not a record, so it has no fields to access!");
+        (
+            "TYPE MISMATCH",
+            expr_region,
+            snip(cx, region, Some(record_region), problem, lone),
+        )
     }
 }
 
 /// `toExprReport`'s `RecordUpdateKeys`: an update of a field the record
 /// lacks.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the problem's fields and the expression's regions, as `toExprReport` has them"
+)]
 pub(super) fn record_update_keys(
     cx: &ReportContext<'_>,
     expr_region: TextRange,
@@ -78,68 +81,64 @@ pub(super) fn record_update_keys(
     expected: &t::Type,
 ) -> (&'static str, TextRange, Doc) {
     let localizer = cx.localizer;
-    match t::iterated_dealias(actual.clone()) {
-        t::Type::Record(actual_fields, ext) => {
-            // `Map.lookupMin (Map.difference expected actual)`, in the
-            // release's name order.
-            let missing = (in_name_order(cx.compat, expected_fields).into_iter())
-                .find(|(name, _)| !actual_fields.contains_key(*name));
-            match missing {
-                None => {
-                    let comparison = type_comparison(
-                        localizer,
-                        actual,
-                        expected,
-                        &add_category(&format!("The `{record}` record is"), category),
-                        "But this update needs it to be compatable with:",
-                        vec![reflow(
-                            "Do you mind creating an <http://sscce.org/> that produces this error message and sharing it at <https://github.com/elm/error-message-catalog/issues> so we can try to give better advice here?",
-                        )],
-                    );
-                    let problem = reflow("Something is off with this record update:");
-                    (
-                        "TYPE MISMATCH",
-                        expr_region,
-                        snip(cx, region, None, problem, comparison),
-                    )
-                }
-                Some((field, field_region)) => {
-                    let r = format!("`{record}`");
-                    let details = match nearby(localizer, field, &actual_fields, &ext) {
-                        None => reflow(&format!("In fact, {r} is a record with NO fields!")),
-                        Some((nearest, nearby_record)) => stack([
-                            reflow(&format!(
-                                "This is usually a typo. Here are the {r} fields that are most similar:"
-                            )),
-                            nearby_record,
-                            so_maybe(field, &nearest),
-                        ]),
-                    };
-                    let problem =
-                        reflow(&format!("The {r} record does not have a `{field}` field:"));
-                    (
-                        "TYPE MISMATCH",
-                        expr_region,
-                        snip(cx, region, Some(*field_region), problem, details),
-                    )
-                }
+    if let t::Type::Record(actual_fields, ext) = t::iterated_dealias(actual.clone()) {
+        // `Map.lookupMin (Map.difference expected actual)`, in the
+        // release's name order.
+        let missing = (in_name_order(cx.compat, expected_fields).into_iter())
+            .find(|(name, _)| !actual_fields.contains_key(*name));
+        match missing {
+            None => {
+                let comparison = type_comparison(
+                    localizer,
+                    actual,
+                    expected,
+                    &add_category(&format!("The `{record}` record is"), category),
+                    "But this update needs it to be compatable with:",
+                    vec![reflow(
+                        "Do you mind creating an <http://sscce.org/> that produces this error message and sharing it at <https://github.com/elm/error-message-catalog/issues> so we can try to give better advice here?",
+                    )],
+                );
+                let problem = reflow("Something is off with this record update:");
+                (
+                    "TYPE MISMATCH",
+                    expr_region,
+                    snip(cx, region, None, problem, comparison),
+                )
+            }
+            Some((field, field_region)) => {
+                let r = format!("`{record}`");
+                let details = match nearby(localizer, field, &actual_fields, &ext) {
+                    None => reflow(&format!("In fact, {r} is a record with NO fields!")),
+                    Some((nearest, nearby_record)) => stack([
+                        reflow(&format!(
+                            "This is usually a typo. Here are the {r} fields that are most similar:"
+                        )),
+                        nearby_record,
+                        so_maybe(field, &nearest),
+                    ]),
+                };
+                let problem = reflow(&format!("The {r} record does not have a `{field}` field:"));
+                (
+                    "TYPE MISMATCH",
+                    expr_region,
+                    snip(cx, region, Some(*field_region), problem, details),
+                )
             }
         }
-        _ => {
-            let lone = lone_type(
-                localizer,
-                actual,
-                expected,
-                reflow(&add_category("It is", category)),
-                vec![reflow("But I need a record!")],
-            );
-            let problem = reflow("This is not a record, so it has no fields to update!");
-            (
-                "TYPE MISMATCH",
-                expr_region,
-                snip(cx, region, Some(expr_region), problem, lone),
-            )
-        }
+    } else {
+        let lone = lone_type(
+            localizer,
+            actual,
+            expected,
+            reflow(&add_category("It is", category)),
+            vec![reflow("But I need a record!")],
+        );
+        let problem = reflow("This is not a record, so it has no fields to update!");
+        (
+            "TYPE MISMATCH",
+            expr_region,
+            snip(cx, region, Some(expr_region), problem, lone),
+        )
     }
 }
 

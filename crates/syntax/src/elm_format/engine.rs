@@ -389,7 +389,7 @@ impl<'s> P<'s> {
     }
 
     /// `checkIndent`: here is the indent's column.
-    pub(super) fn check_indent(&mut self) -> R<()> {
+    pub(super) fn check_indent(&self) -> R<()> {
         if self.indent == self.col {
             Ok(())
         } else {
@@ -398,7 +398,7 @@ impl<'s> P<'s> {
     }
 
     /// `indented`: here is right of the indent.
-    pub(super) fn indented(&mut self) -> R<()> {
+    pub(super) fn indented(&self) -> R<()> {
         if self.col <= self.indent {
             self.fail()
         } else {

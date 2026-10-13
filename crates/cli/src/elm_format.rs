@@ -21,7 +21,7 @@ enum Stop {
     Error(String),
 }
 
-pub fn main(args: impl Iterator<Item = OsString>) -> ExitCode {
+pub(crate) fn main(args: impl Iterator<Item = OsString>) -> ExitCode {
     let options = match parse(args) {
         Ok(options) => options,
         Err(Stop::Help) => return help(),

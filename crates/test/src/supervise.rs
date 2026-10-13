@@ -1,5 +1,5 @@
 //! The workers that run the tests, and what they report
-//! (`Supervisor.run`, plan 10.4): each a Node process running the
+//! (`Supervisor.run`): each a Node process running the
 //! runner's program, talking to the supervisor in lines of JSON; their
 //! results printed in order as the report asks.
 //!
@@ -193,7 +193,7 @@ struct State {
     finished: usize,
     /// Each result by its index.
     results: HashMap<usize, Sent>,
-    /// The indices in the order their results came, which JUnit lists.
+    /// The indices in the order their results came, which `JUnit` lists.
     order: Vec<usize>,
     failures: usize,
     todos: Vec<Value>,
@@ -432,7 +432,7 @@ impl State {
         self.next = Some(next);
     }
 
-    /// The JUnit report: the summary's XML with every result, in the
+    /// The `JUnit` report: the summary's XML with every result, in the
     /// order they came.
     fn junit(&self, summary: &Sent) -> String {
         let parse = |text: &str| serde_json::from_str::<Json>(text).unwrap_or(Json::Null);

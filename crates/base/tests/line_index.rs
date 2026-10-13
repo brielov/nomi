@@ -174,7 +174,7 @@ proptest! {
                 Ok(offset) => prop_assert_eq!(index.line_col(&text, offset, unit), Ok(lc(line, col))),
                 Err(PositionError::LineOutOfBounds) => prop_assert!(line >= index.line_count()),
                 Err(PositionError::ColumnOutOfBounds | PositionError::ColumnInsideChar) => {
-                    prop_assert!(line < index.line_count())
+                    prop_assert!(line < index.line_count());
                 }
                 Err(e) => prop_assert!(false, "unexpected {e}"),
             }

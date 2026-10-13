@@ -277,7 +277,7 @@ impl Summary {
         {
             match token.kind() {
                 SyntaxKind::LineComment | SyntaxKind::BlockComment => {
-                    comments.push(letters(&token))
+                    comments.push(letters(&token));
                 }
                 SyntaxKind::DocComment => doc_comments += 1,
                 SyntaxKind::LParen | SyntaxKind::RParen => {}

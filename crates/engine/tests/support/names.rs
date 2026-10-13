@@ -1,8 +1,10 @@
 //! The oracle's projects (`cargo xtask oracle names`, `oracle types`):
 //! the curated cases, the seeds, and the seeds' mutations, each run as
 //! every release, for the naming and type ratchets.
-// Each test target uses only part of the support it shares.
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    reason = "shared by several test binaries, each using part of it"
+)]
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,18 +15,18 @@ use nomi_testkit::transcript::Case;
 
 use crate::projects::{self, ALL, CRASH, compat_name, table};
 
-pub fn dir() -> PathBuf {
+pub(crate) fn dir() -> PathBuf {
     suite("names")
 }
 
 /// The directory of the suite `name`.
-pub fn suite(name: &str) -> PathBuf {
+pub(crate) fn suite(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join(name)
 }
 
-/// The fixture packages every project builds with (plan 5.3).
+/// The fixture packages every project builds with.
 fn packages() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages")
 }
@@ -72,7 +74,7 @@ fn projects(dir: &Path) -> Vec<(String, Case)> {
 }
 
 /// What elm said and what nomi said about one project as one release.
-pub struct Run {
+pub(crate) struct Run {
     /// `<project id>/<release>`, the ratchet's case.
     pub id: String,
     pub elm_json: String,
@@ -85,19 +87,19 @@ pub struct Run {
 }
 
 /// Every naming project as every release, but where elm crashed.
-pub fn runs() -> Vec<Run> {
+pub(crate) fn runs() -> Vec<Run> {
     runs_in(&dir())
 }
 
 /// Every project of the suite in `dir` as every release, but where elm
 /// crashed.
-pub fn runs_in(dir: &Path) -> Vec<Run> {
+pub(crate) fn runs_in(dir: &Path) -> Vec<Run> {
     runs_with(dir, false)
 }
 
 /// [`runs_in`] for a suite of `elm make --docs` projects, with the
 /// `docs.json` each wrote.
-pub fn docs_runs_in(dir: &Path) -> Vec<Run> {
+pub(crate) fn docs_runs_in(dir: &Path) -> Vec<Run> {
     runs_with(dir, true)
 }
 

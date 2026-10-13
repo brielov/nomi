@@ -54,7 +54,7 @@ fn format_module(module: &Module, add_default_header: bool, spacing: usize) -> O
 fn parens(inner: Block) -> Block {
     match inner {
         Block::SingleLine(line) => Block::line(Line::row([Line::text("("), line, Line::text(")")])),
-        inner => Block::stack1([inner.prefix(Line::text("(")), Block::line(Line::text(")"))]),
+        inner => Block::stack1([inner.prefix(&Line::text("(")), Block::line(Line::text(")"))]),
     }
 }
 
@@ -92,7 +92,7 @@ fn surround(left: char, right: char, inner: Block) -> Block {
     let (left, right) = (Line::text(left), Line::text(right));
     match inner {
         Block::SingleLine(line) => Block::line(Line::row([left, line, right])),
-        inner => Block::stack1([inner.prefix(left), Block::line(right)]),
+        inner => Block::stack1([inner.prefix(&left), Block::line(right)]),
     }
 }
 
@@ -103,7 +103,7 @@ fn unit(left: char, right: char, comments: &[Comment]) -> Block {
         [Comment::Line(_), ..] if left == '{' => surround(
             left,
             right,
-            Block::stack1(comments.iter().map(comment)).prefix(Line::space()),
+            Block::stack1(comments.iter().map(comment)).prefix(&Line::space()),
         ),
         _ => surround(
             left,
@@ -160,7 +160,7 @@ fn comment(comment: &Comment) -> Block {
             ])),
             lines => Block::stack1([
                 Block::stack1(lines.iter().map(|l| Block::line(Line::text(l.as_str()))))
-                    .prefix(Line::row([Line::text("{-"), Line::space()])),
+                    .prefix(&Line::row([Line::text("{-"), Line::space()])),
                 Block::line(Line::text("-}")),
             ]),
         },
@@ -301,7 +301,7 @@ fn sequence<T>(
                 (pre, post, eol): &(Vec<Comment>, Vec<Comment>, Option<String>),
                 value: &T| {
         let item = c2_eol(post, &[], eol.as_deref(), render(value))
-            .prefix(Line::row([Line::text(delim), Line::space()]));
+            .prefix(&Line::row([Line::text(delim), Line::space()]));
         match comments(pre) {
             Some(pre) => Block::blank_line().stack(pre).stack(item),
             None => item,

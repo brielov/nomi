@@ -23,7 +23,7 @@ pub(crate) struct Project {
 impl Project {
     /// The project around `dir`, whose dependencies `purpose` concerns,
     /// for one of nomi's own commands.
-    pub fn load(vfs: &Vfs, dir: &Path, purpose: &str) -> Result<Project, Report> {
+    pub(crate) fn load(vfs: &Vfs, dir: &Path, purpose: &str) -> Result<Project, Report> {
         let Some(root) = Root::find(vfs, dir) else {
             return Err(no_outline(purpose));
         };
@@ -32,12 +32,16 @@ impl Project {
 
     /// The project at `root`, its problems told as `personality` tells
     /// them.
-    pub fn read(vfs: &Vfs, root: &Root, personality: Personality) -> Result<Project, Report> {
+    pub(crate) fn read(
+        vfs: &Vfs,
+        root: &Root,
+        personality: Personality,
+    ) -> Result<Project, Report> {
         let path = root.elm_json();
         let src = vfs.read_bytes(&path).map_err(|e| {
             one_line(
                 "PROBLEM READING ELM.JSON",
-                format!("I could not read elm.json: {e}"),
+                &format!("I could not read elm.json: {e}"),
             )
         })?;
         let (outline, compat) = Outline::detect(&src)
@@ -50,11 +54,11 @@ impl Project {
     }
 
     /// Writes `outline` over the project's `elm.json`.
-    pub fn write(&self, vfs: &Vfs, outline: &Outline) -> Result<(), Report> {
+    pub(crate) fn write(&self, vfs: &Vfs, outline: &Outline) -> Result<(), Report> {
         vfs.write(&self.path, outline.write()).map_err(|e| {
             one_line(
                 "PROBLEM WRITING ELM.JSON",
-                format!("I could not write elm.json: {e}"),
+                &format!("I could not write elm.json: {e}"),
             )
         })
     }
@@ -64,7 +68,7 @@ impl Project {
 pub(crate) fn no_outline(purpose: &str) -> Report {
     one_line(
         "NO ELM.JSON",
-        format!(
+        &format!(
             "I cannot find an elm.json here or in any directory above, so there is no project \
              {purpose}."
         ),

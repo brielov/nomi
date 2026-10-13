@@ -129,11 +129,9 @@ pub fn format_paths(vfs: &Vfs, roots: &[PathBuf], mode: Mode) -> Report {
     for root in roots {
         match vfs.discover(root) {
             Ok(found) if found.is_empty() => report.roots.push((root.clone(), RootError::Empty)),
-            Ok(found) => files.extend(
-                found
-                    .into_iter()
-                    .filter(|file| seen.insert(fs::canonicalize(file).unwrap_or(file.clone()))),
-            ),
+            Ok(found) => files.extend(found.into_iter().filter(|file| {
+                seen.insert(fs::canonicalize(file).unwrap_or_else(|_| file.clone()))
+            })),
             Err(e) => report.roots.push((root.clone(), RootError::Io(e))),
         }
     }

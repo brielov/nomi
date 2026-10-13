@@ -1,4 +1,4 @@
-//! `NOMI_TIMINGS=1` (plan B.2): where a build's time goes. Stages run one
+//! `NOMI_TIMINGS=1`: where a build's time goes. Stages run one
 //! after another on the build's thread, so their wall times add up to the
 //! build's; work runs on the pool, so its times, added across threads, come
 //! to about the build's CPU time. Off, a phase costs one load of a flag.

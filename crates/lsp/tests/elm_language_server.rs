@@ -1,4 +1,4 @@
-//! Parity with elm-language-server 2.10.0 (plan 9.1): each case's session,
+//! Parity with elm-language-server 2.10.0: each case's session,
 //! recorded from it by `cargo xtask oracle lsp`, replayed against `nomi
 //! lsp` on an in-memory connection, and its diagnostics and each answer
 //! compared under the ratchet.

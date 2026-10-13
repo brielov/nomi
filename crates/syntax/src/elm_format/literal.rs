@@ -39,7 +39,7 @@ fn number(p: &mut P<'_>) -> R<()> {
         _ => return p.fail(),
     };
     // `fromIntegral` to a `Word16`, which wraps.
-    #[allow(clippy::cast_possible_truncation, reason = "Word16 arithmetic")]
+    #[expect(clippy::cast_possible_truncation, reason = "Word16 arithmetic")]
     let col = |at: usize| p.col.wrapping_add((at - start) as u16);
     match outcome {
         Outcome::Ok(end) => {
@@ -217,7 +217,7 @@ fn char_width(word: u8) -> usize {
     }
 }
 
-#[allow(clippy::cast_possible_truncation, reason = "Word16 arithmetic")]
+#[expect(clippy::cast_possible_truncation, reason = "Word16 arithmetic")]
 fn cols(n: usize) -> u16 {
     n as u16
 }

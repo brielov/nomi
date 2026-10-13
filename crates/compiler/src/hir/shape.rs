@@ -1,5 +1,5 @@
 //! A module's shape: its HIR as elm reads it, without IDs, source
-//! positions or spelling. Formatting must leave it unchanged (plan 5.15),
+//! positions or spelling. Formatting must leave it unchanged,
 //! so two spellings of one program have one shape:
 //!
 //! - parentheses are already gone, and `(f a) b` is `f a b`;
@@ -154,18 +154,16 @@ impl Shape<'_> {
                 }
                 self.expr(*body);
             }
-            Def::Destruct { pattern, body } => match &self.module.patterns[*pattern] {
+            Def::Destruct { pattern, body } => {
                 // `(x) = e` is `x = e`.
-                Pattern::Var(name) => {
+                if let Pattern::Var(name) = &self.module.patterns[*pattern] {
                     self.line(format!("{prefix}value {name} 0 annotated false docs false"));
-                    self.expr(*body);
-                }
-                _ => {
+                } else {
                     self.line(format!("{prefix}destruct"));
                     self.pattern(*pattern);
-                    self.expr(*body);
                 }
-            },
+                self.expr(*body);
+            }
         }
     }
 
@@ -185,7 +183,7 @@ impl Shape<'_> {
                 qualifier,
                 name,
                 upper: _,
-            } => self.line(format!("var {}", qualified(qualifier, name))),
+            } => self.line(format!("var {}", qualified(qualifier.as_deref(), name))),
             Expr::List(items) => {
                 self.line(format!("list {}", items.len()));
                 exprs(self, items);
@@ -207,7 +205,9 @@ impl Shape<'_> {
             }
             Expr::Lambda { params, body } => {
                 self.line(format!("lambda {}", params.len()));
-                params.iter().for_each(|&p| self.pattern(p));
+                for &p in params {
+                    self.pattern(p);
+                }
                 self.expr(*body);
             }
             // `(f a) b` is `f a b`.
@@ -235,7 +235,9 @@ impl Shape<'_> {
             }
             Expr::Let { defs, body } => {
                 self.line(format!("let {}", defs.len()));
-                defs.iter().for_each(|&d| self.def(d, ""));
+                for &d in defs {
+                    self.def(d, "");
+                }
                 self.expr(*body);
             }
             Expr::Case {
@@ -256,11 +258,15 @@ impl Shape<'_> {
             }
             Expr::Update { record, fields } => {
                 self.line(format!("update {} {}", record.text, field_names(fields)));
-                fields.iter().for_each(|&(_, e)| self.expr(e));
+                for &(_, e) in fields {
+                    self.expr(e);
+                }
             }
             Expr::Record(fields) => {
                 self.line(format!("record {}", field_names(fields)));
-                fields.iter().for_each(|&(_, e)| self.expr(e));
+                for &(_, e) in fields {
+                    self.expr(e);
+                }
             }
             Expr::Unit => self.line("unit".to_owned()),
             Expr::Tuple(items) => {
@@ -298,7 +304,7 @@ impl Shape<'_> {
             } => {
                 self.line(format!(
                     "ctor {} {}",
-                    qualified(qualifier, &name.text),
+                    qualified(qualifier.as_deref(), &name.text),
                     args.len()
                 ));
                 patterns(self, args);
@@ -338,20 +344,26 @@ impl Shape<'_> {
             } => {
                 self.line(format!(
                     "type {} {}",
-                    qualified(qualifier, &name.text),
+                    qualified(qualifier.as_deref(), &name.text),
                     args.len()
                 ));
-                args.iter().for_each(|&a| self.ty(a));
+                for &a in args {
+                    self.ty(a);
+                }
             }
             Type::Record { fields, extends } => {
                 let extends = extends.as_ref().map_or("", |e| e.text.as_str());
                 self.line(format!("trecord {extends} | {}", field_names(fields)));
-                fields.iter().for_each(|&(_, t)| self.ty(t));
+                for &(_, t) in fields {
+                    self.ty(t);
+                }
             }
             Type::Unit => self.line("tunit".to_owned()),
             Type::Tuple(items) => {
                 self.line(format!("ttuple {}", items.len()));
-                items.iter().for_each(|&t| self.ty(t));
+                for &t in items {
+                    self.ty(t);
+                }
             }
         }
     }
@@ -367,7 +379,7 @@ fn field_names<T>(fields: &[(Spanned, T)]) -> String {
     names.join(" ")
 }
 
-fn qualified(qualifier: &Option<String>, name: &str) -> String {
+fn qualified(qualifier: Option<&str>, name: &str) -> String {
     match qualifier {
         Some(q) => format!("{q}.{name}"),
         None => name.to_owned(),

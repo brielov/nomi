@@ -74,7 +74,7 @@ fn update(
         update::Plan::App { changes, outline } => (changes, Outline::App(outline)),
     };
     match console::ask(console, &plan_question(&changes), *compat) {
-        Err(e) => Err(one_line("PROBLEM READING ANSWER", e.to_string())),
+        Err(e) => Err(one_line("PROBLEM READING ANSWER", &e.to_string())),
         Ok(None) => {
             console::no_answer(console, Personality::Nomi);
             Ok(false)
@@ -95,14 +95,14 @@ fn update_problem(package: Option<&Name>, problem: UpdateProblem<SolverProblem>)
     match problem {
         UpdateProblem::NotADependency => one_line(
             "NOT A DEPENDENCY",
-            format!(
+            &format!(
                 "Your elm.json does not depend on {}, so there is nothing to update.",
                 package.map_or_else(String::new, Name::to_string)
             ),
         ),
         UpdateProblem::Unavailable(name, version) => one_line(
             "PROBLEM LOADING PACKAGE",
-            format!(
+            &format!(
                 "I need the elm.json of {name} {version} to know what it depends on, but I \
                  could not get it."
             ),
@@ -110,8 +110,7 @@ fn update_problem(package: Option<&Name>, problem: UpdateProblem<SolverProblem>)
         UpdateProblem::NoSolution => one_line(
             "CANNOT FIND COMPATIBLE VERSIONS",
             "I cannot find a set of packages that satisfies elm.json, even when I let each \
-             direct dependency move up to its next major version."
-                .to_owned(),
+             direct dependency move up to its next major version.",
         ),
         UpdateProblem::Solver(problem) => report::solver_problem(&problem),
     }

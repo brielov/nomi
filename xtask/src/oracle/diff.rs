@@ -1,6 +1,6 @@
 //! `cargo xtask oracle diff` and `oracle publish`: each pinned elm's
-//! transcript of every case of `elm diff` and `elm bump` (plan 8.14), and
-//! of `elm publish` failing (plan 8.14c), stored for the CLI's tests.
+//! transcript of every case of `elm diff` and `elm bump`, and
+//! of `elm publish` failing, stored for the CLI's tests.
 //!
 //! No publish case may reach GitHub, past which elm would register the
 //! package for real: none may hold a git repository, so each stops at
@@ -36,17 +36,17 @@ use crate::corpus::compat;
 use crate::download::{get_quiet, post_quiet};
 use crate::references::References;
 
-pub const CASES: &str = "crates/cli/tests/elm_diff";
+pub(crate) const CASES: &str = "crates/cli/tests/elm_diff";
 
-pub const PUBLISH_CASES: &str = "crates/cli/tests/elm_publish";
+pub(crate) const PUBLISH_CASES: &str = "crates/cli/tests/elm_publish";
 
 /// `oracle diff`.
-pub fn run(root: &Path, refs: &References) -> Result<()> {
+pub(crate) fn run(root: &Path, refs: &References) -> Result<()> {
     record_all(root, refs, CASES, "diff")
 }
 
 /// `oracle publish`.
-pub fn publish(root: &Path, refs: &References) -> Result<()> {
+pub(crate) fn publish(root: &Path, refs: &References) -> Result<()> {
     record_all(root, refs, PUBLISH_CASES, "publish")
 }
 

@@ -1,4 +1,4 @@
-//! The JavaScript ratchet (plan 8.5): each fixture program of
+//! The JavaScript ratchet: each fixture program of
 //! `javascript/cases` in each mode as each release, passing when nomi
 //! generates the bytes elm did, whose hashes `cargo xtask oracle
 //! javascript` keeps in `expected.sha256`. A mode elm refuses, as

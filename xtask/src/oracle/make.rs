@@ -1,5 +1,5 @@
 //! `cargo xtask oracle make`: each pinned elm's transcript of every case
-//! of the CLI report matrix (plan 7.5a), stored for the CLI's `elm_make`
+//! of the CLI report matrix, stored for the CLI's `elm_make`
 //! ratchet.
 //!
 //! A case is a project and `elm make`'s arguments, nearly all with
@@ -12,7 +12,7 @@
 //! wrote it.
 //!
 //! Each case runs a second time without `--report=json`, for the terminal
-//! style's messages (plan 8.13a), into `expected_terminal/`.
+//! style's messages, into `expected_terminal/`.
 //!
 //! [`Transcript::compared`]: nomi_testkit::transcript::Transcript::compared
 
@@ -31,7 +31,7 @@ use crate::corpus::compat::{self, Version};
 use crate::corpus::parallel_on;
 use crate::references::References;
 
-pub const CASES: &str = "crates/cli/tests/elm_make";
+pub(crate) const CASES: &str = "crates/cli/tests/elm_make";
 
 /// The packages the CLI's tests serve, vendored for the compiler's.
 const PACKAGES: [&str; 10] = [
@@ -53,7 +53,7 @@ const RETRIES: u32 = 5;
 /// Runs of one terminal case before a cut-short success is kept.
 const CUT_SHORT_RETRIES: u32 = 20;
 
-pub fn run(root: &Path, refs: &References) -> Result<()> {
+pub(crate) fn run(root: &Path, refs: &References) -> Result<()> {
     let dir = root.join(CASES);
     let pinned = pinned(root, &PACKAGES)?;
     let mut json = Vec::new();
@@ -128,7 +128,7 @@ pub fn run(root: &Path, refs: &References) -> Result<()> {
 }
 
 /// `case` in the terminal style: without `--report=json`.
-pub fn terminal(case: &Case) -> Case {
+pub(crate) fn terminal(case: &Case) -> Case {
     let mut case = case.clone();
     case.args.retain(|a| a != "--report=json");
     case
@@ -136,7 +136,7 @@ pub fn terminal(case: &Case) -> Case {
 
 /// The case with an application's `elm-version` set to `version`, where
 /// it names a pinned elm; a case about other versions keeps its own.
-pub fn as_release(case: &Case, version: Version) -> Case {
+pub(crate) fn as_release(case: &Case, version: Version) -> Case {
     let mut case = case.clone();
     for (path, text) in &mut case.files {
         if path != "elm.json" || !text.contains("\"type\": \"application\"") {

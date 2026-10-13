@@ -103,7 +103,7 @@ fn the_latest_index_is_saved_and_serves_offline() {
     let http = Fixture::new(&[Ok(ALL)]);
     let (index, connection) = Index::latest(&http, &path, LATEST).unwrap();
     assert_eq!(connection, Connection::Online);
-    assert_eq!(Index::read(&path, LATEST).unwrap(), Some(index.clone()));
+    assert_eq!(Index::read(&path, LATEST).unwrap(), Some(index));
     // Updated, then saved.
     let http = Fixture::new(&[Ok(r#"["elm/core@1.0.6"]"#)]);
     let (updated, connection) = Index::latest(&http, &path, LATEST).unwrap();

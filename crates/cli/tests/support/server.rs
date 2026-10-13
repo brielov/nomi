@@ -1,7 +1,6 @@
 //! A package website served over HTTP on the loopback interface, for
 //! commands that must reach the registry, as `elm diff` must; nomi finds
 //! it through `NOMI_REGISTRY`.
-#![allow(dead_code)] // Each test target uses part.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
@@ -9,15 +8,15 @@ use std::sync::Arc;
 
 /// What answers a request: the method and path, and the body sent; `None`
 /// for a 404.
-pub type Handler = dyn Fn(&str, &str, &[u8]) -> Option<Vec<u8>> + Send + Sync;
+pub(crate) type Handler = dyn Fn(&str, &str, &[u8]) -> Option<Vec<u8>> + Send + Sync;
 
 /// A running server, until the test process ends.
-pub struct Server {
+pub(crate) struct Server {
     pub url: String,
 }
 
 impl Server {
-    pub fn start(handler: Arc<Handler>) -> Server {
+    pub(crate) fn start(handler: Arc<Handler>) -> Server {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         std::thread::spawn(move || {

@@ -17,7 +17,7 @@ const TIMEOUT: Duration = Duration::from_secs(600);
 
 /// What one run cost.
 #[derive(Clone, Copy, Debug)]
-pub struct Cost {
+pub(crate) struct Cost {
     pub wall: Duration,
     pub cpu: Duration,
     /// Peak resident memory, in KiB.
@@ -25,14 +25,14 @@ pub struct Cost {
 }
 
 impl Cost {
-    pub const MAX: Cost = Cost {
+    pub(crate) const MAX: Cost = Cost {
         wall: Duration::MAX,
         cpu: Duration::MAX,
         memory: u64::MAX,
     };
 
     /// The least of each measure.
-    pub fn min(self, other: Cost) -> Cost {
+    pub(crate) fn min(self, other: Cost) -> Cost {
         Cost {
             wall: self.wall.min(other.wall),
             cpu: self.cpu.min(other.cpu),
@@ -42,7 +42,7 @@ impl Cost {
 }
 
 /// A command to measure, offline.
-pub struct Run<'a> {
+pub(crate) struct Run<'a> {
     pub binary: &'a Path,
     pub args: Vec<OsString>,
     pub dir: &'a Path,
@@ -54,7 +54,7 @@ pub struct Run<'a> {
 
 /// Runs `run` once: what it cost and its exit code, `None` when a signal
 /// ended it.
-pub fn measure(run: &Run<'_>) -> Result<(Cost, Option<i32>)> {
+pub(crate) fn measure(run: &Run<'_>) -> Result<(Cost, Option<i32>)> {
     use std::io::Write;
     let mut command = Command::new("/usr/bin/time");
     command.arg("-o").arg(run.report);
@@ -139,7 +139,7 @@ fn parse_time(report: &str) -> Result<(Duration, u64)> {
 
 /// The best of `runs` runs of `run` for each measure, which must exit
 /// alike every time: the exit code with the costs.
-pub fn best_of(
+pub(crate) fn best_of(
     runs: usize,
     mut each: impl FnMut() -> Result<(Cost, Option<i32>)>,
 ) -> Result<(Cost, Option<i32>)> {
@@ -159,7 +159,7 @@ pub fn best_of(
 
 /// The machine, as a scoreboard records it: processor, threads, memory and
 /// target.
-pub fn machine() -> String {
+pub(crate) fn machine() -> String {
     let threads = std::thread::available_parallelism().map_or(0, |n| n.get());
     let target = format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS);
     let read = |path: &str| fs::read_to_string(path).unwrap_or_default();

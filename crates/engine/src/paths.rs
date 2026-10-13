@@ -165,22 +165,22 @@ mod tests {
         }
     }
 
-    fn at(dir: &str) -> Result<Cache, CacheError> {
-        Ok(Cache(PathBuf::from(abs(dir))))
+    fn at(dir: &str) -> Cache {
+        Cache(PathBuf::from(abs(dir)))
     }
 
     #[test]
     fn the_variable_comes_first() {
         let (c, h) = (abs("/c"), abs("/h"));
         let vars = [(NOMI_CACHE, c.as_str()), ("HOME", h.as_str())];
-        assert_eq!(cache("linux", &vars), at("/c"));
+        assert_eq!(cache("linux", &vars), Ok(at("/c")));
         assert_eq!(
             cache("linux", &[(NOMI_CACHE, "c")]),
             Err(CacheError::Relative(NOMI_CACHE))
         );
         assert_eq!(
             cache("linux", &[(NOMI_CACHE, ""), ("HOME", h.as_str())]),
-            at("/h/.cache/nomi")
+            Ok(at("/h/.cache/nomi"))
         );
     }
 
@@ -188,15 +188,15 @@ mod tests {
     fn then_the_users_cache_directory() {
         let (h, x) = (abs("/h"), abs("/x"));
         let home = ("HOME", h.as_str());
-        assert_eq!(cache("macos", &[home]), at("/h/Library/Caches/nomi"));
-        assert_eq!(cache("linux", &[home]), at("/h/.cache/nomi"));
+        assert_eq!(cache("macos", &[home]), Ok(at("/h/Library/Caches/nomi")));
+        assert_eq!(cache("linux", &[home]), Ok(at("/h/.cache/nomi")));
         assert_eq!(
             cache("freebsd", &[home, ("XDG_CACHE_HOME", x.as_str())]),
-            at("/x/nomi")
+            Ok(at("/x/nomi"))
         );
         assert_eq!(
             cache("linux", &[home, ("XDG_CACHE_HOME", "x")]),
-            at("/h/.cache/nomi")
+            Ok(at("/h/.cache/nomi"))
         );
         assert_eq!(cache("linux", &[]), Err(CacheError::Unknown));
         assert_eq!(cache("linux", &[("HOME", "h")]), Err(CacheError::Unknown));

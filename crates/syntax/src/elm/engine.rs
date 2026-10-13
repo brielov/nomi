@@ -36,7 +36,7 @@ pub(super) type Alt<'a, 's, T, X> = &'a mut dyn FnMut(&mut P<'s>) -> Result<T, X
 
 impl<'s> P<'s> {
     pub(super) fn new(src: &'s [u8], compat: Compat) -> P<'s> {
-        let first = if compat == Compat::V0_19_1 { 1 } else { 0 };
+        let first = u32::from(compat == Compat::V0_19_1);
         P {
             src,
             pos: 0,

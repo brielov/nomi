@@ -16,7 +16,7 @@ use nomi_engine::{Vfs, bump, diff, publish};
 
 use crate::terminal::{self, Chunks, Flag, Parser};
 
-pub fn main(args: impl Iterator<Item = OsString>) -> ExitCode {
+pub(crate) fn main(args: impl Iterator<Item = OsString>) -> ExitCode {
     let args: Vec<String> = args.map(|a| a.to_string_lossy().into_owned()).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let succeeded = match args[..] {

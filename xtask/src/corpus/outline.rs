@@ -14,7 +14,7 @@ use nomi_project::Outline;
 
 use super::{apps, compat, corpus_dir, packages};
 
-pub fn check(root: &Path) -> Result<()> {
+pub(crate) fn check(root: &Path) -> Result<()> {
     let corpus = corpus_dir()?;
     let classification = compat::load(root)?;
     let compats: Vec<Compat> = classification

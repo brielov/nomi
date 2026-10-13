@@ -42,7 +42,7 @@ pub(crate) fn module(root: &SyntaxNode, text: &str) -> Module {
     let body_start = module
         .decls()
         .next()
-        .map_or(text_end(text), |d| cx.range(d.syntax()).start());
+        .map_or_else(|| text_end(text), |d| cx.range(d.syntax()).start());
 
     let initial_comments = cx.take(match significant(root).next() {
         Some(first) => first.text_range().start(),
@@ -66,7 +66,7 @@ pub(crate) fn module(root: &SyntaxNode, text: &str) -> Module {
     let mut body = Vec::new();
     for (i, import) in imports.iter().enumerate() {
         let (name, method) = header::import(&mut cx, import);
-        header::insert_import(&mut merged, name, method, &used);
+        header::insert_import(&mut merged, &name, method, &used);
         match imports.get(i + 1) {
             Some(next) => comments.extend(cx.take(cx.range(next.syntax()).start())),
             None => body.extend(
@@ -106,7 +106,7 @@ fn fresh_line_end(root: &SyntaxNode, end: TextSize) -> TextSize {
         .take_while(|t| t.text_range().end() <= end)
         .filter(|t| matches!(t.kind(), SyntaxKind::Newline | SyntaxKind::LineComment))
         .last()
-        .map_or(TextSize::default(), |t| t.text_range().end())
+        .map_or_else(TextSize::default, |t| t.text_range().end())
 }
 
 fn c<C, T>(comments: C, value: T) -> Commented<C, T> {
@@ -251,7 +251,7 @@ fn pair<N: AstNode, T>(
 fn separated<N: AstNode, T>(
     cx: &mut Cursor,
     terms: Vec<N>,
-    separators: Vec<SyntaxToken>,
+    separators: &[SyntaxToken],
     mut lower: impl FnMut(&mut Cursor, &N) -> T,
 ) -> (C0Eol<T>, Sequence<T>) {
     let mut terms = terms.into_iter();

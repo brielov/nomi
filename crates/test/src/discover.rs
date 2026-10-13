@@ -1,5 +1,5 @@
 //! Which modules the test files are, and which of their values are tests
-//! (`FindTests.findTests`, plan 10.2).
+//! (`FindTests.findTests`).
 //!
 //! elm-test takes a file's exposed values by syntax, then asks the
 //! compiled JavaScript which are tests. nomi asks the types: a module's

@@ -109,7 +109,7 @@ fn cons(cx: &mut Cursor, node: &ast::ConsPattern) -> Pattern {
             }
         }
     }
-    let (first, rest) = separated(cx, terms, separators, pattern);
+    let (first, rest) = separated(cx, terms, &separators, pattern);
     Pattern::Cons {
         first: Box::new(first),
         rest,

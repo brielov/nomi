@@ -10,21 +10,22 @@ use nomi_testkit::ratchet::Suite;
 
 #[test]
 fn syntax_mutations() {
-    let outcomes = common::each_seed(seed_outcomes);
+    let outcomes = common::each_seed(|seed| seed_outcomes(&seed));
     Suite::open(common::dir()).finish(outcomes);
 }
 
 type Outcome = (String, Result<(), String>);
 
-fn seed_outcomes(seed: common::Seed) -> Vec<Outcome> {
+fn seed_outcomes(seed: &common::Seed) -> Vec<Outcome> {
     let mut outcomes = Vec::with_capacity(seed.cases.len());
     for (m, cells) in &seed.cases {
         let parse = nomi_syntax::parse_module(&m.source);
         // Releases rarely differ; validate each tool once.
         let mut verdicts: Vec<(Tool, bool)> = Vec::new();
-        let mut accepts = |tool: Tool| match verdicts.iter().find(|(t, _)| *t == tool) {
-            Some(&(_, accepted)) => accepted,
-            None => {
+        let mut accepts = |tool: Tool| {
+            if let Some(&(_, accepted)) = verdicts.iter().find(|(t, _)| *t == tool) {
+                accepted
+            } else {
                 let accepted =
                     parse.errors().is_empty() && nomi_syntax::validate(&parse, tool).is_empty();
                 verdicts.push((tool, accepted));

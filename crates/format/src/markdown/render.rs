@@ -237,7 +237,7 @@ fn quoted_title(title: &str) -> String {
     }
 }
 
-/// Upstream's `longestSpanOf '`'`.
+/// Upstream's ``longestSpanOf '`'``.
 fn longest_backtick_run(text: &str) -> usize {
     text.split(|c| c != '`').map(str::len).max().unwrap_or(0)
 }

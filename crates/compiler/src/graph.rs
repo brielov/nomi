@@ -88,19 +88,16 @@ fn dfs(
         let mut tree = vec![root];
         stack.push((root, 0));
         while let Some(&(v, next)) = stack.last() {
-            match edges[v].get(next) {
-                Some(&w) => {
-                    stack.last_mut().expect("the stack has v").1 += 1;
-                    if !seen[w] {
-                        seen[w] = true;
-                        tree.push(w);
-                        stack.push((w, 0));
-                    }
+            if let Some(&w) = edges[v].get(next) {
+                stack.last_mut().expect("the stack has v").1 += 1;
+                if !seen[w] {
+                    seen[w] = true;
+                    tree.push(w);
+                    stack.push((w, 0));
                 }
-                None => {
-                    postorder.push(v);
-                    stack.pop();
-                }
+            } else {
+                postorder.push(v);
+                stack.pop();
             }
         }
         trees.push(tree);

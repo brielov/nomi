@@ -2,7 +2,7 @@
 //! with IDs. Expressions, patterns, types and definitions live in arenas,
 //! and the [`SourceMap`] takes each ID back to its CST node, so later
 //! phases keep what they learn in tables keyed by ID and report at the
-//! node. Names are as written: canonicalization (M5) says what they mean.
+//! node. Names are as written: canonicalization says what they mean.
 //!
 //! Lowering is total. Where the CST is missing a piece, as in a module
 //! with syntax errors the editor still asks about, the HIR has a

@@ -120,12 +120,12 @@ fn canonicalize_into(
         .collect();
     let imports = with_defaults(package, &module.imports);
     // The module's own exposing list names its declarations.
-    if let hir::Exposing::Explicit(items) = &module.exports {
+    if let Exposing::Explicit(items) = &module.exports {
         for item in items {
             let (name, kind) = match item {
-                hir::Exposed::Lower(n) => (n, Kind::Value),
-                hir::Exposed::Upper(n, _) => (n, Kind::Type),
-                hir::Exposed::Operator(n) => (n, Kind::Binop),
+                Exposed::Lower(n) => (n, Kind::Value),
+                Exposed::Upper(n, _) => (n, Kind::Type),
+                Exposed::Operator(n) => (n, Kind::Binop),
             };
             references.global(name.range, &home, &name.text, kind);
         }
@@ -244,29 +244,26 @@ pub(super) fn typed_args(
     let mut ty = ty.clone();
     let mut typed = Vec::with_capacity(params.len());
     for (index, &param) in params.iter().enumerate() {
-        match dealias(ty) {
-            Type::Lambda(arg, result) => {
-                let pattern = pattern::canonicalize(env, module, param, bindings)?;
-                typed.push((pattern, *arg));
-                ty = *result;
-            }
-            _ => {
-                let range = |id| {
-                    module
-                        .source_map
-                        .pattern(id)
-                        .map(|p| p.range)
-                        .unwrap_or_default()
-                };
-                let first = range(param);
-                let last = range(*params.last().expect("a parameter"));
-                return throw(Error::AnnotationTooShort {
-                    range: TextRange::new(first.start(), last.end()),
-                    name: name.to_owned(),
-                    index,
-                    leftover: params.len() - index,
-                });
-            }
+        if let Type::Lambda(arg, result) = dealias(ty) {
+            let pattern = pattern::canonicalize(env, module, param, bindings)?;
+            typed.push((pattern, *arg));
+            ty = *result;
+        } else {
+            let range = |id| {
+                module
+                    .source_map
+                    .pattern(id)
+                    .map(|p| p.range)
+                    .unwrap_or_default()
+            };
+            let first = range(param);
+            let last = range(*params.last().expect("a parameter"));
+            return throw(Error::AnnotationTooShort {
+                range: TextRange::new(first.start(), last.end()),
+                name: name.to_owned(),
+                index,
+                leftover: params.len() - index,
+            });
         }
     }
     Ok((typed, ty))
@@ -435,7 +432,7 @@ fn exports(
     Ok(Exports::Explicit(exports.into_iter().collect()))
 }
 
-/// The annotation of a value whose type nomi doesn't infer yet (M6): its
+/// The annotation of a value whose type nomi doesn't infer yet: its
 /// name is all an importer needs to canonicalize.
 fn unknown() -> Annotation {
     Annotation {

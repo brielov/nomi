@@ -9,7 +9,7 @@ const POOLS: &[&str] = &["rayon", "rayon-core", "threadpool", "tokio"];
 
 /// `direct` pairs each nomi crate, by short name, with the external crates
 /// it names as normal dependencies.
-pub fn check(direct: &[(String, Vec<String>)]) -> Vec<String> {
+pub(crate) fn check(direct: &[(String, Vec<String>)]) -> Vec<String> {
     direct
         .iter()
         .filter(|(krate, _)| krate != OWNER)

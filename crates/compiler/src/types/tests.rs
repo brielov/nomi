@@ -292,10 +292,7 @@ mod comparison {
     }
 
     fn localizer() -> Localizer {
-        Localizer::from_names(
-            nomi_base::Compat::V0_19_1,
-            ["Basics", "Maybe", "List", "String"],
-        )
+        Localizer::from_names(Compat::V0_19_1, ["Basics", "Maybe", "List", "String"])
     }
 
     #[test]

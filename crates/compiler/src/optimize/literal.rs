@@ -8,13 +8,12 @@
 use nomi_base::Compat;
 
 /// The text a string literal's token stands for.
-pub fn string(compat: Compat, token: &str) -> String {
-    let (body, multi) = match token.strip_prefix("\"\"\"") {
-        Some(rest) => (rest.strip_suffix("\"\"\"").unwrap_or(rest), true),
-        None => {
-            let rest = token.strip_prefix('"').unwrap_or(token);
-            (rest.strip_suffix('"').unwrap_or(rest), false)
-        }
+pub(super) fn string(compat: Compat, token: &str) -> String {
+    let (body, multi) = if let Some(rest) = token.strip_prefix("\"\"\"") {
+        (rest.strip_suffix("\"\"\"").unwrap_or(rest), true)
+    } else {
+        let rest = token.strip_prefix('"').unwrap_or(token);
+        (rest.strip_suffix('"').unwrap_or(rest), false)
     };
     let v1 = compat == Compat::V0_19_1;
     let mut out = String::with_capacity(body.len());
@@ -43,7 +42,7 @@ pub fn string(compat: Compat, token: &str) -> String {
 }
 
 /// What a character literal's token stands for.
-pub fn char(compat: Compat, token: &str) -> String {
+pub(super) fn char(compat: Compat, token: &str) -> String {
     let rest = token.strip_prefix('\'').unwrap_or(token);
     let body = rest.strip_suffix('\'').unwrap_or(rest);
     let mut chars = body.chars().peekable();

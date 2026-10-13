@@ -1,8 +1,8 @@
-//! Early cutoff (plan 6.15): with the artifact cache, a warm check
+//! Early cutoff: with the artifact cache, a warm check
 //! re-checks a module only where its source or its imports' interfaces
 //! changed. An edit to a body leaves the module's interface as it was,
 //! so its importers are skipped. Optimizing, as `elm make` does, files
-//! each module's graph beside its interface (plan 8.12a).
+//! each module's graph beside its interface.
 #![cfg(unix)]
 
 #[path = "support/projects.rs"]

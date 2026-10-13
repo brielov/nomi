@@ -2,11 +2,11 @@
 //! as `cargo xtask oracle corpus-docs`, `corpus-check`, `corpus-graphs`
 //! and `corpus-objects` recorded:
 //! `cargo xtask corpus docs` wants the same `docs.json` of every package,
-//! byte for byte (plan 7.4a), and `cargo xtask corpus check` the silence
-//! of `nomi check` on every app and package elm accepted (plan 7.5);
+//! byte for byte, and `cargo xtask corpus check` the silence
+//! of `nomi check` on every app and package elm accepted;
 //! `cargo xtask corpus graphs` the same optimized graph of every module
-//! elm built (plan 8.4a); `cargo xtask corpus objects` the same graph of
-//! the dependencies as `o.dat` holds (plan 8.4b); `cargo xtask corpus
+//! elm built; `cargo xtask corpus objects` the same graph of
+//! the dependencies as `o.dat` holds; `cargo xtask corpus
 //! javascript` the same JavaScript of every app in each mode (plan
 //! 8.11); and all the same
 //! `--report=json` wherever elm
@@ -34,7 +34,7 @@ use super::{compat, parallel};
 use crate::download::sha256;
 use crate::oracle::corpus_runs::{self, EXCLUDED, OK, Suite};
 
-pub fn check(root: &Path, suite: Suite, only: Option<&str>) -> Result<()> {
+pub(crate) fn check(root: &Path, suite: Suite, only: Option<&str>) -> Result<()> {
     let oracle = load(root, suite)?;
     let classification = compat::load(root)?;
     let mut matching = 0;
@@ -431,7 +431,7 @@ impl Console for Captured {
 
 /// `cargo xtask corpus graph-diff`: where the graph in `nomi` first
 /// differs from the one in `elm`, both `.elmo` files of release `v`.
-pub fn graph_diff(v: &str, nomi: &Path, elm: &Path) -> Result<()> {
+pub(crate) fn graph_diff(v: &str, nomi: &Path, elm: &Path) -> Result<()> {
     let compat = (Compat::ALL.into_iter())
         .find(|c| c.to_string() == v)
         .with_context(|| format!("nomi doesn't emulate elm {v}"))?;

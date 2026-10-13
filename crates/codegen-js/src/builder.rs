@@ -469,7 +469,7 @@ mod tests {
             expr(&long),
             "g(\n\tfunction (x) {\n\t\treturn x;\n\t},\n\t1)"
         );
-        let array = Expr::Array(vec![Expr::Int(1), call.clone()]);
+        let array = Expr::Array(vec![Expr::Int(1), call]);
         assert_eq!(expr(&array), "[\n\t1,\n\tf(1, 2)\n]");
         assert_eq!(
             expr(&Expr::Array(vec![Expr::Int(1), Expr::Bool(true)])),

@@ -157,10 +157,14 @@ fn edges(module: &hir::Module, ty: hir::TypeId) -> Vec<String> {
                 if qualifier.is_none() {
                     met.push(name.text.clone());
                 }
-                args.iter().for_each(|&a| walk(module, a, met));
+                for &a in args {
+                    walk(module, a, met);
+                }
             }
             hir::Type::Record { fields, .. } => {
-                fields.iter().for_each(|(_, t)| walk(module, *t, met))
+                for &(_, t) in fields {
+                    walk(module, t, met);
+                }
             }
             hir::Type::Tuple(items) => items.iter().for_each(|&t| walk(module, t, met)),
             hir::Type::Var(_) | hir::Type::Unit | hir::Type::Missing => {}
@@ -193,9 +197,9 @@ fn add_free_vars(module: &hir::Module, ty: hir::TypeId, vars: &mut BTreeMap<Stri
             if let Some(ext) = extends {
                 vars.insert(ext.text.clone(), ext.range);
             }
-            fields
-                .iter()
-                .for_each(|(_, t)| add_free_vars(module, *t, vars));
+            for &(_, t) in fields {
+                add_free_vars(module, t, vars);
+            }
         }
         hir::Type::Tuple(items) => items.iter().for_each(|&t| add_free_vars(module, t, vars)),
         hir::Type::Unit | hir::Type::Missing => {}
@@ -409,11 +413,7 @@ fn canonicalize_alias<'a>(
                 vars: vars.clone(),
                 ty,
             };
-            Dict::one(
-                name,
-                alias.name.range,
-                BTreeMap::from([(home.clone(), info)]),
-            )
+            Dict::one(name, alias.name.range, BTreeMap::from([(home, info)]))
         }
         _ => Dict::default(),
     };

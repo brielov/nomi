@@ -1,7 +1,7 @@
 use super::*;
 use crate::tree::Upper;
 
-fn render(block: Block) -> String {
+fn render(block: &Block) -> String {
     block.render()
 }
 
@@ -20,7 +20,7 @@ fn comments_render_as_upstream_spells_them() {
         (Comment::TrickBlock("a".to_owned()), "{--a-}\n"),
     ];
     for (c, expected) in cases {
-        assert_eq!(render(comment(&c)), expected, "{c:?}");
+        assert_eq!(render(&comment(&c)), expected, "{c:?}");
     }
 }
 
@@ -32,7 +32,7 @@ fn trick_blocks_keep_the_space_that_keeps_them_one_comment() {
         (Comment::TrickBlock("a {".to_owned()), "{--a { -}\n"),
     ];
     for (c, expected) in cases {
-        assert_eq!(render(comment(&c)), expected, "{c:?}");
+        assert_eq!(render(&comment(&c)), expected, "{c:?}");
     }
 }
 
@@ -40,26 +40,26 @@ fn trick_blocks_keep_the_space_that_keeps_them_one_comment() {
 fn line_comments_break_what_they_join() {
     let inner = Block::line(Line::text("x"));
     let pre = [Comment::Block(vec!["a".to_owned()])];
-    assert_eq!(render(commented(&pre, inner.clone(), &[])), "{- a -} x\n");
+    assert_eq!(render(&commented(&pre, inner.clone(), &[])), "{- a -} x\n");
     let post = [Comment::Line(" b".to_owned())];
-    assert_eq!(render(commented(&pre, inner, &post)), "{- a -}\nx\n-- b\n");
+    assert_eq!(render(&commented(&pre, inner, &post)), "{- a -}\nx\n-- b\n");
 }
 
 #[test]
 fn doc_comments_close_on_their_own_line() {
-    assert_eq!(render(doc_comment_string("")), "{-| -}\n");
-    assert_eq!(render(doc_comment_string("A.\n")), "{-| A.\n-}\n");
+    assert_eq!(render(&doc_comment_string("")), "{-| -}\n");
+    assert_eq!(render(&doc_comment_string("A.\n")), "{-| A.\n-}\n");
     assert_eq!(
-        render(doc_comment_string("A.\n\nB.\n")),
+        render(&doc_comment_string("A.\n\nB.\n")),
         "{-| A.\n\nB.\n-}\n"
     );
 }
 
 #[test]
 fn names_spell_primes_as_underscores() {
-    assert_eq!(render(Block::line(name("a'b"))), "a_b\n");
+    assert_eq!(render(&Block::line(name("a'b"))), "a_b\n");
     let names = [Upper("A'".to_owned()), Upper("B".to_owned())];
-    assert_eq!(render(Block::line(qualified(&names))), "A_.B\n");
+    assert_eq!(render(&Block::line(qualified(&names))), "A_.B\n");
 }
 
 #[test]
@@ -106,15 +106,15 @@ fn syntax_contexts_call_for_parentheses_as_upstream_s_table_does() {
             } else {
                 "x\n"
             };
-            assert_eq!(render(block), expected, "{inner:?} in {outer:?}");
+            assert_eq!(render(&block), expected, "{inner:?} in {outer:?}");
         }
     }
 }
 
 #[test]
 fn units_hold_their_comments() {
-    assert_eq!(render(unit('[', ']', &[])), "[]\n");
+    assert_eq!(render(&unit('[', ']', &[])), "[]\n");
     let line = [Comment::Line(" c".to_owned())];
-    assert_eq!(render(unit('{', '}', &line)), "{ -- c\n}\n");
-    assert_eq!(render(unit('(', ')', &line)), "(-- c\n)\n");
+    assert_eq!(render(&unit('{', '}', &line)), "{ -- c\n}\n");
+    assert_eq!(render(&unit('(', ')', &line)), "(-- c\n)\n");
 }

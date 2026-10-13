@@ -32,7 +32,7 @@ const RUSTFLAGS: &[&str] = &[
 /// mutations mostly repeat what shorter inputs found.
 const MAX_LEN: usize = 8192;
 
-pub fn run(root: &Path, target: &str, runs: u64, jobs: usize) -> Result<()> {
+pub(crate) fn run(root: &Path, target: &str, runs: u64, jobs: usize) -> Result<()> {
     let Some(&(_, seeds)) = TARGETS.iter().find(|(name, _)| *name == target) else {
         let names: Vec<_> = TARGETS.iter().map(|(name, _)| *name).collect();
         bail!("no fuzz target `{target}`; there are {}", names.join(", "));

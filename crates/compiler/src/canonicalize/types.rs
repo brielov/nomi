@@ -133,7 +133,9 @@ pub fn free_vars(ty: &Type, vars: &mut BTreeSet<String>) {
             if let Some(ext) = ext {
                 vars.insert(ext.clone());
             }
-            fields.values().for_each(|f| free_vars(&f.ty, vars));
+            for f in fields.values() {
+                free_vars(&f.ty, vars);
+            }
         }
         Type::Unit => {}
         Type::Tuple(a, b, c) => {

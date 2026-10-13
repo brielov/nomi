@@ -129,7 +129,7 @@ pub fn run(vfs: &Vfs, options: &Options, console: &mut dyn Console) -> Exit {
             Ok(bytes) => {
                 let entry = validation_entry("<STDIN>", is_formatted(bytes));
                 let succeeded = entry.is_none();
-                console.out(&json_list(entry.into_iter().collect()));
+                console.out(&json_list(entry.as_slice()));
                 succeeded
             }
             Err(e) => {
@@ -147,7 +147,7 @@ pub fn run(vfs: &Vfs, options: &Options, console: &mut dyn Console) -> Exit {
             for (file, formatted) in results {
                 match formatted {
                     Ok(formatted) => {
-                        entries.extend(validation_entry(&file.display().to_string(), formatted))
+                        entries.extend(validation_entry(&file.display().to_string(), formatted));
                     }
                     Err(e) => {
                         console.err(&crashed(&file, &e));
@@ -156,7 +156,7 @@ pub fn run(vfs: &Vfs, options: &Options, console: &mut dyn Console) -> Exit {
                 }
             }
             succeeded &= entries.is_empty();
-            console.out(&json_list(entries));
+            console.out(&json_list(&entries));
             succeeded
         }
     };
@@ -179,7 +179,7 @@ fn resolve(vfs: &Vfs, inputs: &[PathBuf]) -> Result<Vec<PathBuf>, Vec<String>> {
             )),
             Ok(found) => files.extend(found),
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                problems.push(format!("{shown}: No such file or directory"))
+                problems.push(format!("{shown}: No such file or directory"));
             }
             Err(e) => problems.push(format!("{shown}: {e}")),
         }
@@ -387,7 +387,7 @@ fn validation_entry(path: &str, formatted: Result<bool, ElmPosition>) -> Option<
 }
 
 /// Upstream's `resultsToJsonString`, and the line break after it.
-fn json_list(entries: Vec<String>) -> String {
+fn json_list(entries: &[String]) -> String {
     if entries.is_empty() {
         "[]\n".to_owned()
     } else {

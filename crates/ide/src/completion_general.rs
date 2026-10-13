@@ -1,4 +1,4 @@
-//! The general completion list (plan 9.9), as elm-language-server makes
+//! The general completion list, as elm-language-server makes
 //! it where no context has a list of its own:
 //!
 //! 1. the module's top-level names, as `b`;
@@ -117,7 +117,7 @@ fn written_annotation(root: &SyntaxNode, name: &str) -> Option<String> {
         _ => false,
     })?;
     let signature = match decl.kind() {
-        SyntaxKind::PortDecl => decl.clone(),
+        SyntaxKind::PortDecl => decl,
         _ => child(&decl, SyntaxKind::Signature)?,
     };
     let ty = signature
@@ -293,10 +293,7 @@ fn typed_module<'c>(
     std::borrow::Cow<'c, nomi_compiler::types::ExprTypes>,
 )> {
     if let Some((_, types)) = context.module.types(context.index.compat) {
-        return Some((
-            context.module.root().clone(),
-            std::borrow::Cow::Borrowed(types),
-        ));
+        return Some((context.module.root(), std::borrow::Cow::Borrowed(types)));
     }
     crate::record_fields::patched(context.index, context.module, range, "Debug.todo \"\"")
         .map(|(root, types)| (root, std::borrow::Cow::Owned(types)))
@@ -355,19 +352,16 @@ struct Multi {
 impl Multi {
     /// `set` with `importModuleEqual`: one per module and package.
     fn set(&mut self, key: &str, value: Imported) {
-        match self.values.get_mut(key) {
-            Some(values) => {
-                let same = values
-                    .iter()
-                    .any(|v| v.module == value.module && v.package == value.package);
-                if !same {
-                    values.push(value);
-                }
+        if let Some(values) = self.values.get_mut(key) {
+            let same = values
+                .iter()
+                .any(|v| v.module == value.module && v.package == value.package);
+            if !same {
+                values.push(value);
             }
-            None => {
-                self.keys.push(key.to_owned());
-                self.values.insert(key.to_owned(), vec![value]);
-            }
+        } else {
+            self.keys.push(key.to_owned());
+            self.values.insert(key.to_owned(), vec![value]);
         }
     }
 
@@ -593,7 +587,7 @@ impl Imports {
             let label = element.label.as_str();
             let dot = label.rfind('.');
             let value = dot.map_or(label, |d| &label[d + 1..]);
-            let exposes = self.exposing_list(context, &element.module);
+            let exposes = Self::exposing_list(context, &element.module);
             let filter = if !exposes
                 && element.module != "Basics"
                 && value.to_lowercase().starts_with(&word.to_lowercase())
@@ -602,13 +596,11 @@ impl Imports {
             } else {
                 label
             };
-            let mut sort = "d".to_owned();
-            if dot.is_some() && self.vars.has(value, &element.module) {
-                sort = "e".to_owned();
-            }
-            if let Some(rank) = element.package.as_deref().and_then(rank) {
-                sort = format!("e{rank}");
-            }
+            let sort = match element.package.as_deref().and_then(rank) {
+                Some(rank) => format!("e{rank}"),
+                None if dot.is_some() && self.vars.has(value, &element.module) => "e".to_owned(),
+                None => "d".to_owned(),
+            };
             let documentation = || context.hint(&element.module, &element.root, &element.name);
             let (kind, documentation, detail) = match element.kind {
                 ImportedKind::Function => (
@@ -637,7 +629,7 @@ impl Imports {
     }
 
     /// Whether the import of `module` has an exposing list.
-    fn exposing_list(&self, context: &Context<'_>, module: &str) -> bool {
+    fn exposing_list(context: &Context<'_>, module: &str) -> bool {
         let defaults: Vec<&str> = vec![
             "Basics",
             "List",

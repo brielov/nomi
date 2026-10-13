@@ -250,21 +250,18 @@ fn int_to_ascii(n: usize) -> String {
     let mut block = NUM_START_BYTES * NUM_INNER_BYTES;
     let mut lists = bad_fields().values();
     loop {
-        match lists.next() {
-            Some(renamings) => {
-                let available = block - renamings.len();
-                if n < available {
-                    let name = unsafe_int_to_ascii(width, n);
-                    return renamings.get(&name).cloned().unwrap_or(name);
-                }
-                n -= available;
+        if let Some(renamings) = lists.next() {
+            let available = block - renamings.len();
+            if n < available {
+                let name = unsafe_int_to_ascii(width, n);
+                return renamings.get(&name).cloned().unwrap_or(name);
             }
-            None => {
-                if n < block {
-                    return unsafe_int_to_ascii(width, n);
-                }
-                n -= block;
+            n -= available;
+        } else {
+            if n < block {
+                return unsafe_int_to_ascii(width, n);
             }
+            n -= block;
         }
         width += 1;
         block *= NUM_INNER_BYTES;

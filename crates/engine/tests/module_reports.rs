@@ -23,7 +23,7 @@ fn dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/modules")
 }
 
-/// The fixture packages, whose sources make the interfaces (plan 5.3);
+/// The fixture packages, whose sources make the interfaces;
 /// `tests/modules/packages` keeps only the `elm.json` the oracle had.
 fn packages() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages")

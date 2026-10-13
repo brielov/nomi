@@ -1,20 +1,20 @@
 //! `cargo xtask corpus`: real-world Elm code, pinned in `corpus/` and kept in
 //! the development cache. Sources never enter the repository.
 
-pub mod apps;
-pub mod compat;
-pub mod deps;
-pub mod fixtures;
-pub mod format;
-pub mod hir;
-pub mod lsp;
-pub mod names;
-pub mod outline;
-pub mod packages;
-pub mod runs;
-pub mod syntax;
-pub mod test_suites;
-pub mod trace;
+pub(crate) mod apps;
+pub(crate) mod compat;
+pub(crate) mod deps;
+pub(crate) mod fixtures;
+pub(crate) mod format;
+pub(crate) mod hir;
+pub(crate) mod lsp;
+pub(crate) mod names;
+pub(crate) mod outline;
+pub(crate) mod packages;
+pub(crate) mod runs;
+pub(crate) mod syntax;
+pub(crate) mod test_suites;
+pub(crate) mod trace;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -24,18 +24,18 @@ use anyhow::Result;
 
 use crate::oracle::cache_dir;
 
-pub fn corpus_dir() -> Result<PathBuf> {
+pub(crate) fn corpus_dir() -> Result<PathBuf> {
     Ok(cache_dir()?.join("corpus"))
 }
 
 /// Runs `f` over `items` on a few threads and returns the results in order.
 /// Downloads are I/O-bound; eight keeps the registry and GitHub comfortable.
-pub fn parallel<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+pub(crate) fn parallel<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
     parallel_on(8, items, f)
 }
 
 /// [`parallel`] on `workers` threads.
-pub fn parallel_on<T: Sync, R: Send>(
+pub(crate) fn parallel_on<T: Sync, R: Send>(
     workers: usize,
     items: &[T],
     f: impl Fn(&T) -> R + Sync,
@@ -63,7 +63,7 @@ pub fn parallel_on<T: Sync, R: Send>(
 }
 
 /// Every regular file below `root`, as sorted `/`-separated relative paths.
-pub fn files_below(root: &Path) -> Result<Vec<String>> {
+pub(crate) fn files_below(root: &Path) -> Result<Vec<String>> {
     let mut files = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -84,7 +84,7 @@ pub fn files_below(root: &Path) -> Result<Vec<String>> {
 
 /// The SHA-256 of a `sha256sum`-style listing of `files` under `root`, so a
 /// whole generated tree is pinned by one hash.
-pub fn tree_digest(root: &Path, files: &[String]) -> Result<String> {
+pub(crate) fn tree_digest(root: &Path, files: &[String]) -> Result<String> {
     let mut listing = String::new();
     for file in files {
         let bytes = std::fs::read(root.join(file))?;
@@ -96,7 +96,7 @@ pub fn tree_digest(root: &Path, files: &[String]) -> Result<String> {
     Ok(crate::download::sha256(listing.as_bytes()))
 }
 
-pub fn stats(root: &Path) -> Result<()> {
+pub(crate) fn stats(root: &Path) -> Result<()> {
     let packages = packages::load(root)?;
     let dir = corpus_dir()?;
     let mut fetched = 0;

@@ -739,8 +739,8 @@ pub fn missing_exposed(graph: &Graph, exposed: &[ModuleName]) -> Option<Report> 
 }
 
 /// `GenerateCannotOptimizeDebugValues`: `--optimize` refusing the modules
-/// that use `Debug` (plan 7.2). Only generating code checks this, so
-/// `elm make --output=/dev/null` never reports it; codegen (M8) will.
+/// that use `Debug`. Only generating code checks this, so
+/// `elm make --output=/dev/null` never reports it.
 pub fn debug_remnants(modules: &[ModuleName]) -> Report {
     Report::new(
         "DEBUG REMNANTS",

@@ -66,7 +66,7 @@ pub(super) fn refactors(
             ActionKind::RefactorExtract,
         ));
     }
-    found.extend(super::extract::extract_refactors(fixing, range));
+    found.extend(extract::extract_refactors(fixing, range));
     let parent = token.parent();
     let parent_kind = parent.as_ref().map(SyntaxNode::kind);
     let named = parent.as_ref().and_then(name_of).as_ref() == Some(&token);
@@ -218,13 +218,11 @@ pub(super) fn refactor_edits_in(
     let module = context.module;
     match action {
         "add_type_annotation" => annotation_edits(context, range).map(|e| (e, None)),
-        "extract_let" | "extract_top_level" => {
-            super::extract::function_edits(context, action, range)
-        }
+        "extract_let" | "extract_top_level" => extract::function_edits(context, action, range),
         "extract_type_alias"
         | "extract_type_alias_parenthesized_expr"
         | "extract_type_alias_partial_type_expr" => {
-            super::extract::type_alias_edits(context, action, range)
+            extract::type_alias_edits(context, action, range)
         }
         "unexpose_function"
         | "unexpose_type"

@@ -210,10 +210,9 @@ pub(super) fn function_edits(
     let module = context.module;
     let (root, text) = (&module.root(), &*module.text);
     let (mut node, _) = exact_kind(root, range)?;
-    let mut parenthesized = false;
-    if node.kind() == SyntaxKind::ParenExpr {
+    let mut parenthesized = node.kind() == SyntaxKind::ParenExpr;
+    if parenthesized {
         node = node.children().next()?;
-        parenthesized = true;
     }
     if matches!(
         node.kind(),
@@ -225,26 +224,23 @@ pub(super) fn function_edits(
         parenthesized = true;
     }
     let node_range = code_range(&node)?;
-    let (insert_at, target_column, target_let, annotate) = match action {
-        "extract_let" => {
-            let let_expr = node.ancestors().find(|a| a.kind() == SyntaxKind::LetExpr)?;
-            let last = (let_expr.children())
-                .filter(|c| matches!(c.kind(), SyntaxKind::LetValue | SyntaxKind::LetDestructure))
-                .last()?;
-            let line = line_of(text, code_range(&last)?.end()) + 1;
-            let column = column_of(text, code_range(&let_expr)?.start()) + 4;
-            (line_start(text, line), column, Some(let_expr), false)
-        }
-        _ => {
-            let line = match node
-                .ancestors()
-                .find(|a| a.parent().is_some_and(|p| p.kind() == SyntaxKind::Module))
-            {
-                Some(top) => line_of(text, code_range(&top)?.end()) + 1,
-                None => text.matches('\n').count(),
-            };
-            (line_start(text, line), 0, None, true)
-        }
+    let (insert_at, target_column, target_let, annotate) = if action == "extract_let" {
+        let let_expr = node.ancestors().find(|a| a.kind() == SyntaxKind::LetExpr)?;
+        let last = (let_expr.children())
+            .filter(|c| matches!(c.kind(), SyntaxKind::LetValue | SyntaxKind::LetDestructure))
+            .last()?;
+        let line = line_of(text, code_range(&last)?.end()) + 1;
+        let column = column_of(text, code_range(&let_expr)?.start()) + 4;
+        (line_start(text, line), column, Some(let_expr), false)
+    } else {
+        let line = match node
+            .ancestors()
+            .find(|a| a.parent().is_some_and(|p| p.kind() == SyntaxKind::Module))
+        {
+            Some(top) => line_of(text, code_range(&top)?.end()) + 1,
+            None => text.matches('\n').count(),
+        };
+        (line_start(text, line), 0, None, true)
     };
     let args = arguments(context, &node, target_let.as_ref());
     let ty = annotate
@@ -375,7 +371,7 @@ fn function_type(context: &Context<'_>, node: &SyntaxNode, args: &[SyntaxToken])
     Some(crate::hover::render_error(&names, &ty))
 }
 
-/// The tree-sitter type_expression `node` is in: the outermost of a chain
+/// The tree-sitter `type_expression` `node` is in: the outermost of a chain
 /// of function types, or the type a signature or parentheses hold.
 fn type_expression_of(node: &SyntaxNode) -> Option<SyntaxNode> {
     let mut current = node.clone();

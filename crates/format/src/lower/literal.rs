@@ -92,15 +92,12 @@ fn decode(body: &str) -> Vec<u32> {
         bytes.extend_from_slice(&rest.as_bytes()[..i]);
         let after = &rest[i + 1..];
         rest = if rest.as_bytes()[i] == b'\r' {
-            match after.strip_prefix('\n') {
-                Some(after) => {
-                    bytes.push(b'\n');
-                    after
-                }
-                None => {
-                    bytes.push(b'\r');
-                    after
-                }
+            if let Some(after) = after.strip_prefix('\n') {
+                bytes.push(b'\n');
+                after
+            } else {
+                bytes.push(b'\r');
+                after
             }
         } else {
             escape(after, &mut bytes)

@@ -1,4 +1,4 @@
-//! The registry transcripts' runner (plan 8.14), shared by the `elm_diff`
+//! The registry transcripts' runner, shared by the `elm_diff`
 //! and `elm_publish` ratchets. The commands insist on the latest
 //! registry, so the cases run against one served on the loopback
 //! interface (`NOMI_REGISTRY`): every package name elm's registry had,
@@ -11,7 +11,10 @@
 //! other case as the newest, as nomi builds a package. Where that elm
 //! crashed or hung, as 0.19.3 does diffing a local package, the case is
 //! checked against the other elms' transcript when they agree.
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    reason = "shared by several test binaries, each using part of it"
+)]
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -31,7 +34,7 @@ const ROOT_LENGTH: usize = 96;
 
 /// Runs the cases under `cases`, against their transcripts, and settles
 /// the ratchet there.
-pub fn transcripts(cases: &str) {
+pub(crate) fn transcripts(cases: &str) {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(cases);
     let bin = tempfile::tempdir().unwrap();
     let elm = bin.path().join("elm");
@@ -70,7 +73,7 @@ pub fn transcripts(cases: &str) {
 }
 
 /// The registry the recordings had, as `release` read it.
-pub fn registry(dir: &Path, release: &str) -> Arc<server::Handler> {
+pub(crate) fn registry(dir: &Path, release: &str) -> Arc<server::Handler> {
     let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages");
     let website = Website::with_sources(&packages);
     let mut versions: BTreeMap<String, Vec<String>> = BTreeMap::new();

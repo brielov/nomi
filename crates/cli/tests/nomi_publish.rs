@@ -1,4 +1,4 @@
-//! `elm publish` end to end (plan 8.14d), against a fixture website: a
+//! `elm publish` end to end, against a fixture website: a
 //! new package, committed and tagged in git, checked and registered. The
 //! server stands in for package.elm-lang.org, GitHub's API, which names
 //! the tag's commit, and GitHub, which serves the tag's zipball; it keeps

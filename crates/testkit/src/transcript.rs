@@ -316,7 +316,7 @@ fn section(out: &mut String, header: &str, bytes: &[u8]) {
 /// order of their names.
 fn list(dir: &Path, prefix: &str, files: &mut Vec<(String, Vec<u8>)>) -> io::Result<()> {
     let mut entries = fs::read_dir(dir)?.collect::<io::Result<Vec<_>>>()?;
-    entries.sort_by_key(|entry| entry.file_name());
+    entries.sort_by_key(fs::DirEntry::file_name);
     for entry in entries {
         let path = format!("{prefix}{}", entry.file_name().to_string_lossy());
         let kind = entry.file_type()?;

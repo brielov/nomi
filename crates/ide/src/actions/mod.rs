@@ -177,7 +177,7 @@ pub(super) struct Refactor {
 }
 
 impl Refactor {
-    pub fn new(
+    pub(crate) fn new(
         name: &'static str,
         action: &'static str,
         title: impl Into<String>,

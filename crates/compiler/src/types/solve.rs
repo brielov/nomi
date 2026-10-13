@@ -79,7 +79,7 @@ struct Solver<'v> {
 impl Solver<'_> {
     fn solve(&mut self, rank: u32, constraint: &Constraint) {
         stacker::maybe_grow(128 * 1024, 2 * 1024 * 1024, || {
-            self.solve_(rank, constraint)
+            self.solve_(rank, constraint);
         });
     }
 

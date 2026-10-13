@@ -1,4 +1,4 @@
-//! Canonicalizing a build (plan 5.8): package interfaces from their
+//! Canonicalizing a build: package interfaces from their
 //! sources, then each local module after the modules it imports, as
 //! upstream's `Build.hs` checks them. A module whose import failed is
 //! blocked and stays silent.

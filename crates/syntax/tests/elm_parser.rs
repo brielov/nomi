@@ -1,5 +1,5 @@
 //! The port of elm's parser rejects exactly what each elm rejected in the
-//! mutation suite's oracle tables (plan 4.6). It is what nomi reports from
+//! mutation suite's oracle tables. It is what nomi reports from
 //! when the grammar rejects a module, so it is held to every case, not
 //! ratcheted.
 

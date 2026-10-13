@@ -1,4 +1,4 @@
-//! Record fields by type (plan 9.6b): a field written in an access, an
+//! Record fields by type: a field written in an access, an
 //! accessor, a record, an update or a pattern is declared where the
 //! record's type writes it. The record's inferred type keeps the alias
 //! it's written as, and the field is that alias's, or one of its
@@ -7,6 +7,7 @@
 //! nowhere to point to.
 
 use nomi_base::TextSize;
+use nomi_compiler::canonicalize::references::Target;
 use nomi_compiler::types::{self, error};
 use nomi_engine::Snapshot;
 use nomi_engine::index::{Index, Indexed};
@@ -117,8 +118,8 @@ fn resolve(
         let bound = (module.references.iter())
             .find(|r| r.range.contains_range(range) || range.contains_range(r.range))
             .and_then(|r| match r.target {
-                nomi_compiler::canonicalize::references::Target::Local(binder) => Some(binder),
-                _ => None,
+                Target::Local(binder) => Some(binder),
+                Target::Global { .. } => None,
             })
             .or_else(|| crate::scopes::local(&module.root(), range.start()).map(|(b, _)| b));
         ranges.extend(bound);
@@ -135,7 +136,11 @@ fn resolve(
         error::Type::Lambda(arg, _, _) => matches!(**arg, error::Type::Alias(..)),
         _ => false,
     };
-    let ty = typed.iter().find(aliased).or(typed.last()).copied()?;
+    let ty = typed
+        .iter()
+        .find(aliased)
+        .or_else(|| typed.last())
+        .copied()?;
     let ty = match record.kind() {
         // An accessor is a function of the record.
         SyntaxKind::AccessorExpr => match ty {
@@ -241,7 +246,7 @@ fn declared(snapshot: &Snapshot, index: &Index, ty: &error::Type, field: &str) -
     });
     match written {
         Some(declaration) => Some(Location {
-            path: path.clone(),
+            path,
             range: code_range(&declaration)?,
         }),
         // An extensible alias's other fields are its argument's.

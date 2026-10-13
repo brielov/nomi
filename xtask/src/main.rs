@@ -220,7 +220,7 @@ enum OracleCommand {
     /// Store what each elm reports on the pattern-error projects.
     Patterns,
     /// Store what each elm reports and documents of every
-    /// documentation project (plan 7.4).
+    /// documentation project.
     Docs,
     /// Store what each elm makes of every corpus package with `elm make
     /// --docs`, offline, with the releases the development cache has.
@@ -234,19 +234,19 @@ enum OracleCommand {
         only: Option<String>,
     },
     /// Store the JavaScript each elm generates for every fixture program
-    /// in each mode (plan 8.5).
+    /// in each mode.
     Javascript,
     /// Store the optimized graphs each elm writes for every optimizer
-    /// case (plan 8.1).
+    /// case.
     Optimized,
     /// Store each elm's transcript of every case of the CLI report
-    /// matrix (plan 7.5a).
+    /// matrix.
     Make,
     /// Store each elm's transcript of every `elm diff` and `elm bump`
-    /// case, recorded online with read-only requests (plan 8.14).
+    /// case, recorded online with read-only requests.
     Diff,
     /// Store each elm's transcript of every `elm publish` case, each
-    /// failing before it reaches GitHub, recorded online (plan 8.14c).
+    /// failing before it reaches GitHub, recorded online.
     Publish,
     /// Store a digest of the dependencies' `o.dat` each elm writes for
     /// every corpus app and package, as `corpus-check` runs elm.
@@ -273,7 +273,7 @@ enum OracleCommand {
     /// Store a digest of the `.elmo` of every module each elm builds for
     /// every corpus app and package, as `corpus-check` runs elm.
     /// Store a digest of each answer elm-language-server gives in the
-    /// session of every sampled corpus project (plan 9.20a).
+    /// session of every sampled corpus project.
     CorpusLsp {
         /// Concurrent sessions; two by default.
         #[arg(long)]
@@ -290,7 +290,7 @@ enum OracleCommand {
         only: Option<String>,
     },
     /// Have Helix edit a corpus app with elm-language-server, driven
-    /// through tmux, and keep the session its messages make (plan 9.21).
+    /// through tmux, and keep the session its messages make.
     EditorTrace {
         /// The app, by its name in `corpus/apps.toml`.
         app: String,
@@ -319,16 +319,16 @@ enum OracleCommand {
     /// for every solver scenario.
     Solver,
     /// Store elm-language-server's transcript of every language-server
-    /// case (plan 9.1).
+    /// case.
     Lsp {
         /// Only the cases whose names start with this.
         only: Option<String>,
     },
     /// Write elm-language-server's provider tests as language-server
-    /// cases (plan 9.2).
+    /// cases.
     LspImport,
     /// Write elm-language-server's completion data: its package ranking,
-    /// snippets and keywords (plan 9.9).
+    /// snippets and keywords.
     LspTables,
 }
 
@@ -341,7 +341,10 @@ fn main() -> ExitCode {
         Command::Refs => references::load(&root()).and_then(|r| refs::sync(&root(), &r)),
         Command::Oracle { command } => references::load(&root()).and_then(|r| match command {
             OracleCommand::Fetch => oracle::fetch(&root(), &r),
-            OracleCommand::Versions => oracle::versions(&r),
+            OracleCommand::Versions => {
+                oracle::versions(&r);
+                Ok(())
+            }
             OracleCommand::Syntax {
                 show: Some(case), ..
             } => oracle::syntax::show(&root(), &r, &case),

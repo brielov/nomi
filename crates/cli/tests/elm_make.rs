@@ -1,4 +1,4 @@
-//! The CLI report matrix ratchet (plan 7.5a): nomi invoked as `elm` on
+//! The CLI report matrix ratchet: nomi invoked as `elm` on
 //! each case of `elm_make/cases/`, passing when its transcript is the one
 //! `cargo xtask oracle make` recorded from the elm it emulates. An
 //! application whose `elm-version` names a pinned elm runs as each, with
@@ -11,7 +11,7 @@
 //! nothing to match, and the run is skipped.
 //!
 //! Each case runs again without `--report=json`, as `<case> terminal`,
-//! against `expected_terminal/` (plan 8.13a). How many `Verifying
+//! against `expected_terminal/`. How many `Verifying
 //! dependencies (k/n)` steps elm prints depends on how its threads
 //! interleave, and varies between runs of one elm, so a run of them reads
 //! as one step to `n` on both sides (DECISIONS.md, 2026-10-11).
@@ -91,7 +91,7 @@ fn elm_make() {
         }
     }
     // Each run is a process; a few at once.
-    let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let workers = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
     let next = AtomicUsize::new(0);
     let outcomes: Vec<(String, Result<(), String>)> = std::thread::scope(|scope| {
         let threads: Vec<_> = (0..workers)
@@ -172,13 +172,12 @@ fn steady(transcript: &str) -> String {
             total = Some(n);
             rest = &step[close + 1..];
         }
-        match total {
-            Some(n) => out.push_str(&format!("{STEP}…/{n})")),
+        if let Some(n) = total {
+            out.push_str(&format!("{STEP}…/{n})"));
+        } else {
             // Not a step after all: keep it as it is.
-            None => {
-                out.push_str(STEP);
-                rest = &rest[STEP.len()..];
-            }
+            out.push_str(STEP);
+            rest = &rest[STEP.len()..];
         }
     }
     out.push_str(rest);

@@ -144,7 +144,7 @@ fn to_text(place: Place, pattern: &Pattern) -> String {
                 let s = s
                     .strip_prefix("\"\"\"")
                     .and_then(|t| t.strip_suffix("\"\"\""))
-                    .unwrap_or(inner(s, '"'));
+                    .unwrap_or_else(|| inner(s, '"'));
                 format!("\"{s}\"")
             }
             Literal::Int(n) => n.to_string(),

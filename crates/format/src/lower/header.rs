@@ -40,7 +40,7 @@ pub(super) fn header(cx: &mut Cursor, node: &ast::ModuleHeader) -> Header {
         let list = node.exposing_list();
         let post_name = cx.take(
             list.as_ref()
-                .map_or(start(&where_kw), |l| cx.range(l.syntax()).start()),
+                .map_or_else(|| start(&where_kw), |l| cx.range(l.syntax()).start()),
         );
         let exports = match list {
             Some(list) => detailed_listing(cx, &list),
@@ -77,7 +77,7 @@ fn settings(cx: &mut Cursor, fields: &ast::EffectFields) -> C2<SourceSettings> {
     let settings = comma_list(
         cx,
         items,
-        commas(fields.syntax()),
+        &commas(fields.syntax()),
         Some(start(&r_brace)),
         |cx, field| {
             let key = field.lower_ident_token().expect(VALID);
@@ -150,7 +150,7 @@ fn detailed_listing(cx: &mut Cursor, list: &ast::ExposingList) -> Listing<Detail
     let dot_dot = token(list.syntax(), SyntaxKind::DotDot);
     let items = |cx: &mut Cursor, end| {
         let items = list.items().map(|i| (cx.range(i.syntax()), i)).collect();
-        to_detailed_listing(comma_list(cx, items, commas(list.syntax()), end, value))
+        to_detailed_listing(comma_list(cx, items, &commas(list.syntax()), end, value))
     };
     match (list.l_paren_token(), list.r_paren_token()) {
         (Some(l_paren), Some(r_paren)) => listing(cx, &l_paren, &r_paren, dot_dot, items),
@@ -187,7 +187,7 @@ fn listing<T>(
 fn comma_list<N, T>(
     cx: &mut Cursor,
     items: Vec<(TextRange, N)>,
-    commas: Vec<TextSize>,
+    commas: &[TextSize],
     end: Option<TextSize>,
     mut lower: impl FnMut(&mut Cursor, N) -> T,
 ) -> Vec<C2<T>> {
@@ -237,7 +237,7 @@ fn value(cx: &mut Cursor, item: ast::Exposed) -> Value {
                     .filter(|t| t.kind() == SyntaxKind::UpperIdent)
                     .map(|t| (t.text_range(), Upper(t.text().to_owned())))
                     .collect();
-                let ctors = comma_list(cx, items, commas(variants.syntax()), end, |_, n| n);
+                let ctors = comma_list(cx, items, &commas(variants.syntax()), end, |_, n| n);
                 let mut set = BTreeMap::new();
                 for ctor in ctors {
                     insert_with(&mut set, ctor.value, c(ctor.comments, ()), merge_c2_unit);
@@ -363,7 +363,7 @@ fn merge_detailed_listing(left: DetailedListing, right: DetailedListing) -> Deta
 /// group of `name`'s imports, which upstream's map keyed by name lacks.
 pub(super) fn insert_import(
     map: &mut BTreeMap<(Namespace, usize), C1<ImportMethod>>,
-    name: Namespace,
+    name: &Namespace,
     new: C1<ImportMethod>,
     used: &BTreeSet<String>,
 ) {

@@ -15,14 +15,14 @@ use super::{apps, corpus_dir, files_below, packages, parallel};
 use crate::download::sha256;
 
 /// The suite's directory: the oracle's table and `passing.txt`.
-pub const DIR: &str = "corpus/syntax";
+pub(crate) const DIR: &str = "corpus/syntax";
 
 /// The cell of a tool that crashed, which gives no verdict to match.
-pub const CRASH: &str = "crash";
+pub(crate) const CRASH: &str = "crash";
 
 /// One corpus module.
 #[derive(Debug)]
-pub struct Module {
+pub(crate) struct Module {
     /// The project: `author/project@version`, or `app/<name>`.
     pub case: String,
     /// Relative to the project.
@@ -32,7 +32,7 @@ pub struct Module {
 }
 
 /// Every module of every pinned package and app, in a stable order.
-pub fn modules(root: &Path) -> Result<Vec<Module>> {
+pub(crate) fn modules(root: &Path) -> Result<Vec<Module>> {
     let corpus = corpus_dir()?;
     let mut modules = Vec::new();
     for package in packages::load(root)?.packages {
@@ -91,7 +91,7 @@ fn push_modules(modules: &mut Vec<Module>, case: &str, dir: &Path, source: Sourc
 
 /// The SHA-256 of a `sha256sum`-style listing of every module, so the
 /// stored table can tell when the corpus changed under it.
-pub fn digest(modules: &[Module]) -> Result<String> {
+pub(crate) fn digest(modules: &[Module]) -> Result<String> {
     let mut listing = String::new();
     for m in modules {
         let bytes =
@@ -164,7 +164,7 @@ fn accepts(text: &[u8], tool: Tool) -> bool {
     parse.errors().is_empty() && nomi_syntax::validate(&parse, tool).is_empty()
 }
 
-pub fn check(root: &Path, record: bool) -> Result<()> {
+pub(crate) fn check(root: &Path, record: bool) -> Result<()> {
     let dir = root.join(DIR);
     let text = std::fs::read_to_string(dir.join("oracle.tsv"))
         .context("reading corpus/syntax/oracle.tsv; run `cargo xtask oracle syntax corpus`")?;

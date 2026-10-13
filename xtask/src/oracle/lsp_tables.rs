@@ -1,5 +1,5 @@
-//! `cargo xtask oracle lsp-tables`: elm-language-server's completion data
-//! (plan 9.9), written to `crates/ide/src/completion_data.rs`: the
+//! `cargo xtask oracle lsp-tables`: elm-language-server's completion data,
+//! written to `crates/ide/src/completion_data.rs`: the
 //! package ranking that orders its auto-imports (`ranking.ts`), and its
 //! snippets, keywords and the type it completes without a declaration
 //! (`completionProvider.ts`, `elmUtils.ts`).
@@ -18,7 +18,7 @@ use serde_json::Value;
 const SOURCE: &str = "reference/elm-language-server/src";
 const OUTPUT: &str = "crates/ide/src/completion_data.rs";
 
-pub fn run(root: &Path) -> Result<()> {
+pub(crate) fn run(root: &Path) -> Result<()> {
     let source = root.join(SOURCE);
     let ranking = ranking(&fs::read_to_string(
         source.join("common/providers/ranking.ts"),

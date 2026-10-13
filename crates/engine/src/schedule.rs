@@ -104,7 +104,7 @@ where
                 for &i in waiters.get(gate).map_or(&[][..], Vec::as_slice) {
                     run.ready(scope, i);
                 }
-            })
+            });
         });
         for (i, (deps, gates)) in imports.iter().zip(gates).enumerate() {
             if deps.is_empty() && gates.is_empty() {

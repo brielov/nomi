@@ -340,38 +340,35 @@ fn bad_append_left(
     ty: &t::Type,
     expected: &t::Type,
 ) -> (Doc, Doc) {
-    match append_type(ty) {
-        AppendType::Number(thing, from) => {
-            let mut first = words("The (++) operator can append List and String values, but not");
-            first.push(yellow(text(thing)));
-            first.extend(words("values like this:"));
-            let mut second = words("Try using");
-            second.push(green(text(from)));
-            second.extend(words(
-                "to turn it into a string? Or put it in [] to make it a list? Or switch to the (::) operator?",
-            ));
-            (fill_sep(first), fill_sep(second))
-        }
-        _ => {
-            let mut details = words("But the (++) operator is only for appending");
-            details.extend([
-                yellow(text("List")),
-                text("and"),
-                yellow(text("String")),
-                text("values."),
-            ]);
-            details.extend(words("Maybe put this value in [] to make it a list?"));
-            (
-                reflow("The (++) operator cannot append this type of value:"),
-                lone_type(
-                    localizer,
-                    ty,
-                    expected,
-                    reflow(&add_category("I am seeing", category)),
-                    vec![fill_sep(details)],
-                ),
-            )
-        }
+    if let AppendType::Number(thing, from) = append_type(ty) {
+        let mut first = words("The (++) operator can append List and String values, but not");
+        first.push(yellow(text(thing)));
+        first.extend(words("values like this:"));
+        let mut second = words("Try using");
+        second.push(green(text(from)));
+        second.extend(words(
+            "to turn it into a string? Or put it in [] to make it a list? Or switch to the (::) operator?",
+        ));
+        (fill_sep(first), fill_sep(second))
+    } else {
+        let mut details = words("But the (++) operator is only for appending");
+        details.extend([
+            yellow(text("List")),
+            text("and"),
+            yellow(text("String")),
+            text("values."),
+        ]);
+        details.extend(words("Maybe put this value in [] to make it a list?"));
+        (
+            reflow("The (++) operator cannot append this type of value:"),
+            lone_type(
+                localizer,
+                ty,
+                expected,
+                reflow(&add_category("I am seeing", category)),
+                vec![fill_sep(details)],
+            ),
+        )
     }
 }
 
@@ -553,7 +550,10 @@ fn bad_list_mul(
 }
 
 /// `badMath`.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "upstream's `badMath` takes these"
+)]
 fn bad_math(
     localizer: &Localizer,
     category: &Category,

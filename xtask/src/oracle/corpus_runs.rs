@@ -1,12 +1,12 @@
 //! What each pinned elm makes of every corpus project, offline, for the
 //! tier-2 suites to compare nomi with: `cargo xtask oracle corpus-docs`
-//! runs `elm make --docs` on every package (plan 7.4a), and `cargo xtask
+//! runs `elm make --docs` on every package, and `cargo xtask
 //! oracle corpus-check` runs `elm make --output=/dev/null` on every app
-//! and package (plan 7.5); `corpus-graphs` and `corpus-objects` keep
-//! the optimized graphs that check makes (plan 8.4a, 8.4b); and
+//! and package; `corpus-graphs` and `corpus-objects` keep
+//! the optimized graphs that check makes; and
 //! `corpus-javascript` builds every app in dev, `--debug` and
 //! `--optimize`, a cell holding each output's hash, or `-` for a mode elm
-//! refuses (plan 8.11).
+//! refuses.
 //!
 //! Each elm runs offline with its own `ELM_HOME`, which holds every
 //! release the development cache has downloaded, as `cargo xtask corpus
@@ -39,10 +39,10 @@ use crate::download::sha256;
 use crate::references::References;
 
 /// What a cell holds for a Compat that doesn't accept the package.
-pub const EXCLUDED: &str = "-";
+pub(crate) const EXCLUDED: &str = "-";
 
 /// What a cell holds when elm made the project without a word.
-pub const OK: &str = "ok";
+pub(crate) const OK: &str = "ok";
 
 /// Runs of one project before a lock failure is an error.
 const RETRIES: u32 = 5;
@@ -52,7 +52,7 @@ const TIMEOUT: Duration = Duration::from_secs(600);
 
 /// Which `elm make` a suite records.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Suite {
+pub(crate) enum Suite {
     /// `elm make --docs` on every package.
     Docs,
     /// `elm make --output=/dev/null` on every app and package.
@@ -67,7 +67,7 @@ pub enum Suite {
 
 impl Suite {
     /// The oracle's file, from the repository's root.
-    pub fn file(self) -> &'static str {
+    pub(crate) fn file(self) -> &'static str {
         match self {
             Suite::Docs => "corpus/docs/oracle.tsv",
             Suite::Check => "corpus/check/oracle.tsv",
@@ -100,7 +100,7 @@ struct Project {
 
 /// Records every corpus project of `suite`, or with `only`, prints the
 /// cells of the projects whose case contains it.
-pub fn run(
+pub(crate) fn run(
     root: &Path,
     refs: &References,
     suite: Suite,
@@ -487,7 +487,7 @@ fn version_dir(dir: &Path) -> Result<String> {
 /// The cell for a project's module graphs, each a module's name and the
 /// bytes of its `.elmo`: `graphs <digest> <count>`, the digest over each
 /// name and the SHA-256 of its bytes, in the order of names.
-pub fn graphs_cell(mut modules: Vec<(String, Vec<u8>)>) -> String {
+pub(crate) fn graphs_cell(mut modules: Vec<(String, Vec<u8>)>) -> String {
     modules.sort_by(|a, b| a.0.cmp(&b.0));
     let mut listing = String::new();
     for (name, bytes) in &modules {
@@ -498,7 +498,7 @@ pub fn graphs_cell(mut modules: Vec<(String, Vec<u8>)>) -> String {
 
 /// The cell for a report: `errors <hash> <first title>` for one about
 /// modules, `error <title>` for one about the project.
-pub fn cell(report: &str) -> String {
+pub(crate) fn cell(report: &str) -> String {
     let value: Value = serde_json::from_str(report).unwrap_or(Value::Null);
     if value["type"] == "compile-errors" {
         let title = value["errors"][0]["problems"][0]["title"]
