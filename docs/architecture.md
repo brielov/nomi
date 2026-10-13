@@ -474,3 +474,36 @@ Process rules:
 - **Tests are the spec.** The corpus, the oracles and the snapshots.
 - **Fix representations, not symptoms.** If the same class of mismatch needs a third heuristic, the representation is wrong. The old formatter took about 35 rounds of single-mismatch fixes to reach parity, all landing in one file.
 - **Small files.** A file past about 1,500 lines gets split by responsibility.
+
+## 13. Code
+
+The tests say what nomi does; this section says how its code reads. Each rule is checked by clippy or `xtask ci` where it can be, and by review where it can't. A rule is broken only where upstream parity forces it, and the code says so where it does.
+
+**Types carry the meaning.**
+- **T1. No stringly-typed values.** A closed set of values is an enum. Text from outside, such as a JSON field, a command-line word or an event name, is parsed into the enum where it enters and printed from it where it leaves. Strings hold only open text: names, paths, messages and source.
+- **T2. No boolean blindness.** A flag whose meaning isn't plain at the call site is an enum with two named variants. So are two or more `bool`s that travel together.
+- **T3. Records, not tuples.** A value with three or more parts, or two parts of the same type whose order isn't obvious, is a struct with named fields. A type alias for a tuple is a struct waiting to be written.
+- **T4. Illegal states are unrepresentable.** Fields that are only set together are one `Option` of a struct, and fields that exclude each other are one enum. `Option<Option<T>>` and `Result<T, Option<E>>` are named enums.
+- **T5. Matches are exhaustive.** A `match` on nomi's own enum lists its variants rather than ending in `_`, so a new variant is a compile error wherever it needs a decision.
+- **T6. Visibility is the smallest that compiles.** An item is private unless another module uses it, and `pub` only when another crate does.
+
+**Functions are small and honest.**
+- **F1. Decisions are pure; effects are at the edges.** A function that decides something takes values and returns values, and is tested as such. Loops that read files, wait, print or spawn call it; they don't contain it.
+- **F2. One thing per function.** A function past about 80 lines, or nested past four levels, is split along its cases. A long `match` whose arms are each short is fine.
+- **F3. Signatures say what's used.** A parameter is borrowed unless the function keeps it; a function that can't fail doesn't return `Result`; a parameter, field or `self` that's never read is removed.
+- **F4. No needless work.** No `clone` where a borrow does, no `collect` to iterate once, no `format!` pushed into a `String` where `write!` does, no `to_string` of a `&str` that's only borrowed again.
+- **F5. Panics state their invariant.** Outside tests, `unwrap` is replaced by `?`, by handling the case, or by `expect` saying why the case can't happen.
+
+**One way to do each thing.**
+- **D1. No duplication.** Logic written twice is written once, in the lowest crate that owns the concept (§4), and parallel functions that differ in one detail are one function with that detail as a parameter or a type.
+- **D2. No dead code.** Unused items, parameters, fields and variants are deleted, not silenced; `#[allow(dead_code)]` doesn't appear.
+- **D3. No speculative generality.** No trait with one implementation, no generic parameter with one instantiation, no option nobody sets, and no wrapper that only forwards, unless a test or a crate boundary needs it.
+- **D4. The standard library and established crates first** (rule 9 of the plan), rather than a hand-written equivalent.
+- **D5. Tests share their setup.** Cases that share a shape are a table; fixtures and harnesses live in `testkit`.
+
+**Names and comments.**
+- **N1. Names say what a thing is**, in the domain's words: upstream's names where nomi ports upstream, Rust's conventions everywhere. No `data`, `info`, `helper`, `util` or `handle` as a whole name.
+- **N2. Comments say why, or what upstream does.** Naming the upstream function a piece of code ports (`watcherEventMessage`) is useful. A comment never restates the code, narrates a change or names a plan step: git has the history.
+- **N3. Every `pub` item has a doc comment**, one sentence when one does. No commented-out code.
+
+The code-quality milestone (MQ) changes no behavior: every ratchet, transcript and corpus suite is unchanged by it, and no hot path gets slower. Speed is the business of a profiling pass after the milestones.

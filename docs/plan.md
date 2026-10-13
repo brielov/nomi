@@ -13,6 +13,7 @@ One binary, `nomi`, that replaces three tools and then adds capabilities on top:
 | M8b | Performance | beats elm and elm-format on wall time, CPU time and peak memory | 0.2.x |
 | M9 | elm-language-server | 2.10.0 features, including its custom requests | 0.3 |
 | M10 | elm-test | 0.19.3-0 flags and output | 0.4 |
+| MQ | Code quality | architecture.md §13, behavior unchanged | — |
 | M11 | Server platform | Node kernels, `nomi/*` packages, fiber runtime | 0.5 |
 | M12 | Workspaces | one resolution; packages shared by web and api | 1.0 |
 
@@ -45,7 +46,7 @@ The frontend-plus-backend goal is reachable at M11: two projects can already sha
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **9.1**; B.n waits for the reference machine.
+4. Resume at the first unchecked box. Right now that is **Q.1**; B.n waits for the reference machine.
 
 ### Test tiers
 
@@ -1021,6 +1022,26 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - The copies leave out Node version pins (`.nvmrc` and the like), as the language-server suite's do: elm-analyse's `.nvmrc` had the version manager on the path run elm-test on Node 8, which can't parse it.
 
 **Exit:** output matches elm-test for fixed seeds, and the corpus apps' test suites pass.
+
+## MQ: Code quality
+
+Every crate brought up to [architecture.md §13](architecture.md#13-code) before the Node platform builds on it: smaller, with no duplication, no stringly-typed values and pure decisions. Behavior doesn't change, and speed waits for a profiling pass after the milestones; this milestone only makes sure no hot path gets slower. Steps go bottom-up through the crate graph, so a crate's own API is settled before the crates above it adapt.
+
+- [ ] **Q.1** `quality: lints`. The clippy lints that check §13 mechanically, on for the workspace and their findings fixed; and an `xtask ci` check that no comment names a plan step.
+- [ ] **Q.2** `quality: base`.
+- [ ] **Q.3** `quality: syntax`.
+- [ ] **Q.4** `quality: format`.
+- [ ] **Q.5** `quality: project and registry`.
+- [ ] **Q.6** `quality: compiler`.
+- [ ] **Q.7** `quality: codegen-js`.
+- [ ] **Q.8** `quality: engine`.
+- [ ] **Q.9** `quality: test`.
+- [ ] **Q.10** `quality: ide`.
+- [ ] **Q.11** `quality: lsp and cli`.
+- [ ] **Q.12** `quality: testkit, xtask and fuzz`.
+- [ ] **Q.13** `quality: across crates`. What's duplicated between crates moves to the crate that owns it, and the lints that need judgment are turned on once every crate passes them.
+
+**Exit:** a fresh review of each crate against §13 finds nothing beyond taste; every ratchet, transcript and corpus suite is unchanged; and the scoreboard loses no cell.
 
 ## M11: Node platform and server runtime, release 0.5
 
