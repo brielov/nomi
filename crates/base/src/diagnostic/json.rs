@@ -54,19 +54,32 @@ impl fmt::Display for Json {
     }
 }
 
-/// `E.chars`, which escapes only CR, LF, quotes and backslashes: a tab or
-/// other control character goes out as it is.
+/// `E.chars`'s escape for `byte`, if it has one: only CR, LF, quotes and
+/// backslashes are escaped, and a tab or other control character goes
+/// out as it is.
+pub fn escape(byte: u8) -> Option<&'static str> {
+    match byte {
+        b'\r' => Some("\\r"),
+        b'\n' => Some("\\n"),
+        b'"' => Some("\\\""),
+        b'\\' => Some("\\\\"),
+        _ => None,
+    }
+}
+
+/// `s` quoted as `E.chars` writes it.
 fn write_str(f: &mut fmt::Formatter<'_>, s: &str) -> fmt::Result {
     f.write_str("\"")?;
-    for c in s.chars() {
-        match c {
-            '\r' => f.write_str("\\r")?,
-            '\n' => f.write_str("\\n")?,
-            '"' => f.write_str("\\\"")?,
-            '\\' => f.write_str("\\\\")?,
-            c => write!(f, "{c}")?,
+    let mut done = 0;
+    for (i, byte) in s.bytes().enumerate() {
+        if let Some(escaped) = escape(byte) {
+            // What `escape` escapes is ASCII, so `i` starts a character.
+            f.write_str(&s[done..i])?;
+            f.write_str(escaped)?;
+            done = i + 1;
         }
     }
+    f.write_str(&s[done..])?;
     f.write_str("\"")
 }
 
@@ -78,11 +91,12 @@ fn string(s: impl Into<String>) -> Json {
 /// `doc`'s snippets must have been put in with `code::expand`.
 pub fn message(doc: &Doc, compat: Compat) -> Json {
     let chunk = |Chunk { text, style }: Chunk| {
-        if style.color.is_none() && !style.bold && !style.underline {
+        if style.color.is_none() && !style.underline {
             return string(text);
         }
         Json::Object(vec![
-            ("bold", Json::Bool(style.bold)),
+            // No report sets the intensity.
+            ("bold", Json::Bool(false)),
             ("underline", Json::Bool(style.underline)),
             (
                 "color",
@@ -96,8 +110,8 @@ pub fn message(doc: &Doc, compat: Compat) -> Json {
 
 /// `encodeRegion`: 0.19.1 prints positions as it keeps them, from 1;
 /// 0.19.2 as it keeps them, from 0; 0.19.3 adds 1 for editors.
-pub fn region(region: Region, compat: Compat) -> Json {
-    let shift = i64::from(compat.first_json_position()) - i64::from(compat.first_position());
+fn region(region: Region, compat: Compat) -> Json {
+    let shift = i64::from(compat.editor_shift());
     let position = |row: u32, col: u32| {
         Json::Object(vec![
             ("line", Json::Int(i64::from(row) + shift)),
@@ -111,7 +125,7 @@ pub fn region(region: Region, compat: Compat) -> Json {
 }
 
 /// `Error.reportToJson`: one problem in a module.
-pub fn problem(title: &str, at: Region, message_doc: &Doc, compat: Compat) -> Json {
+pub(crate) fn problem(title: &str, at: Region, message_doc: &Doc, compat: Compat) -> Json {
     Json::Object(vec![
         ("title", string(title)),
         ("region", region(at, compat)),

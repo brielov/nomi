@@ -37,6 +37,7 @@ proptest = "1"
 pubgrub = "0.3"
 rayon = "1.12"
 rowan = "0.16"
+rustc-hash = "2.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 sha1 = "0.11"

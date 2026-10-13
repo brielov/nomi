@@ -286,7 +286,7 @@ fn canonicalize_(
                 .map(|(name, value)| (name.text.clone(), name.range, (name.range, *value)))
                 .collect();
             let fields = check_fields(env.compat, fields).and_then(|fields| {
-                let names = super::sorted(env.compat, fields.keys());
+                let names = env.compat.sorted_names(fields.keys());
                 let values = all(names
                     .iter()
                     .map(|n| {
@@ -310,7 +310,7 @@ fn canonicalize_(
                 .map(|(name, value)| (name.text.clone(), name.range, *value))
                 .collect();
             let fields = check_fields(env.compat, fields)?;
-            let names = super::sorted(env.compat, fields.keys());
+            let names = env.compat.sorted_names(fields.keys());
             let values = all(names
                 .iter()
                 .map(|n| canonicalize(env, module, fields[*n], free).map(|v| ((*n).clone(), v)))

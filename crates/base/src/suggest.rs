@@ -42,9 +42,19 @@ pub fn sort<V>(target: &[u32], values: &mut [V], to_codes: impl Fn(&V) -> Vec<u3
     values.sort_by_cached_key(|v| distance(&target, &lower(&to_codes(v))));
 }
 
+/// `text`'s code points, as [`sort`] compares strings.
+pub fn code_points(text: &str) -> Vec<u32> {
+    text.chars().map(u32::from).collect()
+}
+
+/// [`sort`] of texts against a text.
+pub fn sort_texts<V: AsRef<str>>(target: &str, values: &mut [V]) {
+    sort(&code_points(target), values, |v| code_points(v.as_ref()));
+}
+
 #[cfg(test)]
 mod tests {
-    use super::distance;
+    use super::{distance, sort_texts};
 
     fn d(a: &str, b: &str) -> usize {
         let a: Vec<char> = a.chars().collect();
@@ -63,5 +73,12 @@ mod tests {
         assert_eq!(d("ca", "abc"), 3);
         assert_eq!(d("MIT", "mit"), 3);
         assert_eq!(d("BSD3", "BSD-3"), 1);
+    }
+
+    #[test]
+    fn texts_sort_by_distance_ignoring_case_stably() {
+        let mut values = ["map", "Maybe", "mop", "List", "MAP"];
+        sort_texts("map", &mut values);
+        assert_eq!(values, ["map", "MAP", "mop", "Maybe", "List"]);
     }
 }

@@ -68,7 +68,6 @@ fn line_content_drops_lf_and_crlf_but_keeps_bare_cr() {
 fn empty_text_has_one_line() {
     let index = LineIndex::new("");
     assert_eq!(index.line_count(), 1);
-    assert!(index.is_empty());
     assert_eq!(
         index.elm_position("", at(0), ColumnUnit::Utf16),
         Ok(ElmPosition { row: 1, column: 1 })

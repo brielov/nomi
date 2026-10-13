@@ -159,7 +159,7 @@ impl<'a> Env<'a> {
     pub fn add_locals(&self, names: &BTreeMap<String, TextRange>) -> R<Env<'a>> {
         let mut env = self.clone();
         let mut errors = Vec::new();
-        for name in super::sorted(self.compat, names.keys()) {
+        for name in self.compat.sorted_names(names.keys()) {
             let range = names[name];
             match env.vars.get(name) {
                 None | Some(Var::Foreign(_)) => {

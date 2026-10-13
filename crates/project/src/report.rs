@@ -186,8 +186,8 @@ fn path() -> String {
 /// positions are the editor's, from 1.
 pub(crate) fn kept(region: json::Region, compat: Compat) -> Region {
     let keep = |p: json::Position| Position {
-        row: p.row.wrapping_sub(1).wrapping_add(compat.first_position()),
-        col: p.col.wrapping_sub(1).wrapping_add(compat.first_position()),
+        row: compat.keep(p.row),
+        col: compat.keep(p.col),
     };
     Region {
         start: keep(region.start),
@@ -196,7 +196,7 @@ pub(crate) fn kept(region: json::Region, compat: Compat) -> Region {
 }
 
 fn words(text: &str) -> impl Iterator<Item = Doc> + '_ {
-    text.split_whitespace().map(Doc::text)
+    text.split_whitespace().map(Doc::from)
 }
 
 fn green(chars: impl Into<String>) -> Doc {

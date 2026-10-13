@@ -123,7 +123,7 @@ fn problem_to_hint(problem: &TProblem) -> Vec<Doc> {
                 }
                 _ => {
                     let mut hint = words("Looks like fields");
-                    hint.extend(comma_sep("and", docs));
+                    hint.extend(comma_sep(Conjunction::And, docs));
                     hint.extend(words("are missing."));
                     vec![fancy_hint(hint)]
                 }

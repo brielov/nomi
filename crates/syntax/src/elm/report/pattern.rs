@@ -68,7 +68,7 @@ impl Reporter<'_, '_> {
                 Next::Keyword(keyword) => self.within(
                     "RESERVED WORD",
                     surroundings(start, *cur),
-                    self.keyword_region(*cur, keyword),
+                    self.keyword_region(*cur, keyword.as_str()),
                     reflow(&format!(
                         "It looks like you are trying to use `{keyword}` {}:",
                         match context {
@@ -176,7 +176,7 @@ impl Reporter<'_, '_> {
                 Next::Keyword(keyword) => self.within(
                     "RESERVED WORD",
                     surroundings(start, *cur),
-                    self.keyword_region(*cur, keyword),
+                    self.keyword_region(*cur, keyword.as_str()),
                     reflow(&format!(
                         "I was not expecting to see `{keyword}` as a record field name:"
                     )),
@@ -242,7 +242,7 @@ impl Reporter<'_, '_> {
                 Next::Keyword(keyword) => self.within(
                     "RESERVED WORD",
                     surroundings(start, *cur),
-                    self.keyword_region(*cur, keyword),
+                    self.keyword_region(*cur, keyword.as_str()),
                     reflow(&format!(
                         "It looks like you are trying to use `{keyword}` as a variable name:"
                     )),
@@ -259,7 +259,7 @@ impl Reporter<'_, '_> {
                 Next::Keyword(keyword) => self.within(
                     "RESERVED WORD",
                     surroundings(start, *cur),
-                    self.keyword_region(*cur, keyword),
+                    self.keyword_region(*cur, keyword.as_str()),
                     reflow("I ran into a reserved word in this pattern:"),
                     reflow(&format!(
                         "The `{keyword}` keyword is reserved. Try using a different name instead!"
@@ -278,18 +278,21 @@ impl Reporter<'_, '_> {
                          front. Did you want that instead?",
                     ),
                 ),
-                Next::Close(term, bracket) => self.within(
-                    format!("STRAY {}", term.to_uppercase()),
-                    surroundings(start, *cur),
-                    to_region(*cur),
-                    reflow(&format!(
-                        "I ran into a an unexpected {term} in this pattern:"
-                    )),
-                    reflow(&format!(
-                        "This {bracket} does not match up with an earlier open {term}. Try \
+                Next::Close(close) => {
+                    let (term, bracket) = (close.name(), close.char());
+                    self.within(
+                        format!("STRAY {}", term.to_uppercase()),
+                        surroundings(start, *cur),
+                        to_region(*cur),
+                        reflow(&format!(
+                            "I ran into a an unexpected {term} in this pattern:"
+                        )),
+                        reflow(&format!(
+                            "This {bracket} does not match up with an earlier open {term}. Try \
                          deleting it?"
-                    )),
-                ),
+                        )),
+                    )
+                }
                 _ => stuck(
                     *cur,
                     "UNFINISHED PARENTHESES",
@@ -367,7 +370,7 @@ impl Reporter<'_, '_> {
                 Next::Keyword(keyword) => self.within(
                     "RESERVED WORD",
                     surroundings(start, *cur),
-                    self.keyword_region(*cur, keyword),
+                    self.keyword_region(*cur, keyword.as_str()),
                     reflow(&format!(
                         "It looks like you are trying to use `{keyword}` to name an element of a \
                          list:"

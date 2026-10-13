@@ -348,7 +348,8 @@ fn exports(
             } else {
                 // `ports ++ Map.keys values`, each in name order.
                 let sorted = |names: &[String]| -> Vec<String> {
-                    super::sorted(compat, names.iter())
+                    compat
+                        .sorted_names(names.iter())
                         .into_iter()
                         .cloned()
                         .collect()
@@ -375,7 +376,8 @@ fn exports(
                     range: op.range,
                     kind: NameKind::Operator,
                     name: op.text.clone(),
-                    possible: super::sorted(compat, binops.keys())
+                    possible: compat
+                        .sorted_names(binops.keys())
                         .into_iter()
                         .cloned()
                         .collect(),
@@ -384,10 +386,10 @@ fn exports(
         }
         Exposed::Upper(name, open) => {
             let types = || {
-                let unions = super::sorted(compat, unions.keys());
+                let unions = compat.sorted_names(unions.keys());
                 unions
                     .into_iter()
-                    .chain(super::sorted(compat, aliases.keys()))
+                    .chain(compat.sorted_names(aliases.keys()))
                     .cloned()
                     .collect()
             };

@@ -1,7 +1,7 @@
 //! The reports on declarations: `toDeclarationsReport` and the reports
 //! it leads to, but for the types, expressions and patterns inside them.
 
-use nomi_base::diagnostic::code::Next;
+use nomi_base::diagnostic::code::{Keyword, Next};
 use nomi_base::diagnostic::doc::{self, reflow, stack, vcat};
 use nomi_base::diagnostic::{Doc, Problem};
 
@@ -36,29 +36,32 @@ impl Reporter<'_, '_> {
     pub(super) fn decl_start(&self, cur: Cursor) -> Problem {
         let region = to_region(cur);
         match self.next(cur) {
-            Next::Close(term, bracket) => self.at(
-                format!("STRAY {}", term.to_uppercase()),
-                region,
-                reflow(&format!("I was not expecting to see a {term} here:")),
-                reflow(&format!(
-                    "This {bracket} does not match up with an earlier open {term}. Try \
+            Next::Close(close) => {
+                let (term, bracket) = (close.name(), close.char());
+                self.at(
+                    format!("STRAY {}", term.to_uppercase()),
+                    region,
+                    reflow(&format!("I was not expecting to see a {term} here:")),
+                    reflow(&format!(
+                        "This {bracket} does not match up with an earlier open {term}. Try \
                      deleting it?"
-                )),
-            ),
+                    )),
+                )
+            }
             Next::Keyword(keyword) => self.at(
                 "RESERVED WORD",
-                self.keyword_region(cur, keyword),
+                self.keyword_region(cur, keyword.as_str()),
                 reflow(&format!(
                     "I was not expecting to run into the `{keyword}` keyword here:"
                 )),
                 match keyword {
-                    "import" => reflow(
+                    Keyword::Import => reflow(
                         "It is reserved for declaring imports at the top of your module. If you \
                          want another import, try moving it up top with the other imports. If \
                          you want to define a value or function, try changing the name to \
                          something else!",
                     ),
-                    "case" => stack([
+                    Keyword::Case => stack([
                         reflow(
                             "It is reserved for writing `case` expressions. Try using a \
                              different name?",
@@ -83,7 +86,7 @@ impl Reporter<'_, '_> {
                              your program.",
                         ),
                     ]),
-                    "if" => stack([
+                    Keyword::If => stack([
                         reflow(
                             "It is reserved for writing `if` expressions. Try using a different \
                              name?",
@@ -227,7 +230,7 @@ impl Reporter<'_, '_> {
                 Next::Keyword(keyword) => self.within(
                     "RESERVED WORD",
                     within(*cur),
-                    self.keyword_region(*cur, keyword),
+                    self.keyword_region(*cur, keyword.as_str()),
                     reflow("I cannot handle ports with names like this:"),
                     reflow(&format!(
                         "You are trying to make a port named `{keyword}` but that is a reserved \
@@ -358,7 +361,7 @@ impl Reporter<'_, '_> {
                 Next::Keyword(keyword) => self.within(
                     "RESERVED WORD",
                     surroundings(start, *cur),
-                    self.keyword_region(*cur, keyword),
+                    self.keyword_region(*cur, keyword.as_str()),
                     reflow(
                         "I ran into a reserved word unexpectedly while parsing this type alias:",
                     ),
@@ -424,7 +427,7 @@ impl Reporter<'_, '_> {
                 Next::Keyword(keyword) => self.within(
                     "RESERVED WORD",
                     surroundings(start, *cur),
-                    self.keyword_region(*cur, keyword),
+                    self.keyword_region(*cur, keyword.as_str()),
                     reflow(
                         "I ran into a reserved word unexpectedly while parsing this custom type:",
                     ),
@@ -582,11 +585,13 @@ impl Reporter<'_, '_> {
             Next::Keyword(keyword) => self.within(
                 "RESERVED WORD",
                 surroundings(start, cur),
-                self.keyword_region(cur, keyword),
+                self.keyword_region(cur, keyword.as_str()),
                 fill![
                     "The",
                     "name",
-                    Doc::from("`").append(cyan(keyword)).append(Doc::from("`")),
+                    Doc::from("`")
+                        .append(cyan(keyword.as_str()))
+                        .append(Doc::from("`")),
                     "is",
                     "reserved",
                     "in",
@@ -603,7 +608,7 @@ impl Reporter<'_, '_> {
                 ],
                 stack([
                     reflow("Try renaming it to something else."),
-                    if keyword == "as" {
+                    if keyword == Keyword::As {
                         doc::note(
                             [
                                 "This", "keyword", "is", "reserved", "for", "pattern", "matches",
@@ -799,7 +804,7 @@ fn expecting_type_name() -> Doc {
     ]
 }
 
-fn reserved_type_variable(keyword: &str) -> Doc {
+fn reserved_type_variable(keyword: Keyword) -> Doc {
     reflow(&format!(
         "It looks like you are trying use `{keyword}` as a type variable, but it is a reserved \
          word. Try using a different name?"

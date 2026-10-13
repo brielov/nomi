@@ -278,8 +278,7 @@ impl Default for Variables {
 pub fn in_name_order<K: AsRef<str>, T>(compat: Compat, map: &BTreeMap<K, T>) -> Vec<(&K, &T)> {
     let mut entries: Vec<(&K, &T)> = map.iter().collect();
     if compat == Compat::V0_19_3 {
-        let order = crate::canonicalize::name_order(compat);
-        entries.sort_by(|a, b| order(a.0.as_ref(), b.0.as_ref()));
+        entries.sort_by(|a, b| compat.compare_names(a.0.as_ref(), b.0.as_ref()));
     }
     entries
 }

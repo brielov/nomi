@@ -301,7 +301,7 @@ pub(crate) fn one_line(title: &'static str, message: &str) -> Report {
 }
 
 pub(crate) fn words(text: &str) -> impl Iterator<Item = Doc> + '_ {
-    text.split_whitespace().map(Doc::text)
+    text.split_whitespace().map(Doc::from)
 }
 
 fn promote_indirect() -> Doc {

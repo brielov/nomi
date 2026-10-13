@@ -24,7 +24,8 @@ pub struct TopNode {
 
 /// `Map.keys`, in `compat`'s name order.
 fn keys(compat: Compat, free: &FreeLocals) -> Vec<String> {
-    super::sorted(compat, free.keys())
+    compat
+        .sorted_names(free.keys())
         .into_iter()
         .cloned()
         .collect()
@@ -35,7 +36,6 @@ fn keys(compat: Compat, free: &FreeLocals) -> Vec<String> {
 /// which must be acyclic. The first component with a bad cycle stops the
 /// rest. The declarations, a value before those that use it.
 pub fn top_level(compat: Compat, nodes: Vec<TopNode>) -> R<Vec<Decl>> {
-    let order = super::name_order(compat);
     let graph = (nodes.into_iter())
         .map(|node| {
             let edges = keys(compat, &node.free);
@@ -44,7 +44,7 @@ pub fn top_level(compat: Compat, nodes: Vec<TopNode>) -> R<Vec<Decl>> {
         })
         .collect();
     let mut decls = Vec::new();
-    for scc in strongly_connected(graph, |a: &String, b: &String| order(a, b)) {
+    for scc in strongly_connected(graph, |a: &String, b: &String| compat.compare_names(a, b)) {
         let members = match scc {
             Scc::Acyclic(node) => {
                 decls.push(Decl::Declare(node.def));
@@ -68,7 +68,7 @@ pub fn top_level(compat: Compat, nodes: Vec<TopNode>) -> R<Vec<Decl>> {
                 ((node, edges.clone()), name, edges)
             })
             .collect();
-        let sccs = strongly_connected(direct, |a: &String, b: &String| order(a, b));
+        let sccs = strongly_connected(direct, |a: &String, b: &String| compat.compare_names(a, b));
         let mut defs = all(sccs.into_iter().map(|scc| bad_cycle(compat, scc)))?.into_iter();
         if let Some(first) = defs.next() {
             decls.push(Decl::DeclareRec(first, defs.collect()));
@@ -108,9 +108,8 @@ fn bad_cycle(compat: Compat, scc: Scc<(TopNode, Vec<String>)>) -> R<Def> {
 /// the keys after the first. Where the first node uses only itself,
 /// upstream reads outside its array; nomi reports it alone.
 fn minimal_cycle(compat: Compat, component: &[(String, Vec<String>)]) -> Vec<String> {
-    let order = super::name_order(compat);
     let mut sorted: Vec<&(String, Vec<String>)> = component.iter().collect();
-    sorted.sort_by(|a, b| order(&a.0, &b.0));
+    sorted.sort_by(|a, b| compat.compare_names(&a.0, &b.0));
     let index: HashMap<&str, usize> = sorted
         .iter()
         .enumerate()
@@ -162,19 +161,19 @@ fn minimal_cycle(compat: Compat, component: &[(String, Vec<String>)]) -> Vec<Str
 /// checked. The body under the bindings, each component a `let` at the
 /// `let`'s region, a binding before those that use it.
 pub fn let_cycles(compat: Compat, region: TextRange, nodes: Vec<LetNode>, body: Expr) -> R<Expr> {
-    let order = super::name_order(compat);
     // Upstream prepends each node as it goes, so its list runs last
     // first; that orders the nodes whose keys tie, as every `_ =` does.
     let graph = (nodes.into_iter().rev())
         .map(|(binding, key, edges)| {
-            let edges: Vec<String> = super::sorted(compat, edges.iter())
+            let edges: Vec<String> = compat
+                .sorted_names(edges.iter())
                 .into_iter()
                 .cloned()
                 .collect();
             ((binding, key.clone(), edges.clone()), key, edges)
         })
         .collect();
-    let sccs = strongly_connected(graph, |a: &String, b: &String| order(a, b));
+    let sccs = strongly_connected(graph, |a: &String, b: &String| compat.compare_names(a, b));
     let steps = all(sccs.into_iter().map(|scc| match scc {
         Scc::Acyclic((binding, _, _)) => Ok(Step::One(Box::new(binding))),
         Scc::Cyclic(bindings) => check_cycle(compat, &bindings).map(Step::Rec),

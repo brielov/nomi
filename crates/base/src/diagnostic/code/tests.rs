@@ -5,7 +5,7 @@ use text_size::{TextRange, TextSize};
 
 use super::*;
 use crate::diagnostic::Report;
-use crate::diagnostic::doc::{self, hint, reflow, stack};
+use crate::diagnostic::doc::{self, Color, OneLine, TwoSnippets, hint, reflow, stack};
 use crate::diagnostic::json::{compile_errors, module, problem};
 use crate::diagnostic::render::{Styles, WIDTH, render};
 
@@ -48,15 +48,15 @@ fn redundant_export(source: &'static str, text: [&'static str; 3], json: [&'stat
     let message = doc::pair(
         first,
         second,
-        (
-            reflow("You are trying to expose `a` multiple times!"),
-            reflow("Remove one of them and you should be all set!"),
-        ),
-        (
-            reflow("You are trying to expose `a` multiple times! Once here:"),
-            reflow("And again right here:"),
-            reflow("Remove one of them and you should be all set!"),
-        ),
+        OneLine {
+            before: reflow("You are trying to expose `a` multiple times!"),
+            after: reflow("Remove one of them and you should be all set!"),
+        },
+        TwoSnippets {
+            before: reflow("You are trying to expose `a` multiple times! Once here:"),
+            between: reflow("And again right here:"),
+            after: reflow("Remove one of them and you should be all set!"),
+        },
     );
     check(&Case {
         source,
@@ -73,7 +73,7 @@ fn redundant_export(source: &'static str, text: [&'static str; 3], json: [&'stat
 fn a_pair_on_one_row_is_numbered_as_kept() {
     redundant_export(
         PAIR1_SOURCE,
-        [PAIR1_TXT_1, PAIR1_TXT_2, PAIR1_TXT_3],
+        [PAIR1_TXT_1, PAIR1_TXT_2, PAIR1_TXT_2],
         [PAIR1_JSON_1, PAIR1_JSON_2, PAIR1_JSON_3],
     );
 }
@@ -82,8 +82,8 @@ fn a_pair_on_one_row_is_numbered_as_kept() {
 fn a_pair_on_two_rows_is_two_snippets() {
     redundant_export(
         PAIR2_SOURCE,
-        [PAIR2_TXT_1, PAIR2_TXT_2, PAIR2_TXT_3],
-        [PAIR2_JSON_1, PAIR2_JSON_2, PAIR2_JSON_3],
+        [PAIR2_TXT; 3],
+        [PAIR2_JSON_1, PAIR2_JSON_2, PAIR2_JSON_1],
     );
 }
 
@@ -116,8 +116,8 @@ fn a_region_over_rows_marks_them() {
             None,
             after,
         ),
-        text: [MULTI_TXT_1, MULTI_TXT_2, MULTI_TXT_3],
-        json: [MULTI_JSON_1, MULTI_JSON_2, MULTI_JSON_3],
+        text: [MULTI_TXT; 3],
+        json: [MULTI_JSON_1, MULTI_JSON_2, MULTI_JSON_1],
     });
 }
 
@@ -135,8 +135,8 @@ fn an_empty_highlight_gets_one_caret_and_tabs_stay_raw() {
             None,
             reflow("Replace the tab with spaces."),
         ),
-        text: [TAB_TXT_1, TAB_TXT_2, TAB_TXT_3],
-        json: [TAB_JSON_1, TAB_JSON_2, TAB_JSON_3],
+        text: [TAB_TXT; 3],
+        json: [TAB_JSON_1, TAB_JSON_2, TAB_JSON_1],
     });
 }
 
@@ -155,32 +155,22 @@ fn crlf_keeps_its_cr_in_the_line() {
 
 // What `elm make` and `elm make --report=json` printed for
 // `cargo xtask oracle`'s releases: the source, then each release's text
-// and JSON.
+// and JSON, or one text where every release printed the same.
 const PAIR1_SOURCE: &str = "module A exposing (a, a)\n\n\na =\n    1\n";
 const PAIR1_TXT_1: &str = "-- REDUNDANT EXPORT ------------------------------------------------------ A.elm\n\nYou are trying to expose `a` multiple times!\n\n1| module A exposing (a, a)\n                      ^  ^\nRemove one of them and you should be all set!\n\n";
 const PAIR1_JSON_1: &str = "{\"type\":\"compile-errors\",\"errors\":[{\"path\":\"A.elm\",\"name\":\"A\",\"problems\":[{\"title\":\"REDUNDANT EXPORT\",\"region\":{\"start\":{\"line\":1,\"column\":23},\"end\":{\"line\":1,\"column\":24}},\"message\":[\"You are trying to expose `a` multiple times!\\n\\n1| module A exposing (a, a)\\n                      \",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\"^\"},\"  \",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\"^\"},\"\\nRemove one of them and you should be all set!\"]}]}]}";
 const PAIR1_TXT_2: &str = "-- REDUNDANT EXPORT ------------------------------------------------------ A.elm\n\nYou are trying to expose `a` multiple times!\n\n0| module A exposing (a, a)\n                      ^  ^\nRemove one of them and you should be all set!\n\n";
 const PAIR1_JSON_2: &str = "{\"type\":\"compile-errors\",\"errors\":[{\"path\":\"A.elm\",\"name\":\"A\",\"problems\":[{\"title\":\"REDUNDANT EXPORT\",\"region\":{\"start\":{\"line\":0,\"column\":22},\"end\":{\"line\":0,\"column\":23}},\"message\":[\"You are trying to expose `a` multiple times!\\n\\n0| module A exposing (a, a)\\n                      \",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\"^\"},\"  \",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\"^\"},\"\\nRemove one of them and you should be all set!\"]}]}]}";
-const PAIR1_TXT_3: &str = "-- REDUNDANT EXPORT ------------------------------------------------------ A.elm\n\nYou are trying to expose `a` multiple times!\n\n0| module A exposing (a, a)\n                      ^  ^\nRemove one of them and you should be all set!\n\n";
 const PAIR1_JSON_3: &str = "{\"type\":\"compile-errors\",\"errors\":[{\"path\":\"A.elm\",\"name\":\"A\",\"problems\":[{\"title\":\"REDUNDANT EXPORT\",\"region\":{\"start\":{\"line\":1,\"column\":23},\"end\":{\"line\":1,\"column\":24}},\"message\":[\"You are trying to expose `a` multiple times!\\n\\n0| module A exposing (a, a)\\n                      \",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\"^\"},\"  \",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\"^\"},\"\\nRemove one of them and you should be all set!\"]}]}]}";
 const PAIR2_SOURCE: &str = "module A exposing\n    ( a\n    , a\n    )\n\n\na =\n    1\n";
-const PAIR2_TXT_1: &str = "-- REDUNDANT EXPORT ------------------------------------------------------ A.elm\n\nYou are trying to expose `a` multiple times! Once here:\n\n2|     ( a\n         ^\nAnd again right here:\n\n3|     , a\n         ^\nRemove one of them and you should be all set!\n\n";
+const PAIR2_TXT: &str = "-- REDUNDANT EXPORT ------------------------------------------------------ A.elm\n\nYou are trying to expose `a` multiple times! Once here:\n\n2|     ( a\n         ^\nAnd again right here:\n\n3|     , a\n         ^\nRemove one of them and you should be all set!\n\n";
 const PAIR2_JSON_1: &str = "{\"type\":\"compile-errors\",\"errors\":[{\"path\":\"A.elm\",\"name\":\"A\",\"problems\":[{\"title\":\"REDUNDANT EXPORT\",\"region\":{\"start\":{\"line\":3,\"column\":7},\"end\":{\"line\":3,\"column\":8}},\"message\":[\"You are trying to expose `a` multiple times! Once here:\\n\\n2|     ( a\\n         \",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\"^\"},\"\\nAnd again right here:\\n\\n3|     , a\\n         \",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\"^\"},\"\\nRemove one of them and you should be all set!\"]}]}]}";
-const PAIR2_TXT_2: &str = "-- REDUNDANT EXPORT ------------------------------------------------------ A.elm\n\nYou are trying to expose `a` multiple times! Once here:\n\n2|     ( a\n         ^\nAnd again right here:\n\n3|     , a\n         ^\nRemove one of them and you should be all set!\n\n";
 const PAIR2_JSON_2: &str = "{\"type\":\"compile-errors\",\"errors\":[{\"path\":\"A.elm\",\"name\":\"A\",\"problems\":[{\"title\":\"REDUNDANT EXPORT\",\"region\":{\"start\":{\"line\":2,\"column\":6},\"end\":{\"line\":2,\"column\":7}},\"message\":[\"You are trying to expose `a` multiple times! Once here:\\n\\n2|     ( a\\n         \",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\"^\"},\"\\nAnd again right here:\\n\\n3|     , a\\n         \",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\"^\"},\"\\nRemove one of them and you should be all set!\"]}]}]}";
-const PAIR2_TXT_3: &str = "-- REDUNDANT EXPORT ------------------------------------------------------ A.elm\n\nYou are trying to expose `a` multiple times! Once here:\n\n2|     ( a\n         ^\nAnd again right here:\n\n3|     , a\n         ^\nRemove one of them and you should be all set!\n\n";
-const PAIR2_JSON_3: &str = "{\"type\":\"compile-errors\",\"errors\":[{\"path\":\"A.elm\",\"name\":\"A\",\"problems\":[{\"title\":\"REDUNDANT EXPORT\",\"region\":{\"start\":{\"line\":3,\"column\":7},\"end\":{\"line\":3,\"column\":8}},\"message\":[\"You are trying to expose `a` multiple times! Once here:\\n\\n2|     ( a\\n         \",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\"^\"},\"\\nAnd again right here:\\n\\n3|     , a\\n         \",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\"^\"},\"\\nRemove one of them and you should be all set!\"]}]}]}";
 const MULTI_SOURCE: &str = "module A exposing (a)\n\n\na : Int\na =\n    \"x\"\n        ++ \"y\"\n";
-const MULTI_TXT_1: &str = "-- TYPE MISMATCH --------------------------------------------------------- A.elm\n\nSomething is off with the body of the `a` definition:\n\n6|>    \"x\"\n7|>        ++ \"y\"\n\nThe body is:\n\n    String\n\nBut the type annotation on `a` says it should be:\n\n    Int\n\nHint: Want to convert a String into an Int? Use the String.toInt function!\n\n";
+const MULTI_TXT: &str = "-- TYPE MISMATCH --------------------------------------------------------- A.elm\n\nSomething is off with the body of the `a` definition:\n\n6|>    \"x\"\n7|>        ++ \"y\"\n\nThe body is:\n\n    String\n\nBut the type annotation on `a` says it should be:\n\n    Int\n\nHint: Want to convert a String into an Int? Use the String.toInt function!\n\n";
 const MULTI_JSON_1: &str = "{\"type\":\"compile-errors\",\"errors\":[{\"path\":\"A.elm\",\"name\":\"A\",\"problems\":[{\"title\":\"TYPE MISMATCH\",\"region\":{\"start\":{\"line\":6,\"column\":5},\"end\":{\"line\":7,\"column\":15}},\"message\":[\"Something is off with the body of the `a` definition:\\n\\n6|\",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\">\"},\"    \\\"x\\\"\\n7|\",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\">\"},\"        ++ \\\"y\\\"\\n\\nThe body is:\\n\\n    \",{\"bold\":false,\"underline\":false,\"color\":\"yellow\",\"string\":\"String\"},\"\\n\\nBut the type annotation on `a` says it should be:\\n\\n    \",{\"bold\":false,\"underline\":false,\"color\":\"yellow\",\"string\":\"Int\"},\"\\n\\n\",{\"bold\":false,\"underline\":true,\"color\":null,\"string\":\"Hint\"},\": Want to convert a String into an Int? Use the \",{\"bold\":false,\"underline\":false,\"color\":\"GREEN\",\"string\":\"String.toInt\"},\" function!\"]}]}]}";
-const MULTI_TXT_2: &str = "-- TYPE MISMATCH --------------------------------------------------------- A.elm\n\nSomething is off with the body of the `a` definition:\n\n6|>    \"x\"\n7|>        ++ \"y\"\n\nThe body is:\n\n    String\n\nBut the type annotation on `a` says it should be:\n\n    Int\n\nHint: Want to convert a String into an Int? Use the String.toInt function!\n\n";
 const MULTI_JSON_2: &str = "{\"type\":\"compile-errors\",\"errors\":[{\"path\":\"A.elm\",\"name\":\"A\",\"problems\":[{\"title\":\"TYPE MISMATCH\",\"region\":{\"start\":{\"line\":5,\"column\":4},\"end\":{\"line\":6,\"column\":14}},\"message\":[\"Something is off with the body of the `a` definition:\\n\\n6|\",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\">\"},\"    \\\"x\\\"\\n7|\",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\">\"},\"        ++ \\\"y\\\"\\n\\nThe body is:\\n\\n    \",{\"bold\":false,\"underline\":false,\"color\":\"yellow\",\"string\":\"String\"},\"\\n\\nBut the type annotation on `a` says it should be:\\n\\n    \",{\"bold\":false,\"underline\":false,\"color\":\"yellow\",\"string\":\"Int\"},\"\\n\\n\",{\"bold\":false,\"underline\":true,\"color\":null,\"string\":\"Hint\"},\": Want to convert a String into an Int? Use the \",{\"bold\":false,\"underline\":false,\"color\":\"GREEN\",\"string\":\"String.toInt\"},\" function!\"]}]}]}";
-const MULTI_TXT_3: &str = "-- TYPE MISMATCH --------------------------------------------------------- A.elm\n\nSomething is off with the body of the `a` definition:\n\n6|>    \"x\"\n7|>        ++ \"y\"\n\nThe body is:\n\n    String\n\nBut the type annotation on `a` says it should be:\n\n    Int\n\nHint: Want to convert a String into an Int? Use the String.toInt function!\n\n";
-const MULTI_JSON_3: &str = "{\"type\":\"compile-errors\",\"errors\":[{\"path\":\"A.elm\",\"name\":\"A\",\"problems\":[{\"title\":\"TYPE MISMATCH\",\"region\":{\"start\":{\"line\":6,\"column\":5},\"end\":{\"line\":7,\"column\":15}},\"message\":[\"Something is off with the body of the `a` definition:\\n\\n6|\",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\">\"},\"    \\\"x\\\"\\n7|\",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\">\"},\"        ++ \\\"y\\\"\\n\\nThe body is:\\n\\n    \",{\"bold\":false,\"underline\":false,\"color\":\"yellow\",\"string\":\"String\"},\"\\n\\nBut the type annotation on `a` says it should be:\\n\\n    \",{\"bold\":false,\"underline\":false,\"color\":\"yellow\",\"string\":\"Int\"},\"\\n\\n\",{\"bold\":false,\"underline\":true,\"color\":null,\"string\":\"Hint\"},\": Want to convert a String into an Int? Use the \",{\"bold\":false,\"underline\":false,\"color\":\"GREEN\",\"string\":\"String.toInt\"},\" function!\"]}]}]}";
 const TAB_SOURCE: &str = "module A exposing (a)\n\n\na =\n    [ 1\n    , \t2\n    ]\n";
-const TAB_TXT_1: &str = "-- NO TABS --------------------------------------------------------------- A.elm\n\nI ran into a tab, but tabs are not allowed in Elm files.\n\n6|     , \t2\n         ^\nReplace the tab with spaces.\n\n";
+const TAB_TXT: &str = "-- NO TABS --------------------------------------------------------------- A.elm\n\nI ran into a tab, but tabs are not allowed in Elm files.\n\n6|     , \t2\n         ^\nReplace the tab with spaces.\n\n";
 const TAB_JSON_1: &str = "{\"type\":\"compile-errors\",\"errors\":[{\"path\":\"A.elm\",\"name\":\"???\",\"problems\":[{\"title\":\"NO TABS\",\"region\":{\"start\":{\"line\":6,\"column\":7},\"end\":{\"line\":6,\"column\":7}},\"message\":[\"I ran into a tab, but tabs are not allowed in Elm files.\\n\\n6|     , \t2\\n         \",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\"^\"},\"\\nReplace the tab with spaces.\"]}]}]}";
-const TAB_TXT_2: &str = "-- NO TABS --------------------------------------------------------------- A.elm\n\nI ran into a tab, but tabs are not allowed in Elm files.\n\n6|     , \t2\n         ^\nReplace the tab with spaces.\n\n";
 const TAB_JSON_2: &str = "{\"type\":\"compile-errors\",\"errors\":[{\"path\":\"A.elm\",\"name\":\"???\",\"problems\":[{\"title\":\"NO TABS\",\"region\":{\"start\":{\"line\":5,\"column\":6},\"end\":{\"line\":5,\"column\":6}},\"message\":[\"I ran into a tab, but tabs are not allowed in Elm files.\\n\\n6|     , \t2\\n         \",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\"^\"},\"\\nReplace the tab with spaces.\"]}]}]}";
-const TAB_TXT_3: &str = "-- NO TABS --------------------------------------------------------------- A.elm\n\nI ran into a tab, but tabs are not allowed in Elm files.\n\n6|     , \t2\n         ^\nReplace the tab with spaces.\n\n";
-const TAB_JSON_3: &str = "{\"type\":\"compile-errors\",\"errors\":[{\"path\":\"A.elm\",\"name\":\"???\",\"problems\":[{\"title\":\"NO TABS\",\"region\":{\"start\":{\"line\":6,\"column\":7},\"end\":{\"line\":6,\"column\":7}},\"message\":[\"I ran into a tab, but tabs are not allowed in Elm files.\\n\\n6|     , \t2\\n         \",{\"bold\":false,\"underline\":false,\"color\":\"RED\",\"string\":\"^\"},\"\\nReplace the tab with spaces.\"]}]}]}";

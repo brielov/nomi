@@ -35,9 +35,8 @@ impl License {
             .map(|&(code, _)| (code, code))
             .chain(LICENSES.iter().copied())
             .collect();
-        let codes = |s: &str| s.chars().map(u32::from).collect::<Vec<_>>();
         suggest::sort(&code_points(raw, compat), &mut candidates, |(_, s)| {
-            codes(s)
+            suggest::code_points(s)
         });
         Err(candidates
             .into_iter()

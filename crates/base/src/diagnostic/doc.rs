@@ -8,21 +8,28 @@
 
 use text_size::TextRange;
 
+/// A document, as ansi-wl-pprint's `Doc` builds one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Doc {
     Empty,
     /// Never contains a newline; use [`Doc::line`].
     Text(String),
     Line(Line),
+    /// One document, then the other.
     Append(Box<Doc>, Box<Doc>),
+    /// The document with the lines it breaks onto indented by the width
+    /// more.
     Nest(usize, Box<Doc>),
+    /// The document with the lines it breaks onto indented to the column
+    /// it starts at.
     Align(Box<Doc>),
+    /// The document on one line if it fits, its line breaks as in a group
+    /// on one line; otherwise as it is.
     Group(Box<Doc>),
     /// The document, then spaces up to the given width from where it
     /// started, if it ended short of it.
     Fill(usize, Box<Doc>),
     Color(Color, Box<Doc>),
-    Bold(Box<Doc>),
     Underline(Box<Doc>),
     /// Lines of the diagnostic's primary file.
     Snippet(Snippet),
@@ -59,11 +66,23 @@ pub struct Snippet {
 pub struct Pair {
     pub first: TextRange,
     pub second: TextRange,
-    /// What goes before and after the line holding both.
-    pub one_line: (Doc, Doc),
-    /// What goes before the first snippet, between them, and after the
-    /// second.
-    pub two_chunks: (Doc, Doc, Doc),
+    pub one_line: OneLine,
+    pub two_snippets: TwoSnippets,
+}
+
+/// What a [`Pair`] shows around the one line holding both regions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OneLine {
+    pub before: Doc,
+    pub after: Doc,
+}
+
+/// What a [`Pair`] shows around the two snippets of its regions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TwoSnippets {
+    pub before: Doc,
+    pub between: Doc,
+    pub after: Doc,
 }
 
 /// Elm's diagnostic colors. Upper-case names in `--report=json` are the
@@ -89,41 +108,37 @@ pub enum Color {
 }
 
 impl Doc {
+    /// Nothing (`empty`).
     pub fn empty() -> Doc {
         Doc::Empty
     }
 
-    /// Panics if `text` has a newline, since the layout could not see it.
-    pub fn text(text: impl Into<String>) -> Doc {
-        let text = text.into();
-        assert!(!text.contains('\n'), "Doc::text with a newline: {text:?}");
-        if text.is_empty() {
-            Doc::Empty
-        } else {
-            Doc::Text(text)
-        }
-    }
-
+    /// A newline that is one even in a group on one line (`hardline`).
     pub fn line() -> Doc {
         Doc::Line(Line::Hard)
     }
 
+    /// A newline, or a space in a group on one line (`line`).
     pub fn softline() -> Doc {
         Doc::Line(Line::Space)
     }
 
+    /// A newline, or nothing in a group on one line (`linebreak`).
     pub fn linebreak() -> Doc {
         Doc::Line(Line::Empty)
     }
 
+    /// The lines covering `region`, with `highlight` underlined.
     pub fn snippet(region: TextRange, highlight: TextRange) -> Doc {
         Doc::Snippet(Snippet { region, highlight })
     }
 
+    /// A link to `page` of the compatibility target's docs.
     pub fn link(page: impl Into<String>) -> Doc {
         Doc::Link(page.into())
     }
 
+    /// This document, then `other` (`<>`).
     pub fn append(self, other: Doc) -> Doc {
         match (self, other) {
             (Doc::Empty, other) => other,
@@ -132,22 +147,30 @@ impl Doc {
         }
     }
 
+    /// This document, a space and `other` (`<+>`).
     pub fn space(self, other: Doc) -> Doc {
-        self.append(Doc::text(" ")).append(other)
+        self.append(text(" ")).append(other)
     }
 
+    /// The lines this document breaks onto, indented by `width` more
+    /// (`nest`).
     pub fn nest(self, width: usize) -> Doc {
         Doc::Nest(width, Box::new(self))
     }
 
+    /// The lines this document breaks onto, indented to the column it
+    /// starts at (`align`).
     pub fn align(self) -> Doc {
         Doc::Align(Box::new(self))
     }
 
+    /// The lines this document breaks onto, indented by `width` past the
+    /// column it starts at (`hang`).
     pub fn hang(self, width: usize) -> Doc {
         self.nest(width).align()
     }
 
+    /// This document on one line if it fits (`group`).
     pub fn group(self) -> Doc {
         Doc::Group(Box::new(self))
     }
@@ -157,20 +180,18 @@ impl Doc {
         Doc::Fill(width, Box::new(self))
     }
 
+    /// Every line of this document, the first too, indented by `width`
+    /// (`indent`).
     pub fn indent(self, width: usize) -> Doc {
-        Doc::text(" ".repeat(width))
-            .append(self.nest(width))
-            .align()
+        text(" ".repeat(width)).append(self.nest(width)).align()
     }
 
+    /// This document in `color`.
     pub fn color(self, color: Color) -> Doc {
         Doc::Color(color, Box::new(self))
     }
 
-    pub fn bold(self) -> Doc {
-        Doc::Bold(Box::new(self))
-    }
-
+    /// This document underlined.
     pub fn underline(self) -> Doc {
         Doc::Underline(Box::new(self))
     }
@@ -197,7 +218,6 @@ impl Doc {
             | Doc::Group(d)
             | Doc::Fill(_, d)
             | Doc::Color(_, d)
-            | Doc::Bold(d)
             | Doc::Underline(d) => d.write_plain(out),
             Doc::Snippet(_) | Doc::Pair(_) => out.push_str("[snippet]"),
             Doc::Link(page) => {
@@ -209,8 +229,19 @@ impl Doc {
     }
 }
 
+/// `text` as a document. Panics if it has a newline, since the layout
+/// could not see it.
 pub fn text(text: impl Into<String>) -> Doc {
-    Doc::text(text)
+    let text = text.into();
+    assert!(
+        !text.contains('\n'),
+        "a document's text with a newline: {text:?}"
+    );
+    if text.is_empty() {
+        Doc::Empty
+    } else {
+        Doc::Text(text)
+    }
 }
 
 /// A string as a document, as Haskell's `OverloadedStrings` makes one.
@@ -238,26 +269,30 @@ fn join(docs: impl IntoIterator<Item = Doc>, sep: impl Fn() -> Doc) -> Doc {
 /// `Code.toSnippet`: `before`, a blank line, the lines of `region` with
 /// `highlight` (or else the whole region) marked, and `after`.
 pub fn snippet(before: Doc, region: TextRange, highlight: Option<TextRange>, after: Doc) -> Doc {
-    vcat([
+    framed(
         before,
-        Doc::empty(),
         Doc::snippet(region, highlight.unwrap_or(region)),
         after,
-    ])
+    )
+}
+
+/// `before`, a blank line, `code` and `after`, as snippets are shown.
+pub(crate) fn framed(before: Doc, code: Doc, after: Doc) -> Doc {
+    vcat([before, Doc::empty(), code, after])
 }
 
 /// `Code.toPair`.
 pub fn pair(
     first: TextRange,
     second: TextRange,
-    one_line: (Doc, Doc),
-    two_chunks: (Doc, Doc, Doc),
+    one_line: OneLine,
+    two_snippets: TwoSnippets,
 ) -> Doc {
     Doc::Pair(Box::new(Pair {
         first,
         second,
         one_line,
-        two_chunks,
+        two_snippets,
     }))
 }
 
@@ -297,14 +332,32 @@ pub fn stack(docs: impl IntoIterator<Item = Doc>) -> Doc {
     join(docs, || Doc::linebreak().append(Doc::linebreak()))
 }
 
-/// `a`, `a or b`, `a, b, or c` for `conjunction` "or". Commas go after
-/// the item, outside any styling it has, as in Elm's reports.
-pub fn comma_sep(conjunction: &str, values: Vec<Doc>) -> Vec<Doc> {
+/// The word [`comma_sep`] puts before the last item.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Conjunction {
+    And,
+    Or,
+}
+
+impl Conjunction {
+    /// The word itself.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Conjunction::And => "and",
+            Conjunction::Or => "or",
+        }
+    }
+}
+
+/// `a`, `a or b`, `a, b, or c` for [`Conjunction::Or`] (`commaSep`).
+/// Commas go after the item, outside any styling it has, as in Elm's
+/// reports.
+pub fn comma_sep(conjunction: Conjunction, values: Vec<Doc>) -> Vec<Doc> {
     let count = values.len();
     let mut docs = Vec::with_capacity(count + 1);
     for (index, value) in values.into_iter().enumerate() {
         if index > 0 && index + 1 == count {
-            docs.push(text(conjunction));
+            docs.push(text(conjunction.as_str()));
         }
         docs.push(if count > 2 && index + 1 < count {
             value.append(text(","))
@@ -328,7 +381,7 @@ pub fn cycle(names: impl IntoIterator<Item = String>) -> Doc {
         if i > 0 {
             rows.push(text(mid));
         }
-        rows.push(text(line).append(text(name).color(Color::DullYellow)));
+        rows.push(text(line).append(dull_yellow(name)));
     }
     rows.push(text(end));
     vcat(rows).indent(4)
@@ -342,26 +395,27 @@ pub fn args(n: usize) -> String {
     }
 }
 
-/// `Label: before <link> after`, wrapped.
+/// `D.link`: `Label: before <link> after`, wrapped.
 pub fn link(label: &str, before: &str, page: &str, after: &str) -> Doc {
-    let label = text(label).underline().append(text(":"));
-    fill_sep(
-        std::iter::once(label)
-            .chain(words(before))
-            .chain([Doc::link(page)])
-            .chain(words(after)),
-    )
+    labelled(label, link_words(before, page, after))
 }
 
-/// `before <link> after`, wrapped.
+/// `D.reflowLink`: `before <link> after`, wrapped.
 pub fn reflow_link(before: &str, page: &str, after: &str) -> Doc {
-    fill_sep(words(before).chain([Doc::link(page)]).chain(words(after)))
+    fill_sep(link_words(before, page, after))
 }
 
+/// The words of `before`, a link to `page`, and the words of `after`.
+fn link_words<'a>(before: &'a str, page: &str, after: &'a str) -> impl Iterator<Item = Doc> + 'a {
+    words(before).chain([Doc::link(page)]).chain(words(after))
+}
+
+/// `D.toSimpleNote`: `Note: message`, wrapped.
 pub fn simple_note(message: &str) -> Doc {
     note(words(message))
 }
 
+/// `D.toFancyNote`: `Note:` and `docs`, wrapped.
 pub fn note(docs: impl IntoIterator<Item = Doc>) -> Doc {
     labelled("Note", docs)
 }
@@ -378,20 +432,50 @@ pub fn ordinal(n: usize) -> String {
     format!("{n}{ending}")
 }
 
+/// `D.toSimpleHint`: `Hint: message`, wrapped.
 pub fn simple_hint(message: &str) -> Doc {
     hint(words(message))
 }
 
+/// `D.toFancyHint`: `Hint:` and `docs`, wrapped.
 pub fn hint(docs: impl IntoIterator<Item = Doc>) -> Doc {
     labelled("Hint", docs)
 }
 
-fn labelled(label: &str, docs: impl IntoIterator<Item = Doc>) -> Doc {
+/// `label` underlined with a colon, then `docs`, wrapped, as notes,
+/// hints and links start.
+pub fn labelled(label: &str, docs: impl IntoIterator<Item = Doc>) -> Doc {
     fill_sep(std::iter::once(text(label).underline().append(text(":"))).chain(docs))
 }
 
-fn words(text: &str) -> impl Iterator<Item = Doc> + '_ {
-    text.split_whitespace().map(Doc::text)
+/// The words of `text`, as `D.reflow` splits a paragraph.
+pub fn words(text: &str) -> impl Iterator<Item = Doc> + '_ {
+    text.split_whitespace().map(self::text)
+}
+
+/// `doc` in vivid red (`D.red`), which styles even no text.
+pub fn red(doc: impl Into<Doc>) -> Doc {
+    doc.into().color(Color::Red)
+}
+
+/// `doc` in vivid green (`D.green`).
+pub fn green(doc: impl Into<Doc>) -> Doc {
+    doc.into().color(Color::Green)
+}
+
+/// `doc` in vivid cyan (`D.cyan`).
+pub fn cyan(doc: impl Into<Doc>) -> Doc {
+    doc.into().color(Color::Cyan)
+}
+
+/// `doc` in vivid blue (`D.blue`).
+pub fn blue(doc: impl Into<Doc>) -> Doc {
+    doc.into().color(Color::Blue)
+}
+
+/// `doc` in dull yellow (`D.dullyellow`).
+pub fn dull_yellow(doc: impl Into<Doc>) -> Doc {
+    doc.into().color(Color::DullYellow)
 }
 
 impl Color {

@@ -45,7 +45,7 @@ impl Reporter<'_, '_> {
                 Next::Keyword(keyword) => self.within(
                     "RESERVED WORD",
                     surroundings(start, *cur),
-                    self.keyword_region(*cur, keyword),
+                    self.keyword_region(*cur, keyword.as_str()),
                     partway(),
                     reflow(&format!(
                         "It looks like you are trying to use `{keyword}` as a variable name, but \
@@ -293,7 +293,7 @@ impl Reporter<'_, '_> {
                     Next::Keyword(keyword) => self.within(
                         "RESERVED WORD",
                         surroundings(start, *cur),
-                        self.keyword_region(*cur, keyword),
+                        self.keyword_region(*cur, keyword.as_str()),
                         partway(),
                         reflow(&format!(
                             "It looks like you are trying to use `{keyword}` in one of your \

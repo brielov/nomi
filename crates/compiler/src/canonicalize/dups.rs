@@ -75,8 +75,7 @@ impl<V> Dict<V> {
         let mut values = BTreeMap::new();
         let mut errors = Vec::new();
         let mut names: Vec<(String, Vec<(TextRange, V)>)> = self.names.into_iter().collect();
-        let order = super::name_order(compat);
-        names.sort_by(|a, b| order(&a.0, &b.0));
+        names.sort_by(|a, b| compat.compare_names(&a.0, &b.0));
         for (name, mut places) in names {
             if places.len() == 1 {
                 values.insert(name, places.pop().expect("one place").1);

@@ -46,7 +46,7 @@ impl std::borrow::Borrow<str> for Interned {
 impl Text {
     /// The interned `name`.
     pub fn new(name: &str) -> Text {
-        use nomi_base::hash::FxHashSet;
+        use rustc_hash::FxHashSet;
         use std::cell::RefCell;
         use std::sync::{OnceLock, RwLock};
         static NAMES: OnceLock<RwLock<FxHashSet<Interned>>> = OnceLock::new();

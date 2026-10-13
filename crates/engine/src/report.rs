@@ -386,9 +386,7 @@ pub fn import_problem(
     let (title, after) = match problem {
         ImportProblem::NotFound => {
             let mut suggestions = unimported.to_vec();
-            let codes = |name: &ModuleName| -> Vec<u32> {
-                name.to_string().chars().map(u32::from).collect()
-            };
+            let codes = |name: &ModuleName| nomi_base::suggest::code_points(&name.to_string());
             nomi_base::suggest::sort(&codes(name), &mut suggestions, |n| codes(n));
             suggestions.truncate(4);
             let hint = match package_for(name) {

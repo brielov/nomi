@@ -1,7 +1,7 @@
 //! The reports on expressions that collect others: `toRecordReport`,
 //! `toTupleReport` and `toListReport`.
 
-use nomi_base::diagnostic::code::{Next, Region};
+use nomi_base::diagnostic::code::{Bracket, Keyword, Next, Region};
 use nomi_base::diagnostic::doc::{self, fill_sep, reflow, stack, vcat};
 use nomi_base::diagnostic::{Doc, Problem};
 
@@ -21,11 +21,11 @@ impl Reporter<'_, '_> {
                 after,
             )
         };
-        let reserved = |cur: Cursor, keyword: &str, before: &str| {
+        let reserved = |cur: Cursor, keyword: Keyword, before: &str| {
             self.within(
                 "RESERVED WORD",
                 surroundings(start, cur),
-                self.keyword_region(cur, keyword),
+                self.keyword_region(cur, keyword.as_str()),
                 reflow(before),
                 reflow(&format!(
                     "It looks like you are trying to use `{keyword}` as a field name, but that \
@@ -99,7 +99,7 @@ impl Reporter<'_, '_> {
                         note_for_record_error(),
                     ]),
                 ),
-                Next::Close(_, '}') => stuck(
+                Next::Close(Bracket::Curly) => stuck(
                     *cur,
                     "EXTRA COMMA",
                     partway,

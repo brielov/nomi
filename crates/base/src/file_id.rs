@@ -5,10 +5,12 @@
 pub struct FileId(u32);
 
 impl FileId {
+    /// The file numbered `raw`.
     pub const fn from_raw(raw: u32) -> FileId {
         FileId(raw)
     }
 
+    /// The file's number.
     pub const fn raw(self) -> u32 {
         self.0
     }

@@ -82,13 +82,13 @@ fn links_name_the_compatibility_target() {
 #[test]
 fn styles_are_escapes_restored_as_wl_pprint_restores_them() {
     let doc = text("a")
-        .append(text("b").underline())
+        .append(text("b").color(Color::Red))
         .append(text("c"))
         .color(Color::DullCyan)
-        .bold();
+        .underline();
     assert_eq!(plain(&doc, 80), "abc");
     assert_eq!(
         render(&doc, Compat::V0_19_1, 80, Styles::Ansi),
-        "\x1b[1m\x1b[36ma\x1b[4mb\x1b[0;36;1mc\x1b[0;1m\x1b[0m"
+        "\x1b[4m\x1b[36ma\x1b[91mb\x1b[0;36;4mc\x1b[0;4m\x1b[0m"
     );
 }

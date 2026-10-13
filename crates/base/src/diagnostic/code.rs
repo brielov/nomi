@@ -8,9 +8,11 @@
 //! row is numbered one less from 0.19.2 on, while every other snippet is
 //! numbered from 1.
 
+use std::fmt;
+
 use text_size::TextRange;
 
-use super::doc::{Color, Doc, Pair, text, vcat};
+use super::doc::{Doc, OneLine, Pair, TwoSnippets, framed, red, text, vcat};
 use crate::{ColumnUnit, Compat, LineIndex, ghc};
 
 /// A file's text, split into lines as upstream splits it to show them
@@ -38,7 +40,124 @@ pub struct Region {
     pub end: Position,
 }
 
+/// What a parser stopped at, as a syntax error names it (`Code.Next`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Next {
+    Keyword(Keyword),
+    Operator(String),
+    Close(Bracket),
+    /// A capitalized name's first letter and the rest.
+    Upper(char, String),
+    /// A lower-case name's first letter and, as upstream has it, the
+    /// whole name again: reports that put the two together count the
+    /// first letter twice.
+    Lower(char, String),
+    Other(Option<char>),
+}
+
+/// One of `Parse.Variable`'s reserved words, the same in every release.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Keyword {
+    As,
+    If,
+    In,
+    Of,
+    Let,
+    Case,
+    Else,
+    Port,
+    Then,
+    Type,
+    Where,
+    Import,
+    Module,
+    Exposing,
+}
+
+impl Keyword {
+    /// Every reserved word.
+    pub const ALL: [Keyword; 14] = [
+        Keyword::As,
+        Keyword::If,
+        Keyword::In,
+        Keyword::Of,
+        Keyword::Let,
+        Keyword::Case,
+        Keyword::Else,
+        Keyword::Port,
+        Keyword::Then,
+        Keyword::Type,
+        Keyword::Where,
+        Keyword::Import,
+        Keyword::Module,
+        Keyword::Exposing,
+    ];
+
+    /// The reserved word `name` is, if it is one.
+    pub fn from_name(name: &str) -> Option<Keyword> {
+        Keyword::ALL.into_iter().find(|k| k.as_str() == name)
+    }
+
+    /// The word as written.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Keyword::As => "as",
+            Keyword::If => "if",
+            Keyword::In => "in",
+            Keyword::Of => "of",
+            Keyword::Let => "let",
+            Keyword::Case => "case",
+            Keyword::Else => "else",
+            Keyword::Port => "port",
+            Keyword::Then => "then",
+            Keyword::Type => "type",
+            Keyword::Where => "where",
+            Keyword::Import => "import",
+            Keyword::Module => "module",
+            Keyword::Exposing => "exposing",
+        }
+    }
+}
+
+impl fmt::Display for Keyword {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// A kind of closing bracket.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Bracket {
+    Paren,
+    Square,
+    Curly,
+}
+
+impl Bracket {
+    /// What reports call it.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Bracket::Paren => "parenthesis",
+            Bracket::Square => "square bracket",
+            Bracket::Curly => "curly brace",
+        }
+    }
+
+    /// The closing bracket itself.
+    pub const fn char(self) -> char {
+        match self {
+            Bracket::Paren => ')',
+            Bracket::Square => ']',
+            Bracket::Curly => '}',
+        }
+    }
+}
+
+/// `Parse.Symbol.binopCharSet`: the characters operators are made of.
+pub const BINOP_CHARS: &str = "+-/*=.<>:&|^?%!";
+
 impl<'a> Source<'a> {
+    /// The lines of `text`, as upstream shows them.
     pub fn new(text: &'a str) -> Source<'a> {
         let mut lines: Vec<&str> = text.split_terminator('\n').collect();
         lines.push("");
@@ -57,13 +176,9 @@ impl<'a> Source<'a> {
                 .index
                 .elm_position(self.text, offset, ColumnUnit::CodePoint)
                 .expect("a snippet within its file");
-            let keep = |from_1: u32| {
-                let kept = from_1 - 1 + compat.first_position();
-                compat.column_wrap().map_or(kept, |wrap| kept % wrap)
-            };
             Position {
-                row: keep(elm.row),
-                col: keep(elm.column),
+                row: compat.keep(elm.row),
+                col: compat.keep(elm.column),
             }
         };
         Region {
@@ -71,9 +186,7 @@ impl<'a> Source<'a> {
             end: position(range.end()),
         }
     }
-}
 
-impl Source<'_> {
     /// `Code.toSnippet` at a region already resolved, as reports about
     /// files other than modules, whose parsers track positions
     /// themselves, show them: `before`, a blank line, the lines of
@@ -87,40 +200,16 @@ impl Source<'_> {
         highlight: Option<Region>,
         after: Doc,
     ) -> Doc {
-        let code = Code {
+        let code = Expander {
             source: self,
             compat,
         }
         .render(region, highlight.unwrap_or(region));
-        vcat([before, Doc::empty(), code, after])
+        framed(before, code, after)
     }
-}
 
-/// What a parser stopped at, as a syntax error names it (`Code.Next`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Next {
-    Keyword(&'static str),
-    Operator(String),
-    /// What the bracket is called, and the bracket.
-    Close(&'static str, char),
-    /// A capitalized name's first letter and the rest.
-    Upper(char, String),
-    /// A lower-case name's first letter and, as upstream has it, the
-    /// whole name again: reports that put the two together count the
-    /// first letter twice.
-    Lower(char, String),
-    Other(Option<char>),
-}
-
-/// `Parse.Variable`'s reserved words, the same in every release.
-const KEYWORDS: [&str; 14] = [
-    "as", "if", "in", "of", "let", "case", "else", "port", "then", "type", "where", "import",
-    "module", "exposing",
-];
-
-impl Source<'_> {
     /// The line kept as `row`, if there is one.
-    fn line(&self, row: u32, compat: Compat) -> Option<&str> {
+    fn line(&self, row: u32, compat: Compat) -> Option<&'a str> {
         let index = row.checked_sub(compat.first_position())?;
         self.lines.get(index as usize).copied()
     }
@@ -146,7 +235,7 @@ impl Source<'_> {
             Next::Upper(c, rest())
         } else if ghc::is_lower(c) {
             let name = format!("{c}{}", rest());
-            match KEYWORDS.iter().find(|&&k| k == name) {
+            match Keyword::from_name(&name) {
                 Some(keyword) => Next::Keyword(keyword),
                 None => Next::Lower(c, name),
             }
@@ -156,9 +245,9 @@ impl Source<'_> {
             Next::Operator(op)
         } else {
             match c {
-                ')' => Next::Close("parenthesis", ')'),
-                ']' => Next::Close("square bracket", ']'),
-                '}' => Next::Close("curly brace", '}'),
+                ')' => Next::Close(Bracket::Paren),
+                ']' => Next::Close(Bracket::Square),
+                '}' => Next::Close(Bracket::Curly),
                 _ => Next::Other(Some(c)),
             }
         }
@@ -198,10 +287,9 @@ impl Source<'_> {
         let rest = line.trim_start_matches(' ');
         #[expect(clippy::cast_possible_truncation, reason = "a line is shorter")]
         let spaces = (line.len() - rest.len()) as u32;
-        let col = compat.first_position() + spaces;
         starts(rest).then(|| Position {
             row,
-            col: compat.column_wrap().map_or(col, |wrap| col % wrap),
+            col: compat.wrap(compat.first_position() + spaces),
         })
     }
 }
@@ -211,23 +299,23 @@ fn is_inner(c: char) -> bool {
     ghc::is_alpha_num(c) || c == '_'
 }
 
-/// `Parse.Symbol.binopCharSet`.
 fn is_binop(c: char) -> bool {
-    "+-/*=.<>:&|^?%!".contains(c)
+    BINOP_CHARS.contains(c)
 }
 
 /// `doc` with its snippets and pairs replaced by the lines of `source`
 /// they show, as `compat` shows them.
 pub fn expand(doc: &Doc, source: &Source<'_>, compat: Compat) -> Doc {
-    Code { source, compat }.expand(doc)
+    Expander { source, compat }.expand(doc)
 }
 
-struct Code<'s, 'a> {
+/// What [`expand`] puts snippets in with: a source as a release shows it.
+struct Expander<'s, 'a> {
     source: &'s Source<'a>,
     compat: Compat,
 }
 
-impl Code<'_, '_> {
+impl Expander<'_, '_> {
     fn expand(&self, doc: &Doc) -> Doc {
         let boxed = |d: &Doc| Box::new(self.expand(d));
         match doc {
@@ -241,7 +329,6 @@ impl Code<'_, '_> {
             Doc::Group(d) => Doc::Group(boxed(d)),
             Doc::Fill(width, d) => Doc::Fill(*width, boxed(d)),
             Doc::Color(color, d) => Doc::Color(*color, boxed(d)),
-            Doc::Bold(d) => Doc::Bold(boxed(d)),
             Doc::Underline(d) => Doc::Underline(boxed(d)),
             Doc::Empty | Doc::Text(_) | Doc::Line(_) | Doc::Link(_) => doc.clone(),
         }
@@ -268,10 +355,8 @@ impl Code<'_, '_> {
             .collect();
         // Upstream fails when there are no lines to take the width from.
         let width = lines.last().map_or(0, |&(row, _)| self.shown(row).len());
-        match self.underline(width, region.end.row, highlight) {
-            Some(underline) => self.draw(false, width, highlight, &lines, underline),
-            None => self.draw(true, width, highlight, &lines, Doc::empty()),
-        }
+        let underline = self.underline(width, region.end.row, highlight);
+        self.draw(width, highlight, &lines, underline)
     }
 
     /// `makeUnderline`: carets under a one-row `highlight` on the last
@@ -286,16 +371,16 @@ impl Code<'_, '_> {
         Some(text(" ".repeat(spaces)).append(red("^".repeat(carets))))
     }
 
-    /// `drawLines`: each line numbered, with a `>` on those `highlight`
-    /// covers if `marked`, then `last`.
+    /// `drawLines`: each line numbered, then `underline` if there is
+    /// one, or else a `>` on the lines `highlight` covers.
     fn draw(
         &self,
-        marked: bool,
         width: usize,
         highlight: Region,
         lines: &[(u32, &str)],
-        last: Doc,
+        underline: Option<Doc>,
     ) -> Doc {
+        let marked = underline.is_none();
         let line = |&(row, line): &(u32, &str)| {
             let spacer = if marked && highlight.start.row <= row && row <= highlight.end.row {
                 red(">")
@@ -306,7 +391,12 @@ impl Code<'_, '_> {
                 .append(spacer)
                 .append(text(line))
         };
-        vcat(lines.iter().map(line).chain([last]))
+        vcat(
+            lines
+                .iter()
+                .map(line)
+                .chain([underline.unwrap_or_else(Doc::empty)]),
+        )
     }
 
     /// `toPair`.
@@ -314,25 +404,22 @@ impl Code<'_, '_> {
         let (one, two) = (self.region(pair.first), self.region(pair.second));
         let row = one.start.row;
         if [one.end.row, two.start.row, two.end.row] != [row; 3] {
-            let (before, between, after) = pair.two_chunks.clone();
-            return vcat([
+            let TwoSnippets {
                 before,
-                Doc::empty(),
-                self.render(one, one),
                 between,
-                Doc::empty(),
-                self.render(two, two),
                 after,
-            ]);
+            } = pair.two_snippets.clone();
+            return framed(
+                before,
+                self.render(one, one),
+                framed(between, self.render(two, two), after),
+            );
         }
         // The row as kept, so from 0.19.2 on one less than elsewhere.
         let number = row.to_string();
-        let first = self.compat.first_position();
         // Upstream fails on a row it doesn't have.
-        let line = (row.checked_sub(first))
-            .and_then(|i| self.source.lines.get(i as usize))
-            .copied()
-            .unwrap_or_default();
+        let line = self.source.line(row, self.compat).unwrap_or_default();
+        let first = self.compat.first_position();
         let spaces1 = one.start.col as usize + number.len() + 2 - first as usize;
         let carets =
             |region: Region| "^".repeat(region.end.col.saturating_sub(region.start.col) as usize);
@@ -351,14 +438,9 @@ impl Code<'_, '_> {
                 .append(text(" ".repeat(spaces2)))
                 .append(red(carets(two))),
         ]);
-        let (before, after) = pair.one_line.clone();
-        vcat([before, Doc::empty(), code, after])
+        let OneLine { before, after } = pair.one_line.clone();
+        framed(before, code, after)
     }
-}
-
-/// `D.red`, which styles even no text.
-fn red(chars: impl Into<String>) -> Doc {
-    text(chars).color(Color::Red)
 }
 
 #[cfg(test)]

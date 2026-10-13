@@ -620,7 +620,7 @@ fn diff_record(
     let both = sequence(both.into_iter().map(|(_, d)| d).collect());
     // `Map.elems (Map.union both left)`, and the right side alike: by name,
     // in the release's order.
-    let order = crate::canonicalize::name_order(localizer.compat);
+    let compat = localizer.compat;
     let mut docs1: Vec<(&String, (Doc, Doc))> = names.iter().copied().zip(both.a).collect();
     let mut docs2: Vec<(&String, (Doc, Doc))> = names.iter().copied().zip(both.b).collect();
     let fields_status = if left.is_empty() && right.is_empty() {
@@ -630,12 +630,12 @@ fn diff_record(
     };
     let mut left_names: Vec<String> = left.keys().map(|n| (*n).clone()).collect();
     let mut right_names: Vec<String> = right.keys().map(|n| (*n).clone()).collect();
-    left_names.sort_by(|a, b| order(a, b));
-    right_names.sort_by(|a, b| order(a, b));
+    left_names.sort_by(|a, b| compat.compare_names(a, b));
+    right_names.sort_by(|a, b| compat.compare_names(a, b));
     docs1.extend(left);
     docs2.extend(right);
-    docs1.sort_by(|a, b| order(a.0, b.0));
-    docs2.sort_by(|a, b| order(a.0, b.0));
+    docs1.sort_by(|a, b| compat.compare_names(a.0, b.0));
+    docs2.sort_by(|a, b| compat.compare_names(a.0, b.0));
     let ext = ext_to_diff(ext1, ext2);
     let status = merge(fields_status, ext.status);
     let a = render::record(docs1.into_iter().map(|(_, d)| d).collect(), ext.a);

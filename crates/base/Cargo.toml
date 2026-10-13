@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 icu_properties.workspace = true
 icu_casemap.workspace = true
+stacker.workspace = true
 text-size.workspace = true
 
 [dev-dependencies]

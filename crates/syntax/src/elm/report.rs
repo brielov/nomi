@@ -5,7 +5,7 @@
 use std::borrow::Cow;
 
 use nomi_base::Compat;
-use nomi_base::diagnostic::code::{self, Next, Position, Region};
+use nomi_base::diagnostic::code::{self, Keyword, Next, Position, Region};
 use nomi_base::diagnostic::doc::{self, Color, reflow, stack, vcat};
 use nomi_base::diagnostic::{Doc, Problem};
 
@@ -476,7 +476,9 @@ impl Reporter<'_, '_> {
     fn fresh_line(&self, cur: Cursor) -> Problem {
         let region = to_region(cur);
         match self.next(cur) {
-            Next::Keyword(keyword @ ("module" | "import" | "type" | "port")) => self.at(
+            Next::Keyword(
+                keyword @ (Keyword::Module | Keyword::Import | Keyword::Type | Keyword::Port),
+            ) => self.at(
                 "TOO MUCH INDENTATION",
                 region,
                 reflow(&format!(
@@ -526,7 +528,7 @@ impl Reporter<'_, '_> {
         match self.next(cur) {
             Next::Keyword(keyword) => self.at(
                 "RESERVED WORD",
-                self.keyword_region(cur, keyword),
+                self.keyword_region(cur, keyword.as_str()),
                 reflow("I got stuck on this reserved word:"),
                 reflow(&format!(
                     "The name `{keyword}` is reserved, so try using a different name?"
@@ -541,15 +543,18 @@ impl Reporter<'_, '_> {
                      a better hint from there?"
                 )),
             ),
-            Next::Close(term, bracket) => self.at(
-                format!("UNEXPECTED {}", term.to_uppercase()),
-                to_region(cur),
-                reflow(&format!("I ran into an unexpected {term}:")),
-                reflow(&format!(
-                    "This {bracket} does not match up with an earlier open {term}. Try \
+            Next::Close(close) => {
+                let (term, bracket) = (close.name(), close.char());
+                self.at(
+                    format!("UNEXPECTED {}", term.to_uppercase()),
+                    to_region(cur),
+                    reflow(&format!("I ran into an unexpected {term}:")),
+                    reflow(&format!(
+                        "This {bracket} does not match up with an earlier open {term}. Try \
                      deleting it?"
-                )),
-            ),
+                    )),
+                )
+            }
             Next::Lower(c, cs) | Next::Upper(c, cs) => self.at(
                 "UNEXPECTED NAME",
                 self.keyword_region(cur, &format!("{c}{cs}")),
@@ -917,7 +922,7 @@ impl Reporter<'_, '_> {
             Next::Keyword(keyword) => self.within(
                 "RESERVED WORD",
                 surroundings,
-                self.keyword_region(cur, keyword),
+                self.keyword_region(cur, keyword.as_str()),
                 reflow("I got stuck on this reserved word:"),
                 reflow(&format!(
                     "It looks like you are trying to expose `{keyword}` but that is a reserved \

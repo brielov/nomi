@@ -61,19 +61,19 @@ pub fn to_problems(error: &Error, source: &Source<'_>, compat: Compat) -> Vec<Pr
                     doc::pair(
                         *r1,
                         *r2,
-                        (
-                            reflow(&format!(
+                        doc::OneLine {
+                            before: reflow(&format!(
                                 "There can only be one `{name}` in your module documentation, but it is listed twice:"
                             )),
-                            text("Remove one of them!"),
-                        ),
-                        (
-                            reflow(&format!(
+                            after: text("Remove one of them!"),
+                        },
+                        doc::TwoSnippets {
+                            before: reflow(&format!(
                                 "There can only be one `{name}` in your module documentation, but I see two. One here:"
                             )),
-                            text("And another one over here:"),
-                            text("Remove one of them!"),
-                        ),
+                            between: text("And another one over here:"),
+                            after: text("Remove one of them!"),
+                        },
                     ),
                 ),
                 NameProblem::OnlyInDocs(name, region) => problem(

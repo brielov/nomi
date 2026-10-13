@@ -1,6 +1,6 @@
 use nomi_base::diagnostic::doc::{
-    Color, Line, comma_sep, fill_sep, hint, link, reflow, reflow_link, sep, simple_note, stack,
-    text, vcat,
+    Color, Conjunction, Line, comma_sep, cyan, dull_yellow, fill_sep, hint, labelled, link, red,
+    reflow, reflow_link, sep, simple_note, stack, text, vcat, words,
 };
 use nomi_base::diagnostic::{OverlappingEdits, Snippet};
 use nomi_base::{Code, Diagnostic, Doc, Edit, FileId, Fix, Severity, Span, TextRange, TextSize};
@@ -37,7 +37,7 @@ fn malformed_codes_are_rejected() {
 
 #[test]
 fn a_diagnostic_carries_its_parts() {
-    let note = Doc::text("the let starts here");
+    let note = text("the let starts here");
     let fix = Fix::new("Add `in`", vec![Edit::new(span(0, 9, 9), " in")]).unwrap();
     let diagnostic = Diagnostic::error(
         UNFINISHED_LET,
@@ -64,7 +64,7 @@ fn a_diagnostic_carries_its_parts() {
 
 #[test]
 fn text_is_never_empty_and_append_drops_empties() {
-    assert_eq!(Doc::text(""), Doc::Empty);
+    assert_eq!(text(""), Doc::Empty);
     assert_eq!(Doc::empty().append(text("a")), text("a"));
     assert_eq!(text("a").append(Doc::empty()), text("a"));
     assert_eq!(text("a").space(text("b")).plain(), "a b");
@@ -73,7 +73,7 @@ fn text_is_never_empty_and_append_drops_empties() {
 #[test]
 #[should_panic(expected = "newline")]
 fn text_rejects_newlines() {
-    let _ = Doc::text("a\nb");
+    let _ = text("a\nb");
 }
 
 #[test]
@@ -99,11 +99,15 @@ fn combinators_build_upstreams_shapes() {
     assert_eq!(Doc::softline(), Doc::Line(Line::Space));
     assert_eq!(text("x").indent(2).plain(), "  x");
     assert_eq!(
-        text("x").color(Color::Red).bold().underline(),
-        Doc::Underline(Box::new(Doc::Bold(Box::new(Doc::Color(
-            Color::Red,
-            Box::new(text("x"))
-        )))))
+        text("x").color(Color::Red).underline(),
+        Doc::Underline(Box::new(Doc::Color(Color::Red, Box::new(text("x")))))
+    );
+    assert_eq!(red(""), Doc::Color(Color::Red, Box::new(Doc::Empty)));
+    assert_eq!(cyan("x"), text("x").color(Color::Cyan));
+    assert_eq!(dull_yellow(text("x")), text("x").color(Color::DullYellow));
+    assert_eq!(
+        words(" two\twords ").collect::<Vec<_>>(),
+        [text("two"), text("words")]
     );
 }
 
@@ -111,12 +115,16 @@ fn combinators_build_upstreams_shapes() {
 fn comma_sep_matches_elm() {
     let names = |n: usize| (0..n).map(|i| text(format!("x{i}"))).collect::<Vec<_>>();
     let plain = |docs: Vec<Doc>| docs.iter().map(Doc::plain).collect::<Vec<_>>().join(" ");
-    assert_eq!(plain(comma_sep("or", names(1))), "x0");
-    assert_eq!(plain(comma_sep("or", names(2))), "x0 or x1");
-    assert_eq!(plain(comma_sep("or", names(3))), "x0, x1, or x2");
+    assert_eq!(plain(comma_sep(Conjunction::Or, names(1))), "x0");
+    assert_eq!(plain(comma_sep(Conjunction::Or, names(2))), "x0 or x1");
+    assert_eq!(plain(comma_sep(Conjunction::Or, names(3))), "x0, x1, or x2");
+    assert_eq!(plain(comma_sep(Conjunction::And, names(2))), "x0 and x1");
     // The comma sits outside the item's styling.
-    let styled = comma_sep("and", vec![text("a").bold(), text("b"), text("c")]);
-    assert_eq!(styled[0], text("a").bold().append(text(",")));
+    let styled = comma_sep(
+        Conjunction::And,
+        vec![text("a").underline(), text("b"), text("c")],
+    );
+    assert_eq!(styled[0], text("a").underline().append(text(",")));
 }
 
 #[test]
@@ -127,6 +135,18 @@ fn links_and_hints_stay_symbolic() {
     );
     let doc = link("Hint", "Read", "imports", "for more.");
     assert_eq!(doc.plain(), "Hint: Read <imports> for more.");
+    assert_eq!(
+        doc,
+        labelled(
+            "Hint",
+            [
+                text("Read"),
+                Doc::link("imports"),
+                text("for"),
+                text("more.")
+            ]
+        )
+    );
     assert_eq!(
         hint([text("Try"), text("this.")]),
         fill_sep([

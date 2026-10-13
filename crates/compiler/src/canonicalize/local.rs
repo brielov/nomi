@@ -107,8 +107,8 @@ fn add_types<'a>(module: &hir::Module, mut env: Env<'a>) -> R<Env<'a>> {
     let nodes = (module.aliases.iter().rev())
         .map(|alias| (alias, alias.name.text.clone(), edges(module, alias.body)))
         .collect();
-    let order = super::name_order(env.compat);
-    for scc in strongly_connected(nodes, |a: &String, b: &String| order(a, b)) {
+    let compat = env.compat;
+    for scc in strongly_connected(nodes, |a: &String, b: &String| compat.compare_names(a, b)) {
         match scc {
             Scc::Acyclic(alias) => {
                 let args = check_alias_free_vars(module, alias, &env)?;
@@ -225,7 +225,8 @@ fn difference(
     vars: &BTreeMap<String, TextRange>,
     from: &BTreeMap<String, TextRange>,
 ) -> Vec<At> {
-    super::sorted(env.compat, vars.keys().filter(|v| !from.contains_key(*v)))
+    env.compat
+        .sorted_names(vars.keys().filter(|v| !from.contains_key(*v)))
         .into_iter()
         .map(|name| At {
             name: name.clone(),

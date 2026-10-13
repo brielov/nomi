@@ -3,14 +3,14 @@ use crate::diagnostic::doc::{Color, text};
 
 #[test]
 fn every_change_of_style_ends_a_chunk_even_an_empty_one() {
-    let doc = text("a").append(text("b").color(Color::Red)).bold();
+    let doc = text("a").append(text("b").color(Color::Red)).underline();
     assert_eq!(
         message(&doc, Compat::LATEST).to_string(),
         concat!(
             r#"["","#,
-            r#"{"bold":true,"underline":false,"color":null,"string":"a"},"#,
-            r#"{"bold":true,"underline":false,"color":"RED","string":"b"},"#,
-            r#"{"bold":true,"underline":false,"color":null,"string":""},"#,
+            r#"{"bold":false,"underline":true,"color":null,"string":"a"},"#,
+            r#"{"bold":false,"underline":true,"color":"RED","string":"b"},"#,
+            r#"{"bold":false,"underline":true,"color":null,"string":""},"#,
             r#"""]"#,
         )
     );

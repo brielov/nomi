@@ -34,6 +34,7 @@ pub struct ElmPosition {
     pub column: u32,
 }
 
+/// Why an offset or a position has no counterpart in a text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PositionError {
     OffsetOutOfBounds,
@@ -67,14 +68,6 @@ impl LineIndex {
         LineIndex { starts, len }
     }
 
-    pub fn len(&self) -> TextSize {
-        self.len
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len == TextSize::new(0)
-    }
-
     /// At least one: an empty text has one empty line.
     pub fn line_count(&self) -> u32 {
         self.starts.len() as u32
@@ -91,7 +84,7 @@ impl LineIndex {
         let (line, prefix) = self.prefix(text, offset)?;
         Ok(LineCol {
             line,
-            col: width(prefix, unit, false),
+            col: width(prefix.chars(), unit),
         })
     }
 
@@ -103,17 +96,11 @@ impl LineIndex {
         pos: LineCol,
         unit: ColumnUnit,
     ) -> Result<TextSize, PositionError> {
-        self.check(text);
-        let start = *self
-            .starts
-            .get(pos.line as usize)
-            .ok_or(PositionError::LineOutOfBounds)?;
-        let end = self.line_end(pos.line as usize);
-        let line = &text[usize::from(start)..usize::from(end)];
+        let line = self.line_range(text, pos.line)?;
         let mut col = 0;
-        for (i, c) in line.char_indices() {
+        for (i, c) in text[line].char_indices() {
             if col == pos.col {
-                return Ok(start + TextSize::new(i as u32));
+                return Ok(line.start() + TextSize::new(i as u32));
             }
             col += char_width(c, unit);
             if col > pos.col {
@@ -121,7 +108,7 @@ impl LineIndex {
             }
         }
         if col == pos.col {
-            Ok(end)
+            Ok(line.end())
         } else {
             Err(PositionError::ColumnOutOfBounds)
         }
@@ -137,18 +124,14 @@ impl LineIndex {
         let (line, prefix) = self.prefix(text, offset)?;
         Ok(ElmPosition {
             row: line + 1,
-            column: width(prefix, unit, true) + 1,
+            column: width(prefix.chars().filter(|&c| c != '\r'), unit) + 1,
         })
     }
 
     /// The text of `line` without its LF or CRLF; a bare CR stays.
     pub fn line_content(&self, text: &str, line: u32) -> Result<TextRange, PositionError> {
-        self.check(text);
-        let start = *self
-            .starts
-            .get(line as usize)
-            .ok_or(PositionError::LineOutOfBounds)?;
-        let mut end = self.line_end(line as usize);
+        let range = self.line_range(text, line)?;
+        let (start, mut end) = (range.start(), range.end());
         let ends_in_lf = (line as usize + 1) < self.starts.len();
         if ends_in_lf && end > start && text.as_bytes()[usize::from(end) - 1] == b'\r' {
             end -= TextSize::new(1);
@@ -170,11 +153,16 @@ impl LineIndex {
         Ok((line as u32, &text[usize::from(start)..usize::from(offset)]))
     }
 
-    /// Where `line` ends: at its LF, or at the end of the text.
-    fn line_end(&self, line: usize) -> TextSize {
-        self.starts
-            .get(line + 1)
-            .map_or(self.len, |&next| next - TextSize::new(1))
+    /// `line`, up to its LF or the end of the text.
+    fn line_range(&self, text: &str, line: u32) -> Result<TextRange, PositionError> {
+        self.check(text);
+        let line = line as usize;
+        let start = *self
+            .starts
+            .get(line)
+            .ok_or(PositionError::LineOutOfBounds)?;
+        let end = (self.starts.get(line + 1)).map_or(self.len, |&next| next - TextSize::new(1));
+        Ok(TextRange::new(start, end))
     }
 
     fn check(&self, text: &str) {
@@ -186,11 +174,8 @@ impl LineIndex {
     }
 }
 
-fn width(text: &str, unit: ColumnUnit, skip_cr: bool) -> u32 {
-    text.chars()
-        .filter(|&c| !(skip_cr && c == '\r'))
-        .map(|c| char_width(c, unit))
-        .sum()
+fn width(chars: impl Iterator<Item = char>, unit: ColumnUnit) -> u32 {
+    chars.map(|c| char_width(c, unit)).sum()
 }
 
 fn char_width(c: char, unit: ColumnUnit) -> u32 {

@@ -308,7 +308,7 @@ pub fn http_error(title: &'static str, url: &str, e: &HttpError, context: &str) 
 }
 
 fn words(text: &str) -> impl Iterator<Item = Doc> + '_ {
-    text.split_whitespace().map(Doc::text)
+    text.split_whitespace().map(Doc::from)
 }
 
 fn url_doc(url: &str) -> Doc {
@@ -317,7 +317,7 @@ fn url_doc(url: &str) -> Doc {
 
 /// `D.fromChars`: text as it is, its lines kept.
 fn verbatim(text: &str) -> Doc {
-    vcat(text.split('\n').map(Doc::text))
+    vcat(text.split('\n').map(Doc::from))
 }
 
 #[cfg(test)]

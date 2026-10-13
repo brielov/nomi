@@ -365,7 +365,7 @@ impl Reporter<'_, '_> {
                 Next::Keyword(keyword) => self.within(
                     "RESERVED WORD",
                     surroundings(start, *cur),
-                    self.keyword_region(*cur, keyword),
+                    self.keyword_region(*cur, keyword.as_str()),
                     reflow("I was parsing an anonymous function, but I got stuck here:"),
                     reflow(&format!(
                         "It looks like you are trying to use `{keyword}` as an argument, but it \

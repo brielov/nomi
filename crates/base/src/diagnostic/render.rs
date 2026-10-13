@@ -7,6 +7,8 @@
 //! become newlines. With a ribbon of 1 the ribbon never binds before the
 //! width does, so only the width is checked.
 
+use std::fmt::Write as _;
+
 use super::doc::{Color, Doc, Line};
 use crate::Compat;
 
@@ -34,14 +36,14 @@ pub fn render(doc: &Doc, compat: Compat, width: usize, styles: Styles) -> String
 /// A run of text in one style: how `D.encode` gives a message to
 /// `--report=json`, cut at every change of style, so a chunk may be empty.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Chunk {
-    pub text: String,
-    pub style: Style,
+pub(crate) struct Chunk {
+    pub(crate) text: String,
+    pub(crate) style: Style,
 }
 
 /// `doc` laid out as `D.encode` lays it out, at [`WIDTH`] columns, in
 /// chunks: the one before the first change of style, then one after each.
-pub fn chunks(doc: &Doc, compat: Compat) -> Vec<Chunk> {
+pub(crate) fn chunks(doc: &Doc, compat: Compat) -> Vec<Chunk> {
     let mut renderer = Renderer::new(compat, WIDTH, Output::Chunks, doc).run();
     let last = renderer.take_chunk();
     renderer.chunks.push(last);
@@ -50,10 +52,9 @@ pub fn chunks(doc: &Doc, compat: Compat) -> Vec<Chunk> {
 
 /// The styles in effect, which `RestoreFormat` brings back.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Style {
-    pub color: Option<Color>,
-    pub bold: bool,
-    pub underline: bool,
+pub(crate) struct Style {
+    pub(crate) color: Option<Color>,
+    pub(crate) underline: bool,
 }
 
 /// What a change of style does: nothing, an ANSI escape, or the end of a
@@ -86,6 +87,12 @@ enum Cmd<'d> {
     Restore(Style),
 }
 
+impl<'d> Cmd<'d> {
+    fn doc(indent: usize, mode: Mode, doc: &'d Doc) -> Cmd<'d> {
+        Cmd::Doc { indent, mode, doc }
+    }
+}
+
 struct Renderer<'d> {
     width: usize,
     compat: Compat,
@@ -107,11 +114,7 @@ impl<'d> Renderer<'d> {
             chunks: Vec::new(),
             column: 0,
             style: Style::default(),
-            stack: vec![Cmd::Doc {
-                indent: 0,
-                mode: Mode::Break,
-                doc,
-            }],
+            stack: vec![Cmd::doc(0, Mode::Break, doc)],
         }
     }
 
@@ -130,7 +133,7 @@ impl<'d> Renderer<'d> {
                 }
             };
             let push = |stack: &mut Vec<Cmd<'d>>, indent, mode, doc| {
-                stack.push(Cmd::Doc { indent, mode, doc });
+                stack.push(Cmd::doc(indent, mode, doc));
             };
             match doc {
                 Doc::Empty => {}
@@ -172,10 +175,6 @@ impl<'d> Renderer<'d> {
                     style.color = Some(*color);
                     color_code(*color)
                 }),
-                Doc::Bold(d) => self.styled(indent, mode, d, |style| {
-                    style.bold = true;
-                    1
-                }),
                 Doc::Underline(d) => self.styled(indent, mode, d, |style| {
                     style.underline = true;
                     4
@@ -194,7 +193,7 @@ impl<'d> Renderer<'d> {
             let code = set(&mut style);
             self.restyle(style, &[code]);
         }
-        self.stack.push(Cmd::Doc { indent, mode, doc });
+        self.stack.push(Cmd::doc(indent, mode, doc));
     }
 
     fn push_text(&mut self, text: &str) {
@@ -207,8 +206,13 @@ impl<'d> Renderer<'d> {
         match self.output {
             Output::Plain => {}
             Output::Ansi => {
-                let codes: Vec<String> = codes.iter().map(u8::to_string).collect();
-                self.out.push_str(&format!("\x1b[{}m", codes.join(";")));
+                self.out.push_str("\x1b[");
+                for (i, code) in codes.iter().enumerate() {
+                    let sep = if i == 0 { "" } else { ";" };
+                    // Writing to a `String` can't fail.
+                    let _ = write!(self.out, "{sep}{code}");
+                }
+                self.out.push('m');
             }
             Output::Chunks => {
                 let chunk = self.take_chunk();
@@ -229,20 +233,11 @@ impl<'d> Renderer<'d> {
     /// `fits`: whether `doc` on one line, then what is left up to the next
     /// newline, stays within the width.
     fn fits(&self, indent: usize, doc: &'d Doc) -> bool {
-        let mut room = self.width as isize - self.column as isize;
         let mut column = self.column;
-        let mut local = vec![Cmd::Doc {
-            indent,
-            mode: Mode::Flat,
-            doc,
-        }];
+        let mut local = vec![Cmd::doc(indent, Mode::Flat, doc)];
         let mut rest = self.stack.iter().rev();
-        let take = |n: usize, room: &mut isize, column: &mut usize| {
-            *room -= n as isize;
-            *column += n;
-        };
         loop {
-            if room < 0 {
+            if column > self.width {
                 return false;
             }
             // Groups after this one are taken broken: whether they would
@@ -254,64 +249,36 @@ impl<'d> Renderer<'d> {
             let (indent, mode, doc) = match cmd {
                 Cmd::Doc { indent, mode, doc } => (indent, mode, doc),
                 Cmd::Pad { start, width } => {
-                    take(padding(start, column, width), &mut room, &mut column);
+                    column += padding(start, column, width);
                     continue;
                 }
                 Cmd::Restore(_) => continue,
             };
             match doc {
                 Doc::Empty => {}
-                Doc::Text(text) => take(text.chars().count(), &mut room, &mut column),
-                Doc::Link(page) => {
-                    take(
-                        link(self.compat, page).chars().count(),
-                        &mut room,
-                        &mut column,
-                    );
-                }
+                Doc::Text(text) => column += text.chars().count(),
+                Doc::Link(page) => column += link(self.compat, page).chars().count(),
                 Doc::Line(line) => match (mode, line) {
-                    (Mode::Flat, Line::Space) => take(1, &mut room, &mut column),
+                    (Mode::Flat, Line::Space) => column += 1,
                     (Mode::Flat, Line::Empty) => {}
                     (Mode::Flat, Line::Hard) => return false,
                     (Mode::Break, _) => return true,
                 },
                 Doc::Append(a, b) => {
-                    local.push(Cmd::Doc {
-                        indent,
-                        mode,
-                        doc: b,
-                    });
-                    local.push(Cmd::Doc {
-                        indent,
-                        mode,
-                        doc: a,
-                    });
+                    local.push(Cmd::doc(indent, mode, b));
+                    local.push(Cmd::doc(indent, mode, a));
                 }
-                Doc::Nest(width, d) => local.push(Cmd::Doc {
-                    indent: indent + width,
-                    mode,
-                    doc: d,
-                }),
+                Doc::Nest(width, d) => local.push(Cmd::doc(indent + width, mode, d)),
                 Doc::Fill(width, d) => {
                     local.push(Cmd::Pad {
                         start: column,
                         width: *width,
                     });
-                    local.push(Cmd::Doc {
-                        indent,
-                        mode,
-                        doc: d,
-                    });
+                    local.push(Cmd::doc(indent, mode, d));
                 }
-                Doc::Align(d)
-                | Doc::Group(d)
-                | Doc::Color(_, d)
-                | Doc::Bold(d)
-                | Doc::Underline(d) => local.push(Cmd::Doc {
-                    indent,
-                    mode,
-                    doc: d,
-                }),
+                Doc::Align(d) | Doc::Group(d) | Doc::Color(_, d) | Doc::Underline(d) => {
+                    local.push(Cmd::doc(indent, mode, d));
+                }
                 Doc::Snippet(_) | Doc::Pair(_) => panic!("{UNEXPANDED}"),
             }
         }
@@ -355,14 +322,12 @@ fn color_code(color: Color) -> u8 {
     base + index
 }
 
-/// `RestoreFormat`: a reset, then the color, intensity and underlining
-/// in effect, in that order.
+/// `RestoreFormat`: a reset, then the color and underlining in effect,
+/// in that order. Upstream restores the intensity between the two, but
+/// no report sets it.
 fn restore_codes(style: Style) -> Vec<u8> {
     let mut codes = vec![0];
     codes.extend(style.color.map(color_code));
-    if style.bold {
-        codes.push(1);
-    }
     if style.underline {
         codes.push(4);
     }

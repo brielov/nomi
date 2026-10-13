@@ -6,8 +6,8 @@
 use nomi_base::diagnostic::Problem;
 use nomi_base::diagnostic::code::{self, Source};
 use nomi_base::diagnostic::doc::{
-    self, Color, Doc, comma_sep, fill_sep, link, pair, reflow, reflow_link, simple_note, snippet,
-    stack, text, vcat,
+    self, Color, Conjunction, Doc, OneLine, TwoSnippets, comma_sep, fill_sep, link, pair, reflow,
+    reflow_link, simple_note, snippet, stack, text, vcat,
 };
 use nomi_base::{Compat, TextRange, suggest};
 
@@ -63,8 +63,7 @@ fn words(s: &str) -> Vec<Doc> {
 
 /// `Suggest.sort` of `candidates` against `target`, the first `n`.
 fn nearest(target: &str, mut candidates: Vec<String>, n: usize) -> Vec<String> {
-    let codes = |s: &str| s.chars().map(u32::from).collect::<Vec<u32>>();
-    suggest::sort(&codes(target), &mut candidates, |c| codes(c));
+    suggest::sort_texts(target, &mut candidates);
     candidates.truncate(n);
     candidates
 }
@@ -72,7 +71,8 @@ fn nearest(target: &str, mut candidates: Vec<String>, n: usize) -> Vec<String> {
 /// `names` in `compat`'s order, as the maps upstream lists them from
 /// keep them, which decides how ties among suggestions break.
 fn in_order(compat: Compat, names: &[String]) -> Vec<String> {
-    super::sorted(compat, names.iter())
+    compat
+        .sorted_names(names.iter())
         .into_iter()
         .cloned()
         .collect()
@@ -81,7 +81,6 @@ fn in_order(compat: Compat, names: &[String]) -> Vec<String> {
 /// Upstream's order of modules: by package, author then project, then by
 /// name; each name as `compat` orders names.
 fn sorted_homes(homes: &[Home], compat: Compat) -> Vec<Home> {
-    let order = super::name_order(compat);
     let mut homes = homes.to_vec();
     homes.sort_by(|a, b| {
         let split = |h: &Home| {
@@ -89,9 +88,10 @@ fn sorted_homes(homes: &[Home], compat: Compat) -> Vec<Home> {
             (author.to_owned(), project.to_owned())
         };
         let ((a_author, a_project), (b_author, b_project)) = (split(a), split(b));
-        order(&a_author, &b_author)
-            .then_with(|| order(&a_project, &b_project))
-            .then_with(|| order(&a.module, &b.module))
+        compat
+            .compare_names(&a_author, &b_author)
+            .then_with(|| compat.compare_names(&a_project, &b_project))
+            .then_with(|| compat.compare_names(&a.module, &b.module))
     });
     homes
 }
@@ -325,12 +325,15 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
             let doc = pair(
                 (cx.trim)(*first),
                 (cx.trim)(*second),
-                (reflow(&message), text(fix)),
-                (
-                    reflow(&format!("{message} Once here:")),
-                    text("And again right here:"),
-                    text(fix),
-                ),
+                OneLine {
+                    before: reflow(&message),
+                    after: text(fix),
+                },
+                TwoSnippets {
+                    before: reflow(&format!("{message} Once here:")),
+                    between: text("And again right here:"),
+                    after: text(fix),
+                },
             );
             ("REDUNDANT EXPORT", *second, doc)
         }
@@ -616,12 +619,15 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
             let doc = pair(
                 (cx.trim)(*first),
                 (cx.trim)(*second),
-                (text("These variables cannot have the same name:"), advice()),
-                (
-                    reflow(&format!("The name `{name}` is first defined here:")),
-                    text("But then it is defined AGAIN over here:"),
-                    advice(),
-                ),
+                OneLine {
+                    before: text("These variables cannot have the same name:"),
+                    after: advice(),
+                },
+                TwoSnippets {
+                    before: reflow(&format!("The name `{name}` is first defined here:")),
+                    between: text("But then it is defined AGAIN over here:"),
+                    after: advice(),
+                },
             );
             ("SHADOWING", *second, doc)
         }
@@ -696,12 +702,15 @@ fn name_clash(
     let doc = pair(
         (cx.trim)(first),
         (cx.trim)(second),
-        (reflow(message), text(fix)),
-        (
-            reflow(&format!("{message} One here:")),
-            text("And another one here:"),
-            text(fix),
-        ),
+        OneLine {
+            before: reflow(message),
+            after: text(fix),
+        },
+        TwoSnippets {
+            before: reflow(&format!("{message} One here:")),
+            between: text("And another one here:"),
+            after: text(fix),
+        },
     );
     ("NAME CLASH", second, doc)
 }
@@ -901,7 +910,7 @@ fn unknown_operator(cx: &Context<'_>, range: TextRange, op: &str, possible: &[St
                     .iter()
                     .map(|s| text(format!("({s})")).color(Color::Green))
                     .collect();
-                after.extend(comma_sep("or", alts));
+                after.extend(comma_sep(Conjunction::Or, alts));
                 after.push(text("instead?"));
             }
             snip(
@@ -1066,7 +1075,7 @@ fn unbound_type_vars(
     } else {
         let mut overview = words("Type variables");
         let names = std::iter::once(unbound).chain(others.iter().map(|(n, _)| n.as_str()));
-        overview.extend(comma_sep("and", names.map(yellow).collect()));
+        overview.extend(comma_sep(Conjunction::And, names.map(yellow).collect()));
         overview.extend(words("are unbound in the"));
         overview.push(quoted(name));
         overview.extend(tipe_docs());
@@ -1126,7 +1135,10 @@ fn messed_up_alias(
                 )
             } else {
                 let mut overview = words("Type variables");
-                overview.extend(comma_sep("and", names.iter().map(|n| text(*n)).collect()));
+                overview.extend(comma_sep(
+                    Conjunction::And,
+                    names.iter().map(|n| text(*n)).collect(),
+                ));
                 overview.extend(words("are unused in the"));
                 overview.push(quoted(name));
                 overview.push(text("definition."));
@@ -1134,7 +1146,7 @@ fn messed_up_alias(
                     "UNUSED TYPE VARIABLES",
                     None,
                     overview,
-                    comma_sep("and", names.iter().map(|n| yellow(*n)).collect()),
+                    comma_sep(Conjunction::And, names.iter().map(|n| yellow(*n)).collect()),
                 )
             };
             let mut recommend = words("I recommend removing");
@@ -1189,7 +1201,7 @@ fn messed_up_alias(
             } else {
                 let mut docs = words("Type variables");
                 docs.extend(comma_sep(
-                    "and",
+                    Conjunction::And,
                     unbound.iter().map(|n| yellow(*n)).collect(),
                 ));
                 docs.extend(words(
@@ -1204,7 +1216,7 @@ fn messed_up_alias(
             } else {
                 used.extend(words("Likewise, type variables"));
                 used.extend(comma_sep(
-                    "and",
+                    Conjunction::And,
                     unused.iter().map(|n| yellow(*n)).collect(),
                 ));
                 used.extend(words("are delared, but not used."));

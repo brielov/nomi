@@ -16,7 +16,6 @@ use nomi_syntax::elm::docs::{self as syntax, DocKind, DocName, SyntaxProblem};
 
 use crate::canonical::{Associativity, Decl, Def, Type};
 use crate::canonicalize::module::{Canonical, Export, Exports};
-use crate::canonicalize::name_order;
 use crate::hir;
 use crate::types::localizer::Localizer;
 use crate::types::render::{Context, can_to_doc};
@@ -135,9 +134,8 @@ fn ordered<'a, T>(
     compat: Compat,
     names: impl IntoIterator<Item = (Space, &'a String, T)>,
 ) -> Vec<(&'a String, T)> {
-    let order = name_order(compat);
     let mut names: Vec<(Space, &String, T)> = names.into_iter().collect();
-    names.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| order(a.1, b.1)));
+    names.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| compat.compare_names(a.1, b.1)));
     names.into_iter().map(|(_, name, t)| (name, t)).collect()
 }
 
@@ -297,11 +295,11 @@ fn check_defs(
     if !problems.is_empty() {
         return Err(Error::DefProblems(problems));
     }
-    let order = name_order(compat);
-    docs.unions.sort_by(|a, b| order(&a.0, &b.0));
-    docs.aliases.sort_by(|a, b| order(&a.0, &b.0));
-    docs.values.sort_by(|a, b| order(&a.0, &b.0));
-    docs.binops.sort_by(|a, b| order(&a.0, &b.0));
+    docs.unions.sort_by(|a, b| compat.compare_names(&a.0, &b.0));
+    docs.aliases
+        .sort_by(|a, b| compat.compare_names(&a.0, &b.0));
+    docs.values.sort_by(|a, b| compat.compare_names(&a.0, &b.0));
+    docs.binops.sort_by(|a, b| compat.compare_names(&a.0, &b.0));
     Ok(docs)
 }
 
@@ -400,9 +398,8 @@ fn chars(text: &str) -> String {
 /// `encode` through `encodeUgly`: `docs.json` for `modules`, in their
 /// names' order.
 pub fn encode(compat: Compat, modules: &[Module]) -> String {
-    let order = name_order(compat);
     let mut modules: Vec<&Module> = modules.iter().collect();
-    modules.sort_by(|a, b| order(&a.name, &b.name));
+    modules.sort_by(|a, b| compat.compare_names(&a.name, &b.name));
     let quoted = |s: &str| format!("\"{s}\"");
     let list = |items: Vec<String>| format!("[{}]", items.join(","));
     let names = |names: &[String]| list(names.iter().map(|n| quoted(n)).collect());

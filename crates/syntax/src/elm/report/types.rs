@@ -1,7 +1,7 @@
 //! The reports on types: `toTypeReport` and the reports on records and
 //! tuples it leads to.
 
-use nomi_base::diagnostic::code::{Next, Region};
+use nomi_base::diagnostic::code::{Bracket, Keyword, Next, Region};
 use nomi_base::diagnostic::doc::{self, reflow, stack, vcat};
 use nomi_base::diagnostic::{Doc, Problem};
 
@@ -57,7 +57,7 @@ impl Reporter<'_, '_> {
                     self.within(
                         "RESERVED WORD",
                         surroundings(start, *cur),
-                        self.keyword_region(*cur, keyword),
+                        self.keyword_region(*cur, keyword.as_str()),
                         reflow(
                             "I was expecting to see a type next, but I got stuck on this reserved \
                      word:",
@@ -117,11 +117,11 @@ impl Reporter<'_, '_> {
             )
         };
         let partway = "I am partway through parsing a record type, but I got stuck here:";
-        let reserved = |cur: Cursor, keyword: &str, before: &str| {
+        let reserved = |cur: Cursor, keyword: Keyword, before: &str| {
             self.within(
                 "RESERVED WORD",
                 surroundings(start, cur),
-                self.keyword_region(cur, keyword),
+                self.keyword_region(cur, keyword.as_str()),
                 reflow(before),
                 reflow(&format!(
                     "It looks like you are trying to use `{keyword}` as a field name, but that \
@@ -211,7 +211,7 @@ impl Reporter<'_, '_> {
                         note_for_record_type_error(),
                     ]),
                 ),
-                Next::Close(_, '}') => report(
+                Next::Close(Bracket::Curly) => report(
                     "EXTRA COMMA",
                     *cur,
                     partway,
@@ -461,7 +461,7 @@ impl Reporter<'_, '_> {
                 Next::Keyword(keyword) => self.within(
                     "RESERVED WORD",
                     surroundings(start, *cur),
-                    self.keyword_region(*cur, keyword),
+                    self.keyword_region(*cur, keyword.as_str()),
                     reflow("I ran into a reserved word unexpectedly:"),
                     reflow(&format!(
                         "It looks like you are trying to use `{keyword}` as a variable name, but \

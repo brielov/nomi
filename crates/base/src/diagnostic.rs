@@ -1,7 +1,7 @@
 //! The one structured diagnostic model (architecture §4). Phases build
 //! these and never format strings. [`code`] puts in the source lines
 //! their snippets show, then [`render`] lays them out for the terminal and
-//! [`json`] for `--report=json`; LSP comes later.
+//! [`json`] for `--report=json`.
 
 pub mod code;
 pub mod doc;
@@ -79,6 +79,7 @@ pub struct Problem {
 }
 
 impl Problem {
+    /// `title` with `message`, at `region`.
     pub fn new(title: impl Into<Cow<'static, str>>, region: code::Region, message: Doc) -> Problem {
         Problem {
             title: title.into(),

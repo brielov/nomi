@@ -10,8 +10,8 @@ mod records;
 use nomi_base::diagnostic::Problem;
 use nomi_base::diagnostic::code::{self, Source};
 use nomi_base::diagnostic::doc::{
-    Color, Doc, args, comma_sep, fill_sep, ordinal, reflow, simple_hint, simple_note, snippet,
-    stack, text, vcat,
+    Color, Conjunction, Doc, args, comma_sep, fill_sep, ordinal, reflow, simple_hint, simple_note,
+    snippet, stack, text, vcat,
 };
 use nomi_base::{Compat, TextRange, suggest};
 
@@ -114,8 +114,7 @@ fn reflow_link(before: &str, page: &str, after: &str) -> Doc {
 
 /// `Suggest.sort` of `candidates` against `target`.
 fn nearest(target: &str, mut candidates: Vec<String>) -> Vec<String> {
-    let codes = |s: &str| s.chars().map(u32::from).collect::<Vec<u32>>();
-    suggest::sort(&codes(target), &mut candidates, |c| codes(c));
+    suggest::sort_texts(target, &mut candidates);
     candidates
 }
 

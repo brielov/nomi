@@ -241,6 +241,7 @@ version = "0.4.0"
 dependencies = [
  "icu_casemap",
  "icu_properties",
+ "stacker",
  "text-size",
 ]
 
