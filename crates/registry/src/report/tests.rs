@@ -6,6 +6,11 @@ fn plain(report: &Report, compat: Compat) -> String {
     render(&report.to_doc(), compat, 80, Styles::Plain)
 }
 
+/// `program`'s command line for elm's `command`.
+fn command_of(program: &str) -> impl Fn(ElmCommand) -> String + '_ {
+    move |command| format!("{program} {}", command.elm_name())
+}
+
 #[test]
 fn only_0_19_1_suggests_the_reactor() {
     let report = |compat| {
@@ -13,7 +18,7 @@ fn only_0_19_1_suggests_the_reactor() {
             &details_problem(
                 &DetailsProblem::NoSolution,
                 compat,
-                "elm install",
+                &command_of("elm"),
                 Some("elm reactor"),
             ),
             compat,
@@ -57,7 +62,7 @@ fn without_a_reactor_none_is_suggested() {
     let problem = DetailsProblem::HandEdited;
     assert_eq!(
         plain(
-            &details_problem(&problem, Compat::V0_19_1, "nomi install", None),
+            &details_problem(&problem, Compat::V0_19_1, &command_of("nomi"), None),
             Compat::V0_19_1
         ),
         "\

@@ -41,7 +41,7 @@ impl Cursor {
 
     /// `n` columns to the right.
     #[must_use]
-    pub fn slide(self, n: usize) -> Cursor {
+    pub(crate) fn slide(self, n: usize) -> Cursor {
         match self {
             // Word16 arithmetic: only the low 16 bits of `n` matter.
             Cursor::Short { row, col } => Cursor::Short {
@@ -54,7 +54,7 @@ impl Cursor {
 
     /// The start of the next row.
     #[must_use]
-    pub fn newline(self) -> Cursor {
+    pub(crate) fn newline(self) -> Cursor {
         match self {
             Cursor::Short { row, .. } => Cursor::Short {
                 row: row.wrapping_add(1),
@@ -77,7 +77,8 @@ impl Cursor {
         }
     }
 
-    pub fn position(self) -> Position {
+    /// Where the cursor is, in editor coordinates.
+    pub(crate) fn position(self) -> Position {
         match self {
             Cursor::Short { row, col } => Position {
                 row: row.into(),

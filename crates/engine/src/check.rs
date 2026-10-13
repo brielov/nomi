@@ -14,6 +14,7 @@ use nomi_base::diagnostic::json;
 use nomi_base::{Compat, Report};
 use nomi_compiler::interface::Interface;
 use nomi_compiler::optimized::LocalGraph;
+use nomi_project::report::ElmCommand;
 use nomi_project::{ModuleName, Name, Outline, Version};
 use nomi_registry::{Http, Store, details, report as registry_report};
 
@@ -353,10 +354,10 @@ pub fn show(
 
 /// `MakeAppNeedsFileNames` and `MakePkgNeedsExposing`.
 fn no_input(personality: Personality, app: bool) -> Report {
-    let command = personality.command(match personality {
-        Personality::Nomi => "check",
-        Personality::Elm => "make",
-    });
+    let command = match personality {
+        Personality::Nomi => "nomi check".to_owned(),
+        Personality::Elm => personality.command(ElmCommand::Make),
+    };
     let examples = vcat([
         text(format!("{command} src/Main.elm"))
             .color(Color::Green)

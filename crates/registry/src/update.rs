@@ -8,11 +8,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use nomi_base::Compat;
-use nomi_project::outline::AppOutline;
+use nomi_project::outline::{AppOutline, PkgOutline};
 use nomi_project::{Constraint, Name, Outline, Version};
 
+use crate::index::Known;
 use crate::install::{Change, changes};
-use crate::solver::{self, Packages};
+use crate::solver::{self, Packages, ReleaseError, release_deps};
 
 /// What updating does.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,6 +43,15 @@ pub enum UpdateProblem<E> {
     Solver(E),
 }
 
+impl<E> From<ReleaseError<E>> for UpdateProblem<E> {
+    fn from(e: ReleaseError<E>) -> UpdateProblem<E> {
+        match e {
+            ReleaseError::Unavailable(name, version) => UpdateProblem::Unavailable(name, version),
+            ReleaseError::Solver(e) => UpdateProblem::Solver(e),
+        }
+    }
+}
+
 /// What updating the project's dependencies would do: all of them, or
 /// only `pkg` and those that need it.
 pub fn plan<P: Packages>(
@@ -60,10 +70,10 @@ pub fn plan<P: Packages>(
             _ => Ok(Plan::Pkg),
         },
         Outline::App(app) => {
-            let all = all_deps(app);
+            let all = app.all_deps();
             let free = match pkg {
                 None => all.keys().cloned().collect(),
-                Some(pkg) if all.contains_key(pkg) => needing(packages, pkg, &all)?,
+                Some(pkg) if all.contains_key(pkg) => needing(&needs(packages, &all)?, pkg),
                 Some(_) => return Err(UpdateProblem::NotADependency),
             };
             let solution = solver::update_app(packages, compat, &free, app)
@@ -77,6 +87,15 @@ pub fn plan<P: Packages>(
     }
 }
 
+/// Which of a project's fields a dependency is in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DepKind {
+    /// `dependencies`, an application's `direct` ones.
+    Normal,
+    /// `test-dependencies`, an application's `direct` ones.
+    Test,
+}
+
 /// A dependency with newer releases.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Outdated<T> {
@@ -86,81 +105,80 @@ pub struct Outdated<T> {
     /// The newest release `update` may move to: an application's newest
     /// of the same major version, a package's newest in range.
     pub compatible: Option<Version>,
+    /// The newest release.
     pub latest: Version,
-    pub test: bool,
+    pub kind: DepKind,
 }
 
 /// The application's direct dependencies with a release newer than the
 /// version it holds.
 pub fn outdated_app<P: Packages>(packages: &P, app: &AppOutline) -> Vec<Outdated<Version>> {
-    let deps = app
-        .direct
-        .iter()
-        .map(|dep| (dep, false))
-        .chain(app.test_direct.iter().map(|dep| (dep, true)));
-    deps.filter_map(|((name, &current), test)| {
-        let known = packages.versions(name)?;
-        (known.newest > current).then(|| Outdated {
-            name: name.clone(),
-            current,
-            compatible: known
-                .all()
+    outdated(
+        packages,
+        &app.direct,
+        &app.test_direct,
+        |current, known| known.newest > current,
+        |current, known| {
+            (known.all())
                 .find(|v| v.major == current.major)
-                .filter(|&v| v > current),
-            latest: known.newest,
-            test,
-        })
-    })
-    .collect()
+                .filter(|&v| v > current)
+        },
+    )
 }
 
 /// The package's dependencies with a release past the range it allows.
-pub fn outdated_pkg<P: Packages>(
-    packages: &P,
-    deps: &BTreeMap<Name, Constraint>,
-    test_deps: &BTreeMap<Name, Constraint>,
-) -> Vec<Outdated<Constraint>> {
-    let deps = deps
-        .iter()
-        .map(|dep| (dep, false))
-        .chain(test_deps.iter().map(|dep| (dep, true)));
-    deps.filter_map(|((name, &current), test)| {
+pub fn outdated_pkg<P: Packages>(packages: &P, pkg: &PkgOutline) -> Vec<Outdated<Constraint>> {
+    outdated(
+        packages,
+        &pkg.deps,
+        &pkg.test_deps,
+        |current, known| !current.satisfies(known.newest),
+        |current, known| known.all().find(|&v| current.satisfies(v)),
+    )
+}
+
+/// The dependencies, then the test ones, that the index knows releases
+/// `newer` than, with the release each may move to.
+fn outdated<T: Copy>(
+    packages: &impl Packages,
+    deps: &BTreeMap<Name, T>,
+    test_deps: &BTreeMap<Name, T>,
+    newer: impl Fn(T, &Known) -> bool,
+    compatible: impl Fn(T, &Known) -> Option<Version>,
+) -> Vec<Outdated<T>> {
+    let deps = (deps.iter().map(|dep| (dep, DepKind::Normal)))
+        .chain(test_deps.iter().map(|dep| (dep, DepKind::Test)));
+    deps.filter_map(|((name, &current), kind)| {
         let known = packages.versions(name)?;
-        (!current.satisfies(known.newest)).then(|| Outdated {
+        newer(current, known).then(|| Outdated {
             name: name.clone(),
             current,
-            compatible: known.all().find(|&v| current.satisfies(v)),
+            compatible: compatible(current, known),
             latest: known.newest,
-            test,
+            kind,
         })
     })
     .collect()
 }
 
-/// Every dependency of the application, at its version.
-fn all_deps(app: &AppOutline) -> BTreeMap<Name, Version> {
-    let mut all = app.test_indirect.clone();
-    for deps in [&app.test_direct, &app.indirect, &app.direct] {
-        all.extend(deps.iter().map(|(name, &version)| (name.clone(), version)));
-    }
-    all
-}
+/// What each package of a solution needs.
+type Needs<'s> = BTreeMap<&'s Name, BTreeMap<Name, Constraint>>;
 
-/// `pkg` and the packages of `solution` that need it, directly or not.
-fn needing<P: Packages>(
+/// What each release of `solution` needs.
+fn needs<'s, P: Packages>(
     packages: &mut P,
-    pkg: &Name,
-    solution: &BTreeMap<Name, Version>,
-) -> Result<BTreeSet<Name>, UpdateProblem<P::Error>> {
+    solution: &'s BTreeMap<Name, Version>,
+) -> Result<Needs<'s>, UpdateProblem<P::Error>> {
     let mut needs = BTreeMap::new();
     for (name, &version) in solution {
-        let deps = match packages.release(name, version) {
-            Ok(Some(release)) => release.deps,
-            Ok(None) => return Err(UpdateProblem::Unavailable(name.clone(), version)),
-            Err(e) => return Err(UpdateProblem::Solver(e)),
-        };
-        needs.insert(name, deps);
+        needs.insert(name, release_deps(packages, name, version)?);
     }
+    Ok(needs)
+}
+
+/// `pkg` and the packages that need it, directly or not, by what each
+/// needs.
+fn needing(needs: &Needs<'_>, pkg: &Name) -> BTreeSet<Name> {
     let mut needing = BTreeSet::from([pkg.clone()]);
     loop {
         let more: Vec<Name> = needs
@@ -171,7 +189,7 @@ fn needing<P: Packages>(
             .map(|(name, _)| (*name).clone())
             .collect();
         if more.is_empty() {
-            return Ok(needing);
+            return needing;
         }
         needing.extend(more);
     }
@@ -179,49 +197,29 @@ fn needing<P: Packages>(
 
 #[cfg(test)]
 mod tests {
-    use nomi_project::json::Cursor;
     use nomi_project::outline::SrcDir;
 
     use super::*;
-    use crate::index::Known;
-    use crate::solver::Release;
+    use crate::fixture::{Fixture, name, version as v};
 
     const COMPAT: Compat = Compat::LATEST;
 
-    struct Index(BTreeMap<Name, Known>);
-
-    impl Packages for Index {
-        type Error = ();
-
-        fn versions(&self, name: &Name) -> Option<&Known> {
-            self.0.get(name)
-        }
-
-        fn release(&mut self, _: &Name, _: Version) -> Result<Option<Release>, ()> {
-            Ok(None)
-        }
-    }
-
-    fn name(s: &str) -> Name {
-        Name::parse(s.as_bytes(), Cursor::start(COMPAT), COMPAT).unwrap()
-    }
-
-    fn v(s: &str) -> Version {
-        Version::parse(s.as_bytes(), Cursor::start(COMPAT), COMPAT).unwrap()
-    }
-
     /// elm/http has 2.0.0 and 1.1.0 past 1.0.0, elm/json nothing past
     /// 1.1.3, and elm/test 2.1.0 past 2.0.0.
-    fn index() -> Index {
+    fn index() -> Fixture {
         let known = |all: &[&str]| Known {
             newest: v(all[0]),
             previous: all[1..].iter().map(|s| v(s)).collect(),
         };
-        Index(BTreeMap::from([
+        let index = BTreeMap::from([
             (name("elm/http"), known(&["2.0.0", "1.1.0", "1.0.0"])),
             (name("elm/json"), known(&["1.1.3", "1.0.0"])),
             (name("elm/test"), known(&["2.1.0", "2.0.0"])),
-        ]))
+        ]);
+        Fixture {
+            index,
+            ..Fixture::default()
+        }
     }
 
     #[test]
@@ -245,39 +243,60 @@ mod tests {
                     current: v("1.0.0"),
                     compatible: Some(v("1.1.0")),
                     latest: v("2.0.0"),
-                    test: false,
+                    kind: DepKind::Normal,
                 },
                 Outdated {
                     name: name("elm/test"),
                     current: v("2.0.0"),
                     compatible: Some(v("2.1.0")),
                     latest: v("2.1.0"),
-                    test: true,
+                    kind: DepKind::Test,
                 },
             ]
         );
     }
 
     #[test]
-    fn a_package_hears_of_releases_past_its_ranges() {
-        let deps = BTreeMap::from([
-            (
-                name("elm/http"),
-                Constraint::until_next_major(v("1.0.0"), COMPAT),
-            ),
-            (
-                name("elm/json"),
-                Constraint::until_next_major(v("1.0.0"), COMPAT),
-            ),
+    fn what_needs_a_package_directly_or_not_is_updated_with_it() {
+        let needing_of = |deps: &[&str]| -> BTreeMap<Name, Constraint> {
+            (deps.iter())
+                .map(|dep| (name(dep), Constraint::anything(COMPAT)))
+                .collect()
+        };
+        let [core, json, http, test] = ["elm/core", "elm/json", "elm/http", "elm/test"].map(name);
+        let needs = BTreeMap::from([
+            (&core, needing_of(&[])),
+            (&json, needing_of(&["elm/core"])),
+            (&http, needing_of(&["elm/json"])),
+            (&test, needing_of(&[])),
         ]);
         assert_eq!(
-            outdated_pkg(&index(), &deps, &BTreeMap::new()),
+            needing(&needs, &core),
+            BTreeSet::from([core.clone(), json.clone(), http.clone()])
+        );
+        assert_eq!(needing(&needs, &test), BTreeSet::from([test.clone()]));
+    }
+
+    #[test]
+    fn a_package_hears_of_releases_past_its_ranges() {
+        let src = br#"{
+            "type": "package", "name": "a/b", "summary": "", "license": "BSD-3-Clause",
+            "version": "1.0.0", "exposed-modules": [], "elm-version": "0.19.0 <= v < 0.20.0",
+            "dependencies": {"elm/core": "1.0.0 <= v < 2.0.0", "elm/http": "1.0.0 <= v < 2.0.0",
+                "elm/json": "1.0.0 <= v < 2.0.0"},
+            "test-dependencies": {}
+        }"#;
+        let Ok(Outline::Pkg(pkg)) = Outline::read(src, COMPAT) else {
+            panic!("not a package")
+        };
+        assert_eq!(
+            outdated_pkg(&index(), &pkg),
             [Outdated {
                 name: name("elm/http"),
                 current: Constraint::until_next_major(v("1.0.0"), COMPAT),
                 compatible: Some(v("1.1.0")),
                 latest: v("2.0.0"),
-                test: false,
+                kind: DepKind::Normal,
             }]
         );
     }

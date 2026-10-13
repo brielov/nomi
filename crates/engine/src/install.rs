@@ -13,6 +13,7 @@ use std::path::Path;
 use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, hint, reflow, simple_note, text, vcat};
 use nomi_base::{Compat, Report};
 use nomi_project::json::Cursor;
+use nomi_project::report::ElmCommand;
 use nomi_project::{Name, Outline};
 use nomi_registry::{
     Change, Connection, DetailsProblem, Http, InstallProblem, Plan, Registry, SolverProblem, Store,
@@ -165,7 +166,7 @@ impl Install<'_> {
             None,
             "Are you trying to start a new project? Try this command instead:",
             [
-                text(self.personality.command("init"))
+                text(self.personality.command(ElmCommand::Init))
                     .color(Color::Green)
                     .indent(4),
                 reflow("It will help you get started!"),
@@ -176,8 +177,8 @@ impl Install<'_> {
     /// `InstallNoArgs`, naming nomi's package store where upstream names
     /// `ELM_HOME`.
     fn no_args(&self) -> Report {
-        let install = self.personality.command("install");
-        let make = self.personality.command("make");
+        let install = self.personality.command(ElmCommand::Install);
+        let make = self.personality.command(ElmCommand::Make);
         let words = |s: &'static str| s.split_whitespace().map(text);
         Report::new(
             "INSTALL WHAT?",
@@ -280,7 +281,7 @@ pub(crate) fn details_problem(
     personality: Personality,
 ) -> Report {
     let reactor = (personality == Personality::Elm).then_some("elm reactor");
-    report::details_problem(problem, compat, &personality.command("install"), reactor)
+    report::details_problem(problem, compat, &|c| personality.command(c), reactor)
 }
 
 /// The package argument. Upstream's argument parser reports a bad one
@@ -344,7 +345,7 @@ pub(crate) fn plan_question<T: Display>(changes: &BTreeMap<Name, Change<T>>) -> 
         name_w = name_w.max(width(name.to_string()));
         match change {
             Change::Insert(v) | Change::Remove(v) => left_w = left_w.max(width(v.to_string())),
-            Change::Change(old, new) => {
+            Change::Change { old, new } => {
                 left_w = left_w.max(width(old.to_string()));
                 right_w = right_w.max(width(new.to_string()));
             }
@@ -362,7 +363,7 @@ pub(crate) fn plan_question<T: Display>(changes: &BTreeMap<Name, Change<T>>) -> 
     for (n, change) in changes {
         match change {
             Change::Insert(v) => inserts.push(name(n).space(pad(left_w, v))),
-            Change::Change(old, new) => changed.push(nomi_base::diagnostic::doc::hsep([
+            Change::Change { old, new } => changed.push(nomi_base::diagnostic::doc::hsep([
                 name(n),
                 pad(left_w, old),
                 text("=>"),

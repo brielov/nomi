@@ -8,17 +8,16 @@ use super::decode::{self, Expectation, Problem};
 use super::encode;
 use super::*;
 
-fn error(src: &str, compat: Compat) -> (ParseErrorKind, u32, u32) {
+fn error(src: &str, compat: Compat) -> ParseError {
     error_bytes(src.as_bytes(), compat)
 }
 
-fn error_bytes(src: &[u8], compat: Compat) -> (ParseErrorKind, u32, u32) {
-    let e = parse(src, compat).expect_err("a parse error");
-    (e.kind, e.at.row, e.at.col)
+fn error_bytes(src: &[u8], compat: Compat) -> ParseError {
+    parse(src, compat).expect_err("a parse error")
 }
 
 /// The error every release reports for `src`.
-fn same_error(src: &str) -> (ParseErrorKind, u32, u32) {
+fn same_error(src: &str) -> ParseError {
     let e = error(src, Compat::V0_19_1);
     for compat in Compat::ALL {
         assert_eq!(error(src, compat), e, "{src:?} in {compat}");
@@ -29,59 +28,67 @@ fn same_error(src: &str) -> (ParseErrorKind, u32, u32) {
 use ParseErrorKind as K;
 use StringProblem as S;
 
+/// `kind` at `row` and `col`.
+fn at(kind: ParseErrorKind, row: u32, col: u32) -> ParseError {
+    ParseError {
+        kind,
+        at: Position { row, col },
+    }
+}
+
 #[test]
 fn missing_values() {
-    assert_eq!(same_error(""), (K::Start, 1, 1));
-    assert_eq!(same_error("  "), (K::Start, 1, 3));
-    assert_eq!(same_error("-1"), (K::Start, 1, 1));
-    assert_eq!(same_error("[1,]"), (K::Start, 1, 4));
-    assert_eq!(same_error("["), (K::Start, 1, 2));
-    assert_eq!(same_error("[}"), (K::Start, 1, 2));
-    assert_eq!(same_error(r#"{"a": }"#), (K::Start, 1, 7));
+    assert_eq!(same_error(""), at(K::Start, 1, 1));
+    assert_eq!(same_error("  "), at(K::Start, 1, 3));
+    assert_eq!(same_error("-1"), at(K::Start, 1, 1));
+    assert_eq!(same_error("[1,]"), at(K::Start, 1, 4));
+    assert_eq!(same_error("["), at(K::Start, 1, 2));
+    assert_eq!(same_error("[}"), at(K::Start, 1, 2));
+    assert_eq!(same_error(r#"{"a": }"#), at(K::Start, 1, 7));
 }
 
 #[test]
 fn objects() {
-    assert_eq!(same_error("{"), (K::ObjectField, 1, 2));
-    assert_eq!(same_error("{1}"), (K::ObjectField, 1, 2));
-    assert_eq!(same_error(r#"{"a" 1}"#), (K::ObjectColon, 1, 6));
-    assert_eq!(same_error(r#"{"a":1,}"#), (K::ObjectField, 1, 8));
-    assert_eq!(same_error(r#"{"a":1 "b":2}"#), (K::ObjectEnd, 1, 8));
-    assert_eq!(same_error(r#"{"a":1"#), (K::ObjectEnd, 1, 7));
+    assert_eq!(same_error("{"), at(K::ObjectField, 1, 2));
+    assert_eq!(same_error("{1}"), at(K::ObjectField, 1, 2));
+    assert_eq!(same_error(r#"{"a" 1}"#), at(K::ObjectColon, 1, 6));
+    assert_eq!(same_error(r#"{"a":1,}"#), at(K::ObjectField, 1, 8));
+    assert_eq!(same_error(r#"{"a":1 "b":2}"#), at(K::ObjectEnd, 1, 8));
+    assert_eq!(same_error(r#"{"a":1"#), at(K::ObjectEnd, 1, 7));
 }
 
 #[test]
 fn arrays() {
-    assert_eq!(same_error("[1 2]"), (K::ArrayEnd, 1, 4));
-    assert_eq!(same_error("[1"), (K::ArrayEnd, 1, 3));
+    assert_eq!(same_error("[1 2]"), at(K::ArrayEnd, 1, 4));
+    assert_eq!(same_error("[1"), at(K::ArrayEnd, 1, 3));
 }
 
 #[test]
 fn ints() {
-    assert_eq!(same_error("01"), (K::NoLeadingZeros, 1, 2));
-    assert_eq!(same_error("0.5"), (K::NoFloats, 1, 2));
-    assert_eq!(same_error("12.5"), (K::NoFloats, 1, 3));
-    assert_eq!(same_error("1e5"), (K::NoFloats, 1, 2));
-    assert_eq!(same_error("10E5"), (K::NoFloats, 1, 3));
+    assert_eq!(same_error("01"), at(K::NoLeadingZeros, 1, 2));
+    assert_eq!(same_error("0.5"), at(K::NoFloats, 1, 2));
+    assert_eq!(same_error("12.5"), at(K::NoFloats, 1, 3));
+    assert_eq!(same_error("1e5"), at(K::NoFloats, 1, 2));
+    assert_eq!(same_error("10E5"), at(K::NoFloats, 1, 3));
     // Only a `.` stops a zero; the rest is left over.
-    assert_eq!(same_error("0e5"), (K::BadEnd, 1, 2));
+    assert_eq!(same_error("0e5"), at(K::BadEnd, 1, 2));
     let wrapped = parse(b"9223372036854775808", Compat::V0_19_3).unwrap();
     assert_eq!(wrapped.kind, Kind::Int(i64::MIN));
 }
 
 #[test]
 fn keywords_end_where_names_do() {
-    assert_eq!(same_error("truex"), (K::Start, 1, 1));
-    assert_eq!(same_error("null_"), (K::Start, 1, 1));
-    assert_eq!(same_error("false1"), (K::Start, 1, 1));
-    assert_eq!(same_error("trueé"), (K::Start, 1, 1));
+    assert_eq!(same_error("truex"), at(K::Start, 1, 1));
+    assert_eq!(same_error("null_"), at(K::Start, 1, 1));
+    assert_eq!(same_error("false1"), at(K::Start, 1, 1));
+    assert_eq!(same_error("trueé"), at(K::Start, 1, 1));
     // Not a letter, so the keyword ends and the rest is left over.
-    assert_eq!(same_error("true→"), (K::BadEnd, 1, 5));
-    assert_eq!(same_error("true-"), (K::BadEnd, 1, 5));
+    assert_eq!(same_error("true→"), at(K::BadEnd, 1, 5));
+    assert_eq!(same_error("true-"), at(K::BadEnd, 1, 5));
     for compat in Compat::ALL {
         assert_eq!(
             error_bytes(b"true\xC3", compat),
-            (K::BadEnd, 1, 5),
+            at(K::BadEnd, 1, 5),
             "{compat}"
         );
     }
@@ -89,51 +96,54 @@ fn keywords_end_where_names_do() {
     // U+0129 there, a letter.
     assert_eq!(
         error_bytes(b"true\xC3\xE9", Compat::V0_19_1),
-        (K::Start, 1, 1)
+        at(K::Start, 1, 1)
     );
     assert_eq!(
         error_bytes(b"true\xC3\xE9", Compat::V0_19_3),
-        (K::BadEnd, 1, 5)
+        at(K::BadEnd, 1, 5)
     );
 }
 
 #[test]
 fn strings() {
-    assert_eq!(same_error("\"a\nb\""), (K::String(S::BadStringEnd), 1, 3));
-    assert_eq!(same_error("\"abc"), (K::String(S::BadStringEnd), 1, 5));
+    assert_eq!(same_error("\"a\nb\""), at(K::String(S::BadStringEnd), 1, 3));
+    assert_eq!(same_error("\"abc"), at(K::String(S::BadStringEnd), 1, 5));
     assert_eq!(
         same_error(r#""\x""#),
-        (K::String(S::BadStringEscapeChar), 1, 2)
+        at(K::String(S::BadStringEscapeChar), 1, 2)
     );
     assert_eq!(
         same_error(r#"" \u12""#),
-        (K::String(S::BadStringEscapeHex), 1, 3)
+        at(K::String(S::BadStringEscapeHex), 1, 3)
     );
     assert_eq!(
         same_error(r#""\u12"#),
-        (K::String(S::BadStringEscapeHex), 1, 2)
+        at(K::String(S::BadStringEscapeHex), 1, 2)
     );
     assert_eq!(
         same_error("\"\t\""),
-        (K::String(S::BadStringControlChar), 1, 2)
+        at(K::String(S::BadStringControlChar), 1, 2)
     );
     assert_eq!(
         same_error("\"\r\""),
-        (K::String(S::BadStringControlChar), 1, 2)
+        at(K::String(S::BadStringControlChar), 1, 2)
     );
     // A character is a column, however many bytes it takes.
-    assert_eq!(same_error("\"é→😀\" x"), (K::BadEnd, 1, 7));
-    assert_eq!(same_error(r#""\u00e9\n\"" x"#), (K::BadEnd, 1, 14));
+    assert_eq!(same_error("\"é→😀\" x"), at(K::BadEnd, 1, 7));
+    assert_eq!(same_error(r#""\u00e9\n\"" x"#), at(K::BadEnd, 1, 14));
 }
 
 #[test]
 fn a_backslash_at_the_end() {
     assert_eq!(
         error(r#""a\"#, Compat::V0_19_1),
-        (K::String(S::BadStringEnd), 2, 3)
+        at(K::String(S::BadStringEnd), 2, 3)
     );
     for compat in [Compat::V0_19_2, Compat::V0_19_3] {
-        assert_eq!(error(r#""a\"#, compat), (K::String(S::BadStringEnd), 1, 4));
+        assert_eq!(
+            error(r#""a\"#, compat),
+            at(K::String(S::BadStringEnd), 1, 4)
+        );
     }
 }
 
@@ -149,38 +159,44 @@ fn bytes_that_are_not_utf8() {
         for compat in [Compat::V0_19_2, Compat::V0_19_3] {
             assert_eq!(
                 error_bytes(src, compat),
-                (K::String(S::BadStringNotUtf8), 1, col),
+                at(K::String(S::BadStringNotUtf8), 1, col),
                 "{src:?}"
             );
         }
     }
-    assert_eq!(error_bytes(b"\"\xFF\"", Compat::V0_19_1), (K::Crash, 1, 2));
-    assert_eq!(error_bytes(b"\"a\x80\"", Compat::V0_19_1), (K::Crash, 1, 3));
+    assert_eq!(
+        error_bytes(b"\"\xFF\"", Compat::V0_19_1),
+        at(K::Crash, 1, 2)
+    );
+    assert_eq!(
+        error_bytes(b"\"a\x80\"", Compat::V0_19_1),
+        at(K::Crash, 1, 3)
+    );
     // 0.19.1 goes by the lead byte alone, past the end if it says so.
     assert!(parse(b"\"\xC0\xAF\"", Compat::V0_19_1).is_ok());
     assert!(parse(b"\"\xED\xA0\x80\"", Compat::V0_19_1).is_ok());
     assert_eq!(
         error_bytes(b"\"\xF0\"", Compat::V0_19_1),
-        (K::String(S::BadStringEnd), 1, 3)
+        at(K::String(S::BadStringEnd), 1, 3)
     );
 }
 
 #[test]
 fn rows_and_columns() {
-    assert_eq!(same_error("{\n  \"a\": 1,\n}"), (K::ObjectField, 3, 1));
+    assert_eq!(same_error("{\n  \"a\": 1,\n}"), at(K::ObjectField, 3, 1));
     // A carriage return takes no column.
-    assert_eq!(same_error("{\r\n  1"), (K::ObjectField, 2, 3));
-    assert_eq!(same_error("\t\tx"), (K::Start, 1, 3));
+    assert_eq!(same_error("{\r\n  1"), at(K::ObjectField, 2, 3));
+    assert_eq!(same_error("\t\tx"), at(K::Start, 1, 3));
 }
 
 #[test]
 fn columns_wrap_in_0_19_1() {
     let src = format!("{}x", " ".repeat(65536));
-    assert_eq!(error(&src, Compat::V0_19_1), (K::Start, 1, 1));
-    assert_eq!(error(&src, Compat::V0_19_2), (K::Start, 1, 65537));
+    assert_eq!(error(&src, Compat::V0_19_1), at(K::Start, 1, 1));
+    assert_eq!(error(&src, Compat::V0_19_2), at(K::Start, 1, 65537));
     let src = format!("{}x", "\n".repeat(65535));
-    assert_eq!(error(&src, Compat::V0_19_1), (K::Start, 0, 1));
-    assert_eq!(error(&src, Compat::V0_19_3), (K::Start, 65536, 1));
+    assert_eq!(error(&src, Compat::V0_19_1), at(K::Start, 0, 1));
+    assert_eq!(error(&src, Compat::V0_19_3), at(K::Start, 65536, 1));
 }
 
 #[test]
@@ -241,30 +257,25 @@ fn fields_wrap_their_problems() {
             ))
         ))
     );
-    let missing = decode::field(&value, b"c", decode::int::<()>);
+    let missing = decode::field(&value, b"c", decode::string::<()>);
     assert!(matches!(missing, Err(Problem::Expecting(_, Expectation::ObjectWith(k))) if k == b"c"));
     // The first of duplicate fields counts.
-    let value = decoded(r#"{"a": 1, "a": 2}"#);
-    assert_eq!(decode::field(&value, b"a", decode::int::<()>), Ok(1));
+    let value = decoded(r#"{"a": "1", "a": "2"}"#);
+    assert_eq!(
+        decode::field(&value, b"a", decode::string::<()>),
+        Ok(&b"1"[..])
+    );
 }
 
 #[test]
 fn lists_index_their_problems() {
-    let value = decoded(r#"[1, "x"]"#);
-    let p = decode::list(&value, decode::int::<()>);
+    let value = decoded(r#"["x", 1]"#);
+    let p = decode::list(&value, decode::string::<()>);
     assert!(matches!(p, Err(Problem::Index(1, _))));
     let empty = decoded("[]");
     assert!(matches!(
-        decode::non_empty_list(&empty, decode::int, "none"),
+        decode::non_empty_list(&empty, decode::string, "none"),
         Err(Problem::Failure(_, "none"))
-    ));
-    assert!(matches!(
-        decode::pair(&value, decode::int::<()>, decode::int),
-        Err(Problem::Index(1, _))
-    ));
-    assert!(matches!(
-        decode::pair(&empty, decode::int::<()>, decode::int),
-        Err(Problem::Expecting(_, Expectation::ArrayPair(0)))
     ));
 }
 
@@ -278,18 +289,18 @@ fn keys_fail_on_their_own_region() {
             Err("bad key")
         }
     };
-    let p = decode::pairs(&value, key, decode::int);
+    let p = decode::pairs(&value, key, |_| Ok(()));
     let region = Region {
         start: Position { row: 1, col: 12 },
         end: Position { row: 1, col: 15 },
     };
     assert_eq!(p, Err(Problem::Failure(region, "bad key")));
     // Dicts keep the last of equal keys.
-    let value = decoded(r#"{"b": 1, "a": 2, "b": 3}"#);
-    let dict = decode::dict(&value, |k, _| Ok::<_, ()>(k.to_vec()), decode::int).unwrap();
+    let value = decoded(r#"{"b": "1", "a": "2", "b": "3"}"#);
+    let dict = decode::dict(&value, |k, _| Ok::<_, ()>(k.to_vec()), decode::string).unwrap();
     assert_eq!(
         dict.into_iter().collect::<Vec<_>>(),
-        [(b"a".to_vec(), 2), (b"b".to_vec(), 3)]
+        [(b"a".to_vec(), &b"2"[..]), (b"b".to_vec(), &b"3"[..])]
     );
 }
 
@@ -299,22 +310,32 @@ fn one_of_lists_every_problem_in_order() {
     let p = decode::one_of(
         &value,
         &mut [
-            &mut |v: &Value<'_>| decode::int::<()>(v).map(|_| ()),
-            &mut |v: &Value<'_>| decode::string(v).map(|_| ()),
-            &mut |v: &Value<'_>| decode::list(v, decode::int).map(|_| ()),
+            &mut |v: &Value<'_>| decode::string::<()>(v).map(|_| ()),
+            &mut |v: &Value<'_>| decode::list(v, decode::string).map(|_| ()),
+            &mut |v: &Value<'_>| decode::field(v, b"a", decode::string).map(|_| ()),
         ],
     );
     let Err(Problem::OneOf(first, rest)) = p else {
         panic!("{p:?}")
     };
-    assert!(matches!(*first, Problem::Expecting(_, Expectation::Int)));
+    assert!(matches!(*first, Problem::Expecting(_, Expectation::String)));
     assert!(matches!(
         rest.as_slice(),
         [
-            Problem::Expecting(_, Expectation::String),
-            Problem::Expecting(_, Expectation::Array)
+            Problem::Expecting(_, Expectation::Array),
+            Problem::Expecting(_, Expectation::Object)
         ]
     ));
+}
+
+#[test]
+fn of_alternatives_the_first_deepest_is_reported() {
+    let start = Position { row: 1, col: 1 };
+    let leaf = |x| Problem::Failure(Region { start, end: start }, x);
+    let deep = |x| Problem::Field(b"a".to_vec(), Box::new(leaf(x)));
+    let rest = [deep(2), leaf(3), deep(4)];
+    assert_eq!(decode::deepest(&leaf(1), &rest), &deep(2));
+    assert_eq!(decode::deepest(&leaf(1), &[]), &leaf(1));
 }
 
 #[test]

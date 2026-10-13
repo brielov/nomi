@@ -2,9 +2,9 @@
 //! bytes and the cursor there, and `fromSnippet`'s rule that a parse must
 //! take every byte. Failures are the cursor where upstream reports them.
 
-use nomi_base::{Compat, ghc};
+use nomi_base::{Compat, ghc, utf8};
 
-use crate::json::Cursor;
+use crate::json::{Cursor, Position};
 
 pub(crate) struct Scan<'a> {
     bytes: &'a [u8],
@@ -74,6 +74,19 @@ impl<'a> Scan<'a> {
     }
 }
 
+/// `fromSnippet`: `parse` from `start` over the whole of `bytes`, failing
+/// where it stops or, if it stops short of the end, there.
+pub(crate) fn whole<T>(
+    bytes: &[u8],
+    start: Cursor,
+    compat: Compat,
+    parse: impl FnOnce(&mut Scan<'_>) -> Result<T, Cursor>,
+) -> Result<T, Position> {
+    let mut scan = Scan::new(bytes, start, compat);
+    let parsed = parse(&mut scan).and_then(|t| scan.finish().map(|()| t));
+    parsed.map_err(Cursor::position)
+}
+
 /// The width of the character `rest` starts with if it is good: ASCII by
 /// `ascii`, anything else by `unicode`; zero if it isn't. This is
 /// `AST/Prim/Variable.hs`'s `chomp` for 0.19.2 and later, which decodes
@@ -127,7 +140,7 @@ pub(crate) fn upper(rest: &[u8], compat: Compat) -> usize {
 /// lead byte and its continuation bytes without checking them. Upstream
 /// reads past the end of the input for a truncated sequence; here those
 /// bytes are zero. A result that is no character is no letter either.
-pub(crate) fn unchecked_char(bytes: &[u8], width: usize) -> Option<char> {
+fn unchecked_char(bytes: &[u8], width: usize) -> Option<char> {
     u32::try_from(unchecked_code(bytes, width))
         .ok()
         .and_then(char::from_u32)
@@ -152,12 +165,7 @@ pub(crate) fn unchecked_chars(bytes: &[u8]) -> Vec<i64> {
     let mut codes = Vec::new();
     let mut rest = bytes;
     while let Some(&lead) = rest.first() {
-        let width = match lead {
-            0..0xC0 => 1,
-            0xC0..0xE0 => 2,
-            0xE0..0xF0 => 3,
-            _ => 4,
-        };
+        let width = utf8::char_width(lead);
         codes.push(if width == 1 {
             i64::from(lead)
         } else {

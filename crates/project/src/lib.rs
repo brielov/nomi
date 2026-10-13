@@ -2,12 +2,12 @@
 //! names, versions and constraints. Pure: callers bring the bytes and
 //! take the bytes away.
 
-pub mod constraint;
+mod constraint;
 pub mod json;
-pub mod license;
-pub mod module_name;
+mod license;
+mod module_name;
 pub mod outline;
-pub mod package;
+mod package;
 pub mod report;
 mod scan;
 pub mod version;

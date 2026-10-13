@@ -13,7 +13,7 @@ use std::fmt;
 use nomi_base::Compat;
 
 use crate::json::{Cursor, Position};
-use crate::scan::{self, Scan};
+use crate::scan;
 
 /// A module name's bytes. 0.19.1 assembles characters without checking
 /// their UTF-8, so the bytes it accepts need not be UTF-8.
@@ -27,10 +27,12 @@ impl ModuleName {
         ModuleName(name.as_bytes().into())
     }
 
+    /// The name's bytes, as `elm.json` has them.
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
+    /// The name, if it is UTF-8.
     pub fn to_str(&self) -> Option<&str> {
         std::str::from_utf8(&self.0).ok()
     }
@@ -42,44 +44,47 @@ impl ModuleName {
     }
 
     /// The order upstream keeps module names in, which decides the order
-    /// of its maps and graphs: 0.19.1 and 0.19.2 compare the bytes, and
-    /// 0.19.3 (`compareFast`) the lengths first.
+    /// of its maps and graphs.
     pub fn compare(&self, other: &ModuleName, compat: Compat) -> Ordering {
-        match compat {
-            Compat::V0_19_1 | Compat::V0_19_2 => self.0.cmp(&other.0),
-            Compat::V0_19_3 => (self.0.len(), &self.0).cmp(&(other.0.len(), &other.0)),
-        }
+        compat.compare_name_bytes(&self.0, &other.0)
     }
 
-    pub fn parse(bytes: &[u8], start: Cursor, compat: Compat) -> Result<ModuleName, Position> {
-        let mut scan = Scan::new(bytes, start, compat);
+    /// `jsonDecodeName`'s parser: a name and nothing after it, failing
+    /// with the position upstream reports.
+    pub(crate) fn parse(
+        bytes: &[u8],
+        start: Cursor,
+        compat: Compat,
+    ) -> Result<ModuleName, Position> {
         let columns = |width: usize| match compat {
             Compat::V0_19_1 | Compat::V0_19_2 => 1,
             Compat::V0_19_3 => width,
         };
-        'segment: loop {
-            let width = scan::upper(scan.rest(), compat);
-            if width == 0 {
-                return Err(scan.cursor().position());
-            }
-            scan.skip(width, columns(width));
-            loop {
-                let width = scan::inner(scan.rest(), compat);
-                if width > 0 {
-                    scan.skip(width, columns(width));
-                } else if scan.peek() == Some(b'.') {
-                    scan.advance(1);
-                    continue 'segment;
-                } else {
-                    break 'segment;
+        scan::whole(bytes, start, compat, |scan| {
+            'segment: loop {
+                let width = scan::upper(scan.rest(), compat);
+                if width == 0 {
+                    return Err(scan.cursor());
+                }
+                scan.skip(width, columns(width));
+                loop {
+                    let width = scan::inner(scan.rest(), compat);
+                    if width > 0 {
+                        scan.skip(width, columns(width));
+                    } else if scan.peek() == Some(b'.') {
+                        scan.advance(1);
+                        continue 'segment;
+                    } else {
+                        break 'segment;
+                    }
                 }
             }
-        }
-        let too_long = compat != Compat::V0_19_3 && scan.pos() >= 256;
-        if too_long {
-            return Err(scan.cursor().position());
-        }
-        scan.finish().map_err(Cursor::position)?;
+            let too_long = match compat {
+                Compat::V0_19_1 | Compat::V0_19_2 => scan.pos() >= 256,
+                Compat::V0_19_3 => false,
+            };
+            if too_long { Err(scan.cursor()) } else { Ok(()) }
+        })?;
         Ok(ModuleName(bytes.into()))
     }
 }

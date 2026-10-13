@@ -10,6 +10,7 @@ use crate::json::{Cursor, Position};
 use crate::scan::Scan;
 use crate::version::Version;
 
+/// A range of versions, `lower lower_op v upper_op upper`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Constraint {
     pub lower: Version,
@@ -18,6 +19,7 @@ pub struct Constraint {
     pub upper: Version,
 }
 
+/// How a range's end compares with the versions in it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Op {
     Less,
@@ -43,48 +45,59 @@ impl Op {
 /// Why a constraint string doesn't parse.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConstraintError {
+    /// The string stops being a constraint here.
     BadFormat(Position),
     /// The lower end is not below the upper one.
     InvalidRange(Version, Version),
 }
 
 impl Constraint {
+    /// `lower lower_op v upper_op upper`.
+    pub const fn new(lower: Version, lower_op: Op, upper_op: Op, upper: Version) -> Constraint {
+        Constraint {
+            lower,
+            lower_op,
+            upper_op,
+            upper,
+        }
+    }
+
+    /// `exactly`: `version` alone.
     pub fn exactly(version: Version) -> Constraint {
-        Constraint {
-            lower: version,
-            lower_op: Op::LessOrEqual,
-            upper_op: Op::LessOrEqual,
-            upper: version,
-        }
+        Constraint::new(version, Op::LessOrEqual, Op::LessOrEqual, version)
     }
 
+    /// `anything`: every version from 1.0.0 on.
     pub fn anything(compat: Compat) -> Constraint {
-        Constraint {
-            lower: Version::ONE,
-            lower_op: Op::LessOrEqual,
-            upper_op: Op::LessOrEqual,
-            upper: Version::max(compat),
-        }
+        Constraint::new(
+            Version::ONE,
+            Op::LessOrEqual,
+            Op::LessOrEqual,
+            Version::max(compat),
+        )
     }
 
+    /// `untilNextMajor`: `version` up to the next major one.
     pub fn until_next_major(version: Version, compat: Compat) -> Constraint {
-        Constraint {
-            lower: version,
-            lower_op: Op::LessOrEqual,
-            upper_op: Op::Less,
-            upper: version.bump_major(compat),
-        }
+        Constraint::new(
+            version,
+            Op::LessOrEqual,
+            Op::Less,
+            version.bump_major(compat),
+        )
     }
 
+    /// `untilNextMinor`: `version` up to the next minor one.
     pub fn until_next_minor(version: Version, compat: Compat) -> Constraint {
-        Constraint {
-            lower: version,
-            lower_op: Op::LessOrEqual,
-            upper_op: Op::Less,
-            upper: version.bump_minor(compat),
-        }
+        Constraint::new(
+            version,
+            Op::LessOrEqual,
+            Op::Less,
+            version.bump_minor(compat),
+        )
     }
 
+    /// `satisfies`: whether `version` is in the range.
     pub fn satisfies(&self, version: Version) -> bool {
         self.lower_op.holds(self.lower, version) && self.upper_op.holds(version, self.upper)
     }
@@ -120,12 +133,7 @@ impl Constraint {
             Ordering::Equal => (self.upper, stricter(self.upper_op, other.upper_op)),
             Ordering::Greater => (other.upper, other.upper_op),
         };
-        (lower <= upper).then_some(Constraint {
-            lower,
-            lower_op,
-            upper_op,
-            upper,
-        })
+        (lower <= upper).then_some(Constraint::new(lower, lower_op, upper_op, upper))
     }
 
     /// `expand`: the range stretched to take in `version`, up to the
@@ -169,12 +177,7 @@ impl Constraint {
             return Err(ConstraintError::InvalidRange(lower, upper));
         }
         scan.finish().map_err(bad)?;
-        Ok(Constraint {
-            lower,
-            lower_op,
-            upper_op,
-            upper,
-        })
+        Ok(Constraint::new(lower, lower_op, upper_op, upper))
     }
 }
 

@@ -5,7 +5,10 @@
 //! solution found. `PubGrub`, which would pick differently, only explains
 //! why there is none ([`explain`]).
 
+use std::borrow::Borrow;
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
+use std::convert::Infallible;
 
 use nomi_base::Compat;
 use nomi_project::outline::AppOutline;
@@ -33,13 +36,14 @@ impl Release {
                 elm: pkg.elm,
                 deps: pkg.deps,
             }),
-            _ => None,
+            Ok(Outline::App(_)) | Err(_) => None,
         }
     }
 }
 
 /// Where the solver finds releases: the index and their metadata.
 pub trait Packages {
+    /// Why a release's metadata couldn't be read.
     type Error;
 
     /// The index's releases of `name`.
@@ -64,6 +68,15 @@ pub struct Details {
     pub deps: BTreeMap<Name, Constraint>,
 }
 
+/// The order the search tries a package's versions in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Order {
+    /// Upstream's.
+    NewestFirst,
+    /// elm-test's `--dependencies oldest`.
+    OldestFirst,
+}
+
 /// `verify`: the releases that satisfy `constraints` and everything they
 /// need, `None` if there are none.
 pub fn verify<P: Packages>(
@@ -71,26 +84,24 @@ pub fn verify<P: Packages>(
     compat: Compat,
     constraints: &BTreeMap<Name, Constraint>,
 ) -> Result<Option<BTreeMap<Name, Details>>, P::Error> {
-    verify_in(packages, compat, constraints, false)
+    verify_in(packages, compat, constraints, Order::NewestFirst)
 }
 
-/// [`verify`], trying each package's versions oldest first if `oldest`,
-/// as elm-test's `--dependencies oldest` asks.
+/// [`verify`], trying each package's versions in `order`.
 pub fn verify_in<P: Packages>(
     packages: &mut P,
     compat: Compat,
     constraints: &BTreeMap<Name, Constraint>,
-    oldest: bool,
+    order: Order,
 ) -> Result<Option<BTreeMap<Name, Details>>, P::Error> {
-    let mut search = Search::new(packages, compat);
-    search.oldest = oldest;
+    let mut search = Search::new(packages, compat, order);
     let Some(solution) = search.attempt(constraints.clone())? else {
         return Ok(None);
     };
     let details = solution
         .into_iter()
         .map(|(name, version)| {
-            let deps = search.deps(&name, version).clone();
+            let deps = search.releases.found(&name, version).deps.clone();
             (name, Details { version, deps })
         })
         .collect();
@@ -117,20 +128,34 @@ pub fn add_to_app<P: Packages>(
     pkg: &Name,
     app: &AppOutline,
 ) -> Result<Option<AppSolution>, P::Error> {
-    let all_directs = union(&app.direct, &app.test_direct);
-    let all_deps = union(&all_directs, &union(&app.indirect, &app.test_indirect));
-    let relaxations: [Relaxation<'_>; 5] = [
-        (&all_deps, &Constraint::exactly),
-        (&all_directs, &Constraint::exactly),
-        (&all_directs, &|v| Constraint::until_next_minor(v, compat)),
-        (&all_directs, &|v| Constraint::until_next_major(v, compat)),
-        (&all_directs, &|_| Constraint::anything(compat)),
+    let (all_directs, all_deps) = directs_and_all(app);
+    let relaxations = [
+        Relaxation {
+            held: &all_deps,
+            constraint: &Constraint::exactly,
+        },
+        Relaxation {
+            held: &all_directs,
+            constraint: &Constraint::exactly,
+        },
+        Relaxation {
+            held: &all_directs,
+            constraint: &|v| Constraint::until_next_minor(v, compat),
+        },
+        Relaxation {
+            held: &all_directs,
+            constraint: &|v| Constraint::until_next_major(v, compat),
+        },
+        Relaxation {
+            held: &all_directs,
+            constraint: &|_| Constraint::anything(compat),
+        },
     ];
-    let mut search = Search::new(packages, compat);
-    for (deps, to_constraint) in relaxations {
-        let mut constraints: BTreeMap<Name, Constraint> = deps
+    let mut search = Search::new(packages, compat, Order::NewestFirst);
+    for Relaxation { held, constraint } in relaxations {
+        let mut constraints: BTreeMap<Name, Constraint> = held
             .iter()
-            .map(|(name, &version)| (name.clone(), to_constraint(version)))
+            .map(|(name, &version)| (name.clone(), constraint(version)))
             .collect();
         constraints.insert(pkg.clone(), Constraint::anything(compat));
         if let Some(new) = search.attempt(constraints)? {
@@ -155,9 +180,8 @@ pub fn update_app<P: Packages>(
     free: &BTreeSet<Name>,
     app: &AppOutline,
 ) -> Result<Option<AppSolution>, P::Error> {
-    let all_directs = union(&app.direct, &app.test_direct);
-    let all_deps = union(&all_directs, &union(&app.indirect, &app.test_indirect));
-    let mut search = Search::new(packages, compat);
+    let (all_directs, all_deps) = directs_and_all(app);
+    let mut search = Search::new(packages, compat, Order::NewestFirst);
     for held in [&all_deps, &all_directs] {
         let mut constraints = BTreeMap::new();
         for (name, &version) in &all_deps {
@@ -185,11 +209,19 @@ pub fn update_app<P: Packages>(
     Ok(None)
 }
 
-/// Dependencies, and how freely to hold each.
-type Relaxation<'a> = (
-    &'a BTreeMap<Name, Version>,
-    &'a dyn Fn(Version) -> Constraint,
-);
+/// Dependencies to hold, and how freely to hold each.
+struct Relaxation<'a> {
+    held: &'a BTreeMap<Name, Version>,
+    constraint: &'a dyn Fn(Version) -> Constraint,
+}
+
+/// An application's direct dependencies, test ones included, and all its
+/// dependencies, as `addToApp` merges them.
+fn directs_and_all(app: &AppOutline) -> (BTreeMap<Name, Version>, BTreeMap<Name, Version>) {
+    let all_directs = union(&app.direct, &app.test_direct);
+    let all_deps = union(&all_directs, &union(&app.indirect, &app.test_indirect));
+    (all_directs, all_deps)
+}
 
 /// `Map.union`: `a`'s entries, then `b`'s that `a` lacks.
 fn union<V: Clone>(a: &BTreeMap<Name, V>, b: &BTreeMap<Name, V>) -> BTreeMap<Name, V> {
@@ -198,14 +230,85 @@ fn union<V: Clone>(a: &BTreeMap<Name, V>, b: &BTreeMap<Name, V>) -> BTreeMap<Nam
     union
 }
 
-/// The search and the metadata it has read, which outlives backtracking
-/// as upstream's `State` does.
-struct Search<'p, P> {
+/// Why a release's dependencies can't be had.
+pub(crate) enum ReleaseError<E> {
+    /// Its `elm.json` can't be had, as when offline and not downloaded.
+    Unavailable(Name, Version),
+    /// Reading it failed.
+    Solver(E),
+}
+
+/// What a release needs, which must be had.
+pub(crate) fn release_deps<P: Packages>(
+    packages: &mut P,
+    name: &Name,
+    version: Version,
+) -> Result<BTreeMap<Name, Constraint>, ReleaseError<P::Error>> {
+    match packages.release(name, version) {
+        Ok(Some(release)) => Ok(release.deps),
+        Ok(None) => Err(ReleaseError::Unavailable(name.clone(), version)),
+        Err(e) => Err(ReleaseError::Solver(e)),
+    }
+}
+
+/// `getTransitive`: the packages of `solution` that `roots` need, directly
+/// or not, as `deps` says what each needs.
+pub(crate) fn reachable<D: Borrow<BTreeMap<Name, Constraint>>, E>(
+    solution: &BTreeMap<Name, Version>,
+    roots: &BTreeMap<Name, Version>,
+    mut deps: impl FnMut(&Name, Version) -> Result<D, E>,
+) -> Result<BTreeSet<Name>, E> {
+    let mut visited = BTreeSet::new();
+    let mut unvisited: Vec<Name> = roots.keys().cloned().collect();
+    while let Some(name) = unvisited.pop() {
+        if visited.contains(&name) {
+            continue;
+        }
+        let needs = deps(&name, solution[&name])?;
+        let needs = needs.borrow().keys();
+        unvisited.extend(needs.filter(|dep| solution.contains_key(*dep)).cloned());
+        visited.insert(name);
+    }
+    Ok(visited)
+}
+
+/// The metadata of the releases a search read, each asked of `packages`
+/// once, which outlives backtracking as upstream's `State` does.
+struct Releases<'p, P> {
     packages: &'p mut P,
+    read: BTreeMap<(Name, Version), Option<Release>>,
+}
+
+impl<'p, P: Packages> Releases<'p, P> {
+    fn new(packages: &'p mut P) -> Releases<'p, P> {
+        Releases {
+            packages,
+            read: BTreeMap::new(),
+        }
+    }
+
+    /// `getConstraints`, remembering what it read.
+    fn get(&mut self, name: &Name, version: Version) -> Result<Option<&Release>, P::Error> {
+        let release = match self.read.entry((name.clone(), version)) {
+            Entry::Occupied(read) => read.into_mut(),
+            Entry::Vacant(unread) => unread.insert(self.packages.release(name, version)?),
+        };
+        Ok(release.as_ref())
+    }
+
+    /// A release read and found, as each in a solution is.
+    fn found(&self, name: &Name, version: Version) -> &Release {
+        self.read[&(name.clone(), version)]
+            .as_ref()
+            .expect("a release in a solution was found")
+    }
+}
+
+/// The search and the metadata it has read.
+struct Search<'p, P> {
+    releases: Releases<'p, P>,
     compat: Compat,
-    releases: BTreeMap<(Name, Version), Release>,
-    /// Whether versions are tried oldest first.
-    oldest: bool,
+    order: Order,
 }
 
 /// `Goals`: what is still to pick, and what has been.
@@ -216,12 +319,11 @@ struct Goals {
 }
 
 impl<'p, P: Packages> Search<'p, P> {
-    fn new(packages: &'p mut P, compat: Compat) -> Search<'p, P> {
+    fn new(packages: &'p mut P, compat: Compat, order: Order) -> Search<'p, P> {
         Search {
-            packages,
+            releases: Releases::new(packages),
             compat,
-            releases: BTreeMap::new(),
-            oldest: false,
+            order,
         }
     }
 
@@ -237,18 +339,19 @@ impl<'p, P: Packages> Search<'p, P> {
     }
 
     /// `exploreGoals`: the first solution, taking the pending package
-    /// first in name order and its versions newest first.
+    /// first in name order and its versions in the search's order.
     fn explore(&mut self, mut goals: Goals) -> Result<Option<BTreeMap<Name, Version>>, P::Error> {
         let Some((name, constraint)) = goals.pending.pop_first() else {
             return Ok(Some(goals.solved));
         };
         // `getRelevantVersions`
-        let mut versions: Vec<Version> = match self.packages.versions(&name) {
+        let mut versions: Vec<Version> = match self.releases.packages.versions(&name) {
             Some(known) => known.all().filter(|&v| constraint.satisfies(v)).collect(),
             None => Vec::new(),
         };
-        if self.oldest {
-            versions.reverse();
+        match self.order {
+            Order::NewestFirst => {}
+            Order::OldestFirst => versions.reverse(),
         }
         for version in versions {
             if let Some(next) = self.add_version(&goals, &name, version)?
@@ -268,7 +371,7 @@ impl<'p, P: Packages> Search<'p, P> {
         version: Version,
     ) -> Result<Option<Goals>, P::Error> {
         let elm = Version::compiler(self.compat);
-        let Some(release) = self.release(name, version)? else {
+        let Some(release) = self.releases.get(name, version)? else {
             return Ok(None);
         };
         // `C.goodElm`
@@ -296,25 +399,6 @@ impl<'p, P: Packages> Search<'p, P> {
         Ok(Some(Goals { pending, solved }))
     }
 
-    /// `getConstraints`, remembering what it read.
-    fn release(&mut self, name: &Name, version: Version) -> Result<Option<&Release>, P::Error> {
-        let key = (name.clone(), version);
-        if !self.releases.contains_key(&key) {
-            match self.packages.release(name, version)? {
-                Some(release) => {
-                    self.releases.insert(key.clone(), release);
-                }
-                None => return Ok(None),
-            }
-        }
-        Ok(self.releases.get(&key))
-    }
-
-    /// The dependencies of a release in a solution, which the search read.
-    fn deps(&self, name: &Name, version: Version) -> &BTreeMap<Name, Constraint> {
-        &self.releases[&(name.clone(), version)].deps
-    }
-
     /// `toApp`: the application's dependencies, sorted as upstream sorts
     /// them. Direct ones stay direct, and `pkg` joins them; what those
     /// need is indirect; test dependencies stay so, unless something else
@@ -325,34 +409,23 @@ impl<'p, P: Packages> Search<'p, P> {
         app: &AppOutline,
         new: &BTreeMap<Name, Version>,
     ) -> AppOutline {
-        let direct: BTreeMap<Name, Version> = new
-            .iter()
-            .filter(|(name, _)| Some(*name) == pkg || app.direct.contains_key(*name))
-            .map(|(name, &version)| (name.clone(), version))
-            .collect();
-        let indirect: BTreeMap<Name, Version> = self
-            .transitive(new, &direct)
-            .into_iter()
-            .filter(|name| !direct.contains_key(name))
-            .map(|name| {
-                let version = new[&name];
-                (name, version)
-            })
-            .collect();
-        let test_direct: BTreeMap<Name, Version> = new
-            .iter()
-            .filter(|(name, _)| Some(*name) != pkg && app.test_direct.contains_key(*name))
-            .map(|(name, &version)| (name.clone(), version))
-            .collect();
-        let test_indirect = new
-            .iter()
-            .filter(|(name, _)| {
-                !direct.contains_key(*name)
-                    && !indirect.contains_key(*name)
-                    && !test_direct.contains_key(*name)
-            })
-            .map(|(name, &version)| (name.clone(), version))
-            .collect();
+        let direct = pick(new, |name| {
+            Some(name) == pkg || app.direct.contains_key(name)
+        });
+        let Ok(needed) = reachable(new, &direct, |name, version| {
+            Ok::<_, Infallible>(&self.releases.found(name, version).deps)
+        });
+        let indirect = pick(new, |name| {
+            needed.contains(name) && !direct.contains_key(name)
+        });
+        let test_direct = pick(new, |name| {
+            Some(name) != pkg && app.test_direct.contains_key(name)
+        });
+        let test_indirect = pick(new, |name| {
+            !direct.contains_key(name)
+                && !indirect.contains_key(name)
+                && !test_direct.contains_key(name)
+        });
         AppOutline {
             elm: app.elm,
             source_dirs: app.source_dirs.clone(),
@@ -362,21 +435,12 @@ impl<'p, P: Packages> Search<'p, P> {
             test_indirect,
         }
     }
+}
 
-    /// `getTransitive`: the packages of `solution` that `roots` reach.
-    fn transitive(
-        &self,
-        solution: &BTreeMap<Name, Version>,
-        roots: &BTreeMap<Name, Version>,
-    ) -> BTreeSet<Name> {
-        let mut visited = BTreeSet::new();
-        let mut unvisited: Vec<&Name> = roots.keys().collect();
-        while let Some(name) = unvisited.pop() {
-            if visited.insert(name.clone()) {
-                let deps = self.deps(name, solution[name]);
-                unvisited.extend(deps.keys().filter(|dep| solution.contains_key(*dep)));
-            }
-        }
-        visited
-    }
+/// The releases of `new` whose names `keep` keeps.
+fn pick(new: &BTreeMap<Name, Version>, keep: impl Fn(&Name) -> bool) -> BTreeMap<Name, Version> {
+    new.iter()
+        .filter(|(name, _)| keep(name))
+        .map(|(name, &version)| (name.clone(), version))
+        .collect()
 }

@@ -70,6 +70,8 @@ fn versions_wrap_to_their_width() {
     // 0.19.3 sums in 32 bits, then keeps 21 or 22 of them.
     assert_eq!(version("2097152.2097153.4194304", V3), Ok(v(0, 1, 0)));
     assert_eq!(version("4294967297.0.0", V3), Ok(v(1, 0, 0)));
+    // Text parses as the newest release reads it.
+    assert_eq!("65536.1.65537".parse(), version("65536.1.65537", V3));
     assert_eq!(Version::max(V1), v(65535, 0, 0));
     assert_eq!(Version::max(V3), v(2097151, 0, 0));
     assert_eq!(v(1, 2, 3).to_string(), "1.2.3");
@@ -250,7 +252,7 @@ fn package_names_order_and_kernel() {
     assert!(n("elm/core").is_kernel());
     assert!(n("elm-explorations/test").is_kernel());
     assert!(!n("elm-community/list-extra").is_kernel());
-    assert_eq!(Name::virtual_dom().to_string(), "elm/virtual-dom");
+    assert_eq!("elm/virtual-dom".parse(), name("elm/virtual-dom"));
 }
 
 #[test]
@@ -336,8 +338,10 @@ fn licenses() {
             .all(|w| w[0].0.as_bytes() < w[1].0.as_bytes())
     );
     for compat in Compat::ALL {
-        assert_eq!(License::check(b"BSD-3-Clause", compat), Ok(License::bsd3()));
-        assert_eq!(License::check(b"MIT", compat).unwrap().as_bytes(), b"MIT");
+        for code in ["BSD-3-Clause", "MIT"] {
+            let license = License::check(code.as_bytes(), compat).unwrap();
+            assert_eq!(license.as_bytes(), code.as_bytes());
+        }
         // The raw string, escapes and all.
         let suggest = |raw: &[u8]| License::check(raw, compat).unwrap_err();
         assert_eq!(suggest(br"MI\u0054")[0], "MIT");
@@ -360,14 +364,14 @@ const APP: &str = r#"{"type":"application","source-directories":[SRC],"elm-versi
 "dependencies":{"direct":{"elm/json":"1.1.3","elm/core":"1.0.5"},"indirect":{}},
 "test-dependencies":{"indirect":{},"direct":{}}}"#;
 
+/// [`APP`] with `src_dir`, quoted, as its source directory.
+fn app_src(src_dir: &[u8]) -> Vec<u8> {
+    let (before, after) = APP.split_once("SRC").expect("a source directory");
+    [before.as_bytes(), b"\"", src_dir, b"\"", after.as_bytes()].concat()
+}
+
 fn app(src_dir: &[u8], compat: Compat) -> Result<Outline, OutlineError> {
-    let text = APP.as_bytes().split(|&b| b == b'S').collect::<Vec<_>>();
-    let mut src = text[0].to_vec();
-    src.push(b'"');
-    src.extend_from_slice(src_dir);
-    src.push(b'"');
-    src.extend_from_slice(&text[1][b"RC".len()..]);
-    Outline::read(&src, compat)
+    Outline::read(&app_src(src_dir), compat)
 }
 
 fn dirs(outline: &Outline) -> Vec<&[u8]> {
@@ -430,18 +434,18 @@ fn source_directories_outside_utf8_mangle_in_0_19_1() {
 
 #[test]
 fn outlines_check_core_and_json() {
-    let no_json = APP
-        .replace(r#""elm/json":"1.1.3","#, "")
-        .replace("SRC", r#""src""#);
+    let no_json = String::from_utf8(app_src(b"src"))
+        .unwrap()
+        .replace(r#""elm/json":"1.1.3","#, "");
     assert_eq!(
         Outline::read(no_json.as_bytes(), V3),
         Err(OutlineError::NoAppJson)
     );
     let indirect = no_json.replace(r#""indirect":{}},"#, r#""indirect":{"elm/json":"1.1.3"}},"#);
     assert!(Outline::read(indirect.as_bytes(), V3).is_ok());
-    let no_core = APP
-        .replace(r#","elm/core":"1.0.5""#, "")
-        .replace("SRC", r#""src""#);
+    let no_core = String::from_utf8(app_src(b"src"))
+        .unwrap()
+        .replace(r#","elm/core":"1.0.5""#, "");
     assert_eq!(
         Outline::read(no_core.as_bytes(), V3),
         Err(OutlineError::NoAppCore)
@@ -476,11 +480,12 @@ fn pkg(elm: &str, module: &str) -> Vec<u8> {
 
 #[test]
 fn applications_are_built_as_the_release_they_name() {
+    let src = String::from_utf8(app_src(b"src")).unwrap();
     for (elm, compat) in [("0.19.1", V1), ("0.19.2", V2), ("0.19.3", V3)] {
-        let src = APP.replace("0.19.1", elm).replace("SRC", r#""src""#);
+        let src = src.replace("0.19.1", elm);
         assert_eq!(Outline::detect(src.as_bytes()).unwrap().1, compat);
     }
-    let src = APP.replace("0.19.1", "0.19.0").replace("SRC", r#""src""#);
+    let src = src.replace("0.19.1", "0.19.0");
     assert_eq!(
         Outline::detect(src.as_bytes()),
         Err(DetectError::AppElm(v(0, 19, 0)))
@@ -506,9 +511,7 @@ fn packages_are_built_as_the_newest_release_they_admit() {
 #[test]
 fn outlines_are_read_as_the_release_they_name() {
     // Only 0.19.1 reads this file, so it names its release itself.
-    let mut src = APP.as_bytes().split(|&b| b == b'S').collect::<Vec<_>>();
-    let rest = &src.pop().unwrap()[b"RC".len()..];
-    let src = [src[0], b"\"src\xC0\"\"", rest].concat();
+    let src = app_src(b"src\xC0\"");
     assert!(matches!(Outline::detect(&src), Ok((_, V1))));
     // 0.19.3 reads a 300-byte module name, but 0.19.1 doesn't.
     let long = "A".repeat(300);

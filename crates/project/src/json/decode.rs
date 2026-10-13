@@ -12,30 +12,51 @@ use super::parse::{Kind, Value};
 pub enum Problem<X> {
     /// In the field with these raw key bytes.
     Field(Vec<u8>, Box<Problem<X>>),
+    /// In the array's entry at this index.
     Index(usize, Box<Problem<X>>),
     /// Every alternative failed: the first one's problem, then the rest's.
     OneOf(Box<Problem<X>>, Vec<Problem<X>>),
+    /// The caller's decoder rejected the value in this region.
     Failure(Region, X),
+    /// The value in this region isn't the kind expected.
     Expecting(Region, Expectation),
 }
 
+/// The kind of value a decoder wanted.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Expectation {
     Object,
     Array,
     String,
-    Bool,
-    Int,
     /// An object with this field.
     ObjectWith(Vec<u8>),
-    /// A pair, not an array of this length.
-    ArrayPair(usize),
 }
 
+/// A decoder's result.
 pub type Decoded<T, X> = Result<T, Problem<X>>;
 
+/// Of a [`Problem::OneOf`]'s problems, the one upstream reports: the
+/// deepest, the first of those as deep.
+pub fn deepest<'p, X>(first: &'p Problem<X>, rest: &'p [Problem<X>]) -> &'p Problem<X> {
+    std::iter::once(first)
+        .chain(rest)
+        .rev()
+        .max_by_key(|p| depth(p))
+        .unwrap_or(first)
+}
+
+/// `getMaxDepth`: how many fields and indexes deep the problem is, through
+/// its deepest alternative.
+fn depth<X>(problem: &Problem<X>) -> usize {
+    match problem {
+        Problem::Field(_, p) | Problem::Index(_, p) => 1 + depth(p),
+        Problem::OneOf(p, ps) => depth(deepest(p, ps)),
+        Problem::Failure(..) | Problem::Expecting(..) => 0,
+    }
+}
+
 /// One of [`one_of`]'s alternatives.
-pub type Alternative<'a, 'f, T, X> = dyn FnMut(&Value<'a>) -> Decoded<T, X> + 'f;
+pub(crate) type Alternative<'a, 'f, T, X> = dyn FnMut(&Value<'a>) -> Decoded<T, X> + 'f;
 
 fn expecting<T, X>(value: &Value<'_>, expectation: Expectation) -> Decoded<T, X> {
     Err(Problem::Expecting(value.region, expectation))
@@ -63,21 +84,7 @@ pub fn custom_string<T, X>(
     }
 }
 
-pub fn bool<X>(value: &Value<'_>) -> Decoded<bool, X> {
-    match value.kind {
-        Kind::True => Ok(true),
-        Kind::False => Ok(false),
-        _ => expecting(value, Expectation::Bool),
-    }
-}
-
-pub fn int<X>(value: &Value<'_>) -> Decoded<i64, X> {
-    match value.kind {
-        Kind::Int(n) => Ok(n),
-        _ => expecting(value, Expectation::Int),
-    }
-}
-
+/// `list`: each entry of an array, failing in the first that fails.
 pub fn list<'a, T, X>(
     value: &Value<'a>,
     mut entry: impl FnMut(&Value<'a>) -> Decoded<T, X>,
@@ -94,7 +101,7 @@ pub fn list<'a, T, X>(
 
 /// `nonEmptyList`: a list, failing with `empty` on the array if it has no
 /// entries.
-pub fn non_empty_list<'a, T, X>(
+pub(crate) fn non_empty_list<'a, T, X>(
     value: &Value<'a>,
     entry: impl FnMut(&Value<'a>) -> Decoded<T, X>,
     empty: X,
@@ -106,27 +113,9 @@ pub fn non_empty_list<'a, T, X>(
     Ok(entries)
 }
 
-pub fn pair<'a, A, B, X>(
-    value: &Value<'a>,
-    first: impl FnOnce(&Value<'a>) -> Decoded<A, X>,
-    second: impl FnOnce(&Value<'a>) -> Decoded<B, X>,
-) -> Decoded<(A, B), X> {
-    match &value.kind {
-        Kind::Array(entries) => match entries.as_slice() {
-            [a, b] => {
-                let a = first(a).map_err(|p| Problem::Index(0, Box::new(p)))?;
-                let b = second(b).map_err(|p| Problem::Index(1, Box::new(p)))?;
-                Ok((a, b))
-            }
-            _ => expecting(value, Expectation::ArrayPair(entries.len())),
-        },
-        _ => expecting(value, Expectation::Array),
-    }
-}
-
 /// `pairs`: an object's fields in source order, each key read by `key`,
 /// which fails on the key's own region, and each value by `entry`.
-pub fn pairs<'a, K, V, X>(
+pub(crate) fn pairs<'a, K, V, X>(
     value: &Value<'a>,
     mut key: impl FnMut(&[u8], Cursor) -> Result<K, X>,
     mut entry: impl FnMut(&Value<'a>) -> Decoded<V, X>,
@@ -175,7 +164,7 @@ pub fn field<'a, T, X>(
 /// # Panics
 ///
 /// With no alternatives, as upstream crashes.
-pub fn one_of<'a, 'f, T, X>(
+pub(crate) fn one_of<'a, 'f, T, X>(
     value: &Value<'a>,
     alternatives: &mut [&mut Alternative<'a, 'f, T, X>],
 ) -> Decoded<T, X> {

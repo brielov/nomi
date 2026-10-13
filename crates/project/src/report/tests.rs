@@ -17,7 +17,7 @@ fn to_json(report: &Report, compat: Compat) -> String {
 
 fn read(src: &[u8], compat: Compat) -> Report {
     let error = Outline::read(src, compat).expect_err("a bad outline");
-    outline(&error, src, compat, &|c| format!("elm {c}"))
+    outline(&error, src, compat, &|c| format!("elm {}", c.elm_name()))
 }
 
 const APPLICATION: &str = r#"{

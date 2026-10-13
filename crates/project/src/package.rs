@@ -4,12 +4,13 @@
 //! their errors are the same in every Compat; only the cursor differs.
 
 use std::fmt;
+use std::str::FromStr;
 
 use nomi_base::{Compat, suggest};
 
 use crate::Version;
 use crate::json::{Cursor, Position};
-use crate::scan::Scan;
+use crate::scan::{self, Scan};
 
 /// A valid package name, so ASCII. Ordered by author, then project, by
 /// their bytes, as upstream orders them.
@@ -28,38 +29,42 @@ impl Name {
         }
     }
 
+    /// `elm/core`.
     pub fn core() -> Name {
         Name::known("elm", "core")
     }
 
+    /// `elm/json`.
     pub fn json() -> Name {
         Name::known("elm", "json")
     }
 
+    /// `elm/browser`.
     pub fn browser() -> Name {
         Name::known("elm", "browser")
     }
 
+    /// `elm/html`.
     pub fn html() -> Name {
         Name::known("elm", "html")
     }
 
+    /// `elm/random`.
     pub fn random() -> Name {
         Name::known("elm", "random")
     }
 
+    /// `elm/time`.
     pub fn time() -> Name {
         Name::known("elm", "time")
     }
 
-    pub fn virtual_dom() -> Name {
-        Name::known("elm", "virtual-dom")
-    }
-
+    /// The part before the slash.
     pub fn author(&self) -> &str {
         &self.author
     }
 
+    /// The part after the slash.
     pub fn project(&self) -> &str {
         &self.project
     }
@@ -73,10 +78,7 @@ impl Name {
     /// `parser`, as both `decoder` and `keyDecoder` use it: a name and
     /// nothing after it, failing with the position upstream reports.
     pub fn parse(bytes: &[u8], start: Cursor, compat: Compat) -> Result<Name, Position> {
-        let mut scan = Scan::new(bytes, start, compat);
-        let name = Name::scan(&mut scan).map_err(Cursor::position)?;
-        scan.finish().map_err(Cursor::position)?;
-        Ok(name)
+        scan::whole(bytes, start, compat, Name::scan)
     }
 
     /// `Deps.Registry.newPkgParser`: a release as the registry lists new
@@ -86,15 +88,12 @@ impl Name {
         start: Cursor,
         compat: Compat,
     ) -> Result<(Name, Version), Position> {
-        let mut scan = Scan::new(bytes, start, compat);
-        let release = (|| {
-            let name = Name::scan(&mut scan)?;
+        scan::whole(bytes, start, compat, |scan| {
+            let name = Name::scan(scan)?;
             scan.byte(b'@')?;
-            let version = Version::scan(&mut scan)?;
-            scan.finish()?;
+            let version = Version::scan(scan)?;
             Ok((name, version))
-        })();
-        release.map_err(Cursor::position)
+        })
     }
 
     /// `parser`.
@@ -118,9 +117,20 @@ impl Name {
             };
             author + suggest::distance(self.project.as_bytes(), name.project.as_bytes())
         };
-        let mut names: Vec<_> = names.into_iter().map(|n| (distance(n), n)).collect();
-        names.sort_by_key(|&(d, _)| d);
-        names.into_iter().take(4).map(|(_, n)| n).collect()
+        let mut names: Vec<&Name> = names.into_iter().collect();
+        names.sort_by_cached_key(|name| distance(name));
+        names.truncate(4);
+        names
+    }
+}
+
+/// [`Name::parse`] of all of `text`, which every release reads alike.
+impl FromStr for Name {
+    type Err = Position;
+
+    fn from_str(text: &str) -> Result<Name, Position> {
+        let compat = Compat::LATEST;
+        Name::parse(text.as_bytes(), Cursor::start(compat), compat)
     }
 }
 

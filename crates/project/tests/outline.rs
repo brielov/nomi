@@ -1,21 +1,18 @@
 //! Every `elm.json` fixture under `outline_fixtures/` against what each
-//! elm reports for it, as `cargo xtask oracle outline` stored it in
-//! `oracle.tsv`: whether elm accepts the outline, or the report's title
-//! and the shape of its code excerpt, or that elm loops or crashes. The
-//! report itself is checked whole in `reports.rs`; here it is reduced to that shape with
-//! upstream's choices of region (`Reporting/Error/Json.hs`,
-//! `Reporting/Exit.hs`) and of rendering (`Reporting/Render/Code.hs`), so
-//! the test pins the problem and its positions. Every accepted outline
-//! must also read back from what it writes.
+//! elm does with it, as `cargo xtask oracle outline` stored it in
+//! `oracle.tsv`: accepts the outline, reports a problem, or loops or
+//! crashes where nomi reports one. The reports themselves are checked
+//! whole in `reports.rs`. Every accepted outline must also read back from
+//! what it writes.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use nomi_base::Compat;
-use nomi_project::json::decode::{Expectation, Problem};
-use nomi_project::json::{ParseError, ParseErrorKind, Position, Region, StringProblem};
+use nomi_project::json::ParseErrorKind;
+use nomi_project::json::decode::{self, Problem};
 use nomi_project::outline::{OutlineProblem, SrcDir};
-use nomi_project::{ConstraintError, Outline, OutlineError};
+use nomi_project::{Outline, OutlineError};
 
 const RERUN: &str = "rerun `cargo xtask oracle outline`";
 
@@ -29,9 +26,7 @@ fn outline_fixtures() {
     let compats: Vec<Compat> = header[1..]
         .iter()
         .map(|column| {
-            Compat::ALL
-                .into_iter()
-                .find(|c| format!("elm {c}") == *column)
+            (column.strip_prefix("elm ").and_then(|v| v.parse().ok()))
                 .unwrap_or_else(|| panic!("unknown column {column}"))
         })
         .collect();
@@ -59,10 +54,10 @@ fn outline_fixtures() {
         for (&compat, &expected) in compats.iter().zip(expected) {
             let read = Outline::read(&src, compat);
             let found = match &read {
-                Ok(_) => "accepted".to_owned(),
-                Err(e) => signature(e, &src, compat),
+                Ok(_) => "accepted",
+                Err(e) => outcome(e, compat),
             };
-            if found != expected {
+            if found != outcome_of(expected) {
                 failures.push(format!("{name} on {compat}: {found}, elm: {expected}"));
             }
             if let Ok(outline) = read
@@ -78,6 +73,52 @@ fn outline_fixtures() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// What elm does with an outline, from `oracle.tsv`'s cell: a report's
+/// title and the shape of its code excerpt are a report.
+fn outcome_of(cell: &str) -> &str {
+    match cell {
+        "accepted" | "loop" | "crash" => cell,
+        _ => "report",
+    }
+}
+
+/// What elm does with an outline nomi rejects with `error`: it reports
+/// the problem, unless it loops or crashes on the way.
+fn outcome(error: &OutlineError, compat: Compat) -> &'static str {
+    match error {
+        // `parseErrorToReport` shows from `max 1 (row - 2)`, in 0.19.1's
+        // 16-bit rows: from row 1 or 0 that wraps past the error, so there
+        // are no lines and `last []` crashes.
+        OutlineError::Parse(e)
+            if (compat == Compat::V0_19_1 && e.at.row < 2) || e.kind == ParseErrorKind::Crash =>
+        {
+            "crash"
+        }
+        // `expectationToReport` defines the region it shows of a value on
+        // one row as itself, and so never returns.
+        OutlineError::Decode(problem)
+            if matches!(reported(problem), Problem::Expecting(region, _)
+                if region.start.row == region.end.row) =>
+        {
+            "loop"
+        }
+        OutlineError::Parse(_)
+        | OutlineError::Decode(_)
+        | OutlineError::NoPkgCore
+        | OutlineError::NoAppCore
+        | OutlineError::NoAppJson => "report",
+    }
+}
+
+/// `problemToReport`'s choice of problem.
+fn reported(problem: &Problem<OutlineProblem>) -> &Problem<OutlineProblem> {
+    match problem {
+        Problem::Field(_, inner) | Problem::Index(_, inner) => reported(inner),
+        Problem::OneOf(first, rest) => reported(decode::deepest(first, rest)),
+        Problem::Failure(..) | Problem::Expecting(..) => problem,
+    }
 }
 
 /// Reads back what `outline` writes. Upstream doesn't round-trip source
@@ -114,165 +155,4 @@ fn source_dirs(outline: &Outline) -> &[SrcDir] {
         Outline::App(app) => &app.source_dirs,
         Outline::Pkg(_) => &[],
     }
-}
-
-/// What elm's report on `error` looks like, in `oracle.tsv`'s terms.
-fn signature(error: &OutlineError, src: &[u8], compat: Compat) -> String {
-    let rows = rows(src);
-    match error {
-        OutlineError::NoPkgCore | OutlineError::NoAppCore | OutlineError::NoAppJson => {
-            "MISSING DEPENDENCY rows none".to_owned()
-        }
-        OutlineError::Parse(error) => parse_error(error, rows, compat),
-        OutlineError::Decode(problem) => problem_report(problem, rows),
-    }
-}
-
-/// `parseErrorToReport`: two rows back to the error, the error marked.
-fn parse_error(error: &ParseError, rows: u32, compat: Compat) -> String {
-    let title = match error.kind {
-        ParseErrorKind::Start => "EXPECTING A VALUE",
-        ParseErrorKind::ObjectField => "EXTRA COMMA",
-        ParseErrorKind::ObjectColon => "EXPECTING COLON",
-        ParseErrorKind::ObjectEnd => "UNFINISHED OBJECT",
-        ParseErrorKind::ArrayEnd => "UNFINISHED ARRAY",
-        ParseErrorKind::String(StringProblem::BadStringEnd) => "ENDLESS STRING",
-        ParseErrorKind::String(StringProblem::BadStringControlChar) => {
-            "UNEXPECTED CONTROL CHARACTER"
-        }
-        ParseErrorKind::String(StringProblem::BadStringEscapeChar) => "UNKNOWN ESCAPE",
-        ParseErrorKind::String(StringProblem::BadStringEscapeHex) => "BAD HEX ESCAPE",
-        ParseErrorKind::String(StringProblem::BadStringNotUtf8) => "UNEXPECTED ENCODING",
-        ParseErrorKind::NoLeadingZeros => "BAD NUMBER",
-        ParseErrorKind::NoFloats => "UNEXPECTED NUMBER",
-        ParseErrorKind::BadEnd => "JSON PROBLEM",
-        ParseErrorKind::Crash => return "crash".to_owned(),
-    };
-    let at = error.at;
-    // `max 1 (row - 2)`, in 0.19.1's 16-bit rows: from row 1 it wraps to
-    // 65535, past the error, so there are no lines and `last []` crashes.
-    let first = match compat {
-        Compat::V0_19_1 => u32::from((at.row as u16).wrapping_sub(2)).max(1),
-        Compat::V0_19_2 | Compat::V0_19_3 => at.row.saturating_sub(2).max(1),
-    };
-    let surroundings = Region {
-        start: Position { row: first, col: 1 },
-        end: at,
-    };
-    let Some(code) = render(rows, surroundings, Region { start: at, end: at }) else {
-        return "crash".to_owned();
-    };
-    format!("{title} {code}")
-}
-
-/// `problemToReport`.
-fn problem_report(problem: &Problem<OutlineProblem>, rows: u32) -> String {
-    match problem {
-        Problem::Field(_, inner) | Problem::Index(_, inner) => problem_report(inner, rows),
-        // The deepest problem, the first of equals.
-        Problem::OneOf(first, rest) => {
-            let deepest = std::iter::once(&**first)
-                .chain(rest)
-                .rev()
-                .max_by_key(|p| depth(p))
-                .unwrap();
-            problem_report(deepest, rows)
-        }
-        Problem::Expecting(region, expectation) => {
-            // `expectationToReport` defines `region` as itself when the
-            // value is on one row, and so never returns.
-            if region.start.row == region.end.row {
-                return "loop".to_owned();
-            }
-            let title = match expectation {
-                Expectation::Object => "EXPECTING OBJECT",
-                Expectation::ObjectWith(_) => "MISSING FIELD",
-                Expectation::Array => "EXPECTING ARRAY",
-                Expectation::String => "EXPECTING STRING",
-                Expectation::Bool => "EXPECTING BOOL",
-                Expectation::Int => "EXPECTING INT",
-                Expectation::ArrayPair(_) => "EXPECTING PAIR",
-            };
-            let start = Region {
-                start: region.start,
-                end: region.start,
-            };
-            snippet(title, rows, start, None)
-        }
-        Problem::Failure(region, x) => {
-            let (title, highlight) = match x {
-                OutlineProblem::BadType => ("UNEXPECTED TYPE", None),
-                OutlineProblem::BadPkgName(at) => ("INVALID PACKAGE NAME", Some(*at)),
-                OutlineProblem::BadVersion(at) => ("PROBLEM WITH VERSION", Some(*at)),
-                OutlineProblem::BadConstraint(ConstraintError::BadFormat(at)) => {
-                    ("PROBLEM WITH CONSTRAINT", Some(*at))
-                }
-                OutlineProblem::BadConstraint(ConstraintError::InvalidRange(..)) => {
-                    ("PROBLEM WITH CONSTRAINT", None)
-                }
-                OutlineProblem::BadModuleName(at) => ("PROBLEM WITH MODULE NAME", Some(*at)),
-                OutlineProblem::BadModuleHeaderTooLong => ("HEADER TOO LONG", None),
-                OutlineProblem::BadDependencyName(at) => {
-                    ("PROBLEM WITH DEPENDENCY NAME", Some(*at))
-                }
-                OutlineProblem::BadLicense(..) => ("UNKNOWN LICENSE", None),
-                OutlineProblem::BadSummaryTooLong => ("SUMMARY TOO LONG", None),
-                OutlineProblem::NoSrcDirs => ("NO SOURCE DIRECTORIES", None),
-            };
-            snippet(title, rows, *region, highlight)
-        }
-    }
-}
-
-/// `getMaxDepth`.
-fn depth(problem: &Problem<OutlineProblem>) -> usize {
-    match problem {
-        Problem::Field(_, inner) | Problem::Index(_, inner) => 1 + depth(inner),
-        Problem::OneOf(first, rest) => std::iter::once(&**first)
-            .chain(rest)
-            .map(depth)
-            .max()
-            .unwrap(),
-        Problem::Failure(..) | Problem::Expecting(..) => 0,
-    }
-}
-
-fn snippet(title: &str, rows: u32, region: Region, highlight: Option<Position>) -> String {
-    let highlight = highlight.map_or(region, |at| Region { start: at, end: at });
-    match render(rows, region, highlight) {
-        Some(code) => format!("{title} {code}"),
-        None => "crash".to_owned(),
-    }
-}
-
-/// `Code.render`'s shape: the rows of `region` the source has, then the
-/// underline of a one-row `highlight` that reaches the last row, or else
-/// the rows of `highlight` marked. `None` where upstream takes the width
-/// of the row numbers from no rows at all.
-fn render(rows: u32, region: Region, highlight: Region) -> Option<String> {
-    let first = region.start.row;
-    let last = region.end.row.min(rows);
-    if first > last {
-        return None;
-    }
-    let mut shape = format!("rows {first}-{last}");
-    if highlight.start.row == highlight.end.row && highlight.end.row >= region.end.row {
-        let width = highlight.end.col.saturating_sub(highlight.start.col).max(1);
-        shape += &format!(" ^{}+{width}", highlight.start.col);
-    } else {
-        let marked_first = highlight.start.row.max(first);
-        let marked_last = highlight.end.row.min(last);
-        if marked_first <= marked_last {
-            shape += &format!(" >{marked_first}-{marked_last}");
-        }
-    }
-    Some(shape)
-}
-
-/// How many rows `Code.toSource` makes of `src`: Haskell's `lines`, then
-/// one empty row more.
-fn rows(src: &[u8]) -> u32 {
-    let newlines = src.iter().filter(|&&b| b == b'\n').count();
-    let unterminated = usize::from(!src.is_empty() && !src.ends_with(b"\n"));
-    u32::try_from(newlines + unterminated + 1).unwrap()
 }

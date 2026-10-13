@@ -7,10 +7,9 @@ use std::io::{Cursor, Write};
 use std::path::Path;
 
 use nomi_base::Compat;
-use nomi_project::json::Cursor as JsonCursor;
 use nomi_project::{Name, Version};
+use nomi_registry::store::sha1;
 use nomi_registry::{HttpError, PackageProblem, Store};
-use sha1::{Digest, Sha1};
 use support::Fixture;
 
 const LATEST: Compat = Compat::LATEST;
@@ -19,12 +18,8 @@ const ENDPOINT: &str = "https://package.elm-lang.org/packages/elm/core/1.0.5/end
 
 const ARCHIVE: &str = "https://github.com/elm/core/zipball/1.0.5/";
 
-fn name(s: &str) -> Name {
-    Name::parse(s.as_bytes(), JsonCursor::start(LATEST), LATEST).unwrap()
-}
-
 fn core() -> (Name, Version) {
-    (name("elm/core"), Version::new(1, 0, 5))
+    ("elm/core".parse().unwrap(), Version::new(1, 0, 5))
 }
 
 /// A zip with these entries, in order; names ending in `/` are
@@ -44,41 +39,20 @@ fn zip(entries: &[&str]) -> Vec<u8> {
     zip.finish().unwrap().into_inner()
 }
 
-fn sha1(bytes: &[u8]) -> String {
-    Sha1::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
 fn endpoint(hash: &str) -> Vec<u8> {
     format!(r#"{{"url":"{ARCHIVE}","hash":"{hash}"}}"#).into_bytes()
 }
 
 /// The website, publishing `archive` as elm/core 1.0.5.
 fn website(archive: Vec<u8>) -> Fixture {
-    Fixture::new(&[])
-        .get(ENDPOINT, Ok(endpoint(&sha1(&archive))))
-        .get(ARCHIVE, Ok(archive))
+    Fixture::default()
+        .answering(ENDPOINT, endpoint(&sha1(&archive)))
+        .answering(ARCHIVE, archive)
 }
 
 /// Every file under `dir`, relative and sorted.
 fn files(dir: &Path) -> Vec<String> {
-    let mut files = Vec::new();
-    let mut pending = vec![dir.to_path_buf()];
-    while let Some(next) = pending.pop() {
-        for entry in fs::read_dir(next).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                pending.push(path);
-            } else {
-                let relative = path.strip_prefix(dir).unwrap();
-                files.push(relative.to_string_lossy().replace('\\', "/"));
-            }
-        }
-    }
-    files.sort();
-    files
+    nomi_testkit::files_below(dir).unwrap()
 }
 
 #[test]
@@ -149,7 +123,7 @@ fn releases_with_the_same_archive_share_its_sources() {
     let archive = zip(&["root/", "root/elm.json"]);
     let hash = sha1(&archive);
     let other = "https://package.elm-lang.org/packages/elm/core/1.0.4/endpoint.json";
-    let http = website(archive).get(other, Ok(endpoint(&hash)));
+    let http = website(archive).answering(other, endpoint(&hash));
     let store = tempfile::tempdir().unwrap();
     let store = Store::new(store.path().to_path_buf());
     let (core, version) = core();
@@ -163,7 +137,7 @@ fn releases_with_the_same_archive_share_its_sources() {
 #[test]
 fn what_cant_be_downloaded_is_a_package_problem() {
     let (core, version) = core();
-    let down = || Err(HttpError::Status(404));
+    let down = || HttpError::Status(404);
     let archive = zip(&["root/", "root/elm.json"]);
     let fetch = |http: Fixture| {
         let store = tempfile::tempdir().unwrap();
@@ -173,7 +147,7 @@ fn what_cant_be_downloaded_is_a_package_problem() {
         assert!(files(store.path()).is_empty(), "{problem:?}");
         problem
     };
-    let problem = fetch(Fixture::new(&[]).get(ENDPOINT, down()));
+    let problem = fetch(Fixture::default().failing(ENDPOINT, down()));
     assert!(
         matches!(&problem, PackageProblem::BadEndpointRequest(url, HttpError::Status(404)) if url == ENDPOINT),
         "{problem:?}"
@@ -184,16 +158,16 @@ fn what_cant_be_downloaded_is_a_package_problem() {
         br#"{"url":1,"hash":"h"}"#,
         b"<html>",
     ] {
-        let problem = fetch(Fixture::new(&[]).get(ENDPOINT, Ok(body.to_vec())));
+        let problem = fetch(Fixture::default().answering(ENDPOINT, body));
         assert!(
             matches!(&problem, PackageProblem::BadEndpointContent(url) if url == ENDPOINT),
             "{problem:?}"
         );
     }
     let problem = fetch(
-        Fixture::new(&[])
-            .get(ENDPOINT, Ok(endpoint(&sha1(&archive))))
-            .get(ARCHIVE, down()),
+        Fixture::default()
+            .answering(ENDPOINT, endpoint(&sha1(&archive)))
+            .failing(ARCHIVE, down()),
     );
     assert!(
         matches!(&problem, PackageProblem::BadArchiveRequest(url, _) if url == ARCHIVE),
@@ -201,20 +175,25 @@ fn what_cant_be_downloaded_is_a_package_problem() {
     );
     // Upstream unzips before it checks the hash.
     let problem = fetch(
-        Fixture::new(&[])
-            .get(ENDPOINT, Ok(endpoint("0")))
-            .get(ARCHIVE, Ok(b"not a zip".to_vec())),
+        Fixture::default()
+            .answering(ENDPOINT, endpoint("0"))
+            .answering(ARCHIVE, "not a zip"),
     );
     assert!(
         matches!(&problem, PackageProblem::BadArchiveContent(url) if url == ARCHIVE),
         "{problem:?}"
     );
     let problem = fetch(
-        Fixture::new(&[])
-            .get(ENDPOINT, Ok(endpoint(&"A".repeat(40))))
-            .get(ARCHIVE, Ok(archive.clone())),
+        Fixture::default()
+            .answering(ENDPOINT, endpoint(&"A".repeat(40)))
+            .answering(ARCHIVE, &archive),
     );
-    let PackageProblem::BadArchiveHash(url, expected, actual) = problem else {
+    let PackageProblem::BadArchiveHash {
+        url,
+        expected,
+        actual,
+    } = problem
+    else {
         panic!("{problem:?}");
     };
     assert_eq!(

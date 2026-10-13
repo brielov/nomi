@@ -73,6 +73,12 @@ impl Compat {
     /// How the release orders names, wherever an order shows: as bytes,
     /// and from 0.19.3 shorter names first (`compareFast`).
     pub fn compare_names(self, a: &str, b: &str) -> Ordering {
+        self.compare_name_bytes(a.as_bytes(), b.as_bytes())
+    }
+
+    /// [`Compat::compare_names`] of names kept as bytes, as 0.19.1 keeps
+    /// module names it never checked are UTF-8.
+    pub fn compare_name_bytes(self, a: &[u8], b: &[u8]) -> Ordering {
         match self {
             Compat::V0_19_1 | Compat::V0_19_2 => a.cmp(b),
             Compat::V0_19_3 => (a.len(), a).cmp(&(b.len(), b)),
@@ -148,6 +154,19 @@ mod tests {
         assert_eq!(sorted(Compat::V0_19_3), "acabbb");
         assert_eq!(Compat::V0_19_1.compare_names("b", "ab"), Ordering::Greater);
         assert_eq!(Compat::V0_19_3.compare_names("b", "ab"), Ordering::Less);
+        let (high, low) = (b"\xC3\x09".as_slice(), b"A".as_slice());
+        assert_eq!(
+            Compat::V0_19_1.compare_name_bytes(high, low),
+            Ordering::Greater
+        );
+        assert_eq!(
+            Compat::V0_19_3.compare_name_bytes(high, low),
+            Ordering::Greater
+        );
+        assert_eq!(
+            Compat::V0_19_3.compare_name_bytes(b"B", b"AA"),
+            Ordering::Less
+        );
     }
 
     #[test]

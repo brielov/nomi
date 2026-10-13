@@ -12,6 +12,7 @@ use crate::solver::{self, Packages};
 /// `Changes`: what adding the package does.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Plan {
+    /// The package is a direct dependency already.
     AlreadyInstalled,
     /// The package was an indirect dependency, and becomes a direct one.
     PromoteIndirect(Outline),
@@ -30,11 +31,11 @@ pub enum Plan {
     },
 }
 
-/// `Change`: how one dependency changes.
+/// `Change`: how one dependency changes, its version or range `T`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Change<T> {
     Insert(T),
-    Change(T, T),
+    Change { old: T, new: T },
     Remove(T),
 }
 
@@ -130,7 +131,7 @@ fn plan_pkg<P: Packages>(
     new.insert(pkg.clone(), Constraint::until_next_major(version, compat));
     let changes = changes(&old, &new);
     let news = changes.iter().filter_map(|(name, change)| match change {
-        Change::Insert(c) | Change::Change(_, c) => Some((name, *c)),
+        Change::Insert(c) | Change::Change { new: c, .. } => Some((name, *c)),
         Change::Remove(_) => None,
     });
     let mut outline = outline.clone();
@@ -165,7 +166,7 @@ pub(crate) fn changes<T: Copy + PartialEq>(
         .map(|(name, &v)| (name.clone(), Change::Remove(v)));
     let rest = new.iter().filter_map(|(name, &v)| match old.get(name) {
         None => Some((name.clone(), Change::Insert(v))),
-        Some(&o) if o != v => Some((name.clone(), Change::Change(o, v))),
+        Some(&old) if old != v => Some((name.clone(), Change::Change { old, new: v })),
         Some(_) => None,
     });
     removed.chain(rest).collect()

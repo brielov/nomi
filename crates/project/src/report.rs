@@ -3,11 +3,13 @@
 //! of `toDetailsReport`.
 //!
 //! Reports name the commands they suggest through `command`, which turns
-//! elm's command (`install`, `init`) into the command line that runs it,
-//! so nomi's own names show under its own name.
+//! elm's command into the command line that runs it, so nomi's own names
+//! show under its own name.
 
 use nomi_base::diagnostic::code::{Position, Region, Source};
-use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, reflow, simple_note, stack, text, vcat};
+use nomi_base::diagnostic::doc::{
+    Color, Doc, dull_yellow, fill_sep, green, red, reflow, simple_note, stack, text, vcat, words,
+};
 use nomi_base::{Compat, Report};
 
 use crate::constraint::ConstraintError;
@@ -15,15 +17,37 @@ use crate::json;
 use crate::outline::{DetectError, OutlineError, OutlineProblem};
 use crate::{Constraint, Version};
 
-pub mod decode;
+mod decode;
 
-/// The path reports about the outline name.
-const ELM_JSON: &str = "elm.json";
+/// A command of elm's that a report suggests, which each tool names its
+/// own way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ElmCommand {
+    Init,
+    Install,
+    Make,
+}
+
+impl ElmCommand {
+    /// The command's name on elm's command line.
+    pub fn elm_name(self) -> &'static str {
+        match self {
+            ElmCommand::Init => "init",
+            ElmCommand::Install => "install",
+            ElmCommand::Make => "make",
+        }
+    }
+}
+
+/// `elm.json`, as the path a report about the outline names.
+pub fn elm_json_path() -> Option<String> {
+    Some("elm.json".to_owned())
+}
 
 /// `toOutlineReport` for what reading `src` found, with `Exit.Details`'s
 /// version checks for the release no supported one is: as the newest
 /// release reports it, since that is the one nomi tries first.
-pub fn detect(error: &DetectError, src: &[u8], command: &dyn Fn(&str) -> String) -> Report {
+pub fn detect(error: &DetectError, src: &[u8], command: &dyn Fn(ElmCommand) -> String) -> Report {
     match error {
         DetectError::Outline(compat, e) => outline(e, src, *compat, command),
         DetectError::AppElm(version) => app_elm(*version, Compat::LATEST),
@@ -36,31 +60,31 @@ pub fn outline(
     error: &OutlineError,
     src: &[u8],
     compat: Compat,
-    command: &dyn Fn(&str) -> String,
+    command: &dyn Fn(ElmCommand) -> String,
 ) -> Report {
     let missing = |start: &str, after: String| {
-        Report::new("MISSING DEPENDENCY", Some(path()), start, [reflow(&after)])
+        Report::new(
+            "MISSING DEPENDENCY",
+            elm_json_path(),
+            start,
+            [reflow(&after)],
+        )
     };
     let by_hand = "If you modified your elm.json by hand, try to change it back! And if you are \
                    having trouble getting back to a working elm.json, it may be easier to";
     let start_fresh = format!(
         "{by_hand} delete it and use `{}` to start fresh.",
-        command("init")
+        command(ElmCommand::Init)
     );
     let core = "I need to see an \"elm/core\" dependency your elm.json file. The default imports \
                 of `List` and `Maybe` do not work without it.";
+    let text = nomi_base::ghc::lenient_utf8(src);
+    let source = Source::new(&text);
     match error {
-        OutlineError::Parse(e) => {
-            let text = nomi_base::ghc::lenient_utf8(src);
-            decode::parse_error(&Source::new(&text), compat, e)
-        }
-        OutlineError::Decode(problem) => {
-            let text = nomi_base::ghc::lenient_utf8(src);
-            let source = Source::new(&text);
-            decode::problem(&source, compat, problem, &|region, x| {
-                outline_problem(&source, compat, region, x, command)
-            })
-        }
+        OutlineError::Parse(e) => decode::parse_error(&source, compat, e),
+        OutlineError::Decode(problem) => decode::problem(&source, compat, problem, &|region, x| {
+            outline_problem(&source, compat, region, x, command)
+        }),
         OutlineError::NoPkgCore => missing(
             core,
             format!("{by_hand} find a working package and start fresh with their elm.json file."),
@@ -77,25 +101,24 @@ pub fn outline(
 /// `OutlineHasMissingSrcDirs`: the source directories that don't exist,
 /// as `elm.json` writes them.
 pub fn missing_src_dirs(dirs: &[String]) -> Report {
-    let red = |dir: &String| text(dir.clone()).color(Color::Red);
     match dirs {
         [dir] => Report::new(
             "MISSING SOURCE DIRECTORY",
-            Some(path()),
+            elm_json_path(),
             "I need a valid elm.json file, but the \"source-directories\" field lists the \
              following directory:",
             [
-                red(dir).indent(4),
+                red(dir.as_str()).indent(4),
                 reflow("I cannot find it though. Is it missing? Is there a typo?"),
             ],
         ),
         _ => Report::new(
             "MISSING SOURCE DIRECTORIES",
-            Some(path()),
+            elm_json_path(),
             "I need a valid elm.json file, but the \"source-directories\" field lists the \
              following directories:",
             [
-                vcat(dirs.iter().map(red)).indent(4),
+                vcat(dirs.iter().map(|dir| red(dir.as_str()))).indent(4),
                 reflow("I cannot find them though. Are they missing? Are there typos?"),
             ],
         ),
@@ -106,11 +129,11 @@ pub fn missing_src_dirs(dirs: &[String]) -> Report {
 /// writes them, that are the directory `canonical`.
 pub fn duplicate_src_dirs(canonical: &str, dir1: &str, dir2: &str) -> Report {
     const TITLE: &str = "REDUNDANT SOURCE DIRECTORIES";
-    let dirs = vcat([dir1, dir2].map(|dir| text(dir).color(Color::Red))).indent(4);
+    let dirs = vcat([dir1, dir2].map(red)).indent(4);
     if dir1 == dir2 {
         return Report::new(
             TITLE,
-            Some(path()),
+            elm_json_path(),
             "I need a valid elm.json file, but the \"source-directories\" field lists the same \
              directory twice:",
             [dirs, reflow("Remove one of the entries!")],
@@ -118,13 +141,13 @@ pub fn duplicate_src_dirs(canonical: &str, dir1: &str, dir2: &str) -> Report {
     }
     Report::new(
         TITLE,
-        Some(path()),
+        elm_json_path(),
         "I need a valid elm.json file, but the \"source-directories\" field has some redundant \
          directories:",
         [
             dirs,
             reflow("These are two different ways of refering to the same directory:"),
-            text(canonical).color(Color::DullYellow).indent(4),
+            dull_yellow(canonical).indent(4),
             reflow("Remove one of the redundant entries from your \"source-directories\" field."),
         ],
     )
@@ -135,22 +158,15 @@ pub fn duplicate_src_dirs(canonical: &str, dir1: &str, dir2: &str) -> Report {
 pub fn app_elm(version: Version, compat: Compat) -> Report {
     Report::new(
         "ELM VERSION MISMATCH",
-        Some(path()),
+        elm_json_path(),
         "Your elm.json says this application needs a different version of Elm.",
-        [fill_sep([
-            text("It"),
-            text("requires"),
-            text(version.to_string())
-                .color(Color::Green)
-                .append(text(",")),
-            text("but"),
-            text("you"),
-            text("are"),
-            text("using"),
-            text(Version::compiler(compat).to_string()).color(Color::Red),
-            text("right"),
-            text("now."),
-        ])],
+        [fill_sep(
+            words("It requires")
+                .chain([green(version.to_string()).append(text(","))])
+                .chain(words("but you are using"))
+                .chain([red(Version::compiler(compat).to_string())])
+                .chain(words("right now.")),
+        )],
     )
 }
 
@@ -158,28 +174,35 @@ pub fn app_elm(version: Version, compat: Compat) -> Report {
 pub fn pkg_elm(constraint: &Constraint, compat: Compat) -> Report {
     Report::new(
         "ELM VERSION MISMATCH",
-        Some(path()),
+        elm_json_path(),
         "Your elm.json says this package needs a version of Elm in this range:",
         [
-            text(constraint.to_string())
-                .color(Color::DullYellow)
-                .indent(4),
-            fill_sep([
-                text("But"),
-                text("you"),
-                text("are"),
-                text("using"),
-                text("Elm"),
-                text(Version::compiler(compat).to_string()).color(Color::Red),
-                text("right"),
-                text("now."),
-            ]),
+            dull_yellow(constraint.to_string()).indent(4),
+            fill_sep(
+                words("But you are using Elm")
+                    .chain([red(Version::compiler(compat).to_string())])
+                    .chain(words("right now.")),
+            ),
         ],
     )
 }
 
-fn path() -> String {
-    ELM_JSON.to_owned()
+/// `Help.jsonReport` of a snippet of `elm.json`: `region` of `source`,
+/// `highlight` marked, between `before` and `after`.
+fn elm_json_snippet(
+    source: &Source<'_>,
+    compat: Compat,
+    title: &'static str,
+    before: Doc,
+    region: Region,
+    highlight: Option<Region>,
+    after: Doc,
+) -> Report {
+    Report {
+        title: title.into(),
+        path: elm_json_path(),
+        message: source.snippet(compat, before, region, highlight, after),
+    }
 }
 
 /// A region of `elm.json`, as `compat` keeps it: the JSON parser's
@@ -195,14 +218,6 @@ pub(crate) fn kept(region: json::Region, compat: Compat) -> Region {
     }
 }
 
-fn words(text: &str) -> impl Iterator<Item = Doc> + '_ {
-    text.split_whitespace().map(Doc::from)
-}
-
-fn green(chars: impl Into<String>) -> Doc {
-    text(chars).color(Color::Green)
-}
-
 /// `toOutlineProblemReport`: what a field's own decoder rejected, in
 /// `region`.
 fn outline_problem(
@@ -210,21 +225,21 @@ fn outline_problem(
     compat: Compat,
     region: json::Region,
     problem: &OutlineProblem,
-    command: &dyn Fn(&str) -> String,
+    command: &dyn Fn(ElmCommand) -> String,
 ) -> Report {
     let at = |p: json::Position| Some(kept(json::Region { start: p, end: p }, compat));
-    let snippet =
-        |title: &'static str, highlight: Option<Region>, before: &str, after: Doc| Report {
-            title: title.into(),
-            path: Some(path()),
-            message: source.snippet(
-                compat,
-                reflow(before),
-                kept(region, compat),
-                highlight,
-                after,
-            ),
-        };
+    let snippet = |title, highlight, before: &str, after| {
+        let region = kept(region, compat);
+        elm_json_snippet(
+            source,
+            compat,
+            title,
+            reflow(before),
+            region,
+            highlight,
+            after,
+        )
+    };
     let stuck = "I got stuck while reading your elm.json file.";
     let too_long = |what: &str| {
         stack([
@@ -255,49 +270,7 @@ fn outline_problem(
             "INVALID PACKAGE NAME",
             at(*p),
             &format!("{stuck} I ran into trouble with the package name:"),
-            stack([
-                fill_sep(
-                    words("Package names are always written as")
-                        .chain([green("\"author/project\"")])
-                        .chain(words("so I am expecting to see something like:")),
-                ),
-                vcat(
-                    [
-                        "\"mdgriffith/elm-ui\"",
-                        "\"w0rm/elm-physics\"",
-                        "\"Microsoft/elm-json-tree-view\"",
-                        "\"FordLabs/elm-star-rating\"",
-                        "\"1602/json-schema\"",
-                    ]
-                    .map(text),
-                )
-                .indent(4)
-                .color(Color::DullYellow),
-                reflow(
-                    "The author name should match your GitHub name exactly, and the project \
-                     name needs to follow these rules:",
-                ),
-                vcat(
-                    [
-                        "+--------------------------------------+-----------+-----------+",
-                        "| RULE                                 | BAD       | GOOD      |",
-                        "+--------------------------------------+-----------+-----------+",
-                        "| only lower case, digits, and hyphens | elm-HTTP  | elm-http  |",
-                        "| no leading digits                    | 3D        | elm-3d    |",
-                        "| no non-ASCII characters              | elm-bjørn | elm-bear  |",
-                        "| no underscores                       | elm_ui    | elm-ui    |",
-                        "| no double hyphens                    | elm--hash | elm-hash  |",
-                        "| no starting or ending hyphen         | -elm-tar- | elm-tar   |",
-                        "+--------------------------------------+-----------+-----------+",
-                    ]
-                    .map(text),
-                )
-                .indent(4),
-                simple_note(
-                    "These rules only apply to the project name, so you should never need to \
-                     change your GitHub name!",
-                ),
-            ]),
+            package_name_rules(),
         ),
         OutlineProblem::BadVersion(p) => snippet(
             "PROBLEM WITH VERSION",
@@ -326,38 +299,12 @@ fn outline_problem(
                 ),
             ]),
         ),
-        OutlineProblem::BadConstraint(ConstraintError::InvalidRange(before, after)) => {
-            let range = |upper: Version| green(format!("\"{before} <= v < {upper}\""));
-            let after = if before == after {
-                fill_sep(
-                    words(
-                        "Elm checks that all package APIs follow semantic versioning, so it is \
-                         best to use wide constraints. I recommend",
-                    )
-                    .chain([range(after.bump_major(compat))])
-                    .chain(words(
-                        "since it is guaranteed that breaking API changes cannot happen in any \
-                         of the versions in that range.",
-                    )),
-                )
-            } else {
-                fill_sep(
-                    words("Maybe you want something like")
-                        .chain([range(before.bump_major(compat))])
-                        .chain(words(
-                            "instead? Elm checks that all package APIs follow semantic \
-                             versioning, so it is guaranteed that breaking API changes cannot \
-                             happen in any of the versions in that range.",
-                        )),
-                )
-            };
-            snippet(
-                "PROBLEM WITH CONSTRAINT",
-                None,
-                &format!("{stuck} I ran into an invalid version constraint:"),
-                after,
-            )
-        }
+        OutlineProblem::BadConstraint(ConstraintError::InvalidRange(before, after)) => snippet(
+            "PROBLEM WITH CONSTRAINT",
+            None,
+            &format!("{stuck} I ran into an invalid version constraint:"),
+            invalid_range_hint(*before, *after, compat),
+        ),
         OutlineProblem::BadModuleName(p) => snippet(
             "PROBLEM WITH MODULE NAME",
             at(*p),
@@ -392,11 +339,9 @@ fn outline_problem(
                          expecting to see dependencies like",
                     )
                     .chain([
-                        text("\"mdgriffith/elm-ui\"").color(Color::DullYellow),
+                        dull_yellow("\"mdgriffith/elm-ui\""),
                         text("and"),
-                        text("\"Microsoft/elm-json-tree-view\"")
-                            .color(Color::DullYellow)
-                            .append(text(".")),
+                        dull_yellow("\"Microsoft/elm-json-tree-view\"").append(text(".")),
                     ]),
                 ),
                 fill_sep(
@@ -404,11 +349,11 @@ fn outline_problem(
                         "I generally recommend finding the package you want on the package \
                          website, and installing it with the",
                     )
-                    .chain([green(command("install")), text("command!")]),
+                    .chain([green(command(ElmCommand::Install)), text("command!")]),
                 ),
             ]),
         ),
-        OutlineProblem::BadLicense(_, suggestions) => snippet(
+        OutlineProblem::BadLicense(suggestions) => snippet(
             "UNKNOWN LICENSE",
             None,
             &format!("{stuck} I do not know about this type of license:"),
@@ -447,6 +392,83 @@ fn outline_problem(
                     .chain(words("so I know where to look for your modules!")),
             ),
         ),
+    }
+}
+
+/// What `INVALID PACKAGE NAME` says names look like, and its table of
+/// rules.
+fn package_name_rules() -> Doc {
+    stack([
+        fill_sep(
+            words("Package names are always written as")
+                .chain([green("\"author/project\"")])
+                .chain(words("so I am expecting to see something like:")),
+        ),
+        vcat(
+            [
+                "\"mdgriffith/elm-ui\"",
+                "\"w0rm/elm-physics\"",
+                "\"Microsoft/elm-json-tree-view\"",
+                "\"FordLabs/elm-star-rating\"",
+                "\"1602/json-schema\"",
+            ]
+            .map(text),
+        )
+        .indent(4)
+        .color(Color::DullYellow),
+        reflow(
+            "The author name should match your GitHub name exactly, and the project name needs \
+             to follow these rules:",
+        ),
+        vcat(
+            [
+                "+--------------------------------------+-----------+-----------+",
+                "| RULE                                 | BAD       | GOOD      |",
+                "+--------------------------------------+-----------+-----------+",
+                "| only lower case, digits, and hyphens | elm-HTTP  | elm-http  |",
+                "| no leading digits                    | 3D        | elm-3d    |",
+                "| no non-ASCII characters              | elm-bjørn | elm-bear  |",
+                "| no underscores                       | elm_ui    | elm-ui    |",
+                "| no double hyphens                    | elm--hash | elm-hash  |",
+                "| no starting or ending hyphen         | -elm-tar- | elm-tar   |",
+                "+--------------------------------------+-----------+-----------+",
+            ]
+            .map(text),
+        )
+        .indent(4),
+        simple_note(
+            "These rules only apply to the project name, so you should never need to change your \
+             GitHub name!",
+        ),
+    ])
+}
+
+/// What `PROBLEM WITH CONSTRAINT` suggests for the range from `before` to
+/// `after`, which isn't one.
+fn invalid_range_hint(before: Version, after: Version, compat: Compat) -> Doc {
+    let range = |upper: Version| green(format!("\"{before} <= v < {upper}\""));
+    if before == after {
+        fill_sep(
+            words(
+                "Elm checks that all package APIs follow semantic versioning, so it is best to use \
+                 wide constraints. I recommend",
+            )
+            .chain([range(after.bump_major(compat))])
+            .chain(words(
+                "since it is guaranteed that breaking API changes cannot happen in any of the \
+                 versions in that range.",
+            )),
+        )
+    } else {
+        fill_sep(
+            words("Maybe you want something like")
+                .chain([range(before.bump_major(compat))])
+                .chain(words(
+                    "instead? Elm checks that all package APIs follow semantic versioning, so it \
+                     is guaranteed that breaking API changes cannot happen in any of the versions \
+                     in that range.",
+                )),
+        )
     }
 }
 

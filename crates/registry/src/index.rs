@@ -9,14 +9,14 @@
 //! its elm would, and the index works offline once fetched.
 
 use std::collections::BTreeMap;
-use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::Path;
 
 use nomi_base::Compat;
 use nomi_project::json::{self, decode};
 use nomi_project::{Name, Version};
 
+use crate::files::{read_if_exists, write_atomically};
 use crate::http::{DOMAIN, Http, HttpError};
 
 /// The first line of an index file, naming its format.
@@ -37,6 +37,7 @@ pub struct Index {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Known {
     pub newest: Version,
+    /// The others, newest first.
     pub previous: Vec<Version>,
 }
 
@@ -74,21 +75,12 @@ impl Index {
         path: &Path,
         compat: Compat,
     ) -> Result<(Index, Connection), LatestError> {
-        match Index::read(path, compat).map_err(LatestError::Io)? {
-            None => {
-                let index = Index::fetch(http, compat).map_err(LatestError::Registry)?;
-                index.write(path).map_err(LatestError::Io)?;
-                Ok((index, Connection::Online))
-            }
-            Some(saved) => match saved.update(http, compat) {
-                Ok(None) => Ok((saved, Connection::Online)),
-                Ok(Some(index)) => {
-                    index.write(path).map_err(LatestError::Io)?;
-                    Ok((index, Connection::Online))
-                }
-                Err(_) => Ok((saved, Connection::Offline)),
-            },
-        }
+        let (index, failed) = Index::refreshed(http, path, compat)?;
+        let connection = match failed {
+            None => Connection::Online,
+            Some(_) => Connection::Offline,
+        };
+        Ok((index, connection))
     }
 
     /// `Registry.latest`, as `elm diff`, `bump` and `publish` ask for it:
@@ -99,19 +91,32 @@ impl Index {
         path: &Path,
         compat: Compat,
     ) -> Result<Index, LatestError> {
-        match Index::read(path, compat).map_err(LatestError::Io)? {
-            None => {
-                let index = Index::fetch(http, compat).map_err(LatestError::Registry)?;
+        match Index::refreshed(http, path, compat)? {
+            (index, None) => Ok(index),
+            (_, Some(problem)) => Err(LatestError::Registry(problem)),
+        }
+    }
+
+    /// The saved index brought up to date and saved again, or, with none
+    /// saved, the whole index fetched and saved; with the saved index as
+    /// it is, why the update failed.
+    fn refreshed(
+        http: &impl Http,
+        path: &Path,
+        compat: Compat,
+    ) -> Result<(Index, Option<RegistryProblem>), LatestError> {
+        let Some(saved) = Index::read(path, compat).map_err(LatestError::Io)? else {
+            let index = Index::fetch(http, compat).map_err(LatestError::Registry)?;
+            index.write(path).map_err(LatestError::Io)?;
+            return Ok((index, None));
+        };
+        match saved.update(http, compat) {
+            Ok(None) => Ok((saved, None)),
+            Ok(Some(index)) => {
                 index.write(path).map_err(LatestError::Io)?;
-                Ok(index)
+                Ok((index, None))
             }
-            Some(saved) => match saved.update(http, compat).map_err(LatestError::Registry)? {
-                None => Ok(saved),
-                Some(index) => {
-                    index.write(path).map_err(LatestError::Io)?;
-                    Ok(index)
-                }
-            },
+            Err(problem) => Ok((saved, Some(problem))),
         }
     }
 
@@ -154,22 +159,12 @@ impl Index {
     /// there is none or it can't be read, as upstream treats a corrupt
     /// `registry.dat`.
     pub fn read(path: &Path, compat: Compat) -> io::Result<Option<Index>> {
-        let bytes = match fs::read(path) {
-            Ok(bytes) => bytes,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(e),
-        };
-        Ok(Index::decode(&bytes, compat))
+        Ok(read_if_exists(path)?.and_then(|bytes| Index::decode(&bytes, compat)))
     }
 
     /// Saves the index at `path` in one step, creating its directory.
     pub fn write(&self, path: &Path) -> io::Result<()> {
-        let dir = path.parent().unwrap_or_else(|| Path::new("."));
-        fs::create_dir_all(dir)?;
-        let mut temp = tempfile::NamedTempFile::new_in(dir)?;
-        temp.write_all(&self.encode())?;
-        temp.persist(path).map_err(|e| e.error)?;
-        Ok(())
+        write_atomically(path, &self.encode())
     }
 
     /// `getVersions`.
@@ -183,10 +178,6 @@ impl Index {
         self.packages
             .get(name)
             .ok_or_else(|| name.nearby(self.packages.keys()))
-    }
-
-    pub fn packages(&self) -> impl Iterator<Item = (&Name, &Known)> {
-        self.packages.iter()
     }
 
     /// How many releases the website has listed.
@@ -260,6 +251,7 @@ impl Index {
 /// Why [`Index::latest`] has no index.
 #[derive(Debug)]
 pub enum LatestError {
+    /// The website couldn't give one.
     Registry(RegistryProblem),
     /// The saved index couldn't be read or written.
     Io(io::Error),

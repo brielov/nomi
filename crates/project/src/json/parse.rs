@@ -16,6 +16,7 @@ pub struct Value<'a> {
     pub kind: Kind<'a>,
 }
 
+/// What a value is, and what it holds.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Kind<'a> {
     Array(Vec<Value<'a>>),
@@ -45,7 +46,7 @@ fn take_children<'a>(kind: &mut Kind<'a>, pending: &mut Vec<Value<'a>>) {
     match kind {
         Kind::Array(entries) => pending.append(entries),
         Kind::Object(fields) => pending.extend(fields.drain(..).map(|(_, v)| v)),
-        _ => {}
+        Kind::String(_) | Kind::Int(_) | Kind::True | Kind::False | Kind::Null => {}
     }
 }
 
@@ -59,7 +60,7 @@ pub struct Snippet<'a> {
 
 impl Snippet<'_> {
     /// `snippetToRegion`: the bytes' region, one column per byte.
-    pub fn region(&self) -> Region {
+    pub(crate) fn region(&self) -> Region {
         Region {
             start: self.start.position(),
             end: self.start.slide(self.bytes.len()).position(),
@@ -67,12 +68,23 @@ impl Snippet<'_> {
     }
 }
 
+/// Why a file isn't JSON as upstream parses it, and where.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ParseError {
     pub kind: ParseErrorKind,
     pub at: Position,
 }
 
+impl ParseError {
+    fn at(cur: Cursor, kind: ParseErrorKind) -> ParseError {
+        ParseError {
+            kind,
+            at: cur.position(),
+        }
+    }
+}
+
+/// The parse errors upstream tells apart (`Json.Decode.ParseError`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParseErrorKind {
     /// No value where one should start.
@@ -92,6 +104,7 @@ pub enum ParseErrorKind {
     Crash,
 }
 
+/// What is wrong inside a string (`Json.Decode.StringProblem`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StringProblem {
     BadStringEnd,
@@ -134,14 +147,7 @@ impl<'a> Parser<'a> {
     }
 
     fn error(&self, kind: ParseErrorKind) -> ParseError {
-        Self::error_at(self.cur, kind)
-    }
-
-    fn error_at(cur: Cursor, kind: ParseErrorKind) -> ParseError {
-        ParseError {
-            kind,
-            at: cur.position(),
-        }
+        ParseError::at(self.cur, kind)
     }
 
     fn advance(&mut self, bytes: usize) {
@@ -172,7 +178,7 @@ impl<'a> Parser<'a> {
     }
 
     fn value(&mut self) -> Parsed<Value<'a>> {
-        stacker::maybe_grow(64 * 1024, 1024 * 1024, || {
+        nomi_base::grow(|| {
             let start = self.cur;
             let kind = match self.peek() {
                 Some(b'"') => Kind::String(self.string(ParseErrorKind::Start)?),
@@ -187,7 +193,7 @@ impl<'a> Parser<'a> {
                     } else if self.keyword(b"null") {
                         Kind::Null
                     } else {
-                        return Err(Self::error_at(start, ParseErrorKind::Start));
+                        return Err(ParseError::at(start, ParseErrorKind::Start));
                     }
                 }
             };
@@ -204,30 +210,16 @@ impl<'a> Parser<'a> {
     fn object(&mut self) -> Parsed<Kind<'a>> {
         self.byte(b'{', ParseErrorKind::Start)?;
         self.spaces();
-        let mut fields = Vec::new();
-        match self.peek() {
-            Some(b'"') => fields.push(self.field()?),
+        let first = match self.peek() {
+            Some(b'"') => self.field()?,
             Some(b'}') => {
                 self.advance(1);
-                return Ok(Kind::Object(fields));
+                return Ok(Kind::Object(Vec::new()));
             }
             _ => return Err(self.error(ParseErrorKind::ObjectField)),
-        }
-        loop {
-            self.spaces();
-            match self.peek() {
-                Some(b',') => {
-                    self.advance(1);
-                    self.spaces();
-                    fields.push(self.field()?);
-                }
-                Some(b'}') => {
-                    self.advance(1);
-                    return Ok(Kind::Object(fields));
-                }
-                _ => return Err(self.error(ParseErrorKind::ObjectEnd)),
-            }
-        }
+        };
+        let fields = self.rest(first, b'}', ParseErrorKind::ObjectEnd, Self::field)?;
+        Ok(Kind::Object(fields))
     }
 
     fn field(&mut self) -> Parsed<(Snippet<'a>, Value<'a>)> {
@@ -245,20 +237,34 @@ impl<'a> Parser<'a> {
             self.advance(1);
             return Ok(Kind::Array(Vec::new()));
         }
-        let mut entries = vec![self.value()?];
+        let first = self.value()?;
+        let entries = self.rest(first, b']', ParseErrorKind::ArrayEnd, Self::value)?;
+        Ok(Kind::Array(entries))
+    }
+
+    /// The entries of an object or array from its first on: each later
+    /// one after a comma, up to `close`, or `end` where neither follows.
+    fn rest<T>(
+        &mut self,
+        first: T,
+        close: u8,
+        end: ParseErrorKind,
+        mut entry: impl FnMut(&mut Self) -> Parsed<T>,
+    ) -> Parsed<Vec<T>> {
+        let mut entries = vec![first];
         loop {
             self.spaces();
             match self.peek() {
                 Some(b',') => {
                     self.advance(1);
                     self.spaces();
-                    entries.push(self.value()?);
+                    entries.push(entry(self)?);
                 }
-                Some(b']') => {
+                Some(byte) if byte == close => {
                     self.advance(1);
-                    return Ok(Kind::Array(entries));
+                    return Ok(entries);
                 }
-                _ => return Err(self.error(ParseErrorKind::ArrayEnd)),
+                _ => return Err(self.error(end)),
             }
         }
     }
@@ -273,13 +279,9 @@ impl<'a> Parser<'a> {
         let first_cur = self.cur.slide(1);
         let mut pos = first;
         let mut cur = first_cur;
-        let problem = |cur: Cursor, problem| ParseError {
-            kind: ParseErrorKind::String(problem),
-            at: cur.position(),
-        };
         loop {
             let Some(&byte) = self.src.get(pos) else {
-                return Err(problem(cur, StringProblem::BadStringEnd));
+                return Err(string_problem(cur, StringProblem::BadStringEnd));
             };
             match byte {
                 b'"' => {
@@ -291,47 +293,56 @@ impl<'a> Parser<'a> {
                     self.cur = cur.slide(1);
                     return Ok(snippet);
                 }
-                b'\n' => return Err(problem(cur, StringProblem::BadStringEnd)),
-                b'\\' => match self.src.get(pos + 1) {
-                    None => {
-                        let at = match self.compat {
-                            Compat::V0_19_1 => cur.down(),
-                            Compat::V0_19_2 | Compat::V0_19_3 => cur.slide(1),
-                        };
-                        return Err(problem(at, StringProblem::BadStringEnd));
-                    }
-                    Some(b'"' | b'\\' | b'/' | b'b' | b'f' | b'n' | b'r' | b't') => {
-                        pos += 2;
-                        cur = cur.slide(2);
-                    }
-                    Some(b'u') => {
-                        let hex = self.src.get(pos + 2..pos + 6);
-                        if !hex.is_some_and(|hex| hex.iter().all(u8::is_ascii_hexdigit)) {
-                            return Err(problem(cur, StringProblem::BadStringEscapeHex));
-                        }
-                        pos += 6;
-                        cur = cur.slide(6);
-                    }
-                    Some(_) => return Err(problem(cur, StringProblem::BadStringEscapeChar)),
-                },
-                0..0x20 => return Err(problem(cur, StringProblem::BadStringControlChar)),
+                b'\n' => return Err(string_problem(cur, StringProblem::BadStringEnd)),
+                b'\\' => {
+                    let width = self.escape(pos, cur)?;
+                    pos += width;
+                    cur = cur.slide(width);
+                }
+                0..0x20 => return Err(string_problem(cur, StringProblem::BadStringControlChar)),
                 _ => {
-                    let width = match self.compat {
-                        Compat::V0_19_1 => match char_width(byte) {
-                            Some(width) => width,
-                            None => return Err(Self::error_at(cur, ParseErrorKind::Crash)),
-                        },
-                        Compat::V0_19_2 | Compat::V0_19_3 => match utf8_width(&self.src[pos..]) {
-                            Some(width) => width,
-                            None => return Err(problem(cur, StringProblem::BadStringNotUtf8)),
-                        },
-                    };
                     // 0.19.1 trusts the lead byte and may step past the end,
                     // which then ends the string.
-                    pos += width;
+                    pos += self.character(pos, cur)?;
                     cur = cur.slide(1);
                 }
             }
+        }
+    }
+
+    /// The width of the escape at `pos`, where `cur` is, each byte a
+    /// column.
+    fn escape(&self, pos: usize, cur: Cursor) -> Parsed<usize> {
+        match self.src.get(pos + 1) {
+            None => {
+                let at = match self.compat {
+                    Compat::V0_19_1 => cur.down(),
+                    Compat::V0_19_2 | Compat::V0_19_3 => cur.slide(1),
+                };
+                Err(string_problem(at, StringProblem::BadStringEnd))
+            }
+            Some(b'"' | b'\\' | b'/' | b'b' | b'f' | b'n' | b'r' | b't') => Ok(2),
+            Some(b'u') => {
+                let hex = self.src.get(pos + 2..pos + 6);
+                if hex.is_some_and(|hex| hex.iter().all(u8::is_ascii_hexdigit)) {
+                    Ok(6)
+                } else {
+                    Err(string_problem(cur, StringProblem::BadStringEscapeHex))
+                }
+            }
+            Some(_) => Err(string_problem(cur, StringProblem::BadStringEscapeChar)),
+        }
+    }
+
+    /// The width in bytes of the character at `pos`, where `cur` is, as
+    /// `compat`'s elm steps over it.
+    fn character(&self, pos: usize, cur: Cursor) -> Parsed<usize> {
+        match self.compat {
+            Compat::V0_19_1 => {
+                char_width(self.src[pos]).ok_or_else(|| ParseError::at(cur, ParseErrorKind::Crash))
+            }
+            Compat::V0_19_2 | Compat::V0_19_3 => utf8_width(&self.src[pos..])
+                .ok_or_else(|| string_problem(cur, StringProblem::BadStringNotUtf8)),
         }
     }
 
@@ -343,11 +354,11 @@ impl<'a> Parser<'a> {
             .count();
         if self.src[self.pos] == b'0' {
             return match self.src.get(self.pos + 1) {
-                Some(b'0'..=b'9') => Err(Self::error_at(
+                Some(b'0'..=b'9') => Err(ParseError::at(
                     self.cur.slide(1),
                     ParseErrorKind::NoLeadingZeros,
                 )),
-                Some(b'.') => Err(Self::error_at(self.cur.slide(1), ParseErrorKind::NoFloats)),
+                Some(b'.') => Err(ParseError::at(self.cur.slide(1), ParseErrorKind::NoFloats)),
                 _ => {
                     self.advance(1);
                     Ok(Kind::Int(0))
@@ -360,7 +371,7 @@ impl<'a> Parser<'a> {
                 n.wrapping_mul(10).wrapping_add(i64::from(d - b'0'))
             });
         if let Some(b'.' | b'e' | b'E') = self.src.get(self.pos + digits) {
-            return Err(Self::error_at(
+            return Err(ParseError::at(
                 self.cur.slide(digits),
                 ParseErrorKind::NoFloats,
             ));
@@ -378,6 +389,10 @@ impl<'a> Parser<'a> {
         self.advance(word.len());
         true
     }
+}
+
+fn string_problem(cur: Cursor, problem: StringProblem) -> ParseError {
+    ParseError::at(cur, ParseErrorKind::String(problem))
 }
 
 /// 0.19.1's `getCharWidth`: the width a lead byte announces, or `None`

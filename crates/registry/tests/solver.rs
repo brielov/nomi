@@ -12,7 +12,8 @@ use std::path::Path;
 
 use nomi_base::Compat;
 use nomi_project::json::Cursor;
-use nomi_project::{Name, Outline, Version};
+use nomi_project::outline::AppOutline;
+use nomi_project::{Name, Outline, OutlineError, Version};
 use nomi_registry::install::{self, Change, InstallProblem, Plan};
 use nomi_registry::remove::{self, RemoveProblem};
 use nomi_registry::update::{self, UpdateProblem};
@@ -121,26 +122,27 @@ fn solver() {
 /// and it finds none exactly when the search finds none.
 #[test]
 fn explanations() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/solver");
     let compat = Compat::LATEST;
-    let mut universes = BTreeMap::new();
     let mut explanations = String::new();
-    for (name, scenario) in &scenarios(&dir) {
-        let universe = universe(&dir, &mut universes, scenario);
-        let src = outline(&scenario.project, compat).to_string();
-        let (None, Ok(Outline::Pkg(pkg))) = (&scenario.add, Outline::read(src.as_bytes(), compat))
-        else {
+    for Case {
+        name,
+        universe,
+        scenario,
+        outline,
+    } in &cases()
+    {
+        let (None, Ok(Outline::Pkg(pkg))) = (&scenario.add, outline) else {
             continue;
         };
         let mut constraints = pkg.test_deps.clone();
         constraints.extend(pkg.deps.clone());
         let Ok(solution) =
-            solver::verify(&mut Fixture::new(&universe, compat), compat, &constraints)
+            solver::verify(&mut Fixture::new(universe, compat), compat, &constraints)
         else {
             continue;
         };
         let explanation =
-            solver::explain(&mut Fixture::new(&universe, compat), compat, &constraints);
+            solver::explain(&mut Fixture::new(universe, compat), compat, &constraints);
         assert_eq!(solution.is_none(), explanation.is_some(), "{name}");
         if let Some(explanation) = explanation {
             explanations.push_str(&format!("== {name}\n{explanation}\n\n"));
@@ -155,20 +157,20 @@ fn explanations() {
 /// the scenario started from, unless that kept packages nothing needed.
 #[test]
 fn removing_undoes_adding() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/solver");
     let compat = Compat::LATEST;
-    let mut universes = BTreeMap::new();
     let (mut checked, mut restored) = (0, 0);
-    for (name, scenario) in &scenarios(&dir) {
-        let universe = universe(&dir, &mut universes, scenario);
-        let src = outline(&scenario.project, compat).to_string();
-        let (Some(pkg), Ok(Outline::App(before))) =
-            (&scenario.add, Outline::read(src.as_bytes(), compat))
-        else {
+    for Case {
+        name,
+        universe,
+        scenario,
+        outline,
+    } in &cases()
+    {
+        let (Some(pkg), Ok(Outline::App(before))) = (&scenario.add, outline) else {
             continue;
         };
-        let pkg = self::name(pkg, compat);
-        let mut packages = Fixture::new(&universe, compat);
+        let pkg = self::name(pkg);
+        let mut packages = Fixture::new(universe, compat);
         let Ok(Plan::App { changes, outline }) =
             install::plan(&mut packages, compat, &pkg, &Outline::App(before.clone()))
         else {
@@ -204,9 +206,8 @@ fn removing_undoes_adding() {
         let Outline::App(after) = after else {
             unreachable!()
         };
-        if changes.values().all(|c| matches!(c, Change::Insert(_))) && tidy(&mut packages, &before)
-        {
-            assert_eq!(after, before, "{name}");
+        if changes.values().all(|c| matches!(c, Change::Insert(_))) && tidy(&mut packages, before) {
+            assert_eq!(&after, before, "{name}");
             restored += 1;
         }
     }
@@ -220,17 +221,19 @@ fn removing_undoes_adding() {
 /// one dependency moves no direct one that doesn't need it.
 #[test]
 fn updating_stays_within_majors() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/solver");
     let compat = Compat::LATEST;
-    let mut universes = BTreeMap::new();
     let (mut checked, mut moved) = (0, 0);
-    for (name, scenario) in &scenarios(&dir) {
-        let universe = universe(&dir, &mut universes, scenario);
-        let src = outline(&scenario.project, compat).to_string();
-        let Ok(Outline::App(before)) = Outline::read(src.as_bytes(), compat) else {
+    for Case {
+        name,
+        universe,
+        outline,
+        ..
+    } in &cases()
+    {
+        let Ok(Outline::App(before)) = outline else {
             continue;
         };
-        let mut packages = Fixture::new(&universe, compat);
+        let mut packages = Fixture::new(universe, compat);
         if details::verify(&mut packages, compat, &Outline::App(before.clone())).is_err() {
             continue;
         }
@@ -328,26 +331,26 @@ fn reaches(
 
 /// Whether elm accepts `app` and removing a package nothing depends on
 /// would keep all the rest: every indirect dependency is needed.
-fn tidy(packages: &mut Fixture, app: &nomi_project::outline::AppOutline) -> bool {
+fn tidy(packages: &mut Fixture, app: &AppOutline) -> bool {
     let compat = Compat::LATEST;
     if details::verify(packages, compat, &Outline::App(app.clone())).is_err() {
         return false;
     }
-    let unused = name("nomi/unused", compat);
+    let unused = name("nomi/unused");
     let mut with = app.clone();
     with.direct.insert(unused.clone(), version("1.0.0", compat));
     packages.cache.insert(
         (unused.clone(), version("1.0.0", compat)),
-        (
-            json!({
+        Cached {
+            elm_json: json!({
                 "type": "package", "name": "nomi/unused", "summary": "fixture",
                 "license": "BSD-3-Clause", "version": "1.0.0", "exposed-modules": ["A"],
                 "elm-version": "0.19.0 <= v < 0.20.0", "dependencies": {},
                 "test-dependencies": {},
             })
             .to_string(),
-            true,
-        ),
+            sources: true,
+        },
     );
     matches!(
         remove::plan(packages, &unused, &Outline::App(with)),
@@ -371,7 +374,7 @@ fn answer(universe: &Universe, scenario: &Scenario, compat: Compat) -> String {
             Err(DetailsProblem::NoSolution) => vec!["no-solution".into()],
             Err(DetailsProblem::Solver(Unreadable)) => vec!["error".into()],
         },
-        Some(pkg) => match install::plan(&mut packages, compat, &name(pkg, compat), &outline) {
+        Some(pkg) => match install::plan(&mut packages, compat, &name(pkg), &outline) {
             Ok(Plan::AlreadyInstalled) => vec!["already-installed".into()],
             Ok(Plan::PromoteIndirect(_)) => vec!["promote-indirect".into()],
             Ok(Plan::PromoteTest(_)) => vec!["promote-test".into()],
@@ -400,8 +403,8 @@ fn release(label: &str, name: &Name, version: Version) -> String {
     format!("{label}{name} {version}")
 }
 
-fn name(s: &str, compat: Compat) -> Name {
-    Name::parse(s.as_bytes(), Cursor::start(compat), compat).unwrap()
+fn name(s: &str) -> Name {
+    s.parse().unwrap()
 }
 
 fn version(s: &str, compat: Compat) -> Version {
@@ -412,8 +415,14 @@ fn version(s: &str, compat: Compat) -> Version {
 struct Fixture {
     compat: Compat,
     registry: BTreeMap<Name, Known>,
-    /// Each cached release's `elm.json`, and whether its sources are.
-    cache: BTreeMap<(Name, Version), (String, bool)>,
+    cache: BTreeMap<(Name, Version), Cached>,
+}
+
+/// A release in the package cache.
+struct Cached {
+    elm_json: String,
+    /// Whether its sources are cached too.
+    sources: bool,
 }
 
 /// An `elm.json` upstream can't read.
@@ -432,7 +441,7 @@ impl Fixture {
                     newest,
                     previous: versions.collect(),
                 };
-                (name(n, compat), known)
+                (name(n), known)
             })
             .collect();
         let cache = universe
@@ -456,7 +465,11 @@ impl Fixture {
                     })
                     .to_string()
                 };
-                ((name(n, compat), version(v, compat)), (text, release.src))
+                let cached = Cached {
+                    elm_json: text,
+                    sources: release.src,
+                };
+                ((name(n), version(v, compat)), cached)
             })
             .collect();
         Fixture {
@@ -476,11 +489,11 @@ impl Packages for Fixture {
 
     /// `getConstraints`, offline.
     fn release(&mut self, name: &Name, version: Version) -> Result<Option<Release>, Unreadable> {
-        let Some((text, src)) = self.cache.get(&(name.clone(), version)) else {
+        let Some(cached) = self.cache.get(&(name.clone(), version)) else {
             return Ok(None);
         };
-        let release = Release::decode(text.as_bytes(), self.compat).ok_or(Unreadable)?;
-        Ok(src.then_some(release))
+        let release = Release::decode(cached.elm_json.as_bytes(), self.compat).ok_or(Unreadable)?;
+        Ok(cached.sources.then_some(release))
     }
 
     /// The oracle runs elm offline.
@@ -521,6 +534,35 @@ fn outline(project: &Project, compat: Compat) -> serde_json::Value {
             "test-dependencies": test_deps,
         }),
     }
+}
+
+/// A scenario, with its registry and releases and its project as the
+/// newest release reads it.
+struct Case {
+    name: String,
+    universe: Universe,
+    scenario: Scenario,
+    outline: Result<Outline, OutlineError>,
+}
+
+/// Every scenario as a [`Case`].
+fn cases() -> Vec<Case> {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/solver");
+    let compat = Compat::LATEST;
+    let mut universes = BTreeMap::new();
+    (scenarios(&dir).into_iter())
+        .map(|(name, scenario)| {
+            let universe = universe(&dir, &mut universes, &scenario);
+            let src = outline(&scenario.project, compat).to_string();
+            let outline = Outline::read(src.as_bytes(), compat);
+            Case {
+                name,
+                universe,
+                scenario,
+                outline,
+            }
+        })
+        .collect()
 }
 
 /// The scenario's registry and releases, over its universe's.

@@ -1,6 +1,8 @@
 //! Upstream's JSON output (`Json/Encode.hs`): `write` indents by four
 //! spaces, one entry per line, and ends with a newline.
 
+use nomi_base::diagnostic::json::escape;
+
 /// A value to write. Strings hold the bytes between the quotes exactly as
 /// they will be written.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,7 +31,7 @@ fn take_children(value: &mut Value, pending: &mut Vec<Value>) {
     match value {
         Value::Array(entries) => pending.append(entries),
         Value::Object(fields) => pending.extend(fields.drain(..).map(|(_, v)| v)),
-        _ => {}
+        Value::String(_) | Value::Bool(_) | Value::Int(_) | Value::Null => {}
     }
 }
 
@@ -44,12 +46,9 @@ impl Value {
     pub fn chars(text: &[u8]) -> Value {
         let mut out = Vec::with_capacity(text.len());
         for &byte in text {
-            match byte {
-                b'\r' => out.extend_from_slice(b"\\r"),
-                b'\n' => out.extend_from_slice(b"\\n"),
-                b'"' => out.extend_from_slice(b"\\\""),
-                b'\\' => out.extend_from_slice(b"\\\\"),
-                _ => out.push(byte),
+            match escape(byte) {
+                Some(escaped) => out.extend_from_slice(escaped.as_bytes()),
+                None => out.push(byte),
             }
         }
         Value::String(out)
@@ -64,7 +63,7 @@ pub fn write(value: &Value) -> Vec<u8> {
 }
 
 /// `encode`: `value`, indented, with no newline after it.
-pub fn encode(value: &Value) -> Vec<u8> {
+fn encode(value: &Value) -> Vec<u8> {
     let mut out = Vec::new();
     let mut indent = Vec::new();
     encode_help(&mut out, &mut indent, value);
@@ -107,7 +106,7 @@ fn sequence<T>(
     entries: &[T],
     mut entry: impl FnMut(&mut Vec<u8>, &mut Vec<u8>, &T),
 ) {
-    stacker::maybe_grow(64 * 1024, 1024 * 1024, || {
+    nomi_base::grow(|| {
         out.push(open);
         indent.extend_from_slice(b"    ");
         for (i, e) in entries.iter().enumerate() {
@@ -127,7 +126,7 @@ fn sequence<T>(
 impl From<&super::parse::Value<'_>> for Value {
     fn from(value: &super::parse::Value<'_>) -> Value {
         use super::parse::Kind;
-        stacker::maybe_grow(64 * 1024, 1024 * 1024, || match &value.kind {
+        nomi_base::grow(|| match &value.kind {
             Kind::Array(entries) => Value::Array(entries.iter().map(Value::from).collect()),
             Kind::Object(fields) => Value::Object(
                 fields

@@ -15,7 +15,7 @@ use pubgrub::{
     PackageResolutionStatistics, PubGrubError, Ranges, ReportFormatter, Reporter, Term,
 };
 
-use super::{Packages, Release};
+use super::{Packages, Releases};
 
 /// Why no releases satisfy `constraints` and everything they need, or
 /// `None` if some do, or if reading a release failed along the way.
@@ -25,10 +25,9 @@ pub fn explain<P: Packages>(
     constraints: &BTreeMap<Name, Constraint>,
 ) -> Option<String> {
     let provider = Provider {
-        packages: RefCell::new(packages),
+        releases: RefCell::new(Releases::new(packages)),
         compat,
         constraints,
-        releases: RefCell::new(BTreeMap::new()),
     };
     match pubgrub::resolve(&provider, Pkg::Project, Version::compiler(compat)) {
         Err(PubGrubError::NoSolution(tree)) => Some(
@@ -85,10 +84,9 @@ impl fmt::Display for Unreadable {
 impl Error for Unreadable {}
 
 struct Provider<'a, P: Packages> {
-    packages: RefCell<&'a mut P>,
+    releases: RefCell<Releases<'a, P>>,
     compat: Compat,
     constraints: &'a BTreeMap<Name, Constraint>,
-    releases: RefCell<BTreeMap<(Name, Version), Option<Release>>>,
 }
 
 impl<P: Packages> DependencyProvider for Provider<'_, P> {
@@ -118,8 +116,9 @@ impl<P: Packages> DependencyProvider for Provider<'_, P> {
         Ok(match package {
             Pkg::Project => Some(Version::compiler(self.compat)),
             Pkg::Package(name) => self
-                .packages
+                .releases
                 .borrow()
+                .packages
                 .versions(name)
                 .and_then(|known| known.all().find(|v| range.contains(v))),
         })
@@ -134,17 +133,9 @@ impl<P: Packages> DependencyProvider for Provider<'_, P> {
             Pkg::Project => return Ok(Dependencies::Available(dependencies(self.constraints))),
             Pkg::Package(name) => name,
         };
-        let key = (name.clone(), *version);
         let mut releases = self.releases.borrow_mut();
-        if !releases.contains_key(&key) {
-            let release = self
-                .packages
-                .borrow_mut()
-                .release(name, *version)
-                .map_err(|_| Unreadable)?;
-            releases.insert(key.clone(), release);
-        }
-        Ok(match &releases[&key] {
+        let release = releases.get(name, *version).map_err(|_| Unreadable)?;
+        Ok(match release {
             None => Dependencies::Unavailable(Unusable::Missing),
             Some(release) if !release.elm.satisfies(Version::compiler(self.compat)) => {
                 Dependencies::Unavailable(Unusable::Elm(release.elm))
@@ -187,20 +178,19 @@ fn releases(package: &Pkg, range: &Ranges<Version>) -> String {
         (Some(segment), None) => Some(segment),
         _ => None,
     };
-    let side = |bound: &Bound<Version>, below: bool| match bound {
-        Bound::Included(v) if below => Some(format!("{v} <= ")),
-        Bound::Excluded(v) if below => Some(format!("{v} < ")),
-        Bound::Included(v) => Some(format!(" <= {v}")),
-        Bound::Excluded(v) => Some(format!(" < {v}")),
-        Bound::Unbounded => None,
+    let lower = |bound: &Bound<Version>| match bound {
+        Bound::Included(v) => format!("{v} <= "),
+        Bound::Excluded(v) => format!("{v} < "),
+        Bound::Unbounded => String::new(),
+    };
+    let upper = |bound: &Bound<Version>| match bound {
+        Bound::Included(v) => format!(" <= {v}"),
+        Bound::Excluded(v) => format!(" < {v}"),
+        Bound::Unbounded => String::new(),
     };
     match interval {
         Some((Bound::Unbounded, Bound::Unbounded)) => format!("every release of {package}"),
-        Some((lower, upper)) => format!(
-            "{package} {}v{}",
-            side(lower, true).unwrap_or_default(),
-            side(upper, false).unwrap_or_default()
-        ),
+        Some((low, high)) => format!("{package} {}v{}", lower(low), upper(high)),
         None => format!("{package} {range}"),
     }
 }

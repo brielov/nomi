@@ -3,17 +3,23 @@
 mod support;
 
 use nomi_base::Compat;
-use nomi_project::json::Cursor;
 use nomi_project::{Name, Version};
 use nomi_registry::{Connection, HttpError, Index, Known, RegistryProblem};
 use support::Fixture;
 
 const LATEST: Compat = Compat::LATEST;
 
+const ALL_PACKAGES: &str = "https://package.elm-lang.org/all-packages";
+
 const ALL: &str = r#"{"elm/core":["1.0.0","1.0.5","1.0.2"],"elm/json":["1.1.3"]}"#;
 
+/// Where the releases after the first `count` are listed.
+fn since(count: usize) -> String {
+    format!("{ALL_PACKAGES}/since/{count}")
+}
+
 fn name(s: &str) -> Name {
-    Name::parse(s.as_bytes(), Cursor::start(LATEST), LATEST).unwrap()
+    s.parse().unwrap()
 }
 
 fn v(major: u32, minor: u32, patch: u32) -> Version {
@@ -26,9 +32,9 @@ fn versions(index: &Index, package: &str) -> Vec<Version> {
 
 #[test]
 fn the_whole_index_sorts_each_packages_versions() {
-    let http = Fixture::new(&[Ok(ALL)]);
+    let http = Fixture::default().answering(ALL_PACKAGES, ALL);
     let index = Index::fetch(&http, LATEST).unwrap();
-    assert_eq!(http.asked(), ["https://package.elm-lang.org/all-packages"]);
+    assert_eq!(http.asked(), [ALL_PACKAGES]);
     assert_eq!(index.count(), 4);
     assert_eq!(
         index.versions(&name("elm/core")),
@@ -49,11 +55,11 @@ fn what_isnt_an_index_is_a_data_problem() {
         r#"["elm/core@1.0.0"]"#,
         "<html>",
     ] {
-        let http = Fixture::new(&[Ok(body)]);
+        let http = Fixture::default().answering(ALL_PACKAGES, body);
         assert_eq!(
             Index::fetch(&http, LATEST),
             Err(RegistryProblem::Data(
-                "https://package.elm-lang.org/all-packages".to_owned(),
+                ALL_PACKAGES.to_owned(),
                 body.as_bytes().to_vec()
             )),
             "{body}"
@@ -63,8 +69,11 @@ fn what_isnt_an_index_is_a_data_problem() {
 
 #[test]
 fn updates_ask_for_what_came_after_and_put_the_first_newest() {
-    let since = r#"["elm/json@1.1.4","elm/http@2.0.0","elm/json@1.1.5"]"#;
-    let http = Fixture::new(&[Ok(ALL), Ok(since), Ok("[]")]);
+    let news = r#"["elm/json@1.1.4","elm/http@2.0.0","elm/json@1.1.5"]"#;
+    let http = Fixture::default()
+        .answering(ALL_PACKAGES, ALL)
+        .answering(&since(4), news)
+        .answering(&since(7), "[]");
     let index = Index::fetch(&http, LATEST).unwrap();
     let updated = index.update(&http, LATEST).unwrap().unwrap();
     // `foldr` adds the last release first, so the first is the newest,
@@ -76,14 +85,8 @@ fn updates_ask_for_what_came_after_and_put_the_first_newest() {
     assert_eq!(versions(&updated, "elm/http"), [v(2, 0, 0)]);
     assert_eq!(updated.count(), 7);
     assert_eq!(updated.update(&http, LATEST), Ok(None));
-    assert_eq!(
-        http.asked()[1..],
-        [
-            "https://package.elm-lang.org/all-packages/since/4",
-            "https://package.elm-lang.org/all-packages/since/7",
-        ]
-    );
-    let http = Fixture::new(&[Ok(r#"["elm/json"]"#)]);
+    assert_eq!(http.asked()[1..], [since(4), since(7)]);
+    let http = Fixture::default().answering(&since(4), r#"["elm/json"]"#);
     assert!(matches!(
         index.update(&http, LATEST),
         Err(RegistryProblem::Data(..))
@@ -94,39 +97,36 @@ fn updates_ask_for_what_came_after_and_put_the_first_newest() {
 fn the_latest_index_is_saved_and_serves_offline() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("registry").join("index");
-    let down = || Err(HttpError::Transport("down".to_owned()));
+    let down = || HttpError::Transport("down".to_owned());
     // Nothing saved and no website: no index.
-    let http = Fixture::new(&[down()]);
+    let http = Fixture::default().failing(ALL_PACKAGES, down());
     assert!(Index::latest(&http, &path, LATEST).is_err());
     assert!(!path.exists());
     // Fetched, then saved.
-    let http = Fixture::new(&[Ok(ALL)]);
+    let http = Fixture::default().answering(ALL_PACKAGES, ALL);
     let (index, connection) = Index::latest(&http, &path, LATEST).unwrap();
     assert_eq!(connection, Connection::Online);
     assert_eq!(Index::read(&path, LATEST).unwrap(), Some(index));
     // Updated, then saved.
-    let http = Fixture::new(&[Ok(r#"["elm/core@1.0.6"]"#)]);
+    let http = Fixture::default().answering(&since(4), r#"["elm/core@1.0.6"]"#);
     let (updated, connection) = Index::latest(&http, &path, LATEST).unwrap();
     assert_eq!(connection, Connection::Online);
     assert_eq!(updated.count(), 5);
     assert_eq!(Index::read(&path, LATEST).unwrap(), Some(updated.clone()));
     // The website is down: the saved index, offline.
-    let http = Fixture::new(&[down()]);
+    let http = Fixture::default().failing(&since(5), down());
     assert_eq!(
         Index::latest(&http, &path, LATEST).unwrap(),
         (updated, Connection::Offline)
     );
-    assert_eq!(
-        http.asked(),
-        ["https://package.elm-lang.org/all-packages/since/5"]
-    );
+    assert_eq!(http.asked(), [since(5)]);
 }
 
 #[test]
 fn a_damaged_index_is_none() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("index");
-    let http = Fixture::new(&[Ok(ALL)]);
+    let http = Fixture::default().answering(ALL_PACKAGES, ALL);
     Index::fetch(&http, LATEST).unwrap().write(&path).unwrap();
     let saved = std::fs::read(&path).unwrap();
     for cut in [0, 5, saved.len() - 1] {
@@ -144,7 +144,7 @@ fn a_damaged_index_is_none() {
 #[test]
 fn each_release_reads_the_saved_responses_its_way() {
     // 0.19.1 and 0.19.2 keep version numbers in 16 bits.
-    let http = Fixture::new(&[Ok(r#"{"a/b":["65537.0.0"]}"#)]);
+    let http = Fixture::default().answering(ALL_PACKAGES, r#"{"a/b":["65537.0.0"]}"#);
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("index");
     Index::fetch(&http, LATEST).unwrap().write(&path).unwrap();
@@ -155,7 +155,7 @@ fn each_release_reads_the_saved_responses_its_way() {
 
 #[test]
 fn missing_packages_come_with_nearby_names() {
-    let http = Fixture::new(&[Ok(ALL)]);
+    let http = Fixture::default().answering(ALL_PACKAGES, ALL);
     let index = Index::fetch(&http, LATEST).unwrap();
     let nearby = index.versions_or_nearby(&name("elm/jsn")).unwrap_err();
     assert_eq!(nearby.first(), Some(&&name("elm/json")));

@@ -4,21 +4,23 @@
 //! what nothing needs any more goes, so the result is what `install`
 //! would have written for the remaining dependencies.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use nomi_project::outline::{AppOutline, PkgOutline};
 use nomi_project::{Constraint, Name, Outline, Version};
 
 use crate::install::{Change, changes};
-use crate::solver::Packages;
+use crate::solver::{self, Packages, ReleaseError, release_deps};
 
 /// What removing the package does.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Plan {
+    /// An application's new dependencies.
     App {
         changes: BTreeMap<Name, Change<Version>>,
         outline: AppOutline,
     },
+    /// A package's new dependencies.
     Pkg {
         changes: BTreeMap<Name, Change<Constraint>>,
         outline: PkgOutline,
@@ -40,6 +42,15 @@ pub enum RemoveProblem<E> {
     Solver(E),
 }
 
+impl<E> From<ReleaseError<E>> for RemoveProblem<E> {
+    fn from(e: ReleaseError<E>) -> RemoveProblem<E> {
+        match e {
+            ReleaseError::Unavailable(name, version) => RemoveProblem::Unavailable(name, version),
+            ReleaseError::Solver(e) => RemoveProblem::Solver(e),
+        }
+    }
+}
+
 /// What removing `pkg` from the project would do.
 pub fn plan<P: Packages>(
     packages: &mut P,
@@ -57,10 +68,7 @@ fn plan_app<P: Packages>(
     pkg: &Name,
     app: &AppOutline,
 ) -> Result<Plan, RemoveProblem<P::Error>> {
-    let mut old = app.test_indirect.clone();
-    for deps in [&app.test_direct, &app.indirect, &app.direct] {
-        old.extend(deps.iter().map(|(name, &version)| (name.clone(), version)));
-    }
+    let old = app.all_deps();
     let mut direct = app.direct.clone();
     let mut test_direct = app.test_direct.clone();
     if direct.remove(pkg).is_none() && test_direct.remove(pkg).is_none() {
@@ -85,12 +93,8 @@ fn plan_app<P: Packages>(
         test_direct,
         test_indirect,
     };
-    let mut new = outline.test_indirect.clone();
-    for deps in [&outline.test_direct, &outline.indirect, &outline.direct] {
-        new.extend(deps.iter().map(|(name, &version)| (name.clone(), version)));
-    }
     Ok(Plan::App {
-        changes: changes(&old, &new),
+        changes: changes(&old, &outline.all_deps()),
         outline,
     })
 }
@@ -118,15 +122,10 @@ fn reached<P: Packages>(
     roots: &BTreeMap<Name, Version>,
     known: &[&BTreeMap<Name, Version>],
 ) -> Result<BTreeMap<Name, Version>, RemoveProblem<P::Error>> {
-    let mut visited = BTreeSet::new();
-    let mut unvisited: Vec<Name> = roots.keys().cloned().collect();
-    while let Some(name) = unvisited.pop() {
-        if visited.insert(name.clone()) {
-            let deps = deps(packages, &name, solution[&name])?;
-            unvisited.extend(deps.into_keys().filter(|dep| solution.contains_key(dep)));
-        }
-    }
-    Ok(visited
+    let reached = solver::reachable(solution, roots, |name, version| {
+        release_deps(packages, name, version)
+    })?;
+    Ok(reached
         .into_iter()
         .filter(|name| !known.iter().any(|deps| deps.contains_key(name)))
         .map(|name| {
@@ -144,60 +143,21 @@ fn dependents<P: Packages>(
 ) -> Result<Vec<Name>, RemoveProblem<P::Error>> {
     let mut dependents = Vec::new();
     for (name, &version) in solution {
-        if deps(packages, name, version)?.contains_key(pkg) {
+        if release_deps(packages, name, version)?.contains_key(pkg) {
             dependents.push(name.clone());
         }
     }
     Ok(dependents)
 }
 
-fn deps<P: Packages>(
-    packages: &mut P,
-    name: &Name,
-    version: Version,
-) -> Result<BTreeMap<Name, Constraint>, RemoveProblem<P::Error>> {
-    match packages.release(name, version) {
-        Ok(Some(release)) => Ok(release.deps),
-        Ok(None) => Err(RemoveProblem::Unavailable(name.clone(), version)),
-        Err(e) => Err(RemoveProblem::Solver(e)),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use nomi_base::Compat;
-    use nomi_project::json::Cursor;
 
     use super::*;
-    use crate::index::Known;
-    use crate::solver::Release;
+    use crate::fixture::{Fixture, name};
 
     const COMPAT: Compat = Compat::LATEST;
-
-    /// Each release by its name alone, with the dependencies given.
-    struct Releases(BTreeMap<Name, Vec<Name>>);
-
-    impl Packages for Releases {
-        type Error = ();
-
-        fn versions(&self, _: &Name) -> Option<&Known> {
-            None
-        }
-
-        fn release(&mut self, name: &Name, _: Version) -> Result<Option<Release>, ()> {
-            Ok(self.0.get(name).map(|deps| Release {
-                elm: Constraint::anything(COMPAT),
-                deps: deps
-                    .iter()
-                    .map(|dep| (dep.clone(), Constraint::anything(COMPAT)))
-                    .collect(),
-            }))
-        }
-    }
-
-    fn name(s: &str) -> Name {
-        Name::parse(s.as_bytes(), Cursor::start(COMPAT), COMPAT).unwrap()
-    }
 
     fn deps(names: &[&str]) -> BTreeMap<Name, Version> {
         names
@@ -208,15 +168,19 @@ mod tests {
 
     /// http needs json and bytes, test needs random, and json is also a
     /// test dependency's.
-    fn fixture() -> (Releases, AppOutline) {
-        let releases = Releases(BTreeMap::from([
+    fn fixture() -> (Fixture, AppOutline) {
+        let needs = BTreeMap::from([
             (name("elm/core"), vec![]),
             (name("elm/http"), vec![name("elm/json"), name("elm/bytes")]),
             (name("elm/json"), vec![]),
             (name("elm/bytes"), vec![]),
             (name("elm/test"), vec![name("elm/random"), name("elm/json")]),
             (name("elm/random"), vec![]),
-        ]));
+        ]);
+        let releases = Fixture {
+            needs,
+            ..Fixture::default()
+        };
         let app = AppOutline {
             elm: Version::compiler(COMPAT),
             source_dirs: vec![nomi_project::outline::SrcDir::new("src")],
@@ -272,7 +236,7 @@ mod tests {
             plan(&mut releases, &name("elm/svg"), &app),
             Err(RemoveProblem::NotADependency)
         );
-        releases.0.remove(&name("elm/http"));
+        releases.needs.remove(&name("elm/http"));
         assert_eq!(
             plan(&mut releases, &name("elm/core"), &app),
             Err(RemoveProblem::Unavailable(

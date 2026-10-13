@@ -106,7 +106,7 @@ impl PackageModules {
                     modules
                         .entry(module.to_string())
                         .or_default()
-                        .push(package.clone());
+                        .push(package.to_string());
                 }
             }
         }

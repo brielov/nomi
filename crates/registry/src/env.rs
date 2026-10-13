@@ -12,12 +12,13 @@
 //! ```
 
 use std::fs;
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::io;
+use std::path::PathBuf;
 
 use nomi_base::Compat;
 use nomi_project::{Name, Version};
 
+use crate::files::{read_if_exists, write_atomically};
 use crate::http::{DOMAIN, Http, HttpError};
 use crate::index::{Connection, Index, Known};
 use crate::solver::{Packages, Release};
@@ -26,7 +27,9 @@ use crate::store::Store;
 /// The index and where releases' metadata comes from.
 #[derive(Debug)]
 pub struct Registry<'a, H> {
+    /// The releases there are.
     pub index: Index,
+    /// Whether `index` is the website's latest, and the website reachable.
     pub connection: Connection,
     store: &'a Store,
     metadata: PathBuf,
@@ -41,10 +44,19 @@ pub enum SolverProblem {
     /// The copy nomi kept doesn't decode (`SolverBadCacheData`). One kept
     /// beside the index is deleted, so the next run fetches it again.
     BadCacheData(Name, Version),
-    /// The website's doesn't decode (`SolverBadHttpData`): its URL.
-    BadHttpData(Name, Version, String),
-    /// The website's couldn't be fetched (`SolverBadHttp`): its URL and why.
-    BadHttp(Name, Version, String, HttpError),
+    /// The website's doesn't decode (`SolverBadHttpData`).
+    BadHttpData {
+        name: Name,
+        version: Version,
+        url: String,
+    },
+    /// The website's couldn't be fetched (`SolverBadHttp`).
+    BadHttp {
+        name: Name,
+        version: Version,
+        url: String,
+        error: HttpError,
+    },
     /// The store or the metadata couldn't be read or written.
     Io(io::Error),
 }
@@ -104,42 +116,39 @@ impl<H: Http> Packages for Registry<'_, H> {
                 .ok_or_else(bad_cache);
         }
         let kept = self.kept(name, version);
-        match fs::read(&kept) {
-            Ok(bytes) => {
-                let Some(release) = Release::decode(&bytes, self.compat) else {
-                    fs::remove_file(&kept)?;
-                    return Err(bad_cache());
-                };
-                return Ok(match self.connection {
-                    Connection::Online => Some(release),
-                    Connection::Offline => None,
-                });
-            }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e.into()),
+        if let Some(bytes) = read_if_exists(&kept)? {
+            let Some(release) = Release::decode(&bytes, self.compat) else {
+                fs::remove_file(&kept)?;
+                return Err(bad_cache());
+            };
+            return Ok(match self.connection {
+                Connection::Online => Some(release),
+                Connection::Offline => None,
+            });
         }
         if self.connection == Connection::Offline {
             return Ok(None);
         }
         let url = format!("{DOMAIN}/packages/{name}/{version}/elm.json");
-        let body = self
-            .http
-            .get(&url)
-            .map_err(|e| SolverProblem::BadHttp(name.clone(), version, url.clone(), e))?;
-        let Some(release) = Release::decode(&body, self.compat) else {
-            return Err(SolverProblem::BadHttpData(name.clone(), version, url));
+        let body = match self.http.get(&url) {
+            Ok(body) => body,
+            Err(error) => {
+                return Err(SolverProblem::BadHttp {
+                    name: name.clone(),
+                    version,
+                    url,
+                    error,
+                });
+            }
         };
-        keep(&kept, &body)?;
+        let Some(release) = Release::decode(&body, self.compat) else {
+            return Err(SolverProblem::BadHttpData {
+                name: name.clone(),
+                version,
+                url,
+            });
+        };
+        write_atomically(&kept, &body)?;
         Ok(Some(release))
     }
-}
-
-/// Writes `bytes` at `path` in one step, creating its directory.
-fn keep(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let dir = path.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(dir)?;
-    let mut temp = tempfile::NamedTempFile::new_in(dir)?;
-    temp.write_all(bytes)?;
-    temp.persist(path).map_err(|e| e.error)?;
-    Ok(())
 }

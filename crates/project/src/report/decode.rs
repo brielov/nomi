@@ -4,12 +4,13 @@
 
 use nomi_base::diagnostic::code::{Position, Region, Source};
 use nomi_base::diagnostic::doc::{
-    Color, Doc, fill_sep, ordinal, reflow, simple_note, stack, text, vcat,
+    Color, Doc, dull_yellow, fill_sep, green, ordinal, reflow, simple_note, stack, text, vcat,
+    words,
 };
 use nomi_base::{Compat, Report};
 
-use super::{green, kept, path, words};
-use crate::json::decode::{Expectation, Problem};
+use super::{elm_json_snippet, kept};
+use crate::json::decode::{self, Expectation, Problem};
 use crate::json::{self, ParseError, ParseErrorKind, StringProblem};
 
 /// `ExplicitReason`, which starts every report.
@@ -30,7 +31,7 @@ enum Context<'a> {
 /// first row it starts at row 65,535 and dies showing no lines; nomi shows
 /// the row, as later releases do. 0.19.1 also dies on a string byte that
 /// can't start UTF-8, which nomi reports as later releases do.
-pub fn parse_error(source: &Source<'_>, compat: Compat, error: &ParseError) -> Report {
+pub(super) fn parse_error(source: &Source<'_>, compat: Compat, error: &ParseError) -> Report {
     let first = compat.first_position();
     let at = kept(
         json::Region {
@@ -46,16 +47,17 @@ pub fn parse_error(source: &Source<'_>, compat: Compat, error: &ParseError) -> R
         },
         end: at.start,
     };
-    let snippet = |title: &'static str, problem: &str, details: Doc| Report {
-        title: title.into(),
-        path: Some(path()),
-        message: source.snippet(
+    let snippet = |title, problem: &str, details| {
+        let before = reflow(&format!("{REASON} {problem}"));
+        elm_json_snippet(
+            source,
             compat,
-            reflow(&format!("{REASON} {problem}")),
+            title,
+            before,
             surroundings,
             Some(at),
             details,
-        ),
+        )
     };
     let partway_object = "I was partway through parsing a JSON object when I got stuck here:";
     match error.kind {
@@ -65,8 +67,7 @@ pub fn parse_error(source: &Source<'_>, compat: Compat, error: &ParseError) -> R
             stack([
                 fill_sep(
                     words("Try something like")
-                        .chain([text("\"this\"").color(Color::DullYellow), text("or")])
-                        .chain([text("42").color(Color::DullYellow)])
+                        .chain([dull_yellow("\"this\""), text("or"), dull_yellow("42")])
                         .chain(words("to move on to better hints!")),
                 ),
                 simple_note(
@@ -86,9 +87,9 @@ pub fn parse_error(source: &Source<'_>, compat: Compat, error: &ParseError) -> R
                          a field name like",
                     )
                     .chain([
-                        text("\"type\"").color(Color::DullYellow),
+                        dull_yellow("\"type\""),
                         text("or"),
-                        text("\"dependencies\"").color(Color::DullYellow),
+                        dull_yellow("\"dependencies\""),
                         text("next."),
                     ]),
                 ),
@@ -210,19 +211,18 @@ pub fn parse_error(source: &Source<'_>, compat: Compat, error: &ParseError) -> R
 
 /// `objectNote`.
 fn object_note() -> Doc {
-    let yellow = |s: &str| text(s).color(Color::DullYellow);
     stack([
         simple_note("Here is an example of a valid JSON object for reference:"),
         vcat([
             text("{").indent(4),
-            yellow("\"name\"")
+            dull_yellow("\"name\"")
                 .append(text(": "))
-                .append(yellow("\"Tom\""))
+                .append(dull_yellow("\"Tom\""))
                 .append(text(","))
                 .indent(6),
-            yellow("\"age\"")
+            dull_yellow("\"age\"")
                 .append(text(": "))
-                .append(yellow("42"))
+                .append(dull_yellow("42"))
                 .indent(6),
             text("}").indent(4),
         ]),
@@ -235,7 +235,7 @@ fn object_note() -> Doc {
 
 /// `problemToReport`: the deepest of the problems, with `failure`
 /// reporting the caller's own.
-pub fn problem<X>(
+pub(super) fn problem<X>(
     source: &Source<'_>,
     compat: Compat,
     problem: &Problem<X>,
@@ -256,32 +256,11 @@ fn report<X>(
         Problem::Index(index, p) => {
             report(source, compat, &Context::Index(*index, context), p, failure)
         }
-        // Only the deepest problem, the first of those as deep.
-        Problem::OneOf(p, ps) => {
-            let deepest = std::iter::once(&**p)
-                .chain(ps)
-                .rev()
-                .max_by_key(|p| depth(p))
-                .expect("one problem at least");
-            report(source, compat, context, deepest, failure)
-        }
+        Problem::OneOf(p, ps) => report(source, compat, context, decode::deepest(p, ps), failure),
         Problem::Failure(region, x) => failure(*region, x),
         Problem::Expecting(region, expectation) => {
             expectation_report(source, compat, context, *region, expectation)
         }
-    }
-}
-
-/// `getMaxDepth`.
-fn depth<X>(problem: &Problem<X>) -> usize {
-    match problem {
-        Problem::Field(_, p) | Problem::Index(_, p) => 1 + depth(p),
-        Problem::OneOf(p, ps) => std::iter::once(&**p)
-            .chain(ps)
-            .map(depth)
-            .max()
-            .unwrap_or(0),
-        Problem::Failure(..) | Problem::Expecting(..) => 0,
     }
 }
 
@@ -317,29 +296,21 @@ fn expectation_report(
             field_name(field),
             ordinal(*index)
         ),
-        Context::Index(index, _) => format!(
+        Context::Index(index, Context::Root | Context::Index(..)) => format!(
             "I ran into trouble with the {} index of this array:",
             ordinal(*index)
         ),
     };
-    let snippet = |title: &'static str, a_thing: Vec<Doc>| Report {
-        title: title.into(),
-        path: Some(path()),
-        message: source.snippet(
-            compat,
-            reflow(&format!("{REASON} {introduction}")),
-            region,
-            None,
-            fill_sep(words("I was expecting to run into").chain(a_thing)),
-        ),
+    let snippet = |title, a_thing: Vec<Doc>| {
+        let before = reflow(&format!("{REASON} {introduction}"));
+        let after = fill_sep(words("I was expecting to run into").chain(a_thing));
+        elm_json_snippet(source, compat, title, before, region, None, after)
     };
     let a = |article: &str, what: &str| vec![text(article), green(what).append(text("."))];
     match expectation {
         Expectation::Object => snippet("EXPECTING OBJECT", a("an", "OBJECT")),
         Expectation::Array => snippet("EXPECTING ARRAY", a("an", "ARRAY")),
         Expectation::String => snippet("EXPECTING STRING", a("a", "STRING")),
-        Expectation::Bool => snippet("EXPECTING BOOL", a("a", "BOOLEAN")),
-        Expectation::Int => snippet("EXPECTING INT", a("an", "INT")),
         Expectation::ObjectWith(field) => snippet(
             "MISSING FIELD",
             vec![
@@ -350,17 +321,6 @@ fn expectation_report(
                 green(format!("\"{}\"", field_name(field))),
                 text("field."),
             ],
-        ),
-        Expectation::ArrayPair(len) => snippet(
-            "EXPECTING PAIR",
-            [text("an"), green("ARRAY"), text("with"), green("TWO")]
-                .into_iter()
-                .chain(words("entries. This array has"))
-                .chain([
-                    text(len.to_string()),
-                    text(if *len == 1 { "element." } else { "elements." }),
-                ])
-                .collect(),
         ),
     }
 }

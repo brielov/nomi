@@ -8,6 +8,7 @@ use std::path::Path;
 
 use nomi_base::{Compat, Report};
 use nomi_project::{Name, Outline};
+use nomi_registry::update::DepKind;
 use nomi_registry::{Http, Outdated, SolverProblem, Store, UpdateProblem, report, update};
 
 use crate::console::{self, Console, Personality};
@@ -139,7 +140,7 @@ pub fn outdated(
         )?;
         Ok::<_, Report>(match &project.outline {
             Outline::App(app) => table(&update::outdated_app(&registry, app)),
-            Outline::Pkg(pkg) => table(&update::outdated_pkg(&registry, &pkg.deps, &pkg.test_deps)),
+            Outline::Pkg(pkg) => table(&update::outdated_pkg(&registry, pkg)),
         })
     })();
     match result {
@@ -162,10 +163,9 @@ fn table<T: Display>(outdated: &[Outdated<T>]) -> String {
     let rows: Vec<[String; 4]> =
         std::iter::once(["Package", "Current", "Compatible", "Latest"].map(str::to_owned))
             .chain(outdated.iter().map(|o| {
-                let name = if o.test {
-                    format!("{} (test)", o.name)
-                } else {
-                    o.name.to_string()
+                let name = match o.kind {
+                    DepKind::Normal => o.name.to_string(),
+                    DepKind::Test => format!("{} (test)", o.name),
                 };
                 let compatible = o
                     .compatible
@@ -217,14 +217,14 @@ mod tests {
                 current: v("1.0.0"),
                 compatible: Some(v("1.1.0")),
                 latest: v("2.0.0"),
-                test: false,
+                kind: DepKind::Normal,
             },
             Outdated {
                 name: name("elm-explorations/test"),
                 current: v("2.0.0"),
                 compatible: None,
                 latest: v("3.0.0"),
-                test: true,
+                kind: DepKind::Test,
             },
         ];
         assert_eq!(
@@ -240,7 +240,7 @@ elm-explorations/test (test)  2.0.0    -           3.0.0
             current: Constraint::until_next_major(v("1.0.0"), compat),
             compatible: Some(v("1.1.0")),
             latest: v("2.0.0"),
-            test: false,
+            kind: DepKind::Normal,
         }];
         assert_eq!(
             table(&pkg),

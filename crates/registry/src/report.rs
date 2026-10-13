@@ -7,39 +7,45 @@
 //! less: a status comes with its standard reason and without the body
 //! 0.19.3 shows, and other failures with the client's message.
 
-use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, note, reflow, text, vcat};
+use nomi_base::diagnostic::doc::{
+    Color, Doc, dull_yellow, fill_sep, green, note, red, reflow, text, vcat, words,
+};
 use nomi_base::{Compat, Report};
-use nomi_project::{Name, Version, report};
+use nomi_project::report::{self, ElmCommand, elm_json_path};
+use nomi_project::{Name, Version};
 
 use crate::details::DetailsProblem;
+use crate::env::SolverProblem;
 use crate::http::HttpError;
 use crate::index::RegistryProblem;
-use crate::registry::SolverProblem;
 use crate::store::PackageProblem;
 
+/// Upstream's guess at what corrupted a response.
+const INTERCEPTED: &str = "We have gotten reports that schools, businesses, airports, etc. \
+                           sometimes intercept requests and add things to the body or change its \
+                           contents entirely. Could that be the problem?";
+
 /// `toDetailsReport` for what checking the dependencies of a project for
-/// `compat` found. `install` is the command that adds a dependency, and
-/// `reactor` the one that runs elm's reactor, which 0.19.1 also suggests
+/// `compat` found, naming elm's commands as `command` does. `reactor` is
+/// the command line that runs elm's reactor, which 0.19.1 also suggests
 /// when there is one.
 pub fn details_problem(
     problem: &DetailsProblem<SolverProblem>,
     compat: Compat,
-    install: &str,
+    command: &dyn Fn(ElmCommand) -> String,
     reactor: Option<&str>,
 ) -> Report {
-    let path = Some("elm.json".to_owned());
-    let tools = || match reactor {
-        Some(reactor) if compat == Compat::V0_19_1 => vec![
-            text(install).color(Color::Green),
-            text("or"),
-            text("the"),
-            text("dependency"),
-            text("management"),
-            text("tool"),
-            text("in"),
-            text(reactor).color(Color::Green).append(text(".")),
-        ],
-        _ => vec![text(install).color(Color::Green).append(text("."))],
+    let path = elm_json_path();
+    let install = command(ElmCommand::Install);
+    let tools = || match (reactor, compat) {
+        (Some(reactor), Compat::V0_19_1) => [green(install.as_str())]
+            .into_iter()
+            .chain(words("or the dependency management tool in"))
+            .chain([green(reactor).append(text("."))])
+            .collect(),
+        (None, _) | (Some(_), Compat::V0_19_2 | Compat::V0_19_3) => {
+            vec![green(install.as_str()).append(text("."))]
+        }
     };
     let reliable = |start: &str| {
         fill_sep(
@@ -100,9 +106,6 @@ pub fn details_problem(
 pub fn package_problem(name: &Name, version: Version, problem: &PackageProblem) -> Report {
     const TITLE: &str = "PROBLEM DOWNLOADING PACKAGE";
     let package = format!("{name} {version}");
-    let intercepted = "We have gotten reports that schools, businesses, airports, etc. \
-                       sometimes intercept requests and add things to the body or change its \
-                       contents entirely. Could that be the problem?";
     match problem {
         PackageProblem::BadEndpointRequest(url, e) => http_error(
             TITLE,
@@ -120,7 +123,7 @@ pub fn package_problem(name: &Name, version: Version, problem: &PackageProblem) 
             [
                 url_doc(url),
                 reflow(&format!(
-                    "Is something weird with your internet connection. {intercepted}"
+                    "Is something weird with your internet connection. {INTERCEPTED}"
                 )),
             ],
         ),
@@ -138,11 +141,15 @@ pub fn package_problem(name: &Name, version: Version, problem: &PackageProblem) 
                 url_doc(url),
                 reflow(&format!(
                     "But I was unable to unzip the data. Maybe there is something weird with \
-                     your internet connection. {intercepted}"
+                     your internet connection. {INTERCEPTED}"
                 )),
             ],
         ),
-        PackageProblem::BadArchiveHash(url, expected, actual) => Report::new(
+        PackageProblem::BadArchiveHash {
+            url,
+            expected,
+            actual,
+        } => Report::new(
             "CORRUPT PACKAGE DATA",
             None,
             &format!("I downloaded the source code for {package} from:"),
@@ -196,12 +203,10 @@ pub fn registry_problem(title: &'static str, problem: &RegistryProblem, context:
                         if whole { "whole thing:" } else { "beginning:" }
                     )),
                     verbatim(&shown).color(Color::DullYellow).indent(4),
-                    reflow(
+                    reflow(&format!(
                         "Does this error keep showing up? Maybe there is something weird with \
-                         your internet connection. We have gotten reports that schools, \
-                         businesses, airports, etc. sometimes intercept requests and add things \
-                         to the body or change its contents entirely. Could that be the problem?",
-                    ),
+                         your internet connection. {INTERCEPTED}"
+                    )),
                 ],
             )
         }
@@ -211,14 +216,19 @@ pub fn registry_problem(title: &'static str, problem: &RegistryProblem, context:
 /// `toSolverReport`.
 pub fn solver_problem(problem: &SolverProblem) -> Report {
     const TITLE: &str = "PROBLEM SOLVING PACKAGE CONSTRAINTS";
+    let need = |name: &Name, version: &Version| {
+        format!(
+            "I need the elm.json of {name} {version} to help me search for a set of compatible \
+             packages"
+        )
+    };
     match problem {
         SolverProblem::BadCacheData(name, version) => Report::new(
             TITLE,
             None,
             &format!(
-                "I need the elm.json of {name} {version} to help me search for a set of \
-                 compatible packages. I had it cached locally, but it looks like the file was \
-                 corrupted!"
+                "{}. I had it cached locally, but it looks like the file was corrupted!",
+                need(name, version)
             ),
             [reflow(
                 "I deleted the cached version, so the next run should download a fresh copy. \
@@ -226,32 +236,26 @@ pub fn solver_problem(problem: &SolverProblem) -> Report {
                  if a 3rd party tool is modifing cached files for some reason.",
             )],
         ),
-        SolverProblem::BadHttpData(name, version, url) => Report::new(
+        SolverProblem::BadHttpData { name, version, url } => Report::new(
             TITLE,
             None,
             &format!(
-                "I need the elm.json of {name} {version} to help me search for a set of \
-                 compatible packages, but I ran into corrupted information from:"
+                "{}, but I ran into corrupted information from:",
+                need(name, version)
             ),
             [
                 url_doc(url),
-                reflow(
-                    "Is something weird with your internet connection. We have gotten reports \
-                     that schools, businesses, airports, etc. sometimes intercept requests and \
-                     add things to the body or change its contents entirely. Could that be the \
-                     problem?",
-                ),
+                reflow(&format!(
+                    "Is something weird with your internet connection. {INTERCEPTED}"
+                )),
             ],
         ),
-        SolverProblem::BadHttp(name, version, url, e) => http_error(
-            TITLE,
+        SolverProblem::BadHttp {
+            name,
+            version,
             url,
-            e,
-            &format!(
-                "I need the elm.json of {name} {version} to help me search for a set of \
-                 compatible packages"
-            ),
-        ),
+            error,
+        } => http_error(TITLE, url, error, &need(name, version)),
         SolverProblem::Io(e) => Report::new(
             TITLE,
             None,
@@ -273,11 +277,9 @@ pub fn http_error(title: &'static str, url: &str, e: &HttpError, context: &str) 
                 .unwrap_or("");
             vec![
                 fill_sep(
-                    ["But", "it", "came", "back", "as"]
-                        .into_iter()
-                        .map(text)
-                        .chain([text(code.to_string()).color(Color::Red)])
-                        .chain(reason.split_whitespace().map(text)),
+                    words("But it came back as")
+                        .chain([red(code.to_string())])
+                        .chain(words(reason)),
                 ),
                 reflow(
                     "This may mean some online endpoint changed in an unexpected way, so if \
@@ -307,12 +309,9 @@ pub fn http_error(title: &'static str, url: &str, e: &HttpError, context: &str) 
     )
 }
 
-fn words(text: &str) -> impl Iterator<Item = Doc> + '_ {
-    text.split_whitespace().map(Doc::from)
-}
-
+/// A URL on its own line, as reports show the one they fetched.
 fn url_doc(url: &str) -> Doc {
-    text(url).color(Color::DullYellow).indent(4)
+    dull_yellow(url).indent(4)
 }
 
 /// `D.fromChars`: text as it is, its lines kept.

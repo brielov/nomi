@@ -16,8 +16,9 @@
 //! Both are written in one step, so a store interrupted or shared by two
 //! processes holds whole releases only.
 
+use std::collections::BTreeMap;
 use std::fs;
-use std::io::{self, Cursor, Read, Write};
+use std::io::{self, Cursor, Read};
 use std::path::{Path, PathBuf};
 
 use nomi_base::Compat;
@@ -25,7 +26,9 @@ use nomi_project::json::{self, decode};
 use nomi_project::{Name, Version};
 use sha1::{Digest, Sha1};
 
+use crate::files::{read_if_exists, write_atomically};
 use crate::http::{DOMAIN, Http, HttpError};
+use crate::index::Known;
 
 /// The most an archive may hold once extracted. The largest published
 /// package is a few megabytes.
@@ -54,9 +57,12 @@ pub enum PackageProblem {
     /// its URL. Upstream extracts any zip; nomi also refuses entries that
     /// would land outside the release and archives too large to be one.
     BadArchiveContent(String),
-    /// The archive isn't the one published (`PP_BadArchiveHash`): its URL,
-    /// the expected hash and the actual one.
-    BadArchiveHash(String, String, String),
+    /// The archive at `url` isn't the one published (`PP_BadArchiveHash`).
+    BadArchiveHash {
+        url: String,
+        expected: String,
+        actual: String,
+    },
     /// The store couldn't be read or written.
     Io(io::Error),
 }
@@ -68,10 +74,12 @@ impl From<io::Error> for PackageProblem {
 }
 
 impl Store {
+    /// The store in `dir`.
     pub fn new(dir: PathBuf) -> Store {
         Store { dir }
     }
 
+    /// Where the store is.
     pub fn dir(&self) -> &Path {
         &self.dir
     }
@@ -92,49 +100,64 @@ impl Store {
         )
     }
 
-    /// Each package downloaded, as `author/project` in order, with its
-    /// releases downloaded, oldest first.
-    pub fn downloaded(&self) -> io::Result<Vec<(String, Vec<Version>)>> {
-        let releases = self.dir.join("releases");
-        let mut found = Vec::new();
-        for author in names_in(&releases)? {
-            for project in names_in(&releases.join(&author))? {
-                let versions = versions_in(&releases.join(&author).join(&project))?;
-                if !versions.is_empty() {
-                    found.push((format!("{author}/{project}"), versions));
-                }
+    /// Each package downloaded, with its releases downloaded.
+    pub fn downloaded(&self) -> io::Result<BTreeMap<Name, Known>> {
+        let mut found = BTreeMap::new();
+        for (name, dir) in self.packages()? {
+            let mut versions = versions_in(&dir)?;
+            if let Some(newest) = versions.pop() {
+                versions.reverse();
+                let known = Known {
+                    newest,
+                    previous: versions,
+                };
+                found.insert(name, known);
             }
         }
-        found.sort();
         Ok(found)
     }
 
-    /// Each package downloaded, as `author/project` in order, with the
-    /// sources of its newest release.
-    pub fn newest(&self) -> io::Result<Vec<(String, PathBuf)>> {
+    /// Each package downloaded, in the order of its `author/project`, with
+    /// the sources of its newest release.
+    pub fn newest(&self) -> io::Result<Vec<(Name, PathBuf)>> {
+        let mut found = Vec::new();
+        for (name, dir) in self.packages()? {
+            let Some(version) = versions_in(&dir)?.pop() else {
+                continue;
+            };
+            if let Some(sources) = self.sources_of(&dir.join(version.to_string()))? {
+                found.push((name, sources));
+            }
+        }
+        Ok(found)
+    }
+
+    /// Each package with releases in the store, and their directory, in
+    /// the order of its `author/project`.
+    fn packages(&self) -> io::Result<Vec<(Name, PathBuf)>> {
         let releases = self.dir.join("releases");
         let mut found = Vec::new();
         for author in names_in(&releases)? {
             for project in names_in(&releases.join(&author))? {
-                let dir = releases.join(&author).join(&project);
-                let Some(version) = versions_in(&dir)?.pop() else {
-                    continue;
-                };
-                if let Some(sources) = self.sources_of(&dir.join(version.to_string()))? {
-                    found.push((format!("{author}/{project}"), sources));
+                let text = format!("{author}/{project}");
+                // Only a directory the store didn't make has no package's
+                // name, so it holds no release.
+                if let Ok(name) = text.parse::<Name>() {
+                    found.push((text, name, releases.join(&author).join(&project)));
                 }
             }
         }
         found.sort();
-        Ok(found)
+        Ok(found
+            .into_iter()
+            .map(|(_, name, dir)| (name, dir))
+            .collect())
     }
 
     /// The sources the release file at `release` names, if downloaded.
     fn sources_of(&self, release: &Path) -> io::Result<Option<PathBuf>> {
-        let hash = match fs::read(release) {
-            Ok(hash) => hash,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(e),
+        let Some(hash) = read_if_exists(release)? else {
+            return Ok(None);
         };
         let sources = std::str::from_utf8(&hash)
             .ok()
@@ -155,29 +178,32 @@ impl Store {
         if let Some(dir) = self.get(name, version)? {
             return Ok(dir);
         }
-        let (url, expected) = endpoint(http, name, version, compat)?;
-        let archive = http
-            .get(&url)
-            .map_err(|e| PackageProblem::BadArchiveRequest(url.clone(), e))?;
+        let Endpoint { url, hash } = endpoint(http, name, version, compat)?;
+        let archive = match http.get(&url) {
+            Ok(archive) => archive,
+            Err(e) => return Err(PackageProblem::BadArchiveRequest(url, e)),
+        };
         // Upstream unzips as it downloads, so a broken zip is reported as
         // one before its hash is checked.
         let Ok(mut zip) = zip::ZipArchive::new(Cursor::new(&archive[..])) else {
             return Err(PackageProblem::BadArchiveContent(url));
         };
-        let actual = hex(&Sha1::digest(&archive));
-        if expected != actual {
-            return Err(PackageProblem::BadArchiveHash(url, expected, actual));
+        let actual = sha1(&archive);
+        if hash != actual {
+            return Err(PackageProblem::BadArchiveHash {
+                url,
+                expected: hash,
+                actual,
+            });
         }
         let dir = self.sources(&actual);
         if !dir.is_dir() {
             self.extract(&mut zip, &dir, &url)?;
         }
-        let release = self.release(name, version);
-        let parent = release.parent().unwrap_or(&self.dir);
-        fs::create_dir_all(parent)?;
-        let mut temp = tempfile::NamedTempFile::new_in(parent)?;
-        writeln!(temp, "{actual}")?;
-        temp.persist(&release).map_err(|e| e.error)?;
+        write_atomically(
+            &self.release(name, version),
+            format!("{actual}\n").as_bytes(),
+        )?;
         Ok(dir)
     }
 
@@ -208,8 +234,10 @@ impl Store {
             .tempdir_in(parent)?;
         match write_package(zip, temp.path()) {
             Ok(()) => {}
-            Err(Extract::Refused) => return Err(PackageProblem::BadArchiveContent(url.to_owned())),
-            Err(Extract::Io(e)) => return Err(e.into()),
+            Err(Unpack::NotAPackage) => {
+                return Err(PackageProblem::BadArchiveContent(url.to_owned()));
+            }
+            Err(Unpack::Io(e)) => return Err(e.into()),
         }
         match fs::rename(temp.path(), dir) {
             Ok(()) => Ok(()),
@@ -220,31 +248,34 @@ impl Store {
 }
 
 /// `File.writePackage` of an archive into `dir`, as `elm publish` unpacks
-/// the zipball GitHub serves; `false` if it isn't a package's archive.
-pub fn unpack(archive: &[u8], dir: &Path) -> io::Result<bool> {
+/// the zipball GitHub serves.
+pub fn unpack(archive: &[u8], dir: &Path) -> Result<(), Unpack> {
     let Ok(mut zip) = zip::ZipArchive::new(Cursor::new(archive)) else {
-        return Ok(false);
+        return Err(Unpack::NotAPackage);
     };
-    match write_package(&mut zip, dir) {
-        Ok(()) => Ok(true),
-        Err(Extract::Refused) => Ok(false),
-        Err(Extract::Io(e)) => Err(e),
-    }
+    write_package(&mut zip, dir)
 }
 
 /// The SHA-1 of `bytes` in hexadecimal, as `Http.getArchive` hashes an
-/// archive.
+/// archive and `SHA.showDigest` writes it.
 pub fn sha1(bytes: &[u8]) -> String {
-    hex(&Sha1::digest(bytes))
+    nomi_base::hex(&Sha1::digest(bytes))
 }
 
-/// `endpointDecoder` over `endpoint.json`: the archive's URL and hash.
+/// What `endpoint.json` says of a release's archive.
+struct Endpoint {
+    url: String,
+    /// Its SHA-1, as [`sha1`] writes it.
+    hash: String,
+}
+
+/// `endpointDecoder` over `endpoint.json`.
 fn endpoint(
     http: &impl Http,
     name: &Name,
     version: Version,
     compat: Compat,
-) -> Result<(String, String), PackageProblem> {
+) -> Result<Endpoint, PackageProblem> {
     let url = format!("{DOMAIN}/packages/{name}/{version}/endpoint.json");
     let body = http
         .get(&url)
@@ -256,20 +287,27 @@ fn endpoint(
             let bytes = decode::field::<_, ()>(&value, key, decode::string).ok()?;
             String::from_utf8(bytes.to_vec()).ok()
         };
-        Some((string(b"url")?, string(b"hash")?))
+        Some(Endpoint {
+            url: string(b"url")?,
+            hash: string(b"hash")?,
+        })
     });
     decoded.ok_or(PackageProblem::BadEndpointContent(url))
 }
 
-enum Extract {
-    /// An entry nomi won't write, or more than a package holds.
-    Refused,
+/// Why an archive wasn't unpacked.
+#[derive(Debug)]
+pub enum Unpack {
+    /// It isn't a package's archive: not a zip, an entry nomi won't write,
+    /// or more than a package holds.
+    NotAPackage,
+    /// Writing it failed.
     Io(io::Error),
 }
 
-impl From<io::Error> for Extract {
-    fn from(e: io::Error) -> Extract {
-        Extract::Io(e)
+impl From<io::Error> for Unpack {
+    fn from(e: io::Error) -> Unpack {
+        Unpack::Io(e)
     }
 }
 
@@ -278,21 +316,21 @@ impl From<io::Error> for Extract {
 /// `elm.json`, `LICENSE`, `README.md` and all of `src/`. 0.19.3 keeps only
 /// the `.elm` files and kernel `.js` files of `src/`, which nothing else
 /// there could shadow, so one copy serves every release.
-fn write_package(zip: &mut zip::ZipArchive<Cursor<&[u8]>>, dir: &Path) -> Result<(), Extract> {
+fn write_package(zip: &mut zip::ZipArchive<Cursor<&[u8]>>, dir: &Path) -> Result<(), Unpack> {
     if zip.len() > ENTRY_LIMIT {
-        return Err(Extract::Refused);
+        return Err(Unpack::NotAPackage);
     }
     if zip.is_empty() {
         return Ok(());
     }
     let root = zip
         .by_index_raw(0)
-        .map_err(|_| Extract::Refused)?
+        .map_err(|_| Unpack::NotAPackage)?
         .name_raw()
         .len();
     let mut budget = EXTRACTED_LIMIT;
     for i in 1..zip.len() {
-        let mut entry = zip.by_index(i).map_err(|_| Extract::Refused)?;
+        let mut entry = zip.by_index(i).map_err(|_| Unpack::NotAPackage)?;
         let path = entry.name_raw().get(root..).unwrap_or_default();
         let kept = path.starts_with(b"src/")
             || path == b"LICENSE"
@@ -305,7 +343,7 @@ fn write_package(zip: &mut zip::ZipArchive<Cursor<&[u8]>>, dir: &Path) -> Result
             Some(dir) => (dir, true),
             None => (path, false),
         };
-        let target = dir.join(safe(relative).ok_or(Extract::Refused)?);
+        let target = dir.join(safe(relative).ok_or(Unpack::NotAPackage)?);
         if is_dir {
             fs::create_dir_all(&target)?;
             continue;
@@ -319,10 +357,10 @@ fn write_package(zip: &mut zip::ZipArchive<Cursor<&[u8]>>, dir: &Path) -> Result
         (&mut entry)
             .take(budget + 1)
             .read_to_end(&mut bytes)
-            .map_err(|_| Extract::Refused)?;
+            .map_err(|_| Unpack::NotAPackage)?;
         budget = budget
             .checked_sub(bytes.len() as u64)
-            .ok_or(Extract::Refused)?;
+            .ok_or(Unpack::NotAPackage)?;
         fs::write(&target, bytes)?;
     }
     Ok(())
@@ -342,11 +380,6 @@ fn safe(path: &[u8]) -> Option<PathBuf> {
         safe.push(part);
     }
     Some(safe)
-}
-
-/// `SHA.showDigest`: lowercase hex.
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// The releases in a package's directory, oldest first.

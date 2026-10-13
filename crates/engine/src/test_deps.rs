@@ -16,7 +16,7 @@ use crate::paths::Cache;
 use nomi_base::{Compat, Report};
 use nomi_project::json::Cursor;
 use nomi_project::{Constraint, Name, Outline, Version};
-use nomi_registry::solver::{self, Details};
+use nomi_registry::solver::{self, Details, Order};
 use nomi_registry::{Http, Known, Packages, Release, Store};
 
 /// The generated project is elm-test's, which says 0.19.3.
@@ -113,8 +113,13 @@ fn solve(
             .map(|(name, details)| (name, details.version))
             .partition(|(name, _)| constraints.contains_key(name))
     };
+    let order = if how.oldest {
+        Order::OldestFirst
+    } else {
+        Order::NewestFirst
+    };
     let mut local = Local::new(&store).map_err(|e| io_problem(&e))?;
-    if let Ok(Some(solution)) = solver::verify_in(&mut local, COMPAT, &constraints, how.oldest) {
+    if let Ok(Some(solution)) = solver::verify_in(&mut local, COMPAT, &constraints, order) {
         return Ok(split(solution));
     }
     if how.offline {
@@ -129,7 +134,7 @@ fn solve(
         COMPAT,
         "I need the list of published packages to find the tests' dependencies",
     )?;
-    match solver::verify_in(&mut registry, COMPAT, &constraints, how.oldest) {
+    match solver::verify_in(&mut registry, COMPAT, &constraints, order) {
         Ok(Some(solution)) => Ok(split(solution)),
         Ok(None) => Err(no_solution(
             "I could not find versions of the project's dependencies and the test runner's that work together.",
@@ -159,17 +164,7 @@ struct Local<'a> {
 
 impl<'a> Local<'a> {
     fn new(store: &'a Store) -> io::Result<Local<'a>> {
-        let mut known = BTreeMap::new();
-        for (name, mut versions) in store.downloaded()? {
-            let Ok(name) = Name::parse(name.as_bytes(), Cursor::start(COMPAT), COMPAT) else {
-                continue;
-            };
-            versions.reverse();
-            if let Some((&newest, previous)) = versions.split_first() {
-                let previous = previous.to_vec();
-                known.insert(name, Known { newest, previous });
-            }
-        }
+        let known = store.downloaded()?;
         Ok(Local { store, known })
     }
 }

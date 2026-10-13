@@ -11,16 +11,20 @@ use std::collections::BTreeMap;
 
 use nomi_base::Compat;
 
+use nomi_base::diagnostic::json::escape;
+
 use crate::json::decode::{self, Alternative, Decoded, Problem};
-use crate::json::{self, ParseError, Position, Value, encode};
+use crate::json::{self, Cursor, ParseError, Position, Value, encode};
 use crate::{Constraint, ConstraintError, License, ModuleName, Name, Version, scan};
 
+/// What an `elm.json` describes: an application or a package.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outline {
     App(AppOutline),
     Pkg(PkgOutline),
 }
 
+/// An application's `elm.json`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AppOutline {
     pub elm: Version,
@@ -32,6 +36,20 @@ pub struct AppOutline {
     pub test_indirect: BTreeMap<Name, Version>,
 }
 
+impl AppOutline {
+    /// Every dependency at its version. A name in more than one field,
+    /// which upstream rejects, takes its direct version, then its
+    /// indirect one, then its direct test one.
+    pub fn all_deps(&self) -> BTreeMap<Name, Version> {
+        let mut all = self.test_indirect.clone();
+        for deps in [&self.test_direct, &self.indirect, &self.direct] {
+            all.extend(deps.iter().map(|(name, &version)| (name.clone(), version)));
+        }
+        all
+    }
+}
+
+/// A package's `elm.json`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PkgOutline {
     pub name: Name,
@@ -45,6 +63,7 @@ pub struct PkgOutline {
     pub elm: Constraint,
 }
 
+/// A package's `exposed-modules`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Exposed {
     List(Vec<ModuleName>),
@@ -54,11 +73,13 @@ pub enum Exposed {
 
 impl Exposed {
     /// `flattenExposed`: every exposed module, in order.
-    pub fn modules(&self) -> Box<dyn Iterator<Item = &ModuleName> + '_> {
-        match self {
-            Exposed::List(names) => Box::new(names.iter()),
-            Exposed::Dict(sections) => Box::new(sections.iter().flat_map(|(_, names)| names)),
-        }
+    pub fn modules(&self) -> impl Iterator<Item = &ModuleName> {
+        let (list, sections) = match self {
+            Exposed::List(names) => (names.as_slice(), [].as_slice()),
+            Exposed::Dict(sections) => ([].as_slice(), sections.as_slice()),
+        };
+        list.iter()
+            .chain(sections.iter().flat_map(|(_, names)| names))
     }
 }
 
@@ -75,6 +96,7 @@ impl SrcDir {
         SrcDir(path.as_bytes().into())
     }
 
+    /// The bytes between the quotes.
     pub fn raw(&self) -> &[u8] {
         &self.0
     }
@@ -101,12 +123,9 @@ impl SrcDir {
     fn encode(&self) -> encode::Value {
         let mut out = Vec::with_capacity(self.0.len());
         for code in self.chars() {
-            match code {
-                0x0D => out.extend_from_slice(b"\\r"),
-                0x0A => out.extend_from_slice(b"\\n"),
-                0x22 => out.extend_from_slice(b"\\\""),
-                0x5C => out.extend_from_slice(b"\\\\"),
-                _ => char_utf8(code, &mut out),
+            match u8::try_from(code).ok().and_then(escape) {
+                Some(escaped) => out.extend_from_slice(escaped.as_bytes()),
+                None => char_utf8(code, &mut out),
             }
         }
         encode::Value::String(out)
@@ -156,17 +175,21 @@ fn char_utf8(code: i64, out: &mut Vec<u8>) {
 /// `Exit.OutlineProblem`: what a field's own decoder rejects.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OutlineProblem {
-    /// `type` is neither `application` nor `package`, as raw bytes.
+    /// `type` is neither `application` nor `package`.
     BadType,
+    /// `name` stops being a package name at this position.
     BadPkgName(Position),
+    /// A version stops being one at this position.
     BadVersion(Position),
     BadConstraint(ConstraintError),
+    /// A module name stops being one at this position.
     BadModuleName(Position),
     /// An `exposed-modules` section header of 20 bytes or more.
     BadModuleHeaderTooLong,
+    /// A dependency's name stops being a package name at this position.
     BadDependencyName(Position),
-    /// The raw string and the four nearest licenses.
-    BadLicense(Box<[u8]>, Vec<&'static str>),
+    /// No license by this name: the four nearest.
+    BadLicense(Vec<&'static str>),
     /// A summary of 80 bytes or more, escapes as written.
     BadSummaryTooLong,
     NoSrcDirs,
@@ -267,7 +290,7 @@ impl Outline {
             {
                 Err(OutlineError::NoAppJson)
             }
-            _ => Ok(outline),
+            Outline::App(_) | Outline::Pkg(_) => Ok(outline),
         }
     }
 
@@ -284,7 +307,7 @@ impl Outline {
     }
 
     /// `encode`.
-    pub fn encode(&self) -> encode::Value {
+    fn encode(&self) -> encode::Value {
         use encode::Value as V;
         let chars = |text: &dyn std::fmt::Display| V::chars(text.to_string().as_bytes());
         let field = |key: &str, value: V| (key.as_bytes().to_vec(), value);
@@ -350,12 +373,13 @@ fn decoder(value: &Value<'_>, compat: Compat) -> Decoded<Outline, OutlineProblem
 }
 
 fn app(value: &Value<'_>, compat: Compat) -> Decoded<AppOutline, OutlineProblem> {
-    let versions = |v: &Value<'_>| deps(v, compat, |v| version(v, compat));
+    let version = |v: &Value<'_>| custom(v, compat, Version::parse, OutlineProblem::BadVersion);
+    let versions = |v: &Value<'_>| deps(v, compat, version);
     let deps_field = |outer: &[u8], inner: &[u8]| {
         decode::field(value, outer, |v| decode::field(v, inner, versions))
     };
     Ok(AppOutline {
-        elm: decode::field(value, b"elm-version", |v| version(v, compat))?,
+        elm: decode::field(value, b"elm-version", version)?,
         source_dirs: decode::field(value, b"source-directories", |v| {
             decode::non_empty_list(
                 v,
@@ -371,12 +395,12 @@ fn app(value: &Value<'_>, compat: Compat) -> Decoded<AppOutline, OutlineProblem>
 }
 
 fn pkg(value: &Value<'_>, compat: Compat) -> Decoded<PkgOutline, OutlineProblem> {
-    let constraints = |v: &Value<'_>| deps(v, compat, |v| constraint(v, compat));
+    let constraint =
+        |v: &Value<'_>| custom(v, compat, Constraint::parse, OutlineProblem::BadConstraint);
+    let constraints = |v: &Value<'_>| deps(v, compat, constraint);
     Ok(PkgOutline {
         name: decode::field(value, b"name", |v| {
-            decode::custom_string(v, |bytes, start| {
-                Name::parse(bytes, start, compat).map_err(OutlineProblem::BadPkgName)
-            })
+            custom(v, compat, Name::parse, OutlineProblem::BadPkgName)
         })?,
         summary: decode::field(value, b"summary", |v| {
             decode::custom_string(v, |bytes, _| {
@@ -385,33 +409,28 @@ fn pkg(value: &Value<'_>, compat: Compat) -> Decoded<PkgOutline, OutlineProblem>
         })?,
         license: decode::field(value, b"license", |v| {
             let raw = decode::string(v)?;
-            License::check(raw, compat).or_else(|nearest| {
-                decode::failure(v, OutlineProblem::BadLicense(raw.into(), nearest))
-            })
+            License::check(raw, compat)
+                .or_else(|nearest| decode::failure(v, OutlineProblem::BadLicense(nearest)))
         })?,
-        version: decode::field(value, b"version", |v| version(v, compat))?,
+        version: decode::field(value, b"version", |v| {
+            custom(v, compat, Version::parse, OutlineProblem::BadVersion)
+        })?,
         exposed: decode::field(value, b"exposed-modules", |v| exposed(v, compat))?,
         deps: decode::field(value, b"dependencies", constraints)?,
         test_deps: decode::field(value, b"test-dependencies", constraints)?,
-        elm: decode::field(value, b"elm-version", |v| constraint(v, compat))?,
+        elm: decode::field(value, b"elm-version", constraint)?,
     })
 }
 
-fn version(value: &Value<'_>, compat: Compat) -> Decoded<Version, OutlineProblem> {
+/// `customString` with `parse`, its failure the outline's `problem`.
+fn custom<T, E>(
+    value: &Value<'_>,
+    compat: Compat,
+    parse: fn(&[u8], Cursor, Compat) -> Result<T, E>,
+    problem: fn(E) -> OutlineProblem,
+) -> Decoded<T, OutlineProblem> {
     decode::custom_string(value, |bytes, start| {
-        Version::parse(bytes, start, compat).map_err(OutlineProblem::BadVersion)
-    })
-}
-
-fn constraint(value: &Value<'_>, compat: Compat) -> Decoded<Constraint, OutlineProblem> {
-    decode::custom_string(value, |bytes, start| {
-        Constraint::parse(bytes, start, compat).map_err(OutlineProblem::BadConstraint)
-    })
-}
-
-fn module(value: &Value<'_>, compat: Compat) -> Decoded<ModuleName, OutlineProblem> {
-    decode::custom_string(value, |bytes, start| {
-        ModuleName::parse(bytes, start, compat).map_err(OutlineProblem::BadModuleName)
+        parse(bytes, start, compat).map_err(problem)
     })
 }
 
@@ -431,7 +450,9 @@ fn deps<'a, T>(
 
 /// `exposedDecoder`: a list of modules, or else an object of sections.
 fn exposed(value: &Value<'_>, compat: Compat) -> Decoded<Exposed, OutlineProblem> {
-    let modules = |v: &Value<'_>| decode::list(v, |e| module(e, compat));
+    let module =
+        |e: &Value<'_>| custom(e, compat, ModuleName::parse, OutlineProblem::BadModuleName);
+    let modules = |v: &Value<'_>| decode::list(v, module);
     let mut list = |v: &Value<'_>| modules(v).map(Exposed::List);
     let mut dict = |v: &Value<'_>| {
         decode::pairs(

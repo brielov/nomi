@@ -443,8 +443,7 @@ fn verify_zip(
             [],
         ))
     })?;
-    let unpacked = nomi_registry::store::unpack(&archive, prepublish.path()).unwrap_or(false);
-    if !unpacked {
+    if nomi_registry::store::unpack(&archive, prepublish.path()).is_err() {
         return Err(cannot_decode_zip(&url).into());
     }
     check(

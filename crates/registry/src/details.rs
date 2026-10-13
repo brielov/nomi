@@ -48,8 +48,8 @@ pub fn verify<P: Packages>(
             if !pkg.elm.satisfies(Version::compiler(compat)) {
                 return Err(DetailsProblem::PkgElm(pkg.elm));
             }
-            let constraints =
-                union(&pkg.deps, &pkg.test_deps, |_, _| false).ok_or(DetailsProblem::HandEdited)?;
+            let constraints = union_agreeing(&pkg.deps, &pkg.test_deps, |_, _| false)
+                .ok_or(DetailsProblem::HandEdited)?;
             solve(packages, constraints)
         }
         Outline::App(app) => {
@@ -57,10 +57,10 @@ pub fn verify<P: Packages>(
                 return Err(DetailsProblem::AppElm(app.elm));
             }
             // `checkAppDeps`
-            let stated = union(&app.indirect, &app.test_direct, |a, b| a == b)
+            let stated = union_agreeing(&app.indirect, &app.test_direct, |a, b| a == b)
                 .and_then(|x| {
-                    let y = union(&app.direct, &app.test_indirect, |_, _| false)?;
-                    union(&x, &y, |_, _| false)
+                    let y = union_agreeing(&app.direct, &app.test_indirect, |_, _| false)?;
+                    union_agreeing(&x, &y, |_, _| false)
                 })
                 .ok_or(DetailsProblem::HandEdited)?;
             let constraints = stated
@@ -77,7 +77,7 @@ pub fn verify<P: Packages>(
 }
 
 /// `union`: both maps, if every name in both is `allowed` there.
-fn union<V: Clone>(
+fn union_agreeing<V: Clone>(
     a: &BTreeMap<Name, V>,
     b: &BTreeMap<Name, V>,
     allowed: impl Fn(&V, &V) -> bool,

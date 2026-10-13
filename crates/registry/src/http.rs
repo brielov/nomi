@@ -100,6 +100,7 @@ pub struct Web {
 }
 
 impl Web {
+    /// A client for the website, with upstream's settings.
     pub fn new() -> Web {
         let config = ureq::Agent::config_builder()
             .user_agent(concat!("nomi/", env!("CARGO_PKG_VERSION")))

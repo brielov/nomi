@@ -5,6 +5,7 @@ use std::io::{self, BufRead, IsTerminal, Read, Write};
 use nomi_base::diagnostic::Doc;
 use nomi_base::diagnostic::render::{Styles, WIDTH, render};
 use nomi_base::{Compat, Report};
+use nomi_project::report::ElmCommand;
 
 /// The terminal a run talks to.
 pub trait Console {
@@ -87,17 +88,17 @@ impl Personality {
 
     /// The command line that runs elm's `command`: `elm install`, or
     /// `nomi add`.
-    pub fn command(self, command: &str) -> String {
-        let nomi = match command {
-            "init" => "new",
-            "install" => "add",
-            "make" => "build",
-            "remove" => "rm",
-            other => other,
-        };
+    pub fn command(self, command: ElmCommand) -> String {
         match self {
-            Personality::Elm => format!("elm {command}"),
-            Personality::Nomi => format!("nomi {nomi}"),
+            Personality::Elm => format!("elm {}", command.elm_name()),
+            Personality::Nomi => {
+                let nomi = match command {
+                    ElmCommand::Init => "new",
+                    ElmCommand::Install => "add",
+                    ElmCommand::Make => "build",
+                };
+                format!("nomi {nomi}")
+            }
         }
     }
 }

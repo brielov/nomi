@@ -5,18 +5,22 @@ use nomi_base::{Compat, suggest};
 
 use crate::scan;
 
-/// A license from [`LICENSES`], as the raw bytes of its JSON string.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct License(Box<[u8]>);
+/// A license from [`LICENSES`], by its SPDX identifier, which `elm.json`
+/// writes as it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct License(&'static str);
+
+/// A text a suggestion is ranked by, an identifier or a full name, and
+/// the identifier it suggests.
+struct Candidate {
+    text: &'static str,
+    code: &'static str,
+}
 
 impl License {
-    pub fn bsd3() -> License {
-        License(b"BSD-3-Clause".as_slice().into())
-    }
-
     /// The raw string bytes, as `encode` writes them.
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.0
+    pub fn as_bytes(self) -> &'static [u8] {
+        self.0.as_bytes()
     }
 
     /// `check`: the license these raw string bytes name, or the four
@@ -24,25 +28,22 @@ impl License {
     /// is no license. An identifier can be suggested twice, once for
     /// itself and once for its full name.
     pub fn check(raw: &[u8], compat: Compat) -> Result<License, Vec<&'static str>> {
-        if LICENSES
-            .binary_search_by(|(code, _)| code.as_bytes().cmp(raw))
-            .is_ok()
-        {
-            return Ok(License(raw.into()));
+        if let Ok(i) = LICENSES.binary_search_by(|(code, _)| code.as_bytes().cmp(raw)) {
+            return Ok(License(LICENSES[i].0));
         }
-        let mut candidates: Vec<(&'static str, &'static str)> = LICENSES
+        let mut candidates: Vec<Candidate> = LICENSES
             .iter()
-            .map(|&(code, _)| (code, code))
-            .chain(LICENSES.iter().copied())
+            .map(|&(code, _)| Candidate { text: code, code })
+            .chain(
+                LICENSES
+                    .iter()
+                    .map(|&(code, name)| Candidate { text: name, code }),
+            )
             .collect();
-        suggest::sort(&code_points(raw, compat), &mut candidates, |(_, s)| {
-            suggest::code_points(s)
+        suggest::sort(&code_points(raw, compat), &mut candidates, |c| {
+            suggest::code_points(c.text)
         });
-        Err(candidates
-            .into_iter()
-            .take(4)
-            .map(|(code, _)| code)
-            .collect())
+        Err(candidates.into_iter().take(4).map(|c| c.code).collect())
     }
 }
 
@@ -63,7 +64,7 @@ fn code_points(raw: &[u8], compat: Compat) -> Vec<u32> {
 }
 
 /// SPDX identifiers and full names, in the identifiers' byte order.
-pub const LICENSES: &[(&str, &str)] = &[
+pub(crate) const LICENSES: &[(&str, &str)] = &[
     ("0BSD", "BSD Zero Clause License"),
     ("AAL", "Attribution Assurance License"),
     ("AFL-1.1", "Academic Free License v1.1"),

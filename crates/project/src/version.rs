@@ -5,11 +5,12 @@
 //! between them as upstream's arithmetic does.
 
 use std::fmt;
+use std::str::FromStr;
 
 use nomi_base::Compat;
 
 use crate::json::{Cursor, Position};
-use crate::scan::Scan;
+use crate::scan::{self, Scan};
 
 /// A version, each number already within its Compat's width, so the
 /// derived order is upstream's.
@@ -26,8 +27,10 @@ const MINOR_BITS: u32 = 21;
 const PATCH_BITS: u32 = 22;
 
 impl Version {
+    /// `1.0.0`, the first release of a package.
     pub const ONE: Version = Version::new(1, 0, 0);
 
+    /// The version with these numbers.
     pub const fn new(major: u32, minor: u32, patch: u32) -> Version {
         Version {
             major,
@@ -47,7 +50,7 @@ impl Version {
     }
 
     /// `toVersion`: the numbers as `compat` stores them.
-    pub fn wrapped(compat: Compat, major: u32, minor: u32, patch: u32) -> Version {
+    fn wrapped(compat: Compat, major: u32, minor: u32, patch: u32) -> Version {
         match compat {
             Compat::V0_19_1 | Compat::V0_19_2 => Version::new(
                 u32::from(major as u16),
@@ -63,10 +66,11 @@ impl Version {
     }
 
     /// `max`: the largest major version, the upper end of `anything`.
-    pub fn max(compat: Compat) -> Version {
+    pub(crate) fn max(compat: Compat) -> Version {
         Version::wrapped(compat, u32::MAX, 0, 0)
     }
 
+    /// `bumpPatch`: the next patch release.
     pub fn bump_patch(self, compat: Compat) -> Version {
         match compat {
             Compat::V0_19_1 | Compat::V0_19_2 => {
@@ -76,6 +80,7 @@ impl Version {
         }
     }
 
+    /// `bumpMinor`: the next minor release, its patch number zero.
     pub fn bump_minor(self, compat: Compat) -> Version {
         match compat {
             Compat::V0_19_1 | Compat::V0_19_2 => {
@@ -88,6 +93,7 @@ impl Version {
         }
     }
 
+    /// `bumpMajor`: the next major release, its other numbers zero.
     pub fn bump_major(self, compat: Compat) -> Version {
         Version::wrapped(compat, self.major.wrapping_add(1), 0, 0)
     }
@@ -119,10 +125,17 @@ impl Version {
     /// `decoder`'s string parser: a version and nothing after it, failing
     /// with the position upstream reports.
     pub fn parse(bytes: &[u8], start: Cursor, compat: Compat) -> Result<Version, Position> {
-        let mut scan = Scan::new(bytes, start, compat);
-        let version = Version::scan(&mut scan).map_err(Cursor::position)?;
-        scan.finish().map_err(Cursor::position)?;
-        Ok(version)
+        scan::whole(bytes, start, compat, Version::scan)
+    }
+}
+
+/// [`Version::parse`] of all of `text`, as the newest release reads it.
+impl FromStr for Version {
+    type Err = Position;
+
+    fn from_str(text: &str) -> Result<Version, Position> {
+        let compat = Compat::LATEST;
+        Version::parse(text.as_bytes(), Cursor::start(compat), compat)
     }
 }
 
