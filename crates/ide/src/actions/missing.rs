@@ -34,7 +34,7 @@ pub(super) fn missing_patterns(message: &str) -> Vec<String> {
 pub(super) fn case_branch_edits(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> Vec<Edit> {
     let module = fixing.context.module;
     let text = &*module.text;
-    let case = match module.root.covering_element(diagnostic.range) {
+    let case = match module.root().covering_element(diagnostic.range) {
         SyntaxElement::Node(node) => node,
         SyntaxElement::Token(token) => match token.parent() {
             Some(parent) => parent,
@@ -187,7 +187,7 @@ pub(super) fn missing_field(
 pub(super) fn record_field_edits(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> FileEdits {
     let context = &fixing.context;
     let module = context.module;
-    let Some((owner, field)) = missing_field(&module.root, diagnostic) else {
+    let Some((owner, field)) = missing_field(&module.root(), diagnostic) else {
         return Vec::new();
     };
     // The record: the access's target, or the update's.

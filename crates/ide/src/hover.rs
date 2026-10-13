@@ -52,7 +52,7 @@ pub fn hover(snapshot: &Snapshot, index: &Index, path: &Path, offset: TextSize) 
     let typed = |range: TextRange| -> Option<String> {
         let declaring = declaring?;
         let (_, types) = declaring.types(index.compat)?;
-        let ty = type_of(&declaring.root, types, range)?;
+        let ty = type_of(&declaring.root(), types, range)?;
         Some(render_error(&localizer, ty))
     };
     let markdown = match parent.kind() {
@@ -107,7 +107,7 @@ pub fn hover(snapshot: &Snapshot, index: &Index, path: &Path, offset: TextSize) 
             } else {
                 // A record update's base has no type of its own to
                 // elm-language-server, so nothing to link to.
-                let base = (module.root.token_at_offset(offset))
+                let base = (module.root().token_at_offset(offset))
                     .find(|t| t.kind() == SyntaxKind::LowerIdent)
                     .and_then(|t| t.parent())
                     .is_some_and(|p| p.kind() == SyntaxKind::RecordUpdateExpr);
@@ -279,12 +279,12 @@ pub(crate) fn definition_type(
     let top = (definition.parent()).is_some_and(|d| d.kind() == SyntaxKind::ValueDecl);
     if top {
         let name = token(definition, SyntaxKind::LowerIdent)?;
-        let ty = value_type(index, Some(module), &module.root, &name)?;
+        let ty = value_type(index, Some(module), &module.root(), &name)?;
         return Some(render(&names, &ty));
     }
     let (_, types) = module.types(index.compat)?;
     composed(definition, |range| {
-        type_of(&module.root, types, range).map(|ty| render_error(&names, ty))
+        type_of(&module.root(), types, range).map(|ty| render_error(&names, ty))
     })
 }
 

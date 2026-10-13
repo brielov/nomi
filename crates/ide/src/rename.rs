@@ -33,7 +33,7 @@ pub fn prepare_rename(
     offset: TextSize,
 ) -> Result<Option<TextRange>, &'static str> {
     let module = index.module(path).ok_or(OUTSIDE)?;
-    let Some(token) = named_token(&module.root, offset) else {
+    let Some(token) = named_token(&module.root(), offset) else {
         return Ok(None);
     };
     outside(snapshot, index, path, offset)?;
@@ -65,7 +65,7 @@ pub fn rename(
     new_name: &str,
 ) -> Result<Option<Rename>, &'static str> {
     let module = index.module(path).ok_or(OUTSIDE)?;
-    let Some(token) = named_token(&module.root, offset) else {
+    let Some(token) = named_token(&module.root(), offset) else {
         return Ok(None);
     };
     outside(snapshot, index, path, offset)?;

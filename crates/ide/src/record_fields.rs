@@ -26,7 +26,7 @@ pub(crate) fn after(
     dot: TextSize,
     range: TextRange,
 ) -> Vec<Completion> {
-    let root = &module.root;
+    let root = &module.root();
     let text = &*module.text;
     let at = usize::from(dot);
     let name_start = text[..at]
@@ -189,7 +189,7 @@ pub(crate) fn inside(
     let at = usize::from(range.start());
     let open = open_brace(text, at)?;
     // A record type's field is named, not completed: the general list.
-    let brace = (module.root.token_at_offset(TextSize::new(open as u32))).right_biased();
+    let brace = (module.root().token_at_offset(TextSize::new(open as u32))).right_biased();
     if brace.and_then(|t| t.parent()).is_some_and(|p| {
         matches!(
             p.kind(),
@@ -327,7 +327,7 @@ pub(crate) fn alias_declaration(
 /// of the parameter binding it, the field a record pattern binds it as,
 /// or the function it names.
 fn alias_of_name(index: &Index, module: &Indexed, at: TextSize, name: &str) -> Option<Alias> {
-    let root = &module.root;
+    let root = &module.root();
     if let Some((binder, _)) = crate::scopes::local(root, at) {
         let token = root.token_at_offset(binder.start()).right_biased()?;
         let parent = token.parent()?;
@@ -396,7 +396,7 @@ fn pattern_fields(
     open: TextSize,
     range: TextRange,
 ) -> Vec<Completion> {
-    let root = &module.root;
+    let root = &module.root();
     let pattern = root
         .token_at_offset(open)
         .right_biased()
@@ -471,7 +471,7 @@ fn outer_field_alias(
 
 /// The alias the function around `at` returns.
 fn returned_alias(index: &Index, module: &Indexed, at: TextSize) -> Option<Alias> {
-    let token = module.root.token_at_offset(at).right_biased()?;
+    let token = module.root().token_at_offset(at).right_biased()?;
     let decl = token
         .parent_ancestors()
         .find(|a| matches!(a.kind(), SyntaxKind::ValueDecl | SyntaxKind::LetValue))?;
@@ -490,13 +490,13 @@ fn named_alias_by_name(index: &Index, module: &Indexed, name: &str) -> Option<Al
             .filter(|n| n.kind() == SyntaxKind::TypeAliasDecl)
             .find(|d| token(d, SyntaxKind::UpperIdent).as_deref() == Some(name))
     };
-    if let Some(decl) = declares(&module.root) {
+    if let Some(decl) = declares(&module.root()) {
         return Some(Alias { decl });
     }
     index
         .modules
         .iter()
-        .find_map(|m| declares(&m.root))
+        .find_map(|m| declares(&m.root()))
         .map(|decl| Alias { decl })
 }
 
@@ -511,13 +511,13 @@ fn named_alias(index: &Index, module: &Indexed, ty: &SyntaxNode) -> Option<Alias
             .filter(|n| n.kind() == SyntaxKind::TypeAliasDecl)
             .find(|d| token(d, SyntaxKind::UpperIdent).as_deref() == Some(name.as_str()))
     };
-    if let Some(decl) = declares(&module.root) {
+    if let Some(decl) = declares(&module.root()) {
         return Some(Alias { decl });
     }
     index
         .modules
         .iter()
-        .find_map(|m| declares(&m.root))
+        .find_map(|m| declares(&m.root()))
         .map(|decl| Alias { decl })
 }
 

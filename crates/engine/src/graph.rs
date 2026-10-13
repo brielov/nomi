@@ -478,6 +478,83 @@ fn module_file(name: &ModuleName, ext: &str) -> Option<PathBuf> {
     Some(file)
 }
 
+/// What each path's latest text read as, kept for the next build, as an
+/// editor's checks read a project's unchanged files again and again.
+struct Read {
+    text: Arc<str>,
+    tool: Tool,
+    core: bool,
+    expected: Option<ModuleName>,
+    read: Result<Module, BadModule>,
+}
+
+/// Whether reads are kept, as a long-lived process such as the language
+/// server wants and a one-off build doesn't, whose trees go when it's done.
+static KEEP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Keeps each file's read for the next build while its text is the same.
+pub fn keep_reads() {
+    KEEP.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+impl Read {
+    fn kept() -> bool {
+        KEEP.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn all() -> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, Read>> {
+        static ALL: std::sync::OnceLock<
+            std::sync::Mutex<std::collections::HashMap<PathBuf, Read>>,
+        > = std::sync::OnceLock::new();
+        ALL.get_or_init(Default::default)
+    }
+
+    fn cached(
+        path: &Path,
+        text: &str,
+        tool: Tool,
+        core: bool,
+        expected: Option<&ModuleName>,
+    ) -> Option<Result<Module, BadModule>> {
+        if !Self::kept() {
+            return None;
+        }
+        let all = Self::all()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let kept = all.get(path)?;
+        (*kept.text == *text
+            && kept.tool == tool
+            && kept.core == core
+            && kept.expected.as_ref() == expected)
+            .then(|| kept.read.clone())
+    }
+
+    fn keep(
+        path: PathBuf,
+        text: Arc<str>,
+        tool: Tool,
+        core: bool,
+        expected: Option<&ModuleName>,
+        read: &Result<Module, BadModule>,
+    ) {
+        if !Self::kept() {
+            return;
+        }
+        let kept = Read {
+            text,
+            tool,
+            core,
+            expected: expected.cloned(),
+            read: read.clone(),
+        };
+        (Self::all()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner))
+        .insert(path, kept);
+    }
+}
+
 /// `crawlFile`, or with no name `expected`, `crawlRoot`'s parse of a file
 /// outside the source directories.
 fn read(
@@ -517,7 +594,34 @@ fn read_file(
         }
         Err(e) => return Err(unreadable(&path, e)),
     };
+    let tool = Tool::Elm(env.owner.source(), env.compat);
+    let core = env.owner.is_core();
+    if let Some(read) = Read::cached(&path, &text, tool, core, expected) {
+        // Its file as this snapshot numbers it.
+        return match read {
+            Ok(module) => Ok(Module { file, ..module }),
+            Err(bad) => Err(BadModule {
+                source: bad.source.map(|(_, text)| (file, text)),
+                ..bad
+            }),
+        };
+    }
+    let read = read_text(env, path.clone(), expected, file, text.clone(), tool);
+    Read::keep(path, text, tool, core, expected, &read);
+    read
+}
+
+/// What a file's text reads as, where its text decides it all.
+fn read_text(
+    env: &Env,
+    path: PathBuf,
+    expected: Option<&ModuleName>,
+    file: FileId,
+    text: Arc<str>,
+    tool: Tool,
+) -> Result<Module, BadModule> {
     let parse = parse_module(&text);
+    let validated = validate(&parse, tool);
     let bad = |problem| BadModule {
         path: path.clone(),
         source: Some((file, text.clone())),
@@ -525,7 +629,7 @@ fn read_file(
         problem,
     };
     let mut errors = parse.errors().to_vec();
-    errors.extend(validate(&parse, Tool::Elm(env.owner.source(), env.compat)));
+    errors.extend(validated);
     if !errors.is_empty() {
         errors.sort_by_key(|e| e.range.start());
         return Err(bad(ModuleProblem::Syntax(errors)));

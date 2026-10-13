@@ -922,7 +922,25 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
     nomi uses less memory on the two smaller apps (46 to 94 MiB against 140 to 232) and more on exosphere (790 MiB to 1 GiB against 345 to 424), and more CPU on exosphere's saves and completions, where its pool works in the background.
   - Found on the way: completion parsed every importable module and walked every package's directory again for each item it described (670 ms on todomvc), now read once per completion, package modules' trees kept for the process; and a module's types are inferred once per index. An index after an edit reuses each module whose text and project imports' interfaces are unchanged (2.8 s on exosphere, now 72 ms), and the diagnostics worker keeps its last one too, rather than build a fresh one for each check of a project with ports. Indexing resolved each module's path against each other's on disk, 90,000 `realpath` calls on exosphere. A check of the project reuses nomi's artifact cache, as `nomi make` does.
   - The server is ready once it goes quiet after `initialized`: elm-language-server takes no notice of a file opened while it reads the project. A version manager's `node` runs the real one as its child, so CPU and memory are the whole process tree's.
-- [ ] **9.22b** `lsp: performance budgets`. nomi wins each cell of 9.22a's table, and keystroke to diagnostics is under 100 ms on the Ryzen 7, on exosphere too.
+- [x] **9.22b** `lsp: performance budgets`. nomi wins each cell of 9.22a's table, and keystroke to diagnostics is under 100 ms on the Ryzen 7, on exosphere too.
+  - **Done:** nomi wins all 27 cells, and save to diagnostics on exosphere is 27 ms:
+
+    | workload | elm-language-server | nomi | CPU | nomi CPU | memory | nomi memory |
+    |---|--:|--:|--:|--:|--:|--:|
+    | todomvc: first diagnostics | 155 ms | 62 ms | 880 ms | 240 ms | 189 MiB | 60 MiB |
+    | todomvc: save to diagnostics | 76 ms | 6.5 ms | 87 ms | 15 ms | 210 MiB | 70 MiB |
+    | todomvc: completion | 43 ms | 31 ms | 90 ms | 20 ms | 210 MiB | 79 MiB |
+    | elm-spa-example: first diagnostics | 266 ms | 109 ms | 1.20 s | 510 ms | 278 MiB | 82 MiB |
+    | elm-spa-example: save to diagnostics | 81 ms | 9.5 ms | 100 ms | 32 ms | 278 MiB | 89 MiB |
+    | elm-spa-example: completion | 36 ms | 35 ms | 113 ms | 25 ms | 278 MiB | 105 MiB |
+    | exosphere: first diagnostics | 3.14 s | 2.65 s | 9.95 s | 9.10 s | 2730 MiB | 890 MiB |
+    | exosphere: save to diagnostics | 130 ms | 27 ms | 182 ms | 88 ms | 2730 MiB | 890 MiB |
+    | exosphere: completion | 34 ms | 30 ms | 88 ms | 42 ms | 2730 MiB | 890 MiB |
+
+  - Memory is now the process tree's resident set sampled every 20 ms: the high-water marks at a part's end missed elm-language-server's `elm make` runs, which had exited, and which reach 2.7 GB on exosphere.
+  - Requests and the diagnostics worker share one index per project, built from the last, rather than one each; an indexed module keeps its green tree, which threads share, and makes a cursor into it when asked. The worker indexes while it checks, not after.
+  - The language server keeps each file's read (its parse, header and imports) while its text is the same, and the virtual file system remembers each path as given: with a file open, every lookup of an import resolved its path on disk.
+  - Completion keeps what each module exposes, and package declarations' hints, for the life of the process, and reads trees only for the auto-imports it shows; their ranking keys are worked out once.
 - [ ] **9.23** `release: 0.3`. Editor setup for VS Code, Neovim, Helix and Zed.
 
 **Exit:** transcript parity, budgets met, and you've used it on a real project.

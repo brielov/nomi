@@ -35,7 +35,7 @@ use lsp_types::{
 use nomi_base::{ColumnUnit, TextSize};
 use nomi_engine::index::{self, Index, Memo};
 use nomi_engine::paths::Cache;
-use nomi_engine::{Revision, Snapshot, Store, Vfs};
+use nomi_engine::{Snapshot, Store, Vfs};
 use serde_json::Value;
 
 use diagnostics::{Diagnostics, Job, Settings, Shared};
@@ -98,6 +98,8 @@ pub fn serve_with(
     memo: Memo,
     artifacts: Option<nomi_engine::artifacts::Artifacts>,
 ) -> Result<(), Error> {
+    // Checks and indexes read the same files again and again.
+    nomi_engine::graph::keep_reads();
     let (id, params) = connection.initialize_start()?;
     let params: InitializeParams = serde_json::from_value(params).map_err(Error::Initialize)?;
     let offered = params
@@ -190,7 +192,9 @@ pub fn serve_with(
     let publishing = Arc::new(Mutex::new(()));
     let memo = Arc::new(Mutex::new(memo));
     let latest = Arc::new(Mutex::new(HashMap::new()));
+    let indexes = Arc::new(indexes::Indexes::default());
     let diagnostics = Diagnostics::start(Shared {
+        indexes: indexes.clone(),
         store: store.clone(),
         artifacts,
         memo: memo.clone(),
@@ -208,7 +212,7 @@ pub fn serve_with(
         sender: connection.sender.clone(),
         store,
         memo,
-        index: None,
+        indexes,
         diagnostics,
         settings,
         pulls_settings,
@@ -250,6 +254,7 @@ pub fn serve_with(
 }
 
 mod edits;
+mod indexes;
 
 use edits::{INSTALL_PACKAGE, Install, install_package};
 
@@ -272,7 +277,7 @@ struct Server {
     /// The last project index, its revision and its `elm.json`: indexing
     /// a project takes a while, and navigation asks again and again
     /// between edits.
-    index: Option<(Revision, PathBuf, Index)>,
+    indexes: Arc<indexes::Indexes>,
     diagnostics: Diagnostics,
     settings: Arc<Mutex<Settings>>,
     /// Whether the client answers `workspace/configuration`.
@@ -599,25 +604,12 @@ impl Server {
 
     /// The index of the project that owns `path`, made anew only when the
     /// editor's text changed since the last.
-    fn index(&mut self, snapshot: &Snapshot, path: &Path) -> Option<&Index> {
-        let manifest = index::manifest(snapshot, path)?;
-        let revision = snapshot.revision();
-        let fresh = (self.index.as_ref()).is_some_and(|(r, m, _)| *r == revision && *m == manifest);
-        if !fresh {
-            // The last index of the project, whose unchanged modules this
-            // one takes as they were.
-            let previous =
-                (self.index.take()).and_then(|(_, m, index)| (m == manifest).then_some(index));
-            let index = {
-                let mut memo = self
-                    .memo
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                index::index_from(snapshot, &self.store, path, &mut memo, previous.as_ref())?
-            };
-            self.index = Some((revision, manifest, index));
-        }
-        self.index.as_ref().map(|(_, _, index)| index)
+    fn index(&mut self, snapshot: &Snapshot, path: &Path) -> Option<Arc<Index>> {
+        let mut memo = self
+            .memo
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.indexes.get(snapshot, &self.store, &mut memo, path)
     }
 
     /// `location` as the protocol names it, its file read through the
@@ -639,7 +631,7 @@ impl Server {
         let path = document.path.clone();
         let snapshot = self.vfs.snapshot();
         let found = (self.index(&snapshot, &path))
-            .and_then(|index| nomi_ide::definition(&snapshot, index, &path, offset));
+            .and_then(|index| nomi_ide::definition(&snapshot, &index, &path, offset));
         let response = (found.as_ref())
             .and_then(|l| self.location(&snapshot, l))
             .map(GotoDefinitionResponse::Scalar);
@@ -723,7 +715,7 @@ impl Server {
             return Ok(Value::Array(Vec::new()));
         };
         let mut found = Vec::new();
-        for (file, symbol) in nomi_ide::workspace_symbols(&snapshot, index, query) {
+        for (file, symbol) in nomi_ide::workspace_symbols(&snapshot, &index, query) {
             let (Ok(uri), Ok(text)) = (Url::from_file_path(&file), snapshot.read(&file)) else {
                 continue;
             };
@@ -751,7 +743,7 @@ impl Server {
         let Some(index) = self.index(&snapshot, &path) else {
             return Ok(Value::Null);
         };
-        let range = nomi_ide::prepare_rename(&snapshot, index, &path, offset)
+        let range = nomi_ide::prepare_rename(&snapshot, &index, &path, offset)
             .map_err(|message| (ErrorCode::RequestFailed, message.to_owned()))?;
         let text = Text::new(&text, self.unit);
         Ok(serde_json::to_value(range.map(|r| text.range(r))).expect("a range serializes"))
@@ -768,7 +760,7 @@ impl Server {
         let Some(index) = self.index(&snapshot, &path) else {
             return Ok(Value::Null);
         };
-        let Some(found) = nomi_ide::rename(&snapshot, index, &path, offset, new_name)
+        let Some(found) = nomi_ide::rename(&snapshot, &index, &path, offset, new_name)
             .map_err(|message| (ErrorCode::RequestFailed, message.to_owned()))?
         else {
             return Ok(Value::Null);
@@ -810,7 +802,7 @@ impl Server {
         let path = document.path.clone();
         let snapshot = self.vfs.snapshot();
         let found = (self.index(&snapshot, &path))
-            .and_then(|index| nomi_ide::type_definition(&snapshot, index, &path, offset));
+            .and_then(|index| nomi_ide::type_definition(&snapshot, &index, &path, offset));
         let response = (found.as_ref())
             .and_then(|l| self.location(&snapshot, l))
             .map(GotoDefinitionResponse::Scalar);
@@ -826,7 +818,7 @@ impl Server {
         let path = document.path.clone();
         let snapshot = self.vfs.snapshot();
         let found = (self.index(&snapshot, &path))
-            .map(|index| nomi_ide::references(&snapshot, index, &path, offset, with_declaration))
+            .map(|index| nomi_ide::references(&snapshot, &index, &path, offset, with_declaration))
             .unwrap_or_default();
         let locations: Vec<Location> = (found.iter())
             .filter_map(|l| self.location(&snapshot, l))
@@ -897,7 +889,7 @@ impl Server {
             }
             Some(value)
         }
-        let suites: Vec<Value> = (nomi_ide::find_tests(index, &root).iter())
+        let suites: Vec<Value> = (nomi_ide::find_tests(&index, &root).iter())
             .filter_map(|s| json(s, &snapshot, unit))
             .collect();
         Ok(serde_json::json!({ "suites": suites }))
@@ -977,7 +969,7 @@ impl Server {
             Some("referenceCounter") => {
                 let offset = text.offset(lens.range.start);
                 let found = (self.index(&snapshot, &path))
-                    .map(|index| nomi_ide::references(&snapshot, index, &path, offset, true))
+                    .map(|index| nomi_ide::references(&snapshot, &index, &path, offset, true))
                     .unwrap_or_default();
                 let locations: Vec<Location> = (found.iter())
                     .filter_map(|l| self.location(&snapshot, l))
@@ -1008,7 +1000,7 @@ impl Server {
         let path = document.path.clone();
         let snapshot = self.vfs.snapshot();
         let found = (self.index(&snapshot, &path))
-            .map(|index| nomi_ide::highlights(&snapshot, index, &path, offset))
+            .map(|index| nomi_ide::highlights(&snapshot, &index, &path, offset))
             .unwrap_or_default();
         let document = self.document(&position.text_document.uri)?;
         let text = Text::new(&document.text, self.unit);
@@ -1031,7 +1023,7 @@ impl Server {
         let path = document.path.clone();
         let snapshot = self.vfs.snapshot();
         let found = (self.index(&snapshot, &path))
-            .and_then(|index| nomi_ide::hover(&snapshot, index, &path, offset));
+            .and_then(|index| nomi_ide::hover(&snapshot, &index, &path, offset));
         let response = found.map(|h| {
             let mut value = h.markdown;
             // As elm-language-server links a parameter's type: to its
@@ -1061,7 +1053,7 @@ impl Server {
         let (path, text) = (document.path.clone(), document.text.clone());
         let snapshot = self.vfs.snapshot();
         let found = (self.index(&snapshot, &path))
-            .and_then(|index| nomi_ide::completions(&snapshot, index, &path, offset));
+            .and_then(|index| nomi_ide::completions(&snapshot, &index, &path, offset));
         let text = Text::new(&text, self.unit);
         let details = self.label_details;
         let items = |items: Vec<nomi_ide::Completion>| -> Vec<Value> {

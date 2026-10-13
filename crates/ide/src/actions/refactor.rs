@@ -7,7 +7,7 @@ use super::*;
 /// definition whose name is at `range`, at its column.
 pub(super) fn annotation_edits(context: &Context<'_>, range: TextRange) -> Option<Vec<Edit>> {
     let module = context.module;
-    let token = token_at(&module.root, range.start())?;
+    let token = token_at(&module.root(), range.start())?;
     let definition = definition_name(&token)?;
     let ty = crate::hover::definition_type(context.index, module, &definition)?;
     let start = token.text_range().start();
@@ -48,7 +48,7 @@ pub(super) fn refactors(
     given: &[Diagnosed],
 ) -> Vec<Refactor> {
     let mut found = Vec::new();
-    let root = &fixing.context.module.root;
+    let root = &fixing.context.module.root();
     let text = &*fixing.context.module.text;
     let Some(token) = token_at(root, range.start()) else {
         return found;
@@ -231,17 +231,19 @@ pub(super) fn refactor_edits_in(
         | "expose_function"
         | "expose_type"
         | "expose_type_with_variants" => {
-            let token = token_at(&module.root, range.start())?;
+            let token = token_at(&module.root(), range.start())?;
             let name = match signature_type(&token) {
                 Some(ty) => written(&module.text, &ty).to_owned(),
                 None => token.text().to_owned(),
             };
             let edit = match action {
                 "expose_function" | "expose_type" => {
-                    expose_edit(&module.root, &module.text, &name, false)
+                    expose_edit(&module.root(), &module.text, &name, false)
                 }
-                "expose_type_with_variants" => expose_edit(&module.root, &module.text, &name, true),
-                _ => unexpose_edit(&module.root, &module.text, &name),
+                "expose_type_with_variants" => {
+                    expose_edit(&module.root(), &module.text, &name, true)
+                }
+                _ => unexpose_edit(&module.root(), &module.text, &name),
             };
             edit.map(|edit| (vec![edit], None))
         }

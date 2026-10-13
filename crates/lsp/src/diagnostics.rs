@@ -157,6 +157,8 @@ pub(crate) struct Diagnostics {
 /// What the worker shares with the server.
 pub(crate) struct Shared {
     pub store: Store,
+    /// The indexes the requests share.
+    pub indexes: Arc<crate::indexes::Indexes>,
     /// nomi's artifact cache, which checks reuse as `nomi make` does.
     pub artifacts: Option<nomi_engine::artifacts::Artifacts>,
     pub memo: Arc<Mutex<Memo>>,
@@ -187,8 +189,6 @@ fn work(shared: &Shared, jobs: &Receiver<Job>) {
     // elm-review's problems by file, from the last open or save that ran
     // it, less the files changed since.
     let mut reviewed: HashMap<PathBuf, Vec<Problem>> = HashMap::new();
-    // The last index, by project, whose unchanged modules the next takes.
-    let mut indexes: HashMap<PathBuf, index::Index> = HashMap::new();
     while let Ok(mut job) = jobs.recv() {
         let mut saved = job.saved;
         let mut changed = std::mem::take(&mut job.changed);
@@ -223,7 +223,7 @@ fn work(shared: &Shared, jobs: &Receiver<Job>) {
         // publishes none for it rather than end diagnostics for the
         // session, or leave the client waiting.
         let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let found = problems(shared, &job, &settings, saved, &mut reviewed, &mut indexes);
+            let found = problems(shared, &job, &settings, saved, &mut reviewed);
             let mut by_file: HashMap<PathBuf, Vec<Problem>> = HashMap::new();
             for problem in &found {
                 by_file
@@ -273,7 +273,6 @@ fn problems(
     settings: &Settings,
     saved: bool,
     reviewed: &mut HashMap<PathBuf, Vec<Problem>>,
-    indexes: &mut HashMap<PathBuf, index::Index>,
 ) -> Vec<Problem> {
     let snapshot = &job.snapshot;
     let mut projects: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
@@ -294,14 +293,45 @@ fn problems(
     for (manifest, open) in projects {
         let root = manifest.parent().unwrap_or(Path::new(""));
         let before = found.len();
-        match live::check(
-            snapshot,
-            &shared.store,
-            &manifest,
-            &open,
-            &mut memo,
-            shared.artifacts.as_ref(),
-        ) {
+        let analyse = Analyse::read(snapshot, root);
+        let open_read: Vec<&PathBuf> = open.iter().filter(|p| !analyse.excludes(p)).collect();
+        let annotations = !settings.on_save_only && analyse.checks.on("MissingTypeAnnotation");
+        // Indexing takes a while; only annotations and ports need it, and
+        // it goes on while the project is checked.
+        let ports = open_read
+            .iter()
+            .any(|p| snapshot.read(p).is_ok_and(|t| t.contains("port ")));
+        let wanted = (annotations || (settings.lint() && ports))
+            .then(|| open_read.first())
+            .flatten();
+        let (checked, index) = std::thread::scope(|scope| {
+            let indexing = wanted.map(|first| {
+                let mut memo = memo.clone();
+                scope.spawn(move || {
+                    let index = shared
+                        .indexes
+                        .get(snapshot, &shared.store, &mut memo, first);
+                    (index, memo)
+                })
+            });
+            let checked = live::check(
+                snapshot,
+                &shared.store,
+                &manifest,
+                &open,
+                &mut memo,
+                shared.artifacts.as_ref(),
+            );
+            let index =
+                indexing
+                    .and_then(|thread| thread.join().ok())
+                    .and_then(|(index, built)| {
+                        memo.extend(built);
+                        index
+                    });
+            (checked, index)
+        });
+        match checked {
             Some(live) => found.extend(nomi_ide::compiler_problems(snapshot, &live, &open)),
             None => {
                 for path in &open {
@@ -329,32 +359,18 @@ fn problems(
             .collect();
         review_found.sort_by(|a, b| (&a.path, a.range.start()).cmp(&(&b.path, b.range.start())));
         found.extend(review_found.into_iter().cloned());
-        let analyse = Analyse::read(snapshot, root);
-        let open: Vec<&PathBuf> = open.iter().filter(|p| !analyse.excludes(p)).collect();
-        let annotations = !settings.on_save_only && analyse.checks.on("MissingTypeAnnotation");
-        // Indexing takes a while; only annotations and ports need it.
-        let ports = || {
-            open.iter()
-                .any(|p| snapshot.read(p).is_ok_and(|t| t.contains("port ")))
-        };
-        let index = match open.first() {
-            Some(first) if annotations || (settings.lint() && ports()) => {
-                let previous = indexes.remove(&manifest);
-                let index =
-                    index::index_from(snapshot, &shared.store, first, &mut memo, previous.as_ref());
-                if let Some(index) = index {
-                    indexes.insert(manifest.clone(), index);
-                }
-                indexes.get(&manifest)
-            }
-            _ => None,
-        };
+        let open = open_read;
         if settings.lint() {
             for path in &open {
-                found.extend(nomi_ide::lint(snapshot, index, path, &analyse.checks));
+                found.extend(nomi_ide::lint(
+                    snapshot,
+                    index.as_deref(),
+                    path,
+                    &analyse.checks,
+                ));
             }
         }
-        if annotations && let Some(index) = index {
+        if annotations && let Some(index) = &index {
             for path in &open {
                 found.extend(nomi_ide::missing_annotations(index, path));
             }

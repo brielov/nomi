@@ -400,7 +400,7 @@ pub fn code_actions(
     };
     // None when the module doesn't parse at the top.
     if module
-        .root
+        .root()
         .first_child()
         .is_some_and(|n| n.kind() == SyntaxKind::Error)
     {
@@ -408,7 +408,7 @@ pub fn code_actions(
     }
     let fixing = Fixing {
         context: Context::new(snapshot, index, module, path),
-        program: program_diagnostics(&module.root, &module.text, request.problems),
+        program: program_diagnostics(&module.root(), &module.text, request.problems),
         packages: request.packages,
         given: request.given,
         move_function: request.move_function,

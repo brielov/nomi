@@ -45,6 +45,9 @@ struct Files(RwLock<Interner>);
 struct Interner {
     ids: HashMap<PathBuf, FileId>,
     paths: Vec<Arc<Path>>,
+    /// Each path as it was given, so that a file asked for again needn't
+    /// be resolved on disk again: a build asks for each import's.
+    given: HashMap<PathBuf, FileId>,
 }
 
 /// The files as they were at one revision. The editor's text is frozen;
@@ -60,12 +63,15 @@ pub struct Snapshot {
 
 impl Files {
     fn id(&self, path: &Path) -> io::Result<FileId> {
-        let path = canonical(path)?;
-        if let Some(&id) = self.0.read().unwrap().ids.get(&path) {
+        let known = self.0.read().unwrap().given.get(path).copied();
+        if let Some(id) = known {
             return Ok(id);
         }
+        let given = path;
+        let path = canonical(path)?;
         let mut interner = self.0.write().unwrap();
         if let Some(&id) = interner.ids.get(&path) {
+            interner.given.insert(given.to_owned(), id);
             return Ok(id);
         }
         let raw = u32::try_from(interner.paths.len())
@@ -73,6 +79,7 @@ impl Files {
         let id = FileId::from_raw(raw);
         interner.paths.push(Arc::from(path.as_path()));
         interner.ids.insert(path, id);
+        interner.given.insert(given.to_owned(), id);
         Ok(id)
     }
 

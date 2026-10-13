@@ -26,7 +26,7 @@ pub(crate) fn definition(
     if let Some(declared) = declaration_at(module, offset) {
         return Some(declared);
     }
-    written(&module.root, offset)?;
+    written(&module.root(), offset)?;
     let (_, types) = module.types(index.compat)?;
     resolve(snapshot, index, module, types, offset)
 }
@@ -61,10 +61,10 @@ pub(crate) fn references(
         });
     }
     for other in &index.modules {
-        let uses: Vec<_> = (other.root.descendants_with_tokens())
+        let uses: Vec<_> = (other.root().descendants_with_tokens())
             .filter_map(|e| e.into_token())
             .filter(|t| t.kind() == SyntaxKind::LowerIdent && t.text() == name.text())
-            .filter(|t| written(&other.root, t.text_range().start()).is_some())
+            .filter(|t| written(&other.root(), t.text_range().start()).is_some())
             .collect();
         if uses.is_empty() {
             continue;
@@ -90,7 +90,7 @@ pub(crate) fn references(
 /// types.
 fn declaration_at(module: &Indexed, offset: TextSize) -> Option<Location> {
     let token =
-        (module.root.token_at_offset(offset)).find(|t| t.kind() == SyntaxKind::LowerIdent)?;
+        (module.root().token_at_offset(offset)).find(|t| t.kind() == SyntaxKind::LowerIdent)?;
     let field = token
         .parent()
         .filter(|p| p.kind() == SyntaxKind::FieldType)?;
@@ -108,7 +108,7 @@ fn resolve(
     types: &types::ExprTypes,
     offset: TextSize,
 ) -> Option<Location> {
-    let (record, field) = written(&module.root, offset)?;
+    let (record, field) = written(&module.root(), offset)?;
     let range = code_range(&record)?;
     // A node is typed as what its context expects; a variable's alias is
     // its binding's, typed from the annotation.
@@ -120,12 +120,12 @@ fn resolve(
                 nomi_compiler::canonicalize::references::Target::Local(binder) => Some(binder),
                 _ => None,
             })
-            .or_else(|| crate::scopes::local(&module.root, range.start()).map(|(b, _)| b));
+            .or_else(|| crate::scopes::local(&module.root(), range.start()).map(|(b, _)| b));
         ranges.extend(bound);
     }
     let typed: Vec<&error::Type> = (types.iter())
         .filter(|(r, _)| {
-            let r = crate::hover::trimmed(&module.root, *r);
+            let r = crate::hover::trimmed(&module.root(), *r);
             r.is_some_and(|r| ranges.contains(&r))
         })
         .map(|(_, ty)| ty)
@@ -160,7 +160,7 @@ fn structural(index: &Index, ty: &error::Type, field: &str) -> Option<Location> 
     let mut found = Vec::new();
     for module in &index.modules {
         for record in module
-            .root
+            .root()
             .descendants()
             .filter(|n| n.kind() == SyntaxKind::RecordType)
         {

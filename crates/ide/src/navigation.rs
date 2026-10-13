@@ -31,7 +31,7 @@ pub fn definition(
     offset: TextSize,
 ) -> Option<Location> {
     let module = index.module(path)?;
-    if let Some((declared, _)) = type_variable(&module.root, offset) {
+    if let Some((declared, _)) = type_variable(&module.root(), offset) {
         return Some(Location {
             path: module.path.clone(),
             range: declared,
@@ -40,7 +40,7 @@ pub fn definition(
     if let Some(found) = crate::fields::definition(snapshot, index, module, offset) {
         return Some(found);
     }
-    if let Some(name) = module_at(&module.root, offset) {
+    if let Some(name) = module_at(&module.root(), offset) {
         let path = module_path(index, &name)?;
         let text = snapshot.read(&path).ok()?;
         let root = parse_module(&text).syntax();
@@ -54,10 +54,10 @@ pub fn definition(
     }
     let Some(target) = target_at(index, module, offset) else {
         // Where canonicalization stopped short, a local by its syntax.
-        let (binder, _) = crate::scopes::local(&module.root, offset)?;
+        let (binder, _) = crate::scopes::local(&module.root(), offset)?;
         return Some(Location {
             path: module.path.clone(),
-            range: declaring_node(&module.root, binder).unwrap_or(binder),
+            range: declaring_node(&module.root(), binder).unwrap_or(binder),
         });
     };
     let found = declaration(snapshot, index, module, &target)?;
@@ -65,7 +65,7 @@ pub fn definition(
     let text = snapshot.read(&found.path).ok()?;
     let root = parse_module(&text).syntax();
     // A pattern can't match on a record alias's constructor.
-    let in_pattern = (module.root.token_at_offset(offset).right_biased()).is_some_and(|t| {
+    let in_pattern = (module.root().token_at_offset(offset).right_biased()).is_some_and(|t| {
         t.parent_ancestors()
             .any(|a| a.kind() == SyntaxKind::ConstructorPattern)
     });
@@ -156,7 +156,7 @@ pub fn type_definition(
     let module = index.module(path)?;
     let (_, types) = module.types(index.compat)?;
     let (innermost, ty) = (types.iter())
-        .filter_map(|(range, ty)| Some((crate::hover::trimmed(&module.root, *range)?, ty)))
+        .filter_map(|(range, ty)| Some((crate::hover::trimmed(&module.root(), *range)?, ty)))
         .filter(|(range, _)| range.contains_inclusive(offset))
         .min_by_key(|(range, _)| range.len())?;
     // A variable's context may have taken its alias; its binding keeps it.
@@ -170,7 +170,7 @@ pub fn type_definition(
                     _ => None,
                 })?;
             (types.iter())
-                .filter(|(range, _)| crate::hover::trimmed(&module.root, *range) == Some(binder))
+                .filter(|(range, _)| crate::hover::trimmed(&module.root(), *range) == Some(binder))
                 .map(|(_, ty)| ty)
                 .find(|ty| named(ty))
         })
@@ -237,10 +237,10 @@ fn all_references(
     {
         return found;
     }
-    if let Some(name) = module_at(&module.root, offset) {
+    if let Some(name) = module_at(&module.root(), offset) {
         return module_references(index, &name, with_declaration);
     }
-    if let Some((declared, all)) = type_variable(&module.root, offset) {
+    if let Some((declared, all)) = type_variable(&module.root(), offset) {
         return (all.into_iter())
             .filter(|range| with_declaration || *range != declared)
             .map(|range| Location {
@@ -264,10 +264,10 @@ fn all_references(
         return module_references(index, "List", with_declaration);
     }
     let Some(target) = target else {
-        let Some((binder, scope)) = crate::scopes::local(&module.root, offset) else {
+        let Some((binder, scope)) = crate::scopes::local(&module.root(), offset) else {
             return Vec::new();
         };
-        return (crate::scopes::uses(&module.root, binder, &scope).into_iter())
+        return (crate::scopes::uses(&module.root(), binder, &scope).into_iter())
             .filter(|range| with_declaration || *range != binder)
             .map(|range| Location {
                 path: module.path.clone(),
@@ -280,7 +280,7 @@ fn all_references(
         // The annotation names the definition too.
         let annotation = (index.modules.iter())
             .find(|m| m.path == declared.path)
-            .and_then(|m| annotation_of(&m.root, declared.range));
+            .and_then(|m| annotation_of(&m.root(), declared.range));
         if let Some(range) = annotation {
             found.push(Location {
                 path: declared.path.clone(),
@@ -340,7 +340,7 @@ fn written_uses(index: &Index, module: &Indexed, target: &Target) -> Vec<TextRan
     let Target::Global { home, name, kind } = target else {
         return Vec::new();
     };
-    let imports: Vec<SyntaxNode> = (module.root.children())
+    let imports: Vec<SyntaxNode> = (module.root().children())
         .filter(|n| n.kind() == SyntaxKind::Import)
         .filter(|i| {
             i.children()
@@ -383,7 +383,7 @@ fn written_uses(index: &Index, module: &Indexed, target: &Target) -> Vec<TextRan
             })
     });
     let mut found = Vec::new();
-    for node in module.root.descendants() {
+    for node in module.root().descendants() {
         let fits = match node.kind() {
             SyntaxKind::NameExpr => match crate::lint::first_token(&node, SyntaxKind::UpperIdent) {
                 Some(_) => *kind == Kind::Ctor,
@@ -458,7 +458,7 @@ fn uses<'m>(module: &'m Indexed, target: &'m Target) -> impl Iterator<Item = Tex
             } else {
                 kind(&r.target)
             };
-            name_range(&module.root, r.range, kind)
+            name_range(&module.root(), r.range, kind)
         })
 }
 
@@ -473,7 +473,7 @@ fn kind(target: &Target) -> Option<Kind> {
 /// a reference, a top-level declaration, or a local's binding.
 fn target_at(index: &Index, module: &Indexed, offset: TextSize) -> Option<Target> {
     // An annotation's name is its definition's.
-    if let Some(name) = annotated(&module.root, offset) {
+    if let Some(name) = annotated(&module.root(), offset) {
         return target_at(index, module, name.start());
     }
     // So is an infix declaration's function.
@@ -489,8 +489,8 @@ fn target_at(index: &Index, module: &Indexed, offset: TextSize) -> Option<Target
         });
     }
     let at = |range: Option<TextRange>| range.is_some_and(|r| r.contains_inclusive(offset));
-    let used =
-        (module.references.iter()).find(|r| at(name_range(&module.root, r.range, kind(&r.target))));
+    let used = (module.references.iter())
+        .find(|r| at(name_range(&module.root(), r.range, kind(&r.target))));
     if let Some(reference) = used {
         return Some(reference.target.clone());
     }
@@ -503,7 +503,7 @@ fn target_at(index: &Index, module: &Indexed, offset: TextSize) -> Option<Target
         return Some(Target::Global { home, name, kind });
     }
     (module.references.iter()).find_map(|r| match r.target {
-        Target::Local(binder) if at(name_range(&module.root, binder, None)) => {
+        Target::Local(binder) if at(name_range(&module.root(), binder, None)) => {
             Some(r.target.clone())
         }
         _ => None,
@@ -588,7 +588,7 @@ fn module_references(index: &Index, name: &str, with_declaration: bool) -> Vec<L
         // qualifiers are the alias's. The default imports alias
         // `Platform.Cmd` and `Platform.Sub` everywhere.
         let aliased = matches!(name, "Platform.Cmd" | "Platform.Sub")
-            || (module.root.children())
+            || (module.root().children())
                 .filter(|n| n.kind() == SyntaxKind::Import)
                 .any(|i| {
                     i.children().any(|c| c.kind() == SyntaxKind::ImportAlias)
@@ -596,7 +596,7 @@ fn module_references(index: &Index, name: &str, with_declaration: bool) -> Vec<L
                             .find(|c| c.kind() == SyntaxKind::ModuleName)
                             .is_some_and(|n| crate::symbols::words(&n) == name)
                 });
-        for node in module.root.descendants() {
+        for node in module.root().descendants() {
             match node.kind() {
                 SyntaxKind::ModuleName => {
                     let header = node
@@ -775,7 +775,7 @@ fn declaration(
         Target::Local(binder) => {
             return Some(Location {
                 path: module.path.clone(),
-                range: name_range(&module.root, *binder, None)?,
+                range: name_range(&module.root(), *binder, None)?,
             });
         }
         Target::Global { home, name, kind } => (home, name, *kind),

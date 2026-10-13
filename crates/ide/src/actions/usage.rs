@@ -79,7 +79,7 @@ pub(super) fn line_start(text: &str, line: usize) -> TextSize {
 /// The missing value an unqualified name at `range` is, as a value's name
 /// written in an expression.
 pub(super) fn missing_local(fixing: &Fixing<'_>, range: TextRange) -> Option<SyntaxToken> {
-    let token = token_at(&fixing.context.module.root, range.start())?;
+    let token = token_at(&fixing.context.module.root(), range.start())?;
     (token.kind() == SyntaxKind::LowerIdent
         && token.text_range() == range
         && token
@@ -142,7 +142,7 @@ pub(super) fn external_function_edits(
 ) -> Vec<(String, PathBuf, Vec<Edit>)> {
     let (qualifier, name) = missing_name(fixing, range);
     let module = fixing.context.module;
-    let in_expression = match module.root.covering_element(range) {
+    let in_expression = match module.root().covering_element(range) {
         SyntaxElement::Node(node) => node.kind() == SyntaxKind::NameExpr,
         SyntaxElement::Token(token) => token
             .parent()
@@ -157,7 +157,7 @@ pub(super) fn external_function_edits(
         .map_or_else(|| "a".to_owned(), |ty| render_usage(fixing, ty));
     let arity = ty.as_ref().map_or(0, arity);
     let mut found = Vec::new();
-    for import in (module.root.children()).filter(|n| n.kind() == SyntaxKind::Import) {
+    for import in (module.root().children()).filter(|n| n.kind() == SyntaxKind::Import) {
         let Some(imported) =
             child(&import, SyntaxKind::ModuleName).map(|n| crate::symbols::words(&n))
         else {
@@ -301,7 +301,7 @@ pub(super) fn last_parameter_type(signature: &SyntaxNode) -> Option<TextSize> {
 pub(super) fn union_edits(fixing: &Fixing<'_>, range: TextRange) -> FileEdits {
     let context = &fixing.context;
     let module = context.module;
-    let Some(token) = token_at(&module.root, range.start()) else {
+    let Some(token) = token_at(&module.root(), range.start()) else {
         return Vec::new();
     };
     let in_expression = token
@@ -330,7 +330,7 @@ pub(super) fn union_edits(fixing: &Fixing<'_>, range: TextRange) -> FileEdits {
     let target = if *home.module == *module.name {
         Some(module)
     } else {
-        let imported = (module.root.children())
+        let imported = (module.root().children())
             .filter(|n| n.kind() == SyntaxKind::Import)
             .filter_map(|i| child(&i, SyntaxKind::ModuleName))
             .any(|n| crate::symbols::words(&n) == *home.module);
@@ -341,7 +341,7 @@ pub(super) fn union_edits(fixing: &Fixing<'_>, range: TextRange) -> FileEdits {
     let Some(target) = target else {
         return Vec::new();
     };
-    let Some(declaration) = (target.root.children()).find(|d| {
+    let Some(declaration) = (target.root().children()).find(|d| {
         d.kind() == SyntaxKind::CustomTypeDecl
             && crate::symbols::token(d, SyntaxKind::UpperIdent).as_deref() == Some(name.as_ref())
     }) else {

@@ -45,7 +45,7 @@ fn unused_edits(
     removed: Option<&mut RemovedImports>,
 ) -> (Option<String>, Vec<Edit>) {
     let module = fixing.context.module;
-    let (root, text) = (&module.root, &*module.text);
+    let (root, text) = (&module.root(), &*module.text);
     let range = diagnostic.range;
     let Some(token) = token_at(root, range.start()) else {
         return (None, Vec::new());
@@ -347,7 +347,7 @@ pub(super) fn parameter_removal_actions(fixing: &Fixing<'_>, _range: TextRange) 
 fn remove_parameter(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> Option<Offer> {
     let context = &fixing.context;
     let module = context.module;
-    let (root, text) = (&module.root, &*module.text);
+    let (root, text) = (&module.root(), &*module.text);
     let token = token_at(root, diagnostic.range.start())?;
     let parameter = token
         .parent()
@@ -420,7 +420,7 @@ fn remove_parameter(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> Option<Offer
         if !nomi_syntax::parse_module(&other.text).errors().is_empty() {
             return None;
         }
-        for reference in other.root.descendants().filter(|n| {
+        for reference in other.root().descendants().filter(|n| {
             matches!(
                 n.kind(),
                 SyntaxKind::NameExpr | SyntaxKind::RecordUpdateExpr
@@ -601,7 +601,7 @@ fn is_recursive(context: &Context<'_>, declaration: &SyntaxNode) -> bool {
                 continue;
             };
             let Some(at) = module
-                .root
+                .root()
                 .token_at_offset(found.range.start())
                 .right_biased()
             else {

@@ -61,7 +61,7 @@ pub fn move_function(
 ) -> Option<Vec<(PathBuf, Vec<MoveEdit>)>> {
     let module = index.module(source)?;
     let target = index.module(destination)?;
-    let (root, text) = (&module.root, &*module.text);
+    let (root, text) = (&module.root(), &*module.text);
     let token = token_at(root, offset)?;
     let parent = token.parent()?;
     let declaration = match parent.kind() {
@@ -104,7 +104,7 @@ pub fn move_function(
         (crate::references(snapshot, index, source, token.text_range().start(), true).into_iter())
             .filter_map(|location| {
                 let other = index.module(&location.path)?;
-                let at = token_at(&other.root, location.range.end() - TextSize::new(1))?;
+                let at = token_at(&other.root(), location.range.end() - TextSize::new(1))?;
                 let declaring = at.parent_ancestors().any(|a| {
                     matches!(a.kind(), SyntaxKind::ExposingList)
                         || (other.path == module.path
@@ -161,7 +161,7 @@ pub fn move_function(
         let Some(other) = index.module(path) else {
             continue;
         };
-        let import = (other.root.children())
+        let import = (other.root().children())
             .filter(|n| n.kind() == SyntaxKind::Import)
             .find(|i| {
                 child(i, SyntaxKind::ModuleName)
@@ -184,7 +184,7 @@ pub fn move_function(
     if uses
         .iter()
         .any(|u| u.path != target.path && u.qualifier.is_none())
-        && let Some(edit) = expose_edit(&target.root, &target.text, &name, false)
+        && let Some(edit) = expose_edit(&target.root(), &target.text, &name, false)
     {
         push(&mut files, &target.path, MoveEdit::Edit(edit));
     }

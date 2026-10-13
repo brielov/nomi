@@ -19,7 +19,8 @@ use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
 use crate::Edit;
 use crate::completion::{
-    Completion, CompletionKind, Completions, Context, Exposed, default_imports, exposed, item,
+    Completion, CompletionKind, Completions, Context, Exposed, PlainExposed, default_imports,
+    exposed, item,
 };
 use crate::completion_data::{LIST_MARKDOWN, RANKING, SNIPPETS_INLINE, SNIPPETS_START_OF_LINE};
 use crate::symbols::{child, code_range, token, words};
@@ -52,7 +53,7 @@ pub(crate) fn general(
 
 /// The list at a line's start.
 pub(crate) fn start_of_line(context: &Context<'_>, range: TextRange) -> Vec<Completion> {
-    let root = &context.module.root;
+    let root = &context.module.root();
     let exposed_values: Vec<String> = (root.descendants())
         .filter(|n| n.kind() == SyntaxKind::ExposedValue)
         .map(|n| words(&n))
@@ -99,7 +100,7 @@ fn top_levels(context: &Context<'_>, range: TextRange) -> Vec<Completion> {
     let mut found = context.top_levels(range, false);
     for completion in &mut found {
         if completion.kind == CompletionKind::Function && completion.label_detail.is_none() {
-            completion.label_detail = written_annotation(&context.module.root, &completion.label);
+            completion.label_detail = written_annotation(&context.module.root(), &completion.label);
         }
     }
     found
@@ -137,7 +138,7 @@ enum Bound {
 /// `findDefinitionsForScope`: the names each scope around `offset`
 /// binds, innermost first, each sorted by its place among them all.
 fn scope(context: &Context<'_>, offset: TextSize, range: TextRange) -> Vec<Completion> {
-    let root = &context.module.root;
+    let root = &context.module.root();
     let Some(token) = root.token_at_offset(offset).left_biased() else {
         return Vec::new();
     };
@@ -293,7 +294,7 @@ fn typed_module<'c>(
 )> {
     if let Some((_, types)) = context.module.types(context.index.compat) {
         return Some((
-            context.module.root.clone(),
+            context.module.root().clone(),
             std::borrow::Cow::Borrowed(types),
         ));
     }
@@ -410,7 +411,7 @@ impl Imports {
         }
         for import in context
             .module
-            .root
+            .root()
             .children()
             .filter(|n| n.kind() == SyntaxKind::Import)
         {
@@ -608,8 +609,7 @@ impl Imports {
             if let Some(rank) = element.package.as_deref().and_then(rank) {
                 sort = format!("e{rank}");
             }
-            let documentation =
-                || crate::hover::declaration_hint(&element.root, &element.name, None);
+            let documentation = || context.hint(&element.module, &element.root, &element.name);
             let (kind, documentation, detail) = match element.kind {
                 ImportedKind::Function => (
                     CompletionKind::Function,
@@ -649,7 +649,7 @@ impl Imports {
             "Platform.Cmd",
             "Platform.Sub",
         ];
-        let written = (context.module.root.children())
+        let written = (context.module.root().children())
             .filter(|n| n.kind() == SyntaxKind::Import)
             .find(|i| child(i, SyntaxKind::ModuleName).is_some_and(|n| words(&n) == module));
         match written {
@@ -763,8 +763,9 @@ pub(crate) struct Possible {
     pub value_to_import: Option<String>,
     pub package: Option<String>,
     kind: ImportedKind,
-    root: SyntaxNode,
-    name: SyntaxToken,
+    /// Where its name is in its module, whose tree is read for the few
+    /// that are shown.
+    name_at: TextSize,
 }
 
 /// `ImportUtils.getPossibleImports`: what the project's other modules
@@ -776,15 +777,15 @@ pub(crate) fn importable(context: &Context<'_>) -> Vec<Possible> {
         if module == "Basics" || path.as_deref() == Some(context.path) {
             continue;
         }
-        let Some((root, _)) = context.module_source(&module) else {
+        let Some(exposed) = context.exposed_names(&module) else {
             continue;
         };
-        for exposed in exposed(&root) {
+        for exposed in exposed.iter() {
             let kind = match &exposed.kind {
-                Exposed::Value => ImportedKind::Function,
-                Exposed::Operator => ImportedKind::Operator,
-                Exposed::Alias => ImportedKind::Alias,
-                Exposed::Type { .. } => ImportedKind::Type,
+                PlainExposed::Value => ImportedKind::Function,
+                PlainExposed::Operator => ImportedKind::Operator,
+                PlainExposed::Alias => ImportedKind::Alias,
+                PlainExposed::Type { .. } => ImportedKind::Type,
             };
             possible.push(Possible {
                 module: module.clone(),
@@ -792,19 +793,17 @@ pub(crate) fn importable(context: &Context<'_>) -> Vec<Possible> {
                 value_to_import: None,
                 package: package.clone(),
                 kind,
-                root: root.clone(),
-                name: exposed.name.clone(),
+                name_at: exposed.name_at,
             });
-            if let Exposed::Type { variants } = &exposed.kind {
-                for variant in variants {
+            if let PlainExposed::Type { variants } = &exposed.kind {
+                for (variant, at) in variants {
                     possible.push(Possible {
                         module: module.clone(),
-                        value: variant.text().to_owned(),
-                        value_to_import: Some(format!("{}(..)", exposed.name.text())),
+                        value: variant.clone(),
+                        value_to_import: Some(format!("{}(..)", exposed.name)),
                         package: package.clone(),
                         kind: ImportedKind::Constructor,
-                        root: root.clone(),
-                        name: variant.clone(),
+                        name_at: *at,
                     });
                 }
             }
@@ -844,14 +843,15 @@ fn possible_imports(
     });
     let filter = word.to_lowercase();
     let imported = |module: &str| imports.modules.iter().any(|m| m == module);
-    possible.sort_by(|a, b| {
-        let (av, bv) = (a.value.to_lowercase(), b.value.to_lowercase());
-        let starts = |v: &str| v.starts_with(&filter);
-        let matches = |v: &str| v.contains(&filter);
-        starts(&bv)
-            .cmp(&starts(&av))
-            .then(matches(&bv).cmp(&matches(&av)))
-            .then(imported(&b.module).cmp(&imported(&a.module)))
+    // Those starting with it first, then those with it in them, then those
+    // of imported modules; a stable sort keeps the rest in order.
+    possible.sort_by_cached_key(|p| {
+        let value = p.value.to_lowercase();
+        (
+            !value.starts_with(&filter),
+            !value.contains(&filter),
+            !imported(&p.module),
+        )
     });
     let incomplete = possible.len() > 50;
     let mut found = Vec::new();
@@ -867,7 +867,11 @@ fn possible_imports(
         } else {
             format!("f{i}")
         };
-        let documentation = || crate::hover::declaration_hint(&p.root, &p.name, None);
+        let documentation = || {
+            let (root, _) = context.module_source(&p.module)?;
+            let name = root.token_at_offset(p.name_at).right_biased()?;
+            context.hint(&p.module, &root, &name)
+        };
         let mut completion = match p.kind {
             ImportedKind::Function => {
                 let detail = context.foreign_detail(&p.module, &p.value);

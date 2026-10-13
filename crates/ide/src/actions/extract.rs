@@ -91,7 +91,7 @@ fn exact_kind(root: &SyntaxNode, range: TextRange) -> Option<(SyntaxNode, &'stat
 pub(super) fn extract_refactors(fixing: &Fixing<'_>, range: TextRange) -> Vec<Refactor> {
     let module = fixing.context.module;
     let mut found = Vec::new();
-    if let Some((node, kind)) = exact_kind(&module.root, range)
+    if let Some((node, kind)) = exact_kind(&module.root(), range)
         && kind.contains("expr")
         && kind != "type_expression"
     {
@@ -110,7 +110,7 @@ pub(super) fn extract_refactors(fixing: &Fixing<'_>, range: TextRange) -> Vec<Re
             ActionKind::RefactorExtract,
         ));
     }
-    if let Some(action) = type_alias_action(&module.root, &module.text, range) {
+    if let Some(action) = type_alias_action(&module.root(), &module.text, range) {
         found.push(Refactor::new(
             "extract_type_alias",
             action,
@@ -208,7 +208,7 @@ pub(super) fn function_edits(
     range: TextRange,
 ) -> Option<(Vec<Edit>, Option<RenameAt>)> {
     let module = context.module;
-    let (root, text) = (&module.root, &*module.text);
+    let (root, text) = (&module.root(), &*module.text);
     let (mut node, _) = exact_kind(root, range)?;
     let mut parenthesized = false;
     if node.kind() == SyntaxKind::ParenExpr {
@@ -289,7 +289,7 @@ fn arguments(
     target_let: Option<&SyntaxNode>,
 ) -> Vec<SyntaxToken> {
     let module = context.module;
-    let root = &module.root;
+    let root = &module.root();
     let within = node.text_range();
     let mut found: Vec<SyntaxToken> = Vec::new();
     for reference in node.descendants().filter(|n| {
@@ -356,7 +356,7 @@ fn function_type(context: &Context<'_>, node: &SyntaxNode, args: &[SyntaxToken])
     let type_at = |range: TextRange| {
         (types.iter())
             .rev()
-            .find(|(r, _)| crate::hover::trimmed(&module.root, *r) == Some(range))
+            .find(|(r, _)| crate::hover::trimmed(&module.root(), *r) == Some(range))
             .map(|(_, ty)| ty.clone())
     };
     let body = type_at(code_range(node)?)?;
@@ -441,7 +441,7 @@ pub(super) fn type_alias_edits(
     range: TextRange,
 ) -> Option<(Vec<Edit>, Option<RenameAt>)> {
     let module = context.module;
-    let (root, text) = (&module.root, &*module.text);
+    let (root, text) = (&module.root(), &*module.text);
     let nodes: Vec<SyntaxNode> = match action {
         "extract_type_alias_partial_type_expr" => {
             let start = token_at(root, range.start())?;

@@ -94,7 +94,7 @@ pub fn completions(
     let name_at = &line[word_start..name_end];
     let range = |from: usize| TextRange::new(TextSize::new((line_start + from) as u32), offset);
     let context = Context::new(snapshot, index, module, path);
-    if in_comment(&module.root, offset, &line[..column]) {
+    if in_comment(&module.root(), offset, &line[..column]) {
         return Some(Completions::List(Vec::new()));
     }
     let before = line[..word_start].trim_end();
@@ -109,7 +109,7 @@ pub fn completions(
     }
     // Not a pattern's name, nor an import's alias.
     let named = module
-        .root
+        .root()
         .token_at_offset(offset)
         .find(|t| t.kind() == SyntaxKind::LowerIdent)
         .and_then(|t| t.parent());
@@ -386,7 +386,7 @@ impl Context<'_> {
     /// with their variants, aliases and ports, as `b`; with a type's
     /// `(..)` too in its own exposing list.
     pub(crate) fn top_levels(&self, range: TextRange, exposing: bool) -> Vec<Completion> {
-        let root = &self.module.root;
+        let root = &self.module.root();
         let mut found = Vec::new();
         for decl in root.children() {
             match decl.kind() {
@@ -492,7 +492,7 @@ impl Context<'_> {
     pub(crate) fn value_detail(&self, name: &str) -> Option<String> {
         let Some(canonical) = self.module.canonical.as_ref() else {
             // A constructor's type is in its declaration.
-            return written_constructor_type(&self.module.root, name);
+            return written_constructor_type(&self.module.root(), name);
         };
         let localizer = self.names();
         // The module's types, inferred once for every name asked about.
@@ -514,7 +514,7 @@ impl Context<'_> {
                     Some(interface) => {
                         constructor_type(localizer, interface, &self.module.name, name)
                     }
-                    None => written_constructor_type(&self.module.root, name),
+                    None => written_constructor_type(&self.module.root(), name),
                 };
             }
         };
@@ -634,7 +634,7 @@ impl Context<'_> {
         if importing {
             return found;
         }
-        let imports: Vec<(String, Option<String>)> = (self.module.root.children())
+        let imports: Vec<(String, Option<String>)> = (self.module.root().children())
             .filter(|n| n.kind() == SyntaxKind::Import)
             .filter_map(|import| {
                 let name = words(&child(&import, SyntaxKind::ModuleName)?);
@@ -752,7 +752,7 @@ impl Context<'_> {
     /// `RefactorEditUtils.addImport`: `import name` (as `alias`) on the
     /// line after the last import, or after the header.
     pub(crate) fn add_import(&self, name: &str, alias: &str) -> Edit {
-        let root = &self.module.root;
+        let root = &self.module.root();
         let text = &*self.module.text;
         // After the last import, or the module's doc comment, or its
         // header.
@@ -786,6 +786,99 @@ impl Context<'_> {
     /// The source of the module `name`: a dependency's, as
     /// elm-language-server prefers where the project has one of the same
     /// name too, which elm itself refuses; or else the project's.
+    /// What the module `name` exposes, as [`exposed`] reads it, worked
+    /// out once for each text of it in the life of the process.
+    pub(crate) fn exposed_names(&self, name: &str) -> Option<std::sync::Arc<Vec<PlainName>>> {
+        use std::sync::{Arc, Mutex, OnceLock};
+        type Cached = (Arc<str>, Arc<Vec<PlainName>>);
+        static EXPOSED: OnceLock<Mutex<HashMap<PathBuf, Cached>>> = OnceLock::new();
+        let cache = EXPOSED.get_or_init(|| Mutex::new(HashMap::new()));
+        // A project module's text, as indexed; a package's, which never
+        // changes, as it was first read.
+        let (path, text) = match self.index.named(name) {
+            Some(own) => (own.path.clone(), Some(own.text.clone())),
+            None => {
+                let path = (self.importable_modules().iter())
+                    .find(|(module, _, _)| module == name)
+                    .and_then(|(_, path, _)| path.clone())?;
+                (path, None)
+            }
+        };
+        if let Some((was, names)) = (cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner))
+        .get(&path)
+            && text.as_ref().is_none_or(|text| **was == **text)
+        {
+            return Some(names.clone());
+        }
+        let (root, _) = self.module_source(name)?;
+        let names: Vec<PlainName> = (exposed(&root).into_iter())
+            .map(|e| PlainName {
+                label: e.label,
+                name: e.name.text().to_owned(),
+                name_at: e.name.text_range().start(),
+                kind: match e.kind {
+                    Exposed::Operator => PlainExposed::Operator,
+                    Exposed::Value => PlainExposed::Value,
+                    Exposed::Alias => PlainExposed::Alias,
+                    Exposed::Type { variants } => PlainExposed::Type {
+                        variants: (variants.iter())
+                            .map(|v| (v.text().to_owned(), v.text_range().start()))
+                            .collect(),
+                    },
+                },
+            })
+            .collect();
+        let names = Arc::new(names);
+        let text: Arc<str> = text.unwrap_or_else(|| Arc::from(root.text().to_string()));
+        (cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner))
+        .insert(path, (text, names.clone()));
+        Some(names)
+    }
+
+    /// [`crate::hover::declaration_hint`] of `name` in the module
+    /// `module`, whose tree is `root`: kept for the life of the process
+    /// where the module is a package's, whose sources never change.
+    pub(crate) fn hint(
+        &self,
+        module: &str,
+        root: &SyntaxNode,
+        name: &SyntaxToken,
+    ) -> Option<String> {
+        use std::sync::{Mutex, OnceLock};
+        type Key = (PathBuf, TextSize);
+        static HINTS: OnceLock<Mutex<HashMap<Key, Option<String>>>> = OnceLock::new();
+        let package = (self.module_source(module))
+            .map(|(_, path)| path)
+            .filter(|path| {
+                self.index
+                    .packages
+                    .values()
+                    .any(|dir| path.starts_with(dir))
+            });
+        let Some(path) = package else {
+            return crate::hover::declaration_hint(root, name, None);
+        };
+        let hints = HINTS.get_or_init(|| Mutex::new(HashMap::new()));
+        let key = (path, name.text_range().start());
+        if let Some(hint) = (hints
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner))
+        .get(&key)
+        {
+            return hint.clone();
+        }
+        let hint = crate::hover::declaration_hint(root, name, None);
+        (hints
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner))
+        .insert(key, hint.clone());
+        hint
+    }
+
     /// The annotation of `name` in the module `home` as written, each
     /// module's read once.
     fn signature(&self, home: &str, name: &str) -> Option<String> {
@@ -833,7 +926,7 @@ impl Context<'_> {
                 .and_then(|(_, path, _)| path.clone());
             let path = match (dependency, own) {
                 (Some(path), _) => path,
-                (None, Some(own)) => return Some((own.root.clone(), own.path.clone())),
+                (None, Some(own)) => return Some((own.root().clone(), own.path.clone())),
                 (None, None) => crate::navigation::module_path(self.index, name)?,
             };
             // A package's sources never change: each is parsed once.
@@ -956,6 +1049,23 @@ pub(crate) enum Exposed {
     Type {
         variants: Vec<SyntaxToken>,
     },
+}
+
+/// [`ExposedName`] without its tree: what a module exposes, kept between
+/// completions while its text is the same.
+pub(crate) struct PlainName {
+    pub(crate) label: String,
+    /// Its declaration's name.
+    pub(crate) name: String,
+    pub(crate) name_at: TextSize,
+    pub(crate) kind: PlainExposed,
+}
+
+pub(crate) enum PlainExposed {
+    Operator,
+    Value,
+    Alias,
+    Type { variants: Vec<(String, TextSize)> },
 }
 
 pub(crate) struct ExposedName {

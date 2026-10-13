@@ -115,8 +115,8 @@ pub fn table(root: &Path, refs: &References, setup: &Setup) -> Result<Table> {
              diagnostics); saves it fixed and broken again, {SAVES} times (save to \
              diagnostics); and asks for completions in it, {COMPLETIONS} times. The times are \
              the best of each, from the message sent to the answer received. CPU time is the \
-             server's and its child processes', and memory the sum of their peak resident \
-             sets, as each stands at the end of that part. Both run offline over the same package sources, with \
+             server's and its child processes', and memory the peak of their resident sets \
+             together, sampled every 20 ms from the session's start to the end of that part. Both run offline over the same package sources, with \
              the replay suite's settings: diagnostics on open and save."
         ),
         upstream: "elm-language-server".to_owned(),
@@ -163,6 +163,21 @@ fn session(mut command: Command, work: &Path, entry: &str, settings: Value) -> R
         .spawn()
         .context("starting the server")?;
     let pid = child.id();
+    // The tree's resident memory, sampled: elm-language-server's `elm
+    // make` runs come and go between the parts' ends.
+    let peak = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let sampling = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let sampler = {
+        let (peak, sampling) = (peak.clone(), sampling.clone());
+        std::thread::spawn(move || {
+            while sampling.load(std::sync::atomic::Ordering::Relaxed) {
+                let now = resident(pid);
+                peak.fetch_max(now, std::sync::atomic::Ordering::Relaxed);
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        })
+    };
+    let peak_now = || peak.load(std::sync::atomic::Ordering::Relaxed);
     let connection = nomi_testkit::lsp::child_connection(
         child.stdin.take().context("its stdin")?,
         child.stdout.take().context("its stdout")?,
@@ -202,6 +217,7 @@ fn session(mut command: Command, work: &Path, entry: &str, settings: Value) -> R
         client.diagnostics(&uri, true)?;
         let first = Cost {
             wall: start.elapsed(),
+            memory: peak_now(),
             ..usage(pid)?
         };
         // Saves, fixed and broken in turn.
@@ -232,7 +248,7 @@ fn session(mut command: Command, work: &Path, entry: &str, settings: Value) -> R
         let save = Cost {
             wall: best,
             cpu: (after.cpu - before.cpu) / SAVES as u32,
-            memory: after.memory,
+            memory: peak_now(),
         };
         // Completions, at names in the module's bodies, with it fixed.
         let positions = completion_positions(&clean);
@@ -254,7 +270,7 @@ fn session(mut command: Command, work: &Path, entry: &str, settings: Value) -> R
         let completion = Cost {
             wall: best,
             cpu: (after.cpu - before.cpu) / COMPLETIONS as u32,
-            memory: after.memory,
+            memory: peak_now(),
         };
         let _ = client.request("shutdown", Value::Null);
         client.notify("exit", Value::Null);
@@ -264,6 +280,8 @@ fn session(mut command: Command, work: &Path, entry: &str, settings: Value) -> R
             completion,
         })
     })();
+    sampling.store(false, std::sync::atomic::Ordering::Relaxed);
+    let _ = sampler.join();
     finish(child);
     fs::write(&path, &clean)?;
     result
@@ -332,6 +350,35 @@ fn usage(pid: u32) -> Result<Cost> {
         cpu: Duration::from_millis(ticks * 1000 / hz),
         memory,
     })
+}
+
+/// The resident memory of `pid` and its descendants now, in KiB.
+fn resident(pid: u32) -> u64 {
+    let Ok(entries) = fs::read_dir("/proc") else {
+        return 0;
+    };
+    let all: Vec<(u32, u32)> = entries
+        .flatten()
+        .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+        .filter_map(|p| Some((p, stat(p)?.0)))
+        .collect();
+    let mut tree = vec![pid];
+    let mut i = 0;
+    while i < tree.len() {
+        let parent = tree[i];
+        tree.extend(all.iter().filter(|(_, pp)| *pp == parent).map(|(p, _)| *p));
+        i += 1;
+    }
+    tree.iter()
+        .map(|pid| {
+            fs::read_to_string(format!("/proc/{pid}/status"))
+                .unwrap_or_default()
+                .lines()
+                .find_map(|l| l.strip_prefix("VmRSS:"))
+                .and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<u64>().ok())
+                .unwrap_or(0)
+        })
+        .sum()
 }
 
 /// A process's parent, and its CPU time in ticks, its exited children's

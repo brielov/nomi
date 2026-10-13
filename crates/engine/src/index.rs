@@ -34,7 +34,7 @@ pub struct Index {
     /// The package the project's own modules are homes in;
     /// `author/project` for an application, as upstream names it.
     pub package: String,
-    pub modules: Vec<std::rc::Rc<Indexed>>,
+    pub modules: Vec<Arc<Indexed>>,
     /// Each dependency's source directory, by package name.
     pub packages: HashMap<String, PathBuf>,
     /// The interface of every module the project's modules may import:
@@ -48,7 +48,9 @@ pub struct Indexed {
     pub path: PathBuf,
     pub name: String,
     pub text: Arc<str>,
-    pub root: SyntaxNode,
+    /// Its tree, which [`Indexed::root`] makes a cursor into; shareable
+    /// across threads as a cursor isn't.
+    pub green: nomi_syntax::GreenNode,
     pub hir: hir::Module,
     pub references: Vec<Reference>,
     /// The module canonicalized, where it canonicalizes, for hover to
@@ -62,6 +64,11 @@ pub struct Indexed {
 }
 
 impl Indexed {
+    /// Its tree.
+    pub fn root(&self) -> SyntaxNode {
+        SyntaxNode::new_root(self.green.clone())
+    }
+
     /// Its declarations' types and its expressions', inferred once.
     pub fn types(
         &self,
@@ -428,7 +435,7 @@ struct Visit<'v> {
     package: &'v str,
     interfaces: &'v mut HashMap<String, Interface>,
     seen: HashSet<ModuleName>,
-    modules: Vec<std::rc::Rc<Indexed>>,
+    modules: Vec<Arc<Indexed>>,
     previous: Option<&'v Index>,
     /// Whether each project module's interface is as in `previous`, once
     /// it is final.
@@ -474,7 +481,7 @@ impl Visit<'_> {
         path: &Path,
         text: &Arc<str>,
         imports: &[ModuleName],
-    ) -> Option<std::rc::Rc<Indexed>> {
+    ) -> Option<Arc<Indexed>> {
         let previous = self.previous?;
         let module = (previous.modules.iter()).find(|m| m.path == path && *m.text == **text)?;
         let unchanged = imports.iter().all(|import| {
@@ -488,7 +495,7 @@ impl Visit<'_> {
             self.same.borrow_mut().insert(name, same);
             same
         });
-        unchanged.then(|| std::rc::Rc::clone(module))
+        unchanged.then(|| Arc::clone(module))
     }
 
     /// Canonicalizes a module after its local imports, whatever became
@@ -531,11 +538,11 @@ impl Visit<'_> {
                 nomi_compiler::types::infer(self.compat, canonical).unwrap_or_default();
             (self.interfaces).insert(name.clone(), interface(canonical, &annotations));
         }
-        self.modules.push(std::rc::Rc::new(Indexed {
+        self.modules.push(Arc::new(Indexed {
             path: path.to_owned(),
             name,
             text: text.clone(),
-            root,
+            green: root.green().into_owned(),
             hir,
             references,
             canonical,

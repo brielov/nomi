@@ -121,7 +121,7 @@ fn renamed_module(
     let Some(module) = index.module(old) else {
         return Vec::new();
     };
-    let at = (module.root.children())
+    let at = (module.root().children())
         .find(|n| n.kind() == nomi_syntax::SyntaxKind::ModuleHeader)
         .and_then(|header| child(&header, nomi_syntax::SyntaxKind::ModuleName))
         .and_then(|name| code_range(&name));

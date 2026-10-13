@@ -816,7 +816,7 @@ fn in_expression(index: &Index, location: &crate::Location) -> bool {
         return false;
     };
     let Some(token) = module
-        .root
+        .root()
         .token_at_offset(location.range.start())
         .right_biased()
     else {

@@ -92,7 +92,7 @@ impl Server {
             return Ok(action);
         };
         if let Some((edits, rename)) =
-            nomi_ide::refactor_edits(index, &snapshot, &path, name, range)
+            nomi_ide::refactor_edits(&index, &snapshot, &path, name, range)
         {
             let edits: Vec<TextEdit> = (edits.iter())
                 .map(|e| TextEdit::new(text.range(e.range), e.text.clone()))
@@ -173,7 +173,7 @@ impl Server {
             let Some(index) = self.index(&snapshot, &old) else {
                 continue;
             };
-            for (renamed, edits) in nomi_ide::renamed_files(&snapshot, index, &old, &new) {
+            for (renamed, edits) in nomi_ide::renamed_files(&snapshot, &index, &old, &new) {
                 let (Ok(uri), Ok(text)) = (Url::from_file_path(&renamed), snapshot.read(&renamed))
                 else {
                     continue;
@@ -217,7 +217,7 @@ impl Server {
         let (Some(root), Some(index)) = (root, self.index(&snapshot, &path)) else {
             return Ok(serde_json::json!({ "destinations": [] }));
         };
-        let destinations: Vec<Value> = (nomi_ide::move_destinations(index, &root, &path)
+        let destinations: Vec<Value> = (nomi_ide::move_destinations(&index, &root, &path)
             .into_iter())
         .filter_map(|d| {
             let uri = Url::from_file_path(&d.path).ok()?;
@@ -242,7 +242,7 @@ impl Server {
         let Some(index) = self.index(&snapshot, &path) else {
             return Ok(Value::Null);
         };
-        let Some(files) = nomi_ide::move_function(&snapshot, index, &path, offset, &destination)
+        let Some(files) = nomi_ide::move_function(&snapshot, &index, &path, offset, &destination)
         else {
             return Ok(Value::Null);
         };
@@ -337,10 +337,10 @@ impl Server {
             .cloned())
         .unwrap_or_default();
         let snapshot = self.vfs.snapshot();
-        if self.index(&snapshot, &path).is_none() {
+        let Some(index) = self.index(&snapshot, &path) else {
             return Ok(Value::Array(Vec::new()));
-        }
-        let index = &self.index.as_ref().expect("indexed above").2;
+        };
+        let index = &*index;
         let store = &self.store;
         let packages = self
             .packages

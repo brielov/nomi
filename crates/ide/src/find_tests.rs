@@ -33,7 +33,7 @@ pub fn find_tests(index: &Index, root: &Path) -> Vec<TestSuite> {
             continue;
         }
         let finder = Finder::new(index, module);
-        let top: Vec<TestSuite> = (module.root.children())
+        let top: Vec<TestSuite> = (module.root().children())
             .filter(|n| n.kind() == SyntaxKind::ValueDecl)
             .filter_map(|decl| child(&decl, SyntaxKind::Definition))
             .filter_map(|definition| finder.suite(finder.test_call(&definition)?))
@@ -64,7 +64,7 @@ impl<'a> Finder<'a> {
     }
 
     fn type_of(&self, node: &SyntaxNode) -> Option<&error::Type> {
-        crate::hover::type_of(&self.module.root, &self.types, code_range(node)?)
+        crate::hover::type_of(&self.module.root(), &self.types, code_range(node)?)
     }
 
     /// `findTestFunctionCall`: through `let`s, the first call in `node`,
@@ -163,7 +163,7 @@ impl<'a> Finder<'a> {
 
     /// The module's imports: each module's name, and its alias.
     fn imports(&self) -> Vec<(String, Option<String>)> {
-        (self.module.root.children())
+        (self.module.root().children())
             .filter(|n| n.kind() == SyntaxKind::Import)
             .filter_map(|i| {
                 let name = words(&child(&i, SyntaxKind::ModuleName)?);
@@ -177,7 +177,7 @@ impl<'a> Finder<'a> {
     /// `getQualifierForName`: none where an import exposes `name`, else
     /// the alias or name of the module's last import.
     fn qualifier(&self, module: &str, name: &str) -> String {
-        let exposes = (self.module.root.children())
+        let exposes = (self.module.root().children())
             .filter(|n| n.kind() == SyntaxKind::Import)
             .filter_map(|i| child(&i, SyntaxKind::ExposingList))
             .any(|list| {
