@@ -4,13 +4,14 @@
 //! definition, a call's function before its arguments, a record's fields
 //! by name.
 
-use crate::canonical::Text;
 use std::collections::BTreeMap;
 
-use nomi_base::TextRange;
+use nomi_base::{Text, TextRange};
 
 use super::pattern::{self, State};
-use crate::canonical::{self, Def, Expr, ExprKind, FieldUpdate, Pattern, ShaderType, ShaderTypes};
+use crate::canonical::{
+    self, Def, Expr, ExprKind, FieldUpdate, Operator, Pattern, ShaderType, ShaderTypes,
+};
 use crate::types::expected::{
     Category, Context, Expected, MaybeName, PContext, PExpected, SubContext,
 };
@@ -87,11 +88,21 @@ fn constrain_(
         ExprKind::VarLocal(name) | ExprKind::VarTopLevel(_, name) => {
             Constraint::Local(region, name.clone(), expected)
         }
-        ExprKind::VarKernel(..) => Constraint::True,
-        ExprKind::VarForeign(_, name, annotation)
-        | ExprKind::VarCtor(_, _, name, _, annotation)
-        | ExprKind::VarDebug(_, name, annotation)
-        | ExprKind::VarOperator(name, _, _, annotation) => foreign(name, annotation, expected),
+        ExprKind::VarKernel { .. } => Constraint::True,
+        ExprKind::VarForeign {
+            name, annotation, ..
+        }
+        | ExprKind::VarCtor {
+            name, annotation, ..
+        }
+        | ExprKind::VarDebug {
+            name, annotation, ..
+        }
+        | ExprKind::VarOperator(Operator {
+            op: name,
+            annotation,
+            ..
+        }) => foreign(name, annotation, expected),
         ExprKind::Str(_) => equal(region, Category::String, types::string(), expected),
         ExprKind::Chr(_) => equal(region, Category::Char, types::char(), expected),
         ExprKind::Int(_) => {
@@ -129,7 +140,11 @@ fn constrain_(
             let negate_con = equal(region, Category::Number, number, expected);
             exists(vec![number_var], and(vec![number_con, negate_con]))
         }
-        ExprKind::Binop(op, _, _, annotation, left, right) => {
+        ExprKind::Binop {
+            operator: Operator { op, annotation, .. },
+            left,
+            right,
+        } => {
             let left_var = vars.flex_var();
             let right_var = vars.flex_var();
             let answer_var = vars.flex_var();
@@ -189,7 +204,11 @@ fn constrain_(
             let body_con = constrain(vars, rtv, body, expected);
             constrain_recursive_defs(vars, rtv, defs, body_con)
         }
-        ExprKind::LetDestruct(pattern, value, body) => {
+        ExprKind::LetDestruct {
+            pattern,
+            value,
+            body,
+        } => {
             let body_con = constrain(vars, rtv, body, expected);
             destruct(vars, rtv, region, pattern, value, body_con)
         }
@@ -210,7 +229,11 @@ fn constrain_(
                 ),
             )
         }
-        ExprKind::Access(record, field_region, field) => {
+        ExprKind::Access {
+            record,
+            field,
+            field_region,
+        } => {
             let ext_var = vars.flex_var();
             let field_var = vars.flex_var();
             let record_type = Type::Record(
@@ -242,9 +265,11 @@ fn constrain_(
                 ]),
             )
         }
-        ExprKind::Update(name, record, fields) => {
-            update(vars, rtv, region, name, record, fields, expected)
-        }
+        ExprKind::Update {
+            name,
+            record,
+            fields,
+        } => update(vars, rtv, region, name, record, fields, expected),
         ExprKind::Record(fields) => {
             let mut field_vars = Vec::new();
             let mut field_types = BTreeMap::new();
@@ -296,10 +321,10 @@ fn call_name(expr: &Expr) -> MaybeName {
     match &expr.kind {
         ExprKind::VarLocal(name)
         | ExprKind::VarTopLevel(_, name)
-        | ExprKind::VarForeign(_, name, _)
-        | ExprKind::VarKernel(_, name) => MaybeName::FuncName(name.clone()),
-        ExprKind::VarCtor(_, _, name, _, _) => MaybeName::CtorName(name.clone()),
-        ExprKind::VarOperator(op, ..) => MaybeName::OpName(op.clone()),
+        | ExprKind::VarForeign { name, .. }
+        | ExprKind::VarKernel { name, .. } => MaybeName::FuncName(name.clone()),
+        ExprKind::VarCtor { name, .. } => MaybeName::CtorName(name.clone()),
+        ExprKind::VarOperator(operator) => MaybeName::OpName(operator.op.clone()),
         _ => MaybeName::NoName,
     }
 }
@@ -309,7 +334,7 @@ fn access_name(expr: &Expr) -> Option<String> {
     match &expr.kind {
         ExprKind::VarLocal(name)
         | ExprKind::VarTopLevel(_, name)
-        | ExprKind::VarForeign(_, name, _) => Some(name.clone()),
+        | ExprKind::VarForeign { name, .. } => Some(name.clone()),
         _ => None,
     }
 }

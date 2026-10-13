@@ -11,7 +11,7 @@
 use crate::canonical::{ShaderType, ShaderTypes};
 
 /// The inputs of the shader `source`, the text between `[glsl|` and `|]`.
-pub fn types(source: &str) -> ShaderTypes {
+pub(super) fn types(source: &str) -> ShaderTypes {
     let mut types = ShaderTypes::default();
     for declaration in top_level(&tokens(source)) {
         let [qualifier, rest @ ..] = &declaration[..] else {

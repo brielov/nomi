@@ -39,12 +39,12 @@ pub(super) fn optimize(
             jumps.push((target, body));
         }
     }
-    Expr::Case(
-        temp,
+    Expr::Case {
+        label: temp,
         root,
-        Box::new(insert_choices(&mut choices, decider)),
+        decider: Box::new(insert_choices(&mut choices, decider)),
         jumps,
-    )
+    }
 }
 
 /// `DecisionTree`.
@@ -172,7 +172,7 @@ fn to_tree(branches: Vec<Branch>) -> Tree {
 /// `isComplete`: whether the tests cover every value at their path.
 fn is_complete(tests: &[Test]) -> bool {
     match tests.first() {
-        Some(Test::IsCtor(_, _, _, alts, _)) => *alts == tests.len() as i64,
+        Some(Test::IsCtor { count, .. }) => *count == tests.len() as i64,
         Some(Test::IsCons | Test::IsNil | Test::IsBool(_)) => tests.len() == 2,
         Some(Test::IsTuple) => true,
         Some(Test::IsChr(_) | Test::IsStr(_) | Test::IsInt(_)) | None => false,
@@ -283,13 +283,13 @@ fn test_at_path(path: &DtPath, branch: &Branch) -> Option<Test> {
             count,
             opts,
             ..
-        } => Some(Test::IsCtor(
-            home.clone(),
-            name.clone(),
-            *index,
-            *count as i64,
-            *opts,
-        )),
+        } => Some(Test::IsCtor {
+            home: home.clone(),
+            name: name.clone(),
+            index: *index,
+            count: *count as i64,
+            opts: *opts,
+        }),
         P::List(items, from) if *from == items.len() => Some(Test::IsNil),
         P::List(..) | P::Cons(..) => Some(Test::IsCons),
         P::Tuple(..) | P::Unit => Some(Test::IsTuple),
@@ -329,7 +329,9 @@ fn to_relevant_branch(test: &Test, path: &DtPath, branch: &Branch) -> Option<Bra
         P::Ctor {
             name, args, count, ..
         } => match test {
-            Test::IsCtor(_, test_name, ..) if name == test_name => {
+            Test::IsCtor {
+                name: test_name, ..
+            } if name == test_name => {
                 if args.len() == 1 && *count == 1 {
                     with(vec![(DtPath::Unbox(shared.clone()), args[0].clone())])
                 } else {

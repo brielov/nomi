@@ -1,57 +1,48 @@
 //! Canonicalizing expressions (`Canonicalize/Expression.hs`): each
 //! variable, constructor and operator resolved, every scope's bindings
-//! checked, and the locals each scope uses counted (`FreeLocals`), which
+//! checked, and the locals each scope uses noted (`FreeLocals`), which
 //! the cycle checks read. A scope's uses count only when it
 //! canonicalized cleanly, as upstream discards them otherwise.
 
 use std::collections::BTreeMap;
 
-use nomi_base::{Compat, TextRange};
+use nomi_base::{Compat, TextRange, grow_large};
 
 use super::binops;
 use super::dups::{Dict, check_fields};
-use super::env::{CtorInfo, Env, Var};
-use super::error::{DuplicatePatternContext, Error, NameKind, PossibleNames, R, all, both, throw};
+use super::env::{self, BinopInfo, CtorInfo, Env, Var};
+use super::error::{DuplicatePatternContext, Error, NameKind, R, all, both, throw};
 use super::foreign::{is_kernel_module, is_kernel_package};
 use super::pattern::{self, Bindings};
 use super::references::{Kind, Target};
 use super::types;
 use crate::canonical::{
-    Annotation, CtorOpts, Def as CDef, Expr, ExprKind, FieldUpdate, Home, Pattern, Type,
+    Annotation, CtorOpts, Def, Expr, ExprKind, FieldUpdate, Home, Operator, Pattern, Type,
 };
-use crate::hir::{self, Def as Def_, DefId, Expr as Expr_, ExprId, PatId};
+use crate::hir::{self, DefId, ExprId, PatId, Spanned, VarType, int_value};
 
-/// How often a local is used: directly, or inside a function that may
-/// run later (`Uses`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Uses {
-    pub direct: u32,
-    pub delayed: u32,
+/// How a local is used, which the cycle checks read (`Uses`): somewhere
+/// directly, or only inside functions that may run later.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Use {
+    Delayed,
+    Direct,
 }
 
 /// `FreeLocals`.
-pub type FreeLocals = BTreeMap<String, Uses>;
+pub(super) type FreeLocals = BTreeMap<String, Use>;
 
 /// `Map.unionWith combineUses`, into `into`.
 fn combine(into: &mut FreeLocals, from: FreeLocals) {
-    for (name, uses) in from {
-        let entry = into.entry(name).or_default();
-        entry.direct += uses.direct;
-        entry.delayed += uses.delayed;
+    for (name, used) in from {
+        let entry = into.entry(name).or_insert(used);
+        *entry = (*entry).max(used);
     }
 }
 
 /// `delayUse`: every use as delayed.
 fn delay(free: FreeLocals) -> FreeLocals {
-    free.into_iter()
-        .map(|(name, u)| {
-            let delayed = Uses {
-                direct: 0,
-                delayed: u.direct + u.delayed,
-            };
-            (name, delayed)
-        })
-        .collect()
+    free.into_keys().map(|name| (name, Use::Delayed)).collect()
 }
 
 /// `verifyBindings`: what `work` makes in a scope of `bindings`, and the
@@ -68,48 +59,18 @@ fn verify_bindings<T>(
 
 /// One binding of a `let`, as the cycle check sees it (`Binding`).
 #[derive(Clone, Debug)]
-pub enum LetBinding {
-    Define(CDef),
+pub(super) enum LetBinding {
+    Define(Def),
     /// A name a destructuring binds.
-    Edge {
-        name: String,
-        range: TextRange,
-    },
+    Edge(Spanned),
     Destruct(Pattern, Expr),
 }
 
 /// A node of a `let`'s graph: the binding, its key, and the names it uses.
-pub type LetNode = (LetBinding, String, Vec<String>);
-
-fn range(module: &hir::Module, id: ExprId) -> TextRange {
-    module
-        .source_map
-        .expr(id)
-        .map(|p| p.range)
-        .unwrap_or_default()
-}
-
-/// An integer literal's value, maybe negative, wrapping at 64 bits as
-/// elm's parser does.
-pub fn int_value(text: &str) -> i64 {
-    let (negative, text) = match text.strip_prefix('-') {
-        Some(rest) => (true, rest),
-        None => (false, text),
-    };
-    let (digits, radix) = match text.strip_prefix("0x") {
-        Some(hex) => (hex, 16),
-        None => (text, 10),
-    };
-    let value = (digits.chars())
-        .filter_map(|c| c.to_digit(radix))
-        .fold(0i64, |n, d| {
-            n.wrapping_mul(i64::from(radix)).wrapping_add(i64::from(d))
-        });
-    if negative {
-        value.wrapping_neg()
-    } else {
-        value
-    }
+pub(super) struct LetNode {
+    pub(super) binding: LetBinding,
+    pub(super) key: String,
+    pub(super) uses: Vec<String>,
 }
 
 fn expr(region: TextRange, kind: ExprKind) -> Expr {
@@ -117,15 +78,8 @@ fn expr(region: TextRange, kind: ExprKind) -> Expr {
 }
 
 /// `canonicalize`.
-pub fn canonicalize(
-    env: &Env<'_>,
-    module: &hir::Module,
-    id: ExprId,
-    free: &mut FreeLocals,
-) -> R<Expr> {
-    stacker::maybe_grow(128 * 1024, 2 * 1024 * 1024, || {
-        canonicalize_(env, module, id, free)
-    })
+fn canonicalize(env: &Env<'_>, module: &hir::Module, id: ExprId, free: &mut FreeLocals) -> R<Expr> {
+    grow_large(|| canonicalize_(env, module, id, free))
 }
 
 fn each(
@@ -134,11 +88,7 @@ fn each(
     ids: &[ExprId],
     free: &mut FreeLocals,
 ) -> R<Vec<Expr>> {
-    let results: Vec<R<Expr>> = ids
-        .iter()
-        .map(|&id| canonicalize(env, module, id, free))
-        .collect();
-    all(results)
+    all(ids.iter().map(|&id| canonicalize(env, module, id, free)))
 }
 
 fn canonicalize_(
@@ -147,92 +97,43 @@ fn canonicalize_(
     id: ExprId,
     free: &mut FreeLocals,
 ) -> R<Expr> {
-    let region = range(module, id);
+    let region = module.source_map.expr_range(id);
     let kind = match &module.exprs[id] {
         // A module with syntax errors canonicalizes for the editor only.
-        Expr_::Missing | Expr_::Unit => ExprKind::Unit,
-        Expr_::Chr(text) => ExprKind::Chr(text.clone()),
-        Expr_::Str(text) => ExprKind::Str(text.clone()),
-        Expr_::Int(text) => ExprKind::Int(int_value(text)),
-        Expr_::Float(text) => ExprKind::Float(text.clone()),
-        Expr_::Accessor(field) => ExprKind::Accessor(field.clone()),
-        Expr_::Shader(source) => ExprKind::Shader(source.clone(), super::shader::types(source)),
-        Expr_::Var {
+        hir::Expr::Missing | hir::Expr::Unit => ExprKind::Unit,
+        hir::Expr::Chr(text) => ExprKind::Chr(text.clone()),
+        hir::Expr::Str(text) => ExprKind::Str(text.clone()),
+        hir::Expr::Int(text) => ExprKind::Int(int_value(text)),
+        hir::Expr::Float(text) => ExprKind::Float(text.clone()),
+        hir::Expr::Accessor(field) => ExprKind::Accessor(field.clone()),
+        hir::Expr::Shader(source) => ExprKind::Shader(source.clone(), super::shader::types(source)),
+        hir::Expr::Var {
             qualifier,
             name,
-            upper: false,
+            kind: VarType::Low,
         } => match qualifier {
             None => find_var(env, region, name, free)?,
             Some(prefix) => find_var_qual(env, region, prefix, name)?,
         },
-        Expr_::Var {
-            qualifier, name, ..
+        hir::Expr::Var {
+            qualifier,
+            name,
+            kind: VarType::Cap,
         } => to_var_ctor(name, env.find_ctor(region, qualifier.as_deref(), name)?),
-        Expr_::List(items) => ExprKind::List(each(env, module, items, free)?),
-        Expr_::Op(op) => {
-            let b = env.find_binop(region, op)?;
-            ExprKind::VarOperator(
-                op.clone(),
-                b.home.clone(),
-                b.function.clone(),
-                b.annotation.clone(),
-            )
-        }
-        Expr_::Negate(inner) => {
+        hir::Expr::List(items) => ExprKind::List(each(env, module, items, free)?),
+        hir::Expr::Op(op) => ExprKind::VarOperator(operator(env.find_binop(region, op)?)),
+        hir::Expr::Negate(inner) => {
             ExprKind::Negate(Box::new(canonicalize(env, module, *inner, free)?))
         }
-        Expr_::Binops { operands, ops } => {
-            // Each operand with the operator after it, then the last, and
-            // only then the chain arranged by precedence.
-            let chain = all(operands
-                .iter()
-                .zip(ops)
-                .enumerate()
-                .map(|(i, (&operand, op))| {
-                    let operand = canonicalize(env, module, operand, free);
-                    let found = env.find_binop(op.range, &op.text).map(|b| {
-                        let arranged = binops::Op {
-                            index: i,
-                            name: op.text.clone(),
-                            associativity: b.associativity,
-                            precedence: b.precedence,
-                        };
-                        let applied = (
-                            op.text.clone(),
-                            b.home.clone(),
-                            b.function.clone(),
-                            b.annotation.clone(),
-                        );
-                        (arranged, applied)
-                    });
-                    both(operand, found)
-                })
-                .collect::<Vec<_>>());
-            let last = canonicalize(env, module, *operands.last().expect("an operand"), free);
-            let (chain, last) = both(chain, last)?;
-            let mut exprs: Vec<Option<Expr>> = Vec::with_capacity(chain.len() + 1);
-            let mut applied = Vec::with_capacity(chain.len());
-            let mut steps = Vec::with_capacity(chain.len());
-            for (i, (operand, (op, info))) in chain.into_iter().enumerate() {
-                exprs.push(Some(operand));
-                applied.push(info);
-                steps.push((binops::Tree::Operand(i), op));
-            }
-            exprs.push(Some(last));
-            let tree = binops::arrange(steps, binops::Tree::Operand(ops.len()), region)?;
-            // The chain's root keeps the chain's own region, as upstream
-            // wraps the stepper's result in it; the nodes inside merge
-            // their operands'.
-            let mut root = binop_tree(tree, &mut exprs, &applied);
-            root.region = region;
-            return Ok(root);
+        hir::Expr::Binops { operands, ops } => {
+            return binop_chain(env, module, region, operands, ops, free);
         }
-        Expr_::Lambda { params, body } => {
+        hir::Expr::Lambda { params, body } => {
             let ((params, body), inner) = lambda(env, module, params, *body)?;
             combine(free, delay(inner));
             ExprKind::Lambda(params, Box::new(body))
         }
-        Expr_::Call { function, args } => {
+        hir::Expr::Call { function, args } => {
             let function = canonicalize(env, module, *function, free);
             let args = each(env, module, args, free);
             let (function, args) = both(function, args)?;
@@ -242,82 +143,51 @@ fn canonicalize_(
             let region = TextRange::new(function.region.start(), end);
             return Ok(expr(region, ExprKind::Call(Box::new(function), args)));
         }
-        Expr_::If {
+        hir::Expr::If {
             branches,
             otherwise,
         } => {
-            let branches = all(branches
-                .iter()
-                .map(|&(condition, then)| {
-                    let condition = canonicalize(env, module, condition, free);
-                    let then = canonicalize(env, module, then, free);
-                    both(condition, then)
-                })
-                .collect::<Vec<_>>());
+            let branches = all(branches.iter().map(|&(condition, then)| {
+                let condition = canonicalize(env, module, condition, free);
+                let then = canonicalize(env, module, then, free);
+                both(condition, then)
+            }));
             let otherwise = canonicalize(env, module, *otherwise, free);
             let (branches, otherwise) = both(branches, otherwise)?;
             ExprKind::If(branches, Box::new(otherwise))
         }
-        Expr_::Let { defs, body } => return let_(env, module, region, defs, *body, free),
-        Expr_::Case {
+        hir::Expr::Let { defs, body } => return let_(env, module, region, defs, *body, free),
+        hir::Expr::Case {
             scrutinee,
             branches,
         } => {
             let scrutinee = canonicalize(env, module, *scrutinee, free);
-            let branches = all(branches
-                .iter()
-                .map(|&(pattern, body)| {
-                    let (branch, inner) = case_branch(env, module, pattern, body)?;
-                    combine(free, inner);
-                    Ok(branch)
-                })
-                .collect::<Vec<_>>());
+            let branches = all(branches.iter().map(|&(pattern, body)| {
+                let (branch, inner) = case_branch(env, module, pattern, body)?;
+                combine(free, inner);
+                Ok(branch)
+            }));
             let (scrutinee, branches) = both(scrutinee, branches)?;
             ExprKind::Case(Box::new(scrutinee), branches)
         }
-        Expr_::Access { record, field } => {
-            let record = canonicalize(env, module, *record, free)?;
-            ExprKind::Access(Box::new(record), field.range, field.text.clone())
-        }
-        Expr_::Update { record, fields } => {
-            let found = find_var(env, record.range, &record.text, free)
-                .map(|kind| expr(record.range, kind));
-            let fields = (fields.iter())
-                .map(|(name, value)| (name.text.clone(), name.range, (name.range, *value)))
-                .collect();
-            let fields = check_fields(env.compat, fields).and_then(|fields| {
-                let names = env.compat.sorted_names(fields.keys());
-                let values = all(names
-                    .iter()
-                    .map(|n| {
-                        let (field_region, value) = fields[*n];
-                        canonicalize(env, module, value, free).map(|value| {
-                            let update = FieldUpdate {
-                                region: field_region,
-                                value,
-                            };
-                            ((*n).clone(), update)
-                        })
-                    })
-                    .collect::<Vec<_>>());
-                values.map(|v| v.into_iter().collect::<BTreeMap<_, _>>())
-            });
-            let (found, fields) = both(found, fields)?;
-            ExprKind::Update(record.text.clone(), Box::new(found), fields)
-        }
-        Expr_::Record(fields) => {
-            let fields = (fields.iter())
-                .map(|(name, value)| (name.text.clone(), name.range, *value))
-                .collect();
-            let fields = check_fields(env.compat, fields)?;
+        hir::Expr::Access { record, field } => ExprKind::Access {
+            record: Box::new(canonicalize(env, module, *record, free)?),
+            field: field.text.clone(),
+            field_region: field.range,
+        },
+        hir::Expr::Update { record, fields } => update(env, module, record, fields, free)?,
+        hir::Expr::Record(fields) => {
+            let fields = check_fields(
+                env.compat,
+                fields.iter().map(|(name, value)| (name, *value)),
+            )?;
             let names = env.compat.sorted_names(fields.keys());
             let values = all(names
                 .iter()
-                .map(|n| canonicalize(env, module, fields[*n], free).map(|v| ((*n).clone(), v)))
-                .collect::<Vec<_>>())?;
+                .map(|n| canonicalize(env, module, fields[*n], free).map(|v| ((*n).clone(), v))))?;
             ExprKind::Record(values.into_iter().collect())
         }
-        Expr_::Tuple(items) => {
+        hir::Expr::Tuple(items) => {
             let a = canonicalize(env, module, items[0], free);
             let b = canonicalize(env, module, items[1], free);
             let rest = match &items[2..] {
@@ -332,38 +202,106 @@ fn canonicalize_(
     Ok(expr(region, kind))
 }
 
-/// An operator applied, as upstream's `toBinop` makes it: an operator
-/// and the function it stands for.
-type Applied = (String, Home, String, Annotation);
+/// `toBinop`'s operator: the one `binop` names, and the function it
+/// stands for.
+fn operator(binop: &BinopInfo<'_>) -> Operator {
+    Operator {
+        op: binop.op.clone(),
+        home: binop.home.clone(),
+        function: binop.function.clone(),
+        annotation: binop.annotation.clone(),
+    }
+}
+
+/// A chain of operators: each operand with the operator after it, then
+/// the last, and only then the chain arranged by precedence.
+fn binop_chain(
+    env: &Env<'_>,
+    module: &hir::Module,
+    region: TextRange,
+    operands: &[ExprId],
+    ops: &[Spanned],
+    free: &mut FreeLocals,
+) -> R<Expr> {
+    let chain = all((operands.iter().zip(ops)).map(|(&operand, op)| {
+        let operand = canonicalize(env, module, operand, free);
+        both(operand, env.find_binop(op.range, &op.text))
+    }));
+    let last = canonicalize(env, module, *operands.last().expect("an operand"), free);
+    let (chain, last) = both(chain, last)?;
+    let mut exprs: Vec<Option<Expr>> = Vec::with_capacity(chain.len() + 1);
+    let mut found = Vec::with_capacity(chain.len());
+    let mut steps = Vec::with_capacity(chain.len());
+    for (index, (operand, binop)) in chain.into_iter().enumerate() {
+        exprs.push(Some(operand));
+        let op = binops::Op {
+            index,
+            name: binop.op.clone(),
+            fixity: binop.fixity,
+        };
+        steps.push((binops::Tree::Operand(index), op));
+        found.push(binop);
+    }
+    exprs.push(Some(last));
+    let tree = binops::arrange(steps, binops::Tree::Operand(ops.len()), region)?;
+    // The chain's root keeps the chain's own region, as upstream wraps the
+    // stepper's result in it; the nodes inside merge their operands'.
+    let mut root = binop_tree(tree, &mut exprs, &found);
+    root.region = region;
+    Ok(root)
+}
 
 /// The expression an arranged chain stands for, each node's region from
 /// its left operand's start to its right one's end (`A.merge`).
-fn binop_tree(tree: binops::Tree, exprs: &mut [Option<Expr>], applied: &[Applied]) -> Expr {
-    stacker::maybe_grow(128 * 1024, 2 * 1024 * 1024, || match tree {
+fn binop_tree(tree: binops::Tree, exprs: &mut [Option<Expr>], found: &[&BinopInfo<'_>]) -> Expr {
+    grow_large(|| match tree {
         binops::Tree::Operand(i) => exprs[i].take().expect("each operand once"),
         binops::Tree::Binop { op, left, right } => {
-            let left = binop_tree(*left, exprs, applied);
-            let right = binop_tree(*right, exprs, applied);
+            let left = binop_tree(*left, exprs, found);
+            let right = binop_tree(*right, exprs, found);
             let region = left.region.cover(right.region);
-            let (name, home, function, annotation) = applied[op].clone();
-            expr(
-                region,
-                ExprKind::Binop(
-                    name,
-                    home,
-                    function,
-                    annotation,
-                    Box::new(left),
-                    Box::new(right),
-                ),
-            )
+            let kind = ExprKind::Binop {
+                operator: operator(found[op]),
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+            expr(region, kind)
         }
+    })
+}
+
+/// A record update: the record's variable, then each field written once,
+/// canonicalized in name order.
+fn update(
+    env: &Env<'_>,
+    module: &hir::Module,
+    record: &Spanned,
+    fields: &[(Spanned, ExprId)],
+    free: &mut FreeLocals,
+) -> R<ExprKind> {
+    let found =
+        find_var(env, record.range, &record.text, free).map(|kind| expr(record.range, kind));
+    let fields = (fields.iter()).map(|(name, value)| (name, (name.range, *value)));
+    let fields = check_fields(env.compat, fields).and_then(|fields| {
+        let names = env.compat.sorted_names(fields.keys());
+        let values = all(names.iter().map(|n| {
+            let (region, value) = fields[*n];
+            canonicalize(env, module, value, free)
+                .map(|value| ((*n).clone(), FieldUpdate { region, value }))
+        }));
+        values.map(|v| v.into_iter().collect::<BTreeMap<_, _>>())
+    });
+    let (found, fields) = both(found, fields)?;
+    Ok(ExprKind::Update {
+        name: record.text.clone(),
+        record: Box::new(found),
+        fields,
     })
 }
 
 /// `toVarCtor`: a constructor, with its type.
 fn to_var_ctor(name: &str, ctor: &CtorInfo<'_>) -> ExprKind {
-    match ctor {
+    let (opts, home, index, annotation) = match ctor {
         CtorInfo::Ctor {
             home,
             union_name,
@@ -371,39 +309,31 @@ fn to_var_ctor(name: &str, ctor: &CtorInfo<'_>) -> ExprKind {
             index,
             args,
         } => {
-            let result = Type::Type(
-                home.clone(),
-                union_name.clone(),
-                union.vars.iter().map(|v| Type::Var(v.clone())).collect(),
-            );
-            let ty = (args.iter().rev()).fold(result, |result, arg| {
-                Type::Lambda(Box::new(arg.clone()), Box::new(result))
-            });
+            let result = Type::Type {
+                home: home.clone(),
+                name: union_name.clone(),
+                args: union.vars.iter().map(|v| Type::Var(v.clone())).collect(),
+            };
             let annotation = Annotation {
                 free: sorted_vars(&union.vars),
-                ty: ty.into(),
+                ty: Type::function(args.iter().cloned(), result).into(),
             };
-            ExprKind::VarCtor(
-                union.opts,
-                home.clone(),
-                name.to_owned(),
-                *index,
-                annotation,
-            )
+            (union.opts, home, *index, annotation)
         }
         CtorInfo::Record { home, vars, ty } => {
             let annotation = Annotation {
                 free: sorted_vars(vars),
                 ty: ty.clone().into(),
             };
-            ExprKind::VarCtor(
-                CtorOpts::Normal,
-                home.clone(),
-                name.to_owned(),
-                0,
-                annotation,
-            )
+            (CtorOpts::Normal, home, 0, annotation)
         }
+    };
+    ExprKind::VarCtor {
+        opts,
+        home: home.clone(),
+        name: name.to_owned(),
+        index,
+        annotation,
     }
 }
 
@@ -422,7 +352,8 @@ fn lambda(
     params: &[PatId],
     body: ExprId,
 ) -> R<((Vec<Pattern>, Expr), FreeLocals)> {
-    let (params, bindings) = pattern::verify(env, &DuplicatePatternContext::LambdaArgs, |b| {
+    let context = DuplicatePatternContext::LambdaArgs;
+    let (params, bindings) = pattern::verify(env.compat, &context, |b| {
         pattern::each(env, module, params, b)
     })?;
     let scope = env.add_locals(&bindings)?;
@@ -437,7 +368,8 @@ fn case_branch(
     pattern: PatId,
     body: ExprId,
 ) -> R<((Pattern, Expr), FreeLocals)> {
-    let (pattern, bindings) = pattern::verify(env, &DuplicatePatternContext::CaseBranch, |b| {
+    let context = DuplicatePatternContext::CaseBranch;
+    let (pattern, bindings) = pattern::verify(env.compat, &context, |b| {
         pattern::canonicalize(env, module, pattern, b)
     })?;
     let scope = env.add_locals(&bindings)?;
@@ -451,85 +383,82 @@ fn find_var(env: &Env<'_>, region: TextRange, name: &str, free: &mut FreeLocals)
     match env.vars.get(name) {
         Some(Var::Local(binder)) => {
             env.references.record(region, Target::Local(*binder));
-            free.entry(name.to_owned()).or_default().direct += 1;
+            free.insert(name.to_owned(), Use::Direct);
             Ok(ExprKind::VarLocal(name.to_owned()))
         }
         Some(Var::TopLevel(_)) => {
             env.references.global(region, &env.home, name, Kind::Value);
-            free.entry(name.to_owned()).or_default().direct += 1;
+            free.insert(name.to_owned(), Use::Direct);
             Ok(ExprKind::VarTopLevel(env.home.clone(), name.to_owned()))
         }
-        Some(Var::Foreign(homes)) if homes.len() == 1 => {
-            let (home, annotation) = homes.iter().next().expect("one home");
-            env.references.global(region, home, name, Kind::Value);
-            Ok(foreign(env, home, name, annotation))
-        }
-        Some(Var::Foreign(homes)) => throw(Error::Ambiguous {
-            kind: NameKind::Value,
-            range: region,
-            prefix: None,
-            name: name.to_owned(),
-            homes: homes.keys().cloned().collect(),
-        }),
-        None => throw(Error::NotFound {
-            kind: NameKind::Value,
-            range: region,
-            prefix: None,
-            name: name.to_owned(),
-            possible: possible_vars(env),
-        }),
-    }
-}
-
-/// A foreign value: `Debug`'s by the module using it.
-fn foreign(env: &Env<'_>, home: &Home, name: &str, annotation: &Annotation) -> ExprKind {
-    if home.package == "elm/core" && home.module == "Debug" {
-        ExprKind::VarDebug(env.home.clone(), name.to_owned(), annotation.clone())
-    } else {
-        ExprKind::VarForeign(home.clone(), name.to_owned(), annotation.clone())
+        Some(Var::Foreign(homes)) => foreign_var(env, region, None, name, homes),
+        None => throw(not_found(env, region, None, name)),
     }
 }
 
 /// `findVarQual`, where a kernel module's values are found in kernel
 /// packages without importing it.
 fn find_var_qual(env: &Env<'_>, region: TextRange, prefix: &str, name: &str) -> R<ExprKind> {
-    let not_found = || Error::NotFound {
-        kind: NameKind::Value,
-        range: region,
-        prefix: Some(prefix.to_owned()),
-        name: name.to_owned(),
-        possible: possible_vars(env),
-    };
     match env.q_vars.get(prefix) {
         Some(qualified) => match qualified.get(name) {
-            Some(homes) if homes.len() == 1 => {
-                let (home, annotation) = homes.iter().next().expect("one home");
-                env.references.global(region, home, name, Kind::Value);
-                Ok(foreign(env, home, name, annotation))
-            }
-            Some(homes) => throw(Error::Ambiguous {
-                kind: NameKind::Value,
-                range: region,
-                prefix: Some(prefix.to_owned()),
-                name: name.to_owned(),
-                homes: homes.keys().cloned().collect(),
-            }),
-            None => throw(not_found()),
+            Some(homes) => foreign_var(env, region, Some(prefix), name, homes),
+            None => throw(not_found(env, region, Some(prefix), name)),
         },
         None if is_kernel_module(prefix) && is_kernel_package(&env.home.package) => {
-            let module = prefix.strip_prefix("Elm.Kernel.").unwrap_or(prefix);
-            Ok(ExprKind::VarKernel(module.to_owned(), name.to_owned()))
+            Ok(ExprKind::VarKernel {
+                module: prefix
+                    .strip_prefix("Elm.Kernel.")
+                    .unwrap_or(prefix)
+                    .to_owned(),
+                name: name.to_owned(),
+            })
         }
-        None => throw(not_found()),
+        None => throw(not_found(env, region, Some(prefix), name)),
     }
 }
 
-fn possible_vars(env: &Env<'_>) -> PossibleNames {
-    PossibleNames {
-        locals: env.vars.keys().cloned().collect(),
-        qualified: (env.q_vars.iter())
-            .map(|(prefix, names)| (prefix.clone(), names.keys().cloned().collect()))
-            .collect(),
+/// A foreign value, if one import offers it: `Debug`'s by the module
+/// using it.
+fn foreign_var(
+    env: &Env<'_>,
+    region: TextRange,
+    prefix: Option<&str>,
+    name: &str,
+    homes: &BTreeMap<Home, &Annotation>,
+) -> R<ExprKind> {
+    let (home, annotation) = env::one(homes).or_else(|homes| {
+        throw(Error::Ambiguous {
+            kind: NameKind::Value,
+            range: region,
+            prefix: prefix.map(str::to_owned),
+            name: name.to_owned(),
+            homes,
+        })
+    })?;
+    env.references.global(region, home, name, Kind::Value);
+    let annotation = (*annotation).clone();
+    Ok(if home.is("elm/core", "Debug") {
+        ExprKind::VarDebug {
+            home: env.home.clone(),
+            name: name.to_owned(),
+            annotation,
+        }
+    } else {
+        ExprKind::VarForeign {
+            home: home.clone(),
+            name: name.to_owned(),
+            annotation,
+        }
+    })
+}
+
+fn not_found(env: &Env<'_>, range: TextRange, prefix: Option<&str>, name: &str) -> Error {
+    Error::NotFound {
+        kind: NameKind::Value,
+        range,
+        prefix: prefix.map(str::to_owned),
+        name: name.to_owned(),
+        possible: env::possible(env.vars.keys(), &env.q_vars),
     }
 }
 
@@ -548,10 +477,12 @@ fn let_(
     let mut dups = Dict::default();
     for &def in defs {
         match &module.defs[def] {
-            Def_::Define { name, .. } => {
+            hir::Def::Define { name, .. } => {
                 dups.insert(env.compat, &name.text, name.range, name.range);
             }
-            Def_::Destruct { pattern, .. } => add_bindings(env, module, *pattern, &mut dups),
+            hir::Def::Destruct { pattern, .. } => {
+                add_bindings(env.compat, module, *pattern, &mut dups);
+            }
         }
     }
     let bindings = dups.detect(env.compat, |name, first, second| Error::DuplicatePattern {
@@ -575,34 +506,34 @@ fn let_(
 
 /// `addBindingsHelp`: the names a destructuring binds, in upstream's
 /// order.
-fn add_bindings(env: &Env<'_>, module: &hir::Module, id: PatId, dups: &mut Bindings) {
-    let region = module
-        .source_map
-        .pattern(id)
-        .map(|p| p.range)
-        .unwrap_or_default();
+fn add_bindings(compat: Compat, module: &hir::Module, id: PatId, dups: &mut Bindings) {
     match &module.patterns[id] {
-        hir::Pattern::Var(name) => dups.insert(env.compat, name, region, region),
+        hir::Pattern::Var(name) => {
+            let region = module.source_map.pattern_range(id);
+            dups.insert(compat, name, region, region);
+        }
         hir::Pattern::Record(fields) => {
             for field in fields {
-                dups.insert(env.compat, &field.text, field.range, field.range);
+                dups.insert(compat, &field.text, field.range, field.range);
             }
         }
         hir::Pattern::Tuple(items) | hir::Pattern::List(items) => {
             for &p in items {
-                add_bindings(env, module, p, dups);
+                add_bindings(compat, module, p, dups);
             }
         }
-        hir::Pattern::Ctor { args, .. } => args
-            .iter()
-            .for_each(|&p| add_bindings(env, module, p, dups)),
+        hir::Pattern::Ctor { args, .. } => {
+            for &p in args {
+                add_bindings(compat, module, p, dups);
+            }
+        }
         hir::Pattern::Cons(head, tail) => {
-            add_bindings(env, module, *head, dups);
-            add_bindings(env, module, *tail, dups);
+            add_bindings(compat, module, *head, dups);
+            add_bindings(compat, module, *tail, dups);
         }
         hir::Pattern::Alias(inner, name) => {
-            add_bindings(env, module, *inner, dups);
-            dups.insert(env.compat, &name.text, name.range, name.range);
+            add_bindings(compat, module, *inner, dups);
+            dups.insert(compat, &name.text, name.range, name.range);
         }
         hir::Pattern::Missing
         | hir::Pattern::Anything
@@ -623,28 +554,30 @@ fn def_node(
     let_free: &mut FreeLocals,
 ) -> R<()> {
     match &module.defs[def] {
-        Def_::Define {
+        hir::Def::Define {
             name,
             params,
             body,
             annotation,
             ..
         } => {
-            let (cdef, inner) = definition(env, module, name, params, *body, *annotation)?;
-            let uses: Vec<String> = inner.keys().cloned().collect();
-            nodes.push((LetBinding::Define(cdef), name.text.clone(), uses));
-            combine(
-                let_free,
-                if params.is_empty() {
-                    inner
-                } else {
-                    delay(inner)
-                },
-            );
+            let defined = definition(env, module, name, params, *body, *annotation)?;
+            nodes.push(LetNode {
+                binding: LetBinding::Define(defined.def),
+                key: name.text.clone(),
+                uses: defined.free.keys().cloned().collect(),
+            });
+            let free = if params.is_empty() {
+                defined.free
+            } else {
+                delay(defined.free)
+            };
+            combine(let_free, free);
             Ok(())
         }
-        Def_::Destruct { pattern, body } => {
-            let (cpattern, _) = pattern::verify(env, &DuplicatePatternContext::Destruct, |b| {
+        hir::Def::Destruct { pattern, body } => {
+            let context = DuplicatePatternContext::Destruct;
+            let (cpattern, _) = pattern::verify(env.compat, &context, |b| {
                 pattern::canonicalize(env, module, *pattern, b)
             })?;
             let mut inner = FreeLocals::new();
@@ -654,86 +587,103 @@ fn def_node(
             // name of the source can be.
             let key = names
                 .first()
-                .map_or(String::new(), |(n, _)| format!("_M${n}"));
+                .map_or(String::new(), |n| format!("_M${}", n.text));
             let uses = inner.keys().cloned().collect();
             combine(let_free, inner);
-            nodes.push((LetBinding::Destruct(cpattern, cbody), key.clone(), uses));
-            for (name, range) in names {
-                nodes.push((
-                    LetBinding::Edge {
-                        name: name.clone(),
-                        range,
-                    },
-                    name,
-                    vec![key.clone()],
-                ));
+            nodes.push(LetNode {
+                binding: LetBinding::Destruct(cpattern, cbody),
+                key: key.clone(),
+                uses,
+            });
+            for name in names {
+                nodes.push(LetNode {
+                    key: name.text.clone(),
+                    binding: LetBinding::Edge(name),
+                    uses: vec![key.clone()],
+                });
             }
             Ok(())
         }
     }
 }
 
+/// A definition canonicalized, with what its annotation says where it has
+/// one.
+pub(super) struct Defined {
+    pub(super) def: Def,
+    pub(super) annotation: Option<Annotation>,
+    /// The locals its body uses from outside it.
+    pub(super) free: FreeLocals,
+}
+
 /// A definition's parameters and body, against its annotation where it
-/// has one (`toNodeOne` and `addDefNodes` alike), and the locals its body
-/// uses from outside it.
-pub fn definition(
+/// has one (`toNodeOne` and `addDefNodes` alike).
+pub(super) fn definition(
     env: &Env<'_>,
     module: &hir::Module,
-    name: &hir::Spanned,
+    name: &Spanned,
     params: &[PatId],
     body: ExprId,
     annotation: Option<hir::TypeId>,
-) -> R<(CDef, FreeLocals)> {
+) -> R<Defined> {
     let context = DuplicatePatternContext::FuncArgs(name.text.clone());
     match annotation {
         None => {
-            let (params, bindings) =
-                pattern::verify(env, &context, |b| pattern::each(env, module, params, b))?;
+            let (params, bindings) = pattern::verify(env.compat, &context, |b| {
+                pattern::each(env, module, params, b)
+            })?;
             let scope = env.add_locals(&bindings)?;
             let (body, free) =
                 verify_bindings(&bindings, |free| canonicalize(&scope, module, body, free))?;
-            let def = CDef::Def {
+            let def = Def::Def {
                 name: name.text.clone(),
                 region: name.range,
                 params,
                 body,
             };
-            Ok((def, free))
+            Ok(Defined {
+                def,
+                annotation: None,
+                free,
+            })
         }
         Some(ty) => {
             let annotation = types::to_annotation(env, module, ty)?;
-            let ((params, result), bindings) = pattern::verify(env, &context, |b| {
+            let ((params, result), bindings) = pattern::verify(env.compat, &context, |b| {
                 super::module::typed_args(env, module, &name.text, params, &annotation.ty, b)
             })?;
             let scope = env.add_locals(&bindings)?;
             let (body, free) =
                 verify_bindings(&bindings, |free| canonicalize(&scope, module, body, free))?;
-            let def = CDef::TypedDef {
+            let def = Def::TypedDef {
                 name: name.text.clone(),
                 region: name.range,
-                free: annotation.free,
+                free: annotation.free.clone(),
                 params,
                 body,
                 result,
             };
-            Ok((def, free))
+            Ok(Defined {
+                def,
+                annotation: Some(annotation),
+                free,
+            })
         }
     }
 }
 
 /// `getPatternNames`, in the order it lists them. 0.19.1's parser keeps
 /// a record pattern's fields last first.
-fn pattern_names(compat: Compat, module: &hir::Module, id: PatId) -> Vec<(String, TextRange)> {
-    fn go(compat: Compat, module: &hir::Module, id: PatId, names: &mut Vec<(String, TextRange)>) {
-        let region = module
-            .source_map
-            .pattern(id)
-            .map(|p| p.range)
-            .unwrap_or_default();
+fn pattern_names(compat: Compat, module: &hir::Module, id: PatId) -> Vec<Spanned> {
+    fn go(compat: Compat, module: &hir::Module, id: PatId, names: &mut Vec<Spanned>) {
         match &module.patterns[id] {
-            hir::Pattern::Var(name) => names.insert(0, (name.clone(), region)),
+            hir::Pattern::Var(name) => {
+                let range = module.source_map.pattern_range(id);
+                let text = name.clone();
+                names.insert(0, Spanned { text, range });
+            }
             hir::Pattern::Record(fields) => {
-                let mut new: Vec<_> = fields.iter().map(|f| (f.text.clone(), f.range)).collect();
+                let mut new = fields.clone();
                 if compat == Compat::V0_19_1 {
                     new.reverse();
                 }
@@ -741,7 +691,7 @@ fn pattern_names(compat: Compat, module: &hir::Module, id: PatId) -> Vec<(String
                 *names = new;
             }
             hir::Pattern::Alias(inner, name) => {
-                names.insert(0, (name.text.clone(), name.range));
+                names.insert(0, name.clone());
                 go(compat, module, *inner, names);
             }
             hir::Pattern::Tuple(items) | hir::Pattern::List(items) => {

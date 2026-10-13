@@ -19,11 +19,11 @@ pub mod union_find;
 
 use std::collections::BTreeMap;
 
-use nomi_base::{Compat, TextRange};
+use nomi_base::{Compat, Text, TextRange};
 
 pub use names::{from_type_variable, from_type_variable_scheme};
 
-use crate::canonical::{self, Home, Text};
+use crate::canonical::{self, Home};
 use expected::{Category, Expected, PCategory, PExpected};
 use union_find::{Point, UnionFind};
 

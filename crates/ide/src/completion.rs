@@ -1025,11 +1025,11 @@ fn constructor_type(
         package: interface.home.as_str().into(),
         module: module.into(),
     };
-    let result = Type::Type(
+    let result = Type::Type {
         home,
-        union_name.clone(),
-        union.vars.iter().map(|v| Type::Var(v.clone())).collect(),
-    );
+        name: union_name.clone(),
+        args: union.vars.iter().map(|v| Type::Var(v.clone())).collect(),
+    };
     let ty = (ctor.args.iter().rev()).fold(result, |acc, arg| {
         Type::Lambda(Box::new(arg.clone()), Box::new(acc))
     });

@@ -4,19 +4,15 @@
 //! grammar reads (legacy ports and infixes, standalone doc comments)
 //! lowers to nothing, and missing pieces to `Missing`.
 
-use nomi_base::TextRange;
+use nomi_base::{TextRange, grow_large};
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
+use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, significant_tokens};
 
 use super::{
-    Alias, Associativity, Def, DefId, Exposed, Exposing, Expr, ExprId, Import, Infix, Module,
-    ModuleKind, NodePtr, PatId, Pattern, Port, Spanned, Type, TypeId, Union,
+    Alias, Associativity, Def, DefId, Exposed, Exposing, Expr, ExprId, Fixity, Import, Infix,
+    ManagerFields, Module, ModuleKind, NodePtr, PatId, Pattern, Port, Spanned, Type, TypeId, Union,
+    VarType,
 };
-
-/// Stack kept free before a recursive step, and the size of each new
-/// segment, as the parser keeps.
-const RED_ZONE: usize = 128 * 1024;
-const STACK_SEGMENT: usize = 2 * 1024 * 1024;
 
 /// The HIR of `module`.
 pub fn lower(module: &ast::Module) -> Module {
@@ -40,37 +36,32 @@ fn spanned(token: &SyntaxToken) -> Spanned {
 
 /// The node's text without trivia, and the range from its first token
 /// to its last: a qualified name, or an operator.
-fn words(node: &SyntaxNode) -> Spanned {
-    let tokens: Vec<SyntaxToken> = node
-        .descendants_with_tokens()
-        .filter_map(|e| e.into_token())
-        .filter(|t| !t.kind().is_trivia())
-        .collect();
-    let range = match (tokens.first(), tokens.last()) {
-        (Some(first), Some(last)) => {
-            TextRange::new(first.text_range().start(), last.text_range().end())
-        }
-        _ => TextRange::empty(node.text_range().start()),
-    };
+fn unspaced(node: &SyntaxNode) -> Spanned {
+    let mut text = String::new();
+    let mut range: Option<TextRange> = None;
+    for token in significant_tokens(node) {
+        text.push_str(token.text());
+        let at = token.text_range();
+        range = Some(range.map_or(at, |range| range.cover(at)));
+    }
     Spanned {
-        text: tokens.iter().map(|t| t.text()).collect(),
-        range,
+        text,
+        range: range.unwrap_or_else(|| TextRange::empty(node.text_range().start())),
     }
 }
 
-/// The first token of `node` that isn't trivia.
-fn first_token(node: &SyntaxNode) -> Option<SyntaxToken> {
-    node.children_with_tokens()
-        .filter_map(|e| e.into_token())
-        .find(|t| !t.kind().is_trivia())
+fn type_params(params: impl Iterator<Item = ast::TypeParam>) -> Vec<Spanned> {
+    params
+        .filter_map(|p| p.lower_ident_token())
+        .map(|t| spanned(&t))
+        .collect()
 }
 
-/// The last token of `node` among `kinds`.
-fn last_of(node: &SyntaxNode, kinds: &[SyntaxKind]) -> Option<SyntaxToken> {
-    node.children_with_tokens()
-        .filter_map(|e| e.into_token())
-        .filter(|t| kinds.contains(&t.kind()))
-        .last()
+/// A value's name, an identifier or an operator in parentheses.
+fn value_name(lower: Option<SyntaxToken>, operator: Option<ast::OperatorName>) -> Option<Spanned> {
+    lower
+        .map(|t| spanned(&t))
+        .or_else(|| operator.map(|o| unspaced(o.syntax())))
 }
 
 /// From `keyword` to the end of `node`, which ends with code.
@@ -80,40 +71,31 @@ fn from_keyword(keyword: Option<SyntaxToken>, node: &SyntaxNode) -> TextRange {
     TextRange::new(start, end)
 }
 
-/// A name, located from its qualifier when it has one, as upstream
-/// locates `TTypeQual` and `PCtorQual`.
-fn qualified_name(q: Option<&ast::Qualifier>, name: &SyntaxToken) -> Spanned {
-    let start = q.map_or_else(
-        || name.text_range().start(),
-        |q| words(q.syntax()).range.start(),
-    );
-    Spanned {
+/// A name's qualifier, and the name, located from its qualifier when it
+/// has one, as upstream locates `TTypeQual` and `PCtorQual`.
+fn qualified(q: Option<ast::Qualifier>, name: &SyntaxToken) -> (Option<String>, Spanned) {
+    let q = q.map(|q| unspaced(q.syntax()));
+    let start = match &q {
+        Some(q) => q.range.start(),
+        None => name.text_range().start(),
+    };
+    let name = Spanned {
         text: name.text().to_owned(),
         range: TextRange::new(start, name.text_range().end()),
-    }
+    };
+    (q.map(|q| q.text.trim_end_matches('.').to_owned()), name)
 }
 
 fn qualifier(q: Option<ast::Qualifier>) -> Option<String> {
-    q.map(|q| words(q.syntax()).text.trim_end_matches('.').to_owned())
+    q.map(|q| unspaced(q.syntax()).text.trim_end_matches('.').to_owned())
 }
 
 impl Lower {
     fn module_(&mut self, module: &ast::Module) {
         if let Some(header) = module.module_header() {
-            self.module.name = header.module_name().map(|n| words(n.syntax()));
+            self.module.name = header.module_name().map(|n| unspaced(n.syntax()));
             self.module.kind = if header.effect_token().is_some() {
-                let fields = header
-                    .effect_fields()
-                    .into_iter()
-                    .flat_map(|f| f.effect_fields())
-                    .filter_map(|f| {
-                        Some((
-                            spanned(&f.lower_ident_token()?),
-                            spanned(&f.upper_ident_token()?),
-                        ))
-                    })
-                    .collect();
-                ModuleKind::Effect(fields)
+                ModuleKind::Effect(manager(header.effect_fields().as_ref()))
             } else if header.port_token().is_some() {
                 ModuleKind::Port
             } else {
@@ -122,10 +104,11 @@ impl Lower {
             if let Some(list) = header.exposing_list() {
                 self.module.exports = exposing(&list);
                 // From its `(`, as `addLocation` around `exposing` has it.
-                let range = words(list.syntax()).range;
-                let open = (list.syntax().children_with_tokens())
-                    .find(|e| e.kind() == SyntaxKind::LParen)
-                    .map_or_else(|| range.start(), |e| e.text_range().start());
+                let range = unspaced(list.syntax()).range;
+                let open = list
+                    .l_paren_token()
+                    .map_or(range, |t| t.text_range())
+                    .start();
                 self.module.exports_range = TextRange::new(open, range.end());
                 let mut next = list.syntax().last_token().and_then(|t| t.next_token());
                 while let Some(token) = next.as_ref().filter(|t| t.kind().is_trivia()) {
@@ -152,7 +135,6 @@ impl Lower {
     }
 
     fn decl(&mut self, decl: &ast::Decl) {
-        let node = NodePtr::new(decl.syntax());
         match decl {
             ast::Decl::ValueDecl(value) => {
                 let docs = value.doc_comment_token().map(|t| spanned(&t));
@@ -175,18 +157,12 @@ impl Lower {
                 let Some(name) = alias.upper_ident_token() else {
                     return;
                 };
-                let params = alias
-                    .type_params()
-                    .filter_map(|p| p.lower_ident_token())
-                    .map(|t| spanned(&t))
-                    .collect();
                 let body = self.ty(alias.ty());
                 self.module.aliases.push(Alias {
                     name: spanned(&name),
-                    params,
+                    params: type_params(alias.type_params()),
                     body,
                     docs: alias.doc_comment_token().map(|t| spanned(&t)),
-                    node,
                     range: from_keyword(alias.type_token(), decl.syntax()),
                 });
             }
@@ -194,11 +170,7 @@ impl Lower {
                 let Some(name) = union.upper_ident_token() else {
                     return;
                 };
-                let params = union
-                    .type_params()
-                    .filter_map(|p| p.lower_ident_token())
-                    .map(|t| spanned(&t))
-                    .collect();
+                let params = type_params(union.type_params());
                 let variants = union
                     .variants()
                     .filter_map(|v| {
@@ -212,7 +184,6 @@ impl Lower {
                     params,
                     variants,
                     docs: union.doc_comment_token().map(|t| spanned(&t)),
-                    node,
                     range: from_keyword(union.type_token(), decl.syntax()),
                 });
             }
@@ -225,20 +196,14 @@ impl Lower {
                     name: spanned(&name),
                     ty,
                     docs: port.doc_comment_token().map(|t| spanned(&t)),
-                    node,
                     range: from_keyword(port.port_token(), decl.syntax()),
                 });
             }
             ast::Decl::InfixDecl(infix) => {
-                let associativity = match last_of(
-                    infix.syntax(),
-                    &[SyntaxKind::LeftKw, SyntaxKind::RightKw, SyntaxKind::NonKw],
-                )
-                .map(|t| t.kind())
-                {
-                    Some(SyntaxKind::LeftKw) => Associativity::Left,
-                    Some(SyntaxKind::RightKw) => Associativity::Right,
-                    _ => Associativity::Non,
+                let associativity = match (infix.left_token(), infix.right_token()) {
+                    (Some(_), _) => Associativity::Left,
+                    (None, Some(_)) => Associativity::Right,
+                    (None, None) => Associativity::Non,
                 };
                 let (Some(op), Some(precedence), Some(function)) = (
                     infix.op(),
@@ -248,11 +213,12 @@ impl Lower {
                     return;
                 };
                 self.module.binops.push(Infix {
-                    op: words(op.syntax()),
-                    associativity,
-                    precedence,
+                    op: unspaced(op.syntax()),
+                    fixity: Fixity {
+                        associativity,
+                        precedence,
+                    },
                     function: spanned(&function),
-                    node,
                 });
             }
             ast::Decl::LegacyPortDecl(_)
@@ -271,16 +237,10 @@ impl Lower {
         node: &SyntaxNode,
     ) -> Option<DefId> {
         let name = definition
-            .and_then(|d| {
-                d.lower_ident_token()
-                    .map(|t| spanned(&t))
-                    .or_else(|| d.operator_name().map(|o| words(o.syntax())))
-            })
+            .and_then(|d| value_name(d.lower_ident_token(), d.operator_name()))
             .or_else(|| {
                 let s = signature.as_ref()?;
-                s.lower_ident_token()
-                    .map(|t| spanned(&t))
-                    .or_else(|| s.operator_name().map(|o| words(o.syntax())))
+                value_name(s.lower_ident_token(), s.operator_name())
             })?;
         let annotation = signature.map(|s| self.ty(s.ty()));
         let params = definition
@@ -323,7 +283,7 @@ impl Lower {
         let Some(expr) = expr else {
             return self.alloc_expr(Expr::Missing, None);
         };
-        stacker::maybe_grow(RED_ZONE, STACK_SEGMENT, || self.expr_(expr))
+        grow_large(|| self.expr_(expr))
     }
 
     fn expr_(&mut self, expr: ast::Expr) -> ExprId {
@@ -331,7 +291,7 @@ impl Lower {
         let node = expr.syntax().clone();
         let lowered = match expr {
             E::ParenExpr(paren) => return self.expr(paren.expr()),
-            E::LiteralExpr(_) => match first_token(&node) {
+            E::LiteralExpr(_) => match significant_tokens(&node).next() {
                 Some(token) => {
                     let text = token.text().to_owned();
                     match token.kind() {
@@ -344,17 +304,18 @@ impl Lower {
                 None => Expr::Missing,
             },
             E::NameExpr(name) => {
-                match last_of(&node, &[SyntaxKind::LowerIdent, SyntaxKind::UpperIdent]) {
-                    Some(token) => Expr::Var {
+                let lower = name.lower_ident_token().map(|t| (t, VarType::Low));
+                match lower.or_else(|| name.upper_ident_token().map(|t| (t, VarType::Cap))) {
+                    Some((token, kind)) => Expr::Var {
                         qualifier: qualifier(name.qualifier()),
                         name: token.text().to_owned(),
-                        upper: token.kind() == SyntaxKind::UpperIdent,
+                        kind,
                     },
                     None => Expr::Missing,
                 }
             }
             E::OperatorFunction(op) => match op.op() {
-                Some(op) => Expr::Op(words(op.syntax()).text),
+                Some(op) => Expr::Op(unspaced(op.syntax()).text),
                 None => Expr::Missing,
             },
             E::NegateExpr(negate) => Expr::Negate(self.expr(negate.expr())),
@@ -365,7 +326,7 @@ impl Lower {
             }
             E::OperatorChain(chain) => {
                 let mut operands: Vec<_> = chain.exprs().map(|e| self.expr(Some(e))).collect();
-                let ops: Vec<_> = chain.ops().map(|op| words(op.syntax())).collect();
+                let ops: Vec<_> = chain.ops().map(|op| unspaced(op.syntax())).collect();
                 // A recovered chain still has an operand around each
                 // operator: missing ones are `Missing`, extra ones go.
                 while operands.len() < ops.len() + 1 {
@@ -480,7 +441,7 @@ impl Lower {
         let Some(pattern) = pattern else {
             return self.alloc_pattern(Pattern::Missing, None);
         };
-        stacker::maybe_grow(RED_ZONE, STACK_SEGMENT, || self.pattern_(pattern))
+        grow_large(|| self.pattern_(pattern))
     }
 
     fn pattern_(&mut self, pattern: ast::Pattern) -> PatId {
@@ -493,19 +454,17 @@ impl Lower {
                 None => Pattern::Missing,
             },
             P::WildcardPattern(_) => Pattern::Anything,
-            P::LiteralPattern(_) => {
-                let text = words(&node).text;
-                match last_of(
-                    &node,
-                    &[SyntaxKind::Int, SyntaxKind::Float, SyntaxKind::Char],
-                )
-                .map(|t| t.kind())
-                {
-                    Some(SyntaxKind::Int) => Pattern::Int(text),
-                    Some(SyntaxKind::Char) => Pattern::Chr(text),
+            P::LiteralPattern(literal) => {
+                let text = unspaced(&node).text;
+                if literal.int_token().is_some() {
+                    Pattern::Int(text)
+                } else if literal.char_token().is_some() {
+                    Pattern::Chr(text)
+                } else if literal.float_token().is_some() {
                     // elm rejects float patterns.
-                    Some(_) => Pattern::Missing,
-                    None => Pattern::Str(text),
+                    Pattern::Missing
+                } else {
+                    Pattern::Str(text)
                 }
             }
             P::UnitPattern(_) => Pattern::Unit,
@@ -525,9 +484,10 @@ impl Lower {
             P::ConstructorPattern(ctor) => match ctor.upper_ident_token() {
                 Some(name) => {
                     let args = ctor.patterns().map(|p| self.pattern(Some(p))).collect();
+                    let (qualifier, name) = qualified(ctor.qualifier(), &name);
                     Pattern::Ctor {
-                        name: qualified_name(ctor.qualifier().as_ref(), &name),
-                        qualifier: qualifier(ctor.qualifier()),
+                        qualifier,
+                        name,
                         args,
                     }
                 }
@@ -553,7 +513,7 @@ impl Lower {
         let Some(ty) = ty else {
             return self.alloc_type(Type::Missing, None);
         };
-        stacker::maybe_grow(RED_ZONE, STACK_SEGMENT, || self.ty_(ty))
+        grow_large(|| self.ty_(ty))
     }
 
     fn ty_(&mut self, ty: ast::Type) -> TypeId {
@@ -564,9 +524,10 @@ impl Lower {
             T::NamedType(named) => match named.upper_ident_token() {
                 Some(name) => {
                     let args = named.types().map(|t| self.ty(Some(t))).collect();
+                    let (qualifier, name) = qualified(named.qualifier(), &name);
                     Type::Named {
-                        name: qualified_name(named.qualifier().as_ref(), &name),
-                        qualifier: qualifier(named.qualifier()),
+                        qualifier,
+                        name,
                         args,
                     }
                 }
@@ -606,12 +567,29 @@ impl Lower {
     }
 }
 
+/// An effect manager's fields.
+fn manager(fields: Option<&ast::EffectFields>) -> ManagerFields {
+    let mut manager = ManagerFields::default();
+    let mut first = None;
+    for field in fields.into_iter().flat_map(|f| f.effect_fields()) {
+        let (Some(key), Some(value)) = (field.lower_ident_token(), field.upper_ident_token())
+        else {
+            continue;
+        };
+        first.get_or_insert_with(|| key.text_range());
+        let slot = match key.text() {
+            "command" => &mut manager.command,
+            "subscription" => &mut manager.subscription,
+            _ => continue,
+        };
+        slot.get_or_insert_with(|| spanned(&value));
+    }
+    manager.first = first.unwrap_or_default();
+    manager
+}
+
 fn exposing(list: &ast::ExposingList) -> Exposing {
-    let open = list
-        .syntax()
-        .children_with_tokens()
-        .any(|e| e.kind() == SyntaxKind::DotDot);
-    if open {
+    if list.dot_dot_token().is_some() {
         return Exposing::Open;
     }
     Exposing::Explicit(
@@ -624,15 +602,14 @@ fn exposing(list: &ast::ExposingList) -> Exposing {
                 ast::Exposed::ExposedType(t) => Some(Exposed::Upper(
                     spanned(&t.upper_ident_token()?),
                     t.exposed_variants().map(|v| {
-                        let dots = (v.syntax().children_with_tokens())
-                            .find(|e| e.kind() == SyntaxKind::DotDot);
+                        let dots = v.dot_dot_token();
                         dots.map_or_else(|| v.syntax().text_range(), |d| d.text_range())
                     }),
                 )),
                 // An operator is located with its parentheses.
                 ast::Exposed::ExposedOperator(o) => Some(Exposed::Operator(Spanned {
-                    text: words(o.op()?.syntax()).text,
-                    range: words(o.syntax()).range,
+                    text: unspaced(o.op()?.syntax()).text,
+                    range: unspaced(o.syntax()).range,
                 })),
             })
             .collect(),
@@ -641,7 +618,7 @@ fn exposing(list: &ast::ExposingList) -> Exposing {
 
 fn import(import: &ast::Import) -> Option<Import> {
     Some(Import {
-        name: words(import.module_name()?.syntax()),
+        name: unspaced(import.module_name()?.syntax()),
         alias: import
             .import_alias()
             .and_then(|a| a.upper_ident_token())

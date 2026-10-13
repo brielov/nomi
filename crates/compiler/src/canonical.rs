@@ -3,8 +3,9 @@
 //! reads expressions.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
-use nomi_base::TextRange;
+use nomi_base::{Text, TextRange};
 
 /// A module and the package it is in (`ModuleName.Canonical`). Types
 /// carry their home everywhere, so its names are shared, not copied.
@@ -15,193 +16,27 @@ pub struct Home {
     pub module: Text,
 }
 
-/// A name, a package's, a module's or a type's, interned: every `Text` of
-/// the same name points at one string, kept for the life of the process,
-/// so a clone copies a pointer, equality compares pointers, and a drop
-/// does nothing. The pointer is thin, to where the string's own pointer
-/// and length are kept, so a `Text` is one word: type variables hold
-/// several. Names are few, so keeping them costs little. It orders and
-/// hashes as its text, so nothing depends on where a name lives.
-#[derive(Clone)]
-#[expect(
-    clippy::borrowed_box,
-    reason = "a `&Box<str>` is one word, a `&str` two"
-)]
-pub struct Text(&'static Box<str>);
-
-/// An interned name as the interner's sets hold it, found by its text.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-#[expect(
-    clippy::borrowed_box,
-    reason = "it holds the one-word pointer a `Text` holds"
-)]
-struct Interned(&'static Box<str>);
-
-impl std::borrow::Borrow<str> for Interned {
-    fn borrow(&self) -> &str {
-        self.0
-    }
-}
-
-impl Text {
-    /// The interned `name`.
-    pub fn new(name: &str) -> Text {
-        use rustc_hash::FxHashSet;
-        use std::cell::RefCell;
-        use std::sync::{OnceLock, RwLock};
-        static NAMES: OnceLock<RwLock<FxHashSet<Interned>>> = OnceLock::new();
-        // Each thread keeps the names it has seen, so threads interning at
-        // once don't contend for the shared set.
-        thread_local! {
-            static SEEN: RefCell<FxHashSet<Interned>> = RefCell::default();
-        }
-        if let Some(interned) = SEEN.with_borrow(|seen| seen.get(name).copied()) {
-            return Text(interned.0);
-        }
-        let names = NAMES.get_or_init(Default::default);
-        let known = (names.read().unwrap_or_else(|e| e.into_inner()).get(name)).copied();
-        let interned = known.unwrap_or_else(|| {
-            let mut names = names.write().unwrap_or_else(|e| e.into_inner());
-            if let Some(&interned) = names.get(name) {
-                return interned;
-            }
-            let interned = Interned(Box::leak(Box::new(Box::from(name))));
-            names.insert(interned);
-            interned
-        });
-        SEEN.with_borrow_mut(|seen| seen.insert(interned));
-        Text(interned.0)
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        self.0
-    }
-}
-
-impl Default for Text {
-    fn default() -> Text {
-        Text::new("")
-    }
-}
-
-impl PartialEq for Text {
-    fn eq(&self, other: &Text) -> bool {
-        std::ptr::eq(self.0, other.0)
-    }
-}
-
-impl Eq for Text {}
-
-impl PartialOrd for Text {
-    fn partial_cmp(&self, other: &Text) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Text {
-    fn cmp(&self, other: &Text) -> std::cmp::Ordering {
-        if self == other {
-            std::cmp::Ordering::Equal
-        } else {
-            self.as_str().cmp(other.as_str())
+impl Home {
+    /// `module` of elm/core.
+    pub fn core(module: &str) -> Home {
+        Home {
+            package: Text::new("elm/core"),
+            module: module.into(),
         }
     }
-}
 
-impl std::hash::Hash for Text {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.as_str().hash(state);
+    /// `module` of an application, whose package upstream names
+    /// `author/project`.
+    pub fn author_project(module: &str) -> Home {
+        Home {
+            package: Text::new("author/project"),
+            module: module.into(),
+        }
     }
-}
 
-impl std::ops::Deref for Text {
-    type Target = str;
-    fn deref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl std::borrow::Borrow<str> for Text {
-    fn borrow(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl AsRef<str> for Text {
-    fn as_ref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl std::fmt::Debug for Text {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self.as_str(), f)
-    }
-}
-
-impl std::fmt::Display for Text {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl From<String> for Text {
-    fn from(s: String) -> Text {
-        Text::new(&s)
-    }
-}
-
-impl From<&str> for Text {
-    fn from(s: &str) -> Text {
-        Text::new(s)
-    }
-}
-
-impl From<&String> for Text {
-    fn from(s: &String) -> Text {
-        Text::new(s)
-    }
-}
-
-impl From<Text> for String {
-    fn from(t: Text) -> String {
-        t.as_str().to_owned()
-    }
-}
-
-impl PartialEq<str> for Text {
-    fn eq(&self, other: &str) -> bool {
-        self.as_str() == other
-    }
-}
-
-impl PartialEq<&str> for Text {
-    fn eq(&self, other: &&str) -> bool {
-        self.as_str() == *other
-    }
-}
-
-impl PartialEq<String> for Text {
-    fn eq(&self, other: &String) -> bool {
-        self.as_str() == other.as_str()
-    }
-}
-
-impl PartialEq<Text> for str {
-    fn eq(&self, other: &Text) -> bool {
-        self == other.as_str()
-    }
-}
-
-impl PartialEq<Text> for &str {
-    fn eq(&self, other: &Text) -> bool {
-        *self == other.as_str()
-    }
-}
-
-impl PartialEq<Text> for String {
-    fn eq(&self, other: &Text) -> bool {
-        self.as_str() == other.as_str()
+    /// Whether this is `module` of `package`.
+    pub fn is(&self, package: &str, module: &str) -> bool {
+        self.package == package && self.module == module
     }
 }
 
@@ -210,7 +45,11 @@ impl PartialEq<Text> for String {
 pub enum Type {
     Lambda(Box<Type>, Box<Type>),
     Var(String),
-    Type(Home, String, Vec<Type>),
+    Type {
+        home: Home,
+        name: String,
+        args: Vec<Type>,
+    },
     /// Fields by name, each with its place in the source, and the variable
     /// the record extends.
     Record(BTreeMap<String, FieldType>, Option<String>),
@@ -218,7 +57,12 @@ pub enum Type {
     /// Two or three; Elm has no larger tuples.
     Tuple(Box<Type>, Box<Type>, Option<Box<Type>>),
     /// An alias, applied to its arguments, and what it stands for.
-    Alias(Home, String, Vec<(String, Type)>, AliasType),
+    Alias {
+        home: Home,
+        name: String,
+        args: Vec<(String, Type)>,
+        aliased: AliasType,
+    },
 }
 
 /// What an alias in a type stands for (`Can.AliasType`): its body with
@@ -226,8 +70,155 @@ pub enum Type {
 /// shared by every mention of the alias.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum AliasType {
-    Holey(std::sync::Arc<Type>),
-    Filled(std::sync::Arc<Type>),
+    Holey(Arc<Type>),
+    Filled(Arc<Type>),
+}
+
+impl AliasType {
+    /// `dealias`: what the alias, applied to `args`, stands for.
+    pub fn dealias(&self, args: &[(String, Type)]) -> Type {
+        match self {
+            AliasType::Holey(body) => body.substitute(args),
+            AliasType::Filled(body) => (**body).clone(),
+        }
+    }
+}
+
+impl Type {
+    /// The function from `args`, in order, to `result`.
+    pub fn function(args: impl DoubleEndedIterator<Item = Type>, result: Type) -> Type {
+        args.rfold(result, |result, arg| {
+            Type::Lambda(Box::new(arg), Box::new(result))
+        })
+    }
+
+    /// The type with each variable `args` names replaced.
+    fn substitute(&self, args: &[(String, Type)]) -> Type {
+        let go = |t: &Type| t.substitute(args);
+        match self {
+            Type::Var(name) => (args.iter())
+                .find(|(var, _)| var == name)
+                .map_or_else(|| self.clone(), |(_, arg)| arg.clone()),
+            Type::Lambda(a, b) => Type::Lambda(Box::new(go(a)), Box::new(go(b))),
+            Type::Type { home, name, args } => Type::Type {
+                home: home.clone(),
+                name: name.clone(),
+                args: args.iter().map(go).collect(),
+            },
+            Type::Record(fields, ext) => Type::Record(fields_map(fields, go), ext.clone()),
+            Type::Unit => Type::Unit,
+            Type::Tuple(a, b, c) => Type::Tuple(
+                Box::new(go(a)),
+                Box::new(go(b)),
+                c.as_ref().map(|c| Box::new(go(c))),
+            ),
+            Type::Alias {
+                home,
+                name,
+                args: alias_args,
+                aliased,
+            } => Type::Alias {
+                home: home.clone(),
+                name: name.clone(),
+                args: (alias_args.iter())
+                    .map(|(var, t)| (var.clone(), go(t)))
+                    .collect(),
+                aliased: aliased.clone(),
+            },
+        }
+    }
+
+    /// `iteratedDealias`: what the type is under its aliases.
+    pub fn iterated_dealias(self) -> Type {
+        match self {
+            Type::Alias { args, aliased, .. } => aliased.dealias(&args).iterated_dealias(),
+            ty => ty,
+        }
+    }
+
+    /// `deepDealias`: the type with every alias, at any depth, replaced by
+    /// what it stands for.
+    pub fn deep_dealias(&self) -> Type {
+        match self {
+            Type::Alias { args, aliased, .. } => {
+                let args: Vec<(String, Type)> = (args.iter())
+                    .map(|(var, t)| (var.clone(), t.deep_dealias()))
+                    .collect();
+                aliased.dealias(&args).deep_dealias()
+            }
+            Type::Lambda(a, b) => {
+                Type::Lambda(Box::new(a.deep_dealias()), Box::new(b.deep_dealias()))
+            }
+            Type::Type { home, name, args } => Type::Type {
+                home: home.clone(),
+                name: name.clone(),
+                args: args.iter().map(Type::deep_dealias).collect(),
+            },
+            Type::Record(fields, ext) => {
+                Type::Record(fields_map(fields, Type::deep_dealias), ext.clone())
+            }
+            Type::Tuple(a, b, c) => Type::Tuple(
+                Box::new(a.deep_dealias()),
+                Box::new(b.deep_dealias()),
+                c.as_ref().map(|c| Box::new(c.deep_dealias())),
+            ),
+            Type::Var(_) | Type::Unit => self.clone(),
+        }
+    }
+}
+
+/// What `main` is, by its type with every alias expanded
+/// (`addDefHelp`'s cases).
+#[derive(Clone, Debug, PartialEq)]
+pub enum MainKind {
+    /// A `VirtualDom.Node`, as `Html` and `Svg` are.
+    Static,
+    /// A `Program`, with the types of its flags and messages.
+    Program {
+        flags: Type,
+        message: Type,
+    },
+    Other,
+}
+
+impl Type {
+    /// What a `main` of this type is.
+    pub fn main_kind(&self) -> MainKind {
+        match self.deep_dealias() {
+            Type::Type { home, name, args }
+                if args.len() == 1
+                    && home.is("elm/virtual-dom", "VirtualDom")
+                    && name == "Node" =>
+            {
+                MainKind::Static
+            }
+            Type::Type { home, name, args }
+                if home.is("elm/core", "Platform") && name == "Program" =>
+            {
+                match <[Type; 3]>::try_from(args) {
+                    Ok([flags, _, message]) => MainKind::Program { flags, message },
+                    Err(_) => MainKind::Other,
+                }
+            }
+            _ => MainKind::Other,
+        }
+    }
+}
+
+/// `fields` with `f` applied to each one's type.
+fn fields_map(
+    fields: &BTreeMap<String, FieldType>,
+    f: impl Fn(&Type) -> Type,
+) -> BTreeMap<String, FieldType> {
+    (fields.iter())
+        .map(|(name, field)| {
+            let field = FieldType {
+                order: field.order,
+                ty: f(&field.ty),
+            };
+            (name.clone(), field)
+        })
+        .collect()
 }
 
 /// A record field's type and its place among the fields as written; 0
@@ -244,14 +235,14 @@ pub struct FieldType {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Annotation {
     pub free: Vec<String>,
-    pub ty: std::sync::Arc<Type>,
+    pub ty: Arc<Type>,
 }
 
 /// `Can.Alias`: its parameters and body.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Alias {
     pub vars: Vec<String>,
-    pub ty: std::sync::Arc<Type>,
+    pub ty: Arc<Type>,
 }
 
 /// `Can.Union`.
@@ -282,14 +273,6 @@ pub struct Ctor {
     pub args: Vec<Type>,
 }
 
-/// An operator's associativity (`Binop.Associativity`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Associativity {
-    Left,
-    Non,
-    Right,
-}
-
 /// An expression with its region (`Can.Expr`). The region is its node's,
 /// leading trivia included, as canonicalization's errors keep it.
 #[derive(Clone, Debug, PartialEq)]
@@ -304,37 +287,69 @@ pub enum ExprKind {
     VarLocal(String),
     VarTopLevel(Home, String),
     /// A kernel module's value, the module without `Elm.Kernel.`.
-    VarKernel(String, String),
-    VarForeign(Home, String, Annotation),
-    /// A constructor: its union's representation, home, name, index and
-    /// type.
-    VarCtor(CtorOpts, Home, String, usize, Annotation),
+    VarKernel {
+        module: String,
+        name: String,
+    },
+    VarForeign {
+        home: Home,
+        name: String,
+        annotation: Annotation,
+    },
+    /// A constructor, with its union's representation.
+    VarCtor {
+        opts: CtorOpts,
+        home: Home,
+        name: String,
+        index: usize,
+        annotation: Annotation,
+    },
     /// A value of `Debug`, by the module using it.
-    VarDebug(Home, String, Annotation),
-    /// An operator as a function: the operator, and the function it
-    /// stands for.
-    VarOperator(String, Home, String, Annotation),
+    VarDebug {
+        home: Home,
+        name: String,
+        annotation: Annotation,
+    },
+    /// An operator as a function.
+    VarOperator(Operator),
     Chr(String),
     Str(String),
     Int(i64),
     Float(String),
     List(Vec<Expr>),
     Negate(Box<Expr>),
-    /// An operator applied: the operator, the function it stands for,
-    /// and its operands.
-    Binop(String, Home, String, Annotation, Box<Expr>, Box<Expr>),
+    /// An operator applied to its operands.
+    Binop {
+        operator: Operator,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
     Lambda(Vec<Pattern>, Box<Expr>),
     Call(Box<Expr>, Vec<Expr>),
     If(Vec<(Expr, Expr)>, Box<Expr>),
     Let(Box<Def>, Box<Expr>),
     LetRec(Vec<Def>, Box<Expr>),
-    LetDestruct(Pattern, Box<Expr>, Box<Expr>),
+    /// A destructuring `let`: the pattern, the value it takes apart, and
+    /// the body.
+    LetDestruct {
+        pattern: Pattern,
+        value: Box<Expr>,
+        body: Box<Expr>,
+    },
     Case(Box<Expr>, Vec<(Pattern, Expr)>),
     Accessor(String),
-    /// The record and the field, with its region.
-    Access(Box<Expr>, TextRange, String),
-    /// The record's name, the record, and each field's new value.
-    Update(String, Box<Expr>, BTreeMap<String, FieldUpdate>),
+    Access {
+        record: Box<Expr>,
+        field: String,
+        field_region: TextRange,
+    },
+    /// A record update: the record's name, the record, and each field's
+    /// new value.
+    Update {
+        name: String,
+        record: Box<Expr>,
+        fields: BTreeMap<String, FieldUpdate>,
+    },
     Record(BTreeMap<String, Expr>),
     #[default]
     Unit,
@@ -343,11 +358,21 @@ pub enum ExprKind {
     Shader(String, ShaderTypes),
 }
 
+/// An operator, the function it stands for, and that function's type
+/// (`Can.Binop` and `Can.VarOperator` without their operands).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Operator {
+    pub op: String,
+    pub home: Home,
+    pub function: String,
+    pub annotation: Annotation,
+}
+
 /// Deep trees drop on grown stacks, as they canonicalize.
 impl Drop for Expr {
     fn drop(&mut self) {
         let kind = std::mem::take(&mut self.kind);
-        stacker::maybe_grow(64 * 1024, 1024 * 1024, move || drop(kind));
+        nomi_base::grow(move || drop(kind));
     }
 }
 
@@ -381,15 +406,25 @@ pub enum Def {
 }
 
 impl Def {
+    /// The name it defines.
     pub fn name(&self) -> &str {
         match self {
             Def::Def { name, .. } | Def::TypedDef { name, .. } => name,
         }
     }
 
+    /// Where its name is.
     pub fn region(&self) -> TextRange {
         match self {
             Def::Def { region, .. } | Def::TypedDef { region, .. } => *region,
+        }
+    }
+
+    /// Whether it is a function, which a cycle may pass through.
+    pub fn has_params(&self) -> bool {
+        match self {
+            Def::Def { params, .. } => !params.is_empty(),
+            Def::TypedDef { params, .. } => !params.is_empty(),
         }
     }
 }
@@ -439,7 +474,7 @@ pub enum PatternKind {
 impl Drop for Pattern {
     fn drop(&mut self) {
         let kind = std::mem::take(&mut self.kind);
-        stacker::maybe_grow(64 * 1024, 1024 * 1024, move || drop(kind));
+        nomi_base::grow(move || drop(kind));
     }
 }
 
@@ -478,18 +513,32 @@ pub enum Effects {
     #[default]
     NoEffects,
     Ports(BTreeMap<String, Port>),
-    /// The regions of `init`, `onEffects` and `onSelfMsg`, and what the
-    /// manager manages.
-    Manager(TextRange, TextRange, TextRange, Manager),
+    /// An effect manager: where its three functions are defined, and what
+    /// it manages.
+    Manager {
+        init: TextRange,
+        on_effects: TextRange,
+        on_self_msg: TextRange,
+        manager: Manager,
+    },
 }
 
-/// `Can.Port`: its free variables, its payload and its whole type.
+/// `Can.Port`: its direction, its free variables, its payload and its
+/// whole type.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Port {
-    pub incoming: bool,
+    pub direction: PortDirection,
     pub free: Vec<String>,
     pub payload: Type,
     pub func: Type,
+}
+
+/// Which way a port carries values: from JavaScript (a subscription) or
+/// to it (a command).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PortDirection {
+    Incoming,
+    Outgoing,
 }
 
 /// `Can.Manager`: the effect types a manager handles.
@@ -497,5 +546,5 @@ pub struct Port {
 pub enum Manager {
     Cmd(String),
     Sub(String),
-    Fx(String, String),
+    Fx { cmd: String, sub: String },
 }

@@ -46,18 +46,19 @@ pub struct Reference {
 /// Where canonicalization records references: shared, so every scope's
 /// copy of the environment records into one table.
 #[derive(Clone, Debug, Default)]
-pub struct Recorder(Rc<RefCell<Vec<Reference>>>);
+pub(crate) struct Recorder(Rc<RefCell<Vec<Reference>>>);
 
 impl Recorder {
     /// Records the name at `range`; none where it is empty, as for the
     /// default imports, which nothing writes.
-    pub fn record(&self, range: TextRange, target: Target) {
+    pub(crate) fn record(&self, range: TextRange, target: Target) {
         if !range.is_empty() {
             self.0.borrow_mut().push(Reference { range, target });
         }
     }
 
-    pub fn global(&self, range: TextRange, home: &Home, name: &str, kind: Kind) {
+    /// Records the name at `range` as the top-level `name` of `home`.
+    pub(crate) fn global(&self, range: TextRange, home: &Home, name: &str, kind: Kind) {
         let target = Target::Global {
             home: home.clone(),
             name: name.to_owned(),
@@ -66,9 +67,9 @@ impl Recorder {
         self.record(range, target);
     }
 
-    /// The references, in source order, each once: an annotation is
-    /// canonicalized twice.
-    pub fn take(&self) -> Vec<Reference> {
+    /// The references, in source order, each once: an alias's body is
+    /// canonicalized twice, by `addTypes` and `canonicalizeAlias` alike.
+    pub(crate) fn take(&self) -> Vec<Reference> {
         let mut references = std::mem::take(&mut *self.0.borrow_mut());
         references.sort_by_key(|r| (r.range.start(), r.range.end()));
         let mut seen = std::collections::HashSet::new();

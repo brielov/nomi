@@ -10,6 +10,8 @@ pub mod binary;
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use nomi_base::diagnostic::code::Region;
+
 use crate::canonical::{CtorOpts, Home, Type};
 
 /// `Opt.Expr`.
@@ -30,12 +32,19 @@ pub enum Expr {
     VarEnum(Global, usize),
     VarBox(Global),
     VarCycle(Home, String),
-    /// A `Debug` value: its name, the module using it, where, and the name
-    /// of the pattern variable a `todo` in a case is about.
-    VarDebug(String, Home, Region, Option<String>),
-    /// A kernel module's value: the module without `Elm.Kernel.`, and the
-    /// name.
-    VarKernel(String, String),
+    /// A `Debug` value, by the module using it, where; `unhandled` is the
+    /// pattern variable a `todo` in a case's branch is about.
+    VarDebug {
+        name: String,
+        home: Home,
+        region: Region,
+        unhandled: Option<String>,
+    },
+    /// A kernel module's value, the module without `Elm.Kernel.`.
+    VarKernel {
+        module: String,
+        name: String,
+    },
     List(Vec<Expr>),
     Function(Vec<String>, Box<Expr>),
     Call(Box<Expr>, Vec<Expr>),
@@ -43,9 +52,14 @@ pub enum Expr {
     If(Vec<(Expr, Expr)>, Box<Expr>),
     Let(Box<Def>, Box<Expr>),
     Destruct(Destructor, Box<Expr>),
-    /// The variable the cases test, the root it was taken from, the
-    /// decisions, and the jumps' bodies by target.
-    Case(String, String, Box<Decider<Choice>>, Vec<(usize, Expr)>),
+    /// A `case`: `label`, the variable the cases test, the root it was
+    /// taken from, the decisions, and the jumps' bodies by target.
+    Case {
+        label: String,
+        root: String,
+        decider: Box<Decider<Choice>>,
+        jumps: Vec<(usize, Expr)>,
+    },
     Accessor(String),
     Access(Box<Expr>, String),
     Update(Box<Expr>, BTreeMap<String, Expr>),
@@ -53,9 +67,12 @@ pub enum Expr {
     Unit,
     /// Two or three; 0.19.3 calls them a pair and a triple.
     Tuple(Box<Expr>, Box<Expr>, Option<Box<Expr>>),
-    /// A shader's source, and the names of its attributes and its
-    /// uniforms.
-    Shader(Vec<u8>, BTreeSet<String>, BTreeSet<String>),
+    /// A shader's source, and the names of its inputs.
+    Shader {
+        source: Vec<u8>,
+        attributes: BTreeSet<String>,
+        uniforms: BTreeSet<String>,
+    },
 }
 
 /// `Opt.Global`: a top-level name and its module.
@@ -84,19 +101,15 @@ impl Global {
     }
 }
 
-/// `A.Region`, as the release keeps it: rows and columns from 1 in 0.19.1,
-/// from 0 later (`code::Source::region`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Region {
-    pub start: (u32, u32),
-    pub end: (u32, u32),
-}
-
 /// `Opt.Def`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Def {
     Def(String, Expr),
-    TailDef(String, Vec<String>, Expr),
+    TailDef {
+        name: String,
+        params: Vec<String>,
+        body: Expr,
+    },
 }
 
 /// `Opt.Destructor`: a name bound to a path into a value.
@@ -169,8 +182,14 @@ impl PartialEq for DtPath {
 /// `DecisionTree.Test`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Test {
-    /// A constructor: its home, name, index and how many its union has.
-    IsCtor(Home, String, usize, i64, CtorOpts),
+    /// A constructor, with how many its union has.
+    IsCtor {
+        home: Home,
+        name: String,
+        index: usize,
+        count: i64,
+        opts: CtorOpts,
+    },
     IsCons,
     IsNil,
     IsTuple,
@@ -197,6 +216,15 @@ pub struct LocalGraph {
     pub fields: BTreeMap<String, i64>,
 }
 
+impl LocalGraph {
+    /// `fields`' uses added to the graph's.
+    pub(crate) fn count_fields(&mut self, fields: impl IntoIterator<Item = (String, i64)>) {
+        for (field, n) in fields {
+            *self.fields.entry(field).or_default() += n;
+        }
+    }
+}
+
 /// `Opt.Main`: a program without flags, or the type of its flags and
 /// their decoder.
 #[derive(Clone, Debug, PartialEq)]
@@ -209,15 +237,24 @@ pub enum Main {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Node {
     Define(Expr, BTreeSet<Global>),
-    DefineTailFunc(Vec<String>, Expr, BTreeSet<Global>),
+    DefineTailFunc {
+        params: Vec<String>,
+        body: Expr,
+        deps: BTreeSet<Global>,
+    },
     /// A constructor: its index and arity.
     Ctor(usize, i64),
     Enum(usize),
     Box,
     Link(Global),
-    /// Mutually recursive definitions: the names, the values among them,
-    /// the functions, and what they need.
-    Cycle(Vec<String>, Vec<(String, Expr)>, Vec<Def>, BTreeSet<Global>),
+    /// Mutually recursive definitions: their names, the values among
+    /// them, the functions, and what they need.
+    Cycle {
+        names: Vec<String>,
+        values: Vec<(String, Expr)>,
+        functions: Vec<Def>,
+        deps: BTreeSet<Global>,
+    },
     Manager(EffectsType),
     Kernel(Vec<Chunk>, BTreeSet<Global>),
     PortIncoming(Expr, BTreeSet<Global>),
@@ -237,8 +274,11 @@ pub enum EffectsType {
 pub enum Chunk {
     Js(Vec<u8>),
     ElmVar(Home, String),
-    /// Another kernel module's value: the module, short, and the name.
-    JsVar(String, String),
+    /// Another kernel module's value, the module without `Elm.Kernel.`.
+    JsVar {
+        module: String,
+        name: String,
+    },
     ElmField(String),
     JsField(i64),
     JsEnum(i64),

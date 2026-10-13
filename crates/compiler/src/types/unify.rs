@@ -5,8 +5,9 @@
 //! this: the other arguments of a type, and the other fields of a
 //! record, are still unified before the whole fails.
 
-use crate::canonical::Text;
 use std::collections::BTreeMap;
+
+use nomi_base::Text;
 
 use super::{
     Content, Descriptor, FlatType, NO_MARK, SuperType, Variable, Variables, core, error,

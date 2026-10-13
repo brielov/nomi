@@ -10,10 +10,12 @@ use std::rc::Rc;
 
 use nomi_base::{Compat, TextRange};
 
-use super::env::{BinopInfo, CtorInfo, Env, Exposed, TypeInfo, Var, add_exposed};
+use super::env::{
+    Bias, BinopInfo, CtorInfo, Env, Exposed, Qualified, TypeInfo, Var, merge, merge_homes,
+};
 use super::error::{Error, NameKind, R, throw};
 use super::references::{Kind, Recorder};
-use crate::canonical::{AliasType, Annotation, Home, Type};
+use crate::canonical::{self, Annotation, Home, Type};
 use crate::hir::{Exposed as Item, Exposing, Import, Spanned};
 use crate::interface::{self, Interface, Interfaces};
 
@@ -23,7 +25,7 @@ pub fn is_kernel_package(package: &str) -> bool {
 }
 
 /// `Name.isKernel`.
-pub fn is_kernel_module(module: &str) -> bool {
+pub(super) fn is_kernel_module(module: &str) -> bool {
     module.starts_with("Elm.Kernel.")
 }
 
@@ -86,34 +88,31 @@ struct State<'a> {
     types: Exposed<TypeInfo>,
     ctors: Exposed<CtorInfo<'a>>,
     binops: Exposed<BinopInfo<'a>>,
-    q_vars: BTreeMap<String, Exposed<&'a Annotation>>,
-    q_types: BTreeMap<String, Exposed<TypeInfo>>,
-    q_ctors: BTreeMap<String, Exposed<CtorInfo<'a>>>,
+    q_vars: Qualified<&'a Annotation>,
+    q_types: Qualified<TypeInfo>,
+    q_ctors: Qualified<CtorInfo<'a>>,
 }
 
 /// `createInitialEnv`: the environment of a module at `home` whose
 /// imports, defaults included, are `imports`, reading each imported
 /// module's interface from `interfaces`. An import with no interface was
 /// reported by the build already, and adds nothing.
-pub fn initial_env<'a>(
+pub(super) fn initial_env<'a>(
     compat: Compat,
     home: &Home,
     interfaces: &'a dyn Interfaces,
     imports: &[Import],
     references: &Recorder,
 ) -> R<Env<'a>> {
-    let core = |module: &str| Home {
-        package: "elm/core".into(),
-        module: module.into(),
-    };
     let mut state = State::default();
+    let list = Home::core("List");
     state.types.insert(
         "List".to_owned(),
         BTreeMap::from([(
-            core("List"),
+            list.clone(),
             TypeInfo::Union {
                 arity: 1,
-                home: core("List"),
+                home: list,
             },
         )]),
     );
@@ -147,7 +146,18 @@ pub fn initial_env<'a>(
 }
 
 /// A type an import offers, and the constructors it brings.
-type TypeEntry<'a> = (TypeInfo, Exposed<CtorInfo<'a>>);
+struct TypeEntry<'a> {
+    info: TypeInfo,
+    ctors: Exposed<CtorInfo<'a>>,
+}
+
+/// What one import offers, before its exposing list picks from it.
+struct Offer<'a> {
+    interface: &'a Interface,
+    home: Home,
+    vars: Exposed<&'a Annotation>,
+    types: BTreeMap<String, TypeEntry<'a>>,
+}
 
 fn add_import<'a>(
     state: &mut State<'a>,
@@ -156,145 +166,158 @@ fn add_import<'a>(
     references: &Recorder,
 ) -> R<()> {
     let name = &import.name.text;
-    let prefix = import.alias.as_ref().map_or(name, |a| &a.text).clone();
+    let prefix = import.alias.as_ref().unwrap_or(&import.name).text.as_str();
     let home = Home {
-        package: interface.home.clone().into(),
-        module: name.clone().into(),
+        package: interface.home.as_str().into(),
+        module: name.into(),
     };
     references.global(import.name.range, &home, name, Kind::Module);
     // Unions before aliases, as `Map.union` keeps the left one.
-    let mut raw: BTreeMap<String, TypeEntry<'a>> = BTreeMap::new();
+    let mut types: BTreeMap<String, TypeEntry<'a>> = BTreeMap::new();
     for (type_name, alias) in &interface.aliases {
         if let Some(alias) = alias.public() {
-            raw.insert(type_name.clone(), alias_to_type(&home, type_name, alias));
+            types.insert(type_name.clone(), alias_to_type(&home, type_name, alias));
         }
     }
     for (type_name, union) in &interface.unions {
         if let Some(entry) = union_to_type(&home, type_name, union) {
-            raw.insert(type_name.clone(), entry);
+            types.insert(type_name.clone(), entry);
         }
     }
     let vars: Exposed<&'a Annotation> = (interface.values.iter())
         .map(|(n, a)| (n.clone(), single(&home, a)))
         .collect();
-    let types: Exposed<TypeInfo> = (raw.iter())
-        .map(|(n, (t, _))| (n.clone(), single(&home, t.clone())))
+    let type_infos: Exposed<TypeInfo> = (types.iter())
+        .map(|(n, entry)| (n.clone(), single(&home, entry.info.clone())))
         .collect();
     // A left-biased union folded from the right: the first type's
     // constructors win, so adding each type's in order, keeping what is
     // there, makes the same map without copying it each time.
     let mut ctors: Exposed<CtorInfo<'a>> = BTreeMap::new();
-    for (_, type_ctors) in raw.values() {
-        add_exposed(&mut ctors, type_ctors);
+    for entry in types.values() {
+        merge(&mut ctors, &entry.ctors, Bias::Old);
     }
-    add_qualified(&mut state.q_vars, &prefix, &vars);
-    add_qualified(&mut state.q_types, &prefix, &types);
-    add_qualified(&mut state.q_ctors, &prefix, &ctors);
-    let binop = |op: &str, b: &'a interface::Binop| BinopInfo {
-        op: op.to_owned(),
-        home: home.clone(),
-        function: b.function.clone(),
-        annotation: &b.annotation,
-        associativity: b.associativity,
-        precedence: b.precedence,
+    merge(
+        state.q_vars.entry(prefix.to_owned()).or_default(),
+        &vars,
+        Bias::New,
+    );
+    let q_types = state.q_types.entry(prefix.to_owned()).or_default();
+    merge(q_types, &type_infos, Bias::New);
+    merge(
+        state.q_ctors.entry(prefix.to_owned()).or_default(),
+        &ctors,
+        Bias::New,
+    );
+    let offer = Offer {
+        interface,
+        home,
+        vars,
+        types,
     };
-    match import
-        .exposing
-        .as_ref()
-        .unwrap_or(&Exposing::Explicit(Vec::new()))
-    {
-        Exposing::Open => {
-            add_exposed(&mut state.vars, &vars);
-            add_exposed(&mut state.types, &types);
-            add_exposed(&mut state.ctors, &ctors);
+    match &import.exposing {
+        Some(Exposing::Open) => {
+            merge(&mut state.vars, &offer.vars, Bias::Old);
+            merge(&mut state.types, &type_infos, Bias::Old);
+            merge(&mut state.ctors, &ctors, Bias::Old);
             let binops: Exposed<BinopInfo<'a>> = (interface.binops.iter())
-                .map(|(op, b)| (op.clone(), single(&home, binop(op, b))))
+                .map(|(op, b)| (op.clone(), single(&offer.home, offer.binop(op, b))))
                 .collect();
-            add_exposed(&mut state.binops, &binops);
+            merge(&mut state.binops, &binops, Bias::Old);
+            Ok(())
         }
-        Exposing::Explicit(items) => {
-            for item in items {
-                match item {
-                    Item::Lower(value) => match vars.get(&value.text) {
-                        Some(homes) => {
-                            references.global(value.range, &home, &value.text, Kind::Value);
-                            let entry = state.vars.entry(value.text.clone()).or_default();
-                            for (h, a) in homes {
-                                entry.insert(h.clone(), a);
-                            }
-                        }
-                        None => {
-                            return throw(Error::ImportExposingNotFound {
-                                range: value.range,
-                                kind: NameKind::Value,
-                                home,
-                                name: value.text.clone(),
-                                possible: vars.keys().cloned().collect(),
-                            });
-                        }
-                    },
-                    Item::Upper(type_name, open) => match (raw.get(&type_name.text), open) {
-                        (Some((info @ TypeInfo::Union { .. }, type_ctors)), _) => {
-                            references.global(type_name.range, &home, &type_name.text, Kind::Type);
-                            state
-                                .types
-                                .insert(type_name.text.clone(), single(&home, info.clone()));
-                            if open.is_some() {
-                                add_exposed(&mut state.ctors, type_ctors);
-                            }
-                        }
-                        (Some((info @ TypeInfo::Alias { .. }, type_ctors)), None) => {
-                            references.global(type_name.range, &home, &type_name.text, Kind::Type);
-                            state
-                                .types
-                                .insert(type_name.text.clone(), single(&home, info.clone()));
-                            add_exposed(&mut state.ctors, type_ctors);
-                        }
-                        (Some((TypeInfo::Alias { .. }, _)), Some(dots)) => {
-                            return throw(Error::ImportOpenAlias {
-                                range: *dots,
-                                name: type_name.text.clone(),
-                            });
-                        }
-                        (None, open) => {
-                            let ctor_of = (open.is_none())
-                                .then(|| union_of_ctor(&raw, &type_name.text))
-                                .flatten();
-                            return throw(match ctor_of {
-                                Some(union) => Error::ImportCtorByName {
-                                    range: type_name.range,
-                                    ctor: type_name.text.clone(),
-                                    union,
-                                },
-                                None => Error::ImportExposingNotFound {
-                                    range: type_name.range,
-                                    kind: NameKind::Type,
-                                    home,
-                                    name: type_name.text.clone(),
-                                    possible: raw.keys().cloned().collect(),
-                                },
-                            });
-                        }
-                    },
-                    Item::Operator(op) => match interface.binops.get(&op.text) {
-                        Some(b) => {
-                            references.global(op.range, &home, &op.text, Kind::Binop);
-                            state
-                                .binops
-                                .insert(op.text.clone(), single(&home, binop(&op.text, b)));
-                        }
-                        None => {
-                            return throw(Error::ImportExposingNotFound {
-                                range: op.range,
-                                kind: NameKind::Operator,
-                                home,
-                                name: op.text.clone(),
-                                possible: interface.binops.keys().cloned().collect(),
-                            });
-                        }
-                    },
+        Some(Exposing::Explicit(items)) => items
+            .iter()
+            .try_for_each(|item| expose(state, &offer, item, references)),
+        None => Ok(()),
+    }
+}
+
+impl<'a> Offer<'a> {
+    fn binop(&self, op: &str, b: &'a interface::Binop) -> BinopInfo<'a> {
+        BinopInfo {
+            op: op.to_owned(),
+            home: self.home.clone(),
+            function: b.function.clone(),
+            annotation: &b.annotation,
+            fixity: b.fixity,
+        }
+    }
+
+    /// `name` isn't among the `kind`s the import offers, which are
+    /// `possible`.
+    fn not_found<T>(&self, kind: NameKind, name: &Spanned, possible: Vec<String>) -> R<T> {
+        throw(Error::ImportExposingNotFound {
+            range: name.range,
+            kind,
+            home: self.home.clone(),
+            name: name.text.clone(),
+            possible,
+        })
+    }
+}
+
+/// One item of an import's exposing list, added unqualified.
+fn expose<'a>(
+    state: &mut State<'a>,
+    offer: &Offer<'a>,
+    item: &Item,
+    references: &Recorder,
+) -> R<()> {
+    let home = &offer.home;
+    match item {
+        Item::Lower(value) => {
+            let Some(homes) = offer.vars.get(&value.text) else {
+                let possible = offer.vars.keys().cloned().collect();
+                return offer.not_found(NameKind::Value, value, possible);
+            };
+            references.global(value.range, home, &value.text, Kind::Value);
+            let entry = state.vars.entry(value.text.clone()).or_default();
+            merge_homes(entry, homes, Bias::New);
+        }
+        Item::Upper(type_name, open) => match (offer.types.get(&type_name.text), open) {
+            (
+                Some(TypeEntry {
+                    info: TypeInfo::Alias { .. },
+                    ..
+                }),
+                Some(dots),
+            ) => {
+                return throw(Error::ImportOpenAlias {
+                    range: *dots,
+                    name: type_name.text.clone(),
+                });
+            }
+            (Some(TypeEntry { info, ctors }), _) => {
+                references.global(type_name.range, home, &type_name.text, Kind::Type);
+                (state.types).insert(type_name.text.clone(), single(home, info.clone()));
+                // A union's constructors come with `(..)`, a record alias's
+                // always.
+                if open.is_some() || matches!(info, TypeInfo::Alias { .. }) {
+                    merge(&mut state.ctors, ctors, Bias::Old);
                 }
             }
+            (None, open) => {
+                if open.is_none()
+                    && let Some(union) = union_of_ctor(&offer.types, &type_name.text)
+                {
+                    return throw(Error::ImportCtorByName {
+                        range: type_name.range,
+                        ctor: type_name.text.clone(),
+                        union,
+                    });
+                }
+                let possible = offer.types.keys().cloned().collect();
+                return offer.not_found(NameKind::Type, type_name, possible);
+            }
+        },
+        Item::Operator(op) => {
+            let Some(b) = offer.interface.binops.get(&op.text) else {
+                let possible = offer.interface.binops.keys().cloned().collect();
+                return offer.not_found(NameKind::Operator, op, possible);
+            };
+            references.global(op.range, home, &op.text, Kind::Binop);
+            (state.binops).insert(op.text.clone(), single(home, offer.binop(&op.text, b)));
         }
     }
     Ok(())
@@ -305,37 +328,17 @@ fn single<T>(home: &Home, info: T) -> BTreeMap<Home, T> {
     BTreeMap::from([(home.clone(), info)])
 }
 
-/// `Map.insertWith addExposed prefix exposed`.
-fn add_qualified<T: Clone>(
-    qualified: &mut BTreeMap<String, Exposed<T>>,
-    prefix: &str,
-    exposed: &Exposed<T>,
-) {
-    match qualified.get_mut(prefix) {
-        None => {
-            qualified.insert(prefix.to_owned(), exposed.clone());
-        }
-        // `exposed` over `old`, in place.
-        Some(old) => {
-            for (name, homes) in exposed {
-                let entry = old.entry(name.clone()).or_default();
-                for (home, info) in homes {
-                    entry.insert(home.clone(), info.clone());
-                }
-            }
-        }
-    }
-}
-
-/// `toCtors`: the union a constructor of `raw` belongs to.
-fn union_of_ctor(raw: &BTreeMap<String, TypeEntry<'_>>, ctor: &str) -> Option<String> {
-    raw.values().find_map(|(_, ctors)| match ctors.get(ctor) {
-        Some(homes) if homes.len() == 1 => match homes.values().next() {
-            Some(CtorInfo::Ctor { union_name, .. }) => Some(union_name.clone()),
+/// `toCtors`: the union a constructor of `types` belongs to.
+fn union_of_ctor(types: &BTreeMap<String, TypeEntry<'_>>, ctor: &str) -> Option<String> {
+    types
+        .values()
+        .find_map(|entry| match entry.ctors.get(ctor) {
+            Some(homes) if homes.len() == 1 => match homes.values().next() {
+                Some(CtorInfo::Ctor { union_name, .. }) => Some(union_name.clone()),
+                Some(CtorInfo::Record { .. }) | None => None,
+            },
             _ => None,
-        },
-        _ => None,
-    })
+        })
 }
 
 /// `unionToType`: the union as importers see it, and its constructors.
@@ -344,63 +347,41 @@ fn union_to_type<'a>(
     name: &str,
     union: &'a interface::Union,
 ) -> Option<TypeEntry<'a>> {
-    let public = match union {
-        interface::Union::Open(u) => Cow::Borrowed(u),
-        interface::Union::Closed(_) => Cow::Owned(union.public()?),
+    let (union, ctors) = match union {
+        interface::Union::Open(u) => (u, &u.ctors[..]),
+        interface::Union::Closed(u) => (u, &[][..]),
         interface::Union::Private(_) => return None,
     };
-    let mut ctors: Exposed<CtorInfo<'a>> = BTreeMap::new();
-    if let Cow::Borrowed(u) = &public {
-        for ctor in &u.ctors {
+    let ctors = (ctors.iter())
+        .map(|ctor| {
             let info = CtorInfo::Ctor {
                 home: home.clone(),
                 union_name: name.to_owned(),
-                union: Cow::Borrowed(*u),
+                union: Cow::Borrowed(union),
                 index: ctor.index,
                 args: Cow::Borrowed(&ctor.args),
             };
-            ctors.insert(ctor.name.clone(), BTreeMap::from([(home.clone(), info)]));
-        }
-    }
+            (ctor.name.clone(), single(home, info))
+        })
+        .collect();
     let info = TypeInfo::Union {
-        arity: public.vars.len(),
+        arity: union.vars.len(),
         home: home.clone(),
     };
-    Some((info, ctors))
+    Some(TypeEntry { info, ctors })
 }
 
 /// `aliasToType`: the alias, and the constructor a record alias brings.
-fn alias_to_type<'a>(home: &Home, name: &str, alias: &'a crate::canonical::Alias) -> TypeEntry<'a> {
+fn alias_to_type<'a>(home: &Home, name: &str, alias: &canonical::Alias) -> TypeEntry<'a> {
     let info = TypeInfo::Alias {
-        arity: alias.vars.len(),
         home: home.clone(),
         vars: alias.vars.clone(),
         ty: alias.ty.clone(),
     };
     let mut ctors = BTreeMap::new();
     if let Type::Record(fields, None) = &*alias.ty {
-        let args = alias
-            .vars
-            .iter()
-            .map(|v| (v.clone(), Type::Var(v.clone())))
-            .collect();
-        let result = Type::Alias(
-            home.clone(),
-            name.to_owned(),
-            args,
-            AliasType::Filled(alias.ty.clone()),
-        );
-        let mut by_order: Vec<_> = fields.iter().collect();
-        by_order.sort_by_key(|(_, f)| f.order);
-        let ty = by_order.into_iter().rev().fold(result, |acc, (_, f)| {
-            Type::Lambda(Box::new(f.ty.clone()), Box::new(acc))
-        });
-        let info = CtorInfo::Record {
-            home: home.clone(),
-            vars: alias.vars.clone(),
-            ty,
-        };
-        ctors.insert(name.to_owned(), BTreeMap::from([(home.clone(), info)]));
+        let ctor = CtorInfo::record(home, name, &alias.vars, fields, alias.ty.clone());
+        ctors.insert(name.to_owned(), single(home, ctor));
     }
-    (info, ctors)
+    TypeEntry { info, ctors }
 }

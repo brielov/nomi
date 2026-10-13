@@ -55,12 +55,16 @@ pub fn to_problems(error: &Error, source: &Source<'_>, compat: Compat) -> Vec<Pr
         }
         Error::NameProblems(problems) => (problems.iter())
             .map(|p| match p {
-                NameProblem::Duplicate(name, r1, r2) => problem(
+                NameProblem::Duplicate {
+                    name,
+                    first,
+                    second,
+                } => problem(
                     "DUPLICATE DOCS",
-                    *r2,
+                    *second,
                     doc::pair(
-                        *r1,
-                        *r2,
+                        *first,
+                        *second,
                         doc::OneLine {
                             before: reflow(&format!(
                                 "There can only be one `{name}` in your module documentation, but it is listed twice:"

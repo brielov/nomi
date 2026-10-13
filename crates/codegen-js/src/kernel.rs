@@ -57,7 +57,7 @@ pub fn add_kernel(compat: Compat, graph: &mut GlobalGraph, short: &str, chunks: 
                 home: home.clone(),
                 name: name.clone(),
             }),
-            Chunk::JsVar(module, _) => Some(Global::kernel(compat, module)),
+            Chunk::JsVar { module, .. } => Some(Global::kernel(compat, module)),
             _ => None,
         })
         .collect();
@@ -80,7 +80,10 @@ fn var_table(
                 return None;
             }
             for name in &import.exposing {
-                let chunk = Chunk::JsVar(kernel.to_owned(), name.clone());
+                let chunk = Chunk::JsVar {
+                    module: kernel.to_owned(),
+                    name: name.clone(),
+                };
                 table.insert(format!("{kernel}_{name}"), chunk);
             }
         } else {

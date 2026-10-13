@@ -6,12 +6,13 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
+use nomi_base::diagnostic::code::Region;
 use nomi_base::{Compat, TextRange};
 
 use super::names::{self, Tracker};
 use super::{case, literal};
-use crate::canonical::{self, CtorOpts, Def as CDef, ExprKind, PatternKind};
-use crate::optimized::{Def, Destructor, Expr, Path, Region};
+use crate::canonical::{self, CtorOpts, Def as CDef, ExprKind, Operator, PatternKind};
+use crate::optimized::{Def, Destructor, Expr, Path};
 
 /// What optimizing a module's expressions needs to know.
 pub(super) struct Context<'a> {
@@ -48,15 +49,27 @@ fn optimize_(cx: &Context, t: &mut Tracker, cycle: &Cycle, expr: &canonical::Exp
                 t.global(home, name)
             }
         }
-        ExprKind::VarKernel(home, name) => {
-            t.kernel(home);
-            Expr::VarKernel(home.clone(), name.clone())
+        ExprKind::VarKernel { module, name } => {
+            t.kernel(module);
+            Expr::VarKernel {
+                module: module.clone(),
+                name: name.clone(),
+            }
         }
-        ExprKind::VarForeign(home, name, _) | ExprKind::VarOperator(_, home, name, _) => {
-            t.global(home, name)
-        }
-        ExprKind::VarCtor(opts, home, name, index, _) => t.ctor(home, name, *index, *opts),
-        ExprKind::VarDebug(home, name, _) => {
+        ExprKind::VarForeign { home, name, .. }
+        | ExprKind::VarOperator(Operator {
+            home,
+            function: name,
+            ..
+        }) => t.global(home, name),
+        ExprKind::VarCtor {
+            opts,
+            home,
+            name,
+            index,
+            ..
+        } => t.ctor(home, name, *index, *opts),
+        ExprKind::VarDebug { home, name, .. } => {
             names::debug_value(t, name, home, (cx.region)(expr.region))
         }
         ExprKind::Chr(token) => {
@@ -75,8 +88,12 @@ fn optimize_(cx: &Context, t: &mut Tracker, cycle: &Cycle, expr: &canonical::Exp
             let arg = optimize(cx, t, cycle, expr);
             Expr::Call(Box::new(func), vec![arg])
         }
-        ExprKind::Binop(_, home, name, _, left, right) => {
-            let func = t.global(home, name);
+        ExprKind::Binop {
+            operator,
+            left,
+            right,
+        } => {
+            let func = t.global(&operator.home, &operator.function);
             let left = optimize(cx, t, cycle, left);
             let right = optimize(cx, t, cycle, right);
             Expr::Call(Box::new(func), vec![left, right])
@@ -111,9 +128,13 @@ fn optimize_(cx: &Context, t: &mut Tracker, cycle: &Cycle, expr: &canonical::Exp
                     .fold(body, |body, def| optimize_def(cx, t, cycle, def, body))
             }
         }
-        ExprKind::LetDestruct(pattern, expr, body) => {
+        ExprKind::LetDestruct {
+            pattern,
+            value,
+            body,
+        } => {
             let (name, destructors) = destruct(cx, t, pattern);
-            let expr = optimize(cx, t, cycle, expr);
+            let expr = optimize(cx, t, cycle, value);
             let body = optimize(cx, t, cycle, body);
             Expr::Let(
                 Box::new(Def::Def(name, expr)),
@@ -132,12 +153,16 @@ fn optimize_(cx: &Context, t: &mut Tracker, cycle: &Cycle, expr: &canonical::Exp
             t.field(field);
             Expr::Accessor(field.clone())
         }
-        ExprKind::Access(record, _, field) => {
+        ExprKind::Access { record, field, .. } => {
             let record = optimize(cx, t, cycle, record);
             t.field(field);
             Expr::Access(Box::new(record), field.clone())
         }
-        ExprKind::Update(_, record, updates) => {
+        ExprKind::Update {
+            record,
+            fields: updates,
+            ..
+        } => {
             for field in updates.keys() {
                 t.field(field);
             }
@@ -167,11 +192,11 @@ fn optimize_(cx: &Context, t: &mut Tracker, cycle: &Cycle, expr: &canonical::Exp
             let c = c.as_ref().map(|c| Box::new(optimize(cx, t, cycle, c)));
             Expr::Tuple(Box::new(a), Box::new(b), c)
         }
-        ExprKind::Shader(source, types) => Expr::Shader(
-            shader_source(source).into_bytes(),
-            types.attribute.keys().cloned().collect(),
-            types.uniform.keys().cloned().collect(),
-        ),
+        ExprKind::Shader(source, types) => Expr::Shader {
+            source: shader_source(source).into_bytes(),
+            attributes: types.attribute.keys().cloned().collect(),
+            uniforms: types.uniform.keys().cloned().collect(),
+        },
     }
 }
 
@@ -418,7 +443,11 @@ pub(super) fn potential_tail_call(
     let (names, destructors) = destruct_args(cx, t, params);
     let body = optimize_tail(cx, t, cycle, name, &names, body);
     if has_tail_call(&body) {
-        Def::TailDef(name.to_owned(), names, wrap(destructors, body))
+        Def::TailDef {
+            name: name.to_owned(),
+            params: names,
+            body: wrap(destructors, body),
+        }
     } else {
         Def::Def(
             name.to_owned(),
@@ -482,7 +511,11 @@ fn optimize_tail(
                     .fold(body, |body, def| optimize_def(cx, t, cycle, def, body))
             }
         }
-        ExprKind::LetDestruct(pattern, value, body) => {
+        ExprKind::LetDestruct {
+            pattern,
+            value,
+            body,
+        } => {
             let (name, destructors) = destruct(cx, t, pattern);
             let value = optimize(cx, t, cycle, value);
             let body = optimize_tail(cx, t, cycle, root, args, body);
@@ -558,7 +591,9 @@ fn has_tail_call(expr: &Expr) -> bool {
             has_tail_call(otherwise) || branches.iter().any(|(_, b)| has_tail_call(b))
         }
         Expr::Let(_, body) | Expr::Destruct(_, body) => has_tail_call(body),
-        Expr::Case(_, _, d, jumps) => decider(d) || jumps.iter().any(|(_, e)| has_tail_call(e)),
+        Expr::Case {
+            decider: d, jumps, ..
+        } => decider(d) || jumps.iter().any(|(_, e)| has_tail_call(e)),
         _ => false,
     }
 }

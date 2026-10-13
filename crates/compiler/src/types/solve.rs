@@ -8,10 +8,9 @@
 //! and undoes a scope's names when it ends, which scopes nesting strictly
 //! makes the same.
 
-use crate::canonical::Text;
 use std::collections::BTreeMap;
 
-use nomi_base::TextRange;
+use nomi_base::{Text, TextRange};
 
 use super::expected::{Category, Expected, PCategory, PExpected};
 use super::occurs::occurs;
@@ -403,7 +402,7 @@ impl Solver<'_> {
                 self.register(rank, Content::Structure(FlatType::Fun1(a, b)))
             }
             C::Var(name) => flex[name],
-            C::Type(home, name, args) => {
+            C::Type { home, name, args } => {
                 let args = args
                     .iter()
                     .map(|a| self.src_type_to_var(rank, flex, a))
@@ -430,7 +429,12 @@ impl Solver<'_> {
                 let c = c.as_ref().map(|c| self.src_type_to_var(rank, flex, c));
                 self.register(rank, Content::Structure(FlatType::Tuple1(a, b, c)))
             }
-            C::Alias(home, name, args, aliased) => {
+            C::Alias {
+                home,
+                name,
+                args,
+                aliased,
+            } => {
                 let args: Vec<(String, Variable)> = args
                     .iter()
                     .map(|(n, a)| (n.clone(), self.src_type_to_var(rank, flex, a)))

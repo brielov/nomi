@@ -9,7 +9,6 @@ use nomi_base::Compat;
 
 use super::names::{self, Tracker};
 use crate::canonical::{FieldType, Home, Type};
-use crate::canonicalize::effects::dealias;
 use crate::optimized::{Destructor, Expr, Path};
 
 fn json(module: &str) -> Home {
@@ -54,7 +53,7 @@ fn fields(compat: Compat, fields: &BTreeMap<String, FieldType>) -> Vec<(&String,
 /// `toEncoder`.
 pub(super) fn to_encoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
     match ty {
-        Type::Alias(_, _, args, alias) => to_encoder(compat, t, &dealias(args, alias)),
+        Type::Alias { args, aliased, .. } => to_encoder(compat, t, &aliased.dealias(args)),
         Type::Unit => Expr::Function(vec!["$".to_owned()], Box::new(encode(t, "null"))),
         Type::Tuple(a, b, c) => {
             let list = encode(t, "list");
@@ -86,7 +85,7 @@ pub(super) fn to_encoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
             });
             Expr::Function(vec!["$".to_owned()], Box::new(body))
         }
-        Type::Type(_, name, args) => match (name.as_str(), args.as_slice()) {
+        Type::Type { name, args, .. } => match (name.as_str(), args.as_slice()) {
             ("Float", []) => encode(t, "float"),
             ("Int", []) => encode(t, "int"),
             ("Bool", []) => encode(t, "bool"),
@@ -148,7 +147,7 @@ pub(super) fn to_flags_decoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Ex
 /// `toDecoder`.
 pub(super) fn to_decoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
     match ty {
-        Type::Alias(_, _, args, alias) => to_decoder(compat, t, &dealias(args, alias)),
+        Type::Alias { args, aliased, .. } => to_decoder(compat, t, &aliased.dealias(args)),
         Type::Unit => {
             let null = decode(t, "null");
             call(null, vec![Expr::Unit])
@@ -171,7 +170,7 @@ pub(super) fn to_decoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
             }
             decoder
         }
-        Type::Type(_, name, args) => match (name.as_str(), args.as_slice()) {
+        Type::Type { name, args, .. } => match (name.as_str(), args.as_slice()) {
             ("Float", []) => decode(t, "float"),
             ("Int", []) => decode(t, "int"),
             ("Bool", []) => decode(t, "bool"),

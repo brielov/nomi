@@ -7,9 +7,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use nomi_base::Compat;
+use nomi_base::diagnostic::code::Region;
 
 use crate::canonical::{CtorOpts, Home};
-use crate::optimized::{Expr, Global, Region};
+use crate::optimized::{Expr, Global};
 
 #[derive(Debug)]
 pub(super) struct Tracker {
@@ -103,5 +104,10 @@ pub(super) fn debug_value(tracker: &mut Tracker, name: &str, home: &Home, region
         home: debug(),
         name: name.to_owned(),
     });
-    Expr::VarDebug(name.to_owned(), home.clone(), region, None)
+    Expr::VarDebug {
+        name: name.to_owned(),
+        home: home.clone(),
+        region,
+        unhandled: None,
+    }
 }

@@ -1,9 +1,9 @@
-//! Shared vocabulary for every nomi crate: file identities, text ranges,
-//! line indexes, the diagnostic model, the releases nomi emulates, and
-//! the small pieces several crates would otherwise copy: GHC's character
-//! classes, upstream's suggestions, UTF-8 widths, stack growth for deep
-//! recursion, hex digests and poison-tolerant locks. Depends on no other
-//! nomi crate.
+//! Shared vocabulary for every nomi crate: file identities, interned
+//! names, text ranges, line indexes, the diagnostic model, the releases
+//! nomi emulates, and the small pieces several crates would otherwise
+//! copy: GHC's character classes, upstream's suggestions, UTF-8 widths,
+//! stack growth for deep recursion, hex digests and poison-tolerant
+//! locks. Depends on no other nomi crate.
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
@@ -11,6 +11,7 @@ mod compat;
 pub mod diagnostic;
 mod file_id;
 pub mod ghc;
+mod interned;
 mod line_index;
 mod stack;
 pub mod suggest;
@@ -19,6 +20,7 @@ pub mod utf8;
 pub use compat::{Compat, UnknownCompat};
 pub use diagnostic::{Code, Diagnostic, Doc, Edit, Fix, Label, Report, Severity, Span};
 pub use file_id::FileId;
+pub use interned::Text;
 pub use line_index::{ColumnUnit, ElmPosition, LineCol, LineIndex, PositionError};
 pub use stack::{STACK_SIZE, grow, grow_large, on_core_stack};
 /// Byte offsets and ranges, shared with rowan so trees need no conversion.

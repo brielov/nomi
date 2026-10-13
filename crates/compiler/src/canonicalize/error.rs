@@ -7,13 +7,7 @@
 use nomi_base::TextRange;
 
 use crate::canonical::{Home, Type};
-
-/// A name and where it is written.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct At {
-    pub name: String,
-    pub range: TextRange,
-}
+use crate::hir::{Spanned, TypeId};
 
 /// Which sort of name: 0.19.3 reports each sort its own way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,14 +17,38 @@ pub enum NameKind {
     /// A union's constructor.
     Variant,
     Operator,
-    /// A name in a pattern, as an export error reports one.
-    Pattern,
 }
 
+/// What has the wrong number of arguments: a type, or a constructor in a
+/// pattern.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ArityContext {
     Type,
     Pattern,
+}
+
+/// What a name written twice names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Duplicated {
+    /// A top-level value or port.
+    Decl,
+    Type,
+    Ctor,
+    /// A record's field.
+    Field,
+}
+
+impl Duplicated {
+    /// The error of a name written at `first` and again at `second`, as
+    /// `Dict::detect` takes it.
+    pub(super) fn error(self) -> impl Fn(&str, TextRange, TextRange) -> Error {
+        move |name, first, second| Error::Duplicate {
+            what: self,
+            name: name.to_owned(),
+            first,
+            second,
+        }
+    }
 }
 
 /// Where a pattern binds a name twice.
@@ -70,6 +88,7 @@ pub struct PossibleNames {
     pub qualified: Vec<(String, Vec<String>)>,
 }
 
+/// `Error`: one way a module's names can be wrong.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
     AnnotationTooShort {
@@ -103,27 +122,10 @@ pub enum Error {
         left: String,
         right: String,
     },
-    DuplicateDecl {
-        name: String,
-        first: TextRange,
-        second: TextRange,
-    },
-    DuplicateType {
-        name: String,
-        first: TextRange,
-        second: TextRange,
-    },
-    DuplicateCtor {
-        name: String,
-        first: TextRange,
-        second: TextRange,
-    },
-    DuplicateBinop {
-        name: String,
-        first: TextRange,
-        second: TextRange,
-    },
-    DuplicateField {
+    /// `DuplicateDecl`, `DuplicateType`, `DuplicateCtor` and
+    /// `DuplicateField`, which differ in their report's wording alone.
+    Duplicate {
+        what: Duplicated,
         name: String,
         first: TextRange,
         second: TextRange,
@@ -218,7 +220,7 @@ pub enum Error {
         name: String,
         args: Vec<String>,
         /// The alias's body, as written.
-        body: crate::hir::TypeId,
+        body: TypeId,
         others: Vec<String>,
     },
     RecursiveDecl {
@@ -227,7 +229,7 @@ pub enum Error {
         others: Vec<String>,
     },
     RecursiveLet {
-        name: At,
+        name: Spanned,
         others: Vec<String>,
     },
     Shadowing {
@@ -242,33 +244,40 @@ pub enum Error {
         range: TextRange,
         name: String,
         vars: Vec<String>,
-        first: At,
-        rest: Vec<At>,
+        first: Spanned,
+        rest: Vec<Spanned>,
     },
     TypeVarsMessedUpInAlias {
         range: TextRange,
         name: String,
         vars: Vec<String>,
-        unused: Vec<At>,
-        unbound: Vec<At>,
+        unused: Vec<Spanned>,
+        unbound: Vec<Spanned>,
     },
 }
-
-/// The errors of a pass, in the order upstream's `Result` keeps them.
-pub type Errors = Vec<Error>;
 
 /// A canonicalization result: upstream's `Result` with its errors in
 /// order. `?` is its monadic bind, which stops at the first error;
 /// [`both`] and [`all`] are its applicative combinations, which keep
 /// going and collect every error, left to right.
-pub type R<T> = Result<T, Errors>;
+pub type R<T> = Result<T, Vec<Error>>;
 
-pub fn throw<T>(error: Error) -> R<T> {
+/// `Result.throw`: a result that is only `error`.
+pub(super) fn throw<T>(error: Error) -> R<T> {
     Err(vec![error])
 }
 
+/// `value`, unless making it found `errors`.
+pub(super) fn collected<T>(value: T, errors: Vec<Error>) -> R<T> {
+    if errors.is_empty() {
+        Ok(value)
+    } else {
+        Err(errors)
+    }
+}
+
 /// `f <$> a <*> b`: both results, or the errors of either, `a`'s first.
-pub fn both<A, B>(a: R<A>, b: R<B>) -> R<(A, B)> {
+pub(super) fn both<A, B>(a: R<A>, b: R<B>) -> R<(A, B)> {
     match (a, b) {
         (Ok(a), Ok(b)) => Ok((a, b)),
         (Err(e), Ok(_)) | (Ok(_), Err(e)) => Err(e),
@@ -280,7 +289,7 @@ pub fn both<A, B>(a: R<A>, b: R<B>) -> R<(A, B)> {
 }
 
 /// `traverse`: every result, or every error, in order.
-pub fn all<T>(results: impl IntoIterator<Item = R<T>>) -> R<Vec<T>> {
+pub(super) fn all<T>(results: impl IntoIterator<Item = R<T>>) -> R<Vec<T>> {
     let mut values = Vec::new();
     let mut errors = Vec::new();
     for result in results {
@@ -289,9 +298,5 @@ pub fn all<T>(results: impl IntoIterator<Item = R<T>>) -> R<Vec<T>> {
             Err(e) => errors.extend(e),
         }
     }
-    if errors.is_empty() {
-        Ok(values)
-    } else {
-        Err(errors)
-    }
+    collected(values, errors)
 }

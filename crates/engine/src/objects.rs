@@ -26,7 +26,7 @@ use nomi_compiler::hir;
 use nomi_compiler::interface::Interface;
 use nomi_compiler::optimize;
 use nomi_compiler::optimized::binary;
-use nomi_compiler::optimized::{Chunk, GlobalGraph, LocalGraph, Region};
+use nomi_compiler::optimized::{Chunk, GlobalGraph, LocalGraph};
 use nomi_project::outline::PkgOutline;
 use nomi_project::{Name, Outline};
 use nomi_syntax::ast::{self, AstNode};
@@ -542,13 +542,7 @@ impl Package<'_> {
         .map_err(|errors| format!("{package} {name}: type errors {errors:?}"))?;
         let root = read.parse.syntax();
         let source = Source::new(&read.text);
-        let region = |range| {
-            let kept = source.region(trim(&root, range), self.compat);
-            Region {
-                start: (kept.start.row, kept.start.col),
-                end: (kept.end.row, kept.end.col),
-            }
-        };
+        let region = |range| source.region(trim(&root, range), self.compat);
         let graph = time(Phase::Optimize, || {
             optimize::module(self.compat, &annotations, &canonical, &region)
         });

@@ -1,167 +1,30 @@
 use std::collections::{BTreeMap, HashMap};
 
-use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::parse_module;
+use nomi_base::{Compat, TextRange};
 
 use super::env::{Env, TypeInfo, Var};
-use super::error::{Error, NameKind};
+use super::error::{Duplicated, Error, NameKind};
 use super::foreign::{initial_env, with_defaults};
-use crate::canonical::{self, Annotation, Associativity, Ctor, CtorOpts, Home, Type};
-use crate::hir;
-use crate::interface::{Alias, Binop, Interface, Union};
+use crate::canonical::{CtorOpts, Home, Type};
+use crate::hir::{self, lowered};
+use crate::interface::Interface;
+use crate::testing::{canonical, interfaces};
 
-fn home(package: &str, module: &str) -> Home {
-    Home {
-        package: package.into(),
-        module: module.into(),
-    }
-}
-
-fn int() -> Type {
-    Type::Type(home("elm/core", "Basics"), "Int".to_owned(), vec![])
-}
-
-fn value(ty: Type) -> Annotation {
-    Annotation {
-        free: vec![],
-        ty: ty.into(),
-    }
-}
-
-fn union(vars: &[&str], ctors: &[&str]) -> canonical::Union {
-    canonical::Union {
-        vars: vars.iter().map(|v| (*v).to_owned()).collect(),
-        ctors: (ctors.iter().enumerate())
-            .map(|(index, name)| Ctor {
-                name: (*name).to_owned(),
-                index,
-                args: vec![],
-            })
-            .collect(),
-        count: ctors.len(),
-        opts: CtorOpts::Enum,
-    }
-}
-
-/// Interfaces like elm/core's defaults, plus local modules `A` and `B`,
-/// which both expose `x`, a type `T` and a constructor `C`.
-fn interfaces() -> HashMap<String, Interface> {
-    let core = |values: &[&str], unions: Vec<(&str, Union)>| Interface {
-        home: "elm/core".to_owned(),
-        values: values
-            .iter()
-            .map(|v| ((*v).to_owned(), value(int())))
-            .collect(),
-        unions: unions.into_iter().map(|(n, u)| (n.to_owned(), u)).collect(),
-        ..Interface::default()
+/// Asserts `errors` are one error, matching `pattern`.
+macro_rules! one_error {
+    ($errors:expr, $pattern:pat $(if $guard:expr)?) => {
+        let errors = $errors;
+        assert!(matches!(&errors[..], [$pattern] $(if $guard)?), "{errors:?}");
     };
-    let mut basics = core(
-        &["identity", "toFloat"],
-        vec![("Int", Union::Open(union(&[], &[])))],
-    );
-    basics.binops.insert(
-        "+".to_owned(),
-        Binop {
-            function: "add".to_owned(),
-            annotation: value(int()),
-            associativity: Associativity::Left,
-            precedence: 6,
-        },
-    );
-    basics.binops.insert(
-        "*".to_owned(),
-        Binop {
-            function: "mul".to_owned(),
-            annotation: value(int()),
-            associativity: Associativity::Left,
-            precedence: 7,
-        },
-    );
-    let mut list = core(&["map"], vec![("List", Union::Open(union(&["a"], &[])))]);
-    list.binops.insert(
-        "::".to_owned(),
-        Binop {
-            function: "cons".to_owned(),
-            annotation: value(int()),
-            associativity: Associativity::Right,
-            precedence: 5,
-        },
-    );
-    let local = |extra: &str| Interface {
-        home: "author/project".to_owned(),
-        values: BTreeMap::from([
-            ("x".to_owned(), value(int())),
-            (extra.to_owned(), value(int())),
-        ]),
-        unions: BTreeMap::from([
-            ("T".to_owned(), Union::Open(union(&[], &["C"]))),
-            ("Hidden".to_owned(), Union::Closed(union(&[], &["Secret"]))),
-        ]),
-        aliases: BTreeMap::from([(
-            "Point".to_owned(),
-            Alias::Public(canonical::Alias {
-                vars: vec![],
-                ty: Type::Record(BTreeMap::new(), None).into(),
-            }),
-        )]),
-        binops: BTreeMap::new(),
-    };
-    HashMap::from([
-        ("Basics".to_owned(), basics),
-        ("List".to_owned(), list),
-        (
-            "Maybe".to_owned(),
-            core(
-                &["withDefault"],
-                vec![("Maybe", Union::Open(union(&["a"], &["Just", "Nothing"])))],
-            ),
-        ),
-        (
-            "Result".to_owned(),
-            core(
-                &[],
-                vec![("Result", Union::Open(union(&[], &["Ok", "Err"])))],
-            ),
-        ),
-        (
-            "String".to_owned(),
-            core(&["fromInt"], vec![("String", Union::Open(union(&[], &[])))]),
-        ),
-        (
-            "Char".to_owned(),
-            core(&[], vec![("Char", Union::Open(union(&[], &[])))]),
-        ),
-        ("Debug".to_owned(), core(&["todo"], vec![])),
-        ("Tuple".to_owned(), core(&["first"], vec![])),
-        (
-            "Platform".to_owned(),
-            core(&[], vec![("Program", Union::Open(union(&[], &[])))]),
-        ),
-        (
-            "Platform.Cmd".to_owned(),
-            core(&["none"], vec![("Cmd", Union::Open(union(&[], &[])))]),
-        ),
-        (
-            "Platform.Sub".to_owned(),
-            core(&["none"], vec![("Sub", Union::Open(union(&[], &[])))]),
-        ),
-        ("A".to_owned(), local("a")),
-        ("B".to_owned(), local("b")),
-    ])
-}
-
-fn imports(text: &str) -> Vec<hir::Import> {
-    let parse = parse_module(text);
-    hir::lower(&ast::Module::cast(parse.syntax()).unwrap()).imports
 }
 
 fn env<'a>(interfaces: &'a HashMap<String, Interface>, text: &str) -> Result<Env<'a>, Vec<Error>> {
-    let main = home("author/project", "Main");
+    let main = Home::author_project("Main");
     initial_env(
-        nomi_base::Compat::V0_19_1,
+        Compat::V0_19_1,
         &main,
         interfaces,
-        &with_defaults(&main.package, &imports(text)),
+        &with_defaults(&main.package, &lowered(text).imports),
         &Default::default(),
     )
 }
@@ -282,23 +145,15 @@ fn locals_shadow_locals_but_not_imports() {
     assert!(matches!(&errors[0], Error::Shadowing { name, .. } if name == "identity"));
 }
 
-/// The HIR of `text`, a module of one annotated value, and its
-/// annotation's type.
-fn annotated(text: &str) -> (hir::Module, hir::TypeId) {
-    let parse = parse_module(text);
-    let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
-    let hir::Def::Define { annotation, .. } = &module.defs[module.values[0]] else {
-        panic!("no value");
-    };
-    let ty = annotation.expect("an annotation");
-    (module, ty)
-}
-
+/// The type the annotation of `text`'s one value names.
 fn canonical_type(text: &str) -> Result<Type, Vec<Error>> {
     let interfaces = interfaces();
     let env = env(&interfaces, text).unwrap();
-    let (module, ty) = annotated(text);
-    super::types::canonicalize(&env, &module, ty)
+    let module = lowered(text);
+    let hir::Def::Define { annotation, .. } = &module.defs[module.values[0]] else {
+        panic!("no value");
+    };
+    super::types::canonicalize(&env, &module, annotation.expect("an annotation"))
 }
 
 #[test]
@@ -310,19 +165,23 @@ fn types_resolve_and_check_their_arity() {
     let Type::Lambda(arg, result) = ty else {
         panic!()
     };
-    let a_t = Type::Type(home("author/project", "A"), "T".to_owned(), vec![]);
-    assert_eq!(
-        *arg,
-        Type::Type(home("elm/core", "Maybe"), "Maybe".to_owned(), vec![a_t])
-    );
+    let a_t = Type::Type {
+        home: Home::author_project("A"),
+        name: "T".to_owned(),
+        args: vec![],
+    };
+    let maybe = Type::Type {
+        home: Home::core("Maybe"),
+        name: "Maybe".to_owned(),
+        args: vec![a_t],
+    };
+    assert_eq!(*arg, maybe);
     assert!(
-        matches!(*result, Type::Type(h, n, args) if h.module == "List" && n == "List" && args.len() == 1)
+        matches!(*result, Type::Type { home, name, args } if home.module == "List" && name == "List" && args.len() == 1)
     );
     let errors =
         canonical_type("module Main exposing (..)\n\n\nx : Int String\nx = 1\n").unwrap_err();
-    assert!(
-        matches!(&errors[..], [Error::BadArity { name, expected: 0, actual: 1, .. }] if name == "Int")
-    );
+    one_error!(errors, Error::BadArity { name, expected: 0, actual: 1, .. } if name == "Int");
 }
 
 #[test]
@@ -351,60 +210,41 @@ fn type_errors_collect_as_upstream_collects_them() {
     let errors =
         canonical_type("module Main exposing (..)\n\n\nx : { a : Itn, b : Int, a : Int }\nx = 1\n")
             .unwrap_err();
-    assert!(
-        matches!(&errors[..], [Error::DuplicateField { name, first, second }] if name == "a" && first.start() < second.start())
+    one_error!(
+        errors,
+        Error::Duplicate { what: Duplicated::Field, name, first, second }
+            if name == "a" && first.start() < second.start()
     );
 }
 
 #[test]
 fn a_later_place_comes_first_unless_a_fold_adds_from_the_right() {
-    use super::dups::Dict;
-    let at = |n: u32| nomi_base::TextRange::new(n.into(), (n + 1).into());
+    use super::dups::{Dict, check_fields};
+    let at = |n: u32| TextRange::new(n.into(), (n + 1).into());
     let mut dict = Dict::default();
-    dict.insert(nomi_base::Compat::V0_19_1, "x", at(1), ());
-    dict.insert(nomi_base::Compat::V0_19_1, "x", at(5), ());
-    let errors = dict
-        .detect(nomi_base::Compat::V0_19_1, |name, first, second| {
-            Error::DuplicateDecl {
-                name: name.to_owned(),
-                first,
-                second,
-            }
-        })
-        .unwrap_err();
-    assert!(
-        matches!(&errors[..], [Error::DuplicateDecl { first, second, .. }] if *first == at(5) && *second == at(1))
-    );
-    let fields = vec![("a".to_owned(), at(1), ()), ("a".to_owned(), at(5), ())];
-    let errors = super::dups::check_fields(nomi_base::Compat::V0_19_1, fields).unwrap_err();
-    assert!(matches!(&errors[..], [Error::DuplicateField { first, .. }] if *first == at(1)));
+    dict.insert(Compat::V0_19_1, "x", at(1), ());
+    dict.insert(Compat::V0_19_1, "x", at(5), ());
+    let errors = (dict.detect(Compat::V0_19_1, Duplicated::Decl.error())).unwrap_err();
+    one_error!(errors, Error::Duplicate { first, second, .. } if *first == at(5) && *second == at(1));
+    let a = |n| hir::Spanned {
+        text: "a".to_owned(),
+        range: at(n),
+    };
+    let fields = [(a(1), ()), (a(5), ())];
+    let errors = check_fields(Compat::V0_19_1, fields.iter().map(|(n, v)| (n, *v))).unwrap_err();
+    one_error!(errors, Error::Duplicate { first, .. } if *first == at(1));
 }
 
 fn local(text: &str) -> Result<super::local::Unions, Vec<Error>> {
     let interfaces = interfaces();
     let env = env(&interfaces, text).unwrap();
-    let parse = parse_module(text);
-    let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
-    super::local::add(&module, env).map(|(env, unions, _)| {
+    super::local::add(&lowered(text), env).map(|(env, unions, _)| {
         // The module's own values replace imported ones.
         if let Some(var) = env.vars.get("identity") {
             assert!(matches!(var, Var::TopLevel(_)));
         }
         unions
     })
-}
-
-fn titles(errors: &[Error]) -> Vec<String> {
-    errors
-        .iter()
-        .map(|e| {
-            format!("{e:?}")
-                .split([' ', '{', '('])
-                .next()
-                .unwrap()
-                .to_owned()
-        })
-        .collect()
 }
 
 #[test]
@@ -419,44 +259,59 @@ fn local_declarations_join_the_imports() {
 
 #[test]
 fn local_errors_are_upstreams() {
-    let errors =
-        |text: &str| titles(&local(&format!("module Main exposing (..)\n\n\n{text}")).unwrap_err());
-    assert_eq!(errors("x =\n    1\n\n\nx =\n    2\n"), ["DuplicateDecl"]);
-    assert_eq!(
+    let errors = |text: &str| local(&format!("module Main exposing (..)\n\n\n{text}")).unwrap_err();
+    one_error!(
+        errors("x =\n    1\n\n\nx =\n    2\n"),
+        Error::Duplicate {
+            what: Duplicated::Decl,
+            ..
+        }
+    );
+    one_error!(
         errors("type T\n    = A\n\n\ntype alias T =\n    Int\n"),
-        ["DuplicateType"]
+        Error::Duplicate {
+            what: Duplicated::Type,
+            ..
+        }
     );
-    assert_eq!(
+    one_error!(
         errors("type T\n    = C\n\n\ntype U\n    = C\n"),
-        ["DuplicateCtor"]
+        Error::Duplicate {
+            what: Duplicated::Ctor,
+            ..
+        }
     );
-    assert_eq!(errors("type U\n    = U a b\n"), ["TypeVarsUnboundInUnion"]);
-    assert_eq!(
+    one_error!(
+        errors("type U\n    = U a b\n"),
+        Error::TypeVarsUnboundInUnion { .. }
+    );
+    one_error!(
         errors("type alias A a =\n    Int\n"),
-        ["TypeVarsMessedUpInAlias"]
+        Error::TypeVarsMessedUpInAlias { .. }
     );
-    assert_eq!(errors("type alias A a a =\n    a\n"), ["DuplicateAliasArg"]);
-    assert_eq!(
+    one_error!(
+        errors("type alias A a a =\n    a\n"),
+        Error::DuplicateAliasArg { .. }
+    );
+    one_error!(
         errors("type alias A =\n    { a : A }\n"),
-        ["RecursiveAlias"]
+        Error::RecursiveAlias { .. }
     );
-    assert_eq!(
+    one_error!(
         errors("type alias A =\n    { b : B }\n\n\ntype alias B =\n    { a : A }\n"),
-        ["RecursiveAlias"]
+        Error::RecursiveAlias { .. }
     );
     // Types fail first and stop the values.
-    assert_eq!(
+    one_error!(
         errors("type U\n    = U a\n\n\nx =\n    1\n\n\nx =\n    2\n"),
-        ["TypeVarsUnboundInUnion"]
+        Error::TypeVarsUnboundInUnion { .. }
     );
     // A value defined twice is met at its later definition first, as
     // upstream keeps values in reverse, and reported at the later.
-    let text = "module Main exposing (..)\n\n\nx =\n    1\n\n\nx =\n    2\n";
-    let Err(errors) = local(text) else { panic!() };
-    let Error::DuplicateDecl { first, second, .. } = &errors[0] else {
-        panic!()
-    };
-    assert!(first.start() < second.start());
+    one_error!(
+        errors("x =\n    1\n\n\nx =\n    2\n"),
+        Error::Duplicate { first, second, .. } if first.start() < second.start()
+    );
 }
 
 #[test]
@@ -476,55 +331,33 @@ fn unbound_variables_are_placed_by_the_first_constructor_using_them() {
     );
 }
 
-fn parameters(text: &str) -> Vec<String> {
-    let interfaces = interfaces();
-    let parse = parse_module(text);
-    let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
-    let package = "author/project";
-    match super::module::canonicalize(nomi_base::Compat::V0_19_1, package, &interfaces, &module) {
-        Ok(_) => Vec::new(),
-        Err(errors) => titles(&errors),
-    }
-}
-
 #[test]
 fn parameters_are_checked_before_their_duplicates() {
-    let header = "module Main exposing (..)\n\n\n";
-    assert_eq!(
-        parameters(&format!("{header}f a a =\n    a\n")),
-        ["DuplicatePattern"]
-    );
+    let errors =
+        |text: &str| canonical(&format!("module Main exposing (..)\n\n\n{text}")).unwrap_err();
+    one_error!(errors("f a a =\n    a\n"), Error::DuplicatePattern { .. });
     // A pattern that fails shows only its own errors.
-    assert_eq!(
-        parameters(&format!("{header}f (Juts a) a =\n    a\n")),
-        ["NotFound"]
+    one_error!(errors("f (Juts a) a =\n    a\n"), Error::NotFound { .. });
+    one_error!(
+        errors("f : Int\nf a b =\n    a\n"),
+        Error::AnnotationTooShort { .. }
     );
-    assert_eq!(
-        parameters(&format!("{header}f : Int\nf a b =\n    a\n")),
-        ["AnnotationTooShort"]
+    one_error!(
+        errors("g =\n    1\n\n\nf g =\n    g\n"),
+        Error::Shadowing { .. }
     );
-    assert_eq!(
-        parameters(&format!("{header}g =\n    1\n\n\nf g =\n    g\n")),
-        ["Shadowing"]
-    );
-    assert_eq!(
-        parameters(&format!("{header}f (Just x y) =\n    1\n")),
-        ["BadArity"]
-    );
+    one_error!(errors("f (Just x y) =\n    1\n"), Error::BadArity { .. });
 }
 
 #[test]
 fn references_record_what_each_name_resolved_to() {
     use super::references::Target;
     let text = "module Main exposing (main, Color(..))\n\nimport A exposing (a, T(..))\n\ntype Color = Red\n\nmain : Int\nmain =\n    let y = a in\n    case Red of\n        Red -> y + A.x + identity 1\n";
-    let interfaces = interfaces();
-    let parse = parse_module(text);
-    let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
     let (canonical, references) = super::module::canonicalize_with_references(
-        nomi_base::Compat::V0_19_1,
+        Compat::V0_19_1,
         "author/project",
-        &interfaces,
-        &module,
+        &interfaces(),
+        &lowered(text),
     );
     assert!(canonical.is_ok());
     let found: Vec<String> = (references.iter())
@@ -562,15 +395,8 @@ fn references_record_what_each_name_resolved_to() {
 #[test]
 fn canonicalization_builds_upstreams_tree() {
     use crate::canonical::{Decl, Def as CDef, ExprKind};
-    let text = "module Main exposing (..)\n\nimport A exposing (T(..))\n\n\nf x =\n    let\n        a = 1 + 2 * x\n        g n = h n\n        h n = g n\n    in\n    ( a, C, g )\n";
-    let interfaces = interfaces();
-    let parse = parse_module(text);
-    let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
-    let canonical = super::module::canonicalize(
-        nomi_base::Compat::V0_19_1,
-        "author/project",
-        &interfaces,
-        &module,
+    let canonical = canonical(
+        "module Main exposing (..)\n\nimport A exposing (T(..))\n\n\nf x =\n    let\n        a = 1 + 2 * x\n        g n = h n\n        h n = g n\n    in\n    ( a, C, g )\n",
     )
     .unwrap();
     let [
@@ -594,13 +420,21 @@ fn canonicalization_builds_upstreams_tree() {
                     let CDef::Def { body, .. } = &**def else {
                         panic!("untyped")
                     };
-                    let ExprKind::Binop(op, _, function, _, left, right) = &body.kind else {
+                    let ExprKind::Binop {
+                        operator,
+                        left,
+                        right,
+                    } = &body.kind
+                    else {
                         panic!("an operator: {body:?}");
                     };
-                    assert_eq!((op.as_str(), function.as_str()), ("+", "add"));
+                    assert_eq!(
+                        (operator.op.as_str(), operator.function.as_str()),
+                        ("+", "add")
+                    );
                     assert!(matches!(left.kind, ExprKind::Int(1)));
                     assert!(
-                        matches!(&right.kind, ExprKind::Binop(op, ..) if op == "*"),
+                        matches!(&right.kind, ExprKind::Binop { operator, .. } if operator.op == "*"),
                         "{right:?}"
                     );
                 }
@@ -613,7 +447,7 @@ fn canonicalization_builds_upstreams_tree() {
             }
             ExprKind::Tuple(_, ctor, _) => {
                 assert!(
-                    matches!(&ctor.kind, ExprKind::VarCtor(_, home, name, 0, _) if home.module == "A" && name == "C"),
+                    matches!(&ctor.kind, ExprKind::VarCtor { home, name, index: 0, .. } if home.module == "A" && name == "C"),
                     "{ctor:?}"
                 );
                 break;
@@ -626,164 +460,4 @@ fn canonicalization_builds_upstreams_tree() {
         kinds.contains(&"let a".to_owned()) && kinds.iter().any(|k| k.starts_with("rec ")),
         "{kinds:?}"
     );
-}
-
-#[test]
-fn a_module_constrains_its_values_in_dependency_order() {
-    use crate::types::{Constraint, Variables, constrain::module::constrain};
-    let text = "module Main exposing (..)\n\n\ng =\n    f 1\n\n\nf x =\n    x\n";
-    let interfaces = interfaces();
-    let parse = parse_module(text);
-    let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
-    let canonical = super::module::canonicalize(
-        nomi_base::Compat::V0_19_1,
-        "author/project",
-        &interfaces,
-        &module,
-    )
-    .unwrap();
-    let mut vars = Variables::default();
-    let mut at = constrain(&mut vars, &canonical);
-    let mut names = Vec::new();
-    loop {
-        match at {
-            Constraint::Let {
-                header, body_con, ..
-            } if !header.is_empty() => {
-                names.extend(header.keys().cloned());
-                at = *body_con;
-            }
-            Constraint::SaveTheEnvironment => break,
-            other => panic!("unexpected {other:?}"),
-        }
-    }
-    // `f` before `g`, which uses it.
-    assert_eq!(names, ["f", "g"]);
-}
-
-/// The annotations inference gives `text`'s values, or its errors.
-fn infer(text: &str) -> Result<BTreeMap<String, String>, Vec<crate::types::solve::TypeError>> {
-    use crate::types::{Variables, constrain::module::constrain, solve::run};
-    fn show(t: &Type) -> String {
-        match t {
-            Type::Var(v) => v.clone(),
-            Type::Lambda(a, b) => format!("({} -> {})", show(a), show(b)),
-            Type::Type(_, name, args) if args.is_empty() => name.clone(),
-            Type::Type(_, name, args) => {
-                format!(
-                    "({name} {})",
-                    args.iter().map(show).collect::<Vec<_>>().join(" ")
-                )
-            }
-            Type::Tuple(a, b, None) => format!("( {}, {} )", show(a), show(b)),
-            other => format!("{other:?}"),
-        }
-    }
-    let interfaces = interfaces();
-    let parse = parse_module(text);
-    let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
-    let canonical = super::module::canonicalize(
-        nomi_base::Compat::V0_19_1,
-        "author/project",
-        &interfaces,
-        &module,
-    )
-    .unwrap();
-    let mut vars = Variables::default();
-    let constraint = constrain(&mut vars, &canonical);
-    let annotations = run(&mut vars, &constraint)?;
-    Ok(annotations
-        .into_iter()
-        .map(|(n, a)| (n, show(&a.ty)))
-        .collect())
-}
-
-#[test]
-fn inference_generalizes_lets_and_finds_mismatches() {
-    let found = infer(
-        "module Main exposing (..)\n\nimport A\n\n\nidentity2 x =\n    x\n\n\npair =\n    ( identity2 1, identity2 \"s\" )\n\n\nuse =\n    let\n        f y = y\n    in\n    ( f A.x, f [] )\n",
-    )
-    .unwrap();
-    assert_eq!(found["identity2"], "(a -> a)");
-    assert_eq!(found["pair"], "( number, String )");
-    assert_eq!(found["use"], "( Int, (List a) )");
-    // `a -> a` takes two arguments where `a` is a function, so the first
-    // is the problem, as elm reports it.
-    let errors = infer("module Main exposing (..)\n\n\nbad =\n    identityish 1 \"s\"\n\n\nidentityish x =\n    x\n").unwrap_err();
-    assert!(
-        matches!(
-            &errors[..],
-            [crate::types::solve::TypeError::BadExpr(
-                _,
-                crate::types::expected::Category::Number,
-                _,
-                crate::types::expected::Expected::FromContext(
-                    _,
-                    crate::types::expected::Context::CallArg(_, 0),
-                    _
-                ),
-            )]
-        ),
-        "{errors:?}"
-    );
-}
-
-#[test]
-fn inference_records_each_expressions_type() {
-    use crate::types::error::Type as E;
-    let text = "module Main exposing (..)\n\n\nxs =\n    [ 1, 2 ]\n";
-    let interfaces = interfaces();
-    let parse = parse_module(text);
-    let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
-    let canonical = super::module::canonicalize(
-        nomi_base::Compat::V0_19_1,
-        "author/project",
-        &interfaces,
-        &module,
-    )
-    .unwrap();
-    let (result, types) = crate::types::infer_types(nomi_base::Compat::V0_19_1, &canonical);
-    assert!(result.is_ok());
-    let shown: Vec<(&str, String)> = (types.iter())
-        .map(|(region, ty)| {
-            let ty = match ty {
-                E::FlexSuper(_, name) => name.clone(),
-                E::Type(_, name, args) => format!("{name} {}", args.len()),
-                other => format!("{other:?}"),
-            };
-            (text[*region].trim(), ty)
-        })
-        .collect();
-    assert_eq!(
-        shown,
-        [
-            ("[ 1, 2 ]", "List 1".to_owned()),
-            ("1", "number".to_owned()),
-            ("2", "number".to_owned())
-        ]
-    );
-}
-
-#[test]
-fn debug_uses_are_found_anywhere_in_a_body() {
-    use crate::nitpick::debug::has_debug_uses;
-    let decls = |text: &str| {
-        let interfaces = interfaces();
-        let parse = parse_module(text);
-        let module = hir::lower(&ast::Module::cast(parse.syntax()).unwrap());
-        super::module::canonicalize(
-            nomi_base::Compat::V0_19_1,
-            "author/project",
-            &interfaces,
-            &module,
-        )
-        .unwrap()
-        .decls
-    };
-    assert!(has_debug_uses(&decls(
-        "module Main exposing (..)\n\n\nf x =\n    let\n        y = ( x, Debug.todo \"y\" )\n    in\n    y\n"
-    )));
-    assert!(!has_debug_uses(&decls(
-        "module Main exposing (..)\n\n\nf x =\n    ( x, identity x )\n"
-    )));
 }

@@ -135,7 +135,7 @@ pub fn can_to_doc(localizer: &Localizer, context: Context, ty: &canonical::Type)
             )
         }
         T::Var(name) => text(name.clone()),
-        T::Type(home, name, args) => apply(
+        T::Type { home, name, args } => apply(
             context,
             localizer.to_doc(home, name),
             args.iter()
@@ -159,7 +159,9 @@ pub fn can_to_doc(localizer: &Localizer, context: Context, ty: &canonical::Type)
                 .map(|c| can_to_doc(localizer, Context::None, c))
                 .collect(),
         ),
-        T::Alias(home, name, args, _) => apply(
+        T::Alias {
+            home, name, args, ..
+        } => apply(
             context,
             localizer.to_doc(home, name),
             args.iter()

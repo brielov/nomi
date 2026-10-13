@@ -563,11 +563,8 @@ impl Walk<'_> {
                         let source = Source::new(&module.text);
                         let trim = |range| trim(&root, range);
                         let imports = with_defaults(&self.package, &hir.imports);
-                        let localizer = Localizer::from_module(
-                            self.env.compat(),
-                            nomi_compiler::canonicalize::module::name(&hir),
-                            &imports,
-                        );
+                        let localizer =
+                            Localizer::from_module(self.env.compat(), hir.name(), &imports);
                         let problem = main_check::to_problem(
                             &error,
                             &source,
@@ -602,13 +599,8 @@ impl Walk<'_> {
                     }
                     if self.goals.optimize {
                         let source = Source::new(&module.text);
-                        let region = |range: TextRange| {
-                            let kept = source.region(trim(&root, range), self.env.compat());
-                            nomi_compiler::optimized::Region {
-                                start: (kept.start.row, kept.start.col),
-                                end: (kept.end.row, kept.end.col),
-                            }
-                        };
+                        let region =
+                            |range: TextRange| source.region(trim(&root, range), self.env.compat());
                         let graph = time(Phase::Optimize, || {
                             optimize::module(self.env.compat(), &annotations, &canonical, &region)
                         });
@@ -646,11 +638,7 @@ impl Walk<'_> {
                 Err(errors) => {
                     let source = Source::new(&module.text);
                     let imports = with_defaults(&self.package, &hir.imports);
-                    let localizer = Localizer::from_module(
-                        self.env.compat(),
-                        nomi_compiler::canonicalize::module::name(&hir),
-                        &imports,
-                    );
+                    let localizer = Localizer::from_module(self.env.compat(), hir.name(), &imports);
                     let trim = |range| trim(&root, range);
                     let cx = types_report::ReportContext {
                         source: &source,

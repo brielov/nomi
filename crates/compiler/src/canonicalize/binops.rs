@@ -3,24 +3,23 @@
 //! `a + (b * c)`, and refuses operators of one precedence that group
 //! different ways, or not at all.
 
-use nomi_base::TextRange;
+use nomi_base::{TextRange, grow_large};
 
 use super::error::{Error, R, throw};
-use crate::canonical::Associativity;
+use crate::hir::{Associativity, Fixity};
 
 /// An operator of a chain: its place in it, and how it groups.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Op {
+pub(super) struct Op {
     /// Which of the chain's operators, from the left.
-    pub index: usize,
-    pub name: String,
-    pub associativity: Associativity,
-    pub precedence: i64,
+    pub(super) index: usize,
+    pub(super) name: String,
+    pub(super) fixity: Fixity,
 }
 
 /// A chain arranged: an operand, by its place, or an operator applied.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Tree {
+pub(super) enum Tree {
     Operand(usize),
     Binop {
         op: usize,
@@ -49,7 +48,7 @@ fn binop(op: &Op, left: Tree, right: Tree) -> Tree {
 /// `runBinopStepper`: the chain `operands[0] ops[0] operands[1] …`, where
 /// `chain` pairs each operand but the last with the operator after it,
 /// arranged; or the first two operators that can't be, at `region`.
-pub fn arrange(chain: Vec<(Tree, Op)>, last: Tree, region: TextRange) -> R<Tree> {
+pub(super) fn arrange(chain: Vec<(Tree, Op)>, last: Tree, region: TextRange) -> R<Tree> {
     let mut step = Step::More(chain, last);
     loop {
         step = match step {
@@ -75,9 +74,7 @@ pub fn arrange(chain: Vec<(Tree, Op)>, last: Tree, region: TextRange) -> R<Tree>
 
 /// `toBinopStep`.
 fn next(make: Hole, root: Op, middle: Vec<(Tree, Op)>, last: Tree) -> Step {
-    stacker::maybe_grow(128 * 1024, 2 * 1024 * 1024, || {
-        next_(make, root, middle, last)
-    })
+    grow_large(|| next_(make, root, middle, last))
 }
 
 fn next_(make: Hole, root: Op, middle: Vec<(Tree, Op)>, last: Tree) -> Step {
@@ -86,12 +83,12 @@ fn next_(make: Hole, root: Op, middle: Vec<(Tree, Op)>, last: Tree) -> Step {
         return Step::Done(make(last));
     };
     let rest: Vec<(Tree, Op)> = middle.collect();
-    if op.precedence < root.precedence {
+    if op.fixity.precedence < root.fixity.precedence {
         let mut more = vec![(make(expr), op)];
         more.extend(rest);
         return Step::More(more, last);
     }
-    if op.precedence > root.precedence {
+    if op.fixity.precedence > root.fixity.precedence {
         let inner_op = op.clone();
         let inner: Hole = Box::new(move |right| binop(&inner_op, expr, right));
         return match next(inner, op, rest, last) {
@@ -100,7 +97,7 @@ fn next_(make: Hole, root: Op, middle: Vec<(Tree, Op)>, last: Tree) -> Step {
             error @ Step::Error(..) => error,
         };
     }
-    match (root.associativity, op.associativity) {
+    match (root.fixity.associativity, op.fixity.associativity) {
         (Associativity::Left, Associativity::Left) => {
             let left = make(expr);
             let next_op = op.clone();
@@ -128,8 +125,10 @@ mod tests {
         Op {
             index,
             name: name.to_owned(),
-            associativity,
-            precedence,
+            fixity: Fixity {
+                associativity,
+                precedence,
+            },
         }
     }
 
@@ -137,17 +136,8 @@ mod tests {
         Tree::Operand(i)
     }
 
-    fn node(op: usize, left: Tree, right: Tree) -> Tree {
-        binop(
-            &Op {
-                index: op,
-                name: String::new(),
-                associativity: Associativity::Left,
-                precedence: 0,
-            },
-            left,
-            right,
-        )
+    fn node(index: usize, left: Tree, right: Tree) -> Tree {
+        binop(&op(index, "", Associativity::Left, 0), left, right)
     }
 
     /// `a + b * c - d`.

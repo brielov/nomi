@@ -92,14 +92,11 @@ fn triple() -> Union {
 }
 
 fn list() -> Union {
-    let list = Type::Type(
-        Home {
-            package: "elm/core".into(),
-            module: "List".into(),
-        },
-        "List".to_owned(),
-        vec![var("a")],
-    );
+    let list = Type::Type {
+        home: Home::core("List"),
+        name: "List".to_owned(),
+        args: vec![var("a")],
+    };
     union(
         &["a"],
         vec![(NIL, 0, vec![]), (CONS, 1, vec![var("a"), list])],
@@ -203,7 +200,7 @@ impl Checker {
         match &expr.kind {
             ExprKind::List(entries) => entries.iter().rev().for_each(|e| self.expr(e)),
             ExprKind::Negate(e) => self.expr(e),
-            ExprKind::Binop(_, _, _, _, left, right) => {
+            ExprKind::Binop { left, right, .. } => {
                 self.expr(right);
                 self.expr(left);
             }
@@ -232,7 +229,11 @@ impl Checker {
                 self.expr(body);
                 defs.iter().rev().for_each(|d| self.def(d));
             }
-            ExprKind::LetDestruct(pattern, value, body) => {
+            ExprKind::LetDestruct {
+                pattern,
+                value,
+                body,
+            } => {
                 self.expr(body);
                 self.expr(value);
                 self.patterns(
@@ -250,8 +251,8 @@ impl Checker {
                 self.patterns(expr.region, Context::BadCase, &patterns);
                 self.expr(scrutinee);
             }
-            ExprKind::Access(record, _, _) => self.expr(record),
-            ExprKind::Update(_, record, fields) => {
+            ExprKind::Access { record, .. } => self.expr(record),
+            ExprKind::Update { record, fields, .. } => {
                 let ordered: Vec<&canonical::FieldUpdate> = in_name_order(self.compat, fields)
                     .into_iter()
                     .map(|(_, f)| f)
@@ -275,11 +276,11 @@ impl Checker {
             }
             ExprKind::VarLocal(_)
             | ExprKind::VarTopLevel(..)
-            | ExprKind::VarKernel(..)
-            | ExprKind::VarForeign(..)
-            | ExprKind::VarCtor(..)
-            | ExprKind::VarDebug(..)
-            | ExprKind::VarOperator(..)
+            | ExprKind::VarKernel { .. }
+            | ExprKind::VarForeign { .. }
+            | ExprKind::VarCtor { .. }
+            | ExprKind::VarDebug { .. }
+            | ExprKind::VarOperator(_)
             | ExprKind::Chr(_)
             | ExprKind::Str(_)
             | ExprKind::Int(_)

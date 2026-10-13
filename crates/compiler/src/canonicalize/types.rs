@@ -3,6 +3,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use nomi_base::grow_large;
+
 use super::dups::check_fields;
 use super::env::{Env, TypeInfo};
 use super::error::{ArityContext, Error, R, all, both, throw};
@@ -10,7 +12,7 @@ use crate::canonical::{AliasType, Annotation, FieldType, Type};
 use crate::hir::{self, TypeId};
 
 /// `toAnnotation`: the type and its free variables.
-pub fn to_annotation(env: &Env<'_>, module: &hir::Module, id: TypeId) -> R<Annotation> {
+pub(super) fn to_annotation(env: &Env<'_>, module: &hir::Module, id: TypeId) -> R<Annotation> {
     let ty = canonicalize(env, module, id)?;
     let mut free = BTreeSet::new();
     free_vars(&ty, &mut free);
@@ -21,18 +23,12 @@ pub fn to_annotation(env: &Env<'_>, module: &hir::Module, id: TypeId) -> R<Annot
 }
 
 /// `canonicalize`.
-pub fn canonicalize(env: &Env<'_>, module: &hir::Module, id: TypeId) -> R<Type> {
-    stacker::maybe_grow(128 * 1024, 2 * 1024 * 1024, || {
-        canonicalize_(env, module, id)
-    })
+pub(super) fn canonicalize(env: &Env<'_>, module: &hir::Module, id: TypeId) -> R<Type> {
+    grow_large(|| canonicalize_(env, module, id))
 }
 
 fn canonicalize_(env: &Env<'_>, module: &hir::Module, id: TypeId) -> R<Type> {
-    let range = module
-        .source_map
-        .ty(id)
-        .map(|p| p.range)
-        .unwrap_or_default();
+    let range = module.source_map.type_range(id);
     match &module.types[id] {
         // Lowering leaves this only where the syntax is wrong, which a
         // module canonicalized has no part of.
@@ -46,21 +42,22 @@ fn canonicalize_(env: &Env<'_>, module: &hir::Module, id: TypeId) -> R<Type> {
             let info = env.find_type(name.range, qualifier.as_deref(), &name.text)?;
             let cargs = all(args.iter().map(|&a| canonicalize(env, module, a)))?;
             let (arity, ty) = match info {
-                TypeInfo::Alias {
-                    arity,
-                    home,
-                    vars,
-                    ty,
-                } => {
-                    let pairs = vars.iter().cloned().zip(cargs).collect();
-                    let holey = AliasType::Holey(ty.clone());
-                    (
-                        *arity,
-                        Type::Alias(home.clone(), name.text.clone(), pairs, holey),
-                    )
+                TypeInfo::Alias { home, vars, ty } => {
+                    let alias = Type::Alias {
+                        home: home.clone(),
+                        name: name.text.clone(),
+                        args: vars.iter().cloned().zip(cargs).collect(),
+                        aliased: AliasType::Holey(ty.clone()),
+                    };
+                    (vars.len(), alias)
                 }
                 TypeInfo::Union { arity, home } => {
-                    (*arity, Type::Type(home.clone(), name.text.clone(), cargs))
+                    let union = Type::Type {
+                        home: home.clone(),
+                        name: name.text.clone(),
+                        args: cargs,
+                    };
+                    (*arity, union)
                 }
             };
             if arity == args.len() {
@@ -82,22 +79,16 @@ fn canonicalize_(env: &Env<'_>, module: &hir::Module, id: TypeId) -> R<Type> {
         hir::Type::Record { fields, extends } => {
             // The fields are checked for duplicates before any is
             // canonicalized, and then canonicalized in name order.
-            let fields = (fields.iter().enumerate())
-                .map(|(i, (name, ty))| (name.text.clone(), name.range, (i, *ty)))
-                .collect();
+            let fields = (fields.iter().enumerate()).map(|(i, (name, ty))| (name, (i, *ty)));
             let fields = check_fields(env.compat, fields)?;
-            let names: Vec<String> = env
-                .compat
-                .sorted_names(fields.keys())
-                .into_iter()
-                .cloned()
-                .collect();
+            let names = env.compat.sorted_names(fields.keys());
             let types = all(names.iter().map(|name| {
-                let (i, ty) = fields[name];
+                let (i, ty) = fields[*name];
                 let order = u16::try_from(i).unwrap_or(u16::MAX);
                 canonicalize(env, module, ty).map(|ty| FieldType { order, ty })
             }))?;
-            let fields: BTreeMap<String, FieldType> = names.into_iter().zip(types).collect();
+            let fields: BTreeMap<String, FieldType> =
+                names.into_iter().cloned().zip(types).collect();
             Ok(Type::Record(
                 fields,
                 extends.as_ref().map(|e| e.text.clone()),
@@ -121,7 +112,7 @@ fn canonicalize_(env: &Env<'_>, module: &hir::Module, id: TypeId) -> R<Type> {
 }
 
 /// `addFreeVars`: the type variables `ty` names.
-pub fn free_vars(ty: &Type, vars: &mut BTreeSet<String>) {
+fn free_vars(ty: &Type, vars: &mut BTreeSet<String>) {
     match ty {
         Type::Lambda(a, b) => {
             free_vars(b, vars);
@@ -130,7 +121,7 @@ pub fn free_vars(ty: &Type, vars: &mut BTreeSet<String>) {
         Type::Var(name) => {
             vars.insert(name.clone());
         }
-        Type::Type(_, _, args) => args.iter().for_each(|a| free_vars(a, vars)),
+        Type::Type { args, .. } => args.iter().for_each(|a| free_vars(a, vars)),
         Type::Record(fields, ext) => {
             if let Some(ext) = ext {
                 vars.insert(ext.clone());
@@ -147,6 +138,6 @@ pub fn free_vars(ty: &Type, vars: &mut BTreeSet<String>) {
                 free_vars(c, vars);
             }
         }
-        Type::Alias(_, _, args, _) => args.iter().for_each(|(_, a)| free_vars(a, vars)),
+        Type::Alias { args, .. } => args.iter().for_each(|(_, a)| free_vars(a, vars)),
     }
 }

@@ -6,17 +6,19 @@
 use nomi_base::diagnostic::Problem;
 use nomi_base::diagnostic::code::{self, Source};
 use nomi_base::diagnostic::doc::{
-    self, Color, Conjunction, Doc, OneLine, TwoSnippets, comma_sep, fill_sep, link, pair, reflow,
-    reflow_link, simple_note, snippet, stack, text, vcat,
+    self, Conjunction, Doc, OneLine, TwoSnippets, comma_sep, cyan, dull_yellow, fill_sep, green,
+    link, pair, reflow, reflow_link, simple_note, snippet, stack, text, vcat, words,
 };
-use nomi_base::{Compat, TextRange, suggest};
+use nomi_base::suggest::nearest;
+use nomi_base::{Compat, TextRange};
 
 use super::error::{
-    ArityContext, DuplicatePatternContext, Error, InvalidPayload, NameKind, PortProblem,
-    PossibleNames,
+    ArityContext, DuplicatePatternContext, Duplicated, Error, InvalidPayload, NameKind,
+    PortProblem, PossibleNames,
 };
 use crate::canonical::Home;
-use crate::hir::{self, TypeId};
+use crate::hir::{self, Spanned, TypeId};
+use crate::types::render::{self, Context as Parens};
 
 /// What a report needs around its error.
 pub struct Context<'a> {
@@ -36,10 +38,27 @@ impl std::fmt::Debug for Context<'_> {
 
 /// `toReport`.
 pub fn to_problem(error: &Error, cx: &Context<'_>) -> Problem {
-    let (title, range, message) = report(error, cx);
-    let range = (cx.trim)(range);
-    let region = cx.source.region(range, cx.compat);
-    Problem::new(title, region, code::expand(&message, cx.source, cx.compat))
+    let report = report(error, cx);
+    let region = cx.source.region((cx.trim)(report.range), cx.compat);
+    let message = code::expand(&report.message, cx.source, cx.compat);
+    Problem::new(report.title, region, message)
+}
+
+/// A report before its range is trimmed and placed.
+struct Report {
+    title: &'static str,
+    range: TextRange,
+    message: Doc,
+}
+
+impl Report {
+    fn new(title: &'static str, range: TextRange, message: Doc) -> Report {
+        Report {
+            title,
+            range,
+            message,
+        }
+    }
 }
 
 /// A snippet of `range`, trimmed, between `before` and `after`.
@@ -54,28 +73,20 @@ fn snip(
 }
 
 fn yellow(s: impl Into<String>) -> Doc {
-    text(s).color(Color::DullYellow)
+    dull_yellow(text(s))
 }
 
-fn words(s: &str) -> Vec<Doc> {
-    s.split(' ').filter(|w| !w.is_empty()).map(text).collect()
-}
-
-/// `Suggest.sort` of `candidates` against `target`, the first `n`.
-fn nearest(target: &str, mut candidates: Vec<String>, n: usize) -> Vec<String> {
-    suggest::sort_texts(target, &mut candidates);
-    candidates.truncate(n);
-    candidates
-}
-
-/// `names` in `compat`'s order, as the maps upstream lists them from
-/// keep them, which decides how ties among suggestions break.
-fn in_order(compat: Compat, names: &[String]) -> Vec<String> {
-    compat
-        .sorted_names(names.iter())
-        .into_iter()
-        .cloned()
-        .collect()
+/// The suggestions of names close to a missing one: one as a question,
+/// more as a list; `none` where there are none.
+fn suggestions(found: &[String], none: Doc) -> Doc {
+    match found {
+        [] => none,
+        [alt] => fill_sep(words("Maybe you want").chain([yellow(alt.clone()), text("instead?")])),
+        alts => stack([
+            text("These names seem close though:"),
+            vcat(alts.iter().map(|a| yellow(a.clone()))).indent(4),
+        ]),
+    }
 }
 
 /// Upstream's order of modules: by package, author then project, then by
@@ -84,19 +95,32 @@ fn sorted_homes(homes: &[Home], compat: Compat) -> Vec<Home> {
     let mut homes = homes.to_vec();
     homes.sort_by(|a, b| {
         let split = |h: &Home| {
-            let (author, project) = h.package.split_once('/').unwrap_or((&h.package, ""));
-            (author.to_owned(), project.to_owned())
+            h.package
+                .as_str()
+                .split_once('/')
+                .unwrap_or((h.package.as_str(), ""))
         };
         let ((a_author, a_project), (b_author, b_project)) = (split(a), split(b));
         compat
-            .compare_names(&a_author, &b_author)
-            .then_with(|| compat.compare_names(&a_project, &b_project))
+            .compare_names(a_author, b_author)
+            .then_with(|| compat.compare_names(a_project, b_project))
             .then_with(|| compat.compare_names(&a.module, &b.module))
     });
     homes
 }
 
-fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
+/// What a sort of name is called, as a missing or ambiguous one is
+/// reported.
+fn thing(kind: NameKind) -> &'static str {
+    match kind {
+        NameKind::Value => "variable",
+        NameKind::Type => "type",
+        NameKind::Variant => "variant",
+        NameKind::Operator => "operator",
+    }
+}
+
+fn report(error: &Error, cx: &Context<'_>) -> Report {
     match error {
         Error::AnnotationTooShort {
             range,
@@ -118,7 +142,7 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
                     if *leftover == 1 { "" } else { "s" }
                 )),
             );
-            ("BAD TYPE ANNOTATION", *range, message)
+            Report::new("BAD TYPE ANNOTATION", *range, message)
         }
         Error::Ambiguous {
             kind,
@@ -127,23 +151,13 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
             name,
             homes,
         } => {
-            let thing = match kind {
-                NameKind::Type => "type",
-                NameKind::Variant => "variant",
-                NameKind::Operator => "operator",
-                NameKind::Value | NameKind::Pattern => "variable",
-            };
-            (
-                "AMBIGUOUS NAME",
-                *range,
-                ambiguous(cx, *range, prefix.as_deref(), name, homes, thing),
-            )
+            let message = ambiguous(cx, *range, prefix.as_deref(), name, homes, *kind);
+            Report::new("AMBIGUOUS NAME", *range, message)
         }
-        Error::AmbiguousBinop { range, op, homes } => (
-            "AMBIGUOUS NAME",
-            *range,
-            ambiguous(cx, *range, None, op, homes, "operator"),
-        ),
+        Error::AmbiguousBinop { range, op, homes } => {
+            let message = ambiguous(cx, *range, None, op, homes, NameKind::Operator);
+            Report::new("AMBIGUOUS NAME", *range, message)
+        }
         Error::BadArity {
             range,
             context,
@@ -159,25 +173,18 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
                 "The `{name}` {thing} needs {}, but I see {actual} instead:",
                 doc::args(*expected)
             ));
-            if actual < expected {
+            let (title, after) = if actual < expected {
                 let after = reflow("What is missing? Are some parentheses misplaced?");
-                (
-                    "TOO FEW ARGS",
-                    *range,
-                    snip(cx, *range, None, before, after),
-                )
+                ("TOO FEW ARGS", after)
             } else {
                 let after = text(if actual - expected == 1 {
                     "Which is the extra one? Maybe some parentheses are missing?"
                 } else {
                     "Which are the extra ones? Maybe some parentheses are missing?"
                 });
-                (
-                    "TOO MANY ARGS",
-                    *range,
-                    snip(cx, *range, None, before, after),
-                )
-            }
+                ("TOO MANY ARGS", after)
+            };
+            Report::new(title, *range, snip(cx, *range, None, before, after))
         }
         Error::Binop { range, left, right } => {
             let message = snip(
@@ -189,58 +196,24 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
                 )),
                 reflow("I do not know how to group these expressions. Add parentheses for me!"),
             );
-            ("INFIX PROBLEM", *range, message)
+            Report::new("INFIX PROBLEM", *range, message)
         }
-        Error::DuplicateDecl {
+        Error::Duplicate {
+            what,
             name,
             first,
             second,
-        } => name_clash(
-            cx,
-            *first,
-            *second,
-            &format!("This file has multiple `{name}` declarations."),
-        ),
-        Error::DuplicateType {
-            name,
-            first,
-            second,
-        } => name_clash(
-            cx,
-            *first,
-            *second,
-            &format!("This file defines multiple `{name}` types."),
-        ),
-        Error::DuplicateCtor {
-            name,
-            first,
-            second,
-        } => name_clash(
-            cx,
-            *first,
-            *second,
-            &format!("This file defines multiple `{name}` type constructors."),
-        ),
-        Error::DuplicateBinop {
-            name,
-            first,
-            second,
-        } => name_clash(
-            cx,
-            *first,
-            *second,
-            &format!("This file defines multiple ({name}) operators."),
-        ),
-        Error::DuplicateField {
-            name,
-            first,
-            second,
-        } => name_clash(
-            cx,
-            *first,
-            *second,
-            &format!("This record has multiple `{name}` fields."),
-        ),
+        } => {
+            let message = match what {
+                Duplicated::Decl => format!("This file has multiple `{name}` declarations."),
+                Duplicated::Type => format!("This file defines multiple `{name}` types."),
+                Duplicated::Ctor => {
+                    format!("This file defines multiple `{name}` type constructors.")
+                }
+                Duplicated::Field => format!("This record has multiple `{name}` fields."),
+            };
+            name_clash(cx, *first, *second, &message)
+        }
         Error::DuplicateAliasArg {
             alias,
             name,
@@ -300,7 +273,7 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
                     "But I cannot find a custom type named `{name}` in this file!"
                 )),
             );
-            ("EFFECT PROBLEM", *range, message)
+            Report::new("EFFECT PROBLEM", *range, message)
         }
         Error::EffectFunctionNotFound { range, name } => {
             let message = snip(
@@ -312,7 +285,7 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
                 )),
                 reflow(&format!("But I cannot find `{name}` in this file!")),
             );
-            ("EFFECT PROBLEM", *range, message)
+            Report::new("EFFECT PROBLEM", *range, message)
         }
         Error::ExportDuplicate {
             name,
@@ -335,7 +308,7 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
                     after: text(fix),
                 },
             );
-            ("REDUNDANT EXPORT", *second, doc)
+            Report::new("REDUNDANT EXPORT", *second, doc)
         }
         Error::ExportNotFound {
             range,
@@ -343,33 +316,26 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
             name,
             possible,
         } => {
-            let suggestions = nearest(name, possible.clone(), 4);
-            let (a, thing, shown) = kind_info(*kind, name);
-            let found = match &suggestions[..] {
-                [] => reflow(
+            let found = suggestions(
+                &nearest(name, possible.clone(), 4),
+                reflow(
                     "I do not see any super similar names in this file. Is the definition missing?",
                 ),
-                [alt] => fill_sep([
-                    text("Maybe"),
-                    text("you"),
-                    text("want"),
-                    yellow(alt.clone()),
-                    text("instead?"),
-                ]),
-                alts => stack([
-                    text("These names seem close though:"),
-                    vcat(alts.iter().map(|a| yellow(a.clone()))).indent(4),
-                ]),
+            );
+            let (a, thing, shown) = match kind {
+                NameKind::Operator => ("an", "operator", text(format!("({name})"))),
+                NameKind::Value => ("a", "value", text(format!("`{name}`"))),
+                NameKind::Type | NameKind::Variant => ("a", "type", text(format!("`{name}`"))),
             };
-            let mut overview: Vec<Doc> = words("You are trying to expose");
-            overview.extend([text(a), text(thing), text("named"), shown]);
-            overview.extend(words("but I cannot find its definition."));
+            let overview = (words("You are trying to expose"))
+                .chain([text(a), text(thing), text("named"), shown])
+                .chain(words("but I cannot find its definition."));
             // 0.19.3 shows where.
             let doc = match cx.compat {
                 Compat::V0_19_1 | Compat::V0_19_2 => stack([fill_sep(overview), found]),
                 Compat::V0_19_3 => snip(cx, *range, None, fill_sep(overview), found),
             };
-            ("UNKNOWN EXPORT", *range, doc)
+            Report::new("UNKNOWN EXPORT", *range, doc)
         }
         Error::ExportOpenAlias { range, name } => {
             let message = snip(
@@ -381,15 +347,15 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
                 )),
                 reflow("Remove the (..) and you should be fine!"),
             );
-            ("BAD EXPORT", *range, message)
+            Report::new("BAD EXPORT", *range, message)
         }
         Error::ImportCtorByName { range, ctor, union } => {
-            let mut fix: Vec<Doc> = words("Try importing");
-            fix.push(text(format!("{union}(..)")).color(Color::Green));
-            fix.extend(words("instead. The dots mean “expose the"));
-            fix.push(text(union.clone()));
-            fix.extend(words("type and all its variants so it gives you access to"));
-            fix.push(text(format!("{ctor}.")));
+            let fix = (words("Try importing"))
+                .chain([green(text(format!("{union}(..)")))])
+                .chain(words("instead. The dots mean “expose the"))
+                .chain([text(union.clone())])
+                .chain(words("type and all its variants so it gives you access to"))
+                .chain([text(format!("{ctor}."))]);
             let message = snip(
                 cx,
                 *range,
@@ -399,7 +365,7 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
                 )),
                 fill_sep(fix),
             );
-            ("BAD IMPORT", *range, message)
+            Report::new("BAD IMPORT", *range, message)
         }
         Error::ImportOpenAlias { range, name } => {
             let message = snip(
@@ -411,7 +377,7 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
                 )),
                 reflow("Remove the (..) and it should work."),
             );
-            ("BAD IMPORT", *range, message)
+            Report::new("BAD IMPORT", *range, message)
         }
         Error::ImportExposingNotFound {
             range,
@@ -420,26 +386,16 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
             possible,
             ..
         } => {
-            let suggestions = nearest(&home.module, in_order(cx.compat, possible), 4);
-            let after = match &suggestions[..] {
-                [] => text("I cannot find any super similar exposed names. Maybe it is private?"),
-                [alt] => fill_sep([
-                    text("Maybe"),
-                    text("you"),
-                    text("want"),
-                    yellow(alt.clone()),
-                    text("instead?"),
-                ]),
-                alts => stack([
-                    text("These names seem close though:"),
-                    vcat(alts.iter().map(|a| yellow(a.clone()))).indent(4),
-                ]),
-            };
+            let possible = cx.compat.sorted_names(possible.iter().cloned());
+            let after = suggestions(
+                &nearest(&home.module, possible, 4),
+                text("I cannot find any super similar exposed names. Maybe it is private?"),
+            );
             let before = reflow(&format!(
                 "The `{}` module does not expose `{name}`:",
                 home.module
             ));
-            ("BAD IMPORT", *range, snip(cx, *range, None, before, after))
+            Report::new("BAD IMPORT", *range, snip(cx, *range, None, before, after))
         }
         Error::NotFound {
             kind,
@@ -448,26 +404,17 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
             name,
             possible,
         } => {
-            let thing = match kind {
-                NameKind::Type => "type",
-                NameKind::Variant => "variant",
-                _ => "variable",
-            };
-            (
-                "NAMING ERROR",
-                *range,
-                not_found(cx, *range, prefix.as_deref(), name, thing, possible),
-            )
+            let message = not_found(cx, *range, prefix.as_deref(), name, *kind, possible);
+            Report::new("NAMING ERROR", *range, message)
         }
         Error::NotFoundBinop {
             range,
             op,
             possible,
-        } => (
-            "UNKNOWN OPERATOR",
-            *range,
-            unknown_operator(cx, *range, op, possible),
-        ),
+        } => {
+            let message = unknown_operator(cx, *range, op, possible);
+            Report::new("UNKNOWN OPERATOR", *range, message)
+        }
         Error::PatternHasRecordCtor { range, name } => {
             let message = snip(
                 cx,
@@ -478,7 +425,7 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
                 )),
                 reflow("I recommend matching the record as a variable and unpacking it later."),
             );
-            ("BAD PATTERN", *range, message)
+            Report::new("BAD PATTERN", *range, message)
         }
         Error::PortPayloadInvalid {
             range,
@@ -502,7 +449,7 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
                     ),
                 ]),
             );
-            ("PORT ERROR", *range, message)
+            Report::new("PORT ERROR", *range, message)
         }
         Error::PortTypeInvalid {
             range,
@@ -525,7 +472,7 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
                     ),
                 ]),
             );
-            ("BAD PORT", *range, message)
+            Report::new("BAD PORT", *range, message)
         }
         Error::RecursiveAlias {
             range,
@@ -533,70 +480,23 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
             args,
             body,
             others,
-        } => (
-            "ALIAS PROBLEM",
-            *range,
-            alias_recursion(cx, *range, name, args, *body, others),
-        ),
+        } => {
+            let message = alias_recursion(cx, *range, name, args, *body, others);
+            Report::new("ALIAS PROBLEM", *range, message)
+        }
         Error::RecursiveDecl {
             range,
             name,
             others,
         } => {
-            let message = if others.is_empty() {
-                snip(
-                    cx,
-                    *range,
-                    None,
-                    reflow(&format!(
-                        "The `{name}` value is defined directly in terms of itself, causing an infinite loop."
-                    )),
-                    self_recursion(cx.compat, name),
-                )
-            } else {
-                snip(
-                    cx,
-                    *range,
-                    None,
-                    reflow(&format!(
-                        "The `{name}` definition is causing a very tricky infinite loop."
-                    )),
-                    chain(
-                        name,
-                        others,
-                        "for more detailed advice, especially if you actually do want mutually recursive values.",
-                    ),
-                )
-            };
-            ("CYCLIC DEFINITION", *range, message)
+            let intro = format!("The `{name}` definition is causing a very tricky infinite loop.");
+            let message = cyclic(cx, *range, name, others, &intro);
+            Report::new("CYCLIC DEFINITION", *range, message)
         }
         Error::RecursiveLet { name, others } => {
-            let range = name.range;
-            let name = &name.name;
-            let message = if others.is_empty() {
-                snip(
-                    cx,
-                    range,
-                    None,
-                    reflow(&format!(
-                        "The `{name}` value is defined directly in terms of itself, causing an infinite loop."
-                    )),
-                    self_recursion(cx.compat, name),
-                )
-            } else {
-                snip(
-                    cx,
-                    range,
-                    None,
-                    reflow("I do not allow cyclic values in `let` expressions."),
-                    chain(
-                        name,
-                        others,
-                        "for more detailed advice, especially if you actually do want mutually recursive values.",
-                    ),
-                )
-            };
-            ("CYCLIC VALUE", range, message)
+            let intro = "I do not allow cyclic values in `let` expressions.";
+            let message = cyclic(cx, name.range, &name.text, others, intro);
+            Report::new("CYCLIC VALUE", name.range, message)
         }
         Error::Shadowing {
             name,
@@ -629,7 +529,7 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
                     after: advice(),
                 },
             );
-            ("SHADOWING", *second, doc)
+            Report::new("SHADOWING", *second, doc)
         }
         Error::TupleLargerThanThree { range } => {
             let message = snip(
@@ -649,7 +549,7 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
                     ),
                 ]),
             );
-            ("BAD TUPLE", *range, message)
+            Report::new("BAD TUPLE", *range, message)
         }
         Error::TypeVarsUnboundInUnion {
             range,
@@ -658,18 +558,8 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
             first,
             rest,
         } => {
-            let rest: Vec<(String, TextRange)> =
-                rest.iter().map(|a| (a.name.clone(), a.range)).collect();
-            let (title, doc) = unbound_type_vars(
-                cx,
-                *range,
-                &["type"],
-                name,
-                vars,
-                (&first.name, first.range),
-                &rest,
-            );
-            (title, *range, doc)
+            let declaration = Declaration::Union;
+            unbound_type_vars(cx, *range, declaration, name, vars, first, rest)
         }
         Error::TypeVarsMessedUpInAlias {
             range,
@@ -677,27 +567,19 @@ fn report(error: &Error, cx: &Context<'_>) -> (&'static str, TextRange, Doc) {
             vars,
             unused,
             unbound,
-        } => messed_up_alias(cx, *range, name, vars, unused, unbound),
-    }
-}
-
-/// `toKindInfo`: an article, the thing, and its name as shown.
-fn kind_info(kind: NameKind, name: &str) -> (&'static str, &'static str, Doc) {
-    match kind {
-        NameKind::Operator => ("an", "operator", text(format!("({name})"))),
-        NameKind::Value => ("a", "value", text(format!("`{name}`"))),
-        NameKind::Pattern => ("a", "pattern", text(format!("`{name}`"))),
-        NameKind::Type | NameKind::Variant => ("a", "type", text(format!("`{name}`"))),
+        } => match (&unused[..], &unbound[..]) {
+            ([first, rest @ ..], []) => unused_type_vars(cx, *range, name, vars, first, rest),
+            ([], [first, rest @ ..]) => {
+                let declaration = Declaration::Alias;
+                unbound_type_vars(cx, *range, declaration, name, vars, first, rest)
+            }
+            _ => type_var_problems(cx, *range, name, vars, unused, unbound),
+        },
     }
 }
 
 /// `nameClash`.
-fn name_clash(
-    cx: &Context<'_>,
-    first: TextRange,
-    second: TextRange,
-    message: &str,
-) -> (&'static str, TextRange, Doc) {
+fn name_clash(cx: &Context<'_>, first: TextRange, second: TextRange, message: &str) -> Report {
     let fix = "How can I know which one you want? Rename one of them!";
     let doc = pair(
         (cx.trim)(first),
@@ -712,7 +594,7 @@ fn name_clash(
             after: text(fix),
         },
     );
-    ("NAME CLASH", second, doc)
+    Report::new("NAME CLASH", second, doc)
 }
 
 /// `ambiguousName`.
@@ -722,7 +604,7 @@ fn ambiguous(
     prefix: Option<&str>,
     name: &str,
     homes: &[Home],
-    thing: &str,
+    kind: NameKind,
 ) -> Doc {
     let homes = match cx.compat {
         Compat::V0_19_1 => homes.to_vec(),
@@ -753,14 +635,11 @@ fn ambiguous(
         ),
         Some(prefix) => {
             let import = |h: &Home| {
-                let import = text("import").color(Color::Cyan);
+                let import = cyan(text("import")).space(text(h.module.clone()));
                 if h.module == prefix {
-                    import.space(text(h.module.clone()))
-                } else {
                     import
-                        .space(text(h.module.clone()))
-                        .space(text("as").color(Color::Cyan))
-                        .space(text(prefix))
+                } else {
+                    import.space(cyan(text("as"))).space(text(prefix))
                 }
             };
             let either = if homes.len() == 2 { "either" } else { "any" };
@@ -771,7 +650,8 @@ fn ambiguous(
                 reflow(&format!("This usage of `{prefix}.{name}` is ambiguous.")),
                 stack([
                     reflow(&format!(
-                        "It could refer to a {thing} from {either} of these imports:"
+                        "It could refer to a {} from {either} of these imports:",
+                        thing(kind)
                     )),
                     vcat(homes.iter().map(import)).indent(4),
                     reflow_link(
@@ -791,30 +671,24 @@ fn not_found(
     range: TextRange,
     prefix: Option<&str>,
     name: &str,
-    thing: &str,
+    kind: NameKind,
     possible: &PossibleNames,
 ) -> Doc {
+    let thing = thing(kind);
     let given = match prefix {
         Some(prefix) => format!("{prefix}.{name}"),
         None => name.to_owned(),
     };
     // The qualified names, prefix by prefix, then the unqualified ones,
     // as `Map.foldrWithKey` lists them.
+    let mut qualified: Vec<&(String, Vec<String>)> = possible.qualified.iter().collect();
+    qualified.sort_by(|a, b| cx.compat.compare_names(&a.0, &b.0));
     let mut candidates: Vec<String> = Vec::new();
-    let prefixes: Vec<String> = possible.qualified.iter().map(|(p, _)| p.clone()).collect();
-    for prefix in in_order(cx.compat, &prefixes) {
-        let (_, names) = possible
-            .qualified
-            .iter()
-            .find(|(p, _)| *p == prefix)
-            .expect("a prefix");
-        candidates.extend(
-            in_order(cx.compat, names)
-                .iter()
-                .map(|n| format!("{prefix}.{n}")),
-        );
+    for (prefix, names) in qualified {
+        let names = cx.compat.sorted_names(names);
+        candidates.extend(names.into_iter().map(|n| format!("{prefix}.{n}")));
     }
-    candidates.extend(in_order(cx.compat, &possible.locals));
+    candidates.extend(cx.compat.sorted_names(possible.locals.iter().cloned()));
     let nearby = nearest(&given, candidates, 4);
     let details = |none: &str, some: &str| {
         let hint = link(
@@ -902,15 +776,14 @@ fn unknown_operator(cx: &Context<'_>, range: TextRange, op: &str, possible: &[St
             ]),
         ),
         _ => {
-            let suggestions = nearest(op, in_order(cx.compat, possible), 2);
-            let mut after = words("Is there an `import` and `exposing` entry for it?");
+            let possible = cx.compat.sorted_names(possible.iter().cloned());
+            let suggestions = nearest(op, possible, 2);
+            let mut after: Vec<Doc> =
+                words("Is there an `import` and `exposing` entry for it?").collect();
             if !suggestions.is_empty() {
                 after.extend(words("Maybe you want"));
-                let alts = suggestions
-                    .iter()
-                    .map(|s| text(format!("({s})")).color(Color::Green))
-                    .collect();
-                after.extend(comma_sep(Conjunction::Or, alts));
+                let alts = suggestions.iter().map(|s| green(text(format!("({s})"))));
+                after.extend(comma_sep(Conjunction::Or, alts.collect()));
                 after.push(text("instead?"));
             }
             snip(
@@ -1003,13 +876,7 @@ fn port_details(name: &str, problem: &PortProblem) -> (String, Doc) {
 /// "Are you are trying".
 fn self_recursion(compat: Compat, name: &str) -> Doc {
     let theory = |question: &str, details: &str| {
-        let mut docs: Vec<Doc> = question
-            .split(' ')
-            .filter(|w| !w.is_empty())
-            .map(yellow)
-            .collect();
-        docs.extend(words(details));
-        fill_sep(docs)
+        fill_sep(words(question).map(dull_yellow).chain(words(details)))
     };
     let question = match compat {
         Compat::V0_19_1 => "Are you are trying to mutate a variable?",
@@ -1037,59 +904,159 @@ fn self_recursion(compat: Compat, name: &str) -> Doc {
     ])
 }
 
-/// A value that depends on itself through others.
-fn chain(name: &str, others: &[String], advice: &str) -> Doc {
-    stack([
+/// `name`, then `others`, and back to `name`.
+fn cycle(name: &str, others: &[String]) -> Doc {
+    doc::cycle(std::iter::once(name.to_owned()).chain(others.iter().cloned()))
+}
+
+/// A value defined in terms of itself, directly, or through `others`
+/// after `intro`.
+fn cyclic(cx: &Context<'_>, range: TextRange, name: &str, others: &[String], intro: &str) -> Doc {
+    if others.is_empty() {
+        return snip(
+            cx,
+            range,
+            None,
+            reflow(&format!(
+                "The `{name}` value is defined directly in terms of itself, causing an infinite loop."
+            )),
+            self_recursion(cx.compat, name),
+        );
+    }
+    let chain = stack([
         reflow(&format!(
             "The `{name}` value depends on itself through the following chain of definitions:"
         )),
-        doc::cycle(std::iter::once(name.to_owned()).chain(others.iter().cloned())),
+        cycle(name, others),
         link(
             "Hint",
             "The root problem is often a typo in some variable name, but I recommend reading",
             "bad-recursion",
-            advice,
+            "for more detailed advice, especially if you actually do want mutually recursive values.",
         ),
-    ])
+    ]);
+    snip(cx, range, None, reflow(intro), chain)
+}
+
+/// Which declaration a type variable problem is in.
+#[derive(Clone, Copy)]
+enum Declaration {
+    Union,
+    Alias,
+}
+
+impl Declaration {
+    /// The keywords that declare it.
+    fn keywords(self) -> impl Iterator<Item = Doc> {
+        let keywords: &[&str] = match self {
+            Declaration::Union => &["type"],
+            Declaration::Alias => &["type", "alias"],
+        };
+        keywords.iter().map(|k| text(*k))
+    }
 }
 
 /// `unboundTypeVars`.
 fn unbound_type_vars(
     cx: &Context<'_>,
     range: TextRange,
-    tipe: &[&str],
+    declaration: Declaration,
     name: &str,
     vars: &[String],
-    (unbound, var_range): (&str, TextRange),
-    others: &[(String, TextRange)],
-) -> (&'static str, Doc) {
+    first: &Spanned,
+    rest: &[Spanned],
+) -> Report {
     let quoted = |n: &str| text(format!("`{n}`"));
-    let tipe_docs = || tipe.iter().map(|t| text(*t));
-    let (title, highlight, overview) = if others.is_empty() {
+    let unbound = &first.text;
+    let (title, highlight, overview) = if rest.is_empty() {
         let mut overview = vec![text("The"), quoted(name)];
-        overview.extend(tipe_docs());
+        overview.extend(declaration.keywords());
         overview.extend(words("uses an unbound type variable"));
-        overview.push(quoted(unbound).color(Color::DullYellow));
+        overview.push(dull_yellow(quoted(unbound)));
         overview.extend(words("in its definition:"));
-        ("UNBOUND TYPE VARIABLE", Some(var_range), overview)
+        ("UNBOUND TYPE VARIABLE", Some(first.range), overview)
     } else {
-        let mut overview = words("Type variables");
-        let names = std::iter::once(unbound).chain(others.iter().map(|(n, _)| n.as_str()));
-        overview.extend(comma_sep(Conjunction::And, names.map(yellow).collect()));
+        let mut overview: Vec<Doc> = words("Type variables").collect();
+        let names = std::iter::once(first)
+            .chain(rest)
+            .map(|n| yellow(n.text.clone()));
+        overview.extend(comma_sep(Conjunction::And, names.collect()));
         overview.extend(words("are unbound in the"));
         overview.push(quoted(name));
-        overview.extend(tipe_docs());
+        overview.extend(declaration.keywords());
         overview.push(text("definition:"));
         ("UNBOUND TYPE VARIABLES", None, overview)
     };
-    let mut declaration: Vec<Doc> = tipe_docs().collect();
-    declaration.push(text(name));
-    declaration.extend(vars.iter().map(|v| text(v.clone())));
-    declaration.push(text(unbound).color(Color::Green));
+    let mut declared: Vec<Doc> = declaration.keywords().collect();
+    declared.push(text(name));
+    declared.extend(vars.iter().map(|v| text(v.clone())));
+    declared.extend(
+        std::iter::once(first)
+            .chain(rest)
+            .map(|n| green(text(n.text.clone()))),
+    );
+    declared.extend([text("="), text("...")]);
+    let doc = snip(
+        cx,
+        range,
+        highlight,
+        fill_sep(overview),
+        stack([
+            reflow("You probably need to change the declaration to something like this:"),
+            doc::hsep(declared).indent(4),
+            reflow(&format!(
+                "Why? Well, imagine one `{name}` where `{unbound}` is an Int and another where it is a Bool. When we explicitly list the type variables, the type checker can see that they are actually different types."
+            )),
+        ]),
+    );
+    Report::new(title, range, doc)
+}
+
+/// `TypeVarsMessedUpInAlias` with unused variables alone.
+fn unused_type_vars(
+    cx: &Context<'_>,
+    range: TextRange,
+    name: &str,
+    vars: &[String],
+    first: &Spanned,
+    rest: &[Spanned],
+) -> Report {
+    let quoted = |n: &str| text(format!("`{n}`"));
+    let unused: Vec<&str> = std::iter::once(first)
+        .chain(rest)
+        .map(|a| a.text.as_str())
+        .collect();
+    let (title, highlight, overview, stuff) = if rest.is_empty() {
+        let mut overview: Vec<Doc> = words("Type alias").collect();
+        overview.push(quoted(name));
+        overview.extend(words("does not use the"));
+        overview.push(quoted(&first.text));
+        overview.extend(words("type variable."));
+        let stuff = vec![dull_yellow(quoted(&first.text))];
+        ("UNUSED TYPE VARIABLE", Some(first.range), overview, stuff)
+    } else {
+        let mut overview: Vec<Doc> = words("Type variables").collect();
+        overview.extend(comma_sep(
+            Conjunction::And,
+            unused.iter().map(|n| text(*n)).collect(),
+        ));
+        overview.extend(words("are unused in the"));
+        overview.push(quoted(name));
+        overview.push(text("definition."));
+        let stuff = comma_sep(
+            Conjunction::And,
+            unused.iter().map(|n| yellow(*n)).collect(),
+        );
+        ("UNUSED TYPE VARIABLES", None, overview, stuff)
+    };
+    let recommend = (words("I recommend removing"))
+        .chain(stuff)
+        .chain(words("from the declaration, like this:"));
+    let mut declaration = vec![text("type"), text("alias"), green(text(name))];
     declaration.extend(
-        others
-            .iter()
-            .map(|(n, _)| text(n.clone()).color(Color::Green)),
+        vars.iter()
+            .filter(|v| !unused.contains(&v.as_str()))
+            .map(|v| text(v.clone())),
     );
     declaration.extend([text("="), text("...")]);
     let doc = snip(
@@ -1098,153 +1065,79 @@ fn unbound_type_vars(
         highlight,
         fill_sep(overview),
         stack([
-            reflow("You probably need to change the declaration to something like this:"),
+            fill_sep(recommend),
             doc::hsep(declaration).indent(4),
-            reflow(&format!(
-                "Why? Well, imagine one `{name}` where `{unbound}` is an Int and another where it is a Bool. When we explicitly list the type variables, the type checker can see that they are actually different types."
-            )),
+            reflow(
+                "Why? Well, if I allowed `type alias Height a = Float` I would need to answer some weird questions. Is `Height Bool` the same as `Float`? Is `Height Bool` the same as `Height Int`? My solution is to not need to ask them!",
+            ),
         ]),
     );
-    (title, doc)
+    Report::new(title, range, doc)
 }
 
-/// `TypeVarsMessedUpInAlias`.
-fn messed_up_alias(
+/// `TypeVarsMessedUpInAlias` with both unused and unbound variables.
+fn type_var_problems(
     cx: &Context<'_>,
     range: TextRange,
     name: &str,
     vars: &[String],
-    unused: &[super::error::At],
-    unbound: &[super::error::At],
-) -> (&'static str, TextRange, Doc) {
-    let quoted = |n: &str| text(format!("`{n}`"));
-    match (unused, unbound) {
-        ([first, rest @ ..], []) => {
-            let names: Vec<&str> = unused.iter().map(|a| a.name.as_str()).collect();
-            let (title, highlight, overview, stuff) = if rest.is_empty() {
-                let mut overview = words("Type alias");
-                overview.push(quoted(name));
-                overview.extend(words("does not use the"));
-                overview.push(quoted(&first.name));
-                overview.extend(words("type variable."));
-                (
-                    "UNUSED TYPE VARIABLE",
-                    Some(first.range),
-                    overview,
-                    vec![quoted(&first.name).color(Color::DullYellow)],
-                )
-            } else {
-                let mut overview = words("Type variables");
-                overview.extend(comma_sep(
-                    Conjunction::And,
-                    names.iter().map(|n| text(*n)).collect(),
-                ));
-                overview.extend(words("are unused in the"));
-                overview.push(quoted(name));
-                overview.push(text("definition."));
-                (
-                    "UNUSED TYPE VARIABLES",
-                    None,
-                    overview,
-                    comma_sep(Conjunction::And, names.iter().map(|n| yellow(*n)).collect()),
-                )
-            };
-            let mut recommend = words("I recommend removing");
-            recommend.extend(stuff);
-            recommend.extend(words("from the declaration, like this:"));
-            let mut declaration = vec![text("type"), text("alias"), text(name).color(Color::Green)];
-            declaration.extend(
-                vars.iter()
-                    .filter(|v| !names.contains(&v.as_str()))
-                    .map(|v| text(v.clone())),
-            );
-            declaration.extend([text("="), text("...")]);
-            let doc = snip(
-                cx,
-                range,
-                highlight,
-                fill_sep(overview),
-                stack([
-                    fill_sep(recommend),
-                    doc::hsep(declaration).indent(4),
-                    reflow(
-                        "Why? Well, if I allowed `type alias Height a = Float` I would need to answer some weird questions. Is `Height Bool` the same as `Float`? Is `Height Bool` the same as `Height Int`? My solution is to not need to ask them!",
-                    ),
-                ]),
-            );
-            (title, range, doc)
-        }
-        ([], [first, rest @ ..]) => {
-            let rest: Vec<(String, TextRange)> =
-                rest.iter().map(|a| (a.name.clone(), a.range)).collect();
-            let (title, doc) = unbound_type_vars(
-                cx,
-                range,
-                &["type", "alias"],
-                name,
-                vars,
-                (&first.name, first.range),
-                &rest,
-            );
-            (title, range, doc)
-        }
-        _ => {
-            let unused: Vec<&str> = unused.iter().map(|a| a.name.as_str()).collect();
-            let unbound: Vec<&str> = unbound.iter().map(|a| a.name.as_str()).collect();
-            let mut used = if let [x] = &unbound[..] {
-                let mut docs = words("Type variable");
-                docs.push(yellow(format!("`{x}`")));
-                docs.extend(words(
-                    "appears in the definition, but I do not see it declared.",
-                ));
-                docs
-            } else {
-                let mut docs = words("Type variables");
-                docs.extend(comma_sep(
-                    Conjunction::And,
-                    unbound.iter().map(|n| yellow(*n)).collect(),
-                ));
-                docs.extend(words(
-                    "are used in the definition, but I do not see them declared.",
-                ));
-                docs
-            };
-            if let [x] = &unused[..] {
-                used.extend(words("Likewise, type variable"));
-                used.push(yellow(format!("`{x}`")));
-                used.extend(words("is delared, but not used."));
-            } else {
-                used.extend(words("Likewise, type variables"));
-                used.extend(comma_sep(
-                    Conjunction::And,
-                    unused.iter().map(|n| yellow(*n)).collect(),
-                ));
-                used.extend(words("are delared, but not used."));
-            }
-            let mut declaration = vec![text("type"), text("alias"), text(name)];
-            declaration.extend(
-                vars.iter()
-                    .filter(|v| !unused.contains(&v.as_str()))
-                    .map(|v| text(v.clone())),
-            );
-            declaration.extend(unbound.iter().map(|n| text(*n).color(Color::Green)));
-            declaration.extend([text("="), text("...")]);
-            let doc = snip(
-                cx,
-                range,
-                None,
-                reflow(&format!(
-                    "Type alias `{name}` has some type variable problems."
-                )),
-                stack([
-                    fill_sep(used),
-                    reflow("My guess is that a definition like this will work better:"),
-                    doc::hsep(declaration).indent(4),
-                ]),
-            );
-            ("TYPE VARIABLE PROBLEMS", range, doc)
-        }
+    unused: &[Spanned],
+    unbound: &[Spanned],
+) -> Report {
+    let unused: Vec<&str> = unused.iter().map(|a| a.text.as_str()).collect();
+    let unbound: Vec<&str> = unbound.iter().map(|a| a.text.as_str()).collect();
+    let mut used: Vec<Doc> = if let [x] = &unbound[..] {
+        (words("Type variable"))
+            .chain([yellow(format!("`{x}`"))])
+            .chain(words(
+                "appears in the definition, but I do not see it declared.",
+            ))
+            .collect()
+    } else {
+        (words("Type variables"))
+            .chain(comma_sep(
+                Conjunction::And,
+                unbound.iter().map(|n| yellow(*n)).collect(),
+            ))
+            .chain(words(
+                "are used in the definition, but I do not see them declared.",
+            ))
+            .collect()
+    };
+    if let [x] = &unused[..] {
+        used.extend(words("Likewise, type variable"));
+        used.push(yellow(format!("`{x}`")));
+        used.extend(words("is delared, but not used."));
+    } else {
+        used.extend(words("Likewise, type variables"));
+        used.extend(comma_sep(
+            Conjunction::And,
+            unused.iter().map(|n| yellow(*n)).collect(),
+        ));
+        used.extend(words("are delared, but not used."));
     }
+    let mut declaration = vec![text("type"), text("alias"), text(name)];
+    declaration.extend(
+        vars.iter()
+            .filter(|v| !unused.contains(&v.as_str()))
+            .map(|v| text(v.clone())),
+    );
+    declaration.extend(unbound.iter().map(|n| green(text(*n))));
+    declaration.extend([text("="), text("...")]);
+    let doc = snip(
+        cx,
+        range,
+        None,
+        reflow(&format!(
+            "Type alias `{name}` has some type variable problems."
+        )),
+        stack([
+            fill_sep(used),
+            reflow("My guess is that a definition like this will work better:"),
+            doc::hsep(declaration).indent(4),
+        ]),
+    );
+    Report::new("TYPE VARIABLE PROBLEMS", range, doc)
 }
 
 /// `aliasRecursionReport`.
@@ -1261,11 +1154,9 @@ fn alias_recursion(
             d.space(text(a.clone()))
         });
         let union = vcat([
-            header.space(text("=")).color(Color::DullYellow),
-            text(name).indent(4).color(Color::Green),
-            source_type(cx.module, body, Parens::App)
-                .indent(8)
-                .color(Color::DullYellow),
+            dull_yellow(header.space(text("="))),
+            green(text(name).indent(4)),
+            dull_yellow(source_type(cx.module, body, Parens::App).indent(8)),
         ]);
         snip(
             cx,
@@ -1293,7 +1184,7 @@ fn alias_recursion(
             text("This type alias is part of a mutually recursive set of type aliases."),
             stack([
                 text("It is part of this cycle of type aliases:"),
-                doc::cycle(std::iter::once(name.to_owned()).chain(others.iter().cloned())),
+                cycle(name, others),
                 reflow("You need to convert at least one of these type aliases into a `type`."),
                 link(
                     "Note",
@@ -1306,33 +1197,21 @@ fn alias_recursion(
     }
 }
 
-/// Where a type sits, which decides its parentheses (`RT.Context`).
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Parens {
-    None,
-    Func,
-    App,
-}
-
-/// `RT.srcToDoc`: a type as the source wrote it.
+/// `RT.srcToDoc`: a type as the source wrote it, parenthesized as its
+/// place, `context`, needs.
 fn source_type(module: &hir::Module, id: TypeId, context: Parens) -> Doc {
+    let go = |id, context| source_type(module, id, context);
     match &module.types[id] {
         hir::Type::Lambda(arg, result) => {
-            let mut parts = vec![source_type(module, *arg, Parens::Func)];
+            let mut rest = Vec::new();
             let mut result = *result;
             while let hir::Type::Lambda(a, r) = &module.types[result] {
-                parts.push(source_type(module, *a, Parens::Func));
+                rest.push(go(*a, Parens::Func));
                 result = *r;
             }
-            parts.push(source_type(module, result, Parens::Func));
-            let mut parts = parts.into_iter();
-            let first = parts.next().expect("an argument");
-            let lambda =
-                doc::sep(std::iter::once(first).chain(parts.map(|p| text("->").space(p)))).align();
-            match context {
-                Parens::None => lambda,
-                Parens::Func | Parens::App => doc::cat([text("("), lambda, text(")")]),
-            }
+            rest.push(go(result, Parens::Func));
+            let arg2 = rest.remove(0);
+            render::lambda(context, go(*arg, Parens::Func), arg2, rest)
         }
         hir::Type::Var(name) => text(name.clone()),
         hir::Type::Named {
@@ -1344,55 +1223,21 @@ fn source_type(module: &hir::Module, id: TypeId, context: Parens) -> Doc {
                 Some(q) => text(format!("{q}.{}", name.text)),
                 None => text(name.text.clone()),
             };
-            if args.is_empty() {
-                return name;
-            }
-            let args = args.iter().map(|&a| source_type(module, a, Parens::App));
-            let applied = doc::sep(std::iter::once(name).chain(args)).hang(4);
-            match context {
-                Parens::App => doc::cat([text("("), applied, text(")")]),
-                Parens::Func | Parens::None => applied,
-            }
+            let args = args.iter().map(|&a| go(a, Parens::App)).collect();
+            render::apply(context, name, args)
         }
         hir::Type::Record { fields, extends } => {
-            let entries: Vec<Doc> = (fields.iter())
-                .map(|(n, t)| {
-                    doc::sep([
-                        text(n.text.clone()).space(text(":")),
-                        source_type(module, *t, Parens::None),
-                    ])
-                    .hang(4)
-                })
+            let entries = (fields.iter())
+                .map(|(n, t)| (text(n.text.clone()), go(*t, Parens::None)))
                 .collect();
-            match (entries.is_empty(), extends) {
-                (true, None) => text("{}"),
-                (false, None) => {
-                    let opened = entries
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, e)| text(if i == 0 { "{" } else { "," }).space(e));
-                    doc::sep([doc::cat(opened), text("}")]).align()
-                }
-                (_, Some(ext)) => {
-                    let fields = entries
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, e)| text(if i == 0 { "|" } else { "," }).space(e));
-                    doc::sep([
-                        doc::sep([text("{").space(text(ext.text.clone())), doc::cat(fields)])
-                            .hang(4),
-                        text("}"),
-                    ])
-                    .align()
-                }
-            }
+            render::record(entries, extends.as_ref().map(|e| text(e.text.clone())))
         }
         hir::Type::Unit | hir::Type::Missing => text("()"),
         hir::Type::Tuple(items) => {
-            let entries = (items.iter()).enumerate().map(|(i, &t)| {
-                text(if i == 0 { "(" } else { "," }).space(source_type(module, t, Parens::None))
-            });
-            doc::sep([doc::cat(entries), text(")")]).align()
+            let mut items = items.iter().map(|&t| go(t, Parens::None));
+            let a = items.next().expect("two or more");
+            let b = items.next().expect("two or more");
+            render::tuple(a, b, items.collect())
         }
     }
 }

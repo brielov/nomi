@@ -3,25 +3,22 @@
 //! stopping what follows when it fails; and the interface it offers
 //! (`Elm/Interface.hs`, `fromModule`).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use nomi_base::{Compat, TextRange};
 
-use super::cycles;
+use super::cycles::{self, TopNode};
 use super::dups::Dict;
 use super::effects;
 use super::env::Env;
 use super::error::{Error, NameKind, R, all, throw};
-use super::expr::{self, FreeLocals};
+use super::expr;
 use super::foreign::{initial_env, with_defaults};
 use super::local::{self, Aliases, Unions};
 use super::pattern;
 use super::references::{Kind, Recorder, Reference};
-use super::types;
-use crate::canonical::{
-    AliasType, Annotation, Associativity, Decl as CDecl, Def as CDef, Effects, Home, Pattern, Type,
-};
-use crate::hir::{self, Def, Exposed, Exposing};
+use crate::canonical::{Annotation, Decl, Effects, Home, Pattern, Type};
+use crate::hir::{self, Exposed, Exposing, Fixity, Spanned};
 use crate::interface::{self, Interface, Interfaces};
 
 /// What a module exposes (`Can.Exports`).
@@ -47,12 +44,12 @@ pub enum Export {
 /// `Can.Binop_`: an operator's grouping and the function it names.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Binop {
-    pub associativity: Associativity,
-    pub precedence: i64,
+    pub fixity: Fixity,
     pub function: String,
 }
 
-/// A module canonicalized, as far as nomi canonicalizes so far.
+/// A module canonicalized: what its interface, inference and the
+/// optimizer read.
 #[derive(Clone, Debug)]
 pub struct Canonical {
     pub home: Home,
@@ -65,13 +62,8 @@ pub struct Canonical {
     /// Every top-level value's name, a port module's ports included.
     pub values: Vec<String>,
     /// The values, each before those that use it (`Can.Decls`).
-    pub decls: Vec<CDecl>,
+    pub decls: Vec<Decl>,
     pub effects: Effects,
-}
-
-/// The module's name, `Main` without a header.
-pub fn name(module: &hir::Module) -> &str {
-    module.name.as_ref().map_or("Main", |n| n.text.as_str())
 }
 
 /// `canonicalize`: `module`, in `package`, with `interfaces` holding the
@@ -106,13 +98,12 @@ fn canonicalize_into(
 ) -> R<Canonical> {
     let home = Home {
         package: package.into(),
-        module: (name(module).to_owned()).into(),
+        module: module.name().into(),
     };
     let binops = (module.binops.iter())
         .map(|b| {
             let binop = Binop {
-                associativity: b.associativity,
-                precedence: b.precedence,
+                fixity: b.fixity,
                 function: b.function.text.clone(),
             };
             (b.op.text.clone(), binop)
@@ -122,11 +113,12 @@ fn canonicalize_into(
     // The module's own exposing list names its declarations.
     if let Exposing::Explicit(items) = &module.exports {
         for item in items {
-            let (name, kind) = match item {
-                Exposed::Lower(n) => (n, Kind::Value),
-                Exposed::Upper(n, _) => (n, Kind::Type),
-                Exposed::Operator(n) => (n, Kind::Binop),
+            let kind = match item {
+                Exposed::Lower(_) => Kind::Value,
+                Exposed::Upper(..) => Kind::Type,
+                Exposed::Operator(_) => Kind::Binop,
             };
+            let name = item.name();
             references.global(name.range, &home, &name.text, kind);
         }
     }
@@ -138,42 +130,37 @@ fn canonicalize_into(
         .iter()
         .rev()
         .map(|&id| value(&env, module, id)))?;
-    let nodes: Vec<ValueNode> = nodes.into_iter().flatten().collect();
-    let annotations = (nodes.iter())
-        .filter_map(|n| Some((n.name.clone(), n.annotation.clone()?)))
-        .collect();
-    let top = (nodes.into_iter())
-        .map(|n| cycles::TopNode {
-            def: n.def,
-            has_params: n.has_params,
-            free: n.free,
+    let mut annotations = BTreeMap::new();
+    let top = (nodes.into_iter().flatten())
+        .map(|(node, annotation)| {
+            if let Some(annotation) = annotation {
+                annotations.insert(node.def.name().to_owned(), annotation);
+            }
+            node
         })
         .collect();
     let decls = cycles::top_level(compat, top)?;
     let effects = effects::canonicalize(&env, module, &unions)?;
+    let mut values: Vec<String> = module.value_names().map(|n| n.text.clone()).collect();
+    let declared = Declared {
+        compat,
+        port_module: matches!(module.kind, hir::ModuleKind::Port),
+        values: &values,
+        ports: &module.ports,
+        unions: &unions,
+        aliases: &aliases,
+        binops: &binops,
+    };
+    let exports = exports(&declared, module)?;
     // Ports are values too, which importers may use.
-    let ports_annotated = (module.ports.iter())
-        .map(|p| {
-            Ok((
-                p.name.text.clone(),
-                types::to_annotation(&env, module, p.ty)?,
-            ))
-        })
-        .collect::<R<Vec<_>>>()?;
-    let values: Vec<String> = (module.values.iter())
-        .filter_map(|&id| match &module.defs[id] {
-            Def::Define { name, .. } => Some(name.text.clone()),
-            Def::Destruct { .. } => None,
-        })
-        .collect();
-    let ports: Vec<String> = module.ports.iter().map(|p| p.name.text.clone()).collect();
-    let exports = exports(compat, module, &values, &unions, &aliases, &binops, &ports)?;
-    let mut annotations: BTreeMap<String, Annotation> = annotations;
-    let mut values = values;
-    if matches!(module.kind, hir::ModuleKind::Port) {
-        for (name, annotation) in ports_annotated {
+    if let Effects::Ports(ports) = &effects {
+        for (name, port) in ports {
             values.push(name.clone());
-            annotations.insert(name, annotation);
+            let annotation = Annotation {
+                free: port.free.clone(),
+                ty: port.func.clone().into(),
+            };
+            annotations.insert(name.clone(), annotation);
         }
     }
     Ok(Canonical {
@@ -189,22 +176,15 @@ fn canonicalize_into(
     })
 }
 
-/// A top-level value canonicalized: the parts of upstream's `NodeOne` the
-/// interface and the cycle checks read.
-#[derive(Clone, Debug)]
-pub struct ValueNode {
-    pub name: String,
-    pub has_params: bool,
-    pub annotation: Option<Annotation>,
-    /// The locals and top-level values its body uses.
-    pub free: FreeLocals,
-    pub def: CDef,
-}
-
-/// `toNodeOne`: a value canonicalized; none for a destructuring, which
-/// elm rejects at the top level.
-fn value(env: &Env<'_>, module: &hir::Module, id: hir::DefId) -> R<Option<ValueNode>> {
-    let Def::Define {
+/// `toNodeOne`: a value canonicalized, with its annotation, which the
+/// interface reads; none for a destructuring, which elm rejects at the
+/// top level.
+fn value(
+    env: &Env<'_>,
+    module: &hir::Module,
+    id: hir::DefId,
+) -> R<Option<(TopNode, Option<Annotation>)>> {
+    let hir::Def::Define {
         name,
         params,
         body,
@@ -214,20 +194,12 @@ fn value(env: &Env<'_>, module: &hir::Module, id: hir::DefId) -> R<Option<ValueN
     else {
         return Ok(None);
     };
-    let (def, free) = expr::definition(env, module, name, params, *body, *annotation)?;
-    // Canonicalized once more for the interface; it went through cleanly
-    // above.
-    let annotation = match annotation {
-        Some(ty) => Some(types::to_annotation(env, module, *ty)?),
-        None => None,
+    let defined = expr::definition(env, module, name, params, *body, *annotation)?;
+    let node = TopNode {
+        def: defined.def,
+        free: defined.free,
     };
-    Ok(Some(ValueNode {
-        name: name.text.clone(),
-        has_params: !params.is_empty(),
-        annotation,
-        free,
-        def,
-    }))
+    Ok(Some((node, defined.annotation)))
 }
 
 /// `gatherTypedArgs`: each parameter against the argument its annotation
@@ -244,18 +216,12 @@ pub(super) fn typed_args(
     let mut ty = ty.clone();
     let mut typed = Vec::with_capacity(params.len());
     for (index, &param) in params.iter().enumerate() {
-        if let Type::Lambda(arg, result) = dealias(ty) {
+        if let Type::Lambda(arg, result) = ty.iterated_dealias() {
             let pattern = pattern::canonicalize(env, module, param, bindings)?;
             typed.push((pattern, *arg));
             ty = *result;
         } else {
-            let range = |id| {
-                module
-                    .source_map
-                    .pattern(id)
-                    .map(|p| p.range)
-                    .unwrap_or_default()
-            };
+            let range = |id| module.source_map.pattern_range(id);
             let first = range(param);
             let last = range(*params.last().expect("a parameter"));
             return throw(Error::AnnotationTooShort {
@@ -269,178 +235,122 @@ pub(super) fn typed_args(
     Ok((typed, ty))
 }
 
-/// `iteratedDealias`: what `ty` is under its aliases.
-fn dealias(ty: Type) -> Type {
-    match ty {
-        Type::Alias(_, _, args, AliasType::Holey(body)) => {
-            dealias(substitute(std::sync::Arc::unwrap_or_clone(body), &args))
-        }
-        Type::Alias(_, _, _, AliasType::Filled(body)) => {
-            dealias(std::sync::Arc::unwrap_or_clone(body))
-        }
-        ty => ty,
-    }
+/// What a module declares, which its exposing list names.
+struct Declared<'a> {
+    compat: Compat,
+    port_module: bool,
+    values: &'a [String],
+    ports: &'a [hir::Port],
+    unions: &'a Unions,
+    aliases: &'a Aliases,
+    binops: &'a BTreeMap<String, Binop>,
 }
 
-/// `ty` with each variable `args` names replaced.
-fn substitute(ty: Type, args: &[(String, Type)]) -> Type {
-    let go = |t: Type| substitute(t, args);
-    match ty {
-        Type::Var(name) => match args.iter().find(|(var, _)| *var == name) {
-            Some((_, arg)) => arg.clone(),
-            None => Type::Var(name),
-        },
-        Type::Lambda(a, b) => Type::Lambda(Box::new(go(*a)), Box::new(go(*b))),
-        Type::Type(home, name, targs) => {
-            Type::Type(home, name, targs.into_iter().map(go).collect())
+impl Declared<'_> {
+    fn value(&self, value: &Spanned) -> R<Export> {
+        if self.values.contains(&value.text) {
+            return Ok(Export::Value);
         }
-        Type::Record(fields, ext) => Type::Record(
-            fields
-                .into_iter()
-                .map(|(n, f)| {
-                    (
-                        n,
-                        crate::canonical::FieldType {
-                            order: f.order,
-                            ty: go(f.ty),
-                        },
-                    )
+        let ports = self.ports.iter().map(|p| &p.name.text);
+        if self.port_module && ports.clone().any(|p| *p == value.text) {
+            return Ok(Export::Port);
+        }
+        // `ports ++ Map.keys values`, each in name order.
+        let mut possible = if self.port_module {
+            self.compat.sorted_names(ports.cloned())
+        } else {
+            Vec::new()
+        };
+        possible.extend(self.compat.sorted_names(self.values.iter().cloned()));
+        throw(Error::ExportNotFound {
+            range: value.range,
+            kind: NameKind::Value,
+            name: value.text.clone(),
+            possible,
+        })
+    }
+
+    fn operator(&self, op: &Spanned) -> R<Export> {
+        if self.binops.contains_key(&op.text) {
+            return Ok(Export::Binop);
+        }
+        throw(Error::ExportNotFound {
+            range: op.range,
+            kind: NameKind::Operator,
+            name: op.text.clone(),
+            possible: self.compat.sorted_names(self.binops.keys().cloned()),
+        })
+    }
+
+    /// A type, with `(..)`'s range when it is open.
+    fn ty(&self, name: &Spanned, open: Option<TextRange>) -> R<Export> {
+        let union = self.unions.contains_key(&name.text);
+        let alias = self.aliases.contains_key(&name.text);
+        match open {
+            Some(_) if union => Ok(Export::UnionOpen),
+            Some(dots) if alias => throw(Error::ExportOpenAlias {
+                range: dots,
+                name: name.text.clone(),
+            }),
+            None if union => Ok(Export::UnionClosed),
+            None if alias => Ok(Export::Alias),
+            _ => {
+                let unions = self.compat.sorted_names(self.unions.keys());
+                let aliases = self.compat.sorted_names(self.aliases.keys());
+                throw(Error::ExportNotFound {
+                    range: name.range,
+                    kind: NameKind::Type,
+                    name: name.text.clone(),
+                    possible: unions.into_iter().chain(aliases).cloned().collect(),
                 })
-                .collect(),
-            ext,
-        ),
-        Type::Unit => Type::Unit,
-        Type::Tuple(a, b, c) => Type::Tuple(
-            Box::new(go(*a)),
-            Box::new(go(*b)),
-            c.map(|c| Box::new(go(*c))),
-        ),
-        Type::Alias(home, name, aargs, aliased) => Type::Alias(
-            home,
-            name,
-            aargs.into_iter().map(|(v, t)| (v, go(t))).collect(),
-            aliased,
-        ),
+            }
+        }
     }
 }
 
 /// `canonicalizeExports`.
-fn exports(
-    compat: Compat,
-    module: &hir::Module,
-    values: &[String],
-    unions: &Unions,
-    aliases: &Aliases,
-    binops: &BTreeMap<String, Binop>,
-    ports: &[String],
-) -> R<Exports> {
+fn exports(declared: &Declared<'_>, module: &hir::Module) -> R<Exports> {
     let Exposing::Explicit(items) = &module.exports else {
         return Ok(Exports::Everything(module.exports_range));
     };
-    let port_module = matches!(module.kind, hir::ModuleKind::Port);
-    let ok = |name: &str, range: TextRange, export| Ok(Dict::one(name, range, (range, export)));
-    let infos = all(items.iter().map(|item| match item {
-        Exposed::Lower(value) => {
-            if values.contains(&value.text) {
-                ok(&value.text, value.range, Export::Value)
-            } else if port_module && ports.contains(&value.text) {
-                ok(&value.text, value.range, Export::Port)
-            } else {
-                // `ports ++ Map.keys values`, each in name order.
-                let sorted = |names: &[String]| -> Vec<String> {
-                    compat
-                        .sorted_names(names.iter())
-                        .into_iter()
-                        .cloned()
-                        .collect()
-                };
-                let mut possible = if port_module {
-                    sorted(ports)
-                } else {
-                    Vec::new()
-                };
-                possible.extend(sorted(values));
-                throw(Error::ExportNotFound {
-                    range: value.range,
-                    kind: NameKind::Value,
-                    name: value.text.clone(),
-                    possible,
-                })
-            }
-        }
-        Exposed::Operator(op) => {
-            if binops.contains_key(&op.text) {
-                ok(&op.text, op.range, Export::Binop)
-            } else {
-                throw(Error::ExportNotFound {
-                    range: op.range,
-                    kind: NameKind::Operator,
-                    name: op.text.clone(),
-                    possible: compat
-                        .sorted_names(binops.keys())
-                        .into_iter()
-                        .cloned()
-                        .collect(),
-                })
-            }
-        }
-        Exposed::Upper(name, open) => {
-            let types = || {
-                let unions = compat.sorted_names(unions.keys());
-                unions
-                    .into_iter()
-                    .chain(compat.sorted_names(aliases.keys()))
-                    .cloned()
-                    .collect()
-            };
-            match open {
-                Some(_) if unions.contains_key(&name.text) => {
-                    ok(&name.text, name.range, Export::UnionOpen)
-                }
-                Some(dots) if aliases.contains_key(&name.text) => throw(Error::ExportOpenAlias {
-                    range: *dots,
-                    name: name.text.clone(),
-                }),
-                None if unions.contains_key(&name.text) => {
-                    ok(&name.text, name.range, Export::UnionClosed)
-                }
-                None if aliases.contains_key(&name.text) => {
-                    ok(&name.text, name.range, Export::Alias)
-                }
-                _ => throw(Error::ExportNotFound {
-                    range: name.range,
-                    kind: NameKind::Type,
-                    name: name.text.clone(),
-                    possible: types(),
-                }),
-            }
-        }
+    let kind = |item: &Exposed| match item {
+        Exposed::Lower(_) => NameKind::Value,
+        Exposed::Upper(..) => NameKind::Type,
+        Exposed::Operator(_) => NameKind::Operator,
+    };
+    let infos = all(items.iter().map(|item| {
+        let export = match item {
+            Exposed::Lower(name) => declared.value(name),
+            Exposed::Operator(op) => declared.operator(op),
+            Exposed::Upper(name, open) => declared.ty(name, *open),
+        }?;
+        let name = item.name();
+        Ok(Dict::one(&name.text, name.range, (name.range, export)))
     }))?;
-    let kinds: HashMap<String, NameKind> = items
-        .iter()
-        .map(|item| match item {
-            Exposed::Lower(v) => (v.text.clone(), NameKind::Value),
-            Exposed::Operator(o) => (o.text.clone(), NameKind::Operator),
-            Exposed::Upper(t, _) => (t.text.clone(), NameKind::Type),
-        })
-        .collect();
-    let exports =
-        Dict::unions(infos).detect(compat, |name, first, second| Error::ExportDuplicate {
-            kind: kinds.get(name).copied().unwrap_or(NameKind::Value),
+    let exports = Dict::unions(infos).detect(declared.compat, |name, first, second| {
+        // A name's spelling says which kind it is.
+        let item = items.iter().find(|i| i.name().text == name);
+        Error::ExportDuplicate {
+            kind: item.map_or(NameKind::Value, kind),
             name: name.to_owned(),
             first,
             second,
-        })?;
-    Ok(Exports::Explicit(exports.into_iter().collect()))
+        }
+    })?;
+    Ok(Exports::Explicit(exports))
 }
 
-/// The annotation of a value whose type nomi doesn't infer yet: its
-/// name is all an importer needs to canonicalize.
-fn unknown() -> Annotation {
-    Annotation {
-        free: Vec::new(),
-        ty: Type::Var("?".to_owned()).into(),
-    }
+/// The type variable standing for the type of a value with neither an
+/// inferred type nor a written one, as when navigation builds interfaces
+/// without inferring: its name is all an importer needs to canonicalize.
+const UNKNOWN: &str = "?";
+
+/// How far a module's exports reach a declaration.
+enum Exposure {
+    /// `exposing (..)`.
+    Everything,
+    Listed(Export),
+    Hidden,
 }
 
 /// `fromModule`: what the module offers importers.
@@ -451,43 +361,52 @@ pub fn interface(canonical: &Canonical, inferred: &BTreeMap<String, Annotation>)
         (inferred.get(name))
             .or_else(|| canonical.annotations.get(name))
             .cloned()
-            .unwrap_or_else(unknown)
+            .unwrap_or_else(|| Annotation {
+                free: Vec::new(),
+                ty: Type::Var(UNKNOWN.to_owned()).into(),
+            })
     };
-    let exported = |name: &str| match &canonical.exports {
-        Exports::Everything(_) => Some(None),
-        Exports::Explicit(exports) => exports.get(name).map(|(_, export)| Some(export)),
+    let exposure = |name: &str| match &canonical.exports {
+        Exports::Everything(_) => Exposure::Everything,
+        Exports::Explicit(exports) => {
+            (exports.get(name)).map_or(Exposure::Hidden, |(_, export)| Exposure::Listed(*export))
+        }
     };
+    let exposed = |name: &str| !matches!(exposure(name), Exposure::Hidden);
     let values = (canonical.values.iter())
-        .filter(|name| exported(name).is_some())
+        .filter(|name| exposed(name))
         .map(|name| (name.clone(), annotation(name)))
         .collect();
     let unions = (canonical.unions.iter())
         .map(|(name, union)| {
-            let union = match exported(name) {
-                Some(None | Some(Export::UnionOpen)) => interface::Union::Open(union.clone()),
-                Some(Some(_)) => interface::Union::Closed(union.clone()),
-                None => interface::Union::Private(union.clone()),
+            let union = union.clone();
+            let union = match exposure(name) {
+                Exposure::Everything | Exposure::Listed(Export::UnionOpen) => {
+                    interface::Union::Open(union)
+                }
+                Exposure::Listed(_) => interface::Union::Closed(union),
+                Exposure::Hidden => interface::Union::Private(union),
             };
             (name.clone(), union)
         })
         .collect();
     let aliases = (canonical.aliases.iter())
         .map(|(name, alias)| {
-            let alias = match exported(name) {
-                Some(_) => interface::Alias::Public(alias.clone()),
-                None => interface::Alias::Private(alias.clone()),
+            let alias = if exposed(name) {
+                interface::Alias::Public(alias.clone())
+            } else {
+                interface::Alias::Private(alias.clone())
             };
             (name.clone(), alias)
         })
         .collect();
     let binops = (canonical.binops.iter())
-        .filter(|(op, _)| exported(op).is_some())
+        .filter(|(op, _)| exposed(op))
         .map(|(op, b)| {
             let binop = interface::Binop {
                 function: b.function.clone(),
                 annotation: annotation(&b.function),
-                associativity: b.associativity,
-                precedence: b.precedence,
+                fixity: b.fixity,
             };
             (op.clone(), binop)
         })

@@ -23,10 +23,10 @@ fn def_has_debug(def: &Def) -> bool {
 /// `hasDebug`.
 fn has_debug(expr: &Expr) -> bool {
     stacker::maybe_grow(64 * 1024, 1024 * 1024, || match &expr.kind {
-        ExprKind::VarDebug(..) => true,
+        ExprKind::VarDebug { .. } => true,
         ExprKind::List(items) => items.iter().any(has_debug),
-        ExprKind::Negate(e) | ExprKind::Access(e, _, _) => has_debug(e),
-        ExprKind::Binop(_, _, _, _, a, b) => has_debug(a) || has_debug(b),
+        ExprKind::Negate(e) | ExprKind::Access { record: e, .. } => has_debug(e),
+        ExprKind::Binop { left, right, .. } => has_debug(left) || has_debug(right),
         ExprKind::Lambda(_, body) => has_debug(body),
         ExprKind::Call(f, args) => has_debug(f) || args.iter().any(has_debug),
         ExprKind::If(branches, otherwise) => {
@@ -34,11 +34,11 @@ fn has_debug(expr: &Expr) -> bool {
         }
         ExprKind::Let(def, body) => def_has_debug(def) || has_debug(body),
         ExprKind::LetRec(defs, body) => defs.iter().any(def_has_debug) || has_debug(body),
-        ExprKind::LetDestruct(_, value, body) => has_debug(value) || has_debug(body),
+        ExprKind::LetDestruct { value, body, .. } => has_debug(value) || has_debug(body),
         ExprKind::Case(scrutinee, branches) => {
             has_debug(scrutinee) || branches.iter().any(|(_, e)| has_debug(e))
         }
-        ExprKind::Update(_, record, fields) => {
+        ExprKind::Update { record, fields, .. } => {
             has_debug(record) || fields.values().any(|f| has_debug(&f.value))
         }
         ExprKind::Record(fields) => fields.values().any(has_debug),
@@ -47,10 +47,10 @@ fn has_debug(expr: &Expr) -> bool {
         }
         ExprKind::VarLocal(_)
         | ExprKind::VarTopLevel(..)
-        | ExprKind::VarKernel(..)
-        | ExprKind::VarForeign(..)
-        | ExprKind::VarCtor(..)
-        | ExprKind::VarOperator(..)
+        | ExprKind::VarKernel { .. }
+        | ExprKind::VarForeign { .. }
+        | ExprKind::VarCtor { .. }
+        | ExprKind::VarOperator(_)
         | ExprKind::Chr(_)
         | ExprKind::Str(_)
         | ExprKind::Int(_)
@@ -67,10 +67,12 @@ pub fn graph_has_debug_uses(graph: &optimized::LocalGraph) -> bool {
     use optimized::Node;
     graph.nodes.values().any(|node| match node {
         Node::Define(expr, _)
-        | Node::DefineTailFunc(_, expr, _)
+        | Node::DefineTailFunc { body: expr, .. }
         | Node::PortIncoming(expr, _)
         | Node::PortOutgoing(expr, _) => opt_has_debug(expr),
-        Node::Cycle(_, values, functions, _) => {
+        Node::Cycle {
+            values, functions, ..
+        } => {
             values.iter().any(|(_, e)| opt_has_debug(e)) || functions.iter().any(opt_def_has_debug)
         }
         Node::Ctor(..)
@@ -84,7 +86,7 @@ pub fn graph_has_debug_uses(graph: &optimized::LocalGraph) -> bool {
 
 fn opt_def_has_debug(def: &optimized::Def) -> bool {
     match def {
-        optimized::Def::Def(_, e) | optimized::Def::TailDef(_, _, e) => opt_has_debug(e),
+        optimized::Def::Def(_, e) | optimized::Def::TailDef { body: e, .. } => opt_has_debug(e),
     }
 }
 
@@ -92,7 +94,7 @@ fn opt_def_has_debug(def: &optimized::Def) -> bool {
 fn opt_has_debug(expr: &optimized::Expr) -> bool {
     use optimized::Expr as E;
     stacker::maybe_grow(64 * 1024, 1024 * 1024, || match expr {
-        E::VarDebug(..) => true,
+        E::VarDebug { .. } => true,
         E::Bool(_)
         | E::Chr(_)
         | E::Str(_)
@@ -103,10 +105,10 @@ fn opt_has_debug(expr: &optimized::Expr) -> bool {
         | E::VarEnum(..)
         | E::VarBox(_)
         | E::VarCycle(..)
-        | E::VarKernel(..)
+        | E::VarKernel { .. }
         | E::Accessor(_)
         | E::Unit
-        | E::Shader(..) => false,
+        | E::Shader { .. } => false,
         E::List(items) => items.iter().any(opt_has_debug),
         E::Function(_, body) | E::Destruct(_, body) | E::Access(body, _) => opt_has_debug(body),
         E::Call(f, args) => opt_has_debug(f) || args.iter().any(opt_has_debug),
@@ -118,7 +120,7 @@ fn opt_has_debug(expr: &optimized::Expr) -> bool {
                 || opt_has_debug(last)
         }
         E::Let(def, body) => opt_def_has_debug(def) || opt_has_debug(body),
-        E::Case(_, _, decider, jumps) => {
+        E::Case { decider, jumps, .. } => {
             decider_has_debug(decider) || jumps.iter().any(|(_, e)| opt_has_debug(e))
         }
         E::Update(record, fields) => opt_has_debug(record) || fields.values().any(opt_has_debug),
@@ -140,5 +142,22 @@ fn decider_has_debug(decider: &optimized::Decider<optimized::Choice>) -> bool {
         Decider::FanOut {
             tests, fallback, ..
         } => tests.iter().any(|(_, d)| decider_has_debug(d)) || decider_has_debug(fallback),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::canonical;
+
+    #[test]
+    fn debug_uses_are_found_anywhere_in_a_body() {
+        let decls = |text: &str| canonical(text).unwrap().decls;
+        assert!(has_debug_uses(&decls(
+            "module Main exposing (..)\n\n\nf x =\n    let\n        y = ( x, Debug.todo \"y\" )\n    in\n    y\n"
+        )));
+        assert!(!has_debug_uses(&decls(
+            "module Main exposing (..)\n\n\nf x =\n    ( x, identity x )\n"
+        )));
     }
 }

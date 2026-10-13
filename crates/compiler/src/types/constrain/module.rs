@@ -3,10 +3,9 @@
 //! every top-level type; ports and an effect manager's functions bound
 //! around them.
 
-use crate::canonical::Text;
 use std::collections::BTreeMap;
 
-use nomi_base::TextRange;
+use nomi_base::{Text, TextRange};
 
 use super::expr::{constrain_def, constrain_recursive_defs};
 use crate::canonical::{Decl, Effects, Home, Manager, Port};
@@ -40,8 +39,13 @@ pub fn constrain(vars: &mut Variables, module: &Canonical) -> Constraint {
             }
             constraint
         }
-        Effects::Manager(r0, r1, r2, manager) => {
-            let effects = constrain_effects(vars, home, *r0, *r1, *r2, manager);
+        Effects::Manager {
+            init,
+            on_effects,
+            on_self_msg,
+            manager,
+        } => {
+            let effects = constrain_effects(vars, home, *init, *on_effects, *on_self_msg, manager);
             let constraint = decls(vars, &module.decls, effects);
             match manager {
                 Manager::Cmd(cmd) => let_map(
@@ -62,7 +66,7 @@ pub fn constrain(vars: &mut Variables, module: &Canonical) -> Constraint {
                     "Sub",
                     constraint,
                 ),
-                Manager::Fx(cmd, sub) => {
+                Manager::Fx { cmd, sub } => {
                     let inner = let_map(
                         vars,
                         home,
@@ -184,7 +188,7 @@ fn constrain_effects(
             router(v(m1), v(sm1)),
             fun(effects_of(t), fun(v(s1), task(v(s1)))),
         ),
-        Manager::Fx(cmd, sub) => fun(
+        Manager::Fx { cmd, sub } => fun(
             router(v(m1), v(sm1)),
             fun(
                 effects_of(cmd),
@@ -204,7 +208,7 @@ fn constrain_effects(
     let body = match manager {
         Manager::Cmd(cmd) => check_map(vars, "cmdMap", home, cmd, Constraint::SaveTheEnvironment),
         Manager::Sub(sub) => check_map(vars, "subMap", home, sub, Constraint::SaveTheEnvironment),
-        Manager::Fx(cmd, sub) => {
+        Manager::Fx { cmd, sub } => {
             let inner = check_map(vars, "subMap", home, sub, Constraint::SaveTheEnvironment);
             check_map(vars, "cmdMap", home, cmd, inner)
         }

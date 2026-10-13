@@ -85,12 +85,9 @@ impl Compat {
         }
     }
 
-    /// `names` in the release's order, stably.
-    pub fn sorted_names<'n, S: AsRef<str> + ?Sized>(
-        self,
-        names: impl IntoIterator<Item = &'n S>,
-    ) -> Vec<&'n S> {
-        let mut names: Vec<&S> = names.into_iter().collect();
+    /// `names`, borrowed or owned, in the release's order, stably.
+    pub fn sorted_names<S: AsRef<str>>(self, names: impl IntoIterator<Item = S>) -> Vec<S> {
+        let mut names: Vec<S> = names.into_iter().collect();
         names.sort_by(|a, b| self.compare_names(a.as_ref(), b.as_ref()));
         names
     }

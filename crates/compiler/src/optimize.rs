@@ -11,12 +11,14 @@ mod port;
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use nomi_base::diagnostic::code::Region;
 use nomi_base::{Compat, TextRange};
 
-use crate::canonical::{Annotation, Decl, Def as CDef, Effects, Home, Manager, Type};
-use crate::canonicalize::effects::deep_dealias;
+use crate::canonical::{
+    Annotation, CtorOpts, Decl, Def as CDef, Effects, Home, MainKind, Manager, PortDirection, Type,
+};
 use crate::canonicalize::module::Canonical;
-use crate::optimized::{EffectsType, Expr, Global, LocalGraph, Main, Node, Region};
+use crate::optimized::{EffectsType, Expr, Global, LocalGraph, Main, Node};
 use expression::{Context, Cycle};
 use names::Tracker;
 
@@ -41,11 +43,9 @@ pub fn module(
     for union in module.unions.values() {
         for ctor in &union.ctors {
             let node = match union.opts {
-                crate::canonical::CtorOpts::Normal => {
-                    Node::Ctor(ctor.index, ctor.args.len() as i64)
-                }
-                crate::canonical::CtorOpts::Unbox => Node::Box,
-                crate::canonical::CtorOpts::Enum => Node::Enum(ctor.index),
+                CtorOpts::Normal => Node::Ctor(ctor.index, ctor.args.len() as i64),
+                CtorOpts::Unbox => Node::Box,
+                CtorOpts::Enum => Node::Enum(ctor.index),
             };
             graph.nodes.insert(global(home, &ctor.name), node);
         }
@@ -77,9 +77,7 @@ fn add_alias(compat: Compat, home: &Home, name: &str, ty: &Type, graph: &mut Loc
         return;
     };
     let mut ordered: Vec<(&String, u16)> = fields.iter().map(|(n, f)| (n, f.order)).collect();
-    if compat == Compat::V0_19_3 {
-        ordered.sort_by(|a, b| a.0.len().cmp(&b.0.len()).then_with(|| a.0.cmp(b.0)));
-    }
+    ordered.sort_by(|a, b| compat.compare_names(a.0, b.0));
     ordered.sort_by_key(|(_, order)| *order);
     let function = Expr::Function(
         ordered.iter().map(|(n, _)| (*n).clone()).collect(),
@@ -93,9 +91,7 @@ fn add_alias(compat: Compat, home: &Home, name: &str, ty: &Type, graph: &mut Loc
     graph
         .nodes
         .insert(global(home, name), Node::Define(function, BTreeSet::new()));
-    for field in fields.keys() {
-        *graph.fields.entry(field.clone()).or_default() += 1;
-    }
+    graph.count_fields(fields.keys().map(|field| (field.clone(), 1)));
 }
 
 /// `addEffects`: each port's encoder or decoder, or a manager's nodes.
@@ -105,18 +101,21 @@ fn add_effects(compat: Compat, home: &Home, effects: &Effects, graph: &mut Local
         Effects::Ports(ports) => {
             for (name, port) in ports {
                 let mut tracker = Tracker::new(compat);
-                let node = if port.incoming {
-                    let decoder = port::to_decoder(compat, &mut tracker, &port.payload);
-                    Node::PortIncoming(decoder, std::mem::take(&mut tracker.deps))
-                } else {
-                    let encoder = port::to_encoder(compat, &mut tracker, &port.payload);
-                    Node::PortOutgoing(encoder, std::mem::take(&mut tracker.deps))
+                let node = match port.direction {
+                    PortDirection::Incoming => {
+                        let decoder = port::to_decoder(compat, &mut tracker, &port.payload);
+                        Node::PortIncoming(decoder, std::mem::take(&mut tracker.deps))
+                    }
+                    PortDirection::Outgoing => {
+                        let encoder = port::to_encoder(compat, &mut tracker, &port.payload);
+                        Node::PortOutgoing(encoder, std::mem::take(&mut tracker.deps))
+                    }
                 };
                 add_to_graph(graph, global(home, name), node, tracker.fields);
             }
             return;
         }
-        Effects::Manager(_, _, _, manager) => manager,
+        Effects::Manager { manager, .. } => manager,
     };
     let fx = global(home, "$fx$");
     let link = || Node::Link(fx.clone());
@@ -129,7 +128,7 @@ fn add_effects(compat: Compat, home: &Home, effects: &Effects, graph: &mut Local
             graph.nodes.insert(global(home, "subscription"), link());
             EffectsType::Sub
         }
-        Manager::Fx(..) => {
+        Manager::Fx { .. } => {
             graph.nodes.insert(global(home, "command"), link());
             graph.nodes.insert(global(home, "subscription"), link());
             EffectsType::Fx
@@ -141,9 +140,7 @@ fn add_effects(compat: Compat, home: &Home, effects: &Effects, graph: &mut Local
 /// `addToGraph`.
 fn add_to_graph(graph: &mut LocalGraph, global: Global, node: Node, fields: BTreeMap<String, i64>) {
     graph.nodes.insert(global, node);
-    for (field, n) in fields {
-        *graph.fields.entry(field).or_default() += n;
-    }
+    graph.count_fields(fields);
 }
 
 /// `addDef` and `addDefHelp`: `main` also becomes the graph's main.
@@ -159,36 +156,24 @@ fn add_def(
         && let Some(annotation) = annotations.get(name)
     {
         let mut tracker = Tracker::new(cx.compat);
-        let main = match deep_dealias(&annotation.ty) {
-            Type::Type(home, node, args)
-                if args.len() == 1
-                    && node == "Node"
-                    && home.package == "elm/virtual-dom"
-                    && home.module == "VirtualDom" =>
-            {
+        let main = match annotation.ty.main_kind() {
+            MainKind::Static => {
                 tracker.kernel("VirtualDom");
                 Some(Main::Static)
             }
-            Type::Type(home, program, args)
-                if args.len() == 3
-                    && program == "Program"
-                    && home.package == "elm/core"
-                    && home.module == "Platform" =>
-            {
-                let decoder = port::to_flags_decoder(cx.compat, &mut tracker, &args[0]);
+            MainKind::Program { flags, message } => {
+                let decoder = port::to_flags_decoder(cx.compat, &mut tracker, &flags);
                 Some(Main::Dynamic {
-                    message: args[2].clone(),
+                    message,
                     decoder: Box::new(decoder),
                 })
             }
             // Anything else the main check has refused.
-            _ => None,
+            MainKind::Other => None,
         };
         if let Some(main) = main {
             graph.main = Some(main);
-            for (field, n) in std::mem::take(&mut tracker.fields) {
-                *graph.fields.entry(field).or_default() += n;
-            }
+            graph.count_fields(std::mem::take(&mut tracker.fields));
             main_deps = tracker.deps;
         }
     }
@@ -216,7 +201,7 @@ fn add_rec_defs(cx: &Context, defs: &[&CDef], graph: &mut LocalGraph) {
     let names: Vec<String> = defs.iter().rev().map(|d| d.name().to_owned()).collect();
     let cycle_name = global(cx.home, &format!("_M${}", names[0]));
     let cycle: Cycle = (defs.iter())
-        .filter(|d| expression::parts(d).1.is_empty())
+        .filter(|d| !d.has_params())
         .map(|d| d.name().to_owned())
         .collect();
     let mut tracker = Tracker::new(cx.compat);
@@ -226,17 +211,25 @@ fn add_rec_defs(cx: &Context, defs: &[&CDef], graph: &mut LocalGraph) {
         let (name, params, body) = expression::parts(def);
         if params.is_empty() {
             let value = expression::optimize(cx, &mut tracker, &cycle, body);
-            values.insert(0, (name.to_owned(), value));
+            values.push((name.to_owned(), value));
         } else {
             let def = expression::potential_tail_call(cx, &mut tracker, &cycle, name, params, body);
-            functions.insert(0, def);
+            functions.push(def);
         }
     }
+    // Upstream conses each onto its list.
+    values.reverse();
+    functions.reverse();
     for def in defs {
         graph
             .nodes
             .insert(global(cx.home, def.name()), Node::Link(cycle_name.clone()));
     }
-    let node = Node::Cycle(names, values, functions, tracker.deps);
+    let node = Node::Cycle {
+        names,
+        values,
+        functions,
+        deps: tracker.deps,
+    };
     add_to_graph(graph, cycle_name, node, tracker.fields);
 }

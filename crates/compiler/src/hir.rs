@@ -16,11 +16,10 @@ use std::marker::PhantomData;
 use std::ops::Index;
 
 use nomi_base::TextRange;
-use nomi_syntax::{SyntaxElement, SyntaxKind, SyntaxNode};
+use nomi_syntax::{SyntaxKind, SyntaxNode};
 
-pub use crate::canonical::Associativity;
 pub use lower::lower;
-pub use shape::{difference, shape};
+pub use shape::difference;
 
 /// An index into an [`Arena`] of `T`.
 pub struct Id<T> {
@@ -36,7 +35,7 @@ impl<T> Id<T> {
         }
     }
 
-    pub fn index(self) -> usize {
+    pub(crate) fn index(self) -> usize {
         self.raw as usize
     }
 }
@@ -69,9 +68,13 @@ impl<T> fmt::Debug for Id<T> {
     }
 }
 
+/// An expression's ID.
 pub type ExprId = Id<Expr>;
+/// A pattern's ID.
 pub type PatId = Id<Pattern>;
+/// A type's ID.
 pub type TypeId = Id<Type>;
+/// A definition's ID.
 pub type DefId = Id<Def>;
 
 /// Values of one kind, each named by its [`Id`]. Flat, so a deep tree
@@ -93,14 +96,11 @@ impl<T> Arena<T> {
         Id::new(self.items.len() - 1)
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.items.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.items.is_empty()
-    }
-
+    /// Each value, with its ID.
     pub fn iter(&self) -> impl Iterator<Item = (Id<T>, &T)> {
         self.items
             .iter()
@@ -126,51 +126,43 @@ pub struct NodePtr {
 }
 
 impl NodePtr {
-    pub fn new(node: &SyntaxNode) -> NodePtr {
+    fn new(node: &SyntaxNode) -> NodePtr {
         NodePtr {
             kind: node.kind(),
             range: node.text_range(),
         }
-    }
-
-    /// The node in `root`'s tree.
-    pub fn to_node(self, root: &SyntaxNode) -> Option<SyntaxNode> {
-        let element = root.covering_element(self.range);
-        let start = match element {
-            SyntaxElement::Node(node) => node,
-            SyntaxElement::Token(token) => token.parent()?,
-        };
-        start
-            .ancestors()
-            .find(|n| n.kind() == self.kind && n.text_range() == self.range)
     }
 }
 
 /// Each ID's node; `None` for a `Missing` piece, which has none.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SourceMap {
-    pub exprs: Vec<Option<NodePtr>>,
-    pub patterns: Vec<Option<NodePtr>>,
-    pub types: Vec<Option<NodePtr>>,
-    pub defs: Vec<Option<NodePtr>>,
+    pub(crate) exprs: Vec<Option<NodePtr>>,
+    pub(crate) patterns: Vec<Option<NodePtr>>,
+    pub(crate) types: Vec<Option<NodePtr>>,
+    pub(crate) defs: Vec<Option<NodePtr>>,
 }
 
 impl SourceMap {
-    pub fn expr(&self, id: ExprId) -> Option<NodePtr> {
-        self.exprs[id.index()]
+    /// The expression's range, leading trivia included; empty where it is
+    /// `Missing`.
+    pub(crate) fn expr_range(&self, id: ExprId) -> TextRange {
+        range(self.exprs[id.index()])
     }
 
-    pub fn pattern(&self, id: PatId) -> Option<NodePtr> {
-        self.patterns[id.index()]
+    /// As [`SourceMap::expr_range`], a pattern's.
+    pub(crate) fn pattern_range(&self, id: PatId) -> TextRange {
+        range(self.patterns[id.index()])
     }
 
-    pub fn ty(&self, id: TypeId) -> Option<NodePtr> {
-        self.types[id.index()]
+    /// As [`SourceMap::expr_range`], a type's.
+    pub(crate) fn type_range(&self, id: TypeId) -> TextRange {
+        range(self.types[id.index()])
     }
+}
 
-    pub fn def(&self, id: DefId) -> Option<NodePtr> {
-        self.defs[id.index()]
-    }
+fn range(node: Option<NodePtr>) -> TextRange {
+    node.map(|p| p.range).unwrap_or_default()
 }
 
 /// A name as written, and where: `A.Located Name`.
@@ -178,6 +170,21 @@ impl SourceMap {
 pub struct Spanned {
     pub text: String,
     pub range: TextRange,
+}
+
+/// An operator's associativity (`Binop.Associativity`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Associativity {
+    Left,
+    Non,
+    Right,
+}
+
+/// How an operator groups with its neighbors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Fixity {
+    pub associativity: Associativity,
+    pub precedence: i64,
 }
 
 /// A module: `Src.Module`.
@@ -211,6 +218,21 @@ pub struct Module {
     pub source_map: SourceMap,
 }
 
+impl Module {
+    /// The header's name, `Main` without one.
+    pub fn name(&self) -> &str {
+        self.name.as_ref().map_or("Main", |n| n.text.as_str())
+    }
+
+    /// The names of the top-level values, in source order.
+    pub fn value_names(&self) -> impl DoubleEndedIterator<Item = &Spanned> {
+        self.values.iter().filter_map(|&id| match &self.defs[id] {
+            Def::Define { name, .. } => Some(name),
+            Def::Destruct { .. } => None,
+        })
+    }
+}
+
 /// Which header the module has (`Src.Effects`, without the ports, which
 /// are declarations).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -218,8 +240,30 @@ pub enum ModuleKind {
     #[default]
     Plain,
     Port,
-    /// An effect manager, with its `where { … }` fields as written.
-    Effect(Vec<(Spanned, Spanned)>),
+    Effect(ManagerFields),
+}
+
+/// An effect manager's `where { … }` fields (`Src.Manager`): the types its
+/// commands and subscriptions are, the first of each key where elm's
+/// parser would allow only one.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ManagerFields {
+    /// The first field's key, which stands in for the whole clause.
+    pub first: TextRange,
+    pub command: Option<Spanned>,
+    pub subscription: Option<Spanned>,
+}
+
+impl ManagerFields {
+    /// Each field given, by its key.
+    pub(crate) fn given(&self) -> impl Iterator<Item = (&'static str, &Spanned)> {
+        [
+            ("command", &self.command),
+            ("subscription", &self.subscription),
+        ]
+        .into_iter()
+        .filter_map(|(key, value)| Some((key, value.as_ref()?)))
+    }
 }
 
 /// `Src.Exposing`.
@@ -240,6 +284,15 @@ pub enum Exposed {
     Operator(Spanned),
 }
 
+impl Exposed {
+    /// The name it exposes.
+    pub fn name(&self) -> &Spanned {
+        match self {
+            Exposed::Lower(name) | Exposed::Upper(name, _) | Exposed::Operator(name) => name,
+        }
+    }
+}
+
 /// `Src.Import`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Import {
@@ -256,7 +309,6 @@ pub struct Union {
     pub params: Vec<Spanned>,
     pub variants: Vec<(Spanned, Vec<TypeId>)>,
     pub docs: Option<Spanned>,
-    pub node: NodePtr,
     /// From its keyword to its end, without its doc comment, as upstream
     /// locates a declaration.
     pub range: TextRange,
@@ -269,7 +321,6 @@ pub struct Alias {
     pub params: Vec<Spanned>,
     pub body: TypeId,
     pub docs: Option<Spanned>,
-    pub node: NodePtr,
     /// From its keyword to its end, without its doc comment, as upstream
     /// locates a declaration.
     pub range: TextRange,
@@ -279,10 +330,8 @@ pub struct Alias {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Infix {
     pub op: Spanned,
-    pub associativity: Associativity,
-    pub precedence: i64,
+    pub fixity: Fixity,
     pub function: Spanned,
-    pub node: NodePtr,
 }
 
 /// `Src.Port`.
@@ -291,7 +340,6 @@ pub struct Port {
     pub name: Spanned,
     pub ty: TypeId,
     pub docs: Option<Spanned>,
-    pub node: NodePtr,
     /// From its keyword to its end, without its doc comment, as upstream
     /// locates a declaration.
     pub range: TextRange,
@@ -325,7 +373,7 @@ pub enum Expr {
     Var {
         qualifier: Option<String>,
         name: String,
-        upper: bool,
+        kind: VarType,
     },
     List(Vec<ExprId>),
     /// An operator as a function: `(+)`.
@@ -372,6 +420,13 @@ pub enum Expr {
     Tuple(Vec<ExprId>),
     /// The shader's source, between `[glsl|` and `|]`.
     Shader(String),
+}
+
+/// `Src.VarType`: whether a name is a variable's or a constructor's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VarType {
+    Low,
+    Cap,
 }
 
 /// `Src.Pattern_`.
@@ -494,6 +549,37 @@ pub fn verify(module: &Module, root: &SyntaxNode) -> Vec<String> {
         ));
     }
     problems
+}
+
+/// An integer literal's value, maybe negative, wrapping at 64 bits as
+/// elm's parser does.
+pub(crate) fn int_value(text: &str) -> i64 {
+    let (negative, text) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text),
+    };
+    let (digits, radix) = match text.strip_prefix("0x") {
+        Some(hex) => (hex, 16),
+        None => (text, 10),
+    };
+    let value = (digits.chars())
+        .filter_map(|c| c.to_digit(radix))
+        .fold(0i64, |n, d| {
+            n.wrapping_mul(i64::from(radix)).wrapping_add(i64::from(d))
+        });
+    if negative {
+        value.wrapping_neg()
+    } else {
+        value
+    }
+}
+
+/// The HIR of the module `text`.
+#[cfg(test)]
+pub(crate) fn lowered(text: &str) -> Module {
+    use nomi_syntax::ast::AstNode;
+    let root = nomi_syntax::parse_module(text).syntax();
+    lower(&nomi_syntax::ast::Module::cast(root).expect("a module"))
 }
 
 #[cfg(test)]

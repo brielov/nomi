@@ -17,18 +17,16 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use nomi_base::grow_large;
+use nomi_syntax::literal_body;
+
 use super::{
     Def, DefId, Exposed, Exposing, Expr, ExprId, Import, Module, ModuleKind, PatId, Pattern,
-    Spanned, Type, TypeId,
+    Spanned, Type, TypeId, int_value,
 };
 
-/// Stack kept free before a recursive step, and the size of each new
-/// segment, as lowering keeps.
-const RED_ZONE: usize = 128 * 1024;
-const STACK_SEGMENT: usize = 2 * 1024 * 1024;
-
 /// `module`'s shape, a node a line, each before its children.
-pub fn shape(module: &Module) -> Vec<String> {
+fn shape(module: &Module) -> Vec<String> {
     let mut shape = Shape {
         module,
         lines: Vec::new(),
@@ -65,20 +63,19 @@ struct Shape<'m> {
 }
 
 impl Shape<'_> {
-    fn line(&mut self, line: String) {
-        self.lines.push(line);
+    fn line(&mut self, line: impl Into<String>) {
+        self.lines.push(line.into());
     }
 
     fn module(&mut self) {
         let m = self.module;
-        let name = m.name.as_ref().map_or("Main", |n| n.text.as_str());
-        self.line(format!("module {name}"));
+        self.line(format!("module {}", m.name()));
         match &m.kind {
-            ModuleKind::Plain => self.line("plain".to_owned()),
-            ModuleKind::Port => self.line("port".to_owned()),
-            ModuleKind::Effect(fields) => {
-                let fields: Vec<String> = (fields.iter())
-                    .map(|(k, v)| format!("{} = {}", k.text, v.text))
+            ModuleKind::Plain => self.line("plain"),
+            ModuleKind::Port => self.line("port"),
+            ModuleKind::Effect(manager) => {
+                let fields: Vec<String> = (manager.given())
+                    .map(|(key, value)| format!("{key} = {}", value.text))
                     .collect();
                 self.line(format!("effect {}", fields.join(", ")));
             }
@@ -114,7 +111,10 @@ impl Shape<'_> {
         for infix in &m.binops {
             self.line(format!(
                 "decl infix {:?} {} ({}) = {}",
-                infix.associativity, infix.precedence, infix.op.text, infix.function.text
+                infix.fixity.associativity,
+                infix.fixity.precedence,
+                infix.op.text,
+                infix.function.text
             ));
         }
         for port in &m.ports {
@@ -168,21 +168,19 @@ impl Shape<'_> {
     }
 
     fn expr(&mut self, id: ExprId) {
-        stacker::maybe_grow(RED_ZONE, STACK_SEGMENT, || self.expr_(id));
+        grow_large(|| self.expr_(id));
     }
 
     fn expr_(&mut self, id: ExprId) {
         let exprs = |s: &mut Self, ids: &[ExprId]| ids.iter().for_each(|&e| s.expr(e));
         match &self.module.exprs[id] {
-            Expr::Missing => self.line("missing".to_owned()),
-            Expr::Chr(text) => self.line(format!("char {}", chr(text))),
-            Expr::Str(text) => self.line(format!("string {}", string(text))),
-            Expr::Int(text) => self.line(format!("int {}", int(text))),
+            Expr::Missing => self.line("missing"),
+            Expr::Chr(text) => self.line(format!("char {}", literal(text))),
+            Expr::Str(text) => self.line(format!("string {}", literal(text))),
+            Expr::Int(text) => self.line(format!("int {}", int_value(text))),
             Expr::Float(text) => self.line(format!("float {}", float(text))),
             Expr::Var {
-                qualifier,
-                name,
-                upper: _,
+                qualifier, name, ..
             } => self.line(format!("var {}", qualified(qualifier.as_deref(), name))),
             Expr::List(items) => {
                 self.line(format!("list {}", items.len()));
@@ -192,10 +190,10 @@ impl Shape<'_> {
             // `-1` is the value -1, which a literal can spell too, as an
             // integer too large for 64 bits wraps to it.
             Expr::Negate(e) => match &self.module.exprs[*e] {
-                Expr::Int(text) => self.line(format!("int {}", int(&format!("-{text}")))),
+                Expr::Int(text) => self.line(format!("int {}", int_value(text).wrapping_neg())),
                 Expr::Float(text) => self.line(format!("float {}", float(&format!("-{text}")))),
                 _ => {
-                    self.line("negate".to_owned());
+                    self.line("negate");
                     self.expr(*e);
                 }
             },
@@ -268,7 +266,7 @@ impl Shape<'_> {
                     self.expr(e);
                 }
             }
-            Expr::Unit => self.line("unit".to_owned()),
+            Expr::Unit => self.line("unit"),
             Expr::Tuple(items) => {
                 self.line(format!("tuple {}", items.len()));
                 exprs(self, items);
@@ -278,21 +276,21 @@ impl Shape<'_> {
     }
 
     fn pattern(&mut self, id: PatId) {
-        stacker::maybe_grow(RED_ZONE, STACK_SEGMENT, || self.pattern_(id));
+        grow_large(|| self.pattern_(id));
     }
 
     fn pattern_(&mut self, id: PatId) {
         let patterns = |s: &mut Self, ids: &[PatId]| ids.iter().for_each(|&p| s.pattern(p));
         match &self.module.patterns[id] {
-            Pattern::Missing => self.line("missing".to_owned()),
-            Pattern::Anything => self.line("_".to_owned()),
+            Pattern::Missing => self.line("missing"),
+            Pattern::Anything => self.line("_"),
             Pattern::Var(name) => self.line(format!("pvar {name}")),
             Pattern::Record(fields) => self.line(format!("precord {}", texts(fields))),
             Pattern::Alias(p, name) => {
                 self.line(format!("as {}", name.text));
                 self.pattern(*p);
             }
-            Pattern::Unit => self.line("punit".to_owned()),
+            Pattern::Unit => self.line("punit"),
             Pattern::Tuple(items) => {
                 self.line(format!("ptuple {}", items.len()));
                 patterns(self, items);
@@ -314,25 +312,25 @@ impl Shape<'_> {
                 patterns(self, items);
             }
             Pattern::Cons(head, tail) => {
-                self.line("cons".to_owned());
+                self.line("cons");
                 self.pattern(*head);
                 self.pattern(*tail);
             }
-            Pattern::Chr(text) => self.line(format!("pchar {}", chr(text))),
-            Pattern::Str(text) => self.line(format!("pstring {}", string(text))),
-            Pattern::Int(text) => self.line(format!("pint {}", int(text))),
+            Pattern::Chr(text) => self.line(format!("pchar {}", literal(text))),
+            Pattern::Str(text) => self.line(format!("pstring {}", literal(text))),
+            Pattern::Int(text) => self.line(format!("pint {}", int_value(text))),
         }
     }
 
     fn ty(&mut self, id: TypeId) {
-        stacker::maybe_grow(RED_ZONE, STACK_SEGMENT, || self.ty_(id));
+        grow_large(|| self.ty_(id));
     }
 
     fn ty_(&mut self, id: TypeId) {
         match &self.module.types[id] {
-            Type::Missing => self.line("missing".to_owned()),
+            Type::Missing => self.line("missing"),
             Type::Lambda(a, b) => {
-                self.line("->".to_owned());
+                self.line("->");
                 self.ty(*a);
                 self.ty(*b);
             }
@@ -358,7 +356,7 @@ impl Shape<'_> {
                     self.ty(t);
                 }
             }
-            Type::Unit => self.line("tunit".to_owned()),
+            Type::Unit => self.line("tunit"),
             Type::Tuple(items) => {
                 self.line(format!("ttuple {}", items.len()));
                 for &t in items {
@@ -369,14 +367,13 @@ impl Shape<'_> {
     }
 }
 
-fn texts(names: &[Spanned]) -> String {
-    let names: Vec<&str> = names.iter().map(|n| n.text.as_str()).collect();
+fn texts<'a>(names: impl IntoIterator<Item = &'a Spanned>) -> String {
+    let names: Vec<&str> = names.into_iter().map(|n| n.text.as_str()).collect();
     names.join(" ")
 }
 
 fn field_names<T>(fields: &[(Spanned, T)]) -> String {
-    let names: Vec<&str> = fields.iter().map(|(n, _)| n.text.as_str()).collect();
-    names.join(" ")
+    texts(fields.iter().map(|(name, _)| name))
 }
 
 fn qualified(qualifier: Option<&str>, name: &str) -> String {
@@ -403,31 +400,49 @@ fn qualifiers(m: &Module) -> BTreeSet<&str> {
     exprs.chain(patterns).chain(types).collect()
 }
 
+/// What a module's imports, together, give the module importing it.
+#[derive(Default)]
+struct Imported<'m> {
+    /// The qualifiers the module uses.
+    qualifiers: BTreeSet<&'m str>,
+    exposing: Exposure<'m>,
+}
+
+enum Exposure<'m> {
+    Everything,
+    Items(Vec<&'m Exposed>),
+}
+
+impl Default for Exposure<'_> {
+    fn default() -> Self {
+        Exposure::Items(Vec::new())
+    }
+}
+
 /// The imports as elm resolves them: each module once, with the
 /// qualifiers its imports give it that the module uses, and everything
 /// they expose. elm-format keeps one alias of a module imported twice,
 /// which changes nothing unless the other is used.
 fn imports(imports: &[Import], used: &BTreeSet<&str>) -> Vec<String> {
-    let mut modules: BTreeMap<&str, (BTreeSet<&str>, bool, Vec<&Exposed>)> = BTreeMap::new();
+    let mut modules: BTreeMap<&str, Imported> = BTreeMap::new();
     for import in imports {
-        let (qualifiers, open, items) = modules.entry(&import.name.text).or_default();
+        let imported = modules.entry(&import.name.text).or_default();
         let qualifier = import.alias.as_ref().unwrap_or(&import.name).text.as_str();
         if used.contains(qualifier) {
-            qualifiers.insert(qualifier);
+            imported.qualifiers.insert(qualifier);
         }
-        match &import.exposing {
-            None => {}
-            Some(Exposing::Open) => *open = true,
-            Some(Exposing::Explicit(exposed)) => items.extend(exposed),
+        match (&import.exposing, &mut imported.exposing) {
+            (Some(Exposing::Open), exposing) => *exposing = Exposure::Everything,
+            (Some(Exposing::Explicit(exposed)), Exposure::Items(items)) => items.extend(exposed),
+            (None, _) | (Some(Exposing::Explicit(_)), Exposure::Everything) => {}
         }
     }
     (modules.into_iter())
-        .map(|(name, (qualifiers, open, items))| {
-            let qualifiers: Vec<&str> = qualifiers.into_iter().collect();
-            let exposing = if open {
-                "(..)".to_owned()
-            } else {
-                exposed(items)
+        .map(|(name, imported)| {
+            let qualifiers: Vec<&str> = imported.qualifiers.into_iter().collect();
+            let exposing = match imported.exposing {
+                Exposure::Everything => "(..)".to_owned(),
+                Exposure::Items(items) => exposed(items),
             };
             format!(
                 "import {name} as {} exposing {exposing}",
@@ -444,10 +459,7 @@ fn exports(m: &Module) -> String {
         return "(..)".to_owned();
     };
     let named = names(items.iter());
-    let values = m.values.iter().filter_map(|&id| match &m.defs[id] {
-        Def::Define { name, .. } => Some((name.text.clone(), false)),
-        Def::Destruct { .. } => None,
-    });
+    let values = m.value_names().map(|name| (name.text.clone(), false));
     let everything: BTreeMap<String, bool> = (values)
         .chain(m.unions.iter().map(|u| (u.name.text.clone(), true)))
         .chain(m.aliases.iter().map(|a| (a.name.text.clone(), false)))
@@ -488,49 +500,15 @@ fn listing(names: BTreeMap<String, bool>) -> String {
     format!("({})", names.join(", "))
 }
 
-/// An integer literal's value, maybe negative, wrapping at 64 bits as
-/// elm's parser does.
-fn int(text: &str) -> String {
-    let (negative, text) = match text.strip_prefix('-') {
-        Some(rest) => (true, rest),
-        None => (false, text),
-    };
-    let (digits, radix) = match text.strip_prefix("0x") {
-        Some(hex) => (hex, 16),
-        None => (text, 10),
-    };
-    let value = digits
-        .chars()
-        .map(|c| c.to_digit(radix).map(i64::from))
-        .try_fold(0i64, |n, d| {
-            Some(n.wrapping_mul(i64::from(radix)).wrapping_add(d?))
-        });
-    match value {
-        Some(n) if negative => n.wrapping_neg().to_string(),
-        Some(n) => n.to_string(),
-        None => format!("{text:?}"),
-    }
-}
-
 /// A float literal's value, to the bit.
 fn float(text: &str) -> String {
     text.parse::<f64>()
         .map_or_else(|_| format!("{text:?}"), |f| format!("{:#x}", f.to_bits()))
 }
 
-/// A character literal's code points.
-fn chr(text: &str) -> String {
-    let body = text.strip_prefix('\'').and_then(|t| t.strip_suffix('\''));
-    body.map_or_else(|| format!("{text:?}"), |b| points(&decode(b)))
-}
-
-/// A string literal's code points, single- or triple-quoted.
-fn string(text: &str) -> String {
-    let body = (text
-        .strip_prefix("\"\"\"")
-        .and_then(|t| t.strip_suffix("\"\"\"")))
-    .or_else(|| text.strip_prefix('"').and_then(|t| t.strip_suffix('"')));
-    body.map_or_else(|| format!("{text:?}"), |b| points(&decode(b)))
+/// A character or string literal's code points.
+fn literal(text: &str) -> String {
+    literal_body(text).map_or_else(|| format!("{text:?}"), |b| points(&decode(b)))
 }
 
 fn points(points: &[u32]) -> String {
@@ -579,17 +557,11 @@ fn decode(body: &str) -> Vec<u32> {
 
 #[cfg(test)]
 mod tests {
-    use nomi_syntax::ast::{self, AstNode};
-
     use super::*;
-
-    fn module(text: &str) -> Module {
-        let parse = nomi_syntax::parse_module(text);
-        super::super::lower(&ast::Module::cast(parse.syntax()).unwrap())
-    }
+    use crate::hir::lowered;
 
     fn same(a: &str, b: &str) -> Option<String> {
-        difference(&module(a), &module(b))
+        difference(&lowered(a), &lowered(b))
     }
 
     #[test]
@@ -625,12 +597,13 @@ mod tests {
 
     #[test]
     fn literals_compare_by_value() {
-        assert_eq!(int("0xFF"), int("255"));
-        assert_eq!(int("-0x10"), "-16");
+        assert_eq!(int_value("0xFF"), int_value("255"));
+        assert_eq!(int_value("-0x10"), -16);
+        assert_eq!(int_value("9223372036854775808"), i64::MIN);
         assert_eq!(float("1e3"), float("1000.0"));
-        assert_eq!(string(r#""a\u{0041}\n""#), string("\"\"\"aA\n\"\"\""));
-        assert_ne!(string("\"\"\"a\r\nb\"\"\""), string("\"\"\"a\nb\"\"\""));
-        assert_eq!(chr(r"'\''"), chr(r"'\u{27}'"));
-        assert_eq!(chr(r"'\u{1F600}'"), chr("'😀'"));
+        assert_eq!(literal(r#""a\u{0041}\n""#), literal("\"\"\"aA\n\"\"\""));
+        assert_ne!(literal("\"\"\"a\r\nb\"\"\""), literal("\"\"\"a\nb\"\"\""));
+        assert_eq!(literal(r"'\''"), literal(r"'\u{27}'"));
+        assert_eq!(literal(r"'\u{1F600}'"), literal("'😀'"));
     }
 }

@@ -11,22 +11,18 @@ use super::env::Env;
 use super::error::{Error, InvalidPayload, PortProblem, R, all, both, throw};
 use super::local::Unions;
 use super::types;
-use crate::canonical::{AliasType, Effects, Home, Manager, Port as CPort, Type};
-use crate::hir::{self, Def, ModuleKind};
+use crate::canonical::{Effects, Manager, Port as CPort, PortDirection, Type};
+use crate::hir::{self, ManagerFields, ModuleKind};
 
 /// `canonicalize`: the module's ports, in upstream's reverse order, or
 /// its effect manager.
-pub fn canonicalize(env: &Env<'_>, module: &hir::Module, unions: &Unions) -> R<Effects> {
+pub(super) fn canonicalize(env: &Env<'_>, module: &hir::Module, unions: &Unions) -> R<Effects> {
     match &module.kind {
         ModuleKind::Plain => Ok(Effects::NoEffects),
         ModuleKind::Port => all(module.ports.iter().rev().map(|p| port(env, module, p)))
             .map(|ports| Effects::Ports(ports.into_iter().collect())),
         ModuleKind::Effect(fields) => manager(module, fields, unions),
     }
-}
-
-fn is(home: &Home, package: &str, module: &str) -> bool {
-    home.package == package && home.module == module
 }
 
 /// `canonicalizePort`.
@@ -41,18 +37,23 @@ fn port(env: &Env<'_>, module: &hir::Module, port: &hir::Port) -> R<(String, CPo
         })
     };
     let annotation = types::to_annotation(env, module, port.ty)?;
-    let mut parts = delambda(deep_dealias(&annotation.ty));
-    let Some(Type::Type(home, type_name, args)) = parts.pop() else {
+    let mut parts = delambda(annotation.ty.deep_dealias());
+    let Some(Type::Type {
+        home,
+        name: type_name,
+        args,
+    }) = parts.pop()
+    else {
         return invalid(PortProblem::NotCmdOrSub);
     };
     let [msg] = &args[..] else {
         return invalid(PortProblem::NotCmdOrSub);
     };
-    let payload = |ty: &Type, incoming: bool| match check_payload(ty) {
+    let payload = |ty: &Type, direction| match check_payload(ty) {
         Ok(()) => Ok((
             name.clone(),
             CPort {
-                incoming,
+                direction,
                 free: annotation.free.clone(),
                 payload: ty.clone(),
                 func: (*annotation.ty).clone(),
@@ -65,19 +66,19 @@ fn port(env: &Env<'_>, module: &hir::Module, port: &hir::Port) -> R<(String, CPo
             problem: bad.1,
         }),
     };
-    if is(&home, "elm/core", "Platform.Cmd") && type_name == "Cmd" {
+    if home.is("elm/core", "Platform.Cmd") && type_name == "Cmd" {
         match &parts[..] {
             [] => invalid(PortProblem::CmdNoArg),
             [outgoing] => match msg {
-                Type::Var(_) => payload(outgoing, false),
+                Type::Var(_) => payload(outgoing, PortDirection::Outgoing),
                 _ => invalid(PortProblem::CmdBadMsg),
             },
             _ => invalid(PortProblem::CmdExtraArgs(parts.len())),
         }
-    } else if is(&home, "elm/core", "Platform.Sub") && type_name == "Sub" {
+    } else if home.is("elm/core", "Platform.Sub") && type_name == "Sub" {
         match (&parts[..], msg) {
             ([Type::Lambda(incoming, result)], Type::Var(msg2)) if matches!(&**result, Type::Var(msg1) if msg1 == msg2) => {
-                payload(incoming, true)
+                payload(incoming, PortDirection::Incoming)
             }
             _ => invalid(PortProblem::SubBad),
         }
@@ -98,112 +99,23 @@ fn delambda(ty: Type) -> Vec<Type> {
     }
 }
 
-/// `dealias`: what an alias, applied to `args`, stands for.
-pub fn dealias(args: &[(String, Type)], aliased: &AliasType) -> Type {
-    match aliased {
-        AliasType::Holey(body) => substitute(body, args),
-        AliasType::Filled(body) => (**body).clone(),
-    }
-}
-
-fn substitute(ty: &Type, args: &[(String, Type)]) -> Type {
-    match ty {
-        Type::Var(name) => (args.iter())
-            .find(|(var, _)| var == name)
-            .map_or_else(|| ty.clone(), |(_, arg)| arg.clone()),
-        Type::Lambda(a, b) => {
-            Type::Lambda(Box::new(substitute(a, args)), Box::new(substitute(b, args)))
-        }
-        Type::Type(home, name, targs) => Type::Type(
-            home.clone(),
-            name.clone(),
-            targs.iter().map(|t| substitute(t, args)).collect(),
-        ),
-        Type::Record(fields, ext) => Type::Record(
-            (fields.iter())
-                .map(|(n, f)| {
-                    let field = crate::canonical::FieldType {
-                        order: f.order,
-                        ty: substitute(&f.ty, args),
-                    };
-                    (n.clone(), field)
-                })
-                .collect(),
-            ext.clone(),
-        ),
-        Type::Unit => Type::Unit,
-        Type::Tuple(a, b, c) => Type::Tuple(
-            Box::new(substitute(a, args)),
-            Box::new(substitute(b, args)),
-            c.as_ref().map(|c| Box::new(substitute(c, args))),
-        ),
-        Type::Alias(home, name, aargs, aliased) => Type::Alias(
-            home.clone(),
-            name.clone(),
-            aargs
-                .iter()
-                .map(|(v, t)| (v.clone(), substitute(t, args)))
-                .collect(),
-            aliased.clone(),
-        ),
-    }
-}
-
-/// `deepDealias`: `ty` with every alias, at any depth, replaced by what
-/// it stands for.
-pub fn deep_dealias(ty: &Type) -> Type {
-    match ty {
-        Type::Alias(_, _, args, aliased) => {
-            let args: Vec<(String, Type)> = args
-                .iter()
-                .map(|(v, t)| (v.clone(), deep_dealias(t)))
-                .collect();
-            deep_dealias(&dealias(&args, aliased))
-        }
-        Type::Lambda(a, b) => Type::Lambda(Box::new(deep_dealias(a)), Box::new(deep_dealias(b))),
-        Type::Type(home, name, args) => Type::Type(
-            home.clone(),
-            name.clone(),
-            args.iter().map(deep_dealias).collect(),
-        ),
-        Type::Record(fields, ext) => Type::Record(
-            (fields.iter())
-                .map(|(n, f)| {
-                    let field = crate::canonical::FieldType {
-                        order: f.order,
-                        ty: deep_dealias(&f.ty),
-                    };
-                    (n.clone(), field)
-                })
-                .collect(),
-            ext.clone(),
-        ),
-        Type::Tuple(a, b, c) => Type::Tuple(
-            Box::new(deep_dealias(a)),
-            Box::new(deep_dealias(b)),
-            c.as_ref().map(|c| Box::new(deep_dealias(c))),
-        ),
-        Type::Var(_) | Type::Unit => ty.clone(),
-    }
-}
-
 /// `checkPayload`: whether a value of `ty` can cross to JavaScript, or the
 /// part that can't, and why.
-pub fn check_payload(ty: &Type) -> Result<(), Box<(Type, InvalidPayload)>> {
+pub(crate) fn check_payload(ty: &Type) -> Result<(), Box<(Type, InvalidPayload)>> {
     match ty {
-        Type::Alias(_, _, args, aliased) => check_payload(&dealias(args, aliased)),
-        Type::Type(home, name, args) => match &args[..] {
-            [] if is(home, "elm/json", "Json.Encode") && name == "Value"
-                || is(home, "elm/core", "String") && name == "String"
-                || is(home, "elm/core", "Basics")
+        Type::Alias { args, aliased, .. } => check_payload(&aliased.dealias(args)),
+        Type::Type { home, name, args } => match &args[..] {
+            [] if home.is("elm/json", "Json.Encode") && name == "Value"
+                || home.is("elm/core", "String") && name == "String"
+                || home.is("elm/core", "Basics")
                     && matches!(name.as_str(), "Int" | "Float" | "Bool") =>
             {
                 Ok(())
             }
             [arg]
-                if is(home, "elm/core", "List") && name == "List"
-                    || is(home, "elm/core", "Maybe") && name == "Maybe"
-                    || is(home, "elm/core", "Array") && name == "Array" =>
+                if home.is("elm/core", "List") && name == "List"
+                    || home.is("elm/core", "Maybe") && name == "Maybe"
+                    || home.is("elm/core", "Array") && name == "Array" =>
             {
                 check_payload(arg)
             }
@@ -231,24 +143,16 @@ pub fn check_payload(ty: &Type) -> Result<(), Box<(Type, InvalidPayload)>> {
 /// An effect manager's functions and types: `init`, `onEffects` and
 /// `onSelfMsg`, then for commands `cmdMap` and their type, for
 /// subscriptions `subMap` and theirs.
-fn manager(
-    module: &hir::Module,
-    fields: &[(hir::Spanned, hir::Spanned)],
-    unions: &Unions,
-) -> R<Effects> {
-    let values: BTreeMap<&str, TextRange> = (module.values.iter())
-        .filter_map(|&id| match &module.defs[id] {
-            Def::Define { name, .. } => Some((name.text.as_str(), name.range)),
-            Def::Destruct { .. } => None,
-        })
+fn manager(module: &hir::Module, fields: &ManagerFields, unions: &Unions) -> R<Effects> {
+    let values: BTreeMap<&str, TextRange> = (module.value_names())
+        .map(|name| (name.text.as_str(), name.range))
         .collect();
     // Upstream's region is the header's `where { … }`; its first field
     // stands in, where a report of it needs a place.
-    let region = fields.first().map(|(f, _)| f.range).unwrap_or_default();
     let function = |name: &str| match values.get(name) {
         Some(&range) => Ok(range),
         None => throw(Error::EffectFunctionNotFound {
-            range: region,
+            range: fields.first,
             name: name.to_owned(),
         }),
     };
@@ -262,8 +166,7 @@ fn manager(
             })
         }
     };
-    let field = |key: &str| fields.iter().find(|(f, _)| f.text == key).map(|(_, t)| t);
-    let kind = match (field("command"), field("subscription")) {
+    let kind = match (&fields.command, &fields.subscription) {
         (Some(cmd), None) => {
             both(effect_type(cmd), function("cmdMap")).map(|(c, _)| Some(Manager::Cmd(c)))
         }
@@ -273,7 +176,7 @@ fn manager(
         (Some(cmd), Some(sub)) => {
             let types = both(effect_type(cmd), effect_type(sub));
             both(both(types, function("cmdMap")), function("subMap"))
-                .map(|(((c, s), _), _)| Some(Manager::Fx(c, s)))
+                .map(|(((cmd, sub), _), _)| Some(Manager::Fx { cmd, sub }))
         }
         // The grammar reads a manager with neither; elm's parser doesn't.
         (None, None) => Ok(None),
@@ -282,8 +185,13 @@ fn manager(
         both(function("init"), function("onEffects")),
         function("onSelfMsg"),
     );
-    both(functions, kind).map(|(((r0, r1), r2), kind)| match kind {
-        Some(kind) => Effects::Manager(r0, r1, r2, kind),
+    both(functions, kind).map(|(((init, on_effects), on_self_msg), kind)| match kind {
+        Some(manager) => Effects::Manager {
+            init,
+            on_effects,
+            on_self_msg,
+            manager,
+        },
         None => Effects::NoEffects,
     })
 }

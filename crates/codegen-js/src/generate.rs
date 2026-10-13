@@ -118,9 +118,9 @@ impl State<'_> {
                 let stmt = var(global, code_to_expr(self.cx.generate(expr)));
                 self.add_stmt(&stmt);
             }
-            Node::DefineTailFunc(args, body, deps) => {
+            Node::DefineTailFunc { params, body, deps } => {
                 self.add_deps(deps);
-                let code = self.cx.tail_def(&global.name, args, body);
+                let code = self.cx.tail_def(&global.name, params, body);
                 self.add_stmt(&var(global, code_to_expr(code)));
             }
             Node::Ctor(index, arity) => {
@@ -128,7 +128,12 @@ impl State<'_> {
                 self.add_stmt(&var(global, code_to_expr(code)));
             }
             Node::Link(linked) => self.add_global(linked),
-            Node::Cycle(names_, values, functions, deps) => {
+            Node::Cycle {
+                names: names_,
+                values,
+                functions,
+                deps,
+            } => {
                 self.add_deps(deps);
                 let stmt = self.cycle(&global.home, names_, values, functions);
                 self.add_stmt(&stmt);
@@ -191,9 +196,9 @@ impl State<'_> {
                     Name::from_global(home, name),
                     code_to_expr(cx.generate(expr)),
                 ),
-                Def::TailDef(name, args, expr) => Stmt::Var(
+                Def::TailDef { name, params, body } => Stmt::Var(
                     Name::from_global(home, name),
-                    code_to_expr(cx.tail_def(name, args, expr)),
+                    code_to_expr(cx.tail_def(name, params, body)),
                 ),
             })
             .collect();
@@ -258,8 +263,8 @@ impl State<'_> {
                 Chunk::ElmVar(home, name) => {
                     out.extend_from_slice(Name::from_global(home, name).as_str().as_bytes());
                 }
-                Chunk::JsVar(home, name) => {
-                    out.extend_from_slice(Name::from_kernel(home, name).as_str().as_bytes());
+                Chunk::JsVar { module, name } => {
+                    out.extend_from_slice(Name::from_kernel(module, name).as_str().as_bytes());
                 }
                 Chunk::ElmField(name) => {
                     out.extend_from_slice(self.cx.field(name).as_str().as_bytes());
@@ -486,12 +491,12 @@ mod tests {
     #[test]
     fn a_cycle_of_values_throws_in_development() {
         let mut graph = GlobalGraph::default();
-        let cycle = Node::Cycle(
-            vec!["a".to_owned(), "b".to_owned()],
-            vec![("a".to_owned(), Expr::VarCycle(home("Main"), "b".to_owned()))],
-            Vec::new(),
-            BTreeSet::new(),
-        );
+        let cycle = Node::Cycle {
+            names: vec!["a".to_owned(), "b".to_owned()],
+            values: vec![("a".to_owned(), Expr::VarCycle(home("Main"), "b".to_owned()))],
+            functions: Vec::new(),
+            deps: BTreeSet::new(),
+        };
         graph.nodes.insert(global("Main", "a"), cycle);
         let main = Node::Define(
             Expr::VarGlobal(global("Main", "a")),

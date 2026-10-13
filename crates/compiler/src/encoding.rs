@@ -8,13 +8,35 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
+use nomi_base::grow_large;
+
 use crate::canonical::{
-    Alias, AliasType, Annotation, Associativity, Ctor, CtorOpts, FieldType, Home, Type, Union,
+    Alias, AliasType, Annotation, Ctor, CtorOpts, FieldType, Home, Type, Union,
 };
+use crate::hir::{Associativity, Fixity};
 use crate::interface::{self, Binop, DependencyInterface, Interface};
 
 /// Bumped whenever the encoding changes, so old bytes never decode as new.
 const VERSION: u8 = 2;
+
+/// Each fieldless enum's values, by the tag that encodes them.
+const ASSOCIATIVITIES: [Associativity; 3] = [
+    Associativity::Left,
+    Associativity::Non,
+    Associativity::Right,
+];
+const CTOR_OPTS: [CtorOpts; 3] = [CtorOpts::Normal, CtorOpts::Enum, CtorOpts::Unbox];
+
+/// Each enum's variants, by the tag that encodes them; the encoder's
+/// matches give the same tags.
+const UNIONS: [fn(Union) -> interface::Union; 3] = [
+    interface::Union::Open,
+    interface::Union::Closed,
+    interface::Union::Private,
+];
+const ALIASES: [fn(Alias) -> interface::Alias; 2] =
+    [interface::Alias::Public, interface::Alias::Private];
+const ALIAS_TYPES: [fn(Arc<Type>) -> AliasType; 2] = [AliasType::Holey, AliasType::Filled];
 
 #[derive(Default)]
 pub(crate) struct Encoder {
@@ -79,6 +101,23 @@ impl Encoder {
         self.body_at.insert(at, place);
     }
 
+    /// `value`, by its tag in `table`.
+    fn tag<T: Copy + PartialEq>(&mut self, table: &[T], value: T) {
+        let tag = table.iter().position(|t| *t == value).expect("a tag");
+        self.u8(u8::try_from(tag).expect("a small table"));
+    }
+
+    /// 0 for nothing, or 1 and the value.
+    fn option<T: ?Sized>(&mut self, value: Option<&T>, write: impl FnOnce(&mut Encoder, &T)) {
+        match value {
+            None => self.u8(0),
+            Some(value) => {
+                self.u8(1);
+                write(self, value);
+            }
+        }
+    }
+
     fn strs(&mut self, items: &[String]) {
         self.len(items.len());
         for s in items {
@@ -122,12 +161,8 @@ impl Encoder {
         self.map(&i.binops, |e, b| {
             e.str(&b.function);
             e.annotation(&b.annotation);
-            e.u8(match b.associativity {
-                Associativity::Left => 0,
-                Associativity::Non => 1,
-                Associativity::Right => 2,
-            });
-            e.u64(b.precedence as u64);
+            e.tag(&ASSOCIATIVITIES, b.fixity.associativity);
+            e.u64(b.fixity.precedence as u64);
         });
     }
 
@@ -173,11 +208,7 @@ impl Encoder {
             }
         }
         self.len(u.count);
-        self.u8(match u.opts {
-            CtorOpts::Normal => 0,
-            CtorOpts::Enum => 1,
-            CtorOpts::Unbox => 2,
-        });
+        self.tag(&CTOR_OPTS, u.opts);
     }
 
     fn home(&mut self, home: &Home) {
@@ -186,7 +217,7 @@ impl Encoder {
     }
 
     fn ty(&mut self, t: &Type) {
-        stacker::maybe_grow(128 * 1024, 2 * 1024 * 1024, || self.ty_(t));
+        grow_large(|| self.ty_(t));
     }
 
     fn ty_(&mut self, t: &Type) {
@@ -200,7 +231,7 @@ impl Encoder {
                 self.u8(1);
                 self.str(name);
             }
-            Type::Type(home, name, args) => {
+            Type::Type { home, name, args } => {
                 self.u8(2);
                 self.home(home);
                 self.str(name);
@@ -215,28 +246,21 @@ impl Encoder {
                     e.u64(u64::from(f.order));
                     e.ty(&f.ty);
                 });
-                match ext {
-                    None => self.u8(0),
-                    Some(name) => {
-                        self.u8(1);
-                        self.str(name);
-                    }
-                }
+                self.option(ext.as_deref(), Encoder::str);
             }
             Type::Unit => self.u8(4),
             Type::Tuple(a, b, c) => {
                 self.u8(5);
                 self.ty(a);
                 self.ty(b);
-                match c {
-                    None => self.u8(0),
-                    Some(c) => {
-                        self.u8(1);
-                        self.ty(c);
-                    }
-                }
+                self.option(c.as_deref(), Encoder::ty);
             }
-            Type::Alias(home, name, args, aliased) => {
+            Type::Alias {
+                home,
+                name,
+                args,
+                aliased,
+            } => {
                 self.u8(6);
                 self.home(home);
                 self.str(name);
@@ -339,6 +363,20 @@ impl<'a> Decoder<'a> {
         }
     }
 
+    /// A value of `table`, by its tag.
+    fn tag<T: Copy>(&mut self, table: &[T]) -> Option<T> {
+        table.get(usize::from(self.u8()?)).copied()
+    }
+
+    /// Whether a value follows, as [`Encoder::option`] marks it.
+    fn present(&mut self) -> Option<bool> {
+        match self.u8()? {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        }
+    }
+
     fn strs(&mut self) -> Option<Vec<String>> {
         let n = self.len()?;
         (0..n).map(|_| self.str()).collect()
@@ -371,40 +409,16 @@ impl<'a> Decoder<'a> {
     fn interface_body(&mut self) -> Option<Interface> {
         let home = self.str()?;
         let values = self.map(Decoder::annotation)?;
-        let unions = self.map(|d| {
-            let tag = d.u8()?;
-            let union = d.union()?;
-            match tag {
-                0 => Some(interface::Union::Open(union)),
-                1 => Some(interface::Union::Closed(union)),
-                2 => Some(interface::Union::Private(union)),
-                _ => None,
-            }
-        })?;
-        let aliases = self.map(|d| {
-            let tag = d.u8()?;
-            let alias = d.alias()?;
-            match tag {
-                0 => Some(interface::Alias::Public(alias)),
-                1 => Some(interface::Alias::Private(alias)),
-                _ => None,
-            }
-        })?;
+        let unions = self.map(|d| Some(d.tag(&UNIONS)?(d.union()?)))?;
+        let aliases = self.map(|d| Some(d.tag(&ALIASES)?(d.alias()?)))?;
         let binops = self.map(|d| {
-            let function = d.str()?;
-            let annotation = d.annotation()?;
-            let associativity = match d.u8()? {
-                0 => Associativity::Left,
-                1 => Associativity::Non,
-                2 => Associativity::Right,
-                _ => return None,
-            };
-            let precedence = d.u64()? as i64;
             Some(Binop {
-                function,
-                annotation,
-                associativity,
-                precedence,
+                function: d.str()?,
+                annotation: d.annotation()?,
+                fixity: Fixity {
+                    associativity: d.tag(&ASSOCIATIVITIES)?,
+                    precedence: d.u64()? as i64,
+                },
             })
         })?;
         Some(Interface {
@@ -449,30 +463,20 @@ impl<'a> Decoder<'a> {
         let ctors = (0..n)
             .map(|_| {
                 let name = self.str()?;
-                let index = self.len_value()?;
+                // A place among the constructors, not a length of bytes.
+                let index = self.leb128()?;
                 let count = self.len()?;
                 let args = (0..count).map(|_| self.ty()).collect::<Option<_>>()?;
                 Some(Ctor { name, index, args })
             })
             .collect::<Option<_>>()?;
-        let count = self.len_value()?;
-        let opts = match self.u8()? {
-            0 => CtorOpts::Normal,
-            1 => CtorOpts::Enum,
-            2 => CtorOpts::Unbox,
-            _ => return None,
-        };
         Some(Union {
             vars,
             ctors,
-            count,
-            opts,
+            // How many constructors, not a length of bytes.
+            count: self.leb128()?,
+            opts: self.tag(&CTOR_OPTS)?,
         })
-    }
-
-    /// A number that counts something elsewhere, not bytes here.
-    fn len_value(&mut self) -> Option<usize> {
-        self.leb128()
     }
 
     fn home(&mut self) -> Option<Home> {
@@ -483,7 +487,7 @@ impl<'a> Decoder<'a> {
     }
 
     fn ty(&mut self) -> Option<Type> {
-        stacker::maybe_grow(128 * 1024, 2 * 1024 * 1024, || self.ty_())
+        grow_large(|| self.ty_())
     }
 
     fn ty_(&mut self) -> Option<Type> {
@@ -495,17 +499,17 @@ impl<'a> Decoder<'a> {
                 let name = self.str()?;
                 let n = self.len()?;
                 let args = (0..n).map(|_| self.ty()).collect::<Option<_>>()?;
-                Type::Type(home, name, args)
+                Type::Type { home, name, args }
             }
             3 => {
                 let fields = self.map(|d| {
                     let order = u16::try_from(d.u64()?).ok()?;
                     Some(FieldType { order, ty: d.ty()? })
                 })?;
-                let ext = match self.u8()? {
-                    0 => None,
-                    1 => Some(self.str()?),
-                    _ => return None,
+                let ext = if self.present()? {
+                    Some(self.str()?)
+                } else {
+                    None
                 };
                 Type::Record(fields, ext)
             }
@@ -513,10 +517,10 @@ impl<'a> Decoder<'a> {
             5 => {
                 let a = self.ty()?;
                 let b = self.ty()?;
-                let c = match self.u8()? {
-                    0 => None,
-                    1 => Some(Box::new(self.ty()?)),
-                    _ => return None,
+                let c = if self.present()? {
+                    Some(Box::new(self.ty()?))
+                } else {
+                    None
                 };
                 Type::Tuple(Box::new(a), Box::new(b), c)
             }
@@ -527,12 +531,13 @@ impl<'a> Decoder<'a> {
                 let args = (0..n)
                     .map(|_| Some((self.str()?, self.ty()?)))
                     .collect::<Option<_>>()?;
-                let aliased = match self.u8()? {
-                    0 => AliasType::Holey(self.body()?),
-                    1 => AliasType::Filled(self.body()?),
-                    _ => return None,
-                };
-                Type::Alias(home, name, args, aliased)
+                let aliased = self.tag(&ALIAS_TYPES)?(self.body()?);
+                Type::Alias {
+                    home,
+                    name,
+                    args,
+                    aliased,
+                }
             }
             _ => return None,
         })

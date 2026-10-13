@@ -4,16 +4,14 @@ use proptest::prelude::*;
 
 use super::*;
 use crate::canonical::{AliasType, Ctor, CtorOpts, FieldType, Home, Type};
-
-fn home(module: &str) -> Home {
-    Home {
-        package: "elm/core".into(),
-        module: module.into(),
-    }
-}
+use crate::hir::Associativity;
 
 fn maybe(a: Type) -> Type {
-    Type::Type(home("Maybe"), "Maybe".to_owned(), vec![a])
+    Type::Type {
+        home: Home::core("Maybe"),
+        name: "Maybe".to_owned(),
+        args: vec![a],
+    }
 }
 
 /// Part of `Maybe`'s and `Basics`' interfaces.
@@ -55,12 +53,12 @@ fn sample() -> Interface {
         ]),
         Some("r".to_owned()),
     );
-    let aliased = Type::Alias(
-        home("Maybe"),
-        "Point".to_owned(),
-        vec![("r".to_owned(), Type::Unit)],
-        AliasType::Filled(std::sync::Arc::new(point.clone())),
-    );
+    let aliased = Type::Alias {
+        home: Home::core("Maybe"),
+        name: "Point".to_owned(),
+        args: vec![("r".to_owned(), Type::Unit)],
+        aliased: AliasType::Filled(std::sync::Arc::new(point.clone())),
+    };
     let with_default = Type::Lambda(
         Box::new(a()),
         Box::new(Type::Lambda(Box::new(maybe(a())), Box::new(a()))),
@@ -90,8 +88,10 @@ fn sample() -> Interface {
                     free: vec![],
                     ty: Type::Tuple(Box::new(aliased), Box::new(Type::Unit), None).into(),
                 },
-                associativity: Associativity::Left,
-                precedence: 0,
+                fixity: Fixity {
+                    associativity: Associativity::Left,
+                    precedence: 0,
+                },
             },
         )]),
     }
@@ -105,7 +105,7 @@ fn interfaces_round_trip() {
     // The same interface, built again, encodes alike; another doesn't.
     assert_eq!(sample().encode(), bytes);
     let mut other = sample();
-    other.binops.get_mut("|>").unwrap().precedence = 1;
+    other.binops.get_mut("|>").unwrap().fixity.precedence = 1;
     assert_ne!(other.encode(), bytes);
     for dependency in [
         DependencyInterface::Public(interface.clone()),
@@ -139,12 +139,6 @@ fn damaged_bytes_are_none() {
 #[test]
 fn importers_see_the_public_parts() {
     let interface = sample();
-    let maybe = &interface.unions["Maybe"];
-    assert_eq!(maybe.public().unwrap().ctors.len(), 2);
-    let closed = Union::Closed(maybe.whole().clone()).public().unwrap();
-    assert!(closed.ctors.is_empty());
-    assert_eq!(closed.count, 0);
-    assert_eq!(Union::Private(maybe.whole().clone()).public(), None);
     assert_eq!(interface.aliases["Point"].public(), None);
     let DependencyInterface::Private {
         unions, aliases, ..
@@ -167,8 +161,13 @@ fn ty() -> impl Strategy<Value = Type> {
         prop_oneof![
             (inner.clone(), inner.clone())
                 .prop_map(|(a, b)| Type::Lambda(Box::new(a), Box::new(b))),
-            (name(), name(), prop::collection::vec(inner.clone(), 0..3))
-                .prop_map(|(m, n, args)| Type::Type(home(&m), n, args)),
+            (name(), name(), prop::collection::vec(inner.clone(), 0..3)).prop_map(
+                |(m, name, args)| Type::Type {
+                    home: Home::core(&m),
+                    name,
+                    args
+                }
+            ),
             (fields, prop::option::of(name())).prop_map(|(fields, ext)| {
                 let fields = fields
                     .into_iter()
@@ -199,7 +198,12 @@ fn ty() -> impl Strategy<Value = Type> {
                     } else {
                         AliasType::Holey(body.into())
                     };
-                    Type::Alias(home("M"), n, args, aliased)
+                    Type::Alias {
+                        home: Home::core("M"),
+                        name: n,
+                        args,
+                        aliased,
+                    }
                 }),
         ]
     })
@@ -251,12 +255,14 @@ fn interface() -> impl Strategy<Value = Interface> {
         |(function, annotation, a, precedence)| Binop {
             function,
             annotation,
-            associativity: [
-                Associativity::Left,
-                Associativity::Non,
-                Associativity::Right,
-            ][a],
-            precedence,
+            fixity: Fixity {
+                associativity: [
+                    Associativity::Left,
+                    Associativity::Non,
+                    Associativity::Right,
+                ][a],
+                precedence,
+            },
         },
     );
     (

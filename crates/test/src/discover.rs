@@ -83,13 +83,15 @@ pub fn tests(module: &TestModule, interface: &Interface) -> Vec<String> {
 /// or the type it stands for.
 fn is_test(ty: &Type) -> bool {
     match ty {
-        Type::Alias(home, name, args, _) => {
+        Type::Alias {
+            home, name, args, ..
+        } => {
             &*home.package == "elm-explorations/test"
                 && &*home.module == "Test"
                 && name == "Test"
                 && args.is_empty()
         }
-        Type::Type(home, name, args) => {
+        Type::Type { home, name, args } => {
             &*home.package == "elm-explorations/test"
                 && &*home.module == "Test.Internal"
                 && name == "Test"

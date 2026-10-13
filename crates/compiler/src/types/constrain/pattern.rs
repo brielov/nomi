@@ -1,10 +1,9 @@
 //! Constraints for patterns (`Type/Constrain/Pattern.hs`): what type a
 //! pattern matches, and the names it binds, each with its type.
 
-use crate::canonical::Text;
 use std::collections::BTreeMap;
 
-use nomi_base::TextRange;
+use nomi_base::{Text, TextRange};
 
 use crate::canonical::{Pattern, PatternCtorArg, PatternKind};
 use crate::types::expected::{PCategory, PContext, PExpected};

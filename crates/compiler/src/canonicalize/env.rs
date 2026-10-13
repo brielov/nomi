@@ -6,54 +6,55 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use nomi_base::{Compat, TextRange};
 
-use super::error::{Error, NameKind, PossibleNames, R, throw};
+use super::error::{Error, NameKind, PossibleNames, R, collected, throw};
 use super::references::{Kind, Recorder};
-use crate::canonical::{Annotation, Associativity, Home, Type, Union};
+use crate::canonical::{AliasType, Annotation, FieldType, Home, Type, Union};
+use crate::hir::Fixity;
 
 /// Names exposed unqualified: each name's homes (`Env.Exposed`).
-pub type Exposed<T> = BTreeMap<String, BTreeMap<Home, T>>;
+pub(super) type Exposed<T> = BTreeMap<String, BTreeMap<Home, T>>;
 
 /// Names under each qualifier (`Env.Qualified`).
-pub type Qualified<T> = BTreeMap<String, Exposed<T>>;
+pub(super) type Qualified<T> = BTreeMap<String, Exposed<T>>;
 
 /// `Env.Env`. Every scope copies it, so the tables a scope doesn't change
 /// are shared.
 #[derive(Clone, Debug)]
-pub struct Env<'a> {
+pub(super) struct Env<'a> {
     /// The release whose order names take where it shows.
-    pub compat: Compat,
-    pub home: Home,
-    pub vars: Rc<BTreeMap<String, Var<'a>>>,
-    pub types: Rc<Exposed<TypeInfo>>,
-    pub ctors: Rc<Exposed<CtorInfo<'a>>>,
-    pub binops: Rc<Exposed<BinopInfo<'a>>>,
-    pub q_vars: Rc<Qualified<&'a Annotation>>,
-    pub q_types: Rc<Qualified<TypeInfo>>,
-    pub q_ctors: Rc<Qualified<CtorInfo<'a>>>,
+    pub(super) compat: Compat,
+    pub(super) home: Home,
+    pub(super) vars: Rc<BTreeMap<String, Var<'a>>>,
+    pub(super) types: Rc<Exposed<TypeInfo>>,
+    pub(super) ctors: Rc<Exposed<CtorInfo<'a>>>,
+    pub(super) binops: Rc<Exposed<BinopInfo<'a>>>,
+    pub(super) q_vars: Rc<Qualified<&'a Annotation>>,
+    pub(super) q_types: Rc<Qualified<TypeInfo>>,
+    pub(super) q_ctors: Rc<Qualified<CtorInfo<'a>>>,
     /// What each name resolved to, for navigation.
-    pub references: Recorder,
+    pub(super) references: Recorder,
 }
 
 /// `Env.Var`.
 #[derive(Clone, Debug)]
-pub enum Var<'a> {
+pub(super) enum Var<'a> {
     Local(TextRange),
     TopLevel(TextRange),
     Foreign(BTreeMap<Home, &'a Annotation>),
 }
 
-/// `Env.Type`: an alias with its arity, parameters and body, or a union
-/// with its arity.
+/// `Env.Type`: an alias with its parameters and body, or a union with its
+/// arity.
 #[derive(Clone, Debug)]
-pub enum TypeInfo {
+pub(super) enum TypeInfo {
     Alias {
-        arity: usize,
         home: Home,
         vars: Vec<String>,
-        ty: std::sync::Arc<Type>,
+        ty: Arc<Type>,
     },
     Union {
         arity: usize,
@@ -63,7 +64,7 @@ pub enum TypeInfo {
 
 /// `Env.Ctor`: a record alias's constructor, or a union's.
 #[derive(Clone, Debug)]
-pub enum CtorInfo<'a> {
+pub(super) enum CtorInfo<'a> {
     Record {
         home: Home,
         vars: Vec<String>,
@@ -78,39 +79,93 @@ pub enum CtorInfo<'a> {
     },
 }
 
-/// `Env.Binop`.
-#[derive(Clone, Debug)]
-pub struct BinopInfo<'a> {
-    pub op: String,
-    pub home: Home,
-    pub function: String,
-    pub annotation: &'a Annotation,
-    pub associativity: Associativity,
-    pub precedence: i64,
-}
-
-/// `Map.unionWith Map.union`: `b`'s homes added to `a`'s, `a`'s kept on
-/// a clash.
-pub fn add_exposed<T: Clone>(a: &mut Exposed<T>, b: &Exposed<T>) {
-    for (name, homes) in b {
-        let entry = a.entry(name.clone()).or_default();
-        for (home, info) in homes {
-            entry.entry(home.clone()).or_insert_with(|| info.clone());
+impl CtorInfo<'_> {
+    /// A record alias's constructor (`aliasToType`, `addCtors`): a function
+    /// from the record's fields, in their written order, to the alias,
+    /// which stands for `body`.
+    pub(super) fn record(
+        home: &Home,
+        name: &str,
+        vars: &[String],
+        fields: &BTreeMap<String, FieldType>,
+        body: Arc<Type>,
+    ) -> Self {
+        let args = vars.iter().map(|v| (v.clone(), Type::Var(v.clone())));
+        let result = Type::Alias {
+            home: home.clone(),
+            name: name.to_owned(),
+            args: args.collect(),
+            aliased: AliasType::Filled(body),
+        };
+        let mut by_order: Vec<&FieldType> = fields.values().collect();
+        by_order.sort_by_key(|f| f.order);
+        CtorInfo::Record {
+            home: home.clone(),
+            vars: vars.to_vec(),
+            ty: Type::function(by_order.into_iter().map(|f| f.ty.clone()), result),
         }
     }
 }
 
-/// The one home's info, or an ambiguity.
-fn one<T>(homes: &BTreeMap<Home, T>) -> Result<&T, Vec<Home>> {
+/// `Env.Binop`.
+#[derive(Clone, Debug)]
+pub(super) struct BinopInfo<'a> {
+    pub(super) op: String,
+    pub(super) home: Home,
+    pub(super) function: String,
+    pub(super) annotation: &'a Annotation,
+    pub(super) fixity: Fixity,
+}
+
+/// Which side keeps the info of a home two tables both have.
+#[derive(Clone, Copy)]
+pub(super) enum Bias {
+    Old,
+    New,
+}
+
+/// `from`'s homes added to `into`'s (`Map.union`, either way round).
+pub(super) fn merge_homes<T: Clone>(
+    into: &mut BTreeMap<Home, T>,
+    from: &BTreeMap<Home, T>,
+    bias: Bias,
+) {
+    for (home, info) in from {
+        match bias {
+            Bias::Old => {
+                into.entry(home.clone()).or_insert_with(|| info.clone());
+            }
+            Bias::New => {
+                into.insert(home.clone(), info.clone());
+            }
+        }
+    }
+}
+
+/// `Map.unionWith Map.union`: each of `from`'s names' homes added to
+/// `into`'s.
+pub(super) fn merge<T: Clone>(into: &mut Exposed<T>, from: &Exposed<T>, bias: Bias) {
+    for (name, homes) in from {
+        merge_homes(into.entry(name.clone()).or_default(), homes, bias);
+    }
+}
+
+/// The one home and its info, or an ambiguity among the homes.
+pub(super) fn one<T>(homes: &BTreeMap<Home, T>) -> Result<(&Home, &T), Vec<Home>> {
     match homes.len() {
-        1 => Ok(homes.values().next().expect("one home")),
+        1 => Ok(homes.iter().next().expect("one home")),
         _ => Err(homes.keys().cloned().collect()),
     }
 }
 
-fn possible<T>(exposed: &Exposed<T>, qualified: &Qualified<T>) -> PossibleNames {
+/// The names a missing one may be a typo of: `locals`, and those under
+/// each qualifier.
+pub(super) fn possible<'n, T>(
+    locals: impl Iterator<Item = &'n String>,
+    qualified: &Qualified<T>,
+) -> PossibleNames {
     PossibleNames {
-        locals: exposed.keys().cloned().collect(),
+        locals: locals.cloned().collect(),
         qualified: (qualified.iter())
             .map(|(prefix, names)| (prefix.clone(), names.keys().cloned().collect()))
             .collect(),
@@ -131,15 +186,8 @@ fn find<'e, T>(
         None => Some(exposed),
         Some(prefix) => qualified.get(prefix),
     };
-    let not_found = || Error::NotFound {
-        kind,
-        range,
-        prefix: prefix.map(str::to_owned),
-        name: name.to_owned(),
-        possible: possible(exposed, qualified),
-    };
     match table.and_then(|t| t.get(name)) {
-        Some(homes) => one(homes).or_else(|homes| {
+        Some(homes) => one(homes).map(|(_, info)| info).or_else(|homes| {
             throw(Error::Ambiguous {
                 kind,
                 range,
@@ -148,7 +196,13 @@ fn find<'e, T>(
                 homes,
             })
         }),
-        None => throw(not_found()),
+        None => throw(Error::NotFound {
+            kind,
+            range,
+            prefix: prefix.map(str::to_owned),
+            name: name.to_owned(),
+            possible: possible(exposed.keys(), qualified),
+        }),
     }
 }
 
@@ -156,7 +210,7 @@ impl<'a> Env<'a> {
     /// `addLocals`: `names` bound locally over the environment. A local or
     /// top-level name of the same spelling is shadowed, which is an error;
     /// a foreign one just yields.
-    pub fn add_locals(&self, names: &BTreeMap<String, TextRange>) -> R<Env<'a>> {
+    pub(super) fn add_locals(&self, names: &BTreeMap<String, TextRange>) -> R<Env<'a>> {
         let mut env = self.clone();
         let mut errors = Vec::new();
         for name in self.compat.sorted_names(names.keys()) {
@@ -174,14 +228,16 @@ impl<'a> Env<'a> {
                 }
             }
         }
-        if errors.is_empty() {
-            Ok(env)
-        } else {
-            Err(errors)
-        }
+        collected(env, errors)
     }
 
-    pub fn find_type(&self, range: TextRange, prefix: Option<&str>, name: &str) -> R<&TypeInfo> {
+    /// `findType`: the type `name` names, under `prefix` if it has one.
+    pub(super) fn find_type(
+        &self,
+        range: TextRange,
+        prefix: Option<&str>,
+        name: &str,
+    ) -> R<&TypeInfo> {
         let info = find(
             NameKind::Type,
             range,
@@ -195,7 +251,9 @@ impl<'a> Env<'a> {
         Ok(info)
     }
 
-    pub fn find_ctor(
+    /// `findCtor`: the constructor `name` names, under `prefix` if it has
+    /// one.
+    pub(super) fn find_ctor(
         &self,
         range: TextRange,
         prefix: Option<&str>,
@@ -214,9 +272,11 @@ impl<'a> Env<'a> {
         Ok(info)
     }
 
-    pub fn find_binop(&self, range: TextRange, op: &str) -> R<&BinopInfo<'a>> {
+    /// `findBinop`: the operator `op`.
+    pub(super) fn find_binop(&self, range: TextRange, op: &str) -> R<&BinopInfo<'a>> {
         match self.binops.get(op) {
             Some(homes) => one(homes)
+                .map(|(_, binop)| binop)
                 .inspect(|b| self.references.global(range, &b.home, op, Kind::Binop))
                 .or_else(|homes| {
                     throw(Error::AmbiguousBinop {

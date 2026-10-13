@@ -52,9 +52,16 @@ pub fn sort_texts<V: AsRef<str>>(target: &str, values: &mut [V]) {
     sort(&code_points(target), values, |v| code_points(v.as_ref()));
 }
 
+/// The first `n` of `candidates` by [`sort_texts`] against `target`.
+pub fn nearest<V: AsRef<str>>(target: &str, mut candidates: Vec<V>, n: usize) -> Vec<V> {
+    sort_texts(target, &mut candidates);
+    candidates.truncate(n);
+    candidates
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{distance, sort_texts};
+    use super::{distance, nearest, sort_texts};
 
     fn d(a: &str, b: &str) -> usize {
         let a: Vec<char> = a.chars().collect();
@@ -80,5 +87,6 @@ mod tests {
         let mut values = ["map", "Maybe", "mop", "List", "MAP"];
         sort_texts("map", &mut values);
         assert_eq!(values, ["map", "MAP", "mop", "Maybe", "List"]);
+        assert_eq!(nearest("map", values.to_vec(), 2), ["map", "MAP"]);
     }
 }

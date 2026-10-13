@@ -22,9 +22,10 @@ use std::sync::Arc;
 
 use super::{
     Choice, Chunk, Decider, Def, Destructor, DtPath, EffectsType, Expr, Global, GlobalGraph,
-    LocalGraph, Main, Node, Path, Region, Test,
+    LocalGraph, Main, Node, Path, Test,
 };
 use nomi_base::Compat;
+use nomi_base::diagnostic::code::{Position, Region};
 
 use crate::canonical::{AliasType, CtorOpts, FieldType, Home, Type};
 
@@ -295,9 +296,9 @@ impl Out {
                 self.expr(expr);
                 self.global_set(deps);
             }
-            Node::DefineTailFunc(args, body, deps) => {
+            Node::DefineTailFunc { params, body, deps } => {
                 self.u8(1);
-                self.names(args);
+                self.names(params);
                 self.expr(body);
                 self.global_set(deps);
             }
@@ -315,7 +316,12 @@ impl Out {
                 self.u8(5);
                 self.global(global);
             }
-            Node::Cycle(names, values, functions, deps) => {
+            Node::Cycle {
+                names,
+                values,
+                functions,
+                deps,
+            } => {
                 self.u8(6);
                 self.names(names);
                 self.list(values, |out, (name, expr)| {
@@ -362,7 +368,7 @@ impl Out {
                 self.home(home);
                 self.name(name);
             }
-            Chunk::JsVar(module, name) => {
+            Chunk::JsVar { module, name } => {
                 self.u8(2);
                 self.name(module);
                 self.name(name);
@@ -391,10 +397,10 @@ impl Out {
                 self.name(name);
                 self.expr(expr);
             }
-            Def::TailDef(name, args, body) => {
+            Def::TailDef { name, params, body } => {
                 self.u8(1);
                 self.name(name);
-                self.names(args);
+                self.names(params);
                 self.expr(body);
             }
         }
@@ -440,12 +446,18 @@ impl Out {
 
     fn test(&mut self, test: &Test) {
         match test {
-            Test::IsCtor(home, name, index, alts, opts) => {
+            Test::IsCtor {
+                home,
+                name,
+                index,
+                count,
+                opts,
+            } => {
                 self.u8(0);
                 self.home(home);
                 self.name(name);
                 self.index(*index);
-                self.int(*alts);
+                self.int(*count);
                 self.ctor_opts(*opts);
             }
             Test::IsCons => self.u8(1),
@@ -523,7 +535,7 @@ impl Out {
     }
 
     fn region(&mut self, region: &Region) {
-        for (row, col) in [region.start, region.end] {
+        for Position { row, col } in [region.start, region.end] {
             if self.v1() {
                 self.word16(row as u16);
                 self.word16(col as u16);
@@ -578,14 +590,19 @@ impl Out {
                 self.home(home);
                 self.name(name);
             }
-            Expr::VarDebug(name, home, region, unhandled) => {
+            Expr::VarDebug {
+                name,
+                home,
+                region,
+                unhandled,
+            } => {
                 self.u8(10);
                 self.name(name);
                 self.home(home);
                 self.region(region);
                 self.maybe(unhandled.as_ref(), |out, name| out.name(name));
             }
-            Expr::VarKernel(module, name) => {
+            Expr::VarKernel { module, name } => {
                 self.u8(11);
                 self.name(module);
                 self.name(name);
@@ -631,7 +648,12 @@ impl Out {
                 self.path(&destructor.path);
                 self.expr(body);
             }
-            Expr::Case(label, root, decider, jumps) => {
+            Expr::Case {
+                label,
+                root,
+                decider,
+                jumps,
+            } => {
                 self.u8(19);
                 self.name(label);
                 self.name(root);
@@ -674,7 +696,11 @@ impl Out {
                 self.expr(b);
                 self.maybe(c.as_deref(), Out::expr);
             }
-            Expr::Shader(source, attributes, uniforms) => {
+            Expr::Shader {
+                source,
+                attributes,
+                uniforms,
+            } => {
                 self.u8(if self.v3() { 27 } else { 26 });
                 self.byte_string(source);
                 self.name_set(attributes);
@@ -712,7 +738,12 @@ impl Out {
                 self.ty(b);
                 self.maybe(c.as_deref(), Out::ty);
             }
-            Type::Alias(home, name, args, body) => {
+            Type::Alias {
+                home,
+                name,
+                args,
+                aliased: body,
+            } => {
                 self.u8(5);
                 self.home(home);
                 self.name(name);
@@ -732,7 +763,7 @@ impl Out {
                 }
             }
             // The arity in the tag when it fits.
-            Type::Type(home, name, args) if args.len() + 7 <= 255 => {
+            Type::Type { home, name, args } if args.len() + 7 <= 255 => {
                 self.u8((args.len() + 7) as u8);
                 self.home(home);
                 self.name(name);
@@ -740,7 +771,7 @@ impl Out {
                     self.ty(arg);
                 }
             }
-            Type::Type(home, name, args) => {
+            Type::Type { home, name, args } => {
                 self.u8(6);
                 self.home(home);
                 self.name(name);
@@ -785,7 +816,12 @@ impl Out {
                 self.ty3(b);
                 self.ty3(c);
             }
-            Type::Alias(home, name, args, body) => {
+            Type::Alias {
+                home,
+                name,
+                args,
+                aliased: body,
+            } => {
                 self.u8(6);
                 self.home(home);
                 self.name(name);
@@ -801,7 +837,7 @@ impl Out {
                 self.u8(tag);
                 self.ty3(ty);
             }
-            Type::Type(home, name, args) => {
+            Type::Type { home, name, args } => {
                 self.u8(7);
                 self.home(home);
                 self.name(name);
@@ -1030,17 +1066,21 @@ impl<'a> In<'a> {
     fn node(&mut self) -> Option<Node> {
         Some(match self.u8()? {
             0 => Node::Define(self.expr()?, self.global_set()?),
-            1 => Node::DefineTailFunc(self.names()?, self.expr()?, self.global_set()?),
+            1 => Node::DefineTailFunc {
+                params: self.names()?,
+                body: self.expr()?,
+                deps: self.global_set()?,
+            },
             2 => Node::Ctor(self.index()?, self.int()?),
             3 => Node::Enum(self.index()?),
             4 => Node::Box,
             5 => Node::Link(self.global()?),
-            6 => Node::Cycle(
-                self.names()?,
-                self.list(|input| Some((input.name()?, input.expr()?)))?,
-                self.list(In::def)?,
-                self.global_set()?,
-            ),
+            6 => Node::Cycle {
+                names: self.names()?,
+                values: self.list(|input| Some((input.name()?, input.expr()?)))?,
+                functions: self.list(In::def)?,
+                deps: self.global_set()?,
+            },
             7 => Node::Manager(match self.u8()? {
                 0 => EffectsType::Cmd,
                 1 => EffectsType::Sub,
@@ -1058,7 +1098,10 @@ impl<'a> In<'a> {
         Some(match self.u8()? {
             0 => Chunk::Js(self.byte_string()?),
             1 => Chunk::ElmVar(self.home()?, self.name()?),
-            2 => Chunk::JsVar(self.name()?, self.name()?),
+            2 => Chunk::JsVar {
+                module: self.name()?,
+                name: self.name()?,
+            },
             3 => Chunk::ElmField(self.name()?),
             4 => Chunk::JsField(self.int()?),
             5 => Chunk::JsEnum(self.int()?),
@@ -1071,7 +1114,11 @@ impl<'a> In<'a> {
     fn def(&mut self) -> Option<Def> {
         Some(match self.u8()? {
             0 => Def::Def(self.name()?, self.expr()?),
-            1 => Def::TailDef(self.name()?, self.names()?, self.expr()?),
+            1 => Def::TailDef {
+                name: self.name()?,
+                params: self.names()?,
+                body: self.expr()?,
+            },
             _ => return None,
         })
     }
@@ -1097,13 +1144,13 @@ impl<'a> In<'a> {
 
     fn test(&mut self) -> Option<Test> {
         Some(match self.u8()? {
-            0 => Test::IsCtor(
-                self.home()?,
-                self.name()?,
-                self.index()?,
-                self.int()?,
-                self.ctor_opts()?,
-            ),
+            0 => Test::IsCtor {
+                home: self.home()?,
+                name: self.name()?,
+                index: self.index()?,
+                count: self.int()?,
+                opts: self.ctor_opts()?,
+            },
             1 => Test::IsCons,
             2 => Test::IsNil,
             3 => Test::IsTuple,
@@ -1148,10 +1195,16 @@ impl<'a> In<'a> {
     fn region(&mut self) -> Option<Region> {
         let mut position = || {
             if self.v1() {
-                Some((u32::from(self.word16()?), u32::from(self.word16()?)))
+                Some(Position {
+                    row: u32::from(self.word16()?),
+                    col: u32::from(self.word16()?),
+                })
             } else {
                 let word = self.int()? as u64;
-                Some((u32::try_from(word >> 32).ok()?, word as u32))
+                Some(Position {
+                    row: u32::try_from(word >> 32).ok()?,
+                    col: word as u32,
+                })
             }
         };
         Some(Region {
@@ -1173,13 +1226,16 @@ impl<'a> In<'a> {
             7 => Expr::VarEnum(self.global()?, self.index()?),
             8 => Expr::VarBox(self.global()?),
             9 => Expr::VarCycle(self.home()?, self.name()?),
-            10 => Expr::VarDebug(
-                self.name()?,
-                self.home()?,
-                self.region()?,
-                self.maybe(In::name)?.into(),
-            ),
-            11 => Expr::VarKernel(self.name()?, self.name()?),
+            10 => Expr::VarDebug {
+                name: self.name()?,
+                home: self.home()?,
+                region: self.region()?,
+                unhandled: self.maybe(In::name)?.into(),
+            },
+            11 => Expr::VarKernel {
+                module: self.name()?,
+                name: self.name()?,
+            },
             12 => Expr::List(self.list(In::expr)?),
             13 => Expr::Function(self.names()?, boxed(self.expr()?)),
             14 => Expr::Call(boxed(self.expr()?), self.list(In::expr)?),
@@ -1199,12 +1255,12 @@ impl<'a> In<'a> {
                 },
                 boxed(self.expr()?),
             ),
-            19 => Expr::Case(
-                self.name()?,
-                self.name()?,
-                Box::new(self.decider()?),
-                self.list(|input| Some((input.index()?, input.expr()?)))?,
-            ),
+            19 => Expr::Case {
+                label: self.name()?,
+                root: self.name()?,
+                decider: Box::new(self.decider()?),
+                jumps: self.list(|input| Some((input.index()?, input.expr()?)))?,
+            },
             20 => Expr::Accessor(self.name()?),
             21 => Expr::Access(boxed(self.expr()?), self.name()?),
             22 => Expr::Update(boxed(self.expr()?), self.name_map(In::expr)?),
@@ -1216,16 +1272,22 @@ impl<'a> In<'a> {
                 boxed(self.expr()?),
                 Some(boxed(self.expr()?)),
             ),
-            27 if self.v3() => {
-                Expr::Shader(self.byte_string()?, self.name_set()?, self.name_set()?)
-            }
+            27 if self.v3() => self.shader()?,
             25 => Expr::Tuple(
                 boxed(self.expr()?),
                 boxed(self.expr()?),
                 Option::from(self.maybe(In::expr)?).map(Box::new),
             ),
-            26 => Expr::Shader(self.byte_string()?, self.name_set()?, self.name_set()?),
+            26 => self.shader()?,
             _ => return None,
+        })
+    }
+
+    fn shader(&mut self) -> Option<Expr> {
+        Some(Expr::Shader {
+            source: self.byte_string()?,
+            attributes: self.name_set()?,
+            uniforms: self.name_set()?,
         })
     }
 
@@ -1251,22 +1313,26 @@ impl<'a> In<'a> {
                 Box::new(self.ty()?),
                 Option::from(self.maybe(In::ty)?).map(Box::new),
             ),
-            5 => Type::Alias(
-                self.home()?,
-                self.name()?,
-                self.list(|input| Some((input.name()?, input.ty()?)))?,
-                match self.u8()? {
+            5 => Type::Alias {
+                home: self.home()?,
+                name: self.name()?,
+                args: self.list(|input| Some((input.name()?, input.ty()?)))?,
+                aliased: match self.u8()? {
                     0 => AliasType::Holey(Arc::new(self.ty()?)),
                     1 => AliasType::Filled(Arc::new(self.ty()?)),
                     _ => return None,
                 },
-            ),
-            6 => Type::Type(self.home()?, self.name()?, self.list(In::ty)?),
+            },
+            6 => Type::Type {
+                home: self.home()?,
+                name: self.name()?,
+                args: self.list(In::ty)?,
+            },
             n => {
                 let home = self.home()?;
                 let name = self.name()?;
                 let args = (0..n - 7).map(|_| self.ty()).collect::<Option<_>>()?;
-                Type::Type(home, name, args)
+                Type::Type { home, name, args }
             }
         })
     }
@@ -1305,19 +1371,24 @@ impl<'a> In<'a> {
                 let args = (0..n)
                     .map(|_| Some((self.var()?, self.ty3()?)))
                     .collect::<Option<_>>()?;
-                let body = match self.u8()? {
+                let aliased = match self.u8()? {
                     0 => AliasType::Holey(Arc::new(self.ty3()?)),
                     1 => AliasType::Filled(Arc::new(self.ty3()?)),
                     _ => return None,
                 };
-                Type::Alias(home, name, args, body)
+                Type::Alias {
+                    home,
+                    name,
+                    args,
+                    aliased,
+                }
             }
             7 => {
                 let home = self.home()?;
                 let name = self.name()?;
                 let n = self.u8()?;
                 let args = (0..n).map(|_| self.ty3()).collect::<Option<_>>()?;
-                Type::Type(home, name, args)
+                Type::Type { home, name, args }
             }
             _ => return None,
         })

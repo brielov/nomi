@@ -5,8 +5,9 @@
 
 use std::collections::BTreeMap;
 
-use crate::canonical::{self, Annotation, Associativity};
+use crate::canonical::{self, Annotation};
 use crate::encoding::{Decoder, Encoder};
+use crate::hir::Fixity;
 
 /// `Interface`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -22,6 +23,7 @@ pub struct Interface {
 /// Where canonicalization finds the interface of each module a module
 /// imports, by name.
 pub trait Interfaces: Sync {
+    /// The interface of the module named `module`, if there is one.
     fn get(&self, module: &str) -> Option<&Interface>;
 }
 
@@ -46,6 +48,7 @@ pub enum Union {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Alias {
     Public(canonical::Alias),
+    /// Not exported, but needed to read the types of what is.
     Private(canonical::Alias),
 }
 
@@ -55,26 +58,18 @@ pub enum Alias {
 pub struct Binop {
     pub function: String,
     pub annotation: Annotation,
-    pub associativity: Associativity,
-    pub precedence: i64,
+    pub fixity: Fixity,
 }
 
 impl Union {
-    /// `toPublicUnion`: the union as an importer sees it.
-    pub fn public(&self) -> Option<canonical::Union> {
+    /// `extractUnion`.
+    pub fn whole(&self) -> &canonical::Union {
         match self {
-            Union::Open(union) => Some(union.clone()),
-            Union::Closed(union) => Some(canonical::Union {
-                ctors: Vec::new(),
-                count: 0,
-                ..union.clone()
-            }),
-            Union::Private(_) => None,
+            Union::Open(union) | Union::Closed(union) | Union::Private(union) => union,
         }
     }
 
-    /// `extractUnion`.
-    pub fn whole(&self) -> &canonical::Union {
+    fn into_whole(self) -> canonical::Union {
         match self {
             Union::Open(union) | Union::Closed(union) | Union::Private(union) => union,
         }
@@ -92,6 +87,12 @@ impl Alias {
 
     /// `extractAlias`.
     pub fn whole(&self) -> &canonical::Alias {
+        match self {
+            Alias::Public(alias) | Alias::Private(alias) => alias,
+        }
+    }
+
+    fn into_whole(self) -> canonical::Alias {
         match self {
             Alias::Public(alias) | Alias::Private(alias) => alias,
         }
@@ -119,14 +120,26 @@ impl DependencyInterface {
             DependencyInterface::Public(interface) => DependencyInterface::Private {
                 home: interface.home,
                 unions: (interface.unions.into_iter())
-                    .map(|(name, u)| (name, u.whole().clone()))
+                    .map(|(name, u)| (name, u.into_whole()))
                     .collect(),
                 aliases: (interface.aliases.into_iter())
-                    .map(|(name, a)| (name, a.whole().clone()))
+                    .map(|(name, a)| (name, a.into_whole()))
                     .collect(),
             },
             private @ DependencyInterface::Private { .. } => private,
         }
+    }
+
+    /// Its bytes, as [`Interface::encode`]'s.
+    pub fn encode(&self) -> Vec<u8> {
+        let mut e = Encoder::default();
+        e.dependency(self);
+        e.finish()
+    }
+
+    /// The dependency interface `bytes` encode, if they are one.
+    pub fn decode(bytes: &[u8]) -> Option<DependencyInterface> {
+        decode_all(bytes, Decoder::dependency)
     }
 }
 
@@ -141,24 +154,18 @@ impl Interface {
 
     /// The interface `bytes` encode, if they are one.
     pub fn decode(bytes: &[u8]) -> Option<Interface> {
-        let mut d = Decoder::new(bytes);
-        let interface = d.interface()?;
-        d.end().then_some(interface)
+        decode_all(bytes, Decoder::interface)
     }
 }
 
-impl DependencyInterface {
-    pub fn encode(&self) -> Vec<u8> {
-        let mut e = Encoder::default();
-        e.dependency(self);
-        e.finish()
-    }
-
-    pub fn decode(bytes: &[u8]) -> Option<DependencyInterface> {
-        let mut d = Decoder::new(bytes);
-        let interface = d.dependency()?;
-        d.end().then_some(interface)
-    }
+/// What `read` makes of `bytes`, if it reads every one.
+fn decode_all<'b, T>(
+    bytes: &'b [u8],
+    read: impl FnOnce(&mut Decoder<'b>) -> Option<T>,
+) -> Option<T> {
+    let mut d = Decoder::new(bytes);
+    let value = read(&mut d)?;
+    d.end().then_some(value)
 }
 
 #[cfg(test)]

@@ -5,28 +5,28 @@
 
 use std::collections::BTreeMap;
 
-use nomi_base::TextRange;
+use nomi_base::{Compat, TextRange, grow_large};
 
 use super::dups::Dict;
 use super::env::{CtorInfo, Env};
-use super::error::{ArityContext, DuplicatePatternContext, Error, R, both, throw};
+use super::error::{ArityContext, DuplicatePatternContext, Error, R, all, both, throw};
 use crate::canonical::{Pattern, PatternCtorArg, PatternKind};
-use crate::hir::{self, PatId};
+use crate::hir::{self, PatId, int_value};
 
 /// The names a pattern binds so far (`Pattern.DupsDict`).
-pub type Bindings = Dict<TextRange>;
+pub(super) type Bindings = Dict<TextRange>;
 
 /// `verify`: what `work` makes while binding names, and those names, each
 /// bound once. A pattern that fails has only its own errors: duplicates
 /// are checked after.
-pub fn verify<T>(
-    env: &Env<'_>,
+pub(super) fn verify<T>(
+    compat: Compat,
     context: &DuplicatePatternContext,
     work: impl FnOnce(&mut Bindings) -> R<T>,
 ) -> R<(T, BTreeMap<String, TextRange>)> {
     let mut bindings = Bindings::default();
     let value = work(&mut bindings)?;
-    let bound = bindings.detect(env.compat, |name, first, second| Error::DuplicatePattern {
+    let bound = bindings.detect(compat, |name, first, second| Error::DuplicatePattern {
         context: context.clone(),
         name: name.to_owned(),
         first,
@@ -35,42 +35,26 @@ pub fn verify<T>(
     Ok((value, bound))
 }
 
-fn range(module: &hir::Module, id: PatId) -> TextRange {
-    module
-        .source_map
-        .pattern(id)
-        .map(|p| p.range)
-        .unwrap_or_default()
-}
-
 /// `canonicalize`.
-pub fn canonicalize(
+pub(super) fn canonicalize(
     env: &Env<'_>,
     module: &hir::Module,
     id: PatId,
     bindings: &mut Bindings,
 ) -> R<Pattern> {
-    stacker::maybe_grow(128 * 1024, 2 * 1024 * 1024, || {
-        canonicalize_(env, module, id, bindings)
-    })
+    grow_large(|| canonicalize_(env, module, id, bindings))
 }
 
 /// Each of `ids`, all of them even past an error.
-pub fn each(
+pub(super) fn each(
     env: &Env<'_>,
     module: &hir::Module,
     ids: &[PatId],
     bindings: &mut Bindings,
 ) -> R<Vec<Pattern>> {
-    let mut result = Ok(Vec::new());
-    for &id in ids {
-        let pattern = canonicalize(env, module, id, bindings);
-        result = both(result, pattern).map(|(mut done, p)| {
-            done.push(p);
-            done
-        });
-    }
-    result
+    all(ids
+        .iter()
+        .map(|&id| canonicalize(env, module, id, bindings)))
 }
 
 fn canonicalize_(
@@ -79,14 +63,14 @@ fn canonicalize_(
     id: PatId,
     bindings: &mut Bindings,
 ) -> R<Pattern> {
-    let region = range(module, id);
+    let region = module.source_map.pattern_range(id);
     let kind = match &module.patterns[id] {
         // A module with syntax errors canonicalizes for the editor only.
         hir::Pattern::Missing | hir::Pattern::Anything => PatternKind::Anything,
         hir::Pattern::Unit => PatternKind::Unit,
         hir::Pattern::Chr(text) => PatternKind::Chr(text.clone()),
         hir::Pattern::Str(text) => PatternKind::Str(text.clone()),
-        hir::Pattern::Int(text) => PatternKind::Int(super::expr::int_value(text)),
+        hir::Pattern::Int(text) => PatternKind::Int(int_value(text)),
         hir::Pattern::Var(name) => {
             bindings.insert(env.compat, name, region, region);
             PatternKind::Var(name.clone())
@@ -132,22 +116,16 @@ fn canonicalize_(
                             actual: args.len(),
                         });
                     }
-                    let mut result = Ok(Vec::new());
-                    for (i, (&arg, ty)) in args.iter().zip(types.iter()).enumerate() {
-                        let arg =
+                    let cargs = all((args.iter().zip(types.iter()).enumerate()).map(
+                        |(index, (&arg, ty))| {
                             canonicalize(env, module, arg, bindings).map(|arg| PatternCtorArg {
-                                index: i,
+                                index,
                                 ty: ty.clone(),
                                 arg,
-                            });
-                        result = both(result, arg).map(|(mut done, a)| {
-                            done.push(a);
-                            done
-                        });
-                    }
-                    let cargs = result?;
-                    if union_name == "Bool" && home.package == "elm/core" && home.module == "Basics"
-                    {
+                            })
+                        },
+                    ))?;
+                    if union_name == "Bool" && home.is("elm/core", "Basics") {
                         PatternKind::Bool(union.clone().into_owned(), name.text == "True")
                     } else {
                         PatternKind::Ctor {

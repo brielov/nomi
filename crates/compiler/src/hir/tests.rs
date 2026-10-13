@@ -1,23 +1,25 @@
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::parse_module;
+use nomi_syntax::{SyntaxElement, parse_module};
 
 use super::*;
 
-fn lowered(text: &str) -> (Module, SyntaxNode) {
-    let parse = parse_module(text);
-    let root = parse.syntax();
-    let module = lower(&ast::Module::cast(root.clone()).unwrap());
-    (module, root)
+/// The HIR of `text`, and its tree.
+fn with_root(text: &str) -> (Module, SyntaxNode) {
+    let root = parse_module(text).syntax();
+    (lower(&ast::Module::cast(root.clone()).unwrap()), root)
 }
 
-/// The text of `ptr`'s node without the trivia around it.
+/// The text of `ptr`'s node, found again in `root`'s tree, without the
+/// trivia around it.
 fn text(root: &SyntaxNode, ptr: NodePtr) -> String {
-    ptr.to_node(root)
-        .unwrap()
-        .text()
-        .to_string()
-        .trim()
-        .to_owned()
+    let start = match root.covering_element(ptr.range) {
+        SyntaxElement::Node(node) => node,
+        SyntaxElement::Token(token) => token.parent().unwrap(),
+    };
+    let node = (start.ancestors())
+        .find(|n| n.kind() == ptr.kind && n.text_range() == ptr.range)
+        .unwrap();
+    node.text().to_string().trim().to_owned()
 }
 
 const MODULE: &str = "port module Main exposing (main, Msg(..), (+++))
@@ -66,7 +68,7 @@ main =
 
 #[test]
 fn a_module_lowers_as_upstream_parses_it() {
-    let (module, root) = lowered(MODULE);
+    let (module, root) = with_root(MODULE);
     assert_eq!(verify(&module, &root), Vec::<String>::new());
     assert_eq!(module.name.as_ref().unwrap().text, "Main");
     assert_eq!(module.kind, ModuleKind::Port);
@@ -124,24 +126,24 @@ fn a_module_lowers_as_upstream_parses_it() {
     };
     assert!(matches!(module.exprs[args[0]], Expr::Call { .. }));
     assert_eq!(
-        text(&root, module.source_map.expr(args[0]).unwrap()),
+        text(&root, module.source_map.exprs[args[0].index()].unwrap()),
         "String.fromInt (f a)"
     );
 }
 
 #[test]
 fn a_module_without_a_header_that_declares_ports_is_a_port_module() {
-    let (module, _) = lowered("port send : String -> Cmd msg\n\nmain = 1\n");
+    let module = lowered("port send : String -> Cmd msg\n\nmain = 1\n");
     assert_eq!(module.kind, ModuleKind::Port);
     assert_eq!(module.name, None);
-    let (module, _) = lowered("main = 1\n");
+    let module = lowered("main = 1\n");
     assert_eq!(module.kind, ModuleKind::Plain);
 }
 
 #[test]
 fn chains_stay_flat_and_names_keep_their_qualifiers() {
     let (module, root) =
-        lowered("module M exposing (x)\n\n\nx =\n    a + b * Dict.empty |> List.map f\n");
+        with_root("module M exposing (x)\n\n\nx =\n    a + b * Dict.empty |> List.map f\n");
     assert_eq!(verify(&module, &root), Vec::<String>::new());
     let (_, Expr::Binops { operands, ops }) = module
         .exprs
@@ -161,16 +163,16 @@ fn chains_stay_flat_and_names_keep_their_qualifiers() {
         Expr::Var {
             qualifier: Some("Dict".to_owned()),
             name: "empty".to_owned(),
-            upper: false
+            kind: VarType::Low
         }
     );
 }
 
 #[test]
 fn every_id_maps_to_its_construct() {
-    let (module, root) = lowered(MODULE);
+    let (module, root) = with_root(MODULE);
     for (id, expr) in module.exprs.iter() {
-        let node = text(&root, module.source_map.expr(id).unwrap());
+        let node = text(&root, module.source_map.exprs[id.index()].unwrap());
         match expr {
             Expr::Var { name, .. } => assert!(node.ends_with(name.as_str()), "{node}"),
             Expr::Int(n) | Expr::Float(n) | Expr::Str(n) | Expr::Chr(n) => assert_eq!(&node, n),
@@ -180,14 +182,15 @@ fn every_id_maps_to_its_construct() {
     }
     for (id, pattern) in module.patterns.iter() {
         if let Pattern::Var(name) = pattern {
-            assert_eq!(&text(&root, module.source_map.pattern(id).unwrap()), name);
+            let ptr = module.source_map.patterns[id.index()].unwrap();
+            assert_eq!(&text(&root, ptr), name);
         }
     }
 }
 
 #[test]
 fn what_is_missing_is_missing() {
-    let (module, root) = lowered("module M exposing (x)\n\n\nx =\n    f (\n\ny = [1..2]\n");
+    let (module, root) = with_root("module M exposing (x)\n\n\nx =\n    f (\n\ny = [1..2]\n");
     let problems = verify(&module, &root);
     assert!(
         problems.iter().any(|p| p.contains("missing")),
@@ -198,7 +201,7 @@ fn what_is_missing_is_missing() {
 
 #[test]
 fn deep_nesting_lowers_and_drops() {
-    stacker::grow(nomi_base::STACK_SIZE, || {
+    nomi_base::on_core_stack(|| {
         let depth = 20_000;
         let text = format!(
             "module M exposing (x)\n\n\nx =\n    {}1{}\n",
@@ -211,7 +214,7 @@ fn deep_nesting_lowers_and_drops() {
             "]".repeat(depth)
         );
         for text in [text, deep_list] {
-            let (module, root) = lowered(&text);
+            let (module, root) = with_root(&text);
             assert_eq!(verify(&module, &root), Vec::<String>::new());
             drop(module);
         }

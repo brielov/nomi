@@ -9,11 +9,12 @@ use std::collections::BTreeMap;
 
 use nomi_base::{Compat, TextRange};
 
-use super::error::{Error, R};
+use super::error::{Duplicated, Error, R, collected};
+use crate::hir::Spanned;
 
 /// `Dups.Dict`.
 #[derive(Clone, Debug)]
-pub struct Dict<V> {
+pub(super) struct Dict<V> {
     names: BTreeMap<String, Vec<(TextRange, V)>>,
 }
 
@@ -27,7 +28,7 @@ impl<V> Default for Dict<V> {
 
 impl<V> Dict<V> {
     /// `Dups.one`.
-    pub fn one(name: &str, range: TextRange, value: V) -> Dict<V> {
+    pub(super) fn one(name: &str, range: TextRange, value: V) -> Dict<V> {
         let mut dict = Dict::default();
         dict.insert_first(name, range, value);
         dict
@@ -35,7 +36,7 @@ impl<V> Dict<V> {
 
     /// `Dups.insert`: the new place goes first in 0.19.1, last from
     /// 0.19.2.
-    pub fn insert(&mut self, compat: Compat, name: &str, range: TextRange, value: V) {
+    pub(super) fn insert(&mut self, compat: Compat, name: &str, range: TextRange, value: V) {
         let places = self.names.entry(name.to_owned()).or_default();
         match compat {
             Compat::V0_19_1 => places.insert(0, (range, value)),
@@ -53,7 +54,7 @@ impl<V> Dict<V> {
     }
 
     /// `Dups.union`: `self`'s places before `other`'s.
-    pub fn union(mut self, other: Dict<V>) -> Dict<V> {
+    pub(super) fn union(mut self, other: Dict<V>) -> Dict<V> {
         for (name, places) in other.names {
             self.names.entry(name).or_default().extend(places);
         }
@@ -61,13 +62,13 @@ impl<V> Dict<V> {
     }
 
     /// `Dups.unions`.
-    pub fn unions(dicts: impl IntoIterator<Item = Dict<V>>) -> Dict<V> {
+    pub(super) fn unions(dicts: impl IntoIterator<Item = Dict<V>>) -> Dict<V> {
         dicts.into_iter().fold(Dict::default(), Dict::union)
     }
 
     /// `Dups.detect`: each name's value, or an error for every name
     /// written twice, in `compat`'s name order.
-    pub fn detect(
+    pub(super) fn detect(
         self,
         compat: Compat,
         error: impl Fn(&str, TextRange, TextRange) -> Error,
@@ -83,28 +84,20 @@ impl<V> Dict<V> {
                 errors.push(error(&name, places[0].0, places[1].0));
             }
         }
-        if errors.is_empty() {
-            Ok(values)
-        } else {
-            Err(errors)
-        }
+        collected(values, errors)
     }
 }
 
 /// `Dups.checkFields`: a record's fields by name, each written once. The
 /// fields are added last first, as upstream's `foldr` adds them, so a
 /// field written twice is reported in source order.
-pub fn check_fields<V>(
+pub(super) fn check_fields<'a, V>(
     compat: Compat,
-    fields: Vec<(String, TextRange, V)>,
+    fields: impl DoubleEndedIterator<Item = (&'a Spanned, V)>,
 ) -> R<BTreeMap<String, V>> {
     let mut dict = Dict::default();
-    for (name, range, value) in fields.into_iter().rev() {
-        dict.insert_first(&name, range, value);
+    for (name, value) in fields.rev() {
+        dict.insert_first(&name.text, name.range, value);
     }
-    dict.detect(compat, |name, first, second| Error::DuplicateField {
-        name: name.to_owned(),
-        first,
-        second,
-    })
+    dict.detect(compat, Duplicated::Field.error())
 }

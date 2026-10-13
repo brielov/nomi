@@ -200,7 +200,7 @@ fn extract(compat: Compat, deps: &mut Deps, ty: &Type) -> Public {
             Box::new(extract(compat, deps, result)),
         ),
         Type::Var(x) => Public::Var(x.clone()),
-        Type::Type(home, name, args) => {
+        Type::Type { home, name, args } => {
             Deps::add(&mut deps.unions, home, name);
             let args = args.iter().map(|a| extract(compat, deps, a)).collect();
             Public::Type(public_name(home, name), args)
@@ -221,7 +221,12 @@ fn extract(compat: Compat, deps: &mut Deps, ty: &Type) -> Public {
             Box::new(extract(compat, deps, b)),
             c.iter().map(|c| extract(compat, deps, c)).collect(),
         ),
-        Type::Alias(home, name, args, aliased) => {
+        Type::Alias {
+            home,
+            name,
+            args,
+            aliased,
+        } => {
             Deps::add(&mut deps.aliases, home, name);
             extract(compat, deps, &dealias(args, aliased));
             let args = args.iter().map(|(_, a)| extract(compat, deps, a)).collect();
@@ -246,9 +251,11 @@ fn substitute(args: &[(String, Type)], ty: &Type) -> Type {
         Type::Var(x) => (args.iter())
             .find(|(name, _)| name == x)
             .map_or_else(|| ty.clone(), |(_, t)| t.clone()),
-        Type::Type(home, name, ts) => {
-            Type::Type(home.clone(), name.clone(), ts.iter().map(go).collect())
-        }
+        Type::Type { home, name, args } => Type::Type {
+            home: home.clone(),
+            name: name.clone(),
+            args: args.iter().map(go).collect(),
+        },
         Type::Record(fields, ext) => {
             let fields = (fields.iter())
                 .map(|(name, field)| {
@@ -265,10 +272,17 @@ fn substitute(args: &[(String, Type)], ty: &Type) -> Type {
             Box::new(go(b)),
             c.as_ref().map(|c| Box::new(go(c))),
         ),
-        Type::Alias(home, name, ts, aliased) => {
-            let ts = ts.iter().map(|(n, t)| (n.clone(), go(t))).collect();
-            Type::Alias(home.clone(), name.clone(), ts, aliased.clone())
-        }
+        Type::Alias {
+            home,
+            name,
+            args: ts,
+            aliased,
+        } => Type::Alias {
+            home: home.clone(),
+            name: name.clone(),
+            args: ts.iter().map(|(n, t)| (n.clone(), go(t))).collect(),
+            aliased: aliased.clone(),
+        },
     }
 }
 
@@ -371,7 +385,11 @@ mod tests {
     }
 
     fn ty(module: &str, name: &str, args: Vec<Type>) -> Type {
-        Type::Type(home(module), name.to_owned(), args)
+        Type::Type {
+            home: home(module),
+            name: name.to_owned(),
+            args,
+        }
     }
 
     fn union(ctors: Vec<(&str, Vec<Type>)>) -> Union {

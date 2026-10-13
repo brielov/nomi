@@ -8,15 +8,16 @@
 //! operators, each in its name order; earlier releases go through all
 //! the names at once.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
+use nomi_base::diagnostic::json;
 use nomi_base::diagnostic::render::{self, Styles};
 use nomi_base::{Compat, TextRange};
 use nomi_syntax::elm::docs::{self as syntax, DocKind, DocName, SyntaxProblem};
 
-use crate::canonical::{Associativity, Decl, Def, Type};
+use crate::canonical::{Decl, Def, Type};
 use crate::canonicalize::module::{Canonical, Export, Exports};
-use crate::hir;
+use crate::hir::{self, Associativity, Fixity};
 use crate::types::localizer::Localizer;
 use crate::types::render::{Context, can_to_doc};
 
@@ -34,6 +35,7 @@ pub struct Module {
     pub binops: Vec<(String, Binop)>,
 }
 
+/// `Docs.Union`: its parameters and, when exposed, its constructors.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Union {
     pub comment: String,
@@ -41,6 +43,7 @@ pub struct Union {
     pub cases: Vec<(String, Vec<String>)>,
 }
 
+/// `Docs.Alias`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Alias {
     pub comment: String,
@@ -48,18 +51,19 @@ pub struct Alias {
     pub ty: String,
 }
 
+/// `Docs.Value`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Value {
     pub comment: String,
     pub ty: String,
 }
 
+/// `Docs.Binop`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Binop {
     pub comment: String,
     pub ty: String,
-    pub associativity: Associativity,
-    pub precedence: i64,
+    pub fixity: Fixity,
 }
 
 /// `Reporting.Error.Docs.Error`.
@@ -72,13 +76,19 @@ pub enum Error {
     DefProblems(Vec<DefProblem>),
 }
 
+/// How the `@docs` lines and the exports disagree about a name.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NameProblem {
-    Duplicate(String, TextRange, TextRange),
+    Duplicate {
+        name: String,
+        first: TextRange,
+        second: TextRange,
+    },
     OnlyInDocs(String, TextRange),
     OnlyInExports(String, TextRange),
 }
 
+/// What an exposed declaration lacks.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DefProblem {
     NoComment(String, TextRange),
@@ -92,6 +102,36 @@ enum Space {
     Type,
     Value,
     Binop,
+}
+
+impl Space {
+    /// The space `export` is in.
+    fn of(compat: Compat, export: Export) -> Space {
+        let space = match export {
+            Export::UnionOpen | Export::UnionClosed | Export::Alias => Space::Type,
+            Export::Value | Export::Port => Space::Value,
+            Export::Binop => Space::Binop,
+        };
+        space.under(compat)
+    }
+
+    /// The space a `@docs` name of `kind` is in.
+    fn of_doc(compat: Compat, kind: DocKind) -> Space {
+        let space = match kind {
+            DocKind::Type => Space::Type,
+            DocKind::Value => Space::Value,
+            DocKind::Binop => Space::Binop,
+        };
+        space.under(compat)
+    }
+
+    /// The space in `compat`, which before 0.19.3 is the one.
+    fn under(self, compat: Compat) -> Space {
+        match compat {
+            Compat::V0_19_1 | Compat::V0_19_2 => Space::Type,
+            Compat::V0_19_3 => self,
+        }
+    }
 }
 
 /// `fromModule`: the documentation of `module`, whose source is `text`
@@ -109,24 +149,18 @@ pub fn from_module(
     let Some(docs) = &module.docs else {
         return Err(Error::NoDocs(module.docs_gap));
     };
-    // The comment between `{-|` and `-}`.
-    let start = usize::from(docs.range.start()) + 3;
-    let end = usize::from(docs.range.end()) - 2;
-    let names = syntax::overview(text, start, end, compat).map_err(Error::SyntaxProblem)?;
+    let overview = body(&docs.text);
+    let start = usize::from(docs.range.start()) + "{-|".len();
+    let names = syntax::overview(text, start, start + overview.len(), compat)
+        .map_err(Error::SyntaxProblem)?;
     check_names(compat, exports, &names)?;
-    check_defs(compat, exports, &text[start..end], module, canonical)
+    check_defs(compat, exports, overview, module, canonical)
 }
 
-/// The space each export is in.
-fn space_of(compat: Compat, export: Export) -> Space {
-    if compat != Compat::V0_19_3 {
-        return Space::Type;
-    }
-    match export {
-        Export::UnionOpen | Export::UnionClosed | Export::Alias => Space::Type,
-        Export::Value | Export::Port => Space::Value,
-        Export::Binop => Space::Binop,
-    }
+/// A doc comment's text between its `{-|` and `-}`.
+fn body(comment: &str) -> &str {
+    let body = comment.strip_prefix("{-|").unwrap_or(comment);
+    body.strip_suffix("-}").unwrap_or(body)
 }
 
 /// `names`, by space, then in each space's name order.
@@ -145,33 +179,27 @@ fn check_names(
     exports: &BTreeMap<String, (TextRange, Export)>,
     names: &[DocName],
 ) -> Result<(), Error> {
-    let doc_space = |kind| match (compat, kind) {
-        (Compat::V0_19_3, DocKind::Value) => Space::Value,
-        (Compat::V0_19_3, DocKind::Binop) => Space::Binop,
-        _ => Space::Type,
-    };
     // Each listed name's places, in the order written.
     let mut listed: BTreeMap<(Space, &String), Vec<TextRange>> = BTreeMap::new();
     for name in names {
-        let key = (doc_space(name.kind), &name.name);
+        let key = (Space::of_doc(compat, name.kind), &name.name);
         listed.entry(key).or_default().push(name.range);
     }
-    let mut keys: BTreeMap<(Space, &String), ()> = BTreeMap::new();
-    for (name, (_, export)) in exports {
-        keys.insert((space_of(compat, *export), name), ());
-    }
-    for key in listed.keys() {
-        keys.insert(*key, ());
-    }
+    let mut keys: BTreeSet<(Space, &String)> = (exports.iter())
+        .map(|(name, (_, export))| (Space::of(compat, *export), name))
+        .collect();
+    keys.extend(listed.keys());
     let mut problems = Vec::new();
-    for (name, space) in ordered(compat, keys.into_keys().map(|(s, n)| (s, n, s))) {
+    for (name, space) in ordered(compat, keys.into_iter().map(|(s, n)| (s, n, s))) {
         let export = exports
             .get(name)
-            .filter(|(_, e)| space_of(compat, *e) == space);
+            .filter(|(_, e)| Space::of(compat, *e) == space);
         match (export, listed.get(&(space, name)).map(Vec::as_slice)) {
-            (_, Some([first, second, ..])) => {
-                problems.push(NameProblem::Duplicate(name.clone(), *first, *second));
-            }
+            (_, Some([first, second, ..])) => problems.push(NameProblem::Duplicate {
+                name: name.clone(),
+                first: *first,
+                second: *second,
+            }),
             (None, Some([only])) => problems.push(NameProblem::OnlyInDocs(name.clone(), *only)),
             (Some((range, _)), None) => {
                 problems.push(NameProblem::OnlyInExports(name.clone(), *range));
@@ -186,6 +214,97 @@ fn check_names(
     }
 }
 
+/// What `checkDefs` reads of a module: each declaration's comment and
+/// each value's type.
+struct Defs<'a> {
+    compat: Compat,
+    canonical: &'a Canonical,
+    comments: BTreeMap<&'a str, &'a str>,
+    types: BTreeMap<String, Result<Type, TextRange>>,
+    localizer: Localizer,
+}
+
+impl Defs<'_> {
+    fn show(&self, ty: &Type) -> String {
+        type_to_string(self.compat, &self.localizer, ty)
+    }
+
+    fn comment(&self, name: &str, range: TextRange) -> Result<String, DefProblem> {
+        (self.comments.get(name))
+            .map(|c| escaped(c, Returns::Drop))
+            .ok_or_else(|| DefProblem::NoComment(name.to_owned(), range))
+    }
+
+    /// The type of the value `name`, reported as `report` when it has no
+    /// annotation.
+    fn ty(&self, name: &str, report: &str) -> Result<String, DefProblem> {
+        match self.types.get(name) {
+            Some(Ok(ty)) => Ok(self.show(ty)),
+            Some(Err(region)) => Err(DefProblem::NoAnnotation(report.to_owned(), *region)),
+            // A port, which no package has.
+            None => Ok((self.canonical.annotations.get(name))
+                .map(|a| self.show(&a.ty))
+                .unwrap_or_default()),
+        }
+    }
+
+    fn value(&self, name: &str, range: TextRange) -> Result<Value, DefProblem> {
+        let ty = self.ty(name, name)?;
+        let comment = self.comment(name, range)?;
+        Ok(Value { comment, ty })
+    }
+
+    fn binop(&self, name: &str, range: TextRange) -> Result<Binop, DefProblem> {
+        let binop = &self.canonical.binops[name];
+        let real = &binop.function;
+        let reported = if self.compat == Compat::V0_19_3 {
+            name
+        } else {
+            real
+        };
+        let ty = self.ty(real, reported)?;
+        let comment = self.comment(real, range)?;
+        Ok(Binop {
+            comment,
+            ty,
+            fixity: binop.fixity,
+        })
+    }
+
+    fn alias(&self, name: &str, range: TextRange) -> Result<Alias, DefProblem> {
+        let comment = self.comment(name, range)?;
+        let alias = &self.canonical.aliases[name];
+        Ok(Alias {
+            comment,
+            args: alias.vars.clone(),
+            ty: self.show(&alias.ty),
+        })
+    }
+
+    /// A union, its constructors listed where `export` exposes them.
+    fn union(&self, name: &str, range: TextRange, export: Export) -> Result<Union, DefProblem> {
+        let comment = self.comment(name, range)?;
+        let union = &self.canonical.unions[name];
+        let cases = if export == Export::UnionOpen {
+            (union.ctors.iter())
+                .map(|c| {
+                    (
+                        c.name.clone(),
+                        c.args.iter().map(|t| self.show(t)).collect(),
+                    )
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        Ok(Union {
+            comment,
+            args: union.vars.clone(),
+            cases,
+        })
+    }
+}
+
 /// `checkDefs`: a comment on everything exposed, and an annotation on
 /// every value, gathering what the documentation says of each.
 fn check_defs(
@@ -195,29 +314,17 @@ fn check_defs(
     module: &hir::Module,
     canonical: &Canonical,
 ) -> Result<Module, Error> {
-    let types = gather_types(&canonical.decls);
-    let comments = comments(module);
-    let localizer = Localizer::from_names(compat, []);
-    let show = |ty: &Type| type_to_string(compat, &localizer, ty);
-    let comment = |name: &str, range: TextRange| {
-        (comments.get(name))
-            .map(|c| from_comment(c))
-            .ok_or_else(|| DefProblem::NoComment(name.to_owned(), range))
-    };
-    let ty = |name: &str, report: &str| match types.get(name) {
-        Some(Ok(ty)) => Ok(show(ty)),
-        Some(Err(region)) => Err(DefProblem::NoAnnotation(report.to_owned(), *region)),
-        // A port, which no package has.
-        None => Ok(canonical
-            .annotations
-            .get(name)
-            .map(|a| show(&a.ty))
-            .unwrap_or_default()),
+    let defs = Defs {
+        compat,
+        canonical,
+        comments: comments(module),
+        types: gather_types(&canonical.decls),
+        localizer: Localizer::from_names(compat, []),
     };
     let mut problems = Vec::new();
     let mut docs = Module {
         name: canonical.home.module.to_string(),
-        comment: from_comment(overview),
+        comment: escaped(overview, Returns::Drop),
         unions: Vec::new(),
         aliases: Vec::new(),
         values: Vec::new(),
@@ -225,82 +332,33 @@ fn check_defs(
     };
     let entries = ordered(
         compat,
-        exports
-            .iter()
-            .map(|(name, (range, export))| (space_of(compat, *export), name, (*range, *export))),
+        (exports.iter())
+            .map(|(name, (range, export))| (Space::of(compat, *export), name, (*range, *export))),
     );
+    // Each kind's entries come out of `ordered` in its name order, since
+    // all of a kind share a space.
     for (name, (range, export)) in entries {
         let checked = match export {
-            Export::Value | Export::Port => (|| {
-                let ty = ty(name, name)?;
-                let comment = comment(name, range)?;
-                docs.values.push((name.clone(), Value { comment, ty }));
-                Ok(())
-            })(),
-            Export::Binop => (|| {
-                let binop = &canonical.binops[name];
-                let real = &binop.function;
-                let reported = if compat == Compat::V0_19_3 {
-                    name
-                } else {
-                    real
-                };
-                let ty = ty(real, reported)?;
-                let comment = comment(real, range)?;
-                docs.binops.push((
-                    name.clone(),
-                    Binop {
-                        comment,
-                        ty,
-                        associativity: binop.associativity,
-                        precedence: binop.precedence,
-                    },
-                ));
-                Ok(())
-            })(),
-            Export::Alias => comment(name, range).map(|comment| {
-                let alias = &canonical.aliases[name];
-                docs.aliases.push((
-                    name.clone(),
-                    Alias {
-                        comment,
-                        args: alias.vars.clone(),
-                        ty: show(&alias.ty),
-                    },
-                ));
-            }),
-            Export::UnionOpen | Export::UnionClosed => comment(name, range).map(|comment| {
-                let union = &canonical.unions[name];
-                let cases = if export == Export::UnionOpen {
-                    (union.ctors.iter())
-                        .map(|c| (c.name.clone(), c.args.iter().map(&show).collect()))
-                        .collect()
-                } else {
-                    Vec::new()
-                };
-                docs.unions.push((
-                    name.clone(),
-                    Union {
-                        comment,
-                        args: union.vars.clone(),
-                        cases,
-                    },
-                ));
-            }),
+            Export::Value | Export::Port => {
+                (defs.value(name, range)).map(|v| docs.values.push((name.clone(), v)))
+            }
+            Export::Binop => (defs.binop(name, range)).map(|b| docs.binops.push((name.clone(), b))),
+            Export::Alias => {
+                (defs.alias(name, range)).map(|a| docs.aliases.push((name.clone(), a)))
+            }
+            Export::UnionOpen | Export::UnionClosed => {
+                (defs.union(name, range, export)).map(|u| docs.unions.push((name.clone(), u)))
+            }
         };
         if let Err(problem) = checked {
             problems.push(problem);
         }
     }
-    if !problems.is_empty() {
-        return Err(Error::DefProblems(problems));
+    if problems.is_empty() {
+        Ok(docs)
+    } else {
+        Err(Error::DefProblems(problems))
     }
-    docs.unions.sort_by(|a, b| compat.compare_names(&a.0, &b.0));
-    docs.aliases
-        .sort_by(|a, b| compat.compare_names(&a.0, &b.0));
-    docs.values.sort_by(|a, b| compat.compare_names(&a.0, &b.0));
-    docs.binops.sort_by(|a, b| compat.compare_names(&a.0, &b.0));
-    Ok(docs)
 }
 
 /// `gatherTypes`: each top-level value's annotation, or where it is
@@ -310,11 +368,10 @@ fn gather_types(decls: &[Decl]) -> BTreeMap<String, Result<Type, TextRange>> {
     let mut add = |def: &Def| {
         let ty = match def {
             Def::Def { region, .. } => Err(*region),
-            Def::TypedDef { params, result, .. } => {
-                Ok(params.iter().rev().fold(result.clone(), |ty, (_, arg)| {
-                    Type::Lambda(Box::new(arg.clone()), Box::new(ty))
-                }))
-            }
+            Def::TypedDef { params, result, .. } => Ok(Type::function(
+                params.iter().map(|(_, arg)| arg.clone()),
+                result.clone(),
+            )),
         };
         types.insert(def.name().to_owned(), ty);
     };
@@ -333,39 +390,43 @@ fn gather_types(decls: &[Decl]) -> BTreeMap<String, Result<Type, TextRange>> {
 /// Each declaration's doc comment, between its `{-|` and `-}`, by name
 /// (`getComments`).
 fn comments(module: &hir::Module) -> BTreeMap<&str, &str> {
-    fn inner(docs: Option<&hir::Spanned>) -> Option<&str> {
-        docs.map(|d| &d.text[3..d.text.len().saturating_sub(2).max(3)])
-    }
     let mut comments = BTreeMap::new();
     for &id in &module.values {
         if let hir::Def::Define { name, docs, .. } = &module.defs[id]
-            && let Some(comment) = inner(docs.as_ref())
+            && let Some(docs) = docs
         {
-            comments.insert(name.text.as_str(), comment);
+            comments.insert(name.text.as_str(), body(&docs.text));
         }
     }
     let rest = (module.unions.iter().map(|u| (&u.name, &u.docs)))
         .chain(module.aliases.iter().map(|a| (&a.name, &a.docs)))
         .chain(module.ports.iter().map(|p| (&p.name, &p.docs)));
     for (name, docs) in rest {
-        if let Some(comment) = inner(docs.as_ref()) {
-            comments.insert(name.text.as_str(), comment);
+        if let Some(docs) = docs {
+            comments.insert(name.text.as_str(), body(&docs.text));
         }
     }
     comments
 }
 
-/// `Json.fromComment`: newlines, quotes and backslashes escaped, carriage
-/// returns dropped, everything else as written.
-fn from_comment(comment: &str) -> String {
-    let mut out = String::with_capacity(comment.len());
-    for c in comment.chars() {
-        match c {
-            '\n' => out.push_str("\\n"),
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\r' => {}
-            c => out.push(c),
+/// What JSON escaping does with a carriage return.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Returns {
+    /// As `E.chars` does.
+    Escape,
+    /// As `Json.fromComment` does.
+    Drop,
+}
+
+/// `text` with newlines, quotes and backslashes escaped, carriage returns
+/// as `returns` says, and everything else as written.
+fn escaped(text: &str, returns: Returns) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match u8::try_from(c).ok().and_then(json::escape) {
+            Some(_) if c == '\r' && returns == Returns::Drop => {}
+            Some(escaped) => out.push_str(escaped),
+            None => out.push(c),
         }
     }
     out
@@ -378,21 +439,9 @@ fn type_to_string(compat: Compat, localizer: &Localizer, ty: &Type) -> String {
     render::render(&doc, compat, usize::MAX / 4, Styles::Plain)
 }
 
-/// `E.chars`: a JSON string, with `\r`, `\n`, `"` and `\` escaped.
+/// `E.chars`: a JSON string.
 fn chars(text: &str) -> String {
-    let mut out = String::with_capacity(text.len() + 2);
-    out.push('"');
-    for c in text.chars() {
-        match c {
-            '\r' => out.push_str("\\r"),
-            '\n' => out.push_str("\\n"),
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
+    format!("\"{}\"", escaped(text, Returns::Escape))
 }
 
 /// `encode` through `encodeUgly`: `docs.json` for `modules`, in their
@@ -449,7 +498,7 @@ pub fn encode(compat: Compat, modules: &[Module]) -> String {
                 .collect();
             let binops = (m.binops.iter())
                 .map(|(name, b)| {
-                    let associativity = match b.associativity {
+                    let associativity = match b.fixity.associativity {
                         Associativity::Left => "left",
                         Associativity::Non => "non",
                         Associativity::Right => "right",
@@ -460,7 +509,7 @@ pub fn encode(compat: Compat, modules: &[Module]) -> String {
                         quoted(&b.comment),
                         chars(&b.ty),
                         quoted(associativity),
-                        b.precedence
+                        b.fixity.precedence
                     )
                 })
                 .collect();

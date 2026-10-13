@@ -524,10 +524,7 @@ impl Visit<'_> {
             return;
         };
         let hir = hir::lower(&syntax);
-        let name = name.map_or_else(
-            || nomi_compiler::canonicalize::module::name(&hir).to_owned(),
-            ToString::to_string,
-        );
+        let name = name.map_or_else(|| hir.name().to_owned(), ToString::to_string);
         let (canonical, references) =
             canonicalize_with_references(self.compat, self.package, self.interfaces, &hir);
         let canonical = canonical.ok();

@@ -1,6 +1,5 @@
 //! The semantic core (architecture §6): the HIR modules lower to, and the
-//! phases over it, ported from upstream's `compiler/` as each milestone
-//! needs them.
+//! phases over it, ported from upstream's `compiler/`.
 
 pub mod canonical;
 pub mod canonicalize;
@@ -13,3 +12,6 @@ pub mod nitpick;
 pub mod optimize;
 pub mod optimized;
 pub mod types;
+
+#[cfg(test)]
+mod testing;

@@ -6,10 +6,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use nomi_base::Compat;
+use nomi_base::diagnostic::code::{Position, Region};
 use nomi_compiler::canonical::{CtorOpts, Home};
 use nomi_compiler::optimized::binary::names;
 use nomi_compiler::optimized::{
-    Choice, Decider, Def, Destructor, DtPath, Expr, Global, Main, Path, Region, Test,
+    Choice, Decider, Def, Destructor, DtPath, Expr, Global, Main, Path, Test,
 };
 
 use crate::builder::{Case, Expr as Js, InfixOp, LValue, PrefixOp, Stmt};
@@ -147,10 +148,13 @@ impl Gen<'_> {
                 Name::from_global(&core("Basics"), "identity")
             }),
             Expr::VarCycle(home, name) => call(Js::Ref(Name::from_cycle(home, name)), Vec::new()),
-            Expr::VarDebug(name, home, region, unhandled) => {
-                self.debug(name, home, *region, unhandled.as_deref())
-            }
-            Expr::VarKernel(home, name) => kernel(home, name),
+            Expr::VarDebug {
+                name,
+                home,
+                region,
+                unhandled,
+            } => self.debug(name, home, *region, unhandled.as_deref()),
+            Expr::VarKernel { module, name } => kernel(module, name),
             Expr::List(entries) if entries.is_empty() => kernel("List", "Nil"),
             Expr::List(entries) => call(
                 kernel("List", "fromArray"),
@@ -173,7 +177,12 @@ impl Gen<'_> {
                 stmts.extend(code_to_stmt_list(self.generate(body)));
                 return Code::Block(stmts);
             }
-            Expr::Case(label, root, decider, jumps) => {
+            Expr::Case {
+                label,
+                root,
+                decider,
+                jumps,
+            } => {
                 return Code::Block(self.case(label, root, decider, jumps));
             }
             Expr::Accessor(field) => Js::Function(
@@ -204,7 +213,11 @@ impl Gen<'_> {
                 kernel("Utils", "Tuple3"),
                 vec![self.js(a), self.js(b), self.js(c)],
             ),
-            Expr::Shader(src, attributes, uniforms) => {
+            Expr::Shader {
+                source: src,
+                attributes,
+                uniforms,
+            } => {
                 let translation = |fields: &BTreeSet<String>| {
                     Js::Object(
                         self.in_order(fields.iter())
@@ -298,7 +311,7 @@ impl Gen<'_> {
     /// from 0; 0.19.3 adds the 1 back (`toEditorRowCol`).
     fn region(&self, region: Region) -> Js {
         let shift = u32::from(self.compat == Compat::V0_19_3);
-        let position = |(row, col): (u32, u32)| {
+        let position = |Position { row, col }| {
             Js::Object(vec![
                 (Name::from_local("line"), Js::Int(i64::from(row + shift))),
                 (Name::from_local("column"), Js::Int(i64::from(col + shift))),
@@ -444,9 +457,9 @@ impl Gen<'_> {
     fn def(&self, def: &Def) -> Stmt {
         match def {
             Def::Def(name, body) => Stmt::Var(Name::from_local(name), self.js(body)),
-            Def::TailDef(name, args, body) => Stmt::Var(
+            Def::TailDef { name, params, body } => Stmt::Var(
                 Name::from_local(name),
-                code_to_expr(self.tail_def(name, args, body)),
+                code_to_expr(self.tail_def(name, params, body)),
             ),
         }
     }
@@ -616,9 +629,13 @@ impl Gen<'_> {
     fn if_test(&self, root: &str, path: &DtPath, test: &Test) -> Js {
         let value = self.dt_path(root, path);
         match test {
-            Test::IsCtor(home, name, index, _, opts) => {
-                strict_eq(self.tag_of(value, *opts), self.ctor_tag(home, name, *index))
-            }
+            Test::IsCtor {
+                home,
+                name,
+                index,
+                opts,
+                ..
+            } => strict_eq(self.tag_of(value, *opts), self.ctor_tag(home, name, *index)),
             Test::IsBool(true) => value,
             Test::IsBool(false) => prefix(PrefixOp::Not, value),
             Test::IsInt(i) => strict_eq(value, Js::Int(*i)),
@@ -633,7 +650,9 @@ impl Gen<'_> {
     /// `generateCaseValue`.
     fn case_value(&self, test: &Test) -> Js {
         match test {
-            Test::IsCtor(home, name, index, _, _) => self.ctor_tag(home, name, *index),
+            Test::IsCtor {
+                home, name, index, ..
+            } => self.ctor_tag(home, name, *index),
             Test::IsInt(i) => Js::Int(*i),
             Test::IsChr(c) => Js::String(self.chr(c)),
             Test::IsStr(s) => Js::String(s.clone()),
@@ -646,12 +665,12 @@ impl Gen<'_> {
     fn case_test(&self, root: &str, path: &DtPath, example: &Test) -> Js {
         let value = self.dt_path(root, path);
         match example {
-            Test::IsCtor(home, name, _, _, _)
+            Test::IsCtor { home, name, .. }
                 if self.compat != Compat::V0_19_3 && name == "Bool" && *home == core("Basics") =>
             {
                 value
             }
-            Test::IsCtor(_, _, _, _, opts) => self.tag_of(value, *opts),
+            Test::IsCtor { opts, .. } => self.tag_of(value, *opts),
             Test::IsInt(_) | Test::IsStr(_) => value,
             Test::IsChr(_) => self.chr_subject(value),
             _ => panic!("COMPILER BUG - there should never be three tests on {example:?}"),
@@ -1006,12 +1025,12 @@ mod tests {
             success: Box::new(Decider::Leaf(Choice::Jump(0))),
             failure: Box::new(Decider::Leaf(Choice::Inline(Expr::Int(9)))),
         };
-        let case = Expr::Case(
-            "_v0".to_owned(),
-            "x".to_owned(),
-            Box::new(decider),
-            vec![(0, Expr::Int(5))],
-        );
+        let case = Expr::Case {
+            label: "_v0".to_owned(),
+            root: "x".to_owned(),
+            decider: Box::new(decider),
+            jumps: vec![(0, Expr::Int(5))],
+        };
         assert_eq!(
             block(&case),
             "_v0$0:\nwhile (true) {\n\tif (x === 1) {\n\t\tbreak _v0$0;\n\t} else {\n\t\treturn 9;\n\t}\n}\nreturn 5;\n"
@@ -1046,14 +1065,20 @@ mod tests {
     #[test]
     fn todo_reports_positions_as_each_release_does() {
         let region = Region {
-            start: (2, 4),
-            end: (2, 9),
+            start: Position { row: 2, col: 4 },
+            end: Position { row: 2, col: 9 },
         };
-        let todo = Expr::VarDebug("todo".to_owned(), home("Main"), region, None);
+        let debug = |name: &str| Expr::VarDebug {
+            name: name.to_owned(),
+            home: home("Main"),
+            region,
+            unhandled: None,
+        };
+        let todo = debug("todo");
         let line = |compat| show(compat, &DEV, &todo).replace(['\n', '\t'], "");
         assert!(line(Compat::V0_19_2).contains("start: {line: 2, column: 4}"));
         assert!(line(Compat::V0_19_3).contains("start: {line: 3, column: 5}"));
-        let log = Expr::VarDebug("log".to_owned(), home("Main"), region, None);
+        let log = debug("log");
         assert_eq!(dev(&log), "$elm$core$Debug$log");
     }
 

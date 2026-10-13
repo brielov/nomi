@@ -21,7 +21,6 @@ use std::path::{Path, PathBuf};
 use nomi_base::{TextRange, TextSize};
 use nomi_compiler::canonical::{self, Home};
 use nomi_compiler::canonicalize::foreign::with_defaults;
-use nomi_compiler::canonicalize::module;
 use nomi_compiler::types::localizer::Localizer;
 use nomi_compiler::types::{self, error};
 use nomi_engine::Snapshot;
@@ -404,13 +403,15 @@ pub(crate) fn render(localizer: &Names, ty: &canonical::Type) -> String {
             parts.join(" -> ")
         }
         T::Var(name) => name.clone(),
-        T::Type(home, name, args) => {
+        T::Type { home, name, args } => {
             let args: Vec<(String, bool)> = (args.iter())
                 .map(|a| (render(localizer, a), complex(a)))
                 .collect();
             named(localizer, home, name, &args)
         }
-        T::Alias(home, name, args, _) => {
+        T::Alias {
+            home, name, args, ..
+        } => {
             let args: Vec<(String, bool)> = (args.iter())
                 .map(|(_, a)| (render(localizer, a), complex(a)))
                 .collect();
@@ -447,8 +448,8 @@ fn complex(ty: &canonical::Type) -> bool {
     use canonical::Type as T;
     match ty {
         T::Lambda(..) => true,
-        T::Type(_, _, args) => !args.is_empty(),
-        T::Alias(_, _, args, _) => !args.is_empty(),
+        T::Type { args, .. } => !args.is_empty(),
+        T::Alias { args, .. } => !args.is_empty(),
         _ => false,
     }
 }
@@ -641,7 +642,7 @@ impl Names {
 /// The localizer of `module`, as its type errors would name types.
 pub(crate) fn localizer(index: &Index, indexed: &Indexed) -> Localizer {
     let imports = with_defaults(&index.package, &indexed.hir.imports);
-    Localizer::from_module(index.compat, module::name(&indexed.hir), &imports)
+    Localizer::from_module(index.compat, indexed.hir.name(), &imports)
 }
 
 /// The type inferred for the expression or pattern at `range` in

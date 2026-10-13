@@ -214,12 +214,12 @@ fn to_can_type(vars: &mut Variables, var: Variable, state: &mut NameState) -> ca
                 .map(|(n, a)| (n, to_can_type(vars, a, state)))
                 .collect();
             let real = to_can_type(vars, real, state);
-            T::Alias(
+            T::Alias {
                 home,
-                String::from(name),
+                name: String::from(name),
                 args,
-                AliasType::Filled(std::sync::Arc::new(real)),
-            )
+                aliased: AliasType::Filled(std::sync::Arc::new(real)),
+            }
         }
         Content::Error => panic!("cannot handle Error types in variableToCanType"),
     }
@@ -233,13 +233,13 @@ fn flat_to_can_type(
 ) -> canonical::Type {
     use canonical::Type as T;
     match flat {
-        FlatType::App1(home, name, args) => T::Type(
+        FlatType::App1(home, name, args) => T::Type {
             home,
-            String::from(name),
-            args.into_iter()
+            name: String::from(name),
+            args: (args.into_iter())
                 .map(|a| to_can_type(vars, a, state))
                 .collect(),
-        ),
+        },
         FlatType::Fun1(a, b) => {
             let a = to_can_type(vars, a, state);
             let b = to_can_type(vars, b, state);
@@ -259,7 +259,7 @@ fn flat_to_can_type(
                 )
             })
             .collect();
-            match iterated_dealias(to_can_type(vars, extension, state)) {
+            match to_can_type(vars, extension, state).iterated_dealias() {
                 // `Map.union subFields canFields`: the extension's fields
                 // win.
                 T::Record(sub_fields, sub_ext) => {
@@ -277,16 +277,6 @@ fn flat_to_can_type(
             let c = c.map(|c| Box::new(to_can_type(vars, c, state)));
             T::Tuple(Box::new(a), Box::new(b), c)
         }
-    }
-}
-
-/// `Type.iteratedDealias` on a canonical type.
-fn iterated_dealias(ty: canonical::Type) -> canonical::Type {
-    match ty {
-        canonical::Type::Alias(_, _, args, aliased) => {
-            iterated_dealias(crate::canonicalize::effects::dealias(&args, &aliased))
-        }
-        ty => ty,
     }
 }
 

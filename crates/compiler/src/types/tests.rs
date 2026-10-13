@@ -1,6 +1,6 @@
 use super::*;
-use crate::canonical::Text;
 use crate::canonical::Type as T;
+use nomi_base::Text;
 
 #[test]
 fn fresh_names_skip_the_taken_and_number_after_a_digit() {
@@ -342,5 +342,116 @@ mod comparison {
         );
         let qualified = E::Type(core("Dict"), "Dict".to_owned(), vec![]);
         assert_eq!(to_doc(&l, Context::None, &qualified).plain(), "Dict.Dict");
+    }
+}
+
+mod modules {
+    use std::collections::BTreeMap;
+
+    use super::*;
+    use crate::testing::canonical;
+    use crate::types::constrain::module::constrain;
+    use crate::types::expected::{Category, Expected};
+    use crate::types::solve::{TypeError, run};
+
+    #[test]
+    fn a_module_constrains_its_values_in_dependency_order() {
+        let canonical =
+            canonical("module Main exposing (..)\n\n\ng =\n    f 1\n\n\nf x =\n    x\n").unwrap();
+        let mut vars = Variables::default();
+        let mut at = constrain(&mut vars, &canonical);
+        let mut names = Vec::new();
+        loop {
+            match at {
+                Constraint::Let {
+                    header, body_con, ..
+                } if !header.is_empty() => {
+                    names.extend(header.keys().cloned());
+                    at = *body_con;
+                }
+                Constraint::SaveTheEnvironment => break,
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        // `f` before `g`, which uses it.
+        assert_eq!(names, ["f", "g"]);
+    }
+
+    /// The annotations inference gives `text`'s values, or its errors.
+    fn infer(text: &str) -> Result<BTreeMap<String, String>, Vec<TypeError>> {
+        fn show(t: &T) -> String {
+            match t {
+                T::Var(v) => v.clone(),
+                T::Lambda(a, b) => format!("({} -> {})", show(a), show(b)),
+                T::Type { name, args, .. } if args.is_empty() => name.clone(),
+                T::Type { name, args, .. } => {
+                    format!(
+                        "({name} {})",
+                        args.iter().map(show).collect::<Vec<_>>().join(" ")
+                    )
+                }
+                T::Tuple(a, b, None) => format!("( {}, {} )", show(a), show(b)),
+                other => format!("{other:?}"),
+            }
+        }
+        let canonical = canonical(text).unwrap();
+        let mut vars = Variables::default();
+        let constraint = constrain(&mut vars, &canonical);
+        let annotations = run(&mut vars, &constraint)?;
+        Ok(annotations
+            .into_iter()
+            .map(|(n, a)| (n, show(&a.ty)))
+            .collect())
+    }
+
+    #[test]
+    fn inference_generalizes_lets_and_finds_mismatches() {
+        let found = infer(
+            "module Main exposing (..)\n\nimport A\n\n\nidentity2 x =\n    x\n\n\npair =\n    ( identity2 1, identity2 \"s\" )\n\n\nuse =\n    let\n        f y = y\n    in\n    ( f A.x, f [] )\n",
+        )
+        .unwrap();
+        assert_eq!(found["identity2"], "(a -> a)");
+        assert_eq!(found["pair"], "( number, String )");
+        assert_eq!(found["use"], "( Int, (List a) )");
+        // `a -> a` takes two arguments where `a` is a function, so the first
+        // is the problem, as elm reports it.
+        let errors = infer("module Main exposing (..)\n\n\nbad =\n    identityish 1 \"s\"\n\n\nidentityish x =\n    x\n").unwrap_err();
+        assert!(
+            matches!(
+                &errors[..],
+                [TypeError::BadExpr(
+                    _,
+                    Category::Number,
+                    _,
+                    Expected::FromContext(_, expected::Context::CallArg(_, 0), _),
+                )]
+            ),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn inference_records_each_expressions_type() {
+        let text = "module Main exposing (..)\n\n\nxs =\n    [ 1, 2 ]\n";
+        let (result, types) = infer_types(Compat::V0_19_1, &canonical(text).unwrap());
+        assert!(result.is_ok());
+        let shown: Vec<(&str, String)> = (types.iter())
+            .map(|(region, ty)| {
+                let ty = match ty {
+                    error::Type::FlexSuper(_, name) => name.clone(),
+                    error::Type::Type(_, name, args) => format!("{name} {}", args.len()),
+                    other => format!("{other:?}"),
+                };
+                (text[*region].trim(), ty)
+            })
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("[ 1, 2 ]", "List 1".to_owned()),
+                ("1", "number".to_owned()),
+                ("2", "number".to_owned())
+            ]
+        );
     }
 }

@@ -9,8 +9,8 @@ use nomi_base::diagnostic::code::{self, Source};
 use nomi_base::diagnostic::doc::{self, Color, Doc, reflow, snippet, stack, text};
 use nomi_base::{Compat, TextRange};
 
-use crate::canonical::{Annotation, Decl, Type};
-use crate::canonicalize::effects::{check_payload, deep_dealias};
+use crate::canonical::{Annotation, Decl, MainKind, Type};
+use crate::canonicalize::effects::check_payload;
 use crate::canonicalize::error::InvalidPayload;
 use crate::types::localizer::Localizer;
 use crate::types::render::{Context, can_to_doc};
@@ -48,27 +48,13 @@ pub fn check(decls: &[Decl], annotations: &BTreeMap<String, Annotation>) -> Opti
 
 /// `addDefHelp`'s check of `main`.
 fn main_type(region: TextRange, ty: &Type) -> Option<Error> {
-    let is = |home: &crate::canonical::Home, package: &str, module: &str| {
-        home.package == package && home.module == module
-    };
-    match deep_dealias(ty) {
-        Type::Type(home, name, args)
-            if args.len() == 1 && is(&home, "elm/virtual-dom", "VirtualDom") && name == "Node" =>
-        {
-            None
-        }
-        Type::Type(home, name, args)
-            if args.len() == 3 && is(&home, "elm/core", "Platform") && name == "Program" =>
-        {
-            match check_payload(&args[0]) {
-                Ok(()) => None,
-                Err(bad) => {
-                    let (bad_type, problem) = *bad;
-                    Some(Error::BadFlags(region, bad_type, problem))
-                }
-            }
-        }
-        _ => Some(Error::BadType(region, ty.clone())),
+    match ty.main_kind() {
+        MainKind::Static => None,
+        MainKind::Program { flags, .. } => check_payload(&flags).err().map(|bad| {
+            let (bad_type, problem) = *bad;
+            Error::BadFlags(region, bad_type, problem)
+        }),
+        MainKind::Other => Some(Error::BadType(region, ty.clone())),
     }
 }
 
