@@ -9,7 +9,7 @@ use crate::paths::Cache;
 
 /// The registry the solver searches, or the report of why there is none,
 /// which `context` needed.
-pub(crate) fn registry<'a, H: Http>(
+pub fn registry<'a, H: Http>(
     cache: &Cache,
     store: &'a Store,
     http: &'a H,

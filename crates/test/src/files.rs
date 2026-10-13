@@ -21,6 +21,10 @@ pub struct Project {
     /// for a package, and `tests/` where it exists.
     pub source_dirs: Vec<PathBuf>,
     pub package: bool,
+    pub outline: Outline,
+    /// Its `elm.json`, which the generated project's dependencies are
+    /// kept by.
+    pub elm_json: Vec<u8>,
 }
 
 impl Project {
@@ -71,6 +75,8 @@ impl Project {
             tests_dir,
             source_dirs,
             package,
+            outline,
+            elm_json: bytes,
         })
     }
 }

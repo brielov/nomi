@@ -184,7 +184,7 @@ SOFTWARE.
 
 ## node-test-runner
 
-Source: https://github.com/rtfeldman/node-test-runner, elm-test 0.19.3-0. Its test fixtures, the suites the elm-test transcripts run, are copied into `crates/cli/tests/elm_test/cases`.
+Source: https://github.com/rtfeldman/node-test-runner, elm-test 0.19.3-0. Its test fixtures, the suites the elm-test transcripts run, are copied into `crates/cli/tests/elm_test/cases`. Its Elm runner (`elm/src`) and JavaScript templates are vendored in `crates/test/runner`, and embedded in nomi.
 
 ```text
 Copyright (c) 2015, Richard Feldman

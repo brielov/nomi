@@ -44,6 +44,14 @@ impl Name {
         Name::known("elm", "html")
     }
 
+    pub fn random() -> Name {
+        Name::known("elm", "random")
+    }
+
+    pub fn time() -> Name {
+        Name::known("elm", "time")
+    }
+
     pub fn virtual_dom() -> Name {
         Name::known("elm", "virtual-dom")
     }

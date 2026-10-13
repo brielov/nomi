@@ -92,6 +92,23 @@ impl Store {
         )
     }
 
+    /// Each package downloaded, as `author/project` in order, with its
+    /// releases downloaded, oldest first.
+    pub fn downloaded(&self) -> io::Result<Vec<(String, Vec<Version>)>> {
+        let releases = self.dir.join("releases");
+        let mut found = Vec::new();
+        for author in names_in(&releases)? {
+            for project in names_in(&releases.join(&author))? {
+                let versions = versions_in(&releases.join(&author).join(&project))?;
+                if !versions.is_empty() {
+                    found.push((format!("{author}/{project}"), versions));
+                }
+            }
+        }
+        found.sort();
+        Ok(found)
+    }
+
     /// Each package downloaded, as `author/project` in order, with the
     /// sources of its newest release.
     pub fn newest(&self) -> io::Result<Vec<(String, PathBuf)>> {

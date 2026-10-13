@@ -6,6 +6,7 @@
 
 use crate::timings::{self, Phase};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use nomi_base::Report;
 use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, reflow, simple_note, text, vcat};
@@ -18,7 +19,7 @@ use crate::check::{self, Checked, Style, env_of};
 use crate::console::{Console, Personality};
 use crate::install::one_line;
 use crate::javascript;
-use crate::names::{Building, Packages};
+use crate::names::{Building, LazyInterface, Packages};
 use crate::paths::{Cache, Root};
 use crate::project::{self, Project, check_source_dirs};
 use crate::report;
@@ -103,11 +104,26 @@ pub fn run(
     make: &Make,
 ) -> bool {
     let started = std::time::Instant::now();
-    let ok = build(vfs, console, dir, cache, http, make);
+    let ok = build(vfs, console, dir, cache, http, make, &mut None);
     if timings::on() {
         console.err(&timings::report(started.elapsed()));
     }
     ok
+}
+
+/// The interfaces of the modules of a project around `dir`, built as
+/// [`run`] builds `make`'s paths, which it shows as it does; `None` if
+/// anything was wrong.
+pub fn interfaces(
+    vfs: &Vfs,
+    console: &mut dyn Console,
+    dir: &Path,
+    cache: &Cache,
+    http: &(impl Http + Sync),
+    make: &Make,
+) -> Option<Vec<(ModuleName, Arc<LazyInterface>)>> {
+    let mut kept = Some(Vec::new());
+    build(vfs, console, dir, cache, http, make, &mut kept).then_some(kept?)
 }
 
 fn build(
@@ -117,6 +133,7 @@ fn build(
     cache: &Cache,
     http: &(impl Http + Sync),
     make: &Make,
+    kept: &mut Option<Vec<(ModuleName, Arc<LazyInterface>)>>,
 ) -> bool {
     let personality = make.personality;
     let Some(root) = Root::find(vfs, dir) else {
@@ -187,7 +204,7 @@ fn build(
                 packages,
                 Some(&artifacts),
             )
-        } else if generating {
+        } else if generating || kept.is_some() {
             let (checked, made) = check::optimize(
                 &snapshot,
                 &env,
@@ -269,7 +286,12 @@ fn build(
         }
     }
     let mut diagram = None;
-    if let Some(optimized) = optimized {
+    if let Some(kept) = kept {
+        *kept = optimized
+            .as_ref()
+            .map_or_else(Vec::new, |o| o.interfaces.clone());
+    }
+    if let Some(optimized) = optimized.filter(|_| generating) {
         let target = match target(make.output.as_ref(), &optimized.roots) {
             Ok(target) => target,
             Err(report) => return fail(console, report),
