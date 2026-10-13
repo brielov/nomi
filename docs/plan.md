@@ -1007,10 +1007,12 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - elm-test's `install` leaves the moved dependencies unsorted: `elm install` in the scratch copy promotes test dependencies the new package needs to the main ones, and moving them back puts them last.
   - elm's install in an application without `elm/json` refuses (MISSING DEPENDENCY), which elm-test passes on; the recording keeps that.
   - `Project.init` doesn't check the source directories; only a run does (`validateTestsSourceDirs`), so `install` works in a project whose `src/` is missing, and `Project::read` no longer checks them.
-- [ ] **10.6c** `test: --watch`. Runs again as the test source directories and `elm.json` change.
+- [x] **10.6c** `test: --watch`. Runs again as the test source directories and `elm.json` change.
   - **Watching:** as `RunTests.runTests` with `watch`: the console cleared (unless `--no-clear-console`, which prints elm-test's "Rerunning tests" banner instead), a run, then `Watching for changes...`; a change to an `.elm` file in the test source directories (past `elm-stuff` and `node_modules`), to `elm.json`, or `tests/` appearing starts a run, named as elm-test names it (`tests/A.elm changed`, `3 files added/changed`); changes within 100 ms of the first join it, and changes during a run start the next. Errors end a run, not the watch.
   - **How:** nomi polls the watched files' sizes and modification times every 100 ms rather than taking a dependency for the operating systems' file events: a test suite's files are few, and chokidar, elm-test's watcher, polls in places too.
   - **Check:** `elm-test --watch` started on a fixture suite runs it, says it's watching, runs again when a test file changes, naming it, and keeps watching after a run that fails to compile.
+  - **Done:** `nomi_test::watch`. `nomi test --watch` on the passing suite runs it, watches, runs again on a change to `tests/Passing/One.elm` with `tests/Passing/One.elm changed` on its progress line, and after a syntax error says `elm make` failed and keeps watching, the console cleared before each run. Unit tests hold the event names and messages, `elm-stuff` ignored, and a directory newly watched holding no changes.
+  - A run reads the project afresh, so its test source directories can change between runs; the watcher takes them on as chokidar's `add` does, their files not counting as added.
 - [ ] **10.7** `release: 0.4`.
 
 **Exit:** output matches elm-test for fixed seeds, and the corpus apps' test suites pass.

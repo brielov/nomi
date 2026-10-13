@@ -513,10 +513,6 @@ pub fn main<H: Http + Sync>(
             console.err(&format!("{text}\n"));
             1
         }
-        Parsed::Run(flags, _) | Parsed::Make(flags, _) if flags.watch => {
-            console.err("nomi doesn't run tests with --watch yet.\n");
-            1
-        }
         Parsed::Run(flags, globs) => run(context, console, &flags, &globs, color, cores),
         Parsed::Make(flags, globs) => make(context, console, &flags, &globs, color),
         Parsed::Init(_) => install(context, console, "init", None),
@@ -594,28 +590,60 @@ fn require_test_package(project: &Project) -> Result<(), String> {
 
 /// `makeProgressLogger`: the steps on one line, rewritten as each comes,
 /// for people only.
-struct Progress {
-    items: Vec<&'static str>,
+pub(crate) struct Progress {
+    items: Vec<String>,
     shown: bool,
+    /// Whether `clearConsole` clears it (`--no-clear-console`).
+    clears: bool,
 }
 
 impl Progress {
-    fn log(&mut self, console: &mut dyn Console, item: &'static str) {
-        self.items.push(item);
+    pub(crate) fn log(&mut self, console: &mut dyn Console, item: &str) {
+        self.items.push(item.to_owned());
         if self.shown {
             console.out(&format!("{}\r", self.items.join(" > ")));
         }
     }
 
-    fn new_line(&mut self, console: &mut dyn Console) {
+    pub(crate) fn new_line(&mut self, console: &mut dyn Console) {
         self.items.clear();
         if self.shown {
             console.out("\n");
         }
     }
+
+    /// Whether it shows: for people, not machines.
+    pub(crate) fn shown(&self) -> bool {
+        self.shown
+    }
+
+    /// Whether clearing the console clears it.
+    pub(crate) fn clears(&self) -> bool {
+        self.clears
+    }
+
+    /// `readline.clearLine`.
+    pub(crate) fn clear_line(&mut self, console: &mut dyn Console) {
+        self.items.clear();
+        if self.shown {
+            console.out("\x1b[2K");
+        }
+    }
+
+    pub(crate) fn clear_console(&mut self, console: &mut dyn Console) {
+        self.items.clear();
+        if self.shown && self.clears {
+            console.out(if cfg!(windows) {
+                "\x1b[2J\x1b[0f"
+            } else {
+                "\x1b[2J\x1b[3J\x1b[H"
+            });
+        }
+    }
 }
 
-/// `RunTests.run`, once.
+/// `RunTests.runTests`: one run, or with `--watch` a run each time the
+/// tests change.
 fn run<H: Http + Sync>(
     context: &Context<'_, H>,
     console: &mut dyn Console,
@@ -634,7 +662,33 @@ fn run<H: Http + Sync>(
     let mut progress = Progress {
         items: Vec::new(),
         shown: !flags.report.machine_readable(),
+        clears: flags.clear_console,
     };
+    let mut once = |console: &mut dyn Console, progress: &mut Progress| {
+        run_once(
+            context, console, progress, &root, flags, globs, color, cores,
+        )
+    };
+    if flags.watch {
+        crate::watch::watch(console, &mut progress, &root, color, &mut once)
+    } else {
+        once(console, &mut progress).0
+    }
+}
+
+/// `RunTests.run`: its exit code, and the test source directories it
+/// found.
+#[allow(clippy::too_many_arguments)]
+fn run_once<H: Http + Sync>(
+    context: &Context<'_, H>,
+    console: &mut dyn Console,
+    progress: &mut Progress,
+    root: &Path,
+    flags: &Flags,
+    globs: &[String],
+    color: bool,
+    cores: usize,
+) -> (i32, Vec<PathBuf>) {
     // Each error ends the run after a line break, as elm-test's `catch`
     // does.
     let fail = |console: &mut dyn Console, progress: &mut Progress, message: &str| {
@@ -642,18 +696,42 @@ fn run<H: Http + Sync>(
         console.err(&format!("{message}\n"));
         1
     };
-    let project = Project::read(&root).and_then(|project| {
+    let project = Project::read(root).and_then(|project| {
         require_test_package(&project)?;
         project.validate()?;
         Ok(project)
     });
     let project = match project {
         Ok(project) => project,
-        Err(message) => return fail(console, &mut progress, &message),
+        Err(message) => return (fail(console, progress, &message), Vec::new()),
     };
-    let files = match resolve(&project, context.cwd, globs) {
+    let dirs = project.source_dirs.clone();
+    let code = run_project(
+        context, console, progress, &project, flags, globs, color, cores,
+    );
+    (code, dirs)
+}
+
+/// The rest of `RunTests.run`, once the project is read.
+#[allow(clippy::too_many_arguments)]
+fn run_project<H: Http + Sync>(
+    context: &Context<'_, H>,
+    console: &mut dyn Console,
+    progress: &mut Progress,
+    project: &Project,
+    flags: &Flags,
+    globs: &[String],
+    color: bool,
+    cores: usize,
+) -> i32 {
+    let fail = |console: &mut dyn Console, progress: &mut Progress, message: &str| {
+        progress.new_line(console);
+        console.err(&format!("{message}\n"));
+        1
+    };
+    let files = match resolve(project, context.cwd, globs) {
         Ok(files) => files,
-        Err(message) => return fail(console, &mut progress, &message),
+        Err(message) => return fail(console, progress, &message),
     };
     let processes = flags.workers.unwrap_or(cores);
     let options = Options {
@@ -681,7 +759,7 @@ fn run<H: Http + Sync>(
     let built = build::build(
         &env,
         console,
-        &project,
+        project,
         &files,
         &options,
         &mut |console, step| {
@@ -694,18 +772,14 @@ fn run<H: Http + Sync>(
     );
     let runner = match built {
         Ok(runner) => runner,
-        Err(Failure::Files(message)) => return fail(console, &mut progress, &message),
+        Err(Failure::Files(message)) => return fail(console, progress, &message),
         Err(Failure::Project(report)) => {
             progress.new_line(console);
             nomi_engine::console::report(console, &report, nomi_base::Compat::LATEST);
             return 1;
         }
         Err(Failure::Shown) => {
-            return fail(
-                console,
-                &mut progress,
-                "`elm make` failed with exit code 1.",
-            );
+            return fail(console, progress, "`elm make` failed with exit code 1.");
         }
     };
     progress.log(console, "Starting tests");
@@ -721,7 +795,7 @@ fn run<H: Http + Sync>(
             progress.new_line(console);
             1
         }
-        Err(e) => fail(console, &mut progress, &format!("{e}")),
+        Err(e) => fail(console, progress, &format!("{e}")),
     }
 }
 

@@ -12,6 +12,7 @@ pub mod json;
 pub mod junit;
 pub mod runner;
 pub mod supervise;
+mod watch;
 
 pub use build::{Env, Failure, Runner, Step, build};
 pub use discover::{TestModule, modules, tests};
