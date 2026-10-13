@@ -1014,6 +1014,9 @@ Refined 2026-10-12 from the source of 2.10.0 (27.6k lines of TypeScript: a 10.3k
   - **Done:** `nomi_test::watch`. `nomi test --watch` on the passing suite runs it, watches, runs again on a change to `tests/Passing/One.elm` with `tests/Passing/One.elm changed` on its progress line, and after a syntax error says `elm make` failed and keeps watching, the console cleared before each run. Unit tests hold the event names and messages, `elm-stuff` ignored, and a directory newly watched holding no changes.
   - A run reads the project afresh, so its test source directories can change between runs; the watcher takes them on as chokidar's `add` does, their files not counting as added.
 - [ ] **10.7** `release: 0.4`.
+  - **Corpus:** the 14 corpus apps with an elm-explorations/test suite, each run by `nomi test` and by elm-test 0.19.3-0 with `--report json --seed 12345 --fuzz 100`, in a copy of the app outside the checkout. `cargo xtask oracle corpus-tests` records elm-test's exit code, counts and a digest of its normalized output in `corpus/tests/oracle.tsv`, its packages downloaded by elm into a sandbox; `cargo xtask corpus tests [ONLY]` runs nomi with the development cache, which the test dependencies are downloaded into, and compares. By hand, as the other corpus suites downloading from the registry are.
+  - **Release:** the README's section on `nomi test`, the workspace version 0.4.0, tagged `v0.4.0`.
+  - **Check:** every recorded app gives elm-test's exit code and output, and M10's exit holds: output matches elm-test for fixed seeds.
 
 **Exit:** output matches elm-test for fixed seeds, and the corpus apps' test suites pass.
 
