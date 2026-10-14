@@ -7,6 +7,7 @@
 //! standard library has no Windows pipes. With one worker elm-test runs
 //! the program in its own process, which nomi's driver stands in for.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
@@ -27,12 +28,13 @@ use crate::runner::DRIVER;
 
 /// The elm-test whose behaviour nomi's is, which the console's header
 /// names.
-pub const ELM_TEST_VERSION: &str = "0.19.3-0";
+pub(crate) const ELM_TEST_VERSION: &str = "0.19.3-0";
 
 /// What a supervisor is asked to do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Supervise {
     pub report: Report,
+    /// How many workers run the tests.
     pub processes: usize,
     /// Whether elm-test's own messages are colored (`chalk`).
     pub color: bool,
@@ -47,19 +49,52 @@ enum Event {
 }
 
 /// A result as a worker sent it: its text, which the JSON report prints
-/// as it is, and its value.
+/// as it is, and its value, with the fields the reports read.
 struct Sent {
     text: String,
     value: Value,
+    status: Option<Status>,
+    stage: Option<Stage>,
 }
 
 impl Sent {
     fn new(raw: &RawValue) -> Sent {
+        let value: Value = serde_json::from_str(raw.get()).unwrap_or(Value::Null);
+        let status = match value["status"].as_str() {
+            Some("pass") => Some(Status::Pass),
+            Some("fail") => Some(Status::Fail),
+            Some("todo") => Some(Status::Todo),
+            _ => None,
+        };
+        let stage = match value["type"].as_str() {
+            Some("begin") => Some(Stage::Begin),
+            Some("complete") => Some(Stage::Complete),
+            Some("summary") => Some(Stage::Summary),
+            _ => None,
+        };
         Sent {
             text: raw.get().to_owned(),
-            value: serde_json::from_str(raw.get()).unwrap_or(Value::Null),
+            value,
+            status,
+            stage,
         }
     }
+}
+
+/// A result's `status`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Status {
+    Pass,
+    Fail,
+    Todo,
+}
+
+/// A console result's `type`: what it reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stage {
+    Begin,
+    Complete,
+    Summary,
 }
 
 /// A worker's message, its results and message kept as sent.
@@ -77,6 +112,29 @@ struct Message<'a> {
     exit_code: Option<i32>,
 }
 
+/// A message's `type`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Kind {
+    Finished,
+    Summary,
+    Begin,
+    Results,
+    Error,
+}
+
+impl Kind {
+    fn parse(text: &str) -> Option<Kind> {
+        match text {
+            "FINISHED" => Some(Kind::Finished),
+            "SUMMARY" => Some(Kind::Summary),
+            "BEGIN" => Some(Kind::Begin),
+            "RESULTS" => Some(Kind::Results),
+            "ERROR" => Some(Kind::Error),
+            _ => None,
+        }
+    }
+}
+
 /// How a run ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ended {
@@ -88,50 +146,54 @@ pub enum Ended {
     Thrown,
 }
 
-/// Runs the tests of the program at `program` as `supervise` asks,
-/// printing to `console`; how it ended.
-pub fn run(console: &mut dyn Console, program: &Path, supervise: Supervise) -> io::Result<Ended> {
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
-    let port = listener.local_addr()?.port();
-    let (send, events) = mpsc::channel();
-    let accepting = accept(listener, send.clone());
-    let mut workers = Vec::new();
-    for index in 0..supervise.processes.max(1) {
-        let mut command = Command::new("node");
-        if supervise.processes == 1 {
-            command.arg("-e").arg(DRIVER);
+impl Supervise {
+    /// Runs the tests of the program at `program`, printing to `console`;
+    /// how it ended.
+    pub fn run(self, console: &mut dyn Console, program: &Path) -> io::Result<Ended> {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+        let port = listener.local_addr()?.port();
+        let (send, events) = mpsc::channel();
+        let accepting = accept(listener, send.clone());
+        let mut workers = Vec::new();
+        for index in 0..self.processes {
+            // `<program> <index> <port>`, as the driver and `after.js`
+            // read their arguments.
+            let mut command = Command::new("node");
+            if self.processes == 1 {
+                command.arg("-e").arg(DRIVER);
+            }
+            command
+                .arg(program)
+                .arg(index.to_string())
+                .arg(port.to_string())
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            let mut child = command.spawn()?;
+            let readers = [
+                forward(child.stdout.take(), send.clone(), Event::Out),
+                forward(child.stderr.take(), send.clone(), Event::Err),
+            ];
+            workers.push(Worker {
+                child,
+                readers: readers.into_iter().flatten().collect(),
+                exited: false,
+            });
         }
-        command
-            .arg(program)
-            .arg(index.to_string())
-            .arg(port.to_string())
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        let mut child = command.spawn()?;
-        let readers = [
-            forward(child.stdout.take(), send.clone(), Event::Out),
-            forward(child.stderr.take(), send.clone(), Event::Err),
-        ];
-        workers.push(Worker {
-            child,
-            readers: readers.into_iter().flatten().collect(),
-            exited: false,
-        });
+        drop(send);
+        let mut state = State::new(self);
+        let code = state.supervise(console, &events, &mut workers);
+        for worker in &mut workers {
+            let _ = worker.child.kill();
+            let _ = worker.child.wait();
+        }
+        // The listener waits for a connection: this one, which it drops as
+        // nothing receives it any more.
+        drop(events);
+        let _ = TcpStream::connect((Ipv4Addr::LOCALHOST, port));
+        let _ = accepting.join();
+        Ok(code)
     }
-    drop(send);
-    let mut state = State::new(supervise);
-    let code = state.supervise(console, &events, &mut workers);
-    for worker in &mut workers {
-        let _ = worker.child.kill();
-        let _ = worker.child.wait();
-    }
-    // The listener waits for a connection: this one, which it drops as
-    // nothing receives it any more.
-    drop(events);
-    let _ = TcpStream::connect((Ipv4Addr::LOCALHOST, port));
-    let _ = accepting.join();
-    Ok(code)
 }
 
 struct Worker {
@@ -184,16 +246,23 @@ fn forward(
     }))
 }
 
+/// The results due to print, from `BEGIN` on.
+#[derive(Clone, Copy, Debug)]
+struct Due {
+    /// The next one's index.
+    next: usize,
+    tests: usize,
+}
+
 /// What the supervisor knows of the run.
 struct State {
     supervise: Supervise,
-    /// The next result to print, once `BEGIN` has come.
-    next: Option<usize>,
-    tests: Option<usize>,
+    due: Option<Due>,
     finished: usize,
-    /// Each result by its index.
+    /// The results not printed yet, by index; with `JUnit`, which lists
+    /// them all as the run ends, every result.
     results: HashMap<usize, Sent>,
-    /// The indices in the order their results came, which `JUnit` lists.
+    /// With `JUnit`, the indices in the order their results came.
     order: Vec<usize>,
     failures: usize,
     todos: Vec<Value>,
@@ -205,8 +274,7 @@ impl State {
     fn new(supervise: Supervise) -> State {
         State {
             supervise,
-            next: None,
-            tests: None,
+            due: None,
             finished: 0,
             results: HashMap::new(),
             order: Vec::new(),
@@ -266,24 +334,12 @@ impl State {
                 if self.supervise.processes == 1 {
                     return Some(Ended::Thrown);
                 }
-                console.err(&format!(
-                    "{}\n",
-                    self.red(
-                        "\n\nThere was an unexpected runtime exception while running tests\n\n"
-                    )
-                ));
+                let text = "\n\nThere was an unexpected runtime exception while running tests\n\n";
+                console.err(&format!("{}\n", chalk(self.supervise.color, 31, text)));
                 return Some(Ended::Code(1));
             }
         }
         workers.iter().all(|w| w.exited).then_some(Ended::Code(1))
-    }
-
-    fn red(&self, text: &str) -> String {
-        if self.supervise.color {
-            format!("\x1b[31m{text}\x1b[39m")
-        } else {
-            text.to_owned()
-        }
     }
 
     fn event(&mut self, console: &mut dyn Console, event: Event) -> Option<i32> {
@@ -311,8 +367,16 @@ impl State {
             console.err(&format!("Unrecognized message from worker: {line}\n"));
             return Some(1);
         };
-        match message.kind.as_str() {
-            "FINISHED" => {
+        let Some(kind) = Kind::parse(&message.kind) else {
+            console.err(&format!(
+                "Unrecognized message from worker:{}\n",
+                message.kind
+            ));
+            return Some(1);
+        };
+        let report = self.supervise.report;
+        match kind {
+            Kind::Finished => {
                 self.results(console, message.results);
                 self.finished += 1;
                 if self.finished == self.supervise.processes || self.supervise.processes == 1 {
@@ -329,19 +393,17 @@ impl State {
                 }
                 None
             }
-            "SUMMARY" => {
+            Kind::Summary => {
                 self.flush(console);
                 let sent = message.message.map(Sent::new);
                 if message.exit_code == Some(1) {
-                    let text = match sent.as_ref().map(|s| &s.value) {
-                        Some(Value::String(text)) => text.clone(),
-                        Some(other) => other.to_string(),
-                        None => "undefined".to_owned(),
-                    };
+                    let text = sent
+                        .as_ref()
+                        .map_or(Cow::Borrowed("undefined"), |s| js_string(&s.value));
                     console.err(&format!("{text}\n"));
                 } else {
-                    self.print(console, sent.as_ref());
-                    if self.supervise.report == Report::JUnit
+                    print(console, report, sent.as_ref());
+                    if report == Report::JUnit
                         && let Some(sent) = &sent
                     {
                         console.out(&format!("{}\n", self.junit(sent)));
@@ -349,39 +411,34 @@ impl State {
                 }
                 Some(message.exit_code.unwrap_or(1))
             }
-            "BEGIN" => {
-                self.tests = message.test_count;
-                if let Report::Console { .. } = self.supervise.report {
+            Kind::Begin => {
+                if let Report::Console { .. } = report {
                     let headline = format!("elm-test {ELM_TEST_VERSION}");
                     let bar = "-".repeat(headline.len());
                     console.out(&format!("\n{headline}\n{bar}\n\n"));
                 }
-                self.print(console, message.message.map(Sent::new).as_ref());
-                self.next = Some(0);
+                print(console, report, message.message.map(Sent::new).as_ref());
+                self.due = message.test_count.map(|tests| Due { next: 0, tests });
                 self.flush(console);
                 None
             }
-            "RESULTS" => {
+            Kind::Results => {
                 self.results(console, message.results);
                 None
             }
-            "ERROR" => {
-                let text = message.message.map(Sent::new).map(|s| match s.value {
-                    Value::String(text) => text,
-                    other => other.to_string(),
-                });
-                console.err(&format!("Error: {}\n", text.unwrap_or_default()));
-                Some(1)
-            }
-            other => {
-                console.err(&format!("Unrecognized message from worker:{other}\n"));
+            Kind::Error => {
+                let sent = message.message.map(Sent::new);
+                let text = sent
+                    .as_ref()
+                    .map_or(Cow::Borrowed(""), |s| js_string(&s.value));
+                console.err(&format!("Error: {text}\n"));
                 Some(1)
             }
         }
     }
 
-    /// `handleResults`: each result kept, counted as the report counts
-    /// them, and those due printed.
+    /// `handleResults`: each result counted as the report counts them,
+    /// kept, and those due printed.
     fn results(&mut self, console: &mut dyn Console, results: Option<HashMap<String, &RawValue>>) {
         // Index order, as JavaScript lists an object's integer keys.
         let mut results: Vec<(usize, &RawValue)> = (results.unwrap_or_default().into_iter())
@@ -390,47 +447,51 @@ impl State {
         results.sort_by_key(|(index, _)| *index);
         for (index, raw) in results {
             let result = Sent::new(raw);
-            let status = result.value["status"].as_str();
             match self.supervise.report {
-                Report::Console { .. } => match status {
-                    Some("todo") => self.todos.push(result.value.clone()),
-                    Some("fail") => self.failures += 1,
-                    _ => {}
+                Report::Console { .. } => match result.status {
+                    Some(Status::Todo) => self.todos.push(result.value.clone()),
+                    Some(Status::Fail) => self.failures += 1,
+                    Some(Status::Pass) | None => {}
                 },
                 Report::JUnit => {
                     if result.value.get("failure").is_some() {
                         self.failures += 1;
                     }
                 }
-                Report::Json => match status {
-                    Some("fail") => self.failures += 1,
-                    Some("todo") => self.todos.push(json!({
+                Report::Json => match result.status {
+                    Some(Status::Fail) => self.failures += 1,
+                    Some(Status::Todo) => self.todos.push(json!({
                         "labels": result.value["labels"],
                         "todo": result.value["failures"][0],
                     })),
-                    _ => {}
+                    Some(Status::Pass) | None => {}
                 },
             }
-            if self.results.insert(index, result).is_none() {
-                self.order.push(index);
+            if self.supervise.report == Report::JUnit {
+                if self.results.insert(index, result).is_none() {
+                    self.order.push(index);
+                }
+            } else if self.due.is_none_or(|due| index >= due.next) {
+                // One printed already is never printed again.
+                self.results.insert(index, result);
             }
         }
         self.flush(console);
     }
 
-    /// `flushResults`: the results due, in order, while there are.
+    /// `flushResults`: the results due, in order, while there are. `JUnit`
+    /// prints none until the run ends.
     fn flush(&mut self, console: &mut dyn Console) {
-        let (Some(mut next), Some(tests)) = (self.next, self.tests) else {
+        let Some(due) = &mut self.due else { return };
+        if self.supervise.report == Report::JUnit {
             return;
-        };
-        while next < tests {
-            let Some(result) = self.results.get(&next) else {
-                break;
-            };
-            print(console, self.supervise.report, Some(result));
-            next += 1;
         }
-        self.next = Some(next);
+        while due.next < due.tests
+            && let Some(result) = self.results.remove(&due.next)
+        {
+            print(console, self.supervise.report, Some(&result));
+            due.next += 1;
+        }
     }
 
     /// The `JUnit` report: the summary's XML with every result, in the
@@ -442,10 +503,6 @@ impl State {
             .map(|result| parse(&result.text))
             .collect();
         junit::report(parse(&summary.text), results)
-    }
-
-    fn print(&self, console: &mut dyn Console, result: Option<&Sent>) {
-        print(console, self.supervise.report, result);
     }
 }
 
@@ -459,21 +516,36 @@ fn print(console: &mut dyn Console, report: Report, result: Option<&Sent>) {
         Report::JUnit => {}
         Report::Console { .. } => {
             let Some(result) = result else { return };
-            let value = &result.value;
-            let field = match (value["type"].as_str(), value["status"].as_str()) {
-                (Some("begin"), _) => "output",
-                (Some("complete"), Some("pass")) => "distributionReport",
-                (Some("complete"), Some("fail")) => "failure",
-                (Some("summary"), _) => "summary",
+            let field = match (result.stage, result.status) {
+                (Some(Stage::Begin), _) => "output",
+                (Some(Stage::Complete), Some(Status::Pass)) => "distributionReport",
+                (Some(Stage::Complete), Some(Status::Fail)) => "failure",
+                (Some(Stage::Summary), _) => "summary",
                 _ => return,
             };
-            let text = match value.get(field) {
-                Some(Value::String(text)) => text.clone(),
-                Some(other) => other.to_string(),
-                None => return,
+            let Some(text) = result.value.get(field) else {
+                return;
             };
-            console.out(&format!("{}\n", windows_safe(&text)));
+            console.out(&format!("{}\n", windows_safe(&js_string(text))));
         }
+    }
+}
+
+/// JavaScript's `String(value)`.
+fn js_string(value: &Value) -> Cow<'_, str> {
+    match value {
+        Value::String(text) => Cow::Borrowed(text),
+        other => Cow::Owned(other.to_string()),
+    }
+}
+
+/// `text` in the foreground color `code` when `color`, as `chalk` writes
+/// it.
+pub(crate) fn chalk(color: bool, code: u8, text: &str) -> String {
+    if color {
+        format!("\x1b[{code}m{text}\x1b[39m")
+    } else {
+        text.to_owned()
     }
 }
 
@@ -493,7 +565,7 @@ fn windows_safe(text: &str) -> String {
 
 /// elm-test's default seed: `Math.floor(Math.random() * 407199254740991) +
 /// 1000`.
-pub fn random_seed() -> u64 {
+pub(crate) fn random_seed() -> u64 {
     use std::hash::{BuildHasher, Hasher};
     let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
     hasher.write_u128(
@@ -505,6 +577,48 @@ pub fn random_seed() -> u64 {
 }
 
 /// elm-test's default worker count: the logical cores.
-pub fn default_workers() -> usize {
+pub(crate) fn default_workers() -> usize {
     thread::available_parallelism().map_or(1, |n| n.get())
+}
+
+#[cfg(test)]
+mod tests {
+    use nomi_engine::console::Captured;
+
+    use super::*;
+
+    /// Results print in index order however they come, each once, and are
+    /// let go once printed; `JUnit` keeps every result for its report.
+    #[test]
+    fn results_print_in_order_once() {
+        let lines = [
+            r#"{"type":"RESULTS","results":{"1":{"status":"pass"}}}"#,
+            r#"{"type":"BEGIN","testCount":3}"#,
+            r#"{"type":"RESULTS","results":{"2":{"status":"fail"},"0":{"status":"pass"}}}"#,
+            r#"{"type":"RESULTS","results":{"0":{"status":"todo"}}}"#,
+        ];
+        let run = |report| {
+            let mut state = State::new(Supervise {
+                report,
+                processes: 2,
+                color: false,
+            });
+            let mut console = Captured::default();
+            for line in lines {
+                assert_eq!(state.response(&mut console, 0, line), None, "{line}");
+            }
+            (state, console)
+        };
+        let (state, console) = run(Report::Json);
+        assert_eq!(
+            console.out,
+            "undefined\n{\"status\":\"pass\"}\n{\"status\":\"pass\"}\n{\"status\":\"fail\"}\n"
+        );
+        assert!(state.results.is_empty());
+        assert_eq!((state.failures, state.todos.len()), (1, 1));
+        let (state, console) = run(Report::JUnit);
+        assert_eq!(console.out, "");
+        assert_eq!(state.order, [1, 0, 2]);
+        assert_eq!(state.results[&0].status, Some(Status::Todo));
+    }
 }

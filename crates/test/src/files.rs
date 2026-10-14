@@ -3,24 +3,26 @@
 //! `.elm` files below it, a file as given, and an argument that names
 //! nothing, a glob from the project's root.
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use nomi_project::Outline;
+use walkdir::{DirEntry, WalkDir};
 
-/// Directories elm-test never looks in.
-const IGNORED: [&str; 2] = ["elm-stuff", "node_modules"];
+/// Directories elm-test never looks in (`FindTests.ignoredDirsGlobs`).
+pub(crate) const IGNORED: [&str; 2] = ["elm-stuff", "node_modules"];
 
 /// What elm-test reads of a project (`Project.init`).
 #[derive(Clone, Debug)]
 pub struct Project {
+    /// The directory of its `elm.json`.
     pub root: PathBuf,
     /// `tests/`, which need not exist.
     pub tests_dir: PathBuf,
     /// Where test files may be: the project's source directories, `src/`
     /// for a package, and `tests/` where it exists.
     pub source_dirs: Vec<PathBuf>,
-    pub package: bool,
     pub outline: Outline,
     /// Its `elm.json`, which the generated project's dependencies are
     /// kept by.
@@ -37,14 +39,11 @@ impl Project {
         let outline = (nomi_base::Compat::ALL.into_iter().rev())
             .find_map(|compat| Outline::decode(&bytes, compat).ok())
             .ok_or_else(|| "elm.json is not a project nomi reads".to_owned())?;
-        let (package, written) = match &outline {
-            Outline::App(app) => (
-                false,
-                (app.source_dirs.iter())
-                    .filter_map(|d| d.path())
-                    .collect::<Vec<_>>(),
-            ),
-            Outline::Pkg(_) => (true, vec!["src".to_owned()]),
+        let written = match &outline {
+            Outline::App(app) => (app.source_dirs.iter())
+                .filter_map(|d| d.path())
+                .collect::<Vec<_>>(),
+            Outline::Pkg(_) => vec!["src".to_owned()],
         };
         let tests_dir = root.join("tests");
         let mut source_dirs: Vec<PathBuf> = written
@@ -58,7 +57,6 @@ impl Project {
             root,
             tests_dir,
             source_dirs,
-            package,
             outline,
             elm_json: bytes,
         })
@@ -93,19 +91,25 @@ pub fn resolve(project: &Project, cwd: &Path, globs: &[String]) -> Result<Vec<Pa
     } else {
         globs.iter().map(|g| absolute(Path::new(g), cwd)).collect()
     };
+    // The project's tree, walked once for every glob.
+    let mut tree = None;
     let mut found: Vec<PathBuf> = Vec::new();
+    let mut seen = HashSet::new();
     for path in given {
         let matched = match fs::metadata(&path) {
             Ok(meta) if meta.is_dir() => elm_files(&path),
             Ok(_) => vec![path],
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => glob(project, &path),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let pattern = relative(&path, &project.root);
+                let pattern = Glob::new(&pattern.to_string_lossy().replace('\\', "/"));
+                glob(
+                    tree.get_or_insert_with(|| Entry::tree(&project.root)),
+                    &pattern,
+                )
+            }
             Err(_) => Vec::new(),
         };
-        for file in matched {
-            if !found.contains(&file) {
-                found.push(file);
-            }
-        }
+        found.extend(matched.into_iter().filter(|file| seen.insert(file.clone())));
     }
     if found.is_empty() {
         return Err(no_files(project, globs));
@@ -121,8 +125,8 @@ fn no_files(project: &Project, globs: &[String]) -> String {
             globs.join("\n")
         );
     }
-    let tests = project.root.join("tests");
-    let what = match fs::metadata(&tests) {
+    let tests = &project.tests_dir;
+    let what = match fs::metadata(tests) {
         Ok(meta) if meta.is_dir() => "No .elm files found in the tests/ directory.".to_owned(),
         Ok(_) => format!(
             "Expected a directory but found something else at: {}\nCheck it out! Could you remove it?",
@@ -138,66 +142,218 @@ fn no_files(project: &Project, globs: &[String]) -> String {
     )
 }
 
+/// Everything below `dir`, in name order, past the ignored directories
+/// and hidden files.
+fn walk(dir: &Path) -> impl Iterator<Item = DirEntry> {
+    let skipped = |entry: &DirEntry| {
+        let name = entry.file_name();
+        name.as_encoded_bytes().starts_with(b".")
+            || (entry.file_type().is_dir() && IGNORED.iter().any(|i| name == *i))
+    };
+    let walk = WalkDir::new(dir).min_depth(1).sort_by_file_name();
+    (walk.into_iter())
+        .filter_entry(move |entry| !skipped(entry))
+        .filter_map(Result::ok)
+}
+
+fn is_elm(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("elm"))
+}
+
 /// Every `.elm` file below `dir`, past the ignored directories, by path.
 fn elm_files(dir: &Path) -> Vec<PathBuf> {
+    (walk(dir))
+        .filter(|entry| !entry.file_type().is_dir() && is_elm(entry.path()))
+        .map(DirEntry::into_path)
+        .collect()
+}
+
+/// A path below the project's root, as globs see it.
+struct Entry {
+    path: PathBuf,
+    /// Its path from the root, a part for each component.
+    parts: Vec<String>,
+    dir: bool,
+}
+
+impl Entry {
+    /// Everything below `root`, as [`walk`] finds it.
+    fn tree(root: &Path) -> Vec<Entry> {
+        walk(root)
+            .map(|entry| {
+                let below = entry.path().strip_prefix(root);
+                Entry {
+                    parts: parts(below.expect("a walk stays below its root")),
+                    dir: entry.file_type().is_dir(),
+                    path: entry.into_path(),
+                }
+            })
+            .collect()
+    }
+}
+
+/// The files `glob` matches in `tree`: a directory it matches gives its
+/// `.elm` files, which follow it in the tree.
+fn glob(tree: &[Entry], glob: &Glob) -> Vec<PathBuf> {
     let mut found = Vec::new();
-    walk(dir, &mut |path, is_dir| {
-        if !is_dir
-            && path
-                .extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("elm"))
-        {
-            found.push(path.to_owned());
+    for (at, entry) in tree.iter().enumerate() {
+        if !glob.matches(&entry.parts) {
+            continue;
         }
-    });
+        if entry.dir {
+            let below = tree[at + 1..]
+                .iter()
+                .take_while(|e| e.path.starts_with(&entry.path));
+            found.extend((below.filter(|e| !e.dir && is_elm(&e.path))).map(|e| e.path.clone()));
+        } else {
+            found.push(entry.path.clone());
+        }
+    }
     found
 }
 
-/// Calls `visit` with everything below `dir`, by path, sorted, past the
-/// ignored directories and hidden files.
-fn walk(dir: &Path, visit: &mut dyn FnMut(&Path, bool)) {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    let mut entries: Vec<(PathBuf, bool)> = entries
-        .flatten()
-        .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
-        .map(|e| (e.path(), e.file_type().is_ok_and(|t| t.is_dir())))
-        .collect();
-    entries.sort();
-    for (path, is_dir) in entries {
-        if is_dir
-            && IGNORED
-                .iter()
-                .any(|i| path.file_name().is_some_and(|n| n == *i))
-        {
-            continue;
+/// A glob, its braces expanded into patterns and their segments parsed:
+/// `**` stands for any number of segments, and within one, `*`, `?` and
+/// `[…]` match regardless of ASCII case.
+struct Glob(Vec<Vec<Segment>>);
+
+enum Segment {
+    /// `**`.
+    Any,
+    Name(Vec<Token>),
+}
+
+enum Token {
+    /// `*`.
+    Star,
+    /// `?`.
+    One,
+    /// `[…]`, or with `negated`, `[!…]` or `[^…]`.
+    Class {
+        negated: bool,
+        class: Vec<u8>,
+    },
+    Byte(u8),
+}
+
+impl Glob {
+    fn new(text: &str) -> Glob {
+        let patterns = braces(text).into_iter().map(|pattern| {
+            (pattern.split('/').filter(|s| !s.is_empty()))
+                .map(Segment::parse)
+                .collect()
+        });
+        Glob(patterns.collect())
+    }
+
+    /// Whether a path, by its parts, matches.
+    fn matches(&self, parts: &[String]) -> bool {
+        let any = |segment: &Segment| matches!(segment, Segment::Any);
+        let star = |token: &Token| matches!(token, Token::Star);
+        let one = |segment: &Segment, part: &String| match segment {
+            Segment::Any => true,
+            Segment::Name(tokens) => {
+                wildcard(tokens, part.as_bytes(), star, |token, &b| token.matches(b))
+            }
+        };
+        (self.0.iter()).any(|segments| wildcard(segments, parts, any, one))
+    }
+}
+
+impl Segment {
+    fn parse(text: &str) -> Segment {
+        if text == "**" {
+            return Segment::Any;
         }
-        visit(&path, is_dir);
-        if is_dir {
-            walk(&path, visit);
+        let mut tokens = Vec::new();
+        let mut rest = text.as_bytes();
+        while let Some((&first, after)) = rest.split_first() {
+            rest = after;
+            let class = (first == b'[')
+                .then(|| after.iter().position(|&b| b == b']'))
+                .flatten();
+            tokens.push(match (first, class) {
+                (b'[', Some(end)) => {
+                    rest = &after[end + 1..];
+                    let (negated, class) = match after[..end].split_first() {
+                        Some((b'!' | b'^', class)) => (true, class),
+                        _ => (false, &after[..end]),
+                    };
+                    Token::Class {
+                        negated,
+                        class: class.to_vec(),
+                    }
+                }
+                (b'*', _) => Token::Star,
+                (b'?', _) => Token::One,
+                // An unclosed `[` is itself.
+                (byte, _) => Token::Byte(byte),
+            });
+        }
+        Segment::Name(tokens)
+    }
+}
+
+impl Token {
+    /// Whether it matches `byte`, as one that stands for one byte.
+    fn matches(&self, byte: u8) -> bool {
+        match self {
+            Token::Star | Token::One => true,
+            Token::Class { negated, class } => in_class(class, byte) != *negated,
+            Token::Byte(b) => b.eq_ignore_ascii_case(&byte),
         }
     }
 }
 
-/// The files `pattern`, an absolute path, matches as a glob relative to
-/// the project's root, regardless of case; a directory it matches gives
-/// its `.elm` files.
-fn glob(project: &Project, pattern: &Path) -> Vec<PathBuf> {
-    let relative = relative(pattern, &project.root);
-    let patterns = braces(&relative.replace('\\', "/"));
-    let mut found = Vec::new();
-    walk(&project.root, &mut |path, is_dir| {
-        let rel = relative_path(path, &project.root);
-        if patterns.iter().any(|p| matches(p, &rel)) {
-            if is_dir {
-                found.extend(elm_files(path));
-            } else {
-                found.push(path.to_owned());
-            }
+/// Whether `byte` is among a class's bytes and `a-z` ranges, regardless
+/// of ASCII case.
+fn in_class(class: &[u8], byte: u8) -> bool {
+    let byte = byte.to_ascii_lowercase();
+    let mut rest = class;
+    while let [lo, after @ ..] = rest {
+        let (hi, next) = match after {
+            [b'-', hi, next @ ..] => (hi, next),
+            _ => (lo, after),
+        };
+        if (lo.to_ascii_lowercase()..=hi.to_ascii_lowercase()).contains(&byte) {
+            return true;
         }
-    });
-    found
+        rest = next;
+    }
+    false
+}
+
+/// Whether `subject` matches `pattern`, whose stars stand for any number
+/// of elements and whose other elements each match one. Greedy, going
+/// back only to the last star, it never tries a state twice.
+fn wildcard<P, S>(
+    pattern: &[P],
+    subject: &[S],
+    star: impl Fn(&P) -> bool,
+    one: impl Fn(&P, &S) -> bool,
+) -> bool {
+    let (mut p, mut s) = (0, 0);
+    // After the last star: where the pattern goes on, and the subject's
+    // element the star would take next.
+    let mut back = None;
+    while p < pattern.len() || s < subject.len() {
+        if p < pattern.len() && star(&pattern[p]) {
+            p += 1;
+            back = Some((p, s));
+        } else if p < pattern.len() && s < subject.len() && one(&pattern[p], &subject[s]) {
+            p += 1;
+            s += 1;
+        } else if let Some((after, taken)) = back
+            && taken < subject.len()
+        {
+            back = Some((after, taken + 1));
+            (p, s) = (after, taken + 1);
+        } else {
+            return false;
+        }
+    }
+    true
 }
 
 /// `pattern` with each `{a,b}` expanded, as several patterns.
@@ -248,69 +404,9 @@ fn braces(pattern: &str) -> Vec<String> {
         .collect()
 }
 
-/// Whether `path`, relative and `/`-separated, matches `pattern`, segment
-/// by segment, `**` standing for any number of them.
-fn matches(pattern: &str, path: &str) -> bool {
-    let pattern: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty()).collect();
-    let path: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    segments(&pattern, &path)
-}
-
-fn segments(pattern: &[&str], path: &[&str]) -> bool {
-    match pattern.split_first() {
-        None => path.is_empty(),
-        Some((&"**", rest)) => (0..=path.len()).any(|skip| segments(rest, &path[skip..])),
-        Some((first, rest)) => path.split_first().is_some_and(|(name, others)| {
-            segment(first.as_bytes(), name.as_bytes()) && segments(rest, others)
-        }),
-    }
-}
-
-/// Whether the name matches the segment's `*`, `?` and `[…]`, regardless
-/// of ASCII case.
-fn segment(pattern: &[u8], name: &[u8]) -> bool {
-    match pattern.split_first() {
-        None => name.is_empty(),
-        Some((b'*', rest)) => (0..=name.len()).any(|skip| segment(rest, &name[skip..])),
-        Some((b'?', rest)) => !name.is_empty() && segment(rest, &name[1..]),
-        Some((b'[', rest)) => {
-            let Some(end) = rest.iter().position(|&b| b == b']') else {
-                return name.first() == Some(&b'[') && segment(rest, &name[1..]);
-            };
-            let (class, after) = (&rest[..end], &rest[end + 1..]);
-            let Some(&c) = name.first() else {
-                return false;
-            };
-            let (negated, class) = match class.first() {
-                Some(b'!' | b'^') => (true, &class[1..]),
-                _ => (false, class),
-            };
-            let mut hit = false;
-            let mut i = 0;
-            while i < class.len() {
-                if i + 2 < class.len() && class[i + 1] == b'-' {
-                    let (lo, hi) = (
-                        class[i].to_ascii_lowercase(),
-                        class[i + 2].to_ascii_lowercase(),
-                    );
-                    hit |= (lo..=hi).contains(&c.to_ascii_lowercase());
-                    i += 3;
-                } else {
-                    hit |= class[i].eq_ignore_ascii_case(&c);
-                    i += 1;
-                }
-            }
-            hit != negated && segment(after, &name[1..])
-        }
-        Some((&p, rest)) => {
-            name.first().is_some_and(|c| c.eq_ignore_ascii_case(&p)) && segment(rest, &name[1..])
-        }
-    }
-}
-
 /// `path` from `cwd`, made absolute and normalized as Node's
 /// `path.resolve` does, links and all left as they are.
-pub fn absolute(path: &Path, cwd: &Path) -> PathBuf {
+fn absolute(path: &Path, cwd: &Path) -> PathBuf {
     let joined = if path.is_absolute() {
         path.to_owned()
     } else {
@@ -329,35 +425,29 @@ pub fn absolute(path: &Path, cwd: &Path) -> PathBuf {
     out
 }
 
-/// `path` relative to `root`, `/`-separated, as Node's `path.relative`.
-fn relative(path: &Path, root: &Path) -> String {
-    if let Ok(rest) = path.strip_prefix(root) {
-        relative_path(&root.join(rest), root)
-    } else {
-        let (path, root): (Vec<_>, Vec<_>) =
-            (path.components().collect(), root.components().collect());
-        let shared = path.iter().zip(&root).take_while(|(a, b)| a == b).count();
-        let mut parts: Vec<String> = vec!["..".to_owned(); root.len() - shared];
-        parts.extend(
-            path[shared..]
-                .iter()
-                .map(|c| c.as_os_str().to_string_lossy().into_owned()),
-        );
-        parts.join("/")
-    }
+/// `path` relative to `root`, as Node's `path.relative`: through `..`
+/// where it isn't below it.
+pub(crate) fn relative(path: &Path, root: &Path) -> PathBuf {
+    let (path, root): (Vec<_>, Vec<_>) = (path.components().collect(), root.components().collect());
+    let shared = path.iter().zip(&root).take_while(|(a, b)| a == b).count();
+    let up = root[shared..].iter().map(|_| Component::ParentDir);
+    up.chain(path[shared..].iter().copied()).collect()
 }
 
-fn relative_path(path: &Path, root: &Path) -> String {
-    let rest = path.strip_prefix(root).unwrap_or(path);
-    rest.components()
+/// `path`'s components, as text.
+pub(crate) fn parts(path: &Path) -> Vec<String> {
+    (path.components())
         .map(|c| c.as_os_str().to_string_lossy().into_owned())
-        .collect::<Vec<_>>()
-        .join("/")
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn matches(pattern: &str, path: &str) -> bool {
+        Glob::new(pattern).matches(&parts(Path::new(path)))
+    }
 
     #[test]
     fn globs_match_as_elm_test_reads_them() {
@@ -368,7 +458,15 @@ mod tests {
         assert!(!matches("tests/[!A-C]*.elm", "tests/Beta.elm"));
         assert!(matches("tests/?ne.elm", "tests/One.elm"));
         assert!(!matches("tests/*.elm", "tests/A/One.elm"));
+        assert!(matches("tests/[A.elm", "tests/[A.elm"));
         assert_eq!(braces("a/{b,c}/d"), ["a/b/d", "a/c/d"]);
+        // Each star tried at most once per position.
+        let long = format!("{}.elm", "a".repeat(64));
+        assert!(!matches(&"*a".repeat(24), &long));
+        assert!(!matches(
+            &format!("{}b", "**/".repeat(24)),
+            &"a/".repeat(64)
+        ));
     }
 
     #[test]
@@ -377,7 +475,13 @@ mod tests {
             absolute(Path::new("../x/./y"), Path::new("/a/b")),
             PathBuf::from("/a/x/y")
         );
-        assert_eq!(relative(Path::new("/a/b/c"), Path::new("/a")), "b/c");
-        assert_eq!(relative(Path::new("/x/c"), Path::new("/a/b")), "../../x/c");
+        assert_eq!(
+            relative(Path::new("/a/b/c"), Path::new("/a")),
+            Path::new("b/c")
+        );
+        assert_eq!(
+            relative(Path::new("/x/c"), Path::new("/a/b")),
+            Path::new("../../x/c")
+        );
     }
 }

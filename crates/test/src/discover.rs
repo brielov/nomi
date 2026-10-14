@@ -11,14 +11,17 @@ use std::path::{Path, PathBuf};
 
 use nomi_compiler::canonical::Type;
 use nomi_compiler::interface::Interface;
-use nomi_syntax::ast::AstNode;
-use nomi_syntax::{SyntaxKind, SyntaxNode, parse_module};
+use nomi_project::Outline;
+use nomi_syntax::ast::{AstNode, Decl, Exposed, Module};
+use nomi_syntax::parse_module;
 
-use crate::files::Project;
+use crate::TEST_PACKAGE;
+use crate::files::{Project, parts};
 
 /// A test file: its module, and the values it may expose as tests.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TestModule {
+    /// The module's name, as its path makes it.
     pub name: String,
     pub path: PathBuf,
     /// The lowercase names it exposes, as elm-test finds them: its list's,
@@ -34,27 +37,7 @@ pub fn modules(project: &Project, files: &[PathBuf]) -> Result<Vec<TestModule>, 
     files
         .iter()
         .map(|path| {
-            let dirs: Vec<&PathBuf> = (project.source_dirs.iter())
-                .filter(|dir| path.starts_with(dir) && path != *dir)
-                .collect();
-            let dir = match dirs.as_slice() {
-                [] => return Err(no_source_directory(path, project.package)),
-                [dir] => *dir,
-                several => return Err(several_source_directories(path, several, project)),
-            };
-            let parts: Vec<String> = (path.strip_prefix(dir).unwrap_or(path).components())
-                .map(|c| c.as_os_str().to_string_lossy().into_owned())
-                .collect();
-            let mut parts = parts;
-            if let Some(last) = parts.last_mut()
-                && let Some(stem) = last.strip_suffix(".elm")
-            {
-                *last = stem.to_owned();
-            }
-            let name = parts.join(".");
-            if !parts.iter().all(|p| upper_name(p)) {
-                return Err(bad_module_name(path, dir, &name));
-            }
+            let name = module_name(project, path)?;
             let text = fs::read_to_string(path).unwrap_or_default();
             Ok(TestModule {
                 name,
@@ -65,9 +48,33 @@ pub fn modules(project: &Project, files: &[PathBuf]) -> Result<Vec<TestModule>, 
         .collect()
 }
 
+/// The module `path` is, by its path under the one source directory of
+/// `project` holding it.
+fn module_name(project: &Project, path: &Path) -> Result<String, String> {
+    let dirs: Vec<&PathBuf> = (project.source_dirs.iter())
+        .filter(|dir| path.starts_with(dir) && path != *dir)
+        .collect();
+    let dir = match dirs.as_slice() {
+        [] => return Err(no_source_directory(path, project)),
+        [dir] => *dir,
+        several => return Err(several_source_directories(path, several, project)),
+    };
+    let mut parts = parts(path.strip_prefix(dir).unwrap_or(path));
+    if let Some(last) = parts.last_mut()
+        && let Some(stem) = last.strip_suffix(".elm")
+    {
+        *last = stem.to_owned();
+    }
+    let name = parts.join(".");
+    if !parts.iter().all(|p| upper_name(p)) {
+        return Err(bad_module_name(path, dir, &name));
+    }
+    Ok(name)
+}
+
 /// The candidates of `module` whose type in its interface is `Test`, in
 /// order.
-pub fn tests(module: &TestModule, interface: &Interface) -> Vec<String> {
+pub(crate) fn tests(module: &TestModule, interface: &Interface) -> Vec<String> {
     (module.candidates.iter())
         .filter(|name| {
             interface
@@ -82,23 +89,16 @@ pub fn tests(module: &TestModule, interface: &Interface) -> Vec<String> {
 /// Whether `ty` is elm-explorations/test's `Test`: the alias `Test.Test`,
 /// or the type it stands for.
 fn is_test(ty: &Type) -> bool {
-    match ty {
+    let (home, name, no_args, module) = match ty {
         Type::Alias {
             home, name, args, ..
-        } => {
-            &*home.package == "elm-explorations/test"
-                && &*home.module == "Test"
-                && name == "Test"
-                && args.is_empty()
+        } => (home, name, args.is_empty(), "Test"),
+        Type::Type { home, name, args } => (home, name, args.is_empty(), "Test.Internal"),
+        Type::Lambda(..) | Type::Var(_) | Type::Record(..) | Type::Unit | Type::Tuple(..) => {
+            return false;
         }
-        Type::Type { home, name, args } => {
-            &*home.package == "elm-explorations/test"
-                && &*home.module == "Test.Internal"
-                && name == "Test"
-                && args.is_empty()
-        }
-        _ => false,
-    }
+    };
+    home.is(TEST_PACKAGE, module) && name == "Test" && no_args
 }
 
 /// The lowercase names `text` exposes as elm-test's parser finds them.
@@ -107,41 +107,32 @@ fn candidates(text: &str) -> Vec<String> {
     if !parse.errors().is_empty() {
         return Vec::new();
     }
-    let root = parse.syntax();
-    let child = |node: &SyntaxNode, kind| node.children().find(|c| c.kind() == kind);
-    let Some(list) = child(&root, SyntaxKind::ModuleHeader)
-        .and_then(|header| child(&header, SyntaxKind::ExposingList))
-    else {
+    let Some(module) = Module::cast(parse.syntax()) else {
+        return Vec::new();
+    };
+    let Some(list) = module.module_header().and_then(|h| h.exposing_list()) else {
         return Vec::new();
     };
     // `exposing (..)`, not a type's `(..)`.
-    let all = list
-        .children_with_tokens()
-        .any(|e| e.kind() == SyntaxKind::DotDot);
-    if !all {
-        return (list.children())
-            .filter(|c| c.kind() == SyntaxKind::ExposedValue)
-            .filter_map(|c| first_lower(&c))
+    if list.dot_dot_token().is_none() {
+        return (list.items())
+            .filter_map(|item| match item {
+                Exposed::ExposedValue(value) => value.lower_ident_token(),
+                Exposed::ExposedType(_) | Exposed::ExposedOperator(_) => None,
+            })
+            .map(|name| name.text().to_owned())
             .collect();
     }
     // Each `name =` at the top: a value, which a test is.
-    (root.children())
-        .filter(|decl| decl.kind() == SyntaxKind::ValueDecl)
-        .filter_map(|decl| child(&decl, SyntaxKind::Definition))
-        .filter(|definition| {
-            !definition
-                .children()
-                .any(|c| nomi_syntax::ast::Pattern::can_cast(c.kind()))
+    (module.decls())
+        .filter_map(|decl| match decl {
+            Decl::ValueDecl(value) => value.definition(),
+            _ => None,
         })
-        .filter_map(|definition| first_lower(&definition))
+        .filter(|definition| definition.patterns().next().is_none())
+        .filter_map(|definition| definition.lower_ident_token())
+        .map(|name| name.text().to_owned())
         .collect()
-}
-
-fn first_lower(node: &SyntaxNode) -> Option<String> {
-    node.children_with_tokens()
-        .filter_map(|e| e.into_token())
-        .find(|t| t.kind() == SyntaxKind::LowerIdent)
-        .map(|t| t.text().to_owned())
 }
 
 /// `Parser.isUpperName`: an uppercase letter, then letters, digits and `_`.
@@ -151,11 +142,12 @@ fn upper_name(part: &str) -> bool {
 }
 
 /// `FindTests.missingSourceDirectoryError`.
-fn no_source_directory(path: &Path, package: bool) -> String {
-    let advice = if package {
-        "Move it to tests/ or src/ in your project root."
-    } else {
-        "Move it to tests/ in your project root, or make sure it is covered by \"source-directories\" in your elm.json."
+fn no_source_directory(path: &Path, project: &Project) -> String {
+    let advice = match project.outline {
+        Outline::Pkg(_) => "Move it to tests/ or src/ in your project root.",
+        Outline::App(_) => {
+            "Move it to tests/ in your project root, or make sure it is covered by \"source-directories\" in your elm.json."
+        }
     };
     format!(
         "This file:\n\n{}\n\n…matches no source directory! Imports won't work then.\n\n{advice}",

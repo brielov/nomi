@@ -45,10 +45,10 @@ pub enum Failure {
 }
 
 /// What a build takes from where it runs.
+#[derive(Debug)]
 pub struct Env<'a, H> {
-    pub vfs: &'a Vfs,
-    pub cache: &'a Cache,
-    pub http: &'a H,
+    /// Where the command runs; the build runs in the generated project.
+    pub cx: &'a Context<'a, H>,
     pub solve: Solve,
     /// Whether elm's reports may be colored, as elm-test lets elm color
     /// them when it colors its own output.
@@ -58,22 +58,7 @@ pub struct Env<'a, H> {
 impl<H> Env<'_, H> {
     /// What a command of the engine's run in `dir` takes from it.
     pub(crate) fn at<'b>(&'b self, dir: &'b Path) -> Context<'b, H> {
-        Context {
-            vfs: self.vfs,
-            dir,
-            cache: self.cache,
-            http: self.http,
-        }
-    }
-}
-
-impl<H> std::fmt::Debug for Env<'_, H> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Env")
-            .field("cache", &self.cache.dir())
-            .field("solve", &self.solve)
-            .field("color", &self.color)
-            .finish_non_exhaustive()
+        Context { dir, ..*self.cx }
     }
 }
 
@@ -82,6 +67,7 @@ impl<H> std::fmt::Debug for Env<'_, H> {
 pub enum Step {
     /// The dependencies are solved anew.
     Solving,
+    /// The tests and their runner are compiled.
     Compiling,
 }
 
@@ -93,17 +79,16 @@ fn prepare<H: Http + Sync>(
     project: &Project,
     progress: &mut dyn FnMut(&mut dyn Console, Step),
 ) -> Result<PathBuf, Failure> {
-    let tests_dir = env.cache.dir().join("tests");
-    let dir = generated_dir(env.cache, project);
+    let dir = generated_dir(env.cx.cache, project);
     let src = dir.join("src");
     fs::create_dir_all(src.join("Test/Generated")).map_err(|e| io(&dir, &e))?;
-    let runner = runner::sources(&tests_dir).map_err(|e| io(&dir, &e))?;
+    let runner = runner::sources(&env.cx.cache.dir().join("tests")).map_err(|e| io(&dir, &e))?;
     let Dependencies { direct, indirect } = test_deps::dependencies(
         &project.elm_json,
         &project.outline,
         &dir,
-        env.cache,
-        env.http,
+        env.cx.cache,
+        env.cx.http,
         env.solve,
         &mut || progress(console, Step::Solving),
     )
@@ -124,7 +109,8 @@ fn prepare<H: Http + Sync>(
         test_direct: Default::default(),
         test_indirect: Default::default(),
     });
-    write_if_changed(env.vfs, &dir.join("elm.json"), &outline.write()).map_err(|e| io(&dir, &e))?;
+    let elm_json = dir.join("elm.json");
+    write_if_changed(env.cx.vfs, &elm_json, &outline.write()).map_err(|e| io(&dir, &e))?;
     Ok(dir)
 }
 
@@ -167,16 +153,16 @@ pub fn build<H: Http + Sync>(
     let found = modules(project, files).map_err(Failure::Files)?;
     let dir = prepare(env, console, project, progress)?;
     progress(console, Step::Compiling);
+    let terminal = env.color && console.err_is_terminal();
     // The test modules first, for their types; then `main` over them.
-    let mut quiet = Quiet::new(env.color && console.err_is_terminal());
+    let mut quiet = Quiet::new(terminal);
     let interfaces = make::interfaces(
         &env.at(&dir),
         &mut quiet,
         &elm_make(files.to_vec(), Style::Terminal, Output::DevNull),
     );
     let Some(interfaces) = interfaces else {
-        console.err(&quiet.err);
-        return Err(Failure::Shown);
+        return Err(quiet.shown(console));
     };
     let found_tests: Vec<(String, Vec<String>)> = (found.iter())
         .filter_map(|module| {
@@ -191,24 +177,19 @@ pub fn build<H: Http + Sync>(
         .join("src")
         .join(format!("{}.elm", MAIN.replace('.', "/")));
     let text = main_module(options, &imports, &found_tests);
-    write_if_changed(env.vfs, &main, text.as_bytes()).map_err(|e| io(&dir, &e))?;
+    write_if_changed(env.cx.vfs, &main, text.as_bytes()).map_err(|e| io(&dir, &e))?;
     let js = dir.join("elmTestOutput.js");
-    let mut quiet = Quiet::new(env.color && console.err_is_terminal());
-    let made = make::run(
-        &env.at(&dir),
-        &mut quiet,
-        &elm_make(vec![main], Style::Terminal, Output::Js(js.clone())),
-    );
-    if !made {
-        console.err(&quiet.err);
-        return Err(Failure::Shown);
+    let mut quiet = Quiet::new(terminal);
+    let make = elm_make(vec![main], Style::Terminal, Output::Js(js.clone()));
+    if !make::run(&env.at(&dir), &mut quiet, &make) {
+        return Err(quiet.shown(console));
     }
     let compiled = fs::read_to_string(&js).map_err(|e| io(&dir, &e))?;
     fs::write(&js, runner::wrap(&compiled)).map_err(|e| io(&dir, &e))?;
     // Node reads the program as CommonJS, whatever a `package.json` above
     // it says.
     write_if_changed(
-        env.vfs,
+        env.cx.vfs,
         &dir.join("package.json"),
         br#"{"type":"commonjs"}"#,
     )
@@ -222,32 +203,30 @@ pub fn build<H: Http + Sync>(
 
 /// `elm-test make`: `files` built in the generated project as `elm make
 /// --output=/dev/null` builds them, with its output, or its JSON report
-/// with `style`. Whether they built.
-pub fn make<H: Http + Sync>(
+/// with `style`.
+pub(crate) fn make<H: Http + Sync>(
     env: &Env<'_, H>,
     console: &mut dyn Console,
     project: &Project,
     files: &[PathBuf],
     style: Style,
-) -> Result<bool, Failure> {
+) -> Result<(), Failure> {
     let dir = prepare(env, console, project, &mut |_, _| {})?;
     let make = elm_make(files.to_vec(), style, Output::DevNull);
-    Ok(make::run(&env.at(&dir), console, &make))
+    if make::run(&env.at(&dir), console, &make) {
+        Ok(())
+    } else {
+        Err(Failure::Shown)
+    }
 }
 
 /// Where `project`'s generated project is: elm-test's
 /// `elm-stuff/generated-code/elm-community/elm-test/<version>`, in nomi's
-/// cache by the project's root.
+/// cache by a hash of the project's root.
 pub(crate) fn generated_dir(cache: &Cache, project: &Project) -> PathBuf {
     let root = project.root.to_string_lossy();
-    cache.dir().join("tests").join(hex(root.as_bytes()))
-}
-
-/// A short hex name for `bytes`.
-fn hex(bytes: &[u8]) -> String {
-    (Hash::of(bytes).0.iter().take(8))
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    let hash = Hash::of(root.as_bytes());
+    cache.dir().join("tests").join(nomi_base::hex(&hash.0[..8]))
 }
 
 /// Writes `bytes` to `path` unless it already holds them.
@@ -271,6 +250,12 @@ impl Quiet {
             err: String::new(),
             terminal,
         }
+    }
+
+    /// The build failed: what it printed shown on `console`.
+    fn shown(self, console: &mut dyn Console) -> Failure {
+        console.err(&self.err);
+        Failure::Shown
     }
 }
 

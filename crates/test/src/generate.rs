@@ -13,22 +13,26 @@ pub enum Report {
 /// What the runner's `run` takes besides the tests.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Options {
+    /// How many times each fuzz test runs.
     pub runs: u32,
     pub report: Report,
     pub seed: u64,
+    /// How many workers run the tests.
     pub processes: usize,
+    /// The globs as given.
     pub globs: Vec<String>,
+    /// The test files they found.
     pub paths: Vec<String>,
 }
 
 /// The generated module's name.
-pub const MAIN: &str = "Test.Generated.Main";
+pub(crate) const MAIN: &str = "Test.Generated.Main";
 
 /// `Test.Generated.Main`'s text: `imports` imported, and each module of
 /// `tests` with its tests. elm-test passes every exposed value through
 /// `check`, which its patch of the JavaScript answers; nomi lists only
 /// the values whose type is `Test`, so it passes each in `Just`.
-pub fn main_module(
+pub(crate) fn main_module(
     options: &Options,
     imports: &[String],
     tests: &[(String, Vec<String>)],

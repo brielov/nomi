@@ -19,9 +19,10 @@ client.on('error', function (error) {
 client.setEncoding('utf8');
 client.setNoDelay(true);
 
+var index = Number(process.argv[2]);
 var send;
 try {
-  send = require(process.argv[1]).run(0, function (msg) {
+  send = require(process.argv[1]).run(index, function (msg) {
     client.write(JSON.stringify(msg) + '\n');
   });
 } catch (error) {

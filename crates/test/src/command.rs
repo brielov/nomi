@@ -4,29 +4,31 @@
 
 use std::path::{Path, PathBuf};
 
+use nomi_base::Compat;
 use nomi_engine::check::Style;
 use nomi_engine::console::Console;
-use nomi_engine::paths::Cache;
 use nomi_engine::test_deps::{Order, Solve};
-use nomi_engine::{Http, Vfs};
-use nomi_project::Outline;
+use nomi_engine::{Context, Http};
+use nomi_project::{Name, Outline};
 
+use crate::TEST_PACKAGE;
 use crate::build::{self, Env, Failure, Step};
 use crate::files::{Project, resolve};
 use crate::generate::{Options, Report};
-use crate::install::Installed;
+use crate::install::{self, InstallError, Installed};
 use crate::supervise::{self, ELM_TEST_VERSION, Ended, Supervise};
+use crate::watch;
 
 /// The options elm-test takes, before or after its command.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Flags {
     pub watch: bool,
+    /// Off with `--no-clear-console`.
     pub clear_console: bool,
     pub seed: Option<u64>,
     pub fuzz: u32,
     pub workers: Option<usize>,
     pub report: ReportName,
-    pub compiler: Option<String>,
     /// `--dependencies` and `--offline`.
     pub solve: Solve,
 }
@@ -40,7 +42,6 @@ impl Default for Flags {
             fuzz: 100,
             workers: None,
             report: ReportName::Console,
-            compiler: None,
             solve: Solve::default(),
         }
     }
@@ -68,58 +69,124 @@ pub enum Parsed {
     Out(String),
     /// Text for standard error, then exit 1.
     Err(String),
+    /// A run of the tests the globs find.
     Run(Flags, Vec<String>),
+    /// `make` of the files the globs find.
     Make(Flags, Vec<String>),
-    Init(Flags),
-    Install(Flags, String),
+    /// `init` or `install`.
+    Setup(Setup),
+}
+
+/// What `init` and `install` add to the test dependencies.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Setup {
+    /// elm-explorations/test, and `tests/Example.elm`.
+    Init,
+    /// The package named.
+    Install(String),
+}
+
+/// elm-test's commands, but `help`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Command {
+    Init,
+    Install,
+    Make,
+}
+
+impl Command {
+    /// The command called `name`.
+    fn named(name: &str) -> Option<Command> {
+        [Command::Init, Command::Install, Command::Make]
+            .into_iter()
+            .find(|command| command.name() == name)
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Command::Init => "init",
+            Command::Install => "install",
+            Command::Make => "make",
+        }
+    }
+
+    fn help(self) -> String {
+        let (usage, description) = match self {
+            Command::Init => (
+                "init [options]",
+                "Install elm-explorations/test and create tests/Example.elm",
+            ),
+            Command::Install => (
+                "install [options] <package>",
+                "Like `elm install package`, except it installs to \"test-dependencies\" in your elm.json",
+            ),
+            Command::Make => (
+                "make [options] [globs...]",
+                "Check files matching the globs for compilation errors",
+            ),
+        };
+        format!("Usage: elm-test {usage}\n\n{description}\n\nOptions:\n  -h, --help  Show help\n")
+    }
+}
+
+/// What an option of elm-test's program sets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Opt {
+    Watch,
+    NoClearConsole,
+    Seed,
+    Fuzz,
+    Workers,
+    Report,
+    NoColor,
+    Color,
+    Compiler,
+    Dependencies,
+    Offline,
+    Output,
+    Version,
 }
 
 /// An option of elm-test's program.
 struct Spec {
+    opt: Opt,
     long: &'static str,
     /// Its value's name, for those that take one.
     value: Option<&'static str>,
-    hidden: bool,
 }
 
-const fn flag(long: &'static str) -> Spec {
+const fn flag(opt: Opt, long: &'static str) -> Spec {
     Spec {
+        opt,
         long,
         value: None,
-        hidden: false,
     }
 }
 
-const fn valued(long: &'static str, value: &'static str) -> Spec {
+const fn valued(opt: Opt, long: &'static str, value: &'static str) -> Spec {
     Spec {
+        opt,
         long,
         value: Some(value),
-        hidden: false,
     }
 }
 
 /// elm-test's options, in the order it declares them.
 const OPTIONS: [Spec; 13] = [
-    flag("--watch"),
-    flag("--no-clear-console"),
-    valued("--seed", "<int>"),
-    valued("--fuzz", "<int>"),
-    valued("--workers", "<int>"),
-    valued("--report", "<format>"),
-    flag("--no-color"),
-    flag("--color"),
-    valued("--compiler", "<path>"),
-    valued("--dependencies", "<strategy>"),
-    flag("--offline"),
-    Spec {
-        long: "--output",
-        value: Some("<output>"),
-        hidden: true,
-    },
-    flag("--version"),
+    flag(Opt::Watch, "--watch"),
+    flag(Opt::NoClearConsole, "--no-clear-console"),
+    valued(Opt::Seed, "--seed", "<int>"),
+    valued(Opt::Fuzz, "--fuzz", "<int>"),
+    valued(Opt::Workers, "--workers", "<int>"),
+    valued(Opt::Report, "--report", "<format>"),
+    flag(Opt::NoColor, "--no-color"),
+    flag(Opt::Color, "--color"),
+    valued(Opt::Compiler, "--compiler", "<path>"),
+    valued(Opt::Dependencies, "--dependencies", "<strategy>"),
+    flag(Opt::Offline, "--offline"),
+    valued(Opt::Output, "--output", "<output>"),
+    flag(Opt::Version, "--version"),
 ];
-
-const COMMANDS: [&str; 3] = ["init", "install", "make"];
 
 /// The program's help, with the machine's logical cores.
 fn program_help(cores: usize) -> String {
@@ -169,25 +236,6 @@ Commands:
     )
 }
 
-/// A command's help.
-fn command_help(command: &str) -> String {
-    let (usage, description) = match command {
-        "init" => (
-            "init [options]",
-            "Install elm-explorations/test and create tests/Example.elm",
-        ),
-        "install" => (
-            "install [options] <package>",
-            "Like `elm install package`, except it installs to \"test-dependencies\" in your elm.json",
-        ),
-        _ => (
-            "make [options] [globs...]",
-            "Check files matching the globs for compilation errors",
-        ),
-    };
-    format!("Usage: elm-test {usage}\n\n{description}\n\nOptions:\n  -h, --help  Show help\n")
-}
-
 /// `outputOptionError`.
 const OUTPUT_ERROR: &str = "Only /dev/null is allowed.
 
@@ -202,62 +250,64 @@ pub fn parse(args: &[String], cores: usize) -> Parsed {
     let mut flags = Flags::default();
     // The program's options, wherever they are.
     let (operands, unknown) = match options(args, &mut flags) {
-        Ok(Some(split)) => split,
-        Ok(None) => return Parsed::Out(format!("{ELM_TEST_VERSION}\n")),
+        Ok(Scan::Args { operands, unknown }) => (operands, unknown),
+        Ok(Scan::Version) => return Parsed::Out(format!("{ELM_TEST_VERSION}\n")),
         Err(error) => return Parsed::Err(error),
     };
     let help = |unknown: &[String]| unknown.iter().any(|a| a == "-h" || a == "--help");
-    match operands.first().map(String::as_str) {
-        Some(command) if COMMANDS.contains(&command) => {
-            let (operands, unknown) = rest(&operands[1..], &unknown);
-            if help(&unknown) {
-                return Parsed::Out(command_help(command));
-            }
-            if let Some(option) = unknown.first() {
-                return Parsed::Err(unknown_option(option));
-            }
-            match command {
-                "init" if operands.is_empty() => Parsed::Init(flags),
-                "init" => Parsed::Err(too_many("init", 0, operands.len())),
-                "install" => match operands.as_slice() {
-                    [] => Parsed::Err("error: missing required argument 'package'".to_owned()),
-                    [package] => Parsed::Install(flags, package.clone()),
-                    _ => Parsed::Err(too_many("install", 1, operands.len())),
-                },
-                _ => Parsed::Make(flags, operands),
-            }
+    let first = operands.first().map(String::as_str);
+    if let Some(command) = first.and_then(Command::named) {
+        let (operands, unknown) = rest(&operands[1..], &unknown);
+        if help(&unknown) {
+            return Parsed::Out(command.help());
         }
-        Some("help") => match operands.get(1) {
-            None => Parsed::Out(program_help(cores)),
-            Some(command) if COMMANDS.contains(&command.as_str()) => {
-                Parsed::Out(command_help(command))
-            }
-            Some(_) => Parsed::Err(program_help(cores).trim_end().to_owned()),
-        },
-        _ => {
-            if help(&unknown) {
-                return Parsed::Out(program_help(cores));
-            }
-            let (globs, unknown) = rest(&operands, &unknown);
-            if let Some(option) = unknown.first() {
-                return Parsed::Err(unknown_option(option));
-            }
-            Parsed::Run(flags, globs)
+        if let Some(option) = unknown.first() {
+            return Parsed::Err(unknown_option(option));
         }
+        return match command {
+            Command::Init if operands.is_empty() => Parsed::Setup(Setup::Init),
+            Command::Init => Parsed::Err(too_many(command, 0, operands.len())),
+            Command::Install => match operands.as_slice() {
+                [] => Parsed::Err("error: missing required argument 'package'".to_owned()),
+                [package] => Parsed::Setup(Setup::Install(package.clone())),
+                _ => Parsed::Err(too_many(command, 1, operands.len())),
+            },
+            Command::Make => Parsed::Make(flags, operands),
+        };
     }
+    if first == Some("help") {
+        return match operands.get(1) {
+            None => Parsed::Out(program_help(cores)),
+            Some(name) => match Command::named(name) {
+                Some(command) => Parsed::Out(command.help()),
+                None => Parsed::Err(program_help(cores).trim_end().to_owned()),
+            },
+        };
+    }
+    if help(&unknown) {
+        return Parsed::Out(program_help(cores));
+    }
+    let (globs, unknown) = rest(&operands, &unknown);
+    if let Some(option) = unknown.first() {
+        return Parsed::Err(unknown_option(option));
+    }
+    Parsed::Run(flags, globs)
 }
 
-/// `parseOptions` for the program: its options taken, wherever they are,
-/// and the operands and, from the first unknown option on, the rest;
-/// `None` for `--version`.
-#[expect(
-    clippy::type_complexity,
-    reason = "the pair is commander's operands and unknown arguments, destructured once by `parse`"
-)]
-fn options(
-    args: &[String],
-    flags: &mut Flags,
-) -> Result<Option<(Vec<String>, Vec<String>)>, String> {
+/// What the program's options leave of its arguments.
+enum Scan {
+    /// `--version`, which ends the parse.
+    Version,
+    /// The operands and, from the first unknown option on, the rest.
+    Args {
+        operands: Vec<String>,
+        unknown: Vec<String>,
+    },
+}
+
+/// `parseOptions` for the program: its options taken into `flags`,
+/// wherever they are.
+fn options(args: &[String], flags: &mut Flags) -> Result<Scan, String> {
     let (mut operands, mut unknown) = (Vec::new(), Vec::new());
     let mut in_unknown = false;
     let mut args = args.iter();
@@ -273,21 +323,17 @@ fn options(
         }
         let maybe_option = arg.len() > 1 && arg.starts_with('-');
         if maybe_option && let Some(spec) = OPTIONS.iter().find(|s| s.long == arg) {
-            let value = match spec.value {
-                Some(name) => match args.next() {
-                    Some(value) => Some(value.as_str()),
-                    None => {
-                        return Err(format!(
-                            "error: option '{} {name}' argument missing",
-                            spec.long
-                        ));
-                    }
-                },
-                None => None,
-            };
-            if !set(flags, spec, value)? {
-                return Ok(None);
+            if spec.opt == Opt::Version {
+                return Ok(Scan::Version);
             }
+            let value = (spec.value)
+                .map(|name| {
+                    let missing =
+                        || format!("error: option '{} {name}' argument missing", spec.long);
+                    args.next().map(String::as_str).ok_or_else(missing)
+                })
+                .transpose()?;
+            set(flags, spec, value)?;
             continue;
         }
         if let Some(rest) = arg.strip_prefix("--")
@@ -307,7 +353,7 @@ fn options(
             operands.push(arg.clone());
         }
     }
-    Ok(Some((operands, unknown)))
+    Ok(Scan::Args { operands, unknown })
 }
 
 /// `parseOptions` for a command, which has no options of its own:
@@ -327,9 +373,9 @@ fn rest(operands: &[String], unknown: &[String]) -> (Vec<String>, Vec<String>) {
     (operands, unknown[at..].to_vec())
 }
 
-/// Sets what `spec` sets with `value`; false for `--version`.
-fn set(flags: &mut Flags, spec: &Spec, value: Option<&str>) -> Result<bool, String> {
-    let invalid = |why: &str| {
+/// Sets what `spec` sets with `value`.
+fn set(flags: &mut Flags, spec: &Spec, value: Option<&str>) -> Result<(), String> {
+    let invalid = |why: String| {
         format!(
             "error: option '{} {}' argument '{}' is invalid. {why}",
             spec.long,
@@ -337,51 +383,41 @@ fn set(flags: &mut Flags, spec: &Spec, value: Option<&str>) -> Result<bool, Stri
             value.unwrap_or_default()
         )
     };
-    let choice = |choices: &[&str]| -> Result<String, String> {
-        let value = value.unwrap_or_default();
-        if choices.contains(&value) {
-            Ok(value.to_owned())
-        } else {
-            Err(invalid(&format!(
-                "Allowed choices are {}.",
-                choices.join(", ")
-            )))
-        }
-    };
-    match spec.long {
-        "--watch" => flags.watch = true,
-        "--no-clear-console" => flags.clear_console = false,
-        "--seed" => flags.seed = Some(positive(value, 0).map_err(|why| invalid(&why))?),
-        "--fuzz" => {
-            let fuzz = positive(value, 1).map_err(|why| invalid(&why))?;
+    match spec.opt {
+        Opt::Watch => flags.watch = true,
+        Opt::NoClearConsole => flags.clear_console = false,
+        Opt::Seed => flags.seed = Some(positive(value, 0).map_err(invalid)?),
+        Opt::Fuzz => {
+            let fuzz = positive(value, 1).map_err(invalid)?;
             flags.fuzz = u32::try_from(fuzz).unwrap_or(u32::MAX);
         }
-        "--workers" => {
-            let workers = positive(value, 1).map_err(|why| invalid(&why))?;
+        Opt::Workers => {
+            let workers = positive(value, 1).map_err(invalid)?;
             flags.workers = Some(usize::try_from(workers).unwrap_or(usize::MAX));
         }
-        "--report" => {
-            flags.report = match choice(&["json", "junit", "console"])?.as_str() {
-                "json" => ReportName::Json,
-                "junit" => ReportName::JUnit,
-                _ => ReportName::Console,
-            }
+        Opt::Report => {
+            let choices = [
+                ("json", ReportName::Json),
+                ("junit", ReportName::JUnit),
+                ("console", ReportName::Console),
+            ];
+            flags.report = choice(value, &choices).map_err(invalid)?;
         }
-        "--compiler" => flags.compiler = value.map(str::to_owned),
-        "--dependencies" => {
-            flags.solve.order = match choice(&["newest", "oldest"])?.as_str() {
-                "oldest" => Order::OldestFirst,
-                _ => Order::NewestFirst,
-            }
+        Opt::Dependencies => {
+            let choices = [
+                ("newest", Order::NewestFirst),
+                ("oldest", Order::OldestFirst),
+            ];
+            flags.solve.order = choice(value, &choices).map_err(invalid)?;
         }
-        "--offline" => flags.solve.offline = true,
-        "--output" if value != Some("/dev/null") => return Err(invalid(OUTPUT_ERROR)),
-        "--version" => return Ok(false),
+        Opt::Offline => flags.solve.offline = true,
+        Opt::Output if value != Some("/dev/null") => return Err(invalid(OUTPUT_ERROR.to_owned())),
         // `--color` and `--no-color` are read from the whole line, as
-        // `supports-color` reads them.
-        _ => {}
+        // `supports-color` reads them; nomi is its own compiler; and
+        // `--version` ends the parse before it is set.
+        Opt::Output | Opt::NoColor | Opt::Color | Opt::Compiler | Opt::Version => {}
     }
-    Ok(true)
+    Ok(())
 }
 
 /// `parsePositiveInteger`.
@@ -400,10 +436,21 @@ fn positive(value: Option<&str>, minimum: u64) -> Result<u64, String> {
     Ok(number)
 }
 
-fn too_many(command: &str, expected: usize, got: usize) -> String {
+/// The choice `value` names, by the names `choices` gives them.
+fn choice<T: Copy>(value: Option<&str>, choices: &[(&str, T)]) -> Result<T, String> {
+    let value = value.unwrap_or_default();
+    if let Some(&(_, chosen)) = choices.iter().find(|(name, _)| *name == value) {
+        return Ok(chosen);
+    }
+    let names: Vec<&str> = choices.iter().map(|(name, _)| *name).collect();
+    Err(format!("Allowed choices are {}.", names.join(", ")))
+}
+
+fn too_many(command: Command, expected: usize, got: usize) -> String {
     let s = if expected == 1 { "" } else { "s" };
     format!(
-        "error: too many arguments for '{command}'. Expected {expected} argument{s} but got {got}."
+        "error: too many arguments for '{}'. Expected {expected} argument{s} but got {got}.",
+        command.name()
     )
 }
 
@@ -411,8 +458,9 @@ fn too_many(command: &str, expected: usize, got: usize) -> String {
 fn unknown_option(option: &str) -> String {
     let mut message = format!("error: unknown option '{option}'");
     if let Some(word) = option.strip_prefix("--") {
+        // `--output` is hidden.
         let candidates = (OPTIONS.iter())
-            .filter(|s| !s.hidden)
+            .filter(|s| s.opt != Opt::Output)
             .map(|s| &s.long[2..])
             .chain(["help"]);
         message.push_str(&suggest_similar(word, candidates));
@@ -436,8 +484,13 @@ fn suggest_similar<'a>(word: &str, candidates: impl Iterator<Item = &'a str>) ->
         if chars.len() <= 1 {
             continue;
         }
-        let distance = edit_distance(&word, &chars, MAX_DISTANCE);
         let length = word.len().max(chars.len());
+        // commander gives up on words further apart in length.
+        let distance = if word.len().abs_diff(chars.len()) > MAX_DISTANCE {
+            length
+        } else {
+            nomi_base::suggest::distance(&word, &chars)
+        };
         let similarity = (length as f64 - distance as f64) / length as f64;
         if similarity > 0.4 {
             if distance < best {
@@ -457,60 +510,16 @@ fn suggest_similar<'a>(word: &str, candidates: impl Iterator<Item = &'a str>) ->
     }
 }
 
-/// Damerau–Levenshtein's optimal string alignment distance, as commander
-/// computes it, giving up past `max` length apart.
-fn edit_distance(a: &[char], b: &[char], max: usize) -> usize {
-    if a.len().abs_diff(b.len()) > max {
-        return a.len().max(b.len());
-    }
-    let mut d = vec![vec![0; b.len() + 1]; a.len() + 1];
-    for (i, row) in d.iter_mut().enumerate() {
-        row[0] = i;
-    }
-    for (j, cell) in d[0].iter_mut().enumerate() {
-        *cell = j;
-    }
-    for j in 1..=b.len() {
-        for i in 1..=a.len() {
-            let cost = usize::from(a[i - 1] != b[j - 1]);
-            d[i][j] = (d[i - 1][j] + 1)
-                .min(d[i][j - 1] + 1)
-                .min(d[i - 1][j - 1] + cost);
-            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
-                d[i][j] = d[i][j].min(d[i - 2][j - 2] + 1);
-            }
-        }
-    }
-    d[a.len()][b.len()]
-}
-
-/// What the command reads of where it runs.
-pub struct Context<'a, H> {
-    pub vfs: &'a Vfs,
-    pub cwd: &'a Path,
-    pub cache: &'a Cache,
-    pub http: &'a H,
-    /// The environment's variables, as `supports-color` reads them.
-    pub var: &'a dyn Fn(&str) -> Option<String>,
-}
-
-impl<H> std::fmt::Debug for Context<'_, H> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Context")
-            .field("cwd", &self.cwd)
-            .field("cache", &self.cache.dir())
-            .finish_non_exhaustive()
-    }
-}
-
-/// elm-test run with `args`; its exit code.
+/// elm-test run in `cx` with `args`, `var` reading the environment's
+/// variables; its exit code.
 pub fn main<H: Http + Sync>(
-    context: &Context<'_, H>,
+    cx: &Context<'_, H>,
     console: &mut dyn Console,
     args: &[String],
+    var: &dyn Fn(&str) -> Option<String>,
 ) -> i32 {
     let cores = supervise::default_workers();
-    let color = supports_color(args, context.var, console.out_is_terminal());
+    let color = supports_color(args, var, console.out_is_terminal());
     match parse(args, cores) {
         Parsed::Out(text) => {
             console.out(&text);
@@ -520,10 +529,15 @@ pub fn main<H: Http + Sync>(
             console.err(&format!("{text}\n"));
             1
         }
-        Parsed::Run(flags, globs) => run(context, console, &flags, &globs, color, cores),
-        Parsed::Make(flags, globs) => make(context, console, &flags, &globs, color),
-        Parsed::Init(_) => install(context, console, "init", None),
-        Parsed::Install(_, package) => install(context, console, "install", Some(&package)),
+        Parsed::Run(flags, globs) => Run {
+            flags,
+            globs,
+            color,
+            cores,
+        }
+        .tests(cx, console),
+        Parsed::Make(flags, globs) => make(cx, console, &flags, &globs, color),
+        Parsed::Setup(setup) => install(cx, console, &setup),
     }
 }
 
@@ -570,25 +584,40 @@ fn project_root(cwd: &Path, command: &str) -> Result<PathBuf, String> {
     ))
 }
 
+/// The project `command` runs in, or its error shown.
+fn read_project<H>(
+    cx: &Context<'_, H>,
+    console: &mut dyn Console,
+    command: &str,
+) -> Option<Project> {
+    match project_root(cx.dir, command).and_then(|root| Project::read(&root)) {
+        Ok(project) => Some(project),
+        Err(message) => {
+            console.err(&format!("{message}\n"));
+            None
+        }
+    }
+}
+
 /// `ElmJson.requireElmTestPackage`.
 fn require_test_package(project: &Project) -> Result<(), String> {
-    const TEST: &str = "elm-explorations/test";
-    let path = project.root.join("elm.json");
+    let test: Name = TEST_PACKAGE.parse().expect("a package name");
     let version = match &project.outline {
-        Outline::App(app) => (app.test_direct.iter().chain(&app.direct))
-            .find(|(name, _)| name.to_string() == TEST)
-            .map(|(_, version)| version.to_string()),
-        Outline::Pkg(pkg) => (pkg.test_deps.iter().chain(&pkg.deps))
-            .find(|(name, _)| name.to_string() == TEST)
-            .map(|(_, constraint)| constraint.to_string()),
+        Outline::App(app) => (app.test_direct.get(&test))
+            .or_else(|| app.direct.get(&test))
+            .map(ToString::to_string),
+        Outline::Pkg(pkg) => (pkg.test_deps.get(&test))
+            .or_else(|| pkg.deps.get(&test))
+            .map(ToString::to_string),
     };
+    let path = project.root.join("elm.json");
     match version {
         None => Err(format!(
-            "{}\nYou must have \"{TEST}\" in your \"test-dependencies\" or \"dependencies\" to run elm-test.",
+            "{}\nYou must have \"{TEST_PACKAGE}\" in your \"test-dependencies\" or \"dependencies\" to run elm-test.",
             path.display()
         )),
         Some(version) if !version.trim_start().starts_with("2.") => Err(format!(
-            "{}\nThis version of elm-test only supports {TEST} 2.x, but you have \"{version}\".",
+            "{}\nThis version of elm-test only supports {TEST_PACKAGE} 2.x, but you have \"{version}\".",
             path.display()
         )),
         Some(_) => Ok(()),
@@ -605,6 +634,14 @@ pub(crate) struct Progress {
 }
 
 impl Progress {
+    fn new(flags: &Flags) -> Progress {
+        Progress {
+            items: Vec::new(),
+            shown: !flags.report.machine_readable(),
+            clears: flags.clear_console,
+        }
+    }
+
     pub(crate) fn log(&mut self, console: &mut dyn Console, item: &str) {
         self.items.push(item.to_owned());
         if self.shown {
@@ -617,6 +654,14 @@ impl Progress {
         if self.shown {
             console.out("\n");
         }
+    }
+
+    /// Ends the run with `message` after a line break, as elm-test's
+    /// `catch` does; 1, its exit code.
+    fn fail(&mut self, console: &mut dyn Console, message: &str) -> i32 {
+        self.new_line(console);
+        console.err(&format!("{message}\n"));
+        1
     }
 
     /// Whether it shows: for people, not machines.
@@ -649,235 +694,202 @@ impl Progress {
     }
 }
 
-/// `RunTests.runTests`: one run, or with `--watch` a run each time the
-/// tests change.
-fn run<H: Http + Sync>(
-    context: &Context<'_, H>,
-    console: &mut dyn Console,
-    flags: &Flags,
-    globs: &[String],
-    color: bool,
-    cores: usize,
-) -> i32 {
-    let root = match project_root(context.cwd, "elm-test") {
-        Ok(root) => root,
-        Err(message) => {
-            console.err(&format!("{message}\n"));
-            return 1;
+/// A run of the tests, as its arguments and the machine ask for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Run {
+    pub flags: Flags,
+    pub globs: Vec<String>,
+    /// Whether elm-test colors its output (`supports-color`).
+    pub color: bool,
+    /// The machine's logical cores: the workers, unless `--workers` says.
+    pub cores: usize,
+}
+
+impl Run {
+    /// What the runner of `files` is generated with, `seed` its seed.
+    pub fn options(&self, files: &[PathBuf], seed: u64) -> Options {
+        Options {
+            runs: self.flags.fuzz,
+            report: match self.flags.report {
+                ReportName::Console => Report::Console { color: self.color },
+                ReportName::Json => Report::Json,
+                ReportName::JUnit => Report::JUnit,
+            },
+            seed,
+            processes: self.flags.workers.unwrap_or(self.cores),
+            globs: self.globs.clone(),
+            paths: files.iter().map(|f| f.display().to_string()).collect(),
         }
-    };
-    let mut progress = Progress {
-        items: Vec::new(),
-        shown: !flags.report.machine_readable(),
-        clears: flags.clear_console,
-    };
-    let mut once = |console: &mut dyn Console, progress: &mut Progress| {
-        run_once(
-            context, console, progress, &root, flags, globs, color, cores,
-        )
-    };
-    if flags.watch {
-        crate::watch::watch(console, &mut progress, &root, color, &mut once)
-    } else {
-        once(console, &mut progress).0
     }
-}
 
-/// `RunTests.run`: its exit code, and the test source directories it
-/// found.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the run's context, output and options, passed on as `run` has them"
-)]
-fn run_once<H: Http + Sync>(
-    context: &Context<'_, H>,
-    console: &mut dyn Console,
-    progress: &mut Progress,
-    root: &Path,
-    flags: &Flags,
-    globs: &[String],
-    color: bool,
-    cores: usize,
-) -> (i32, Vec<PathBuf>) {
-    // Each error ends the run after a line break, as elm-test's `catch`
-    // does.
-    let fail = |console: &mut dyn Console, progress: &mut Progress, message: &str| {
-        progress.new_line(console);
-        console.err(&format!("{message}\n"));
-        1
-    };
-    let project = Project::read(root).and_then(|project| {
-        require_test_package(&project)?;
-        project.validate()?;
-        Ok(project)
-    });
-    let project = match project {
-        Ok(project) => project,
-        Err(message) => return (fail(console, progress, &message), Vec::new()),
-    };
-    let dirs = project.source_dirs.clone();
-    let code = run_project(
-        context, console, progress, &project, flags, globs, color, cores,
-    );
-    (code, dirs)
-}
-
-/// The rest of `RunTests.run`, once the project is read.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the run's context, output and options, passed on as `run_once` has them"
-)]
-fn run_project<H: Http + Sync>(
-    context: &Context<'_, H>,
-    console: &mut dyn Console,
-    progress: &mut Progress,
-    project: &Project,
-    flags: &Flags,
-    globs: &[String],
-    color: bool,
-    cores: usize,
-) -> i32 {
-    let fail = |console: &mut dyn Console, progress: &mut Progress, message: &str| {
-        progress.new_line(console);
-        console.err(&format!("{message}\n"));
-        1
-    };
-    let files = match resolve(project, context.cwd, globs) {
-        Ok(files) => files,
-        Err(message) => return fail(console, progress, &message),
-    };
-    let processes = flags.workers.unwrap_or(cores);
-    let options = Options {
-        runs: flags.fuzz,
-        report: match flags.report {
-            ReportName::Console => Report::Console { color },
-            ReportName::Json => Report::Json,
-            ReportName::JUnit => Report::JUnit,
-        },
-        seed: flags.seed.unwrap_or_else(supervise::random_seed),
-        processes,
-        globs: globs.to_vec(),
-        paths: files.iter().map(|f| f.display().to_string()).collect(),
-    };
-    let env = Env {
-        vfs: context.vfs,
-        cache: context.cache,
-        http: context.http,
-        solve: flags.solve,
-        color,
-    };
-    let built = build::build(
-        &env,
-        console,
-        project,
-        &files,
-        &options,
-        &mut |console, step| {
-            let item = match step {
-                Step::Solving => "Solving dependencies",
-                Step::Compiling => "Compiling",
+    /// `RunTests.runTests`: one run, or with `--watch` a run each time the
+    /// tests change.
+    fn tests<H: Http + Sync>(&self, cx: &Context<'_, H>, console: &mut dyn Console) -> i32 {
+        let root = match project_root(cx.dir, "elm-test") {
+            Ok(root) => root,
+            Err(message) => {
+                console.err(&format!("{message}\n"));
+                return 1;
+            }
+        };
+        let mut progress = Progress::new(&self.flags);
+        if self.flags.watch {
+            let mut once = |console: &mut dyn Console, progress: &mut Progress| {
+                self.once(cx, console, progress, &root).1
             };
-            progress.log(console, item);
-        },
-    );
-    let runner = match built {
-        Ok(runner) => runner,
-        Err(Failure::Files(message)) => return fail(console, progress, &message),
-        Err(Failure::Project(report)) => {
-            progress.new_line(console);
-            nomi_engine::console::report(console, &report, nomi_base::Compat::LATEST);
-            return 1;
+            watch::watch(console, &mut progress, &root, self.color, &mut once)
+        } else {
+            self.once(cx, console, &mut progress, &root).0
         }
-        Err(Failure::Shown) => {
-            return fail(console, progress, "`elm make` failed with exit code 1.");
+    }
+
+    /// `RunTests.run`: its exit code, and the test source directories it
+    /// found.
+    fn once<H: Http + Sync>(
+        &self,
+        cx: &Context<'_, H>,
+        console: &mut dyn Console,
+        progress: &mut Progress,
+        root: &Path,
+    ) -> (i32, Vec<PathBuf>) {
+        let project = Project::read(root).and_then(|project| {
+            require_test_package(&project)?;
+            project.validate()?;
+            Ok(project)
+        });
+        match project {
+            Ok(project) => (
+                self.project(cx, console, progress, &project),
+                project.source_dirs,
+            ),
+            Err(message) => (progress.fail(console, &message), Vec::new()),
         }
-    };
-    progress.log(console, "Starting tests");
-    progress.new_line(console);
-    let supervise = Supervise {
-        report: options.report,
-        processes,
-        color,
-    };
-    match supervise::run(console, &runner.js, supervise) {
-        Ok(Ended::Code(code)) => code,
-        Ok(Ended::Thrown) => {
-            progress.new_line(console);
-            1
+    }
+
+    /// The rest of `RunTests.run`, once the project is read.
+    fn project<H: Http + Sync>(
+        &self,
+        cx: &Context<'_, H>,
+        console: &mut dyn Console,
+        progress: &mut Progress,
+        project: &Project,
+    ) -> i32 {
+        let files = match resolve(project, cx.dir, &self.globs) {
+            Ok(files) => files,
+            Err(message) => return progress.fail(console, &message),
+        };
+        let seed = self.flags.seed.unwrap_or_else(supervise::random_seed);
+        let options = self.options(&files, seed);
+        let env = Env {
+            cx,
+            solve: self.flags.solve,
+            color: self.color,
+        };
+        let built = build::build(
+            &env,
+            console,
+            project,
+            &files,
+            &options,
+            &mut |console, step| {
+                let item = match step {
+                    Step::Solving => "Solving dependencies",
+                    Step::Compiling => "Compiling",
+                };
+                progress.log(console, item);
+            },
+        );
+        let runner = match built {
+            Ok(runner) => runner,
+            Err(Failure::Shown) => {
+                return progress.fail(console, "`elm make` failed with exit code 1.");
+            }
+            Err(failure) => {
+                progress.new_line(console);
+                return failed(console, &failure);
+            }
+        };
+        progress.log(console, "Starting tests");
+        progress.new_line(console);
+        let supervise = Supervise {
+            report: options.report,
+            processes: options.processes,
+            color: self.color,
+        };
+        match supervise.run(console, &runner.js) {
+            Ok(Ended::Code(code)) => code,
+            Ok(Ended::Thrown) => {
+                progress.new_line(console);
+                1
+            }
+            Err(e) => progress.fail(console, &e.to_string()),
         }
-        Err(e) => fail(console, progress, &format!("{e}")),
     }
 }
 
-/// `elm-test init`, or `install` of `package`.
-fn install<H: Http + Sync>(
-    context: &Context<'_, H>,
-    console: &mut dyn Console,
-    command: &str,
-    package: Option<&str>,
-) -> i32 {
-    let project = (project_root(context.cwd, &format!("elm-test {command}")))
-        .and_then(|root| Project::read(&root));
-    let project = match project {
-        Ok(project) => project,
-        Err(message) => {
-            console.err(&format!("{message}\n"));
-            return 1;
-        }
+/// Shows what `failure` says that isn't shown already; 1, the exit code.
+fn failed(console: &mut dyn Console, failure: &Failure) -> i32 {
+    match failure {
+        Failure::Files(message) => console.err(&format!("{message}\n")),
+        Failure::Project(report) => nomi_engine::console::report(console, report, Compat::LATEST),
+        Failure::Shown => {}
+    }
+    1
+}
+
+/// `elm-test init`, or `install` of a package.
+fn install<H: Http + Sync>(cx: &Context<'_, H>, console: &mut dyn Console, setup: &Setup) -> i32 {
+    let command = match setup {
+        Setup::Init => "elm-test init",
+        Setup::Install(_) => "elm-test install",
+    };
+    let Some(project) = read_project(cx, console, command) else {
+        return 1;
     };
     let env = Env {
-        vfs: context.vfs,
-        cache: context.cache,
-        http: context.http,
+        cx,
         solve: Solve::default(),
         color: false,
     };
-    let done = match package {
-        None => crate::install::init(&env, console, &project).map(|()| Installed::Added),
-        Some(package) => crate::install::install(&env, console, &project, package),
+    let done = match setup {
+        Setup::Init => install::init(&env, console, &project).map(|()| Installed::Added),
+        Setup::Install(package) => install::install(&env, console, &project, package),
     };
     match done {
-        Ok(Installed::Already) if package.is_some() => {
+        Ok(Installed::Already) => {
             console.out("It is already installed!\n");
             0
         }
-        Ok(_) => 0,
-        Err(Some(message)) => {
+        Ok(Installed::Added) => 0,
+        Err(InstallError::Message(message)) => {
             console.err(&format!("{message}\n"));
             1
         }
-        Err(None) => 1,
+        Err(InstallError::Shown) => 1,
     }
 }
 
 /// `elm-test make`.
 fn make<H: Http + Sync>(
-    context: &Context<'_, H>,
+    cx: &Context<'_, H>,
     console: &mut dyn Console,
     flags: &Flags,
     globs: &[String],
     color: bool,
 ) -> i32 {
-    let project = project_root(context.cwd, "elm-test make").and_then(|root| Project::read(&root));
-    let project = match project {
-        Ok(project) => project,
-        Err(message) => {
-            console.err(&format!("{message}\n"));
-            return 1;
-        }
+    let Some(project) = read_project(cx, console, "elm-test make") else {
+        return 1;
     };
     // `resolveGlobs`, which finding nothing doesn't stop here.
-    let files = resolve(&project, context.cwd, globs).unwrap_or_default();
+    let files = resolve(&project, cx.dir, globs).unwrap_or_default();
     let env = Env {
-        vfs: context.vfs,
-        cache: context.cache,
-        http: context.http,
+        cx,
         solve: flags.solve,
         color,
     };
     let style = match flags.report {
         ReportName::Json => Style::Json,
-        _ => Style::Terminal,
+        ReportName::Console | ReportName::JUnit => Style::Terminal,
     };
     let made = if flags.report.machine_readable() {
         build::make(&env, &mut Silent(console), &project, &files, style)
@@ -885,17 +897,8 @@ fn make<H: Http + Sync>(
         build::make(&env, console, &project, &files, style)
     };
     match made {
-        Ok(true) => 0,
-        Ok(false) => 1,
-        Err(Failure::Files(message)) => {
-            console.err(&format!("{message}\n"));
-            1
-        }
-        Err(Failure::Project(report)) => {
-            nomi_engine::console::report(console, &report, nomi_base::Compat::LATEST);
-            1
-        }
-        Err(Failure::Shown) => 1,
+        Ok(()) => 0,
+        Err(failure) => failed(console, &failure),
     }
 }
 
@@ -981,8 +984,8 @@ mod tests {
             parse_line("--version extra"),
             Parsed::Out("0.19.3-0\n".to_owned())
         );
-        assert_eq!(parse_line("make --help"), Parsed::Out(command_help("make")));
-        assert_eq!(parse_line("help init"), Parsed::Out(command_help("init")));
+        assert_eq!(parse_line("make --help"), Parsed::Out(Command::Make.help()));
+        assert_eq!(parse_line("help init"), Parsed::Out(Command::Init.help()));
         assert_eq!(parse_line("-h make"), Parsed::Out(program_help(8)));
         let Parsed::Run(flags, globs) = parse_line("--seed=5 tests/A.elm --report json -- --x")
         else {

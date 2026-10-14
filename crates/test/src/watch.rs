@@ -13,40 +13,69 @@ use std::time::{Duration, SystemTime};
 use nomi_engine::console::Console;
 
 use crate::command::Progress;
+use crate::files::{IGNORED, relative};
+use crate::supervise::chalk;
 
 /// How often the files are looked at, and how long elm-test waits for
 /// changes made together.
 const POLL: Duration = Duration::from_millis(100);
 
-/// Directories elm-test's watcher ignores (`FindTests.ignoredDirsGlobs`).
-const IGNORED: [&str; 2] = ["elm-stuff", "node_modules"];
+/// What happened to a path, as chokidar reports it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Event {
+    Added,
+    Changed,
+    Removed,
+}
+
+impl Event {
+    fn as_str(self) -> &'static str {
+        match self {
+            Event::Added => "added",
+            Event::Changed => "changed",
+            Event::Removed => "removed",
+        }
+    }
+}
 
 /// A change, as chokidar reports it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Change {
-    event: &'static str,
+    event: Event,
+    /// `path.relative(projectRootDir, path)`.
     path: String,
 }
 
-/// What a file was when last looked at: whether a directory, its size and
-/// its modification time.
-type Seen = (bool, u64, Option<SystemTime>);
+/// What a path was when last looked at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Seen {
+    dir: bool,
+    size: u64,
+    modified: Option<SystemTime>,
+}
 
 /// The watched paths when last looked at.
 struct Snapshot {
     root: PathBuf,
-    /// `elm.json` and `tests/`, watched whatever the project says.
-    always: [PathBuf; 2],
+    /// `elm.json` and `tests/` are watched whatever the project says.
+    elm_json: PathBuf,
+    tests: PathBuf,
+    /// The test source directories.
     dirs: Vec<PathBuf>,
+    /// What is walked: the watched paths, each once and none another's
+    /// walk sees.
+    roots: Vec<PathBuf>,
     seen: BTreeMap<PathBuf, Seen>,
 }
 
 impl Snapshot {
     fn new(root: &Path) -> Snapshot {
-        let always = [root.join("elm.json"), root.join("tests")];
+        let (elm_json, tests) = (root.join("elm.json"), root.join("tests"));
         let mut snapshot = Snapshot {
             root: root.to_owned(),
-            always,
+            roots: roots([&elm_json, &tests]),
+            elm_json,
+            tests,
             dirs: Vec::new(),
             seen: BTreeMap::new(),
         };
@@ -58,6 +87,7 @@ impl Snapshot {
     /// already isn't a change.
     fn watch(&mut self, dirs: Vec<PathBuf>) {
         if dirs != self.dirs {
+            self.roots = roots([&self.elm_json, &self.tests].into_iter().chain(&dirs));
             self.dirs = dirs;
             let now = self.look();
             for (path, seen) in now {
@@ -69,83 +99,94 @@ impl Snapshot {
     /// Every watched path now.
     fn look(&self) -> BTreeMap<PathBuf, Seen> {
         let mut seen = BTreeMap::new();
-        for path in self.always.iter().chain(&self.dirs) {
+        for path in &self.roots {
             walk(path, &mut seen);
         }
         seen
     }
 
-    /// The changes since last time that start a run: to an `.elm` file,
-    /// `elm.json`, or `tests/` appearing.
+    /// The changes since last time that start a run.
     fn changes(&mut self) -> Vec<Change> {
         let now = self.look();
-        let mut changes = Vec::new();
-        for (path, &(dir, size, modified)) in &now {
-            let event = match self.seen.get(path) {
-                None => "added",
-                Some(&(was_dir, was_size, was_modified))
-                    if !dir && !was_dir && (was_size, was_modified) != (size, modified) =>
-                {
-                    "changed"
-                }
-                Some(_) => continue,
-            };
-            // Of directories, only `tests/` appearing counts (`addDir`).
-            if dir && event == "added" && *path != self.always[1] {
-                continue;
-            }
-            if dir || self.counts(path) {
-                changes.push(self.change(event, path));
-            }
-        }
-        for (path, &(dir, _, _)) in &self.seen {
-            if !dir && !now.contains_key(path) && self.counts(path) {
-                changes.push(self.change("removed", path));
-            }
-        }
+        let changes = self.diff(&now);
         self.seen = now;
         changes
     }
 
-    fn counts(&self, path: &Path) -> bool {
-        path.extension().is_some_and(|e| e == "elm") || self.always.iter().any(|a| a == path)
+    /// What changed from what was seen to `now` that starts a run: an
+    /// `.elm` file, `elm.json`, or `tests/` appearing.
+    fn diff(&self, now: &BTreeMap<PathBuf, Seen>) -> Vec<Change> {
+        let mut changes = Vec::new();
+        for (path, seen) in now {
+            let event = match self.seen.get(path) {
+                None => Event::Added,
+                Some(was) if !seen.dir && !was.dir && was != seen => Event::Changed,
+                Some(_) => continue,
+            };
+            // Of directories, only `tests/` appearing counts (`addDir`).
+            if seen.dir && event == Event::Added && *path != self.tests {
+                continue;
+            }
+            if seen.dir || self.counts(path) {
+                changes.push(self.change(event, path));
+            }
+        }
+        for (path, was) in &self.seen {
+            if !was.dir && !now.contains_key(path) && self.counts(path) {
+                changes.push(self.change(Event::Removed, path));
+            }
+        }
+        changes
     }
 
-    /// `path.relative(projectRootDir, path)`.
-    fn change(&self, event: &'static str, path: &Path) -> Change {
+    fn counts(&self, path: &Path) -> bool {
+        path.extension().is_some_and(|e| e == "elm")
+            || *path == self.elm_json
+            || *path == self.tests
+    }
+
+    fn change(&self, event: Event, path: &Path) -> Change {
         Change {
             event,
-            path: relative(&self.root, path),
+            path: relative(path, &self.root).display().to_string(),
         }
     }
 }
 
-/// `path` relative to `root`, through `..` where it isn't below it.
-fn relative(root: &Path, path: &Path) -> String {
-    let root: Vec<_> = root.components().collect();
-    let path_parts: Vec<_> = path.components().collect();
-    let common = (root.iter().zip(&path_parts))
-        .take_while(|(a, b)| a == b)
-        .count();
-    let mut out = PathBuf::new();
-    for _ in common..root.len() {
-        out.push("..");
+/// `paths`, each once, without those another's walk sees.
+fn roots<'p>(paths: impl IntoIterator<Item = &'p PathBuf>) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for path in paths {
+        if !roots.iter().any(|root| sees(root, path)) {
+            roots.retain(|root| !sees(path, root));
+            roots.push(path.clone());
+        }
     }
-    for part in &path_parts[common..] {
-        out.push(part.as_os_str());
-    }
-    out.display().to_string()
+    roots
+}
+
+/// Whether walking `root` sees `path`: it is `root`, or below it past no
+/// ignored name.
+fn sees(root: &Path, path: &Path) -> bool {
+    path.strip_prefix(root).is_ok_and(|rest| {
+        (rest.components()).all(|part| !IGNORED.iter().any(|i| part.as_os_str() == *i))
+    })
 }
 
 /// `path` and, for a directory, everything below it but the ignored
 /// directories.
 fn walk(path: &Path, seen: &mut BTreeMap<PathBuf, Seen>) {
     let Ok(meta) = fs::metadata(path) else { return };
+    let dir = meta.is_dir();
     seen.insert(
         path.to_owned(),
-        (meta.is_dir(), meta.len(), meta.modified().ok()),
+        Seen {
+            dir,
+            size: meta.len(),
+            modified: meta.modified().ok(),
+        },
     );
-    if !meta.is_dir() {
+    if !dir {
         return;
     }
     let Ok(entries) = fs::read_dir(path) else {
@@ -168,16 +209,17 @@ fn message(queue: &[Change]) -> String {
         }
     }
     if let [_] = paths.as_slice() {
-        return format!("{} {}", queue[0].path, queue[0].event);
+        return format!("{} {}", queue[0].path, queue[0].event.as_str());
     }
-    let mut events: Vec<&str> = queue.iter().map(|c| c.event).collect();
+    let mut events: Vec<Event> = queue.iter().map(|c| c.event).collect();
     events.sort_unstable();
     events.dedup();
+    let events: Vec<&str> = events.into_iter().map(Event::as_str).collect();
     format!("{} files {}", paths.len(), events.join("/"))
 }
 
-/// One run: its exit code, and the test source directories it found.
-pub(crate) type Once<'a> = dyn FnMut(&mut dyn Console, &mut Progress) -> (i32, Vec<PathBuf>) + 'a;
+/// One run: the test source directories it found.
+pub(crate) type Once<'a> = dyn FnMut(&mut dyn Console, &mut Progress) -> Vec<PathBuf> + 'a;
 
 /// Runs the tests with `once` each time they change, forever: once gives
 /// the test source directories to watch.
@@ -188,13 +230,7 @@ pub(crate) fn watch(
     color: bool,
     once: &mut Once<'_>,
 ) -> i32 {
-    let blue = |text: &str| {
-        if color {
-            format!("\x1b[34m{text}\x1b[39m")
-        } else {
-            text.to_owned()
-        }
-    };
+    let blue = |text: &str| chalk(color, 34, text);
     let mut snapshot = Snapshot::new(root);
     progress.clear_console(console);
     let mut queue: Vec<Change> = Vec::new();
@@ -210,7 +246,7 @@ pub(crate) fn watch(
             }
         }
         queue.clear();
-        let (_, dirs) = once(console, progress);
+        let dirs = once(console, progress);
         queue.extend(snapshot.changes());
         snapshot.watch(dirs);
         if !queue.is_empty() {
@@ -242,32 +278,44 @@ pub(crate) fn watch(
 mod tests {
     use super::*;
 
-    #[test]
-    fn changes_are_named_as_elm_test_names_them() {
-        let change = |event, path: &str| Change {
+    fn change(event: Event, path: &str) -> Change {
+        Change {
             event,
             path: path.to_owned(),
-        };
+        }
+    }
+
+    #[test]
+    fn changes_are_named_as_elm_test_names_them() {
         assert_eq!(
-            message(&[change("changed", "tests/A.elm")]),
+            message(&[change(Event::Changed, "tests/A.elm")]),
             "tests/A.elm changed"
         );
         assert_eq!(
             message(&[
-                change("changed", "tests/A.elm"),
-                change("added", "tests/B.elm"),
-                change("changed", "tests/A.elm"),
+                change(Event::Changed, "tests/A.elm"),
+                change(Event::Added, "tests/B.elm"),
+                change(Event::Changed, "tests/A.elm"),
             ]),
             "2 files added/changed"
         );
-        assert_eq!(
-            relative(Path::new("/p/app"), Path::new("/p/shared/A.elm")),
-            Path::new("..")
-                .join("shared")
-                .join("A.elm")
-                .display()
-                .to_string()
-        );
+    }
+
+    #[test]
+    fn each_watched_path_is_walked_once() {
+        let paths = [
+            "/p/elm.json",
+            "/p/tests",
+            "/p/src",
+            "/p/tests",
+            "/p/tests/A",
+            "/p",
+        ];
+        let paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+        assert_eq!(roots(&paths[..5]), paths[..3]);
+        assert_eq!(roots(&paths), [PathBuf::from("/p")]);
+        let ignored = [PathBuf::from("/p"), PathBuf::from("/p/node_modules/x")];
+        assert_eq!(roots(&ignored), ignored);
     }
 
     #[test]
@@ -285,30 +333,15 @@ mod tests {
         let a = Path::new("tests").join("A.elm").display().to_string();
         assert_eq!(
             snapshot.changes(),
-            [
-                Change {
-                    event: "added",
-                    path: tests
-                },
-                Change {
-                    event: "added",
-                    path: a.clone()
-                }
-            ]
+            [change(Event::Added, &tests), change(Event::Added, &a)]
         );
         fs::write(root.join("tests/A.elm"), "ab").unwrap();
         fs::remove_file(root.join("elm.json")).unwrap();
         assert_eq!(
             snapshot.changes(),
             [
-                Change {
-                    event: "changed",
-                    path: a
-                },
-                Change {
-                    event: "removed",
-                    path: "elm.json".to_owned()
-                }
+                change(Event::Changed, &a),
+                change(Event::Removed, "elm.json")
             ]
         );
         // A directory watched from now on holds no changes yet.

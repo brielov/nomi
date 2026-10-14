@@ -8,7 +8,7 @@ use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 
 /// A JSON value with its objects' fields in order.
 #[derive(Clone, Debug, PartialEq)]
-pub enum Json {
+pub(crate) enum Json {
     Null,
     Bool(bool),
     Number(serde_json::Number),
@@ -84,7 +84,7 @@ impl<'de> Visitor<'de> for JsonVisitor {
 
 impl Json {
     /// The field `key` of an object.
-    pub fn get(&self, key: &str) -> Option<&Json> {
+    pub(crate) fn get(&self, key: &str) -> Option<&Json> {
         match self {
             Json::Object(fields) => fields.iter().find(|(k, _)| k == key).map(|(_, v)| v),
             _ => None,
@@ -92,7 +92,7 @@ impl Json {
     }
 
     /// The field `key` of an object, to change.
-    pub fn get_mut(&mut self, key: &str) -> Option<&mut Json> {
+    pub(crate) fn get_mut(&mut self, key: &str) -> Option<&mut Json> {
         match self {
             Json::Object(fields) => fields.iter_mut().find(|(k, _)| k == key).map(|(_, v)| v),
             _ => None,
@@ -101,7 +101,7 @@ impl Json {
 
     /// Sets the field `key` of an object, where it is or, new, last, as
     /// JavaScript's assignment does.
-    pub fn set(&mut self, key: &str, value: Json) {
+    pub(crate) fn set(&mut self, key: &str, value: Json) {
         if let Json::Object(fields) = self {
             match fields.iter_mut().find(|(k, _)| k == key) {
                 Some(field) => field.1 = value,
@@ -111,7 +111,7 @@ impl Json {
     }
 
     /// Removes the field `key` of an object, as `delete` does.
-    pub fn remove(&mut self, key: &str) -> Option<Json> {
+    pub(crate) fn remove(&mut self, key: &str) -> Option<Json> {
         match self {
             Json::Object(fields) => {
                 let at = fields.iter().position(|(k, _)| k == key)?;
@@ -122,15 +122,16 @@ impl Json {
     }
 
     /// The names of an object's fields, in order.
-    pub fn keys(&self) -> Vec<String> {
-        match self {
-            Json::Object(fields) => fields.iter().map(|(k, _)| k.clone()).collect(),
-            _ => Vec::new(),
-        }
+    pub(crate) fn keys(&self) -> impl Iterator<Item = &str> {
+        let fields = match self {
+            Json::Object(fields) => fields.as_slice(),
+            _ => &[],
+        };
+        fields.iter().map(|(key, _)| key.as_str())
     }
 
     /// `JSON.stringify(value, null, 4)`.
-    pub fn stringify(&self) -> String {
+    pub(crate) fn stringify(&self) -> String {
         let mut out = String::new();
         self.write(&mut out, 0);
         out
@@ -181,7 +182,7 @@ mod tests {
     fn json_is_stringified_as_javascript_does() {
         let text = "{\"b\":[1,2.5,{}],\"a\":{\"x\":\"q\\\"\\u001f\",\"e\":[]},\"n\":null}";
         let json: Json = serde_json::from_str(text).unwrap();
-        assert_eq!(json.keys(), ["b", "a", "n"]);
+        assert_eq!(json.keys().collect::<Vec<_>>(), ["b", "a", "n"]);
         assert_eq!(
             json.stringify(),
             "{\n    \"b\": [\n        1,\n        2.5,\n        {}\n    ],\n    \"a\": {\n        \"x\": \"q\\\"\\u001f\",\n        \"e\": []\n    },\n    \"n\": null\n}"

@@ -7,18 +7,16 @@ use crate::json::Json;
 
 /// The `JUnit` reporter's `summary` with `results` added to its test
 /// suite's test cases, as XML.
-pub fn report(mut summary: Json, results: Vec<Json>) -> String {
-    if let Json::Object(fields) = &mut summary
-        && let Some((_, Json::Object(suite))) = fields.iter_mut().find(|(k, _)| k == "testsuite")
-    {
-        match suite.iter_mut().find(|(k, _)| k == "testcase") {
-            Some((_, Json::Array(cases))) => cases.extend(results),
-            Some((_, other)) => {
+pub(crate) fn report(mut summary: Json, results: Vec<Json>) -> String {
+    if let Some(suite) = summary.get_mut("testsuite") {
+        match suite.get_mut("testcase") {
+            Some(Json::Array(cases)) => cases.extend(results),
+            Some(other) => {
                 let mut cases = vec![std::mem::replace(other, Json::Null)];
                 cases.extend(results);
                 *other = Json::Array(cases);
             }
-            None => suite.push(("testcase".to_owned(), Json::Array(results))),
+            None => suite.set("testcase", Json::Array(results)),
         }
     }
     to_string(&summary)

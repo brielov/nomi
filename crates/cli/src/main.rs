@@ -253,14 +253,14 @@ fn elm_test(args: impl Iterator<Item = OsString>) -> ExitCode {
     let (Some(cache), Some(cwd)) = (cache(), current_dir()) else {
         return ExitCode::FAILURE;
     };
-    let context = nomi_test::command::Context {
+    let cx = Context {
         vfs: &Vfs::new(),
-        cwd: &cwd,
+        dir: &cwd,
         cache: &cache,
         http: &Web::new(),
-        var: &|name| std::env::var(name).ok(),
     };
-    let code = nomi_test::command::main(&context, &mut StdConsole, &args);
+    let var = |name: &str| std::env::var(name).ok();
+    let code = nomi_test::main(&cx, &mut StdConsole, &args, &var);
     ExitCode::from(u8::try_from(code).unwrap_or(1))
 }
 
