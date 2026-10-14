@@ -95,7 +95,7 @@ impl Type {
     /// The type with each variable `args` names replaced.
     fn substitute(&self, args: &[(String, Type)]) -> Type {
         let go = |t: &Type| t.substitute(args);
-        match self {
+        nomi_base::grow(|| match self {
             Type::Var(name) => (args.iter())
                 .find(|(var, _)| var == name)
                 .map_or_else(|| self.clone(), |(_, arg)| arg.clone()),
@@ -125,21 +125,21 @@ impl Type {
                     .collect(),
                 aliased: aliased.clone(),
             },
-        }
+        })
     }
 
     /// `iteratedDealias`: what the type is under its aliases.
-    pub fn iterated_dealias(self) -> Type {
-        match self {
-            Type::Alias { args, aliased, .. } => aliased.dealias(&args).iterated_dealias(),
-            ty => ty,
+    pub fn iterated_dealias(mut self) -> Type {
+        while let Type::Alias { args, aliased, .. } = self {
+            self = aliased.dealias(&args);
         }
+        self
     }
 
     /// `deepDealias`: the type with every alias, at any depth, replaced by
     /// what it stands for.
     pub fn deep_dealias(&self) -> Type {
-        match self {
+        nomi_base::grow(|| match self {
             Type::Alias { args, aliased, .. } => {
                 let args: Vec<(String, Type)> = (args.iter())
                     .map(|(var, t)| (var.clone(), t.deep_dealias()))
@@ -163,7 +163,7 @@ impl Type {
                 c.as_ref().map(|c| Box::new(c.deep_dealias())),
             ),
             Type::Var(_) | Type::Unit => self.clone(),
-        }
+        })
     }
 }
 
@@ -182,9 +182,18 @@ pub enum MainKind {
 }
 
 impl Type {
-    /// What a `main` of this type is.
+    /// What a `main` of this type is: only the outer type decides, so only
+    /// the flags and messages have their aliases expanded.
     pub fn main_kind(&self) -> MainKind {
-        match self.deep_dealias() {
+        let dealiased;
+        let outer = match self {
+            Type::Alias { args, aliased, .. } => {
+                dealiased = aliased.dealias(args).iterated_dealias();
+                &dealiased
+            }
+            ty => ty,
+        };
+        match outer {
             Type::Type { home, name, args }
                 if args.len() == 1
                     && home.is("elm/virtual-dom", "VirtualDom")
@@ -195,9 +204,12 @@ impl Type {
             Type::Type { home, name, args }
                 if home.is("elm/core", "Platform") && name == "Program" =>
             {
-                match <[Type; 3]>::try_from(args) {
-                    Ok([flags, _, message]) => MainKind::Program { flags, message },
-                    Err(_) => MainKind::Other,
+                match &args[..] {
+                    [flags, _, message] => MainKind::Program {
+                        flags: flags.deep_dealias(),
+                        message: message.deep_dealias(),
+                    },
+                    _ => MainKind::Other,
                 }
             }
             _ => MainKind::Other,
@@ -457,14 +469,16 @@ pub enum PatternKind {
     List(Vec<Pattern>),
     Cons(Box<Pattern>, Box<Pattern>),
     /// `True` or `False`, with `Bool`'s union.
-    Bool(Union, bool),
+    Bool(Arc<Union>, bool),
     Chr(String),
     Str(String),
     Int(i64),
+    /// A constructor, with its union, which every pattern of its
+    /// constructors shares.
     Ctor {
         home: Home,
         type_name: String,
-        union: Union,
+        union: Arc<Union>,
         name: String,
         index: usize,
         args: Vec<PatternCtorArg>,

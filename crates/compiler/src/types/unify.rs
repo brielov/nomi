@@ -199,7 +199,7 @@ impl State<'_> {
         use SuperType::{Appendable, CompAppend, Comparable, Number};
         let compappend = || Content::FlexSuper(CompAppend, None);
         match other {
-            Content::Structure(flat) => self.flex_super_structure(context, s, &flat),
+            Content::Structure(flat) => self.flex_super_structure(context, s, flat),
             Content::RigidVar(_) => Err(Mismatch),
             Content::RigidSuper(other_super, _) => {
                 if combine_rigid_supers(other_super, s) {
@@ -226,23 +226,22 @@ impl State<'_> {
     }
 
     /// `unifyFlexSuperStructure`.
-    fn flex_super_structure(&mut self, context: Context, s: SuperType, flat: &FlatType) -> Unify {
-        let structure = || Content::Structure(flat.clone());
-        match flat {
+    fn flex_super_structure(&mut self, context: Context, s: SuperType, flat: FlatType) -> Unify {
+        match &flat {
             FlatType::App1(home, name, args) if args.is_empty() => {
                 if atom_matches_super(s, home, name) {
-                    self.merge(context, structure())
+                    self.merge(context, Content::Structure(flat))
                 } else {
                     Err(Mismatch)
                 }
             }
             FlatType::App1(home, name, args) if args.len() == 1 && is_list(home, name) => match s {
                 SuperType::Number => Err(Mismatch),
-                SuperType::Appendable => self.merge(context, structure()),
+                SuperType::Appendable => self.merge(context, Content::Structure(flat)),
                 SuperType::Comparable | SuperType::CompAppend => {
                     self.comparable_occurs_check(context)?;
                     self.comparable_recursive(args[0])?;
-                    self.merge(context, structure())
+                    self.merge(context, Content::Structure(flat))
                 }
             },
             FlatType::Tuple1(a, b, c) => match s {
@@ -254,7 +253,7 @@ impl State<'_> {
                     if let Some(c) = c {
                         self.comparable_recursive(*c)?;
                     }
-                    self.merge(context, structure())
+                    self.merge(context, Content::Structure(flat))
                 }
             },
             FlatType::App1(..)
@@ -333,7 +332,7 @@ impl State<'_> {
     fn structure(&mut self, context: Context, flat: FlatType, other: Content) -> Unify {
         match other {
             Content::FlexVar(_) => self.merge(context, Content::Structure(flat)),
-            Content::FlexSuper(s, _) => self.flex_super_structure(context.reorient(), s, &flat),
+            Content::FlexSuper(s, _) => self.flex_super_structure(context.reorient(), s, flat),
             Content::RigidVar(_) | Content::RigidSuper(..) => Err(Mismatch),
             Content::Alias(_, _, _, real) => self.guarded(context.first, real),
             Content::Error => self.merge(context, Content::Error),
@@ -414,17 +413,16 @@ impl State<'_> {
         (fields1, ext1): (BTreeMap<Text, Variable>, Variable),
         (fields2, ext2): (BTreeMap<Text, Variable>, Variable),
     ) -> Unify {
-        let shared: BTreeMap<Text, (Variable, Variable)> = (fields1.iter())
-            .filter_map(|(n, &a)| fields2.get(n).map(|&b| (n.clone(), (a, b))))
-            .collect();
-        let unique1: BTreeMap<Text, Variable> = (fields1.iter())
-            .filter(|(n, _)| !fields2.contains_key(*n))
-            .map(|(n, v)| (n.clone(), *v))
-            .collect();
-        let unique2: BTreeMap<Text, Variable> = (fields2.iter())
-            .filter(|(n, _)| !fields1.contains_key(*n))
-            .map(|(n, v)| (n.clone(), *v))
-            .collect();
+        let mut shared = BTreeMap::new();
+        let mut unique1 = BTreeMap::new();
+        let mut unique2 = fields2;
+        for (name, a) in fields1 {
+            if let Some(b) = unique2.remove(&name) {
+                shared.insert(name, (a, b));
+            } else {
+                unique1.insert(name, a);
+            }
+        }
         let rank = context.rank;
         match (unique1.is_empty(), unique2.is_empty()) {
             (true, true) => {

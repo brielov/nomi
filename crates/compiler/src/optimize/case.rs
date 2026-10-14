@@ -97,7 +97,7 @@ enum DtPattern {
 /// release keeps it.
 fn lower(compat: Compat, pattern: &Pattern) -> Rc<DtPattern> {
     let go = |p: &Pattern| lower(compat, p);
-    Rc::new(match &pattern.kind {
+    Rc::new(nomi_base::grow(|| match &pattern.kind {
         PatternKind::Ctor {
             home,
             union,
@@ -127,7 +127,7 @@ fn lower(compat: Compat, pattern: &Pattern) -> Rc<DtPattern> {
         }
         PatternKind::Alias(real, _) => DtPattern::Alias(go(real)),
         PatternKind::Var(_) | PatternKind::Anything | PatternKind::Record(_) => DtPattern::Wild,
-    })
+    }))
 }
 
 /// `compile`. Character and string literals are converted once, to the
@@ -144,6 +144,10 @@ fn compile(compat: Compat, branches: Vec<(&Pattern, usize)>) -> Tree {
 
 /// `toDecisionTree`.
 fn to_tree(branches: Vec<Branch>) -> Tree {
+    nomi_base::grow(|| to_tree_(branches))
+}
+
+fn to_tree_(branches: Vec<Branch>) -> Tree {
     let branches: Vec<Branch> = branches.into_iter().map(flatten_patterns).collect();
     if let Some(goal) = check_for_match(&branches) {
         return Tree::Match(goal);
@@ -195,7 +199,7 @@ fn flatten_patterns(branch: Branch) -> Branch {
 /// `flatten`, in order onto `out`.
 fn flatten(path: DtPath, pattern: &Rc<DtPattern>, out: &mut Vec<(DtPath, Rc<DtPattern>)>) {
     let index = |i: usize, path: &DtPath| DtPath::Index(i, Arc::new(path.clone()));
-    match &**pattern {
+    nomi_base::grow(|| match &**pattern {
         DtPattern::Ctor { count: 1, args, .. } => match args.as_slice() {
             [arg] => flatten(DtPath::Unbox(Arc::new(path)), arg, out),
             args => {
@@ -222,7 +226,7 @@ fn flatten(path: DtPath, pattern: &Rc<DtPattern>, out: &mut Vec<(DtPath, Rc<DtPa
         | DtPattern::Int(_)
         | DtPattern::Bool(_)
         | DtPattern::Wild => out.push((path, pattern.clone())),
-    }
+    });
 }
 
 /// `checkForMatch`: the first branch's goal, once it needs no more tests.
@@ -259,12 +263,9 @@ fn gather_edges(branches: &[Branch], path: &DtPath) -> (Vec<(Test, Vec<Branch>)>
 /// `testsAtPath`: each test once, where it last appears, as upstream's
 /// right fold keeps them.
 fn tests_at_path(path: &DtPath, branches: &[Branch]) -> Vec<Test> {
-    let all: Vec<Test> = (branches.iter())
-        .filter_map(|b| test_at_path(path, b))
-        .collect();
     let mut seen = HashSet::new();
     let mut unique: Vec<Test> = Vec::new();
-    for test in all.into_iter().rev() {
+    for test in branches.iter().rev().filter_map(|b| test_at_path(path, b)) {
         if seen.insert(test.clone()) {
             unique.push(test);
         }
@@ -446,7 +447,7 @@ fn bests(weighted: impl Iterator<Item = (DtPath, usize)>) -> Vec<DtPath> {
     let mut paths: Vec<DtPath> = Vec::new();
     for (path, weight) in weighted {
         match least {
-            Some(min) if weight == min => paths.insert(0, path),
+            Some(min) if weight == min => paths.push(path),
             Some(min) if weight > min => {}
             _ => {
                 least = Some(weight);
@@ -454,12 +455,14 @@ fn bests(weighted: impl Iterator<Item = (DtPath, usize)>) -> Vec<DtPath> {
             }
         }
     }
+    paths.reverse();
     paths
 }
 
-/// `treeToDecider`.
+/// `treeToDecider`. A chain's tests are kept last first while chains
+/// merge, and [`insert_choices`] turns them round.
 fn to_decider(tree: Tree) -> Decider<usize> {
-    match tree {
+    nomi_base::grow(|| match tree {
         Tree::Match(target) => Decider::Leaf(target),
         Tree::Decision {
             path,
@@ -492,7 +495,7 @@ fn to_decider(tree: Tree) -> Decider<usize> {
                 }
             }
         },
-    }
+    })
 }
 
 /// `toChain`: a test, with the tests after it merged in where they share
@@ -505,7 +508,7 @@ fn to_chain(path: DtPath, test: Test, success: Tree, failure: Tree) -> Decider<u
             success,
             failure: sub_failure,
         } if *sub_failure == failure => {
-            tests.insert(0, (path, test));
+            tests.push((path, test));
             Decider::Chain {
                 tests,
                 success,
@@ -522,7 +525,7 @@ fn to_chain(path: DtPath, test: Test, success: Tree, failure: Tree) -> Decider<u
 
 /// `countTargets`: how many leaves reach each branch.
 fn count_targets(decider: &Decider<usize>, counts: &mut BTreeMap<usize, usize>) {
-    match decider {
+    nomi_base::grow(|| match decider {
         Decider::Leaf(target) => *counts.entry(*target).or_default() += 1,
         Decider::Chain {
             success, failure, ..
@@ -538,15 +541,16 @@ fn count_targets(decider: &Decider<usize>, counts: &mut BTreeMap<usize, usize>) 
                 count_targets(d, counts);
             }
         }
-    }
+    });
 }
 
-/// `insertChoices`: each leaf's branch, inlined or a jump.
+/// `insertChoices`: each leaf's branch, inlined or a jump; and each
+/// chain's tests in order.
 fn insert_choices(
     choices: &mut BTreeMap<usize, Choice>,
     decider: Decider<usize>,
 ) -> Decider<Choice> {
-    match decider {
+    nomi_base::grow(|| match decider {
         Decider::Leaf(target) => {
             let choice = match choices.get(&target) {
                 // A branch reached once is taken where it is.
@@ -557,14 +561,17 @@ fn insert_choices(
             Decider::Leaf(choice)
         }
         Decider::Chain {
-            tests,
+            mut tests,
             success,
             failure,
-        } => Decider::Chain {
-            tests,
-            success: Box::new(insert_choices(choices, *success)),
-            failure: Box::new(insert_choices(choices, *failure)),
-        },
+        } => {
+            tests.reverse();
+            Decider::Chain {
+                tests,
+                success: Box::new(insert_choices(choices, *success)),
+                failure: Box::new(insert_choices(choices, *failure)),
+            }
+        }
         Decider::FanOut {
             path,
             tests,
@@ -576,5 +583,5 @@ fn insert_choices(
                 .collect(),
             fallback: Box::new(insert_choices(choices, *fallback)),
         },
-    }
+    })
 }

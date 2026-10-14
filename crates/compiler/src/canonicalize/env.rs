@@ -73,9 +73,10 @@ pub(super) enum CtorInfo<'a> {
     Ctor {
         home: Home,
         union_name: String,
-        union: Cow<'a, Union>,
-        index: usize,
-        args: Cow<'a, [Type]>,
+        /// The union, which its constructors share.
+        union: Cow<'a, Arc<Union>>,
+        /// Which of the union's constructors, by its place among them.
+        ctor: usize,
     },
 }
 

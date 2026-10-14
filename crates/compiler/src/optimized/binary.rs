@@ -397,7 +397,7 @@ impl Out {
     }
 
     fn path(&mut self, path: &Path) {
-        match path {
+        nomi_base::grow(|| match path {
             Path::Index(index, rest) => {
                 self.u8(0);
                 self.index(*index);
@@ -416,11 +416,11 @@ impl Out {
                 self.u8(3);
                 self.name(name);
             }
-        }
+        });
     }
 
     fn dt_path(&mut self, path: &DtPath) {
-        match path {
+        nomi_base::grow(|| match path {
             DtPath::Index(index, rest) => {
                 self.u8(0);
                 self.index(*index);
@@ -431,7 +431,7 @@ impl Out {
                 self.dt_path(rest);
             }
             DtPath::Empty => self.u8(2),
-        }
+        });
     }
 
     fn test(&mut self, test: &Test) {
@@ -481,7 +481,7 @@ impl Out {
     }
 
     fn decider(&mut self, decider: &Decider<Choice>) {
-        match decider {
+        nomi_base::grow(|| match decider {
             Decider::Leaf(choice) => {
                 self.u8(0);
                 match choice {
@@ -521,7 +521,7 @@ impl Out {
                 });
                 self.decider(fallback);
             }
-        }
+        });
     }
 
     fn region(&mut self, region: &Region) {
@@ -537,7 +537,7 @@ impl Out {
     }
 
     fn expr(&mut self, expr: &Expr) {
-        match expr {
+        nomi_base::grow(|| match expr {
             Expr::Bool(b) => {
                 self.u8(0);
                 self.bool(*b);
@@ -696,14 +696,14 @@ impl Out {
                 self.name_set(attributes);
                 self.name_set(uniforms);
             }
-        }
+        });
     }
 
     fn ty(&mut self, ty: &Type) {
         if self.v3() {
             return self.ty3(ty);
         }
-        match ty {
+        nomi_base::grow(|| match ty {
             Type::Lambda(a, b) => {
                 self.u8(0);
                 self.ty(a);
@@ -767,7 +767,7 @@ impl Out {
                 self.name(name);
                 self.list(args, Out::ty);
             }
-        }
+        });
     }
 
     /// 0.19.3's `Interface.eType`.
@@ -776,7 +776,7 @@ impl Out {
             out.name(name);
             out.u8(constraint(name));
         };
-        match ty {
+        nomi_base::grow(|| match ty {
             Type::Lambda(a, b) => {
                 self.u8(0);
                 self.ty3(a);
@@ -836,7 +836,7 @@ impl Out {
                     self.ty3(arg);
                 }
             }
-        }
+        });
     }
 }
 
@@ -1114,21 +1114,25 @@ impl<'a> In<'a> {
     }
 
     fn path(&mut self) -> Option<Path> {
-        Some(match self.u8()? {
-            0 => Path::Index(self.index()?, Box::new(self.path()?)),
-            1 => Path::Field(self.name()?, Box::new(self.path()?)),
-            2 => Path::Unbox(Box::new(self.path()?)),
-            3 => Path::Root(self.name()?),
-            _ => return None,
+        nomi_base::grow(|| {
+            Some(match self.u8()? {
+                0 => Path::Index(self.index()?, Box::new(self.path()?)),
+                1 => Path::Field(self.name()?, Box::new(self.path()?)),
+                2 => Path::Unbox(Box::new(self.path()?)),
+                3 => Path::Root(self.name()?),
+                _ => return None,
+            })
         })
     }
 
     fn dt_path(&mut self) -> Option<DtPath> {
-        Some(match self.u8()? {
-            0 => DtPath::Index(self.index()?, Arc::new(self.dt_path()?)),
-            1 => DtPath::Unbox(Arc::new(self.dt_path()?)),
-            2 => DtPath::Empty,
-            _ => return None,
+        nomi_base::grow(|| {
+            Some(match self.u8()? {
+                0 => DtPath::Index(self.index()?, Arc::new(self.dt_path()?)),
+                1 => DtPath::Unbox(Arc::new(self.dt_path()?)),
+                2 => DtPath::Empty,
+                _ => return None,
+            })
         })
     }
 
@@ -1162,23 +1166,25 @@ impl<'a> In<'a> {
     }
 
     fn decider(&mut self) -> Option<Decider<Choice>> {
-        Some(match self.u8()? {
-            0 => Decider::Leaf(match self.u8()? {
-                0 => Choice::Inline(self.expr()?),
-                1 => Choice::Jump(self.index()?),
+        nomi_base::grow(|| {
+            Some(match self.u8()? {
+                0 => Decider::Leaf(match self.u8()? {
+                    0 => Choice::Inline(self.expr()?),
+                    1 => Choice::Jump(self.index()?),
+                    _ => return None,
+                }),
+                1 => Decider::Chain {
+                    tests: self.list(|input| Some((input.dt_path()?, input.test()?)))?,
+                    success: Box::new(self.decider()?),
+                    failure: Box::new(self.decider()?),
+                },
+                2 => Decider::FanOut {
+                    path: self.dt_path()?,
+                    tests: self.list(|input| Some((input.test()?, input.decider()?)))?,
+                    fallback: Box::new(self.decider()?),
+                },
                 _ => return None,
-            }),
-            1 => Decider::Chain {
-                tests: self.list(|input| Some((input.dt_path()?, input.test()?)))?,
-                success: Box::new(self.decider()?),
-                failure: Box::new(self.decider()?),
-            },
-            2 => Decider::FanOut {
-                path: self.dt_path()?,
-                tests: self.list(|input| Some((input.test()?, input.decider()?)))?,
-                fallback: Box::new(self.decider()?),
-            },
-            _ => return None,
+            })
         })
     }
 
@@ -1204,71 +1210,75 @@ impl<'a> In<'a> {
     }
 
     fn expr(&mut self) -> Option<Expr> {
-        Some(match self.u8()? {
-            0 => Expr::Bool(self.bool()?),
-            1 => Expr::Chr(self.chr()?),
-            2 => Expr::Str(self.string()?),
-            3 => Expr::Int(self.int()?),
-            4 => Expr::Float(self.name()?),
-            5 => Expr::VarLocal(self.name()?),
-            6 => Expr::VarGlobal(self.global()?),
-            7 => Expr::VarEnum(self.global()?, self.index()?),
-            8 => Expr::VarBox(self.global()?),
-            9 => Expr::VarCycle(self.home()?, self.name()?),
-            10 => Expr::VarDebug {
-                name: self.name()?,
-                home: self.home()?,
-                region: self.region()?,
-                unhandled: self.maybe(In::name)?.into(),
-            },
-            11 => Expr::VarKernel {
-                module: self.name()?,
-                name: self.name()?,
-            },
-            12 => Expr::List(self.list(In::expr)?),
-            13 => Expr::Function(self.names()?, Box::new(self.expr()?)),
-            14 => Expr::Call(Box::new(self.expr()?), self.list(In::expr)?),
-            15 => Expr::TailCall(
-                self.name()?,
-                self.list(|input| Some((input.name()?, input.expr()?)))?,
-            ),
-            16 => Expr::If(
-                self.list(|input| Some((input.expr()?, input.expr()?)))?,
-                Box::new(self.expr()?),
-            ),
-            17 => Expr::Let(Box::new(self.def()?), Box::new(self.expr()?)),
-            18 => Expr::Destruct(
-                Destructor {
+        nomi_base::grow(|| {
+            Some(match self.u8()? {
+                0 => Expr::Bool(self.bool()?),
+                1 => Expr::Chr(self.chr()?),
+                2 => Expr::Str(self.string()?),
+                3 => Expr::Int(self.int()?),
+                4 => Expr::Float(self.name()?),
+                5 => Expr::VarLocal(self.name()?),
+                6 => Expr::VarGlobal(self.global()?),
+                7 => Expr::VarEnum(self.global()?, self.index()?),
+                8 => Expr::VarBox(self.global()?),
+                9 => Expr::VarCycle(self.home()?, self.name()?),
+                10 => Expr::VarDebug {
                     name: self.name()?,
-                    path: self.path()?,
+                    home: self.home()?,
+                    region: self.region()?,
+                    unhandled: self.maybe(In::name)?.into(),
                 },
-                Box::new(self.expr()?),
-            ),
-            19 => Expr::Case {
-                label: self.name()?,
-                root: self.name()?,
-                decider: Box::new(self.decider()?),
-                jumps: self.list(|input| Some((input.index()?, input.expr()?)))?,
-            },
-            20 => Expr::Accessor(self.name()?),
-            21 => Expr::Access(Box::new(self.expr()?), self.name()?),
-            22 => Expr::Update(Box::new(self.expr()?), self.name_map(In::expr)?),
-            23 => Expr::Record(self.name_map(In::expr)?),
-            24 => Expr::Unit,
-            25 if self.v3() => Expr::Tuple(Box::new(self.expr()?), Box::new(self.expr()?), None),
-            26 if self.v3() => Expr::Tuple(
-                Box::new(self.expr()?),
-                Box::new(self.expr()?),
-                Some(Box::new(self.expr()?)),
-            ),
-            27 if self.v3() => self.shader()?,
-            25 => Expr::Tuple(
-                Box::new(self.expr()?),
-                Box::new(self.expr()?),
-                Option::from(self.maybe(In::expr)?).map(Box::new),
-            ),
-            26 => self.shader()?,
-            _ => return None,
+                11 => Expr::VarKernel {
+                    module: self.name()?,
+                    name: self.name()?,
+                },
+                12 => Expr::List(self.list(In::expr)?),
+                13 => Expr::Function(self.names()?, Box::new(self.expr()?)),
+                14 => Expr::Call(Box::new(self.expr()?), self.list(In::expr)?),
+                15 => Expr::TailCall(
+                    self.name()?,
+                    self.list(|input| Some((input.name()?, input.expr()?)))?,
+                ),
+                16 => Expr::If(
+                    self.list(|input| Some((input.expr()?, input.expr()?)))?,
+                    Box::new(self.expr()?),
+                ),
+                17 => Expr::Let(Box::new(self.def()?), Box::new(self.expr()?)),
+                18 => Expr::Destruct(
+                    Destructor {
+                        name: self.name()?,
+                        path: self.path()?,
+                    },
+                    Box::new(self.expr()?),
+                ),
+                19 => Expr::Case {
+                    label: self.name()?,
+                    root: self.name()?,
+                    decider: Box::new(self.decider()?),
+                    jumps: self.list(|input| Some((input.index()?, input.expr()?)))?,
+                },
+                20 => Expr::Accessor(self.name()?),
+                21 => Expr::Access(Box::new(self.expr()?), self.name()?),
+                22 => Expr::Update(Box::new(self.expr()?), self.name_map(In::expr)?),
+                23 => Expr::Record(self.name_map(In::expr)?),
+                24 => Expr::Unit,
+                25 if self.v3() => {
+                    Expr::Tuple(Box::new(self.expr()?), Box::new(self.expr()?), None)
+                }
+                26 if self.v3() => Expr::Tuple(
+                    Box::new(self.expr()?),
+                    Box::new(self.expr()?),
+                    Some(Box::new(self.expr()?)),
+                ),
+                27 if self.v3() => self.shader()?,
+                25 => Expr::Tuple(
+                    Box::new(self.expr()?),
+                    Box::new(self.expr()?),
+                    Option::from(self.maybe(In::expr)?).map(Box::new),
+                ),
+                26 => self.shader()?,
+                _ => return None,
+            })
         })
     }
 
@@ -1284,45 +1294,47 @@ impl<'a> In<'a> {
         if self.v3() {
             return self.ty3();
         }
-        Some(match self.u8()? {
-            0 => Type::Lambda(Box::new(self.ty()?), Box::new(self.ty()?)),
-            1 => Type::Var(self.name()?),
-            2 => Type::Record(
-                self.name_map(|input| {
-                    Some(FieldType {
-                        order: input.word16()?,
-                        ty: input.ty()?,
-                    })
-                })?,
-                self.maybe(In::name)?.into(),
-            ),
-            3 => Type::Unit,
-            4 => Type::Tuple(
-                Box::new(self.ty()?),
-                Box::new(self.ty()?),
-                Option::from(self.maybe(In::ty)?).map(Box::new),
-            ),
-            5 => Type::Alias {
-                home: self.home()?,
-                name: self.name()?,
-                args: self.list(|input| Some((input.name()?, input.ty()?)))?,
-                aliased: match self.u8()? {
-                    0 => AliasType::Holey(Arc::new(self.ty()?)),
-                    1 => AliasType::Filled(Arc::new(self.ty()?)),
-                    _ => return None,
+        nomi_base::grow(|| {
+            Some(match self.u8()? {
+                0 => Type::Lambda(Box::new(self.ty()?), Box::new(self.ty()?)),
+                1 => Type::Var(self.name()?),
+                2 => Type::Record(
+                    self.name_map(|input| {
+                        Some(FieldType {
+                            order: input.word16()?,
+                            ty: input.ty()?,
+                        })
+                    })?,
+                    self.maybe(In::name)?.into(),
+                ),
+                3 => Type::Unit,
+                4 => Type::Tuple(
+                    Box::new(self.ty()?),
+                    Box::new(self.ty()?),
+                    Option::from(self.maybe(In::ty)?).map(Box::new),
+                ),
+                5 => Type::Alias {
+                    home: self.home()?,
+                    name: self.name()?,
+                    args: self.list(|input| Some((input.name()?, input.ty()?)))?,
+                    aliased: match self.u8()? {
+                        0 => AliasType::Holey(Arc::new(self.ty()?)),
+                        1 => AliasType::Filled(Arc::new(self.ty()?)),
+                        _ => return None,
+                    },
                 },
-            },
-            6 => Type::Type {
-                home: self.home()?,
-                name: self.name()?,
-                args: self.list(In::ty)?,
-            },
-            n => {
-                let home = self.home()?;
-                let name = self.name()?;
-                let args = (0..n - 7).map(|_| self.ty()).collect::<Option<_>>()?;
-                Type::Type { home, name, args }
-            }
+                6 => Type::Type {
+                    home: self.home()?,
+                    name: self.name()?,
+                    args: self.list(In::ty)?,
+                },
+                n => {
+                    let home = self.home()?;
+                    let name = self.name()?;
+                    let args = (0..n - 7).map(|_| self.ty()).collect::<Option<_>>()?;
+                    Type::Type { home, name, args }
+                }
+            })
         })
     }
 
@@ -1334,52 +1346,54 @@ impl<'a> In<'a> {
 
     /// 0.19.3's `Interface.dType`.
     fn ty3(&mut self) -> Option<Type> {
-        Some(match self.u8()? {
-            0 => Type::Lambda(Box::new(self.ty3()?), Box::new(self.ty3()?)),
-            1 => Type::Var(self.var()?),
-            2 => Type::Record(
-                self.name_map(|input| {
-                    Some(FieldType {
-                        order: input.word16()?,
-                        ty: input.ty3()?,
-                    })
-                })?,
-                self.maybe(In::var)?.into(),
-            ),
-            3 => Type::Unit,
-            4 => Type::Tuple(Box::new(self.ty3()?), Box::new(self.ty3()?), None),
-            5 => Type::Tuple(
-                Box::new(self.ty3()?),
-                Box::new(self.ty3()?),
-                Some(Box::new(self.ty3()?)),
-            ),
-            6 => {
-                let home = self.home()?;
-                let name = self.name()?;
-                let n = self.u8()?;
-                let args = (0..n)
-                    .map(|_| Some((self.var()?, self.ty3()?)))
-                    .collect::<Option<_>>()?;
-                let aliased = match self.u8()? {
-                    0 => AliasType::Holey(Arc::new(self.ty3()?)),
-                    1 => AliasType::Filled(Arc::new(self.ty3()?)),
-                    _ => return None,
-                };
-                Type::Alias {
-                    home,
-                    name,
-                    args,
-                    aliased,
+        nomi_base::grow(|| {
+            Some(match self.u8()? {
+                0 => Type::Lambda(Box::new(self.ty3()?), Box::new(self.ty3()?)),
+                1 => Type::Var(self.var()?),
+                2 => Type::Record(
+                    self.name_map(|input| {
+                        Some(FieldType {
+                            order: input.word16()?,
+                            ty: input.ty3()?,
+                        })
+                    })?,
+                    self.maybe(In::var)?.into(),
+                ),
+                3 => Type::Unit,
+                4 => Type::Tuple(Box::new(self.ty3()?), Box::new(self.ty3()?), None),
+                5 => Type::Tuple(
+                    Box::new(self.ty3()?),
+                    Box::new(self.ty3()?),
+                    Some(Box::new(self.ty3()?)),
+                ),
+                6 => {
+                    let home = self.home()?;
+                    let name = self.name()?;
+                    let n = self.u8()?;
+                    let args = (0..n)
+                        .map(|_| Some((self.var()?, self.ty3()?)))
+                        .collect::<Option<_>>()?;
+                    let aliased = match self.u8()? {
+                        0 => AliasType::Holey(Arc::new(self.ty3()?)),
+                        1 => AliasType::Filled(Arc::new(self.ty3()?)),
+                        _ => return None,
+                    };
+                    Type::Alias {
+                        home,
+                        name,
+                        args,
+                        aliased,
+                    }
                 }
-            }
-            7 => {
-                let home = self.home()?;
-                let name = self.name()?;
-                let n = self.u8()?;
-                let args = (0..n).map(|_| self.ty3()).collect::<Option<_>>()?;
-                Type::Type { home, name, args }
-            }
-            _ => return None,
+                7 => {
+                    let home = self.home()?;
+                    let name = self.name()?;
+                    let n = self.u8()?;
+                    let args = (0..n).map(|_| self.ty3()).collect::<Option<_>>()?;
+                    Type::Type { home, name, args }
+                }
+                _ => return None,
+            })
         })
     }
 }

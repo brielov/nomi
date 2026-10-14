@@ -49,7 +49,7 @@ pub(super) fn iterated_dealias(mut ty: &Type) -> &Type {
 
 /// `toDoc`.
 pub(super) fn to_doc(localizer: &Localizer, context: Context, ty: &Type) -> Doc {
-    match ty {
+    nomi_base::grow(|| match ty {
         Type::Lambda(a, b, cs) => render::lambda(
             context,
             to_doc(localizer, Context::Func, a),
@@ -83,7 +83,7 @@ pub(super) fn to_doc(localizer: &Localizer, context: Context, ty: &Type) -> Doc 
                 .collect(),
         ),
         Type::Alias(home, name, args, _) => alias_to_doc(localizer, context, home, name, args),
-    }
+    })
 }
 
 /// `aliasToDoc`.
@@ -274,7 +274,7 @@ fn different(a: Doc, b: Doc, problems: Vec<Problem>) -> Diff<Doc> {
 /// `isSuper`.
 fn is_super(super_type: SuperType, ty: &Type) -> bool {
     use SuperType::{Appendable, CompAppend, Comparable, Number};
-    match iterated_dealias(ty) {
+    nomi_base::grow(|| match iterated_dealias(ty) {
         Type::Type(h, n, args) => match super_type {
             Number => is_int(h, n) || is_float(h, n),
             Comparable => {
@@ -308,7 +308,7 @@ fn is_super(super_type: SuperType, ty: &Type) -> bool {
         | Type::Record(..)
         | Type::Unit
         | Type::Alias(..) => false,
-    }
+    })
 }
 
 /// `nameClashToDoc`: a type of the same name as another, by its module.
@@ -333,6 +333,10 @@ fn name_clash_to_doc<'t>(
 
 /// `toDiff`.
 fn to_diff(localizer: &Localizer, ctx: Context, t1: &Type, t2: &Type) -> Diff<Doc> {
+    nomi_base::grow(|| to_diff_(localizer, ctx, t1, t2))
+}
+
+fn to_diff_(localizer: &Localizer, ctx: Context, t1: &Type, t2: &Type) -> Diff<Doc> {
     use Type as T;
     match (t1, t2) {
         (T::Unit, T::Unit) | (T::Error, T::Error) | (T::Infinite, T::Infinite) => {

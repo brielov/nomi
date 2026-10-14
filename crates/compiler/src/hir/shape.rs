@@ -16,6 +16,7 @@
 //! formatter's own invariants check their text.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write;
 
 use nomi_base::grow_large;
 use nomi_syntax::literal_body;
@@ -210,15 +211,19 @@ impl Shape<'_> {
             }
             // `(f a) b` is `f a b`.
             Expr::Call { function, args } => {
+                let module = self.module;
                 let mut function = *function;
-                let mut all = args.clone();
-                while let Expr::Call { function: f, args } = &self.module.exprs[function] {
+                let mut spine = vec![&args[..]];
+                while let Expr::Call { function: f, args } = &module.exprs[function] {
                     function = *f;
-                    all.splice(0..0, args.iter().copied());
+                    spine.push(args);
                 }
-                self.line(format!("call {}", all.len()));
+                let count: usize = spine.iter().map(|args| args.len()).sum();
+                self.line(format!("call {count}"));
                 self.expr(function);
-                exprs(self, &all);
+                for args in spine.into_iter().rev() {
+                    exprs(self, args);
+                }
             }
             Expr::If {
                 branches,
@@ -512,9 +517,14 @@ fn literal(text: &str) -> String {
 }
 
 fn points(points: &[u32]) -> String {
-    let text: String = (points.iter())
-        .map(|&p| char::from_u32(p).map_or_else(|| format!("\\u{{{p:X}}}"), |c| c.to_string()))
-        .collect();
+    let mut text = String::with_capacity(points.len());
+    for &p in points {
+        match char::from_u32(p) {
+            Some(c) => text.push(c),
+            // Writing to a `String` can't fail.
+            None => _ = write!(text, "\\u{{{p:X}}}"),
+        }
+    }
     format!("{text:?}")
 }
 

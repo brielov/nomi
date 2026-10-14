@@ -115,7 +115,7 @@ pub fn vrecord(entries: Vec<(Doc, Doc)>, ext: Option<Doc>) -> Doc {
 /// `canToDoc`: a canonical type, as annotations show.
 pub fn can_to_doc(localizer: &Localizer, context: Context, ty: &canonical::Type) -> Doc {
     use canonical::Type as T;
-    match ty {
+    nomi_base::grow(|| match ty {
         T::Lambda(arg1, result) => {
             let mut rest = vec![];
             let mut at = &**result;
@@ -168,5 +168,5 @@ pub fn can_to_doc(localizer: &Localizer, context: Context, ty: &canonical::Type)
                 .map(|(_, a)| can_to_doc(localizer, Context::App, a))
                 .collect(),
         ),
-    }
+    })
 }

@@ -58,10 +58,9 @@ pub fn check(decls: &[Decl], annotations: &BTreeMap<String, Annotation>) -> Opti
 fn main_type(region: TextRange, ty: &Type) -> Option<Error> {
     match ty.main_kind() {
         MainKind::Static => None,
-        MainKind::Program { flags, .. } => check_payload(&flags).err().map(|bad| {
-            let (_, problem) = *bad;
-            Error::BadFlags(region, problem)
-        }),
+        MainKind::Program { flags, .. } => check_payload(&flags)
+            .err()
+            .map(|problem| Error::BadFlags(region, problem)),
         MainKind::Other => Some(Error::BadType(region, ty.clone())),
     }
 }

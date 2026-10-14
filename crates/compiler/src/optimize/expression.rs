@@ -305,7 +305,7 @@ fn destruct_help(
     rev: &mut Vec<Destructor>,
 ) {
     let at = |n: usize, path: &Path| Path::Index(n, Box::new(path.clone()));
-    match &pattern.kind {
+    nomi_base::grow(|| match &pattern.kind {
         PatternKind::Anything
         | PatternKind::Unit
         | PatternKind::Chr(_)
@@ -365,7 +365,7 @@ fn destruct_help(
                 }
             }
         }
-    }
+    });
 }
 
 /// `destructTwo`.
@@ -387,16 +387,15 @@ fn destruct_two(
 fn destruct_list(
     cx: &Context,
     t: &mut Tracker,
-    path: Path,
+    mut path: Path,
     items: &[canonical::Pattern],
     rev: &mut Vec<Destructor>,
 ) {
-    let Some((first, rest)) = items.split_first() else {
-        return;
-    };
-    let root = rooted(t, path, rev);
-    destruct_help(cx, t, Path::Index(0, Box::new(root.clone())), first, rev);
-    destruct_list(cx, t, Path::Index(1, Box::new(root)), rest, rev);
+    for item in items {
+        let root = rooted(t, path, rev);
+        destruct_help(cx, t, Path::Index(0, Box::new(root.clone())), item, rev);
+        path = Path::Index(1, Box::new(root));
+    }
 }
 
 /// `path` where it is a root; else a generated name, bound to it first.
@@ -453,7 +452,7 @@ fn optimize_tail(
     args: &[String],
     expr: &canonical::Expr,
 ) -> Expr {
-    match &expr.kind {
+    nomi_base::grow(|| match &expr.kind {
         ExprKind::Call(func, call_args) => {
             let oargs: Vec<Expr> = call_args
                 .iter()
@@ -532,7 +531,7 @@ fn optimize_tail(
         | ExprKind::Unit
         | ExprKind::Tuple(..)
         | ExprKind::Shader(..) => optimize(cx, t, cycle, expr),
-    }
+    })
 }
 
 /// A `case`: a name for it, its subject, then each branch's destructors
@@ -571,7 +570,7 @@ fn optimize_case(
 
 /// `hasTailCall`.
 fn has_tail_call(expr: &Expr) -> bool {
-    match expr {
+    nomi_base::grow(|| match expr {
         Expr::TailCall(..) => true,
         Expr::If(branches, otherwise) => {
             has_tail_call(otherwise) || branches.iter().any(|(_, b)| has_tail_call(b))
@@ -602,12 +601,12 @@ fn has_tail_call(expr: &Expr) -> bool {
         | Expr::Unit
         | Expr::Tuple(..)
         | Expr::Shader { .. } => false,
-    }
+    })
 }
 
 /// `hasTailCall` of a decision's inlined branches.
 fn decider_has_tail_call(decider: &Decider<Choice>) -> bool {
-    match decider {
+    nomi_base::grow(|| match decider {
         Decider::Leaf(Choice::Inline(expr)) => has_tail_call(expr),
         Decider::Leaf(Choice::Jump(_)) => false,
         Decider::Chain {
@@ -616,5 +615,5 @@ fn decider_has_tail_call(decider: &Decider<Choice>) -> bool {
         Decider::FanOut {
             tests, fallback, ..
         } => decider_has_tail_call(fallback) || tests.iter().any(|(_, d)| decider_has_tail_call(d)),
-    }
+    })
 }

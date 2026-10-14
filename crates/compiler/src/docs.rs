@@ -9,6 +9,7 @@
 //! the names at once.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::{self, Write};
 
 use nomi_base::diagnostic::json;
 use nomi_base::diagnostic::render::{self, Styles};
@@ -23,8 +24,8 @@ use crate::types::render::{Context, can_to_doc};
 
 pub mod report;
 
-/// `Docs.Module`. Comments are JSON already, as `Json.fromComment` makes
-/// them; types are written out; each kind of entry is in name order.
+/// `Docs.Module`. Comments are as written, between their `{-|` and `-}`;
+/// types are written out; each kind of entry is in name order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
     pub name: String,
@@ -220,7 +221,7 @@ struct Defs<'a> {
     compat: Compat,
     canonical: &'a Canonical,
     comments: BTreeMap<&'a str, &'a str>,
-    types: BTreeMap<String, Result<Type, TextRange>>,
+    defs: BTreeMap<&'a str, &'a Def>,
     localizer: Localizer,
 }
 
@@ -231,16 +232,21 @@ impl Defs<'_> {
 
     fn comment(&self, name: &str, range: TextRange) -> Result<String, DefProblem> {
         (self.comments.get(name))
-            .map(|c| escaped(c, Returns::Drop))
+            .map(|c| (*c).to_owned())
             .ok_or_else(|| DefProblem::NoComment(name.to_owned(), range))
     }
 
     /// The type of the value `name`, reported as `report` when it has no
     /// annotation.
     fn ty(&self, name: &str, report: &str) -> Result<String, DefProblem> {
-        match self.types.get(name) {
-            Some(Ok(ty)) => Ok(self.show(ty)),
-            Some(Err(region)) => Err(DefProblem::NoAnnotation(report.to_owned(), *region)),
+        match self.defs.get(name) {
+            Some(Def::TypedDef { params, result, .. }) => {
+                let args = params.iter().map(|(_, arg)| arg.clone());
+                Ok(self.show(&Type::function(args, result.clone())))
+            }
+            Some(Def::Def { region, .. }) => {
+                Err(DefProblem::NoAnnotation(report.to_owned(), *region))
+            }
             // A port, which no package has.
             None => Ok((self.canonical.annotations.get(name))
                 .map(|a| self.show(&a.ty))
@@ -318,13 +324,13 @@ fn check_defs(
         compat,
         canonical,
         comments: comments(module),
-        types: gather_types(&canonical.decls),
+        defs: top_level(&canonical.decls),
         localizer: Localizer::from_names(compat, []),
     };
     let mut problems = Vec::new();
     let mut docs = Module {
         name: canonical.home.module.to_string(),
-        comment: escaped(overview, Returns::Drop),
+        comment: overview.to_owned(),
         unions: Vec::new(),
         aliases: Vec::new(),
         values: Vec::new(),
@@ -361,30 +367,20 @@ fn check_defs(
     }
 }
 
-/// `gatherTypes`: each top-level value's annotation, or where it is
-/// defined when it has none.
-fn gather_types(decls: &[Decl]) -> BTreeMap<String, Result<Type, TextRange>> {
-    let mut types = BTreeMap::new();
-    let mut add = |def: &Def| {
-        let ty = match def {
-            Def::Def { region, .. } => Err(*region),
-            Def::TypedDef { params, result, .. } => Ok(Type::function(
-                params.iter().map(|(_, arg)| arg.clone()),
-                result.clone(),
-            )),
-        };
-        types.insert(def.name().to_owned(), ty);
-    };
+/// Each top-level value's definition, by name, for `gatherTypes`, whose
+/// types are made only for the values documented.
+fn top_level(decls: &[Decl]) -> BTreeMap<&str, &Def> {
+    let mut defs = BTreeMap::new();
     for decl in decls {
-        match decl {
-            Decl::Declare(def) => add(def),
-            Decl::DeclareRec(def, defs) => {
-                add(def);
-                defs.iter().for_each(&mut add);
-            }
+        let (def, rest) = match decl {
+            Decl::Declare(def) => (def, &[][..]),
+            Decl::DeclareRec(def, rest) => (def, &rest[..]),
+        };
+        for def in std::iter::once(def).chain(rest) {
+            defs.insert(def.name(), def);
         }
     }
-    types
+    defs
 }
 
 /// Each declaration's doc comment, between its `{-|` and `-}`, by name
@@ -418,18 +414,38 @@ enum Returns {
     Drop,
 }
 
-/// `text` with newlines, quotes and backslashes escaped, carriage returns
-/// as `returns` says, and everything else as written.
-fn escaped(text: &str, returns: Returns) -> String {
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        match u8::try_from(c).ok().and_then(json::escape) {
-            Some(_) if c == '\r' && returns == Returns::Drop => {}
-            Some(escaped) => out.push_str(escaped),
-            None => out.push(c),
+/// Text as a JSON string: newlines, quotes and backslashes escaped,
+/// carriage returns as `Returns` says, and everything else as written.
+struct JsonString<'t>(&'t str, Returns);
+
+impl fmt::Display for JsonString<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let JsonString(text, returns) = *self;
+        f.write_char('"')?;
+        let mut done = 0;
+        for (i, byte) in text.bytes().enumerate() {
+            if let Some(escaped) = json::escape(byte) {
+                // What `escape` escapes is ASCII, so `i` starts a character.
+                f.write_str(&text[done..i])?;
+                if byte != b'\r' || returns == Returns::Escape {
+                    f.write_str(escaped)?;
+                }
+                done = i + 1;
+            }
         }
+        f.write_str(&text[done..])?;
+        f.write_char('"')
     }
-    out
+}
+
+/// `Json.fromComment`.
+fn comment(text: &str) -> JsonString<'_> {
+    JsonString(text, Returns::Drop)
+}
+
+/// `E.chars`: a JSON string.
+fn chars(text: &str) -> JsonString<'_> {
+    JsonString(text, Returns::Escape)
 }
 
 /// `Type.encode`'s text: `toDoc L.empty`, every type named by its
@@ -439,90 +455,95 @@ fn type_to_string(compat: Compat, localizer: &Localizer, ty: &Type) -> String {
     render::render(&doc, compat, usize::MAX / 4, Styles::Plain)
 }
 
-/// `E.chars`: a JSON string.
-fn chars(text: &str) -> String {
-    format!("\"{}\"", escaped(text, Returns::Escape))
-}
-
 /// `encode` through `encodeUgly`: `docs.json` for `modules`, in their
 /// names' order.
 pub fn encode(compat: Compat, modules: &[Module]) -> String {
     let mut modules: Vec<&Module> = modules.iter().collect();
     modules.sort_by(|a, b| compat.compare_names(&a.name, &b.name));
-    let quoted = |s: &str| format!("\"{s}\"");
-    let list = |items: Vec<String>| format!("[{}]", items.join(","));
-    let names = |names: &[String]| list(names.iter().map(|n| quoted(n)).collect());
-    let entries: Vec<String> = modules
-        .into_iter()
-        .map(|m| {
-            let unions = (m.unions.iter())
-                .map(|(name, u)| {
-                    let cases = (u.cases.iter())
-                        .map(|(tag, args)| {
-                            format!(
-                                "[{},{}]",
-                                quoted(tag),
-                                list(args.iter().map(|a| chars(a)).collect())
-                            )
-                        })
-                        .collect();
-                    format!(
-                        "{{\"name\":{},\"comment\":{},\"args\":{},\"cases\":{}}}",
-                        quoted(name),
-                        quoted(&u.comment),
-                        names(&u.args),
-                        list(cases)
-                    )
-                })
-                .collect();
-            let aliases = (m.aliases.iter())
-                .map(|(name, a)| {
-                    format!(
-                        "{{\"name\":{},\"comment\":{},\"args\":{},\"type\":{}}}",
-                        quoted(name),
-                        quoted(&a.comment),
-                        names(&a.args),
-                        chars(&a.ty)
-                    )
-                })
-                .collect();
-            let values = (m.values.iter())
-                .map(|(name, v)| {
-                    format!(
-                        "{{\"name\":{},\"comment\":{},\"type\":{}}}",
-                        quoted(name),
-                        quoted(&v.comment),
-                        chars(&v.ty)
-                    )
-                })
-                .collect();
-            let binops = (m.binops.iter())
-                .map(|(name, b)| {
-                    let associativity = match b.fixity.associativity {
-                        Associativity::Left => "left",
-                        Associativity::Non => "non",
-                        Associativity::Right => "right",
-                    };
-                    format!(
-                        "{{\"name\":{},\"comment\":{},\"type\":{},\"associativity\":{},\"precedence\":{}}}",
-                        quoted(name),
-                        quoted(&b.comment),
-                        chars(&b.ty),
-                        quoted(associativity),
-                        b.fixity.precedence
-                    )
-                })
-                .collect();
-            format!(
-                "{{\"name\":{},\"comment\":{},\"unions\":{},\"aliases\":{},\"values\":{},\"binops\":{}}}",
-                quoted(&m.name),
-                quoted(&m.comment),
-                list(unions),
-                list(aliases),
-                list(values),
-                list(binops)
-            )
-        })
-        .collect();
-    list(entries)
+    let mut out = String::new();
+    // Writing to a `String` can't fail.
+    let _ = list(&mut out, modules, encode_module);
+    out
+}
+
+/// A JSON array of `items`, each written by `item`.
+fn list<T>(
+    out: &mut String,
+    items: impl IntoIterator<Item = T>,
+    mut item: impl FnMut(&mut String, T) -> fmt::Result,
+) -> fmt::Result {
+    out.push('[');
+    for (i, x) in items.into_iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        item(out, x)?;
+    }
+    out.push(']');
+    Ok(())
+}
+
+/// Names, each quoted as it is.
+fn names(out: &mut String, names: &[String]) -> fmt::Result {
+    list(out, names, |out, name| write!(out, "\"{name}\""))
+}
+
+/// `encodeModule`.
+fn encode_module(out: &mut String, m: &Module) -> fmt::Result {
+    let name = &m.name;
+    write!(
+        out,
+        "{{\"name\":\"{name}\",\"comment\":{},\"unions\":",
+        comment(&m.comment)
+    )?;
+    list(out, &m.unions, |out, (name, u)| {
+        write!(
+            out,
+            "{{\"name\":\"{name}\",\"comment\":{},\"args\":",
+            comment(&u.comment)
+        )?;
+        names(out, &u.args)?;
+        out.push_str(",\"cases\":");
+        list(out, &u.cases, |out, (tag, args)| {
+            write!(out, "[\"{tag}\",")?;
+            list(out, args, |out, arg| write!(out, "{}", chars(arg)))?;
+            out.push(']');
+            Ok(())
+        })?;
+        out.push('}');
+        Ok(())
+    })?;
+    out.push_str(",\"aliases\":");
+    list(out, &m.aliases, |out, (name, a)| {
+        write!(
+            out,
+            "{{\"name\":\"{name}\",\"comment\":{},\"args\":",
+            comment(&a.comment)
+        )?;
+        names(out, &a.args)?;
+        write!(out, ",\"type\":{}}}", chars(&a.ty))
+    })?;
+    out.push_str(",\"values\":");
+    list(out, &m.values, |out, (name, v)| {
+        let (comment, ty) = (comment(&v.comment), chars(&v.ty));
+        write!(
+            out,
+            "{{\"name\":\"{name}\",\"comment\":{comment},\"type\":{ty}}}"
+        )
+    })?;
+    out.push_str(",\"binops\":");
+    list(out, &m.binops, |out, (name, b)| {
+        let associativity = match b.fixity.associativity {
+            Associativity::Left => "left",
+            Associativity::Non => "non",
+            Associativity::Right => "right",
+        };
+        let (comment, ty, precedence) = (comment(&b.comment), chars(&b.ty), b.fixity.precedence);
+        write!(
+            out,
+            "{{\"name\":\"{name}\",\"comment\":{comment},\"type\":{ty},\"associativity\":\"{associativity}\",\"precedence\":{precedence}}}"
+        )
+    })?;
+    out.push('}');
+    Ok(())
 }

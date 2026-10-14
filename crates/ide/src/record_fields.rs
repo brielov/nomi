@@ -166,7 +166,7 @@ pub(crate) fn patched_all(
     }
     let syntax = ast::Module::cast(parse.syntax())?;
     let hir = nomi_compiler::hir::lower(&syntax);
-    let (canonical, _) = nomi_compiler::canonicalize::module::canonicalize_with_references(
+    let canonical = nomi_compiler::canonicalize::module::canonicalize(
         index.compat,
         &index.package,
         &index.interfaces,

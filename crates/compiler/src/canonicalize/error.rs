@@ -6,7 +6,7 @@
 
 use nomi_base::TextRange;
 
-use crate::canonical::{Home, Type};
+use crate::canonical::Home;
 use crate::hir::{Spanned, TypeId};
 
 /// Which sort of name: 0.19.3 reports each sort its own way.
@@ -157,7 +157,6 @@ pub enum Error {
         name: String,
     },
     ExportDuplicate {
-        kind: NameKind,
         name: String,
         first: TextRange,
         second: TextRange,
@@ -183,7 +182,6 @@ pub enum Error {
     },
     ImportExposingNotFound {
         range: TextRange,
-        kind: NameKind,
         home: Home,
         name: String,
         possible: Vec<String>,
@@ -207,7 +205,6 @@ pub enum Error {
     PortPayloadInvalid {
         range: TextRange,
         name: String,
-        bad: Type,
         problem: InvalidPayload,
     },
     PortTypeInvalid {

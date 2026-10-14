@@ -57,7 +57,7 @@ fn sample() -> Interface {
         home: Home::core("Maybe"),
         name: "Point".to_owned(),
         args: vec![("r".to_owned(), Type::Unit)],
-        aliased: AliasType::Filled(std::sync::Arc::new(point.clone())),
+        aliased: AliasType::Filled(Arc::new(point.clone())),
     };
     let with_default = Type::Lambda(
         Box::new(a()),
@@ -72,7 +72,7 @@ fn sample() -> Interface {
                 ty: with_default.into(),
             },
         )]),
-        unions: BTreeMap::from([("Maybe".to_owned(), Union::Open(union))]),
+        unions: BTreeMap::from([("Maybe".to_owned(), Union::Open(union.into()))]),
         aliases: BTreeMap::from([(
             "Point".to_owned(),
             Alias::Private(canonical::Alias {
@@ -231,7 +231,8 @@ fn interface() -> impl Strategy<Value = Interface> {
                 ctors,
                 count,
                 opts: CtorOpts::Normal,
-            };
+            }
+            .into();
             match tag {
                 0 => Union::Open(union),
                 1 => Union::Closed(union),

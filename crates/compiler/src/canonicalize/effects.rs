@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use nomi_base::TextRange;
+use nomi_base::{TextRange, grow};
 
 use super::env::Env;
 use super::error::{Error, InvalidPayload, PortProblem, R, all, both, throw};
@@ -59,11 +59,10 @@ fn port(env: &Env<'_>, module: &hir::Module, port: &hir::Port) -> R<(String, CPo
                 func: (*annotation.ty).clone(),
             },
         )),
-        Err(bad) => throw(Error::PortPayloadInvalid {
+        Err(problem) => throw(Error::PortPayloadInvalid {
             range: region,
             name: name.clone(),
-            bad: bad.0,
-            problem: bad.1,
+            problem,
         }),
     };
     if home.is("elm/core", "Platform.Cmd") && type_name == "Cmd" {
@@ -88,21 +87,20 @@ fn port(env: &Env<'_>, module: &hir::Module, port: &hir::Port) -> R<(String, CPo
 }
 
 /// `delambda`: a function's arguments, then its result.
-fn delambda(ty: Type) -> Vec<Type> {
-    match ty {
-        Type::Lambda(arg, result) => {
-            let mut parts = vec![*arg];
-            parts.extend(delambda(*result));
-            parts
-        }
-        ty => vec![ty],
+fn delambda(mut ty: Type) -> Vec<Type> {
+    let mut parts = Vec::new();
+    while let Type::Lambda(arg, result) = ty {
+        parts.push(*arg);
+        ty = *result;
     }
+    parts.push(ty);
+    parts
 }
 
-/// `checkPayload`: whether a value of `ty` can cross to JavaScript, or the
-/// part that can't, and why.
-pub(crate) fn check_payload(ty: &Type) -> Result<(), Box<(Type, InvalidPayload)>> {
-    match ty {
+/// `checkPayload`: whether a value of `ty` can cross to JavaScript, or why
+/// a part of it can't.
+pub(crate) fn check_payload(ty: &Type) -> Result<(), InvalidPayload> {
+    grow(|| match ty {
         Type::Alias { args, aliased, .. } => check_payload(&aliased.dealias(args)),
         Type::Type { home, name, args } => match &args[..] {
             [] if home.is("elm/json", "Json.Encode") && name == "Value"
@@ -119,10 +117,7 @@ pub(crate) fn check_payload(ty: &Type) -> Result<(), Box<(Type, InvalidPayload)>
             {
                 check_payload(arg)
             }
-            _ => Err(Box::new((
-                ty.clone(),
-                InvalidPayload::UnsupportedType(name.clone()),
-            ))),
+            _ => Err(InvalidPayload::UnsupportedType(name.clone())),
         },
         Type::Unit => Ok(()),
         Type::Tuple(a, b, c) => {
@@ -130,14 +125,11 @@ pub(crate) fn check_payload(ty: &Type) -> Result<(), Box<(Type, InvalidPayload)>
             check_payload(b)?;
             c.as_ref().map_or(Ok(()), |c| check_payload(c))
         }
-        Type::Var(name) => Err(Box::new((
-            ty.clone(),
-            InvalidPayload::TypeVariable(name.clone()),
-        ))),
-        Type::Lambda(..) => Err(Box::new((ty.clone(), InvalidPayload::Function))),
-        Type::Record(_, Some(_)) => Err(Box::new((ty.clone(), InvalidPayload::ExtendedRecord))),
+        Type::Var(name) => Err(InvalidPayload::TypeVariable(name.clone())),
+        Type::Lambda(..) => Err(InvalidPayload::Function),
+        Type::Record(_, Some(_)) => Err(InvalidPayload::ExtendedRecord),
         Type::Record(fields, None) => fields.values().try_for_each(|f| check_payload(&f.ty)),
-    }
+    })
 }
 
 /// An effect manager's functions and types: `init`, `onEffects` and

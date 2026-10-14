@@ -29,7 +29,7 @@ const CTOR_OPTS: [CtorOpts; 3] = [CtorOpts::Normal, CtorOpts::Enum, CtorOpts::Un
 
 /// Each enum's variants, by the tag that encodes them; the encoder's
 /// matches give the same tags.
-const UNIONS: [fn(Union) -> interface::Union; 3] = [
+const UNIONS: [fn(Arc<Union>) -> interface::Union; 3] = [
     interface::Union::Open,
     interface::Union::Closed,
     interface::Union::Private,
@@ -180,7 +180,7 @@ impl Encoder {
             } => {
                 self.u8(1);
                 self.str(home);
-                self.map(unions, Encoder::union);
+                self.map(unions, |e, u| e.union(u));
                 self.map(aliases, Encoder::alias);
             }
         }
@@ -457,7 +457,7 @@ impl<'a> Decoder<'a> {
         })
     }
 
-    fn union(&mut self) -> Option<Union> {
+    fn union(&mut self) -> Option<Arc<Union>> {
         let vars = self.strs()?;
         let n = self.len()?;
         let ctors = (0..n)
@@ -470,13 +470,14 @@ impl<'a> Decoder<'a> {
                 Some(Ctor { name, index, args })
             })
             .collect::<Option<_>>()?;
-        Some(Union {
+        let union = Union {
             vars,
             ctors,
             // How many constructors, not a length of bytes.
             count: self.leb128()?,
             opts: self.tag(&CTOR_OPTS)?,
-        })
+        };
+        Some(Arc::new(union))
     }
 
     fn home(&mut self) -> Option<Home> {

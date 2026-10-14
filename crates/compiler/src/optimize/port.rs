@@ -48,7 +48,7 @@ fn over_dollar(body: Expr) -> Expr {
 
 /// `toEncoder`.
 pub(super) fn to_encoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
-    match ty {
+    nomi_base::grow(|| match ty {
         Type::Alias { args, aliased, .. } => to_encoder(compat, t, &aliased.dealias(args)),
         Type::Unit => over_dollar(encode(t, "null")),
         Type::Tuple(a, b, c) => {
@@ -121,7 +121,7 @@ pub(super) fn to_encoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
         Type::Lambda(..) | Type::Var(_) | Type::Record(_, Some(_)) => {
             unreachable!("a port of a type checkPayload refuses")
         }
-    }
+    })
 }
 
 /// `toFlagsDecoder`.
@@ -137,7 +137,7 @@ pub(super) fn to_flags_decoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Ex
 
 /// `toDecoder`.
 pub(super) fn to_decoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
-    match ty {
+    nomi_base::grow(|| match ty {
         Type::Alias { args, aliased, .. } => to_decoder(compat, t, &aliased.dealias(args)),
         Type::Unit => {
             let null = decode(t, "null");
@@ -213,7 +213,7 @@ pub(super) fn to_decoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
         Type::Lambda(..) | Type::Var(_) | Type::Record(_, Some(_)) => {
             unreachable!("a port of a type checkPayload refuses")
         }
-    }
+    })
 }
 
 /// `indexAndThen`: the tuple's `i`th element decoded into `_v{i}`, then

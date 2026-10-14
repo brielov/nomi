@@ -12,10 +12,9 @@ use nomi_base::TextRange;
 pub enum Expected<T> {
     NoExpectation(T),
     FromContext(TextRange, Context, T),
-    /// The annotated name, its arity, and where in its body.
+    /// The annotated name, and where in its body.
     FromAnnotation {
         name: String,
-        arity: usize,
         sub: SubContext,
         ty: T,
     },
@@ -37,11 +36,8 @@ impl<T> Expected<T> {
             Expected::FromContext(region, context, _) => {
                 Expected::FromContext(*region, context.clone(), ty)
             }
-            Expected::FromAnnotation {
-                name, arity, sub, ..
-            } => Expected::FromAnnotation {
+            Expected::FromAnnotation { name, sub, .. } => Expected::FromAnnotation {
                 name: name.clone(),
-                arity: *arity,
                 sub: *sub,
                 ty,
             },

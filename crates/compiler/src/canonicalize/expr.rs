@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use nomi_base::{Compat, TextRange, grow_large};
+use nomi_base::{Compat, TextRange, grow, grow_large};
 
 use super::binops;
 use super::dups::{Dict, check_fields};
@@ -41,18 +41,23 @@ fn combine(into: &mut FreeLocals, from: FreeLocals) {
 }
 
 /// `delayUse`: every use as delayed.
-fn delay(free: FreeLocals) -> FreeLocals {
-    free.into_keys().map(|name| (name, Use::Delayed)).collect()
+fn delay(mut free: FreeLocals) -> FreeLocals {
+    for used in free.values_mut() {
+        *used = Use::Delayed;
+    }
+    free
 }
 
-/// `verifyBindings`: what `work` makes in a scope of `bindings`, and the
-/// locals it uses from outside the scope.
-fn verify_bindings<T>(
+/// `verifyBindings`: what `work` makes in `env` with `bindings` added,
+/// and the locals it uses from outside the scope.
+fn verify_bindings<'a, T>(
+    env: &Env<'a>,
     bindings: &BTreeMap<String, TextRange>,
-    work: impl FnOnce(&mut FreeLocals) -> R<T>,
+    work: impl FnOnce(&Env<'a>, &mut FreeLocals) -> R<T>,
 ) -> R<(T, FreeLocals)> {
+    let scope = env.add_locals(bindings)?;
     let mut free = FreeLocals::new();
-    let value = work(&mut free)?;
+    let value = work(&scope, &mut free)?;
     free.retain(|name, _| !bindings.contains_key(name));
     Ok((value, free))
 }
@@ -229,45 +234,28 @@ fn binop_chain(
     }));
     let last = canonicalize(env, module, *operands.last().expect("an operand"), free);
     let (chain, last) = both(chain, last)?;
-    let mut exprs: Vec<Option<Expr>> = Vec::with_capacity(chain.len() + 1);
-    let mut found = Vec::with_capacity(chain.len());
-    let mut steps = Vec::with_capacity(chain.len());
-    for (index, (operand, binop)) in chain.into_iter().enumerate() {
-        exprs.push(Some(operand));
+    let found: Vec<&BinopInfo<'_>> = chain.iter().map(|&(_, binop)| binop).collect();
+    let chain = (chain.into_iter()).map(|(operand, binop)| {
         let op = binops::Op {
-            index,
-            name: binop.op.clone(),
+            name: &binop.op,
             fixity: binop.fixity,
         };
-        steps.push((binops::Tree::Operand(index), op));
-        found.push(binop);
-    }
-    exprs.push(Some(last));
-    let tree = binops::arrange(steps, binops::Tree::Operand(ops.len()), region)?;
-    // The chain's root keeps the chain's own region, as upstream wraps the
-    // stepper's result in it; the nodes inside merge their operands'.
-    let mut root = binop_tree(tree, &mut exprs, &found);
+        (operand, op)
+    });
+    // Each node's region runs from its left operand's start to its right
+    // one's end (`A.merge`); the chain's root keeps the chain's own
+    // region, as upstream wraps the stepper's result in it.
+    let mut root = binops::arrange(chain, last, region, |at, left: Expr, right: Expr| {
+        let region = left.region.cover(right.region);
+        let kind = ExprKind::Binop {
+            operator: operator(found[at]),
+            left: Box::new(left),
+            right: Box::new(right),
+        };
+        expr(region, kind)
+    })?;
     root.region = region;
     Ok(root)
-}
-
-/// The expression an arranged chain stands for, each node's region from
-/// its left operand's start to its right one's end (`A.merge`).
-fn binop_tree(tree: binops::Tree, exprs: &mut [Option<Expr>], found: &[&BinopInfo<'_>]) -> Expr {
-    grow_large(|| match tree {
-        binops::Tree::Operand(i) => exprs[i].take().expect("each operand once"),
-        binops::Tree::Binop { op, left, right } => {
-            let left = binop_tree(*left, exprs, found);
-            let right = binop_tree(*right, exprs, found);
-            let region = left.region.cover(right.region);
-            let kind = ExprKind::Binop {
-                operator: operator(found[op]),
-                left: Box::new(left),
-                right: Box::new(right),
-            };
-            expr(region, kind)
-        }
-    })
 }
 
 /// A record update: the record's variable, then each field written once,
@@ -306,9 +294,9 @@ fn to_var_ctor(name: &str, ctor: &CtorInfo<'_>) -> ExprKind {
             home,
             union_name,
             union,
-            index,
-            args,
+            ctor,
         } => {
+            let ctor = &union.ctors[*ctor];
             let result = Type::Type {
                 home: home.clone(),
                 name: union_name.clone(),
@@ -316,9 +304,9 @@ fn to_var_ctor(name: &str, ctor: &CtorInfo<'_>) -> ExprKind {
             };
             let annotation = Annotation {
                 free: sorted_vars(&union.vars),
-                ty: Type::function(args.iter().cloned(), result).into(),
+                ty: Type::function(ctor.args.iter().cloned(), result).into(),
             };
-            (union.opts, home, *index, annotation)
+            (union.opts, home, ctor.index, annotation)
         }
         CtorInfo::Record { home, vars, ty } => {
             let annotation = Annotation {
@@ -356,8 +344,9 @@ fn lambda(
     let (params, bindings) = pattern::verify(env.compat, &context, |b| {
         pattern::each(env, module, params, b)
     })?;
-    let scope = env.add_locals(&bindings)?;
-    let (body, free) = verify_bindings(&bindings, |free| canonicalize(&scope, module, body, free))?;
+    let (body, free) = verify_bindings(env, &bindings, |scope, free| {
+        canonicalize(scope, module, body, free)
+    })?;
     Ok(((params, body), free))
 }
 
@@ -372,8 +361,9 @@ fn case_branch(
     let (pattern, bindings) = pattern::verify(env.compat, &context, |b| {
         pattern::canonicalize(env, module, pattern, b)
     })?;
-    let scope = env.add_locals(&bindings)?;
-    let (body, free) = verify_bindings(&bindings, |free| canonicalize(&scope, module, body, free))?;
+    let (body, free) = verify_bindings(env, &bindings, |scope, free| {
+        canonicalize(scope, module, body, free)
+    })?;
     Ok(((pattern, body), free))
 }
 
@@ -382,7 +372,7 @@ fn case_branch(
 fn find_var(env: &Env<'_>, region: TextRange, name: &str, free: &mut FreeLocals) -> R<ExprKind> {
     match env.vars.get(name) {
         Some(Var::Local(binder)) => {
-            env.references.record(region, Target::Local(*binder));
+            env.references.record(region, || Target::Local(*binder));
             free.insert(name.to_owned(), Use::Direct);
             Ok(ExprKind::VarLocal(name.to_owned()))
         }
@@ -491,13 +481,12 @@ fn let_(
         first,
         second,
     })?;
-    let scope = env.add_locals(&bindings)?;
-    let (expr, inner) = verify_bindings(&bindings, |let_free| {
+    let (expr, inner) = verify_bindings(env, &bindings, |scope, let_free| {
         let mut nodes = Vec::new();
         for &def in defs {
-            def_node(&scope, module, def, &mut nodes, let_free)?;
+            def_node(scope, module, def, &mut nodes, let_free)?;
         }
-        let body = canonicalize(&scope, module, body, let_free)?;
+        let body = canonicalize(scope, module, body, let_free)?;
         super::cycles::let_cycles(env.compat, region, nodes, body)
     })?;
     combine(free, inner);
@@ -507,7 +496,7 @@ fn let_(
 /// `addBindingsHelp`: the names a destructuring binds, in upstream's
 /// order.
 fn add_bindings(compat: Compat, module: &hir::Module, id: PatId, dups: &mut Bindings) {
-    match &module.patterns[id] {
+    grow(|| match &module.patterns[id] {
         hir::Pattern::Var(name) => {
             let region = module.source_map.pattern_range(id);
             dups.insert(compat, name, region, region);
@@ -541,7 +530,7 @@ fn add_bindings(compat: Compat, module: &hir::Module, id: PatId, dups: &mut Bind
         | hir::Pattern::Chr(_)
         | hir::Pattern::Str(_)
         | hir::Pattern::Int(_) => {}
-    }
+    });
 }
 
 /// `addDefNodes`: one definition of a `let`, canonicalized, as nodes of
@@ -632,9 +621,9 @@ pub(super) fn definition(
             let (params, bindings) = pattern::verify(env.compat, &context, |b| {
                 pattern::each(env, module, params, b)
             })?;
-            let scope = env.add_locals(&bindings)?;
-            let (body, free) =
-                verify_bindings(&bindings, |free| canonicalize(&scope, module, body, free))?;
+            let (body, free) = verify_bindings(env, &bindings, |scope, free| {
+                canonicalize(scope, module, body, free)
+            })?;
             let def = Def::Def {
                 name: name.text.clone(),
                 region: name.range,
@@ -652,9 +641,9 @@ pub(super) fn definition(
             let ((params, result), bindings) = pattern::verify(env.compat, &context, |b| {
                 super::module::typed_args(env, module, &name.text, params, &annotation.ty, b)
             })?;
-            let scope = env.add_locals(&bindings)?;
-            let (body, free) =
-                verify_bindings(&bindings, |free| canonicalize(&scope, module, body, free))?;
+            let (body, free) = verify_bindings(env, &bindings, |scope, free| {
+                canonicalize(scope, module, body, free)
+            })?;
             let def = Def::TypedDef {
                 name: name.text.clone(),
                 region: name.range,
@@ -675,23 +664,21 @@ pub(super) fn definition(
 /// `getPatternNames`, in the order it lists them. 0.19.1's parser keeps
 /// a record pattern's fields last first.
 fn pattern_names(compat: Compat, module: &hir::Module, id: PatId) -> Vec<Spanned> {
+    // Upstream conses each name onto those before it, so they are
+    // gathered last first and turned round at the end.
     fn go(compat: Compat, module: &hir::Module, id: PatId, names: &mut Vec<Spanned>) {
-        match &module.patterns[id] {
+        grow(|| match &module.patterns[id] {
             hir::Pattern::Var(name) => {
                 let range = module.source_map.pattern_range(id);
                 let text = name.clone();
-                names.insert(0, Spanned { text, range });
+                names.push(Spanned { text, range });
             }
-            hir::Pattern::Record(fields) => {
-                let mut new = fields.clone();
-                if compat == Compat::V0_19_1 {
-                    new.reverse();
-                }
-                new.append(names);
-                *names = new;
+            hir::Pattern::Record(fields) if compat == Compat::V0_19_1 => {
+                names.extend(fields.iter().cloned());
             }
+            hir::Pattern::Record(fields) => names.extend(fields.iter().rev().cloned()),
             hir::Pattern::Alias(inner, name) => {
-                names.insert(0, name.clone());
+                names.push(name.clone());
                 go(compat, module, *inner, names);
             }
             hir::Pattern::Tuple(items) | hir::Pattern::List(items) => {
@@ -714,9 +701,10 @@ fn pattern_names(compat: Compat, module: &hir::Module, id: PatId) -> Vec<Spanned
             | hir::Pattern::Chr(_)
             | hir::Pattern::Str(_)
             | hir::Pattern::Int(_) => {}
-        }
+        });
     }
     let mut names = Vec::new();
     go(compat, module, id, &mut names);
+    names.reverse();
     names
 }

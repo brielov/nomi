@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use nomi_base::{Compat, TextRange};
+use nomi_base::{Compat, TextRange, grow};
 
 use super::dups::Dict;
 use super::env::{CtorInfo, Env, TypeInfo, Var};
@@ -19,7 +19,7 @@ use crate::canonical::{self, Ctor, CtorOpts, Home, Type};
 use crate::graph::{Node, Scc, strongly_connected};
 use crate::hir::{self, ModuleKind, Spanned};
 
-pub(super) type Unions = BTreeMap<String, canonical::Union>;
+pub(super) type Unions = BTreeMap<String, Arc<canonical::Union>>;
 pub(super) type Aliases = BTreeMap<String, canonical::Alias>;
 
 /// `Local.add`.
@@ -130,7 +130,7 @@ fn add_types<'a>(module: &hir::Module, mut env: Env<'a>) -> R<Env<'a>> {
 /// `getEdges`: the unqualified type names `ty` mentions, last met first.
 fn edges(module: &hir::Module, ty: hir::TypeId) -> Vec<String> {
     fn walk(module: &hir::Module, ty: hir::TypeId, met: &mut Vec<String>) {
-        match &module.types[ty] {
+        grow(|| match &module.types[ty] {
             hir::Type::Lambda(a, b) => {
                 walk(module, *a, met);
                 walk(module, *b, met);
@@ -155,7 +155,7 @@ fn edges(module: &hir::Module, ty: hir::TypeId) -> Vec<String> {
             }
             hir::Type::Tuple(items) => items.iter().for_each(|&t| walk(module, t, met)),
             hir::Type::Var(_) | hir::Type::Unit | hir::Type::Missing => {}
-        }
+        });
     }
     let mut met = Vec::new();
     walk(module, ty, &mut met);
@@ -167,7 +167,7 @@ fn edges(module: &hir::Module, ty: hir::TypeId) -> Vec<String> {
 /// keeps: a later place replaces an earlier one.
 fn add_free_vars(module: &hir::Module, ty: hir::TypeId, vars: &mut BTreeMap<String, TextRange>) {
     let range = module.source_map.type_range(ty);
-    match &module.types[ty] {
+    grow(|| match &module.types[ty] {
         hir::Type::Lambda(a, b) => {
             add_free_vars(module, *a, vars);
             add_free_vars(module, *b, vars);
@@ -186,7 +186,7 @@ fn add_free_vars(module: &hir::Module, ty: hir::TypeId, vars: &mut BTreeMap<Stri
         }
         hir::Type::Tuple(items) => items.iter().for_each(|&t| add_free_vars(module, t, vars)),
         hir::Type::Unit | hir::Type::Missing => {}
-    }
+    });
 }
 
 /// The parameters of a declaration, each written once.
@@ -238,11 +238,9 @@ fn check_union_free_vars(compat: Compat, module: &hir::Module, union: &hir::Unio
     // constructor to use a variable places it.
     let mut free = BTreeMap::new();
     for (_, args) in union.variants.iter().rev() {
-        let mut ctor = free.clone();
         for &arg in args {
-            add_free_vars(module, arg, &mut ctor);
+            add_free_vars(module, arg, &mut free);
         }
-        free = ctor;
     }
     let mut unbound = difference(compat, &free, &bound).into_iter();
     match unbound.next() {
@@ -299,20 +297,14 @@ fn add_ctors<'a>(module: &hir::Module, mut env: Env<'a>) -> R<(Env<'a>, Unions, 
         .iter()
         .rev()
         .map(|u| canonicalize_union(module, u, &env)))?;
-    let aliases = all(module
-        .aliases
-        .iter()
-        .rev()
-        .map(|a| canonicalize_alias(module, a, &env)))?;
-    let union_dups = Dict::unions(unions.iter().map(|(_, d)| d.clone()));
-    let alias_dups = Dict::unions(aliases.iter().map(|(_, d)| d.clone()));
-    let ctors = (union_dups.union(alias_dups)).detect(env.compat, Duplicated::Ctor.error())?;
+    let (unions, union_dups): (Unions, Vec<_>) = unions.into_iter().unzip();
+    let (aliases, alias_dups): (Aliases, Vec<_>) = (module.aliases.iter().rev())
+        .map(|a| alias_ctor(a, &env))
+        .unzip();
+    let dups = Dict::unions(union_dups).union(Dict::unions(alias_dups));
+    let ctors = dups.detect(env.compat, Duplicated::Ctor.error())?;
     Rc::make_mut(&mut env.ctors).extend(ctors);
-    Ok((
-        env,
-        unions.into_iter().map(|(u, _)| u).collect(),
-        aliases.into_iter().map(|(a, _)| a).collect(),
-    ))
+    Ok((env, unions, aliases))
 }
 
 type CtorDups<'a> = Dict<BTreeMap<Home, CtorInfo<'a>>>;
@@ -321,7 +313,7 @@ fn canonicalize_union<'a>(
     module: &hir::Module,
     union: &hir::Union,
     env: &Env<'a>,
-) -> R<((String, canonical::Union), CtorDups<'a>)> {
+) -> R<((String, Arc<canonical::Union>), CtorDups<'a>)> {
     let ctors = all(union
         .variants
         .iter()
@@ -339,48 +331,49 @@ fn canonicalize_union<'a>(
         variants if variants.iter().all(|(_, args)| args.is_empty()) => CtorOpts::Enum,
         _ => CtorOpts::Normal,
     };
-    let canonical = canonical::Union {
+    let canonical = Arc::new(canonical::Union {
         vars: texts(&union.params),
         count: ctors.len(),
         ctors,
         opts,
-    };
-    let home = env.home.clone();
-    let dups = Dict::unions(union.variants.iter().zip(&canonical.ctors).map(
-        |((name, _), ctor)| {
-            let info = CtorInfo::Ctor {
-                home: home.clone(),
-                union_name: union.name.text.clone(),
-                union: Cow::Owned(canonical.clone()),
-                index: ctor.index,
-                args: Cow::Owned(ctor.args.clone()),
-            };
-            Dict::one(
-                &name.text,
-                name.range,
-                BTreeMap::from([(home.clone(), info)]),
-            )
-        },
-    ));
+    });
+    let home = &env.home;
+    let dups = Dict::unions(union.variants.iter().enumerate().map(|(at, (name, _))| {
+        let info = CtorInfo::Ctor {
+            home: home.clone(),
+            union_name: union.name.text.clone(),
+            union: Cow::Owned(Arc::clone(&canonical)),
+            ctor: at,
+        };
+        Dict::one(
+            &name.text,
+            name.range,
+            BTreeMap::from([(home.clone(), info)]),
+        )
+    }));
     Ok(((union.name.text.clone(), canonical), dups))
 }
 
-fn canonicalize_alias<'a>(
-    module: &hir::Module,
-    alias: &hir::Alias,
-    env: &Env<'a>,
-) -> R<((String, canonical::Alias), CtorDups<'a>)> {
-    let vars = texts(&alias.params);
-    let ty = Arc::new(types::canonicalize(env, module, alias.body)?);
+/// The alias `addTypes` canonicalized, and the constructor of a record
+/// alias.
+fn alias_ctor<'a>(alias: &hir::Alias, env: &Env<'a>) -> ((String, canonical::Alias), CtorDups<'a>) {
     let home = &env.home;
     let name = &alias.name.text;
-    let dups = match &*ty {
+    let Some(TypeInfo::Alias { vars, ty, .. }) = env.types.get(name).and_then(|t| t.get(home))
+    else {
+        unreachable!("`addTypes` adds every alias of the module");
+    };
+    let dups = match &**ty {
         Type::Record(fields, None) => {
-            let info = CtorInfo::record(home, name, &vars, fields, ty.clone());
+            let info = CtorInfo::record(home, name, vars, fields, ty.clone());
             let ctor = BTreeMap::from([(home.clone(), info)]);
             Dict::one(name, alias.name.range, ctor)
         }
         _ => Dict::default(),
     };
-    Ok(((name.clone(), canonical::Alias { vars, ty }), dups))
+    let canonical = canonical::Alias {
+        vars: vars.clone(),
+        ty: ty.clone(),
+    };
+    ((name.clone(), canonical), dups)
 }

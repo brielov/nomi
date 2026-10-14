@@ -77,7 +77,7 @@ fn opt_has_debug(expr: &optimized::Expr) -> bool {
 
 fn decider_has_debug(decider: &optimized::Decider<optimized::Choice>) -> bool {
     use optimized::{Choice, Decider};
-    match decider {
+    nomi_base::grow(|| match decider {
         Decider::Leaf(Choice::Inline(e)) => opt_has_debug(e),
         Decider::Leaf(Choice::Jump(_)) => false,
         Decider::Chain {
@@ -86,7 +86,7 @@ fn decider_has_debug(decider: &optimized::Decider<optimized::Choice>) -> bool {
         Decider::FanOut {
             tests, fallback, ..
         } => tests.iter().any(|(_, d)| decider_has_debug(d)) || decider_has_debug(fallback),
-    }
+    })
 }
 
 #[cfg(test)]

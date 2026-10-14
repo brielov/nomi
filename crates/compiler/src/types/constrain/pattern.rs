@@ -15,15 +15,27 @@ use crate::types::{self, Constraint, Type, Variable, Variables, list};
 #[derive(Debug, Default)]
 pub(crate) struct State {
     pub(crate) headers: BTreeMap<String, (TextRange, Type)>,
-    /// Latest first, as upstream's list.
+    /// Upstream's list, latest first, reversed: what it prepends is
+    /// pushed here.
     pub(crate) vars: Vec<Variable>,
     /// Earliest first: upstream's `reverse revCons`.
     pub(crate) cons: Vec<Constraint>,
 }
 
 impl State {
-    fn add_vars(&mut self, front: Vec<Variable>) {
-        self.vars.splice(0..0, front);
+    /// `front`, in order, put before the variables made so far.
+    fn add_vars(
+        &mut self,
+        front: impl IntoIterator<Item = Variable, IntoIter: DoubleEndedIterator>,
+    ) {
+        self.vars.extend(front.into_iter().rev());
+    }
+
+    /// The variables in upstream's order.
+    pub(crate) fn take_vars(&mut self) -> Vec<Variable> {
+        let mut vars = std::mem::take(&mut self.vars);
+        vars.reverse();
+        vars
     }
 
     /// `addToHeaders`.
@@ -91,12 +103,7 @@ fn add_(vars: &mut Variables, pattern: &Pattern, expectation: PExpected<Type>, s
                 c_var.map(|v| Box::new(Type::Var(v))),
             );
             state.matches(region, PCategory::PTuple, ty, expectation);
-            state.add_vars(
-                [Some(a_var), Some(b_var), c_var]
-                    .into_iter()
-                    .flatten()
-                    .collect(),
-            );
+            state.add_vars([Some(a_var), Some(b_var), c_var].into_iter().flatten());
         }
         PatternKind::Ctor {
             home,
@@ -124,7 +131,7 @@ fn add_(vars: &mut Variables, pattern: &Pattern, expectation: PExpected<Type>, s
                 add(vars, p, expected, state);
             }
             state.matches(region, PCategory::PList, list(entry), expectation);
-            state.add_vars(vec![entry_var]);
+            state.add_vars([entry_var]);
         }
         PatternKind::Cons(head, tail) => {
             let entry_var = vars.flex_var();
@@ -134,7 +141,7 @@ fn add_(vars: &mut Variables, pattern: &Pattern, expectation: PExpected<Type>, s
             add(vars, tail, tail_expected, state);
             add(vars, head, PExpected::PNoExpectation(entry.clone()), state);
             state.matches(region, PCategory::PList, list(entry), expectation);
-            state.add_vars(vec![entry_var]);
+            state.add_vars([entry_var]);
         }
         PatternKind::Record(fields) => {
             let ext_var = vars.flex_var();
@@ -155,9 +162,7 @@ fn add_(vars: &mut Variables, pattern: &Pattern, expectation: PExpected<Type>, s
                     .entry(name.to_string())
                     .or_insert((region, ty));
             }
-            let mut front: Vec<Variable> = field_vars.iter().map(|(_, v)| *v).collect();
-            front.push(ext_var);
-            state.add_vars(front);
+            state.add_vars(field_vars.iter().map(|(_, v)| *v).chain([ext_var]));
         }
         PatternKind::Int(_) => simple(PCategory::PInt, types::int(), state),
         PatternKind::Str(_) => simple(PCategory::PStr, types::string(), state),

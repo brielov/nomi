@@ -2,6 +2,7 @@
 //! modules canonicalized against them.
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 use nomi_base::Compat;
 
@@ -28,8 +29,8 @@ pub(crate) fn value(ty: Type) -> Annotation {
     }
 }
 
-fn union(vars: &[&str], ctors: &[&str]) -> canonical::Union {
-    canonical::Union {
+fn union(vars: &[&str], ctors: &[&str]) -> Arc<canonical::Union> {
+    Arc::new(canonical::Union {
         vars: vars.iter().map(|v| (*v).to_owned()).collect(),
         ctors: (ctors.iter().enumerate())
             .map(|(index, name)| Ctor {
@@ -40,7 +41,7 @@ fn union(vars: &[&str], ctors: &[&str]) -> canonical::Union {
             .collect(),
         count: ctors.len(),
         opts: CtorOpts::Enum,
-    }
+    })
 }
 
 fn binop(function: &str, associativity: Associativity, precedence: i64) -> Binop {

@@ -4,6 +4,7 @@
 //! for duplicates once the pattern is otherwise sound.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use nomi_base::{Compat, TextRange, grow_large};
 
@@ -104,9 +105,10 @@ fn canonicalize_(
                     home,
                     union_name,
                     union,
-                    index,
-                    args: types,
+                    ctor,
                 } => {
+                    let ctor = &union.ctors[*ctor];
+                    let types = &ctor.args;
                     if args.len() != types.len() {
                         return throw(Error::BadArity {
                             range: region,
@@ -125,15 +127,16 @@ fn canonicalize_(
                             })
                         },
                     ))?;
+                    let union = Arc::clone(union);
                     if union_name == "Bool" && home.is("elm/core", "Basics") {
-                        PatternKind::Bool(union.clone().into_owned(), name.text == "True")
+                        PatternKind::Bool(union, name.text == "True")
                     } else {
                         PatternKind::Ctor {
                             home: home.clone(),
                             type_name: union_name.clone(),
-                            union: union.clone().into_owned(),
+                            union,
                             name: name.text.clone(),
-                            index: *index,
+                            index: ctor.index,
                             args: cargs,
                         }
                     }

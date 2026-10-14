@@ -4,6 +4,7 @@
 //! the interface, so the engine keys artifacts by its hash.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use crate::canonical::{self, Annotation};
 use crate::encoding::{Decoder, Encoder};
@@ -33,15 +34,16 @@ impl Interfaces for std::collections::HashMap<String, Interface> {
     }
 }
 
-/// A union as the module exports it.
+/// A union as the module exports it, shared with the patterns of its
+/// constructors.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Union {
     /// `Type(..)`: the type and its constructors.
-    Open(canonical::Union),
+    Open(Arc<canonical::Union>),
     /// `Type`: the type alone.
-    Closed(canonical::Union),
+    Closed(Arc<canonical::Union>),
     /// Not exported, but needed to read the types of what is.
-    Private(canonical::Union),
+    Private(Arc<canonical::Union>),
 }
 
 /// An alias as the module exports it.
@@ -69,7 +71,7 @@ impl Union {
         }
     }
 
-    fn into_whole(self) -> canonical::Union {
+    fn into_whole(self) -> Arc<canonical::Union> {
         match self {
             Union::Open(union) | Union::Closed(union) | Union::Private(union) => union,
         }
@@ -107,7 +109,7 @@ pub enum DependencyInterface {
     Public(Interface),
     Private {
         home: String,
-        unions: BTreeMap<String, canonical::Union>,
+        unions: BTreeMap<String, Arc<canonical::Union>>,
         aliases: BTreeMap<String, canonical::Alias>,
     },
 }

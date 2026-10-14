@@ -237,11 +237,12 @@ impl Solver<'_> {
             let len = self.pools.len();
             self.pools.resize(len * 2, Vec::new());
         }
-        let all: Vec<Variable> = rigid_vars.iter().chain(flex_vars).copied().collect();
+        let mut all: Vec<Variable> = rigid_vars.iter().chain(flex_vars).copied().collect();
         for &var in &all {
             self.vars.get_mut(var).rank = next;
         }
-        self.pools[next as usize] = all.into_iter().rev().collect();
+        all.reverse();
+        self.pools[next as usize] = all;
         let locals = self.locals(next, header);
         self.solve(next, header_con);
         let young = self.mark;
@@ -291,20 +292,20 @@ impl Solver<'_> {
 
     /// `Map.union env locals`: a name in scope already keeps its
     /// variable. The names added, to take out again.
-    fn extend_env(&mut self, locals: &[Local]) -> Vec<String> {
+    fn extend_env<'l>(&mut self, locals: &'l [Local]) -> Vec<&'l str> {
         let mut added = Vec::new();
         for local in locals {
             if !self.env.contains_key(&local.name) {
                 self.env.insert(local.name.clone(), local.var);
-                added.push(local.name.clone());
+                added.push(&*local.name);
             }
         }
         added
     }
 
-    fn restore_env(&mut self, added: Vec<String>) {
+    fn restore_env(&mut self, added: Vec<&str>) {
         for name in added {
-            self.env.remove(&name);
+            self.env.remove(name);
         }
     }
 
@@ -355,47 +356,11 @@ impl Solver<'_> {
     /// `typeToVariable`. Constraint generation makes no place holders,
     /// so `typeToVar`'s aliases in scope are never looked at.
     fn type_to_variable(&mut self, rank: u32, ty: &Type) -> Variable {
-        nomi_base::grow(|| match ty {
-            Type::Var(v) => *v,
-            Type::App(home, name, args) => {
-                let args = args
-                    .iter()
-                    .map(|a| self.type_to_variable(rank, a))
-                    .collect();
-                self.register(
-                    rank,
-                    Content::Structure(FlatType::App1(home.clone(), name.clone(), args)),
-                )
-            }
-            Type::Fun(a, b) => {
-                let a = self.type_to_variable(rank, a);
-                let b = self.type_to_variable(rank, b);
-                self.register(rank, Content::Structure(FlatType::Fun1(a, b)))
-            }
-            Type::Alias(home, name, args, real) => {
-                let args: Vec<(String, Variable)> = args
-                    .iter()
-                    .map(|(n, a)| (n.clone(), self.type_to_variable(rank, a)))
-                    .collect();
-                let real = self.type_to_variable(rank, real);
-                self.register(rank, Content::Alias(home.clone(), name.clone(), args, real))
-            }
-            Type::Record(fields, ext) => {
-                let fields = fields
-                    .iter()
-                    .map(|(n, f)| (n.clone(), self.type_to_variable(rank, f)))
-                    .collect();
-                let ext = self.type_to_variable(rank, ext);
-                self.register(rank, Content::Structure(FlatType::Record1(fields, ext)))
-            }
-            Type::EmptyRecord => self.register(rank, Content::Structure(FlatType::EmptyRecord1)),
-            Type::Unit => self.register(rank, Content::Structure(FlatType::Unit1)),
-            Type::Tuple(a, b, c) => {
-                let a = self.type_to_variable(rank, a);
-                let b = self.type_to_variable(rank, b);
-                let c = c.as_ref().map(|c| self.type_to_variable(rank, c));
-                self.register(rank, Content::Structure(FlatType::Tuple1(a, b, c)))
-            }
+        let pool = &mut self.pools[rank as usize];
+        self.vars.type_to_var(ty, &mut |vars, content| {
+            let var = vars.fresh_descriptor(Descriptor::at_rank(content, rank));
+            pool.push(var);
+            var
         })
     }
 
@@ -509,9 +474,9 @@ impl Solver<'_> {
                 return var;
             }
             let content = descriptor.content.clone();
-            let copy = self
-                .vars
-                .fresh_descriptor(Descriptor::at_rank(content.clone(), max_rank));
+            // The copy's content is set once its parts are copied, and
+            // nothing reads it before.
+            let copy = (self.vars).fresh_descriptor(Descriptor::at_rank(Content::Error, max_rank));
             self.pools[max_rank as usize].push(copy);
             // Linked before copying the parts, so a cycle stops here.
             let descriptor = self.vars.get_mut(var);
@@ -519,7 +484,7 @@ impl Solver<'_> {
             descriptor.copy = Some(copy);
             let new_content = match content {
                 Content::Structure(flat) => Content::Structure(self.copy_flat(max_rank, flat)),
-                Content::FlexVar(_) | Content::FlexSuper(..) | Content::Error => return copy,
+                leaf @ (Content::FlexVar(_) | Content::FlexSuper(..) | Content::Error) => leaf,
                 Content::RigidVar(name) => Content::FlexVar(Some(name)),
                 Content::RigidSuper(s, name) => Content::FlexSuper(s, Some(name)),
                 Content::Alias(home, name, args, real) => {

@@ -74,7 +74,7 @@ pub fn canonicalize(
     interfaces: &dyn Interfaces,
     module: &hir::Module,
 ) -> R<Canonical> {
-    canonicalize_with_references(compat, package, interfaces, module).0
+    canonicalize_into(compat, package, interfaces, module, &Recorder::default())
 }
 
 /// [`canonicalize`], and what each name resolved to, as far as it got.
@@ -84,7 +84,7 @@ pub fn canonicalize_with_references(
     interfaces: &dyn Interfaces,
     module: &hir::Module,
 ) -> (R<Canonical>, Vec<Reference>) {
-    let references = Recorder::default();
+    let references = Recorder::enabled();
     let canonical = canonicalize_into(compat, package, interfaces, module, &references);
     (canonical, references.take())
 }
@@ -313,11 +313,6 @@ fn exports(declared: &Declared<'_>, module: &hir::Module) -> R<Exports> {
     let Exposing::Explicit(items) = &module.exports else {
         return Ok(Exports::Everything(module.exports_range));
     };
-    let kind = |item: &Exposed| match item {
-        Exposed::Lower(_) => NameKind::Value,
-        Exposed::Upper(..) => NameKind::Type,
-        Exposed::Operator(_) => NameKind::Operator,
-    };
     let infos = all(items.iter().map(|item| {
         let export = match item {
             Exposed::Lower(name) => declared.value(name),
@@ -328,10 +323,7 @@ fn exports(declared: &Declared<'_>, module: &hir::Module) -> R<Exports> {
         Ok(Dict::one(&name.text, name.range, (name.range, export)))
     }))?;
     let exports = Dict::unions(infos).detect(declared.compat, |name, first, second| {
-        // A name's spelling says which kind it is.
-        let item = items.iter().find(|i| i.name().text == name);
         Error::ExportDuplicate {
-            kind: item.map_or(NameKind::Value, kind),
             name: name.to_owned(),
             first,
             second,

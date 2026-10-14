@@ -57,8 +57,8 @@ fn flex_let(
 
 impl State {
     /// `CLet` of what the patterns bound over `body`.
-    fn over(self, body: Constraint) -> Constraint {
-        flex_let(self.vars, self.headers, and(self.cons), body)
+    fn over(mut self, body: Constraint) -> Constraint {
+        flex_let(self.take_vars(), self.headers, and(self.cons), body)
     }
 }
 
@@ -447,14 +447,11 @@ fn if_(
         .collect();
     let exprs = (branches.iter().map(|(_, e)| e)).chain([otherwise]);
     match expected {
-        Expected::FromAnnotation {
-            name, arity, ty, ..
-        } => {
+        Expected::FromAnnotation { name, ty, .. } => {
             let branch_cons = (exprs.enumerate())
                 .map(|(i, e)| {
                     let expected = Expected::FromAnnotation {
                         name: name.clone(),
-                        arity,
                         sub: SubContext::TypedIfBranch(i),
                         ty: ty.clone(),
                     };
@@ -503,14 +500,11 @@ fn case(
     );
     let p_expect = |i| PExpected::PFromContext(region, PContext::PCaseMatch(i), ptrn_type.clone());
     match expected {
-        Expected::FromAnnotation {
-            name, arity, ty, ..
-        } => {
+        Expected::FromAnnotation { name, ty, .. } => {
             let mut cons = vec![expr_con];
             for (i, (pattern, body)) in branches.iter().enumerate() {
                 let expected = Expected::FromAnnotation {
                     name: name.clone(),
-                    arity,
                     sub: SubContext::TypedCaseBranch(i),
                     ty: ty.clone(),
                 };
@@ -680,7 +674,7 @@ fn destruct(
         Expected::FromContext(region, Context::Destructure, pattern_type),
     );
     let mut flex_vars = vec![pattern_var];
-    flex_vars.extend(state.vars);
+    flex_vars.extend(state.take_vars());
     let mut cons = state.cons;
     cons.push(expr_con);
     flex_let(flex_vars, state.headers, and(cons), body_con)
@@ -823,7 +817,6 @@ fn typed(
     let TypedArgs { ty, result, state } = typed_args(vars, &new_rtv, name, params, result);
     let expected = Expected::FromAnnotation {
         name: name.to_owned(),
-        arity: params.len(),
         sub: SubContext::TypedBody,
         ty: result,
     };
@@ -872,8 +865,9 @@ pub(super) fn constrain_def(
 /// recursive group gathered.
 #[derive(Default)]
 struct Group {
+    /// Upstream's list reversed, as a pattern's state keeps it.
     vars: Vec<Variable>,
-    /// Latest first, as upstream's list.
+    /// Earliest first: upstream's list, which conses each, reversed.
     cons: Vec<Constraint>,
     headers: BTreeMap<String, (TextRange, Type)>,
 }
@@ -899,7 +893,8 @@ pub(super) fn constrain_recursive_defs<'d>(
                 // definition's parameters and result, as upstream's do.
                 let defined = untyped(vars, rtv, params, body, seed);
                 flex.vars = defined.vars;
-                flex.cons.insert(0, defined.con);
+                flex.vars.reverse();
+                flex.cons.push(defined.con);
                 flex.headers
                     .insert(def.name().to_owned(), (def.region(), defined.ty));
             }
@@ -913,24 +908,23 @@ pub(super) fn constrain_recursive_defs<'d>(
             } => {
                 let defined = typed(vars, rtv, name, free, params, body, result);
                 // `Map.foldr (:) rigidVars newRigids`.
-                let mut new_vars = defined.vars.clone();
-                new_vars.extend(std::mem::take(&mut rigid.vars));
-                rigid.vars = new_vars;
-                rigid.cons.insert(
-                    0,
-                    Constraint::Let {
-                        rigid_vars: defined.vars,
-                        flex_vars: Vec::new(),
-                        header: BTreeMap::new(),
-                        header_con: Box::new(defined.con),
-                        body_con: Box::new(Constraint::True),
-                    },
-                );
+                rigid.vars.extend(defined.vars.iter().rev());
+                rigid.cons.push(Constraint::Let {
+                    rigid_vars: defined.vars,
+                    flex_vars: Vec::new(),
+                    header: BTreeMap::new(),
+                    header_con: Box::new(defined.con),
+                    body_con: Box::new(Constraint::True),
+                });
                 rigid
                     .headers
                     .insert(def.name().to_owned(), (def.region(), defined.ty));
             }
         }
+    }
+    for group in [&mut rigid, &mut flex] {
+        group.vars.reverse();
+        group.cons.reverse();
     }
     Constraint::Let {
         rigid_vars: rigid.vars,

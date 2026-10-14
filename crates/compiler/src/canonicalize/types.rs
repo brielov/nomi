@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use nomi_base::grow_large;
+use nomi_base::{grow, grow_large};
 
 use super::dups::check_fields;
 use super::env::{Env, TypeInfo};
@@ -113,7 +113,7 @@ fn canonicalize_(env: &Env<'_>, module: &hir::Module, id: TypeId) -> R<Type> {
 
 /// `addFreeVars`: the type variables `ty` names.
 fn free_vars(ty: &Type, vars: &mut BTreeSet<String>) {
-    match ty {
+    grow(|| match ty {
         Type::Lambda(a, b) => {
             free_vars(b, vars);
             free_vars(a, vars);
@@ -139,5 +139,5 @@ fn free_vars(ty: &Type, vars: &mut BTreeSet<String>) {
             }
         }
         Type::Alias { args, .. } => args.iter().for_each(|(_, a)| free_vars(a, vars)),
-    }
+    });
 }

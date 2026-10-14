@@ -103,7 +103,7 @@ fn import_errors_stop_at_the_first() {
         error("module Main exposing (..)\nimport A exposing (y, Nope)\nimport B exposing (z)\n");
     assert_eq!(errors.len(), 1);
     assert!(
-        matches!(&errors[0], Error::ImportExposingNotFound { kind: NameKind::Value, name, possible, .. }
+        matches!(&errors[0], Error::ImportExposingNotFound { name, possible, .. }
         if name == "y" && possible == &["a", "x"])
     );
     assert!(
@@ -114,20 +114,14 @@ fn import_errors_stop_at_the_first() {
         matches!(&error("module Main exposing (..)\nimport A exposing (Point(..))\n")[0],
         Error::ImportOpenAlias { name, .. } if name == "Point")
     );
-    assert!(matches!(
-        &error("module Main exposing (..)\nimport A exposing (Nope(..))\n")[0],
-        Error::ImportExposingNotFound {
-            kind: NameKind::Type,
-            ..
-        }
-    ));
-    assert!(matches!(
-        &error("module Main exposing (..)\nimport Basics exposing ((+++))\n")[0],
-        Error::ImportExposingNotFound {
-            kind: NameKind::Operator,
-            ..
-        }
-    ));
+    assert!(
+        matches!(&error("module Main exposing (..)\nimport A exposing (Nope(..))\n")[0],
+        Error::ImportExposingNotFound { possible, .. } if possible == &["Hidden", "Point", "T"])
+    );
+    assert!(
+        matches!(&error("module Main exposing (..)\nimport Basics exposing ((+++))\n")[0],
+        Error::ImportExposingNotFound { possible, .. } if possible == &["*", "+"])
+    );
 }
 
 #[test]

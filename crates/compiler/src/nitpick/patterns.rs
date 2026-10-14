@@ -111,7 +111,7 @@ static LIST_UNION: LazyLock<Union> = LazyLock::new(|| {
 
 /// `simplify`.
 pub fn simplify(pattern: &canonical::Pattern) -> Pattern<'_> {
-    match &pattern.kind {
+    nomi_base::grow(|| match &pattern.kind {
         PatternKind::Anything | PatternKind::Var(_) | PatternKind::Record(_) => Pattern::Anything,
         PatternKind::Unit => Pattern::Ctor(&UNIT_UNION, UNIT, Vec::new()),
         PatternKind::Tuple(a, b, None) => {
@@ -137,7 +137,7 @@ pub fn simplify(pattern: &canonical::Pattern) -> Pattern<'_> {
         PatternKind::Bool(union, b) => {
             Pattern::Ctor(union, if *b { "True" } else { "False" }, Vec::new())
         }
-    }
+    })
 }
 
 fn cons<'u>(head: &'u canonical::Pattern, tail: Pattern<'u>) -> Pattern<'u> {

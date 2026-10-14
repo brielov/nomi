@@ -275,7 +275,6 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
             name,
             first,
             second,
-            ..
         } => {
             let message = format!("You are trying to expose `{name}` multiple times!");
             let fix = "Remove one of them and you should be all set!";
@@ -368,7 +367,6 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
             home,
             name,
             possible,
-            ..
         } => {
             let possible = cx.compat.sorted_names(possible.iter().cloned());
             let after = suggestions(
@@ -415,7 +413,6 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
             range,
             name,
             problem,
-            ..
         } => {
             let (thing, elaboration) = payload_details(problem);
             let message = snip(
@@ -1185,7 +1182,7 @@ fn alias_recursion(
 /// place, `context`, needs.
 fn source_type(module: &hir::Module, id: TypeId, context: Parens) -> Doc {
     let go = |id, context| source_type(module, id, context);
-    match &module.types[id] {
+    nomi_base::grow(|| match &module.types[id] {
         hir::Type::Lambda(arg, result) => {
             let mut rest = Vec::new();
             let mut result = *result;
@@ -1223,5 +1220,5 @@ fn source_type(module: &hir::Module, id: TypeId, context: Parens) -> Doc {
             let b = items.next().expect("two or more");
             render::tuple(a, b, items.collect())
         }
-    }
+    })
 }

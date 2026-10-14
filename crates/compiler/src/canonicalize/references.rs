@@ -22,7 +22,7 @@ pub enum Kind {
 }
 
 /// What a name refers to.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
     /// A local variable, by the range of the name that binds it.
     Local(TextRange),
@@ -37,43 +37,52 @@ pub enum Target {
 
 /// A name, by its range, and what it refers to. A range is the node's,
 /// leading trivia and a qualifier included.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reference {
     pub range: TextRange,
     pub target: Target,
 }
 
 /// Where canonicalization records references: shared, so every scope's
-/// copy of the environment records into one table.
+/// copy of the environment records into one table; none for a build,
+/// which doesn't read them.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct Recorder(Rc<RefCell<Vec<Reference>>>);
+pub(crate) struct Recorder(Option<Rc<RefCell<Vec<Reference>>>>);
 
 impl Recorder {
-    /// Records the name at `range`; none where it is empty, as for the
-    /// default imports, which nothing writes.
-    pub(crate) fn record(&self, range: TextRange, target: Target) {
-        if !range.is_empty() {
-            self.0.borrow_mut().push(Reference { range, target });
+    /// A recorder that keeps what it records.
+    pub(crate) fn enabled() -> Self {
+        Recorder(Some(Rc::default()))
+    }
+
+    /// Records the name at `range`, unless nothing is kept or the range
+    /// is empty, as for the default imports, which nothing writes.
+    pub(crate) fn record(&self, range: TextRange, target: impl FnOnce() -> Target) {
+        if let Some(table) = &self.0
+            && !range.is_empty()
+        {
+            table.borrow_mut().push(Reference {
+                range,
+                target: target(),
+            });
         }
     }
 
     /// Records the name at `range` as the top-level `name` of `home`.
     pub(crate) fn global(&self, range: TextRange, home: &Home, name: &str, kind: Kind) {
-        let target = Target::Global {
+        self.record(range, || Target::Global {
             home: home.clone(),
             name: name.to_owned(),
             kind,
-        };
-        self.record(range, target);
+        });
     }
 
-    /// The references, in source order, each once: an alias's body is
-    /// canonicalized twice, by `addTypes` and `canonicalizeAlias` alike.
+    /// The references, in source order.
     pub(crate) fn take(&self) -> Vec<Reference> {
-        let mut references = std::mem::take(&mut *self.0.borrow_mut());
+        let mut references = (self.0.as_ref())
+            .map(|table| std::mem::take(&mut *table.borrow_mut()))
+            .unwrap_or_default();
         references.sort_by_key(|r| (r.range.start(), r.range.end()));
-        let mut seen = std::collections::HashSet::new();
-        references.retain(|r| seen.insert(r.clone()));
         references
     }
 }

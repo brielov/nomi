@@ -122,7 +122,8 @@ fn var_names(vars: &mut Variables, var: Variable, taken: &mut BTreeMap<String, V
         return;
     }
     descriptor.mark = GET_VAR_NAMES_MARK;
-    match descriptor.content.clone() {
+    let content = descriptor.content.clone();
+    nomi_base::grow(|| match content {
         Content::Error | Content::FlexVar(None) | Content::FlexSuper(_, None) => {}
         Content::FlexVar(Some(name)) => {
             add_name(vars, 0, &name, var, |n| Content::FlexVar(Some(n)), taken);
@@ -171,7 +172,7 @@ fn var_names(vars: &mut Variables, var: Variable, taken: &mut BTreeMap<String, V
                 var_names(vars, a, taken);
             }
         },
-    }
+    });
 }
 
 /// `addName`: `given`, numbered `index`, for `var`, renamed further while
@@ -214,7 +215,7 @@ pub(super) fn to_annotation(vars: &mut Variables, var: Variable) -> canonical::A
 /// `variableToCanType`.
 fn to_can_type(vars: &mut Variables, var: Variable, state: &mut NameState) -> canonical::Type {
     use canonical::Type as T;
-    match vars.content(var) {
+    nomi_base::grow(|| match vars.content(var) {
         Content::Structure(flat) => flat_to_can_type(vars, flat, state),
         Content::FlexVar(Some(name)) | Content::FlexSuper(_, Some(name)) => T::Var(name),
         Content::FlexVar(None) => T::Var(state.name(vars, var, None)),
@@ -233,7 +234,7 @@ fn to_can_type(vars: &mut Variables, var: Variable, state: &mut NameState) -> ca
             }
         }
         Content::Error => panic!("cannot handle Error types in variableToCanType"),
-    }
+    })
 }
 
 /// `termToCanType`.
@@ -306,7 +307,7 @@ fn to_err(vars: &mut Variables, var: Variable, state: &mut NameState) -> error::
     }
     descriptor.mark = OCCURS_MARK;
     let content = descriptor.content.clone();
-    let ty = content_to_err(vars, var, content, state);
+    let ty = nomi_base::grow(|| content_to_err(vars, var, content, state));
     vars.get_mut(var).mark = mark;
     ty
 }
@@ -347,16 +348,34 @@ fn flat_to_err(vars: &mut Variables, flat: FlatType, state: &mut NameState) -> e
             String::from(name),
             args.into_iter().map(|a| to_err(vars, a, state)).collect(),
         ),
+        // `a -> b -> c` is one arrow of three parts: each function along
+        // the result's spine is marked while its argument converts, as
+        // `to_err` would mark it.
         FlatType::Fun1(a, b) => {
-            let arg = to_err(vars, a, state);
-            match to_err(vars, b, state) {
-                E::Lambda(arg1, arg2, others) => {
-                    let mut rest = vec![*arg2];
-                    rest.extend(others);
-                    E::Lambda(Box::new(arg), arg1, rest)
+            let mut parts = vec![to_err(vars, a, state)];
+            let mut spine = Vec::new();
+            let mut result = b;
+            loop {
+                let descriptor = vars.get_mut(result);
+                let Content::Structure(FlatType::Fun1(a, b)) = descriptor.content else {
+                    break;
+                };
+                if descriptor.mark == OCCURS_MARK {
+                    break;
                 }
-                result => E::Lambda(Box::new(arg), Box::new(result), Vec::new()),
+                spine.push((result, descriptor.mark));
+                descriptor.mark = OCCURS_MARK;
+                parts.push(to_err(vars, a, state));
+                result = b;
             }
+            parts.push(to_err(vars, result, state));
+            for (var, mark) in spine.into_iter().rev() {
+                vars.get_mut(var).mark = mark;
+            }
+            let mut parts = parts.into_iter();
+            let arg = parts.next().expect("an argument");
+            let result = parts.next().expect("a result");
+            E::Lambda(Box::new(arg), Box::new(result), parts.collect())
         }
         FlatType::EmptyRecord1 => E::Record(BTreeMap::new(), Extension::Closed),
         FlatType::Record1(fields, extension) => {

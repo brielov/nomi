@@ -47,7 +47,7 @@ impl ModuleTypes {
             home: package.to_owned(),
             values: BTreeMap::new(),
             unions: (self.unions.iter())
-                .map(|(name, union)| (name.clone(), IUnion::Private(union.clone())))
+                .map(|(name, union)| (name.clone(), IUnion::Private(union.clone().into())))
                 .collect(),
             aliases: (self.aliases.iter())
                 .map(|(name, alias)| (name.clone(), IAlias::Private(alias.clone())))

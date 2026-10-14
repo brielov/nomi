@@ -444,46 +444,48 @@ impl Variables {
         self.store.redundant(var)
     }
 
-    /// A variable standing for `ty`, outside the solver's pools: for
-    /// reading a type once solving is done.
-    fn type_to_var(&mut self, ty: &Type) -> Variable {
-        let structure = |vars: &mut Variables, flat| vars.fresh(Content::Structure(flat));
-        match ty {
+    /// A variable standing for `ty`, each variable for a part of it made
+    /// by `make`, as the solver pools them or, once solving is done, not.
+    fn type_to_var(
+        &mut self,
+        ty: &Type,
+        make: &mut impl FnMut(&mut Variables, Content) -> Variable,
+    ) -> Variable {
+        nomi_base::grow(|| match ty {
             Type::Var(v) => *v,
             Type::App(home, name, args) => {
-                let args = args.iter().map(|a| self.type_to_var(a)).collect();
-                structure(self, FlatType::App1(home.clone(), name.clone(), args))
+                let args = args.iter().map(|a| self.type_to_var(a, make)).collect();
+                let flat = FlatType::App1(home.clone(), name.clone(), args);
+                make(self, Content::Structure(flat))
             }
             Type::Fun(a, b) => {
-                let a = self.type_to_var(a);
-                let b = self.type_to_var(b);
-                structure(self, FlatType::Fun1(a, b))
+                let a = self.type_to_var(a, make);
+                let b = self.type_to_var(b, make);
+                make(self, Content::Structure(FlatType::Fun1(a, b)))
             }
             Type::Alias(home, name, args, real) => {
-                let args = args
-                    .iter()
-                    .map(|(n, a)| (n.clone(), self.type_to_var(a)))
+                let args = (args.iter())
+                    .map(|(n, a)| (n.clone(), self.type_to_var(a, make)))
                     .collect();
-                let real = self.type_to_var(real);
-                self.fresh(Content::Alias(home.clone(), name.clone(), args, real))
+                let real = self.type_to_var(real, make);
+                make(self, Content::Alias(home.clone(), name.clone(), args, real))
             }
             Type::Record(fields, ext) => {
-                let fields = fields
-                    .iter()
-                    .map(|(n, f)| (n.clone(), self.type_to_var(f)))
+                let fields = (fields.iter())
+                    .map(|(n, f)| (n.clone(), self.type_to_var(f, make)))
                     .collect();
-                let ext = self.type_to_var(ext);
-                structure(self, FlatType::Record1(fields, ext))
+                let ext = self.type_to_var(ext, make);
+                make(self, Content::Structure(FlatType::Record1(fields, ext)))
             }
-            Type::EmptyRecord => structure(self, FlatType::EmptyRecord1),
-            Type::Unit => structure(self, FlatType::Unit1),
+            Type::EmptyRecord => make(self, Content::Structure(FlatType::EmptyRecord1)),
+            Type::Unit => make(self, Content::Structure(FlatType::Unit1)),
             Type::Tuple(a, b, c) => {
-                let a = self.type_to_var(a);
-                let b = self.type_to_var(b);
-                let c = c.as_ref().map(|c| self.type_to_var(c));
-                structure(self, FlatType::Tuple1(a, b, c))
+                let a = self.type_to_var(a, make);
+                let b = self.type_to_var(b, make);
+                let c = c.as_ref().map(|c| self.type_to_var(c, make));
+                make(self, Content::Structure(FlatType::Tuple1(a, b, c)))
             }
-        }
+        })
     }
 }
 
@@ -506,7 +508,7 @@ pub fn infer_types(compat: Compat, module: &Canonical) -> (Inferred, ExprTypes) 
     let recorded = vars.recorded.take().unwrap_or_default();
     let types = (recorded.into_iter())
         .map(|(region, ty)| {
-            let var = vars.type_to_var(&ty);
+            let var = vars.type_to_var(&ty, &mut Variables::fresh);
             (region, names::to_error_type(&mut vars, var))
         })
         .collect();

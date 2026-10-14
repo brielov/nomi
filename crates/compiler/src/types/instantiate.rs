@@ -14,7 +14,7 @@ use crate::canonical::{self, AliasType};
 pub(super) fn from_src_type(free: &BTreeMap<String, Type>, ty: &canonical::Type) -> Type {
     use canonical::Type as C;
     let go = |t: &canonical::Type| from_src_type(free, t);
-    match ty {
+    nomi_base::grow(|| match ty {
         C::Lambda(arg, result) => super::fun(go(arg), go(result)),
         C::Var(name) => free[name].clone(),
         C::Type { home, name, args } => Type::App(
@@ -54,5 +54,5 @@ pub(super) fn from_src_type(free: &BTreeMap<String, Type>, ty: &canonical::Type)
             };
             Type::Record(fields, Box::new(ext))
         }
-    }
+    })
 }

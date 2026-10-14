@@ -123,7 +123,7 @@ enum Place {
 
 /// `patternToDoc`.
 fn to_text(place: Place, pattern: &Pattern) -> String {
-    match delist(pattern) {
+    nomi_base::grow(|| match delist(pattern) {
         Structure::NonList(Pattern::Anything) => "_".to_owned(),
         Structure::NonList(Pattern::Literal(literal)) => match literal {
             Literal::Chr(c) => format!("'{}'", literal_body(c).unwrap_or(c)),
@@ -164,17 +164,19 @@ fn to_text(place: Place, pattern: &Pattern) -> String {
             format!("[{}]", docs.join(","))
         }
         Structure::Conses(conses, last) => {
-            let doc = (conses.iter().rev())
-                .fold(to_text(Place::Unambiguous, last), |tail, head| {
-                    format!("{} :: {tail}", to_text(Place::Head, head))
-                });
+            let mut doc = String::new();
+            for head in conses {
+                doc.push_str(&to_text(Place::Head, head));
+                doc.push_str(" :: ");
+            }
+            doc.push_str(&to_text(Place::Unambiguous, last));
             if place == Place::Unambiguous {
                 doc
             } else {
                 format!("({doc})")
             }
         }
-    }
+    })
 }
 
 /// `Structure`.

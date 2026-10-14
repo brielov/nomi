@@ -13,7 +13,7 @@ use nomi_base::{Compat, TextRange};
 use super::env::{
     Bias, BinopInfo, CtorInfo, Env, Exposed, Qualified, TypeInfo, Var, merge, merge_homes,
 };
-use super::error::{Error, NameKind, R, throw};
+use super::error::{Error, R, throw};
 use super::references::{Kind, Recorder};
 use crate::canonical::{self, Annotation, Home, Type};
 use crate::hir::{Exposed as Item, Exposing, Import, Spanned};
@@ -220,10 +220,10 @@ fn add_import<'a>(
             merge(&mut state.vars, &offer.vars, Bias::Old);
             merge(&mut state.types, &type_infos, Bias::Old);
             merge(&mut state.ctors, &ctors, Bias::Old);
-            let binops: Exposed<BinopInfo<'a>> = (interface.binops.iter())
-                .map(|(op, b)| (op.clone(), single(&offer.home, offer.binop(op, b))))
-                .collect();
-            merge(&mut state.binops, &binops, Bias::Old);
+            for (op, b) in &interface.binops {
+                let homes = state.binops.entry(op.clone()).or_default();
+                (homes.entry(offer.home.clone())).or_insert_with(|| offer.binop(op, b));
+            }
             Ok(())
         }
         Some(Exposing::Explicit(items)) => items
@@ -244,12 +244,11 @@ impl<'a> Offer<'a> {
         }
     }
 
-    /// `name` isn't among the `kind`s the import offers, which are
-    /// `possible`.
-    fn not_found<T>(&self, kind: NameKind, name: &Spanned, possible: Vec<String>) -> R<T> {
+    /// `name` isn't among the names of its kind the import offers, which
+    /// are `possible`.
+    fn not_found<T>(&self, name: &Spanned, possible: Vec<String>) -> R<T> {
         throw(Error::ImportExposingNotFound {
             range: name.range,
-            kind,
             home: self.home.clone(),
             name: name.text.clone(),
             possible,
@@ -269,7 +268,7 @@ fn expose<'a>(
         Item::Lower(value) => {
             let Some(homes) = offer.vars.get(&value.text) else {
                 let possible = offer.vars.keys().cloned().collect();
-                return offer.not_found(NameKind::Value, value, possible);
+                return offer.not_found(value, possible);
             };
             references.global(value.range, home, &value.text, Kind::Value);
             let entry = state.vars.entry(value.text.clone()).or_default();
@@ -308,13 +307,13 @@ fn expose<'a>(
                     });
                 }
                 let possible = offer.types.keys().cloned().collect();
-                return offer.not_found(NameKind::Type, type_name, possible);
+                return offer.not_found(type_name, possible);
             }
         },
         Item::Operator(op) => {
             let Some(b) = offer.interface.binops.get(&op.text) else {
                 let possible = offer.interface.binops.keys().cloned().collect();
-                return offer.not_found(NameKind::Operator, op, possible);
+                return offer.not_found(op, possible);
             };
             references.global(op.range, home, &op.text, Kind::Binop);
             (state.binops).insert(op.text.clone(), single(home, offer.binop(&op.text, b)));
@@ -352,14 +351,13 @@ fn union_to_type<'a>(
         interface::Union::Closed(u) => (u, &[][..]),
         interface::Union::Private(_) => return None,
     };
-    let ctors = (ctors.iter())
-        .map(|ctor| {
+    let ctors = (ctors.iter().enumerate())
+        .map(|(at, ctor)| {
             let info = CtorInfo::Ctor {
                 home: home.clone(),
                 union_name: name.to_owned(),
                 union: Cow::Borrowed(union),
-                index: ctor.index,
-                args: Cow::Borrowed(&ctor.args),
+                ctor: at,
             };
             (ctor.name.clone(), single(home, info))
         })
