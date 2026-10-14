@@ -150,8 +150,9 @@ impl Case {
         Transcript::after(status, stdout, stderr, dir)
     }
 
-    /// `command` started on the case in `dir`, given the case's input,
-    /// with its output piped.
+    /// `command` started on the case in `dir`, with its output piped and
+    /// the case's input fed on a thread of its own, so a command that
+    /// doesn't read it blocks neither its output nor a time limit.
     fn spawn(&self, mut command: Command, dir: &Path) -> io::Result<Child> {
         let mut child = command
             .args(self.args_in(dir))
@@ -160,9 +161,13 @@ impl Case {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
-        // A command may exit without reading its input. Dropping the pipe
-        // closes it.
-        let _ = (child.stdin.take().expect("piped above")).write_all(self.stdin.as_bytes());
+        let mut stdin = child.stdin.take().expect("piped above");
+        if !self.stdin.is_empty() {
+            let input = self.stdin.clone();
+            // A command may exit without reading its input; the write then
+            // fails, and dropping the pipe closes it either way.
+            thread::spawn(move || stdin.write_all(input.as_bytes()));
+        }
         Ok(child)
     }
 }
@@ -425,6 +430,21 @@ pub fn digits_after(text: &str, marker: &str, with: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_command_that_never_reads_its_input_still_times_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let case = Case {
+            args: vec!["-c".to_owned(), "sleep 30".to_owned()],
+            stdin: "x".repeat(1 << 20),
+            ..Case::default()
+        };
+        let started = Instant::now();
+        case.run_within(Command::new("sh"), dir.path(), Duration::from_millis(200))
+            .unwrap();
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
 
     #[test]
     fn cases_parse_by_section() {
