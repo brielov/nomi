@@ -3,7 +3,9 @@
 //! written, which position `Debug.todo` reports, and which constructors
 //! of `Dict` get negative tags.
 
+use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write;
 
 use nomi_base::Compat;
 use nomi_base::diagnostic::code::{Position, Region};
@@ -17,22 +19,22 @@ use crate::debug;
 use crate::mode::Mode;
 use crate::name::Name;
 
-/// What expressions are generated for: the release and the mode.
+/// Generates expressions for a release in a mode.
 #[derive(Debug)]
-pub struct Gen<'a> {
-    pub compat: Compat,
-    pub mode: &'a Mode,
+pub(crate) struct Generator<'a> {
+    pub(crate) compat: Compat,
+    pub(crate) mode: &'a Mode,
 }
 
 /// `Code`: an expression, or statements ending in a `return`.
 #[derive(Debug)]
-pub enum Code {
+pub(crate) enum Code {
     Expr(Js),
     Block(Vec<Stmt>),
 }
 
 /// `codeToExpr`.
-pub fn code_to_expr(code: Code) -> Js {
+pub(crate) fn code_to_expr(code: Code) -> Js {
     match code {
         Code::Expr(expr) => expr,
         Code::Block(mut stmts) => {
@@ -41,13 +43,17 @@ pub fn code_to_expr(code: Code) -> Js {
             {
                 return expr;
             }
-            Js::Call(Box::new(Js::Function(None, Vec::new(), stmts)), Vec::new())
+            let function = Js::Function {
+                params: Vec::new(),
+                body: stmts,
+            };
+            call(function, Vec::new())
         }
     }
 }
 
 /// `codeToStmtList`.
-pub fn code_to_stmt_list(code: Code) -> Vec<Stmt> {
+pub(crate) fn code_to_stmt_list(code: Code) -> Vec<Stmt> {
     match code {
         Code::Expr(expr) => match iife(expr) {
             Ok(stmts) => stmts,
@@ -64,8 +70,10 @@ fn code_to_stmt(code: Code) -> Stmt {
             Ok(stmts) => Stmt::Block(stmts),
             Err(expr) => Stmt::Return(expr),
         },
-        Code::Block(mut stmts) if stmts.len() == 1 => stmts.pop().unwrap(),
-        Code::Block(stmts) => Stmt::Block(stmts),
+        Code::Block(stmts) => match <[Stmt; 1]>::try_from(stmts) {
+            Ok([stmt]) => stmt,
+            Err(stmts) => Stmt::Block(stmts),
+        },
     }
 }
 
@@ -73,7 +81,7 @@ fn code_to_stmt(code: Code) -> Stmt {
 fn iife(expr: Js) -> Result<Vec<Stmt>, Js> {
     match expr {
         Js::Call(function, args) if args.is_empty() => match *function {
-            Js::Function(None, params, stmts) if params.is_empty() => Ok(stmts),
+            Js::Function { params, body } if params.is_empty() => Ok(body),
             function => Err(Js::Call(Box::new(function), args)),
         },
         expr => Err(expr),
@@ -100,25 +108,23 @@ fn kernel(home: &str, name: &str) -> Js {
     Js::Ref(Name::from_kernel(home, name))
 }
 
-fn core(module: &str) -> Home {
-    Home {
-        package: "elm/core".into(),
-        module: module.into(),
-    }
-}
-
-impl Gen<'_> {
+impl Generator<'_> {
     fn dev(&self) -> bool {
         matches!(self.mode, Mode::Dev { .. })
     }
 
     /// `generateJsExpr`.
-    pub fn js(&self, expr: &Expr) -> Js {
+    pub(crate) fn js(&self, expr: &Expr) -> Js {
         code_to_expr(self.generate(expr))
     }
 
+    /// Each of `exprs`, in order.
+    fn js_each<E: Borrow<Expr>>(&self, exprs: &[E]) -> Vec<Js> {
+        exprs.iter().map(|e| self.js(e.borrow())).collect()
+    }
+
     /// `generate`.
-    pub fn generate(&self, expr: &Expr) -> Code {
+    pub(crate) fn generate(&self, expr: &Expr) -> Code {
         let js = match expr {
             Expr::Bool(b) => Js::Bool(*b),
             Expr::Chr(c) => {
@@ -144,7 +150,7 @@ impl Gen<'_> {
             Expr::VarBox(g) => Js::Ref(if self.dev() {
                 Name::from_global(&g.home, &g.name)
             } else {
-                Name::from_global(&core("Basics"), "identity")
+                Name::from_global(&Home::core("Basics"), "identity")
             }),
             Expr::VarCycle(home, name) => call(Js::Ref(Name::from_cycle(home, name)), Vec::new()),
             Expr::VarDebug {
@@ -157,7 +163,7 @@ impl Gen<'_> {
             Expr::List(entries) if entries.is_empty() => kernel("List", "Nil"),
             Expr::List(entries) => call(
                 kernel("List", "fromArray"),
-                vec![Js::Array(entries.iter().map(|e| self.js(e)).collect())],
+                vec![Js::Array(self.js_each(entries))],
             ),
             Expr::Function(args, body) => {
                 let args = args.iter().map(|a| Name::from_local(a)).collect();
@@ -167,7 +173,8 @@ impl Gen<'_> {
             Expr::TailCall(name, args) => return Code::Block(self.tail_call(name, args)),
             Expr::If(branches, last) => return self.if_(branches, last),
             Expr::Let(def, body) => {
-                let mut stmts = vec![self.def(def)];
+                let (name, value) = self.def(def);
+                let mut stmts = vec![Stmt::Var(Name::from_local(name), value)];
                 stmts.extend(code_to_stmt_list(self.generate(body)));
                 return Code::Block(stmts);
             }
@@ -184,14 +191,13 @@ impl Gen<'_> {
             } => {
                 return Code::Block(self.case(label, root, decider, jumps));
             }
-            Expr::Accessor(field) => Js::Function(
-                None,
-                vec![Name::dollar()],
-                vec![Stmt::Return(access(
+            Expr::Accessor(field) => Js::Function {
+                params: vec![Name::dollar()],
+                body: vec![Stmt::Return(access(
                     Js::Ref(Name::dollar()),
                     self.field(field),
                 ))],
-            ),
+            },
             Expr::Access(record, field) => access(self.js(record), self.field(field)),
             Expr::Update(record, fields) => call(
                 kernel("Utils", "update"),
@@ -219,8 +225,7 @@ impl Gen<'_> {
             } => {
                 let translation = |fields: &BTreeSet<String>| {
                     Js::Object(
-                        self.in_order(fields.iter())
-                            .into_iter()
+                        (self.compat.sorted_names(fields).into_iter())
                             .map(|f| (Name::from_local(f), Js::String(self.field(f).to_string())))
                             .collect(),
                     )
@@ -236,14 +241,6 @@ impl Gen<'_> {
             }
         };
         Code::Expr(js)
-    }
-
-    /// Names in the release's order, as a `Map` or `Set` keyed by them
-    /// lists them.
-    fn in_order<'b>(&self, names_: impl Iterator<Item = &'b String>) -> Vec<&'b String> {
-        let mut sorted: Vec<&String> = names_.collect();
-        sorted.sort_by(|a, b| self.compat.compare_names(a, b));
-        sorted
     }
 
     /// A character as a string literal's text: 0.19.1 keeps the literal's
@@ -263,7 +260,7 @@ impl Gen<'_> {
                 '\n' => out.push_str("\\n"),
                 '\r' => out.push_str("\\r"),
                 '\t' => out.push_str("\\t"),
-                _ => out.push_str(&format!("\\u00{:02x}", c as u32)),
+                _ => _ = write!(out, "\\u00{:02x}", c as u32),
             }
         }
         out
@@ -272,15 +269,14 @@ impl Gen<'_> {
     /// `generateRecord`.
     fn record(&self, fields: &BTreeMap<String, Expr>) -> Js {
         Js::Object(
-            self.in_order(fields.keys())
-                .into_iter()
+            (self.compat.sorted_names(fields.keys()).into_iter())
                 .map(|f| (self.field(f), self.js(&fields[f])))
                 .collect(),
         )
     }
 
     /// `generateField`.
-    pub fn field(&self, name: &str) -> Name {
+    pub(crate) fn field(&self, name: &str) -> Name {
         match self.mode {
             Mode::Dev { .. } => Name::from_local(name),
             Mode::Prod(fields) => fields
@@ -293,7 +289,7 @@ impl Gen<'_> {
     /// `generateDebug`.
     fn debug(&self, name: &str, home: &Home, region: Region, unhandled: Option<&str>) -> Js {
         if name != "todo" {
-            return Js::Ref(Name::from_global(&core("Debug"), name));
+            return Js::Ref(Name::from_global(&Home::core("Debug"), name));
         }
         let mut args = vec![Js::String(home.module.to_string()), self.region(region)];
         let todo = match unhandled {
@@ -309,7 +305,7 @@ impl Gen<'_> {
     /// `regionToJsExpr`: rows and columns as kept, which in 0.19.2 count
     /// from 0; 0.19.3 adds the 1 back (`toEditorRowCol`).
     fn region(&self, region: Region) -> Js {
-        let shift = u32::from(self.compat == Compat::V0_19_3);
+        let shift = self.compat.editor_shift();
         let position = |Position { row, col }| {
             Js::Object(vec![
                 (Name::from_local("line"), Js::Int(i64::from(row + shift))),
@@ -322,29 +318,24 @@ impl Gen<'_> {
         ])
     }
 
-    /// `generateCall`.
-    fn call(&self, function: &Expr, args: &[Expr]) -> Js {
-        match function {
-            Expr::VarGlobal(global) if global.home.package == "elm/core" => {
+    /// `generateCall`: of the arguments `args`, borrowed or not.
+    fn call<E: Borrow<Expr>>(&self, function: &Expr, args: &[E]) -> Js {
+        match (function, args) {
+            (Expr::VarGlobal(global), _) if global.home.package == "elm/core" => {
                 self.core_call(global, args)
             }
-            Expr::VarBox(_) if !self.dev() && args.len() == 1 => self.js(&args[0]),
-            _ => self.call_help(function, args),
+            (Expr::VarBox(_), [arg]) if !self.dev() => self.js(arg.borrow()),
+            _ => normal_call(self.js(function), self.js_each(args)),
         }
     }
 
-    /// `generateCallHelp`.
-    fn call_help(&self, function: &Expr, args: &[Expr]) -> Js {
-        normal_call(self.js(function), args.iter().map(|a| self.js(a)).collect())
-    }
-
     /// `generateCoreCall`.
-    fn core_call(&self, global: &Global, args: &[Expr]) -> Js {
+    fn core_call<E: Borrow<Expr>>(&self, global: &Global, args: &[E]) -> Js {
         let Global { home, name } = global;
         if home.module == "Basics" {
             return self.basics_call(home, name, args);
         }
-        let args: Vec<Js> = args.iter().map(|a| self.js(a)).collect();
+        let args = self.js_each(args);
         match &*home.module {
             "Bitwise" => bitwise_call(home, name, args),
             "Tuple" => tuple_call(home, name, args),
@@ -356,10 +347,10 @@ impl Gen<'_> {
     }
 
     /// `generateBasicsCall`.
-    fn basics_call(&self, home: &Home, name: &str, args: &[Expr]) -> Js {
+    fn basics_call<E: Borrow<Expr>>(&self, home: &Home, name: &str, args: &[E]) -> Js {
         match args {
             [arg] => {
-                let arg = self.js(arg);
+                let arg = self.js(arg.borrow());
                 match name {
                     "not" => prefix(PrefixOp::Not, arg),
                     "negate" => prefix(PrefixOp::Negate, arg),
@@ -368,11 +359,10 @@ impl Gen<'_> {
                     _ => global_call(home, name, vec![arg]),
                 }
             }
-            [left, right] => match name {
-                "append" => self.append(left, right),
-                "apL" => self.js(&apply(left, right)),
-                "apR" => self.js(&apply(right, left)),
-                _ => {
+            [left, right] => match (name, left.borrow(), right.borrow()) {
+                ("append", left, right) => self.append(left, right),
+                ("apL", function, value) | ("apR", value, function) => self.apply(function, value),
+                (_, left, right) => {
                     let (left, right) = (self.js(left), self.js(right));
                     match name {
                         "add" => infix(InfixOp::Add, left, right),
@@ -398,7 +388,19 @@ impl Gen<'_> {
                     }
                 }
             },
-            _ => global_call(home, name, args.iter().map(|a| self.js(a)).collect()),
+            _ => global_call(home, name, self.js_each(args)),
+        }
+    }
+
+    /// `apply`: `f <| x` as a call, an accessor's as an access.
+    fn apply(&self, function: &Expr, value: &Expr) -> Js {
+        match function {
+            Expr::Accessor(field) => access(self.js(value), self.field(field)),
+            Expr::Call(f, args) => {
+                let args: Vec<&Expr> = args.iter().chain([value]).collect();
+                self.call(f, &args)
+            }
+            _ => self.call(function, &[value]),
         }
     }
 
@@ -412,7 +414,7 @@ impl Gen<'_> {
                 Expr::Call(function, args)
                     if args.len() == 2
                         && matches!(&**function, Expr::VarGlobal(g)
-                            if g.home == core("Basics") && g.name == "append") =>
+                            if g.home.is("elm/core", "Basics") && g.name == "append") =>
                 {
                     seqs.push(self.js(&args[0]));
                     rest = &args[1];
@@ -424,15 +426,15 @@ impl Gen<'_> {
             }
         }
         let strings = seqs.iter().any(|s| matches!(s, Js::String(_)));
-        let mut seqs = seqs.into_iter().rev();
-        let last = seqs.next().unwrap();
-        seqs.fold(last, |right, left| {
-            if strings {
-                infix(InfixOp::Add, left, right)
-            } else {
-                call(kernel("Utils", "ap"), vec![left, right])
-            }
-        })
+        (seqs.into_iter().rev())
+            .reduce(|right, left| {
+                if strings {
+                    infix(InfixOp::Add, left, right)
+                } else {
+                    call(kernel("Utils", "ap"), vec![left, right])
+                }
+            })
+            .expect("an append has two sides")
     }
 
     /// `generateTailCall`.
@@ -448,23 +450,23 @@ impl Gen<'_> {
                 Box::new(Js::Ref(Name::make_temp(arg))),
             ))
         }));
-        stmts.push(Stmt::Continue(Some(Name::from_local(name))));
+        stmts.push(Stmt::Continue(Name::from_local(name)));
         stmts
     }
 
-    /// `generateDef`.
-    fn def(&self, def: &Def) -> Stmt {
+    /// `generateDef`: the name defined and its value, which a local or a
+    /// global names.
+    pub(crate) fn def<'d>(&self, def: &'d Def) -> (&'d str, Js) {
         match def {
-            Def::Def(name, body) => Stmt::Var(Name::from_local(name), self.js(body)),
-            Def::TailDef { name, params, body } => Stmt::Var(
-                Name::from_local(name),
-                code_to_expr(self.tail_def(name, params, body)),
-            ),
+            Def::Def(name, body) => (name, self.js(body)),
+            Def::TailDef { name, params, body } => {
+                (name, code_to_expr(self.tail_def(name, params, body)))
+            }
         }
     }
 
     /// `generateTailDef`.
-    pub fn tail_def(&self, name: &str, args: &[String], body: &Expr) -> Code {
+    pub(crate) fn tail_def(&self, name: &str, args: &[String], body: &Expr) -> Code {
         let args = args.iter().map(|a| Name::from_local(a)).collect();
         function(
             args,
@@ -482,9 +484,9 @@ impl Gen<'_> {
     fn path(&self, path: &Path) -> Js {
         match path {
             Path::Root(name) => Js::Ref(Name::from_local(name)),
-            Path::Index(i, p) => access(self.path(p), Name::from_index(*i)),
+            Path::Index(i, p) => access(self.path(p), Name::from_int(*i)),
             Path::Field(f, p) => access(self.path(p), self.field(f)),
-            Path::Unbox(p) if self.dev() => access(self.path(p), Name::from_index(0)),
+            Path::Unbox(p) if self.dev() => access(self.path(p), Name::from_int(0)),
             Path::Unbox(p) => self.path(p),
         }
     }
@@ -505,15 +507,19 @@ impl Gen<'_> {
         if block(&last) || branches.iter().any(|(_, code)| block(code)) {
             let stmt = (branches.into_iter())
                 .rev()
-                .fold(code_to_stmt(last), |els, (c, b)| {
-                    Stmt::If(c, Box::new(code_to_stmt(b)), Box::new(els))
+                .fold(code_to_stmt(last), |els, (c, b)| Stmt::If {
+                    condition: c,
+                    then: Box::new(code_to_stmt(b)),
+                    otherwise: Box::new(els),
                 });
             Code::Block(vec![stmt])
         } else {
             let expr = (branches.into_iter())
                 .rev()
-                .fold(code_to_expr(last), |els, (c, b)| {
-                    Js::If(Box::new(c), Box::new(code_to_expr(b)), Box::new(els))
+                .fold(code_to_expr(last), |els, (c, b)| Js::If {
+                    condition: Box::new(c),
+                    then: Box::new(code_to_expr(b)),
+                    otherwise: Box::new(els),
                 });
             Code::Expr(expr)
         }
@@ -544,7 +550,7 @@ impl Gen<'_> {
         match decider {
             Decider::Leaf(Choice::Inline(branch)) => code_to_stmt_list(self.generate(branch)),
             Decider::Leaf(Choice::Jump(index)) => {
-                vec![Stmt::Break(Some(Name::make_label(label, *index)))]
+                vec![Stmt::Break(Name::make_label(label, *index))]
             }
             Decider::Chain {
                 tests,
@@ -556,11 +562,11 @@ impl Gen<'_> {
                     .map(|(path, test)| self.if_test(root, path, test));
                 let first = tests.next().expect("a chain tests something");
                 let condition = tests.fold(first, |all, test| infix(InfixOp::And, all, test));
-                vec![Stmt::If(
+                vec![Stmt::If {
                     condition,
-                    Box::new(Stmt::Block(self.decider(label, root, success))),
-                    Box::new(Stmt::Block(self.decider(label, root, failure))),
-                )]
+                    then: Box::new(Stmt::Block(self.decider(label, root, success))),
+                    otherwise: Box::new(Stmt::Block(self.decider(label, root, failure))),
+                }]
             }
             Decider::FanOut {
                 path,
@@ -590,8 +596,8 @@ impl Gen<'_> {
     /// `ctorToInt`: the index, but negative from -1 for `Dict`'s nodes so
     /// the kernel can tell them apart. Before 0.19.3 a precedence slip
     /// counts any `RBEmpty_elm_builtin` as `Dict`'s.
-    pub fn ctor_to_int(&self, home: &Home, name: &str, index: usize) -> i64 {
-        let dict = *home == core("Dict");
+    fn ctor_to_int(&self, home: &Home, name: &str, index: usize) -> i64 {
+        let dict = home.is("elm/core", "Dict");
         let node = name == "RBNode_elm_builtin";
         let empty = name == "RBEmpty_elm_builtin";
         let negative = if self.compat == Compat::V0_19_3 {
@@ -611,7 +617,9 @@ impl Gen<'_> {
     fn tag_of(&self, value: Js, opts: CtorOpts) -> Js {
         match (self.mode, opts) {
             (Mode::Prod(_), CtorOpts::Enum | CtorOpts::Unbox) => value,
-            _ => access(value, Name::dollar()),
+            (Mode::Dev { .. }, _) | (Mode::Prod(_), CtorOpts::Normal) => {
+                access(value, Name::dollar())
+            }
         }
     }
 
@@ -655,7 +663,9 @@ impl Gen<'_> {
             Test::IsInt(i) => Js::Int(*i),
             Test::IsChr(c) => Js::String(self.chr(c)),
             Test::IsStr(s) => Js::String(s.clone()),
-            _ => panic!("COMPILER BUG - there should never be three tests on {test:?}"),
+            Test::IsBool(_) | Test::IsCons | Test::IsNil | Test::IsTuple => {
+                panic!("COMPILER BUG - there should never be three tests on {test:?}")
+            }
         }
     }
 
@@ -665,30 +675,34 @@ impl Gen<'_> {
         let value = self.dt_path(root, path);
         match example {
             Test::IsCtor { home, name, .. }
-                if self.compat != Compat::V0_19_3 && name == "Bool" && *home == core("Basics") =>
+                if self.compat != Compat::V0_19_3
+                    && name == "Bool"
+                    && home.is("elm/core", "Basics") =>
             {
                 value
             }
             Test::IsCtor { opts, .. } => self.tag_of(value, *opts),
             Test::IsInt(_) | Test::IsStr(_) => value,
             Test::IsChr(_) => self.chr_subject(value),
-            _ => panic!("COMPILER BUG - there should never be three tests on {example:?}"),
+            Test::IsBool(_) | Test::IsCons | Test::IsNil | Test::IsTuple => {
+                panic!("COMPILER BUG - there should never be three tests on {example:?}")
+            }
         }
     }
 
     /// `pathToJsExpr`.
     fn dt_path(&self, root: &str, path: &DtPath) -> Js {
         match path {
-            DtPath::Index(i, p) => access(self.dt_path(root, p), Name::from_index(*i)),
-            DtPath::Unbox(p) if self.dev() => access(self.dt_path(root, p), Name::from_index(0)),
+            DtPath::Index(i, p) => access(self.dt_path(root, p), Name::from_int(*i)),
+            DtPath::Unbox(p) if self.dev() => access(self.dt_path(root, p), Name::from_int(0)),
             DtPath::Unbox(p) => self.dt_path(root, p),
             DtPath::Empty => Js::Ref(Name::from_local(root)),
         }
     }
 
     /// `generateCtor`.
-    pub fn ctor(&self, global: &Global, index: usize, arity: usize) -> Code {
-        let args: Vec<Name> = (0..arity).map(Name::from_index).collect();
+    pub(crate) fn ctor(&self, global: &Global, index: usize, arity: usize) -> Code {
+        let args: Vec<Name> = (0..arity).map(Name::from_int).collect();
         let mut fields = vec![(
             Name::dollar(),
             self.ctor_tag(&global.home, &global.name, index),
@@ -698,7 +712,7 @@ impl Gen<'_> {
     }
 
     /// `generateMain`.
-    pub fn main(&self, home: &Home, main: &Main) -> Js {
+    pub(crate) fn main(&self, home: &Home, main: &Main) -> Js {
         let main_ref = Js::Ref(Name::from_global(home, "main"));
         match main {
             Main::Static => {
@@ -712,7 +726,7 @@ impl Gen<'_> {
                     Mode::Dev { debug: Some(types) } => {
                         Js::Json(debug::metadata(self.compat, types, message))
                     }
-                    _ => Js::Int(0),
+                    Mode::Dev { debug: None } | Mode::Prod(_) => Js::Int(0),
                 };
                 call(applied, vec![metadata])
             }
@@ -722,14 +736,17 @@ impl Gen<'_> {
 
 /// `generateFunction`: `F2` to `F9` for those arities, nested functions
 /// of one argument otherwise.
-pub fn function(args: Vec<Name>, body: Code) -> Code {
-    if (2..=9).contains(&args.len()) {
-        let helper = Js::Ref(Name::make_f(args.len()));
-        let inner = Js::Function(None, args, code_to_stmt_list(body));
-        return Code::Expr(call(helper, vec![inner]));
+fn function(params: Vec<Name>, body: Code) -> Code {
+    if (2..=9).contains(&params.len()) {
+        let helper = Js::Ref(Name::make_f(params.len()));
+        let body = code_to_stmt_list(body);
+        return Code::Expr(call(helper, vec![Js::Function { params, body }]));
     }
-    args.into_iter().rev().fold(body, |code, arg| {
-        Code::Expr(Js::Function(None, vec![arg], code_to_stmt_list(code)))
+    params.into_iter().rev().fold(body, |code, param| {
+        Code::Expr(Js::Function {
+            params: vec![param],
+            body: code_to_stmt_list(code),
+        })
     })
 }
 
@@ -737,9 +754,8 @@ pub fn function(args: Vec<Name>, body: Code) -> Code {
 /// calls otherwise.
 fn normal_call(function: Js, args: Vec<Js>) -> Js {
     if (2..=9).contains(&args.len()) {
-        let mut all = vec![function];
-        all.extend(args);
-        return call(Js::Ref(Name::make_a(all.len() - 1)), all);
+        let helper = Js::Ref(Name::make_a(args.len()));
+        return call(helper, std::iter::once(function).chain(args).collect());
     }
     args.into_iter().fold(function, |f, a| call(f, vec![a]))
 }
@@ -750,63 +766,55 @@ fn global_call(home: &Home, name: &str, args: Vec<Js>) -> Js {
 }
 
 /// `generateTupleCall`.
-fn tuple_call(home: &Home, name: &str, mut args: Vec<Js>) -> Js {
-    match (name, args.len()) {
-        ("first", 1) => access(args.pop().unwrap(), Name::from_local("a")),
-        ("second", 1) => access(args.pop().unwrap(), Name::from_local("b")),
-        _ => global_call(home, name, args),
+fn tuple_call(home: &Home, name: &str, args: Vec<Js>) -> Js {
+    let field = match name {
+        "first" => "a",
+        "second" => "b",
+        _ => return global_call(home, name, args),
+    };
+    match <[Js; 1]>::try_from(args) {
+        Ok([tuple]) => access(tuple, Name::from_local(field)),
+        Err(args) => global_call(home, name, args),
     }
 }
 
 /// `generateJsArrayCall`.
-fn js_array_call(home: &Home, name: &str, mut args: Vec<Js>) -> Js {
-    match (name, args.len()) {
-        ("singleton", 1) => Js::Array(args),
-        ("unsafeGet", 2) => {
-            let array = args.pop().unwrap();
-            let index = args.pop().unwrap();
-            Js::Index(Box::new(array), Box::new(index))
-        }
+fn js_array_call(home: &Home, name: &str, args: Vec<Js>) -> Js {
+    match name {
+        "singleton" if args.len() == 1 => Js::Array(args),
+        "unsafeGet" => match <[Js; 2]>::try_from(args) {
+            Ok([index, array]) => Js::Index(Box::new(array), Box::new(index)),
+            Err(args) => global_call(home, name, args),
+        },
         _ => global_call(home, name, args),
     }
 }
 
-/// `generateBitwiseCall`.
-fn bitwise_call(home: &Home, name: &str, mut args: Vec<Js>) -> Js {
-    match (name, args.len()) {
-        ("complement", 1) => prefix(PrefixOp::Complement, args.pop().unwrap()),
-        (_, 2) => {
-            let op = match name {
-                "and" => InfixOp::BitwiseAnd,
-                "or" => InfixOp::BitwiseOr,
-                "xor" => InfixOp::BitwiseXor,
-                "shiftLeftBy" => InfixOp::LShift,
-                "shiftRightBy" => InfixOp::SpRShift,
-                "shiftRightZfBy" => InfixOp::ZfRShift,
-                _ => return global_call(home, name, args),
+/// `generateBitwiseCall`: the shifts take the shifted value last.
+fn bitwise_call(home: &Home, name: &str, args: Vec<Js>) -> Js {
+    let op = match name {
+        "complement" => {
+            return match <[Js; 1]>::try_from(args) {
+                Ok([arg]) => prefix(PrefixOp::Complement, arg),
+                Err(args) => global_call(home, name, args),
             };
-            let right = args.pop().unwrap();
-            let left = args.pop().unwrap();
-            if matches!(op, InfixOp::LShift | InfixOp::SpRShift | InfixOp::ZfRShift) {
-                infix(op, right, left)
-            } else {
-                infix(op, left, right)
-            }
         }
-        _ => global_call(home, name, args),
-    }
-}
-
-/// `apply`: `f <| x` as a call, an accessor's as an access.
-fn apply(function: &Expr, value: &Expr) -> Expr {
-    match function {
-        Expr::Accessor(field) => Expr::Access(Box::new(value.clone()), field.clone()),
-        Expr::Call(f, args) => {
-            let mut args = args.clone();
-            args.push(value.clone());
-            Expr::Call(f.clone(), args)
+        "and" => InfixOp::BitwiseAnd,
+        "or" => InfixOp::BitwiseOr,
+        "xor" => InfixOp::BitwiseXor,
+        "shiftLeftBy" => InfixOp::LShift,
+        "shiftRightBy" => InfixOp::SpRShift,
+        "shiftRightZfBy" => InfixOp::ZfRShift,
+        _ => return global_call(home, name, args),
+    };
+    match <[Js; 2]>::try_from(args) {
+        Ok([by, value])
+            if matches!(op, InfixOp::LShift | InfixOp::SpRShift | InfixOp::ZfRShift) =>
+        {
+            infix(op, value, by)
         }
-        _ => Expr::Call(Box::new(function.clone()), vec![value.clone()]),
+        Ok([left, right]) => infix(op, left, right),
+        Err(args) => global_call(home, name, args),
     }
 }
 
@@ -881,16 +889,9 @@ mod tests {
 
     const DEV: Mode = Mode::Dev { debug: None };
 
-    fn home(module: &str) -> Home {
-        Home {
-            package: "author/project".into(),
-            module: module.into(),
-        }
-    }
-
     fn basics(name: &str, args: Vec<Expr>) -> Expr {
         let global = Global {
-            home: core("Basics"),
+            home: Home::core("Basics"),
             name: name.to_owned(),
         };
         Expr::Call(Box::new(Expr::VarGlobal(global)), args)
@@ -901,7 +902,7 @@ mod tests {
     }
 
     fn show(compat: Compat, mode: &Mode, expr: &Expr) -> String {
-        builder::expr(&Gen { compat, mode }.js(expr))
+        builder::text(&Generator { compat, mode }.js(expr))
     }
 
     fn dev(expr: &Expr) -> String {
@@ -909,12 +910,15 @@ mod tests {
     }
 
     fn block(expr: &Expr) -> String {
-        let cx = Gen {
+        let generator = Generator {
             compat: Compat::V0_19_3,
             mode: &DEV,
         };
-        let stmts = code_to_stmt_list(cx.generate(expr));
-        stmts.iter().map(builder::stmt).collect()
+        let mut out = String::new();
+        for stmt in code_to_stmt_list(generator.generate(expr)) {
+            builder::stmt(&mut out, &stmt);
+        }
+        out
     }
 
     #[test]
@@ -981,6 +985,9 @@ mod tests {
         assert_eq!(dev(&basics("apR", vec![local("x"), f])), "A2(f, a, x)");
         let accessor = Expr::Accessor("name".to_owned());
         assert_eq!(dev(&basics("apL", vec![accessor, local("r")])), "r.name");
+        let add = basics("add", vec![Expr::Int(1)]);
+        assert_eq!(dev(&basics("apR", vec![local("x"), add])), "1 + x");
+        assert_eq!(dev(&basics("apL", vec![local("f"), local("x")])), "f(x)");
     }
 
     #[test]
@@ -1006,13 +1013,13 @@ mod tests {
     #[test]
     fn tail_calls_loop() {
         let call = Expr::TailCall("go".to_owned(), vec![("n".to_owned(), local("m"))]);
-        let cx = Gen {
+        let generator = Generator {
             compat: Compat::V0_19_3,
             mode: &DEV,
         };
-        let def = cx.tail_def("go", &["n".to_owned()], &call);
+        let def = generator.tail_def("go", &["n".to_owned()], &call);
         assert_eq!(
-            builder::expr(&code_to_expr(def)),
+            builder::text(&code_to_expr(def)),
             "function (n) {\n\tgo:\n\twhile (true) {\n\t\tvar $temp$n = m;\n\t\tn = $temp$n;\n\t\tcontinue go;\n\t}\n}"
         );
     }
@@ -1040,25 +1047,40 @@ mod tests {
     fn dict_nodes_get_negative_tags() {
         let prod = Mode::Prod(BTreeMap::new());
         let tag = |compat, home: &Home, name| {
-            Gen {
+            Generator {
                 compat,
                 mode: &prod,
             }
             .ctor_to_int(home, name, 1)
         };
         assert_eq!(
-            tag(Compat::V0_19_3, &core("Dict"), "RBNode_elm_builtin"),
+            tag(Compat::V0_19_3, &Home::core("Dict"), "RBNode_elm_builtin"),
             -2
         );
         assert_eq!(
-            tag(Compat::V0_19_3, &home("Main"), "RBEmpty_elm_builtin"),
+            tag(
+                Compat::V0_19_3,
+                &Home::author_project("Main"),
+                "RBEmpty_elm_builtin"
+            ),
             1
         );
         assert_eq!(
-            tag(Compat::V0_19_1, &home("Main"), "RBEmpty_elm_builtin"),
+            tag(
+                Compat::V0_19_1,
+                &Home::author_project("Main"),
+                "RBEmpty_elm_builtin"
+            ),
             -2
         );
-        assert_eq!(tag(Compat::V0_19_1, &home("Main"), "RBNode_elm_builtin"), 1);
+        assert_eq!(
+            tag(
+                Compat::V0_19_1,
+                &Home::author_project("Main"),
+                "RBNode_elm_builtin"
+            ),
+            1
+        );
     }
 
     #[test]
@@ -1069,7 +1091,7 @@ mod tests {
         };
         let debug = |name: &str| Expr::VarDebug {
             name: name.to_owned(),
-            home: home("Main"),
+            home: Home::author_project("Main"),
             region,
             unhandled: None,
         };

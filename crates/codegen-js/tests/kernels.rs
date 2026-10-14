@@ -9,90 +9,66 @@ use std::path::{Path, PathBuf};
 
 use nomi_base::Compat;
 use nomi_codegen_js::kernel;
-use nomi_compiler::optimized::{GlobalGraph, Node, binary};
+use nomi_compiler::optimized::{Chunk, GlobalGraph, Node, binary};
+use nomi_testkit::packages;
 
-const RELEASES: [(&str, Compat); 3] = [
-    ("elm-0.19.1", Compat::V0_19_1),
-    ("elm-0.19.2", Compat::V0_19_2),
-    ("elm-0.19.3", Compat::V0_19_3),
-];
-
-fn packages() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages/elm")
+/// The fixture release of the package `name`.
+fn package_dir(name: &str) -> PathBuf {
+    (packages::manifest().into_iter())
+        .find(|package| package.name == name)
+        .unwrap_or_else(|| panic!("no fixture release of {name}"))
+        .dir()
 }
 
-/// The package directory holding the kernel `short`, and its name.
-fn kernel_file(short: &str) -> (String, PathBuf) {
-    for project in ["core", "json"] {
-        let dir = fs::read_dir(packages().join(project))
-            .unwrap()
-            .next()
-            .unwrap()
-            .unwrap()
-            .path();
-        let file = dir.join("src/Elm/Kernel").join(format!("{short}.js"));
-        if file.exists() {
-            return (format!("elm/{project}"), file);
-        }
-    }
-    panic!("no kernel {short} among the vendored packages");
-}
-
-/// The modules elm/core exposes, which elm/json's kernel imports from.
-fn core_exposed() -> BTreeMap<String, String> {
-    let dir = fs::read_dir(packages().join("core"))
-        .unwrap()
-        .next()
-        .unwrap()
-        .unwrap()
-        .path();
-    let text = fs::read_to_string(dir.join("elm.json")).unwrap();
-    // Grouped by heading, up to the key after it.
-    let start = text.find("\"exposed-modules\"").unwrap() + "\"exposed-modules\"".len();
-    let list = &text[start..text[start..].find("\"elm-version\"").unwrap() + start];
-    list.split('"')
-        .filter(|s| s.chars().next().is_some_and(char::is_uppercase))
-        .map(|m| (m.to_owned(), "elm/core".to_owned()))
+/// The modules elm/core exposes, under its headings, which elm/json's
+/// kernel imports from.
+fn exposed(core: &Path) -> BTreeMap<String, String> {
+    let text = fs::read_to_string(core.join("elm.json")).unwrap();
+    let outline: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let headings = outline["exposed-modules"].as_object().unwrap();
+    (headings.values())
+        .flat_map(|modules| modules.as_array().unwrap())
+        .map(|module| (module.as_str().unwrap().to_owned(), "elm/core".to_owned()))
         .collect()
 }
 
 #[test]
 fn kernels_parse_as_elm_parsed_them() {
-    let foreigns = core_exposed();
+    let core = package_dir("elm/core");
+    let json = package_dir("elm/json");
+    let core_exposed = exposed(&core);
+    let none = BTreeMap::new();
     let mut checked = 0;
-    for (elm, compat) in RELEASES {
+    for compat in Compat::ALL {
+        let elm = format!("elm-{compat}");
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../compiler/tests/optimized/artifacts")
-            .join(elm)
+            .join(&elm)
             .join("o.dat");
         let graph = binary::decode_global_graph(&fs::read(&path).unwrap(), compat).unwrap();
         for (global, node) in &graph.nodes {
-            let Node::Kernel(..) = node else { continue };
-            let short = &global.home.module;
-            let (package, file) = kernel_file(short);
-            let none = BTreeMap::new();
-            let foreigns = if package == "elm/core" {
-                &none
-            } else {
-                &foreigns
+            let Node::Kernel(chunks, deps) = node else {
+                continue;
             };
-            let content = kernel::parse(&package, foreigns, &fs::read(&file).unwrap())
+            let short = &global.home.module;
+            let file = |dir: &Path| dir.join("src/Elm/Kernel").join(format!("{short}.js"));
+            let (package, file, foreigns) = if file(&core).exists() {
+                ("elm/core", file(&core), &none)
+            } else {
+                ("elm/json", file(&json), &core_exposed)
+            };
+            let content = kernel::parse(package, foreigns, &fs::read(&file).unwrap())
                 .unwrap_or_else(|| panic!("{} doesn't parse", file.display()));
             let mut ours = GlobalGraph::default();
             kernel::add_kernel(compat, &mut ours, short, content.chunks);
             let Some(Node::Kernel(our_chunks, our_deps)) = ours.nodes.get(global) else {
                 panic!("{short} as {elm}: no kernel node");
             };
-            let Node::Kernel(chunks, deps) = node else {
-                unreachable!()
-            };
             if let Some(i) = (0..chunks.len().max(our_chunks.len()))
                 .find(|&i| chunks.get(i) != our_chunks.get(i))
             {
-                let show = |c: Option<&nomi_compiler::optimized::Chunk>| match c {
-                    Some(nomi_compiler::optimized::Chunk::Js(b)) => {
-                        format!("Js({:?})", String::from_utf8_lossy(b))
-                    }
+                let show = |c: Option<&Chunk>| match c {
+                    Some(Chunk::Js(b)) => format!("Js({:?})", String::from_utf8_lossy(b)),
                     other => format!("{other:?}"),
                 };
                 panic!(

@@ -21,27 +21,17 @@ impl fmt::Display for Name {
 }
 
 impl Name {
-    /// A name as it is, for the runtime's own.
-    pub fn raw(name: &str) -> Name {
-        Name(name.to_owned())
-    }
-
-    pub fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
 
-    /// `fromIndex`.
-    pub fn from_index(index: usize) -> Name {
-        Name::from_int(index)
-    }
-
     /// `fromInt`: the `n`th short name.
-    pub fn from_int(n: usize) -> Name {
+    pub(crate) fn from_int(n: usize) -> Name {
         Name(int_to_ascii(n))
     }
 
     /// `fromLocal`: a local, `_` before it if it is reserved.
-    pub fn from_local(name: &str) -> Name {
+    pub(crate) fn from_local(name: &str) -> Name {
         if reserved().contains(name) {
             Name(format!("_{name}"))
         } else {
@@ -50,59 +40,67 @@ impl Name {
     }
 
     /// `fromGlobal`: `$author$project$Module$name`.
-    pub fn from_global(home: &Home, name: &str) -> Name {
-        Name(format!("{}${name}", home_prefix(home)))
+    pub(crate) fn from_global(home: &Home, name: &str) -> Name {
+        Name::in_home(home, "$", name)
     }
 
     /// `fromCycle`: a value of a cycle, defined lazily.
-    pub fn from_cycle(home: &Home, name: &str) -> Name {
-        Name(format!("{}$cyclic${name}", home_prefix(home)))
+    pub(crate) fn from_cycle(home: &Home, name: &str) -> Name {
+        Name::in_home(home, "$cyclic$", name)
+    }
+
+    /// `homeToBuilder`, `$author$project$Module` with `-` as `_` in the
+    /// package and `.` as `$` in the module, then `infix` and `name`.
+    fn in_home(home: &Home, infix: &str, name: &str) -> Name {
+        let (author, project) = home.package.split_once('/').unwrap_or(("", &home.package));
+        let mut out = String::with_capacity(
+            home.package.len() + home.module.len() + infix.len() + name.len() + 2,
+        );
+        for (part, from, to) in [
+            (author, '-', '_'),
+            (project, '-', '_'),
+            (&home.module, '.', '$'),
+        ] {
+            out.push('$');
+            out.extend(part.chars().map(|c| if c == from { to } else { c }));
+        }
+        out.push_str(infix);
+        out.push_str(name);
+        Name(out)
     }
 
     /// `fromKernel`: `_Module_name`.
-    pub fn from_kernel(home: &str, name: &str) -> Name {
+    pub(crate) fn from_kernel(home: &str, name: &str) -> Name {
         Name(format!("_{home}_{name}"))
     }
 
     /// `makeF`: the currying helper of `n` arguments.
-    pub fn make_f(n: usize) -> Name {
+    pub(crate) fn make_f(n: usize) -> Name {
         Name(format!("F{n}"))
     }
 
     /// `makeA`: the application helper of `n` arguments.
-    pub fn make_a(n: usize) -> Name {
+    pub(crate) fn make_a(n: usize) -> Name {
         Name(format!("A{n}"))
     }
 
     /// `makeLabel`.
-    pub fn make_label(name: &str, index: usize) -> Name {
+    pub(crate) fn make_label(name: &str, index: usize) -> Name {
         Name(format!("{name}${index}"))
     }
 
     /// `makeTemp`.
-    pub fn make_temp(name: &str) -> Name {
+    pub(crate) fn make_temp(name: &str) -> Name {
         Name(format!("$temp${name}"))
     }
 
     /// `dollar`.
-    pub fn dollar() -> Name {
+    pub(crate) fn dollar() -> Name {
         Name("$".to_owned())
     }
 }
 
-/// `homeToBuilder`: `$author$project$Module`, with `-` as `_` in the
-/// package and `.` as `$` in the module.
-fn home_prefix(home: &Home) -> String {
-    let (author, project) = home.package.split_once('/').unwrap_or(("", &home.package));
-    format!(
-        "${}${}${}",
-        author.replace('-', "_"),
-        project.replace('-', "_"),
-        home.module.replace('.', "$")
-    )
-}
-
-const JS_RESERVED: [&str; 63] = [
+const JS_RESERVED: [&str; 66] = [
     "do",
     "if",
     "in",
@@ -166,22 +164,19 @@ const JS_RESERVED: [&str; 63] = [
     "transient",
     "interface",
     "protected",
+    "instanceof",
+    "implements",
+    "synchronized",
 ];
-
-const JS_RESERVED_LONG: [&str; 3] = ["instanceof", "implements", "synchronized"];
 
 const ELM_RESERVED: [&str; 16] = [
     "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9",
 ];
 
-fn js_reserved() -> impl Iterator<Item = &'static str> {
-    JS_RESERVED.into_iter().chain(JS_RESERVED_LONG)
-}
-
 /// `reservedNames`.
 fn reserved() -> &'static BTreeSet<&'static str> {
     static RESERVED: OnceLock<BTreeSet<&'static str>> = OnceLock::new();
-    RESERVED.get_or_init(|| js_reserved().chain(ELM_RESERVED).collect())
+    RESERVED.get_or_init(|| JS_RESERVED.into_iter().chain(ELM_RESERVED).collect())
 }
 
 const NUM_START_BYTES: usize = 54;
@@ -217,7 +212,7 @@ fn unsafe_int_to_ascii(width: usize, n: usize) -> String {
 fn bad_fields() -> &'static BTreeMap<usize, BTreeMap<String, String>> {
     static BAD: OnceLock<BTreeMap<usize, BTreeMap<String, String>>> = OnceLock::new();
     BAD.get_or_init(|| {
-        let words: BTreeSet<&str> = js_reserved().collect();
+        let words: BTreeSet<&str> = JS_RESERVED.into_iter().collect();
         let mut by_width: BTreeMap<usize, BTreeMap<String, String>> = BTreeMap::new();
         for word in words.into_iter().rev() {
             let width = word.len();

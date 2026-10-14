@@ -5,6 +5,7 @@
 //! `main` under its module's path.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::io::Write;
 
 use nomi_base::Compat;
 use nomi_compiler::canonical::Home;
@@ -12,7 +13,7 @@ use nomi_compiler::optimized::binary::{globals, homes};
 use nomi_compiler::optimized::{Chunk, Def, EffectsType, Expr, Global, GlobalGraph, Main, Node};
 
 use crate::builder::{self, Expr as Js, LValue, Stmt};
-use crate::expression::{Gen, code_to_expr, code_to_stmt_list};
+use crate::expression::{Generator, code_to_expr, code_to_stmt_list};
 use crate::mode::Mode;
 use crate::name::Name;
 
@@ -28,10 +29,13 @@ pub fn generate(
 ) -> Vec<u8> {
     let mut mains: Vec<&(Home, Main)> = mains.iter().collect();
     mains.sort_by(|a, b| homes(compat, &a.0, &b.0));
+    let mut kernels = b"(function(scope){\n'use strict';".to_vec();
+    kernels.extend_from_slice(FUNCTIONS.as_bytes());
+    kernels.extend_from_slice(perf_note(compat, mode).as_bytes());
     let mut state = State {
-        cx: Gen { compat, mode },
+        generator: Generator { compat, mode },
         graph,
-        kernels: Vec::new(),
+        kernels,
         builders: String::new(),
         seen: HashSet::new(),
     };
@@ -42,12 +46,9 @@ pub fn generate(
             name: "main".to_owned(),
         });
     }
-    let mut out = b"(function(scope){\n'use strict';".to_vec();
-    out.extend_from_slice(FUNCTIONS.as_bytes());
-    out.extend_from_slice(perf_note(compat, mode).as_bytes());
-    out.extend_from_slice(&state.kernels);
+    main_exports(&mut state.builders, &state.generator, &mains);
+    let mut out = state.kernels;
     out.extend_from_slice(state.builders.as_bytes());
-    out.extend_from_slice(main_exports(&state.cx, &mains).as_bytes());
     out.extend_from_slice(b"}(this));");
     out
 }
@@ -71,111 +72,104 @@ fn link(compat: Compat, page: &str) -> String {
     format!("https://elm-lang.org/{compat}/{page}")
 }
 
-/// The traversal's state: the kernels' code and the rest's, each in the
-/// order written, and the globals visited.
+/// The traversal's state: the program's code, each definition written as
+/// it is reached, and the globals visited.
 struct State<'a> {
-    cx: Gen<'a>,
+    generator: Generator<'a>,
     graph: &'a GlobalGraph,
+    /// The program's start, then the kernels' code.
     kernels: Vec<u8>,
+    /// The rest's code, which follows the kernels'.
     builders: String,
-    seen: HashSet<Global>,
+    seen: HashSet<&'a Global>,
 }
 
 impl State<'_> {
     /// `addGlobal`.
     fn add_global(&mut self, global: &Global) {
-        if self.seen.insert(global.clone()) {
-            self.add_global_help(global);
+        if self.seen.contains(global) {
+            return;
         }
+        let (global, node) = self.graph.nodes.get_key_value(global).unwrap_or_else(|| {
+            panic!(
+                "{} {}.{} isn't in the graph, which holds everything a main reaches",
+                global.home.package, global.home.module, global.name
+            )
+        });
+        self.seen.insert(global);
+        self.add_global_help(global, node);
     }
 
     /// `Set.foldl' addGlobal`: in the release's order of globals.
     fn add_deps(&mut self, deps: &BTreeSet<Global>) {
         let mut deps: Vec<&Global> = deps.iter().collect();
-        deps.sort_by(|a, b| globals(self.cx.compat, a, b));
+        deps.sort_by(|a, b| globals(self.generator.compat, a, b));
         for dep in deps {
             self.add_global(dep);
         }
     }
 
     fn add_stmt(&mut self, stmt: &Stmt) {
-        self.builders.push_str(&builder::stmt(stmt));
+        builder::stmt(&mut self.builders, stmt);
     }
 
     /// `addGlobalHelp`.
-    fn add_global_help(&mut self, global: &Global) {
-        let graph = self.graph;
-        let node = graph.nodes.get(global).unwrap_or_else(|| {
-            panic!(
-                "{}.{} in {} isn't in the graph",
-                global.home.module, global.home.package, global.name
-            )
-        });
-        let cx = &self.cx;
+    fn add_global_help(&mut self, global: &Global, node: &Node) {
         match node {
             Node::Define(expr, deps) => {
                 self.add_deps(deps);
-                let stmt = var(global, code_to_expr(self.cx.generate(expr)));
+                let stmt = var(global, self.generator.js(expr));
                 self.add_stmt(&stmt);
             }
             Node::DefineTailFunc { params, body, deps } => {
                 self.add_deps(deps);
-                let code = self.cx.tail_def(&global.name, params, body);
+                let code = self.generator.tail_def(&global.name, params, body);
                 self.add_stmt(&var(global, code_to_expr(code)));
             }
             Node::Ctor(index, arity) => {
-                let code = cx.ctor(global, *index, *arity as usize);
+                let code = self.generator.ctor(global, *index, *arity as usize);
                 self.add_stmt(&var(global, code_to_expr(code)));
             }
             Node::Link(linked) => self.add_global(linked),
             Node::Cycle {
-                names: names_,
+                names,
                 values,
                 functions,
                 deps,
             } => {
                 self.add_deps(deps);
-                let stmt = self.cycle(&global.home, names_, values, functions);
+                let stmt = self.cycle(&global.home, names, values, functions);
                 self.add_stmt(&stmt);
             }
             Node::Manager(effects) => self.manager(&global.home, *effects),
             Node::Kernel(chunks, deps) => {
-                if global.home.module == "Debugger" && !cx.mode.is_debug() {
+                if global.home.module == "Debugger" && !self.generator.mode.is_debug() {
                     return;
                 }
                 self.add_deps(deps);
-                let code = self.kernel(chunks);
-                self.kernels.extend(code);
+                self.kernel(chunks);
             }
             Node::Enum(index) => {
-                let expr = match cx.mode {
-                    Mode::Dev { .. } => code_to_expr(cx.ctor(global, *index, 0)),
+                let expr = match self.generator.mode {
+                    Mode::Dev { .. } => code_to_expr(self.generator.ctor(global, *index, 0)),
                     Mode::Prod(_) => Js::Int(*index as i64),
                 };
                 self.add_stmt(&var(global, expr));
             }
             Node::Box => {
                 let identity = Global {
-                    home: basics(),
+                    home: Home::core("Basics"),
                     name: "identity".to_owned(),
                 };
                 self.add_global(&identity);
-                let expr = match self.cx.mode {
-                    Mode::Dev { .. } => code_to_expr(self.cx.ctor(global, 0, 1)),
+                let expr = match self.generator.mode {
+                    Mode::Dev { .. } => code_to_expr(self.generator.ctor(global, 0, 1)),
                     Mode::Prod(_) => Js::Ref(Name::from_global(&identity.home, &identity.name)),
                 };
                 self.add_stmt(&var(global, expr));
             }
-            Node::PortIncoming(decoder, deps) => {
-                self.add_deps(deps);
-                let stmt = self.port(global, "incomingPort", decoder);
-                self.add_stmt(&stmt);
-            }
-            Node::PortOutgoing(encoder, deps) => {
-                self.add_deps(deps);
-                let stmt = self.port(global, "outgoingPort", encoder);
-                self.add_stmt(&stmt);
-            }
+            Node::PortIncoming(decoder, deps) => self.port(global, "incomingPort", decoder, deps),
+            Node::PortOutgoing(encoder, deps) => self.port(global, "outgoingPort", encoder, deps),
         }
     }
 
@@ -185,30 +179,22 @@ impl State<'_> {
     fn cycle(
         &self,
         home: &Home,
-        names_: &[String],
+        names: &[String],
         values: &[(String, Expr)],
         functions: &[Def],
     ) -> Stmt {
-        let cx = &self.cx;
+        let generator = &self.generator;
         let functions = (functions.iter())
-            .map(|def| match def {
-                Def::Def(name, expr) => Stmt::Var(
-                    Name::from_global(home, name),
-                    code_to_expr(cx.generate(expr)),
-                ),
-                Def::TailDef { name, params, body } => Stmt::Var(
-                    Name::from_global(home, name),
-                    code_to_expr(cx.tail_def(name, params, body)),
-                ),
+            .map(|def| {
+                let (name, value) = generator.def(def);
+                Stmt::Var(Name::from_global(home, name), value)
             })
             .collect();
         let safe = (values.iter())
-            .map(|(name, expr)| {
-                Stmt::Function(
-                    Name::from_cycle(home, name),
-                    Vec::new(),
-                    code_to_stmt_list(cx.generate(expr)),
-                )
+            .map(|(name, expr)| Stmt::Function {
+                name: Name::from_cycle(home, name),
+                params: Vec::new(),
+                body: code_to_stmt_list(generator.generate(expr)),
             })
             .collect();
         let real: Vec<Stmt> = (values.iter())
@@ -222,11 +208,10 @@ impl State<'_> {
                     ),
                     Stmt::Expr(Js::Assign(
                         LValue::Ref(safe),
-                        Box::new(Js::Function(
-                            None,
-                            Vec::new(),
-                            vec![Stmt::Return(Js::Ref(real))],
-                        )),
+                        Box::new(Js::Function {
+                            params: Vec::new(),
+                            body: vec![Stmt::Return(Js::Ref(real))],
+                        }),
                     )),
                 ])
             })
@@ -234,29 +219,29 @@ impl State<'_> {
         let real = if real.is_empty() {
             Stmt::Empty
         } else {
-            match cx.mode {
+            match generator.mode {
                 Mode::Prod(_) => Stmt::Block(real),
-                Mode::Dev { .. } => Stmt::Try(
-                    Box::new(Stmt::Block(real)),
-                    Name::dollar(),
-                    Box::new(Stmt::Throw(Js::String(format!(
+                Mode::Dev { .. } => Stmt::Try {
+                    body: Box::new(Stmt::Block(real)),
+                    error: Name::dollar(),
+                    catch: Box::new(Stmt::Throw(Js::String(format!(
                         "Some top-level definitions from `{}` are causing infinite \
                          recursion:\\n{}\\n\\nThese errors are very tricky, so read {} to \
                          learn how to fix it!",
                         home.module,
-                        draw_cycle(names_),
-                        link(cx.compat, "bad-recursion")
+                        draw_cycle(names),
+                        link(generator.compat, "bad-recursion")
                     )))),
-                ),
+                },
             }
         };
         Stmt::Block(vec![Stmt::Block(functions), Stmt::Block(safe), real])
     }
 
-    /// `generateKernel`.
-    fn kernel(&self, chunks: &[Chunk]) -> Vec<u8> {
-        let prod = matches!(self.cx.mode, Mode::Prod(_));
-        let mut out = Vec::new();
+    /// `generateKernel`, onto the kernels' code.
+    fn kernel(&mut self, chunks: &[Chunk]) {
+        let prod = matches!(self.generator.mode, Mode::Prod(_));
+        let out = &mut self.kernels;
         for chunk in chunks {
             match chunk {
                 Chunk::Js(js) => out.extend_from_slice(js),
@@ -267,35 +252,35 @@ impl State<'_> {
                     out.extend_from_slice(Name::from_kernel(module, name).as_str().as_bytes());
                 }
                 Chunk::ElmField(name) => {
-                    out.extend_from_slice(self.cx.field(name).as_str().as_bytes());
+                    out.extend_from_slice(self.generator.field(name).as_str().as_bytes());
                 }
                 Chunk::JsField(int) => {
                     out.extend_from_slice(Name::from_int(*int as usize).as_str().as_bytes());
                 }
-                Chunk::JsEnum(int) => out.extend_from_slice(int.to_string().as_bytes()),
+                Chunk::JsEnum(int) => _ = write!(out, "{int}"),
                 Chunk::Debug if prod => out.extend_from_slice(b"_UNUSED"),
                 Chunk::Prod if !prod => out.extend_from_slice(b"_UNUSED"),
                 Chunk::Debug | Chunk::Prod => {}
             }
         }
-        out
     }
 
-    /// `generatePort`.
-    fn port(&self, global: &Global, make: &str, converter: &Expr) -> Stmt {
+    /// `generatePort`: `make` is the kernel's function for its direction.
+    fn port(&mut self, global: &Global, make: &str, converter: &Expr, deps: &BTreeSet<Global>) {
+        self.add_deps(deps);
         let call = Js::Call(
             Box::new(Js::Ref(Name::from_kernel("Platform", make))),
             vec![
                 Js::String(global.name.clone()),
-                code_to_expr(self.cx.generate(converter)),
+                self.generator.js(converter),
             ],
         );
-        var(global, call)
+        self.add_stmt(&var(global, call));
     }
 
     /// `generateManager`.
     fn manager(&mut self, home: &Home, effects: EffectsType) {
-        let (names_, leaves): (&[&str], &[&str]) = match effects {
+        let (names, leaves): (&[&str], &[&str]) = match effects {
             EffectsType::Cmd => (&["init", "onEffects", "onSelfMsg", "cmdMap"], &["command"]),
             EffectsType::Sub => (
                 &["init", "onEffects", "onSelfMsg", "subMap"],
@@ -306,13 +291,13 @@ impl State<'_> {
                 &["command", "subscription"],
             ),
         };
-        for name in names_ {
+        for name in names {
             self.add_global(&Global {
                 home: home.clone(),
                 name: (*name).to_owned(),
             });
         }
-        let mut args: Vec<Js> = (names_.iter())
+        let mut args: Vec<Js> = (names.iter())
             .map(|name| Js::Ref(Name::from_global(home, name)))
             .collect();
         if effects == EffectsType::Sub {
@@ -338,21 +323,14 @@ impl State<'_> {
     }
 }
 
-fn basics() -> Home {
-    Home {
-        package: "elm/core".into(),
-        module: "Basics".into(),
-    }
-}
-
 /// `var`.
 fn var(global: &Global, expr: Js) -> Stmt {
     Stmt::Var(Name::from_global(&global.home, &global.name), expr)
 }
 
 /// `drawCycle`, its line breaks escaped.
-fn draw_cycle(names_: &[String]) -> String {
-    let lines: Vec<String> = (names_.iter())
+fn draw_cycle(names: &[String]) -> String {
+    let lines: Vec<String> = (names.iter())
         .map(|name| format!("\\n  │    {name}"))
         .collect();
     format!("\\n  ┌─────┐{}\\n  └─────┘", lines.join("\\n  │     ↓"))
@@ -365,8 +343,8 @@ struct Trie<'a> {
     subs: BTreeMap<&'a str, Trie<'a>>,
 }
 
-/// `toMainExports`.
-fn main_exports(cx: &Gen, mains: &[&(Home, Main)]) -> String {
+/// `toMainExports`, onto `out`.
+fn main_exports(out: &mut String, generator: &Generator, mains: &[&(Home, Main)]) {
     let mut trie = Trie::default();
     for main in mains {
         let mut at = &mut trie;
@@ -375,33 +353,36 @@ fn main_exports(cx: &Gen, mains: &[&(Home, Main)]) -> String {
         }
         at.main = Some(main);
     }
-    format!(
-        "{}({});",
-        Name::from_kernel("Platform", "export"),
-        exports(cx, &trie)
-    )
+    out.push_str(Name::from_kernel("Platform", "export").as_str());
+    out.push('(');
+    exports(out, generator, &trie);
+    out.push_str(");");
 }
 
 /// `generateExports`: the subtrees by segment in the release's order of
 /// names, except that upstream folds all but the first onto the end it
 /// has so far, each before the last, so they come out reversed.
-fn exports(cx: &Gen, trie: &Trie) -> String {
-    let mut out = String::from("{");
-    let mut items = Vec::new();
+fn exports(out: &mut String, generator: &Generator, trie: &Trie) {
+    out.push('{');
     if let Some((home, main)) = trie.main {
-        items.push(format!("'init':{}", builder::expr(&cx.main(home, main))));
+        out.push_str("'init':");
+        builder::expr(out, &generator.main(home, main));
     }
     let mut subs: Vec<(&&str, &Trie)> = trie.subs.iter().collect();
-    subs.sort_by(|a, b| cx.compat.compare_names(a.0, b.0));
+    subs.sort_by(|a, b| generator.compat.compare_names(a.0, b.0));
     if subs.len() > 1 {
         subs[1..].reverse();
     }
-    for (name, sub) in subs {
-        items.push(format!("'{name}':{}", exports(cx, sub)));
+    for (i, (name, sub)) in subs.into_iter().enumerate() {
+        if i > 0 || trie.main.is_some() {
+            out.push(',');
+        }
+        out.push('\'');
+        out.push_str(name);
+        out.push_str("':");
+        exports(out, generator, sub);
     }
-    out.push_str(&items.join(","));
     out.push('}');
-    out
 }
 
 #[cfg(test)]
@@ -410,18 +391,23 @@ mod tests {
 
     const DEV: Mode = Mode::Dev { debug: None };
 
-    fn home(module: &str) -> Home {
-        Home {
-            package: "author/project".into(),
-            module: module.into(),
+    fn global(module: &str, name: &str) -> Global {
+        Global {
+            home: Home::author_project(module),
+            name: name.to_owned(),
         }
     }
 
-    fn global(module: &str, name: &str) -> Global {
-        Global {
-            home: home(module),
-            name: name.to_owned(),
+    /// A graph of `modules`' static `main`s, and the mains.
+    fn static_mains(modules: &[&str]) -> (GlobalGraph, Vec<(Home, Main)>) {
+        let mut graph = GlobalGraph::default();
+        let mut mains = Vec::new();
+        for module in modules {
+            let define = Node::Define(Expr::Int(0), BTreeSet::new());
+            graph.nodes.insert(global(module, "main"), define);
+            mains.push((Home::author_project(module), Main::Static));
         }
+        (graph, mains)
     }
 
     /// The program's code past the helpers and the note.
@@ -435,13 +421,7 @@ mod tests {
 
     #[test]
     fn mains_are_exported_by_module_path_in_the_release_order() {
-        let mut graph = GlobalGraph::default();
-        let mut mains = Vec::new();
-        for module in ["Page.About", "Page.Home"] {
-            let define = Node::Define(Expr::Int(0), BTreeSet::new());
-            graph.nodes.insert(global(module, "main"), define);
-            mains.push((home(module), Main::Static));
-        }
+        let (graph, mains) = static_mains(&["Page.About", "Page.Home"]);
         let exports = |compat| {
             let js = program(compat, &DEV, &graph, &mains);
             js[js.find("_Platform_export").unwrap()..].to_owned()
@@ -469,13 +449,7 @@ mod tests {
 
     #[test]
     fn mains_after_the_first_are_exported_in_reverse() {
-        let mut graph = GlobalGraph::default();
-        let mut mains = Vec::new();
-        for module in ["Page", "Post", "Posts", "Tag"] {
-            let define = Node::Define(Expr::Int(0), BTreeSet::new());
-            graph.nodes.insert(global(module, "main"), define);
-            mains.push((home(module), Main::Static));
-        }
+        let (graph, mains) = static_mains(&["Page", "Post", "Posts", "Tag"]);
         let js = program(Compat::V0_19_1, &DEV, &graph, &mains);
         let exports = &js[js.find("_Platform_export").unwrap()..];
         let order: Vec<&str> = ["'Page'", "'Post'", "'Posts'", "'Tag'"]
@@ -493,7 +467,10 @@ mod tests {
         let mut graph = GlobalGraph::default();
         let cycle = Node::Cycle {
             names: vec!["a".to_owned(), "b".to_owned()],
-            values: vec![("a".to_owned(), Expr::VarCycle(home("Main"), "b".to_owned()))],
+            values: vec![(
+                "a".to_owned(),
+                Expr::VarCycle(Home::author_project("Main"), "b".to_owned()),
+            )],
             functions: Vec::new(),
             deps: BTreeSet::new(),
         };
@@ -503,7 +480,7 @@ mod tests {
             [global("Main", "a")].into(),
         );
         graph.nodes.insert(global("Main", "main"), main);
-        let mains = [(home("Main"), Main::Static)];
+        let mains = [(Home::author_project("Main"), Main::Static)];
         let js = program(Compat::V0_19_1, &DEV, &graph, &mains);
         let expected = "function $author$project$Main$cyclic$a() {\n\treturn $author$project$Main$cyclic$b();\n}\ntry {\n\tvar $author$project$Main$a = $author$project$Main$cyclic$a();\n\t$author$project$Main$cyclic$a = function () {\n\t\treturn $author$project$Main$a;\n\t};\n} catch ($) {\n\tthrow 'Some top-level definitions from `Main` are causing infinite recursion:\\n\\n  ┌─────┐\\n  │    a\\n  │     ↓\\n  │    b\\n  └─────┘\\n\\nThese errors are very tricky, so read https://elm-lang.org/0.19.1/bad-recursion to learn how to fix it!';}\nvar $author$project$Main$main = $author$project$Main$a;\n";
         assert!(js.starts_with(expected), "{js}");

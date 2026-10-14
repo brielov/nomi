@@ -5,13 +5,14 @@
 //! found in the order of upstream's sets: by name, then module, before
 //! 0.19.3, and by module, then name, in it.
 
-use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::fmt::Write;
 
 use nomi_base::Compat;
-use nomi_compiler::canonical::{Alias, AliasType, Home, Type, Union};
-use nomi_compiler::interface::Interface;
-use nomi_compiler::optimized::binary::homes;
+use nomi_compiler::canonical::{Alias, Home, Type, Union};
+use nomi_compiler::interface::{self, Interface};
+use nomi_compiler::optimized::Global;
+use nomi_compiler::optimized::binary::{globals, homes};
 
 /// `Extract.Types`: each module's unions and aliases.
 pub type Types = HashMap<Home, ModuleTypes>;
@@ -19,7 +20,9 @@ pub type Types = HashMap<Home, ModuleTypes>;
 /// `Types_`.
 #[derive(Clone, Debug, Default)]
 pub struct ModuleTypes {
+    /// The module's unions, by name.
     pub unions: BTreeMap<String, Union>,
+    /// The module's aliases, by name.
     pub aliases: BTreeMap<String, Alias>,
 }
 
@@ -36,21 +39,21 @@ impl ModuleTypes {
                 .collect(),
         }
     }
-}
 
-impl ModuleTypes {
     /// An interface of the module `package`'s unions and aliases alone,
     /// for storing them as interfaces are stored.
     pub fn to_interface(&self, package: &str) -> Interface {
-        use nomi_compiler::interface::{Alias as IAlias, Union as IUnion};
         Interface {
             home: package.to_owned(),
             values: BTreeMap::new(),
             unions: (self.unions.iter())
-                .map(|(name, union)| (name.clone(), IUnion::Private(union.clone().into())))
+                .map(|(name, union)| {
+                    let union = interface::Union::Private(union.clone().into());
+                    (name.clone(), union)
+                })
                 .collect(),
             aliases: (self.aliases.iter())
-                .map(|(name, alias)| (name.clone(), IAlias::Private(alias.clone())))
+                .map(|(name, alias)| (name.clone(), interface::Alias::Private(alias.clone())))
                 .collect(),
             binops: BTreeMap::new(),
         }
@@ -67,125 +70,113 @@ enum Public {
     Tuple(Box<Public>, Box<Public>, Vec<Public>),
 }
 
-/// A union or alias found: its module and name.
-type Seen = (Home, String);
-
-/// What extraction found, by kind.
+/// The aliases and unions types name, by kind.
 #[derive(Default)]
 struct Deps {
-    aliases: Vec<Seen>,
-    unions: Vec<Seen>,
+    aliases: BTreeSet<Global>,
+    unions: BTreeSet<Global>,
 }
 
-impl Deps {
-    fn add(list: &mut Vec<Seen>, home: &Home, name: &str) {
-        if !list.iter().any(|(h, n)| h == home && n == name) {
-            list.push((home.clone(), name.to_owned()));
-        }
-    }
+/// An alias the search found, as the debugger names it.
+struct FoundAlias {
+    name: String,
+    vars: Vec<String>,
+    ty: Public,
+}
+
+/// A union the search found, as the debugger names it, with its
+/// constructors' arguments.
+struct FoundUnion {
+    name: String,
+    vars: Vec<String>,
+    tags: Vec<(String, Vec<Public>)>,
 }
 
 /// The JSON `--debug` passes a program of messages of type `message`
 /// (`toDebugMetadata`).
-pub fn metadata(compat: Compat, types: &Types, message: &Type) -> String {
+pub(crate) fn metadata(compat: Compat, types: &Types, message: &Type) -> String {
     let mut deps = Deps::default();
     let message = extract(compat, &mut deps, message);
+    let (aliases, unions) = extract_transitive(compat, types, deps);
+    encode(compat, &message, &aliases, &unions)
+}
+
+/// `extractTransitive`: what `deps` names, and what that names in turn,
+/// round by round, each round's finds in the order of upstream's sets.
+fn extract_transitive(
+    compat: Compat,
+    types: &Types,
+    mut deps: Deps,
+) -> (Vec<FoundAlias>, Vec<FoundUnion>) {
     let mut seen = Deps::default();
-    let mut aliases = Vec::new();
-    let mut unions = Vec::new();
-    // `extractTransitive`: what each round finds and the last didn't.
+    let (mut aliases, mut unions) = (Vec::new(), Vec::new());
     loop {
-        let order = |a: &Seen, b: &Seen| seen_order(compat, a, b);
-        let mut next_aliases: Vec<Seen> = (deps.aliases.iter())
-            .filter(|s| !seen.aliases.contains(s))
-            .cloned()
-            .collect();
-        let mut next_unions: Vec<Seen> = (deps.unions.iter())
-            .filter(|s| !seen.unions.contains(s))
-            .cloned()
-            .collect();
+        let next_aliases = unseen(compat, deps.aliases, &seen.aliases);
+        let next_unions = unseen(compat, deps.unions, &seen.unions);
         if next_aliases.is_empty() && next_unions.is_empty() {
-            break;
+            return (aliases, unions);
         }
-        next_aliases.sort_by(order);
-        next_unions.sort_by(order);
         let mut found = Deps::default();
-        for (home, name) in &next_aliases {
-            let alias = (types.get(home).and_then(|t| t.aliases.get(name)))
-                .unwrap_or_else(|| panic!("no alias {}.{name}", home.module));
-            let ty = extract(compat, &mut found, &alias.ty);
-            aliases.push((public_name(home, name), alias.vars.clone(), ty));
+        for Global { home, name } in &next_aliases {
+            let alias = (types.get(home).and_then(|t| t.aliases.get(name))).unwrap_or_else(|| {
+                panic!(
+                    "no alias {}.{name}, though every module's types are here",
+                    home.module
+                )
+            });
+            aliases.push(FoundAlias {
+                name: public_name(home, name),
+                vars: alias.vars.clone(),
+                ty: extract(compat, &mut found, &alias.ty),
+            });
         }
-        for (home, name) in &next_unions {
-            let public = public_name(home, name);
-            if name == "List" && home.package == "elm/core" && home.module == "List" {
-                unions.push((public, vec!["a".to_owned()], Vec::new()));
+        for Global { home, name } in &next_unions {
+            if name == "List" && home.is("elm/core", "List") {
+                unions.push(FoundUnion {
+                    name: public_name(home, name),
+                    vars: vec!["a".to_owned()],
+                    tags: Vec::new(),
+                });
                 continue;
             }
-            let union = (types.get(home).and_then(|t| t.unions.get(name)))
-                .unwrap_or_else(|| panic!("no union {}.{name}", home.module));
-            let ctors = (union.ctors.iter())
+            let union = (types.get(home).and_then(|t| t.unions.get(name))).unwrap_or_else(|| {
+                panic!(
+                    "no union {}.{name}, though every module's types are here",
+                    home.module
+                )
+            });
+            let tags = (union.ctors.iter())
                 .map(|ctor| {
-                    let args: Vec<Public> = (ctor.args.iter())
+                    let args = (ctor.args.iter())
                         .map(|arg| extract(compat, &mut found, arg))
                         .collect();
                     (ctor.name.clone(), args)
                 })
                 .collect();
-            unions.push((public, union.vars.clone(), ctors));
+            unions.push(FoundUnion {
+                name: public_name(home, name),
+                vars: union.vars.clone(),
+                tags,
+            });
         }
         seen.aliases.extend(next_aliases);
         seen.unions.extend(next_unions);
         deps = found;
     }
-    let mut out = String::from("{\"versions\":{\"elm\":\"");
-    out.push_str(&compat.to_string());
-    out.push_str("\"},\"types\":{\"message\":");
-    out.push_str(&string(&line(&message)));
-    out.push_str(",\"aliases\":{");
-    let aliases: Vec<String> = (aliases.iter())
-        .map(|(name, args, ty)| {
-            format!(
-                "{}:{{\"args\":{},\"type\":{}}}",
-                string(name),
-                strings(args),
-                string(&line(ty))
-            )
-        })
-        .collect();
-    out.push_str(&aliases.join(","));
-    out.push_str("},\"unions\":{");
-    let unions: Vec<String> = (unions.iter())
-        .map(|(name, args, ctors)| {
-            let tags: Vec<String> = (ctors.iter())
-                .map(|(ctor, args)| {
-                    let args: Vec<String> = args.iter().map(|a| string(&line(a))).collect();
-                    format!("{}:[{}]", string(ctor), args.join(","))
-                })
-                .collect();
-            format!(
-                "{}:{{\"args\":{},\"tags\":{{{}}}}}",
-                string(name),
-                strings(args),
-                tags.join(",")
-            )
-        })
-        .collect();
-    out.push_str(&unions.join(","));
-    out.push_str("}}}");
-    out
 }
 
-/// `Ord Seen`: `Opt.Global`'s, name then module, before 0.19.3; derived,
-/// module then name, in it.
-fn seen_order(compat: Compat, a: &Seen, b: &Seen) -> Ordering {
-    if compat == Compat::V0_19_3 {
-        homes(compat, &a.0, &b.0).then_with(|| compat.compare_names(&a.1, &b.1))
-    } else {
-        compat
-            .compare_names(&a.1, &b.1)
-            .then_with(|| homes(compat, &a.0, &b.0))
-    }
+/// What of `found` isn't `seen`, in the order of upstream's sets: name,
+/// then module, before 0.19.3, as `Opt.Global` orders; module, then name,
+/// in it, as derived.
+fn unseen(compat: Compat, found: BTreeSet<Global>, seen: &BTreeSet<Global>) -> Vec<Global> {
+    let mut unseen: Vec<Global> = found.into_iter().filter(|g| !seen.contains(g)).collect();
+    unseen.sort_by(|a, b| match compat {
+        Compat::V0_19_1 | Compat::V0_19_2 => globals(compat, a, b),
+        Compat::V0_19_3 => {
+            homes(compat, &a.home, &b.home).then_with(|| compat.compare_names(&a.name, &b.name))
+        }
+    });
+    unseen
 }
 
 /// `toPublicName`: `Module.Name`.
@@ -203,7 +194,10 @@ fn extract(compat: Compat, deps: &mut Deps, ty: &Type) -> Public {
         ),
         Type::Var(x) => Public::Var(x.clone()),
         Type::Type { home, name, args } => {
-            Deps::add(&mut deps.unions, home, name);
+            deps.unions.insert(Global {
+                home: home.clone(),
+                name: name.clone(),
+            });
             let args = args.iter().map(|a| extract(compat, deps, a)).collect();
             Public::Type(public_name(home, name), args)
         }
@@ -229,63 +223,57 @@ fn extract(compat: Compat, deps: &mut Deps, ty: &Type) -> Public {
             args,
             aliased,
         } => {
-            Deps::add(&mut deps.aliases, home, name);
-            extract(compat, deps, &dealias(args, aliased));
+            deps.aliases.insert(Global {
+                home: home.clone(),
+                name: name.clone(),
+            });
+            extract(compat, deps, &aliased.dealias(args));
             let args = args.iter().map(|(_, a)| extract(compat, deps, a)).collect();
             Public::Type(public_name(home, name), args)
         }
     }
 }
 
-/// `Type.dealias`.
-fn dealias(args: &[(String, Type)], aliased: &AliasType) -> Type {
-    match aliased {
-        AliasType::Holey(ty) => substitute(args, ty),
-        AliasType::Filled(ty) => (**ty).clone(),
-    }
-}
-
-/// A holey alias's type with its variables filled in.
-fn substitute(args: &[(String, Type)], ty: &Type) -> Type {
-    let go = |t: &Type| substitute(args, t);
-    match ty {
-        Type::Lambda(a, b) => Type::Lambda(Box::new(go(a)), Box::new(go(b))),
-        Type::Var(x) => (args.iter())
-            .find(|(name, _)| name == x)
-            .map_or_else(|| ty.clone(), |(_, t)| t.clone()),
-        Type::Type { home, name, args } => Type::Type {
-            home: home.clone(),
-            name: name.clone(),
-            args: args.iter().map(go).collect(),
-        },
-        Type::Record(fields, ext) => {
-            let fields = (fields.iter())
-                .map(|(name, field)| {
-                    let mut field = field.clone();
-                    field.ty = go(&field.ty);
-                    (name.clone(), field)
+/// `encodeMetadata`.
+fn encode(
+    compat: Compat,
+    message: &Public,
+    aliases: &[FoundAlias],
+    unions: &[FoundUnion],
+) -> String {
+    let aliases: Vec<String> = (aliases.iter())
+        .map(|alias| {
+            format!(
+                "{}:{{\"args\":{},\"type\":{}}}",
+                string(&alias.name),
+                strings(&alias.vars),
+                string(&line(&alias.ty))
+            )
+        })
+        .collect();
+    let unions: Vec<String> = (unions.iter())
+        .map(|union| {
+            let tags: Vec<String> = (union.tags.iter())
+                .map(|(ctor, args)| {
+                    let args: Vec<String> = args.iter().map(|a| string(&line(a))).collect();
+                    format!("{}:[{}]", string(ctor), args.join(","))
                 })
                 .collect();
-            Type::Record(fields, ext.clone())
-        }
-        Type::Unit => Type::Unit,
-        Type::Tuple(a, b, c) => Type::Tuple(
-            Box::new(go(a)),
-            Box::new(go(b)),
-            c.as_ref().map(|c| Box::new(go(c))),
-        ),
-        Type::Alias {
-            home,
-            name,
-            args: ts,
-            aliased,
-        } => Type::Alias {
-            home: home.clone(),
-            name: name.clone(),
-            args: ts.iter().map(|(n, t)| (n.clone(), go(t))).collect(),
-            aliased: aliased.clone(),
-        },
-    }
+            format!(
+                "{}:{{\"args\":{},\"tags\":{{{}}}}}",
+                string(&union.name),
+                strings(&union.vars),
+                tags.join(",")
+            )
+        })
+        .collect();
+    format!(
+        "{{\"versions\":{{\"elm\":\"{compat}\"}},\"types\":{{\"message\":{},\
+         \"aliases\":{{{}}},\"unions\":{{{}}}}}}}",
+        string(&line(message)),
+        aliases.join(","),
+        unions.join(",")
+    )
 }
 
 /// Where a type sits: alone, as a function's part, or as an argument.
@@ -350,7 +338,8 @@ fn doc(ty: &Public, context: Context) -> String {
     }
 }
 
-/// A JSON string.
+/// A JSON string, its tabs and control characters escaped too, which
+/// the reports' JSON ([`nomi_base::diagnostic::json::escape`]) leaves.
 fn string(text: &str) -> String {
     let mut out = String::from("\"");
     for c in text.chars() {
@@ -360,7 +349,7 @@ fn string(text: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c if (c as u32) < 0x20 => _ = write!(out, "\\u{:04x}", c as u32),
             c => out.push(c),
         }
     }
@@ -379,16 +368,9 @@ mod tests {
     use super::*;
     use nomi_compiler::canonical::{Ctor, CtorOpts, FieldType};
 
-    fn home(module: &str) -> Home {
-        Home {
-            package: "author/project".into(),
-            module: module.into(),
-        }
-    }
-
     fn ty(module: &str, name: &str, args: Vec<Type>) -> Type {
         Type::Type {
-            home: home(module),
+            home: Home::author_project(module),
             name: name.to_owned(),
             args,
         }
@@ -427,7 +409,7 @@ mod tests {
         ]);
         let mut types = Types::new();
         let mut add = |module: &str, name: &str, union: Union| {
-            let entry = types.entry(home(module)).or_default();
+            let entry = types.entry(Home::author_project(module)).or_default();
             entry.unions.insert(name.to_owned(), union);
         };
         add("Main", "Msg", msg);

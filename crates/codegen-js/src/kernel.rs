@@ -8,22 +8,26 @@
 use std::collections::BTreeMap;
 
 use nomi_base::Compat;
+use nomi_base::utf8::char_width;
 use nomi_compiler::canonical::Home;
 use nomi_compiler::optimized::{Chunk, Global, GlobalGraph, Node};
 
 /// `Content`: a kernel's imports and its code.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Content {
+    /// The header's imports, in order.
     pub imports: Vec<Import>,
+    /// The code, split at its tags.
     pub chunks: Vec<Chunk>,
 }
 
 /// An import of the header comment.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Import {
+    /// The module imported, as `Elm.Kernel.Utils` or `Maybe`.
     pub module: String,
-    pub alias: Option<String>,
-    pub exposing: Vec<String>,
+    alias: Option<String>,
+    exposing: Vec<String>,
 }
 
 /// `fromByteString`: the kernel `bytes` of `package`, whose dependencies
@@ -37,7 +41,7 @@ pub fn parse(package: &str, foreigns: &BTreeMap<String, String>, bytes: &[u8]) -
 }
 
 /// `countFields`: how often the code uses each Elm record field.
-pub fn count_fields(chunks: &[Chunk]) -> BTreeMap<String, i64> {
+fn count_fields(chunks: &[Chunk]) -> BTreeMap<String, i64> {
     let mut fields = BTreeMap::new();
     for chunk in chunks {
         if let Chunk::ElmField(name) = chunk {
@@ -58,7 +62,12 @@ pub fn add_kernel(compat: Compat, graph: &mut GlobalGraph, short: &str, chunks: 
                 name: name.clone(),
             }),
             Chunk::JsVar { module, .. } => Some(Global::kernel(compat, module)),
-            _ => None,
+            Chunk::Js(_)
+            | Chunk::ElmField(_)
+            | Chunk::JsField(_)
+            | Chunk::JsEnum(_)
+            | Chunk::Debug
+            | Chunk::Prod => None,
         })
         .collect();
     graph.fields.extend(count_fields(&chunks));
@@ -152,28 +161,14 @@ fn chunks(table: &BTreeMap<String, Chunk>, code: &[u8]) -> Option<Vec<Chunk>> {
     Some(chunks)
 }
 
-/// `getCharWidth`: the bytes of the character `byte` starts.
-fn char_width(byte: u8) -> usize {
-    match byte {
-        0x00..0xC0 => 1,
-        0xC0..0xE0 => 2,
-        0xE0..0xF0 => 3,
-        _ => 4,
-    }
-}
-
 /// `Var.chompInnerChars`: past the letters, digits and underscores from
 /// `pos`.
 fn inner_end(code: &[u8], mut pos: usize) -> usize {
-    while pos < code.len() {
-        let rest = &code[pos..];
-        let c = match std::str::from_utf8(&rest[..char_width(rest[0]).min(rest.len())]) {
-            Ok(s) => s.chars().next().unwrap_or(' '),
-            Err(_) => break,
-        };
-        if !(c.is_alphanumeric() || c == '_') {
-            break;
-        }
+    while let Some(&lead) = code.get(pos)
+        && let Ok(text) = std::str::from_utf8(&code[pos..code.len().min(pos + char_width(lead))])
+        && let Some(c) = text.chars().next()
+        && (c.is_alphanumeric() || c == '_')
+    {
         pos += c.len_utf8();
     }
     pos

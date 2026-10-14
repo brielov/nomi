@@ -22,7 +22,7 @@ pub enum Mode {
 
 impl Mode {
     /// `isDebug`.
-    pub fn is_debug(&self) -> bool {
+    pub(crate) fn is_debug(&self) -> bool {
         matches!(self, Mode::Dev { debug: Some(_) })
     }
 }
@@ -37,8 +37,10 @@ pub fn shorten_field_names(compat: Compat, graph: &GlobalGraph) -> BTreeMap<Stri
     }
     let mut short = BTreeMap::new();
     for fields in buckets.values_mut().rev() {
+        // Before 0.19.3 the graph's order, by bytes, is already the
+        // release's.
         if compat == Compat::V0_19_3 {
-            fields.sort_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
+            fields.sort_by(|a, b| compat.compare_names(a, b));
         }
         for field in fields.iter() {
             let name = Name::from_int(short.len());
