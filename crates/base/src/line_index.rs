@@ -73,6 +73,11 @@ impl LineIndex {
         self.starts.len() as u32
     }
 
+    /// The line holding `offset`; past the text, its last line.
+    pub fn line(&self, offset: TextSize) -> u32 {
+        (self.starts.partition_point(|&s| s <= offset) - 1) as u32
+    }
+
     /// The position of `offset`. An offset between a CR and its LF counts
     /// the CR, so every char boundary has its own position.
     pub fn line_col(
@@ -126,6 +131,26 @@ impl LineIndex {
             row: line + 1,
             column: width(prefix.chars().filter(|&c| c != '\r'), unit) + 1,
         })
+    }
+
+    /// The offset of `pos` as Elm counts columns, in code points other
+    /// than CR, the inverse of [`LineIndex::elm_position`] made
+    /// zero-based: past its line's end, the end before its LF, and past
+    /// the last line, the text's end.
+    pub fn elm_offset(&self, text: &str, pos: LineCol) -> TextSize {
+        let Ok(line) = self.line_range(text, pos.line) else {
+            return self.len;
+        };
+        let mut col = 0;
+        for (i, c) in text[line].char_indices() {
+            if col == pos.col {
+                return line.start() + TextSize::new(i as u32);
+            }
+            if c != '\r' {
+                col += 1;
+            }
+        }
+        line.end()
     }
 
     /// The text of `line` without its LF or CRLF; a bare CR stays.

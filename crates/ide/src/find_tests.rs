@@ -6,17 +6,19 @@
 use std::path::{Path, PathBuf};
 
 use nomi_base::TextSize;
-use nomi_compiler::types::{self, error};
+use nomi_compiler::types::{ExprTypes, error};
 use nomi_engine::index::{Index, Indexed};
-use nomi_syntax::{SyntaxKind, SyntaxNode};
+use nomi_syntax::ast::{self, AstNode};
+use nomi_syntax::{SyntaxElement, SyntaxKind, SyntaxNode, literal_body};
 
-use crate::symbols::{child, code_range, words};
+use crate::tree::{WrittenImport, child, code_range, words, written_imports};
 
 /// A test or a suite of them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TestSuite {
     pub label: String,
     pub path: PathBuf,
+    /// Where its call starts.
     pub at: TextSize,
     /// A suite's tests; none for a test.
     pub tests: Option<Vec<TestSuite>>,
@@ -33,7 +35,7 @@ pub fn find_tests(index: &Index, root: &Path) -> Vec<TestSuite> {
             continue;
         }
         let finder = Finder::new(index, module);
-        let top: Vec<TestSuite> = (module.root().children())
+        let top: Vec<TestSuite> = (finder.root.children())
             .filter(|n| n.kind() == SyntaxKind::ValueDecl)
             .filter_map(|decl| child(&decl, SyntaxKind::Definition))
             .filter_map(|definition| finder.suite(&finder.test_call(&definition)?))
@@ -50,21 +52,46 @@ pub fn find_tests(index: &Index, root: &Path) -> Vec<TestSuite> {
     found
 }
 
+/// One module's tests, found by its types and imports.
 struct Finder<'a> {
     module: &'a Indexed,
-    types: types::ExprTypes,
+    root: SyntaxNode,
+    types: Option<&'a ExprTypes>,
+    imports: Vec<WrittenImport>,
+    /// `Test.describe` as the module writes it.
+    describe: String,
 }
 
 impl<'a> Finder<'a> {
     fn new(index: &Index, module: &'a Indexed) -> Finder<'a> {
-        let types = (module.canonical.as_ref())
-            .map(|c| types::infer_types(index.compat, c).1)
-            .unwrap_or_default();
-        Finder { module, types }
+        let root = module.root();
+        let imports: Vec<WrittenImport> = written_imports(&root).collect();
+        // `getQualifierForName`: none where an import exposes `describe`,
+        // else the alias or name of the module's last import of `Test`.
+        let exposed = (root.children().filter_map(ast::Import::cast))
+            .filter_map(|import| import.exposing_list())
+            .any(|list| {
+                list.dot_dot_token().is_some()
+                    || (list.syntax().children())
+                        .any(|n| n.kind() == SyntaxKind::ExposedValue && words(&n) == "describe")
+            });
+        let describe = match imports.iter().rfind(|i| i.module == "Test") {
+            Some(test) if !exposed => {
+                format!("{}.describe", test.alias.as_deref().unwrap_or(&test.module))
+            }
+            _ => "describe".to_owned(),
+        };
+        Finder {
+            module,
+            root,
+            types: module.types(index.compat).map(|(_, types)| types),
+            imports,
+            describe,
+        }
     }
 
     fn type_of(&self, node: &SyntaxNode) -> Option<&error::Type> {
-        crate::hover::type_of(&self.module.root(), &self.types, code_range(node)?)
+        crate::hover::type_of(&self.root, self.types?, code_range(node)?)
     }
 
     /// `findTestFunctionCall`: through `let`s, the first call in `node`,
@@ -73,7 +100,7 @@ impl<'a> Finder<'a> {
         let body = match node.kind() {
             SyntaxKind::Definition => node
                 .children()
-                .filter(|c| !crate::lint::is_pattern(c.kind()))
+                .filter(|c| !ast::Pattern::can_cast(c.kind()))
                 .last(),
             _ => Some(node.clone()),
         }?;
@@ -88,7 +115,8 @@ impl<'a> Finder<'a> {
             error::Type::Lambda(_, b, rest) => rest.last().unwrap_or(b),
             ty => ty,
         };
-        (is_test(ty) || is_test(returned)).then_some(call)
+        let test = |ty| is_named(ty, "Test.Internal", "Test");
+        (test(ty) || test(returned)).then_some(call)
     }
 
     /// `findTestSuite`: a call labelled by one string literal, a suite
@@ -97,15 +125,16 @@ impl<'a> Finder<'a> {
         let mut parts = call.children();
         let target = parts.next()?;
         let args: Vec<SyntaxNode> = parts.collect();
-        let string = args
-            .iter()
-            .find(|a| self.type_of(a).is_some_and(is_string))?;
+        let string = args.iter().find(|a| {
+            self.type_of(a)
+                .is_some_and(|ty| is_named(ty, "String", "String"))
+        })?;
         let literals: Vec<String> = string
             .descendants()
             .filter(|n| n.kind() == SyntaxKind::LiteralExpr)
             .filter_map(|n| {
                 (n.children_with_tokens())
-                    .filter_map(|e| e.into_token())
+                    .filter_map(SyntaxElement::into_token)
                     .find(|t| !t.kind().is_trivia())
             })
             .filter(|t| matches!(t.kind(), SyntaxKind::String | SyntaxKind::MultilineString))
@@ -148,85 +177,52 @@ impl<'a> Finder<'a> {
         else {
             return false;
         };
-        let prefix = name.rsplit_once('.').map(|(p, _)| p.to_owned());
-        let qualifier = match &prefix {
-            Some(_) => self.qualifier("Test", "describe"),
-            None => String::new(),
-        };
-        name == format!("{qualifier}describe")
-            && prefix.is_none_or(|p| {
-                self.imports()
-                    .iter()
-                    .any(|(m, a)| *m == "Test" && (*m == p || a.as_deref() == Some(p.as_str())))
-            })
-    }
-
-    /// The module's imports: each module's name, and its alias.
-    fn imports(&self) -> Vec<(String, Option<String>)> {
-        (self.module.root().children())
-            .filter(|n| n.kind() == SyntaxKind::Import)
-            .filter_map(|i| {
-                let name = words(&child(&i, SyntaxKind::ModuleName)?);
-                let alias = child(&i, SyntaxKind::ImportAlias)
-                    .and_then(|a| crate::symbols::token(&a, SyntaxKind::UpperIdent));
-                Some((name, alias))
-            })
-            .collect()
-    }
-
-    /// `getQualifierForName`: none where an import exposes `name`, else
-    /// the alias or name of the module's last import.
-    fn qualifier(&self, module: &str, name: &str) -> String {
-        let exposes = (self.module.root().children())
-            .filter(|n| n.kind() == SyntaxKind::Import)
-            .filter_map(|i| child(&i, SyntaxKind::ExposingList))
-            .any(|list| {
-                list.children_with_tokens()
-                    .any(|e| e.kind() == SyntaxKind::DotDot)
-                    || list
-                        .children()
-                        .any(|n| n.kind() == SyntaxKind::ExposedValue && words(&n) == name)
-            });
-        if exposes {
-            return String::new();
-        }
-        match self.imports().into_iter().rfind(|(m, _)| m == module) {
-            Some((m, alias)) => format!("{}.", alias.unwrap_or(m)),
-            None => String::new(),
+        match name.rsplit_once('.') {
+            None => name == "describe",
+            Some((prefix, _)) => {
+                name == self.describe
+                    && (self.imports.iter()).any(|i| {
+                        i.module == "Test"
+                            && (i.module == prefix || i.alias.as_deref() == Some(prefix))
+                    })
+            }
         }
     }
 }
 
-fn is_test(ty: &error::Type) -> bool {
+/// Whether `ty` is the type `name` of the module `module`, or an alias
+/// of it.
+fn is_named(ty: &error::Type, module: &str, name: &str) -> bool {
+    use error::Type as E;
     match ty {
-        error::Type::Type(home, name, _) => &*home.module == "Test.Internal" && name == "Test",
-        error::Type::Alias(_, _, _, real) => is_test(real),
-        _ => false,
-    }
-}
-
-fn is_string(ty: &error::Type) -> bool {
-    match ty {
-        error::Type::Type(home, name, _) => &*home.module == "String" && name == "String",
-        error::Type::Alias(_, _, _, real) => is_string(real),
-        _ => false,
+        E::Type(home, n, _) => &*home.module == module && n == name,
+        E::Alias(_, _, _, real) => is_named(real, module, name),
+        E::Lambda(..)
+        | E::Infinite
+        | E::Error
+        | E::FlexVar(_)
+        | E::FlexSuper(..)
+        | E::RigidVar(_)
+        | E::RigidSuper(..)
+        | E::Record(..)
+        | E::Unit
+        | E::Tuple(..) => false,
     }
 }
 
 /// `stringLiteralToLabel`: a triple-quoted string as written inside, any
 /// other unescaped as JSON reads it.
 fn label_of(literal: &str) -> String {
-    if let Some(inner) = literal
-        .strip_prefix("\"\"\"")
-        .and_then(|l| l.strip_suffix("\"\"\""))
+    if literal.starts_with("\"\"\"")
+        && let Some(body) = literal_body(literal)
     {
-        return inner.to_owned();
+        return body.to_owned();
     }
-    serde_json_unescape(literal).unwrap_or_else(|| literal.trim_matches('"').to_owned())
+    json_unescape(literal).unwrap_or_else(|| literal.trim_matches('"').to_owned())
 }
 
 /// `JSON.parse` of a string literal: its escapes, as JSON has them.
-fn serde_json_unescape(literal: &str) -> Option<String> {
+fn json_unescape(literal: &str) -> Option<String> {
     let inner = literal.strip_prefix('"')?.strip_suffix('"')?;
     let mut out = String::new();
     let mut chars = inner.chars();

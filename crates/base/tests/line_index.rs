@@ -111,6 +111,24 @@ fn a_column_cannot_pass_the_lf() {
 }
 
 #[test]
+fn elm_offsets_skip_crs_and_stop_at_line_and_text_ends() {
+    let text = "ab\r\nλ\rc\nd";
+    let index = LineIndex::new(text);
+    let offset = |line, col| usize::from(index.elm_offset(text, lc(line, col)));
+    assert_eq!(offset(0, 2), 2);
+    // Past a CRLF line's end, before its LF.
+    assert_eq!(offset(0, 9), 3);
+    // A bare CR inside a line takes no column.
+    assert_eq!(offset(1, 1), "ab\r\nλ".len());
+    assert_eq!(offset(1, 2), "ab\r\nλ\rc".len());
+    assert_eq!(offset(2, 0), text.len() - 1);
+    assert_eq!(offset(5, 0), text.len());
+    assert_eq!(index.line(at(3)), 0);
+    assert_eq!(index.line(at(4)), 1);
+    assert_eq!(index.line(at(text.len())), 2);
+}
+
+#[test]
 #[should_panic(expected = "different text")]
 fn querying_another_text_panics() {
     let _ = LineIndex::new("abc").line_col("ab", at(0), ColumnUnit::Utf8);

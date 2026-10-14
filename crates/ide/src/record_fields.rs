@@ -9,14 +9,17 @@
 //! documentation naming the alias.
 
 use nomi_base::{TextRange, TextSize};
+use nomi_compiler::canonical::Home;
+use nomi_compiler::canonicalize::references::{Kind, Target};
 use nomi_compiler::types::{self, error};
 use nomi_engine::Snapshot;
 use nomi_engine::index::{Index, Indexed};
-use nomi_syntax::{SyntaxKind, SyntaxNode};
+use nomi_syntax::ast::{self, AstNode};
+use nomi_syntax::{SyntaxKind, SyntaxNode, child_token};
 
 use crate::Edit;
 use crate::completion::{Completion, CompletionKind};
-use crate::symbols::{child, code_range, token};
+use crate::tree::{child, code_range, declared_type, token};
 
 /// The fields of the record before the dot at `dot`.
 pub(crate) fn after(
@@ -51,7 +54,7 @@ pub(crate) fn after(
         before
             .parent_ancestors()
             .take_while(|a| a.text_range().end() == dot)
-            .find(|a| crate::completion::is_expr(a.kind()))
+            .find(|a| ast::Expr::can_cast(a.kind()))
     };
     // A module that parses and compiles as written types it best; where
     // it doesn't parse, elm-language-server's tree is broken there too.
@@ -102,6 +105,7 @@ fn typed_fields(
         ranges.extend(crate::scopes::local(root, at.start()).map(|(b, _)| b));
     }
     let typed: Vec<&error::Type> = (types.iter())
+        .filter(|(r, _)| ranges.iter().any(|range| r.contains_range(*range)))
         .filter(|(r, _)| crate::hover::trimmed(root, *r).is_some_and(|r| ranges.contains(&r)))
         .map(|(_, ty)| ty)
         .collect();
@@ -115,15 +119,16 @@ fn typed_fields(
     // Its fields' types are written with every name bare.
     let names = crate::hover::Names::bare();
     let (alias, record) = match ty {
-        error::Type::Alias(_, name, _, body) => (name.as_str(), &**body),
-        ty => ("", *ty),
+        error::Type::Alias(home, name, _, body) => (Some((home, name.as_str())), &**body),
+        ty => (None, *ty),
     };
     // An alias's fields as it declares them.
-    if !alias.is_empty()
-        && let Some(declared) = named_alias_by_name(index, module, alias)
+    if let Some((home, name)) = alias
+        && let Some(declared) = alias_at(index, module, home, name)
     {
         return alias_fields(&declared, range);
     }
+    let alias = alias.map_or("", |(_, name)| name);
     let error::Type::Record(fields, _) = record else {
         return Vec::new();
     };
@@ -152,7 +157,6 @@ pub(crate) fn patched_all(
     module: &Indexed,
     edits: &[(TextRange, String)],
 ) -> Option<(SyntaxNode, types::ExprTypes)> {
-    use nomi_syntax::ast::{self, AstNode};
     let mut text = module.text.to_string();
     for (replaced, insert) in edits.iter().rev() {
         text.replace_range(
@@ -261,13 +265,14 @@ pub(crate) fn inside(
     Some(found.unwrap_or_default())
 }
 
-/// A type alias's declaration, in the file that has it.
-struct Alias {
+/// A type alias's declaration, and the module that has it.
+struct Alias<'i> {
     decl: SyntaxNode,
+    module: &'i Indexed,
 }
 
 /// The fields `alias` declares, as completions.
-fn alias_fields(alias: &Alias, range: TextRange) -> Vec<Completion> {
+fn alias_fields(alias: &Alias<'_>, range: TextRange) -> Vec<Completion> {
     let name = token(&alias.decl, SyntaxKind::UpperIdent).unwrap_or_default();
     let Some(record) = alias
         .decl
@@ -280,7 +285,7 @@ fn alias_fields(alias: &Alias, range: TextRange) -> Vec<Completion> {
         .filter(|c| c.kind() == SyntaxKind::FieldType)
         .filter_map(|field| {
             let label = token(&field, SyntaxKind::LowerIdent)?;
-            let ty = field.children().find(|c| crate::lint::is_type(c.kind()))?;
+            let ty = field.children().find(|c| ast::Type::can_cast(c.kind()))?;
             let ty = text_of(&ty)?;
             Some(field_completion(&label, &ty, &name, range))
         })
@@ -326,7 +331,12 @@ pub(crate) fn alias_declaration(
 /// The alias of the variable `name` written at `at`: by the annotation
 /// of the parameter binding it, the field a record pattern binds it as,
 /// or the function it names.
-fn alias_of_name(index: &Index, module: &Indexed, at: TextSize, name: &str) -> Option<Alias> {
+fn alias_of_name<'i>(
+    index: &'i Index,
+    module: &'i Indexed,
+    at: TextSize,
+    name: &str,
+) -> Option<Alias<'i>> {
     let root = &module.root();
     if let Some((binder, _)) = crate::scopes::local(root, at) {
         let token = root.token_at_offset(binder.start()).right_biased()?;
@@ -335,11 +345,11 @@ fn alias_of_name(index: &Index, module: &Indexed, at: TextSize, name: &str) -> O
         if parent.kind() == SyntaxKind::FieldPattern {
             let pattern = parent.parent()?;
             let outer = pattern_alias(index, module, &pattern)?;
-            return field_alias(index, module, &outer, name);
+            return field_alias(index, &outer, name);
         }
         let pattern = parent
             .ancestors()
-            .take_while(|a| crate::lint::is_pattern(a.kind()))
+            .take_while(|a| ast::Pattern::can_cast(a.kind()))
             .last()?;
         return param_alias(index, module, &pattern);
     }
@@ -348,39 +358,47 @@ fn alias_of_name(index: &Index, module: &Indexed, at: TextSize, name: &str) -> O
         .filter(|n| n.kind() == SyntaxKind::ValueDecl)
         .find(|d| {
             child(d, SyntaxKind::Definition)
-                .and_then(|def| crate::lint::first_token(&def, SyntaxKind::LowerIdent))
+                .and_then(|def| child_token(&def, SyntaxKind::LowerIdent))
                 .is_some_and(|t| t.text() == name)
         })?;
     let signature = child(&decl, SyntaxKind::Signature)?;
     let ty = signature
         .children()
-        .find(|c| crate::lint::is_type(c.kind()))?;
+        .find(|c| ast::Type::can_cast(c.kind()))?;
     named_alias(index, module, &result_type(&ty))
 }
 
 /// The alias a parameter's pattern is annotated as.
-fn param_alias(index: &Index, module: &Indexed, pattern: &SyntaxNode) -> Option<Alias> {
+fn param_alias<'i>(
+    index: &'i Index,
+    module: &'i Indexed,
+    pattern: &SyntaxNode,
+) -> Option<Alias<'i>> {
     let definition = pattern
         .parent()
         .filter(|p| p.kind() == SyntaxKind::Definition)?;
     let position = (definition.children())
-        .filter(|c| crate::lint::is_pattern(c.kind()))
+        .filter(|c| ast::Pattern::can_cast(c.kind()))
         .position(|c| c == *pattern)?;
     let signature = definition
         .prev_sibling()
         .filter(|s| s.kind() == SyntaxKind::Signature)?;
     let ty = signature
         .children()
-        .find(|c| crate::lint::is_type(c.kind()))?;
+        .find(|c| ast::Type::can_cast(c.kind()))?;
     let argument = arguments(&ty).into_iter().nth(position)?;
     named_alias(index, module, &argument)
 }
 
 /// The alias a record pattern is annotated as, as a parameter.
-fn pattern_alias(index: &Index, module: &Indexed, pattern: &SyntaxNode) -> Option<Alias> {
+fn pattern_alias<'i>(
+    index: &'i Index,
+    module: &'i Indexed,
+    pattern: &SyntaxNode,
+) -> Option<Alias<'i>> {
     let outermost = pattern
         .ancestors()
-        .take_while(|a| crate::lint::is_pattern(a.kind()))
+        .take_while(|a| ast::Pattern::can_cast(a.kind()))
         .last()?;
     param_alias(index, module, &outermost)
 }
@@ -425,7 +443,7 @@ fn pattern_fields(
 }
 
 /// The alias the field `field` of `alias` is.
-fn field_alias(index: &Index, module: &Indexed, alias: &Alias, field: &str) -> Option<Alias> {
+fn field_alias<'i>(index: &'i Index, alias: &Alias<'i>, field: &str) -> Option<Alias<'i>> {
     let record = alias
         .decl
         .children()
@@ -435,19 +453,19 @@ fn field_alias(index: &Index, module: &Indexed, alias: &Alias, field: &str) -> O
         .find(|f| token(f, SyntaxKind::LowerIdent).as_deref() == Some(field))?;
     let ty = declared
         .children()
-        .find(|c| crate::lint::is_type(c.kind()))?;
-    named_alias(index, module, &ty)
+        .find(|c| ast::Type::can_cast(c.kind()))?;
+    named_alias(index, alias.module, &ty)
 }
 
 /// The alias of the record that is the value of `field` in the record
 /// whose `{` comes before `open`.
-fn outer_field_alias(
-    index: &Index,
-    module: &Indexed,
+fn outer_field_alias<'i>(
+    index: &'i Index,
+    module: &'i Indexed,
     text: &str,
     open: usize,
     field: &str,
-) -> Option<Alias> {
+) -> Option<Alias<'i>> {
     let outer = open_brace(text, open)?;
     let between = &text[outer + 1..open];
     let base = between
@@ -462,11 +480,11 @@ fn outer_field_alias(
         }
         None => returned_alias(index, module, TextSize::new(outer as u32))?,
     };
-    field_alias(index, module, &outer_alias, field)
+    field_alias(index, &outer_alias, field)
 }
 
 /// The alias the function around `at` returns.
-fn returned_alias(index: &Index, module: &Indexed, at: TextSize) -> Option<Alias> {
+fn returned_alias<'i>(index: &'i Index, module: &'i Indexed, at: TextSize) -> Option<Alias<'i>> {
     let token = module.root().token_at_offset(at).right_biased()?;
     let decl = token
         .parent_ancestors()
@@ -474,47 +492,56 @@ fn returned_alias(index: &Index, module: &Indexed, at: TextSize) -> Option<Alias
     let signature = child(&decl, SyntaxKind::Signature)?;
     let ty = signature
         .children()
-        .find(|c| crate::lint::is_type(c.kind()))?;
+        .find(|c| ast::Type::can_cast(c.kind()))?;
     named_alias(index, module, &result_type(&ty))
 }
 
-/// The declaration of the alias `name`: the module's own, or another
-/// module's of the project.
-fn named_alias_by_name(index: &Index, module: &Indexed, name: &str) -> Option<Alias> {
-    let declares = |root: &SyntaxNode| {
-        (root.children())
-            .filter(|n| n.kind() == SyntaxKind::TypeAliasDecl)
-            .find(|d| token(d, SyntaxKind::UpperIdent).as_deref() == Some(name))
-    };
-    if let Some(decl) = declares(&module.root()) {
-        return Some(Alias { decl });
-    }
-    index
-        .modules
-        .iter()
-        .find_map(|m| declares(&m.root()))
-        .map(|decl| Alias { decl })
+/// `module`'s declaration of the alias `name`.
+fn declared_alias<'i>(module: &'i Indexed, name: &str) -> Option<Alias<'i>> {
+    let decl = declared_type(&module.root(), SyntaxKind::TypeAliasDecl, name)?;
+    Some(Alias { decl, module })
 }
 
-/// The alias a type names: its first capitalized name's.
-fn named_alias(index: &Index, module: &Indexed, ty: &SyntaxNode) -> Option<Alias> {
+/// The declaration of the alias `name` of the module `home`, where the
+/// project declares it, as `module` refers to it.
+fn alias_at<'i>(
+    index: &'i Index,
+    module: &'i Indexed,
+    home: &Home,
+    name: &str,
+) -> Option<Alias<'i>> {
+    if home.package != index.package {
+        return None;
+    }
+    let declaring = if *home.module == module.name {
+        module
+    } else {
+        index.named(&home.module)?
+    };
+    declared_alias(declaring, name)
+}
+
+/// The alias a type `module` writes names: its first capitalized name's,
+/// where the module refers to it; else by its spelling, the module's own
+/// or another module's of the project.
+fn named_alias<'i>(index: &'i Index, module: &'i Indexed, ty: &SyntaxNode) -> Option<Alias<'i>> {
     let named = std::iter::once(ty.clone())
         .chain(ty.descendants())
         .find(|n| n.kind() == SyntaxKind::NamedType)?;
-    let name = token(&named, SyntaxKind::UpperIdent)?;
-    let declares = |root: &SyntaxNode| {
-        (root.children())
-            .filter(|n| n.kind() == SyntaxKind::TypeAliasDecl)
-            .find(|d| token(d, SyntaxKind::UpperIdent).as_deref() == Some(name.as_str()))
-    };
-    if let Some(decl) = declares(&module.root()) {
-        return Some(Alias { decl });
+    let name = child_token(&named, SyntaxKind::UpperIdent)?;
+    let home = module.references.iter().find_map(|r| match &r.target {
+        Target::Global {
+            home,
+            name: referred,
+            kind: Kind::Type,
+        } if r.range.end() == name.text_range().end() && referred == name.text() => Some(home),
+        _ => None,
+    });
+    match home {
+        Some(home) => alias_at(index, module, home, name.text()),
+        None => (declared_alias(module, name.text()))
+            .or_else(|| (index.modules.iter()).find_map(|m| declared_alias(m, name.text()))),
     }
-    index
-        .modules
-        .iter()
-        .find_map(|m| declares(&m.root()))
-        .map(|decl| Alias { decl })
 }
 
 /// A function type's arguments, in order.
@@ -522,7 +549,7 @@ fn arguments(ty: &SyntaxNode) -> Vec<SyntaxNode> {
     let mut found = Vec::new();
     let mut ty = ty.clone();
     while ty.kind() == SyntaxKind::FunctionType {
-        let mut parts = ty.children().filter(|c| crate::lint::is_type(c.kind()));
+        let mut parts = ty.children().filter(|c| ast::Type::can_cast(c.kind()));
         let (Some(argument), Some(result)) = (parts.next(), parts.next()) else {
             break;
         };
@@ -538,7 +565,7 @@ fn result_type(ty: &SyntaxNode) -> SyntaxNode {
     while ty.kind() == SyntaxKind::FunctionType {
         let Some(result) = ty
             .children()
-            .filter(|c| crate::lint::is_type(c.kind()))
+            .filter(|c| ast::Type::can_cast(c.kind()))
             .nth(1)
         else {
             break;

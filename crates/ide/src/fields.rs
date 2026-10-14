@@ -8,24 +8,27 @@
 
 use nomi_base::TextSize;
 use nomi_compiler::canonicalize::references::Target;
-use nomi_compiler::types::{self, error};
+use nomi_compiler::types::{ExprTypes, error};
 use nomi_engine::Snapshot;
 use nomi_engine::index::{Index, Indexed};
-use nomi_syntax::{SyntaxKind, SyntaxNode, parse_module};
+use nomi_syntax::ast::{self, AstNode};
+use nomi_syntax::{SyntaxKind, SyntaxNode, child_token, tokens};
 
-use crate::navigation::{Location, module_path};
-use crate::symbols::{code_range, token};
+use crate::hover::trimmed;
+use crate::navigation::{Declaration, Location, module_tree};
+use crate::tree::{code_range, declared_type};
 
-/// Where the field at `offset` in `module` is declared.
+/// Where the field at `offset` in `module` is declared, and the tree of
+/// the file that declares it.
 pub(crate) fn definition(
     snapshot: &Snapshot,
     index: &Index,
     module: &Indexed,
     offset: TextSize,
-) -> Option<Location> {
+) -> Option<(Location, SyntaxNode)> {
     // A field's declaration is its own.
     if let Some(declared) = declaration_at(module, offset) {
-        return Some(declared);
+        return Some((declared, module.root()));
     }
     written(&module.root(), offset)?;
     let (_, types) = module.types(index.compat)?;
@@ -33,50 +36,45 @@ pub(crate) fn definition(
 }
 
 /// Every place the project writes the field at `offset` in `module`,
-/// declared where it is: its declaration where `with_declaration`, then
-/// each access, accessor, record, update, pattern and variable a pattern
-/// binds; none where the offset names no field.
+/// declared where it is: its declaration where `declaration` says so,
+/// then each access, accessor, record, update, pattern and variable a
+/// pattern binds; none where the offset names no field.
 pub(crate) fn references(
     snapshot: &Snapshot,
     index: &Index,
     module: &Indexed,
     offset: TextSize,
-    with_declaration: bool,
+    declaration: Declaration,
 ) -> Option<Vec<Location>> {
-    let declared = match declaration_at(module, offset) {
-        Some(declared) => declared,
-        None => definition(snapshot, index, module, offset)?,
-    };
-    let text = snapshot.read(&declared.path).ok()?;
-    let root = parse_module(&text).syntax();
-    let declaration = root.covering_element(declared.range).into_node()?;
-    let declaration = declaration
+    let (declared, root) = definition(snapshot, index, module, offset)?;
+    let field = root.covering_element(declared.range).into_node()?;
+    let field = field
         .ancestors()
         .find(|n| n.kind() == SyntaxKind::FieldType)?;
-    let name = crate::lint::first_token(&declaration, SyntaxKind::LowerIdent)?;
+    let name = child_token(&field, SyntaxKind::LowerIdent)?;
     let mut found = Vec::new();
-    if with_declaration {
+    if declaration == Declaration::Include {
         found.push(Location {
             path: declared.path.clone(),
             range: name.text_range(),
         });
     }
     for other in &index.modules {
-        let uses: Vec<_> = (other.root().descendants_with_tokens())
-            .filter_map(|e| e.into_token())
+        let root = other.root();
+        let uses: Vec<_> = tokens(&root)
             .filter(|t| t.kind() == SyntaxKind::LowerIdent && t.text() == name.text())
-            .filter(|t| written(&other.root(), t.text_range().start()).is_some())
+            .filter(|t| written(&root, t.text_range().start()).is_some())
             .collect();
         if uses.is_empty() {
             continue;
         }
-        let Some(canonical) = &other.canonical else {
+        let Some((_, types)) = other.types(index.compat) else {
             continue;
         };
-        let (_, types) = types::infer_types(index.compat, canonical);
         for token in uses {
             let at = token.text_range().start();
-            if resolve(snapshot, index, other, &types, at).as_ref() == Some(&declared) {
+            let resolved = resolve(snapshot, index, other, types, at);
+            if resolved.is_some_and(|(location, _)| location == declared) {
                 found.push(Location {
                     path: other.path.clone(),
                     range: token.text_range(),
@@ -101,15 +99,17 @@ fn declaration_at(module: &Indexed, offset: TextSize) -> Option<Location> {
     })
 }
 
-/// Where the field at `offset` is declared, given `module`'s types.
+/// Where the field at `offset` is declared, given `module`'s types, and
+/// the tree of the file that declares it.
 fn resolve(
     snapshot: &Snapshot,
     index: &Index,
     module: &Indexed,
-    types: &types::ExprTypes,
+    types: &ExprTypes,
     offset: TextSize,
-) -> Option<Location> {
-    let (record, field) = written(&module.root(), offset)?;
+) -> Option<(Location, SyntaxNode)> {
+    let root = module.root();
+    let (record, field) = written(&root, offset)?;
     let range = code_range(&record)?;
     // A node is typed as what its context expects; a variable's alias is
     // its binding's, typed from the annotation.
@@ -121,14 +121,13 @@ fn resolve(
                 Target::Local(binder) => Some(binder),
                 Target::Global { .. } => None,
             })
-            .or_else(|| crate::scopes::local(&module.root(), range.start()).map(|(b, _)| b));
+            .or_else(|| crate::scopes::local(&root, range.start()).map(|(b, _)| b));
         ranges.extend(bound);
     }
+    // A type's region holds its node's range, and more trivia before it.
     let typed: Vec<&error::Type> = (types.iter())
-        .filter(|(r, _)| {
-            let r = crate::hover::trimmed(&module.root(), *r);
-            r.is_some_and(|r| ranges.contains(&r))
-        })
+        .filter(|(r, _)| ranges.iter().any(|range| r.contains_range(*range)))
+        .filter(|(r, _)| trimmed(&root, *r).is_some_and(|r| ranges.contains(&r)))
         .map(|(_, ty)| ty)
         .collect();
     let aliased = |ty: &&&error::Type| match ty {
@@ -156,38 +155,36 @@ fn resolve(
 /// type in the project's declarations with the same fields, if only one
 /// has them. Unification keeps an alias on one side only, so a record
 /// built in a list or returned from a lambda may have lost its name.
-fn structural(index: &Index, ty: &error::Type, field: &str) -> Option<Location> {
+fn structural(index: &Index, ty: &error::Type, field: &str) -> Option<(Location, SyntaxNode)> {
     let error::Type::Record(fields, extension) = ty else {
         return None;
     };
     let wanted: Vec<&str> = fields.keys().map(String::as_str).collect();
     let closed = matches!(extension, error::Extension::Closed);
-    let mut found = Vec::new();
+    let mut found: Vec<(Location, SyntaxNode)> = Vec::new();
     for module in &index.modules {
-        for record in module
-            .root()
-            .descendants()
-            .filter(|n| n.kind() == SyntaxKind::RecordType)
-        {
-            let declared: Vec<(String, SyntaxNode)> = (record.children())
-                .filter(|c| c.kind() == SyntaxKind::FieldType)
-                .filter_map(|f| Some((token(&f, SyntaxKind::LowerIdent)?, f)))
+        let root = module.root();
+        for record in root.descendants().filter_map(ast::RecordType::cast) {
+            let declared: Vec<_> = (record.field_types())
+                .filter_map(|f| Some((f.lower_ident_token()?, f)))
                 .collect();
-            let names: Vec<&str> = declared.iter().map(|(n, _)| n.as_str()).collect();
-            let fits = if closed {
-                names.len() == wanted.len() && wanted.iter().all(|w| names.contains(w))
-            } else {
-                wanted.iter().all(|w| names.contains(w))
-            };
-            if let Some((_, node)) = declared.iter().find(|(n, _)| n == field).filter(|_| fits) {
-                found.push(Location {
+            let names: Vec<&str> = declared.iter().map(|(n, _)| n.text()).collect();
+            let fits = wanted.iter().all(|w| names.contains(w))
+                && (!closed || names.len() == wanted.len());
+            if let Some((_, node)) = declared
+                .iter()
+                .find(|(n, _)| n.text() == field)
+                .filter(|_| fits)
+            {
+                let location = Location {
                     path: module.path.clone(),
-                    range: code_range(node)?,
-                });
+                    range: code_range(node.syntax())?,
+                };
+                found.push((location, root.clone()));
             }
         }
     }
-    found.dedup();
+    found.dedup_by(|a, b| a.0 == b.0);
     match found.as_slice() {
         [only] => Some(only.clone()),
         _ => None,
@@ -228,27 +225,28 @@ fn written(root: &SyntaxNode, offset: TextSize) -> Option<(SyntaxNode, String)> 
 }
 
 /// Where `ty`, a record's type, declares `field`: the alias it's written
-/// as, or an argument of it.
-fn declared(snapshot: &Snapshot, index: &Index, ty: &error::Type, field: &str) -> Option<Location> {
+/// as, or an argument of it; and the tree of the file that declares it.
+fn declared(
+    snapshot: &Snapshot,
+    index: &Index,
+    ty: &error::Type,
+    field: &str,
+) -> Option<(Location, SyntaxNode)> {
     let error::Type::Alias(home, name, args, _) = ty else {
         return None;
     };
-    let path = module_path(index, &home.module)?;
-    let text = snapshot.read(&path).ok()?;
-    let root = parse_module(&text).syntax();
-    let alias = (root.children())
-        .filter(|n| n.kind() == SyntaxKind::TypeAliasDecl)
-        .find(|n| token(n, SyntaxKind::UpperIdent).as_deref() == Some(name.as_str()));
+    let (path, root) = module_tree(snapshot, index, &home.module)?;
+    let alias = declared_type(&root, SyntaxKind::TypeAliasDecl, name);
     let written = alias.and_then(|alias| {
         (alias.descendants())
             .filter(|n| n.kind() == SyntaxKind::FieldType)
-            .find(|f| token(f, SyntaxKind::LowerIdent).as_deref() == Some(field))
+            .find(|f| child_token(f, SyntaxKind::LowerIdent).is_some_and(|t| t.text() == field))
     });
     match written {
-        Some(declaration) => Some(Location {
-            path,
-            range: code_range(&declaration)?,
-        }),
+        Some(declaration) => {
+            let range = code_range(&declaration)?;
+            Some((Location { path, range }, root))
+        }
         // An extensible alias's other fields are its argument's.
         None => args
             .iter()

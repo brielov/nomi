@@ -16,43 +16,54 @@
 //! Types are written on one line, as elm-language-server's renderer
 //! writes them, qualified as the hovering module would write them.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use nomi_base::{TextRange, TextSize};
 use nomi_compiler::canonical::{self, Home};
 use nomi_compiler::canonicalize::foreign::with_defaults;
 use nomi_compiler::types::localizer::Localizer;
-use nomi_compiler::types::{self, error};
+use nomi_compiler::types::{ExprTypes, error};
 use nomi_engine::Snapshot;
 use nomi_engine::index::{Index, Indexed};
-use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, parse_module};
+use nomi_syntax::ast::{self, AstNode};
+use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, child_token};
 
-use crate::symbols::{child, code_range, token};
+use crate::navigation::Location;
+use crate::tree::{child, code_range, code_text, declaration_range, skip_trivia, words};
 
 /// What to show for the place under the cursor: Markdown, and a link to
-/// the declaration of a parameter's type, for the protocol to write as
-/// a URI: its name, file and one-based line.
+/// the declaration of a parameter's type.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Hover {
     pub markdown: String,
-    pub link: Option<(String, PathBuf, u32)>,
+    pub link: Option<Link>,
+}
+
+/// Where a type is declared, for the protocol to write as a URI.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Link {
+    /// The type's name.
+    pub name: String,
+    pub path: PathBuf,
+    /// The declaration's line, counted from 1.
+    pub line: u32,
 }
 
 /// The hover at `offset` in the file at `path`.
 pub fn hover(snapshot: &Snapshot, index: &Index, path: &Path, offset: TextSize) -> Option<Hover> {
     let module = index.module(path)?;
-    let found = crate::navigation::definition(snapshot, index, path, offset)?;
-    let text = snapshot.read(&found.path).ok()?;
-    let root = parse_module(&text).syntax();
+    let (found, root) = crate::navigation::defined(snapshot, index, path, offset)?;
     let declaring = index.module(&found.path);
-    let localizer = Names::of(index, module);
+    let names = Names::of(index, module);
     let name_at = name_token(&root, found.range)?;
     let parent = name_at.parent()?;
     let typed = |range: TextRange| -> Option<String> {
         let declaring = declaring?;
         let (_, types) = declaring.types(index.compat)?;
         let ty = type_of(&declaring.root(), types, range)?;
-        Some(render_error(&localizer, ty))
+        Some(render_error(&names, ty))
     };
     let markdown = match parent.kind() {
         SyntaxKind::Definition
@@ -60,11 +71,9 @@ pub fn hover(snapshot: &Snapshot, index: &Index, path: &Path, offset: TextSize) 
                 .parent()
                 .is_some_and(|d| d.kind() == SyntaxKind::LetValue) =>
         {
-            let declaration = parent.parent()?;
-            let name = name_at.text();
-            let annotation = match child(&declaration, SyntaxKind::Signature) {
-                Some(signature) => text_of(&signature)?,
-                None => format!("{name} : {}", composed(&parent, typed)?),
+            let annotation = match child(&parent.parent()?, SyntaxKind::Signature) {
+                Some(signature) => code_text(&signature)?,
+                None => format!("{} : {}", name_at.text(), composed(&parent, typed)?),
             };
             format_hint(&annotation, "Defined in local let scope", None)
         }
@@ -79,50 +88,10 @@ pub fn hover(snapshot: &Snapshot, index: &Index, path: &Path, offset: TextSize) 
             let annotation = (parent.kind() == SyntaxKind::Definition)
                 .then(|| value_type(index, declaring, &root, name))
                 .flatten()
-                .map(|ty| format!("{name} : {}", render(&localizer, &ty)));
+                .map(|ty| format!("{name} : {}", render(&names, ty)));
             declaration_hint(&root, &name_at, annotation)?
         }
-        _ => {
-            // A variable a pattern binds.
-            let within = parent.ancestors().find(|a| {
-                matches!(
-                    a.kind(),
-                    SyntaxKind::LetDestructure
-                        | SyntaxKind::Definition
-                        | SyntaxKind::LambdaExpr
-                        | SyntaxKind::CaseBranch
-                )
-            })?;
-            // An alias's type is its whole pattern's.
-            let ty = typed(name_at.text_range()).or_else(|| {
-                (parent.kind() == SyntaxKind::AliasPattern)
-                    .then(|| code_range(&parent).and_then(typed))
-                    .flatten()
-            });
-            let name = name_at.text();
-            if within.kind() == SyntaxKind::LetDestructure {
-                let annotation = ty.map(|ty| format!("{name} : {ty}")).unwrap_or_default();
-                format_hint(&annotation, "Defined in local let scope", None)
-            } else {
-                // A record update's base has no type of its own to
-                // elm-language-server, so nothing to link to.
-                let base = (module.root().token_at_offset(offset))
-                    .find(|t| t.kind() == SyntaxKind::LowerIdent)
-                    .and_then(|t| t.parent())
-                    .is_some_and(|p| p.kind() == SyntaxKind::RecordUpdateExpr);
-                let link = (!base)
-                    .then(|| crate::navigation::type_definition(snapshot, index, path, offset))
-                    .flatten()
-                    .and_then(|location| link(snapshot, &location));
-                let markdown = match ty {
-                    Some(ty) if ty != "unknown" => {
-                        format_hint(&format!("{name} : {ty}"), "Local parameter", None)
-                    }
-                    _ => "Local parameter".to_owned(),
-                };
-                return Some(Hover { markdown, link });
-            }
-        }
+        _ => return binding_hover(snapshot, index, module, offset, &name_at, typed),
     };
     // A hint with nothing to say, such as a module's without a doc
     // comment, is no hover at all.
@@ -130,6 +99,61 @@ pub fn hover(snapshot: &Snapshot, index: &Index, path: &Path, offset: TextSize) 
         markdown,
         link: None,
     })
+}
+
+/// The hover of `name_at`, a variable a pattern binds, asked about at
+/// `offset` in `module`, typed by `typed`.
+fn binding_hover(
+    snapshot: &Snapshot,
+    index: &Index,
+    module: &Indexed,
+    offset: TextSize,
+    name_at: &SyntaxToken,
+    typed: impl Fn(TextRange) -> Option<String>,
+) -> Option<Hover> {
+    let parent = name_at.parent()?;
+    let within = parent.ancestors().find(|a| {
+        matches!(
+            a.kind(),
+            SyntaxKind::LetDestructure
+                | SyntaxKind::Definition
+                | SyntaxKind::LambdaExpr
+                | SyntaxKind::CaseBranch
+        )
+    })?;
+    let ty = typed(name_at.text_range()).or_else(|| {
+        // An alias's type is its whole pattern's.
+        (parent.kind() == SyntaxKind::AliasPattern)
+            .then(|| code_range(&parent).and_then(&typed))
+            .flatten()
+    });
+    let name = name_at.text();
+    if within.kind() == SyntaxKind::LetDestructure {
+        let annotation = ty.map(|ty| format!("{name} : {ty}")).unwrap_or_default();
+        let markdown = format_hint(&annotation, "Defined in local let scope", None);
+        return Some(Hover {
+            markdown,
+            link: None,
+        });
+    }
+    // A record update's base has no type of its own to
+    // elm-language-server, so nothing to link to.
+    let base = (module.root().token_at_offset(offset))
+        .find(|t| t.kind() == SyntaxKind::LowerIdent)
+        .and_then(|t| t.parent())
+        .is_some_and(|p| p.kind() == SyntaxKind::RecordUpdateExpr);
+    let link = (!base)
+        .then(|| crate::navigation::type_defined(snapshot, index, &module.path, offset))
+        .flatten()
+        .and_then(|(location, root)| link(&location, &root));
+    // `createHintFromFunctionParameter` tests the type it writes.
+    let markdown = match ty {
+        Some(ty) if ty != "unknown" => {
+            format_hint(&format!("{name} : {ty}"), "Local parameter", None)
+        }
+        _ => "Local parameter".to_owned(),
+    };
+    Some(Hover { markdown, link })
 }
 
 /// `HintHelper.createHint` for the declaration whose name is `name_at`:
@@ -146,18 +170,16 @@ pub(crate) fn declaration_hint(
         SyntaxKind::ModuleName => format_hint("", &doc_of(root), None),
         SyntaxKind::Definition => {
             let declaration = parent.parent()?;
-            let comment = (crate::lint::first_token(&declaration, SyntaxKind::DocComment))
-                .map(|d| d.text().to_owned())
-                .unwrap_or_default();
+            let comment = doc_of(&declaration);
             let signature = child(&declaration, SyntaxKind::Signature);
             let annotation = annotation
-                .or_else(|| signature.as_ref().and_then(text_of))
+                .or_else(|| signature.as_ref().and_then(code_text))
                 .unwrap_or_default();
             // Its name and parameters, where anything comes before.
             let preceded =
                 signature.is_some() || !comment.is_empty() || declaration.prev_sibling().is_some();
             let end = (parent.children())
-                .filter(|c| crate::lint::is_pattern(c.kind()))
+                .filter(|c| ast::Pattern::can_cast(c.kind()))
                 .last()
                 .map_or_else(|| name_at.text_range().end(), |p| p.text_range().end());
             let left = TextRange::new(name_at.text_range().start(), end);
@@ -165,18 +187,17 @@ pub(crate) fn declaration_hint(
             format_hint(&annotation, &comment, code.as_deref())
         }
         SyntaxKind::TypeAliasDecl | SyntaxKind::CustomTypeDecl => {
-            let comment = doc_of(&parent);
-            let range = crate::symbols::declaration_range(&parent)?;
-            format_hint("", &comment, Some(&text_in(root, range)))
+            let range = declaration_range(&parent)?;
+            format_hint("", &doc_of(&parent), Some(&text_in(root, range)))
         }
         SyntaxKind::Variant => {
             let union = parent.parent()?;
             let union_doc = doc_of(&union);
             if union_doc.is_empty() {
-                let name =
-                    token(&union, SyntaxKind::UpperIdent).unwrap_or_else(|| "unknown".into());
+                let name = child_token(&union, SyntaxKind::UpperIdent);
+                let name = name.as_ref().map_or("unknown", |n| n.text());
                 let comment = format!("A variant on the union type `{name}`");
-                format_hint("", &comment, Some(&text_of(&parent)?))
+                format_hint("", &comment, Some(&code_text(&parent)?))
             } else {
                 format_hint("", &union_doc, None)
             }
@@ -188,21 +209,21 @@ pub(crate) fn declaration_hint(
                 lines.push(comment);
             }
             lines.push(
-                match alias.and_then(|a| token(&a, SyntaxKind::UpperIdent)) {
-                    Some(name) => format!("Field on the type alias `{name}`"),
+                match alias.and_then(|a| child_token(&a, SyntaxKind::UpperIdent)) {
+                    Some(name) => format!("Field on the type alias `{}`", name.text()),
                     None => "Field".to_owned(),
                 },
             );
-            format_hint(&text_of(&parent)?, &lines.join("\n\n"), None)
+            format_hint(&code_text(&parent)?, &lines.join("\n\n"), None)
         }
         SyntaxKind::PortDecl => {
-            let name = token(&parent, SyntaxKind::LowerIdent)?;
-            let ty = parent.children().find(|c| crate::lint::is_type(c.kind()))?;
-            format_hint(
-                &format!("{name} : {}", text_of(&ty)?),
-                &doc_of(&parent),
-                None,
-            )
+            let port = ast::PortDecl::cast(parent)?;
+            let annotation = format!(
+                "{} : {}",
+                port.lower_ident_token()?.text(),
+                code_text(port.ty()?.syntax())?
+            );
+            format_hint(&annotation, &doc_of(port.syntax()), None)
         }
         _ => return None,
     })
@@ -210,39 +231,20 @@ pub(crate) fn declaration_hint(
 
 /// The name a declaring node's range starts with, past its trivia.
 fn name_token(root: &SyntaxNode, range: TextRange) -> Option<SyntaxToken> {
-    let mut token = root.token_at_offset(range.start()).right_biased()?;
-    while token.kind().is_trivia() {
-        token = token.next_token()?;
+    let token = skip_trivia(root.token_at_offset(range.start()).right_biased()?)?;
+    let parent = token.parent()?;
+    match parent.kind() {
+        // A header's name, not its `module` keyword.
+        SyntaxKind::ModuleHeader => child(&parent, SyntaxKind::ModuleName)?.first_token(),
+        // A declaration's name, not its `type` or `port` keyword.
+        SyntaxKind::TypeAliasDecl | SyntaxKind::CustomTypeDecl => {
+            child_token(&parent, SyntaxKind::UpperIdent)
+        }
+        SyntaxKind::PortDecl => child_token(&parent, SyntaxKind::LowerIdent),
+        _ => Some(token),
     }
-    // A header's name, not its `module` keyword.
-    if token
-        .parent()
-        .is_some_and(|p| p.kind() == SyntaxKind::ModuleHeader)
-    {
-        let header = token.parent()?;
-        let name = child(&header, SyntaxKind::ModuleName)?;
-        return name.first_token();
-    }
-    // A declaration's name, not its `type` or `port` keyword.
-    if let Some(parent) = token.parent()
-        && matches!(
-            parent.kind(),
-            SyntaxKind::TypeAliasDecl | SyntaxKind::CustomTypeDecl | SyntaxKind::PortDecl
-        )
-    {
-        let kind = if parent.kind() == SyntaxKind::PortDecl {
-            SyntaxKind::LowerIdent
-        } else {
-            SyntaxKind::UpperIdent
-        };
-        return crate::lint::first_token(&parent, kind);
-    }
-    Some(token)
 }
 
-/// The type of the top-level value `name` the module of `root`
-/// declares: inferred where the module is the project's, from its
-/// interface where it's a dependency's.
 /// A `let` value's type as elm-language-server writes it: its
 /// parameters' types, then its body's, by `typed`.
 fn composed(
@@ -251,17 +253,10 @@ fn composed(
 ) -> Option<String> {
     let mut parts = Vec::new();
     for part in definition.children() {
-        let range = code_range(&part)?;
-        if crate::lint::is_pattern(part.kind()) {
-            let ty = typed(range)?;
-            parts.push(if ty.contains("->") {
-                format!("({ty})")
-            } else {
-                ty
-            });
-        } else {
-            parts.push(typed(range)?);
-        }
+        let ty = typed(code_range(&part)?)?;
+        // elm-language-server writes a function's in parentheses.
+        let function = ast::Pattern::can_cast(part.kind()) && ty.contains("->");
+        parts.push(argument(ty, function));
     }
     Some(parts.join(" -> "))
 }
@@ -275,53 +270,59 @@ pub(crate) fn definition_type(
     definition: &SyntaxNode,
 ) -> Option<String> {
     let names = Names::of(index, module);
-    let top = (definition.parent()).is_some_and(|d| d.kind() == SyntaxKind::ValueDecl);
-    if top {
-        let name = token(definition, SyntaxKind::LowerIdent)?;
-        let ty = value_type(index, Some(module), &module.root(), &name)?;
-        return Some(render(&names, &ty));
+    let root = module.root();
+    if (definition.parent()).is_some_and(|d| d.kind() == SyntaxKind::ValueDecl) {
+        let name = child_token(definition, SyntaxKind::LowerIdent)?;
+        let ty = value_type(index, Some(module), &root, name.text())?;
+        return Some(render(&names, ty));
     }
     let (_, types) = module.types(index.compat)?;
     composed(definition, |range| {
-        type_of(&module.root(), types, range).map(|ty| render_error(&names, ty))
+        type_of(&root, types, range).map(|ty| render_error(&names, ty))
     })
 }
 
-fn value_type(
-    index: &Index,
-    declaring: Option<&Indexed>,
+/// The type of the top-level value `name` the module of `root`
+/// declares: inferred where the module is the project's, `declaring`,
+/// from its interface where it's a dependency's.
+fn value_type<'i>(
+    index: &'i Index,
+    declaring: Option<&'i Indexed>,
     root: &SyntaxNode,
     name: &str,
-) -> Option<canonical::Type> {
+) -> Option<&'i canonical::Type> {
     if let Some(declaring) = declaring {
         let canonical = declaring.canonical.as_ref()?;
-        if let Ok(inferred) = types::infer(index.compat, canonical)
+        if let Some((Ok(inferred), _)) = declaring.types(index.compat)
             && let Some(annotation) = inferred.get(name)
         {
-            return Some((*annotation.ty).clone());
+            return Some(&annotation.ty);
         }
-        return canonical.annotations.get(name).map(|a| (*a.ty).clone());
+        return canonical.annotations.get(name).map(|a| &*a.ty);
     }
     let header = child(root, SyntaxKind::ModuleHeader)?;
-    let module = crate::symbols::words(&child(&header, SyntaxKind::ModuleName)?);
+    let module = words(&child(&header, SyntaxKind::ModuleName)?);
     let interface = index.interfaces.get(&module)?;
-    interface.values.get(name).map(|a| (*a.ty).clone())
+    interface.values.get(name).map(|a| &*a.ty)
 }
 
-/// The link to the declaration at `location`: its name and line.
-fn link(snapshot: &Snapshot, location: &crate::Location) -> Option<(String, PathBuf, u32)> {
-    let text = snapshot.read(&location.path).ok()?;
-    let root = parse_module(&text).syntax();
-    let token = name_token(&root, location.range)?;
-    let line = text[..usize::from(location.range.start())]
-        .matches('\n')
-        .count() as u32;
-    Some((token.text().to_owned(), location.path.clone(), line + 1))
+/// The link to the declaration at `location`, in the file of `root`:
+/// its name and line.
+fn link(location: &Location, root: &SyntaxNode) -> Option<Link> {
+    let token = name_token(root, location.range)?;
+    let mut line = 1;
+    (root.text().slice(TextRange::up_to(location.range.start())))
+        .for_each_chunk(|chunk| line += chunk.matches('\n').count() as u32);
+    Some(Link {
+        name: token.text().to_owned(),
+        path: location.path.clone(),
+        line,
+    })
 }
 
 /// The doc comment `node` holds, as a node holds its own.
 fn doc_of(node: &SyntaxNode) -> String {
-    (crate::lint::first_token(node, SyntaxKind::DocComment))
+    child_token(node, SyntaxKind::DocComment)
         .map(|d| d.text().to_owned())
         .unwrap_or_default()
 }
@@ -339,12 +340,7 @@ fn trailing_comment(node: &SyntaxNode) -> Option<String> {
     None
 }
 
-/// `node`'s text without its doc comment and the trivia around it.
-fn text_of(node: &SyntaxNode) -> Option<String> {
-    let range = code_range(node)?;
-    Some(text_in(node, range))
-}
-
+/// The text of `range` in `node`.
 fn text_in(node: &SyntaxNode, range: TextRange) -> String {
     let start = range.start() - node.text_range().start();
     node.text().slice(start..start + range.len()).to_string()
@@ -383,8 +379,15 @@ fn strip_comment(comment: &str) -> String {
 }
 
 /// A type as elm-language-server's renderer writes it.
-pub(crate) fn render(localizer: &Names, ty: &canonical::Type) -> String {
+pub(crate) fn render(names: &Names, ty: &canonical::Type) -> String {
     use canonical::Type as T;
+    let complex = |ty: &T| match ty {
+        T::Lambda(..) => true,
+        T::Type { args, .. } => !args.is_empty(),
+        T::Alias { args, .. } => !args.is_empty(),
+        T::Var(_) | T::Record(..) | T::Unit | T::Tuple(..) => false,
+    };
+    let argument_of = |ty: &T| argument(render(names, ty), complex(ty));
     match ty {
         T::Lambda(..) => {
             let mut parts = Vec::new();
@@ -394,137 +397,109 @@ pub(crate) fn render(localizer: &Names, ty: &canonical::Type) -> String {
                 ty = result;
             }
             parts.push(ty);
-            let parts: Vec<String> = (parts.iter())
-                .map(|p| match p {
-                    T::Lambda(..) => format!("({})", render(localizer, p)),
-                    p => render(localizer, p),
-                })
-                .collect();
-            parts.join(" -> ")
+            let parts = parts
+                .iter()
+                .map(|p| argument(render(names, p), matches!(p, T::Lambda(..))));
+            parts.collect::<Vec<_>>().join(" -> ")
         }
         T::Var(name) => name.clone(),
-        T::Type { home, name, args } => {
-            let args: Vec<(String, bool)> = (args.iter())
-                .map(|a| (render(localizer, a), complex(a)))
-                .collect();
-            named(localizer, home, name, &args)
-        }
+        T::Type { home, name, args } => named(names, home, name, args.iter().map(argument_of)),
         T::Alias {
             home, name, args, ..
-        } => {
-            let args: Vec<(String, bool)> = (args.iter())
-                .map(|(_, a)| (render(localizer, a), complex(a)))
-                .collect();
-            named(localizer, home, name, &args)
-        }
+        } => named(names, home, name, args.iter().map(|(_, a)| argument_of(a))),
         T::Record(fields, extension) => {
             let mut fields: Vec<_> = fields.iter().collect();
             fields.sort_by_key(|(_, f)| f.order);
-            if let Some(written) = &localizer.written {
-                fields.sort_by_key(|(name, _)| {
+            if let Some(written) = &names.written {
+                fields.sort_by_cached_key(|(name, _)| {
                     written.find(&format!("{name} :")).unwrap_or(usize::MAX)
                 });
             }
-            let fields: Vec<String> = (fields.iter())
-                .map(|(name, f)| format!("{name} : {}", render(localizer, &f.ty)))
-                .collect();
-            let base = extension
-                .as_ref()
-                .map(|e| format!("{e} | "))
-                .unwrap_or_default();
-            format!("{{ {base}{} }}", fields.join(", "))
+            let fields = fields
+                .iter()
+                .map(|(name, f)| format!("{name} : {}", render(names, &f.ty)));
+            record(extension.as_deref(), fields)
         }
         T::Unit => "()".to_owned(),
-        T::Tuple(a, b, c) => {
-            let mut parts = vec![render(localizer, a), render(localizer, b)];
-            parts.extend(c.as_ref().map(|c| render(localizer, c)));
-            format!("( {} )", parts.join(", "))
-        }
-    }
-}
-
-/// Whether a type is written in parentheses as an argument.
-fn complex(ty: &canonical::Type) -> bool {
-    use canonical::Type as T;
-    match ty {
-        T::Lambda(..) => true,
-        T::Type { args, .. } => !args.is_empty(),
-        T::Alias { args, .. } => !args.is_empty(),
-        _ => false,
+        T::Tuple(a, b, c) => tuple([a, b].into_iter().chain(c).map(|t| render(names, t))),
     }
 }
 
 /// An inferred type as elm-language-server's renderer writes it.
-pub(crate) fn render_error(localizer: &Names, ty: &error::Type) -> String {
+pub(crate) fn render_error(names: &Names, ty: &error::Type) -> String {
     use error::Type as E;
-    fn complex(ty: &error::Type) -> bool {
-        match ty {
-            error::Type::Lambda(..) => true,
-            error::Type::Type(_, _, args) => !args.is_empty(),
-            error::Type::Alias(_, _, args, _) => !args.is_empty(),
-            _ => false,
-        }
-    }
+    let complex = |ty: &E| match ty {
+        E::Lambda(..) => true,
+        E::Type(_, _, args) => !args.is_empty(),
+        E::Alias(_, _, args, _) => !args.is_empty(),
+        E::Infinite
+        | E::Error
+        | E::FlexVar(_)
+        | E::FlexSuper(..)
+        | E::RigidVar(_)
+        | E::RigidSuper(..)
+        | E::Record(..)
+        | E::Unit
+        | E::Tuple(..) => false,
+    };
+    let argument_of = |ty: &E| argument(render_error(names, ty), complex(ty));
     match ty {
         E::Lambda(a, b, rest) => {
-            let parts: Vec<String> = (std::iter::once(&**a)
-                .chain(std::iter::once(&**b))
-                .chain(rest))
-            .map(|p| match p {
-                E::Lambda(..) => format!("({})", render_error(localizer, p)),
-                p => render_error(localizer, p),
-            })
-            .collect();
-            parts.join(" -> ")
+            let parts = [&**a, &**b].into_iter().chain(rest);
+            let parts = parts.map(|p| argument(render_error(names, p), matches!(p, E::Lambda(..))));
+            parts.collect::<Vec<_>>().join(" -> ")
         }
         E::Infinite | E::Error => "unknown".to_owned(),
         E::FlexVar(name) | E::RigidVar(name) | E::FlexSuper(_, name) | E::RigidSuper(_, name) => {
             name.clone()
         }
-        E::Type(home, name, args) => {
-            let args: Vec<(String, bool)> = (args.iter())
-                .map(|a| (render_error(localizer, a), complex(a)))
-                .collect();
-            named(localizer, home, name, &args)
-        }
+        E::Type(home, name, args) => named(names, home, name, args.iter().map(argument_of)),
         E::Alias(home, name, args, _) => {
-            let args: Vec<(String, bool)> = (args.iter())
-                .map(|(_, a)| (render_error(localizer, a), complex(a)))
-                .collect();
-            named(localizer, home, name, &args)
+            named(names, home, name, args.iter().map(|(_, a)| argument_of(a)))
         }
         E::Record(fields, extension) => {
-            let fields: Vec<String> = (fields.iter())
-                .map(|(name, f)| format!("{name} : {}", render_error(localizer, f)))
-                .collect();
             let base = match extension {
-                error::Extension::Closed => String::new(),
-                error::Extension::FlexOpen(e) | error::Extension::RigidOpen(e) => format!("{e} | "),
+                error::Extension::Closed => None,
+                error::Extension::FlexOpen(e) | error::Extension::RigidOpen(e) => Some(e.as_str()),
             };
-            format!("{{ {base}{} }}", fields.join(", "))
+            let fields = fields
+                .iter()
+                .map(|(name, f)| format!("{name} : {}", render_error(names, f)));
+            record(base, fields)
         }
         E::Unit => "()".to_owned(),
-        E::Tuple(a, b, c) => {
-            let mut parts = vec![render_error(localizer, a), render_error(localizer, b)];
-            parts.extend(c.as_ref().map(|c| render_error(localizer, c)));
-            format!("( {} )", parts.join(", "))
-        }
+        E::Tuple(a, b, c) => tuple([a, b].into_iter().chain(c).map(|t| render_error(names, t))),
     }
 }
 
+/// A type written as an argument: in parentheses where it's `complex`.
+fn argument(written: String, complex: bool) -> String {
+    if complex {
+        format!("({written})")
+    } else {
+        written
+    }
+}
+
+/// A record type of `fields`, extending `base` where given.
+fn record(base: Option<&str>, fields: impl Iterator<Item = String>) -> String {
+    let base = base.map(|e| format!("{e} | ")).unwrap_or_default();
+    format!("{{ {base}{} }}", fields.collect::<Vec<_>>().join(", "))
+}
+
+fn tuple(parts: impl Iterator<Item = String>) -> String {
+    format!("( {} )", parts.collect::<Vec<_>>().join(", "))
+}
+
 /// A named type with its arguments, qualified as the module writes it.
-fn named(localizer: &Names, home: &Home, name: &str, args: &[(String, bool)]) -> String {
+fn named(names: &Names, home: &Home, name: &str, args: impl Iterator<Item = String>) -> String {
     if &*home.module == "WebGL" && name == "Shader" {
         return "shader".to_owned();
     }
-    let mut written = localizer.qualify(home, name);
-    for (arg, complex) in args {
+    let mut written = names.qualify(home, name);
+    for arg in args {
         written.push(' ');
-        if *complex {
-            written.push_str(&format!("({arg})"));
-        } else {
-            written.push_str(arg);
-        }
+        written.push_str(&arg);
     }
     written
 }
@@ -536,8 +511,8 @@ fn named(localizer: &Names, home: &Home, name: &str, args: &[(String, bool)]) ->
 #[derive(Clone)]
 pub(crate) struct Names {
     // Shared, as a completion writes many types with them.
-    exposed: std::rc::Rc<std::collections::HashSet<String>>,
-    imports: std::rc::Rc<Vec<(String, Option<String>)>>,
+    exposed: Rc<HashSet<String>>,
+    imports: Rc<Vec<(String, Option<String>)>>,
     /// An annotation as written, whose records' fields come in its
     /// order: an interface's types have lost it, and elm-language-server
     /// keeps the annotation's.
@@ -549,16 +524,12 @@ impl Names {
         use nomi_compiler::hir::{Exposed, Exposing};
         use nomi_compiler::interface::Union;
         let imports = with_defaults(&index.package, &indexed.hir.imports);
-        let mut exposed = std::collections::HashSet::new();
+        let mut exposed = HashSet::new();
         for import in &imports {
             let interface = index.interfaces.get(&import.name.text);
             let constructors = |union: &str| -> Vec<String> {
                 (interface.and_then(|i| i.unions.get(union)))
-                    .map(|u| match u {
-                        Union::Open(u) | Union::Closed(u) | Union::Private(u) => {
-                            u.ctors.iter().map(|c| c.name.clone()).collect()
-                        }
-                    })
+                    .map(|u| u.whole().ctors.iter().map(|c| c.name.clone()).collect())
                     .unwrap_or_default()
             };
             match &import.exposing {
@@ -601,24 +572,24 @@ impl Names {
             })
             .collect();
         Names {
-            exposed: std::rc::Rc::new(exposed),
-            imports: std::rc::Rc::new(imports),
+            exposed: Rc::new(exposed),
+            imports: Rc::new(imports),
+            written: None,
+        }
+    }
+
+    /// Every name bare, as elm-language-server writes a type it renders
+    /// with no module to write it in, such as a record field's.
+    pub(crate) fn bare() -> Names {
+        Names {
+            exposed: Rc::default(),
+            imports: Rc::default(),
             written: None,
         }
     }
 
     /// These names, writing records' fields in the order `annotation`
     /// writes them.
-    /// Every name bare, as elm-language-server writes a type it renders
-    /// with no module to write it in, such as a record field's.
-    pub(crate) fn bare() -> Names {
-        Names {
-            exposed: std::rc::Rc::default(),
-            imports: std::rc::Rc::default(),
-            written: None,
-        }
-    }
-
     pub(crate) fn written_as(mut self, annotation: Option<String>) -> Names {
         self.written = annotation;
         self
@@ -651,34 +622,46 @@ pub(crate) fn localizer(index: &Index, indexed: &Indexed) -> Localizer {
 /// that starts with it and leaves only closing parentheses out.
 pub(crate) fn type_of<'t>(
     root: &SyntaxNode,
-    types: &'t types::ExprTypes,
+    types: &'t ExprTypes,
     range: TextRange,
 ) -> Option<&'t error::Type> {
-    let exact = (types.iter())
-        .rev()
-        .find(|(r, _)| trimmed(root, *r) == Some(range))
-        .map(|(_, ty)| ty);
-    exact.or_else(|| {
-        let text = root.text().to_string();
+    types_at(root, types, range).next_back().or_else(|| {
         (types.iter())
             .filter(|(r, _)| r.start() == range.start() && r.end() < range.end())
-            .filter(|(r, _)| {
-                text.get(usize::from(r.end())..usize::from(range.end()))
-                    .is_some_and(|rest| rest.chars().all(|c| c == ')' || c.is_whitespace()))
-            })
+            .filter(|(r, _)| closing(root, TextRange::new(r.end(), range.end())))
             .max_by_key(|(r, _)| r.end())
             .map(|(_, ty)| ty)
     })
 }
 
+/// The types `types` records for the expression or pattern at `range` in
+/// `root`, in order: those whose region, past its trivia, is `range`.
+pub(crate) fn types_at<'t>(
+    root: &SyntaxNode,
+    types: &'t ExprTypes,
+    range: TextRange,
+) -> impl DoubleEndedIterator<Item = &'t error::Type> {
+    (types.iter())
+        .filter(move |(r, _)| r.contains_range(range) && trimmed(root, *r) == Some(range))
+        .map(|(_, ty)| ty)
+}
+
+/// Whether `range` of `root` holds nothing but closing parentheses and
+/// space.
+fn closing(root: &SyntaxNode, range: TextRange) -> bool {
+    root.text_range().contains_range(range)
+        && (root.text().slice(range))
+            .try_for_each_chunk(|chunk| {
+                let closes = chunk.chars().all(|c| c == ')' || c.is_whitespace());
+                if closes { Ok(()) } else { Err(()) }
+            })
+            .is_ok()
+}
+
 /// `range` from its first token that isn't trivia.
 pub(crate) fn trimmed(root: &SyntaxNode, range: TextRange) -> Option<TextRange> {
     let range = range.intersect(root.text_range())?;
-    let token = root.token_at_offset(range.start()).right_biased()?;
-    let mut token = token;
-    while token.kind().is_trivia() {
-        token = token.next_token()?;
-    }
+    let token = skip_trivia(root.token_at_offset(range.start()).right_biased()?)?;
     let start = token.text_range().start();
     (start <= range.end()).then(|| TextRange::new(start, range.end()))
 }

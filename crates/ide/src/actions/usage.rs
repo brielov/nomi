@@ -158,13 +158,12 @@ pub(super) fn external_function_edits(
     let arity = ty.as_ref().map_or(0, arity);
     let mut found = Vec::new();
     for import in (module.root().children()).filter(|n| n.kind() == SyntaxKind::Import) {
-        let Some(imported) =
-            child(&import, SyntaxKind::ModuleName).map(|n| crate::symbols::words(&n))
+        let Some(imported) = child(&import, SyntaxKind::ModuleName).map(|n| crate::tree::words(&n))
         else {
             continue;
         };
         let alias = (child(&import, SyntaxKind::ImportAlias))
-            .and_then(|a| crate::symbols::token(&a, SyntaxKind::UpperIdent));
+            .and_then(|a| crate::tree::token(&a, SyntaxKind::UpperIdent));
         if imported != qualifier && alias.as_deref() != Some(qualifier.as_str()) {
             continue;
         }
@@ -333,7 +332,7 @@ pub(super) fn union_edits(fixing: &Fixing<'_>, range: TextRange) -> FileEdits {
         let imported = (module.root().children())
             .filter(|n| n.kind() == SyntaxKind::Import)
             .filter_map(|i| child(&i, SyntaxKind::ModuleName))
-            .any(|n| crate::symbols::words(&n) == *home.module);
+            .any(|n| crate::tree::words(&n) == *home.module);
         imported
             .then(|| context.index.named(&home.module))
             .flatten()
@@ -343,7 +342,7 @@ pub(super) fn union_edits(fixing: &Fixing<'_>, range: TextRange) -> FileEdits {
     };
     let Some(declaration) = (target.root().children()).find(|d| {
         d.kind() == SyntaxKind::CustomTypeDecl
-            && crate::symbols::token(d, SyntaxKind::UpperIdent).as_deref() == Some(name.as_ref())
+            && crate::tree::token(d, SyntaxKind::UpperIdent).as_deref() == Some(name.as_ref())
     }) else {
         return Vec::new();
     };

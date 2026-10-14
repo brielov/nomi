@@ -13,15 +13,17 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use nomi_base::{TextRange, TextSize};
 use nomi_engine::Snapshot;
 use nomi_engine::index::{Index, Indexed};
 use nomi_project::Outline;
+use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, parse_module};
 
 use crate::Edit;
-use crate::symbols::{child, code_range, token, words};
+use crate::tree::{child, code_range, token, words};
 
 /// What a completion is, as the protocol numbers it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -346,7 +348,8 @@ pub(crate) struct Context<'c> {
     importable: std::cell::OnceCell<Vec<Importable>>,
     sources: std::cell::RefCell<HashMap<String, Option<(SyntaxNode, PathBuf)>>>,
     names: std::cell::OnceCell<crate::hover::Names>,
-    signatures: std::cell::RefCell<HashMap<String, std::rc::Rc<HashMap<String, String>>>>,
+    signatures: std::cell::RefCell<HashMap<String, Rc<HashMap<String, String>>>>,
+    exposed: std::cell::RefCell<HashMap<String, Option<Rc<Vec<PlainName>>>>>,
 }
 
 impl<'c> Context<'c> {
@@ -365,6 +368,7 @@ impl<'c> Context<'c> {
             sources: std::cell::RefCell::new(HashMap::new()),
             names: std::cell::OnceCell::new(),
             signatures: std::cell::RefCell::new(HashMap::new()),
+            exposed: std::cell::RefCell::new(HashMap::new()),
         }
     }
 
@@ -395,10 +399,10 @@ impl Context<'_> {
                         continue;
                     };
                     // One without a body yet is no declaration to it.
-                    if !definition.children().any(|c| is_expr(c.kind())) {
+                    if !definition.children().any(|c| ast::Expr::can_cast(c.kind())) {
                         continue;
                     }
-                    let Some(name) = crate::lint::first_token(&definition, SyntaxKind::LowerIdent)
+                    let Some(name) = nomi_syntax::child_token(&definition, SyntaxKind::LowerIdent)
                     else {
                         continue;
                     };
@@ -414,7 +418,7 @@ impl Context<'_> {
                     ));
                 }
                 SyntaxKind::PortDecl => {
-                    let Some(name) = crate::lint::first_token(&decl, SyntaxKind::LowerIdent) else {
+                    let Some(name) = nomi_syntax::child_token(&decl, SyntaxKind::LowerIdent) else {
                         continue;
                     };
                     let documentation = crate::hover::declaration_hint(root, &name, None);
@@ -429,7 +433,7 @@ impl Context<'_> {
                     ));
                 }
                 SyntaxKind::CustomTypeDecl => {
-                    let Some(name) = crate::lint::first_token(&decl, SyntaxKind::UpperIdent) else {
+                    let Some(name) = nomi_syntax::child_token(&decl, SyntaxKind::UpperIdent) else {
                         continue;
                     };
                     let documentation = crate::hover::declaration_hint(root, &name, None);
@@ -468,7 +472,7 @@ impl Context<'_> {
                     }
                 }
                 SyntaxKind::TypeAliasDecl => {
-                    let Some(name) = crate::lint::first_token(&decl, SyntaxKind::UpperIdent) else {
+                    let Some(name) = nomi_syntax::child_token(&decl, SyntaxKind::UpperIdent) else {
                         continue;
                     };
                     let documentation = crate::hover::declaration_hint(root, &name, None);
@@ -761,7 +765,7 @@ impl Context<'_> {
             .last()
             .and_then(|n| code_range(&n))
             .or_else(|| {
-                crate::lint::first_token(root, SyntaxKind::DocComment).map(|t| t.text_range())
+                nomi_syntax::child_token(root, SyntaxKind::DocComment).map(|t| t.text_range())
             })
             .or_else(|| child(root, SyntaxKind::ModuleHeader).and_then(|h| code_range(&h)));
         let line = last.map_or(1, |r| {
@@ -783,37 +787,14 @@ impl Context<'_> {
         }
     }
 
-    /// The source of the module `name`: a dependency's, as
-    /// elm-language-server prefers where the project has one of the same
-    /// name too, which elm itself refuses; or else the project's.
-    /// What the module `name` exposes, as [`exposed`] reads it, worked
-    /// out once for each text of it in the life of the process.
-    pub(crate) fn exposed_names(&self, name: &str) -> Option<std::sync::Arc<Vec<PlainName>>> {
-        use std::sync::{Arc, Mutex, OnceLock};
-        type Cached = (Arc<str>, Arc<Vec<PlainName>>);
-        static EXPOSED: OnceLock<Mutex<HashMap<PathBuf, Cached>>> = OnceLock::new();
-        let cache = EXPOSED.get_or_init(|| Mutex::new(HashMap::new()));
-        // A project module's text, as indexed; a package's, which never
-        // changes, as it was first read.
-        let (path, text) = if let Some(own) = self.index.named(name) {
-            (own.path.clone(), Some(own.text.clone()))
-        } else {
-            let path = (self.importable_modules().iter())
-                .find(|(module, _, _)| module == name)
-                .and_then(|(_, path, _)| path.clone())?;
-            (path, None)
-        };
-        if let Some((was, names)) = (cache
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner))
-        .get(&path)
-            && text.as_ref().is_none_or(|text| **was == **text)
-        {
-            return Some(names.clone());
+    /// What the module `name` exposes, as [`exposed`] reads it from
+    /// [`Context::module_source`], each module's worked out once.
+    pub(crate) fn exposed_names(&self, name: &str) -> Option<Rc<Vec<PlainName>>> {
+        if let Some(names) = self.exposed.borrow().get(name) {
+            return names.clone();
         }
-        let (root, _) = self.module_source(name)?;
-        let names: Vec<PlainName> = (exposed(&root).into_iter())
-            .map(|e| PlainName {
+        let names = self.module_source(name).map(|(root, _)| {
+            let names = (exposed(&root).into_iter()).map(|e| PlainName {
                 label: e.label,
                 name: e.name.text().to_owned(),
                 name_at: e.name.text_range().start(),
@@ -827,29 +808,23 @@ impl Context<'_> {
                             .collect(),
                     },
                 },
-            })
-            .collect();
-        let names = Arc::new(names);
-        let text: Arc<str> = text.unwrap_or_else(|| Arc::from(root.text().to_string()));
-        (cache
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner))
-        .insert(path, (text, names.clone()));
-        Some(names)
+            });
+            Rc::new(names.collect())
+        });
+        (self.exposed.borrow_mut()).insert(name.to_owned(), names.clone());
+        names
     }
 
     /// [`crate::hover::declaration_hint`] of `name` in the module
-    /// `module`, whose tree is `root`: kept for the life of the process
-    /// where the module is a package's, whose sources never change.
+    /// `module`, whose tree is `root`: made once where the module is a
+    /// package's, whose sources never change.
     pub(crate) fn hint(
         &self,
         module: &str,
         root: &SyntaxNode,
         name: &SyntaxToken,
     ) -> Option<String> {
-        use std::sync::{Mutex, OnceLock};
-        type Key = (PathBuf, TextSize);
-        static HINTS: OnceLock<Mutex<HashMap<Key, Option<String>>>> = OnceLock::new();
+        let make = || crate::hover::declaration_hint(root, name, None);
         let package = (self.module_source(module))
             .map(|(_, path)| path)
             .filter(|path| {
@@ -858,24 +833,13 @@ impl Context<'_> {
                     .values()
                     .any(|dir| path.starts_with(dir))
             });
-        let Some(path) = package else {
-            return crate::hover::declaration_hint(root, name, None);
-        };
-        let hints = HINTS.get_or_init(|| Mutex::new(HashMap::new()));
-        let key = (path, name.text_range().start());
-        if let Some(hint) = (hints
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner))
-        .get(&key)
-        {
-            return hint.clone();
+        match package {
+            Some(path) => {
+                let at = name.text_range().start();
+                self.index.package_files.hint(&path, at, make)
+            }
+            None => make(),
         }
-        let hint = crate::hover::declaration_hint(root, name, None);
-        (hints
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner))
-        .insert(key, hint.clone());
-        hint
     }
 
     /// The annotation of `name` in the module `home` as written, each
@@ -892,7 +856,7 @@ impl Context<'_> {
                     .filter(|d| d.kind() == SyntaxKind::ValueDecl)
                 {
                     let name = child(&decl, SyntaxKind::Definition)
-                        .and_then(|def| crate::lint::first_token(&def, SyntaxKind::LowerIdent));
+                        .and_then(|def| nomi_syntax::child_token(&def, SyntaxKind::LowerIdent));
                     if let (Some(name), Some(signature)) =
                         (name, child(&decl, SyntaxKind::Signature))
                     {
@@ -901,7 +865,7 @@ impl Context<'_> {
                     }
                 }
             }
-            let all = std::rc::Rc::new(all);
+            let all = Rc::new(all);
             self.signatures
                 .borrow_mut()
                 .insert(home.to_owned(), all.clone());
@@ -910,6 +874,9 @@ impl Context<'_> {
         all.get(name).cloned()
     }
 
+    /// The tree and file of the module `name`: a dependency's, as
+    /// elm-language-server prefers where the project has one of the same
+    /// name too, which elm itself refuses; or else the project's.
     pub(crate) fn module_source(&self, name: &str) -> Option<(SyntaxNode, PathBuf)> {
         if let Some(found) = self.sources.borrow().get(name) {
             return found.clone();
@@ -925,7 +892,7 @@ impl Context<'_> {
             let path = match (dependency, own) {
                 (Some(path), _) => path,
                 (None, Some(own)) => return Some((own.root(), own.path.clone())),
-                (None, None) => crate::navigation::module_path(self.index, name)?,
+                (None, None) => crate::navigation::module_file(self.snapshot, self.index, name)?,
             };
             // A package's sources never change: each is parsed once.
             if self
@@ -934,7 +901,7 @@ impl Context<'_> {
                 .values()
                 .any(|dir| path.starts_with(dir))
             {
-                return Some((package_root(&path)?, path));
+                return Some((self.index.package_files.tree(&path)?, path));
             }
             let text = self.snapshot.read(&path).ok()?;
             Some((parse_module(&text).syntax(), path))
@@ -944,31 +911,6 @@ impl Context<'_> {
             .insert(name.to_owned(), found.clone());
         found
     }
-}
-
-/// The tree of the package module at `path`, parsed the first time and
-/// kept for the life of the process, as a package's sources never change.
-fn package_root(path: &Path) -> Option<SyntaxNode> {
-    use std::sync::{Mutex, OnceLock};
-    static TREES: OnceLock<Mutex<HashMap<PathBuf, nomi_syntax::GreenNode>>> = OnceLock::new();
-    let trees = TREES.get_or_init(|| Mutex::new(HashMap::new()));
-    let cached = (trees
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner))
-    .get(path)
-    .cloned();
-    let green = if let Some(green) = cached {
-        green
-    } else {
-        let text = std::fs::read_to_string(path).ok()?;
-        let green = parse_module(&text).green().clone();
-        (trees
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner))
-        .insert(path.to_owned(), green.clone());
-        green
-    };
-    Some(SyntaxNode::new_root(green))
 }
 
 /// A constructor's type as its custom type's declaration writes it: its
@@ -993,7 +935,7 @@ fn written_constructor_type(root: &SyntaxNode, name: &str) -> Option<String> {
         result.push_str(&words(&param));
     }
     let mut parts: Vec<String> = (variant.children())
-        .filter(|c| crate::lint::is_type(c.kind()))
+        .filter(|c| ast::Type::can_cast(c.kind()))
         .map(|t| words(&t))
         .collect();
     parts.push(result);
@@ -1090,10 +1032,10 @@ pub(crate) fn exposed(root: &SyntaxNode) -> Vec<ExposedName> {
         .filter_map(|decl| {
             let token = match decl.kind() {
                 SyntaxKind::ValueDecl => child(&decl, SyntaxKind::Definition)
-                    .and_then(|d| crate::lint::first_token(&d, SyntaxKind::LowerIdent)),
-                SyntaxKind::PortDecl => crate::lint::first_token(&decl, SyntaxKind::LowerIdent),
+                    .and_then(|d| nomi_syntax::child_token(&d, SyntaxKind::LowerIdent)),
+                SyntaxKind::PortDecl => nomi_syntax::child_token(&decl, SyntaxKind::LowerIdent),
                 SyntaxKind::CustomTypeDecl | SyntaxKind::TypeAliasDecl => {
-                    crate::lint::first_token(&decl, SyntaxKind::UpperIdent)
+                    nomi_syntax::child_token(&decl, SyntaxKind::UpperIdent)
                 }
                 _ => None,
             }?;
@@ -1107,7 +1049,7 @@ pub(crate) fn exposed(root: &SyntaxNode) -> Vec<ExposedName> {
                 variants: if with_variants {
                     (decl.children())
                         .filter(|c| c.kind() == SyntaxKind::Variant)
-                        .filter_map(|v| crate::lint::first_token(&v, SyntaxKind::UpperIdent))
+                        .filter_map(|v| nomi_syntax::child_token(&v, SyntaxKind::UpperIdent))
                         .collect()
                 } else {
                     Vec::new()
@@ -1121,7 +1063,7 @@ pub(crate) fn exposed(root: &SyntaxNode) -> Vec<ExposedName> {
             kind,
         }
     };
-    if crate::lint::first_token(&list, SyntaxKind::DotDot).is_some() {
+    if nomi_syntax::child_token(&list, SyntaxKind::DotDot).is_some() {
         let defaults: Vec<String> = default_imports()
             .into_iter()
             .map(|(name, alias)| alias.unwrap_or(name))
@@ -1138,7 +1080,12 @@ pub(crate) fn exposed(root: &SyntaxNode) -> Vec<ExposedName> {
             .map(|(decl, name)| entry(decl, name, true))
             .collect();
     }
-    let declared = |name: &str| declarations.iter().find(|(_, token)| token.text() == name);
+    // Each name's first declaration, for the list's names to look up.
+    let mut by_name: HashMap<&str, &(SyntaxNode, SyntaxToken)> = HashMap::new();
+    for declaration in &declarations {
+        by_name.entry(declaration.1.text()).or_insert(declaration);
+    }
+    let declared = |name: &str| by_name.get(name).copied();
     let items: Vec<SyntaxNode> = list.children().collect();
     let mut found = Vec::new();
     for item in items
@@ -1283,34 +1230,6 @@ pub(crate) fn importable_modules(
         }
     }
     found
-}
-
-/// Whether a node is an expression.
-pub(crate) fn is_expr(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::LiteralExpr
-            | SyntaxKind::NameExpr
-            | SyntaxKind::OperatorFunction
-            | SyntaxKind::TupleConstructorExpr
-            | SyntaxKind::NegateExpr
-            | SyntaxKind::CallExpr
-            | SyntaxKind::OperatorChain
-            | SyntaxKind::UnitExpr
-            | SyntaxKind::ParenExpr
-            | SyntaxKind::TupleExpr
-            | SyntaxKind::ListExpr
-            | SyntaxKind::RangeExpr
-            | SyntaxKind::RecordExpr
-            | SyntaxKind::RecordUpdateExpr
-            | SyntaxKind::FieldAccessExpr
-            | SyntaxKind::AccessorExpr
-            | SyntaxKind::IfExpr
-            | SyntaxKind::CaseExpr
-            | SyntaxKind::LetExpr
-            | SyntaxKind::LambdaExpr
-            | SyntaxKind::GlslExpr
-    )
 }
 
 /// The `.elm` files under `dir`: its own by name, then each

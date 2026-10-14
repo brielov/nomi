@@ -12,17 +12,15 @@
 use std::path::{Path, PathBuf};
 
 use nomi_base::diagnostic::json::{self, Json};
-use nomi_base::diagnostic::{Problem as Report, Report as ProjectReport};
-use nomi_base::{Compat, TextRange};
+use nomi_base::{Compat, Doc, LineIndex, TextRange};
 use nomi_compiler::hir::Def;
-use nomi_compiler::types;
 use nomi_compiler::types::render::{self, Context};
 use nomi_engine::Snapshot;
 use nomi_engine::check::Checked;
 use nomi_engine::index::Index;
 use nomi_engine::live::Live;
 
-use crate::elm_offset;
+use crate::elm_range;
 use crate::hover::localizer;
 
 /// How much a problem matters.
@@ -33,6 +31,95 @@ pub enum Severity {
     Information,
 }
 
+/// Who reports a problem.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Source {
+    /// elm, and elm-language-server's type checker.
+    Elm,
+    /// elm-language-server's lint rules.
+    ElmLs,
+    ElmReview,
+}
+
+impl Source {
+    /// The source as a diagnostic names it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Source::Elm => "Elm",
+            Source::ElmLs => "ElmLS",
+            Source::ElmReview => "elm-review",
+        }
+    }
+}
+
+macro_rules! codes {
+    ($($source:ident: [$($code:ident = $name:literal,)*])*) => {
+        /// What a problem is, as elm-language-server's codes say, which
+        /// its code actions key on.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum Code {
+            $($($code,)*)*
+        }
+
+        impl Code {
+            /// The code as a diagnostic carries it.
+            pub fn as_str(self) -> &'static str {
+                match self {
+                    $($(Code::$code => $name,)*)*
+                }
+            }
+
+            /// The code a diagnostic carries as `name`, where it is one.
+            pub fn parse(name: &str) -> Option<Code> {
+                match name {
+                    $($($name => Some(Code::$code),)*)*
+                    _ => None,
+                }
+            }
+
+            /// Who reports a problem of this code.
+            pub fn source(self) -> Source {
+                match self {
+                    $($(Code::$code)|* => Source::$source,)*
+                }
+            }
+        }
+    };
+}
+
+codes! {
+    Elm: [
+        MissingValue = "missing_value",
+        ImportResolve = "import_resolve",
+        ElmMake = "elm_make",
+        MissingTypeAnnotation = "missing_type_annotation",
+        RecordField = "record_field",
+        IncompleteCasePattern = "incomplete_case_pattern",
+    ]
+    ElmReview: [
+        ElmReview = "elm_review",
+    ]
+    ElmLs: [
+        UnusedImport = "unused_import",
+        UnusedImportedValue = "unused_imported_value",
+        UnusedAlias = "unused_alias",
+        UnusedPattern = "unused_pattern",
+        UnusedTopLevel = "unused_top_level",
+        UnusedIncomingPort = "unused_incoming_port",
+        UnusedTypeAlias = "unused_type_alias",
+        UnusedValueConstructor = "unused_value_constructor",
+        MapNothingToNothing = "map_nothing_to_nothing",
+        BooleanCaseExpr = "boolean_case_expr",
+        DropConcatOfLists = "drop_concat_of_lists",
+        DropConsOfItemAndList = "drop_cons_of_item_and_list",
+        UseConsOverConcat = "use_cons_over_concat",
+        SingleFieldRecord = "single_field_record",
+        UnnecessaryListConcat = "unnecessary_list_concat",
+        UnnecessaryPortModule = "unnecessary_port_module",
+        NoUncurriedPrefix = "no_uncurried_prefix",
+    ]
+}
+
 /// A problem in a file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Problem {
@@ -40,12 +127,8 @@ pub struct Problem {
     pub range: TextRange,
     pub severity: Severity,
     pub message: String,
-    /// Who says so: `Elm` for elm's reports and the annotations,
-    /// `ElmLS` for the lint rules.
-    pub source: &'static str,
-    /// What the problem is, for code actions: `missing_value`,
-    /// `import_resolve`, `elm_make` and so on.
-    pub code: &'static str,
+    /// What the problem is, which says who reports it.
+    pub code: Code,
     /// Whether it marks code nothing needs, which editors fade.
     pub unnecessary: bool,
     /// The file as the problem's data names it: relative to the project
@@ -56,6 +139,41 @@ pub struct Problem {
     pub fixes: Vec<crate::Edit>,
 }
 
+impl Problem {
+    /// A problem of `code` at `range` in the file at `path`, as
+    /// elm-language-server reports its code: elm's an error but for a
+    /// missing annotation, and its lint rules' a warning, unnecessary
+    /// where the rule finds something unused.
+    pub fn new(path: PathBuf, range: TextRange, code: Code, message: String) -> Problem {
+        let severity = match code.source() {
+            Source::Elm if code == Code::MissingTypeAnnotation => Severity::Information,
+            Source::Elm => Severity::Error,
+            Source::ElmLs | Source::ElmReview => Severity::Warning,
+        };
+        let unnecessary = matches!(
+            code,
+            Code::UnusedImport
+                | Code::UnusedImportedValue
+                | Code::UnusedAlias
+                | Code::UnusedPattern
+                | Code::UnusedTopLevel
+                | Code::UnusedIncomingPort
+                | Code::UnusedTypeAlias
+                | Code::UnusedValueConstructor
+        );
+        Problem {
+            path,
+            range,
+            severity,
+            message,
+            code,
+            unnecessary,
+            relative: None,
+            fixes: Vec::new(),
+        }
+    }
+}
+
 /// The problems elm reports in the project `live` checked: each module's,
 /// or the project's own, on each of the `open` files.
 pub fn compiler_problems(snapshot: &Snapshot, live: &Live, open: &[PathBuf]) -> Vec<Problem> {
@@ -64,22 +182,16 @@ pub fn compiler_problems(snapshot: &Snapshot, live: &Live, open: &[PathBuf]) -> 
         let parts: Vec<_> = path.iter().map(|p| p.to_string_lossy()).collect();
         parts.join("/")
     };
+    let problem = |path: &Path, range, title: &str, message| Problem {
+        relative: Some(relative(path)),
+        ..Problem::new(path.to_owned(), range, code(title), message)
+    };
     match &live.checked {
         Checked::Fine => Vec::new(),
         Checked::Project(report) => {
-            let message = project_message(report, live.compat);
+            let message = message(&report.title, &report.message, Marks::Plain, live.compat);
             (open.iter())
-                .map(|path| Problem {
-                    path: path.clone(),
-                    range: TextRange::default(),
-                    severity: Severity::Error,
-                    message: message.clone(),
-                    source: "Elm",
-                    code: code(&report.title),
-                    unnecessary: false,
-                    relative: Some(relative(path)),
-                    fixes: Vec::new(),
-                })
+                .map(|path| problem(path, TextRange::default(), &report.title, message.clone()))
                 .collect()
         }
         Checked::Modules(modules) => {
@@ -89,18 +201,12 @@ pub fn compiler_problems(snapshot: &Snapshot, live: &Live, open: &[PathBuf]) -> 
                 let Ok(text) = snapshot.read(&path) else {
                     continue;
                 };
+                let lines = LineIndex::new(&text);
                 for report in &module.problems {
-                    problems.push(Problem {
-                        path: path.clone(),
-                        range: range(&text, report, live.compat),
-                        severity: Severity::Error,
-                        message: module_message(report, live.compat),
-                        source: "Elm",
-                        code: code(&report.title),
-                        unnecessary: false,
-                        relative: Some(relative(&path)),
-                        fixes: Vec::new(),
-                    });
+                    let range = elm_range(&text, &lines, report.region, live.compat);
+                    let message =
+                        message(&report.title, &report.message, Marks::Hashes, live.compat);
+                    problems.push(problem(&path, range, &report.title, message));
                 }
             }
             problems
@@ -109,73 +215,52 @@ pub fn compiler_problems(snapshot: &Snapshot, live: &Live, open: &[PathBuf]) -> 
 }
 
 /// `elmDiagnosticsHelper`'s code for a report's title.
-fn code(title: &str) -> &'static str {
+fn code(title: &str) -> Code {
     if title.starts_with("NAMING ERROR") {
-        "missing_value"
+        Code::MissingValue
     } else if title.starts_with("MODULE NOT FOUND") {
-        "import_resolve"
+        Code::ImportResolve
     } else {
         // It also means to give `MISSING PATTERNS` its own code, but tests
         // the title for text that comes after it in the message.
-        "elm_make"
+        Code::ElmMake
     }
 }
 
-fn range(text: &str, report: &Report, compat: Compat) -> TextRange {
-    let (start, end) = (report.region.start, report.region.end);
-    let start = elm_offset(text, start.row, start.col, compat);
-    let end = elm_offset(text, end.row, end.col, compat).max(start);
-    TextRange::new(start, end)
+/// Whether a message marks its styled parts: a module's problem does,
+/// with `#`s around each, and a project's doesn't.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Marks {
+    Hashes,
+    Plain,
 }
 
-/// A module's problem: the title, then the message with each styled
-/// part between `#`s.
-fn module_message(report: &Report, compat: Compat) -> String {
+/// A problem's message: the title, then the message's text.
+fn message(title: &str, message: &Doc, marks: Marks, compat: Compat) -> String {
     let mut details = String::new();
-    for part in parts(&json::message(&report.message, compat)) {
-        match part {
-            Part::Plain(text) => details.push_str(text),
-            Part::Styled(text) => {
-                details.push('#');
-                details.push_str(text);
-                details.push('#');
-            }
-        }
-    }
-    format!("{} - {}", report.title, strip_escapes(&details))
-}
-
-/// A project's problem: the title, then the message's text.
-fn project_message(report: &ProjectReport, compat: Compat) -> String {
-    let mut details = String::new();
-    for part in parts(&json::message(&report.message, compat)) {
-        match part {
-            Part::Plain(text) | Part::Styled(text) => details.push_str(text),
-        }
-    }
-    format!("{} - {}", report.title, strip_escapes(&details))
-}
-
-enum Part<'j> {
-    Plain(&'j str),
-    Styled(&'j str),
-}
-
-/// The text of a message as elm's JSON report gives it.
-fn parts(message: &Json) -> Vec<Part<'_>> {
-    let Json::Array(items) = message else {
-        return Vec::new();
+    let json = json::message(message, compat);
+    let Json::Array(items) = &json else {
+        return format!("{title} - ");
     };
-    (items.iter())
-        .filter_map(|item| match item {
-            Json::Str(text) => Some(Part::Plain(text)),
-            Json::Object(fields) => fields.iter().find_map(|(key, value)| match value {
-                Json::Str(text) if *key == "string" => Some(Part::Styled(text)),
-                _ => None,
-            }),
-            _ => None,
-        })
-        .collect()
+    for item in items {
+        match item {
+            Json::Str(text) => details.push_str(text),
+            Json::Object(fields) => {
+                let styled = fields.iter().find_map(|(key, value)| match value {
+                    Json::Str(text) if *key == "string" => Some(text),
+                    _ => None,
+                });
+                if let Some(text) = styled {
+                    let mark = if marks == Marks::Hashes { "#" } else { "" };
+                    details.push_str(mark);
+                    details.push_str(text);
+                    details.push_str(mark);
+                }
+            }
+            _ => {}
+        }
+    }
+    format!("{title} - {}", strip_escapes(&details))
 }
 
 /// `details.replace(/\[\d+m/g, "")`: what's left of terminal colors.
@@ -209,10 +294,9 @@ pub fn missing_annotations(index: &Index, path: &Path) -> Vec<Problem> {
     if !nomi_syntax::parse_module(&module.text).errors().is_empty() {
         return Vec::new();
     }
-    let Some(canonical) = &module.canonical else {
-        return Vec::new();
-    };
-    let (Ok(inferred), _) = types::infer_types(index.compat, canonical) else {
+    let (Some(canonical), Some((Ok(inferred), _))) =
+        (&module.canonical, module.types(index.compat))
+    else {
         return Vec::new();
     };
     let localizer = localizer(index, module);
@@ -228,17 +312,13 @@ pub fn missing_annotations(index: &Index, path: &Path) -> Vec<Problem> {
             continue;
         };
         let ty = render::can_to_doc(&localizer, Context::None, &annotation.ty).plain();
-        problems.push(Problem {
-            path: path.to_owned(),
-            range: name.range,
-            severity: Severity::Information,
-            message: format!("Missing type annotation: `{ty}`."),
-            source: "Elm",
-            code: "missing_type_annotation",
-            unnecessary: false,
-            relative: None,
-            fixes: Vec::new(),
-        });
+        let message = format!("Missing type annotation: `{ty}`.");
+        problems.push(Problem::new(
+            path.to_owned(),
+            name.range,
+            Code::MissingTypeAnnotation,
+            message,
+        ));
     }
     problems
 }
@@ -250,5 +330,13 @@ mod tests {
     #[test]
     fn color_remnants_are_stripped() {
         assert_eq!(strip_escapes("a[31mred[0m [x] [12"), "ared [x] [12");
+    }
+
+    #[test]
+    fn codes_read_as_they_are_written() {
+        for code in [Code::MissingValue, Code::ElmReview, Code::NoUncurriedPrefix] {
+            assert_eq!(Code::parse(code.as_str()), Some(code));
+        }
+        assert_eq!(Code::parse("elm-review"), None);
     }
 }

@@ -524,7 +524,7 @@ fn module_file(name: &ModuleName, ext: &str) -> Option<PathBuf> {
 
 /// `Module.toFilePath name <.> ext`: the path below a source directory of
 /// the module `name`.
-pub(crate) fn module_path(name: &str, ext: &str) -> PathBuf {
+pub fn module_path(name: &str, ext: &str) -> PathBuf {
     let mut file: PathBuf = name.split('.').collect();
     file.set_extension(ext);
     file

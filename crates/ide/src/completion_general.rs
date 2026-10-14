@@ -15,6 +15,7 @@
 use std::collections::HashMap;
 
 use nomi_base::{TextRange, TextSize};
+use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
 use crate::Edit;
@@ -23,7 +24,7 @@ use crate::completion::{
     exposed, item,
 };
 use crate::completion_data::{LIST_MARKDOWN, RANKING, SNIPPETS_INLINE, SNIPPETS_START_OF_LINE};
-use crate::symbols::{child, code_range, token, words};
+use crate::tree::{child, code_range, token, words};
 
 /// The general list at `offset`, replacing `range`, `word` typed of the
 /// name `name` the cursor is in.
@@ -64,8 +65,8 @@ pub(crate) fn start_of_line(context: &Context<'_>, range: TextRange) -> Vec<Comp
     let top_levels: Vec<String> = (root.children())
         .filter(|n| n.kind() == SyntaxKind::ValueDecl)
         .filter_map(|d| child(&d, SyntaxKind::Definition))
-        .filter(|d| !d.children().any(|c| crate::lint::is_pattern(c.kind())))
-        .filter_map(|d| crate::lint::first_token(&d, SyntaxKind::LowerIdent))
+        .filter(|d| !d.children().any(|c| ast::Pattern::can_cast(c.kind())))
+        .filter_map(|d| nomi_syntax::child_token(&d, SyntaxKind::LowerIdent))
         .map(|t| t.text().to_owned())
         .collect();
     // Each call of an unqualified function nothing declares or exposes.
@@ -111,7 +112,7 @@ fn top_levels(context: &Context<'_>, range: TextRange) -> Vec<Completion> {
 fn written_annotation(root: &SyntaxNode, name: &str) -> Option<String> {
     let decl = (root.children()).find(|d| match d.kind() {
         SyntaxKind::ValueDecl => child(d, SyntaxKind::Definition)
-            .and_then(|def| crate::lint::first_token(&def, SyntaxKind::LowerIdent))
+            .and_then(|def| nomi_syntax::child_token(&def, SyntaxKind::LowerIdent))
             .is_some_and(|t| t.text() == name),
         SyntaxKind::PortDecl => token(d, SyntaxKind::LowerIdent).as_deref() == Some(name),
         _ => false,
@@ -122,7 +123,7 @@ fn written_annotation(root: &SyntaxNode, name: &str) -> Option<String> {
     };
     let ty = signature
         .children()
-        .find(|c| crate::lint::is_type(c.kind()))?;
+        .find(|c| ast::Type::can_cast(c.kind()))?;
     Some(format!(" : {}", text_of(&ty)?))
 }
 
@@ -130,9 +131,18 @@ fn written_annotation(root: &SyntaxNode, name: &str) -> Option<String> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Bound {
     Let,
+    /// A declaration's or a lambda's parameter.
     Parameter,
-    Lambda,
     Case,
+}
+
+/// A name a scope around the cursor binds.
+struct Binding {
+    name: String,
+    at: TextRange,
+    bound: Bound,
+    /// A `let` value's definition.
+    definition: Option<SyntaxNode>,
 }
 
 /// `findDefinitionsForScope`: the names each scope around `offset`
@@ -142,59 +152,8 @@ fn scope(context: &Context<'_>, offset: TextSize, range: TextRange) -> Vec<Compl
     let Some(token) = root.token_at_offset(offset).left_biased() else {
         return Vec::new();
     };
-    let mut symbols: Vec<(String, TextRange, Bound, Option<SyntaxNode>)> = Vec::new();
-    for scope in token.parent_ancestors() {
-        match scope.kind() {
-            SyntaxKind::LetExpr => {
-                for decl in scope.children() {
-                    match decl.kind() {
-                        SyntaxKind::LetValue => {
-                            let definition = child(&decl, SyntaxKind::Definition);
-                            let name = definition
-                                .as_ref()
-                                .and_then(|d| crate::lint::first_token(d, SyntaxKind::LowerIdent));
-                            if let (Some(name), Some(definition)) = (name, definition) {
-                                symbols.push((
-                                    name.text().to_owned(),
-                                    name.text_range(),
-                                    Bound::Let,
-                                    Some(definition),
-                                ));
-                            }
-                        }
-                        SyntaxKind::LetDestructure => {
-                            for pattern in decl
-                                .children()
-                                .filter(|c| crate::lint::is_pattern(c.kind()))
-                            {
-                                for (name, at) in crate::lint::bindings(&pattern) {
-                                    symbols.push((name, at, Bound::Let, None));
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            SyntaxKind::Definition | SyntaxKind::LambdaExpr | SyntaxKind::CaseBranch => {
-                let bound = match scope.kind() {
-                    SyntaxKind::Definition => Bound::Parameter,
-                    SyntaxKind::LambdaExpr => Bound::Lambda,
-                    _ => Bound::Case,
-                };
-                for pattern in scope
-                    .children()
-                    .filter(|c| crate::lint::is_pattern(c.kind()))
-                {
-                    for (name, at) in crate::lint::bindings(&pattern) {
-                        symbols.push((name, at, bound, None));
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    if symbols.is_empty() {
+    let bindings = bindings_around(&token);
+    if bindings.is_empty() {
         return Vec::new();
     }
     // The module as it would be with something written at the cursor,
@@ -213,74 +172,100 @@ fn scope(context: &Context<'_>, offset: TextSize, range: TextRange) -> Vec<Compl
         })
     };
     let mut found = Vec::new();
-    for (i, (name, at, bound, definition)) in symbols.into_iter().enumerate() {
+    for (i, binding) in bindings.into_iter().enumerate() {
+        let Binding {
+            name,
+            at,
+            bound,
+            definition,
+        } = binding;
+        let ty = definition.is_none().then(|| type_at(at)).flatten();
+        let detail = match &definition {
+            Some(definition) => definition_type(definition, &type_at, &names),
+            None => ty.as_ref().map(|ty| crate::hover::render_error(&names, ty)),
+        };
+        let (kind, documentation) = match bound {
+            Bound::Let => (CompletionKind::Function, "Defined in local let scope"),
+            Bound::Case => (CompletionKind::Variable, "Defined in local case branch"),
+            Bound::Parameter => (CompletionKind::Variable, "Local parameter"),
+        };
         let sort = format!("a{i}");
-        match bound {
-            Bound::Let => {
-                let detail = match &definition {
-                    Some(definition) => definition_type(definition, &type_at, &names),
-                    None => type_at(at).map(|ty| crate::hover::render_error(&names, &ty)),
-                }
-                .map(|ty| format!(" : {ty}"));
-                let documentation = Some("Defined in local let scope".to_owned());
-                found.push(item(
-                    &name,
-                    CompletionKind::Function,
-                    &sort,
-                    range,
-                    documentation,
-                    detail,
-                ));
-            }
-            Bound::Case => {
-                let detail =
-                    type_at(at).map(|ty| format!(" : {}", crate::hover::render_error(&names, &ty)));
-                let documentation = Some("Defined in local case branch".to_owned());
-                found.push(item(
-                    &name,
-                    CompletionKind::Variable,
-                    &sort,
-                    range,
-                    documentation,
-                    detail,
-                ));
-            }
-            Bound::Parameter | Bound::Lambda => {
-                let ty = type_at(at);
-                let detail = ty
-                    .as_ref()
-                    .map(|ty| format!(" : {}", crate::hover::render_error(&names, ty)));
-                let documentation = Some("Local parameter".to_owned());
-                found.push(item(
-                    &name,
-                    CompletionKind::Variable,
-                    &sort,
-                    range,
-                    documentation,
-                    detail,
-                ));
-                // A record parameter's fields, written through it.
-                let record = match &ty {
-                    Some(nomi_compiler::types::error::Type::Alias(_, _, _, body)) => Some(&**body),
-                    Some(ty) => Some(ty),
-                    None => None,
-                };
-                if let Some(nomi_compiler::types::error::Type::Record(fields, _)) = record {
-                    for (field, field_type) in fields {
-                        let rendered =
-                            crate::hover::render_error(&crate::hover::Names::bare(), field_type);
-                        let label = format!("{name}.{field}");
-                        let mut completion =
-                            crate::record_fields::field_completion(field, &rendered, &name, range);
-                        completion.label = label.clone();
-                        completion.edit = Some(Edit { range, text: label });
-                        found.push(completion);
-                    }
-                }
+        let detail = detail.map(|ty| format!(" : {ty}"));
+        let documentation = Some(documentation.to_owned());
+        found.push(item(&name, kind, &sort, range, documentation, detail));
+        // A record parameter's fields, written through it.
+        let record = match &ty {
+            Some(nomi_compiler::types::error::Type::Alias(_, _, _, body)) => Some(&**body),
+            ty => ty.as_ref(),
+        };
+        if bound == Bound::Parameter
+            && let Some(nomi_compiler::types::error::Type::Record(fields, _)) = record
+        {
+            for (field, field_type) in fields {
+                let rendered = crate::hover::render_error(&crate::hover::Names::bare(), field_type);
+                let label = format!("{name}.{field}");
+                let mut completion =
+                    crate::record_fields::field_completion(field, &rendered, &name, range);
+                completion.label = label.clone();
+                completion.edit = Some(Edit { range, text: label });
+                found.push(completion);
             }
         }
     }
     found
+}
+
+/// The names each scope around `token` binds, innermost first: a
+/// `let`'s, a declaration's or a lambda's parameters, a case branch's.
+fn bindings_around(token: &SyntaxToken) -> Vec<Binding> {
+    let mut found = Vec::new();
+    for scope in token.parent_ancestors() {
+        match scope.kind() {
+            SyntaxKind::LetExpr => {
+                for decl in scope.children() {
+                    match decl.kind() {
+                        SyntaxKind::LetValue => {
+                            let definition = child(&decl, SyntaxKind::Definition);
+                            let name = (definition.as_ref())
+                                .and_then(|d| nomi_syntax::child_token(d, SyntaxKind::LowerIdent));
+                            if let (Some(name), Some(definition)) = (name, definition) {
+                                found.push(Binding {
+                                    name: name.text().to_owned(),
+                                    at: name.text_range(),
+                                    bound: Bound::Let,
+                                    definition: Some(definition),
+                                });
+                            }
+                        }
+                        SyntaxKind::LetDestructure => {
+                            found.extend(pattern_bindings(&decl, Bound::Let));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            SyntaxKind::Definition | SyntaxKind::LambdaExpr => {
+                found.extend(pattern_bindings(&scope, Bound::Parameter));
+            }
+            SyntaxKind::CaseBranch => found.extend(pattern_bindings(&scope, Bound::Case)),
+            _ => {}
+        }
+    }
+    found
+}
+
+/// The names the patterns among `node`'s children bind, as `bound`.
+fn pattern_bindings(node: &SyntaxNode, bound: Bound) -> impl Iterator<Item = Binding> + use<> {
+    (node.children())
+        .filter(|c| ast::Pattern::can_cast(c.kind()))
+        .flat_map(move |pattern| {
+            (crate::scopes::bindings(&pattern).into_iter()).map(move |(name, at)| Binding {
+                name,
+                at,
+                bound,
+                definition: None,
+            })
+        })
 }
 
 /// The module with `Debug.todo ""` in place of the word at the cursor,
@@ -309,7 +294,7 @@ fn definition_type(
     for part in definition.children() {
         let at = code_range(&part)?;
         let ty = crate::hover::render_error(names, &type_at(at)?);
-        if crate::lint::is_pattern(part.kind()) && ty.contains("->") {
+        if ast::Pattern::can_cast(part.kind()) && ty.contains("->") {
             parts.push(format!("({ty})"));
         } else {
             parts.push(ty);
@@ -689,7 +674,7 @@ fn virtual_exposing(i: usize, name: &str, context: &Context<'_>) -> Option<Expos
 
 /// An import's exposing list, as `Imports` reads it.
 fn exposing_of(list: &SyntaxNode) -> Exposing {
-    if crate::lint::first_token(list, SyntaxKind::DotDot).is_some() {
+    if nomi_syntax::child_token(list, SyntaxKind::DotDot).is_some() {
         return Exposing::All;
     }
     let mut operators = Vec::new();

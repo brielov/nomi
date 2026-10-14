@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use nomi_engine::Vfs;
 
@@ -58,7 +58,7 @@ fn the_project_says_which_release_reads_the_file() {
     let (dir, vfs, path) = open("");
     let context = Context::of(&vfs.snapshot(), &path);
     assert_eq!(context.compat, Compat::V0_19_1);
-    assert_eq!(context.source, Source::Application);
+    assert_eq!(context.source, nomi_syntax::Source::Application);
     let outside = Context::of(&vfs.snapshot(), Path::new("/nowhere/Main.elm"));
     assert_eq!(outside.compat, Compat::LATEST);
     drop(dir);
@@ -67,12 +67,17 @@ fn the_project_says_which_release_reads_the_file() {
 #[test]
 fn positions_count_as_the_release_does() {
     let text = "ab\r\ncd😀e\n";
+    let offset = |row, col, compat| {
+        let at = Position { row, col };
+        let region = Region { start: at, end: at };
+        elm_range(text, &LineIndex::new(text), region, compat).start()
+    };
     // 0.19.1 counts from 1, and a carriage return is no column.
-    assert_eq!(elm_offset(text, 1, 3, Compat::V0_19_1), TextSize::new(2));
-    assert_eq!(elm_offset(text, 2, 4, Compat::V0_19_1), TextSize::new(10));
-    assert_eq!(elm_offset(text, 1, 3, Compat::V0_19_3), TextSize::new(10));
-    assert_eq!(elm_offset(text, 9, 0, Compat::V0_19_3), TextSize::of(text));
-    assert_eq!(elm_offset(text, 0, 99, Compat::V0_19_3), TextSize::new(3));
+    assert_eq!(offset(1, 3, Compat::V0_19_1), TextSize::new(2));
+    assert_eq!(offset(2, 4, Compat::V0_19_1), TextSize::new(10));
+    assert_eq!(offset(1, 3, Compat::V0_19_3), TextSize::new(10));
+    assert_eq!(offset(9, 0, Compat::V0_19_3), TextSize::of(text));
+    assert_eq!(offset(0, 99, Compat::V0_19_3), TextSize::new(3));
 }
 
 #[test]
@@ -301,7 +306,7 @@ fn references_and_highlights_find_every_use() {
         &index,
         &path,
         offset(NAVIGATED, "helper", 1),
-        true,
+        Declaration::Include,
     );
     let found: Vec<(bool, &str)> = (found.iter())
         .map(|l| {
@@ -351,9 +356,9 @@ fn hover_shows_definitions_as_elm_language_server_does() {
         found.markdown,
         "\n```elm\nr : Float\n```\n\n\n---\n\nLocal parameter"
     );
-    let (name, file, _) = found.link.unwrap();
-    assert_eq!(name, "Float");
-    assert!(file.ends_with("src/Basics.elm"), "{file:?}");
+    let link = found.link.unwrap();
+    assert_eq!(link.name, "Float");
+    assert!(link.path.ends_with("src/Basics.elm"), "{:?}", link.path);
 }
 
 #[test]

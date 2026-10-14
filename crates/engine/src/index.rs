@@ -6,10 +6,11 @@
 //! package's are the newest the store holds in each range.
 
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
-use nomi_base::Compat;
+use nomi_base::{Compat, TextSize, lock};
 use nomi_compiler::canonicalize::module::{Canonical, canonicalize_with_references, interface};
 use nomi_compiler::canonicalize::references::Reference;
 use nomi_compiler::hir;
@@ -17,8 +18,8 @@ use nomi_compiler::interface::Interface;
 use nomi_compiler::types::{self, ExprTypes, Inferred};
 use nomi_project::{Constraint, ModuleName, Name, Outline};
 use nomi_registry::Store;
-use nomi_syntax::SyntaxNode;
 use nomi_syntax::ast::{self, AstNode};
+use nomi_syntax::{GreenNode, SyntaxNode};
 
 use crate::check::env_of;
 use crate::graph::{Env, Foreigns, Graph, Module, Root, Status, written_imports};
@@ -44,6 +45,49 @@ pub struct Index {
     /// The interface of every module the project's modules may import:
     /// the direct dependencies' exposed ones and the project's own.
     pub interfaces: HashMap<String, Interface>,
+    /// What the editor read from the dependencies' modules so far, which
+    /// the next index of the same packages keeps.
+    pub package_files: Arc<PackageFiles>,
+}
+
+/// What the editor reads from dependencies' modules, which never change:
+/// each one's tree, parsed the first time it's asked for, and the hint it
+/// shows for each of its declarations, made the first time.
+#[derive(Debug, Default)]
+pub struct PackageFiles {
+    trees: Mutex<HashMap<PathBuf, GreenNode>>,
+    hints: Mutex<HashMap<(PathBuf, TextSize), Option<String>>>,
+}
+
+impl PackageFiles {
+    /// The tree of the dependency's module at `path`.
+    pub fn tree(&self, path: &Path) -> Option<SyntaxNode> {
+        if let Some(green) = lock(&self.trees).get(path) {
+            return Some(SyntaxNode::new_root(green.clone()));
+        }
+        let green = nomi_syntax::parse_module(&fs::read_to_string(path).ok()?)
+            .green()
+            .clone();
+        lock(&self.trees).insert(path.to_owned(), green.clone());
+        Some(SyntaxNode::new_root(green))
+    }
+
+    /// The hint for the declaration named at `at` in the dependency's
+    /// module at `path`, as `make` makes it.
+    pub fn hint(
+        &self,
+        path: &Path,
+        at: TextSize,
+        make: impl FnOnce() -> Option<String>,
+    ) -> Option<String> {
+        let key = (path.to_owned(), at);
+        if let Some(hint) = lock(&self.hints).get(&key) {
+            return hint.clone();
+        }
+        let hint = make();
+        lock(&self.hints).insert(key, hint.clone());
+        hint
+    }
 }
 
 /// One of the project's own modules.
@@ -55,7 +99,7 @@ pub struct Indexed {
     pub text: Arc<str>,
     /// Its tree, which [`Indexed::root`] makes a cursor into; shareable
     /// across threads as a cursor isn't.
-    pub green: nomi_syntax::GreenNode,
+    pub green: GreenNode,
     pub hir: hir::Module,
     /// What each name it writes refers to.
     pub references: Vec<Reference>,
@@ -241,7 +285,8 @@ pub fn index(snapshot: &Snapshot, store: &Store, file: &Path, memo: &mut Memo) -
 
 /// [`index`], reusing from `previous`, an index of the same project, each
 /// module whose text is the same and whose project imports have the same
-/// interfaces, as an editor's next index mostly is.
+/// interfaces, as an editor's next index mostly is, and what it read from
+/// the dependencies' modules.
 pub fn index_from(
     snapshot: &Snapshot,
     store: &Store,
@@ -312,11 +357,13 @@ pub fn index_from(
     }
     visit.orphans(snapshot, &paths);
     let modules = visit.modules;
+    let package_files = previous.map_or_else(Default::default, |p| Arc::clone(&p.package_files));
     Some(Index {
         compat,
         package,
         modules,
         interfaces,
+        package_files,
         packages: (sources.into_iter())
             .map(|(name, dir)| (name.to_string(), dir))
             .collect(),

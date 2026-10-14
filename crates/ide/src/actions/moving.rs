@@ -3,6 +3,8 @@
 //! and doc comment, to the end of the destination, and every module that
 //! uses it imports it from there.
 
+use crate::Declaration;
+
 use super::*;
 
 /// A place a function can move to: one of the project's other modules,
@@ -100,8 +102,9 @@ pub fn move_function(
     let module_name = module.name.clone();
     let target_name = target.name.clone();
 
+    let all = Declaration::Include;
     let uses: Vec<Use> =
-        (crate::references(snapshot, index, source, token.text_range().start(), true).into_iter())
+        (crate::references(snapshot, index, source, token.text_range().start(), all).into_iter())
             .filter_map(|location| {
                 let other = index.module(&location.path)?;
                 let at = token_at(&other.root(), location.range.end() - TextSize::new(1))?;
@@ -112,7 +115,7 @@ pub fn move_function(
                 });
                 let qualifier = (at.parent())
                     .and_then(|p| p.children().find(|c| c.kind() == SyntaxKind::Qualifier))
-                    .and_then(|q| crate::lint::first_token(&q, SyntaxKind::UpperIdent))
+                    .and_then(|q| nomi_syntax::child_token(&q, SyntaxKind::UpperIdent))
                     .map(|t| t.text_range());
                 Some(Use {
                     path: other.path.clone(),
@@ -165,7 +168,7 @@ pub fn move_function(
             .filter(|n| n.kind() == SyntaxKind::Import)
             .find(|i| {
                 child(i, SyntaxKind::ModuleName)
-                    .is_some_and(|n| crate::symbols::words(&n) == module_name)
+                    .is_some_and(|n| crate::tree::words(&n) == module_name)
             });
         if let Some(import) = import {
             let list = child(&import, SyntaxKind::ExposingList);

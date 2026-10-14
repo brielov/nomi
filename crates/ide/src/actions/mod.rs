@@ -24,8 +24,8 @@ use nomi_syntax::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 use crate::Edit;
 use crate::completion::Context;
 use crate::completion_general::{compare_ranking, importable};
-use crate::problems::{Problem, Severity};
-use crate::symbols::{child, code_range};
+use crate::problems::{Code, Problem, Severity, Source};
+use crate::tree::{child, code_range};
 
 mod extract;
 mod import;
@@ -63,11 +63,11 @@ pub struct Diagnosed {
 impl Diagnosed {
     fn of(problem: &Problem) -> Diagnosed {
         Diagnosed {
-            code: problem.code.to_owned(),
+            code: problem.code.as_str().to_owned(),
             message: problem.message.clone(),
             range: problem.range,
             severity: problem.severity,
-            source: problem.source.to_owned(),
+            source: problem.code.source().as_str().to_owned(),
             unnecessary: problem.unnecessary,
             fixes: problem.fixes.clone(),
         }
@@ -492,9 +492,9 @@ pub fn code_actions(
 /// `getDiagnostics`: the checker's, its suggestions, then the lint rules'.
 fn program_diagnostics(root: &SyntaxNode, text: &str, problems: &[Problem]) -> Vec<Diagnosed> {
     let mut found = Vec::new();
-    for problem in problems.iter().filter(|p| p.source == "Elm") {
+    for problem in problems.iter().filter(|p| p.code.source() == Source::Elm) {
         let elm = Diagnosed::of(problem);
-        if problem.code == "missing_value" {
+        if problem.code == Code::MissingValue {
             let name = &text[std::ops::Range::<usize>::from(problem.range)];
             found.push(Diagnosed {
                 message: format!("No definition found for `{name}`."),
@@ -524,12 +524,12 @@ fn program_diagnostics(root: &SyntaxNode, text: &str, problems: &[Problem]) -> V
     }
     found.extend(
         (problems.iter())
-            .filter(|p| p.code == "missing_type_annotation")
+            .filter(|p| p.code == Code::MissingTypeAnnotation)
             .map(Diagnosed::of),
     );
     found.extend(
         (problems.iter())
-            .filter(|p| p.source == "ElmLS")
+            .filter(|p| p.code.source() == Source::ElmLs)
             .map(Diagnosed::of),
     );
     found

@@ -1,6 +1,8 @@
 //! The inferred annotation, as a fix and a refactor, and exposing or
 //! unexposing a declaration.
 
+use crate::lens::{Exposable, exposes};
+
 use super::*;
 
 /// `addTypeAnnotationCodeAction`'s edit: the inferred annotation above the
@@ -89,7 +91,7 @@ pub(super) fn refactors(
     if let Some(function) = &function
         && !in_let
     {
-        if exposes(root, text, function, true) {
+        if exposes(root, function, Exposable::Value) {
             found.push(Refactor::new(
                 expose,
                 "unexpose_function",
@@ -117,7 +119,7 @@ pub(super) fn refactors(
         } else {
             ""
         };
-        if exposes(root, text, token.text(), false) {
+        if exposes(root, token.text(), Exposable::Type) {
             found.push(Refactor::new(
                 expose,
                 "unexpose_type",
@@ -247,12 +249,6 @@ pub(super) fn refactor_edits_in(
         }
         _ => None,
     }
-}
-
-/// Whether the module exposes `name` (`isExposedFunctionOrPort`,
-/// `isExposedTypeOrTypeAlias`): by its exposing list's text.
-pub(super) fn exposes(root: &SyntaxNode, text: &str, name: &str, function: bool) -> bool {
-    crate::lens::exposes(root, text, name, function)
 }
 
 /// The exposed values and types of the module's exposing list

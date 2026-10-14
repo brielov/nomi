@@ -15,35 +15,77 @@ use std::path::Path;
 use nomi_base::{TextRange, TextSize};
 use nomi_engine::Snapshot;
 use nomi_engine::index::Index;
-use nomi_syntax::{SyntaxKind, SyntaxNode, parse_module};
+use nomi_syntax::ast::{self, AstNode};
+use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, child_token, parse_module};
 
-use crate::problems::{Problem, Severity};
-use crate::symbols::{child, code_range, token, words};
+use crate::navigation::Declaration;
+use crate::problems::{Code, Problem};
+use crate::scopes::bindings;
+use crate::tree::{child, code_range, code_text, words};
+
+macro_rules! rules {
+    ($($(#[$doc:meta])* $rule:ident,)*) => {
+        /// elm-language-server's lint rules, as `elm-analyse.json` names
+        /// them.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum Rule {
+            $($(#[$doc])* $rule,)*
+        }
+
+        impl Rule {
+            /// The rule `elm-analyse.json` names `name`, where it names
+            /// one.
+            pub fn from_name(name: &str) -> Option<Rule> {
+                match name {
+                    $(stringify!($rule) => Some(Rule::$rule),)*
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+rules! {
+    UnusedImport,
+    UnusedImportedVariable,
+    UnusedImportAlias,
+    UnusedPatternVariable,
+    MapNothingToNothing,
+    BooleanCase,
+    DropConcatOfLists,
+    DropConsOfItemAndList,
+    UseConsOverConcat,
+    SingleFieldRecord,
+    UnnecessaryListConcat,
+    UnnecessaryPortModule,
+    UnusedIncomingPort,
+    NoUncurriedPrefix,
+    UnusedTypeAlias,
+    UnusedValueConstructor,
+    /// The annotations a module leaves out, which elm-language-server's
+    /// type checker reports.
+    MissingTypeAnnotation,
+}
 
 /// Which rules run: elm-analyse.json's `checks`, each on unless set to
 /// false, `SingleFieldRecord` off unless set to true.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Checks {
-    set: Vec<(String, bool)>,
+    set: Vec<(Rule, bool)>,
 }
 
 impl Checks {
-    pub fn new(set: impl IntoIterator<Item = (String, bool)>) -> Checks {
+    /// The rules `set` turns on or off.
+    pub fn new(set: impl IntoIterator<Item = (Rule, bool)>) -> Checks {
         Checks {
             set: set.into_iter().collect(),
         }
     }
 
-    fn get(&self, name: &str) -> Option<bool> {
-        self.set.iter().find(|(n, _)| n == name).map(|(_, on)| *on)
-    }
-
-    pub fn on(&self, name: &str) -> bool {
-        self.get(name) != Some(false)
-    }
-
-    pub fn opted_in(&self, name: &str) -> bool {
-        self.get(name) == Some(true)
+    /// Whether `rule` runs.
+    pub fn on(&self, rule: Rule) -> bool {
+        let set = self.set.iter().find(|(r, _)| *r == rule);
+        set.map_or(rule != Rule::SingleFieldRecord, |(_, on)| *on)
     }
 }
 
@@ -63,66 +105,65 @@ pub fn lint(
     let root = parse.syntax();
     let facts = Facts::of(&root);
     let errors: Vec<TextSize> = parse.errors().iter().map(|e| e.range.start()).collect();
-    let imports: Vec<SyntaxNode> = imports(&root, &errors).collect();
+    let imports: Vec<ast::Import> = imports(&root, &errors).collect();
     let mut found = Lint {
         path,
         problems: Vec::new(),
     };
-    let unused_exposures = if checks.on("UnusedImport") || checks.on("UnusedImportedVariable") {
-        unused_imported_values(&imports, &facts)
-    } else {
-        HashSet::new()
-    };
-    if checks.on("UnusedImport") {
+    let unused_exposures =
+        if checks.on(Rule::UnusedImport) || checks.on(Rule::UnusedImportedVariable) {
+            unused_imported_values(&imports, &facts)
+        } else {
+            HashSet::new()
+        };
+    if checks.on(Rule::UnusedImport) {
         found.unused_imports(&imports, &facts, &unused_exposures);
     }
-    if checks.on("UnusedImportedVariable") {
-        found
-            .problems
-            .extend(found_values(&imports, &unused_exposures, path));
+    if checks.on(Rule::UnusedImportedVariable) {
+        found.unused_exposures(&imports, &unused_exposures);
     }
-    if checks.on("UnusedImportAlias") {
+    if checks.on(Rule::UnusedImportAlias) {
         found.unused_aliases(&imports, &facts);
     }
-    if checks.on("UnusedPatternVariable") {
+    if checks.on(Rule::UnusedPatternVariable) {
         found.unused_patterns(&root, &facts);
     }
-    if checks.on("MapNothingToNothing") {
+    if checks.on(Rule::MapNothingToNothing) {
         found.map_nothing_to_nothing(&root);
     }
-    if checks.on("BooleanCase") {
+    if checks.on(Rule::BooleanCase) {
         found.boolean_cases(&root);
     }
-    if checks.on("DropConcatOfLists") {
-        found.chains(&root, "++", Pair::ListThenList);
+    if checks.on(Rule::DropConcatOfLists) {
+        found.chains(&root, Pair::ListThenList);
     }
-    if checks.on("DropConsOfItemAndList") {
-        found.chains(&root, "::", Pair::AnyThenList);
+    if checks.on(Rule::DropConsOfItemAndList) {
+        found.chains(&root, Pair::AnyThenList);
     }
-    if checks.on("UseConsOverConcat") {
-        found.chains(&root, "++", Pair::SingletonThenAny);
+    if checks.on(Rule::UseConsOverConcat) {
+        found.chains(&root, Pair::SingletonThenAny);
     }
-    if checks.opted_in("SingleFieldRecord") {
+    if checks.on(Rule::SingleFieldRecord) {
         found.single_field_records(&root);
     }
-    if checks.on("UnnecessaryListConcat") {
+    if checks.on(Rule::UnnecessaryListConcat) {
         found.unnecessary_list_concats(&root);
     }
-    if checks.on("UnnecessaryPortModule") {
+    if checks.on(Rule::UnnecessaryPortModule) {
         found.unnecessary_port_module(&root);
     }
-    if checks.on("UnusedIncomingPort")
+    if checks.on(Rule::UnusedIncomingPort)
         && let Some(index) = index
     {
         found.unused_incoming_ports(snapshot, index, &root);
     }
-    if checks.on("NoUncurriedPrefix") {
+    if checks.on(Rule::NoUncurriedPrefix) {
         found.uncurried_prefixes(&root);
     }
-    if checks.on("UnusedTypeAlias") {
+    if checks.on(Rule::UnusedTypeAlias) {
         found.unused_type_aliases(&root, &facts);
     }
-    if checks.on("UnusedValueConstructor") {
+    if checks.on(Rule::UnusedValueConstructor) {
         found.unused_constructors(&root, &facts);
     }
     found.problems
@@ -153,6 +194,7 @@ struct Facts {
 impl Facts {
     fn of(root: &SyntaxNode) -> Facts {
         let mut facts = Facts::default();
+        let named = |token: SyntaxToken| (token.text().to_owned(), token.text_range());
         for node in root.descendants() {
             match node.kind() {
                 SyntaxKind::NameExpr => {
@@ -164,18 +206,14 @@ impl Facts {
                 // `infix left 0 (|>) = apR` writes `apR` as an
                 // expression.
                 SyntaxKind::InfixDecl => {
-                    if let Some(name) = first_token(&node, SyntaxKind::LowerIdent) {
-                        facts
-                            .values
-                            .push((name.text().to_owned(), name.text_range()));
-                    }
+                    facts
+                        .values
+                        .extend(child_token(&node, SyntaxKind::LowerIdent).map(named));
                 }
                 SyntaxKind::RecordUpdateExpr => {
-                    if let Some(base) = first_token(&node, SyntaxKind::LowerIdent) {
-                        facts
-                            .record_bases
-                            .push((base.text().to_owned(), base.text_range()));
-                    }
+                    facts
+                        .record_bases
+                        .extend(child_token(&node, SyntaxKind::LowerIdent).map(named));
                 }
                 SyntaxKind::NamedType => {
                     facts.types.push(qualified_name(&node));
@@ -197,8 +235,9 @@ impl Facts {
                 }
                 SyntaxKind::ExposedType => facts.exposed_types.push(text(&node)),
                 SyntaxKind::ModuleHeader => {
-                    facts.exposes_all = child(&node, SyntaxKind::ExposingList)
-                        .is_some_and(|list| first_token(&list, SyntaxKind::DotDot).is_some());
+                    facts.exposes_all = (ast::ModuleHeader::cast(node))
+                        .and_then(|header| header.exposing_list())
+                        .is_some_and(|list| list.dot_dot_token().is_some());
                 }
                 _ => {}
             }
@@ -225,18 +264,8 @@ struct Lint<'p> {
 }
 
 impl Lint<'_> {
-    fn warn(&mut self, range: TextRange, message: String, code: &'static str, unnecessary: bool) {
-        self.problems.push(Problem {
-            path: self.path.to_owned(),
-            range,
-            severity: Severity::Warning,
-            message,
-            source: "ElmLS",
-            code,
-            unnecessary,
-            relative: None,
-            fixes: Vec::new(),
-        });
+    fn warn(&mut self, range: TextRange, message: String, code: Code) {
+        (self.problems).push(Problem::new(self.path.to_owned(), range, code, message));
     }
 
     /// `getUnusedImportDiagnostics`: an import whose exposed names are
@@ -244,59 +273,70 @@ impl Lint<'_> {
     /// with.
     fn unused_imports(
         &mut self,
-        imports: &[SyntaxNode],
+        imports: &[ast::Import],
         facts: &Facts,
         unused: &HashSet<TextRange>,
     ) {
         for import in imports {
-            let exposing = child(import, SyntaxKind::ExposingList);
-            let exposes_nothing_used = exposing.as_ref().is_none_or(|list| {
-                first_token(list, SyntaxKind::DotDot).is_none()
-                    && list
-                        .children()
+            let exposes_nothing_used = import.exposing_list().is_none_or(|list| {
+                list.dot_dot_token().is_none()
+                    && (list.syntax().children())
                         .filter_map(|item| code_range(&item))
                         .all(|range| unused.contains(&range))
             });
             if !exposes_nothing_used {
                 continue;
             }
-            let name = child(import, SyntaxKind::ImportAlias)
-                .and_then(|alias| token(&alias, SyntaxKind::UpperIdent))
-                .or_else(|| child(import, SyntaxKind::ModuleName).map(|n| words(&n)));
+            let name = (import.import_alias())
+                .and_then(|alias| alias.upper_ident_token())
+                .map(|alias| alias.text().to_owned())
+                .or_else(|| import.module_name().map(|n| words(n.syntax())));
             let Some(name) = name else { continue };
             if facts.qualifiers.contains(&name) {
                 continue;
             }
-            if let Some(range) = code_range(import) {
-                self.warn(
-                    range,
-                    format!("Unused import `{name}`"),
-                    "unused_import",
-                    true,
-                );
+            if let Some(range) = code_range(import.syntax()) {
+                self.warn(range, format!("Unused import `{name}`"), Code::UnusedImport);
             }
+        }
+    }
+
+    /// `getUnusedImportValueAndTypeDiagnostics`' problems, for the
+    /// exposed names `unused` holds, in order.
+    fn unused_exposures(&mut self, imports: &[ast::Import], unused: &HashSet<TextRange>) {
+        for (exposed, range) in import_exposures(imports) {
+            if !unused.contains(&range) {
+                continue;
+            }
+            let what = if exposed.kind() == SyntaxKind::ExposedType {
+                "type"
+            } else {
+                "value"
+            };
+            let message = format!("Unused imported {what} `{}`", text(&exposed));
+            self.warn(range, message, Code::UnusedImportedValue);
         }
     }
 
     /// `getUnusedImportAliasDiagnostics`: an alias nothing qualifies a
     /// name with, on an import that exposes something; without that,
     /// the import is unused.
-    fn unused_aliases(&mut self, imports: &[SyntaxNode], facts: &Facts) {
+    fn unused_aliases(&mut self, imports: &[ast::Import], facts: &Facts) {
         for import in imports {
-            let Some(alias) = child(import, SyntaxKind::ImportAlias) else {
+            let Some(alias) = import.import_alias() else {
                 continue;
             };
-            if child(import, SyntaxKind::ExposingList).is_none() {
+            if import.exposing_list().is_none() {
                 continue;
             }
-            let Some(name) = token(&alias, SyntaxKind::UpperIdent) else {
+            let Some(name) = alias.upper_ident_token() else {
                 continue;
             };
-            if !facts.qualifiers.contains(&name)
-                && let Some(range) = code_range(&alias)
+            if !facts.qualifiers.iter().any(|q| q == name.text())
+                && let Some(range) = code_range(alias.syntax())
             {
-                let message = format!("Unused import alias `{name}`");
-                self.warn(range, message, "unused_alias", true);
+                let message = format!("Unused import alias `{}`", name.text());
+                self.warn(range, message, Code::UnusedAlias);
             }
         }
     }
@@ -306,8 +346,9 @@ impl Lint<'_> {
     /// nothing outside its own declaration writes, unless the module
     /// exposes everything.
     fn unused_patterns(&mut self, root: &SyntaxNode, facts: &Facts) {
-        let mut found: Vec<(TextSize, Problem)> = Vec::new();
-        let mut push = |at: TextRange, problem: Problem| found.push((at.start(), problem));
+        let first = self.problems.len();
+        let patterns =
+            |node: &SyntaxNode| (node.children()).filter(|c| ast::Pattern::can_cast(c.kind()));
         for node in root.descendants() {
             match node.kind() {
                 SyntaxKind::ValueDecl | SyntaxKind::LetValue => {
@@ -315,33 +356,23 @@ impl Lint<'_> {
                         continue;
                     };
                     // A declaration's parameters are in scope in it.
-                    let scope = node.clone();
-                    for pattern in definition.children().filter(|c| is_pattern(c.kind())) {
-                        for (name, range) in bindings(&pattern) {
-                            if let Some(problem) = self.unused_in(&scope, &name, range) {
-                                push(range, problem);
-                            }
-                        }
-                    }
-                    let Some(name) = first_token(&definition, SyntaxKind::LowerIdent) else {
+                    self.unused_bindings(facts, &node, patterns(&definition));
+                    let Some(name) = child_token(&definition, SyntaxKind::LowerIdent) else {
                         continue;
                     };
-                    let (text, range) = (name.text().to_owned(), name.text_range());
                     if node.kind() == SyntaxKind::ValueDecl {
+                        let declaration = code_range(&node);
                         let outside = facts.exposes_all
-                            || facts.value_uses(&text).any(|used| {
-                                !code_range(&node).is_some_and(|r| r.contains_range(used))
-                            });
+                            || (facts.value_uses(name.text()))
+                                .any(|used| !declaration.is_some_and(|r| r.contains_range(used)));
                         if !outside {
-                            let message = format!("Unused top level definition `{text}`");
-                            let problem = self.problem(range, message, "unused_top_level");
-                            push(range, problem);
+                            let message = format!("Unused top level definition `{}`", name.text());
+                            self.warn(name.text_range(), message, Code::UnusedTopLevel);
                         }
                     } else if let Some(scope) =
                         node.ancestors().find(|a| a.kind() == SyntaxKind::LetExpr)
-                        && let Some(problem) = self.unused_in(&scope, &text, range)
                     {
-                        push(range, problem);
+                        self.unused_in(facts, &scope, name.text(), name.text_range());
                     }
                 }
                 SyntaxKind::DestructureDecl | SyntaxKind::LetDestructure => {
@@ -350,54 +381,47 @@ impl Lint<'_> {
                     } else {
                         Some(node.clone())
                     };
-                    let (Some(scope), Some(pattern)) =
-                        (scope, node.children().find(|c| is_pattern(c.kind())))
-                    else {
-                        continue;
-                    };
-                    for (name, range) in bindings(&pattern) {
-                        if let Some(problem) = self.unused_in(&scope, &name, range) {
-                            push(range, problem);
-                        }
+                    if let Some(scope) = scope {
+                        self.unused_bindings(facts, &scope, patterns(&node).take(1));
                     }
                 }
                 SyntaxKind::CaseBranch | SyntaxKind::LambdaExpr => {
-                    for pattern in node.children().filter(|c| is_pattern(c.kind())) {
-                        for (name, range) in bindings(&pattern) {
-                            if let Some(problem) = self.unused_in(&node, &name, range) {
-                                push(range, problem);
-                            }
-                        }
-                    }
+                    self.unused_bindings(facts, &node, patterns(&node));
                 }
                 _ => {}
             }
         }
         // tree-sitter gives a match once it has all its nodes, so in the
         // order of the names bound.
-        found.sort_by_key(|(at, _)| *at);
-        self.problems.extend(found.into_iter().map(|(_, p)| p));
+        self.problems[first..].sort_by_key(|p| p.range.start());
     }
 
-    fn problem(&self, range: TextRange, message: String, code: &'static str) -> Problem {
-        Problem {
-            path: self.path.to_owned(),
-            range,
-            severity: Severity::Warning,
-            message,
-            source: "ElmLS",
-            code,
-            unnecessary: true,
-            relative: None,
-            fixes: Vec::new(),
+    /// The problem of each variable `patterns` bind that nothing in
+    /// `scope` writes.
+    fn unused_bindings(
+        &mut self,
+        facts: &Facts,
+        scope: &SyntaxNode,
+        patterns: impl Iterator<Item = SyntaxNode>,
+    ) {
+        for pattern in patterns {
+            for (name, range) in bindings(&pattern) {
+                self.unused_in(facts, scope, &name, range);
+            }
         }
     }
 
-    /// The problem of a variable `name` nothing in `scope` writes.
-    fn unused_in(&self, scope: &SyntaxNode, name: &str, range: TextRange) -> Option<Problem> {
-        let used = Facts::of(scope).value_uses(name).next().is_some();
-        let message = format!("Unused pattern variable `{name}`");
-        (!used).then(|| self.problem(range, message, "unused_pattern"))
+    /// The problem of a variable `name` nothing in `scope` writes, if
+    /// nothing does.
+    fn unused_in(&mut self, facts: &Facts, scope: &SyntaxNode, name: &str, range: TextRange) {
+        let scope = scope.text_range();
+        if !facts
+            .value_uses(name)
+            .any(|used| scope.contains_range(used))
+        {
+            let message = format!("Unused pattern variable `{name}`");
+            self.warn(range, message, Code::UnusedPattern);
+        }
     }
 
     /// `getCaseBranchMapNothingToNothingDiagnostics`: a branch
@@ -407,19 +431,22 @@ impl Lint<'_> {
             .descendants()
             .filter(|n| n.kind() == SyntaxKind::CaseBranch)
         {
-            let pattern = branch.children().find(|c| is_pattern(c.kind()));
-            let body = branch.children().filter(|c| is_expr(c.kind())).last();
-            let nothing = |node: Option<SyntaxNode>| node.is_some_and(|n| text(&n) == "Nothing");
+            let pattern = branch.children().find(|c| ast::Pattern::can_cast(c.kind()));
+            let body = (branch.children())
+                .filter(|c| ast::Expr::can_cast(c.kind()))
+                .last();
+            let nothing =
+                |node: &Option<SyntaxNode>| node.as_ref().is_some_and(|n| text(n) == "Nothing");
             let body_is_name = body
                 .as_ref()
                 .is_some_and(|b| b.kind() == SyntaxKind::NameExpr);
-            if nothing(pattern)
+            if nothing(&pattern)
                 && body_is_name
-                && nothing(body)
+                && nothing(&body)
                 && let Some(range) = code_range(&branch)
             {
                 let message = "`Nothing` mapped to `Nothing` in case expression. Use Maybe.map or Maybe.andThen instead.";
-                self.warn(range, message.to_owned(), "map_nothing_to_nothing", false);
+                self.warn(range, message.to_owned(), Code::MapNothingToNothing);
             }
         }
     }
@@ -433,7 +460,7 @@ impl Lint<'_> {
         {
             let patterns: Vec<String> = (case.children())
                 .filter(|c| c.kind() == SyntaxKind::CaseBranch)
-                .filter_map(|b| b.children().find(|c| is_pattern(c.kind())))
+                .filter_map(|b| b.children().find(|c| ast::Pattern::can_cast(c.kind())))
                 .map(|p| text(&p))
                 .collect();
             let boolean = |p: &String| p == "True" || p == "False";
@@ -442,14 +469,39 @@ impl Lint<'_> {
             });
             if found && let Some(range) = code_range(&case) {
                 let message = "Use an if expression instead of a case expression.".to_owned();
-                self.warn(range, message, "boolean_case_expr", false);
+                self.warn(range, message, Code::BooleanCaseExpr);
             }
         }
     }
 
-    /// The rules on two operands of `op` side by side in a chain, as
-    /// `pair` takes them.
-    fn chains(&mut self, root: &SyntaxNode, op: &str, pair: Pair) {
+    /// The rules on two operands of an operator side by side in a chain,
+    /// as `pair` takes them.
+    fn chains(&mut self, root: &SyntaxNode, pair: Pair) {
+        let (op, message, code) = match pair {
+            Pair::ListThenList => (
+                "++",
+                "If you concatenate two lists, then you can merge them into one list.",
+                Code::DropConcatOfLists,
+            ),
+            Pair::AnyThenList => (
+                "::",
+                "If you cons an item to a literal list, then you can just put the item into the list.",
+                Code::DropConsOfItemAndList,
+            ),
+            Pair::SingletonThenAny => (
+                "++",
+                "If you concatenate two lists, but the first item is a single element list, then you should use the cons operator.",
+                Code::UseConsOverConcat,
+            ),
+        };
+        let list = |n: &SyntaxNode| n.kind() == SyntaxKind::ListExpr;
+        let singleton = |n: &SyntaxNode| {
+            list(n)
+                && (n.children())
+                    .filter(|c| ast::Expr::can_cast(c.kind()))
+                    .count()
+                    == 1
+        };
         for chain in root
             .descendants()
             .filter(|n| n.kind() == SyntaxKind::OperatorChain)
@@ -462,30 +514,14 @@ impl Lint<'_> {
                 if operator.kind() != SyntaxKind::Op || text(operator) != op {
                     continue;
                 }
-                let list = |n: &SyntaxNode| n.kind() == SyntaxKind::ListExpr;
-                let singleton = |n: &SyntaxNode| {
-                    list(n) && n.children().filter(|c| is_expr(c.kind())).count() == 1
-                };
-                let (fits, message, code) = match pair {
-                    Pair::ListThenList => (
-                        list(left) && list(right),
-                        "If you concatenate two lists, then you can merge them into one list.",
-                        "drop_concat_of_lists",
-                    ),
-                    Pair::AnyThenList => (
-                        list(right),
-                        "If you cons an item to a literal list, then you can just put the item into the list.",
-                        "drop_cons_of_item_and_list",
-                    ),
-                    Pair::SingletonThenAny => (
-                        singleton(left),
-                        "If you concatenate two lists, but the first item is a single element list, then you should use the cons operator.",
-                        "use_cons_over_concat",
-                    ),
+                let fits = match pair {
+                    Pair::ListThenList => list(left) && list(right),
+                    Pair::AnyThenList => list(right),
+                    Pair::SingletonThenAny => singleton(left),
                 };
                 if fits && let (Some(start), Some(end)) = (code_range(left), code_range(right)) {
                     let range = TextRange::new(start.start(), end.end());
-                    self.warn(range, message.to_owned(), code, false);
+                    self.warn(range, message.to_owned(), code);
                 }
             }
         }
@@ -496,12 +532,12 @@ impl Lint<'_> {
     /// type checker sees as a record of more fields.
     fn single_field_records(&mut self, root: &SyntaxNode) {
         let extending: Vec<String> = (root.children())
-            .filter(|n| n.kind() == SyntaxKind::TypeAliasDecl)
+            .filter_map(ast::TypeAliasDecl::cast)
             .filter(|alias| {
-                (alias.children().find(|c| is_type(c.kind())))
-                    .is_some_and(|ty| child(&ty, SyntaxKind::RecordExtension).is_some())
+                (alias.ty())
+                    .is_some_and(|ty| child(ty.syntax(), SyntaxKind::RecordExtension).is_some())
             })
-            .filter_map(|alias| token(&alias, SyntaxKind::UpperIdent))
+            .filter_map(|alias| Some(alias.upper_ident_token()?.text().to_owned()))
             .collect();
         for record in root
             .descendants()
@@ -520,7 +556,7 @@ impl Lint<'_> {
             if single && let Some(range) = code_range(&record) {
                 let message =
                     "Using a record is obsolete if you only plan to store a single field in it.";
-                self.warn(range, message.to_owned(), "single_field_record", false);
+                self.warn(range, message.to_owned(), Code::SingleFieldRecord);
             }
         }
     }
@@ -528,11 +564,12 @@ impl Lint<'_> {
     /// `getUnnecessaryListConcatDiagnostics`: `List.concat` of a literal
     /// list of literal lists.
     fn unnecessary_list_concats(&mut self, root: &SyntaxNode) {
+        let exprs = |node: &SyntaxNode| (node.children()).filter(|c| ast::Expr::can_cast(c.kind()));
         for call in root
             .descendants()
             .filter(|n| n.kind() == SyntaxKind::CallExpr)
         {
-            let mut parts = call.children().filter(|c| is_expr(c.kind()));
+            let mut parts = exprs(&call);
             let Some(function) = parts.next() else {
                 continue;
             };
@@ -540,15 +577,15 @@ impl Lint<'_> {
                 continue;
             }
             let of_lists = parts.any(|arg| {
-                let items: Vec<SyntaxNode> = arg.children().filter(|c| is_expr(c.kind())).collect();
+                let mut items = exprs(&arg).peekable();
                 arg.kind() == SyntaxKind::ListExpr
-                    && !items.is_empty()
-                    && items.iter().all(|i| i.kind() == SyntaxKind::ListExpr)
+                    && items.peek().is_some()
+                    && items.all(|i| i.kind() == SyntaxKind::ListExpr)
             });
             if of_lists && let Some(range) = code_range(&call) {
                 let message =
                     "You should just merge the arguments of `List.concat` to a single list.";
-                self.warn(range, message.to_owned(), "unnecessary_list_concat", false);
+                self.warn(range, message.to_owned(), Code::UnnecessaryListConcat);
             }
         }
     }
@@ -560,7 +597,9 @@ impl Lint<'_> {
             .descendants()
             .filter(|n| n.kind() == SyntaxKind::CallExpr)
         {
-            let parts: Vec<SyntaxNode> = call.children().filter(|c| is_expr(c.kind())).collect();
+            let parts: Vec<SyntaxNode> = (call.children())
+                .filter(|c| ast::Expr::can_cast(c.kind()))
+                .collect();
             // tree-sitter-elm knows the operators Elm's packages define,
             // and no others.
             let known = parts.first().is_some_and(|f| {
@@ -573,7 +612,7 @@ impl Lint<'_> {
                 && let Some(range) = code_range(&call)
             {
                 let message = "Don't use fully applied prefix notation for operators.";
-                self.warn(range, message.to_owned(), "no_uncurried_prefix", false);
+                self.warn(range, message.to_owned(), Code::NoUncurriedPrefix);
             }
         }
     }
@@ -582,41 +621,41 @@ impl Lint<'_> {
     /// ports.
     fn unnecessary_port_module(&mut self, root: &SyntaxNode) {
         let has_ports = root.children().any(|n| n.kind() == SyntaxKind::PortDecl);
-        let Some(header) = child(root, SyntaxKind::ModuleHeader) else {
+        let Some(header) = root.children().find_map(ast::ModuleHeader::cast) else {
             return;
         };
         if !has_ports
-            && first_token(&header, SyntaxKind::PortKw).is_some()
-            && let Some(range) = code_range(&header)
+            && header.port_token().is_some()
+            && let Some(range) = code_range(header.syntax())
         {
             let message =
                 "Module is defined as a `port` module, but does not define any ports.".to_owned();
-            self.warn(range, message, "unnecessary_port_module", false);
+            self.warn(range, message, Code::UnnecessaryPortModule);
         }
     }
 
     /// `getUnusedIncomingPortDiagnostics`: an incoming port, one whose
     /// type ends in a `Sub`, that no expression in the project uses.
     fn unused_incoming_ports(&mut self, snapshot: &Snapshot, index: &Index, root: &SyntaxNode) {
-        for port in root.children().filter(|n| n.kind() == SyntaxKind::PortDecl) {
-            let Some(name) = first_token(&port, SyntaxKind::LowerIdent) else {
+        for port in root.children().filter_map(ast::PortDecl::cast) {
+            let (Some(name), Some(ty)) = (port.lower_ident_token(), port.ty()) else {
                 continue;
             };
-            let Some(ty) = port.children().find(|c| is_type(c.kind())) else {
-                continue;
-            };
-            if !incoming(&ty) {
+            if !incoming(ty.syntax()) {
                 continue;
             }
             let at = name.text_range().start();
-            let used = (crate::references(snapshot, index, self.path, at, false).iter())
-                .any(|location| in_expression(index, location));
-            if !used {
+            let references =
+                crate::references(snapshot, index, self.path, at, Declaration::Exclude);
+            if !references
+                .iter()
+                .any(|location| in_expression(index, location))
+            {
                 let message = format!(
                     "Incoming port `{}` is never referenced in Elm code.",
                     name.text()
                 );
-                self.warn(name.text_range(), message, "unused_incoming_port", true);
+                self.warn(name.text_range(), message, Code::UnusedIncomingPort);
             }
         }
     }
@@ -628,19 +667,17 @@ impl Lint<'_> {
         if facts.exposes_all {
             return;
         }
-        for alias in root
-            .children()
-            .filter(|n| n.kind() == SyntaxKind::TypeAliasDecl)
-        {
-            let Some(name) = token(&alias, SyntaxKind::UpperIdent) else {
+        for alias in root.children().filter_map(ast::TypeAliasDecl::cast) {
+            let Some(name) = alias.upper_ident_token() else {
                 continue;
             };
-            let used = facts.values.iter().any(|(t, _)| *t == name)
-                || facts.exposed_types.contains(&name)
-                || facts.types.contains(&name);
-            if !used && let Some(range) = code_range(&alias) {
+            let name = name.text();
+            let used = facts.values.iter().any(|(t, _)| t == name)
+                || facts.exposed_types.iter().any(|t| t == name)
+                || facts.types.iter().any(|t| t == name);
+            if !used && let Some(range) = code_range(alias.syntax()) {
                 let message = format!("Type alias `{name}` is not used.");
-                self.warn(range, message, "unused_type_alias", true);
+                self.warn(range, message, Code::UnusedTypeAlias);
             }
         }
     }
@@ -652,25 +689,24 @@ impl Lint<'_> {
         if facts.exposes_all {
             return;
         }
-        for ty in root
-            .children()
-            .filter(|n| n.kind() == SyntaxKind::CustomTypeDecl)
-        {
-            let Some(type_name) = token(&ty, SyntaxKind::UpperIdent) else {
+        for ty in root.children().filter_map(ast::CustomTypeDecl::cast) {
+            let Some(type_name) = ty.upper_ident_token() else {
                 continue;
             };
-            let exposed = facts.exposed_types.contains(&format!("{type_name}(..)"));
-            for variant in ty.children().filter(|n| n.kind() == SyntaxKind::Variant) {
-                let Some(name) = token(&variant, SyntaxKind::UpperIdent) else {
+            let exposed = (facts.exposed_types.iter())
+                .any(|t| t.strip_suffix("(..)") == Some(type_name.text()));
+            for variant in ty.variants() {
+                let Some(name) = variant.upper_ident_token() else {
                     continue;
                 };
+                let name = name.text();
                 let used = exposed
-                    || facts.values.iter().any(|(t, _)| *t == name)
-                    || facts.types.contains(&name)
-                    || facts.branch_constructors.contains(&name);
-                if !used && let Some(range) = code_range(&variant) {
+                    || facts.values.iter().any(|(t, _)| t == name)
+                    || facts.types.iter().any(|t| t == name)
+                    || facts.branch_constructors.iter().any(|t| t == name);
+                if !used && let Some(range) = code_range(variant.syntax()) {
                     let message = format!("Value constructor `{name}` is not used.");
-                    self.warn(range, message, "unused_value_constructor", true);
+                    self.warn(range, message, Code::UnusedValueConstructor);
                 }
             }
         }
@@ -680,9 +716,9 @@ impl Lint<'_> {
 /// `getUnusedImportValueAndTypeDiagnostics`: the exposed values and
 /// types of the imports that nothing writes, each but `T(..)`. Gives
 /// back where they are, for `getUnusedImportDiagnostics`.
-fn unused_imported_values(imports: &[SyntaxNode], facts: &Facts) -> HashSet<TextRange> {
+fn unused_imported_values(imports: &[ast::Import], facts: &Facts) -> HashSet<TextRange> {
     let mut unused = HashSet::new();
-    for (exposed, _, range) in import_exposures(imports) {
+    for (exposed, range) in import_exposures(imports) {
         let text = text(&exposed);
         if text.ends_with("(..)") {
             continue;
@@ -696,101 +732,22 @@ fn unused_imported_values(imports: &[SyntaxNode], facts: &Facts) -> HashSet<Text
     unused
 }
 
-/// The problems for the unused exposed names `unused` holds, in order.
-fn found_values(imports: &[SyntaxNode], unused: &HashSet<TextRange>, path: &Path) -> Vec<Problem> {
-    let mut problems = Vec::new();
-    for (exposed, kind, range) in import_exposures(imports) {
-        if !unused.contains(&range) {
-            continue;
-        }
-        let what = if kind == SyntaxKind::ExposedType {
-            "type"
-        } else {
-            "value"
-        };
-        problems.push(Problem {
-            path: path.to_owned(),
-            range,
-            severity: Severity::Warning,
-            message: format!("Unused imported {what} `{}`", text(&exposed)),
-            source: "ElmLS",
-            code: "unused_imported_value",
-            unnecessary: true,
-            relative: None,
-            fixes: Vec::new(),
-        });
-    }
-    problems
-}
-
 /// The exposed values and types of every import, in order, with their
-/// kinds and ranges.
-fn import_exposures(imports: &[SyntaxNode]) -> Vec<(SyntaxNode, SyntaxKind, TextRange)> {
-    let mut found = Vec::new();
-    for import in imports {
-        let Some(list) = child(import, SyntaxKind::ExposingList) else {
-            continue;
-        };
-        for item in list.children() {
-            let kind = item.kind();
-            if matches!(kind, SyntaxKind::ExposedValue | SyntaxKind::ExposedType)
-                && let Some(range) = code_range(&item)
-            {
-                found.push((item, kind, range));
-            }
-        }
-    }
-    found
-}
-
-/// The variables `pattern` binds, as tree-sitter's `lower_pattern`s:
-/// variables, record fields and `as` names, in order.
-pub(crate) fn bindings(pattern: &SyntaxNode) -> Vec<(String, TextRange)> {
-    let mut found = Vec::new();
-    for node in std::iter::once(pattern.clone()).chain(pattern.descendants().skip(1)) {
-        match node.kind() {
-            // tree-sitter reads an empty `{}` as a record pattern of one
-            // variable with no name, which is never used. It's reported
-            // over its parent's parent: a declaration's name and
-            // parameters, or the pattern around it.
-            SyntaxKind::RecordPattern if child(&node, SyntaxKind::FieldPattern).is_none() => {
-                let parent = node.parent();
-                let range = match parent.filter(|p| p.kind() == SyntaxKind::Definition) {
-                    Some(definition) => {
-                        let start = code_range(&definition).map(|r| r.start());
-                        let end = (definition.children())
-                            .filter(|c| is_pattern(c.kind()))
-                            .last()
-                            .and_then(|last| code_range(&last));
-                        start
-                            .zip(end)
-                            .map(|(start, end)| TextRange::new(start, end.end()))
-                    }
-                    None => code_range(&node),
-                };
-                if let Some(range) = range {
-                    found.push((String::new(), range));
-                }
-            }
-            SyntaxKind::VarPattern | SyntaxKind::FieldPattern => {
-                if let Some(name) = first_token(&node, SyntaxKind::LowerIdent) {
-                    found.push((name.text().to_owned(), name.text_range()));
-                }
-            }
-            SyntaxKind::AliasPattern => {
-                let name = (node.children_with_tokens())
-                    .filter_map(|e| e.into_token())
-                    .filter(|t| t.kind() == SyntaxKind::LowerIdent)
-                    .last();
-                if let Some(name) = name {
-                    found.push((name.text().to_owned(), name.text_range()));
-                }
-            }
-            _ => {}
-        }
-    }
-    found.sort_by_key(|(_, range)| range.start());
-    found
+/// ranges.
+fn import_exposures(imports: &[ast::Import]) -> impl Iterator<Item = (SyntaxNode, TextRange)> + '_ {
+    (imports.iter())
+        .filter_map(ast::Import::exposing_list)
+        .flat_map(|list| list.syntax().children())
+        .filter(|item| {
+            matches!(
+                item.kind(),
+                SyntaxKind::ExposedValue | SyntaxKind::ExposedType
+            )
+        })
+        .filter_map(|item| {
+            let range = code_range(&item)?;
+            Some((item, range))
+        })
 }
 
 /// Whether a port's type ends in a `Sub`: an incoming port.
@@ -799,14 +756,17 @@ fn incoming(ty: &SyntaxNode) -> bool {
     let mut function = false;
     while ty.kind() == SyntaxKind::FunctionType {
         function = true;
-        let Some(result) = ty.children().filter(|c| is_type(c.kind())).nth(1) else {
+        let result = (ty.children())
+            .filter(|c| ast::Type::can_cast(c.kind()))
+            .nth(1);
+        let Some(result) = result else {
             return false;
         };
         ty = result;
     }
     function
         && ty.kind() == SyntaxKind::NamedType
-        && token(&ty, SyntaxKind::UpperIdent).as_deref() == Some("Sub")
+        && child_token(&ty, SyntaxKind::UpperIdent).is_some_and(|name| name.text() == "Sub")
 }
 
 /// Whether `location` is in an expression, rather than a declaration or
@@ -836,21 +796,17 @@ fn qualifier(node: &SyntaxNode) -> Option<String> {
 
 /// A name with its qualifier: `Html.Html`.
 fn qualified_name(node: &SyntaxNode) -> String {
-    let qualifier = child(node, SyntaxKind::Qualifier)
+    let mut name = child(node, SyntaxKind::Qualifier)
         .map(|q| words(&q))
         .unwrap_or_default();
-    let name = token(node, SyntaxKind::UpperIdent).unwrap_or_default();
-    format!("{qualifier}{name}")
+    name.extend(child_token(node, SyntaxKind::UpperIdent).map(|t| t.text().to_owned()));
+    name
 }
 
-/// A node's source text from its first token that isn't trivia to its
-/// last: tree-sitter's `text`.
+/// A node's text as tree-sitter's `text` reads it, empty where the node
+/// is.
 fn text(node: &SyntaxNode) -> String {
-    let Some(range) = code_range(node) else {
-        return String::new();
-    };
-    let start = range.start() - node.text_range().start();
-    node.text().slice(start..start + range.len()).to_string()
+    code_text(node).unwrap_or_default()
 }
 
 /// The imports that parsed whole: a half-written one, such as `import`
@@ -859,39 +815,18 @@ fn text(node: &SyntaxNode) -> String {
 fn imports<'r>(
     root: &'r SyntaxNode,
     errors: &'r [TextSize],
-) -> impl Iterator<Item = SyntaxNode> + 'r {
-    root.children().filter(move |n| {
-        let end = n
-            .next_sibling()
-            .map_or_else(|| n.text_range().end(), |next| next.text_range().start());
-        n.kind() == SyntaxKind::Import
-            && !errors
+) -> impl Iterator<Item = ast::Import> + 'r {
+    root.children()
+        .filter_map(ast::Import::cast)
+        .filter(move |import| {
+            let n = import.syntax();
+            let end = n
+                .next_sibling()
+                .map_or_else(|| n.text_range().end(), |next| next.text_range().start());
+            !errors
                 .iter()
                 .any(|&at| n.text_range().start() <= at && at <= end)
-    })
-}
-
-pub(crate) fn first_token(node: &SyntaxNode, kind: SyntaxKind) -> Option<nomi_syntax::SyntaxToken> {
-    node.children_with_tokens()
-        .filter_map(|e| e.into_token())
-        .find(|t| t.kind() == kind)
-}
-
-pub(crate) fn is_pattern(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::VarPattern
-            | SyntaxKind::WildcardPattern
-            | SyntaxKind::LiteralPattern
-            | SyntaxKind::UnitPattern
-            | SyntaxKind::ParenPattern
-            | SyntaxKind::TuplePattern
-            | SyntaxKind::ListPattern
-            | SyntaxKind::RecordPattern
-            | SyntaxKind::ConstructorPattern
-            | SyntaxKind::ConsPattern
-            | SyntaxKind::AliasPattern
-    )
+        })
 }
 
 /// The operators Elm's packages define, which tree-sitter-elm reads.
@@ -906,45 +841,4 @@ enum Pair {
     ListThenList,
     AnyThenList,
     SingletonThenAny,
-}
-
-fn is_expr(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::LiteralExpr
-            | SyntaxKind::NameExpr
-            | SyntaxKind::OperatorFunction
-            | SyntaxKind::TupleConstructorExpr
-            | SyntaxKind::NegateExpr
-            | SyntaxKind::CallExpr
-            | SyntaxKind::OperatorChain
-            | SyntaxKind::UnitExpr
-            | SyntaxKind::ParenExpr
-            | SyntaxKind::TupleExpr
-            | SyntaxKind::ListExpr
-            | SyntaxKind::RangeExpr
-            | SyntaxKind::RecordExpr
-            | SyntaxKind::RecordUpdateExpr
-            | SyntaxKind::FieldAccessExpr
-            | SyntaxKind::AccessorExpr
-            | SyntaxKind::IfExpr
-            | SyntaxKind::CaseExpr
-            | SyntaxKind::LetExpr
-            | SyntaxKind::LambdaExpr
-            | SyntaxKind::GlslExpr
-    )
-}
-
-pub(crate) fn is_type(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::NamedType
-            | SyntaxKind::TypeVar
-            | SyntaxKind::FunctionType
-            | SyntaxKind::UnitType
-            | SyntaxKind::ParenType
-            | SyntaxKind::TupleType
-            | SyntaxKind::TupleConstructorType
-            | SyntaxKind::RecordType
-    )
 }

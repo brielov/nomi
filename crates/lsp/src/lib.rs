@@ -719,7 +719,7 @@ impl Server {
             return Value::Array(Vec::new());
         };
         let mut found = Vec::new();
-        for (file, symbol) in nomi_ide::workspace_symbols(&snapshot, &index, query) {
+        for (file, symbol) in nomi_ide::workspace_symbols(&index, query) {
             let (Ok(uri), Ok(text)) = (Url::from_file_path(&file), snapshot.read(&file)) else {
                 continue;
             };
@@ -748,7 +748,7 @@ impl Server {
             return Ok(Value::Null);
         };
         let range = nomi_ide::prepare_rename(&snapshot, &index, &path, offset)
-            .map_err(|message| (ErrorCode::RequestFailed, message.to_owned()))?;
+            .map_err(|outside| (ErrorCode::RequestFailed, outside.to_string()))?;
         let text = Text::new(&text, self.unit);
         Ok(serde_json::to_value(range.map(|r| text.range(r))).expect("a range serializes"))
     }
@@ -765,7 +765,7 @@ impl Server {
             return Ok(Value::Null);
         };
         let Some(found) = nomi_ide::rename(&snapshot, &index, &path, offset, new_name)
-            .map_err(|message| (ErrorCode::RequestFailed, message.to_owned()))?
+            .map_err(|outside| (ErrorCode::RequestFailed, outside.to_string()))?
         else {
             return Ok(Value::Null);
         };
@@ -790,8 +790,11 @@ impl Server {
                 "edits": edits,
             }));
         }
-        if let Some((from, to)) = &found.moved
-            && let (Ok(from), Ok(to)) = (Url::from_file_path(from), Url::from_file_path(to))
+        if let Some(moved) = &found.moved
+            && let (Ok(from), Ok(to)) = (
+                Url::from_file_path(&moved.from),
+                Url::from_file_path(&moved.to),
+            )
         {
             documents.push(serde_json::json!({ "kind": "rename", "oldUri": from, "newUri": to }));
         }
@@ -821,8 +824,13 @@ impl Server {
         let (document, offset) = self.at(position)?;
         let path = document.path.clone();
         let snapshot = self.vfs.snapshot();
+        let declaration = if with_declaration {
+            nomi_ide::Declaration::Include
+        } else {
+            nomi_ide::Declaration::Exclude
+        };
         let found = (self.index(&snapshot, &path))
-            .map(|index| nomi_ide::references(&snapshot, &index, &path, offset, with_declaration))
+            .map(|index| nomi_ide::references(&snapshot, &index, &path, offset, declaration))
             .unwrap_or_default();
         let locations: Vec<Location> = (found.iter())
             .filter_map(|l| self.location(&snapshot, l))
@@ -908,9 +916,9 @@ impl Server {
         let lenses: Vec<Value> = (lenses.into_iter())
             .map(|lens| {
                 let data = match lens.kind {
-                    nomi_ide::LensKind::Exposed { name, function } => serde_json::json!({
+                    nomi_ide::LensKind::Exposed { name, what } => serde_json::json!({
                         "codeLensType": "exposed", "uri": uri,
-                        "nameNode": name, "isFunctionOrPort": function,
+                        "nameNode": name, "isFunctionOrPort": what == nomi_ide::Exposable::Value,
                     }),
                     nomi_ide::LensKind::References => {
                         serde_json::json!({ "codeLensType": "referenceCounter", "uri": uri })
@@ -942,8 +950,11 @@ impl Server {
         let command = match data["codeLensType"].as_str() {
             Some("exposed") => {
                 let name = data["nameNode"].as_str().unwrap_or_default();
-                let function = data["isFunctionOrPort"].as_bool().unwrap_or(false);
-                let exposed = nomi_ide::is_exposed(&snapshot, &path, name, function)
+                let what = match data["isFunctionOrPort"].as_bool() {
+                    Some(true) => nomi_ide::Exposable::Value,
+                    Some(false) | None => nomi_ide::Exposable::Type,
+                };
+                let exposed = nomi_ide::is_exposed(&snapshot, &path, name, what)
                     .map_err(|e| (ErrorCode::InternalError, e.to_string()))?;
                 let title = if exposed { "exposed" } else { "local" };
                 let root = (index::manifest(&snapshot, &path))
@@ -971,7 +982,10 @@ impl Server {
             Some("referenceCounter") => {
                 let offset = text.offset(lens.range.start);
                 let found = (self.index(&snapshot, &path))
-                    .map(|index| nomi_ide::references(&snapshot, &index, &path, offset, true))
+                    .map(|index| {
+                        let declaration = nomi_ide::Declaration::Include;
+                        nomi_ide::references(&snapshot, &index, &path, offset, declaration)
+                    })
                     .unwrap_or_default();
                 let locations: Vec<Location> = (found.iter())
                     .filter_map(|l| self.location(&snapshot, l))
@@ -1027,11 +1041,11 @@ impl Server {
             let mut value = h.markdown;
             // As elm-language-server links a parameter's type: to its
             // file, at a one-based line.
-            if let Some((name, path, line)) = h.link
-                && let Ok(mut uri) = Url::from_file_path(&path)
+            if let Some(link) = h.link
+                && let Ok(mut uri) = Url::from_file_path(&link.path)
             {
-                uri.set_fragment(Some(&format!("L{line}")));
-                value.push_str(&format!("\n\n[Go to {name}](<{uri}>)"));
+                uri.set_fragment(Some(&format!("L{}", link.line)));
+                value.push_str(&format!("\n\n[Go to {}](<{uri}>)", link.name));
             }
             lsp_types::Hover {
                 contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {

@@ -347,13 +347,12 @@ fn arguments(
 /// module infers them.
 fn function_type(context: &Context<'_>, node: &SyntaxNode, args: &[SyntaxToken]) -> Option<String> {
     let module = context.module;
-    let (_, types) =
-        nomi_compiler::types::infer_types(context.index.compat, module.canonical.as_ref()?);
+    let (_, types) = module.types(context.index.compat)?;
+    let root = module.root();
     let type_at = |range: TextRange| {
-        (types.iter())
-            .rev()
-            .find(|(r, _)| crate::hover::trimmed(&module.root(), *r) == Some(range))
-            .map(|(_, ty)| ty.clone())
+        crate::hover::types_at(&root, types, range)
+            .next_back()
+            .cloned()
     };
     let body = type_at(code_range(node)?)?;
     let ty = if args.is_empty() {
@@ -484,7 +483,7 @@ pub(super) fn type_alias_edits(
             .descendants()
             .filter(|n| n.kind() == SyntaxKind::TypeVar)
         {
-            let name = crate::symbols::words(&var);
+            let name = crate::tree::words(&var);
             if !args.contains(&name) {
                 args.push(name);
             }

@@ -1,6 +1,8 @@
 //! What elm's reports say is missing: a `case`'s branches and a record's
 //! field.
 
+use nomi_syntax::ast::{self, AstNode};
+
 use super::*;
 
 /// Whether `diagnostic` is elm's report of a `case` that misses patterns.
@@ -59,10 +61,10 @@ pub(super) fn case_branch_edits(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> 
         return Vec::new();
     };
     let indent = column_of(first_range.start());
-    let pattern = first.children().find(|c| crate::lint::is_pattern(c.kind()));
+    let pattern = first.children().find(|c| ast::Pattern::can_cast(c.kind()));
     let body = first
         .children()
-        .filter(|c| !crate::lint::is_pattern(c.kind()))
+        .filter(|c| !ast::Pattern::can_cast(c.kind()))
         .last();
     let body_indent = body
         .and_then(|b| code_range(&b))
@@ -192,7 +194,7 @@ pub(super) fn record_field_edits(fixing: &Fixing<'_>, diagnostic: &Diagnosed) ->
     };
     // The record: the access's target, or the update's.
     let Some(target) = (owner.children_with_tokens()).find_map(|e| match e {
-        SyntaxElement::Node(n) => crate::lint::first_token(&n, SyntaxKind::LowerIdent),
+        SyntaxElement::Node(n) => nomi_syntax::child_token(&n, SyntaxKind::LowerIdent),
         SyntaxElement::Token(t) => (t.kind() == SyntaxKind::LowerIdent).then_some(t),
     }) else {
         return Vec::new();

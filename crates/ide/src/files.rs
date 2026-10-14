@@ -7,19 +7,17 @@ use std::path::{Path, PathBuf};
 use nomi_engine::Snapshot;
 use nomi_engine::index::{self, Index};
 use nomi_project::Outline;
+use nomi_syntax::ast::{self, AstNode};
 
 use crate::Edit;
-use crate::symbols::{child, code_range};
+use crate::tree::code_range;
 
 /// The source directories of the project that owns `path`.
 fn source_dirs(snapshot: &Snapshot, path: &Path) -> Vec<PathBuf> {
     let Some(manifest) = index::manifest(snapshot, path) else {
         return Vec::new();
     };
-    let Some(root) = manifest.parent() else {
-        return Vec::new();
-    };
-    let Ok(text) = snapshot.read(&manifest) else {
+    let (Some(root), Ok(text)) = (manifest.parent(), snapshot.read(&manifest)) else {
         return Vec::new();
     };
     match Outline::detect(text.as_bytes()) {
@@ -87,7 +85,7 @@ pub fn renamed_files(
     new: &Path,
 ) -> Vec<(PathBuf, Vec<Edit>)> {
     if let Some(module) = index.module(old) {
-        return renamed_module(snapshot, index, &module.path.clone(), new);
+        return renamed_module(snapshot, index, &module.path, new);
     }
     // A folder: each module below it.
     let olds: Vec<PathBuf> = [Some(old.to_path_buf()), nomi_engine::canonical(old).ok()]
@@ -121,10 +119,9 @@ fn renamed_module(
     let Some(module) = index.module(old) else {
         return Vec::new();
     };
-    let at = (module.root().children())
-        .find(|n| n.kind() == nomi_syntax::SyntaxKind::ModuleHeader)
-        .and_then(|header| child(&header, nomi_syntax::SyntaxKind::ModuleName))
-        .and_then(|name| code_range(&name));
+    let at = (module.root().children().find_map(ast::ModuleHeader::cast))
+        .and_then(|header| header.module_name())
+        .and_then(|name| code_range(name.syntax()));
     let Some(at) = at else {
         return Vec::new();
     };

@@ -22,7 +22,7 @@ use nomi_base::ColumnUnit;
 use nomi_engine::index::{self, Memo};
 use nomi_engine::schedule::Cancelled;
 use nomi_engine::{Snapshot, Store, live};
-use nomi_ide::{Problem, Severity};
+use nomi_ide::{Checks, Code, Problem, Rule, Severity};
 use serde_json::{Value, json};
 
 use crate::position::Text;
@@ -114,7 +114,7 @@ impl Settings {
 /// A project's `elm-analyse.json`: which lint rules run, and which files
 /// have none.
 struct Analyse {
-    checks: nomi_ide::Checks,
+    checks: Checks,
     excluded: Vec<PathBuf>,
 }
 
@@ -128,7 +128,7 @@ impl Analyse {
             .and_then(Value::as_object)
             .into_iter()
             .flatten())
-        .filter_map(|(name, on)| Some((name.clone(), on.as_bool()?)))
+        .filter_map(|(name, on)| Some((Rule::from_name(name)?, on.as_bool()?)))
         .collect::<Vec<_>>();
         let excluded = (json
             .get("excludedPaths")
@@ -139,7 +139,7 @@ impl Analyse {
         .map(|path| root.join(path))
         .collect();
         Analyse {
-            checks: nomi_ide::Checks::new(checks),
+            checks: Checks::new(checks),
             excluded,
         }
     }
@@ -316,7 +316,7 @@ fn problems(
         let before = found.len();
         let analyse = Analyse::read(snapshot, root);
         let open_read: Vec<&PathBuf> = open.iter().filter(|p| !analyse.excludes(p)).collect();
-        let annotations = !settings.on_save_only && analyse.checks.on("MissingTypeAnnotation");
+        let annotations = !settings.on_save_only && analyse.checks.on(Rule::MissingTypeAnnotation);
         // Indexing takes a while; only annotations and ports need it, and
         // it goes on while the project is checked.
         let ports = open_read
@@ -490,18 +490,19 @@ fn review(snapshot: &Snapshot, root: &Path, settings: &Settings, unit: ColumnUni
                     text: fix["string"].as_str().unwrap_or_default().to_owned(),
                 })
                 .collect();
+            let message = error["message"].as_str().unwrap_or_default().to_owned();
             found.push(Problem {
-                path: path.clone(),
-                range: range(&error["region"]),
                 severity,
-                message: error["message"].as_str().unwrap_or_default().to_owned(),
-                source: "elm-review",
-                code: "elm_review",
                 unnecessary: error["rule"]
                     .as_str()
                     .is_some_and(|r| r.starts_with("NoUnused")),
-                relative: None,
                 fixes,
+                ..Problem::new(
+                    path.clone(),
+                    range(&error["region"]),
+                    Code::ElmReview,
+                    message,
+                )
             });
         }
     }
@@ -520,15 +521,13 @@ fn syntax(snapshot: &Snapshot, path: &Path, root: Option<&Path>) -> Vec<Problem>
     let relative: Vec<_> = relative.iter().map(|p| p.to_string_lossy()).collect();
     (found.into_iter())
         .map(|d| Problem {
-            path: path.to_owned(),
-            range: d.range,
-            severity: Severity::Error,
-            message: format!("{} - {}", d.title, d.message),
-            source: "Elm",
-            code: "elm_make",
-            unnecessary: false,
             relative: Some(relative.join("/")),
-            fixes: Vec::new(),
+            ..Problem::new(
+                path.to_owned(),
+                d.range,
+                Code::ElmMake,
+                format!("{} - {}", d.title, d.message),
+            )
         })
         .collect()
 }
@@ -542,16 +541,16 @@ fn diagnostic(problem: &Problem, uri: &Url, text: &Text) -> Diagnostic {
             Severity::Warning => DiagnosticSeverity::WARNING,
             Severity::Information => DiagnosticSeverity::INFORMATION,
         }),
-        source: Some(problem.source.to_owned()),
+        source: Some(problem.code.source().as_str().to_owned()),
         message: problem.message.clone(),
         tags: (problem.unnecessary).then(|| vec![DiagnosticTag::UNNECESSARY]),
-        data: Some(if problem.code == "elm_review" {
+        data: Some(if problem.code == Code::ElmReview {
             let fixes: Vec<Value> = (problem.fixes.iter())
                 .map(|f| json!({ "string": f.text, "range": text.range(f.range) }))
                 .collect();
-            json!({ "uri": data_uri, "code": problem.code, "fixes": fixes })
+            json!({ "uri": data_uri, "code": problem.code.as_str(), "fixes": fixes })
         } else {
-            json!({ "uri": data_uri, "code": problem.code })
+            json!({ "uri": data_uri, "code": problem.code.as_str() })
         }),
         ..Diagnostic::default()
     }
@@ -568,9 +567,9 @@ mod tests {
                         "excludedPaths": ["src/Generated"] }"#;
         std::fs::write(dir.path().join("elm-analyse.json"), json).unwrap();
         let analyse = Analyse::read(&nomi_engine::Vfs::new().snapshot(), dir.path());
-        assert!(!analyse.checks.on("UnusedImport"));
-        assert!(analyse.checks.on("UnusedPatternVariable"));
-        assert!(analyse.checks.opted_in("SingleFieldRecord"));
+        assert!(!analyse.checks.on(Rule::UnusedImport));
+        assert!(analyse.checks.on(Rule::UnusedPatternVariable));
+        assert!(analyse.checks.on(Rule::SingleFieldRecord));
         assert!(analyse.excludes(&dir.path().join("src/Generated/Api.elm")));
         assert!(!analyse.excludes(&dir.path().join("src/Main.elm")));
     }

@@ -5,6 +5,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use nomi_syntax::ast::{self, AstNode};
+
 use super::*;
 
 /// The lint codes `remove_unused` fixes.
@@ -59,7 +61,7 @@ fn unused_edits(
             let name = (token.parent_ancestors())
                 .find(|a| a.kind() == SyntaxKind::Import)
                 .and_then(|i| child(&i, SyntaxKind::ModuleName))
-                .map_or_else(|| token.text().to_owned(), |n| crate::symbols::words(&n));
+                .map_or_else(|| token.text().to_owned(), |n| crate::tree::words(&n));
             let line = text[..usize::from(range.end())].matches('\n').count();
             let end = line_start(text, line + 1);
             let title = format!("Remove unused import `{name}`");
@@ -139,7 +141,7 @@ fn imported_value_edits(
     else {
         return (None, Vec::new());
     };
-    let Some(module) = child(&import, SyntaxKind::ModuleName).map(|n| crate::symbols::words(&n))
+    let Some(module) = child(&import, SyntaxKind::ModuleName).map(|n| crate::tree::words(&n))
     else {
         return (None, Vec::new());
     };
@@ -292,17 +294,17 @@ fn remove_variant(token: &SyntaxToken) -> Option<TextRange> {
         .filter(|c| c.kind() == SyntaxKind::Variant)
         .collect();
     if variants.len() == 1 {
-        return crate::symbols::declaration_range(&declaration);
+        return crate::tree::declaration_range(&declaration);
     }
     let name = token.text();
     let variant = (variants.iter()).find(|v| {
-        let words = crate::symbols::words(v);
+        let words = crate::tree::words(v);
         words == name || words.starts_with(&format!("{name} "))
     });
     let Some(variant) = variant else {
         return Some(token.text_range());
     };
-    let extent = |v: &SyntaxNode| crate::symbols::variant_range(v).or_else(|| code_range(v));
+    let extent = |v: &SyntaxNode| crate::tree::variant_range(v).or_else(|| code_range(v));
     let range = extent(variant)?;
     let siblings: Vec<SyntaxElement> = (declaration.children_with_tokens())
         .filter(|e| !e.kind().is_trivia())
@@ -363,12 +365,12 @@ fn remove_parameter(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> Option<Offer
         return None;
     }
     let parameters: Vec<SyntaxNode> = (definition.children())
-        .filter(|c| crate::lint::is_pattern(c.kind()))
+        .filter(|c| ast::Pattern::can_cast(c.kind()))
         .collect();
     let index = parameters.iter().position(|p| *p == parameter)?;
     let name = name_of(&definition)?;
     let top = declaration.kind() == SyntaxKind::ValueDecl;
-    if top && (name.text() == "main" || exposed_by_package(context, root, text, name.text())) {
+    if top && (name.text() == "main" || exposed_by_package(context, root, name.text())) {
         // Entry points and a package's API have callers outside it.
         return None;
     }
@@ -504,7 +506,7 @@ fn remove_parameter(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> Option<Offer
     }
     let title = format!(
         "Remove unused parameter `{}`",
-        crate::symbols::words(&parameter)
+        crate::tree::words(&parameter)
     );
     Some((title, changes, None))
 }
@@ -552,7 +554,7 @@ fn flat_type(signature: &SyntaxNode) -> Option<Vec<SyntaxElement>> {
 }
 
 /// Whether the module is a package's exposed one and exposes `name`.
-fn exposed_by_package(context: &Context<'_>, root: &SyntaxNode, text: &str, name: &str) -> bool {
+fn exposed_by_package(context: &Context<'_>, root: &SyntaxNode, name: &str) -> bool {
     let Some(manifest) = nomi_engine::index::manifest(context.snapshot, context.path) else {
         return false;
     };
@@ -566,7 +568,7 @@ fn exposed_by_package(context: &Context<'_>, root: &SyntaxNode, text: &str, name
         .exposed
         .modules()
         .any(|m| m.to_string() == context.module.name)
-        && crate::lens::exposes(root, text, name, true)
+        && crate::lens::exposes(root, name, crate::lens::Exposable::Value)
 }
 
 /// `isRecursive`: whether the value refers to itself, through the

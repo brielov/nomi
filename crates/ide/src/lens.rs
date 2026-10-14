@@ -14,20 +14,28 @@ use std::path::Path;
 
 use nomi_base::TextRange;
 use nomi_engine::Snapshot;
-use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, parse_module};
+use nomi_syntax::ast::{self, AstNode};
+use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, child_token, parse_module, tokens};
 
-use crate::symbols::{child, code_range, declaration_range};
+use crate::tree::{child, code_range, code_text, declaration_range};
+
+/// What a name the module may expose names: a value or port, or a type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Exposable {
+    Value,
+    Type,
+}
 
 /// What a lens shows once resolved.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LensKind {
-    /// Whether the module exposes `name`, a value or port if `function`,
-    /// else a type.
-    Exposed { name: String, function: bool },
+    /// Whether the module exposes `name`.
+    Exposed { name: String, what: Exposable },
     /// How many references the name at the lens's start has.
     References,
 }
 
+/// A lens over a declaration, and what it shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Lens {
     pub kind: LensKind,
@@ -38,102 +46,102 @@ pub struct Lens {
 pub fn code_lenses(snapshot: &Snapshot, path: &Path) -> io::Result<Vec<Lens>> {
     let text = snapshot.read(path)?;
     let root = parse_module(&text).syntax();
-    let mut lenses = Vec::new();
-    for node in root.children() {
-        let exposed = |name: String, function: bool, range: Option<TextRange>| {
-            range.map(|range| Lens {
-                kind: LensKind::Exposed { name, function },
-                range,
-            })
-        };
-        let lens = match node.kind() {
-            SyntaxKind::ValueDecl => value_name(&node)
-                .and_then(|name| exposed(name.text().to_owned(), true, value_range(&node))),
-            SyntaxKind::CustomTypeDecl | SyntaxKind::TypeAliasDecl => {
-                name(&node, SyntaxKind::UpperIdent).and_then(|name| {
-                    exposed(name.text().to_owned(), false, declaration_range(&node))
-                })
-            }
-            SyntaxKind::PortDecl => name(&node, SyntaxKind::LowerIdent)
-                .and_then(|name| exposed(name.text().to_owned(), true, code_range(&node))),
-            _ => None,
-        };
-        lenses.extend(lens);
-    }
     let count = |range: TextRange| Lens {
         kind: LensKind::References,
         range,
     };
+    let mut lenses = Vec::new();
     for node in root.children() {
-        let name = match node.kind() {
-            SyntaxKind::CustomTypeDecl | SyntaxKind::TypeAliasDecl => {
-                name(&node, SyntaxKind::UpperIdent)
-            }
-            SyntaxKind::PortDecl => name(&node, SyntaxKind::LowerIdent),
+        let lens = match node.kind() {
+            SyntaxKind::ValueDecl => value_name(&node)
+                .map(|name| (name, Exposable::Value))
+                .zip(value_range(&node)),
+            SyntaxKind::CustomTypeDecl | SyntaxKind::TypeAliasDecl => declared_name(&node)
+                .map(|name| (name, Exposable::Type))
+                .zip(declaration_range(&node)),
+            SyntaxKind::PortDecl => declared_name(&node)
+                .map(|name| (name, Exposable::Value))
+                .zip(code_range(&node)),
             _ => None,
         };
-        lenses.extend(name.map(|name| count(name.text_range())));
+        lenses.extend(lens.map(|((name, what), range)| Lens {
+            kind: LensKind::Exposed {
+                name: name.text().to_owned(),
+                what,
+            },
+            range,
+        }));
+    }
+    for node in root.children() {
+        if let Some(name) = declared_name(&node) {
+            lenses.push(count(name.text_range()));
+        }
     }
     for node in root.descendants() {
         if matches!(node.kind(), SyntaxKind::ValueDecl | SyntaxKind::LetValue) {
             lenses.extend(value_range(&node).map(count));
         }
     }
-    let module_name = (root.children())
-        .find(|n| n.kind() == SyntaxKind::ModuleHeader)
-        .and_then(|header| child(&header, SyntaxKind::ModuleName))
-        .and_then(|name| code_range(&name));
+    let module_name = (root.children().find_map(ast::ModuleHeader::cast))
+        .and_then(|header| header.module_name())
+        .and_then(|name| code_range(name.syntax()));
     lenses.extend(module_name.map(count));
     Ok(lenses)
 }
 
-/// Whether the file at `path` exposes `name`, a value or port if
-/// `function`, else a type: as elm-language-server reads it, an exposed
-/// type matches by its text, so `Shape (..)` isn't `Shape(..)`.
+/// Whether the file at `path` exposes `name`: as elm-language-server
+/// reads it, an exposed type matches by its text, so `Shape (..)` isn't
+/// `Shape(..)`.
 pub fn is_exposed(
     snapshot: &Snapshot,
     path: &Path,
     name: &str,
-    function: bool,
+    what: Exposable,
 ) -> io::Result<bool> {
     let text = snapshot.read(path)?;
-    let root = parse_module(&text).syntax();
-    Ok(exposes(&root, &text, name, function))
+    Ok(exposes(&parse_module(&text).syntax(), name, what))
 }
 
 /// [`is_exposed`] of a module already parsed.
-pub(crate) fn exposes(root: &SyntaxNode, text: &str, name: &str, function: bool) -> bool {
-    let Some(list) = (root.children())
-        .find(|n| n.kind() == SyntaxKind::ModuleHeader)
-        .and_then(|header| child(&header, SyntaxKind::ExposingList))
-    else {
+pub(crate) fn exposes(root: &SyntaxNode, name: &str, what: Exposable) -> bool {
+    let list = (root.children().find_map(ast::ModuleHeader::cast))
+        .and_then(|header| header.exposing_list());
+    let Some(list) = list else {
         return false;
     };
-    let everything = (list.children_with_tokens())
-        .filter_map(|e| e.into_token())
-        .any(|t| t.kind() == SyntaxKind::DotDot);
-    if everything {
+    if list.dot_dot_token().is_some() {
         return true;
     }
-    let wanted = if function {
-        SyntaxKind::ExposedValue
-    } else {
-        SyntaxKind::ExposedType
+    let wanted = match what {
+        Exposable::Value => SyntaxKind::ExposedValue,
+        Exposable::Type => SyntaxKind::ExposedType,
     };
-    let as_written =
-        |node: &SyntaxNode| code_range(node).map(|r| &text[std::ops::Range::<usize>::from(r)]);
-    (list.descendants())
+    (list.syntax().descendants())
         .filter(|n| n.kind() == wanted)
-        .filter_map(|n| as_written(&n))
-        .any(|written| written == name || (!function && written == format!("{name}(..)")))
+        .filter_map(|n| code_text(&n))
+        .any(|written| {
+            written == name
+                || (what == Exposable::Type && written.strip_suffix("(..)") == Some(name))
+        })
 }
 
 /// The name a value declaration defines.
 fn value_name(node: &SyntaxNode) -> Option<SyntaxToken> {
-    name(
+    child_token(
         &child(node, SyntaxKind::Definition)?,
         SyntaxKind::LowerIdent,
     )
+}
+
+/// The name a type, alias or port declares.
+fn declared_name(node: &SyntaxNode) -> Option<SyntaxToken> {
+    match node.kind() {
+        SyntaxKind::CustomTypeDecl | SyntaxKind::TypeAliasDecl => {
+            child_token(node, SyntaxKind::UpperIdent)
+        }
+        SyntaxKind::PortDecl => child_token(node, SyntaxKind::LowerIdent),
+        _ => None,
+    }
 }
 
 /// Where a value's lenses sit: its signature, unless a comment comes
@@ -143,8 +151,7 @@ fn value_range(node: &SyntaxNode) -> Option<TextRange> {
     let Some(signature) = child(node, SyntaxKind::Signature).and_then(|s| code_range(&s)) else {
         return Some(definition);
     };
-    let commented = (node.descendants_with_tokens())
-        .filter_map(|e| e.into_token())
+    let commented = tokens(node)
         .filter(|t| {
             signature.end() <= t.text_range().start() && t.text_range().end() <= definition.start()
         })
@@ -153,11 +160,4 @@ fn value_range(node: &SyntaxNode) -> Option<TextRange> {
                 && !matches!(t.kind(), SyntaxKind::Whitespace | SyntaxKind::Newline)
         });
     Some(if commented { definition } else { signature })
-}
-
-/// `node`'s first token of `kind` among its own.
-fn name(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxToken> {
-    node.children_with_tokens()
-        .filter_map(|e| e.into_token())
-        .find(|t| t.kind() == kind)
 }
