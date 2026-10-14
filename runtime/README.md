@@ -17,6 +17,6 @@ The fiber runtime behind nomi's Node platform (architecture §8, "Runtime"). Pla
 | Interruption | `test/fiber.test.js`: "acquire is uninterruptible…", the "Interruption" section, and the property (a release runs exactly when its acquire did; an uninterruptible region runs to its end) |
 | Exits | `test/fiber.test.js`: the property (exits match the model; defects are reported exactly when nobody receives them) and the unit tests on defects |
 | Fairness | `test/fiber.test.js`: "a busy fiber cannot starve another", "a busy runtime gives the event loop its turn" |
-| Bookkeeping | `test/fiber.test.js`: the property (finished fibers leave every table); `test/lifecycle.test.js`: "the runtime's metrics are complete when main resolves…" |
+| Bookkeeping | `test/fiber.test.js`: the property (finished fibers leave every table), "a runtime at rest keeps no finished fiber's result alive"; `test/lifecycle.test.js`: "the runtime's metrics are complete when main resolves…" |
 | Lifecycle | `test/lifecycle.test.js`, which runs `fixtures/program.js` in child processes |
 | Test clock | `test/clock.test.js` |

@@ -69,11 +69,16 @@ const CLOSED = "closed";
 // ---------------------------------------------------------------------------
 // Exits
 
+const SUCCESS = "success";
+const FAIL = "fail";
+const DEFECT = "defect";
+const INTERRUPTED = "interrupt";
+
 export const Exit = Object.freeze({
-  success: (value) => ({ $: "success", value }),
-  fail: (error) => ({ $: "fail", error }),
-  defect: (defect) => ({ $: "defect", defect }),
-  interrupt: () => ({ $: "interrupt" }),
+  success: (value) => ({ $: SUCCESS, value }),
+  fail: (error) => ({ $: FAIL, error }),
+  defect: (defect) => ({ $: DEFECT, defect }),
+  interrupt: () => ({ $: INTERRUPTED }),
 });
 
 // ---------------------------------------------------------------------------
@@ -181,16 +186,15 @@ export const acquireRelease = (acquire, release) =>
 export const ensuring = (task, finalizer) =>
   // Opening the scope and registering the finalizer are one step, so no
   // interruption can land between them.
-  withFiber((fiber) => {
-    const scope = new Scope(fiber);
-    scope.finalizers.push(() => finalizer);
-    fiber.stack.push({ $: SCOPE, scope, previous: fiber.scope });
-    fiber.scope = scope;
-    return task;
-  });
+  withFiber((fiber) => (openScope(fiber).finalizers.push(() => finalizer), task));
 
-export function isTask(value) {
+function isTask(value) {
   return typeof value === "object" && value !== null && (TAGS.has(value.$) || INTERNAL.has(value.$));
+}
+
+/** `value` if it is a task, else a defect saying it is not. */
+function asTask(value) {
+  return isTask(value) ? value : die(notATask(value));
 }
 
 // ---------------------------------------------------------------------------
@@ -207,12 +211,14 @@ let nextFiberId = 1;
 export class Scope {
   fibers = new Set();
   finalizers = [];
-  /** The fiber the scope belongs to; null for the runtime's root scope. */
-  owner;
+}
 
-  constructor(owner) {
-    this.owner = owner;
-  }
+/** Opens a scope inside `fiber`'s innermost one, closed when the frame it pushes unwinds. */
+function openScope(fiber) {
+  const scope = new Scope();
+  fiber.stack.push({ $: SCOPE, scope, previous: fiber.scope });
+  fiber.scope = scope;
+  return scope;
 }
 
 export class Fiber {
@@ -247,9 +253,7 @@ export class Fiber {
   constructor(task, parent) {
     this.parent = parent;
     // The fiber's own scope encloses everything it runs.
-    const scope = new Scope(this);
-    this.stack.push({ $: SCOPE, scope, previous: null });
-    this.scope = scope;
+    openScope(this);
     this.task = task;
   }
 }
@@ -276,13 +280,13 @@ export class Runtime {
   /** Live fibers by id; a finished fiber leaves at once. */
   fibers = new Map();
   /** Where top-level fibers and daemons live; it is never closed. */
-  root = new Scope(null);
+  root = new Scope();
   stats = { started: 0, finished: 0 };
 
   #queue = [];
   #head = 0;
-  #draining = false;
-  #scheduled = false;
+  // Whether a drain is scheduled or running.
+  #awake = false;
   #schedule;
   #yieldEvery;
   #budget;
@@ -349,7 +353,7 @@ export class Runtime {
   }
 
   #spawn(task, scope) {
-    const fiber = new Fiber(isTask(task) ? task : die(notATask(task)), scope);
+    const fiber = new Fiber(asTask(task), scope);
     scope.fibers.add(fiber);
     this.fibers.set(fiber.id, fiber);
     this.stats.started++;
@@ -364,27 +368,27 @@ export class Runtime {
   }
 
   #wake() {
-    if (this.#draining || this.#scheduled) return;
-    this.#scheduled = true;
-    this.#schedule(() => {
-      this.#scheduled = false;
-      this.#drain();
-    });
+    if (this.#awake) return;
+    this.#awake = true;
+    this.#schedule(() => this.#drain());
   }
 
   #drain() {
-    this.#draining = true;
     let steps = 0;
     while (this.#head < this.#queue.length && steps < this.#budget) {
       const fiber = this.#queue[this.#head++];
       steps += this.#step(fiber);
     }
-    // Drop the consumed prefix once it dominates, keeping pushes O(1).
-    if (this.#head > 1024 && this.#head * 2 > this.#queue.length) {
+    if (this.#head === this.#queue.length) {
+      // Emptied once read to its end, so it keeps no finished fiber's exit alive.
+      this.#queue.length = 0;
+      this.#head = 0;
+    } else if (this.#head > 1024 && this.#head * 2 > this.#queue.length) {
+      // Drop the consumed prefix once it dominates, keeping pushes O(1).
       this.#queue = this.#queue.slice(this.#head);
       this.#head = 0;
     }
-    this.#draining = false;
+    this.#awake = false;
     if (this.#head < this.#queue.length) this.#wake();
     else if (this.#io === 0) this.#clock.idle();
   }
@@ -402,43 +406,42 @@ export class Runtime {
       }
       switch (task.$) {
         case EXIT: {
+          // Unwind until a frame continues with a task; with none left, the
+          // fiber is done.
           let exit = task.exit;
-          let next = null;
-          while (next === null && stack.length > 0) {
+          task = null;
+          while (task === null && stack.length > 0) {
             const frame = stack.pop();
             switch (frame.$) {
               case AND_THEN:
-                if (exit.$ === "success") next = this.#call(frame.f, exit.value);
+                if (exit.$ === SUCCESS) task = call(frame.f, exit.value);
                 break;
               case ON_ERROR:
-                if (exit.$ === "fail") next = this.#call(frame.f, exit.error);
+                if (exit.$ === FAIL) task = call(frame.f, exit.error);
                 break;
               case ON_EXIT:
-                next = this.#call(frame.f, exit);
+                task = call(frame.f, exit);
                 break;
               case RESTORE:
                 fiber.mask--;
                 exit = this.#unmask(fiber, exit);
                 break;
               case SCOPE:
-                next = this.#close(fiber, frame, exit);
+                task = this.#close(fiber, frame, exit);
                 break;
               case CLOSED:
                 // The closing task succeeds with the exit to carry on with.
                 fiber.mask--;
-                exit = this.#unmask(fiber, exit.$ === "success" ? exit.value : exit);
+                exit = this.#unmask(fiber, exit.$ === SUCCESS ? exit.value : exit);
                 break;
             }
           }
-          if (next === null) {
-            this.#finish(fiber, exit);
-            return n;
-          }
-          task = next;
-          break;
+          if (task !== null) break;
+          this.#finish(fiber, exit);
+          return n;
         }
         case SYNC:
-          task = this.#callValue(task.f);
+          task = callValue(task.f);
           break;
         case AND_THEN:
         case ON_ERROR:
@@ -448,89 +451,32 @@ export class Runtime {
         case FORK:
           task = succeed(this.#spawn(task.task, task.daemon ? this.root : (fiber.scope ?? this.root)));
           break;
+        // The next three return the task to continue with, or null once the
+        // fiber has suspended.
         case AWAIT:
-        case INTERRUPT: {
-          const target = task.fiber;
-          if (!(target instanceof Fiber)) {
-            task = die(new TypeError(`${task.$} expects a fiber, got ${describe(target)}`));
-            break;
-          }
-          if (task.$ === INTERRUPT) {
-            if (target === fiber) {
-              // Interrupting yourself takes effect as soon as it may.
-              fiber.interruptPending = true;
-              task = this.#takeInterrupt(fiber) ? done(Exit.interrupt()) : succeed(Exit.interrupt());
-              break;
-            }
-            this.#interrupt(target);
-          }
-          if (target.exit !== null) {
-            task = succeed(target.exit);
-            break;
-          }
-          if (this.#takeInterrupt(fiber)) {
-            task = done(Exit.interrupt());
-            break;
-          }
-          this.#suspend(fiber);
-          const epoch = fiber.epoch;
-          const observe = (exit) => this.#resume(fiber, epoch, succeed(exit));
-          target.observers.add(observe);
-          fiber.cancel = () => target.observers.delete(observe);
-          return n;
-        }
-        case REAP: {
-          const live = task.fibers.filter((f) => f.exit === null);
-          if (live.length === 0) {
-            task = succeed(undefined);
-            break;
-          }
-          this.#suspend(fiber);
-          const epoch = fiber.epoch;
-          let left = live.length;
-          const reaper = () => {
-            if (--left === 0) this.#resume(fiber, epoch, succeed(undefined));
-          };
-          for (const f of live) f.reapers.add(reaper);
-          fiber.cancel = () => live.forEach((f) => f.reapers.delete(reaper));
-          return n;
-        }
-        case ASYNC: {
-          if (this.#takeInterrupt(fiber)) {
-            task = done(Exit.interrupt());
-            break;
-          }
-          this.#suspend(fiber, true);
-          const epoch = fiber.epoch;
-          const resume = (next) => this.#resume(fiber, epoch, isTask(next) ? next : die(notATask(next)));
-          try {
-            const cancel = task.register(resume);
-            if (fiber.epoch === epoch && typeof cancel === "function") fiber.cancel = cancel;
-          } catch (error) {
-            if (fiber.epoch === epoch && fiber.status === SUSPENDED) {
-              // Nothing resumed it yet: the exception is how it ends.
-              this.#endSuspension(fiber);
-              fiber.status = RUNNING;
-              task = die(error);
-              break;
-            }
-            // It already resumed, so the exception has no fiber to land in.
-            this.#report(error, fiber);
-          }
-          return n;
-        }
+        case INTERRUPT:
+          task = this.#await(fiber, task);
+          if (task === null) return n;
+          break;
+        case REAP:
+          task = this.#reap(fiber, task.fibers);
+          if (task === null) return n;
+          break;
+        case ASYNC:
+          task = this.#async(fiber, task.register);
+          if (task === null) return n;
+          break;
         case SLEEP: {
           if (this.#takeInterrupt(fiber)) {
             task = done(Exit.interrupt());
             break;
           }
-          this.#suspend(fiber);
-          const epoch = fiber.epoch;
+          const epoch = this.#suspend(fiber);
           fiber.cancel = this.#clock.setTimer(task.ms, () => this.#resume(fiber, epoch, succeed(undefined)));
           return n;
         }
         case NOW:
-          task = this.#callValue(() => this.#clock.now());
+          task = callValue(() => this.#clock.now());
           break;
         case YIELD:
           fiber.task = succeed(undefined);
@@ -541,15 +487,12 @@ export class Runtime {
           stack.push({ $: RESTORE });
           task = task.task;
           break;
-        case SCOPED: {
-          const scope = new Scope(fiber);
-          stack.push({ $: SCOPE, scope, previous: fiber.scope });
-          fiber.scope = scope;
+        case SCOPED:
+          openScope(fiber);
           task = task.task;
           break;
-        }
         case WITH_FIBER:
-          task = this.#call(task.f, fiber);
+          task = call(task.f, fiber);
           break;
         default:
           task = die(notATask(task));
@@ -557,11 +500,66 @@ export class Runtime {
     }
   }
 
-  #suspend(fiber, io = false) {
+  /** Waits for the fiber `task` names, asking it to stop first when `task` is an `interrupt`. */
+  #await(fiber, task) {
+    const target = task.fiber;
+    if (!(target instanceof Fiber)) return die(new TypeError(`${task.$} expects a fiber, got ${describe(target)}`));
+    if (task.$ === INTERRUPT) {
+      if (target === fiber) {
+        // Interrupting yourself takes effect as soon as it may.
+        fiber.interruptPending = true;
+        return this.#takeInterrupt(fiber) ? done(Exit.interrupt()) : succeed(Exit.interrupt());
+      }
+      this.#interrupt(target);
+    }
+    if (target.exit !== null) return succeed(target.exit);
+    if (this.#takeInterrupt(fiber)) return done(Exit.interrupt());
+    const epoch = this.#suspend(fiber);
+    const observe = (exit) => this.#resume(fiber, epoch, succeed(exit));
+    target.observers.add(observe);
+    fiber.cancel = () => target.observers.delete(observe);
+    return null;
+  }
+
+  /** Waits until every fiber in `fibers` is done, without counting as waiting for them. */
+  #reap(fiber, fibers) {
+    const live = fibers.filter((f) => f.exit === null);
+    if (live.length === 0) return succeed(undefined);
+    const epoch = this.#suspend(fiber);
+    let left = live.length;
+    const reaper = () => --left === 0 && this.#resume(fiber, epoch, succeed(undefined));
+    for (const f of live) f.reapers.add(reaper);
+    fiber.cancel = () => live.forEach((f) => f.reapers.delete(reaper));
+    return null;
+  }
+
+  /** Suspends `fiber` on the host, handing `register` its `resume`. */
+  #async(fiber, register) {
+    if (this.#takeInterrupt(fiber)) return done(Exit.interrupt());
+    const epoch = this.#suspend(fiber);
+    fiber.io = true;
+    this.#io++;
+    try {
+      const cancel = register((next) => this.#resume(fiber, epoch, asTask(next)));
+      if (fiber.epoch === epoch && typeof cancel === "function") fiber.cancel = cancel;
+    } catch (error) {
+      if (fiber.epoch === epoch) {
+        // Nothing resumed it yet: the exception is how it ends.
+        this.#endSuspension(fiber);
+        fiber.status = RUNNING;
+        return die(error);
+      }
+      // It already resumed, so the exception has no fiber to land in.
+      this.#report(error, fiber);
+    }
+    return null;
+  }
+
+  /** Suspends `fiber`; returns the epoch its `#resume` must name. */
+  #suspend(fiber) {
     fiber.status = SUSPENDED;
     fiber.task = null;
-    fiber.io = io;
-    if (io) this.#io++;
+    return fiber.epoch;
   }
 
   /** Ends the current suspension, so its `resume` and `cancel` go stale. */
@@ -575,7 +573,7 @@ export class Runtime {
   }
 
   #resume(fiber, epoch, task) {
-    if (fiber.epoch !== epoch || fiber.status !== SUSPENDED) return;
+    if (fiber.epoch !== epoch) return;
     this.#endSuspension(fiber);
     fiber.task = task;
     this.#enqueue(fiber);
@@ -609,7 +607,7 @@ export class Runtime {
   /** At the end of an uninterruptible region, a pending interruption replaces the exit, unless it is a defect. */
   #unmask(fiber, exit) {
     if (!this.#takeInterrupt(fiber)) return exit;
-    return exit.$ === "defect" ? exit : Exit.interrupt();
+    return exit.$ === DEFECT ? exit : Exit.interrupt();
   }
 
   /**
@@ -628,10 +626,10 @@ export class Runtime {
     const finalizers = scope.finalizers.splice(0).reverse();
     let result = exit;
     const settle = (finalized) => {
-      if (finalized.$ !== "fail" && finalized.$ !== "defect") return;
-      const defect = finalized.$ === "fail" ? finalized.error : finalized.defect;
+      if (finalized.$ !== FAIL && finalized.$ !== DEFECT) return;
+      const defect = finalized.$ === FAIL ? finalized.error : finalized.defect;
       // The first defect is the exit; later ones would be lost, so report them.
-      if (result.$ === "defect") this.#report(defect, fiber);
+      if (result.$ === DEFECT) this.#report(defect, fiber);
       else result = Exit.defect(defect);
     };
     const run = (i) =>
@@ -654,7 +652,7 @@ export class Runtime {
     const reapers = [...fiber.reapers];
     fiber.observers.clear();
     fiber.reapers.clear();
-    if (exit.$ === "defect" && observers.length === 0) this.#report(exit.defect, fiber);
+    if (exit.$ === DEFECT && observers.length === 0) this.#report(exit.defect, fiber);
     for (const observe of observers) observe(exit);
     for (const reaper of reapers) reaper();
   }
@@ -666,22 +664,23 @@ export class Runtime {
       // A broken reporter must not take the runtime down with it.
     }
   }
+}
 
-  #call(f, value) {
-    try {
-      const next = f(value);
-      return isTask(next) ? next : die(notATask(next));
-    } catch (error) {
-      return die(error);
-    }
+/** The task `f(value)` returns; an exception, or a value that is not a task, is a defect. */
+function call(f, value) {
+  try {
+    return asTask(f(value));
+  } catch (error) {
+    return die(error);
   }
+}
 
-  #callValue(f) {
-    try {
-      return succeed(f());
-    } catch (error) {
-      return die(error);
-    }
+/** Succeeds with `f()`; an exception is a defect. */
+function callValue(f) {
+  try {
+    return succeed(f());
+  } catch (error) {
+    return die(error);
   }
 }
 

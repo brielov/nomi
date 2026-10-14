@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
+import { stripVTControlCharacters } from "node:util";
 
 import { check, PropertyFailure, rng, seeds } from "../src/check.js";
 
@@ -22,7 +27,7 @@ test("every value in a range is reachable", () => {
 });
 
 test("seeds come from the environment", () => {
-  assert.deepEqual(seeds({}).length, 100);
+  assert.equal(seeds({}).length, 100);
   assert.deepEqual(seeds({ NOMI_SEED: "17" }), [17]);
   assert.deepEqual(seeds({ NOMI_SEEDS: "3", NOMI_SEED_BASE: "10" }), [10, 11, 12]);
   assert.throws(() => seeds({ NOMI_SEEDS: "many" }), /not a non-negative integer/);
@@ -57,7 +62,7 @@ function agreesWithModel(ops) {
 }
 
 test("a model-based run finds, shrinks and replays a planted bug", async () => {
-  const failure = await check("stack", stackOps, agreesWithModel, { env: {} }).then(
+  const failure = await check(stackOps, agreesWithModel, {}).then(
     () => assert.fail("the planted bug went unnoticed"),
     (error) => error,
   );
@@ -65,7 +70,7 @@ test("a model-based run finds, shrinks and replays a planted bug", async () => {
   // Three pushes with distinct values and one pop is the smallest failing case.
   assert.equal(failure.case.length, 4);
   assert.match(failure.message, new RegExp(`replay: NOMI_SEED=${failure.seed} `));
-  const replayed = await check("stack", stackOps, agreesWithModel, { env: { NOMI_SEED: String(failure.seed) } }).then(
+  const replayed = await check(stackOps, agreesWithModel, { NOMI_SEED: String(failure.seed) }).then(
     () => undefined,
     (error) => error,
   );
@@ -75,9 +80,38 @@ test("a model-based run finds, shrinks and replays a planted bug", async () => {
 
 test("a correct implementation passes every seed", async () => {
   await check(
-    "array reverse",
     (r) => r.array((r) => r.int(0, 100), 0, 20),
     (xs) => assert.deepEqual([...xs].reverse().reverse(), xs),
-    { env: {} },
+    {},
   );
+});
+
+/** cmd.exe has no `NAME=value command` form. */
+const posixShell = { skip: process.platform === "win32" && "the replay line is for a POSIX shell" };
+
+test("the replay line a failure prints runs the failing property", posixShell, async (t) => {
+  // A suite of its own, so running it doesn't run this test again.
+  const dir = await mkdtemp(join(tmpdir(), "nomi-replay-"));
+  t.after(() => rm(dir, { recursive: true }));
+  const checker = JSON.stringify(new URL("../src/check.js", import.meta.url).href);
+  await writeFile(
+    join(dir, "threes.test.mjs"),
+    `import { test } from "node:test";
+import { check } from ${checker};
+test("no threes", () => check((r) => r.int(0, 9), (n) => { if (n === 3) throw new Error("a three"); }));
+`,
+  );
+  // Without this run's seeds, and outside its test runner, inside which
+  // `node --test` runs nothing.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(NOMI_SEED|NODE_TEST_)/.test(name)));
+  const run = (command) => {
+    const { status, stdout } = spawnSync(command, { cwd: dir, env, shell: true, encoding: "utf8" });
+    return { status, stdout: stripVTControlCharacters(stdout) };
+  };
+  const first = run("node --test");
+  const [, seed] = first.stdout.match(/failed at seed (\d+)/);
+  const [, replay] = first.stdout.match(/replay: (.*)/);
+  const again = run(replay);
+  assert.notEqual(again.status, 0, again.stdout);
+  assert.match(again.stdout, new RegExp(`failed at seed ${seed}\\b`));
 });

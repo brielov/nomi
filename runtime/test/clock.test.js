@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { manual, shuffled } from "../fixtures/driver.js";
 import { check, rng as rngFor } from "../src/check.js";
 import { RealClock, TestClock } from "../src/clock.js";
 import { andThen, async, Exit, fork, interrupt, join, map, now, Runtime, sleep, succeed, sync } from "../src/fiber.js";
@@ -89,27 +90,14 @@ function build(p, ctx) {
 
 test("virtual time depends on the program, not the schedule or I/O", async () => {
   await check(
-    "virtual time",
     (r) => ({ program: program(r, 4), schedule: r.next() }),
     ({ program: p, schedule }) => {
-      const r = rngFor(schedule);
       model(p, 0);
-      const slices = [];
-      const pending = [];
       const clock = new TestClock();
+      const { runtime, pending, settle } = shuffled(rngFor(schedule), { clock });
       const ctx = { clock, pending, seen: [] };
-      const runtime = new Runtime({
-        schedule: (fn) => slices.push(fn),
-        yieldEvery: r.int(1, 6),
-        budget: r.int(1, 40),
-        clock,
-      });
       const root = runtime.fork(build(p, ctx));
-      for (let guard = 0; slices.length > 0 || pending.length > 0; guard++) {
-        assert.ok(guard < 1e6, "the program did not finish");
-        if (slices.length > 0 && (pending.length === 0 || r.bool(0.7))) slices.shift()();
-        else pending.splice(r.int(0, pending.length - 1), 1)[0]();
-      }
+      settle();
       assert.equal(root.exit.$, "success");
       assert.equal(clock.now(), p.end);
       assert.equal(clock.pending, 0);
@@ -121,18 +109,9 @@ test("virtual time depends on the program, not the schedule or I/O", async () =>
 // ---------------------------------------------------------------------------
 // Unit tests
 
-function manual(clock) {
-  const slices = [];
-  const runtime = new Runtime({ schedule: (fn) => slices.push(fn), clock });
-  const flush = () => {
-    while (slices.length > 0) slices.shift()();
-  };
-  return { runtime, flush };
-}
-
 test("a test clock jumps straight to the next timer", () => {
   const clock = new TestClock(1000);
-  const { runtime, flush } = manual(clock);
+  const { runtime, flush } = manual({ clock });
   const fiber = runtime.fork(andThen(sleep(60_000), () => now));
   flush();
   assert.deepEqual(fiber.exit, Exit.success(61_000));
@@ -140,7 +119,7 @@ test("a test clock jumps straight to the next timer", () => {
 
 test("timers due at the same instant fire in the order they were set", () => {
   const clock = new TestClock();
-  const { runtime, flush } = manual(clock);
+  const { runtime, flush } = manual({ clock });
   const order = [];
   for (const name of ["a", "b", "c"]) runtime.fork(andThen(sleep(5), () => sync(() => order.push(name))));
   runtime.fork(andThen(sleep(1), () => sync(() => order.push("first"))));
@@ -150,7 +129,7 @@ test("timers due at the same instant fire in the order they were set", () => {
 
 test("a test clock stands still while I/O is pending", () => {
   const clock = new TestClock();
-  const { runtime, flush } = manual(clock);
+  const { runtime, flush } = manual({ clock });
   let finishIo;
   const sleeper = runtime.fork(sleep(10));
   const io = runtime.fork(async((resume) => (finishIo = resume)));
@@ -166,7 +145,7 @@ test("a test clock stands still while I/O is pending", () => {
 
 test("interrupting a sleeper cancels its timer", () => {
   const clock = new TestClock();
-  const { runtime, flush } = manual(clock);
+  const { runtime, flush } = manual({ clock });
   const sleeper = runtime.fork(sleep(1_000));
   const killer = runtime.fork(andThen(sleep(5), () => interrupt(sleeper)));
   flush();

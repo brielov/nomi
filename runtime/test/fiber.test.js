@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
+import { manual, shuffled } from "../fixtures/driver.js";
 import { check, rng as rngFor } from "../src/check.js";
 import {
   acquireRelease,
@@ -135,7 +138,7 @@ function build(p, ctx) {
     }
     case "spawn":
       // A daemon belongs to no scope of ours.
-      return andThen(forkDaemon(checked(p.child, { ...ctx, forks: [] })), () => build(p.a, ctx));
+      return andThen(forkDaemon(checked(p.child, ctx)), () => build(p.a, ctx));
     case "kill":
       return andThen(fork(checked(p.child, ctx)), (f) => {
         ctx.forks.push(f);
@@ -161,7 +164,7 @@ function build(p, ctx) {
       );
     }
     case "scope":
-      return scoped(checkedScope(p.a, ctx));
+      return scoped(checked(p.a, ctx));
     case "mask": {
       const id = ctx.log.masks.push({ started: 0, ended: 0, node: p }) - 1;
       const entry = ctx.log.masks[id];
@@ -178,19 +181,14 @@ function build(p, ctx) {
   }
 }
 
-/** `p` in a scope whose fibers must all be done when it closes. */
-function checkedScope(p, ctx) {
+/** `p` in a scope, a fiber's own or a `scoped` one, whose fibers must all be done when it closes. */
+function checked(p, ctx) {
   const forks = [];
-  const check = () =>
+  const outlived = () =>
     sync(() => {
       for (const f of forks) if (f.exit === null) ctx.log.outlived.push(f.id);
     });
-  return andThen(addFinalizer(check), () => build(p, { ...ctx, forks }));
-}
-
-/** `p` as the body of a fiber, checking its own scope when it ends. */
-function checked(p, ctx) {
-  return checkedScope(p, ctx);
+  return andThen(addFinalizer(outlived), () => build(p, { ...ctx, forks }));
 }
 
 function wait(fiber, mode, sum, rest) {
@@ -317,23 +315,11 @@ function normalize(exit) {
 
 /** Runs `p` to completion, interleaving runtime slices and async completions at random. */
 function runRandomly(p, r) {
-  const slices = [];
-  const pending = [];
-  const reports = [];
+  const { runtime, reports, pending, settle } = shuffled(r);
   const log = { ensures: [], masks: [], outlived: [] };
-  const runtime = new Runtime({
-    schedule: (fn) => slices.push(fn),
-    yieldEvery: r.int(1, 6),
-    budget: r.int(1, 40),
-    reportDefect: (defect) => reports.push(defect),
-  });
-  const root = runtime.fork(checked(p, { pending, forks: [], log }));
+  const root = runtime.fork(checked(p, { pending, log }));
   runtime.await(root);
-  for (let guard = 0; slices.length > 0 || pending.length > 0; guard++) {
-    assert.ok(guard < 1e6, "the program did not finish");
-    if (slices.length > 0 && (pending.length === 0 || r.bool(0.7))) slices.shift()();
-    else pending.splice(r.int(0, pending.length - 1), 1)[0]();
-  }
+  settle();
   return { runtime, root, reports, log };
 }
 
@@ -341,7 +327,6 @@ const count = (xs, p) => xs.filter(p).length;
 
 test("random programs end as the model says, under any schedule", async () => {
   await check(
-    "fiber exits",
     (r) => ({ program: program(r, 5), schedule: r.next() }),
     ({ program: p, schedule }) => {
       const entries = [];
@@ -383,21 +368,6 @@ test("random programs end as the model says, under any schedule", async () => {
 
 // ---------------------------------------------------------------------------
 // Unit tests
-
-/** A runtime whose slices run when `flush` is called. */
-function manual(options = {}) {
-  const slices = [];
-  const reports = [];
-  const runtime = new Runtime({
-    schedule: (fn) => slices.push(fn),
-    reportDefect: (defect) => reports.push(defect),
-    ...options,
-  });
-  const flush = () => {
-    while (slices.length > 0) slices.shift()();
-  };
-  return { runtime, flush, reports };
-}
 
 test("a JS exception becomes a defect of its fiber", () => {
   const { runtime, flush, reports } = manual();
@@ -515,6 +485,13 @@ test("a busy runtime gives the event loop its turn", async () => {
   const busy = runtime.run(spin());
   setTimeout(() => (stop = true), 5);
   assert.deepEqual(await busy, Exit.success("stopped"));
+});
+
+test("a runtime at rest keeps no finished fiber's result alive", () => {
+  // Collecting garbage on demand needs --expose-gc, so it runs in a child.
+  const retention = fileURLToPath(new URL("../fixtures/retention.js", import.meta.url));
+  const { stdout, stderr } = spawnSync(process.execPath, ["--expose-gc", retention], { encoding: "utf8" });
+  assert.equal(stdout.trim(), "collected", stderr);
 });
 
 // ---------------------------------------------------------------------------

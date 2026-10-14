@@ -26,7 +26,6 @@ export class RealClock {
  */
 export class TestClock {
   #now;
-  #seq = 0;
   // Sorted by due time, then by the order they were set.
   #timers = [];
 
@@ -44,8 +43,8 @@ export class TestClock {
   }
 
   setTimer(ms, fire) {
-    const timer = { due: this.#now + Math.max(0, ms), seq: this.#seq++, fire };
-    this.#timers.splice(this.#insertionPoint(timer), 0, timer);
+    const timer = { due: this.#now + Math.max(0, ms), fire };
+    this.#timers.splice(this.#insertionPoint(timer.due), 0, timer);
     return () => {
       const i = this.#timers.indexOf(timer);
       if (i !== -1) this.#timers.splice(i, 1);
@@ -60,13 +59,13 @@ export class TestClock {
     for (const timer of this.#timers.splice(0, due)) timer.fire();
   }
 
-  #insertionPoint(timer) {
+  /** The index after every timer due by `due`, so timers due together fire in the order they were set. */
+  #insertionPoint(due) {
     let lo = 0;
     let hi = this.#timers.length;
     while (lo < hi) {
       const mid = (lo + hi) >>> 1;
-      const other = this.#timers[mid];
-      if (other.due < timer.due || (other.due === timer.due && other.seq < timer.seq)) lo = mid + 1;
+      if (this.#timers[mid].due <= due) lo = mid + 1;
       else hi = mid;
     }
     return lo;

@@ -1,4 +1,4 @@
-// Seeded, model-based property checks (docs/plan.md, R.1).
+// Seeded, model-based property checks.
 //
 // A property draws a case from a seeded generator and runs it, usually by
 // applying a random sequence of operations to the real implementation and
@@ -7,7 +7,7 @@
 // and reported with the command that replays it.
 //
 //   NOMI_SEED=n        run only seed n
-//   NOMI_SEEDS=count   seeds per property (default 100; the Lane R exit runs 10,000)
+//   NOMI_SEEDS=count   seeds per property (default 100)
 //   NOMI_SEED_BASE=b   start at seed b, to explore beyond the usual seeds
 
 /** A small, fast PRNG (mulberry32). Same seed, same sequence, everywhere. */
@@ -26,7 +26,7 @@ export function rng(seed) {
     float: () => next() / 0x100000000,
     /** An integer in [lo, hi], inclusive. */
     int: (lo, hi) => lo + Math.floor(r.float() * (hi - lo + 1)),
-    bool: (p = 0.5) => r.float() < p,
+    bool: (p) => r.float() < p,
     pick: (items) => items[r.int(0, items.length - 1)],
     /** Picks a value by weight from `[[weight, value], ...]`. */
     weighted: (choices) => {
@@ -45,7 +45,7 @@ export function rng(seed) {
 }
 
 /** The seeds a property runs, from the environment. */
-export function seeds(env = process.env) {
+export function seeds(env) {
   if (env.NOMI_SEED !== undefined) return [parseSeed(env.NOMI_SEED, "NOMI_SEED")];
   const count = env.NOMI_SEEDS === undefined ? 100 : parseSeed(env.NOMI_SEEDS, "NOMI_SEEDS");
   const base = env.NOMI_SEED_BASE === undefined ? 0 : parseSeed(env.NOMI_SEED_BASE, "NOMI_SEED_BASE");
@@ -64,28 +64,27 @@ function parseSeed(text, name) {
  * array case, the case is shrunk by dropping elements while it still fails.
  * The thrown error names the seed, the shrunk case and how to replay it.
  */
-export async function check(name, generate, property, options = {}) {
-  const env = options.env ?? process.env;
-  for (const seed of options.seeds ?? seeds(env)) {
+export async function check(generate, property, env = process.env) {
+  for (const seed of seeds(env)) {
     const original = generate(rng(seed));
     const failure = await failureOf(property, original);
     if (failure === undefined) continue;
     const { value: smallest, failure: cause } = Array.isArray(original)
       ? await shrink(property, original, failure)
       : { value: original, failure };
-    throw new PropertyFailure(name, seed, original, smallest, cause);
+    throw new PropertyFailure(seed, original, smallest, cause);
   }
 }
 
 export class PropertyFailure extends Error {
-  constructor(name, seed, original, smallest, cause) {
-    const shown = describe(smallest);
+  constructor(seed, original, smallest, cause) {
     const sizes = Array.isArray(original) ? ` (shrunk from ${original.length} to ${smallest.length} steps)` : "";
     super(
-      `property "${name}" failed at seed ${seed}${sizes}\n` +
-        `  case: ${shown}\n` +
+      `property failed at seed ${seed}${sizes}\n` +
+        `  case: ${describe(smallest)}\n` +
         `  cause: ${cause?.message ?? cause}\n` +
-        `  replay: NOMI_SEED=${seed} node --test --test-name-pattern=${JSON.stringify(name)}`,
+        // Every property runs that seed alone, so the one that failed fails again.
+        `  replay: NOMI_SEED=${seed} node --test`,
       { cause },
     );
     this.name = "PropertyFailure";
