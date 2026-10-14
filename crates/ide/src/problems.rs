@@ -183,14 +183,13 @@ impl Problem {
 
 /// The problems elm reports in the project `live` checked: each module's,
 /// or the project's own, on each of the `open` files.
-pub fn compiler_problems(snapshot: &Snapshot, live: &Live, open: &[PathBuf]) -> Vec<Problem> {
-    let relative = |path: &Path| {
-        let path = path.strip_prefix(&live.root).unwrap_or(path);
-        let parts: Vec<_> = path.iter().map(|p| p.to_string_lossy()).collect();
-        parts.join("/")
-    };
+pub(crate) fn compiler_problems(
+    snapshot: &Snapshot,
+    live: &Live,
+    open: &[PathBuf],
+) -> Vec<Problem> {
     let problem = |path: &Path, range, title: &str, message| Problem {
-        relative: Some(relative(path)),
+        relative: Some(slashed(path.strip_prefix(&live.root).unwrap_or(path))),
         ..Problem::new(path.to_owned(), range, code(title), message)
     };
     match &live.checked {
@@ -219,6 +218,12 @@ pub fn compiler_problems(snapshot: &Snapshot, live: &Live, open: &[PathBuf]) -> 
             problems
         }
     }
+}
+
+/// `path`'s components joined with `/`, as a problem's data names files.
+pub(crate) fn slashed(path: &Path) -> String {
+    let parts: Vec<_> = path.iter().map(|p| p.to_string_lossy()).collect();
+    parts.join("/")
 }
 
 /// `elmDiagnosticsHelper`'s code for a report's title.
@@ -292,7 +297,7 @@ fn strip_escapes(text: &str) -> String {
 /// The top-level values of the module at `path` that have no annotation,
 /// each with the one inference gives it, where it parses and its types
 /// check.
-pub fn missing_annotations(index: &Index, path: &Path) -> Vec<Problem> {
+pub(crate) fn missing_annotations(index: &Index, path: &Path) -> Vec<Problem> {
     let Some(module) = index.module(path) else {
         return Vec::new();
     };

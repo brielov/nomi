@@ -4,8 +4,9 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
+use nomi_base::lock;
 use nomi_engine::index::{self, Index, Memo};
 use nomi_engine::{Revision, Snapshot, Store};
 
@@ -31,9 +32,9 @@ impl Indexes {
     ) -> Option<Arc<Index>> {
         let manifest = index::manifest(snapshot, path)?;
         let revision = snapshot.revision();
-        let _building = self.building.lock().unwrap_or_else(PoisonError::into_inner);
+        let _building = lock(&self.building);
         let previous = {
-            let latest = self.latest.lock().unwrap_or_else(PoisonError::into_inner);
+            let latest = lock(&self.latest);
             match latest.get(&manifest) {
                 Some((r, index)) if *r == revision => return Some(index.clone()),
                 Some((_, index)) => Some(index.clone()),
@@ -42,8 +43,7 @@ impl Indexes {
         };
         let index = index::index_from(snapshot, store, path, memo, previous.as_deref())?;
         let index = Arc::new(index);
-        (self.latest.lock().unwrap_or_else(PoisonError::into_inner))
-            .insert(manifest, (revision, index.clone()));
+        lock(&self.latest).insert(manifest, (revision, index.clone()));
         Some(index)
     }
 }

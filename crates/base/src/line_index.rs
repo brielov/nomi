@@ -153,6 +153,23 @@ impl LineIndex {
         line.end()
     }
 
+    /// The offset of `pos` as LSP reads a position: past its line's end,
+    /// the end before its LF or CRLF; past the last line, the text's end;
+    /// inside a character, that character's start.
+    pub fn clamped_offset(&self, text: &str, pos: LineCol, unit: ColumnUnit) -> TextSize {
+        let Ok(line) = self.line_content(text, pos.line) else {
+            return self.len;
+        };
+        let mut col = 0;
+        for (i, c) in text[line].char_indices() {
+            col += char_width(c, unit);
+            if col > pos.col {
+                return line.start() + TextSize::new(i as u32);
+            }
+        }
+        line.end()
+    }
+
     /// The text of `line` without its LF or CRLF; a bare CR stays.
     pub fn line_content(&self, text: &str, line: u32) -> Result<TextRange, PositionError> {
         let range = self.line_range(text, line)?;

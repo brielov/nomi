@@ -1,7 +1,6 @@
 //! `nomi lsp` in conversation with a scripted client: the server runs on
-//! an in-memory connection, as the first attempt's harness ran it
-//! (brielov/nomi@8e2b540:crates/lsp/tests/transcript.rs), and each test
-//! sends what an editor sends and checks what comes back.
+//! an in-memory connection, and each test sends what an editor sends and
+//! checks what comes back.
 
 use std::fs;
 use std::path::Path;
@@ -146,8 +145,30 @@ fn uri(path: &Path) -> Url {
     Url::from_file_path(path).unwrap()
 }
 
+/// `Main`, which uses `Other.helper`.
+const USES_OTHER: &str =
+    "module Main exposing (main)\n\nimport Other\n\n\nmain =\n    Other.helper ()\n";
+
+/// A project whose `src/Other.elm` is saved, not open, and the URIs of
+/// its `src/Main.elm` and `src/Other.elm`.
+fn two_modules() -> (tempfile::TempDir, Url, Url) {
+    let (dir, main) = project();
+    let other = root(&dir).join("src/Other.elm");
+    fs::write(
+        &other,
+        "module Other exposing (helper)\n\n\nhelper x =\n    x\n",
+    )
+    .unwrap();
+    (dir, main, uri(&other))
+}
+
+/// The parameters of a request at `line` and `character` in `uri`.
+fn at(uri: &Url, line: u32, character: u32) -> Value {
+    json!({ "textDocument": { "uri": uri }, "position": { "line": line, "character": character } })
+}
+
 #[test]
-fn the_handshake_offers_what_v0_does() {
+fn the_handshake_offers_the_capabilities_and_negotiates_the_encoding() {
     let client = Client::start(&["utf-16"]);
     let capabilities = &client.capabilities;
     assert_eq!(capabilities["positionEncoding"], "utf-16");
@@ -346,31 +367,19 @@ fn what_nomi_doesnt_answer_is_said_so() {
 
 #[test]
 fn navigation_goes_to_definitions_and_finds_references_across_modules() {
-    let (dir, main) = project();
-    let other_path = root(&dir).join("src/Other.elm");
-    // Saved, not open: navigation reads it from the disk.
-    fs::write(
-        &other_path,
-        "module Other exposing (helper)\n\n\nhelper x =\n    x\n",
-    )
-    .unwrap();
-    let other = uri(&other_path);
-    let client = Client::start(&[]);
-    let mut client = client;
-    client.open(
-        &main,
-        "module Main exposing (main)\n\nimport Other\n\n\nmain =\n    Other.helper ()\n",
-    );
-    let at = |line, character| json!({ "textDocument": { "uri": main }, "position": { "line": line, "character": character } });
+    // `Other` is saved, not open: navigation reads it from the disk.
+    let (_dir, main, other) = two_modules();
+    let mut client = Client::start(&[]);
+    client.open(&main, USES_OTHER);
     // `helper` in `Other.helper`, to its name and parameters.
-    let response = client.request("textDocument/definition", at(6, 12));
+    let response = client.request("textDocument/definition", at(&main, 6, 12));
     let found = response.result.unwrap();
     assert_eq!(found["uri"], other.as_str());
     assert_eq!(
         found["range"],
         json!({ "start": { "line": 3, "character": 0 }, "end": { "line": 3, "character": 8 } })
     );
-    let mut params = at(6, 12);
+    let mut params = at(&main, 6, 12);
     params["context"] = json!({ "includeDeclaration": false });
     let response = client.request("textDocument/references", params);
     let found = response.result.unwrap();
@@ -385,7 +394,7 @@ fn navigation_goes_to_definitions_and_finds_references_across_modules() {
         ]
     );
     // `main`: the exposing list, then its definition, in the text's order.
-    let response = client.request("textDocument/documentHighlight", at(5, 1));
+    let response = client.request("textDocument/documentHighlight", at(&main, 5, 1));
     let found = response.result.unwrap();
     let starts: Vec<&Value> = (found.as_array().unwrap().iter())
         .map(|h| &h["range"]["start"])
@@ -402,20 +411,11 @@ fn navigation_goes_to_definitions_and_finds_references_across_modules() {
 
 #[test]
 fn hover_and_completion_answer_without_packages() {
-    let (dir, main) = project();
-    fs::write(
-        root(&dir).join("src/Other.elm"),
-        "module Other exposing (helper)\n\n\nhelper x =\n    x\n",
-    )
-    .unwrap();
+    let (_dir, main, _) = two_modules();
     let mut client = Client::start(&[]);
-    client.open(
-        &main,
-        "module Main exposing (main)\n\nimport Other\n\n\nmain =\n    Other.helper ()\n",
-    );
-    let at = |line, character| json!({ "textDocument": { "uri": main }, "position": { "line": line, "character": character } });
+    client.open(&main, USES_OTHER);
     // `main`'s name: its inferred annotation, then its name.
-    let response = client.request("textDocument/hover", at(5, 1));
+    let response = client.request("textDocument/hover", at(&main, 5, 1));
     let found = response.result.unwrap();
     assert_eq!(found["contents"]["kind"], "markdown");
     assert_eq!(
@@ -423,7 +423,7 @@ fn hover_and_completion_answer_without_packages() {
         "\n```elm\nmain : ()\n```\n\n\n---\n\n\n```elm\nmain\n```\n"
     );
     // After `Other.`: what Other exposes.
-    let response = client.request("textDocument/completion", at(6, 10));
+    let response = client.request("textDocument/completion", at(&main, 6, 10));
     let labels: Vec<&str> = (response.result.as_ref().unwrap().as_array().unwrap().iter())
         .map(|c| c["label"].as_str().unwrap())
         .collect();

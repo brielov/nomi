@@ -129,6 +129,19 @@ fn elm_offsets_skip_crs_and_stop_at_line_and_text_ends() {
 }
 
 #[test]
+fn clamped_offsets_read_positions_as_lsp_does() {
+    let text = "a😀b\r\nc";
+    let index = LineIndex::new(text);
+    let offset = |line, col, unit| usize::from(index.clamped_offset(text, lc(line, col), unit));
+    assert_eq!(offset(0, 3, ColumnUnit::Utf16), "a😀".len());
+    // Inside the emoji, its start; past the line, before its CRLF; past
+    // the last line, the text's end.
+    assert_eq!(offset(0, 2, ColumnUnit::Utf16), 1);
+    assert_eq!(offset(0, 99, ColumnUnit::Utf8), "a😀b".len());
+    assert_eq!(offset(9, 0, ColumnUnit::Utf8), text.len());
+}
+
+#[test]
 #[should_panic(expected = "different text")]
 fn querying_another_text_panics() {
     let _ = LineIndex::new("abc").line_col("ab", at(0), ColumnUnit::Utf8);

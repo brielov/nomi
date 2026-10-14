@@ -28,14 +28,14 @@ macro_rules! rules {
         /// elm-language-server's lint rules, as `elm-analyse.json` names
         /// them.
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-        pub enum Rule {
+        pub(crate) enum Rule {
             $($(#[$doc])* $rule,)*
         }
 
         impl Rule {
             /// The rule `elm-analyse.json` names `name`, where it names
             /// one.
-            pub fn from_name(name: &str) -> Option<Rule> {
+            pub(crate) fn from_name(name: &str) -> Option<Rule> {
                 match name {
                     $(stringify!($rule) => Some(Rule::$rule),)*
                     _ => None,
@@ -70,20 +70,20 @@ rules! {
 /// Which rules run: elm-analyse.json's `checks`, each on unless set to
 /// false, `SingleFieldRecord` off unless set to true.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Checks {
+pub(crate) struct Checks {
     set: Vec<(Rule, bool)>,
 }
 
 impl Checks {
     /// The rules `set` turns on or off.
-    pub fn new(set: impl IntoIterator<Item = (Rule, bool)>) -> Checks {
+    pub(crate) fn new(set: impl IntoIterator<Item = (Rule, bool)>) -> Checks {
         Checks {
             set: set.into_iter().collect(),
         }
     }
 
     /// Whether `rule` runs.
-    pub fn on(&self, rule: Rule) -> bool {
+    pub(crate) fn on(&self, rule: Rule) -> bool {
         let set = self.set.iter().find(|(r, _)| *r == rule);
         set.map_or(rule != Rule::SingleFieldRecord, |(_, on)| *on)
     }
@@ -92,7 +92,7 @@ impl Checks {
 /// The lint problems of the file at `path`, in the order
 /// elm-language-server finds them: rule by rule. `index` is its
 /// project's, for the rules that look across modules.
-pub fn lint(
+pub(crate) fn lint(
     snapshot: &Snapshot,
     index: Option<&Index>,
     path: &Path,

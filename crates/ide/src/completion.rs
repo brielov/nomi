@@ -817,7 +817,7 @@ impl Context<'_> {
         let make = || declaration_hint(root, name, None);
         let package = (self.module_source(module))
             .map(|(_, path)| path)
-            .filter(|path| self.is_package_file(path));
+            .filter(|path| self.index.is_package_file(path));
         match package {
             Some(path) => {
                 let at = name.text_range().start();
@@ -825,11 +825,6 @@ impl Context<'_> {
             }
             None => make(),
         }
-    }
-
-    /// Whether `path` is in a dependency's sources.
-    fn is_package_file(&self, path: &Path) -> bool {
-        (self.index.packages.values()).any(|dir| path.starts_with(dir))
     }
 
     /// The annotation of `name` in the module `home` as written, each
@@ -881,7 +876,7 @@ impl Context<'_> {
             (None, None) => crate::navigation::module_file(self.snapshot, self.index, name)?,
         };
         // A package's sources never change: each is parsed once.
-        if self.is_package_file(&path) {
+        if self.index.is_package_file(&path) {
             return Some((self.index.package_files.tree(&path)?, path));
         }
         let text = self.snapshot.read(&path).ok()?;

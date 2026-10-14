@@ -1,43 +1,26 @@
 //! What the language-server tests share: the fixture packages, in a
-//! store as nomi's cache keeps them, and paths named as the server names
-//! them.
+//! store as nomi's cache keeps them, sessions replayed against `nomi lsp`
+//! on an in-memory connection, and paths named as the server names them.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::thread;
 
+use lsp_server::Connection;
 use lsp_types::Url;
 use nomi_engine::index::{self, Memo};
 use nomi_engine::{Store, Vfs};
-use nomi_testkit::lsp;
-
-pub(crate) fn packages_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages")
-}
+use nomi_testkit::lsp::{self, Driver, Session, Timing};
+use nomi_testkit::packages;
+use serde_json::Value;
 
 /// A store holding the fixture packages, laid out as nomi's cache keeps
 /// downloads, and what to write for each package's directory in it.
 pub(crate) fn store(dir: &Path) -> (Store, Vec<(String, String)>) {
-    let manifest = fs::read_to_string(packages_dir().join("manifest.toml")).unwrap();
-    let mut packages = Vec::new();
-    let (mut name, mut version) = (String::new(), String::new());
-    for line in manifest.lines() {
-        let value = || line.split('"').nth(1).unwrap_or_default().to_owned();
-        if line.starts_with("name = ") {
-            name = value();
-        } else if line.starts_with("version = ") {
-            version = value();
-        } else if line.starts_with("sha1 = ") {
-            packages.push((name.clone(), version.clone(), value()));
-        }
-    }
     let mut replacements = Vec::new();
-    for (name, version, hash) in packages {
-        let release = dir.join("releases").join(&name).join(&version);
-        fs::create_dir_all(release.parent().unwrap()).unwrap();
-        fs::write(&release, format!("{hash}\n")).unwrap();
-        let sources = dir.join("sources").join(&hash);
-        copy_tree(&packages_dir().join(&name).join(&version), &sources);
-        let to = format!("<packages>/{name}/{version}");
+    for package in packages::store(dir).unwrap() {
+        let sources = package.sources(dir);
+        let to = format!("<packages>/{}/{}", package.name, package.version);
         // As resolved and as the store names it, which differ behind a
         // link (macOS's temporary directory); the longer first, since it
         // holds the other.
@@ -48,18 +31,6 @@ pub(crate) fn store(dir: &Path) -> (Store, Vec<(String, String)>) {
         }
     }
     (Store::new(dir.to_owned()), replacements)
-}
-
-pub(crate) fn copy_tree(from: &Path, to: &Path) {
-    fs::create_dir_all(to).unwrap();
-    for entry in fs::read_dir(from).unwrap() {
-        let entry = entry.unwrap();
-        if entry.file_type().unwrap().is_dir() {
-            copy_tree(&entry.path(), &to.join(entry.file_name()));
-        } else {
-            fs::copy(entry.path(), to.join(entry.file_name())).unwrap();
-        }
-    }
 }
 
 /// The fixture packages built once, for every server to start from: each
@@ -74,6 +45,30 @@ pub(crate) fn built(temp: &Path, store: &Store) -> Memo {
     let snapshot = Vfs::new().snapshot();
     index::index(&snapshot, store, &main, &mut memo).expect("the fixture packages index");
     memo
+}
+
+/// `session`, replayed against `nomi lsp` with the packages of `store`
+/// and `memo` in the project at `work`: its transcript, tidied with
+/// `replacements` made and the project's paths written `<project>`.
+pub(crate) fn replay(
+    work: &Path,
+    session: &Session,
+    timing: Timing,
+    store: &Store,
+    memo: &Memo,
+    replacements: &[(String, String)],
+) -> Value {
+    let root_uri = Url::from_directory_path(work).unwrap();
+    let root_uri = root_uri.as_str().trim_end_matches('/').to_owned();
+    let (server, client) = Connection::memory();
+    let (store, memo) = (store.clone(), memo.clone());
+    let handle = thread::spawn(move || nomi_lsp::serve(&server, store, memo));
+    let transcript = Driver::start(client, work, &root_uri, session, timing).run(session);
+    handle.join().unwrap().unwrap();
+    let mut replacements = replacements.to_vec();
+    replacements.push((root_uri, "<project>".to_owned()));
+    replacements.push((work.display().to_string(), "<project>".to_owned()));
+    lsp::tidy(transcript, &replacements)
 }
 
 /// `path` as the server names it: resolved, and on Windows long-named

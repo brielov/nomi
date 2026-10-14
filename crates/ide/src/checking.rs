@@ -1,0 +1,213 @@
+//! What the editor checks in each project with an open file, as
+//! elm-language-server does: elm's problems, or each open file's syntax
+//! error where elm can't check the project; elm-review's, run on open
+//! and save once elm finds nothing; and in the open files the project's
+//! `elm-analyse.json` doesn't exclude, the lint rules' problems and the
+//! annotations left out.
+
+use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use nomi_base::ColumnUnit;
+use nomi_engine::Snapshot;
+use nomi_engine::index::{Index, manifest};
+use nomi_engine::live::Live;
+use nomi_engine::schedule::Cancelled;
+use serde_json::Value;
+
+use crate::problems::slashed;
+use crate::review::{self, ReviewSettings};
+use crate::{
+    Checks, Code, Problem, Rule, compiler_problems, diagnostics, lint, missing_annotations,
+};
+
+/// What the client's `elmLS` settings say to check.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CheckSettings {
+    /// `onlyUpdateDiagnosticsOnSave`: only opening and saving check, and
+    /// annotations aren't suggested.
+    pub on_save_only: bool,
+    /// `disableElmLSDiagnostics`.
+    pub no_lint: bool,
+    /// How elm-review runs, where the client turned it on.
+    pub review: Option<ReviewSettings>,
+}
+
+impl CheckSettings {
+    /// Whether the lint rules run. Diagnostics on save run them on open
+    /// and save whatever `disableElmLSDiagnostics` says, as
+    /// elm-language-server does.
+    fn lint(&self) -> bool {
+        self.on_save_only || !self.no_lint
+    }
+}
+
+/// elm-review's problems by file, from the last open or save that ran
+/// it, less those of the files changed since.
+#[derive(Debug, Default)]
+pub struct Reviewed(HashMap<PathBuf, Vec<Problem>>);
+
+impl Reviewed {
+    /// Forgets the problems of the file at `path`, which the editor
+    /// changed.
+    pub fn changed(&mut self, path: &Path) {
+        self.0.remove(path);
+    }
+}
+
+/// A project's `elm-analyse.json`: which lint rules run, and which files
+/// have none.
+struct Analyse {
+    checks: Checks,
+    excluded: Vec<PathBuf>,
+}
+
+impl Analyse {
+    fn read(snapshot: &Snapshot, root: &Path) -> Analyse {
+        let json = (snapshot.read(&root.join("elm-analyse.json")).ok())
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            .unwrap_or(Value::Null);
+        let checks = (json.get("checks").and_then(Value::as_object).into_iter())
+            .flatten()
+            .filter_map(|(name, on)| Some((Rule::from_name(name)?, on.as_bool()?)));
+        let excluded = (json
+            .get("excludedPaths")
+            .and_then(Value::as_array)
+            .into_iter())
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(|path| root.join(path))
+        .collect();
+        Analyse {
+            checks: Checks::new(checks),
+            excluded,
+        }
+    }
+
+    fn excludes(&self, path: &Path) -> bool {
+        self.excluded.iter().any(|dir| path.starts_with(dir))
+    }
+}
+
+/// The problems of every project with an `open` file, as `settings` has
+/// them, on open or save if `saved`, with elm-review's kept in
+/// `reviewed` and its columns read in `unit`. `check` checks a project,
+/// by its manifest and open files, as elm does, and indexes it from the
+/// file it's given where the problems need an index; cancelled where it
+/// is.
+pub fn project_problems(
+    snapshot: &Snapshot,
+    open: &[PathBuf],
+    settings: &CheckSettings,
+    saved: bool,
+    reviewed: &mut Reviewed,
+    unit: ColumnUnit,
+    mut check: impl FnMut(
+        &Path,
+        &[PathBuf],
+        Option<&Path>,
+    ) -> Result<(Option<Live>, Option<Arc<Index>>), Cancelled>,
+) -> Result<Vec<Problem>, Cancelled> {
+    let mut projects: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
+    let mut found = Vec::new();
+    for path in open {
+        match manifest(snapshot, path) {
+            Some(manifest) => projects.entry(manifest).or_default().push(path.clone()),
+            None => found.extend(syntax_problems(snapshot, path, None)),
+        }
+    }
+    for (manifest, open) in projects {
+        let root = manifest.parent().unwrap_or_else(|| Path::new(""));
+        let analyse = Analyse::read(snapshot, root);
+        let linted: Vec<&PathBuf> = open.iter().filter(|p| !analyse.excludes(p)).collect();
+        let annotations = !settings.on_save_only && analyse.checks.on(Rule::MissingTypeAnnotation);
+        // Indexing takes a while; only annotations and ports need it.
+        let ports = (linted.iter()).any(|p| snapshot.read(p).is_ok_and(|t| t.contains("port ")));
+        let index_from = (annotations || (settings.lint() && ports))
+            .then(|| linted.first().map(|p| p.as_path()))
+            .flatten();
+        let (live, index) = check(&manifest, &open, index_from)?;
+        let before = found.len();
+        match live {
+            Some(live) => found.extend(compiler_problems(snapshot, &live, &open)),
+            None => {
+                for path in &open {
+                    found.extend(syntax_problems(snapshot, path, Some(root)));
+                }
+            }
+        }
+        // elm-review, on open and save, once elm finds nothing; its
+        // problems go when elm finds some.
+        let clean = found.len() == before;
+        if saved || !clean {
+            reviewed.0.retain(|path, _| !path.starts_with(root));
+        }
+        if saved
+            && clean
+            && let Some(review) = &settings.review
+        {
+            for problem in review::problems(snapshot, root, review, unit) {
+                (reviewed.0.entry(problem.path.clone()).or_default()).push(problem);
+            }
+        }
+        let mut review_found: Vec<&Problem> = (reviewed.0.iter())
+            .filter(|(path, _)| path.starts_with(root))
+            .flat_map(|(_, problems)| problems)
+            .collect();
+        review_found.sort_by(|a, b| (&a.path, a.range.start()).cmp(&(&b.path, b.range.start())));
+        found.extend(review_found.into_iter().cloned());
+        if settings.lint() {
+            for path in &linted {
+                found.extend(lint(snapshot, index.as_deref(), path, &analyse.checks));
+            }
+        }
+        if annotations && let Some(index) = &index {
+            for path in &linted {
+                found.extend(missing_annotations(index, path));
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// The syntax error in the file at `path`, for a file elm can't check
+/// with its project: one outside any, or whose dependencies the store
+/// doesn't hold. Its data names the file relative to `root`, or by its
+/// name alone.
+fn syntax_problems(snapshot: &Snapshot, path: &Path, root: Option<&Path>) -> Vec<Problem> {
+    let relative = || match root.and_then(|root| path.strip_prefix(root).ok()) {
+        Some(relative) => slashed(relative),
+        None => slashed(Path::new(path.file_name().unwrap_or_default())),
+    };
+    (diagnostics(snapshot, path).unwrap_or_default().into_iter())
+        .map(|d| Problem {
+            relative: Some(relative()),
+            ..Problem::new(
+                path.to_owned(),
+                d.range,
+                Code::ElmMake,
+                format!("{} - {}", d.title, d.message),
+            )
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn elm_analyse_json_turns_rules_off_and_files_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let json = r#"{ "checks": { "UnusedImport": false, "SingleFieldRecord": true },
+                        "excludedPaths": ["src/Generated"] }"#;
+        std::fs::write(dir.path().join("elm-analyse.json"), json).unwrap();
+        let analyse = Analyse::read(&nomi_engine::Vfs::new().snapshot(), dir.path());
+        assert!(!analyse.checks.on(Rule::UnusedImport));
+        assert!(analyse.checks.on(Rule::UnusedPatternVariable));
+        assert!(analyse.checks.on(Rule::SingleFieldRecord));
+        assert!(analyse.excludes(&dir.path().join("src/Generated/Api.elm")));
+        assert!(!analyse.excludes(&dir.path().join("src/Main.elm")));
+    }
+}

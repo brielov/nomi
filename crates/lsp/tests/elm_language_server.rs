@@ -13,17 +13,15 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use lsp_server::Connection;
-use lsp_types::Url;
 use nomi_engine::Store;
 use nomi_engine::index::Memo;
-use nomi_testkit::lsp::{self, Driver, Timing};
+use nomi_testkit::lsp::{self, Timing};
 use nomi_testkit::ratchet::Suite;
 use serde_json::Value;
 
 mod common;
 
-use common::{built, real, store};
+use common::{built, real, replay, store};
 
 fn suite_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm_language_server")
@@ -46,7 +44,7 @@ fn sessions_answer_as_elm_language_server_does() {
                 scope.spawn(|| {
                     let mut outcomes = Vec::new();
                     while let Some(case) = cases.get(next.fetch_add(1, Ordering::Relaxed)) {
-                        outcomes.extend(replay(case, temp.path(), &store, &memo, &packages));
+                        outcomes.extend(check(case, temp.path(), &store, &memo, &packages));
                     }
                     outcomes
                 })
@@ -61,7 +59,8 @@ fn sessions_answer_as_elm_language_server_does() {
     suite.finish(outcomes);
 }
 
-fn replay(
+/// The ratchet's outcomes for `case`, replayed in a copy of its project.
+fn check(
     case: &lsp::Case,
     temp: &Path,
     store: &Store,
@@ -77,25 +76,12 @@ fn replay(
     fs::create_dir_all(&cases).unwrap();
     let work = lsp::project_dir(&real(&cases), &case.name).unwrap();
     lsp::copy_project(case, &work).unwrap();
-    let root_uri = Url::from_directory_path(&work).unwrap();
-    let root_uri = root_uri.as_str().trim_end_matches('/').to_owned();
-
-    let (server, client) = Connection::memory();
-    let (store, memo) = (store.clone(), memo.clone());
-    let handle = thread::spawn(move || nomi_lsp::serve(&server, store, memo));
     let timing = Timing {
         quiet: Duration::from_millis(300),
         answer: Duration::from_secs(30),
         publishes: true,
     };
-    let driver = Driver::start(client, &work, &root_uri, &case.session, timing);
-    let transcript = driver.run(&case.session);
-    handle.join().unwrap().unwrap();
-
-    let mut replacements = packages.to_vec();
-    replacements.push((root_uri, "<project>".to_owned()));
-    replacements.push((work.display().to_string(), "<project>".to_owned()));
-    let mut actual = lsp::tidy(transcript, &replacements);
+    let mut actual = replay(&work, &case.session, timing, store, memo, packages);
     // The transcripts were recorded on Linux; on Windows elm's report of a
     // misnamed file writes its paths with `\`.
     if cfg!(windows) {

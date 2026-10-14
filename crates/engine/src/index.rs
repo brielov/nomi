@@ -177,6 +177,11 @@ impl Index {
             .map(|m| &**m)
     }
 
+    /// Whether `path` is in a dependency's sources.
+    pub fn is_package_file(&self, path: &Path) -> bool {
+        self.packages.values().any(|dir| path.starts_with(dir))
+    }
+
     /// The project's module named `name`.
     pub fn named(&self, name: &str) -> Option<&Indexed> {
         self.modules.iter().find(|m| m.name == name).map(|m| &**m)

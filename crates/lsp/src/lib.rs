@@ -5,42 +5,57 @@
 //! against a snapshot and published only while it is current.
 
 mod diagnostics;
+mod edits;
+mod indexes;
 mod position;
+mod requests;
+mod settings;
 
 use std::collections::HashMap;
-
-use lsp_types::{DiagnosticSeverity, DiagnosticTag};
 use std::fmt;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crossbeam_channel::Sender;
-use lsp_server::{Connection, ErrorCode, Message, Notification, Request, Response};
+use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
 use lsp_types::notification::{
-    DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument,
-    DidSaveTextDocument, Initialized, Notification as _, PublishDiagnostics,
+    DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidCreateFiles,
+    DidOpenTextDocument, DidSaveTextDocument, Initialized, Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{
-    Completion, DocumentHighlightRequest, DocumentSymbolRequest, Formatting, GotoDefinition,
-    GotoTypeDefinition, HoverRequest, PrepareRenameRequest, References, Rename, Request as _,
+    CodeActionRequest, CodeActionResolveRequest, CodeLensRequest, CodeLensResolve, Completion,
+    DocumentHighlightRequest, DocumentSymbolRequest, ExecuteCommand, FoldingRangeRequest,
+    Formatting, GotoDefinition, GotoTypeDefinition, HoverRequest, LinkedEditingRange,
+    PrepareRenameRequest, References, Rename, Request as _, SelectionRangeRequest, WillDeleteFiles,
+    WillRenameFiles, WorkspaceConfiguration, WorkspaceSymbolRequest,
 };
 use lsp_types::{
-    CompletionItemKind, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentFormattingParams, DocumentHighlight,
-    DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
-    GotoDefinitionResponse, InitializeParams, Location, OneOf, PublishDiagnosticsParams,
-    ReferenceParams, ServerCapabilities, ServerInfo, SymbolInformation, SymbolKind,
+    ClientCapabilities, CodeActionOptions, CodeActionProviderCapability, CodeLensOptions,
+    CompletionOptions, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, ExecuteCommandOptions, FileOperationFilter, FileOperationPattern,
+    FileOperationPatternKind, FileOperationRegistrationOptions, FoldingRangeProviderCapability,
+    HoverProviderCapability, InitializeParams, InitializeResult,
+    LinkedEditingRangeServerCapabilities, OneOf, PositionEncodingKind, PublishDiagnosticsParams,
+    RenameOptions, SelectionRangeProviderCapability, ServerCapabilities, ServerInfo,
     TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit, Url,
+    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TypeDefinitionProviderCapability, Url,
+    WorkspaceFileOperationsServerCapabilities, WorkspaceServerCapabilities,
 };
-use nomi_base::{ColumnUnit, TextSize};
-use nomi_engine::index::{self, Index, Memo};
+use nomi_base::{TextSize, lock};
+use nomi_engine::artifacts::Artifacts;
+use nomi_engine::index::{self, Index, Memo, PackageModules};
 use nomi_engine::paths::Cache;
 use nomi_engine::{Snapshot, Store, Vfs};
-use serde_json::Value;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+use serde_json::{Value, json};
 
-use diagnostics::{Diagnostics, Job, Settings, Shared};
+use diagnostics::{Cause, Diagnostics, Job, Shared};
+use edits::{Answer, INSTALL_PACKAGE, Install};
+use indexes::Indexes;
 use position::Text;
+use settings::Settings;
 
 /// Why serving stopped before the client said to exit.
 #[derive(Debug)]
@@ -60,6 +75,8 @@ impl fmt::Display for Error {
         }
     }
 }
+
+impl std::error::Error for Error {}
 
 impl From<lsp_server::ProtocolError> for Error {
     fn from(e: lsp_server::ProtocolError) -> Error {
@@ -82,7 +99,7 @@ pub fn run(connection: &Connection) -> Result<(), Error> {
     // Without a cache directory, packages are nowhere to be found.
     let cache = Cache::locate().ok();
     let store = Store::new(cache.as_ref().map_or_else(PathBuf::new, Cache::packages));
-    let artifacts = cache.as_ref().map(nomi_engine::artifacts::Artifacts::new);
+    let artifacts = cache.as_ref().map(Artifacts::new);
     // An editor may be all that builds: it trims the cache as a build
     // does, once it starts, without holding up the handshake.
     if let Some(artifacts) = artifacts.clone() {
@@ -98,24 +115,74 @@ pub fn serve(connection: &Connection, store: Store, memo: Memo) -> Result<(), Er
 }
 
 /// As [`serve`], checks reusing what `artifacts` holds.
-pub fn serve_with(
+fn serve_with(
     connection: &Connection,
     store: Store,
     memo: Memo,
-    artifacts: Option<nomi_engine::artifacts::Artifacts>,
+    artifacts: Option<Artifacts>,
 ) -> Result<(), Error> {
     // Checks and indexes read the same files again and again.
     nomi_engine::graph::keep_reads();
     let (id, params) = connection.initialize_start()?;
     let params: InitializeParams = serde_json::from_value(params).map_err(Error::Initialize)?;
-    let offered = params
-        .capabilities
-        .general
-        .as_ref()
+    let offered = (params.capabilities.general.as_ref())
         .and_then(|general| general.position_encodings.as_deref());
-    let unit = position::negotiate(offered);
-    let capabilities = ServerCapabilities {
-        position_encoding: Some(position::kind(unit)),
+    let (encoding, unit) = position::negotiate(offered);
+    let result = InitializeResult {
+        capabilities: capabilities(encoding),
+        server_info: Some(ServerInfo {
+            name: "nomi".to_owned(),
+            version: Some(env!("CARGO_PKG_VERSION").to_owned()),
+        }),
+    };
+    let result = serde_json::to_value(result).expect("the handshake's answer serializes");
+    connection.initialize_finish(id, result)?;
+    let settings = (params.initialization_options.as_ref())
+        .and_then(Settings::read)
+        .unwrap_or_default();
+    let shared = Arc::new(Shared {
+        store,
+        indexes: Indexes::default(),
+        artifacts,
+        memo: Mutex::new(memo),
+        unit,
+        sender: connection.sender.clone(),
+        publishing: Mutex::new(()),
+        settings: Mutex::new(settings),
+        latest: Mutex::new(HashMap::new()),
+    });
+    let mut server = Server {
+        diagnostics: Diagnostics::start(shared.clone()),
+        shared,
+        vfs: Vfs::new(),
+        documents: HashMap::new(),
+        client: ClientSupport::of(&params.capabilities),
+        settings_request: None,
+        sent: 0,
+        packages: OnceLock::new(),
+        installs: HashMap::new(),
+    };
+    server.serve(connection)
+}
+
+/// What the server offers, as elm-language-server does, its positions in
+/// `encoding`.
+fn capabilities(encoding: PositionEncodingKind) -> ServerCapabilities {
+    // The file events elm-language-server listens to: Elm files, and for
+    // a rename, folders too.
+    let filter = |glob: &str, matches| FileOperationFilter {
+        scheme: Some("file".to_owned()),
+        pattern: FileOperationPattern {
+            glob: glob.to_owned(),
+            matches: Some(matches),
+            options: None,
+        },
+    };
+    let elm_files = || filter("**/*.elm", FileOperationPatternKind::File);
+    let folders = filter("**/", FileOperationPatternKind::Folder);
+    let filters = |filters| Some(FileOperationRegistrationOptions { filters });
+    ServerCapabilities {
+        position_encoding: Some(encoding),
         text_document_sync: Some(TextDocumentSyncCapability::Options(
             TextDocumentSyncOptions {
                 open_close: Some(true),
@@ -127,183 +194,92 @@ pub fn serve_with(
         document_formatting_provider: Some(OneOf::Left(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
         definition_provider: Some(OneOf::Left(true)),
-        type_definition_provider: Some(lsp_types::TypeDefinitionProviderCapability::Simple(true)),
-        folding_range_provider: Some(lsp_types::FoldingRangeProviderCapability::Simple(true)),
-        selection_range_provider: Some(lsp_types::SelectionRangeProviderCapability::Simple(true)),
-        linked_editing_range_provider: Some(
-            lsp_types::LinkedEditingRangeServerCapabilities::Simple(true),
-        ),
+        type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(true)),
+        folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
+        selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
+        linked_editing_range_provider: Some(LinkedEditingRangeServerCapabilities::Simple(true)),
         workspace_symbol_provider: Some(OneOf::Left(true)),
-        rename_provider: Some(OneOf::Right(lsp_types::RenameOptions {
+        rename_provider: Some(OneOf::Right(RenameOptions {
             prepare_provider: Some(true),
             work_done_progress_options: lsp_types::WorkDoneProgressOptions::default(),
         })),
         references_provider: Some(OneOf::Left(true)),
-        code_action_provider: Some(lsp_types::CodeActionProviderCapability::Options(
-            lsp_types::CodeActionOptions {
-                resolve_provider: Some(true),
-                ..lsp_types::CodeActionOptions::default()
-            },
-        )),
-        execute_command_provider: Some(lsp_types::ExecuteCommandOptions {
+        code_action_provider: Some(CodeActionProviderCapability::Options(CodeActionOptions {
+            resolve_provider: Some(true),
+            ..CodeActionOptions::default()
+        })),
+        execute_command_provider: Some(ExecuteCommandOptions {
             commands: vec![INSTALL_PACKAGE.to_owned()],
             work_done_progress_options: lsp_types::WorkDoneProgressOptions::default(),
         }),
-        code_lens_provider: Some(lsp_types::CodeLensOptions {
+        code_lens_provider: Some(CodeLensOptions {
             resolve_provider: Some(true),
         }),
         document_highlight_provider: Some(OneOf::Left(true)),
-        hover_provider: Some(lsp_types::HoverProviderCapability::Simple(true)),
-        completion_provider: Some(lsp_types::CompletionOptions {
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
+        completion_provider: Some(CompletionOptions {
             trigger_characters: Some(vec![".".to_owned()]),
-            ..lsp_types::CompletionOptions::default()
+            ..CompletionOptions::default()
+        }),
+        workspace: Some(WorkspaceServerCapabilities {
+            workspace_folders: None,
+            file_operations: Some(WorkspaceFileOperationsServerCapabilities {
+                did_create: filters(vec![elm_files()]),
+                will_rename: filters(vec![elm_files(), folders]),
+                will_delete: filters(vec![elm_files()]),
+                ..WorkspaceFileOperationsServerCapabilities::default()
+            }),
         }),
         ..ServerCapabilities::default()
-    };
-    let mut capabilities = serde_json::to_value(capabilities).expect("capabilities serialize");
-    // The file events elm-language-server listens to: Elm files, and for
-    // a rename, folders too.
-    let elm_files = serde_json::json!({ "scheme": "file", "pattern": { "glob": "**/*.elm", "matches": "file" } });
-    let folders =
-        serde_json::json!({ "scheme": "file", "pattern": { "glob": "**/", "matches": "folder" } });
-    capabilities["workspace"]["fileOperations"] = serde_json::json!({
-        "didCreate": { "filters": [elm_files] },
-        "willRename": { "filters": [elm_files, folders] },
-        "willDelete": { "filters": [elm_files] },
-    });
-    let result = serde_json::json!({
-        "capabilities": capabilities,
-        "serverInfo": ServerInfo {
-            name: "nomi".to_owned(),
-            version: Some(env!("CARGO_PKG_VERSION").to_owned()),
-        },
-    });
-    connection.initialize_finish(id, result)?;
-    let settings = (params.initialization_options.as_ref())
-        .and_then(Settings::read)
-        .unwrap_or_default();
-    let label_details = (params.capabilities.text_document.as_ref())
-        .and_then(|t| t.completion.as_ref())
-        .and_then(|c| c.completion_item.as_ref())
-        .and_then(|i| i.label_details_support)
-        .unwrap_or(false);
-    let resolves_edits = (params.capabilities.text_document.as_ref())
-        .and_then(|t| t.code_action.as_ref())
-        .and_then(|c| c.resolve_support.as_ref())
-        .is_some_and(|r| r.properties.iter().any(|p| p == "edit"));
-    let pulls_settings = (params.capabilities.workspace.as_ref())
-        .and_then(|w| w.configuration)
-        .unwrap_or(false);
-    let settings = Arc::new(Mutex::new(settings));
-    let publishing = Arc::new(Mutex::new(()));
-    let memo = Arc::new(Mutex::new(memo));
-    let latest = Arc::new(Mutex::new(HashMap::new()));
-    let indexes = Arc::new(indexes::Indexes::default());
-    let diagnostics = Diagnostics::start(Shared {
-        indexes: indexes.clone(),
-        store: store.clone(),
-        artifacts,
-        memo: memo.clone(),
-        unit,
-        sender: connection.sender.clone(),
-        publishing: publishing.clone(),
-        settings: settings.clone(),
-        latest: latest.clone(),
-    });
-    let mut server = Server {
-        unit,
-        vfs: Arc::new(Vfs::new()),
-        documents: HashMap::new(),
-        publishing,
-        sender: connection.sender.clone(),
-        store,
-        memo,
-        indexes,
-        diagnostics,
-        settings,
-        pulls_settings,
-        settings_request: None,
-        sent: 0,
-        label_details,
-        latest,
-        resolves_edits,
-        packages: None,
-        installs: HashMap::new(),
-    };
-    for message in &connection.receiver {
-        match message {
-            Message::Request(request) => {
-                if connection.handle_shutdown(&request)? {
-                    return Ok(());
-                }
-                // A bug answers its request with an error rather than end
-                // the session.
-                let id = request.id.clone();
-                let method = request.method.clone();
-                let response = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    server.request(request)
-                }))
-                .unwrap_or_else(|_| {
-                    let message = format!("nomi failed answering {method}; this is a bug in nomi");
-                    Response::new_err(id, ErrorCode::InternalError as i32, message)
-                });
-                send(&server.sender, Message::Response(response));
-            }
-            Message::Notification(notification) => {
-                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    server.notification(notification);
-                }));
-            }
-            Message::Response(response) => server.response(&response),
-        }
     }
-    Ok(())
 }
 
-mod edits;
-mod indexes;
+/// What the client does that the server's answers depend on.
+#[derive(Clone, Copy, Debug)]
+struct ClientSupport {
+    /// Whether it shows completions' label details.
+    label_details: bool,
+    /// Whether it resolves a code action's edit later.
+    resolves_edits: bool,
+    /// Whether it answers `workspace/configuration`.
+    pulls_settings: bool,
+}
 
-use edits::{INSTALL_PACKAGE, Install};
+impl ClientSupport {
+    fn of(capabilities: &ClientCapabilities) -> ClientSupport {
+        let text_document = capabilities.text_document.as_ref();
+        ClientSupport {
+            label_details: (text_document.and_then(|t| t.completion.as_ref()))
+                .and_then(|c| c.completion_item.as_ref())
+                .and_then(|i| i.label_details_support)
+                .unwrap_or(false),
+            resolves_edits: (text_document.and_then(|t| t.code_action.as_ref()))
+                .and_then(|c| c.resolve_support.as_ref())
+                .is_some_and(|r| r.properties.iter().any(|p| p == "edit")),
+            pulls_settings: (capabilities.workspace.as_ref())
+                .and_then(|w| w.configuration)
+                .unwrap_or(false),
+        }
+    }
+}
 
 struct Server {
-    unit: ColumnUnit,
-    vfs: Arc<Vfs>,
+    /// What the diagnostics worker shares.
+    shared: Arc<Shared>,
+    vfs: Vfs,
     /// The documents the client has open, with their text.
     documents: HashMap<Url, Document>,
-    /// Held to make a revision, and to publish what a snapshot found while
-    /// it is still the latest, so nothing stale is published after
-    /// something newer.
-    publishing: Arc<Mutex<()>>,
-    sender: Sender<Message>,
-    /// Where navigation finds the packages a project uses, never
-    /// downloading them.
-    store: Store,
-    /// The packages' interfaces, made once per server and shared with
-    /// diagnostics.
-    memo: Arc<Mutex<Memo>>,
-    /// The last project index, its revision and its `elm.json`: indexing
-    /// a project takes a while, and navigation asks again and again
-    /// between edits.
-    indexes: Arc<indexes::Indexes>,
     diagnostics: Diagnostics,
-    settings: Arc<Mutex<Settings>>,
-    /// Whether the client answers `workspace/configuration`.
-    pulls_settings: bool,
+    client: ClientSupport,
     /// The id of the request for the client's settings, while it's out.
-    settings_request: Option<lsp_server::RequestId>,
+    settings_request: Option<RequestId>,
     /// How many requests the server has sent the client, each under an
     /// id of its own.
     sent: i32,
-    /// Whether the client shows completions' label details.
-    label_details: bool,
-    /// The problems the diagnostics worker last published, by file.
-    latest: Arc<Mutex<HashMap<PathBuf, Vec<nomi_ide::Problem>>>>,
-    /// Whether the client resolves a code action's edit later.
-    resolves_edits: bool,
     /// The packages downloaded and the modules they expose, read once.
-    packages: Option<index::PackageModules>,
+    packages: OnceLock<PackageModules>,
     /// Installs waiting for the user's answer, by the id of the question.
-    installs: HashMap<lsp_server::RequestId, Install>,
+    installs: HashMap<RequestId, Install>,
 }
 
 struct Document {
@@ -311,131 +287,186 @@ struct Document {
     text: String,
 }
 
-impl Server {
-    fn request(&mut self, request: Request) -> Response {
-        let id = request.id.clone();
-        let result = match request.method.as_str() {
-            Formatting::METHOD => parse(request)
-                .and_then(|p: DocumentFormattingParams| self.formatting(&p.text_document.uri)),
-            DocumentSymbolRequest::METHOD => parse(request)
-                .and_then(|p: DocumentSymbolParams| self.symbols(&p.text_document.uri)),
-            GotoDefinition::METHOD => parse(request).and_then(|p: GotoDefinitionParams| {
-                self.definition(&p.text_document_position_params)
-            }),
-            GotoTypeDefinition::METHOD => parse(request).and_then(|p: GotoDefinitionParams| {
-                self.type_definition(&p.text_document_position_params)
-            }),
-            "textDocument/foldingRange" => parse(request)
-                .and_then(|p: lsp_types::FoldingRangeParams| self.folding(&p.text_document.uri)),
-            "textDocument/selectionRange" => {
-                parse(request).and_then(|p: lsp_types::SelectionRangeParams| {
-                    self.selection(&p.text_document.uri, &p.positions)
-                })
-            }
-            "textDocument/linkedEditingRange" => {
-                parse(request).and_then(|p: lsp_types::LinkedEditingRangeParams| {
-                    self.linked(&p.text_document_position_params)
-                })
-            }
-            "workspace/symbol" => parse(request)
-                .map(|p: lsp_types::WorkspaceSymbolParams| self.workspace_symbols(&p.query)),
-            PrepareRenameRequest::METHOD => {
-                parse(request).and_then(|p: TextDocumentPositionParams| self.prepare_rename(&p))
-            }
-            Rename::METHOD => parse(request).and_then(|p: lsp_types::RenameParams| {
-                self.rename(&p.text_document_position, &p.new_name)
-            }),
-            References::METHOD => parse(request).and_then(|p: ReferenceParams| {
-                self.references(&p.text_document_position, p.context.include_declaration)
-            }),
-            HoverRequest::METHOD => parse(request)
-                .and_then(|p: lsp_types::HoverParams| self.hover(&p.text_document_position_params)),
-            Completion::METHOD => parse(request).and_then(|p: lsp_types::CompletionParams| {
-                self.completion(&p.text_document_position)
-            }),
-            "codeAction/resolve" => parse(request).and_then(|a: Value| self.resolve_action(a)),
-            "elm/expose" | "elm/unexpose" => {
-                let exposure = if request.method == "elm/expose" {
-                    nomi_ide::Exposure::Expose
-                } else {
-                    nomi_ide::Exposure::Unexpose
-                };
-                parse(request).and_then(|p: Value| self.expose(&p, exposure))
-            }
-            "workspace/willRenameFiles" => {
-                parse(request).map(|p: lsp_types::RenameFilesParams| self.rename_files(&p))
-            }
-            "workspace/willDeleteFiles" => Ok(Value::Null),
-            "elm/findTests" => parse(request).and_then(|p: Value| self.find_tests(&p)),
-            "elm/provideFileContents" => parse(request).and_then(|p: Value| self.file_contents(&p)),
-            "workspace/textDocumentContent" => parse(request)
-                .and_then(|p: Value| self.file_contents(&p))
-                .map(|text| serde_json::json!({ "text": text })),
-            "elm/getDiagnostics" => {
-                // A check now, published as any other is.
-                self.revise(true);
-                Ok(Value::Null)
-            }
-            "elm/getMoveDestinations" => parse(request).map(|p: Value| self.move_destinations(&p)),
-            "elm/move" => parse(request).map(|p: Value| self.move_to(&p)),
-            "workspace/executeCommand" => {
-                parse(request).and_then(|p: lsp_types::ExecuteCommandParams| self.execute(&p))
-            }
-            "textDocument/codeAction" => {
-                parse(request).and_then(|p: lsp_types::CodeActionParams| self.code_actions(&p))
-            }
-            "textDocument/codeLens" => parse(request)
-                .and_then(|p: lsp_types::CodeLensParams| self.code_lenses(&p.text_document.uri)),
-            "codeLens/resolve" => {
-                parse(request).and_then(|lens: lsp_types::CodeLens| self.resolve_lens(lens))
-            }
-            DocumentHighlightRequest::METHOD => {
-                parse(request).and_then(|p: DocumentHighlightParams| {
-                    self.highlights(&p.text_document_position_params)
-                })
-            }
-            method => Err((
-                ErrorCode::MethodNotFound,
-                format!("nomi doesn't answer {method} yet"),
-            )),
-        };
-        match result {
-            Ok(value) => Response::new_ok(id, value),
-            Err((code, message)) => Response::new_err(id, code as i32, message),
+/// A position in an open document: the document, its text, and the
+/// offset of the position in it.
+struct At<'a> {
+    document: &'a Document,
+    text: Text<'a>,
+    offset: TextSize,
+}
+
+/// Why a request has no answer: the protocol's code and a message.
+struct Failure {
+    code: ErrorCode,
+    message: String,
+}
+
+impl Failure {
+    /// The request's parameters aren't what it takes.
+    fn invalid(message: impl fmt::Display) -> Failure {
+        Failure {
+            code: ErrorCode::InvalidParams,
+            message: message.to_string(),
         }
     }
 
-    fn notification(&mut self, notification: Notification) {
-        match notification.method.as_str() {
+    /// Answering failed, as a file that can't be read makes it.
+    fn internal(error: impl fmt::Display) -> Failure {
+        Failure {
+            code: ErrorCode::InternalError,
+            message: error.to_string(),
+        }
+    }
+
+    /// The request is well formed but has no answer.
+    fn failed(message: impl fmt::Display) -> Failure {
+        Failure {
+            code: ErrorCode::RequestFailed,
+            message: message.to_string(),
+        }
+    }
+}
+
+impl Server {
+    /// Answers the client's messages one at a time until it exits.
+    fn serve(&mut self, connection: &Connection) -> Result<(), Error> {
+        for message in &connection.receiver {
+            match message {
+                Message::Request(request) => {
+                    if connection.handle_shutdown(&request)? {
+                        return Ok(());
+                    }
+                    // A bug answers its request with an error rather than
+                    // end the session.
+                    let id = request.id.clone();
+                    let method = request.method.clone();
+                    let response = catch_unwind(AssertUnwindSafe(|| self.request(request)))
+                        .unwrap_or_else(|_| {
+                            let message =
+                                format!("nomi failed answering {method}; this is a bug in nomi");
+                            Response::new_err(id, ErrorCode::InternalError as i32, message)
+                        });
+                    send(&self.shared.sender, Message::Response(response));
+                }
+                Message::Notification(notification) => {
+                    let _ = catch_unwind(AssertUnwindSafe(|| self.notification(notification)));
+                }
+                Message::Response(response) => self.response(&response),
+            }
+        }
+        Ok(())
+    }
+
+    fn request(&mut self, Request { id, method, params }: Request) -> Response {
+        let result = match method.as_str() {
+            Formatting::METHOD => {
+                answer::<Formatting>(params, |p| self.formatting(&p.text_document.uri))
+            }
+            DocumentSymbolRequest::METHOD => {
+                answer::<DocumentSymbolRequest>(params, |p| self.symbols(&p.text_document.uri))
+            }
+            GotoDefinition::METHOD => answer::<GotoDefinition>(params, |p| {
+                self.goto(&p.text_document_position_params, nomi_ide::definition)
+            }),
+            GotoTypeDefinition::METHOD => answer::<GotoTypeDefinition>(params, |p| {
+                self.goto(&p.text_document_position_params, nomi_ide::type_definition)
+            }),
+            FoldingRangeRequest::METHOD => {
+                answer::<FoldingRangeRequest>(params, |p| self.folding(&p.text_document.uri))
+            }
+            SelectionRangeRequest::METHOD => answer::<SelectionRangeRequest>(params, |p| {
+                self.selection(&p.text_document.uri, &p.positions)
+            }),
+            LinkedEditingRange::METHOD => answer::<LinkedEditingRange>(params, |p| {
+                self.linked(&p.text_document_position_params)
+            }),
+            WorkspaceSymbolRequest::METHOD => answer::<WorkspaceSymbolRequest>(params, |p| {
+                Ok(Some(self.workspace_symbols(&p.query)))
+            }),
+            PrepareRenameRequest::METHOD => {
+                answer::<PrepareRenameRequest>(params, |p| self.prepare_rename(&p))
+            }
+            Rename::METHOD => answer::<Rename>(params, |p| {
+                self.rename(&p.text_document_position, &p.new_name)
+            }),
+            References::METHOD => answer::<References>(params, |p| {
+                self.references(&p.text_document_position, p.context.include_declaration)
+            }),
+            HoverRequest::METHOD => {
+                answer::<HoverRequest>(params, |p| self.hover(&p.text_document_position_params))
+            }
+            Completion::METHOD => {
+                answer::<Completion>(params, |p| self.completion(&p.text_document_position))
+            }
+            DocumentHighlightRequest::METHOD => answer::<DocumentHighlightRequest>(params, |p| {
+                self.highlights(&p.text_document_position_params)
+            }),
+            CodeLensRequest::METHOD => {
+                answer::<CodeLensRequest>(params, |p| self.code_lenses(&p.text_document.uri))
+            }
+            CodeLensResolve::METHOD => {
+                answer::<CodeLensResolve>(params, |lens| self.resolve_lens(lens))
+            }
+            // Its diagnostics carry a `uri` the protocol's type drops.
+            CodeActionRequest::METHOD => parse(params).and_then(|p| self.code_actions(&p)),
+            CodeActionResolveRequest::METHOD => self.resolve_action(params),
+            ExecuteCommand::METHOD => answer::<ExecuteCommand>(params, |p| self.execute(&p)),
+            WillRenameFiles::METHOD => {
+                answer::<WillRenameFiles>(params, |p| Ok(Some(self.rename_files(&p))))
+            }
+            WillDeleteFiles::METHOD => Ok(Value::Null),
+            "elm/provideFileContents" => self.file_contents(&params).map(Value::String),
+            "workspace/textDocumentContent" => {
+                (self.file_contents(&params)).map(|text| json!({ "text": text }))
+            }
+            "elm/findTests" => self.find_tests(&params),
+            "elm/expose" => self.expose(&params, nomi_ide::Exposure::Expose),
+            "elm/unexpose" => self.expose(&params, nomi_ide::Exposure::Unexpose),
+            "elm/getMoveDestinations" => Ok(self.move_destinations(&params)),
+            "elm/move" => Ok(self.move_to(&params)),
+            "elm/getDiagnostics" => {
+                // A check now, published as any other is.
+                self.check_now();
+                Ok(Value::Null)
+            }
+            method => Err(Failure {
+                code: ErrorCode::MethodNotFound,
+                message: format!("nomi doesn't answer {method} yet"),
+            }),
+        };
+        match result {
+            Ok(value) => Response::new_ok(id, value),
+            Err(failure) => Response::new_err(id, failure.code as i32, failure.message),
+        }
+    }
+
+    fn notification(&mut self, Notification { method, params }: Notification) {
+        match method.as_str() {
             DidOpenTextDocument::METHOD => {
-                if let Ok(p) = from::<DidOpenTextDocumentParams>(notification.params) {
-                    self.open(p.text_document.uri, p.text_document.text);
+                if let Ok(p) = serde_json::from_value::<DidOpenTextDocumentParams>(params) {
+                    self.open(&p.text_document.uri, p.text_document.text);
                 }
             }
             DidChangeTextDocument::METHOD => {
-                if let Ok(p) = from::<DidChangeTextDocumentParams>(notification.params) {
+                if let Ok(p) = serde_json::from_value::<DidChangeTextDocumentParams>(params) {
                     self.change(p);
                 }
             }
             DidCloseTextDocument::METHOD => {
-                if let Ok(p) = from::<DidCloseTextDocumentParams>(notification.params) {
+                if let Ok(p) = serde_json::from_value::<DidCloseTextDocumentParams>(params) {
                     self.close(&p.text_document.uri);
                 }
             }
-            DidSaveTextDocument::METHOD => self.revise(true),
+            DidSaveTextDocument::METHOD => self.check_now(),
             Initialized::METHOD => self.pull_settings(),
-            "workspace/didCreateFiles" => {
-                if let Ok(p) = from::<lsp_types::CreateFilesParams>(notification.params) {
+            DidCreateFiles::METHOD => {
+                if let Ok(p) = serde_json::from_value(params) {
                     self.created_files(&p);
                 }
             }
             DidChangeConfiguration::METHOD => {
-                let changed = (notification.params.get("settings")).and_then(Settings::read);
-                if let Some(settings) = changed {
-                    *self
-                        .settings
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner) = settings;
+                if let Some(settings) = params.get("settings").and_then(Settings::read) {
+                    *lock(&self.shared.settings) = settings;
                 }
                 self.pull_settings();
             }
@@ -446,104 +477,92 @@ impl Server {
     /// Asks the client for its `elmLS` settings, where it answers such
     /// requests.
     fn pull_settings(&mut self) {
-        if !self.pulls_settings {
-            return;
+        if self.client.pulls_settings {
+            let params = json!({ "items": [{ "section": "elmLS" }] });
+            self.settings_request = Some(self.ask(WorkspaceConfiguration::METHOD, params));
         }
-        let params = serde_json::json!({ "items": [{ "section": "elmLS" }] });
-        self.settings_request = Some(self.ask("workspace/configuration", params));
     }
 
     fn response(&mut self, response: &Response) {
+        let result = response.result.as_ref();
         if let Some(install) = self.installs.remove(&response.id) {
-            let agreed = (response.result.as_ref())
+            let agreed = result
                 .and_then(|r| r.get("title"))
                 .is_some_and(|t| t == "Yes");
             if agreed {
-                let (_, printed) = self.install(&install.root, &install.package, Some("y"));
-                let printed = printed.replacen(&install.asked, "", 1);
+                let installed = self.install(&install.root, &install.package, Answer::Yes);
+                let printed = installed.printed.replacen(&install.printed, "", 1);
                 self.show(lsp_types::MessageType::INFO, printed.trim());
             }
-            return;
-        }
-        if self.settings_request.as_ref() != Some(&response.id) {
-            return;
-        }
-        self.settings_request = None;
-        let first = (response.result.as_ref())
-            .and_then(|r| r.get(0))
-            .and_then(Settings::read);
-        if let Some(settings) = first {
-            *self
-                .settings
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = settings;
+        } else if self.settings_request.as_ref() == Some(&response.id) {
+            self.settings_request = None;
+            if let Some(settings) = result.and_then(|r| r.get(0)).and_then(Settings::read) {
+                *lock(&self.shared.settings) = settings;
+            }
         }
     }
 
-    fn open(&mut self, uri: Url, text: String) {
+    fn open(&mut self, uri: &Url, text: String) {
         let Ok(path) = uri.to_file_path() else {
             return;
         };
-        self.documents.insert(uri, Document { path, text });
-        self.revise(true);
+        self.documents.insert(uri.clone(), Document { path, text });
+        let document = &self.documents[uri];
+        self.revise(Cause::Saved, |vfs| {
+            let _ = vfs.set_overlay(&document.path, document.text.as_str());
+        });
     }
 
     fn change(&mut self, params: DidChangeTextDocumentParams) {
-        let unit = self.unit;
-        let Some(document) = self.documents.get_mut(&params.text_document.uri) else {
+        let uri = &params.text_document.uri;
+        let unit = self.shared.unit;
+        let Some(document) = self.documents.get_mut(uri) else {
             return;
         };
         for change in params.content_changes {
             match change.range {
                 None => document.text = change.text,
                 Some(range) => {
-                    let text = Text::new(&document.text, unit);
-                    let start = usize::from(text.offset(range.start));
-                    let end = usize::from(text.offset(range.end)).max(start);
-                    document.text.replace_range(start..end, &change.text);
+                    let range = Text::new(&document.text, unit).text_range(range);
+                    document
+                        .text
+                        .replace_range(std::ops::Range::<usize>::from(range), &change.text);
                 }
             }
         }
-        let changed = document.path.clone();
-        self.revise_changed(Some(changed));
+        let document = &self.documents[uri];
+        self.revise(Cause::Edited(document.path.clone()), |vfs| {
+            let _ = vfs.set_overlay(&document.path, document.text.as_str());
+        });
     }
 
     fn close(&mut self, uri: &Url) {
         if let Some(document) = self.documents.remove(uri) {
-            {
-                let _held = self
-                    .publishing
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                let _ = self.vfs.remove_overlay(&document.path);
-            }
-            self.revise(false);
+            self.revise(Cause::Closed, |vfs| {
+                let _ = vfs.remove_overlay(&document.path);
+            });
             let params = PublishDiagnosticsParams::new(uri.clone(), Vec::new(), None);
-            send(&self.sender, notification::<PublishDiagnostics>(params));
+            send(
+                &self.shared.sender,
+                notification::<PublishDiagnostics>(params),
+            );
         }
     }
 
-    /// Lays the open documents over the disk as a new revision, and has
-    /// it checked: a file opened or saved for it if `saved`.
-    fn revise(&self, saved: bool) {
-        self.check(saved, Vec::new());
+    /// Has the files checked as they are now: a file saved, or the
+    /// client asking.
+    fn check_now(&self) {
+        self.revise(Cause::Saved, |vfs| {
+            vfs.disk_changed();
+        });
     }
 
-    /// [`Server::revise`] after the editor changed the file at `changed`.
-    fn revise_changed(&self, changed: Option<PathBuf>) {
-        self.check(false, changed.into_iter().collect());
-    }
-
-    fn check(&self, saved: bool, changed: Vec<PathBuf>) {
+    /// Makes a revision, `change` laying the editor's text over the disk
+    /// or taking it off, and has it checked for `cause`.
+    fn revise(&self, cause: Cause, change: impl FnOnce(&Vfs)) {
         let snapshot = {
-            let _held = self
-                .publishing
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let overlays: Vec<_> = self.documents.values().collect();
-            for document in &overlays {
-                let _ = self.vfs.set_overlay(&document.path, document.text.as_str());
-            }
+            let _held = lock(&self.shared.publishing);
+            change(&self.vfs);
             self.vfs.snapshot()
         };
         let open = (self.documents.iter())
@@ -552,647 +571,95 @@ impl Server {
         self.diagnostics.check(Job {
             snapshot,
             open,
-            saved,
-            changed,
+            cause,
         });
     }
 
-    fn document(&self, uri: &Url) -> Result<&Document, (ErrorCode, String)> {
-        self.documents
-            .get(uri)
-            .ok_or_else(|| (ErrorCode::InvalidParams, format!("{uri} isn't open")))
+    fn document(&self, uri: &Url) -> Result<&Document, Failure> {
+        (self.documents.get(uri)).ok_or_else(|| Failure::invalid(format!("{uri} isn't open")))
     }
 
-    fn formatting(&self, uri: &Url) -> Result<Value, (ErrorCode, String)> {
-        let document = self.document(uri)?;
-        let edits = nomi_ide::format(&self.vfs.snapshot(), &document.path)
-            .map_err(|e| (ErrorCode::InternalError, e.to_string()))?;
-        let text = Text::new(&document.text, self.unit);
-        let edits: Option<Vec<TextEdit>> = edits.map(|edits| {
-            edits
-                .into_iter()
-                .map(|e| TextEdit::new(text.range(e.range), e.text))
-                .collect()
-        });
-        Ok(serde_json::to_value(edits).expect("edits serialize"))
-    }
-
-    #[expect(deprecated, reason = "`SymbolInformation::deprecated` must be named")]
-    fn symbols(&self, uri: &Url) -> Result<Value, (ErrorCode, String)> {
-        let document = self.document(uri)?;
-        let symbols = nomi_ide::document_symbols(&self.vfs.snapshot(), &document.path)
-            .map_err(|e| (ErrorCode::InternalError, e.to_string()))?;
-        let text = Text::new(&document.text, self.unit);
-        let symbols: Vec<SymbolInformation> = symbols
-            .into_iter()
-            .map(|s| SymbolInformation {
-                name: s.name,
-                kind: symbol_kind(s.kind),
-                tags: None,
-                deprecated: None,
-                location: Location::new(uri.clone(), text.range(s.range)),
-                container_name: None,
-            })
-            .collect();
-        let response = DocumentSymbolResponse::Flat(symbols);
-        Ok(serde_json::to_value(response).expect("symbols serialize"))
-    }
-}
-
-impl Server {
-    /// The open document a position is in, and the offset of the
-    /// position.
-    fn at(
-        &self,
-        position: &TextDocumentPositionParams,
-    ) -> Result<(&Document, TextSize), (ErrorCode, String)> {
+    fn at(&self, position: &TextDocumentPositionParams) -> Result<At<'_>, Failure> {
         let document = self.document(&position.text_document.uri)?;
-        let offset = Text::new(&document.text, self.unit).offset(position.position);
-        Ok((document, offset))
+        let text = Text::new(&document.text, self.shared.unit);
+        let offset = text.offset(position.position);
+        Ok(At {
+            document,
+            text,
+            offset,
+        })
     }
 
     /// The index of the project that owns `path`, made anew only when the
     /// editor's text changed since the last.
     fn index(&self, snapshot: &Snapshot, path: &Path) -> Option<Arc<Index>> {
-        let mut memo = self
-            .memo
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        self.indexes.get(snapshot, &self.store, &mut memo, path)
+        let mut memo = lock(&self.shared.memo);
+        (self.shared.indexes).get(snapshot, &self.shared.store, &mut memo, path)
     }
 
-    /// `location` as the protocol names it, its file read through the
-    /// snapshot for its positions.
-    fn location(&self, snapshot: &Snapshot, location: &nomi_ide::Location) -> Option<Location> {
-        let text = snapshot.read(&location.path).ok()?;
-        let uri = Url::from_file_path(&location.path).ok()?;
-        Some(Location::new(
-            uri,
-            Text::new(&text, self.unit).range(location.range),
-        ))
+    /// Sends the client a request under an id no other has had, which its
+    /// answer comes back with.
+    fn ask(&mut self, method: &str, params: impl Serialize) -> RequestId {
+        self.sent += 1;
+        let id = RequestId::from(self.sent);
+        let request = Request::new(id.clone(), method.to_owned(), params);
+        send(&self.shared.sender, Message::Request(request));
+        id
     }
 
-    fn definition(
-        &self,
-        position: &TextDocumentPositionParams,
-    ) -> Result<Value, (ErrorCode, String)> {
-        let (document, offset) = self.at(position)?;
-        let path = document.path.clone();
-        let snapshot = self.vfs.snapshot();
-        let found = (self.index(&snapshot, &path))
-            .and_then(|index| nomi_ide::definition(&snapshot, &index, &path, offset));
-        let response = (found.as_ref())
-            .and_then(|l| self.location(&snapshot, l))
-            .map(GotoDefinitionResponse::Scalar);
-        Ok(serde_json::to_value(response).expect("a definition serializes"))
-    }
-
-    fn folding(&self, uri: &Url) -> Result<Value, (ErrorCode, String)> {
-        let document = self.document(uri)?;
-        let folds = nomi_ide::folding_ranges(&self.vfs.snapshot(), &document.path)
-            .map_err(|e| (ErrorCode::InternalError, e.to_string()))?;
-        let text = Text::new(&document.text, self.unit);
-        let folds: Vec<Value> = (folds.into_iter())
-            .map(|f| {
-                let (start, end) = (text.position(f.start), text.position(f.end));
-                // A branch folds from the line above it, at its column.
-                let start_line = if f.line_before {
-                    start.line.saturating_sub(1)
-                } else {
-                    start.line
-                };
-                let kind = match f.kind {
-                    nomi_ide::FoldKind::Region => "region",
-                    nomi_ide::FoldKind::Imports => "imports",
-                    nomi_ide::FoldKind::Comment => "comment",
-                };
-                serde_json::json!({
-                    "startLine": start_line, "startCharacter": start.character,
-                    "endLine": end.line, "endCharacter": end.character, "kind": kind,
-                })
-            })
-            .collect();
-        Ok(Value::Array(folds))
-    }
-
-    fn selection(
-        &self,
-        uri: &Url,
-        positions: &[lsp_types::Position],
-    ) -> Result<Value, (ErrorCode, String)> {
-        let document = self.document(uri)?;
-        let text = Text::new(&document.text, self.unit);
-        let mut found = Vec::new();
-        for position in positions {
-            let ranges = nomi_ide::selection_ranges(
-                &self.vfs.snapshot(),
-                &document.path,
-                text.offset(*position),
-            )
-            .map_err(|e| (ErrorCode::InternalError, e.to_string()))?;
-            // Innermost first, each the parent's child.
-            let mut nested: Option<Value> = None;
-            for range in ranges.iter().rev() {
-                let mut selection = serde_json::json!({ "range": text.range(*range) });
-                if let Some(parent) = nested.take() {
-                    selection["parent"] = parent;
-                }
-                nested = Some(selection);
-            }
-            found.extend(nested);
-        }
-        Ok(Value::Array(found))
-    }
-
-    fn linked(&self, position: &TextDocumentPositionParams) -> Result<Value, (ErrorCode, String)> {
-        let (document, offset) = self.at(position)?;
-        let ranges = nomi_ide::linked_editing(&self.vfs.snapshot(), &document.path, offset)
-            .map_err(|e| (ErrorCode::InternalError, e.to_string()))?;
-        let text = Text::new(&document.text, self.unit);
-        let ranges: Vec<lsp_types::Range> = ranges.into_iter().map(|r| text.range(r)).collect();
-        Ok(serde_json::json!({ "ranges": ranges }))
-    }
-
-    fn workspace_symbols(&self, query: &str) -> Value {
-        let snapshot = self.vfs.snapshot();
-        // The project of an open document, as elm-language-server has one.
-        let Some(path) = self.documents.values().next().map(|d| d.path.clone()) else {
-            return Value::Array(Vec::new());
+    fn show(&self, kind: lsp_types::MessageType, message: &str) {
+        let params = lsp_types::ShowMessageParams {
+            typ: kind,
+            message: message.to_owned(),
         };
-        let unit = self.unit;
-        let Some(index) = self.index(&snapshot, &path) else {
-            return Value::Array(Vec::new());
-        };
-        let mut found = Vec::new();
-        for (file, symbol) in nomi_ide::workspace_symbols(&index, query) {
-            let (Ok(uri), Ok(text)) = (Url::from_file_path(&file), snapshot.read(&file)) else {
-                continue;
-            };
-            let text = Text::new(&text, unit);
-            #[expect(deprecated, reason = "`SymbolInformation::deprecated` must be named")]
-            found.push(SymbolInformation {
-                name: symbol.name,
-                kind: symbol_kind(symbol.kind),
-                tags: None,
-                deprecated: None,
-                location: Location::new(uri, text.range(symbol.range)),
-                container_name: None,
-            });
-        }
-        serde_json::to_value(found).expect("symbols serialize")
-    }
-
-    fn prepare_rename(
-        &self,
-        position: &TextDocumentPositionParams,
-    ) -> Result<Value, (ErrorCode, String)> {
-        let (document, offset) = self.at(position)?;
-        let (path, text) = (document.path.clone(), document.text.clone());
-        let snapshot = self.vfs.snapshot();
-        let Some(index) = self.index(&snapshot, &path) else {
-            return Ok(Value::Null);
-        };
-        let range = nomi_ide::prepare_rename(&snapshot, &index, &path, offset)
-            .map_err(|outside| (ErrorCode::RequestFailed, outside.to_string()))?;
-        let text = Text::new(&text, self.unit);
-        Ok(serde_json::to_value(range.map(|r| text.range(r))).expect("a range serializes"))
-    }
-
-    fn rename(
-        &self,
-        position: &TextDocumentPositionParams,
-        new_name: &str,
-    ) -> Result<Value, (ErrorCode, String)> {
-        let (document, offset) = self.at(position)?;
-        let path = document.path.clone();
-        let snapshot = self.vfs.snapshot();
-        let Some(index) = self.index(&snapshot, &path) else {
-            return Ok(Value::Null);
-        };
-        let Some(found) = nomi_ide::rename(&snapshot, &index, &path, offset, new_name)
-            .map_err(|outside| (ErrorCode::RequestFailed, outside.to_string()))?
-        else {
-            return Ok(Value::Null);
-        };
-        // Both forms, as elm-language-server answers: `changes` for
-        // clients without document changes.
-        let mut changes = serde_json::Map::new();
-        let mut documents = Vec::new();
-        for (file, edits) in &found.files {
-            let (Ok(uri), Ok(text)) = (Url::from_file_path(file), snapshot.read(file)) else {
-                continue;
-            };
-            let text = Text::new(&text, self.unit);
-            let edits: Vec<TextEdit> = (edits.iter())
-                .map(|e| TextEdit::new(text.range(e.range), e.text.clone()))
-                .collect();
-            changes.insert(
-                uri.to_string(),
-                serde_json::to_value(&edits).expect("edits serialize"),
-            );
-            documents.push(serde_json::json!({
-                "textDocument": { "uri": uri, "version": null },
-                "edits": edits,
-            }));
-        }
-        if let Some(moved) = &found.moved
-            && let (Ok(from), Ok(to)) = (
-                Url::from_file_path(&moved.from),
-                Url::from_file_path(&moved.to),
-            )
-        {
-            documents.push(serde_json::json!({ "kind": "rename", "oldUri": from, "newUri": to }));
-        }
-        Ok(serde_json::json!({ "changes": changes, "documentChanges": documents }))
-    }
-
-    fn type_definition(
-        &self,
-        position: &TextDocumentPositionParams,
-    ) -> Result<Value, (ErrorCode, String)> {
-        let (document, offset) = self.at(position)?;
-        let path = document.path.clone();
-        let snapshot = self.vfs.snapshot();
-        let found = (self.index(&snapshot, &path))
-            .and_then(|index| nomi_ide::type_definition(&snapshot, &index, &path, offset));
-        let response = (found.as_ref())
-            .and_then(|l| self.location(&snapshot, l))
-            .map(GotoDefinitionResponse::Scalar);
-        Ok(serde_json::to_value(response).expect("a type definition serializes"))
-    }
-
-    fn references(
-        &self,
-        position: &TextDocumentPositionParams,
-        with_declaration: bool,
-    ) -> Result<Value, (ErrorCode, String)> {
-        let (document, offset) = self.at(position)?;
-        let path = document.path.clone();
-        let snapshot = self.vfs.snapshot();
-        let declaration = if with_declaration {
-            nomi_ide::Declaration::Include
-        } else {
-            nomi_ide::Declaration::Exclude
-        };
-        let found = (self.index(&snapshot, &path))
-            .map(|index| nomi_ide::references(&snapshot, &index, &path, offset, declaration))
-            .unwrap_or_default();
-        let locations: Vec<Location> = (found.iter())
-            .filter_map(|l| self.location(&snapshot, l))
-            .collect();
-        Ok(serde_json::to_value(locations).expect("references serialize"))
-    }
-
-    /// `elm/provideFileContents`: the text of a file of the project or of
-    /// a package it uses, as the editor or the disk has it.
-    fn file_contents(&self, params: &Value) -> Result<Value, (ErrorCode, String)> {
-        let path = (params["uri"].as_str())
-            .and_then(|u| Url::parse(u).ok())
-            .and_then(|u| u.to_file_path().ok())
-            .ok_or_else(|| (ErrorCode::InvalidParams, "a file".to_owned()))?;
-        let snapshot = self.vfs.snapshot();
-        let known = (self.index(&snapshot, &path)).is_some_and(|index| {
-            index.module(&path).is_some()
-                || index.packages.values().any(|dir| path.starts_with(dir))
-        });
-        if !known {
-            return Err((
-                ErrorCode::InvalidParams,
-                format!("no Elm project has {}", path.display()),
-            ));
-        }
-        let text = snapshot
-            .read(&path)
-            .map_err(|e| (ErrorCode::InternalError, e.to_string()))?;
-        Ok(Value::String(text))
-    }
-
-    /// `elm/findTests`: the suites of the project's test modules.
-    fn find_tests(&self, params: &Value) -> Result<Value, (ErrorCode, String)> {
-        fn json(
-            suite: &nomi_ide::TestSuite,
-            snapshot: &Snapshot,
-            unit: ColumnUnit,
-        ) -> Option<Value> {
-            let text = snapshot.read(&suite.path).ok()?;
-            let mut value = serde_json::json!({
-                "label": suite.label,
-                "file": Url::from_file_path(&suite.path).ok()?,
-                "position": Text::new(&text, unit).position(suite.at),
-            });
-            if let Some(tests) = &suite.tests {
-                value["tests"] = tests
-                    .iter()
-                    .filter_map(|t| json(t, snapshot, unit))
-                    .collect();
-            }
-            Some(value)
-        }
-        let root = (params["projectFolder"].as_str())
-            .and_then(|u| Url::parse(u).ok())
-            .and_then(|u| u.to_file_path().ok())
-            .ok_or_else(|| (ErrorCode::InvalidParams, "a project folder".to_owned()))?;
-        let snapshot = self.vfs.snapshot();
-        let unit = self.unit;
-        // A file of the project, for the index to start from: an open one,
-        // or else its `elm.json`.
-        let file = (self.documents.values())
-            .map(|d| d.path.clone())
-            .find(|p| p.starts_with(&root))
-            .unwrap_or_else(|| root.join("elm.json"));
-        let Some(index) = self.index(&snapshot, &file) else {
-            return Err((
-                ErrorCode::RequestFailed,
-                format!("no Elm project at {}", root.display()),
-            ));
-        };
-        let suites: Vec<Value> = (nomi_ide::find_tests(&index, &root).iter())
-            .filter_map(|s| json(s, &snapshot, unit))
-            .collect();
-        Ok(serde_json::json!({ "suites": suites }))
-    }
-
-    fn code_lenses(&self, uri: &Url) -> Result<Value, (ErrorCode, String)> {
-        let document = self.document(uri)?;
-        let lenses = nomi_ide::code_lenses(&self.vfs.snapshot(), &document.path)
-            .map_err(|e| (ErrorCode::InternalError, e.to_string()))?;
-        let text = Text::new(&document.text, self.unit);
-        // The data elm-language-server gives, which comes back to resolve.
-        let lenses: Vec<Value> = (lenses.into_iter())
-            .map(|lens| {
-                let data = match lens.kind {
-                    nomi_ide::LensKind::Exposed { name, what } => serde_json::json!({
-                        "codeLensType": "exposed", "uri": uri,
-                        "nameNode": name, "isFunctionOrPort": what == nomi_ide::Exposable::Value,
-                    }),
-                    nomi_ide::LensKind::References => {
-                        serde_json::json!({ "codeLensType": "referenceCounter", "uri": uri })
-                    }
-                };
-                serde_json::json!({ "range": text.range(lens.range), "data": data })
-            })
-            .collect();
-        Ok(Value::Array(lenses))
-    }
-
-    fn resolve_lens(&self, mut lens: lsp_types::CodeLens) -> Result<Value, (ErrorCode, String)> {
-        let data = lens.data.clone().unwrap_or_default();
-        let uri = (data["uri"].as_str())
-            .and_then(|u| Url::parse(u).ok())
-            .ok_or_else(|| {
-                (
-                    ErrorCode::InvalidParams,
-                    "a lens without its file".to_owned(),
-                )
-            })?;
-        let path = (uri.to_file_path())
-            .map_err(|()| (ErrorCode::InvalidParams, format!("{uri} isn't a file")))?;
-        let snapshot = self.vfs.snapshot();
-        let text = snapshot
-            .read(&path)
-            .map_err(|e| (ErrorCode::InternalError, e.to_string()))?;
-        let text = Text::new(&text, self.unit);
-        let command = match data["codeLensType"].as_str() {
-            Some("exposed") => {
-                let name = data["nameNode"].as_str().unwrap_or_default();
-                let what = match data["isFunctionOrPort"].as_bool() {
-                    Some(true) => nomi_ide::Exposable::Value,
-                    Some(false) | None => nomi_ide::Exposable::Type,
-                };
-                let exposed = nomi_ide::is_exposed(&snapshot, &path, name, what)
-                    .map_err(|e| (ErrorCode::InternalError, e.to_string()))?;
-                let title = if exposed { "exposed" } else { "local" };
-                let root = (index::manifest(&snapshot, &path))
-                    .and_then(|m| m.parent().map(Path::to_path_buf))
-                    .and_then(|root| Url::from_file_path(root).ok());
-                match root.filter(|_| {
-                    self.settings
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .extended_capabilities
-                        .expose_commands
-                }) {
-                    Some(root) => {
-                        let verb = if exposed { "unexpose" } else { "expose" };
-                        let root = root.as_str().trim_end_matches('/');
-                        lsp_types::Command::new(
-                            title.to_owned(),
-                            format!("elm.{verb}-{root}"),
-                            Some(vec![serde_json::json!({ "uri": uri, "name": name })]),
-                        )
-                    }
-                    None => lsp_types::Command::new(title.to_owned(), String::new(), None),
-                }
-            }
-            Some("referenceCounter") => {
-                let offset = text.offset(lens.range.start);
-                let found = (self.index(&snapshot, &path))
-                    .map(|index| {
-                        let declaration = nomi_ide::Declaration::Include;
-                        nomi_ide::references(&snapshot, &index, &path, offset, declaration)
-                    })
-                    .unwrap_or_default();
-                let locations: Vec<Location> = (found.iter())
-                    .filter_map(|l| self.location(&snapshot, l))
-                    .collect();
-                let title = match locations.len() {
-                    1 => "1 reference".to_owned(),
-                    n => format!("{n} references"),
-                };
-                lsp_types::Command::new(
-                    title,
-                    "editor.action.showReferences".to_owned(),
-                    Some(vec![serde_json::json!({
-                        "range": lens.range, "references": locations, "uri": uri,
-                    })]),
-                )
-            }
-            _ => return Ok(serde_json::to_value(lens).expect("a lens serializes")),
-        };
-        lens.command = Some(command);
-        Ok(serde_json::to_value(lens).expect("a lens serializes"))
-    }
-
-    fn highlights(
-        &self,
-        position: &TextDocumentPositionParams,
-    ) -> Result<Value, (ErrorCode, String)> {
-        let (document, offset) = self.at(position)?;
-        let path = document.path.clone();
-        let snapshot = self.vfs.snapshot();
-        let found = (self.index(&snapshot, &path))
-            .map(|index| nomi_ide::highlights(&snapshot, &index, &path, offset))
-            .unwrap_or_default();
-        let document = self.document(&position.text_document.uri)?;
-        let text = Text::new(&document.text, self.unit);
-        let highlights: Vec<DocumentHighlight> = (found.into_iter())
-            .map(|range| DocumentHighlight {
-                range: text.range(range),
-                kind: None,
-            })
-            .collect();
-        Ok(serde_json::to_value(highlights).expect("highlights serialize"))
-    }
-}
-
-impl Server {
-    fn hover(&self, position: &TextDocumentPositionParams) -> Result<Value, (ErrorCode, String)> {
-        let (document, offset) = self.at(position)?;
-        let path = document.path.clone();
-        let snapshot = self.vfs.snapshot();
-        let found = (self.index(&snapshot, &path))
-            .and_then(|index| nomi_ide::hover(&snapshot, &index, &path, offset));
-        let response = found.map(|h| {
-            let mut value = h.markdown;
-            // As elm-language-server links a parameter's type: to its
-            // file, at a one-based line.
-            if let Some(link) = h.link
-                && let Ok(mut uri) = Url::from_file_path(&link.path)
-            {
-                uri.set_fragment(Some(&format!("L{}", link.line)));
-                value.push_str(&format!("\n\n[Go to {}](<{uri}>)", link.name));
-            }
-            lsp_types::Hover {
-                contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
-                    kind: lsp_types::MarkupKind::Markdown,
-                    value,
-                }),
-                range: None,
-            }
-        });
-        Ok(serde_json::to_value(response).expect("a hover serializes"))
-    }
-
-    fn completion(
-        &self,
-        position: &TextDocumentPositionParams,
-    ) -> Result<Value, (ErrorCode, String)> {
-        let (document, offset) = self.at(position)?;
-        let (path, text) = (document.path.clone(), document.text.clone());
-        let snapshot = self.vfs.snapshot();
-        let found = (self.index(&snapshot, &path))
-            .and_then(|index| nomi_ide::completions(&snapshot, &index, &path, offset));
-        let text = Text::new(&text, self.unit);
-        let details = self.label_details;
-        let items = |items: Vec<nomi_ide::Completion>| -> Vec<Value> {
-            (items.into_iter())
-                .map(|c| completion_item(c, &text, details))
-                .collect()
-        };
-        Ok(match found {
-            None => Value::Null,
-            Some(nomi_ide::Completions::Items(list)) => Value::Array(items(list)),
-            Some(nomi_ide::Completions::List {
-                items: list,
-                incomplete,
-            }) => {
-                serde_json::json!({ "isIncomplete": incomplete, "items": items(list) })
-            }
-        })
-    }
-}
-
-/// A completion as elm-language-server writes it; its label details only
-/// where the client takes them.
-fn completion_item(c: nomi_ide::Completion, text: &Text, label_details: bool) -> Value {
-    let mut item = serde_json::Map::new();
-    if let Some(documentation) = c.documentation {
-        item.insert(
-            "documentation".into(),
-            serde_json::json!({ "kind": "markdown", "value": documentation }),
+        send(
+            &self.shared.sender,
+            notification::<lsp_types::notification::ShowMessage>(params),
         );
     }
-    item.insert("kind".into(), serde_json::json!(completion_kind(c.kind)));
-    item.insert("label".into(), serde_json::json!(c.label));
-    if let Some(sort) = c.sort_text {
-        item.insert("sortText".into(), serde_json::json!(sort));
-    }
-    if let Some(filter) = c.filter_text {
-        item.insert("filterText".into(), serde_json::json!(filter));
-    }
-    if let Some(detail) = c.detail {
-        item.insert("detail".into(), serde_json::json!(detail));
-    }
-    if c.preselect {
-        item.insert("preselect".into(), serde_json::json!(true));
-    }
-    if let Some(snippet) = c.snippet {
-        item.insert("insertText".into(), serde_json::json!(snippet));
-        item.insert("insertTextFormat".into(), serde_json::json!(2));
-    }
-    if let Some(edit) = c.edit {
-        let edit = TextEdit::new(text.range(edit.range), edit.text);
-        item.insert(
-            "textEdit".into(),
-            serde_json::to_value(edit).expect("an edit serializes"),
-        );
-    }
-    if !c.additional_edits.is_empty() {
-        let edits: Vec<TextEdit> = (c.additional_edits.into_iter())
-            .map(|e| TextEdit::new(text.range(e.range), e.text))
-            .collect();
-        item.insert(
-            "additionalTextEdits".into(),
-            serde_json::to_value(edits).expect("edits serialize"),
-        );
-    }
-    let mut details = serde_json::Map::new();
-    if let Some(description) = c.label_description {
-        details.insert("description".into(), serde_json::json!(description));
-    }
-    if let Some(detail) = c.label_detail {
-        details.insert("detail".into(), serde_json::json!(detail));
-    }
-    if label_details && !details.is_empty() {
-        item.insert("labelDetails".into(), Value::Object(details));
-    }
-    Value::Object(item)
 }
 
-/// The protocol's number for a completion's kind.
-fn completion_kind(kind: nomi_ide::CompletionKind) -> CompletionItemKind {
-    match kind {
-        nomi_ide::CompletionKind::Text => CompletionItemKind::TEXT,
-        nomi_ide::CompletionKind::Function => CompletionItemKind::FUNCTION,
-        nomi_ide::CompletionKind::Field => CompletionItemKind::FIELD,
-        nomi_ide::CompletionKind::Variable => CompletionItemKind::VARIABLE,
-        nomi_ide::CompletionKind::Module => CompletionItemKind::MODULE,
-        nomi_ide::CompletionKind::Enum => CompletionItemKind::ENUM,
-        nomi_ide::CompletionKind::Keyword => CompletionItemKind::KEYWORD,
-        nomi_ide::CompletionKind::Snippet => CompletionItemKind::SNIPPET,
-        nomi_ide::CompletionKind::EnumMember => CompletionItemKind::ENUM_MEMBER,
-        nomi_ide::CompletionKind::Struct => CompletionItemKind::STRUCT,
-        nomi_ide::CompletionKind::Operator => CompletionItemKind::OPERATOR,
-    }
+/// The answer to a request of type `R`: `answer` of its parameters.
+fn answer<R: lsp_types::request::Request>(
+    params: Value,
+    answer: impl FnOnce(R::Params) -> Result<R::Result, Failure>,
+) -> Result<Value, Failure> {
+    let result = answer(parse(params)?)?;
+    Ok(serde_json::to_value(result).expect("the protocol's types serialize"))
 }
 
+fn parse<P: DeserializeOwned>(params: Value) -> Result<P, Failure> {
+    serde_json::from_value(params).map_err(Failure::invalid)
+}
+
+/// The file a `file:` URI names.
+fn file_path(uri: &str) -> Option<PathBuf> {
+    Url::parse(uri).ok()?.to_file_path().ok()
+}
+
+/// The directory of the project that owns `path`.
+fn project_root(snapshot: &Snapshot, path: &Path) -> Option<PathBuf> {
+    index::manifest(snapshot, path)?
+        .parent()
+        .map(Path::to_path_buf)
+}
+
+/// The project that owns `path` as elm-language-server's commands name
+/// it: its directory's URI without the last `/`.
+fn command_root(snapshot: &Snapshot, path: &Path) -> Option<String> {
+    let root = Url::from_file_path(project_root(snapshot, path)?).ok()?;
+    Some(root.as_str().trim_end_matches('/').to_owned())
+}
+
+/// Runs `publish` if `snapshot` is still the latest revision, holding
+/// `publishing` so that no newer one is made meanwhile. Whether it ran.
 fn publish_if_current(publishing: &Mutex<()>, snapshot: &Snapshot, publish: impl FnOnce()) -> bool {
-    let _held = publishing
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _held = lock(publishing);
     if snapshot.is_stale() {
         return false;
     }
     publish();
     true
-}
-
-fn symbol_kind(kind: nomi_ide::SymbolKind) -> SymbolKind {
-    match kind {
-        nomi_ide::SymbolKind::Module => SymbolKind::MODULE,
-        nomi_ide::SymbolKind::Function => SymbolKind::FUNCTION,
-        nomi_ide::SymbolKind::Enum => SymbolKind::ENUM,
-        nomi_ide::SymbolKind::Struct => SymbolKind::STRUCT,
-        nomi_ide::SymbolKind::EnumMember => SymbolKind::ENUM_MEMBER,
-    }
-}
-
-fn parse<P: serde::de::DeserializeOwned>(request: Request) -> Result<P, (ErrorCode, String)> {
-    from(request.params).map_err(|e| (ErrorCode::InvalidParams, e.to_string()))
-}
-
-fn from<P: serde::de::DeserializeOwned>(params: Value) -> Result<P, serde_json::Error> {
-    serde_json::from_value(params)
 }
 
 fn notification<N: lsp_types::notification::Notification>(params: N::Params) -> Message {
@@ -1218,27 +685,5 @@ mod tests {
         let mut published = false;
         assert!(!publish_if_current(&publishing, &snapshot, || published = true));
         assert!(!published);
-    }
-
-    #[test]
-    fn positions_count_in_the_negotiated_unit() {
-        let source = "a😀b\nc";
-        for (unit, column) in [(ColumnUnit::Utf16, 3), (ColumnUnit::Utf8, 5)] {
-            let text = Text::new(source, unit);
-            let b = TextSize::new(5);
-            assert_eq!(text.position(b), lsp_types::Position::new(0, column));
-            assert_eq!(text.offset(text.position(b)), b);
-            // Past the line's end is its end; past the text, the text's.
-            assert_eq!(usize::from(text.offset(lsp_types::Position::new(0, 99))), 6);
-            assert_eq!(usize::from(text.offset(lsp_types::Position::new(9, 0))), 8);
-        }
-        let range = nomi_base::TextRange::new(0.into(), 1.into());
-        assert_eq!(
-            Text::new(source, ColumnUnit::Utf16)
-                .range(range)
-                .end
-                .character,
-            1
-        );
     }
 }

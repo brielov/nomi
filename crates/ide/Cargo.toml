@@ -13,6 +13,7 @@ nomi-engine.workspace = true
 nomi-format.workspace = true
 nomi-project.workspace = true
 nomi-syntax.workspace = true
+serde_json.workspace = true
 similar.workspace = true
 
 [dev-dependencies]

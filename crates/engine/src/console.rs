@@ -108,6 +108,8 @@ pub struct Captured {
     pub input: Vec<u8>,
     pub out: String,
     pub err: String,
+    /// Whether `read_line` was called.
+    pub asked: bool,
 }
 
 impl Console for Captured {
@@ -120,6 +122,7 @@ impl Console for Captured {
     }
 
     fn read_line(&mut self) -> io::Result<Option<String>> {
+        self.asked = true;
         self.lines.pop_front().transpose()
     }
 
