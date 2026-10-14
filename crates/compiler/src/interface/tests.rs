@@ -130,10 +130,22 @@ fn damaged_bytes_are_none() {
     let mut newer = bytes;
     newer[0] += 1;
     assert_eq!(Interface::decode(&newer), None);
-    // A length past the end of the bytes is no allocation.
-    let mut huge = vec![1];
-    huge.extend_from_slice(&u64::MAX.to_le_bytes());
+    // A home whose length is past the end of the bytes is no allocation.
+    let encoded = sample().encode();
+    let home = sample().home.len();
+    let (version, rest) = (encoded[0], &encoded[3 + home..]);
+    let mut huge = vec![version, 0];
+    huge.extend_from_slice(&[0xff; 9]);
+    huge.push(0x01);
+    huge.extend_from_slice(rest);
     assert_eq!(Interface::decode(&huge), None);
+    // Nor is one past 64 bits, which used to wrap round to an empty home
+    // and decode the rest.
+    let mut over = vec![version, 0];
+    over.extend_from_slice(&[0x80; 9]);
+    over.push(0x02);
+    over.extend_from_slice(rest);
+    assert_eq!(Interface::decode(&over), None);
 }
 
 #[test]

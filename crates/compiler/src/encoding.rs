@@ -322,7 +322,12 @@ impl<'a> Decoder<'a> {
         let mut n: u64 = 0;
         for shift in (0..64).step_by(7) {
             let byte = self.u8()?;
-            n |= u64::from(byte & 0x7f).checked_shl(shift)?;
+            let bits = u64::from(byte & 0x7f);
+            // The tenth byte has room for the 64th bit alone.
+            if shift == 63 && bits > 1 {
+                return None;
+            }
+            n |= bits << shift;
             if byte & 0x80 == 0 {
                 return usize::try_from(n).ok();
             }
@@ -542,5 +547,30 @@ impl<'a> Decoder<'a> {
             }
             _ => return None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Decoder;
+
+    fn leb128(bytes: &[u8]) -> Option<usize> {
+        Decoder::new(bytes).leb128()
+    }
+
+    #[test]
+    fn lengths_past_64_bits_are_rejected() {
+        let mut max = vec![0xff; 9];
+        max.push(0x01);
+        assert_eq!(leb128(&max), usize::try_from(u64::MAX).ok());
+        assert_eq!(leb128(&[0x7f]), Some(127));
+        assert_eq!(leb128(&[0x80, 0x01]), Some(128));
+        for tenth in 2..0x80 {
+            let mut over = vec![0x80; 9];
+            over.push(tenth);
+            assert_eq!(leb128(&over), None, "tenth byte {tenth:#x}");
+        }
+        assert_eq!(leb128(&[0x80; 10]), None);
+        assert_eq!(leb128(&[0x80]), None);
     }
 }

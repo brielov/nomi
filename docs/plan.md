@@ -49,7 +49,7 @@ nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it wait
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **QF.5**; B.n waits for the reference machine.
+4. Resume at the first unchecked box. Right now that is **QF.6**; B.n waits for the reference machine.
 
 ### Test tiers
 
@@ -1093,7 +1093,10 @@ A second, independent audit of the same code (2026-10-13, kept in `~/.cache/nomi
 
   Done: the supervisor ends its summary with a newline, and both workers, nomi's `driver.js` and the vendored `after.js` (its patch noted in `THIRD-PARTY-NOTICES.md`), buffer the socket and parse whole lines. `tests/worker_messages.rs` sends a summary in two writes 50 ms apart: the worker gets it whole, where it used to fail on half a JSON value. The elm-test transcripts and the 14 corpus suites are unchanged.
 
-- [ ] **QF.5** `fix: the cache codec rejects overflowing lengths`. A tenth LEB128 byte above 1 is truncated rather than rejected, so a corrupt artifact can decode (CF01, CB16). **Check:** unit tests over the tenth byte, and every valid encoding unchanged.
+- [x] **QF.5** `fix: the cache codec rejects overflowing lengths`. A tenth LEB128 byte above 1 is truncated rather than rejected, so a corrupt artifact can decode (CF01, CB16). **Check:** unit tests over the tenth byte, and every valid encoding unchanged.
+
+  Done: a tenth byte above 1 makes the length `None`, as a malformed input should be. A unit test walks every tenth byte from 2 to 0x7f besides the largest valid length; the interface test now starts with the current version and puts a huge length, then an overflowing one, where the home's length goes, and the second used to decode the rest of the interface under an empty home. Both tests fail on the old decoder. Valid encodings are unchanged.
+
 - [ ] **QF.6** `fix: language-server request identity and installs`. A reused request id can overwrite the context of one still pending, and installing a package through another VFS leaves the index and package suggestions stale (LSP-05/06); both verified first. **Check:** a test for overlapping requests with one id, and one for a request right after an install.
 - [ ] **Q.7** `quality: codegen-js`. Alias expansion, cores, name order and the region shift from the compiler and base; statements and kernels written into the output buffer rather than built and copied, and the AST states and options nothing constructs (CODEGEN-01/03–07); the rest of its findings.
 - [ ] **Q.8** `quality: engine`. `Walk::module` (211 lines, six mutex side channels) returning its results through `schedule::Outcome`; one `Build` request and result in place of six forwarders and three tuples; `make::build` (224 lines) split; the ask-then-write match of install, update, remove and bump once; a `Captured` console and a command `Context`; `diff::Binop.associativity` as the compiler's `Associativity`; dead code (`canonicalize_graph`, `Personality::program`; `Artifacts::trim` waits for a decision); five ratchet test bodies as one. From the audit: the scheduler given the build's own snapshot, so a new revision cancels the work still queued for an old one, rather than a fresh snapshot that never goes stale (ENG-01); incremental indexing by a lookup built once rather than a search per module, the test environment built once, early errors rendered once, documentation entries borrowed in `diff` (ENG-02–04/06–08). May split into the build and the commands.
