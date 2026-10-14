@@ -1,4 +1,4 @@
-# app	exit	passed	failed	output	errors: elm-test 0.19.3-0 with --report json --seed 12345 --fuzz 100 (plan 10.7)
+# app	exit	passed	failed	output	errors: elm-test 0.19.3-0 with --report json --seed 12345 --fuzz 100
 azimutt	1	-	-	e3b0c44298fc1c14	66475a7af627bea1
 concourse	0	3097	0	79abca10a9890a14	e3b0c44298fc1c14
 elm-analyse	1	-	-	e3b0c44298fc1c14	a1609de781f38e45

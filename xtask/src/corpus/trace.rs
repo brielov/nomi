@@ -8,13 +8,16 @@
 //! the generated sessions are.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
+use nomi_testkit::lsp::percent_decoded;
 use serde_json::{Map, Value, json};
 
+use crate::oracle::lsp::Tools;
+use crate::oracle::which;
 use crate::references::References;
 
 /// Where the traces are kept.
@@ -140,14 +143,7 @@ pub(crate) fn record(root: &Path, refs: &References, app: &str) -> Result<()> {
     let work = scratch.join(app);
     super::lsp::copy(&project, &work)?;
     let work = fs::canonicalize(&work)?;
-    let (home, packages) = super::lsp::home_for_lsp()?;
-    let tools = crate::oracle::lsp::tools(
-        refs,
-        crate::oracle::lsp::server_path()?,
-        &super::lsp::sandbox()?,
-        home,
-        packages,
-    )?;
+    let tools = super::lsp::server(refs, &super::lsp::sandbox()?)?;
     let config = scratch.join(format!("{app}-config"));
     write_config(&config, &tools, &scratch.join("no-elm-review"))?;
     let log = scratch.join(format!("{app}.log"));
@@ -173,21 +169,21 @@ fn names() -> String {
 
 /// Helix's configuration: elm-language-server for Elm, with the
 /// recordings' settings, and completion that pops up soon.
-fn write_config(dir: &Path, tools: &crate::oracle::lsp::Tools, no_review: &Path) -> Result<()> {
+fn write_config(dir: &Path, tools: &Tools, no_review: &Path) -> Result<()> {
     let helix = dir.join("helix");
     fs::create_dir_all(&helix)?;
     let mut settings = nomi_testkit::lsp::default_settings();
     settings.extend(tools.settings(no_review));
-    let toml_string = |v: &str| serde_json::to_string(v).unwrap();
-    let languages = format!(
-        "[language-server.elmls]\ncommand = {}\nargs = [{}, \"--stdio\"]\nenvironment = {{ ELM_HOME = {}, PATH = {} }}\nconfig = {}\n\n[[language]]\nname = \"elm\"\nlanguage-servers = [\"elmls\"]\nauto-format = false\n",
-        toml_string(&tools.node.to_string_lossy()),
-        toml_string(&tools.server.to_string_lossy()),
-        toml_string(&tools.home.to_string_lossy()),
-        toml_string(&tools.path.to_string_lossy()),
-        inline_table(&Value::Object(settings)),
-    );
-    fs::write(helix.join("languages.toml"), languages)?;
+    let server = json!({
+        "command": tools.node.to_string_lossy(),
+        "args": [tools.server.to_string_lossy(), "--stdio"],
+        "environment": {
+            "ELM_HOME": tools.home.to_string_lossy(),
+            "PATH": tools.path.to_string_lossy(),
+        },
+        "config": settings,
+    });
+    fs::write(helix.join("languages.toml"), languages(&server)?)?;
     fs::write(
         helix.join("config.toml"),
         "[editor]\nidle-timeout = 200\ncompletion-timeout = 200\nauto-pairs = false\n",
@@ -195,29 +191,13 @@ fn write_config(dir: &Path, tools: &crate::oracle::lsp::Tools, no_review: &Path)
     Ok(())
 }
 
-/// `value` as a TOML inline table.
-fn inline_table(value: &Value) -> String {
-    match value {
-        Value::Object(map) => {
-            let fields: Vec<String> = map
-                .iter()
-                .map(|(k, v)| {
-                    format!(
-                        "{} = {}",
-                        serde_json::to_string(k).unwrap(),
-                        inline_table(v)
-                    )
-                })
-                .collect();
-            format!("{{ {} }}", fields.join(", "))
-        }
-        Value::Array(items) => {
-            let items: Vec<String> = items.iter().map(inline_table).collect();
-            format!("[{}]", items.join(", "))
-        }
-        Value::Null => "\"\"".to_owned(),
-        other => other.to_string(),
-    }
+/// Helix's `languages.toml`: Elm, served by `server`.
+fn languages(server: &Value) -> Result<String> {
+    let languages = json!({
+        "language-server": { "elmls": server },
+        "language": [{ "name": "elm", "language-servers": ["elmls"], "auto-format": false }],
+    });
+    Ok(toml::to_string(&languages)?)
 }
 
 /// Runs Helix on `script.file` in a tmux session and gives it the keys.
@@ -335,13 +315,6 @@ fn shell(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 
-fn which(name: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|dir| dir.join(name))
-        .find(|candidate| candidate.is_file())
-}
-
 /// The session Helix's messages to the server make, as Helix's log has
 /// them: its documents' opens, changes, saves and closes, and its
 /// requests about them, by path in the project.
@@ -425,24 +398,34 @@ fn session(log: &str, work: &Path, script: &Script) -> Result<Value> {
 /// The path in the project of `uri`, under `root`.
 fn file_of(uri: &str, root: &str) -> Option<String> {
     let rest = uri.strip_prefix(root)?.strip_prefix('/')?;
-    Some(percent_decode(rest))
+    Some(percent_decoded(rest))
 }
 
-fn percent_decode(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < bytes.len() {
-        match (bytes[i], text.get(i + 1..i + 3)) {
-            (b'%', Some(hex)) if u8::from_str_radix(hex, 16).is_ok() => {
-                out.push(u8::from_str_radix(hex, 16).unwrap());
-                i += 3;
-            }
-            (b, _) => {
-                out.push(b);
-                i += 1;
-            }
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn helix_reads_the_server_and_its_settings() {
+        let server = json!({
+            "command": "/bin/node",
+            "args": ["/srv/\"index\".js", "--stdio"],
+            "environment": { "ELM_HOME": "/home", "PATH": "/bin:/usr/bin" },
+            "config": { "trace": { "server": "off" }, "elmPath": "/bin/elm" },
+        });
+        let read: toml::Table = toml::from_str(&languages(&server).unwrap()).unwrap();
+        let expected: toml::Table = toml::from_str(concat!(
+            "[language-server.elmls]\n",
+            "command = \"/bin/node\"\n",
+            "args = [\"/srv/\\\"index\\\".js\", \"--stdio\"]\n",
+            "environment = { ELM_HOME = \"/home\", PATH = \"/bin:/usr/bin\" }\n",
+            "config = { trace = { server = \"off\" }, elmPath = \"/bin/elm\" }\n",
+            "[[language]]\n",
+            "name = \"elm\"\n",
+            "language-servers = [\"elmls\"]\n",
+            "auto-format = false\n",
+        ))
+        .unwrap();
+        assert_eq!(read, expected);
     }
-    String::from_utf8_lossy(&out).into_owned()
 }

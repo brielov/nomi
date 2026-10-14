@@ -9,15 +9,15 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::fs;
 use std::path::Path;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use nomi_format::{Invariant, invariant_mismatch};
-use nomi_testkit::ratchet::Suite;
 use nomi_testkit::sha256_hex as sha256;
 
 use super::parallel;
-use super::syntax::{self as corpus_syntax, CRASH};
+use super::syntax::{self as corpus_syntax, CRASH, Sources};
 
 /// The suite's directory: the oracle's table and `passing.txt`.
 pub(crate) const DIR: &str = "corpus/format";
@@ -65,34 +65,40 @@ impl std::str::FromStr for Outcome {
     }
 }
 
-/// The table's summary, and the outcome of each module that changes.
-struct Table {
-    modules: usize,
-    sources: String,
-    changed: BTreeMap<(String, String), Outcome>,
+/// The table: what it was made from, and the outcome of each module
+/// that changes, by case and path.
+struct Table<'a> {
+    sources: Sources,
+    changed: BTreeMap<(&'a str, &'a str), Outcome>,
 }
 
-fn parse_table(text: &str) -> Result<Table> {
-    let mut lines = text.lines().filter(|l| !l.starts_with("# @generated"));
-    let summary = lines.next().context("the table is empty")?;
-    let words: Vec<&str> = summary.split_whitespace().collect();
-    let ["#", "modules", modules, "sources", sources] = words[..] else {
-        bail!("malformed summary `{summary}`");
-    };
-    ensure!(
-        lines.next() == Some("case\tpath\toutput"),
-        "malformed column header"
-    );
-    let mut changed = BTreeMap::new();
+/// The rows of a table after its comments and its `header`, each of `N`
+/// cells, by their first two: the case and path.
+fn rows<'a, const N: usize>(
+    text: &'a str,
+    header: &str,
+) -> Result<BTreeMap<(&'a str, &'a str), [&'a str; N]>> {
+    let mut lines = text.lines().filter(|l| !l.starts_with('#'));
+    ensure!(lines.next() == Some(header), "malformed column header");
+    let mut rows = BTreeMap::new();
     for line in lines {
-        let [case, path, outcome] = line.split('\t').collect::<Vec<_>>()[..] else {
-            bail!("malformed row `{line}`");
-        };
-        changed.insert((case.to_owned(), path.to_owned()), outcome.parse()?);
+        let cells: Vec<&str> = line.split('\t').collect();
+        let row: [&str; N] = (cells.try_into()).map_err(|_| anyhow!("malformed row `{line}`"))?;
+        let fresh = rows.insert((row[0], row[1]), row).is_none();
+        ensure!(fresh, "{} {} is in the table twice", row[0], row[1]);
     }
+    Ok(rows)
+}
+
+fn parse_table(text: &str) -> Result<Table<'_>> {
+    let summary = (text.lines())
+        .find(|l| !l.starts_with("# @generated"))
+        .context("the table is empty")?;
+    let changed = (rows(text, "case\tpath\toutput")?.into_iter())
+        .map(|(key, [_, _, outcome])| Ok((key, outcome.parse()?)))
+        .collect::<Result<_>>()?;
     Ok(Table {
-        modules: modules.parse()?,
-        sources: sources.to_owned(),
+        sources: summary.parse()?,
         changed,
     })
 }
@@ -116,65 +122,45 @@ fn mismatch(text: &[u8], expected: &Outcome) -> Option<String> {
 
 /// The invariants elm-format breaks in each module where it breaks one,
 /// by case and path.
-fn parse_invariants(text: &str) -> Result<BTreeMap<(String, String), Vec<Invariant>>> {
-    let mut lines = text.lines().filter(|l| !l.starts_with('#'));
-    ensure!(
-        lines.next() == Some("case\tpath\tinvariant"),
-        "malformed column header"
-    );
-    let mut broken = BTreeMap::new();
-    for line in lines {
-        let [case, path, invariants] = line.split('\t').collect::<Vec<_>>()[..] else {
-            bail!("malformed row `{line}`");
-        };
-        let invariants = invariants
-            .split(',')
-            .map(str::parse)
-            .collect::<Result<_, _>>()?;
-        broken.insert((case.to_owned(), path.to_owned()), invariants);
-    }
-    Ok(broken)
+fn parse_invariants(text: &str) -> Result<BTreeMap<(&str, &str), Vec<Invariant>>> {
+    (rows(text, "case\tpath\tinvariant")?.into_iter())
+        .map(|(key, [_, _, invariants])| {
+            let invariants = invariants
+                .split(',')
+                .map(str::parse)
+                .collect::<Result<_, _>>()?;
+            Ok((key, invariants))
+        })
+        .collect()
 }
 
-/// nomi's output where it deviates, and why, by case and path.
-fn parse_deviations(text: &str) -> Result<BTreeMap<(String, String), String>> {
-    let mut lines = text.lines().filter(|l| !l.starts_with('#'));
-    ensure!(
-        lines.next() == Some("case\tpath\toutput\twhy"),
-        "malformed column header"
-    );
-    let mut deviations = BTreeMap::new();
-    for line in lines {
-        let [case, path, output, _why] = line.split('\t').collect::<Vec<_>>()[..] else {
-            bail!("malformed row `{line}`");
-        };
-        ensure!(
-            matches!(output.parse()?, Outcome::Sha256(_)),
-            "a deviation is an output's hash: `{line}`"
-        );
-        deviations.insert((case.to_owned(), path.to_owned()), output.to_owned());
-    }
-    Ok(deviations)
+/// nomi's output where it deviates, by case and path.
+fn parse_deviations(text: &str) -> Result<BTreeMap<(&str, &str), Outcome>> {
+    (rows(text, "case\tpath\toutput\twhy")?.into_iter())
+        .map(|(key, [_, _, output, _why])| {
+            let output = output.parse()?;
+            ensure!(
+                matches!(output, Outcome::Sha256(_)),
+                "a deviation is an output's hash: `{output}`"
+            );
+            Ok((key, output))
+        })
+        .collect()
 }
 
 pub(crate) fn check(root: &Path, record: bool) -> Result<()> {
     let dir = root.join(DIR);
-    let deviations = parse_deviations(
-        &std::fs::read_to_string(dir.join("deviations.tsv"))
-            .context("reading corpus/format/deviations.tsv")?,
-    )?;
-    let broken = parse_invariants(
-        &std::fs::read_to_string(dir.join("invariants.tsv"))
-            .context("reading corpus/format/invariants.tsv")?,
-    )?;
-    let text = std::fs::read_to_string(dir.join("oracle.tsv"))
-        .context("reading corpus/format/oracle.tsv; run `cargo xtask oracle format corpus`")?;
+    let read = |file: &str| {
+        fs::read_to_string(dir.join(file)).with_context(|| format!("reading {DIR}/{file}"))
+    };
+    let deviations = read("deviations.tsv")?;
+    let deviations = parse_deviations(&deviations)?;
+    let invariants = read("invariants.tsv")?;
+    let broken = parse_invariants(&invariants)?;
+    let text = read("oracle.tsv").context("run `cargo xtask oracle format corpus`")?;
     let table = parse_table(&text)?;
     let modules = corpus_syntax::modules(root)?;
-    ensure!(
-        table.modules == modules.len() && table.sources == corpus_syntax::digest(&modules)?,
-        "the corpus changed since oracle.tsv was made; run `cargo xtask oracle format corpus`"
-    );
+    table.sources.ensure_current(&modules, "format")?;
     for (table, (case, path)) in (broken.keys().map(|k| ("invariants.tsv", k)))
         .chain(deviations.keys().map(|k| ("deviations.tsv", k)))
     {
@@ -184,34 +170,22 @@ pub(crate) fn check(root: &Path, record: bool) -> Result<()> {
         );
     }
     let found = parallel(&modules, |m| -> Result<Option<String>> {
-        let text = std::fs::read(&m.file)?;
-        let key = (m.case.clone(), m.path.clone());
-        let deviation = deviations
-            .get(&key)
-            .map(|hash| Outcome::Sha256(hash.clone()));
-        let expected = (deviation.as_ref())
+        let text = fs::read(&m.file)?;
+        let key = (m.case.as_str(), m.path.as_str());
+        let expected = (deviations.get(&key))
             .or_else(|| table.changed.get(&key))
             .unwrap_or(&Outcome::Same);
         let listed = broken.get(&key).map_or(&[][..], Vec::as_slice);
         let why = mismatch(&text, expected).or_else(|| invariant_mismatch(&text, listed));
         Ok(why.map(|why| format!("{}: {why}", m.path)))
     });
-    let mut cases: BTreeMap<&str, Vec<String>> = BTreeMap::new();
-    for (m, found) in modules.iter().zip(found) {
-        cases.entry(&m.case).or_default().extend(found?);
-    }
-    let outcomes = cases.into_iter().map(|(case, mismatches)| {
-        let result = match mismatches.as_slice() {
-            [] => Ok(()),
-            [only] => Err(only.clone()),
-            [first, rest @ ..] => Err(format!("{first} (and {} more)", rest.len())),
-        };
-        (case.to_owned(), result)
-    });
-    Suite::open(dir)
-        .run_by("cargo xtask corpus format --record", record)
-        .finish(outcomes);
-    Ok(())
+    corpus_syntax::finish(
+        &dir,
+        "cargo xtask corpus format --record",
+        record,
+        &modules,
+        found,
+    )
 }
 
 #[cfg(test)]
@@ -230,8 +204,8 @@ mod tests {
              app/c\tsrc/C.elm\tcrash\n"
         );
         let table = parse_table(&text).unwrap();
-        assert_eq!((table.modules, table.sources.as_str()), (3, "abc"));
-        let outcome = |case: &str, path: &str| &table.changed[&(case.to_owned(), path.to_owned())];
+        assert_eq!(table.sources, "# modules 3 sources abc".parse().unwrap());
+        let outcome = |case: &'static str, path: &'static str| &table.changed[&(case, path)];
         assert_eq!(
             outcome("a/b@1.0.0", "src/A.elm"),
             &Outcome::Sha256(hash.into())
@@ -261,7 +235,7 @@ mod tests {
         let text = "# comment\ncase\tpath\tinvariant\na/b@1.0.0\tsrc/A.elm\tparses,idempotent\n";
         let broken = parse_invariants(text).unwrap();
         assert_eq!(
-            broken[&("a/b@1.0.0".to_owned(), "src/A.elm".to_owned())],
+            broken[&("a/b@1.0.0", "src/A.elm")],
             [Invariant::Parses, Invariant::Idempotent]
         );
         assert!(parse_invariants("case\tpath\tinvariant\na\tb\tnonsense\n").is_err());

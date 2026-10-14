@@ -12,8 +12,8 @@ use anyhow::{Context, Result};
 
 /// How often [`run_within`] looks whether a child with a limit has
 /// ended: elm parses a module in milliseconds, and the syntax oracle runs
-/// it hundreds of thousands of times.
-const POLL: Duration = Duration::from_millis(2);
+/// it hundreds of thousands of times; the scoreboard times runs of a few.
+const POLL: Duration = Duration::from_millis(1);
 
 /// Runs `command` with `input` as its standard input, fed on a thread of
 /// its own, and reads whatever output `command` pipes as it comes, so a

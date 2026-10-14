@@ -22,17 +22,19 @@
 //! skip. The outputs themselves stay in the sandbox, for looking into a
 //! mismatch.
 
-use std::fmt::Write as _;
+use std::fmt::{self, Write as _};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::str::FromStr;
 use std::time::Duration;
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use nomi_base::Compat;
 use nomi_testkit::files_below;
 use nomi_testkit::sha256_hex as sha256;
 use serde_json::Value;
+use sha2::{Digest as _, Sha256};
 
 use super::javascript::Mode;
 use super::process::run_to_files;
@@ -42,12 +44,6 @@ use crate::corpus::compat;
 use crate::corpus::syntax::CRASH;
 use crate::corpus::{apps, corpus_dir, packages, parallel_on};
 use crate::references::References;
-
-/// What a cell holds for a Compat that doesn't accept the package.
-pub(crate) const EXCLUDED: &str = "-";
-
-/// What a cell holds when elm made the project without a word.
-pub(crate) const OK: &str = "ok";
 
 /// Runs of one project before a lock failure is an error.
 const RETRIES: u32 = 5;
@@ -71,36 +67,193 @@ pub(crate) enum Suite {
 }
 
 impl Suite {
-    /// The oracle's file, from the repository's root.
-    pub(crate) fn file(self) -> &'static str {
+    /// The suite's name: `cargo xtask corpus <name>` checks what `cargo
+    /// xtask oracle corpus-<name>` records in `corpus/<name>/`.
+    pub(crate) fn name(self) -> &'static str {
         match self {
-            Suite::Docs => "corpus/docs/oracle.tsv",
-            Suite::Check => "corpus/check/oracle.tsv",
-            Suite::Graphs => "corpus/graphs/oracle.tsv",
-            Suite::Objects => "corpus/objects/oracle.tsv",
-            Suite::JavaScript => "corpus/javascript/oracle.tsv",
+            Suite::Docs => "docs",
+            Suite::Check => "check",
+            Suite::Graphs => "graphs",
+            Suite::Objects => "objects",
+            Suite::JavaScript => "javascript",
         }
     }
 
-    fn command(self) -> &'static str {
+    /// The oracle's file, from the repository's root.
+    pub(crate) fn file(self) -> String {
+        format!("corpus/{}/oracle.tsv", self.name())
+    }
+
+    /// The projects the suite runs elm on.
+    pub(crate) fn projects(self) -> Projects {
         match self {
-            Suite::Docs => "corpus-docs",
-            Suite::Check => "corpus-check",
-            Suite::Graphs => "corpus-graphs",
-            Suite::Objects => "corpus-objects",
-            Suite::JavaScript => "corpus-javascript",
+            Suite::Docs => Projects::Packages,
+            Suite::JavaScript => Projects::Apps,
+            Suite::Check | Suite::Graphs | Suite::Objects => Projects::All,
+        }
+    }
+
+    /// Where elm runs and keeps what it made, for `compat`.
+    pub(crate) fn sandbox(self, compat: Compat) -> Result<PathBuf> {
+        Ok((cache_dir()?.join("sandboxes/corpus"))
+            .join(format!("corpus-{}", self.name()))
+            .join(compat.as_str()))
+    }
+}
+
+/// Which corpus projects a suite takes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Projects {
+    All,
+    Apps,
+    Packages,
+}
+
+impl Projects {
+    pub(crate) fn apps(self) -> bool {
+        self != Projects::Packages
+    }
+
+    pub(crate) fn packages(self) -> bool {
+        self != Projects::Apps
+    }
+}
+
+/// What elm made of a project, as an oracle's cell holds it, or what nomi
+/// made of it as elm.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Cell {
+    /// `-`: the Compat doesn't accept the package.
+    Excluded,
+    /// `ok`: made without a word.
+    Ok,
+    /// `ok-noisy <hash>`: made, saying something; the hash of its standard
+    /// output.
+    Noisy(String),
+    /// `crash`: elm died without a report, which gives no verdict.
+    Crash,
+    /// `docs <hash>`: the hash of its `docs.json`.
+    Docs(String),
+    /// `graphs <digest> <count>`: its modules' graphs, by [`graphs_cell`].
+    Graphs { digest: String, count: usize },
+    /// `objects <hash>`: the hash of its dependencies' `o.dat`.
+    Objects(String),
+    /// `javascript <dev> <debug> <optimize>`: the hash of the JavaScript
+    /// of each [`Mode`], or `-` where elm refuses the mode.
+    JavaScript([Option<String>; 3]),
+    /// `errors <hash> <title>`: a report about modules, by the hash of its
+    /// `--report=json` with the project's directory written `$ROOT`, and
+    /// its first title.
+    Errors { hash: String, title: String },
+    /// `error <title>`: a report about the project rather than its
+    /// modules, such as a dependency the cache lacks.
+    Error(String),
+}
+
+impl Cell {
+    /// The cell of elm's `--report=json`.
+    pub(crate) fn of_report(report: &str) -> Cell {
+        let value: Value = serde_json::from_str(report).unwrap_or(Value::Null);
+        let title = first_title(&value).to_owned();
+        if value["type"] == "compile-errors" {
+            let hash = sha256(report.as_bytes());
+            Cell::Errors { hash, title }
+        } else {
+            Cell::Error(title)
         }
     }
 }
 
-/// A project to run elm on: its case, the directory to copy it from, its
-/// root within, and for an app, its entries and `elm.json` per Compat.
+impl fmt::Display for Cell {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Cell::Excluded => f.write_str("-"),
+            Cell::Ok => f.write_str("ok"),
+            Cell::Noisy(hash) => write!(f, "ok-noisy {hash}"),
+            Cell::Crash => f.write_str(CRASH),
+            Cell::Docs(hash) => write!(f, "docs {hash}"),
+            Cell::Graphs { digest, count } => write!(f, "graphs {digest} {count}"),
+            Cell::Objects(hash) => write!(f, "objects {hash}"),
+            Cell::JavaScript(modes) => {
+                f.write_str("javascript")?;
+                for hash in modes {
+                    write!(f, " {}", hash.as_deref().unwrap_or("-"))?;
+                }
+                Ok(())
+            }
+            Cell::Errors { hash, title } => write!(f, "errors {hash} {title}"),
+            Cell::Error(title) => write!(f, "error {title}"),
+        }
+    }
+}
+
+impl FromStr for Cell {
+    type Err = anyhow::Error;
+
+    fn from_str(cell: &str) -> Result<Cell> {
+        let malformed = || anyhow::anyhow!("malformed cell `{cell}`");
+        let (word, rest) = cell.split_once(' ').unwrap_or((cell, ""));
+        Ok(match word {
+            "-" if rest.is_empty() => Cell::Excluded,
+            "ok" if rest.is_empty() => Cell::Ok,
+            CRASH if rest.is_empty() => Cell::Crash,
+            "ok-noisy" => Cell::Noisy(rest.to_owned()),
+            "docs" => Cell::Docs(rest.to_owned()),
+            "objects" => Cell::Objects(rest.to_owned()),
+            "graphs" => {
+                let (digest, count) = rest.split_once(' ').ok_or_else(malformed)?;
+                let count = count.parse().map_err(|_| malformed())?;
+                Cell::Graphs {
+                    digest: digest.to_owned(),
+                    count,
+                }
+            }
+            "javascript" => {
+                let modes: Vec<Option<String>> = (rest.split(' '))
+                    .map(|hash| (hash != "-").then(|| hash.to_owned()))
+                    .collect();
+                Cell::JavaScript(modes.try_into().map_err(|_| malformed())?)
+            }
+            "errors" => {
+                let (hash, title) = rest.split_once(' ').ok_or_else(malformed)?;
+                Cell::Errors {
+                    hash: hash.to_owned(),
+                    title: title.to_owned(),
+                }
+            }
+            "error" => Cell::Error(rest.to_owned()),
+            _ => bail!(malformed()),
+        })
+    }
+}
+
+/// A project to run elm on: its case, the directory to copy it from, and
+/// what it is.
 struct Project {
     case: String,
     top: PathBuf,
-    root: String,
-    app: Option<apps::App>,
-    admits: Option<Vec<Compat>>,
+    kind: Kind,
+}
+
+enum Kind {
+    App(Box<apps::App>),
+    Package(packages::Package),
+}
+
+impl Project {
+    /// Its root, within the copy.
+    fn root(&self) -> &str {
+        match &self.kind {
+            Kind::App(app) => &app.root,
+            Kind::Package(_) => ".",
+        }
+    }
+}
+
+/// A project's name in the sandbox, which it names its directories and
+/// files by.
+pub(crate) fn sandbox_id(case: &str) -> String {
+    case.replace('/', "__")
 }
 
 /// Records every corpus project of `suite`, or with `only`, prints the
@@ -113,63 +266,30 @@ pub(crate) fn run(
     only: Option<&str>,
 ) -> Result<()> {
     let classification = compat::load(root)?;
-    let corpus = corpus_dir()?;
     let releases = releases(&cache_dir()?.join("nomi").join("packages"))?;
     ensure!(
         !releases.is_empty(),
         "the development cache has no releases; run `cargo xtask corpus names`"
     );
-    let mut projects = Vec::new();
-    if suite != Suite::Docs {
-        for app in apps::load(root)?.app {
-            projects.push(Project {
-                case: format!("app/{}", app.name),
-                top: apps::app_dir(&corpus, &app),
-                root: app.root.clone(),
-                app: Some(app),
-                admits: None,
-            });
-        }
-    }
-    let packages = if suite == Suite::JavaScript {
-        Vec::new()
-    } else {
-        packages::load(root)?.packages
-    };
-    for package in packages {
-        let top = packages::package_dir(&corpus, &package);
-        if !top.join("elm.json").exists() {
-            continue;
-        }
-        let admits = (classification.package.iter())
-            .find(|e| e.name == package.name && e.version == package.version)
-            .map(|e| e.admits.clone());
-        projects.push(Project {
-            case: format!("{}@{}", package.name, package.version),
-            top,
-            root: ".".to_owned(),
-            app: None,
-            admits,
-        });
-    }
+    let mut projects = projects(root, suite.projects())?;
     projects.retain(|p| only.is_none_or(|o| p.case.contains(o)));
     let compats = compat::compats(refs)?;
     let mut columns = Vec::new();
     for &compat in &compats {
-        let sandbox = cache_dir()?.join("sandboxes").join("corpus");
-        let home = sandbox.join("home").join(compat.as_str());
+        let home = cache_dir()?
+            .join("sandboxes/corpus/home")
+            .join(compat.as_str());
         elm_home(&home, compat, &releases)?;
-        let scratch = sandbox.join(suite.command()).join(compat.as_str());
+        let scratch = suite.sandbox(compat)?;
         remove_tree(&scratch)?;
         let elm = pinned_elm(refs, compat)?;
         let cells = parallel_on(jobs.unwrap_or_else(cores), &projects, |project| {
-            let admitted = (project.admits.as_ref()).is_none_or(|a| a.contains(&compat));
-            if !admitted {
-                return Ok(EXCLUDED.to_owned());
-            }
-            let manifest = match &project.app {
-                Some(app) => compat::sandbox_manifest(&classification, app, compat)?,
-                None => fs::read_to_string(project.top.join("elm.json"))?,
+            let manifest = match &project.kind {
+                Kind::App(app) => compat::sandbox_manifest(&classification, app, compat)?,
+                Kind::Package(p) if classification.admits(&p.name, &p.version, compat) => {
+                    fs::read_to_string(project.top.join("elm.json"))?
+                }
+                Kind::Package(_) => return Ok(Cell::Excluded),
             };
             record(suite, &elm, &home, &scratch, project, &manifest)
                 .with_context(|| format!("elm {compat} on {}", project.case))
@@ -179,7 +299,10 @@ pub(crate) fn run(
         columns.push(cells);
     }
     let header = elm_header("case", compats.iter().copied());
-    let mut out = format!("{}\n{header}\n", generated(suite.command()));
+    let mut out = format!(
+        "{}\n{header}\n",
+        generated(&format!("corpus-{}", suite.name()))
+    );
     for (i, project) in projects.iter().enumerate() {
         write!(out, "{}", project.case)?;
         for column in &columns {
@@ -196,6 +319,35 @@ pub(crate) fn run(
     fs::write(path, out)?;
     println!("recorded {} projects", projects.len());
     Ok(())
+}
+
+/// The corpus's apps, then its packages that have an `elm.json`, as
+/// `projects` takes them.
+fn projects(root: &Path, projects: Projects) -> Result<Vec<Project>> {
+    let corpus = corpus_dir()?;
+    let mut found = Vec::new();
+    if projects.apps() {
+        for app in apps::load(root)?.app {
+            found.push(Project {
+                case: format!("app/{}", app.name),
+                top: apps::app_dir(&corpus, &app),
+                kind: Kind::App(Box::new(app)),
+            });
+        }
+    }
+    if projects.packages() {
+        for package in packages::load(root)?.packages {
+            let top = packages::package_dir(&corpus, &package);
+            if top.join("elm.json").exists() {
+                found.push(Project {
+                    case: format!("{}@{}", package.name, package.version),
+                    top,
+                    kind: Kind::Package(package),
+                });
+            }
+        }
+    }
+    Ok(found)
 }
 
 /// Every release in nomi's store under `store`, with its sources.
@@ -237,101 +389,103 @@ fn record(
     scratch: &Path,
     project: &Project,
     manifest: &str,
-) -> Result<String> {
-    let id = project.case.replace('/', "__");
+) -> Result<Cell> {
+    let id = sandbox_id(&project.case);
     let work = scratch.join("work").join(&id);
     remove_tree(&work)?;
     copy_modules(&project.top, &work)?;
-    let dir = work.join(&project.root);
+    let dir = work.join(project.root());
     fs::create_dir_all(&dir)?;
     fs::write(dir.join("elm.json"), manifest)?;
-    let mut args: Vec<&str> = match suite {
-        Suite::Docs => vec!["--docs=docs.json"],
-        _ => (project.app.iter().flat_map(|a| &a.entries))
-            .map(String::as_str)
-            .collect(),
+    let mut args: Vec<&str> = match (suite, &project.kind) {
+        (Suite::Docs, _) => vec!["--docs=docs.json"],
+        (_, Kind::App(app)) => app.entries.iter().map(String::as_str).collect(),
+        (_, Kind::Package(_)) => Vec::new(),
     };
     args.push("--report=json");
-    args.push(if suite == Suite::JavaScript {
-        "--output=out.js"
-    } else {
-        "--output=/dev/null"
+    args.push(match suite {
+        Suite::JavaScript => "--output=out.js",
+        Suite::Docs | Suite::Check | Suite::Graphs | Suite::Objects => "--output=/dev/null",
     });
     let output = make(elm, home, &work, &dir, &args)?;
     if output.status.code().is_none() {
-        return Ok(CRASH.to_owned());
+        return Ok(Cell::Crash);
     }
     let out = scratch.join("out");
     fs::create_dir_all(&out)?;
-    if suite == Suite::Docs
-        && let Ok(docs) = fs::read(dir.join("docs.json"))
-    {
-        fs::write(out.join(format!("{id}.docs.json")), &docs)?;
-        fs::remove_dir_all(&work)?;
-        return Ok(format!("docs {}", sha256(&docs)));
-    }
-    if suite == Suite::Graphs && output.status.success() {
-        let stuff = dir.join("elm-stuff").join(version_dir(&dir)?);
-        let mut modules = Vec::new();
-        let kept = out.join(&id);
-        fs::create_dir_all(&kept)?;
-        for (module, file) in elmo_files(&stuff)? {
-            let bytes = fs::read(stuff.join(&file))?;
-            fs::write(kept.join(&file), &bytes)?;
-            modules.push((module, bytes));
-        }
-        fs::remove_dir_all(&work)?;
-        return Ok(graphs_cell(modules));
-    }
-    if suite == Suite::Objects && output.status.success() {
-        let stuff = dir.join("elm-stuff").join(version_dir(&dir)?);
-        let objects = fs::read(stuff.join("o.dat"))?;
-        fs::write(out.join(format!("{id}.o.dat")), &objects)?;
-        fs::remove_dir_all(&work)?;
-        return Ok(format!("objects {}", sha256(&objects)));
-    }
-    if suite == Suite::JavaScript && output.status.success() {
-        let mut hashes = Vec::new();
-        for mode in Mode::ALL {
-            let output = match mode.flag() {
-                None => output.clone(),
-                Some(flag) => make(elm, home, &work, &dir, &[&args[..], &[flag]].concat())?,
-            };
-            let mode = mode.name();
-            if !output.status.success() {
-                let report = String::from_utf8_lossy(&output.stderr);
-                fs::write(out.join(format!("{id}.{mode}.report.json")), &*report)?;
-                hashes.push("-".to_owned());
-                continue;
+    let keep = |file: &str, bytes: &[u8]| fs::write(out.join(format!("{id}.{file}")), bytes);
+    let stuff = || -> Result<PathBuf> { Ok(dir.join("elm-stuff").join(version_dir(&dir)?)) };
+    let made = match suite {
+        Suite::Docs => match fs::read(dir.join("docs.json")) {
+            Ok(docs) => {
+                keep("docs.json", &docs)?;
+                Some(Cell::Docs(sha256(&docs)))
             }
-            let js = fs::read(dir.join("out.js"))?;
-            fs::write(out.join(format!("{id}.{mode}.js")), &js)?;
-            hashes.push(sha256(&js));
+            Err(_) => None,
+        },
+        _ if !output.status.success() => None,
+        Suite::Check => {
+            keep("stdout", &output.stdout)?;
+            keep("stderr", &output.stderr)?;
+            Some(if output.stdout.is_empty() && output.stderr.is_empty() {
+                Cell::Ok
+            } else {
+                Cell::Noisy(sha256(&output.stdout))
+            })
         }
-        fs::remove_dir_all(&work)?;
-        return Ok(format!("javascript {}", hashes.join(" ")));
-    }
-    if suite == Suite::Check && output.status.success() {
-        fs::write(out.join(format!("{id}.stdout")), &output.stdout)?;
-        fs::write(out.join(format!("{id}.stderr")), &output.stderr)?;
-        fs::remove_dir_all(&work)?;
-        return Ok(if output.stdout.is_empty() && output.stderr.is_empty() {
-            OK.to_owned()
-        } else {
-            format!("ok-noisy {}", sha256(&output.stdout))
-        });
-    }
-    let Some(json) = json_report(&output) else {
-        // Still dying without a report: kept for a look, and skipped.
-        fs::write(out.join(format!("{id}.stderr")), &output.stderr)?;
-        fs::remove_dir_all(&work)?;
-        return Ok(CRASH.to_owned());
+        Suite::Graphs => {
+            let stuff = stuff()?;
+            let kept = out.join(&id);
+            fs::create_dir_all(&kept)?;
+            let mut modules = Vec::new();
+            for (module, file) in elmo_files(&stuff)? {
+                let bytes = fs::read(stuff.join(&file))?;
+                fs::write(kept.join(&file), &bytes)?;
+                modules.push((module, bytes));
+            }
+            Some(graphs_cell(&modules))
+        }
+        Suite::Objects => {
+            let objects = fs::read(stuff()?.join("o.dat"))?;
+            keep("o.dat", &objects)?;
+            Some(Cell::Objects(sha256(&objects)))
+        }
+        Suite::JavaScript => {
+            let mut hashes = Vec::new();
+            for mode in Mode::ALL {
+                let output = match mode.flag() {
+                    None => output.clone(),
+                    Some(flag) => make(elm, home, &work, &dir, &[&args[..], &[flag]].concat())?,
+                };
+                let mode = mode.name();
+                if output.status.success() {
+                    let js = fs::read(dir.join("out.js"))?;
+                    keep(&format!("{mode}.js"), &js)?;
+                    hashes.push(Some(sha256(&js)));
+                } else {
+                    keep(&format!("{mode}.report.json"), &output.stderr)?;
+                    hashes.push(None);
+                }
+            }
+            Some(Cell::JavaScript(hashes.try_into().expect("a hash a mode")))
+        }
     };
-    let root = fs::canonicalize(&dir)?;
-    let report = std::str::from_utf8(json.trim_ascii_end())?.replace(utf8(&root)?, "$ROOT");
-    fs::write(out.join(format!("{id}.report.json")), &report)?;
+    let cell = match (made, json_report(&output)) {
+        (Some(cell), _) => cell,
+        (None, Some(json)) => {
+            let root = fs::canonicalize(&dir)?;
+            let report = std::str::from_utf8(json.trim_ascii_end())?.replace(utf8(&root)?, "$ROOT");
+            keep("report.json", report.as_bytes())?;
+            Cell::of_report(&report)
+        }
+        // Still dying without a report: kept for a look, and skipped.
+        (None, None) => {
+            keep("stderr", &output.stderr)?;
+            Cell::Crash
+        }
+    };
     fs::remove_dir_all(&work)?;
-    Ok(cell(&report))
+    Ok(cell)
 }
 
 /// `elm make` with `args` in `dir`, again while it fails as runs that
@@ -393,25 +547,64 @@ fn version_dir(dir: &Path) -> Result<String> {
 }
 
 /// The cell for a project's module graphs, each a module's name and the
-/// bytes of its `.elmo`: `graphs <digest> <count>`, the digest over each
-/// name and the SHA-256 of its bytes, in the order of names.
-pub(crate) fn graphs_cell(mut modules: Vec<(String, Vec<u8>)>) -> String {
-    modules.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut listing = String::new();
-    for (name, bytes) in &modules {
-        let _ = writeln!(listing, "{name} {}", sha256(bytes));
+/// bytes of its `.elmo`: the digest over each name and the SHA-256 of its
+/// bytes, in the order of names, and their count.
+pub(crate) fn graphs_cell(modules: &[(String, Vec<u8>)]) -> Cell {
+    let mut sorted: Vec<&(String, Vec<u8>)> = modules.iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut listing = Sha256::new();
+    for (name, bytes) in sorted {
+        listing.update(format!("{name} {}\n", sha256(bytes)));
     }
-    format!("graphs {} {}", sha256(listing.as_bytes()), modules.len())
+    Cell::Graphs {
+        digest: nomi_base::hex(&listing.finalize()),
+        count: modules.len(),
+    }
 }
 
-/// The cell for a report: `errors <hash> <first title>` for one about
-/// modules, `error <title>` for one about the project.
-pub(crate) fn cell(report: &str) -> String {
-    let value: Value = serde_json::from_str(report).unwrap_or(Value::Null);
-    let title = first_title(&value);
-    if value["type"] == "compile-errors" {
-        format!("errors {} {title}", sha256(report.as_bytes()))
-    } else {
-        format!("error {title}")
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cells_read_back_as_written() {
+        let hash = || "ab".repeat(32);
+        for cell in [
+            Cell::Excluded,
+            Cell::Ok,
+            Cell::Noisy(hash()),
+            Cell::Crash,
+            Cell::Docs(hash()),
+            Cell::Graphs {
+                digest: hash(),
+                count: 3,
+            },
+            Cell::Objects(hash()),
+            Cell::JavaScript([Some(hash()), None, Some(hash())]),
+            Cell::Errors {
+                hash: hash(),
+                title: "MODULE NOT FOUND".to_owned(),
+            },
+            Cell::Error("MISSING SOURCE DIRECTORY".to_owned()),
+        ] {
+            assert_eq!(cell.to_string().parse::<Cell>().unwrap(), cell);
+        }
+        for malformed in ["", "ok ok", "graphs ab", "javascript ab -", "nonsense"] {
+            assert!(malformed.parse::<Cell>().is_err(), "{malformed}");
+        }
+    }
+
+    #[test]
+    fn graphs_are_digested_in_the_order_of_names() {
+        let (a, b) = (
+            ("A".to_owned(), b"a".to_vec()),
+            ("B".to_owned(), b"b".to_vec()),
+        );
+        let listing = format!("A {}\nB {}\n", sha256(b"a"), sha256(b"b"));
+        let expected = Cell::Graphs {
+            digest: sha256(listing.as_bytes()),
+            count: 2,
+        };
+        assert_eq!(graphs_cell(&[b, a]), expected);
     }
 }

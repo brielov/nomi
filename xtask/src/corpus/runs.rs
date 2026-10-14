@@ -1,53 +1,50 @@
 //! Whether nomi makes of every corpus project what each elm made of it,
-//! as `cargo xtask oracle corpus-docs`, `corpus-check`, `corpus-graphs`
-//! and `corpus-objects` recorded:
-//! `cargo xtask corpus docs` wants the same `docs.json` of every package,
-//! byte for byte, and `cargo xtask corpus check` the silence
-//! of `nomi check` on every app and package elm accepted;
-//! `cargo xtask corpus graphs` the same optimized graph of every module
-//! elm built; `cargo xtask corpus objects` the same graph of
-//! the dependencies as `o.dat` holds; `cargo xtask corpus
-//! javascript` the same JavaScript of every app in each mode (plan
-//! 8.11); and all the same
-//! `--report=json` wherever elm
-//! rejected the project. Each
-//! project's dependencies are solved and downloaded as `corpus names`
-//! does, so this runs by hand, never in CI. A project elm couldn't build
-//! for want of a release the cache lacked is skipped.
+//! as `cargo xtask oracle corpus-docs`, `corpus-check`, `corpus-graphs`,
+//! `corpus-objects` and `corpus-javascript` recorded: `cargo xtask corpus
+//! docs` wants the same `docs.json` of every package, byte for byte, and
+//! `cargo xtask corpus check` the silence of `nomi check` on every app and
+//! package elm accepted; `cargo xtask corpus graphs` the same optimized
+//! graph of every module elm built; `cargo xtask corpus objects` the same
+//! graph of the dependencies as `o.dat` holds; `cargo xtask corpus
+//! javascript` the same JavaScript of every app in each mode; and all the
+//! same `--report=json` wherever elm rejected the project. Each project's
+//! dependencies are solved and downloaded as `corpus names` does, so this
+//! runs by hand, never in CI. A project elm couldn't build for want of a
+//! release the cache lacked is skipped.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
-use std::io;
+use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use nomi_base::Compat;
-use nomi_compiler::interface::Interface;
 use nomi_compiler::optimized::binary;
-use nomi_engine::check::{self, Build, Built, Checked, Goal, Style};
-use nomi_engine::console::{Console, Personality};
-use nomi_engine::graph::Foreigns;
-use nomi_engine::{Vfs, javascript, names};
-use nomi_project::{ModuleName, Name, Outline};
+use nomi_engine::check::{self, Built, Checked, Goal, Optimized, Style};
+use nomi_engine::console::Captured;
+use nomi_engine::graph::Env;
+use nomi_engine::{javascript, names, objects};
+use nomi_project::Name;
 use nomi_testkit::sha256_hex as sha256;
 
-use super::names::{Project, solve};
+use super::names::{Expected, Live, Project, build, solve};
 use super::{compat, parallel};
-use crate::oracle::corpus_runs::{self, EXCLUDED, OK, Suite};
+use crate::oracle::corpus_runs::{Cell, Projects, Suite, graphs_cell, sandbox_id};
+use crate::oracle::javascript::Mode;
 
 pub(crate) fn check(root: &Path, suite: Suite, only: Option<&str>) -> Result<()> {
     let oracle = load(root, suite)?;
     let classification = compat::load(root)?;
+    let live = Live::new()?;
     let mut matching = 0;
     let mut skipped: Vec<String> = Vec::new();
     let mut failures: Vec<(String, String)> = Vec::new();
     for &c in &classification.compats {
-        let v = c.as_str();
-        let (apps, packages) = (suite != Suite::Docs, suite != Suite::JavaScript);
-        let solving = solve(root, &classification, c, only, apps, packages)?;
+        let cells = (oracle.get(&c)).with_context(|| format!("{} has no elm {c}", suite.file()))?;
+        let solving = solve(root, &live, &classification, c, only, suite.projects())?;
         // Dependencies without a solution stop elm before any module too.
         for (case, why) in solving.failures {
-            let elm = oracle.get(&(package_case(&case), format!("elm {v}")));
-            if elm.is_some_and(|cell| cell.starts_with("error ")) {
+            if let Some(Cell::Error(_)) = cells.get(oracle_case(&case)) {
                 matching += 1;
             } else {
                 failures.push((case, why));
@@ -60,12 +57,11 @@ pub(crate) fn check(root: &Path, suite: Suite, only: Option<&str>) -> Result<()>
         for chunk in solving.solved.chunks(16) {
             let mut ready = Vec::new();
             for (project, sources) in chunk {
-                let key = package_case(&project.case);
-                let Some(expected) = oracle.get(&(key.clone(), format!("elm {v}"))) else {
+                let Some(expected) = cells.get(oracle_case(&project.case)) else {
                     failures.push((project.case.clone(), "not in the oracle".to_owned()));
                     continue;
                 };
-                if expected == EXCLUDED || expected.starts_with("error ") || expected == "crash" {
+                if let Cell::Excluded | Cell::Error(_) | Cell::Crash = expected {
                     skipped.push(format!("{}: elm said {expected}", project.case));
                     continue;
                 }
@@ -77,16 +73,12 @@ pub(crate) fn check(root: &Path, suite: Suite, only: Option<&str>) -> Result<()>
                     }
                 }
             }
-            let results = parallel(&ready, |(project, sources, interfaces, _)| {
-                run(suite, c, project, sources, interfaces)
+            let results = parallel(&ready, |(project, sources, interfaces, expected)| {
+                run(suite, c, project, sources, interfaces, expected)
             });
-            for ((project, _, _, expected), result) in ready.iter().zip(results) {
+            for ((project, ..), result) in ready.iter().zip(results) {
                 match result {
-                    Ok(cell) if &cell == *expected => matching += 1,
-                    Ok(cell) => failures.push((
-                        project.case.clone(),
-                        format!("nomi: {cell}\n  elm:  {expected}"),
-                    )),
+                    Ok(()) => matching += 1,
                     Err(why) => failures.push((project.case.clone(), why)),
                 }
             }
@@ -97,318 +89,242 @@ pub(crate) fn check(root: &Path, suite: Suite, only: Option<&str>) -> Result<()>
         eprintln!("skipped: {why}");
     }
     // Runs where elm's own output is wrong, each checked by hand, by case.
-    let expected_path = root.join(suite.file()).with_file_name("expected.tsv");
-    let expected: BTreeMap<String, String> = std::fs::read_to_string(&expected_path)
-        .unwrap_or_default()
-        .lines()
-        .filter(|l| !l.starts_with('#') && !l.is_empty())
-        .filter_map(|l| l.split_once('\t'))
-        .map(|(case, why)| (case.to_owned(), why.to_owned()))
-        .collect();
-    let (known, failures): (Vec<_>, Vec<_>) = failures
-        .into_iter()
-        .partition(|(case, _)| expected.contains_key(case));
-    for (case, why) in &failures {
-        eprintln!("FAIL {case}: {why}");
-    }
-    if only.is_none() {
-        for case in expected
-            .keys()
-            .filter(|c| !known.iter().any(|(k, _)| k == *c))
-        {
-            eprintln!(
-                "now passes, remove it from {}: {case}",
-                expected_path.display()
-            );
-        }
-    }
-    let (name, kind) = match suite {
-        Suite::Docs => ("docs", "packages"),
-        Suite::Check => ("check", "projects"),
-        Suite::Graphs => ("graphs", "projects"),
-        Suite::Objects => ("objects", "projects"),
-        Suite::JavaScript => ("javascript", "apps"),
+    let expected = Expected::load(root, &format!("corpus/{}/expected.tsv", suite.name()))?;
+    let known = expected.report(&failures, only.is_none());
+    let differ = failures.len() - known;
+    let kind = match suite.projects() {
+        Projects::All => "projects",
+        Projects::Apps => "apps",
+        Projects::Packages => "packages",
     };
     println!(
-        "{name}: {matching} {kind} made as elm makes them, {} where elm is wrong, {} not, {} skipped",
-        known.len(),
-        failures.len(),
+        "{}: {matching} {kind} made as elm makes them, {known} where elm is wrong, {differ} not, {} skipped",
+        suite.name(),
         skipped.len()
     );
-    if !failures.is_empty() {
-        bail!("{} {kind} differ", failures.len());
+    if differ > 0 {
+        bail!("{differ} {kind} differ");
     }
     Ok(())
 }
 
-/// Writes nomi's `o.dat` for `case` beside the one the oracle kept, where
-/// they differ, for `graph-diff` to look into.
-fn keep_objects(compat: Compat, case: &str, bytes: &[u8]) {
-    let id = package_case(case).replace('/', "__");
-    let Ok(cache) = crate::oracle::cache_dir() else {
-        return;
+/// Writes nomi's `bytes` as `file` in the sandbox where `suite`'s oracle
+/// kept elm's, under `nomi/` beside its `out/`, where elm's differ, for
+/// a look: `graph-diff` looks into graphs. Whether they differ.
+fn kept(suite: Suite, compat: Compat, file: &str, bytes: &[u8]) -> bool {
+    let Ok(dir) = suite.sandbox(compat) else {
+        return false;
     };
-    let dir = cache
-        .join("sandboxes/corpus/corpus-objects")
-        .join(compat.to_string());
-    let elm = dir.join("out").join(format!("{id}.o.dat"));
-    if std::fs::read(&elm).is_ok_and(|elm| elm != bytes) {
-        let _ = std::fs::create_dir_all(dir.join("nomi"));
-        let _ = std::fs::write(dir.join("nomi").join(format!("{id}.o.dat")), bytes);
+    if fs::read(dir.join("out").join(file)).ok().as_deref() == Some(bytes) {
+        return false;
     }
-}
-
-/// Writes nomi's JavaScript for `case` in `mode` beside what the oracle
-/// kept, where they differ.
-fn keep_javascript(compat: Compat, case: &str, mode: &str, js: &[u8]) {
-    let id = package_case(case).replace('/', "__");
-    let Ok(cache) = crate::oracle::cache_dir() else {
-        return;
-    };
-    let dir = cache
-        .join("sandboxes/corpus/corpus-javascript")
-        .join(compat.to_string());
-    let file = format!("{id}.{mode}.js");
-    if std::fs::read(dir.join("out").join(&file)).is_ok_and(|elm| elm != js) {
-        let _ = std::fs::create_dir_all(dir.join("nomi"));
-        let _ = std::fs::write(dir.join("nomi").join(&file), js);
-    }
+    let path = dir.join("nomi").join(file);
+    let _ = fs::create_dir_all(path.parent().expect("a file in a directory"));
+    let _ = fs::write(path, bytes);
+    true
 }
 
 /// Which of `modules` differ from the `.elmo` files the oracle kept for
-/// `case`, if it kept them; nomi's are written beside them for a look.
+/// `case`, if it kept them.
 fn differing(compat: Compat, case: &str, modules: &[(String, Vec<u8>)]) -> Option<String> {
-    let id = package_case(case).replace('/', "__");
-    let sandbox = crate::oracle::cache_dir()
-        .ok()?
-        .join("sandboxes/corpus/corpus-graphs");
-    let elm = sandbox.join(compat.to_string()).join("out").join(&id);
+    let id = sandbox_id(case);
+    let elm = Suite::Graphs.sandbox(compat).ok()?.join("out").join(&id);
     if !elm.is_dir() {
         return None;
     }
-    let nomi = sandbox.join(compat.to_string()).join("nomi").join(&id);
-    let _ = std::fs::create_dir_all(&nomi);
-    let mut differ = Vec::new();
-    for (name, bytes) in modules {
-        let file = format!("{}.elmo", name.replace('.', "-"));
-        let _ = std::fs::write(nomi.join(&file), bytes);
-        if std::fs::read(elm.join(&file)).ok().as_deref() != Some(bytes.as_slice()) {
-            differ.push(name.clone());
-        }
-    }
+    let differ: Vec<&str> = (modules.iter())
+        .filter(|(name, bytes)| {
+            let file = format!("{id}/{}.elmo", name.replace('.', "-"));
+            kept(Suite::Graphs, compat, &file, bytes)
+        })
+        .map(|(name, _)| name.as_str())
+        .collect();
     Some(differ.join(", "))
 }
 
 thread_local! {
     /// Each package's graph as each release makes it, made once a thread:
     /// projects share them.
-    static OBJECTS: std::cell::RefCell<HashMap<Compat, nomi_engine::objects::Memo>> =
-        Default::default();
+    static OBJECTS: RefCell<HashMap<Compat, objects::Memo>> = Default::default();
 }
 
-/// The oracle's cells, by project case and elm.
-fn load(root: &Path, suite: Suite) -> Result<BTreeMap<(String, String), String>> {
-    let path = root.join(suite.file());
-    let text = std::fs::read_to_string(&path)
-        .with_context(|| format!("reading {}; run its oracle", path.display()))?;
+/// The dependencies `sources` as `compat` builds them, from the thread's
+/// [`OBJECTS`].
+fn dependencies(
+    compat: Compat,
+    sources: &[(Name, PathBuf)],
+) -> Result<objects::Dependencies, String> {
+    OBJECTS.with(|memos| {
+        let mut memos = memos.borrow_mut();
+        objects::build(compat, sources, memos.entry(compat).or_default(), None)
+    })
+}
+
+/// The oracle's cells: a column for each elm, by project case.
+pub(super) fn load(root: &Path, suite: Suite) -> Result<BTreeMap<Compat, BTreeMap<String, Cell>>> {
+    let path = suite.file();
+    let text = fs::read_to_string(root.join(&path))
+        .with_context(|| format!("reading {path}; run its oracle"))?;
     let mut lines = text.lines().filter(|l| !l.starts_with('#'));
     let header: Vec<&str> = lines
         .next()
         .context("an empty oracle")?
         .split('\t')
         .collect();
-    let mut cells = BTreeMap::new();
+    let [_, elms @ ..] = &header[..] else {
+        bail!("{path} has no header");
+    };
+    let compats = (elms.iter())
+        .map(|elm| (elm.strip_prefix("elm ")).with_context(|| format!("{path}'s column `{elm}`")))
+        .map(|version| Ok(version?.parse()?))
+        .collect::<Result<Vec<Compat>>>()?;
+    let mut columns: BTreeMap<Compat, BTreeMap<String, Cell>> = BTreeMap::new();
     for line in lines {
         let row: Vec<&str> = line.split('\t').collect();
-        for (elm, cell) in header.iter().zip(&row).skip(1) {
-            cells.insert((row[0].to_owned(), (*elm).to_owned()), (*cell).to_owned());
+        ensure!(row.len() == header.len(), "{path}: malformed row `{line}`");
+        for (&compat, cell) in compats.iter().zip(&row[1..]) {
+            let column = columns.entry(compat).or_default();
+            let fresh = column.insert(row[0].to_owned(), cell.parse()?).is_none();
+            ensure!(fresh, "{path} has {} twice", row[0]);
         }
     }
-    Ok(cells)
+    Ok(columns)
 }
 
 /// The oracle's case, `author/project@version` or `app/name`, of a case
 /// `… on 0.19.x`.
-fn package_case(case: &str) -> String {
-    case.split(" on ").next().unwrap_or(case).to_owned()
+fn oracle_case(case: &str) -> &str {
+    case.split_once(" on ").map_or(case, |(case, _)| case)
 }
 
-/// What `suite`'s `elm make` makes of `project`, as an oracle cell.
+/// Whether nomi makes what elm made of `project`, `expected`, as `suite`'s
+/// `elm make`; why not where it doesn't.
 fn run(
     suite: Suite,
     compat: Compat,
     project: &Project,
     sources: &[(Name, PathBuf)],
     interfaces: &names::PackageInterfaces,
-) -> Result<String, String> {
-    let direct: Vec<Name> = match &project.outline {
-        Outline::App(app) => app.direct.keys().cloned().collect(),
-        Outline::Pkg(pkg) => pkg.deps.keys().cloned().collect(),
+    expected: &Cell,
+) -> Result<(), String> {
+    let goal = match suite {
+        Suite::Docs => Goal::Docs,
+        Suite::Check | Suite::Objects => Goal::Check,
+        Suite::Graphs | Suite::JavaScript => Goal::Optimize,
     };
-    let dirs: BTreeMap<&Name, &PathBuf> = sources.iter().map(|(n, d)| (n, d)).collect();
-    let mut exposing = Vec::new();
-    for name in &direct {
-        let dir = dirs
-            .get(name)
-            .ok_or_else(|| format!("{name} wasn't downloaded"))?;
-        let bytes = std::fs::read(dir.join("elm.json")).map_err(|e| e.to_string())?;
-        let Ok(Outline::Pkg(dep)) = Outline::decode(&bytes, compat) else {
-            return Err(format!("{name}'s elm.json"));
-        };
-        exposing.push((
-            name.clone(),
-            dep.exposed.modules().cloned().collect::<Vec<ModuleName>>(),
-        ));
-    }
-    let visible: HashMap<String, Interface> = names::visible(interfaces, &direct);
-    let root = std::fs::canonicalize(&project.root).map_err(|e| e.to_string())?;
-    let env = check::env_of(&root, &project.outline, compat, Foreigns::new(exposing))
-        .map_err(|r| r.title.to_string())?
-        .with_cwd(&root);
-    let snapshot = Vfs::new().snapshot();
-    let build = Build {
-        snapshot: &snapshot,
-        env: &env,
-        outline: &project.outline,
-        paths: &project.paths,
-        personality: Personality::Elm,
-        packages: (&visible).into(),
-        artifacts: None,
-    };
-    let built = |build: Build<'_>, goal| build.run(goal).expect("nothing revises the corpus");
-    let checked = match suite {
-        Suite::Docs => {
-            let built = built(
-                Build {
-                    paths: &[],
-                    ..build
-                },
-                Goal::Docs,
-            );
-            if let Some(docs) = built.docs {
-                return Ok(format!("docs {}", sha256(docs.as_bytes())));
-            }
-            built.checked
-        }
-        Suite::Check => {
-            let checked = built(build, Goal::Check).checked;
-            if matches!(checked, Checked::Fine) {
-                return Ok(OK.to_owned());
-            }
-            checked
-        }
+    let (built, env) = build(compat, project, sources, interfaces, goal)?;
+    let Built {
+        checked,
+        docs,
+        optimized,
+        ..
+    } = built;
+    let case = oracle_case(&project.case);
+    let mut differ = None;
+    let made = match suite {
+        Suite::Docs => docs.map(|docs| Cell::Docs(sha256(docs.as_bytes()))),
+        _ if !matches!(checked, Checked::Fine) => None,
+        Suite::Check => Some(Cell::Ok),
         Suite::Objects => {
-            let checked = built(build, Goal::Check).checked;
-            if matches!(checked, Checked::Fine) {
-                let graph = OBJECTS.with(|memos| {
-                    let mut memos = memos.borrow_mut();
-                    let memo = memos.entry(compat).or_default();
-                    nomi_engine::objects::build(compat, sources, memo, None).map(|d| d.graph())
-                })?;
-                let bytes = binary::encode_global_graph(&graph, compat);
-                keep_objects(compat, &project.case, &bytes);
-                return Ok(format!("objects {}", sha256(&bytes)));
-            }
-            checked
+            let graph = dependencies(compat, sources)?.graph();
+            let bytes = binary::encode_global_graph(&graph, compat);
+            kept(
+                Suite::Objects,
+                compat,
+                &format!("{}.o.dat", sandbox_id(case)),
+                &bytes,
+            );
+            Some(Cell::Objects(sha256(&bytes)))
         }
-        Suite::JavaScript => {
-            let Built {
-                checked, optimized, ..
-            } = built(build, Goal::Optimize);
-            if matches!(checked, Checked::Fine) {
-                let built = OBJECTS.with(|memos| {
-                    let mut memos = memos.borrow_mut();
-                    let memo = memos.entry(compat).or_default();
-                    nomi_engine::objects::build(compat, sources, memo, None)
-                })?;
-                let dependencies = (built.graph(), built.types());
-                let refused = !javascript::debug_uses(compat, &optimized).is_empty();
-                let mut hashes = Vec::new();
-                for (mode, kind) in [
-                    ("dev", javascript::Kind::Dev),
-                    ("debug", javascript::Kind::Debug),
-                    ("optimize", javascript::Kind::Optimize),
-                ] {
-                    if refused && kind == javascript::Kind::Optimize {
-                        hashes.push("-".to_owned());
-                        continue;
-                    }
-                    let js = javascript::program(
-                        compat,
-                        kind,
-                        "author/project",
-                        dependencies.clone(),
-                        optimized.clone(),
-                    );
-                    keep_javascript(compat, &project.case, mode, &js);
-                    hashes.push(sha256(&js));
-                }
-                return Ok(format!("javascript {}", hashes.join(" ")));
-            }
-            checked
-        }
+        Suite::JavaScript => Some(scripts(compat, case, sources, &optimized)?),
         Suite::Graphs => {
-            let Built {
-                checked, optimized, ..
-            } = built(build, Goal::Optimize);
-            if matches!(checked, Checked::Fine) {
-                // elm writes no `.elmo` for a root outside the source
-                // directories, which it compiles but doesn't keep.
-                let outside: Vec<String> = (project.paths.iter())
-                    .map(|p| project.root.join(p))
-                    .filter(|p| !env.src_dirs().iter().any(|d| p.starts_with(d)))
-                    .filter_map(|p| std::fs::read_to_string(p).ok())
-                    .map(|text: String| {
-                        // A module without a header is `Main`.
-                        let header = (text.lines())
-                            .find(|l| l.starts_with("module ") || l.starts_with("port module "));
-                        (header.and_then(|h| h.split("module ").nth(1)))
-                            .and_then(|after| after.split_whitespace().next())
-                            .unwrap_or("Main")
-                            .to_owned()
-                    })
-                    .collect();
-                let modules: Vec<(String, Vec<u8>)> = (optimized.graphs.into_iter())
-                    .filter(|(name, _)| !outside.contains(&name.to_string()))
-                    .map(|(name, graph)| {
-                        (name.to_string(), binary::encode_local_graph(&graph, compat))
-                    })
-                    .collect();
-                let cell = corpus_runs::graphs_cell(modules.clone());
-                return Ok(match differing(compat, &project.case, &modules) {
-                    Some(why) if !why.is_empty() => format!("{cell} ({why})"),
-                    _ => cell,
-                });
-            }
-            checked
+            let modules = graphs(compat, project, &env, optimized);
+            differ = differing(compat, case, &modules).filter(|why| !why.is_empty());
+            Some(graphs_cell(&modules))
         }
     };
+    let cell = match made {
+        Some(cell) => cell,
+        None => reported(project, &checked, compat)?,
+    };
+    if cell == *expected {
+        return Ok(());
+    }
+    let differ = differ.map_or_else(String::new, |why| format!(" ({why})"));
+    Err(format!("nomi: {cell}{differ}\n  elm:  {expected}"))
+}
+
+/// The cell of the report `nomi check` gives on `project` as elm, with
+/// the project's directory written `$ROOT`.
+fn reported(project: &Project, checked: &Checked, compat: Compat) -> Result<Cell, String> {
     let mut console = Captured::default();
-    check::show(&mut console, &root, &checked, compat, Style::Json);
-    let root = root.to_str().ok_or("a path that isn't UTF-8")?;
-    let report = console.err.trim_end().replace(root, "$ROOT");
-    Ok(corpus_runs::cell(&report))
+    check::show(&mut console, &project.root, checked, compat, Style::Json);
+    let root = project.root.to_str().ok_or("a path that isn't UTF-8")?;
+    Ok(Cell::of_report(
+        &console.err.trim_end().replace(root, "$ROOT"),
+    ))
 }
 
-#[derive(Default)]
-struct Captured {
-    err: String,
+/// The JavaScript cell of an app nomi checked as `compat`, optimized as
+/// `optimized`, with `sources` its dependencies'.
+fn scripts(
+    compat: Compat,
+    case: &str,
+    sources: &[(Name, PathBuf)],
+    optimized: &Optimized,
+) -> Result<Cell, String> {
+    let built = dependencies(compat, sources)?;
+    let refused = !javascript::debug_uses(compat, optimized).is_empty();
+    let dependencies = (built.graph(), built.types());
+    let hashes = Mode::ALL.map(|mode| {
+        let kind = match mode {
+            Mode::Dev => javascript::Kind::Dev,
+            Mode::Debug => javascript::Kind::Debug,
+            Mode::Optimize if refused => return None,
+            Mode::Optimize => javascript::Kind::Optimize,
+        };
+        let js = javascript::program(
+            compat,
+            kind,
+            "author/project",
+            dependencies.clone(),
+            optimized.clone(),
+        );
+        let file = format!("{}.{}.js", sandbox_id(case), mode.name());
+        kept(Suite::JavaScript, compat, &file, &js);
+        Some(sha256(&js))
+    });
+    Ok(Cell::JavaScript(hashes))
 }
 
-impl Console for Captured {
-    fn out(&mut self, _: &str) {}
-
-    fn err(&mut self, text: &str) {
-        self.err.push_str(text);
-    }
-
-    fn read_line(&mut self) -> io::Result<Option<String>> {
-        Ok(None)
-    }
-
-    fn read_all(&mut self) -> io::Result<Vec<u8>> {
-        Ok(Vec::new())
-    }
+/// The graph of each module nomi optimized of `project`, built in `env`,
+/// that elm writes an `.elmo` for: each module's name and its encoding.
+fn graphs(
+    compat: Compat,
+    project: &Project,
+    env: &Env,
+    optimized: Optimized,
+) -> Vec<(String, Vec<u8>)> {
+    // elm writes no `.elmo` for a root outside the source directories,
+    // which it compiles but doesn't keep.
+    let outside: Vec<String> = (project.paths.iter())
+        .map(|p| project.root.join(p))
+        .filter(|p| !env.src_dirs().iter().any(|d| p.starts_with(d)))
+        .filter_map(|p| fs::read_to_string(p).ok())
+        .map(|text: String| {
+            // A module without a header is `Main`.
+            let header =
+                (text.lines()).find(|l| l.starts_with("module ") || l.starts_with("port module "));
+            (header.and_then(|h| h.split("module ").nth(1)))
+                .and_then(|after| after.split_whitespace().next())
+                .unwrap_or("Main")
+                .to_owned()
+        })
+        .collect();
+    (optimized.graphs.into_iter())
+        .filter(|(name, _)| !outside.contains(&name.to_string()))
+        .map(|(name, graph)| (name.to_string(), binary::encode_local_graph(&graph, compat)))
+        .collect()
 }
 
 /// `cargo xtask corpus graph-diff`: where the graph in `nomi` first
@@ -417,7 +333,7 @@ pub(crate) fn graph_diff(v: &str, nomi: &Path, elm: &Path) -> Result<()> {
     let compat: Compat = v.parse()?;
     // An `o.dat` is a whole graph, read here as a module's without main.
     let read = |path: &Path| -> Result<nomi_compiler::optimized::LocalGraph> {
-        let bytes = std::fs::read(path)?;
+        let bytes = fs::read(path)?;
         if path.extension().is_some_and(|e| e == "dat") {
             let graph = binary::decode_global_graph(&bytes, compat)
                 .with_context(|| format!("{} doesn't decode", path.display()))?;
@@ -440,15 +356,14 @@ pub(crate) fn graph_diff(v: &str, nomi: &Path, elm: &Path) -> Result<()> {
             Some(n) if n != node => {
                 let (a, b) = (format!("{n:?}"), format!("{node:?}"));
                 let at = a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count();
-                let from = at.saturating_sub(150);
-                let end = |s: &str| s.len().min(at + 250);
+                let (from, to) = (at.saturating_sub(150), at + 250);
                 println!(
                     "{} {}.{} differs at {at}:\n  nomi: …{}\n  elm:  …{}",
                     global.home.package,
                     global.home.module,
                     global.name,
-                    &a[from..end(&a)],
-                    &b[from..end(&b)]
+                    window(&a, from, to),
+                    window(&b, from, to)
                 );
             }
             Some(_) => {}
@@ -464,4 +379,57 @@ pub(crate) fn graph_diff(v: &str, nomi: &Path, elm: &Path) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// `text` from byte `from` to byte `to`, each moved back to the start of
+/// the character it falls in.
+fn window(text: &str, from: usize, to: usize) -> &str {
+    let start = |at: usize| {
+        (0..=at.min(text.len()))
+            .rev()
+            .find(|&i| text.is_char_boundary(i))
+            .unwrap_or(0)
+    };
+    &text[start(from)..start(to)]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_end_between_characters() {
+        assert_eq!(window("abcdef", 1, 4), "bcd");
+        assert_eq!(window("aéb", 2, 3), "é");
+        assert_eq!(window("aéb", 0, 2), "a");
+        assert_eq!(window("aéb", 0, 99), "aéb");
+    }
+
+    #[test]
+    fn cases_lose_their_release() {
+        assert_eq!(oracle_case("app/todomvc on 0.19.1"), "app/todomvc");
+        assert_eq!(oracle_case("elm/url@1.0.0"), "elm/url@1.0.0");
+    }
+
+    #[test]
+    fn the_oracles_cells_read_back_as_written() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        for suite in [
+            Suite::Docs,
+            Suite::Check,
+            Suite::Graphs,
+            Suite::Objects,
+            Suite::JavaScript,
+        ] {
+            let text = fs::read_to_string(root.join(suite.file())).unwrap();
+            let columns = load(root, suite).unwrap();
+            for line in text.lines().filter(|l| !l.starts_with('#')).skip(1) {
+                let (case, cells) = line.split_once('\t').unwrap();
+                let written: Vec<String> = (columns.values())
+                    .map(|column| column[case].to_string())
+                    .collect();
+                assert_eq!(written.join("\t"), cells);
+            }
+        }
+    }
 }

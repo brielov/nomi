@@ -1,9 +1,11 @@
 //! Crate edges must be a subset of the graph in architecture §4.
 
+use cargo_metadata::DependencyKind;
+
 /// Allowed dependencies between nomi crates, by short name (`nomi-` stripped).
 /// This table is the enforced form of docs/architecture.md §4; change both
 /// together, with a DECISIONS.md entry.
-pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
+const ALLOWED: &[(&str, &[&str])] = &[
     ("base", &[]),
     ("syntax", &["base"]),
     ("format", &["base", "syntax"]),
@@ -57,7 +59,7 @@ const TESTKIT: &str = "testkit";
 pub(crate) struct Edge {
     pub from: String,
     pub to: String,
-    pub dev: bool,
+    pub kind: DependencyKind,
 }
 
 /// `crates` are the nomi crates in the workspace and `edges` their
@@ -72,9 +74,9 @@ pub(crate) fn check(crates: &[String], edges: &[Edge]) -> Vec<String> {
             ));
         }
     }
-    for Edge { from, to, dev } in edges {
+    for Edge { from, to, kind } in edges {
         if to == TESTKIT {
-            if !dev {
+            if *kind != DependencyKind::Development {
                 violations.push(format!(
                     "nomi-{from} may depend on nomi-testkit only as a dev-dependency"
                 ));
@@ -110,13 +112,13 @@ mod tests {
         Edge {
             from: from.to_string(),
             to: to.to_string(),
-            dev: false,
+            kind: DependencyKind::Normal,
         }
     }
 
     fn dev_edge(from: &str, to: &str) -> Edge {
         Edge {
-            dev: true,
+            kind: DependencyKind::Development,
             ..edge(from, to)
         }
     }

@@ -1,14 +1,17 @@
 //! Real applications, pinned by commit and tree, checked out into the cache.
 
 use std::collections::BTreeMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
+use nomi_testkit::{files_below, tree_digest};
 use serde::Deserialize;
 
-use super::{corpus_dir, files_below, tree_digest};
+use super::corpus_dir;
 use crate::download;
+use crate::oracle::remove_tree;
 use crate::references::platform;
 use crate::refs;
 
@@ -33,38 +36,44 @@ pub(crate) struct App {
     pub root: String,
     pub entries: Vec<String>,
     pub manifest_sha256: String,
-    pub prepare: Option<Prepare>,
+    prepare: Option<Prepare>,
 }
 
 /// Code generation with sbt that must run before the app compiles.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
-pub(crate) struct Prepare {
-    pub sbt_task: String,
-    pub input: String,
-    pub input_sha256: String,
-    pub output: String,
-    pub files: usize,
-    pub output_sha256: String,
-    pub sbt_launcher: Pinned,
-    pub jdk: BTreeMap<String, Pinned>,
+struct Prepare {
+    sbt_task: String,
+    input: String,
+    input_sha256: String,
+    output: String,
+    files: usize,
+    output_sha256: String,
+    sbt_launcher: Pinned,
+    jdk: BTreeMap<String, Pinned>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Pinned {
-    pub url: String,
-    pub sha256: String,
+struct Pinned {
+    url: String,
+    sha256: String,
 }
 
 pub(crate) fn load(root: &Path) -> Result<Apps> {
-    let text =
-        std::fs::read_to_string(root.join(FILE)).with_context(|| format!("reading {FILE}"))?;
+    let text = fs::read_to_string(root.join(FILE)).with_context(|| format!("reading {FILE}"))?;
     toml::from_str(&text).with_context(|| format!("parsing {FILE}"))
 }
 
 pub(crate) fn app_dir(corpus: &Path, app: &App) -> PathBuf {
     corpus.join("apps").join(&app.name)
+}
+
+/// An app's `elm.json`, as its checkout under `corpus` has it.
+pub(crate) fn manifest(corpus: &Path, app: &App) -> Result<String> {
+    let path = app_dir(corpus, app).join(&app.root).join("elm.json");
+    fs::read_to_string(&path)
+        .with_context(|| format!("reading {}; run `cargo xtask corpus fetch`", path.display()))
 }
 
 pub(crate) fn fetch(root: &Path) -> Result<()> {
@@ -81,7 +90,7 @@ fn fetch_one(corpus: &Path, app: &App) -> Result<()> {
     let tree = refs::tree(&dir)?;
     download::verify("tree", &app.tree, &tree)?;
     let root = dir.join(&app.root);
-    let manifest = std::fs::read(root.join("elm.json")).context("reading elm.json")?;
+    let manifest = fs::read(root.join("elm.json")).context("reading elm.json")?;
     download::verify(
         "elm.json",
         &app.manifest_sha256,
@@ -99,7 +108,7 @@ fn fetch_one(corpus: &Path, app: &App) -> Result<()> {
 }
 
 fn run_prepare(corpus: &Path, dir: &Path, prepare: &Prepare) -> Result<()> {
-    let input = std::fs::read(dir.join(&prepare.input)).context("reading the input")?;
+    let input = fs::read(dir.join(&prepare.input)).context("reading the input")?;
     download::verify(
         &prepare.input,
         &prepare.input_sha256,
@@ -107,7 +116,7 @@ fn run_prepare(corpus: &Path, dir: &Path, prepare: &Prepare) -> Result<()> {
     )?;
     let output = dir.join(&prepare.output);
     let stamp = dir.join(PREPARED);
-    if std::fs::read_to_string(&stamp).ok().as_deref() != Some(prepare.output_sha256.as_str()) {
+    if !download::stamped(&stamp, &prepare.output_sha256) {
         let java = jdk(corpus, prepare)?;
         let launcher = cached(corpus, &prepare.sbt_launcher, "sbt-launch.jar")?;
         let sbt = corpus.join("tools").join("sbt-home");
@@ -149,7 +158,7 @@ fn run_prepare(corpus: &Path, dir: &Path, prepare: &Prepare) -> Result<()> {
         &prepare.output_sha256,
         &tree_digest(&output, &files)?,
     )?;
-    std::fs::write(&stamp, &prepare.output_sha256)?;
+    fs::write(&stamp, &prepare.output_sha256)?;
     eprintln!("  {} verified ({} files)", prepare.output, files.len());
     Ok(())
 }
@@ -157,7 +166,7 @@ fn run_prepare(corpus: &Path, dir: &Path, prepare: &Prepare) -> Result<()> {
 /// Downloads `pinned` into the tool cache once and returns its path.
 fn cached(corpus: &Path, pinned: &Pinned, name: &str) -> Result<PathBuf> {
     let path = corpus.join("tools").join(name);
-    if path.exists() && nomi_testkit::sha256_hex(&std::fs::read(&path)?) == pinned.sha256 {
+    if path.exists() && nomi_testkit::sha256_hex(&fs::read(&path)?) == pinned.sha256 {
         return Ok(path);
     }
     let bytes = download::get(&pinned.url)?;
@@ -179,20 +188,18 @@ fn jdk(corpus: &Path, prepare: &Prepare) -> Result<PathBuf> {
         return Ok(java);
     }
     let archive = cached(corpus, pinned, "jdk.tar.gz")?;
-    let bytes = std::fs::read(&archive)?;
+    let bytes = fs::read(&archive)?;
     let partial = dir.with_extension("partial");
-    if partial.exists() {
-        std::fs::remove_dir_all(&partial)?;
-    }
+    remove_tree(&partial)?;
     tar::Archive::new(flate2::read::GzDecoder::new(&bytes[..]))
         .unpack(&partial)
         .context("unpacking the JDK")?;
-    std::fs::rename(&partial, &dir)?;
+    fs::rename(&partial, &dir)?;
     find_java(&dir).context("the JDK archive has no bin/java")
 }
 
 fn find_java(dir: &Path) -> Option<PathBuf> {
-    let top = std::fs::read_dir(dir).ok()?.flatten().next()?.path();
+    let top = fs::read_dir(dir).ok()?.flatten().next()?.path();
     let exe = format!("java{}", std::env::consts::EXE_SUFFIX);
     [
         top.join("bin").join(&exe),

@@ -273,23 +273,21 @@ fn collect(
                     occurrence.before = plain(i.checked_sub(1).map(|j| &items[j]));
                     occurrence.after = plain(items.get(i + 1));
                 }
-                index = start + count_nodes(&items[..=i]);
+                index += count_nodes(item);
             }
         }
     }
     Ok(())
 }
 
-fn count_nodes(rules: &[Rule]) -> usize {
-    rules
-        .iter()
-        .map(|rule| match rule {
-            Rule::Node(_) | Rule::Labeled { .. } => 1,
-            Rule::Token(_) => 0,
-            Rule::Opt(rule) | Rule::Rep(rule) => count_nodes(std::slice::from_ref(rule)),
-            Rule::Alt(rules) | Rule::Seq(rules) => count_nodes(rules),
-        })
-        .sum()
+/// How many node occurrences `rule` collects.
+fn count_nodes(rule: &Rule) -> usize {
+    match rule {
+        Rule::Node(_) | Rule::Labeled { .. } => 1,
+        Rule::Token(_) => 0,
+        Rule::Opt(rule) | Rule::Rep(rule) => count_nodes(rule),
+        Rule::Alt(rules) | Rule::Seq(rules) => rules.iter().map(count_nodes).sum(),
+    }
 }
 
 fn occurrence(grammar: &Grammar, node: Node, label: Option<String>, count: Count) -> Occurrence {

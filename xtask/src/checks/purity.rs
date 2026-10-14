@@ -14,7 +14,7 @@ pub(crate) const PURE: &[&str] = &[
 /// External crates a pure crate may reach through normal dependencies,
 /// directly or transitively. Before adding one, check that it does no I/O,
 /// spawns no threads and reads no clock or environment.
-pub(crate) const ALLOWED_EXTERNAL: &[&str] = &[
+const ALLOWED_EXTERNAL: &[&str] = &[
     // rowan and its dependencies
     "rowan",
     "countme",
@@ -200,37 +200,52 @@ fn std_modules(code: &str) -> Vec<(usize, String)> {
     found
 }
 
+/// What [`blanked`] does with comments.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Comments {
+    Blank,
+    Keep,
+}
+
 /// Replaces comments and the contents of string and char literals with
 /// spaces, keeping newlines so offsets still map to the right lines.
 pub(crate) fn strip_comments_and_strings(source: &str) -> String {
+    blanked(source, Comments::Blank)
+}
+
+/// Replaces the contents of string and char literals with spaces, and
+/// comments too where `comments` says so, keeping newlines so offsets
+/// still map to the right lines.
+pub(crate) fn blanked(source: &str, comments: Comments) -> String {
     let chars: Vec<char> = source.chars().collect();
     let mut out = String::with_capacity(source.len());
-    let blank = |c: char| if c == '\n' { '\n' } else { ' ' };
+    let comment = |c: char| match comments {
+        Comments::Blank => blank(c),
+        Comments::Keep => c,
+    };
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
         let next = chars.get(i + 1).copied();
         if c == '/' && next == Some('/') {
             while i < chars.len() && chars[i] != '\n' {
-                out.push(' ');
+                out.push(comment(chars[i]));
                 i += 1;
             }
         } else if c == '/' && next == Some('*') {
             let mut depth = 0;
             while i < chars.len() {
-                if chars[i] == '/' && chars.get(i + 1) == Some(&'*') {
-                    depth += 1;
-                    out.push_str("  ");
-                    i += 2;
-                } else if chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
-                    depth -= 1;
-                    out.push_str("  ");
+                let pair = (chars[i], chars.get(i + 1).copied());
+                if matches!(pair, ('/', Some('*')) | ('*', Some('/'))) {
+                    depth += if pair.0 == '/' { 1 } else { -1 };
+                    out.push(comment(pair.0));
+                    out.push(comment(chars[i + 1]));
                     i += 2;
                     if depth == 0 {
                         break;
                     }
                 } else {
-                    out.push(blank(chars[i]));
+                    out.push(comment(chars[i]));
                     i += 1;
                 }
             }
@@ -261,43 +276,41 @@ pub(crate) fn strip_comments_and_strings(source: &str) -> String {
             }
             out.push('"');
             i = (j + closing.len()).min(chars.len());
-        } else if c == '"' {
-            out.push('"');
-            i += 1;
-            while i < chars.len() && chars[i] != '"' {
-                if chars[i] == '\\' {
-                    out.push(' ');
-                    i += 1;
-                }
-                if i < chars.len() {
-                    out.push(blank(chars[i]));
-                    i += 1;
-                }
-            }
-            out.push('"');
-            i += 1;
-        } else if c == '\'' && (next == Some('\\') || chars.get(i + 2) == Some(&'\'')) {
-            // A char literal; a lone quote is a lifetime and stays as is.
-            out.push('\'');
-            i += 1;
-            while i < chars.len() && chars[i] != '\'' {
-                if chars[i] == '\\' {
-                    out.push(' ');
-                    i += 1;
-                }
-                if i < chars.len() {
-                    out.push(' ');
-                    i += 1;
-                }
-            }
-            out.push('\'');
-            i += 1;
+        } else if c == '"' || c == '\'' && (next == Some('\\') || chars.get(i + 2) == Some(&'\'')) {
+            // A string or a char literal; a lone quote is a lifetime and
+            // stays as is.
+            i = blank_literal(&chars, i, &mut out);
         } else {
             out.push(c);
             i += 1;
         }
     }
     out
+}
+
+/// A space for `c`, or the newline it is.
+fn blank(c: char) -> char {
+    if c == '\n' { '\n' } else { ' ' }
+}
+
+/// Writes the literal at `i` in `chars`, quoted as it opens, with its
+/// contents blank, escapes and all; gives where it ends.
+fn blank_literal(chars: &[char], mut i: usize, out: &mut String) -> usize {
+    let quote = chars[i];
+    out.push(quote);
+    i += 1;
+    while i < chars.len() && chars[i] != quote {
+        if chars[i] == '\\' {
+            out.push(' ');
+            i += 1;
+        }
+        if let Some(&c) = chars.get(i) {
+            out.push(blank(c));
+            i += 1;
+        }
+    }
+    out.push(quote);
+    i + 1
 }
 
 #[cfg(test)]

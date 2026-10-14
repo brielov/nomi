@@ -2,6 +2,8 @@
 //! what a piece of code does stays true, which step wrote it is git's to
 //! say.
 
+use super::purity::{Comments, blanked};
+
 /// Checks one file's comments: `plan 9.4`, `steps 9.8`, `(M5)`, `CR.2`.
 pub(crate) fn check(label: &str, source: &str) -> Vec<String> {
     let mut violations = Vec::new();
@@ -9,7 +11,8 @@ pub(crate) fn check(label: &str, source: &str) -> Vec<String> {
     if label.ends_with("checks/comments.rs") {
         return violations;
     }
-    for (number, line) in source.lines().enumerate() {
+    // With strings blank, a `//` in one isn't a comment.
+    for (number, line) in blanked(source, Comments::Keep).lines().enumerate() {
         let Some(at) = line.find("//") else { continue };
         let words: Vec<&str> = line[at + 2..]
             .split_whitespace()
@@ -88,5 +91,6 @@ mod tests {
         assert_eq!(named("// the plan is to retry\n"), 0);
         assert_eq!(named("let plan = 9.4; // no comment here names one\n"), 0);
         assert_eq!(named("// Mb and M are letters\n"), 0);
+        assert_eq!(named("let url = \"https://M5\"; // a URL\n"), 0);
     }
 }

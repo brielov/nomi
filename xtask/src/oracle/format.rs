@@ -17,7 +17,7 @@ use super::process::run_within;
 use super::{generated, pinned_binary, remove_tree};
 use crate::corpus::format::{self as corpus_format, Outcome};
 use crate::corpus::parallel_on;
-use crate::corpus::syntax as corpus_syntax;
+use crate::corpus::syntax::{self as corpus_syntax, Sources};
 use crate::references::References;
 
 /// The fixture suite: inputs, elm-format's outputs and `passing.txt`.
@@ -95,10 +95,9 @@ fn corpus(root: &Path, binary: &Path, jobs: usize) -> Result<()> {
         )
     });
     let mut table = format!(
-        "{}\n# modules {} sources {}\ncase\tpath\toutput\n",
+        "{}\n{}\ncase\tpath\toutput\n",
         generated("format"),
-        modules.len(),
-        corpus_syntax::digest(&modules)?,
+        Sources::of(&modules)?,
     );
     // Only modules elm-format changes or refuses.
     for (m, outcome) in modules.iter().zip(outcomes) {

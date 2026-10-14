@@ -152,7 +152,8 @@ enum CorpusCommand {
     },
     /// Tier 2, by hand: whether nomi answers the language-server session
     /// of every sampled corpus project as elm-language-server did (`cargo
-    /// xtask oracle corpus-lsp`).
+    /// xtask oracle corpus-lsp`). Runs from xtask's release build, which
+    /// it builds: each answer has a deadline, which some miss unoptimized.
     Lsp {
         /// Record newly passing answers in corpus/lsp/passing.txt.
         #[arg(long)]
@@ -465,6 +466,7 @@ fn run_corpus(root: &Path, command: CorpusCommand) -> Result<()> {
         CorpusCommand::GraphDiff { release, nomi, elm } => {
             corpus::runs::graph_diff(&release, &nomi, &elm)
         }
+        CorpusCommand::Lsp { .. } if cfg!(debug_assertions) => optimized(root),
         CorpusCommand::Lsp { record, only } => corpus::lsp::check(root, record, only.as_deref()),
         CorpusCommand::Graphs { only } => corpus::runs::check(root, Suite::Graphs, only.as_deref()),
         CorpusCommand::Outline => corpus::outline::check(root),
@@ -560,6 +562,17 @@ fn ratchet(root: &Path, suite: &str) -> Result<()> {
         ],
         &[(nomi_testkit::ratchet::UPDATE_VAR, "1")],
     )
+}
+
+/// Runs this command again from xtask's release build: a suite that
+/// gives nomi deadlines runs it in this process, and a debug build of
+/// nomi misses some, such as the 120 seconds the language server has for
+/// `matsubara0507/octicons-elm`'s references.
+fn optimized(root: &Path) -> Result<()> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let run = "run --quiet --release --locked --package xtask --".split(' ');
+    let run: Vec<&str> = run.chain(args.iter().map(String::as_str)).collect();
+    cargo(root, &run)
 }
 
 fn architecture(root: &Path) -> Result<()> {

@@ -21,8 +21,23 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::Result;
+use nomi_testkit::files_below;
 
-use crate::oracle::cache_dir;
+use crate::oracle::{cache_dir, remove_tree};
+
+/// What a project's copy for a language-server session or a test run
+/// leaves out: what tools write, and Node version pins, `package.json`'s
+/// engines among them, which would have a version manager on the path
+/// fetch a Node to run elm-language-server or elm-test with.
+const NOT_COPIED: [&str; 7] = [
+    ".git",
+    "elm-stuff",
+    "node_modules",
+    ".nvmrc",
+    ".node-version",
+    ".tool-versions",
+    "package.json",
+];
 
 pub(crate) fn corpus_dir() -> Result<PathBuf> {
     Ok(cache_dir()?.join("corpus"))
@@ -49,51 +64,32 @@ pub(crate) fn parallel_on<T: Sync, R: Send>(
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some(item) = items.get(i) else { break };
                     let result = f(item);
-                    results.lock().unwrap()[i] = Some(result);
+                    nomi_base::lock(&results)[i] = Some(result);
                 }
             });
         }
     });
-    results
-        .into_inner()
-        .unwrap()
+    (results.into_inner())
+        .expect("no worker panicked")
         .into_iter()
         .map(|r| r.expect("every item ran"))
         .collect()
 }
 
-/// Every regular file below `root`, as sorted `/`-separated relative paths.
-pub(crate) fn files_below(root: &Path) -> Result<Vec<String>> {
-    let mut files = Vec::new();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        for entry in std::fs::read_dir(&dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if entry.file_type()?.is_dir() {
-                stack.push(path);
-            } else {
-                let relative = path.strip_prefix(root)?;
-                files.push(relative.to_string_lossy().replace('\\', "/"));
-            }
-        }
-    }
-    files.sort();
-    Ok(files)
+/// `from` copied afresh to `to`, but for [`NOT_COPIED`].
+pub(crate) fn copy_project(from: &Path, to: &Path) -> Result<()> {
+    remove_tree(to)?;
+    nomi_testkit::copy_tree(from, to, |path| {
+        !NOT_COPIED.iter().any(|name| path.ends_with(name))
+    })?;
+    Ok(())
 }
 
-/// The SHA-256 of a `sha256sum`-style listing of `files` under `root`, so a
-/// whole generated tree is pinned by one hash.
-pub(crate) fn tree_digest(root: &Path, files: &[String]) -> Result<String> {
-    let mut listing = String::new();
-    for file in files {
-        let bytes = std::fs::read(root.join(file))?;
-        listing.push_str(&nomi_testkit::sha256_hex(&bytes));
-        listing.push_str("  ./");
-        listing.push_str(file);
-        listing.push('\n');
-    }
-    Ok(nomi_testkit::sha256_hex(listing.as_bytes()))
+/// Whether the file at `path` within a corpus project is one of its Elm
+/// modules, rather than something its tools wrote or fetched.
+pub(crate) fn is_module(path: &str) -> bool {
+    let tools = |part| part == "elm-stuff" || part == "node_modules";
+    path.ends_with(".elm") && !path.starts_with(".git/") && !path.split('/').any(tools)
 }
 
 pub(crate) fn stats(root: &Path) -> Result<()> {
@@ -108,9 +104,9 @@ pub(crate) fn stats(root: &Path) -> Result<()> {
             continue;
         }
         fetched += 1;
-        let (m, l) = elm_counts(&path)?;
-        modules += m;
-        lines += l;
+        let counts = elm_counts(&path)?;
+        modules += counts.modules;
+        lines += counts.lines;
     }
     println!(
         "packages  {} pinned, {} unavailable, {fetched} fetched, {modules} modules, {lines} lines",
@@ -120,8 +116,11 @@ pub(crate) fn stats(root: &Path) -> Result<()> {
     for app in apps::load(root)?.app {
         let path = apps::app_dir(&dir, &app);
         if path.join(".git").exists() {
-            let (m, l) = elm_counts(&path)?;
-            println!("app       {:<14} {m} modules, {l} lines", app.name);
+            let Counts { modules, lines } = elm_counts(&path)?;
+            println!(
+                "app       {:<14} {modules} modules, {lines} lines",
+                app.name
+            );
         } else {
             println!("app       {:<14} not fetched", app.name);
         }
@@ -129,20 +128,24 @@ pub(crate) fn stats(root: &Path) -> Result<()> {
     compat::stats(root)
 }
 
-/// Number of `.elm` files below `dir` and their total line count.
-fn elm_counts(dir: &Path) -> Result<(usize, usize)> {
-    let mut modules = 0;
-    let mut lines = 0;
-    for file in files_below(dir)? {
-        if file.ends_with(".elm") && !file.starts_with(".git/") && !file.contains("/elm-stuff/") {
-            modules += 1;
-            lines += std::fs::read(dir.join(&file))?
-                .iter()
-                .filter(|&&b| b == b'\n')
-                .count();
-        }
+/// How many modules a project has and how many lines they hold.
+struct Counts {
+    modules: usize,
+    lines: usize,
+}
+
+fn elm_counts(dir: &Path) -> Result<Counts> {
+    let mut counts = Counts {
+        modules: 0,
+        lines: 0,
+    };
+    for file in files_below(dir)?.into_iter().filter(|f| is_module(f)) {
+        counts.modules += 1;
+        counts.lines += (std::fs::read(dir.join(&file))?.iter())
+            .filter(|&&b| b == b'\n')
+            .count();
     }
-    Ok((modules, lines))
+    Ok(counts)
 }
 
 #[cfg(test)]
@@ -159,22 +162,29 @@ mod tests {
     }
 
     #[test]
-    fn tree_digest_is_a_sha256sum_listing() {
-        let dir = std::env::temp_dir().join(format!("nomi-xtask-tree-{}", std::process::id()));
-        std::fs::create_dir_all(dir.join("sub")).unwrap();
-        std::fs::write(dir.join("a.txt"), "a").unwrap();
-        std::fs::write(dir.join("sub/b.txt"), "b").unwrap();
-        let files = files_below(&dir).unwrap();
-        assert_eq!(files, ["a.txt", "sub/b.txt"]);
-        let listing = format!(
-            "{}  ./a.txt\n{}  ./sub/b.txt\n",
-            nomi_testkit::sha256_hex(b"a"),
-            nomi_testkit::sha256_hex(b"b")
-        );
-        assert_eq!(
-            tree_digest(&dir, &files).unwrap(),
-            nomi_testkit::sha256_hex(listing.as_bytes())
-        );
-        std::fs::remove_dir_all(dir).unwrap();
+    fn modules_are_elm_files_tools_didnt_write() {
+        assert!(is_module("src/Main.elm"));
+        assert!(!is_module("src/Main.js"));
+        assert!(!is_module(".git/x.elm"));
+        assert!(!is_module("elm-stuff/0.19.1/A.elm"));
+        assert!(!is_module("tests/node_modules/b/A.elm"));
+    }
+
+    #[test]
+    fn copies_leave_out_what_tools_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let (from, to) = (dir.path().join("from"), dir.path().join("to"));
+        for file in [
+            "src/A.elm",
+            "elm-stuff/x",
+            "sub/package.json",
+            "package.json.bak",
+        ] {
+            let path = from.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "x").unwrap();
+        }
+        copy_project(&from, &to).unwrap();
+        assert_eq!(files_below(&to).unwrap(), ["package.json.bak", "src/A.elm"]);
     }
 }

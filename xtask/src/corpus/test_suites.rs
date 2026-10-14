@@ -12,15 +12,16 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use nomi_testkit::sha256_hex as sha256;
 use nomi_testkit::transcript::normalize_elm_test;
 use serde_json::Value;
 
-use super::{apps, corpus_dir};
+use super::{apps, copy_project, corpus_dir};
 use crate::oracle::cache_dir;
+use crate::oracle::process::run_within;
 use crate::oracle::transcripts::ElmTest;
 use crate::references::References;
 
@@ -76,79 +77,28 @@ fn sandbox() -> Result<PathBuf> {
     Ok(cache_dir()?.join("sandboxes/corpus/corpus-tests"))
 }
 
-/// `from` copied to `to`, past `elm-stuff`, `node_modules` and `.git`,
-/// and Node version pins, `package.json`'s engines among them, which would
-/// have a version manager on the path fetch a Node to run elm-test with.
-fn copy(from: &Path, to: &Path) -> Result<()> {
-    if to.exists() {
-        fs::remove_dir_all(to)?;
-    }
-    fs::create_dir_all(to)?;
-    for entry in fs::read_dir(from)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let skipped = [
-            ".git",
-            "elm-stuff",
-            "node_modules",
-            ".nvmrc",
-            ".node-version",
-            ".tool-versions",
-            "package.json",
-        ];
-        if skipped.iter().any(|n| name == *n) {
-            continue;
-        }
-        let kind = entry.file_type()?;
-        if kind.is_dir() {
-            copy(&entry.path(), &to.join(&name))?;
-        } else if kind.is_file() {
-            fs::copy(entry.path(), to.join(&name))?;
-        }
-    }
-    Ok(())
-}
-
-/// Runs `command` in a fresh copy of `dir` named `name`, under `who`'s
-/// part of the sandbox; its outcome, its normalized output kept beside.
-fn run(mut command: Command, who: &str, name: &str, dir: &Path, home: &str) -> Result<Outcome> {
+/// Runs `command` in a fresh copy of `dir` named `name`, its normalized
+/// output kept in `kept`; its outcome. A run past the limit is killed,
+/// and its output lost.
+fn run(mut command: Command, kept: &Path, name: &str, dir: &Path, home: &str) -> Result<Outcome> {
     let work = sandbox()?.join("work").join(name);
-    copy(dir, &work)?;
-    let mut child = command
+    copy_project(dir, &work)?;
+    command
         .args(ARGS)
         .current_dir(&work)
-        .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .with_context(|| format!("{name}: starting {who}"))?;
-    let read = |stream: Box<dyn std::io::Read + Send>| {
-        std::thread::spawn(move || {
-            let mut bytes = Vec::new();
-            let mut stream = stream;
-            let _ = stream.read_to_end(&mut bytes);
-            bytes
-        })
-    };
-    let stdout = read(Box::new(child.stdout.take().context("stdout")?));
-    let stderr = read(Box::new(child.stderr.take().context("stderr")?));
-    let started = Instant::now();
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break Some(status);
-        }
-        if started.elapsed() > LIMIT {
-            child.kill()?;
-            child.wait()?;
-            break None;
-        }
-        std::thread::sleep(Duration::from_millis(100));
+        .stderr(Stdio::piped());
+    let program = command.get_program().to_string_lossy().into_owned();
+    let ended = run_within(&mut command, &[], Some(LIMIT))
+        .with_context(|| format!("{name}: running {program}"))?;
+    let (exit, stdout, stderr) = match ended {
+        Some(output) => (output.status.code(), output.stdout, output.stderr),
+        None => (None, Vec::new(), Vec::new()),
     };
     let dir_text = work.display().to_string();
-    let stdout = normalize_elm_test(&stdout.join().unwrap_or_default(), &dir_text, home);
-    let stderr = normalize_elm_test(&stderr.join().unwrap_or_default(), &dir_text, home);
-    let kept = sandbox()?.join(who);
-    fs::create_dir_all(&kept)?;
+    let stdout = normalize_elm_test(&stdout, &dir_text, home);
+    let stderr = normalize_elm_test(&stderr, &dir_text, home);
+    fs::create_dir_all(kept)?;
     fs::write(kept.join(format!("{name}.json")), &stdout)?;
     fs::write(kept.join(format!("{name}.stderr")), &stderr)?;
     let text = String::from_utf8_lossy(&stdout);
@@ -161,7 +111,7 @@ fn run(mut command: Command, who: &str, name: &str, dir: &Path, home: &str) -> R
             .unwrap_or_else(|| "-".to_owned())
     };
     Ok(Outcome {
-        exit: status.and_then(|s| s.code()),
+        exit,
         passed: count("passed"),
         failed: count("failed"),
         digest: sha256(&stdout)[..16].to_owned(),
@@ -189,26 +139,20 @@ pub(crate) fn record(root: &Path, refs: &References, only: Option<&str>) -> Resu
     } else {
         BTreeMap::new()
     };
+    let kept = sandbox.join("elm-test");
     for (name, dir) in suites(root, only)? {
         let command = elm_test.command(&home);
-        let outcome = run(
-            command,
-            "elm-test",
-            &name,
-            &dir,
-            &home.display().to_string(),
-        )?;
+        let outcome = run(command, &kept, &name, &dir, &home.display().to_string())?;
         println!("{}", outcome.row(&name));
         rows.insert(name.clone(), outcome.row(&name));
     }
     let mut text = String::from(
-        "# app\texit\tpassed\tfailed\toutput\terrors: elm-test 0.19.3-0 with --report json --seed 12345 --fuzz 100 (plan 10.7)\n",
+        "# app\texit\tpassed\tfailed\toutput\terrors: elm-test 0.19.3-0 with --report json --seed 12345 --fuzz 100\n",
     );
     for row in rows.values() {
         text.push_str(row);
         text.push('\n');
     }
-    fs::create_dir_all(root.join("corpus/tests"))?;
     fs::write(root.join(ORACLE), text)?;
     Ok(())
 }
@@ -225,6 +169,7 @@ pub(crate) fn check(root: &Path, only: Option<&str>) -> Result<()> {
     let cache = cache_dir()?.join("nomi");
     let mut failures = Vec::new();
     let mut passed = 0;
+    let kept = sandbox()?.join("nomi");
     for (name, dir) in suites(root, only)? {
         let Some(expected) = oracle.get(&name) else {
             failures.push(format!("{name}: not recorded"));
@@ -232,7 +177,7 @@ pub(crate) fn check(root: &Path, only: Option<&str>) -> Result<()> {
         };
         let mut command = Command::new(&nomi);
         command.arg("test").env("NOMI_CACHE", &cache);
-        let outcome = run(command, "nomi", &name, &dir, &cache.display().to_string())?;
+        let outcome = run(command, &kept, &name, &dir, &cache.display().to_string())?;
         let actual = outcome.row(&name);
         if actual == *expected {
             passed += 1;

@@ -3,14 +3,16 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
-use std::io::Read;
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
 
 use super::{corpus_dir, parallel};
 use crate::download;
+use crate::oracle::remove_tree;
 
 const REGISTRY: &str = "https://package.elm-lang.org";
 const FILE: &str = "corpus/packages.toml";
@@ -38,7 +40,7 @@ pub(crate) struct Package {
 
 pub(crate) fn load(root: &Path) -> Result<Packages> {
     let path = root.join(FILE);
-    let text = std::fs::read_to_string(&path).with_context(|| format!("reading {FILE}"))?;
+    let text = fs::read_to_string(&path).with_context(|| format!("reading {FILE}"))?;
     toml::from_str(&text).with_context(|| format!("parsing {FILE}"))
 }
 
@@ -47,6 +49,18 @@ pub(crate) fn package_dir(corpus: &Path, package: &Package) -> PathBuf {
         .join("packages")
         .join(&package.name)
         .join(&package.version)
+}
+
+/// [`package_dir`], once the package is fetched and verified.
+pub(crate) fn fetched_dir(corpus: &Path, package: &Package) -> Result<PathBuf> {
+    let dir = package_dir(corpus, package);
+    ensure!(
+        download::stamped(&dir.join(STAMP), &package.sha1),
+        "{} {} is not fetched; run `cargo xtask corpus fetch`",
+        package.name,
+        package.version
+    );
+    Ok(dir)
 }
 
 /// Re-pins the corpus from the live registry: every package's latest
@@ -90,7 +104,7 @@ pub(crate) fn pin(root: &Path) -> Result<()> {
     }
     packages.sort_by(|a, b| a.name.cmp(&b.name));
     let text = render(&packages, &unavailable);
-    std::fs::write(root.join(FILE), text).with_context(|| format!("writing {FILE}"))?;
+    fs::write(root.join(FILE), text).with_context(|| format!("writing {FILE}"))?;
     eprintln!(
         "  pinned {} packages, {} unavailable",
         packages.len(),
@@ -153,19 +167,15 @@ pub(crate) fn fetch(root: &Path) -> Result<()> {
 fn fetch_one(corpus: &Path, package: &Package) -> Result<()> {
     let dir = package_dir(corpus, package);
     let stamp = dir.join(STAMP);
-    if std::fs::read_to_string(&stamp).ok().as_deref() == Some(package.sha1.as_str())
-        && !has_case_variants(&dir)?
-    {
+    if download::stamped(&stamp, &package.sha1) && !has_case_variants(&dir)? {
         return Ok(());
     }
     let url = download::zipball(&package.name, &package.version);
     let zip = download::get_quiet(&url)?;
     download::verify(&url, &package.sha1, &download::sha1(&zip))?;
-    if dir.exists() {
-        std::fs::remove_dir_all(&dir)?;
-    }
+    remove_tree(&dir)?;
     unzip_stripped(&zip, &dir)?;
-    std::fs::write(&stamp, &package.sha1)?;
+    fs::write(&stamp, &package.sha1)?;
     Ok(())
 }
 
@@ -177,7 +187,7 @@ fn fetch_one(corpus: &Path, package: &Package) -> Result<()> {
 /// same on every machine. jxxcarlson/meenylatex 14.1.1 has `Demo/src/*.elm`
 /// and `demo/src/Main.elm`, which a case-sensitive one would keep apart.
 fn unzip_stripped(bytes: &[u8], dir: &Path) -> Result<()> {
-    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).context("reading zip")?;
+    let mut archive = zip::ZipArchive::new(io::Cursor::new(bytes)).context("reading zip")?;
     // Each path unpacked so far, folded, to its first spelling.
     let mut spelled: HashMap<String, PathBuf> = HashMap::new();
     for i in 0..archive.len() {
@@ -196,14 +206,10 @@ fn unzip_stripped(bytes: &[u8], dir: &Path) -> Result<()> {
         }
         let target = dir.join(relative);
         if entry.is_dir() {
-            std::fs::create_dir_all(&target)?;
+            fs::create_dir_all(&target)?;
         } else if entry.is_file() {
-            let mut contents = Vec::new();
-            entry.read_to_end(&mut contents)?;
-            if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&target, contents)?;
+            fs::create_dir_all(target.parent().expect("a file in a directory"))?;
+            io::copy(&mut entry, &mut fs::File::create(&target)?)?;
         }
     }
     Ok(())
@@ -215,7 +221,7 @@ fn has_case_variants(dir: &Path) -> Result<bool> {
     let mut stack = vec![dir.to_path_buf()];
     while let Some(dir) = stack.pop() {
         let mut folded = HashSet::new();
-        for entry in std::fs::read_dir(&dir)? {
+        for entry in fs::read_dir(&dir)? {
             let entry = entry?;
             if !folded.insert(entry.file_name().to_string_lossy().to_lowercase()) {
                 return Ok(true);
@@ -258,25 +264,24 @@ mod tests {
 
     #[test]
     fn zipball_top_directory_is_stripped() {
-        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let mut zip = zip::ZipWriter::new(io::Cursor::new(Vec::new()));
         let options = zip::write::SimpleFileOptions::default();
         zip.add_directory("elm-core-abc/", options).unwrap();
         zip.start_file("elm-core-abc/src/Basics.elm", options)
             .unwrap();
-        std::io::Write::write_all(&mut zip, b"module Basics").unwrap();
+        io::Write::write_all(&mut zip, b"module Basics").unwrap();
         let bytes = zip.finish().unwrap().into_inner();
-        let dir = std::env::temp_dir().join(format!("nomi-xtask-zip-{}", std::process::id()));
-        unzip_stripped(&bytes, &dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        unzip_stripped(&bytes, dir.path()).unwrap();
         assert_eq!(
-            std::fs::read_to_string(dir.join("src/Basics.elm")).unwrap(),
+            fs::read_to_string(dir.path().join("src/Basics.elm")).unwrap(),
             "module Basics"
         );
-        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
     fn names_differing_in_case_unpack_as_the_first_spelling() {
-        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let mut zip = zip::ZipWriter::new(io::Cursor::new(Vec::new()));
         let options = zip::write::SimpleFileOptions::default();
         for (name, text) in [
             ("top/Demo/src/Style.elm", "style"),
@@ -284,26 +289,26 @@ mod tests {
             ("top/demo/SRC/main.elm", "last"),
         ] {
             zip.start_file(name, options).unwrap();
-            std::io::Write::write_all(&mut zip, text.as_bytes()).unwrap();
+            io::Write::write_all(&mut zip, text.as_bytes()).unwrap();
         }
         let bytes = zip.finish().unwrap().into_inner();
-        let dir = std::env::temp_dir().join(format!("nomi-xtask-case-{}", std::process::id()));
-        unzip_stripped(&bytes, &dir).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        unzip_stripped(&bytes, dir).unwrap();
         assert_eq!(
-            super::super::files_below(&dir).unwrap(),
+            nomi_testkit::files_below(dir).unwrap(),
             ["Demo/src/Main.elm", "Demo/src/Style.elm"]
         );
         assert_eq!(
-            std::fs::read_to_string(dir.join("Demo/src/Main.elm")).unwrap(),
+            fs::read_to_string(dir.join("Demo/src/Main.elm")).unwrap(),
             "last"
         );
-        assert!(!has_case_variants(&dir).unwrap());
+        assert!(!has_case_variants(dir).unwrap());
         // Only a filesystem that tells cases apart, unlike macOS's and
         // Windows' by default, can hold both spellings.
-        match std::fs::create_dir(dir.join("demo")) {
-            Ok(()) => assert!(has_case_variants(&dir).unwrap()),
-            Err(e) => assert_eq!(e.kind(), std::io::ErrorKind::AlreadyExists),
+        match fs::create_dir(dir.join("demo")) {
+            Ok(()) => assert!(has_case_variants(dir).unwrap()),
+            Err(e) => assert_eq!(e.kind(), io::ErrorKind::AlreadyExists),
         }
-        std::fs::remove_dir_all(dir).unwrap();
     }
 }

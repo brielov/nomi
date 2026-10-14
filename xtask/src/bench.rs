@@ -1,9 +1,8 @@
-//! `cargo xtask bench`: the scoreboard. The release build of
-//! nomi against the pinned upstream tools on every workload they share,
-//! each measured for wall time, CPU time and peak memory, with the same
-//! output from both. `bench elm`, `bench elm-format` and `bench lsp` print
-//! their part;
-//! the whole run also writes it into `docs/benchmarks.md`.
+//! `cargo xtask bench`: the scoreboard. The release build of nomi against
+//! the pinned upstream tools on every workload they share, each measured
+//! for wall time, CPU time and peak memory, with the same output from
+//! both. `bench elm`, `bench elm-format` and `bench lsp` print their
+//! part; the whole run also writes it into `docs/benchmarks.md`.
 
 pub(crate) mod elm;
 pub(crate) mod elm_format;
@@ -17,7 +16,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, ensure};
 
-use crate::oracle::cache_dir;
+use crate::oracle::{cache_dir, fresh_dir};
 use crate::references::References;
 use measure::Cost;
 
@@ -87,10 +86,7 @@ pub(crate) fn run(root: &Path, refs: &References, part: Option<Target>) -> Resul
     )?;
     let scratch = cache_dir()?.join("sandboxes").join("bench");
     let bin = scratch.join("bin");
-    if bin.exists() {
-        fs::remove_dir_all(&bin)?;
-    }
-    fs::create_dir_all(&bin)?;
+    fresh_dir(&bin)?;
     for name in ["elm", "elm-format", "nomi"] {
         fs::copy(root.join("target/release/nomi"), bin.join(name))?;
     }

@@ -10,6 +10,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
+use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result, ensure};
@@ -42,7 +43,7 @@ pub(crate) struct Classification {
     /// Packages whose range leaves out a Compat; every other pinned
     /// package admits them all.
     #[serde(default)]
-    pub package: Vec<Excluding>,
+    package: Vec<Excluding>,
     #[serde(default)]
     app: Vec<AppPins>,
 }
@@ -58,14 +59,14 @@ impl Classification {
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
-pub(crate) struct Excluding {
-    pub name: String,
-    pub version: String,
+struct Excluding {
+    name: String,
+    version: String,
     /// Absent when the package has no `elm.json`, which no release can
     /// install.
-    pub elm_version: Option<String>,
+    elm_version: Option<String>,
     #[serde(deserialize_with = "compat_list")]
-    pub admits: Vec<Compat>,
+    admits: Vec<Compat>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -93,8 +94,7 @@ fn compat_keys<'de, D: Deserializer<'de>>(map: D) -> Result<BTreeMap<Compat, Str
 
 /// `corpus/compat.toml`.
 pub(crate) fn load(root: &Path) -> Result<Classification> {
-    let text =
-        std::fs::read_to_string(root.join(FILE)).with_context(|| format!("reading {FILE}"))?;
+    let text = fs::read_to_string(root.join(FILE)).with_context(|| format!("reading {FILE}"))?;
     toml::from_str(&text).with_context(|| format!("parsing {FILE}"))
 }
 
@@ -110,7 +110,7 @@ pub(crate) fn with_elm_version(text: &str, compat: Compat) -> Option<String> {
 
 /// An application's `elm.json` with its `elm-version` set to `compat`,
 /// every other byte kept. Only applications name one version.
-pub(crate) fn rewrite_manifest(text: &str, compat: Compat) -> Result<String> {
+fn rewrite_manifest(text: &str, compat: Compat) -> Result<String> {
     let json: serde_json::Value = serde_json::from_str(text).context("parsing elm.json")?;
     ensure!(
         json["type"] == "application",
@@ -132,11 +132,7 @@ pub(crate) fn sandbox_manifest(
     app: &apps::App,
     compat: Compat,
 ) -> Result<String> {
-    let path = apps::app_dir(&corpus_dir()?, app)
-        .join(&app.root)
-        .join("elm.json");
-    let text = std::fs::read_to_string(&path)
-        .with_context(|| format!("reading {}; run `cargo xtask corpus fetch`", path.display()))?;
+    let text = apps::manifest(&corpus_dir()?, app)?;
     let rewritten = rewrite_manifest(&text, compat)?;
     let pin = classification
         .app
@@ -160,17 +156,10 @@ fn classify_fetched(root: &Path) -> Result<String> {
     let corpus = corpus_dir()?;
     let mut excluding = Vec::new();
     for package in &packages::load(root)?.packages {
-        let dir = packages::package_dir(&corpus, package);
-        ensure!(
-            dir.join(packages::STAMP).exists(),
-            "{} {} is not fetched; run `cargo xtask corpus fetch`",
-            package.name,
-            package.version
-        );
-        let path = dir.join("elm.json");
+        let path = packages::fetched_dir(&corpus, package)?.join("elm.json");
         let (elm_version, admits) = if path.exists() {
-            let text = std::fs::read_to_string(&path)
-                .with_context(|| format!("reading {}", path.display()))?;
+            let text =
+                fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
             let json: serde_json::Value = serde_json::from_str(&text)
                 .with_context(|| format!("parsing {}'s elm.json", package.name))?;
             let elm_version = json["elm-version"]
@@ -201,12 +190,7 @@ fn classify_fetched(root: &Path) -> Result<String> {
     }
     let mut app_pins = Vec::new();
     for app in apps::load(root)?.app {
-        let path = apps::app_dir(&corpus, &app)
-            .join(&app.root)
-            .join("elm.json");
-        let text = std::fs::read_to_string(&path).with_context(|| {
-            format!("reading {}; run `cargo xtask corpus fetch`", path.display())
-        })?;
+        let text = apps::manifest(&corpus, &app)?;
         let manifest_sha256 = (compats.iter())
             .map(|&c| {
                 let rewritten = rewrite_manifest(&text, c)?;
@@ -266,7 +250,7 @@ fn names(compats: &[Compat]) -> Vec<&'static str> {
 /// `cargo xtask corpus classify`: rewrites `corpus/compat.toml`.
 pub(crate) fn classify(root: &Path) -> Result<()> {
     let text = classify_fetched(root)?;
-    std::fs::write(root.join(FILE), text).with_context(|| format!("writing {FILE}"))?;
+    fs::write(root.join(FILE), text).with_context(|| format!("writing {FILE}"))?;
     println!("wrote {FILE}");
     Ok(())
 }

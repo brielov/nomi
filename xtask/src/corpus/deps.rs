@@ -8,21 +8,22 @@ use std::path::Path;
 
 use anyhow::{Result, bail};
 use nomi_project::Outline;
-use nomi_registry::{Index, Registry, Store, Web, details};
+use nomi_registry::details;
 
-use super::{apps, compat, parallel};
-use crate::oracle::cache_dir;
+use super::names::Live;
+use super::{apps, compat};
 
 pub(crate) fn check(root: &Path) -> Result<()> {
     let classification = compat::load(root)?;
-    // A nomi cache of the development cache's own, never the user's.
-    let cache = cache_dir()?.join("nomi");
-    let store = Store::new(cache.join("packages"));
-    let http = Web::new();
+    let live = Live::new()?;
+    let mut registries = (classification.compats.iter())
+        .map(|&c| Ok((c, live.registry(c)?)))
+        .collect::<Result<Vec<_>>>()?;
     let mut failures = Vec::new();
     let mut fetched = 0;
     for app in apps::load(root)?.app {
-        for &c in &classification.compats {
+        for (c, registry) in &mut registries {
+            let c = *c;
             let case = format!("{} on {c}", app.name);
             let text = compat::sandbox_manifest(&classification, &app, c)?;
             let outline = match Outline::read(text.as_bytes(), c) {
@@ -32,35 +33,17 @@ pub(crate) fn check(root: &Path) -> Result<()> {
                     continue;
                 }
             };
-            let (index, connection) =
-                Index::latest(&http, &cache.join("registry").join("index"), c)
-                    .map_err(|e| anyhow::anyhow!("{case}: loading the index: {e:?}"))?;
-            let mut registry = Registry::new(
-                index,
-                connection,
-                &store,
-                cache.join("registry").join("metadata"),
-                &http,
-                c,
-            );
-            let solution = match details::verify(&mut registry, c, &outline) {
+            let solution = match details::verify(registry, c, &outline) {
                 Ok(solution) => solution,
                 Err(e) => {
                     failures.push(format!("{case}: {e:?}"));
                     continue;
                 }
             };
-            let releases: Vec<_> = solution
-                .iter()
-                .map(|(name, details)| (name.clone(), details.version))
-                .collect();
-            let results = parallel(&releases, |(name, version)| {
-                store.fetch(&http, name, *version, c)
-            });
-            for ((name, version), result) in releases.iter().zip(results) {
-                match result {
+            for download in live.download(&solution, c) {
+                match download {
                     Ok(_) => fetched += 1,
-                    Err(e) => failures.push(format!("{case}: {name} {version}: {e:?}")),
+                    Err(why) => failures.push(format!("{case}: {why}")),
                 }
             }
         }

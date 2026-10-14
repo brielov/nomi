@@ -13,15 +13,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
+use nomi_testkit::files_below;
 
 use super::measure::{Cost, Run, measure};
 use super::{Row, Setup, Table};
-use crate::corpus::compat;
-use crate::corpus::{apps, corpus_dir, files_below};
-use crate::oracle::cache_dir;
+use crate::corpus::{apps, compat, corpus_dir};
 use crate::oracle::corpus_runs::{copy_modules, releases};
-use crate::oracle::pinned_elm;
 use crate::oracle::sandbox::elm_home;
+use crate::oracle::{cache_dir, fresh_dir, pinned_elm, remove_tree};
 use crate::references::References;
 
 const RUNS: usize = 3;
@@ -71,10 +70,7 @@ pub(crate) fn nomi_cache(setup: &Setup) -> Result<PathBuf> {
         "the development cache has no releases; run `cargo xtask corpus names`"
     );
     let cache = setup.scratch.join("cache");
-    if cache.exists() {
-        fs::remove_dir_all(&cache)?;
-    }
-    fs::create_dir_all(&cache)?;
+    fresh_dir(&cache)?;
     link(&store.join("packages"), &cache.join("packages"))?;
     link(&store.join("registry"), &cache.join("registry"))?;
     Ok(cache)
@@ -87,10 +83,7 @@ pub(crate) fn tables(root: &Path, refs: &References, setup: &Setup) -> Result<Ve
     let nomi = Tool {
         binary: setup.nomi("elm"),
         env: vec![("NOMI_CACHE", cache)],
-        clear: Box::new(move || match fs::remove_dir_all(&artifacts) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
-            _ => Ok(()),
-        }),
+        clear: Box::new(move || remove_tree(&artifacts)),
     };
 
     let classification = compat::load(root)?;
@@ -207,9 +200,7 @@ fn compare(
     let mut outputs = Vec::new();
     for (t, tool) in tools.into_iter().enumerate() {
         let work = setup.scratch.join("work").join(t.to_string());
-        if work.exists() {
-            fs::remove_dir_all(&work)?;
-        }
+        remove_tree(&work)?;
         copy_modules(&project.top, &work)?;
         let dir = work.join(project.root);
         fs::create_dir_all(&dir)?;
@@ -225,7 +216,7 @@ fn compare(
         };
         for i in 0..RUNS {
             (tool.clear)()?;
-            let _ = fs::remove_dir_all(dir.join("elm-stuff"));
+            remove_tree(&dir.join("elm-stuff"))?;
             for (build, cost) in costs.iter_mut().enumerate() {
                 let (measured, code) = measure(&run).with_context(|| {
                     let kind = ["cold", "warm"][build];
@@ -280,12 +271,6 @@ fn link(from: &Path, to: &Path) -> Result<()> {
         std::os::unix::fs::symlink(from, to)?;
     }
     #[cfg(not(unix))]
-    {
-        for file in files_below(from)? {
-            let target = to.join(&file);
-            fs::create_dir_all(target.parent().unwrap())?;
-            fs::copy(from.join(&file), &target)?;
-        }
-    }
+    nomi_testkit::copy_tree(from, to, |_| true)?;
     Ok(())
 }

@@ -12,7 +12,7 @@
 //! with the same name (`Build.hs`, `checkUniqueRoots`).
 
 use std::borrow::Cow;
-use std::fmt::{self, Write as _};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -27,7 +27,7 @@ use super::format::{Formatted, elm_format};
 use super::sandbox::{Sandbox, Verdict};
 use super::{cache_dir, elm_header, generated, pinned_binary, pinned_elm};
 use crate::corpus::compat;
-use crate::corpus::syntax as corpus_syntax;
+use crate::corpus::syntax::{self as corpus_syntax, Outcome, Sources};
 use crate::references::References;
 
 /// The mutation suite: seeds, stored verdicts and `passing.txt`.
@@ -43,26 +43,6 @@ pub(crate) enum Inputs {
     Mutations,
     Corpus,
     Both,
-}
-
-/// What a tool made of one module's syntax, as the tables write it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Outcome {
-    Accepted,
-    /// The title and region elm reports, or where elm-format stopped.
-    Rejected(String),
-    /// The tool died without a verdict; the ratchets skip it.
-    Crashed,
-}
-
-impl fmt::Display for Outcome {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Outcome::Accepted => "ok",
-            Outcome::Rejected(detail) => detail,
-            Outcome::Crashed => corpus_syntax::CRASH,
-        })
-    }
 }
 
 /// `cargo xtask oracle syntax`.
@@ -129,10 +109,9 @@ fn corpus(root: &Path, tools: &Tools, jobs: usize) -> Result<()> {
         })
     })?;
     let mut table = format!(
-        "{}\n# modules {} sources {}\n{}",
+        "{}\n{}\n{}",
         generated("syntax"),
-        modules.len(),
-        corpus_syntax::digest(&modules)?,
+        Sources::of(&modules)?,
         tools.columns("case\tpath")
     );
     // Only modules some tool rejects; the rest are accepted everywhere.

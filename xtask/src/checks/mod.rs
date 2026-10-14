@@ -13,7 +13,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package, PackageId};
+use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Node, Package, PackageId};
 
 const PREFIX: &str = "nomi-";
 
@@ -40,7 +40,7 @@ pub(crate) fn run(root: &Path) -> Result<Vec<String>> {
                 .map(|d| layering::Edge {
                     from: short(&p.name).to_string(),
                     to: short(&d.name).to_string(),
-                    dev: d.kind == DependencyKind::Development,
+                    kind: d.kind,
                 })
         })
         .collect();
@@ -60,23 +60,24 @@ pub(crate) fn run(root: &Path) -> Result<Vec<String>> {
         .collect();
     violations.extend(pool::check(&direct));
 
-    let closures: Vec<(String, Vec<String>)> = nomi
-        .iter()
+    let pure: Vec<&Package> = (nomi.iter().copied())
         .filter(|p| purity::PURE.contains(&short(&p.name)))
+        .collect();
+    let resolve = metadata.resolve.as_ref().expect("cargo metadata resolves");
+    let nodes: BTreeMap<&PackageId, &Node> = resolve.nodes.iter().map(|n| (&n.id, n)).collect();
+    let closures: Vec<(String, Vec<String>)> = (pure.iter())
         .map(|p| {
-            (
-                short(&p.name).to_string(),
-                external_closure(&metadata, &p.id),
-            )
+            let closure = external_closure(&metadata, &nodes, &p.id);
+            (short(&p.name).to_string(), closure)
         })
         .collect();
     violations.extend(purity::check_dependencies(&closures));
 
-    for package in &nomi {
-        if !purity::PURE.contains(&short(&package.name)) {
-            continue;
-        }
-        let src = package.manifest_path.parent().unwrap().join("src");
+    for package in pure {
+        let dir = package.manifest_path.parent();
+        let src = dir
+            .expect("a manifest is in its package's directory")
+            .join("src");
         for file in rust_files(src.as_std_path())? {
             let source = read(&file)?;
             violations.extend(purity::scan_source(&label(root, &file), &source));
@@ -102,10 +103,13 @@ fn short(name: &str) -> &str {
 }
 
 /// Names of the non-nomi packages reachable from `id` through normal
-/// dependencies. Build and dev dependencies do not ship in the crate.
-fn external_closure(metadata: &Metadata, id: &PackageId) -> Vec<String> {
-    let resolve = metadata.resolve.as_ref().expect("cargo metadata resolves");
-    let nodes: BTreeMap<&PackageId, _> = resolve.nodes.iter().map(|n| (&n.id, n)).collect();
+/// dependencies, with `nodes` the resolved graph. Build and dev
+/// dependencies do not ship in the crate.
+fn external_closure(
+    metadata: &Metadata,
+    nodes: &BTreeMap<&PackageId, &Node>,
+    id: &PackageId,
+) -> Vec<String> {
     let mut seen = BTreeSet::new();
     let mut stack = vec![id];
     let mut external = BTreeSet::new();

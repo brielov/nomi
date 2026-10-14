@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 
+use crate::oracle::process::run_within;
 use crate::oracle::sandbox::offline;
 
 /// How long one run may take before it counts as hung.
@@ -55,7 +56,6 @@ pub(crate) struct Run<'a> {
 /// Runs `run` once: what it cost and its exit code, `None` when a signal
 /// ended it.
 pub(crate) fn measure(run: &Run<'_>) -> Result<(Cost, Option<i32>)> {
-    use std::io::Write;
     let mut command = Command::new("/usr/bin/time");
     command.arg("-o").arg(run.report);
     command.arg(if cfg!(target_os = "macos") {
@@ -68,7 +68,6 @@ pub(crate) fn measure(run: &Run<'_>) -> Result<(Cost, Option<i32>)> {
         .args(&run.args)
         .current_dir(run.dir)
         .env("ALL_PROXY", "http://127.0.0.1:9")
-        .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     offline(&mut command);
@@ -76,32 +75,24 @@ pub(crate) fn measure(run: &Run<'_>) -> Result<(Cost, Option<i32>)> {
         command.env(key, value);
     }
     let start = Instant::now();
-    let mut child = command.spawn().context("running /usr/bin/time")?;
-    let mut input = child.stdin.take().expect("piped");
-    if let Some(text) = run.stdin {
-        input.write_all(text)?;
-    }
-    drop(input);
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if start.elapsed() > TIMEOUT {
-            child.kill()?;
-            child.wait()?;
-            bail!(
-                "{} {:?} ran past {TIMEOUT:?}",
-                run.binary.display(),
-                run.args
-            );
-        }
-        std::thread::sleep(Duration::from_millis(1));
+    let ended = run_within(&mut command, run.stdin.unwrap_or_default(), Some(TIMEOUT))
+        .context("running /usr/bin/time")?;
+    let Some(output) = ended else {
+        bail!(
+            "{} {:?} ran past {TIMEOUT:?}",
+            run.binary.display(),
+            run.args
+        );
     };
     let wall = start.elapsed();
     let report = fs::read_to_string(run.report)?;
     let (cpu, memory) = parse_time(&report)?;
     let signalled = report.contains("terminated by signal");
-    let code = if signalled { None } else { status.code() };
+    let code = if signalled {
+        None
+    } else {
+        output.status.code()
+    };
     Ok((Cost { wall, cpu, memory }, code))
 }
 
@@ -160,7 +151,7 @@ pub(crate) fn best_of(
 /// The machine, as a scoreboard records it: processor, threads, memory and
 /// target.
 pub(crate) fn machine() -> String {
-    let threads = std::thread::available_parallelism().map_or(0, |n| n.get());
+    let threads = crate::oracle::cores();
     let target = format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS);
     let read = |path: &str| fs::read_to_string(path).unwrap_or_default();
     let field = |text: &str, key: &str| -> Option<String> {

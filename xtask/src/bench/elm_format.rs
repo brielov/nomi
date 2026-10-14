@@ -7,22 +7,30 @@
 
 use std::ffi::OsString;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, ensure};
+use nomi_testkit::files_below;
 
 use super::measure::{Run, best_of, measure};
 use super::{Row, Setup, Table};
-use crate::corpus::{apps, corpus_dir, files_below};
+use crate::corpus::{apps, corpus_dir, is_module};
+use crate::oracle::process::run_within;
 use crate::oracle::{binary_path, installed};
 use crate::references::References;
 
 const RUNS: usize = 5;
 
-/// A workload: its name, the arguments, and what goes to standard input.
-type Input<'a> = (String, Vec<OsString>, Option<&'a [u8]>);
+/// A workload: its name, elm-format's arguments, and its standard input
+/// if it reads one.
+struct Workload {
+    name: String,
+    args: Vec<OsString>,
+    stdin: Option<Vec<u8>>,
+}
 
-pub(crate) fn table(root: &std::path::Path, refs: &References, setup: &Setup) -> Result<Table> {
+pub(crate) fn table(root: &Path, refs: &References, setup: &Setup) -> Result<Table> {
     let pin = (refs.binary.iter())
         .find(|b| b.name == "elm-format")
         .context("elm-format is not pinned")?;
@@ -41,39 +49,9 @@ pub(crate) fn table(root: &std::path::Path, refs: &References, setup: &Setup) ->
             "{} is missing; run `cargo xtask corpus fetch`",
             dir.display()
         );
-        let modules: Vec<_> = (files_below(&dir)?.into_iter())
-            .filter(|f| {
-                f.ends_with(".elm")
-                    && !(f.split('/'))
-                        .any(|part| ["elm-stuff", "node_modules", ".git"].contains(&part))
-            })
-            .map(|f| dir.join(f))
-            .collect();
-        let sizes = (modules.iter())
-            .map(|m| Ok((fs::metadata(m)?.len(), m)))
-            .collect::<Result<Vec<_>>>()?;
-        let total: u64 = sizes.iter().map(|(size, _)| size).sum();
-        let (_, largest) = sizes.iter().max().context("an app without modules")?;
-        let text = fs::read(largest)?;
-        let inputs: [Input<'_>; 2] = [
-            (
-                format!(
-                    "{} `--validate`, {} modules, {} KiB",
-                    app.name,
-                    modules.len(),
-                    total / 1024
-                ),
-                vec!["--validate".into(), dir.clone().into()],
-                None,
-            ),
-            (
-                format!("{} `--stdin`, {} KiB", app.name, text.len() / 1024),
-                vec!["--stdin".into()],
-                Some(&text),
-            ),
-        ];
-        for (name, args, stdin) in inputs {
-            if let Some(input) = stdin {
+        for workload in workloads(&app.name, &dir)? {
+            let Workload { name, args, stdin } = workload;
+            if let Some(input) = &stdin {
                 ensure!(
                     formatted(&upstream, input)? == formatted(&nomi, input)?,
                     "elm-format and nomi format {name} differently"
@@ -87,7 +65,7 @@ pub(crate) fn table(root: &std::path::Path, refs: &References, setup: &Setup) ->
                     args: args.clone(),
                     dir: &dir,
                     env: &env,
-                    stdin,
+                    stdin: stdin.as_deref(),
                     report: &report,
                 };
                 let (cost, code) = best_of(RUNS, || measure(&run))
@@ -124,16 +102,46 @@ pub(crate) fn table(root: &std::path::Path, refs: &References, setup: &Setup) ->
     })
 }
 
+/// The workloads of the app `name` at `dir`: validating it whole, and
+/// formatting its largest module from standard input.
+fn workloads(name: &str, dir: &Path) -> Result<[Workload; 2]> {
+    let modules: Vec<PathBuf> = (files_below(dir)?.into_iter())
+        .filter(|f| is_module(f))
+        .map(|f| dir.join(f))
+        .collect();
+    let sizes = (modules.iter())
+        .map(|m| Ok((fs::metadata(m)?.len(), m)))
+        .collect::<Result<Vec<_>>>()?;
+    let total: u64 = sizes.iter().map(|(size, _)| size).sum();
+    let (_, largest) = sizes.iter().max().context("an app without modules")?;
+    let text = fs::read(largest)?;
+    Ok([
+        Workload {
+            name: format!(
+                "{name} `--validate`, {} modules, {} KiB",
+                modules.len(),
+                total / 1024
+            ),
+            args: vec!["--validate".into(), dir.into()],
+            stdin: None,
+        },
+        Workload {
+            name: format!("{name} `--stdin`, {} KiB", text.len() / 1024),
+            args: vec!["--stdin".into()],
+            stdin: Some(text),
+        },
+    ])
+}
+
 /// What `binary` writes for `input` on `--stdin`.
-fn formatted(binary: &std::path::Path, input: &[u8]) -> Result<Vec<u8>> {
-    use std::io::Write;
-    let mut child = Command::new(binary)
+fn formatted(binary: &Path, input: &[u8]) -> Result<Vec<u8>> {
+    let mut command = Command::new(binary);
+    command
         .arg("--stdin")
-        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .with_context(|| binary.display().to_string())?;
-    child.stdin.take().expect("piped").write_all(input)?;
-    Ok(child.wait_with_output()?.stdout)
+        .stderr(Stdio::null());
+    let output = run_within(&mut command, input, None)
+        .with_context(|| binary.display().to_string())?
+        .expect("a run without a limit ends");
+    Ok(output.stdout)
 }

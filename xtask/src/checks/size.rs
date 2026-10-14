@@ -1,6 +1,6 @@
 //! No hand-written source file exceeds the line limit.
 
-pub(crate) const MAX_LINES: usize = 1500;
+const MAX_LINES: usize = 1500;
 
 /// Directories whose files are data, not hand-written source.
 pub(crate) const SKIPPED_DIRS: &[&str] = &["target", "fixtures", "snapshots", "testdata"];
