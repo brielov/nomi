@@ -957,6 +957,8 @@ name = "nomi-cli"
 version = "0.4.0"
 dependencies = [
  "clap",
+ "lsp-server",
+ "lsp-types",
  "mimalloc",
  "nomi-base",
  "nomi-engine",

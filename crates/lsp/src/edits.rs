@@ -42,33 +42,78 @@ impl Server {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .skip_install_confirmation
         {
-            install_package(&root, package, Some("y"));
+            self.install(&root, package, Some("y"));
             return Ok(Value::Null);
         }
-        let (asked, printed) = install_package(&root, package, None);
+        let (asked, printed) = self.install(&root, package, None);
         if !asked {
             if !printed.trim().is_empty() {
                 self.show(lsp_types::MessageType::INFO, printed.trim());
             }
             return Ok(Value::Null);
         }
-        let id = lsp_server::RequestId::from(format!("nomi/install/{package}"));
         let question = serde_json::json!({
             "type": lsp_types::MessageType::INFO,
             "message": printed.replace("[Y/n]:", "").trim(),
             "actions": [{ "title": "Yes" }, { "title": "No" }],
         });
+        let id = self.ask("window/showMessageRequest", question);
         self.installs.insert(
-            id.clone(),
+            id,
             Install {
                 root,
                 package: package.to_owned(),
                 asked: printed,
             },
         );
-        let request = Request::new(id, "window/showMessageRequest".to_owned(), question);
-        send(&self.sender, Message::Request(request));
         Ok(Value::Null)
+    }
+
+    /// Runs `elm install package` in `root` as nomi does it, answering its
+    /// question with `answer`: whether it asked, and what it printed. What
+    /// it writes is a new revision, checked as an edit is, with the
+    /// store's packages read again.
+    pub(crate) fn install(
+        &mut self,
+        root: &Path,
+        package: &str,
+        answer: Option<&str>,
+    ) -> (bool, String) {
+        let Ok(cache) = Cache::locate() else {
+            return (
+                false,
+                "nomi has no cache directory for packages.".to_owned(),
+            );
+        };
+        let mut console = Captured {
+            answer: answer.map(str::to_owned),
+            asked: false,
+            printed: String::new(),
+        };
+        // A VFS of its own reads the disk's `elm.json`, not the editor's,
+        // and makes a revision only if it writes.
+        let vfs = Vfs::new();
+        nomi_engine::install::run(
+            &vfs,
+            &mut console,
+            nomi_engine::console::Personality::Elm,
+            root,
+            &cache,
+            &nomi_engine::Web::new(),
+            Some(package),
+        );
+        if vfs.revision() != nomi_engine::Revision::default() {
+            {
+                let _held = self
+                    .publishing
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                self.vfs.disk_changed();
+            }
+            self.packages = None;
+            self.revise_changed(Some(root.join("elm.json")));
+        }
+        (console.asked, console.printed)
     }
 
     /// `codeAction/resolve`: a refactor's edits, computed now.
@@ -106,7 +151,7 @@ impl Server {
     /// `elm/expose` and `elm/unexpose`: the exposing list's edit, applied
     /// by the client.
     pub(crate) fn expose(
-        &self,
+        &mut self,
         params: &Value,
         expose: bool,
     ) -> Result<Value, (ErrorCode, String)> {
@@ -120,17 +165,15 @@ impl Server {
         let snapshot = self.vfs.snapshot();
         if let Some(edit) = nomi_ide::exposing_edit(&snapshot, &path, name, expose) {
             let edit = TextEdit::new(text.range(edit.range), edit.text);
-            let id = lsp_server::RequestId::from(format!("nomi/expose/{name}"));
             let params = serde_json::json!({ "edit": { "changes": { uri.as_str(): [edit] } } });
-            let request = Request::new(id, "workspace/applyEdit".to_owned(), params);
-            send(&self.sender, Message::Request(request));
+            self.ask("workspace/applyEdit", params);
         }
         Ok(Value::Null)
     }
 
     /// `workspace/didCreateFiles`: a header for each new, empty module,
     /// applied by the client in one edit.
-    pub(crate) fn created_files(&self, params: &lsp_types::CreateFilesParams) {
+    pub(crate) fn created_files(&mut self, params: &lsp_types::CreateFilesParams) {
         let snapshot = self.vfs.snapshot();
         let mut changes = serde_json::Map::new();
         for file in &params.files {
@@ -145,12 +188,8 @@ impl Server {
                 changes.insert(file.uri.clone(), serde_json::json!([edit]));
             }
         }
-        let id = lsp_server::RequestId::from("nomi/created".to_owned());
         let params = serde_json::json!({ "edit": { "changes": changes } });
-        send(
-            &self.sender,
-            Message::Request(Request::new(id, "workspace/applyEdit".to_owned(), params)),
-        );
+        self.ask("workspace/applyEdit", params);
     }
 
     /// `workspace/willRenameFiles`: each module renamed after its new
@@ -219,7 +258,7 @@ impl Server {
 
     /// `elm/move`: the function moved, applied by the client as one
     /// refactoring.
-    pub(crate) fn move_to(&self, params: &Value) -> Value {
+    pub(crate) fn move_to(&mut self, params: &Value) -> Value {
         let snapshot = self.vfs.snapshot();
         let destination = (params["destination"]["uri"].as_str())
             .and_then(|u| Url::parse(u).ok())
@@ -253,17 +292,23 @@ impl Server {
                 .collect();
             changes.insert(uri.to_string(), serde_json::json!(edits));
         }
-        let id = lsp_server::RequestId::from("nomi/move".to_owned());
         let params = serde_json::json!({
             "label": "Move Function",
             "edit": { "changes": changes },
             "metadata": { "isRefactoring": true },
         });
-        send(
-            &self.sender,
-            Message::Request(Request::new(id, "workspace/applyEdit".to_owned(), params)),
-        );
+        self.ask("workspace/applyEdit", params);
         Value::Null
+    }
+
+    /// Sends the client a request under an id no other has had, which its
+    /// answer comes back with.
+    pub(crate) fn ask(&mut self, method: &str, params: Value) -> lsp_server::RequestId {
+        self.sent += 1;
+        let id = lsp_server::RequestId::from(self.sent);
+        let request = Request::new(id.clone(), method.to_owned(), params);
+        send(&self.sender, Message::Request(request));
+        id
     }
 
     pub(crate) fn show(&self, kind: lsp_types::MessageType, message: &str) {
@@ -468,32 +513,6 @@ impl Server {
 /// `publishing` so that no newer one is made meanwhile. Whether it ran.
 /// The command an install action runs.
 pub(crate) const INSTALL_PACKAGE: &str = "nomi.installPackage";
-
-/// Runs `elm install package` in `root` as nomi does it, answering its
-/// question with `answer`: whether it asked, and what it printed.
-pub(crate) fn install_package(root: &Path, package: &str, answer: Option<&str>) -> (bool, String) {
-    let Ok(cache) = Cache::locate() else {
-        return (
-            false,
-            "nomi has no cache directory for packages.".to_owned(),
-        );
-    };
-    let mut console = Captured {
-        answer: answer.map(str::to_owned),
-        asked: false,
-        printed: String::new(),
-    };
-    nomi_engine::install::run(
-        &Vfs::new(),
-        &mut console,
-        nomi_engine::console::Personality::Elm,
-        root,
-        &cache,
-        &nomi_engine::Web::new(),
-        Some(package),
-    );
-    (console.asked, console.printed)
-}
 
 /// A console that keeps what is printed and answers one question.
 struct Captured {

@@ -217,6 +217,7 @@ pub fn serve_with(
         settings,
         pulls_settings,
         settings_request: None,
+        sent: 0,
         label_details,
         latest,
         resolves_edits,
@@ -256,7 +257,7 @@ pub fn serve_with(
 mod edits;
 mod indexes;
 
-use edits::{INSTALL_PACKAGE, Install, install_package};
+use edits::{INSTALL_PACKAGE, Install};
 
 struct Server {
     unit: ColumnUnit,
@@ -284,6 +285,9 @@ struct Server {
     pulls_settings: bool,
     /// The id of the request for the client's settings, while it's out.
     settings_request: Option<lsp_server::RequestId>,
+    /// How many requests the server has sent the client, each under an
+    /// id of its own.
+    sent: i32,
     /// Whether the client shows completions' label details.
     label_details: bool,
     /// The problems the diagnostics worker last published, by file.
@@ -435,11 +439,8 @@ impl Server {
         if !self.pulls_settings {
             return;
         }
-        let id = lsp_server::RequestId::from("nomi/settings".to_owned());
         let params = serde_json::json!({ "items": [{ "section": "elmLS" }] });
-        let request = Request::new(id.clone(), "workspace/configuration".to_owned(), params);
-        self.settings_request = Some(id);
-        send(&self.sender, Message::Request(request));
+        self.settings_request = Some(self.ask("workspace/configuration", params));
     }
 
     fn response(&mut self, response: &Response) {
@@ -448,7 +449,7 @@ impl Server {
                 .and_then(|r| r.get("title"))
                 .is_some_and(|t| t == "Yes");
             if agreed {
-                let (_, printed) = install_package(&install.root, &install.package, Some("y"));
+                let (_, printed) = self.install(&install.root, &install.package, Some("y"));
                 let printed = printed.replacen(&install.asked, "", 1);
                 self.show(lsp_types::MessageType::INFO, printed.trim());
             }
