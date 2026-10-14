@@ -15,12 +15,13 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+use nomi_testkit::sha256_hex as sha256;
 use nomi_testkit::transcript::normalize_elm_test;
 use serde_json::Value;
 
 use super::{apps, corpus_dir};
-use crate::download::sha256;
 use crate::oracle::cache_dir;
+use crate::oracle::transcripts::ElmTest;
 use crate::references::References;
 
 const ORACLE: &str = "corpus/tests/oracle.tsv";
@@ -179,39 +180,17 @@ fn oracle(root: &Path) -> Result<BTreeMap<String, String>> {
 
 /// `cargo xtask oracle corpus-tests`: elm-test's outcome on each suite.
 pub(crate) fn record(root: &Path, refs: &References, only: Option<&str>) -> Result<()> {
-    let elm = crate::oracle::transcripts::binary(refs, "elm", Some("0.19.3"))?;
-    let runner = crate::oracle::oracles_dir()?.join("npm/node_modules/elm-test/bin/elm-test");
-    let node = std::env::var_os("PATH")
-        .and_then(|path| {
-            std::env::split_paths(&path)
-                .map(|dir| dir.join("node"))
-                .find(|candidate| candidate.is_file())
-        })
-        .context("node isn't on PATH")?;
     let sandbox = sandbox()?;
-    let bin = sandbox.join("bin");
+    let elm_test = ElmTest::new(refs, &sandbox.join("bin"))?;
     let home = sandbox.join("elm-home");
-    fs::create_dir_all(&bin)?;
     fs::create_dir_all(&home)?;
-    let link = bin.join("elm");
-    if !link.exists() {
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&elm, &link)?;
-    }
-    let path = std::env::join_paths([bin, node.parent().context("node's directory")?.to_owned()])?;
     let mut rows = if only.is_some() {
         oracle(root).unwrap_or_default()
     } else {
         BTreeMap::new()
     };
     for (name, dir) in suites(root, only)? {
-        let mut command = Command::new(&node);
-        command
-            .arg(&runner)
-            .env("PATH", &path)
-            .env("ELM_HOME", &home)
-            .env_remove("FORCE_COLOR")
-            .env_remove("NO_COLOR");
+        let command = elm_test.command(&home);
         let outcome = run(
             command,
             "elm-test",

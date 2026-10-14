@@ -14,7 +14,7 @@ use anyhow::{Context, Result, ensure};
 use super::measure::{Run, best_of, measure};
 use super::{Row, Setup, Table};
 use crate::corpus::{apps, corpus_dir, files_below};
-use crate::oracle::binary_path;
+use crate::oracle::{binary_path, installed};
 use crate::references::References;
 
 const RUNS: usize = 5;
@@ -26,12 +26,7 @@ pub(crate) fn table(root: &std::path::Path, refs: &References, setup: &Setup) ->
     let pin = (refs.binary.iter())
         .find(|b| b.name == "elm-format")
         .context("elm-format is not pinned")?;
-    let upstream = binary_path(pin)?;
-    ensure!(
-        upstream.exists(),
-        "{} is missing; run `cargo xtask oracle fetch`",
-        upstream.display()
-    );
+    let upstream = installed(binary_path(pin)?)?;
     let nomi = setup.nomi("elm-format");
     let home = setup.scratch.join("elm-format-home");
     fs::create_dir_all(&home)?;

@@ -28,10 +28,10 @@ use nomi_engine::console::{Console, Personality};
 use nomi_engine::graph::Foreigns;
 use nomi_engine::{Vfs, javascript, names};
 use nomi_project::{ModuleName, Name, Outline};
+use nomi_testkit::sha256_hex as sha256;
 
 use super::names::{Project, solve};
 use super::{compat, parallel};
-use crate::download::sha256;
 use crate::oracle::corpus_runs::{self, EXCLUDED, OK, Suite};
 
 pub(crate) fn check(root: &Path, suite: Suite, only: Option<&str>) -> Result<()> {
@@ -40,12 +40,10 @@ pub(crate) fn check(root: &Path, suite: Suite, only: Option<&str>) -> Result<()>
     let mut matching = 0;
     let mut skipped: Vec<String> = Vec::new();
     let mut failures: Vec<(String, String)> = Vec::new();
-    for v in &classification.compats {
-        let c = (Compat::ALL.into_iter())
-            .find(|c| c.to_string() == *v)
-            .with_context(|| format!("nomi doesn't emulate elm {v}"))?;
+    for &c in &classification.compats {
+        let v = c.as_str();
         let (apps, packages) = (suite != Suite::Docs, suite != Suite::JavaScript);
-        let solving = solve(root, &classification, c, v, only, apps, packages)?;
+        let solving = solve(root, &classification, c, only, apps, packages)?;
         // Dependencies without a solution stop elm before any module too.
         for (case, why) in solving.failures {
             let elm = oracle.get(&(package_case(&case), format!("elm {v}")));
@@ -416,9 +414,7 @@ impl Console for Captured {
 /// `cargo xtask corpus graph-diff`: where the graph in `nomi` first
 /// differs from the one in `elm`, both `.elmo` files of release `v`.
 pub(crate) fn graph_diff(v: &str, nomi: &Path, elm: &Path) -> Result<()> {
-    let compat = (Compat::ALL.into_iter())
-        .find(|c| c.to_string() == v)
-        .with_context(|| format!("nomi doesn't emulate elm {v}"))?;
+    let compat: Compat = v.parse()?;
     // An `o.dat` is a whole graph, read here as a module's without main.
     let read = |path: &Path| -> Result<nomi_compiler::optimized::LocalGraph> {
         let bytes = std::fs::read(path)?;

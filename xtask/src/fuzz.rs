@@ -9,12 +9,35 @@ use std::process::Command as Process;
 
 use anyhow::{Context, Result, bail, ensure};
 
-/// Each target, and the inputs it starts from besides its own corpus.
-const TARGETS: &[(&str, &str)] = &[
-    ("syntax", "crates/syntax/tests/syntax_mutations/seeds"),
-    ("format", "crates/format/tests/format_fixtures/inputs"),
-    ("json", "crates/project/tests/json_seeds"),
-];
+use crate::oracle::fresh_dir;
+
+/// A target of `fuzz/`: a binary of its `Cargo.toml`.
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+pub(crate) enum Target {
+    Syntax,
+    Format,
+    Json,
+}
+
+impl Target {
+    /// The target's binary.
+    fn name(self) -> &'static str {
+        match self {
+            Target::Syntax => "syntax",
+            Target::Format => "format",
+            Target::Json => "json",
+        }
+    }
+
+    /// The inputs it starts from besides its own corpus.
+    fn seeds(self) -> &'static str {
+        match self {
+            Target::Syntax => "crates/syntax/tests/syntax_mutations/seeds",
+            Target::Format => "crates/format/tests/format_fixtures/inputs",
+            Target::Json => "crates/project/tests/json_seeds",
+        }
+    }
+}
 
 /// The flags of `cargo fuzz build --sanitizer none --debug-assertions`.
 const RUSTFLAGS: &[&str] = &[
@@ -32,53 +55,29 @@ const RUSTFLAGS: &[&str] = &[
 /// mutations mostly repeat what shorter inputs found.
 const MAX_LEN: usize = 8192;
 
-pub(crate) fn run(root: &Path, target: &str, runs: u64, jobs: usize) -> Result<()> {
-    let Some(&(_, seeds)) = TARGETS.iter().find(|(name, _)| *name == target) else {
-        let names: Vec<_> = TARGETS.iter().map(|(name, _)| *name).collect();
-        bail!("no fuzz target `{target}`; there are {}", names.join(", "));
-    };
-    ensure!(jobs > 0, "--jobs must be at least 1");
+/// Runs `target` `runs` times across `jobs` fuzzer processes, failing on
+/// any crash it finds.
+pub(crate) fn run(root: &Path, target: Target, runs: u64, jobs: usize) -> Result<()> {
     let dir = root.join("target/fuzz");
-    let host = host()?;
-    eprintln!("==> building fuzz/ for {host}");
-    let status = Process::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
-        .args(["build", "--release", "--locked", "--manifest-path"])
-        .arg(root.join("fuzz/Cargo.toml"))
-        .args(["--target", &host, "--bin", target])
-        .env("RUSTFLAGS", RUSTFLAGS.join(" "))
-        .env("CARGO_TARGET_DIR", &dir)
-        .status()
-        .context("running cargo build")?;
-    ensure!(status.success(), "building fuzz/ failed");
-
-    let corpus = dir.join("corpus").join(target);
-    let logs = dir.join("logs").join(target);
-    let artifacts = root.join("fuzz/artifacts").join(target);
+    let binary = build(root, &dir, target)?;
+    let name = target.name();
+    let corpus = dir.join("corpus").join(name);
+    let logs = dir.join("logs").join(name);
+    let artifacts = root.join("fuzz/artifacts").join(name);
     for d in [&corpus, &artifacts] {
         std::fs::create_dir_all(d).with_context(|| format!("creating {}", d.display()))?;
     }
     // Last campaign's logs would be summed with this one's.
-    if logs.exists() {
-        std::fs::remove_dir_all(&logs)?;
-    }
-    std::fs::create_dir_all(&logs)?;
+    fresh_dir(&logs)?;
     let before = crashes(&artifacts)?;
     let each = runs.div_ceil(jobs as u64);
     eprintln!("==> {jobs} job(s) of {each} runs each");
-    let binary: PathBuf = [
-        dir.as_path(),
-        host.as_ref(),
-        "release".as_ref(),
-        target.as_ref(),
-    ]
-    .iter()
-    .collect();
     let mut prefix = std::ffi::OsString::from("-artifact_prefix=");
     prefix.push(&artifacts);
     prefix.push("/");
     let status = Process::new(&binary)
         .arg(&corpus)
-        .arg(root.join(seeds))
+        .arg(root.join(target.seeds()))
         .arg(format!("-runs={each}"))
         .arg(format!("-max_len={MAX_LEN}"))
         .arg(format!("-jobs={jobs}"))
@@ -91,17 +90,7 @@ pub(crate) fn run(root: &Path, target: &str, runs: u64, jobs: usize) -> Result<(
 
     let mut done = 0;
     for entry in std::fs::read_dir(&logs)? {
-        let text = std::fs::read_to_string(entry?.path())?;
-        done += text
-            .lines()
-            .filter_map(|l| {
-                l.strip_prefix("Done ")?
-                    .split(' ')
-                    .next()?
-                    .parse::<u64>()
-                    .ok()
-            })
-            .sum::<u64>();
+        done += runs_done(&std::fs::read_to_string(entry?.path())?);
     }
     let found: Vec<_> = crashes(&artifacts)?
         .into_iter()
@@ -109,7 +98,7 @@ pub(crate) fn run(root: &Path, target: &str, runs: u64, jobs: usize) -> Result<(
         .collect();
     if !found.is_empty() {
         bail!(
-            "{done} runs found {} crash(es), in fuzz/artifacts/{target}: {}; the logs are in {}",
+            "{done} runs found {} crash(es), in fuzz/artifacts/{name}: {}; the logs are in {}",
             found.len(),
             found.join(", "),
             logs.display()
@@ -127,6 +116,36 @@ pub(crate) fn run(root: &Path, target: &str, runs: u64, jobs: usize) -> Result<(
     );
     eprintln!("{done} runs, no crashes");
     Ok(())
+}
+
+/// Builds `target` instrumented, under `dir`, and gives its binary.
+fn build(root: &Path, dir: &Path, target: Target) -> Result<PathBuf> {
+    let host = host()?;
+    eprintln!("==> building fuzz/ for {host}");
+    let status = crate::cargo_command()
+        .args(["build", "--release", "--locked", "--manifest-path"])
+        .arg(root.join("fuzz/Cargo.toml"))
+        .args(["--target", &host, "--bin", target.name()])
+        .env("RUSTFLAGS", RUSTFLAGS.join(" "))
+        .env("CARGO_TARGET_DIR", dir)
+        .status()
+        .context("running cargo build")?;
+    ensure!(status.success(), "building fuzz/ failed");
+    Ok(dir.join(host).join("release").join(target.name()))
+}
+
+/// How many runs a job's log says it finished: its `Done <n> runs` lines
+/// summed.
+fn runs_done(log: &str) -> u64 {
+    (log.lines())
+        .filter_map(|l| {
+            l.strip_prefix("Done ")?
+                .split(' ')
+                .next()?
+                .parse::<u64>()
+                .ok()
+        })
+        .sum()
 }
 
 /// The inputs libFuzzer saved as failing.
@@ -156,4 +175,16 @@ fn host() -> Result<String> {
         .find_map(|l| l.strip_prefix("host: "))
         .map(str::to_owned)
         .context("rustc -vV names no host")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn done_lines_add_up() {
+        let log = "#1 INITED\nDone 500 runs in 2 second(s)\nnoise\nDone 25 runs in 0 second(s)\n";
+        assert_eq!(runs_done(log), 525);
+        assert_eq!(runs_done("Done many runs\n"), 0);
+    }
 }

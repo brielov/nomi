@@ -4,10 +4,11 @@
 use std::path::Path;
 use std::process::Command;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 
 use crate::references::{References, Source};
 
+/// Syncs every pinned source under `reference/`.
 pub(crate) fn sync(root: &Path, refs: &References) -> Result<()> {
     let dir = root.join("reference");
     for source in &refs.source {
@@ -64,15 +65,7 @@ pub(crate) fn checkout(dir: &Path, url: &str, commit: &str, label: &str) -> Resu
 
 /// The hash of `HEAD`'s tree, which pins the checked-out files exactly.
 pub(crate) fn tree(dir: &Path) -> Result<String> {
-    let out = Command::new("git")
-        .args(["rev-parse", "HEAD^{tree}"])
-        .current_dir(dir)
-        .output()
-        .context("running git rev-parse")?;
-    if !out.status.success() {
-        bail!("git rev-parse HEAD^{{tree}} failed in {}", dir.display());
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    git_stdout(dir, &["rev-parse", "HEAD^{tree}"])
 }
 
 fn short(commit: &str) -> &str {
@@ -80,23 +73,27 @@ fn short(commit: &str) -> &str {
 }
 
 fn head(dir: &Path) -> Option<String> {
-    let out = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(dir)
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    git_stdout(dir, &["rev-parse", "HEAD"]).ok()
 }
 
 fn clean(dir: &Path) -> Result<bool> {
+    Ok(git_stdout(dir, &["status", "--porcelain"])?.is_empty())
+}
+
+/// What git prints, trimmed, run with `args` in `dir`.
+fn git_stdout(dir: &Path, args: &[&str]) -> Result<String> {
     let out = Command::new("git")
-        .args(["status", "--porcelain"])
+        .args(args)
         .current_dir(dir)
         .output()
-        .context("running git status")?;
-    Ok(out.status.success() && out.stdout.is_empty())
+        .with_context(|| format!("running git {}", args[0]))?;
+    ensure!(
+        out.status.success(),
+        "git {} failed in {}",
+        args.join(" "),
+        dir.display()
+    );
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
 fn git(dir: &Path, args: &[&str]) -> Result<()> {

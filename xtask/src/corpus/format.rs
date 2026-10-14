@@ -14,10 +14,10 @@ use std::path::Path;
 use anyhow::{Context, Result, bail, ensure};
 use nomi_format::{Invariant, invariant_mismatch};
 use nomi_testkit::ratchet::Suite;
+use nomi_testkit::sha256_hex as sha256;
 
 use super::parallel;
 use super::syntax::{self as corpus_syntax, CRASH};
-use crate::download::sha256;
 
 /// The suite's directory: the oracle's table and `passing.txt`.
 pub(crate) const DIR: &str = "corpus/format";

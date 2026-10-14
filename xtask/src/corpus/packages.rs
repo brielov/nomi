@@ -101,12 +101,11 @@ pub(crate) fn pin(root: &Path) -> Result<()> {
 
 /// A short, stable reason for the pin file.
 fn reason(error: &anyhow::Error) -> String {
-    let root = error.root_cause().to_string();
-    if root.contains("hash mismatch") {
-        "zipball does not match the registry's hash".to_string()
-    } else {
-        root.lines().next().unwrap_or("").to_string()
+    if error.downcast_ref::<download::HashMismatch>().is_some() {
+        return "zipball does not match the registry's hash".to_string();
     }
+    let root = error.root_cause().to_string();
+    root.lines().next().unwrap_or("").to_string()
 }
 
 fn render(packages: &[Package], unavailable: &BTreeMap<String, String>) -> String {
@@ -159,10 +158,7 @@ fn fetch_one(corpus: &Path, package: &Package) -> Result<()> {
     {
         return Ok(());
     }
-    let url = format!(
-        "https://github.com/{}/zipball/{}/",
-        package.name, package.version
-    );
+    let url = download::zipball(&package.name, &package.version);
     let zip = download::get_quiet(&url)?;
     download::verify(&url, &package.sha1, &download::sha1(&zip))?;
     if dir.exists() {

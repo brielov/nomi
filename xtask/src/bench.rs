@@ -56,9 +56,31 @@ pub(crate) struct Row {
     pub nomi: Cost,
 }
 
-/// Runs `part`, `elm` or `elm-format`, or with none every workload,
-/// writing the scoreboard.
-pub(crate) fn run(root: &Path, refs: &References, part: Option<&str>) -> Result<()> {
+/// What `cargo xtask bench` times: a crate's benchmarks, or a part of
+/// the scoreboard.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum Target {
+    Syntax,
+    Format,
+    Elm,
+    ElmFormat,
+    Lsp,
+}
+
+impl Target {
+    /// The crate whose benchmarks the target is, by its short name.
+    pub(crate) fn crate_bench(self) -> Option<&'static str> {
+        match self {
+            Target::Syntax => Some("syntax"),
+            Target::Format => Some("format"),
+            Target::Elm | Target::ElmFormat | Target::Lsp => None,
+        }
+    }
+}
+
+/// Runs `part` of the scoreboard, or with none every workload, writing
+/// the scoreboard.
+pub(crate) fn run(root: &Path, refs: &References, part: Option<Target>) -> Result<()> {
     crate::cargo(
         root,
         &["build", "--locked", "--release", "--package", "nomi-cli"],
@@ -74,13 +96,13 @@ pub(crate) fn run(root: &Path, refs: &References, part: Option<&str>) -> Result<
     }
     let setup = Setup { scratch, bin };
     let mut tables = Vec::new();
-    if part.is_none_or(|p| p == "elm") {
+    if part.is_none_or(|p| p == Target::Elm) {
         tables.extend(elm::tables(root, refs, &setup)?);
     }
-    if part.is_none_or(|p| p == "elm-format") {
+    if part.is_none_or(|p| p == Target::ElmFormat) {
         tables.push(elm_format::table(root, refs, &setup)?);
     }
-    if part.is_none_or(|p| p == "lsp") {
+    if part.is_none_or(|p| p == Target::Lsp) {
         tables.push(lsp::table(root, refs, &setup)?);
     }
     let board = render(&tables);

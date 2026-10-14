@@ -9,111 +9,51 @@
 //! failure, not a gap.
 
 use std::collections::BTreeMap;
-use std::fmt::{self, Write as _};
+use std::fmt::Write as _;
 use std::path::Path;
 
-use anyhow::{Context, Result, bail, ensure};
-use serde::Deserialize;
+use anyhow::{Context, Result, ensure};
+use nomi_base::Compat;
+use nomi_project::json::Cursor;
+use nomi_project::{Constraint, Version};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer};
 
 use super::{apps, corpus_dir, packages};
-use crate::{download, references};
+use crate::references;
 
 const FILE: &str = "corpus/compat.toml";
 
-/// An elm release, such as 0.19.1.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Version([u32; 3]);
-
-impl Version {
-    pub(crate) fn parse(text: &str) -> Result<Version> {
-        let parts: Vec<&str> = text.split('.').collect();
-        let [major, minor, patch] = parts[..] else {
-            bail!("`{text}` is not a version");
-        };
-        let number = |s: &str| {
-            s.parse::<u32>()
-                .with_context(|| format!("`{text}` is not a version"))
-        };
-        Ok(Version([number(major)?, number(minor)?, number(patch)?]))
-    }
-
-    pub(crate) fn parts(self) -> [u32; 3] {
-        self.0
-    }
-}
-
-impl fmt::Display for Version {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let [major, minor, patch] = self.0;
-        write!(f, "{major}.{minor}.{patch}")
-    }
-}
-
-/// A package's `elm-version`, such as `0.19.0 <= v < 0.20.0`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Range {
-    lower: Version,
-    lower_inclusive: bool,
-    upper: Version,
-    upper_inclusive: bool,
-}
-
-impl Range {
-    pub(crate) fn parse(text: &str) -> Result<Range> {
-        let words: Vec<&str> = text.split_whitespace().collect();
-        let [lower, lower_op, "v", upper_op, upper] = words[..] else {
-            bail!("`{text}` is not a version range");
-        };
-        let inclusive = |op: &str| match op {
-            "<" => Ok(false),
-            "<=" => Ok(true),
-            _ => bail!("`{text}` is not a version range"),
-        };
-        Ok(Range {
-            lower: Version::parse(lower)?,
-            lower_inclusive: inclusive(lower_op)?,
-            upper: Version::parse(upper)?,
-            upper_inclusive: inclusive(upper_op)?,
-        })
-    }
-
-    pub(crate) fn admits(self, version: Version) -> bool {
-        let above = if self.lower_inclusive {
-            self.lower <= version
-        } else {
-            self.lower < version
-        };
-        let below = if self.upper_inclusive {
-            version <= self.upper
-        } else {
-            version < self.upper
-        };
-        above && below
-    }
-}
-
 /// The pinned elm releases, oldest first.
-pub(crate) fn compats(refs: &references::References) -> Result<Vec<Version>> {
-    let mut versions = refs
-        .binary
-        .iter()
+pub(crate) fn compats(refs: &references::References) -> Result<Vec<Compat>> {
+    let mut compats = (refs.binary.iter())
         .filter(|b| b.name == "elm")
-        .map(|b| Version::parse(&b.version))
-        .collect::<Result<Vec<_>>>()?;
-    versions.sort();
-    Ok(versions)
+        .map(|b| Ok(b.version.parse()?))
+        .collect::<Result<Vec<Compat>>>()?;
+    compats.sort();
+    Ok(compats)
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub(crate) struct Classification {
-    pub compats: Vec<String>,
+    #[serde(deserialize_with = "compat_list")]
+    pub compats: Vec<Compat>,
     /// Packages whose range leaves out a Compat; every other pinned
     /// package admits them all.
     #[serde(default)]
     pub package: Vec<Excluding>,
     #[serde(default)]
-    pub app: Vec<AppPins>,
+    app: Vec<AppPins>,
+}
+
+impl Classification {
+    /// Whether `compat` builds the pinned package `name` at `version`.
+    pub(crate) fn admits(&self, name: &str, version: &str, compat: Compat) -> bool {
+        (self.package.iter())
+            .find(|p| p.name == name && p.version == version)
+            .is_none_or(|p| p.admits.contains(&compat))
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -124,44 +64,62 @@ pub(crate) struct Excluding {
     /// Absent when the package has no `elm.json`, which no release can
     /// install.
     pub elm_version: Option<String>,
-    pub admits: Vec<String>,
+    #[serde(deserialize_with = "compat_list")]
+    pub admits: Vec<Compat>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
-pub(crate) struct AppPins {
-    pub name: String,
+struct AppPins {
+    name: String,
     /// The hash of the app's `elm.json` rewritten for each Compat.
-    pub manifest_sha256: BTreeMap<String, String>,
+    #[serde(deserialize_with = "compat_keys")]
+    manifest_sha256: BTreeMap<Compat, String>,
 }
 
+/// Compats, as their versions.
+fn compat_list<'de, D: Deserializer<'de>>(compats: D) -> Result<Vec<Compat>, D::Error> {
+    (Vec::<String>::deserialize(compats)?.iter())
+        .map(|c| c.parse().map_err(D::Error::custom))
+        .collect()
+}
+
+/// A map keyed by Compats, as their versions.
+fn compat_keys<'de, D: Deserializer<'de>>(map: D) -> Result<BTreeMap<Compat, String>, D::Error> {
+    (BTreeMap::<String, String>::deserialize(map)?.into_iter())
+        .map(|(c, v)| Ok((c.parse().map_err(D::Error::custom)?, v)))
+        .collect()
+}
+
+/// `corpus/compat.toml`.
 pub(crate) fn load(root: &Path) -> Result<Classification> {
     let text =
         std::fs::read_to_string(root.join(FILE)).with_context(|| format!("reading {FILE}"))?;
     toml::from_str(&text).with_context(|| format!("parsing {FILE}"))
 }
 
-/// `elm.json` with its `elm-version` set to `compat`, every other byte
-/// kept. Only applications name one version.
-pub(crate) fn rewrite_manifest(text: &str, compat: Version) -> Result<String> {
+/// `elm.json`'s text with the value of its first `elm-version` set to
+/// `compat`, every other byte kept; none if it has no such value.
+pub(crate) fn with_elm_version(text: &str, compat: Compat) -> Option<String> {
+    let key = "\"elm-version\"";
+    let after = text.find(key)? + key.len();
+    let open = after + text[after..].find('"')?;
+    let close = open + 1 + text[open + 1..].find('"')?;
+    Some(format!("{}{compat}{}", &text[..=open], &text[close..]))
+}
+
+/// An application's `elm.json` with its `elm-version` set to `compat`,
+/// every other byte kept. Only applications name one version.
+pub(crate) fn rewrite_manifest(text: &str, compat: Compat) -> Result<String> {
     let json: serde_json::Value = serde_json::from_str(text).context("parsing elm.json")?;
     ensure!(
         json["type"] == "application",
         "only an application's elm-version can be rewritten"
     );
-    let key = "\"elm-version\"";
-    let at = text.find(key).context("elm.json has no elm-version")?;
-    let rest = &text[at + key.len()..];
-    let open = at + key.len() + rest.find('"').context("elm-version has no value")?;
-    let close = open
-        + 1
-        + text[open + 1..]
-            .find('"')
-            .context("unterminated elm-version")?;
-    let rewritten = format!("{}{compat}{}", &text[..=open], &text[close..]);
+    let rewritten = with_elm_version(text, compat).context("elm.json has no elm-version")?;
     let check: serde_json::Value = serde_json::from_str(&rewritten)?;
     ensure!(
-        check["elm-version"] == compat.to_string().as_str(),
+        check["elm-version"] == compat.as_str(),
         "the elm-version rewrite missed"
     );
     Ok(rewritten)
@@ -172,7 +130,7 @@ pub(crate) fn rewrite_manifest(text: &str, compat: Version) -> Result<String> {
 pub(crate) fn sandbox_manifest(
     classification: &Classification,
     app: &apps::App,
-    compat: Version,
+    compat: Compat,
 ) -> Result<String> {
     let path = apps::app_dir(&corpus_dir()?, app)
         .join(&app.root)
@@ -184,9 +142,9 @@ pub(crate) fn sandbox_manifest(
         .app
         .iter()
         .find(|a| a.name == app.name)
-        .and_then(|a| a.manifest_sha256.get(&compat.to_string()))
+        .and_then(|a| a.manifest_sha256.get(&compat))
         .with_context(|| format!("{FILE} pins no {compat} manifest for {}", app.name))?;
-    let actual = download::sha256(rewritten.as_bytes());
+    let actual = nomi_testkit::sha256_hex(rewritten.as_bytes());
     ensure!(
         &actual == pin,
         "{}'s {compat} manifest hashes to {actual}, not {pin}",
@@ -218,10 +176,15 @@ fn classify_fetched(root: &Path) -> Result<String> {
             let elm_version = json["elm-version"]
                 .as_str()
                 .with_context(|| format!("{} has no elm-version", package.name))?;
-            let range = Range::parse(elm_version)?;
-            let admits = (compats.iter())
-                .filter(|&&c| range.admits(c))
-                .map(Version::to_string)
+            let range = Constraint::parse(
+                elm_version.as_bytes(),
+                Cursor::start(Compat::LATEST),
+                Compat::LATEST,
+            )
+            .ok()
+            .with_context(|| format!("`{elm_version}` is not a version range"))?;
+            let admits = (compats.iter().copied())
+                .filter(|&c| range.satisfies(Version::compiler(c)))
                 .collect();
             (Some(elm_version.to_owned()), admits)
         } else {
@@ -246,10 +209,8 @@ fn classify_fetched(root: &Path) -> Result<String> {
         })?;
         let manifest_sha256 = (compats.iter())
             .map(|&c| {
-                Ok((
-                    c.to_string(),
-                    download::sha256(rewrite_manifest(&text, c)?.as_bytes()),
-                ))
+                let rewritten = rewrite_manifest(&text, c)?;
+                Ok((c, nomi_testkit::sha256_hex(rewritten.as_bytes())))
             })
             .collect::<Result<_>>()?;
         app_pins.push(AppPins {
@@ -258,7 +219,7 @@ fn classify_fetched(root: &Path) -> Result<String> {
         });
     }
     Ok(render(&Classification {
-        compats: compats.iter().map(Version::to_string).collect(),
+        compats,
         package: excluding,
         app: app_pins,
     }))
@@ -272,7 +233,7 @@ fn render(classification: &Classification) -> String {
          # ones listed, and each app's elm.json is rewritten to name the Compat\n\
          # under test, pinned here by hash.\n\n",
     );
-    let _ = writeln!(out, "compats = {:?}", classification.compats);
+    let _ = writeln!(out, "compats = {:?}", names(&classification.compats));
     for p in &classification.package {
         let _ = write!(
             out,
@@ -285,16 +246,21 @@ fn render(classification: &Classification) -> String {
             }
             None => out.push_str("# no elm.json\n"),
         }
-        let _ = writeln!(out, "admits = {:?}", p.admits);
+        let _ = writeln!(out, "admits = {:?}", names(&p.admits));
     }
     for app in &classification.app {
         let _ = write!(out, "\n[[app]]\nname = {:?}\n", app.name);
         out.push_str("[app.manifest-sha256]\n");
         for (compat, hash) in &app.manifest_sha256 {
-            let _ = writeln!(out, "{compat:?} = {hash:?}");
+            let _ = writeln!(out, "{:?} = {hash:?}", compat.as_str());
         }
     }
     out
+}
+
+/// The versions of `compats`.
+fn names(compats: &[Compat]) -> Vec<&'static str> {
+    compats.iter().map(|c| c.as_str()).collect()
 }
 
 /// `cargo xtask corpus classify`: rewrites `corpus/compat.toml`.
@@ -324,7 +290,7 @@ pub(crate) fn stats(root: &Path) -> Result<()> {
         Ok(fresh) if fresh == render(&classification) => {
             for app in &apps {
                 for compat in &classification.compats {
-                    sandbox_manifest(&classification, app, Version::parse(compat)?)?;
+                    sandbox_manifest(&classification, app, *compat)?;
                 }
             }
             println!("compat    {FILE} matches the fetched corpus");
@@ -339,74 +305,58 @@ pub(crate) fn stats(root: &Path) -> Result<()> {
 mod tests {
     use super::*;
 
-    fn v(text: &str) -> Version {
-        Version::parse(text).unwrap()
-    }
-
-    #[test]
-    fn ranges_admit_by_their_operators() {
-        let range = Range::parse("0.19.0 <= v < 0.19.2").unwrap();
-        assert!(range.admits(v("0.19.0")));
-        assert!(range.admits(v("0.19.1")));
-        assert!(!range.admits(v("0.19.2")));
-        let range = Range::parse("0.17.1 <= v <= 0.19.0").unwrap();
-        assert!(range.admits(v("0.19.0")));
-        assert!(!range.admits(v("0.19.1")));
-        let range = Range::parse("0.19.1 < v <= 0.19.3").unwrap();
-        assert!(!range.admits(v("0.19.1")));
-        assert!(range.admits(v("0.19.3")));
-    }
-
-    #[test]
-    fn malformed_ranges_are_errors() {
-        for text in [
-            "0.19.0 <= v",
-            "0.19 <= v < 0.20.0",
-            "0.19.0 >= v < 0.20.0",
-            "",
-        ] {
-            assert!(Range::parse(text).is_err(), "{text}");
-        }
-    }
-
-    #[test]
-    fn versions_order_numerically() {
-        assert!(v("0.19.10") > v("0.19.9"));
-        assert_eq!(v("0.19.1").to_string(), "0.19.1");
-    }
-
     #[test]
     fn rewrites_keep_every_other_byte() {
         let text =
             "{\n    \"type\": \"application\",\n    \"elm-version\":\"0.19.1\",\n    \"x\": 1\n}\n";
         assert_eq!(
-            rewrite_manifest(text, v("0.19.3")).unwrap(),
+            rewrite_manifest(text, Compat::V0_19_3).unwrap(),
             text.replace("0.19.1", "0.19.3")
+        );
+    }
+
+    #[test]
+    fn the_first_elm_version_is_set_whatever_it_named() {
+        let text = r#"{"elm-version": "0.18.0", "x": {"elm-version": "0.19.1"}}"#;
+        assert_eq!(
+            with_elm_version(text, Compat::V0_19_2).as_deref(),
+            Some(r#"{"elm-version": "0.19.2", "x": {"elm-version": "0.19.1"}}"#)
+        );
+        assert_eq!(
+            with_elm_version(r#"{"type": "application"}"#, Compat::V0_19_2),
+            None
+        );
+        assert_eq!(
+            with_elm_version(r#"{"elm-version": 1}"#, Compat::V0_19_2),
+            None
         );
     }
 
     #[test]
     fn packages_are_not_rewritten() {
         let text = r#"{"type": "package", "elm-version": "0.19.0 <= v < 0.20.0"}"#;
-        assert!(rewrite_manifest(text, v("0.19.3")).is_err());
+        assert!(rewrite_manifest(text, Compat::V0_19_3).is_err());
     }
 
     #[test]
     fn rendered_classification_parses_back() {
         let classification = Classification {
-            compats: vec!["0.19.1".into(), "0.19.2".into()],
+            compats: vec![Compat::V0_19_1, Compat::V0_19_2],
             package: vec![Excluding {
                 name: "a/b".into(),
                 version: "1.0.0".into(),
                 elm_version: Some("0.19.0 <= v < 0.19.2".into()),
-                admits: vec!["0.19.1".into()],
+                admits: vec![Compat::V0_19_1],
             }],
             app: vec![AppPins {
                 name: "app".into(),
-                manifest_sha256: [("0.19.1".to_string(), "ab".to_string())].into(),
+                manifest_sha256: [(Compat::V0_19_1, "ab".to_string())].into(),
             }],
         };
         let parsed: Classification = toml::from_str(&render(&classification)).unwrap();
         assert_eq!(parsed, classification);
+        assert!(parsed.admits("a/b", "1.0.0", Compat::V0_19_1));
+        assert!(!parsed.admits("a/b", "1.0.0", Compat::V0_19_2));
+        assert!(parsed.admits("a/b", "2.0.0", Compat::V0_19_2));
     }
 }

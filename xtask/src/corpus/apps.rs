@@ -85,7 +85,7 @@ fn fetch_one(corpus: &Path, app: &App) -> Result<()> {
     download::verify(
         "elm.json",
         &app.manifest_sha256,
-        &download::sha256(&manifest),
+        &nomi_testkit::sha256_hex(&manifest),
     )?;
     for entry in &app.entries {
         if !root.join(entry).is_file() {
@@ -103,7 +103,7 @@ fn run_prepare(corpus: &Path, dir: &Path, prepare: &Prepare) -> Result<()> {
     download::verify(
         &prepare.input,
         &prepare.input_sha256,
-        &download::sha256(&input),
+        &nomi_testkit::sha256_hex(&input),
     )?;
     let output = dir.join(&prepare.output);
     let stamp = dir.join(PREPARED);
@@ -157,11 +157,11 @@ fn run_prepare(corpus: &Path, dir: &Path, prepare: &Prepare) -> Result<()> {
 /// Downloads `pinned` into the tool cache once and returns its path.
 fn cached(corpus: &Path, pinned: &Pinned, name: &str) -> Result<PathBuf> {
     let path = corpus.join("tools").join(name);
-    if path.exists() && download::sha256(&std::fs::read(&path)?) == pinned.sha256 {
+    if path.exists() && nomi_testkit::sha256_hex(&std::fs::read(&path)?) == pinned.sha256 {
         return Ok(path);
     }
     let bytes = download::get(&pinned.url)?;
-    download::verify(name, &pinned.sha256, &download::sha256(&bytes))?;
+    download::verify(name, &pinned.sha256, &nomi_testkit::sha256_hex(&bytes))?;
     download::write_atomic(&path, &bytes)?;
     Ok(path)
 }

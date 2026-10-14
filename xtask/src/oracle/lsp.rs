@@ -12,59 +12,54 @@
 //! package in it once before any session, so the server's own `elm make`
 //! is quick and each session settles. Sessions run side by side.
 
+use std::ffi::OsString;
 use std::fs;
-use std::panic::AssertUnwindSafe;
+use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, anyhow, bail, ensure};
+use nomi_base::Compat;
 use nomi_testkit::lsp::{self, Driver, Timing};
-use serde_json::json;
+use serde_json::{Map, Value, json};
 
-use super::sandbox::{offline, registry_of};
-use super::transcripts::binary;
-use super::{cache_dir, node_version, oracles_dir};
-use crate::corpus::compat::Version;
+use super::sandbox::{elm_home, fixture_releases, offline};
+use super::{cache_dir, cores, installed, node_version, oracles_dir, pinned_binary};
+use super::{pinned_elm, remove_tree, which};
+use crate::corpus::parallel_on;
 use crate::references::References;
 
 /// The suite: `cases/`, `expected/` and `passing.txt`.
 pub(crate) const SUITE: &str = "crates/lsp/tests/elm_language_server";
 
-/// The packages every case may depend on.
-const PACKAGES: &str = "crates/compiler/tests/packages";
+/// The elm the server runs with, as most of its users have it.
+const COMPAT: Compat = Compat::V0_19_1;
 
 /// What every session needs.
 pub(crate) struct Tools {
-    node: PathBuf,
+    pub node: PathBuf,
     /// The server's `PATH`: the pinned elm as `elm`, as a user has it,
     /// and Node, and no `elm-test`.
-    path: std::ffi::OsString,
-    server: PathBuf,
+    pub path: OsString,
+    /// The server's entry point.
+    pub server: PathBuf,
     elm: PathBuf,
     elm_format: PathBuf,
-    home: PathBuf,
+    pub home: PathBuf,
+    /// The package cache in `home`.
     packages: PathBuf,
 }
 
+/// `cargo xtask oracle lsp`: the cases whose names start with `only`, or
+/// every case.
 pub(crate) fn run(root: &Path, refs: &References, only: Option<&str>) -> Result<()> {
     node_version(refs.node_minimum)?;
-    let server =
-        oracles_dir()?.join("npm/node_modules/@elm-tooling/elm-language-server/out/node/index.js");
-    ensure!(
-        server.exists(),
-        "{} is missing; run `cargo xtask oracle fetch`",
-        server.display()
-    );
-    let compat = Version::parse("0.19.1").context("a version")?;
+    let server = server_path()?;
     let scratch = cache_dir()?.join("sandboxes").join("lsp");
-    if scratch.exists() {
-        fs::remove_dir_all(&scratch)?;
-    }
+    remove_tree(&scratch)?;
     let home = scratch.join("home");
-    let packages = fs::canonicalize(elm_home(root, &home, compat)?)?;
+    let packages = fs::canonicalize(elm_home(&home, COMPAT, &fixture_releases()?)?)?;
     let tools = tools(refs, server, &scratch, home, packages)?;
     prebuild(&tools, &scratch.join("prebuild"))?;
 
@@ -73,40 +68,15 @@ pub(crate) fn run(root: &Path, refs: &References, only: Option<&str>) -> Result<
     fs::create_dir_all(&expected)?;
     let mut cases = lsp::cases(&suite.join("cases"));
     cases.retain(|case| only.is_none_or(|only| case.name.starts_with(only)));
-    let jobs = std::thread::available_parallelism()
-        .map_or(4, |n| n.get() / 2)
-        .clamp(1, 8);
-    let next = AtomicUsize::new(0);
-    let failures = Mutex::new(Vec::new());
-    std::thread::scope(|scope| {
-        for _ in 0..jobs {
-            scope.spawn(|| {
-                while let Some(case) = cases.get(next.fetch_add(1, Ordering::Relaxed)) {
-                    // The driver panics on a broken session; that fails
-                    // the case, not the run.
-                    let recorded = std::panic::catch_unwind(AssertUnwindSafe(|| {
-                        record(&tools, &scratch.join("cases"), case)
-                    }))
-                    .unwrap_or_else(|_| Err(anyhow::anyhow!("the session broke")));
-                    let written = recorded.and_then(|t| {
-                        let text = lsp::to_text(&t);
-                        Ok(fs::write(
-                            expected.join(format!("{}.json", case.name)),
-                            text,
-                        )?)
-                    });
-                    if let Err(e) = written {
-                        failures
-                            .lock()
-                            .unwrap()
-                            .push(format!("{}: {e:#}", case.name));
-                    }
-                }
-            });
-        }
+    let written = parallel_on((cores() / 2).clamp(1, 8), &cases, |case| -> Result<()> {
+        let transcript = record(&tools, &scratch.join("cases"), case)?;
+        let path = expected.join(format!("{}.json", case.name));
+        Ok(fs::write(path, lsp::to_text(&transcript))?)
     });
     eprintln!("  {} cases recorded", cases.len());
-    let failures = failures.into_inner().unwrap();
+    let failures: Vec<String> = (cases.iter().zip(written))
+        .filter_map(|(case, written)| Some(format!("{}: {:#}", case.name, written.err()?)))
+        .collect();
     if !failures.is_empty() {
         bail!("{} cases failed:\n{}", failures.len(), failures.join("\n"));
     }
@@ -122,11 +92,10 @@ pub(crate) fn tools(
     home: PathBuf,
     packages: PathBuf,
 ) -> Result<Tools> {
-    let compat = Version::parse("0.19.1").context("a version")?;
     let node = which("node").context("node isn't on PATH")?;
     let bin = scratch.join("bin");
     fs::create_dir_all(&bin)?;
-    let elm = binary(refs, "elm", Some(&compat.to_string()))?;
+    let elm = pinned_elm(refs, COMPAT)?;
     let link = bin.join(elm.file_name().context("elm's name")?);
     if !link.exists() {
         #[cfg(unix)]
@@ -144,52 +113,46 @@ pub(crate) fn tools(
         node,
         path,
         server,
-        elm: binary(refs, "elm", Some(&compat.to_string()))?,
-        elm_format: binary(refs, "elm-format", None)?,
+        elm,
+        elm_format: pinned_binary(refs, "elm-format", None)?,
         home,
         packages,
     })
 }
 
 impl Tools {
-    /// How an editor starts the server: Node, its entry point, its
-    /// `PATH` and `ELM_HOME`.
-    pub(crate) fn command(&self) -> (&Path, &Path, &std::ffi::OsStr, &Path) {
-        (&self.node, &self.server, &self.path, &self.home)
+    /// The server, started as an editor starts it: by Node, with its
+    /// `PATH` and `ELM_HOME`, on standard streams.
+    pub(crate) fn server_command(&self) -> Command {
+        let mut command = Command::new(&self.node);
+        command
+            .arg(&self.server)
+            .arg("--stdio")
+            .env("PATH", &self.path)
+            .env("ELM_HOME", &self.home);
+        command
     }
 
     /// The settings that point the server at the pinned tools, as the
     /// recordings give them, with `elm-review` at `no_review`.
-    pub(crate) fn settings(&self, no_review: &Path) -> serde_json::Value {
-        json!({
-            "elmPath": self.elm,
-            "elmFormatPath": self.elm_format,
+    pub(crate) fn settings(&self, no_review: &Path) -> Map<String, Value> {
+        let settings = [
+            ("elmPath", json!(self.elm)),
+            ("elmFormatPath", json!(self.elm_format)),
             // Unset, so it looks for `elm-test`, finds none, and falls
             // back to `elm`, as it does for most users.
-            "elmTestPath": "",
-            "elmReviewPath": no_review,
-        })
+            ("elmTestPath", json!("")),
+            ("elmReviewPath", json!(no_review)),
+        ];
+        Map::from_iter(settings.map(|(key, value)| (key.to_owned(), value)))
     }
 }
 
 /// The pinned elm-language-server's entry point.
 pub(crate) fn server_path() -> Result<PathBuf> {
-    let server =
-        oracles_dir()?.join("npm/node_modules/@elm-tooling/elm-language-server/out/node/index.js");
-    ensure!(
-        server.exists(),
-        "{} is missing; run `cargo xtask oracle fetch`",
-        server.display()
-    );
-    Ok(server)
-}
-
-/// The first `name` on `PATH`.
-fn which(name: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|dir| dir.join(name))
-        .find(|candidate| candidate.is_file())
+    installed(
+        oracles_dir()?.join("npm/node_modules/@elm-tooling/elm-language-server/out/node/index.js"),
+    )
 }
 
 /// Builds every fixture package into the shared `ELM_HOME`, through an
@@ -211,33 +174,30 @@ fn prebuild(tools: &Tools, dir: &Path) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn record(tools: &Tools, scratch: &Path, case: &lsp::Case) -> Result<serde_json::Value> {
+/// The server's transcript of `case`, run in a copy of its project under
+/// `scratch`.
+pub(crate) fn record(tools: &Tools, scratch: &Path, case: &lsp::Case) -> Result<Value> {
     fs::create_dir_all(scratch)?;
     let work = lsp::project_dir(&fs::canonicalize(scratch)?, &case.name)?;
     // Nothing of an earlier run's copy stays.
-    if work.exists() {
-        fs::remove_dir_all(&work)?;
-    }
+    remove_tree(&work)?;
     lsp::copy_project(case, &work)?;
 
-    let mut command = Command::new(&tools.node);
+    let mut command = tools.server_command();
     command
-        .arg(&tools.server)
-        .env("PATH", &tools.path)
-        .arg("--stdio")
         .current_dir(&work)
-        .env("ELM_HOME", &tools.home)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     offline(&mut command);
     let mut child = command.spawn().context("starting elm-language-server")?;
-    let connection =
-        lsp::child_connection(child.stdin.take().unwrap(), child.stdout.take().unwrap());
+    let connection = lsp::child_connection(
+        child.stdin.take().expect("piped"),
+        child.stdout.take().expect("piped"),
+    );
     let mut session = case.session.clone();
-    let paths = tools.settings(&scratch.join("no-elm-review"));
-    for (key, value) in paths.as_object().unwrap() {
-        session.settings.entry(key.clone()).or_insert(value.clone());
+    for (key, value) in tools.settings(&scratch.join("no-elm-review")) {
+        session.settings.entry(key).or_insert(value);
     }
     let timing = Timing {
         quiet: Duration::from_secs(2),
@@ -246,9 +206,13 @@ pub(crate) fn record(tools: &Tools, scratch: &Path, case: &lsp::Case) -> Result<
         publishes: false,
     };
     let root_uri = format!("file://{}", work.display());
-    let driver = Driver::start(connection, &work, &root_uri, &session, timing);
-    let transcript = driver.run(&session);
+    // The driver panics on a broken session; the server is reaped either
+    // way.
+    let transcript = panic::catch_unwind(AssertUnwindSafe(|| {
+        Driver::start(connection, &work, &root_uri, &session, timing).run(&session)
+    }));
     lsp::reap(child);
+    let transcript = transcript.map_err(|_| anyhow!("the session broke"))?;
     let packages = &tools.packages;
     let replacements = [
         (
@@ -263,51 +227,4 @@ pub(crate) fn record(tools: &Tools, scratch: &Path, case: &lsp::Case) -> Result<
         (work.display().to_string(), "<project>".to_owned()),
     ];
     Ok(lsp::tidy(transcript, &replacements))
-}
-
-/// Fills `home` as an offline `ELM_HOME` holding the fixture packages,
-/// and gives back their directory.
-pub(crate) fn elm_home(root: &Path, home: &Path, compat: Version) -> Result<PathBuf> {
-    let packages = home.join(compat.to_string()).join("packages");
-    let fixtures = root.join(PACKAGES);
-    let mut releases = Vec::new();
-    for author in fs::read_dir(&fixtures)? {
-        let author = author?;
-        if !author.file_type()?.is_dir() {
-            continue;
-        }
-        for project in fs::read_dir(author.path())? {
-            let project = project?;
-            for version in fs::read_dir(project.path())? {
-                let version = version?;
-                let name = format!(
-                    "{}/{}",
-                    author.file_name().to_string_lossy(),
-                    project.file_name().to_string_lossy()
-                );
-                let number = version.file_name().to_string_lossy().into_owned();
-                copy_tree(&version.path(), &packages.join(&name).join(&number))?;
-                releases.push((name, Version::parse(&number).context("a version")?));
-            }
-        }
-    }
-    let releases: Vec<(&str, Version)> = releases.iter().map(|(n, v)| (n.as_str(), *v)).collect();
-    fs::write(
-        packages.join("registry.dat"),
-        registry_of(compat, &releases),
-    )?;
-    Ok(packages)
-}
-
-fn copy_tree(from: &Path, to: &Path) -> Result<()> {
-    fs::create_dir_all(to)?;
-    for entry in fs::read_dir(from)? {
-        let entry = entry?;
-        if entry.file_type()?.is_dir() {
-            copy_tree(&entry.path(), &to.join(entry.file_name()))?;
-        } else {
-            fs::copy(entry.path(), to.join(entry.file_name()))?;
-        }
-    }
-    Ok(())
 }

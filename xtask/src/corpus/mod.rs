@@ -88,12 +88,12 @@ pub(crate) fn tree_digest(root: &Path, files: &[String]) -> Result<String> {
     let mut listing = String::new();
     for file in files {
         let bytes = std::fs::read(root.join(file))?;
-        listing.push_str(&crate::download::sha256(&bytes));
+        listing.push_str(&nomi_testkit::sha256_hex(&bytes));
         listing.push_str("  ./");
         listing.push_str(file);
         listing.push('\n');
     }
-    Ok(crate::download::sha256(listing.as_bytes()))
+    Ok(nomi_testkit::sha256_hex(listing.as_bytes()))
 }
 
 pub(crate) fn stats(root: &Path) -> Result<()> {
@@ -168,12 +168,12 @@ mod tests {
         assert_eq!(files, ["a.txt", "sub/b.txt"]);
         let listing = format!(
             "{}  ./a.txt\n{}  ./sub/b.txt\n",
-            crate::download::sha256(b"a"),
-            crate::download::sha256(b"b")
+            nomi_testkit::sha256_hex(b"a"),
+            nomi_testkit::sha256_hex(b"b")
         );
         assert_eq!(
             tree_digest(&dir, &files).unwrap(),
-            crate::download::sha256(listing.as_bytes())
+            nomi_testkit::sha256_hex(listing.as_bytes())
         );
         std::fs::remove_dir_all(dir).unwrap();
     }

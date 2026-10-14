@@ -19,7 +19,9 @@ use super::{Row, Setup, Table};
 use crate::corpus::compat;
 use crate::corpus::{apps, corpus_dir, files_below};
 use crate::oracle::cache_dir;
-use crate::oracle::corpus_runs::{copy_modules, elm_binary, elm_home, releases};
+use crate::oracle::corpus_runs::{copy_modules, releases};
+use crate::oracle::pinned_elm;
+use crate::oracle::sandbox::elm_home;
 use crate::references::References;
 
 const RUNS: usize = 3;
@@ -129,7 +131,7 @@ pub(crate) fn tables(root: &Path, refs: &References, setup: &Setup) -> Result<Ve
         elm_home(&home, version, &releases)?;
         let packages = home.join(version.to_string()).join("packages");
         let elm = Tool {
-            binary: elm_binary(refs, version)?,
+            binary: pinned_elm(refs, version)?,
             env: vec![("ELM_HOME", home.clone())],
             clear: Box::new(move || {
                 for file in files_below(&packages)? {

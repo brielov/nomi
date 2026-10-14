@@ -11,108 +11,61 @@
 //! for the encoding's tests, to `artifacts/<elm>/`.
 
 use std::fs;
-use std::path::Path;
-use std::process::Command;
+use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail, ensure};
-use nomi_testkit::transcript::Case;
+use anyhow::{Context, Result, ensure};
+use nomi_testkit::transcript::{Case, cases};
 
-use super::modules::{case_files, pinned, read_case, with_elm_version};
-use super::sandbox::{elm_home, offline};
-use super::{binary_path, cache_dir};
-use crate::corpus::compat::{self, Version};
+use super::modules::Recorder;
+use super::remove_tree;
+use super::sandbox::{corpus_releases, elmo_files};
+use crate::corpus::compat;
 use crate::references::References;
 
-pub(crate) const CASES: &str = "crates/compiler/tests/optimized";
+const CASES: &str = "crates/compiler/tests/optimized";
 
 /// The packages every case may depend on.
 const DEPENDENCIES: [&str; 4] = ["elm/core", "elm/html", "elm/json", "elm/virtual-dom"];
 
+/// `cargo xtask oracle optimized`.
 pub(crate) fn run(root: &Path, refs: &References) -> Result<()> {
     let dir = root.join(CASES);
-    let pinned = pinned(root, &DEPENDENCIES)?;
+    let pinned = corpus_releases(root, &DEPENDENCIES)?;
     let default = fs::read_to_string(dir.join("default.elm.json"))?;
-    let mut cases = Vec::new();
-    for (stem, path) in case_files(&dir.join("cases"))? {
-        cases.push((stem, read_case(&path)?));
-    }
+    let cases = cases(&dir.join("cases"));
     let artifacts = dir.join("artifacts");
-    if artifacts.exists() {
-        fs::remove_dir_all(&artifacts)?;
-    }
-    for version in compat::compats(refs)? {
-        let scratch = cache_dir()?
-            .join("sandboxes")
-            .join("optimized")
-            .join(version.to_string());
-        if scratch.exists() {
-            fs::remove_dir_all(&scratch)?;
-        }
-        let home = scratch.join("home");
-        elm_home(&home, version, &pinned)?;
-        let out = artifacts.join(format!("elm-{version}"));
+    remove_tree(&artifacts)?;
+    for compat in compat::compats(refs)? {
+        let elm = Recorder::new(refs, "optimized", compat, &pinned)?;
+        let out = artifacts.join(format!("elm-{compat}"));
         for (id, case) in &cases {
-            let stuff = build(refs, &scratch, &home, version, case, &default)
-                .with_context(|| format!("elm {version} on {id}"))?;
+            let stuff =
+                build(&elm, case, &default).with_context(|| format!("elm {compat} on {id}"))?;
             let to = out.join(id);
             fs::create_dir_all(&to)?;
-            for entry in fs::read_dir(&stuff)? {
-                let path = entry?.path();
-                let name = path.file_name().unwrap_or_default().to_string_lossy();
-                if name.ends_with(".elmo") {
-                    fs::copy(&path, to.join(&*name))?;
-                }
+            for (_, file) in elmo_files(&stuff)? {
+                fs::copy(stuff.join(&file), to.join(&file))?;
             }
             fs::copy(stuff.join("o.dat"), out.join("o.dat"))?;
         }
-        eprintln!("  elm {version}: {} cases", cases.len());
+        eprintln!("  elm {compat}: {} cases", cases.len());
     }
     println!("recorded {} cases", cases.len());
     Ok(())
 }
 
-/// Builds `case` with elm `version` in a fresh project in `scratch`, and
-/// gives the `elm-stuff/<version>` it left.
-fn build(
-    refs: &References,
-    scratch: &Path,
-    home: &Path,
-    version: Version,
-    case: &Case,
-    default: &str,
-) -> Result<std::path::PathBuf> {
-    let pin = (refs.binary.iter())
-        .find(|b| b.name == "elm" && b.version == version.to_string())
-        .with_context(|| format!("elm {version} is not pinned"))?;
-    let elm = binary_path(pin)?;
-    ensure!(
-        elm.exists(),
-        "{} is missing; run `cargo xtask oracle fetch`",
-        elm.display()
-    );
-    let work = scratch.join("work");
-    if work.exists() {
-        fs::remove_dir_all(&work)?;
-    }
-    fs::create_dir_all(&work)?;
-    case.create_files(&work)?;
-    let manifest = work.join("elm.json");
-    let text = fs::read_to_string(&manifest).unwrap_or_else(|_| default.to_owned());
-    fs::write(&manifest, with_elm_version(&text, version))?;
-    let mut command = Command::new(&elm);
+/// Builds `case` with `elm` in a fresh project, and gives the
+/// `elm-stuff/<release>` it left.
+fn build(elm: &Recorder, case: &Case, default: &str) -> Result<PathBuf> {
+    let (mut command, work) = elm.make(case, default)?;
     command
-        .args(&case.args)
         .args(["--output=/dev/null", "--report=json"])
-        .args(["+RTS", "-N1", "-RTS"])
-        .current_dir(&work)
-        .env("ELM_HOME", home);
-    offline(&mut command);
+        .args(["+RTS", "-N1", "-RTS"]);
     let output = command.output().context("running elm")?;
-    if !output.status.success() {
-        bail!(
-            "elm rejected the case, which must compile:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    Ok(work.join("elm-stuff").join(version.to_string()))
+    ensure!(
+        output.status.success(),
+        "elm rejected the case, which must compile:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(work.join("elm-stuff").join(elm.compat.as_str()))
 }

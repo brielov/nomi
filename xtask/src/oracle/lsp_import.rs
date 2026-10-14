@@ -54,6 +54,7 @@ const FILES: &[(&str, Kind)] = &[
     ("diagnosticTests/elmLsDiagnostics.test.ts", Kind::Lint),
 ];
 
+/// `cargo xtask oracle lsp-import`.
 pub(crate) fn run(root: &Path) -> Result<()> {
     let tests = root.join(TESTS);
     let cases = root.join(SUITE).join("cases");
@@ -79,7 +80,7 @@ pub(crate) fn run(root: &Path) -> Result<()> {
         for file in files {
             let text =
                 fs::read_to_string(&file).with_context(|| format!("reading {}", file.display()))?;
-            let stem = file.file_name().unwrap().to_string_lossy();
+            let stem = file.file_name().expect("a test file").to_string_lossy();
             let stem = kebab(stem.trim_end_matches(".test.ts"));
             for (n, test) in tests_of(&text).into_iter().enumerate() {
                 let Some(case) = convert(*kind, &test) else {
@@ -112,7 +113,7 @@ struct Case {
 fn write(dir: &Path, title: &str, case: Case) -> Result<()> {
     for (path, text) in &case.files {
         let path = dir.join(path);
-        fs::create_dir_all(path.parent().unwrap())?;
+        fs::create_dir_all(path.parent().expect("a file in a directory"))?;
         fs::write(path, text)?;
     }
     let mut session = Map::new();
@@ -372,99 +373,37 @@ fn string_argument(body: &str, call: &str) -> Option<String> {
     Some(rest[1..=end].to_owned())
 }
 
+/// The case `test` makes, as its helper would read it; none for a test
+/// whose project this can't read.
 fn convert(kind: Kind, test: &Test) -> Option<Case> {
     // Some of its projects indent with tabs, which elm rejects, and
     // elm-language-server then shows nothing elm says (DECISIONS.md,
     // 2026-10-12). Its tests never compile them, so they become spaces,
     // before any marker is read.
     let source = &test.source.as_deref()?.replace('\t', "    ");
-    let request = |method: &str, file: &str, at: Value, params: Value| {
-        let mut step = json!({ "method": method, "file": path_of(file) });
-        if !at.is_null() {
-            step["at"] = at;
+    let none = || json!({});
+    let converted = match kind {
+        Kind::Definition => invoked(source, "textDocument/definition", none())?,
+        Kind::References => {
+            let params = json!({ "context": { "includeDeclaration": true } });
+            invoked(source, "textDocument/references", params)?
         }
-        if params.as_object().is_some_and(|p| !p.is_empty()) {
-            step["params"] = params;
-        }
-        step
-    };
-    let (files, open, requests, settings) = match kind {
-        Kind::Definition | Kind::References | Kind::Hover => {
-            let files = source_files(source);
-            let (file, position) = invoke(&files)?;
-            let (method, params) = match kind {
-                Kind::Definition => ("textDocument/definition", json!({})),
-                Kind::References => (
-                    "textDocument/references",
-                    json!({ "context": { "includeDeclaration": true } }),
-                ),
-                _ => ("textDocument/hover", json!({})),
-            };
-            let step = request(method, &file, json!(position), params);
-            (files, vec![file], vec![step], json!({}))
-        }
-        Kind::TypeDefinition | Kind::Completion => {
-            let mut files = source_files(source);
-            let (file, position) = caret(&mut files)?;
-            let (method, params) = if kind == Kind::Completion {
-                let text = &files.iter().find(|(n, _)| *n == file)?.1;
-                let line = text.split('\n').nth(position.line as usize)?;
-                let before: Vec<u16> = line
-                    .encode_utf16()
-                    .take(position.character as usize)
-                    .collect();
-                let context = if before.last() == Some(&u16::from(b'.')) {
-                    json!({ "triggerKind": 2, "triggerCharacter": "." })
-                } else {
-                    json!({ "triggerKind": 1 })
-                };
-                ("textDocument/completion", json!({ "context": context }))
+        Kind::Hover => invoked(source, "textDocument/hover", none())?,
+        Kind::TypeDefinition => at_caret(source, |_| ("textDocument/typeDefinition", none()))?,
+        Kind::Completion => at_caret(source, |before| {
+            let context = if before.last() == Some(&u16::from(b'.')) {
+                json!({ "triggerKind": 2, "triggerCharacter": "." })
             } else {
-                ("textDocument/typeDefinition", json!({}))
+                json!({ "triggerKind": 1 })
             };
-            let step = request(method, &file, json!(position), params);
-            (files, vec![file], vec![step], json!({}))
-        }
-        Kind::Rename => {
-            // A test prepares, renames, or both; each helper reads the
-            // markers its own way, which only differs in trailing space.
-            let prepare = test.body.contains("testPrepareRename(");
-            let rename = string_argument(&test.body, "testRename");
-            let text = if rename.is_some() {
-                trim_trailing_whitespace(source)
-            } else {
-                source.to_owned()
-            };
-            let files = source_files(&text);
-            let (start, _) = target(&files)?;
-            let mut steps = Vec::new();
-            if prepare {
-                steps.push(request(
-                    "textDocument/prepareRename",
-                    "Test.elm",
-                    json!(start),
-                    json!({}),
-                ));
-            }
-            if let Some(name) = rename {
-                let params = json!({ "newName": name });
-                steps.push(request(
-                    "textDocument/rename",
-                    "Test.elm",
-                    json!(start),
-                    params,
-                ));
-            }
-            if steps.is_empty() {
-                return None;
-            }
-            (files, vec!["Test.elm".to_owned()], steps, json!({}))
-        }
+            ("textDocument/completion", json!({ "context": context }))
+        })?,
+        Kind::Rename => rename(test, source)?,
         Kind::Folding => {
             let files = source_files(source);
             let file = files.first()?.0.clone();
-            let step = request("textDocument/foldingRange", &file, Value::Null, json!({}));
-            (files, vec![file], vec![step], json!({}))
+            let step = request("textDocument/foldingRange", &file, Value::Null, none());
+            Converted::new(files, vec![file], vec![step], none())
         }
         Kind::CodeAction => {
             let mut files = source_files(&trim_trailing_whitespace(source));
@@ -472,9 +411,9 @@ fn convert(kind: Kind, test: &Test) -> Option<Case> {
             let test_file = files.iter_mut().find(|(n, _)| n == "Test.elm")?;
             test_file.1 = strip_comment_lines(&test_file.1);
             let at = json!({ "start": start, "end": end });
-            let step = request("textDocument/codeAction", "Test.elm", at, json!({}));
+            let step = request("textDocument/codeAction", "Test.elm", at, none());
             let settings = json!({ "disableElmLSDiagnostics": false });
-            (files, vec!["Test.elm".to_owned()], vec![step], settings)
+            Converted::new(files, vec!["Test.elm".to_owned()], vec![step], settings)
         }
         Kind::Lint => {
             let mut files = source_files(source);
@@ -487,26 +426,135 @@ fn convert(kind: Kind, test: &Test) -> Option<Case> {
                 .filter(|n| n.ends_with(".elm"))
                 .collect();
             let settings = json!({ "disableElmLSDiagnostics": false });
-            (files, open, Vec::new(), settings)
+            Converted::new(files, open, Vec::new(), settings)
         }
     };
-    let mut session = Map::new();
-    if settings.as_object().is_some_and(|s| !s.is_empty()) {
-        session.insert("settings".into(), settings);
+    Some(converted.case())
+}
+
+/// A test's files, the ones its session opens, its requests and its
+/// settings, before the files take their places in a case.
+struct Converted {
+    files: Vec<(String, String)>,
+    open: Vec<String>,
+    requests: Vec<Value>,
+    settings: Value,
+}
+
+impl Converted {
+    fn new(
+        files: Vec<(String, String)>,
+        open: Vec<String>,
+        requests: Vec<Value>,
+        settings: Value,
+    ) -> Converted {
+        Converted {
+            files,
+            open,
+            requests,
+            settings,
+        }
     }
-    let open: Vec<String> = open.iter().map(|f| path_of(f)).collect();
-    session.insert("open".into(), json!(open));
-    if !requests.is_empty() {
-        session.insert("requests".into(), json!(requests));
+
+    /// The case: `tests/` files as they are, `../` ones at the project's
+    /// top, the rest under `src/`.
+    fn case(self) -> Case {
+        let mut session = Map::new();
+        if self.settings.as_object().is_some_and(|s| !s.is_empty()) {
+            session.insert("settings".into(), self.settings);
+        }
+        let open: Vec<String> = self.open.iter().map(|f| path_of(f)).collect();
+        session.insert("open".into(), json!(open));
+        if !self.requests.is_empty() {
+            session.insert("requests".into(), json!(self.requests));
+        }
+        let files = (self.files.into_iter())
+            .map(|(name, text)| match name.strip_prefix("../") {
+                Some(top) => (top.to_owned(), text),
+                None => (path_of(&name), text),
+            })
+            .collect();
+        Case { files, session }
     }
-    let files = files
-        .into_iter()
-        .map(|(name, text)| match name.strip_prefix("../") {
-            Some(top) => (top.to_owned(), text),
-            None => (path_of(&name), text),
-        })
+}
+
+/// A session step: `method` on `file` at `at`, with more `params`.
+fn request(method: &str, file: &str, at: Value, params: Value) -> Value {
+    let mut step = json!({ "method": method, "file": path_of(file) });
+    if !at.is_null() {
+        step["at"] = at;
+    }
+    if params.as_object().is_some_and(|p| !p.is_empty()) {
+        step["params"] = params;
+    }
+    step
+}
+
+/// `method` with `params` at the invoke position, as the definition,
+/// references and hover tests mark it.
+fn invoked(source: &str, method: &str, params: Value) -> Option<Converted> {
+    let files = source_files(source);
+    let (file, position) = invoke(&files)?;
+    let step = request(method, &file, json!(position), params);
+    Some(Converted::new(files, vec![file], vec![step], json!({})))
+}
+
+/// The request `ask` makes of the UTF-16 text before the caret, at the
+/// caret, as the type definition and completion tests mark it.
+fn at_caret(source: &str, ask: impl FnOnce(&[u16]) -> (&str, Value)) -> Option<Converted> {
+    let mut files = source_files(source);
+    let (file, position) = caret(&mut files)?;
+    let text = &files.iter().find(|(n, _)| *n == file)?.1;
+    let line = text.split('\n').nth(position.line as usize)?;
+    let before: Vec<u16> = line
+        .encode_utf16()
+        .take(position.character as usize)
         .collect();
-    Some(Case { files, session })
+    let (method, params) = ask(&before);
+    let step = request(method, &file, json!(position), params);
+    Some(Converted::new(files, vec![file], vec![step], json!({})))
+}
+
+/// A rename test: it prepares, renames, or both; each helper reads the
+/// markers its own way, which only differs in trailing space.
+fn rename(test: &Test, source: &str) -> Option<Converted> {
+    let prepare = test.body.contains("testPrepareRename(");
+    let rename = string_argument(&test.body, "testRename");
+    let text = if rename.is_some() {
+        trim_trailing_whitespace(source)
+    } else {
+        source.to_owned()
+    };
+    let files = source_files(&text);
+    let (start, _) = target(&files)?;
+    let mut steps = Vec::new();
+    if prepare {
+        let step = request(
+            "textDocument/prepareRename",
+            "Test.elm",
+            json!(start),
+            json!({}),
+        );
+        steps.push(step);
+    }
+    if let Some(name) = rename {
+        let params = json!({ "newName": name });
+        steps.push(request(
+            "textDocument/rename",
+            "Test.elm",
+            json!(start),
+            params,
+        ));
+    }
+    if steps.is_empty() {
+        return None;
+    }
+    Some(Converted::new(
+        files,
+        vec!["Test.elm".to_owned()],
+        steps,
+        json!({}),
+    ))
 }
 
 /// `functionDefinition` as `function-definition`.

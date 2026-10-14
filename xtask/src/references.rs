@@ -6,6 +6,7 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
+/// Every pin.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub(crate) struct References {
@@ -42,6 +43,7 @@ pub(crate) struct Binary {
     pub assets: BTreeMap<String, Asset>,
 }
 
+/// How a binary's release asset holds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Format {
@@ -51,6 +53,7 @@ pub(crate) enum Format {
     Tgz,
 }
 
+/// A binary's release asset for one platform, and its hash.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Asset {
@@ -68,6 +71,8 @@ pub(crate) struct Npm {
     pub commit: String,
 }
 
+/// A package release, pinned by the hash the package website gives its
+/// GitHub zipball.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub(crate) struct ElmPackage {
@@ -78,6 +83,7 @@ pub(crate) struct ElmPackage {
 }
 
 impl Binary {
+    /// Where `asset` downloads from.
     pub(crate) fn url(&self, asset: &Asset) -> String {
         format!(
             "https://github.com/{}/releases/download/{}/{}",
@@ -91,6 +97,7 @@ pub(crate) fn platform() -> String {
     format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
 }
 
+/// The pins in `root`'s `references.toml`.
 pub(crate) fn load(root: &Path) -> Result<References> {
     let path = root.join("references.toml");
     let text =
@@ -98,6 +105,7 @@ pub(crate) fn load(root: &Path) -> Result<References> {
     parse(&text)
 }
 
+/// The pins `text` holds, checked.
 pub(crate) fn parse(text: &str) -> Result<References> {
     let refs: References = toml::from_str(text).context("parsing references.toml")?;
     validate(&refs)?;

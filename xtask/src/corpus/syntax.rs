@@ -10,9 +10,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail, ensure};
 use nomi_syntax::{Source, Tool};
 use nomi_testkit::ratchet::Suite;
+use nomi_testkit::sha256_hex as sha256;
 
 use super::{apps, corpus_dir, files_below, packages, parallel};
-use crate::download::sha256;
 
 /// The suite's directory: the oracle's table and `passing.txt`.
 pub(crate) const DIR: &str = "corpus/syntax";

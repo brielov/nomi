@@ -17,16 +17,7 @@ use super::{apps, compat, corpus_dir, packages};
 pub(crate) fn check(root: &Path) -> Result<()> {
     let corpus = corpus_dir()?;
     let classification = compat::load(root)?;
-    let compats: Vec<Compat> = classification
-        .compats
-        .iter()
-        .map(|v| {
-            Compat::ALL
-                .into_iter()
-                .find(|c| c.to_string() == *v)
-                .with_context(|| format!("nomi doesn't emulate elm {v}"))
-        })
-        .collect::<Result<_>>()?;
+    let compats = &classification.compats;
     // The manifest, who it is, and the Compats that build it.
     let mut manifests: Vec<(String, Vec<u8>, Compat)> = Vec::new();
     // The manifests again, with the Compat each is built as.
@@ -42,7 +33,7 @@ pub(crate) fn check(root: &Path) -> Result<()> {
             Some(p) => compats
                 .iter()
                 .copied()
-                .filter(|c| p.admits.contains(&c.to_string()))
+                .filter(|c| p.admits.contains(c))
                 .collect(),
             None => compats.clone(),
         };
@@ -59,9 +50,8 @@ pub(crate) fn check(root: &Path) -> Result<()> {
         }
     }
     for app in apps::load(root)?.app {
-        for &c in &compats {
-            let version = compat::Version::parse(&c.to_string())?;
-            let text = compat::sandbox_manifest(&classification, &app, version)?;
+        for &c in compats {
+            let text = compat::sandbox_manifest(&classification, &app, c)?;
             let case = format!("app/{}", app.name);
             detected.push((case.clone(), text.clone().into_bytes(), c));
             manifests.push((case, text.into_bytes(), c));

@@ -1,16 +1,17 @@
 //! Downloads that are checked against a pinned hash before anything uses them.
 
+use std::fmt;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-use sha1::Sha1;
-use sha2::{Digest, Sha256};
+use sha1::{Digest as _, Sha1};
 
 /// Largest download accepted; the biggest pinned asset is about 15 MB.
 const LIMIT: u64 = 256 * 1024 * 1024;
 
+/// The body of a `GET` of `url`, saying so on standard error.
 pub(crate) fn get(url: &str) -> Result<Vec<u8>> {
     eprintln!("    downloading {url}");
     get_quiet(url)
@@ -18,30 +19,19 @@ pub(crate) fn get(url: &str) -> Result<Vec<u8>> {
 
 /// [`get`] without the progress line, for bulk downloads.
 pub(crate) fn get_quiet(url: &str) -> Result<Vec<u8>> {
-    let mut response = agent()
-        .get(url)
-        .call()
-        .with_context(|| format!("GET {url}"))?;
-    response
-        .body_mut()
-        .with_config()
-        .limit(LIMIT)
-        .read_to_vec()
-        .with_context(|| format!("reading {url}"))
+    let response = agent().get(url).call();
+    body(response.with_context(|| format!("GET {url}"))?, url)
 }
 
 /// The body of an empty `POST` to `url`, as the package website answers
 /// `/all-packages`.
 pub(crate) fn post_quiet(url: &str) -> Result<Vec<u8>> {
-    let mut response = agent()
-        .post(url)
-        .send_empty()
-        .with_context(|| format!("POST {url}"))?;
-    response
-        .body_mut()
-        .with_config()
-        .limit(LIMIT)
-        .read_to_vec()
+    let response = agent().post(url).send_empty();
+    body(response.with_context(|| format!("POST {url}"))?, url)
+}
+
+fn body(mut response: ureq::http::Response<ureq::Body>, url: &str) -> Result<Vec<u8>> {
+    (response.body_mut().with_config().limit(LIMIT).read_to_vec())
         .with_context(|| format!("reading {url}"))
 }
 
@@ -62,26 +52,61 @@ fn agent() -> &'static ureq::Agent {
     })
 }
 
-pub(crate) fn sha256(bytes: &[u8]) -> String {
-    hex(&Sha256::digest(bytes))
+/// GitHub's zipball of `name` at the tag `version`, which the package
+/// website's `endpoint.json` hashes.
+pub(crate) fn zipball(name: &str, version: &str) -> String {
+    format!("https://github.com/{name}/zipball/{version}/")
 }
 
+/// The SHA-1 of `bytes`, in lower-case hex.
 pub(crate) fn sha1(bytes: &[u8]) -> String {
-    hex(&Sha1::digest(bytes))
+    nomi_base::hex(&Sha1::digest(bytes))
 }
 
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+/// Whether the stamp file `stamp` holds exactly `expected`.
+pub(crate) fn stamped(stamp: &Path, expected: &str) -> bool {
+    fs::read_to_string(stamp).ok().as_deref() == Some(expected)
 }
 
-/// Fails unless `actual` is `expected`; `what` names the download.
+/// A download whose hash isn't the pinned one.
+#[derive(Debug)]
+pub(crate) struct HashMismatch {
+    what: String,
+    pinned: String,
+    downloaded: String,
+}
+
+impl fmt::Display for HashMismatch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let HashMismatch {
+            what,
+            pinned,
+            downloaded,
+        } = self;
+        write!(
+            f,
+            "{what}: hash mismatch\n  pinned:     {pinned}\n  downloaded: {downloaded}"
+        )
+    }
+}
+
+impl std::error::Error for HashMismatch {}
+
+/// Fails with a [`HashMismatch`] unless `actual` is `expected`; `what`
+/// names the download.
 pub(crate) fn verify(what: &str, expected: &str, actual: &str) -> Result<()> {
     if !expected.eq_ignore_ascii_case(actual) {
-        bail!("{what}: hash mismatch\n  pinned:     {expected}\n  downloaded: {actual}");
+        return Err(HashMismatch {
+            what: what.to_owned(),
+            pinned: expected.to_owned(),
+            downloaded: actual.to_owned(),
+        }
+        .into());
     }
     Ok(())
 }
 
+/// The bytes a gzip stream holds.
 pub(crate) fn gunzip(bytes: &[u8]) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     flate2::read::GzDecoder::new(bytes)
@@ -122,7 +147,7 @@ mod tests {
     #[test]
     fn known_digests() {
         assert_eq!(
-            sha256(b"abc"),
+            nomi_testkit::sha256_hex(b"abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
         assert_eq!(sha1(b"abc"), "a9993e364706816aba3e25717850c26c9cd0d89d");
@@ -130,9 +155,22 @@ mod tests {
 
     #[test]
     fn mismatch_fails() {
-        let error = verify("elm", &sha256(b"a"), &sha256(b"b")).unwrap_err();
+        let error = verify(
+            "elm",
+            &nomi_testkit::sha256_hex(b"a"),
+            &nomi_testkit::sha256_hex(b"b"),
+        )
+        .unwrap_err();
+        assert!(error.downcast_ref::<HashMismatch>().is_some());
         assert!(error.to_string().contains("hash mismatch"));
-        assert!(verify("elm", &sha256(b"a").to_uppercase(), &sha256(b"a")).is_ok());
+        assert!(
+            verify(
+                "elm",
+                &nomi_testkit::sha256_hex(b"a").to_uppercase(),
+                &nomi_testkit::sha256_hex(b"a")
+            )
+            .is_ok()
+        );
     }
 
     #[test]

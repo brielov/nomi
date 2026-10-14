@@ -9,18 +9,20 @@
 //! (`Build.hs`, `crawlRoot`). The proxy points nowhere, so elm never
 //! reaches the network and falls back to the registry it has.
 
+use std::collections::BTreeMap;
 use std::fs;
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
-use std::time::{Duration, Instant};
+use std::process::{Command, Output};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
+use nomi_base::Compat;
+use nomi_project::Version;
 use nomi_syntax::Source;
 use serde::Deserialize;
 
-use crate::corpus::compat::Version;
-use crate::corpus::{corpus_dir, files_below, packages};
+use super::process::run_to_files;
+use crate::corpus::{corpus_dir, packages};
 
 /// The packages every sandbox project depends on.
 const DEPENDENCIES: [&str; 2] = ["elm/core", "elm/json"];
@@ -35,14 +37,17 @@ const RETRIES: u32 = 5;
 /// milliseconds; building elm/core while warming up takes about a second.
 const TIMEOUT: Duration = Duration::from_secs(60);
 
-/// What a tool made of one module's syntax.
+/// What elm made of one module's syntax.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Outcome {
+pub(crate) enum Verdict {
     Accepted,
-    /// The title and region elm reports, or where elm-format stopped.
-    Rejected(String),
-    /// The tool died of an uncaught exception, which says nothing about
-    /// the syntax; the ratchets skip it. elm 0.19.3 does this on some
+    /// The title and region elm reports, and its report as it wrote it.
+    Rejected {
+        summary: String,
+        report: Vec<u8>,
+    },
+    /// elm died of an uncaught exception, which says nothing about the
+    /// syntax; the ratchets skip it. elm 0.19.3 does this on some
     /// recursive type aliases.
     Crashed,
 }
@@ -58,12 +63,10 @@ pub(crate) struct Sandbox {
 impl Sandbox {
     /// Creates a fresh sandbox in `dir` for the `elm` binary of `compat`,
     /// and builds each project once so later runs only parse.
-    pub(crate) fn create(dir: &Path, elm: &Path, compat: Version, root: &Path) -> Result<Sandbox> {
-        if dir.exists() {
-            fs::remove_dir_all(dir).with_context(|| format!("removing {}", dir.display()))?;
-        }
+    pub(crate) fn create(dir: &Path, elm: &Path, compat: Compat, root: &Path) -> Result<Sandbox> {
+        super::remove_tree(dir)?;
         let home = dir.join("home");
-        let pinned = dependencies(root)?;
+        let pinned = corpus_releases(root, &DEPENDENCIES)?;
         elm_home(&home, compat, &pinned)?;
         let sandbox = Sandbox {
             elm: elm.to_path_buf(),
@@ -74,43 +77,14 @@ impl Sandbox {
             let project = sandbox.project(source);
             fs::create_dir_all(project.join("src"))?;
             fs::write(project.join("elm.json"), manifest(source, compat, &pinned))?;
-            let (warm, _) = sandbox.check(source, b"module A exposing (a)\n\n\na =\n    1\n")?;
+            let warm = sandbox.check(source, b"module A exposing (a)\n\n\na =\n    1\n")?;
             ensure!(
-                warm == Outcome::Accepted,
+                warm == Verdict::Accepted,
                 "elm {compat} rejects a trivial module in {}: {warm:?}",
                 project.display()
             );
         }
         Ok(sandbox)
-    }
-
-    /// Runs `command` to completion, or kills it and returns `None` once
-    /// it has run for [`TIMEOUT`]: elm very rarely hangs.
-    fn run(&self, mut command: Command) -> Result<Option<Output>> {
-        let (stdout, stderr) = (self.dir.join("stdout"), self.dir.join("stderr"));
-        let mut child = command
-            .stdin(Stdio::null())
-            .stdout(fs::File::create(&stdout)?)
-            .stderr(fs::File::create(&stderr)?)
-            .spawn()
-            .with_context(|| format!("running {}", self.elm.display()))?;
-        let started = Instant::now();
-        let status = loop {
-            if let Some(status) = child.try_wait()? {
-                break status;
-            }
-            if started.elapsed() > TIMEOUT {
-                child.kill()?;
-                child.wait()?;
-                return Ok(None);
-            }
-            std::thread::sleep(Duration::from_millis(2));
-        };
-        Ok(Some(Output {
-            status,
-            stdout: fs::read(stdout)?,
-            stderr: fs::read(stderr)?,
-        }))
     }
 
     fn project(&self, source: Source) -> PathBuf {
@@ -123,9 +97,7 @@ impl Sandbox {
 
     /// Whether elm parses `text` as a module of a `source` project. Errors
     /// after parsing, such as unknown imports, count as accepted.
-    ///
-    /// When elm rejects it, also the report elm wrote, as it wrote it.
-    pub(crate) fn check(&self, source: Source, text: &[u8]) -> Result<(Outcome, Option<Vec<u8>>)> {
+    pub(crate) fn check(&self, source: Source, text: &[u8]) -> Result<Verdict> {
         let project = self.project(source);
         fs::write(project.join(MODULE), text)?;
         let mut attempt = 1;
@@ -144,8 +116,8 @@ impl Sandbox {
                 ])
                 .current_dir(&project)
                 .env("ELM_HOME", &self.home);
-            offline(&mut command);
-            let Some(output) = self.run(command)? else {
+            // elm very rarely hangs.
+            let Some(output) = run_to_files(offline(&mut command), &self.dir, TIMEOUT)? else {
                 ensure!(
                     attempt < RETRIES,
                     "{} hung {RETRIES} times",
@@ -154,35 +126,79 @@ impl Sandbox {
                 attempt += 1;
                 continue;
             };
-            let report = [&output.stderr, &output.stdout]
-                .into_iter()
-                .find(|o| o.starts_with(b"{"));
             let stderr = String::from_utf8_lossy(&output.stderr);
-            match report {
-                None if output.status.success() => return Ok((Outcome::Accepted, None)),
+            match json_report(&output) {
+                None if output.status.success() => return Ok(Verdict::Accepted),
                 // elm now and then trips over its own lock on `d.dat`.
-                None if stderr.contains("(file is locked)") && attempt < RETRIES => attempt += 1,
+                None if locked(&output.stderr) && attempt < RETRIES => attempt += 1,
                 // GHC's report of an uncaught exception.
-                None if stderr.starts_with("elm: ") && !stderr.contains("(file is locked)") => {
-                    return Ok((Outcome::Crashed, None));
+                None if stderr.starts_with("elm: ") && !locked(&output.stderr) => {
+                    return Ok(Verdict::Crashed);
                 }
                 // Death by a signal, as 0.19.3's on some recursive aliases,
                 // which then dies of a stack overflow or of SIGSEGV.
-                None if output.status.code().is_none() => return Ok((Outcome::Crashed, None)),
+                None if output.status.code().is_none() => return Ok(Verdict::Crashed),
                 None => bail!(
                     "{} exited with {} and no report:\n{stderr}",
                     self.elm.display(),
                     output.status,
                 ),
                 Some(json) => {
-                    let outcome = parse_report(json)?;
-                    let report = matches!(outcome, Outcome::Rejected(_))
-                        .then(|| json.trim_ascii_end().to_vec());
-                    return Ok((outcome, report));
+                    return Ok(match syntax_error(json)? {
+                        Some(summary) => Verdict::Rejected {
+                            summary,
+                            report: json.trim_ascii_end().to_vec(),
+                        },
+                        None => Verdict::Accepted,
+                    });
                 }
             }
         }
     }
+}
+
+/// elm's `--report=json`, on whichever stream it wrote it.
+pub(crate) fn json_report(output: &Output) -> Option<&[u8]> {
+    [&output.stderr, &output.stdout]
+        .into_iter()
+        .find(|o| o.starts_with(b"{"))
+        .map(Vec::as_slice)
+}
+
+/// `json` with each control character a space: elm copies tabs and
+/// carriage returns from the source into its messages unescaped, which
+/// JSON forbids, while the newlines it writes are escaped.
+pub(crate) fn sanitized(json: &[u8]) -> Vec<u8> {
+    json.iter()
+        .map(|&b| if b < 0x20 { b' ' } else { b })
+        .collect()
+}
+
+/// The first title of elm's report: the report's own, or its first
+/// problem's; `?` without either.
+pub(crate) fn first_title(report: &serde_json::Value) -> &str {
+    (report["title"].as_str())
+        .or_else(|| report["errors"][0]["problems"][0]["title"].as_str())
+        .unwrap_or("?")
+}
+
+/// Each module's graph elm left in `stuff`, its `elm-stuff/<release>`:
+/// the module's name and its `.elmo` file's.
+pub(crate) fn elmo_files(stuff: &Path) -> Result<Vec<(String, String)>> {
+    let mut files = Vec::new();
+    for entry in fs::read_dir(stuff)? {
+        let file = entry?.file_name().to_string_lossy().into_owned();
+        if let Some(stem) = file.strip_suffix(".elmo") {
+            files.push((stem.replace('-', "."), file));
+        }
+    }
+    Ok(files)
+}
+
+/// Whether elm tripped over its own lock on a file, as it now and then
+/// does where runs share an `ELM_HOME`.
+pub(crate) fn locked(stderr: &[u8]) -> bool {
+    String::from_utf8_lossy(stderr).contains("(file is locked)")
 }
 
 #[derive(Deserialize)]
@@ -217,76 +233,107 @@ struct Position {
     column: u32,
 }
 
-/// The module's syntax error, if the report has one. Upstream names a
-/// module it could not parse `???`.
-fn parse_report(json: &[u8]) -> Result<Outcome> {
-    // elm copies tabs and carriage returns from the source into its
-    // messages unescaped, which JSON forbids; only titles and regions matter.
-    let json: Vec<u8> = json
-        .iter()
-        .map(|&b| if b < 0x20 { b' ' } else { b })
-        .collect();
-    let report: Report = serde_json::from_slice(&json).context("parsing elm's report")?;
+/// The module's syntax error, as its title and region, if the report
+/// has one. Upstream names a module it could not parse `???`.
+fn syntax_error(json: &[u8]) -> Result<Option<String>> {
+    // Only titles and regions matter.
+    let report: Report =
+        serde_json::from_slice(&sanitized(json)).context("parsing elm's report")?;
     let errors = match report {
         Report::CompileErrors { errors } => errors,
         Report::Error { title } => bail!("the sandbox is broken: {title}"),
     };
     let syntax = errors.iter().find(|e| e.path == MODULE && e.name == "???");
-    let Some(problem) = syntax.and_then(|e| e.problems.first()) else {
-        return Ok(Outcome::Accepted);
-    };
-    let Region { start, end } = &problem.region;
-    Ok(Outcome::Rejected(format!(
-        "{} {}:{}-{}:{}",
-        problem.title, start.line, start.column, end.line, end.column
-    )))
+    Ok(syntax.and_then(|e| e.problems.first()).map(|problem| {
+        let Region { start, end } = &problem.region;
+        format!(
+            "{} {}:{}-{}:{}",
+            problem.title, start.line, start.column, end.line, end.column
+        )
+    }))
 }
 
-/// Whether elm-format reads `text`, and where it stopped if not.
-pub(crate) fn elm_format(binary: &Path, text: &[u8]) -> Result<Outcome> {
-    let mut child = Command::new(binary)
-        .args(["--stdin", "--elm-version=0.19"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .with_context(|| format!("running {}", binary.display()))?;
-    child.stdin.take().unwrap().write_all(text)?;
-    let output = child.wait_with_output()?;
-    if output.status.success() {
-        return Ok(Outcome::Accepted);
+/// A package release an `ELM_HOME` holds.
+#[derive(Debug, Clone)]
+pub(crate) struct Release {
+    /// `<author>/<project>`.
+    pub name: String,
+    pub version: Version,
+    /// Its files.
+    pub dir: PathBuf,
+}
+
+impl Release {
+    fn new(name: String, version: &str, dir: PathBuf) -> Result<Release> {
+        let version = (version.parse().ok())
+            .with_context(|| format!("{name} has a version that isn't one: {version}"))?;
+        Ok(Release { name, version, dir })
     }
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let Some(at) = stderr
-        .strip_prefix("Unable to parse file <STDIN>:")
-        .and_then(|rest| rest.split_whitespace().next())
-    else {
-        bail!("elm-format exited with {}:\n{stderr}", output.status);
-    };
-    Ok(Outcome::Rejected(at.to_owned()))
+}
+
+/// The corpus's pins of the packages `names`, each fetched.
+pub(crate) fn corpus_releases(root: &Path, names: &[&str]) -> Result<Vec<Release>> {
+    let pinned = fetched(root, |name| names.contains(&name))?;
+    ensure!(
+        pinned.len() == names.len(),
+        "the corpus doesn't pin {names:?}"
+    );
+    Ok(pinned)
+}
+
+/// The corpus's pins of the packages `wanted` takes, by name, each
+/// fetched.
+pub(crate) fn fetched(root: &Path, wanted: impl Fn(&str) -> bool) -> Result<Vec<Release>> {
+    let corpus = corpus_dir()?;
+    (packages::load(root)?.packages.into_iter())
+        .filter(|p| wanted(&p.name))
+        .map(|package| {
+            let dir = packages::package_dir(&corpus, &package);
+            ensure!(
+                dir.join(packages::STAMP).exists(),
+                "{} {} is not fetched; run `cargo xtask corpus fetch`",
+                package.name,
+                package.version
+            );
+            Release::new(package.name, &package.version, dir)
+        })
+        .collect()
+}
+
+/// The fixture packages the tests give nomi, under
+/// `crates/compiler/tests/packages`.
+pub(crate) fn fixture_releases() -> Result<Vec<Release>> {
+    (nomi_testkit::packages::manifest().into_iter())
+        .map(|package| {
+            let dir = package.dir();
+            Release::new(package.name, &package.version, dir)
+        })
+        .collect()
 }
 
 /// Fills `home` as an offline `ELM_HOME` for `compat`: a registry listing
-/// exactly `pinned`, and their sources in the package cache.
-pub(crate) fn elm_home(home: &Path, compat: Version, pinned: &[packages::Package]) -> Result<()> {
-    let packages_dir = home.join(compat.to_string()).join("packages");
-    fs::create_dir_all(&packages_dir)?;
-    fs::write(packages_dir.join("registry.dat"), registry(compat, pinned))?;
-    let corpus = corpus_dir()?;
-    for package in pinned {
-        let from = packages::package_dir(&corpus, package);
-        ensure!(
-            from.join(packages::STAMP).exists(),
-            "{} {} is not fetched; run `cargo xtask corpus fetch`",
-            package.name,
-            package.version
-        );
-        copy_tree(
-            &from,
-            &packages_dir.join(&package.name).join(&package.version),
-        )?;
+/// exactly `releases`, and their files in the package cache, but the
+/// corpus's stamps. A home that already lists exactly them is kept as it
+/// is, with whatever elm built in it. Gives the package cache.
+pub(crate) fn elm_home(home: &Path, compat: Compat, releases: &[Release]) -> Result<PathBuf> {
+    let registry = registry_of(compat, releases);
+    let packages = home.join(compat.as_str()).join("packages");
+    let registry_path = packages.join("registry.dat");
+    if fs::read(&registry_path).is_ok_and(|r| r == registry) {
+        return Ok(packages);
     }
-    Ok(())
+    super::remove_tree(home)?;
+    fs::create_dir_all(&packages)?;
+    for release in releases {
+        let to = packages
+            .join(&release.name)
+            .join(release.version.to_string());
+        nomi_testkit::copy_tree(&release.dir, &to, |p| p != Path::new(packages::STAMP))
+            .with_context(|| format!("copying {}", release.dir.display()))?;
+    }
+    // Last, so a home cut short is rebuilt.
+    fs::write(registry_path, registry)?;
+    Ok(packages)
 }
 
 /// Points elm's proxy nowhere, so it never reaches the network and falls
@@ -298,50 +345,23 @@ pub(crate) fn offline(command: &mut Command) -> &mut Command {
         .env_remove("NO_PROXY")
 }
 
-/// The pinned versions of [`DEPENDENCIES`].
-fn dependencies(root: &Path) -> Result<Vec<packages::Package>> {
-    let pinned = packages::load(root)?;
-    DEPENDENCIES
-        .iter()
-        .map(|name| {
-            pinned
-                .packages
-                .iter()
-                .find(|p| p.name == *name)
-                .cloned()
-                .with_context(|| format!("{name} is not pinned in the corpus"))
-        })
-        .collect()
-}
-
-/// A registry listing exactly `pinned`.
-fn registry(compat: Version, pinned: &[packages::Package]) -> Vec<u8> {
-    let releases: Vec<(&str, Version)> = (pinned.iter())
-        .map(|p| {
-            (
-                p.name.as_str(),
-                Version::parse(&p.version).expect("a pinned version"),
-            )
-        })
-        .collect();
-    registry_of(compat, &releases)
-}
-
 /// A registry listing exactly `releases`, each package's newest version
 /// first. 0.19.1 and 0.19.2 store it with Haskell's `Data.Binary`
 /// (big-endian `Int64` counts); 0.19.3 switched to its own encoding
 /// (little-endian, `Int64` count and `Word32` lengths). Both read the
 /// packages in ascending order of author, then project.
-pub(crate) fn registry_of(compat: Version, releases: &[(&str, Version)]) -> Vec<u8> {
-    let legacy = compat < Version::parse("0.19.3").expect("a version");
-    let mut packages: std::collections::BTreeMap<(&str, &str), Vec<Version>> =
-        std::collections::BTreeMap::new();
-    for (name, version) in releases {
-        let (author, project) = name.split_once('/').expect("author/project");
+fn registry_of(compat: Compat, releases: &[Release]) -> Vec<u8> {
+    let legacy = match compat {
+        Compat::V0_19_1 | Compat::V0_19_2 => true,
+        Compat::V0_19_3 => false,
+    };
+    let mut packages: BTreeMap<(&str, &str), Vec<Version>> = BTreeMap::new();
+    for release in releases {
+        let (author, project) = release.name.split_once('/').expect("author/project");
         packages
             .entry((author, project))
             .or_default()
-            .push(*version);
+            .push(release.version);
     }
     let count = releases.len() as u64;
     let mut out = Vec::new();
@@ -358,6 +378,7 @@ pub(crate) fn registry_of(compat: Version, releases: &[(&str, Version)]) -> Vec<
         out.extend(count.to_le_bytes());
     }
     length(&mut out, packages.len());
+    let numbers = |v: &Version| [v.major, v.minor, v.patch].map(|n| n as u8);
     for ((author, project), mut versions) in packages {
         for part in [author, project] {
             out.push(part.len() as u8);
@@ -365,17 +386,17 @@ pub(crate) fn registry_of(compat: Version, releases: &[(&str, Version)]) -> Vec<
         }
         versions.sort_by(|a, b| b.cmp(a));
         versions.dedup();
-        out.extend(versions[0].parts().map(|n| n as u8));
+        out.extend(numbers(&versions[0]));
         length(&mut out, versions.len() - 1);
         for version in &versions[1..] {
-            out.extend(version.parts().map(|n| n as u8));
+            out.extend(numbers(version));
         }
     }
     out
 }
 
-fn manifest(source: Source, compat: Version, pinned: &[packages::Package]) -> String {
-    let exact = |p: &packages::Package| format!("\"{}\": \"{}\"", p.name, p.version);
+fn manifest(source: Source, compat: Compat, pinned: &[Release]) -> String {
+    let exact = |p: &Release| format!("\"{}\": \"{}\"", p.name, p.version);
     match source {
         Source::Application => {
             let direct: Vec<String> = pinned.iter().map(exact).collect();
@@ -399,37 +420,23 @@ fn manifest(source: Source, compat: Version, pinned: &[packages::Package]) -> St
     }
 }
 
-/// Copies a fetched package, leaving out the corpus's stamp.
-fn copy_tree(from: &Path, to: &Path) -> Result<()> {
-    for file in files_below(from)? {
-        if file == packages::STAMP {
-            continue;
-        }
-        let target = to.join(&file);
-        fs::create_dir_all(target.parent().unwrap())?;
-        fs::copy(from.join(&file), &target)
-            .with_context(|| format!("copying {}", from.join(&file).display()))?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn pinned() -> Vec<packages::Package> {
+    fn pinned() -> Vec<Release> {
         [("elm/core", "1.0.5"), ("elm/json", "1.1.4")]
-            .map(|(name, version)| packages::Package {
+            .map(|(name, version)| Release {
                 name: name.to_owned(),
-                version: version.to_owned(),
-                sha1: String::new(),
+                version: version.parse().unwrap(),
+                dir: PathBuf::new(),
             })
             .to_vec()
     }
 
     #[test]
     fn legacy_registry_is_big_endian_binary() {
-        let bytes = registry(Version::parse("0.19.1").unwrap(), &pinned());
+        let bytes = registry_of(Compat::V0_19_1, &pinned());
         let mut expected = vec![0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2];
         expected.extend(b"\x03elm\x04core\x01\x00\x05\0\0\0\0\0\0\0\0");
         expected.extend(b"\x03elm\x04json\x01\x01\x04\0\0\0\0\0\0\0\0");
@@ -438,7 +445,7 @@ mod tests {
 
     #[test]
     fn registry_from_0_19_3_is_little_endian() {
-        let bytes = registry(Version::parse("0.19.3").unwrap(), &pinned());
+        let bytes = registry_of(Compat::V0_19_3, &pinned());
         let mut expected = vec![2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0];
         expected.extend(b"\x03elm\x04core\x01\x00\x05\0\0\0\0");
         expected.extend(b"\x03elm\x04json\x01\x01\x04\0\0\0\0");
@@ -447,9 +454,8 @@ mod tests {
 
     #[test]
     fn manifests_are_json() {
-        let compat = Version::parse("0.19.2").unwrap();
         for source in [Source::Application, Source::Package, Source::Kernel] {
-            let text = manifest(source, compat, &pinned());
+            let text = manifest(source, Compat::V0_19_2, &pinned());
             let json: serde_json::Value = serde_json::from_str(&text).unwrap();
             assert!(json["type"].is_string(), "{text}");
         }
@@ -459,8 +465,8 @@ mod tests {
     fn raw_control_characters_are_tolerated() {
         let report = b"{\"type\":\"compile-errors\",\"errors\":[{\"path\":\"A.elm\",\"name\":\"???\",\"problems\":[{\"title\":\"TAB\",\"region\":{\"start\":{\"line\":1,\"column\":2},\"end\":{\"line\":1,\"column\":3}},\"message\":[\"\t\r\"]}]}]}";
         assert_eq!(
-            parse_report(report).unwrap(),
-            Outcome::Rejected("TAB 1:2-1:3".to_owned())
+            syntax_error(report).unwrap().as_deref(),
+            Some("TAB 1:2-1:3")
         );
     }
 
@@ -468,12 +474,12 @@ mod tests {
     fn syntax_errors_belong_to_the_unnamed_module() {
         let report = br#"{"type":"compile-errors","errors":[{"path":"A.elm","name":"???","problems":[{"title":"UNFINISHED LIST","region":{"start":{"line":3,"column":5},"end":{"line":3,"column":5}},"message":[]}]}]}"#;
         assert_eq!(
-            parse_report(report).unwrap(),
-            Outcome::Rejected("UNFINISHED LIST 3:5-3:5".to_owned())
+            syntax_error(report).unwrap().as_deref(),
+            Some("UNFINISHED LIST 3:5-3:5")
         );
         let imports = br#"{"type":"compile-errors","errors":[{"path":"A.elm","name":"A","problems":[{"title":"MODULE NOT FOUND","region":{"start":{"line":2,"column":8},"end":{"line":2,"column":15}},"message":[]}]}]}"#;
-        assert_eq!(parse_report(imports).unwrap(), Outcome::Accepted);
+        assert_eq!(syntax_error(imports).unwrap(), None);
         let broken = br#"{"type":"error","path":"elm.json","title":"BAD JSON","message":[]}"#;
-        assert!(parse_report(broken).is_err());
+        assert!(syntax_error(broken).is_err());
     }
 }

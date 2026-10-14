@@ -27,15 +27,16 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail, ensure};
 use lsp_server::Connection;
 use lsp_types::Url;
+use nomi_base::Compat;
 use nomi_engine::Store;
 use nomi_engine::index::Memo;
 use nomi_testkit::lsp::{self, Driver, Session, Step, Timing};
 use nomi_testkit::ratchet::Suite;
+use nomi_testkit::sha256_hex as sha256;
 use serde_json::{Value, json};
 
-use super::compat::{self, Version};
+use super::compat;
 use super::{apps, corpus_dir, packages};
-use crate::download::sha256;
 use crate::oracle::cache_dir;
 use crate::references::References;
 
@@ -72,7 +73,6 @@ fn pick(parts: &[&str]) -> u64 {
 fn projects(root: &Path) -> Result<Vec<Project>> {
     let classification = compat::load(root)?;
     let corpus = corpus_dir()?;
-    let v = Version::parse("0.19.1")?;
     let check = check_cells(root)?;
     let accepted = |case: &str| check.get(case).is_some_and(|cell| cell == "ok");
     let mut found = Vec::new();
@@ -81,7 +81,7 @@ fn projects(root: &Path) -> Result<Vec<Project>> {
         if !accepted(&case) {
             continue;
         }
-        let manifest = compat::sandbox_manifest(&classification, &app, v)?;
+        let manifest = compat::sandbox_manifest(&classification, &app, Compat::V0_19_1)?;
         // A source directory outside the app's root would have to come
         // along outside the session's copy too, which the recorder's copy
         // leaves behind; inside, it's inside `.` as well.
@@ -97,10 +97,8 @@ fn projects(root: &Path) -> Result<Vec<Project>> {
     let mut candidates: Vec<(u64, String, PathBuf)> = Vec::new();
     for package in packages::load(root)?.packages {
         let case = format!("{}@{}", package.name, package.version);
-        let excluded = (classification.package.iter())
-            .find(|p| p.name == package.name && p.version == package.version)
-            .is_some_and(|p| !p.admits.iter().any(|a| a == "0.19.1"));
-        if excluded || !accepted(&case) {
+        let admitted = classification.admits(&package.name, &package.version, Compat::V0_19_1);
+        if !admitted || !accepted(&case) {
             continue;
         }
         candidates.push((
@@ -438,7 +436,7 @@ pub(crate) fn sandbox() -> Result<PathBuf> {
 
 /// The `ELM_HOME` elm-language-server runs with, and its package cache.
 pub(crate) fn home_for_lsp() -> Result<(PathBuf, PathBuf)> {
-    home(Version::parse("0.19.1")?)
+    home(Compat::V0_19_1)
 }
 
 /// The project of `case`, with its session.
@@ -450,7 +448,7 @@ pub(crate) fn project(root: &Path, case: &str) -> Result<Project> {
 
 /// The `ELM_HOME` the corpus suites share, holding every release the
 /// development cache has, and its package cache.
-fn home(compat: Version) -> Result<(PathBuf, PathBuf)> {
+fn home(compat: Compat) -> Result<(PathBuf, PathBuf)> {
     let home = cache_dir()?
         .join("sandboxes/corpus/home")
         .join(compat.to_string());
@@ -459,8 +457,7 @@ fn home(compat: Version) -> Result<(PathBuf, PathBuf)> {
         !releases.is_empty(),
         "the development cache has no releases; run `cargo xtask corpus names`"
     );
-    crate::oracle::corpus_runs::elm_home(&home, compat, &releases)?;
-    let packages = fs::canonicalize(home.join(compat.to_string()).join("packages"))?;
+    let packages = fs::canonicalize(crate::oracle::sandbox::elm_home(&home, compat, &releases)?)?;
     Ok((home, packages))
 }
 
@@ -491,7 +488,7 @@ pub(crate) fn record(
     jobs: Option<usize>,
     only: Option<&str>,
 ) -> Result<()> {
-    let compat = Version::parse("0.19.1")?;
+    let compat = Compat::V0_19_1;
     let mut projects = projects(root)?;
     projects.retain(|p| only.is_none_or(|o| p.case.contains(o)));
     let (home, packages) = home(compat)?;
@@ -582,7 +579,8 @@ pub(crate) fn record(
 fn store() -> Result<(Store, Vec<(String, String)>)> {
     let dir = cache_dir()?.join("nomi/packages");
     let mut replacements = Vec::new();
-    for (name, version, sources) in crate::oracle::corpus_runs::releases(&dir)? {
+    for release in crate::oracle::corpus_runs::releases(&dir)? {
+        let (name, version, sources) = (release.name, release.version, release.dir);
         let to = format!("<packages>/{name}/{version}");
         let real = fs::canonicalize(&sources).unwrap_or_else(|_| sources.clone());
         for path in [real, sources] {
@@ -606,7 +604,7 @@ pub(crate) fn check(root: &Path, record: bool, only: Option<&str>) -> Result<()>
     projects.retain(|p| expected.contains_key(&p.case));
     let (store, mut replacements) = store()?;
     // elm-language-server's package cache, written as nomi's store is.
-    let (_, packages) = home(Version::parse("0.19.1")?)?;
+    let (_, packages) = home(Compat::V0_19_1)?;
     for entry in fs::read_dir(&packages)?.flatten() {
         for project in fs::read_dir(entry.path()).into_iter().flatten().flatten() {
             for version in fs::read_dir(project.path()).into_iter().flatten().flatten() {

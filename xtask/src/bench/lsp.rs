@@ -69,24 +69,13 @@ pub(crate) fn table(root: &Path, refs: &References, setup: &Setup) -> Result<Tab
                     command.arg("lsp").env("NOMI_CACHE", &cache);
                     command
                 }
-                Server::Upstream => {
-                    let (node, script, path, home) = tools.command();
-                    let mut command = Command::new(node);
-                    command
-                        .arg(script)
-                        .arg("--stdio")
-                        .env("PATH", path)
-                        .env("ELM_HOME", home);
-                    command
-                }
+                Server::Upstream => tools.server_command(),
             };
             command.current_dir(&work);
             crate::oracle::sandbox::offline(&mut command);
             let mut settings = nomi_testkit::lsp::default_settings();
-            if server == Server::Upstream
-                && let Value::Object(paths) = tools.settings(&scratch.join("no-elm-review"))
-            {
-                settings.extend(paths);
+            if server == Server::Upstream {
+                settings.extend(tools.settings(&scratch.join("no-elm-review")));
             }
             costs.push(session(command, &work, &entry, Value::Object(settings))?);
         }

@@ -8,16 +8,18 @@
 //! arguments, so Node evaluates their bodies against a stub that records
 //! each call; the ranking is a literal table.
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
-use serde_json::Value;
+use serde::Deserialize;
 
 const SOURCE: &str = "reference/elm-language-server/src";
 const OUTPUT: &str = "crates/ide/src/completion_data.rs";
 
+/// `cargo xtask oracle lsp-tables`.
 pub(crate) fn run(root: &Path) -> Result<()> {
     let source = root.join(SOURCE);
     let ranking = ranking(&fs::read_to_string(
@@ -43,7 +45,7 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     out.push_str("/// Each ranked package and its rank, by name.\n");
     out.push_str("pub(crate) const RANKING: &[(&str, &str)] = &[\n");
     for (name, rank) in &ranking {
-        out.push_str(&format!("    ({name:?}, {rank:?}),\n"));
+        writeln!(out, "    ({name:?}, {rank:?}),")?;
     }
     out.push_str("];\n\n");
     for (name, doc, table) in [
@@ -58,23 +60,30 @@ pub(crate) fn run(root: &Path) -> Result<()> {
             &start,
         ),
     ] {
-        out.push_str(&format!(
-            "/// {doc}: label, text, documentation, and whether it's a keyword.\n"
-        ));
-        out.push_str(&format!(
-            "pub(crate) const {name}: &[(&str, &str, Option<&str>, bool)] = &[\n"
-        ));
-        for (label, text, documentation, keyword) in table {
-            out.push_str(&format!(
-                "    ({label:?}, {text:?}, {documentation:?}, {keyword}),\n"
-            ));
+        writeln!(
+            out,
+            "/// {doc}: label, text, documentation, and whether it's a keyword."
+        )?;
+        writeln!(
+            out,
+            "pub(crate) const {name}: &[(&str, &str, Option<&str>, bool)] = &["
+        )?;
+        for snippet in table {
+            let Snippet {
+                label,
+                text,
+                documentation,
+                keyword,
+            } = snippet;
+            writeln!(
+                out,
+                "    ({label:?}, {text:?}, {documentation:?}, {keyword}),"
+            )?;
         }
         out.push_str("];\n\n");
     }
     out.push_str("/// `getEmptyTypes`: the documentation of `List`, which no module declares.\n");
-    out.push_str(&format!(
-        "pub(crate) const LIST_MARKDOWN: &str = {list:?};\n"
-    ));
+    writeln!(out, "pub(crate) const LIST_MARKDOWN: &str = {list:?};")?;
     fs::write(root.join(OUTPUT), out)?;
     eprintln!(
         "  {} ranked packages, {} + {} snippets",
@@ -106,8 +115,14 @@ fn ranking(text: &str) -> Result<Vec<(String, String)>> {
     Ok(found)
 }
 
-/// A snippet: its label, text, documentation, and whether it's a keyword.
-type Snippet = (String, String, Option<String>, bool);
+/// A snippet, as the stub records a `createSnippet` call.
+#[derive(Deserialize)]
+struct Snippet {
+    label: String,
+    text: String,
+    documentation: Option<String>,
+    keyword: bool,
+}
 
 /// The body of the method that `signature` opens.
 fn body(text: &str, signature: &str) -> Result<String> {
@@ -145,18 +160,7 @@ fn snippets(body: &str) -> Result<Vec<Snippet>> {
     if !output.status.success() {
         bail!("node: {}", String::from_utf8_lossy(&output.stderr));
     }
-    let found: Vec<Value> = serde_json::from_slice(&output.stdout)?;
-    Ok(found
-        .into_iter()
-        .map(|s| {
-            (
-                s["label"].as_str().unwrap_or_default().to_owned(),
-                s["text"].as_str().unwrap_or_default().to_owned(),
-                s["documentation"].as_str().map(str::to_owned),
-                s["keyword"].as_bool().unwrap_or(false),
-            )
-        })
-        .collect())
+    serde_json::from_slice(&output.stdout).context("reading the snippets")
 }
 
 /// The Markdown of `getEmptyTypes`' one type, as its template string

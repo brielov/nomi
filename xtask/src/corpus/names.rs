@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Result, anyhow, bail};
 use nomi_base::Compat;
 use nomi_compiler::interface::Interface;
 use nomi_engine::check::{self, Build, Checked, Goal};
@@ -38,11 +38,8 @@ pub(crate) fn check(root: &Path, only: Option<&str>) -> Result<()> {
     let mut failures: Vec<(String, String)> = Vec::new();
     let mut unavailable: Vec<String> = Vec::new();
     let mut checked = 0;
-    for v in &classification.compats {
-        let c = (Compat::ALL.into_iter())
-            .find(|c| c.to_string() == *v)
-            .with_context(|| format!("nomi doesn't emulate elm {v}"))?;
-        let solving = solve(root, &classification, c, v, only, true, true)?;
+    for &c in &classification.compats {
+        let solving = solve(root, &classification, c, only, true, true)?;
         checked += solving.failures.len();
         failures.extend(solving.failures);
         unavailable.extend(solving.unavailable);
@@ -196,14 +193,13 @@ pub(super) struct Solving {
     pub unavailable: Vec<String>,
 }
 
-/// The corpus projects `c` (the elm release `v`) accepts whose case
+/// The corpus projects `c` accepts whose case
 /// contains `only`, apps if `apps` and packages if `packages`, each with
 /// its dependencies solved and downloaded into the development cache.
 pub(super) fn solve(
     root: &Path,
     classification: &compat::Classification,
     c: Compat,
-    v: &str,
     only: Option<&str>,
     apps: bool,
     packages: bool,
@@ -221,7 +217,7 @@ pub(super) fn solve(
         Vec::new()
     };
     for app in apps {
-        let text = compat::sandbox_manifest(classification, &app, compat::Version::parse(v)?)?;
+        let text = compat::sandbox_manifest(classification, &app, c)?;
         let outline =
             Outline::read(text.as_bytes(), c).map_err(|e| anyhow!("{}: {e:?}", app.name))?;
         projects.push(Project {
@@ -237,10 +233,7 @@ pub(super) fn solve(
         Vec::new()
     };
     for package in packages {
-        let excluded = (classification.package.iter())
-            .find(|p| p.name == package.name && p.version == package.version)
-            .is_some_and(|p| !p.admits.iter().any(|a| a == v));
-        if excluded {
+        if !classification.admits(&package.name, &package.version, c) {
             continue;
         }
         let dir = packages::package_dir(&corpus, &package);

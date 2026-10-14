@@ -176,18 +176,15 @@ fn names() -> String {
 fn write_config(dir: &Path, tools: &crate::oracle::lsp::Tools, no_review: &Path) -> Result<()> {
     let helix = dir.join("helix");
     fs::create_dir_all(&helix)?;
-    let (node, server, path, home) = tools.command();
     let mut settings = nomi_testkit::lsp::default_settings();
-    if let Value::Object(paths) = tools.settings(no_review) {
-        settings.extend(paths);
-    }
+    settings.extend(tools.settings(no_review));
     let toml_string = |v: &str| serde_json::to_string(v).unwrap();
     let languages = format!(
         "[language-server.elmls]\ncommand = {}\nargs = [{}, \"--stdio\"]\nenvironment = {{ ELM_HOME = {}, PATH = {} }}\nconfig = {}\n\n[[language]]\nname = \"elm\"\nlanguage-servers = [\"elmls\"]\nauto-format = false\n",
-        toml_string(&node.to_string_lossy()),
-        toml_string(&server.to_string_lossy()),
-        toml_string(&home.to_string_lossy()),
-        toml_string(&path.to_string_lossy()),
+        toml_string(&tools.node.to_string_lossy()),
+        toml_string(&tools.server.to_string_lossy()),
+        toml_string(&tools.home.to_string_lossy()),
+        toml_string(&tools.path.to_string_lossy()),
         inline_table(&Value::Object(settings)),
     );
     fs::write(helix.join("languages.toml"), languages)?;

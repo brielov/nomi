@@ -2190,6 +2190,7 @@ dependencies = [
  "sha1",
  "sha2",
  "tar",
+ "tempfile",
  "toml",
  "ungrammar",
  "ureq",

@@ -6,8 +6,7 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
-use nomi_base::Compat;
+use anyhow::{Result, bail};
 use nomi_project::Outline;
 use nomi_registry::{Index, Registry, Store, Web, details};
 
@@ -23,13 +22,9 @@ pub(crate) fn check(root: &Path) -> Result<()> {
     let mut failures = Vec::new();
     let mut fetched = 0;
     for app in apps::load(root)?.app {
-        for v in &classification.compats {
-            let c = Compat::ALL
-                .into_iter()
-                .find(|c| c.to_string() == *v)
-                .with_context(|| format!("nomi doesn't emulate elm {v}"))?;
+        for &c in &classification.compats {
             let case = format!("{} on {c}", app.name);
-            let text = compat::sandbox_manifest(&classification, &app, compat::Version::parse(v)?)?;
+            let text = compat::sandbox_manifest(&classification, &app, c)?;
             let outline = match Outline::read(text.as_bytes(), c) {
                 Ok(outline) => outline,
                 Err(e) => {
