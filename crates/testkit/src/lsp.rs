@@ -1016,13 +1016,23 @@ pub fn outcomes(case: &str, expected: &Value, actual: &Value) -> Vec<(String, Re
             ))
         }
     };
-    let mut outcomes = vec![(
-        format!("{case}/diagnostics"),
-        compare(&expected["diagnostics"], &actual["diagnostics"]),
-    )];
     let none = Vec::new();
-    let expected = expected["requests"].as_array().unwrap_or(&none);
-    let actual = actual["requests"].as_array().unwrap_or(&none);
+    let expected_requests = expected["requests"].as_array().unwrap_or(&none);
+    let actual_requests = actual["requests"].as_array().unwrap_or(&none);
+    // Answers past the recorded ones fail the session's own outcome, as
+    // the ratchet fails only cases it lists.
+    let extra = actual_requests
+        .len()
+        .saturating_sub(expected_requests.len());
+    let session = compare(&expected["diagnostics"], &actual["diagnostics"]).and_then(|()| {
+        if extra == 0 {
+            Ok(())
+        } else {
+            Err(format!("{extra} answers more than were recorded"))
+        }
+    });
+    let mut outcomes = vec![(format!("{case}/diagnostics"), session)];
+    let (expected, actual) = (expected_requests, actual_requests);
     for (i, e) in expected.iter().enumerate() {
         let method = e["method"].as_str().unwrap_or_default();
         let a = actual.get(i).unwrap_or(&Value::Null);
@@ -1034,6 +1044,24 @@ pub fn outcomes(case: &str, expected: &Value, actual: &Value) -> Vec<(String, Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_answer_more_than_recorded_fails_the_session() {
+        let expected = serde_json::json!({ "diagnostics": {}, "requests": [{ "method": "a" }] });
+        let actual = serde_json::json!({
+            "diagnostics": {},
+            "requests": [{ "method": "a" }, { "method": "b" }],
+        });
+        let found = outcomes("c", &expected, &actual);
+        assert_eq!(found.len(), 2);
+        assert!(found[0].1.as_ref().unwrap_err().contains("1 answers more"));
+        assert_eq!(found[1].1, Ok(()));
+        assert!(
+            outcomes("c", &expected, &expected)
+                .iter()
+                .all(|(_, r)| r.is_ok())
+        );
+    }
 
     #[test]
     fn markers_point_at_the_line_above() {

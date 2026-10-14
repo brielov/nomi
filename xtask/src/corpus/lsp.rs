@@ -599,7 +599,11 @@ fn store() -> Result<(Store, Vec<(String, String)>)> {
 pub(crate) fn check(root: &Path, record: bool, only: Option<&str>) -> Result<()> {
     let expected = oracle(root)?;
     let mut projects = projects(root)?;
-    projects.retain(|p| expected.contains_key(&p.case) && only.is_none_or(|o| p.case.contains(o)));
+    projects.retain(|p| only.is_none_or(|o| p.case.contains(o)));
+    for project in projects.iter().filter(|p| !expected.contains_key(&p.case)) {
+        eprintln!("not recorded, so not checked: {}", project.case);
+    }
+    projects.retain(|p| expected.contains_key(&p.case));
     let (store, mut replacements) = store()?;
     // elm-language-server's package cache, written as nomi's store is.
     let (_, packages) = home(Version::parse("0.19.1")?)?;
@@ -669,7 +673,17 @@ pub(crate) fn check(root: &Path, record: bool, only: Option<&str>) -> Result<()>
             }
             Err(_) => Vec::new(),
         };
-        for (answer, digest) in &expected[&project.case] {
+        let recorded = &expected[&project.case];
+        let unrecorded: Vec<&String> = (found.iter().map(|(a, _)| a))
+            .filter(|a| !recorded.iter().any(|(r, _)| r == *a))
+            .collect();
+        if !unrecorded.is_empty() {
+            bail!(
+                "{}: nomi answered {unrecorded:?}, which elm-language-server's recording doesn't have",
+                project.case
+            );
+        }
+        for (answer, digest) in recorded {
             let got = found.iter().find(|(a, _)| a == answer).map(|(_, d)| d);
             let result = if got == Some(digest) {
                 Ok(())
