@@ -15,10 +15,12 @@ One binary, `nomi`, that replaces three tools and then adds capabilities on top:
 | M10 | elm-test | 0.19.3-0 flags and output | 0.4 |
 | MQ | Code quality | architecture.md §13, behavior unchanged | — |
 | M11 | Server platform | Node kernels, `nomi/*` packages, fiber runtime | 0.5 |
-| M12 | Workspaces | one resolution; packages shared by web and api | 1.0 |
-| MP | Raw performance | multiples ahead of upstream; the least work for every operation | 1.1 |
+| M12 | Workspaces | one resolution; packages shared by web and api | 0.6 |
+| MP | Raw performance | multiples ahead of upstream; the least work for every operation | 0.7 |
 
 The frontend-plus-backend goal is reachable at M11: two projects can already share code through `source-directories` (R7). M12 makes sharing first-class.
+
+nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it waits until nomi has run in real production projects, its own maintainers' and others', for long enough to keep that promise; no milestone here releases it.
 
 **Not planned:** `elm repl`, `elm reactor`, and elm-format's `--elm-version 0.18` input. Under the `elm` and `elm-format` names these exit with a one-line explanation.
 
@@ -1117,7 +1119,7 @@ This needs M8 and lane R. At the start of M11 we review package names and APIs t
 
 **Exit:** the example server passes its lifecycle tests on the oldest maintained Node LTS, and availability errors show paths.
 
-## M12: Workspaces, release 1.0
+## M12: Workspaces, release 0.6
 
 - [ ] **12.1** `project: nomi.toml workspaces`. Adds workspace members and server settings to the 11.7a schema.
 - [ ] **12.2** `project: workspace graph`. Members, with member packages resolved by name.
@@ -1128,11 +1130,11 @@ This needs M8 and lane R. At the start of M11 we review package names and APIs t
 - [ ] **12.7** `cli: nomi run for the whole workspace`. Without `-p`, `nomi run` starts every runnable entry in parallel: Node entries as child processes, browser entries through a small static dev server. With `--watch`, one engine rebuilds what changed, then restarts the affected Node entries and reloads the affected pages. Output is prefixed by member, and Ctrl-C drains everything. This replaces `elm reactor`. **Check:** the 12.8 example, driven by a test that edits a shared module.
 - [ ] **12.8** `example: full-stack workspace`. `apps/web` runs in the browser, `apps/api` on Node, and `packages/shared` holds types and JSON codecs that both use.
 - [ ] **12.9** `test: plain elm still builds independent members`.
-- [ ] **12.10** `release: 1.0`.
+- [ ] **12.10** `release: 0.6`.
 
 **Exit:** the example workspace builds, tests and serves under `nomi run --watch`, independent members still build with plain elm, and the language server works across members.
 
-## MP: Raw performance, release 1.1
+## MP: Raw performance, release 0.7
 
 Goal: nomi does the least work its job allows. M8b beat elm and elm-format on every cell; MP aims to beat them by multiples, and to make what has no upstream (the editor, tests, watch, the server runtime, workspaces) as lean: fewer cycles and instructions, fewer allocations and bytes copied, less peak and retained memory, better algorithms, shorter critical paths, and nothing busy while idle. Every trick is in scope (allocators, arenas, data layout, SIMD, LTO, PGO, better algorithms) as long as the code stays safe Rust, output stays byte-identical, a profile picked the change and a measurement kept it.
 
@@ -1171,7 +1173,7 @@ MP follows M12 and covers all of MQ's, M11's and M12's code; measuring what exis
 - [ ] **P.18** `perf: workspaces and tooling`. Modules M12's members share built once; xtask and testkit on the full corpus, whose graphs run peaks at 8.6 GB.
 - [ ] **P.19** `perf: SIMD and data layout`. With P.6–P.18's profiles: safe vectorized scanning (`memchr`/`memmem`, auto-vectorization checked in the assembly) in the lexer, `LineIndex`, literal, comment and GLSL scanning, JSON escaping and hashing; arenas, recycled buffers, compact ids, inline small collections and sorted vectors where measured sizes call for them. Stable Rust and the minimum version, no intrinsics and no `unsafe`, portable to CPUs without vector units; an architecture-specific gain counts only on hardware it was measured on.
 - [ ] **P.20** `bench: final numbers`. The full matrix against the frozen baseline and the pinned upstream tools on the reference machine, B.n with it: before and after, spread, allocations and retention, attribution, replay commands, and what was tried and rejected. Deterministic work-count and scaling checks guard each kind of regression found; wall-clock budgets stay out of shared CI.
-- [ ] **P.21** `release: 1.1`.
+- [ ] **P.21** `release: 0.7`.
 
 **Exit:** each user-facing operation has a measured cost map, failures, incrementality, long sessions and idle time included; every landed change has its before and after against the same baseline; every dominant cost has been investigated and what remains is accounted for; and output, diagnostics, every ratchet and corpus suite, and the runtime's properties are unchanged.
 
