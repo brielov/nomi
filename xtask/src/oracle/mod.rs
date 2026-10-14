@@ -326,13 +326,17 @@ fn fetch_elm_package(package: &ElmPackage) -> Result<()> {
         .join("elm-packages")
         .join(&package.name)
         .join(format!("{}.zip", package.version));
-    if path.exists() && download::sha1(&fs::read(&path)?) == package.endpoint_hash {
+    if path.exists() && nomi_registry::store::sha1(&fs::read(&path)?) == package.endpoint_hash {
         eprintln!("  {} {} is cached", package.name, package.version);
         return Ok(());
     }
     let url = download::zipball(&package.name, &package.version);
     let zip = download::get(&url)?;
-    download::verify(&package.name, &package.endpoint_hash, &download::sha1(&zip))?;
+    download::verify(
+        &package.name,
+        &package.endpoint_hash,
+        &nomi_registry::store::sha1(&zip),
+    )?;
     download::write_atomic(&path, &zip)?;
     eprintln!("  {} {} cached", package.name, package.version);
     Ok(())

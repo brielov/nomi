@@ -19,7 +19,6 @@ use std::sync::{Arc, Mutex};
 
 use nomi_base::Compat;
 use server::Server;
-use sha1::{Digest, Sha1};
 
 const ELM_JSON: &str = r#"{
     "type": "package",
@@ -58,39 +57,16 @@ hello name =
 fn a_tagged_package_publishes() {
     let work = tempfile::tempdir().unwrap();
     let root = fs::canonicalize(work.path()).unwrap().join("greet");
-    fs::create_dir_all(root.join("src")).unwrap();
-    fs::write(root.join("elm.json"), ELM_JSON).unwrap();
-    fs::write(root.join("src/Greet.elm"), GREET).unwrap();
     let readme = format!(
         "# Greet\n\n{}\n",
         "Greet says hello to whoever you name. ".repeat(10)
     );
-    fs::write(root.join("README.md"), &readme).unwrap();
-    fs::write(root.join("LICENSE"), "BSD 3-Clause License\n").unwrap();
-    let git = |args: &[&str]| {
-        let status = Command::new("git")
-            .args(args)
-            .current_dir(&root)
-            .env("GIT_CEILING_DIRECTORIES", work.path())
-            .env("GIT_AUTHOR_NAME", "nomi")
-            .env("GIT_AUTHOR_EMAIL", "nomi@example.com")
-            .env("GIT_COMMITTER_NAME", "nomi")
-            .env("GIT_COMMITTER_EMAIL", "nomi@example.com")
-            .output()
-            .unwrap();
-        assert!(status.status.success(), "git {args:?}: {status:?}");
-        String::from_utf8(status.stdout).unwrap()
-    };
-    git(&["init", "--quiet"]);
-    git(&["add", "."]);
-    git(&["commit", "--quiet", "-m", "first"]);
-    git(&["tag", "-a", "1.0.0", "-m", "new release"]);
-    let commit = git(&["rev-list", "-n", "1", "1.0.0"]).trim().to_owned();
+    let commit = tagged_package(&root, work.path(), &readme);
     // The zipball GitHub would serve of the tag: its files under one top
     // directory.
     let files = ["elm.json", "README.md", "LICENSE", "src/Greet.elm"];
     let zipball = website::zipped("nomi-test-greet-0000000", &root, &files);
-    let zip_hash = nomi_base::hex(&Sha1::digest(&zipball));
+    let zip_hash = nomi_registry::store::sha1(&zipball);
 
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm_publish");
     let website = registry::registry(&fixtures, Compat::LATEST);
@@ -127,10 +103,62 @@ fn a_tagged_package_publishes() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(output.status.success(), "{stdout}{stderr}");
-    let marks = |line: &str, waiting: &str, done: &str| {
-        let pad = waiting.chars().count().saturating_sub(done.chars().count());
-        format!("  → {waiting}\r  ● {done}{}\n{line}", " ".repeat(pad))
+    let lines = checks();
+    assert!(
+        stdout.starts_with("This package has never been published before."),
+        "{stdout}"
+    );
+    assert!(
+        stdout.ends_with(&format!(
+            "I will now verify that everything is in order...\n\n{lines}\nSuccess!\n"
+        )),
+        "{stdout}"
+    );
+
+    let Registration { path, body } = registered.lock().unwrap().take().expect("a registration");
+    assert_eq!(
+        path,
+        format!("/register?name=nomi-test/greet&version=1.0.0&commit-hash={commit}")
+    );
+    let body = String::from_utf8(body).unwrap();
+    assert_eq!(part(&body, "elm.json"), ELM_JSON);
+    assert_eq!(part(&body, "README.md"), readme);
+    assert_eq!(part(&body, "github-hash"), zip_hash);
+    assert!(part(&body, "docs.json").starts_with(r#"[{"name":"Greet","comment":" Greetings."#));
+}
+
+/// Writes the package to `root`, a git repository of its own below
+/// `ceiling`, committed and tagged 1.0.0; the tag's commit.
+fn tagged_package(root: &Path, ceiling: &Path, readme: &str) -> String {
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("elm.json"), ELM_JSON).unwrap();
+    fs::write(root.join("src/Greet.elm"), GREET).unwrap();
+    fs::write(root.join("README.md"), readme).unwrap();
+    fs::write(root.join("LICENSE"), "BSD 3-Clause License\n").unwrap();
+    let git = |args: &[&str]| {
+        let status = Command::new("git")
+            .args(args)
+            .current_dir(root)
+            .env("GIT_CEILING_DIRECTORIES", ceiling)
+            .env("GIT_AUTHOR_NAME", "nomi")
+            .env("GIT_AUTHOR_EMAIL", "nomi@example.com")
+            .env("GIT_COMMITTER_NAME", "nomi")
+            .env("GIT_COMMITTER_EMAIL", "nomi@example.com")
+            .output()
+            .unwrap();
+        assert!(status.status.success(), "git {args:?}: {status:?}");
+        String::from_utf8(status.stdout).unwrap()
     };
+    git(&["init", "--quiet"]);
+    git(&["add", "."]);
+    git(&["commit", "--quiet", "-m", "first"]);
+    git(&["tag", "-a", "1.0.0", "-m", "new release"]);
+    git(&["rev-list", "-n", "1", "1.0.0"]).trim().to_owned()
+}
+
+/// The checks `elm publish` prints, each one's waiting line overwritten
+/// by its outcome.
+fn checks() -> String {
     let checks = [
         ("Looking for README.md", "Found README.md"),
         ("Looking for LICENSE", "Found LICENSE"),
@@ -156,36 +184,21 @@ fn a_tagged_package_publishes() {
             "Downloaded code compiles successfully",
         ),
     ];
-    let lines: String = checks.iter().map(|(w, d)| marks("", w, d)).collect();
-    assert!(
-        stdout.starts_with("This package has never been published before."),
-        "{stdout}"
-    );
-    assert!(
-        stdout.ends_with(&format!(
-            "I will now verify that everything is in order...\n\n{lines}\nSuccess!\n"
-        )),
-        "{stdout}"
-    );
-
-    let Registration { path, body } = registered.lock().unwrap().take().expect("a registration");
-    assert_eq!(
-        path,
-        format!("/register?name=nomi-test/greet&version=1.0.0&commit-hash={commit}")
-    );
-    let body = String::from_utf8(body).unwrap();
-    let part = |name: &str| -> String {
-        let start = body
-            .find(&format!("name=\"{name}\""))
-            .unwrap_or_else(|| panic!("no {name} part"));
-        let content = start + body[start..].find("\r\n\r\n").unwrap() + 4;
-        let end = content + body[content..].find("\r\n--").unwrap();
-        body[content..end].to_owned()
+    let marks = |(waiting, done): &(&str, &str)| {
+        let pad = waiting.chars().count().saturating_sub(done.chars().count());
+        format!("  → {waiting}\r  ● {done}{}\n", " ".repeat(pad))
     };
-    assert_eq!(part("elm.json"), ELM_JSON);
-    assert_eq!(part("README.md"), readme);
-    assert_eq!(part("github-hash"), zip_hash);
-    assert!(part("docs.json").starts_with(r#"[{"name":"Greet","comment":" Greetings."#));
+    checks.iter().map(marks).collect()
+}
+
+/// The content of the multipart form `body`'s part `name`.
+fn part<'b>(body: &'b str, name: &str) -> &'b str {
+    let start = body
+        .find(&format!("name=\"{name}\""))
+        .unwrap_or_else(|| panic!("no {name} part"));
+    let content = start + body[start..].find("\r\n\r\n").unwrap() + 4;
+    let end = content + body[content..].find("\r\n--").unwrap();
+    &body[content..end]
 }
 
 /// A registration the server kept.

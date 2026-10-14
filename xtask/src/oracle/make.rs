@@ -27,8 +27,8 @@ use super::modules::Recorder;
 use super::sandbox::{corpus_releases, locked, offline};
 use super::{FIXTURE_PACKAGES, cores, fresh_dir, padded_case, recordings};
 use crate::corpus::compat;
-use crate::corpus::parallel_on;
 use crate::references::References;
+use nomi_testkit::parallel_on;
 
 const CASES: &str = "crates/cli/tests/elm_make";
 

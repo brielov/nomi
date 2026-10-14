@@ -19,70 +19,10 @@ use nomi_registry::remove::{self, RemoveProblem};
 use nomi_registry::update::{self, UpdateProblem};
 use nomi_registry::{DetailsProblem, Known, Packages, Release, details, solver};
 use nomi_testkit::ratchet::Suite;
-use serde::Deserialize;
+use nomi_testkit::solver::{Scenario, Universe};
 use serde_json::json;
 
 const RERUN: &str = "rerun `cargo xtask oracle solver`";
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Scenario {
-    universe: Option<String>,
-    #[serde(default)]
-    registry: BTreeMap<String, Vec<String>>,
-    #[serde(default)]
-    releases: BTreeMap<String, ScenarioRelease>,
-    project: Project,
-    add: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Universe {
-    registry: BTreeMap<String, Vec<String>>,
-    releases: BTreeMap<String, ScenarioRelease>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ScenarioRelease {
-    elm: String,
-    #[serde(default)]
-    deps: BTreeMap<String, String>,
-    #[serde(default = "yes")]
-    src: bool,
-    #[serde(default)]
-    broken: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
-enum Project {
-    #[serde(rename_all = "kebab-case")]
-    Application {
-        elm: Option<String>,
-        #[serde(default)]
-        direct: BTreeMap<String, String>,
-        #[serde(default)]
-        indirect: BTreeMap<String, String>,
-        #[serde(default)]
-        test_direct: BTreeMap<String, String>,
-        #[serde(default)]
-        test_indirect: BTreeMap<String, String>,
-    },
-    #[serde(rename_all = "kebab-case")]
-    Package {
-        elm: String,
-        #[serde(default)]
-        deps: BTreeMap<String, String>,
-        #[serde(default)]
-        test_deps: BTreeMap<String, String>,
-    },
-}
-
-fn yes() -> bool {
-    true
-}
 
 #[test]
 fn solver() {
@@ -361,7 +301,7 @@ fn tidy(packages: &mut Fixture, app: &AppOutline) -> bool {
 /// What nomi answers, in the oracle's words.
 fn answer(universe: &Universe, scenario: &Scenario, compat: Compat) -> String {
     let mut packages = Fixture::new(universe, compat);
-    let src = outline(&scenario.project, compat).to_string();
+    let src = scenario.project.elm_json(compat).to_string();
     let Ok(outline) = Outline::read(src.as_bytes(), compat) else {
         return "bad-outline\n".to_owned();
     };
@@ -449,24 +389,8 @@ impl Fixture {
             .iter()
             .map(|(key, release)| {
                 let (n, v) = key.split_once('@').unwrap();
-                let text = if release.broken {
-                    "{}".to_owned()
-                } else {
-                    json!({
-                        "type": "package",
-                        "name": n,
-                        "summary": "fixture",
-                        "license": "BSD-3-Clause",
-                        "version": v,
-                        "exposed-modules": ["Fixture"],
-                        "elm-version": release.elm,
-                        "dependencies": release.deps,
-                        "test-dependencies": {},
-                    })
-                    .to_string()
-                };
                 let cached = Cached {
-                    elm_json: text,
+                    elm_json: release.elm_json(n, v),
                     sources: release.src,
                 };
                 ((name(n), version(v, compat)), cached)
@@ -502,40 +426,6 @@ impl Packages for Fixture {
     }
 }
 
-/// The project's `elm.json`, as the oracle writes it.
-fn outline(project: &Project, compat: Compat) -> serde_json::Value {
-    match project {
-        Project::Application {
-            elm,
-            direct,
-            indirect,
-            test_direct,
-            test_indirect,
-        } => json!({
-            "type": "application",
-            "source-directories": ["src"],
-            "elm-version": elm.clone().unwrap_or_else(|| compat.to_string()),
-            "dependencies": { "direct": direct, "indirect": indirect },
-            "test-dependencies": { "direct": test_direct, "indirect": test_indirect },
-        }),
-        Project::Package {
-            elm,
-            deps,
-            test_deps,
-        } => json!({
-            "type": "package",
-            "name": "nomi/root",
-            "summary": "fixture",
-            "license": "BSD-3-Clause",
-            "version": "1.0.0",
-            "exposed-modules": ["Main"],
-            "elm-version": elm,
-            "dependencies": deps,
-            "test-dependencies": test_deps,
-        }),
-    }
-}
-
 /// A scenario, with its registry and releases and its project as the
 /// newest release reads it.
 struct Case {
@@ -553,7 +443,7 @@ fn cases() -> Vec<Case> {
     (scenarios(&dir).into_iter())
         .map(|(name, scenario)| {
             let universe = universe(&dir, &mut universes, &scenario);
-            let src = outline(&scenario.project, compat).to_string();
+            let src = scenario.project.elm_json(compat).to_string();
             let outline = Outline::read(src.as_bytes(), compat);
             Case {
                 name,
@@ -571,7 +461,7 @@ fn universe(
     universes: &mut BTreeMap<String, Universe>,
     scenario: &Scenario,
 ) -> Universe {
-    let mut universe = match &scenario.universe {
+    let universe = match &scenario.universe {
         Some(name) => universes
             .entry(name.clone())
             .or_insert_with(|| {
@@ -582,9 +472,7 @@ fn universe(
             .clone(),
         None => Universe::default(),
     };
-    universe.registry.extend(scenario.registry.clone());
-    universe.releases.extend(scenario.releases.clone());
-    universe
+    universe.with(scenario)
 }
 
 /// Every scenario, by name.

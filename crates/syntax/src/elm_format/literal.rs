@@ -71,12 +71,11 @@ fn is_digit(src: &str, pos: usize) -> bool {
 fn chomp_int(src: &str, mut pos: usize) -> Scanned {
     loop {
         match byte(src, pos) {
-            None => return Ok(pos),
             Some(b'0'..=b'9') => pos += 1,
             Some(b'.') if byte(src, pos + 1) != Some(b'.') => return chomp_fraction(src, pos),
             Some(b'e' | b'E') => return chomp_exponent(src, pos + 1),
             Some(_) if is_dirty_end(src, pos) => return Err(pos),
-            Some(_) => return Ok(pos),
+            _ => return Ok(pos),
         }
     }
 }
@@ -88,11 +87,10 @@ fn chomp_fraction(src: &str, pos: usize) -> Scanned {
     let mut pos = pos + 2;
     loop {
         match byte(src, pos) {
-            None => return Ok(pos),
             Some(b'0'..=b'9') => pos += 1,
             Some(b'e' | b'E') => return chomp_exponent(src, pos + 1),
             Some(_) if is_dirty_end(src, pos) => return Err(pos),
-            Some(_) => return Ok(pos),
+            _ => return Ok(pos),
         }
     }
 }
@@ -111,7 +109,6 @@ fn chomp_exponent(src: &str, pos: usize) -> Scanned {
 
 fn chomp_zero(src: &str, pos: usize) -> Scanned {
     match byte(src, pos) {
-        None => Ok(pos),
         Some(b'x') => match hex(src, pos + 1) {
             (end, Hex::Code(_)) => Ok(end),
             (end, Hex::None | Hex::Bad) => Err(end),
@@ -119,7 +116,7 @@ fn chomp_zero(src: &str, pos: usize) -> Scanned {
         Some(b'.') => chomp_fraction(src, pos),
         Some(b'0'..=b'9') => Err(pos),
         Some(_) if is_dirty_end(src, pos) => Err(pos),
-        Some(_) => Ok(pos),
+        _ => Ok(pos),
     }
 }
 

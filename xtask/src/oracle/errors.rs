@@ -17,7 +17,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, parse_module};
+use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, child_token, parse_module};
 use nomi_testkit::edit::{self, Edit};
 use nomi_testkit::transcript::{Case, cases};
 
@@ -235,10 +235,7 @@ fn definition(node: &SyntaxNode, edits: &mut Edits<'_>) {
             }
         }
     }
-    let name = node
-        .children_with_tokens()
-        .filter_map(|e| e.into_token())
-        .find(|t| t.kind() == SyntaxKind::LowerIdent);
+    let name = child_token(node, SyntaxKind::LowerIdent);
     let body = node
         .children()
         .filter(|c| ast::Expr::can_cast(c.kind()))

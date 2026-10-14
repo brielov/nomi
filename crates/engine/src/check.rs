@@ -410,16 +410,13 @@ pub fn env_of(
     compat: Compat,
     foreigns: Foreigns,
 ) -> Result<Env, Report> {
-    let (owner, src_dirs) = match outline {
-        Outline::App(app) => (
-            Owner::Application,
-            (app.source_dirs.iter())
-                .filter_map(|d| d.path())
-                .map(PathBuf::from)
-                .collect::<Vec<_>>(),
-        ),
-        Outline::Pkg(pkg) => (Owner::Package(pkg.name.clone()), vec![PathBuf::from("src")]),
+    let owner = match outline {
+        Outline::App(_) => Owner::Application,
+        Outline::Pkg(pkg) => Owner::Package(pkg.name.clone()),
     };
+    let src_dirs: Vec<PathBuf> = (outline.source_dirs().into_iter())
+        .map(PathBuf::from)
+        .collect();
     Env::new(compat, root, owner, &src_dirs, foreigns).map_err(|e| {
         one_line(
             "PROBLEM READING PROJECT",

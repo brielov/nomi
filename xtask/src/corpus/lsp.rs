@@ -33,11 +33,12 @@ use nomi_testkit::ratchet::Suite;
 use nomi_testkit::sha256_hex as sha256;
 use serde_json::{Map, Value, json};
 
-use super::{apps, compat, copy_project, corpus_dir, packages, parallel_on, runs};
+use super::{apps, compat, copy_project, corpus_dir, packages, runs};
 use crate::oracle::corpus_runs::{self, Cell};
 use crate::oracle::lsp::Tools;
 use crate::oracle::{cache_dir, generated};
 use crate::references::References;
+use nomi_testkit::parallel_on;
 
 const DIR: &str = "corpus/lsp";
 const ORACLE: &str = "corpus/lsp/oracle.tsv";

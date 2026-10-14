@@ -13,7 +13,6 @@ use std::path::{Path, PathBuf};
 
 use nomi_base::diagnostic::json::{self, Json};
 use nomi_base::{Compat, Doc, LineIndex, TextRange};
-use nomi_compiler::hir::Def;
 use nomi_compiler::types::render::{self, Context};
 use nomi_engine::Snapshot;
 use nomi_engine::check::Checked;
@@ -313,10 +312,7 @@ pub(crate) fn missing_annotations(index: &Index, path: &Path) -> Vec<Problem> {
     };
     let localizer = localizer(index, module);
     let mut problems = Vec::new();
-    for &id in &module.hir.values {
-        let Def::Define { name, .. } = &module.hir.defs[id] else {
-            continue;
-        };
+    for name in module.hir.value_names() {
         if canonical.annotations.contains_key(&name.text) {
             continue;
         }

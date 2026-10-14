@@ -14,7 +14,9 @@ use nomi_base::{Compat, FileId, TextRange, ghc, lock};
 use nomi_compiler::graph;
 use nomi_project::{ModuleName, Name};
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{Parse, Source, SyntaxError, SyntaxKind, Tool, parse_module, validate};
+use nomi_syntax::{
+    Parse, Source, SyntaxError, Tool, parse_module, significant_tokens, trimmed_range, validate,
+};
 
 use crate::timings::{Phase, time};
 use crate::vfs::canonical;
@@ -734,21 +736,12 @@ pub(crate) fn written_imports(syntax: &ast::Module) -> impl Iterator<Item = Impo
 
 /// A module name as written, without the trivia around it, and where.
 fn name_of(name: &ast::ModuleName) -> (ModuleName, TextRange) {
+    // Its segments and the dots between them, written joined.
     let mut text = String::new();
-    let mut range: Option<TextRange> = None;
-    let segments = (name.syntax().children_with_tokens())
-        .filter_map(|e| e.into_token())
-        .filter(|t| t.kind() == SyntaxKind::UpperIdent);
-    for segment in segments {
-        let at = segment.text_range();
-        if range.is_some() {
-            text.push('.');
-        }
-        text.push_str(segment.text());
-        range = Some(range.map_or(at, |r| r.cover(at)));
+    for token in significant_tokens(name.syntax()) {
+        text.push_str(token.text());
     }
-    let range = range.unwrap_or_else(|| name.syntax().text_range());
-    (ModuleName::new(&text), range)
+    (ModuleName::new(&text), trimmed_range(name.syntax()))
 }
 
 /// `RootLocation`.

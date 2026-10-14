@@ -23,6 +23,14 @@ fn only_cr_lf_quotes_and_backslashes_are_escaped() {
 }
 
 #[test]
+fn a_strict_string_escapes_every_control_character() {
+    assert_eq!(
+        strict_string("\r\n\"\\\t\u{1}\u{1f} é\u{7f}"),
+        "\"\\r\\n\\\"\\\\\\t\\u0001\\u001f é\u{7f}\""
+    );
+}
+
+#[test]
 fn a_report_without_a_path_has_a_null_one() {
     let report = Report::new("NO ELM.JSON", None, "Nothing here.", []);
     assert_eq!(

@@ -27,8 +27,8 @@ use serde_json::{Map, Value, json};
 use super::sandbox::{elm_home, fixture_releases, offline};
 use super::{cache_dir, cores, installed, node_version, oracles_dir, pinned_binary};
 use super::{pinned_elm, remove_tree, which};
-use crate::corpus::parallel_on;
 use crate::references::References;
+use nomi_testkit::parallel_on;
 
 /// The suite: `cases/`, `expected/` and `passing.txt`.
 pub(crate) const SUITE: &str = "crates/lsp/tests/elm_language_server";

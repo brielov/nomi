@@ -42,8 +42,9 @@ use super::sandbox::{Release, elm_home, elmo_files, first_title, json_report, lo
 use super::{cache_dir, cores, elm_header, generated, pinned_elm, remove_tree, utf8};
 use crate::corpus::compat;
 use crate::corpus::syntax::CRASH;
-use crate::corpus::{apps, corpus_dir, packages, parallel_on};
+use crate::corpus::{apps, corpus_dir, packages};
 use crate::references::References;
+use nomi_testkit::parallel_on;
 
 /// Runs of one project before a lock failure is an error.
 const RETRIES: u32 = 5;

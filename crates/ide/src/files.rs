@@ -21,11 +21,9 @@ fn source_dirs(snapshot: &Snapshot, path: &Path) -> Vec<PathBuf> {
         return Vec::new();
     };
     match Outline::detect(text.as_bytes()) {
-        Ok((Outline::App(app), _)) => (app.source_dirs.iter())
-            .filter_map(|d| d.path())
+        Ok((outline, _)) => (outline.source_dirs().iter())
             .map(|d| root.join(d))
             .collect(),
-        Ok((Outline::Pkg(_), _)) => vec![root.join("src")],
         Err(_) => Vec::new(),
     }
 }

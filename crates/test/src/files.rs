@@ -39,12 +39,7 @@ impl Project {
         let outline = (nomi_base::Compat::ALL.into_iter().rev())
             .find_map(|compat| Outline::decode(&bytes, compat).ok())
             .ok_or_else(|| "elm.json is not a project nomi reads".to_owned())?;
-        let written = match &outline {
-            Outline::App(app) => (app.source_dirs.iter())
-                .filter_map(|d| d.path())
-                .collect::<Vec<_>>(),
-            Outline::Pkg(_) => vec!["src".to_owned()],
-        };
+        let written = outline.source_dirs();
         let tests_dir = root.join("tests");
         let mut source_dirs: Vec<PathBuf> = written
             .iter()

@@ -172,7 +172,7 @@ fn fetch_one(corpus: &Path, package: &Package) -> Result<()> {
     }
     let url = download::zipball(&package.name, &package.version);
     let zip = download::get_quiet(&url)?;
-    download::verify(&url, &package.sha1, &download::sha1(&zip))?;
+    download::verify(&url, &package.sha1, &nomi_registry::store::sha1(&zip))?;
     remove_tree(&dir)?;
     unzip_stripped(&zip, &dir)?;
     fs::write(&stamp, &package.sha1)?;

@@ -128,14 +128,13 @@ fn at_whole_list(p: &mut Parser<'_>) -> bool {
     let mut scan = p.scan(1);
     loop {
         match (scan.nth(0), scan.nth(1), scan.nth(2)) {
-            (K::DotDot | K::LowerIdent, ..) => scan.skip(1),
             (K::UpperIdent, K::LParen, _) => {
                 scan.skip(2);
                 if !skip_variants(&mut scan) {
                     return false;
                 }
             }
-            (K::UpperIdent, ..) => scan.skip(1),
+            (K::DotDot | K::LowerIdent | K::UpperIdent, ..) => scan.skip(1),
             (K::LParen, op, K::RParen) if is_parenthesized_op(op) => scan.skip(3),
             _ => return false,
         }

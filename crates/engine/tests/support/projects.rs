@@ -268,22 +268,9 @@ pub fn interfaces(compat: Compat) -> Arc<names::PackageInterfaces> {
     if let Some(interfaces) = made.lock().unwrap().get(&compat) {
         return interfaces.clone();
     }
-    let mut sources = Vec::new();
-    for author in fs::read_dir(packages::dir()).unwrap() {
-        let author = author.unwrap().path();
-        if !author.is_dir() {
-            continue;
-        }
-        for project in fs::read_dir(&author).unwrap() {
-            let project = project.unwrap().path();
-            let name = format!(
-                "{}/{}",
-                author.file_name().unwrap().to_string_lossy(),
-                project.file_name().unwrap().to_string_lossy()
-            );
-            sources.push((name.parse().unwrap(), only_version(&project)));
-        }
-    }
+    let sources: Vec<_> = (packages::manifest().into_iter())
+        .map(|package| (package.name.parse().unwrap(), package.dir()))
+        .collect();
     let interfaces = Arc::new(names::package_interfaces(compat, &sources).unwrap());
     made.lock().unwrap().insert(compat, interfaces.clone());
     interfaces

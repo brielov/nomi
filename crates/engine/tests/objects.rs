@@ -66,15 +66,11 @@ fn a_second_build_reads_packages_from_the_cache() {
 
 #[test]
 fn core_and_json_merge_as_elm_merges_them() {
-    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     for compat in Compat::ALL {
         let packages = core_and_json(None);
         let graph = dependency_graph(compat, &packages).unwrap();
         let ours = binary::encode_global_graph(&graph, compat);
-        let path = manifest
-            .join("../compiler/tests/optimized/artifacts")
-            .join(format!("elm-{compat}"))
-            .join("o.dat");
+        let path = nomi_testkit::optimized_artifacts(compat).join("o.dat");
         let elm = binary::decode_global_graph(&fs::read(&path).unwrap(), compat).unwrap();
         if ours != fs::read(&path).unwrap() {
             let missing: Vec<_> = elm

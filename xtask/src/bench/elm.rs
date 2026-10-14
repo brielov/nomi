@@ -13,13 +13,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
+use nomi_base::Compat;
 use nomi_testkit::files_below;
 
 use super::measure::{Cost, Run, measure};
 use super::{Row, Setup, Table};
 use crate::corpus::{apps, compat, corpus_dir};
 use crate::oracle::corpus_runs::{copy_modules, releases};
-use crate::oracle::sandbox::elm_home;
+use crate::oracle::sandbox::{Release, elm_home};
 use crate::oracle::{cache_dir, fresh_dir, pinned_elm, remove_tree};
 use crate::references::References;
 
@@ -120,21 +121,7 @@ pub(crate) fn tables(root: &Path, refs: &References, setup: &Setup) -> Result<Ve
     let versions = compat::compats(refs)?;
     let newest = versions.iter().copied().max().context("no elm is pinned")?;
     for version in versions {
-        let home = setup.scratch.join("home").join(version.to_string());
-        elm_home(&home, version, &releases)?;
-        let packages = home.join(version.to_string()).join("packages");
-        let elm = Tool {
-            binary: pinned_elm(refs, version)?,
-            env: vec![("ELM_HOME", home.clone())],
-            clear: Box::new(move || {
-                for file in files_below(&packages)? {
-                    if file.ends_with("artifacts.dat") {
-                        fs::remove_file(packages.join(file))?;
-                    }
-                }
-                Ok(())
-            }),
-        };
+        let elm = elm_tool(refs, version, &setup.scratch.join("home"), &releases)?;
         for app in &apps {
             let manifest = compat::sandbox_manifest(&classification, app, version)?;
             for optimize in [false, true] {
@@ -184,6 +171,30 @@ pub(crate) fn tables(root: &Path, refs: &References, setup: &Setup) -> Result<Ve
         }
     }
     Ok(vec![make, docs])
+}
+
+/// The pinned `version` of elm, its `ELM_HOME` below `homes` holding
+/// `releases`, which it builds cold once their `artifacts.dat` are gone.
+fn elm_tool(
+    refs: &References,
+    version: Compat,
+    homes: &Path,
+    releases: &[Release],
+) -> Result<Tool> {
+    let home = homes.join(version.as_str());
+    let packages = elm_home(&home, version, releases)?;
+    Ok(Tool {
+        binary: pinned_elm(refs, version)?,
+        env: vec![("ELM_HOME", home)],
+        clear: Box::new(move || {
+            for file in files_below(&packages)? {
+                if file.ends_with("artifacts.dat") {
+                    fs::remove_file(packages.join(file))?;
+                }
+            }
+            Ok(())
+        }),
+    })
 }
 
 /// Measures both tools building `project` cold and warm, adding a row for

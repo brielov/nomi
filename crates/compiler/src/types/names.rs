@@ -217,10 +217,12 @@ fn to_can_type(vars: &mut Variables, var: Variable, state: &mut NameState) -> ca
     use canonical::Type as T;
     nomi_base::grow(|| match vars.content(var) {
         Content::Structure(flat) => flat_to_can_type(vars, flat, state),
-        Content::FlexVar(Some(name)) | Content::FlexSuper(_, Some(name)) => T::Var(name),
+        Content::FlexVar(Some(name))
+        | Content::FlexSuper(_, Some(name))
+        | Content::RigidVar(name)
+        | Content::RigidSuper(_, name) => T::Var(name),
         Content::FlexVar(None) => T::Var(state.name(vars, var, None)),
         Content::FlexSuper(s, None) => T::Var(state.name(vars, var, Some(s))),
-        Content::RigidVar(name) | Content::RigidSuper(_, name) => T::Var(name),
         Content::Alias(home, name, args, real) => {
             let args = (args.into_iter())
                 .map(|(n, a)| (n, to_can_type(vars, a, state)))

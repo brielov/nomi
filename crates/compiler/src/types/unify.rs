@@ -210,15 +210,18 @@ impl State<'_> {
             }
             Content::FlexVar(_) => self.merge(context, content),
             Content::FlexSuper(other_super, _) => match (s, other_super) {
-                (Number, Number | Comparable) => self.merge(context, content),
-                (Number, Appendable | CompAppend) => Err(Mismatch),
-                (Comparable, Comparable | Number | CompAppend) => self.merge(context, other),
-                (Comparable, Appendable) => self.merge(context, compappend()),
-                (Appendable, Appendable | CompAppend) => self.merge(context, other),
-                (Appendable, Comparable) => self.merge(context, compappend()),
-                (Appendable, Number) => Err(Mismatch),
-                (CompAppend, Comparable | Appendable | CompAppend) => self.merge(context, content),
-                (CompAppend, Number) => Err(Mismatch),
+                (Number, Number | Comparable)
+                | (CompAppend, Comparable | Appendable | CompAppend) => {
+                    self.merge(context, content)
+                }
+                (Comparable, Comparable | Number | CompAppend)
+                | (Appendable, Appendable | CompAppend) => self.merge(context, other),
+                (Comparable, Appendable) | (Appendable, Comparable) => {
+                    self.merge(context, compappend())
+                }
+                (Number, Appendable | CompAppend) | (Appendable | CompAppend, Number) => {
+                    Err(Mismatch)
+                }
             },
             Content::Alias(_, _, _, real) => self.guarded(context.first, real),
             Content::Error => self.merge(context, Content::Error),

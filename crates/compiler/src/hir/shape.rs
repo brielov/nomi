@@ -209,22 +209,7 @@ impl Shape<'_> {
                 }
                 self.expr(*body);
             }
-            // `(f a) b` is `f a b`.
-            Expr::Call { function, args } => {
-                let module = self.module;
-                let mut function = *function;
-                let mut spine = vec![&args[..]];
-                while let Expr::Call { function: f, args } = &module.exprs[function] {
-                    function = *f;
-                    spine.push(args);
-                }
-                let count: usize = spine.iter().map(|args| args.len()).sum();
-                self.line(format!("call {count}"));
-                self.expr(function);
-                for args in spine.into_iter().rev() {
-                    exprs(self, args);
-                }
-            }
+            Expr::Call { function, args } => self.call(*function, args),
             Expr::If {
                 branches,
                 otherwise,
@@ -277,6 +262,22 @@ impl Shape<'_> {
                 exprs(self, items);
             }
             Expr::Shader(source) => self.line(format!("shader {source:?}")),
+        }
+    }
+
+    /// A call, `(f a) b` as `f a b`.
+    fn call(&mut self, mut function: ExprId, args: &[ExprId]) {
+        let module = self.module;
+        let mut spine = vec![args];
+        while let Expr::Call { function: f, args } = &module.exprs[function] {
+            function = *f;
+            spine.push(args);
+        }
+        let count: usize = spine.iter().map(|args| args.len()).sum();
+        self.line(format!("call {count}"));
+        self.expr(function);
+        for &e in spine.into_iter().rev().flatten() {
+            self.expr(e);
         }
     }
 

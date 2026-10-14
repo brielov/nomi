@@ -6,6 +6,7 @@
 //! and the `\x` escapes elm-format still reads come out as it reads them.
 
 use nomi_base::ghc::is_alpha;
+use nomi_base::utf8;
 use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, significant_tokens};
 
 use super::VALID;
@@ -111,7 +112,11 @@ fn decode(body: &str) -> Vec<u32> {
         };
     }
     bytes.extend_from_slice(rest.as_bytes());
-    to_chars(&bytes)
+    // Upstream's `toChars`: a sequence cut off by the end, which only a
+    // nonsensical escape writes, reads the missing bytes as zero.
+    let mut chars = Vec::with_capacity(bytes.len());
+    chars.extend(utf8::unchecked_chars(&bytes).map(|code| code as u32));
+    chars
 }
 
 /// Writes the escape `text` starts with, after its `\`, and returns the
@@ -173,28 +178,4 @@ fn write_code(c: i64, bytes: &mut Vec<u8>) {
             byte(0x80 + (c & 0x3F)),
         ]);
     }
-}
-
-/// Upstream's `toChars`: UTF-8 read by its first byte alone. A sequence
-/// cut off by the end, which only a nonsensical escape writes, reads the
-/// missing bytes as zero.
-fn to_chars(bytes: &[u8]) -> Vec<u32> {
-    let mut chars = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        let first = bytes[i];
-        let (width, lead) = match first {
-            0x00..0xC0 => (1, i64::from(first)),
-            0xC0..0xE0 => (2, i64::from(first) - 0xC0),
-            0xE0..0xF0 => (3, i64::from(first) - 0xE0),
-            _ => (4, i64::from(first) - 0xF0),
-        };
-        let code = (1..width).fold(lead, |code, k| {
-            let next = bytes.get(i + k).copied().map_or(0, i64::from);
-            (code << 6) + next - 0x80
-        });
-        chars.push(code as u32);
-        i += width;
-    }
-    chars
 }

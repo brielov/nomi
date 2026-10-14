@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::Write;
 
 use nomi_base::Compat;
+use nomi_base::diagnostic::render::naked_link;
 use nomi_compiler::canonical::Home;
 use nomi_compiler::optimized::binary::{globals, homes};
 use nomi_compiler::optimized::{Chunk, Def, EffectsType, Expr, Global, GlobalGraph, Main, Node};
@@ -63,13 +64,8 @@ fn perf_note(compat: Compat, mode: &Mode) -> String {
     format!(
         "console.warn('Compiled in {which} mode. Follow the advice at {} for better \
          performance and smaller assets.');",
-        link(compat, "optimize")
+        naked_link(compat, "optimize")
     )
-}
-
-/// `makeNakedLink`.
-fn link(compat: Compat, page: &str) -> String {
-    format!("https://elm-lang.org/{compat}/{page}")
 }
 
 /// The traversal's state: the program's code, each definition written as
@@ -230,7 +226,7 @@ impl State<'_> {
                          learn how to fix it!",
                         home.module,
                         draw_cycle(names),
-                        link(generator.compat, "bad-recursion")
+                        naked_link(generator.compat, "bad-recursion")
                     )))),
                 },
             }

@@ -9,13 +9,13 @@
 
 use std::collections::BTreeMap;
 
-use nomi_base::Compat;
+use nomi_base::{Compat, utf8};
 
 use nomi_base::diagnostic::json::escape;
 
 use crate::json::decode::{self, Decoded, Problem};
 use crate::json::{self, Cursor, ParseError, Position, Value, encode};
-use crate::{Constraint, ConstraintError, License, ModuleName, Name, Version, scan};
+use crate::{Constraint, ConstraintError, License, ModuleName, Name, Version};
 
 /// What an `elm.json` describes: an application or a package.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -106,13 +106,12 @@ impl SrcDir {
     /// assembles characters unchecked, so a code may be no character at
     /// all, even negative.
     pub fn chars(&self) -> Vec<i64> {
-        scan::unchecked_chars(&self.0)
+        utf8::unchecked_chars(&self.0).collect()
     }
 
     /// The path upstream uses, if its characters are characters.
     pub fn path(&self) -> Option<String> {
-        self.chars()
-            .into_iter()
+        utf8::unchecked_chars(&self.0)
             .map(|code| u32::try_from(code).ok().and_then(char::from_u32))
             .collect()
     }
@@ -268,6 +267,16 @@ impl Outline {
                 .rev()
                 .find(|&c| pkg.elm.satisfies(Version::compiler(c)))
                 .ok_or(DetectError::PkgElm(pkg.elm)),
+        }
+    }
+
+    /// Where the modules are, relative to the project: an application's
+    /// source directories whose paths are text ([`SrcDir::path`]), or a
+    /// package's `src`.
+    pub fn source_dirs(&self) -> Vec<String> {
+        match self {
+            Outline::App(app) => app.source_dirs.iter().filter_map(SrcDir::path).collect(),
+            Outline::Pkg(_) => vec!["src".to_owned()],
         }
     }
 

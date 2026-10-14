@@ -136,42 +136,10 @@ pub(crate) fn upper(rest: &[u8], compat: Compat) -> usize {
     chomp(rest, |b| b.is_ascii_uppercase(), ghc::is_upper, compat)
 }
 
-/// 0.19.1's `chr2`, `chr3` and `chr4`, which assemble a character from a
-/// lead byte and its continuation bytes without checking them. Upstream
-/// reads past the end of the input for a truncated sequence; here those
-/// bytes are zero. A result that is no character is no letter either.
+/// 0.19.1's `chr2`, `chr3` and `chr4` ([`utf8::unchecked_code`]). A
+/// result that is no character is no letter either.
 fn unchecked_char(bytes: &[u8], width: usize) -> Option<char> {
-    u32::try_from(unchecked_code(bytes, width))
+    u32::try_from(utf8::unchecked_code(bytes, width))
         .ok()
         .and_then(char::from_u32)
-}
-
-/// The code point [`unchecked_char`] assembles, which may be no
-/// character at all: negative, a surrogate or past U+10FFFF.
-pub(crate) fn unchecked_code(bytes: &[u8], width: usize) -> i64 {
-    let byte = |i: usize| i64::from(bytes.get(i).copied().unwrap_or(0));
-    let tail = |i: usize, shift: u32| (byte(i) - 0x80) << shift;
-    match width {
-        2 => ((byte(0) - 0xC0) << 6) + tail(1, 0),
-        3 => ((byte(0) - 0xE0) << 12) + tail(1, 6) + tail(2, 0),
-        _ => ((byte(0) - 0xF0) << 18) + tail(1, 12) + tail(2, 6) + tail(3, 0),
-    }
-}
-
-/// 0.19.1's `Utf8.toChars`: the characters of a string's bytes, each as
-/// wide as its lead byte says, assembled unchecked. A byte below 0xC0 is
-/// a character of its own.
-pub(crate) fn unchecked_chars(bytes: &[u8]) -> Vec<i64> {
-    let mut codes = Vec::new();
-    let mut rest = bytes;
-    while let Some(&lead) = rest.first() {
-        let width = utf8::char_width(lead);
-        codes.push(if width == 1 {
-            i64::from(lead)
-        } else {
-            unchecked_code(rest, width)
-        });
-        rest = rest.get(width..).unwrap_or_default();
-    }
-    codes
 }

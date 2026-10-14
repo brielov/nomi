@@ -536,6 +536,10 @@ impl Out {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "upstream's `Binary` instance, one short arm per constructor"
+    )]
     fn expr(&mut self, expr: &Expr) {
         nomi_base::grow(|| match expr {
             Expr::Bool(b) => {
@@ -886,12 +890,7 @@ impl<'a> In<'a> {
         if self.v1() {
             return self.string();
         }
-        let width = match self.bytes.get(self.at)? {
-            0x00..=0x7F => 1,
-            0xC0..=0xDF => 2,
-            0xE0..=0xEF => 3,
-            _ => 4,
-        };
+        let width = nomi_base::utf8::char_width(*self.bytes.get(self.at)?);
         String::from_utf8(self.take(width)?.to_vec()).ok()
     }
 

@@ -174,14 +174,10 @@ impl Generator<'_> {
             Expr::If(branches, last) => return self.if_(branches, last),
             Expr::Let(def, body) => {
                 let (name, value) = self.def(def);
-                let mut stmts = vec![Stmt::Var(Name::from_local(name), value)];
-                stmts.extend(code_to_stmt_list(self.generate(body)));
-                return Code::Block(stmts);
+                return self.var_before(name, value, body);
             }
             Expr::Destruct(Destructor { name, path }, body) => {
-                let mut stmts = vec![Stmt::Var(Name::from_local(name), self.path(path))];
-                stmts.extend(code_to_stmt_list(self.generate(body)));
-                return Code::Block(stmts);
+                return self.var_before(name, self.path(path), body);
             }
             Expr::Case {
                 label,
@@ -219,28 +215,43 @@ impl Generator<'_> {
                 vec![self.js(a), self.js(b), self.js(c)],
             ),
             Expr::Shader {
-                source: src,
+                source,
                 attributes,
                 uniforms,
-            } => {
-                let translation = |fields: &BTreeSet<String>| {
-                    Js::Object(
-                        (self.compat.sorted_names(fields).into_iter())
-                            .map(|f| (Name::from_local(f), Js::String(self.field(f).to_string())))
-                            .collect(),
-                    )
-                };
-                Js::Object(vec![
-                    (
-                        Name::from_local("src"),
-                        Js::String(String::from_utf8_lossy(src).into_owned()),
-                    ),
-                    (Name::from_local("attributes"), translation(attributes)),
-                    (Name::from_local("uniforms"), translation(uniforms)),
-                ])
-            }
+            } => self.shader(source, attributes, uniforms),
         };
         Code::Expr(js)
+    }
+
+    /// `var name = value;`, then `body`.
+    fn var_before(&self, name: &str, value: Js, body: &Expr) -> Code {
+        let mut stmts = vec![Stmt::Var(Name::from_local(name), value)];
+        stmts.extend(code_to_stmt_list(self.generate(body)));
+        Code::Block(stmts)
+    }
+
+    /// A shader's source, and its attributes' and uniforms' field names.
+    fn shader(
+        &self,
+        source: &[u8],
+        attributes: &BTreeSet<String>,
+        uniforms: &BTreeSet<String>,
+    ) -> Js {
+        let translation = |fields: &BTreeSet<String>| {
+            Js::Object(
+                (self.compat.sorted_names(fields).into_iter())
+                    .map(|f| (Name::from_local(f), Js::String(self.field(f).to_string())))
+                    .collect(),
+            )
+        };
+        Js::Object(vec![
+            (
+                Name::from_local("src"),
+                Js::String(String::from_utf8_lossy(source).into_owned()),
+            ),
+            (Name::from_local("attributes"), translation(attributes)),
+            (Name::from_local("uniforms"), translation(uniforms)),
+        ])
     }
 
     /// A character as a string literal's text: 0.19.1 keeps the literal's
@@ -859,12 +870,10 @@ fn comp(ideal: InfixOp, backup: InfixOp, backup_int: i64, left: Js, right: Js) -
 /// `strictEq`, simplified against `0` and booleans.
 fn strict_eq(left: Js, right: Js) -> Js {
     match (&left, &right) {
-        (Js::Int(0), _) => prefix(PrefixOp::Not, right),
+        (Js::Int(0) | Js::Bool(false), _) => prefix(PrefixOp::Not, right),
         (Js::Bool(true), _) => right,
-        (Js::Bool(false), _) => prefix(PrefixOp::Not, right),
-        (_, Js::Int(0)) => prefix(PrefixOp::Not, left),
+        (_, Js::Int(0) | Js::Bool(false)) => prefix(PrefixOp::Not, left),
         (_, Js::Bool(true)) => left,
-        (_, Js::Bool(false)) => prefix(PrefixOp::Not, left),
         _ => infix(InfixOp::Eq, left, right),
     }
 }

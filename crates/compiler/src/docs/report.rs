@@ -9,6 +9,10 @@ use super::{DefProblem, Error, NameProblem};
 use crate::report::{Report, ReportContext};
 
 /// `toReports`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "upstream's `toReports`, one message per error"
+)]
 pub fn to_problems(error: &Error, cx: &ReportContext<'_>) -> Vec<Problem> {
     let problem =
         |title, region: TextRange, message: Doc| cx.problem(&Report::new(title, region, message));

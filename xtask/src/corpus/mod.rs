@@ -17,11 +17,9 @@ pub(crate) mod test_suites;
 pub(crate) mod trace;
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::Result;
-use nomi_testkit::files_below;
+use nomi_testkit::{files_below, parallel_on};
 
 use crate::oracle::{cache_dir, remove_tree};
 
@@ -47,33 +45,6 @@ pub(crate) fn corpus_dir() -> Result<PathBuf> {
 /// Downloads are I/O-bound; eight keeps the registry and GitHub comfortable.
 pub(crate) fn parallel<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
     parallel_on(8, items, f)
-}
-
-/// [`parallel`] on `workers` threads.
-pub(crate) fn parallel_on<T: Sync, R: Send>(
-    workers: usize,
-    items: &[T],
-    f: impl Fn(&T) -> R + Sync,
-) -> Vec<R> {
-    let next = AtomicUsize::new(0);
-    let results: Mutex<Vec<Option<R>>> = Mutex::new((0..items.len()).map(|_| None).collect());
-    std::thread::scope(|scope| {
-        for _ in 0..workers.max(1) {
-            scope.spawn(|| {
-                loop {
-                    let i = next.fetch_add(1, Ordering::Relaxed);
-                    let Some(item) = items.get(i) else { break };
-                    let result = f(item);
-                    nomi_base::lock(&results)[i] = Some(result);
-                }
-            });
-        }
-    });
-    (results.into_inner())
-        .expect("no worker panicked")
-        .into_iter()
-        .map(|r| r.expect("every item ran"))
-        .collect()
 }
 
 /// `from` copied afresh to `to`, but for [`NOT_COPIED`].
@@ -151,15 +122,6 @@ fn elm_counts(dir: &Path) -> Result<Counts> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parallel_keeps_order() {
-        let items: Vec<u32> = (0..100).collect();
-        assert_eq!(
-            parallel(&items, |x| x * 2),
-            items.iter().map(|x| x * 2).collect::<Vec<_>>()
-        );
-    }
 
     #[test]
     fn modules_are_elm_files_tools_didnt_write() {

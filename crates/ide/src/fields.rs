@@ -207,9 +207,7 @@ fn written(root: &SyntaxNode, offset: TextSize) -> Option<(SyntaxNode, String)> 
             first
         }
         SyntaxKind::AccessorExpr => parent,
-        SyntaxKind::Field => parent.parent()?,
-        SyntaxKind::RecordUpdateExpr => return None,
-        SyntaxKind::FieldPattern => parent.parent()?,
+        SyntaxKind::Field | SyntaxKind::FieldPattern => parent.parent()?,
         // A variable a record pattern binds.
         SyntaxKind::NameExpr => {
             let (binder, _) = crate::scopes::local(root, offset)?;

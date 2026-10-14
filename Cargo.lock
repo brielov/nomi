@@ -968,7 +968,6 @@ dependencies = [
  "nomi-test",
  "nomi-testkit",
  "serde_json",
- "sha1",
  "tempfile",
  "zip",
 ]
@@ -1008,7 +1007,6 @@ dependencies = [
  "nomi-testkit",
  "rayon",
  "serde_json",
- "sha1",
  "sha2",
  "tempfile",
  "walkdir",
@@ -2187,7 +2185,6 @@ dependencies = [
  "nomi-testkit",
  "serde",
  "serde_json",
- "sha1",
  "sha2",
  "tar",
  "tempfile",

@@ -1,9 +1,7 @@
 //! The licenses a package may have (`Elm/Licenses.hs`): the OSI-approved
 //! ones, by SPDX identifier, as upstream lists them.
 
-use nomi_base::{Compat, suggest};
-
-use crate::scan;
+use nomi_base::{Compat, suggest, utf8};
 
 /// A license from [`LICENSES`], by its SPDX identifier, which `elm.json`
 /// writes as it is.
@@ -56,10 +54,7 @@ fn code_points(raw: &[u8], compat: Compat) -> Vec<u32> {
             .map(u32::from)
             .collect(),
         // Wrapped, as only equality matters and no two codes collide.
-        Compat::V0_19_1 => scan::unchecked_chars(raw)
-            .into_iter()
-            .map(|code| code as u32)
-            .collect(),
+        Compat::V0_19_1 => utf8::unchecked_chars(raw).map(|code| code as u32).collect(),
     }
 }
 

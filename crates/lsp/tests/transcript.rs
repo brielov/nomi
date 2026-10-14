@@ -9,16 +9,8 @@ use std::time::{Duration, Instant};
 
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
 use lsp_types::Url;
+use nomi_testkit::packages::CORE_AND_JSON_APP;
 use serde_json::{Value, json};
-
-const APP: &str = r#"{
-    "type": "application",
-    "source-directories": ["src"],
-    "elm-version": "0.19.1",
-    "dependencies": { "direct": { "elm/core": "1.0.5", "elm/json": "1.1.4" }, "indirect": {} },
-    "test-dependencies": { "direct": {}, "indirect": {} }
-}
-"#;
 
 struct Client {
     connection: Connection,
@@ -128,7 +120,7 @@ impl Client {
 /// `src/Main.elm`.
 fn project() -> (tempfile::TempDir, Url) {
     let dir = tempfile::tempdir().unwrap();
-    fs::write(root(&dir).join("elm.json"), APP).unwrap();
+    fs::write(root(&dir).join("elm.json"), CORE_AND_JSON_APP).unwrap();
     fs::create_dir(root(&dir).join("src")).unwrap();
     let uri = uri(&root(&dir).join("src/Main.elm"));
     (dir, uri)

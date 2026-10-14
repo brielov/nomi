@@ -264,7 +264,6 @@ fn uri(scheme: &str, s: &mut Scanner) -> Option<Vec<Inline>> {
     s.char(':')?;
     let mut depth = 0usize;
     let rest = s.take_while(|c| match c {
-        ' ' | '\n' => false,
         '(' => {
             depth += 1;
             true
@@ -273,7 +272,7 @@ fn uri(scheme: &str, s: &mut Scanner) -> Option<Vec<Inline>> {
             depth -= 1;
             true
         }
-        ')' => false,
+        ' ' | '\n' | ')' => false,
         '+' | '/' => true,
         c => !is_space(c),
     });

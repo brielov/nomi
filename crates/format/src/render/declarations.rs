@@ -120,6 +120,10 @@ fn kind<'a>(item: &Item<'a>) -> Kind<'a> {
 
 /// Blank lines between `a` and `b`, with `lines` between declarations;
 /// upstream's `spacer` in `formatTopLevelBody`.
+#[expect(
+    clippy::match_same_arms,
+    reason = "upstream's cases in upstream's order, where the first that matches decides"
+)]
 fn spacer(lines: usize, a: Kind, b: Kind) -> usize {
     match (a, b) {
         (Kind::Starter, _) | (_, Kind::Closer) | (Kind::Comment, Kind::Comment) => 0,

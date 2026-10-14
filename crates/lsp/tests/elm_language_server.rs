@@ -9,13 +9,13 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
 
 use nomi_engine::Store;
 use nomi_engine::index::Memo;
 use nomi_testkit::lsp::{self, Timing};
+use nomi_testkit::parallel_on;
 use nomi_testkit::ratchet::Suite;
 use serde_json::Value;
 
@@ -36,25 +36,13 @@ fn sessions_answer_as_elm_language_server_does() {
     let cases = lsp::cases(&suite_dir().join("cases"));
     // A session spends most of its time waiting for its server to go
     // quiet, so many run side by side.
-    let next = AtomicUsize::new(0);
     let threads = thread::available_parallelism().map_or(16, |n| 4 * n.get());
-    let mut outcomes: Vec<_> = thread::scope(|scope| {
-        let workers: Vec<_> = (0..threads)
-            .map(|_| {
-                scope.spawn(|| {
-                    let mut outcomes = Vec::new();
-                    while let Some(case) = cases.get(next.fetch_add(1, Ordering::Relaxed)) {
-                        outcomes.extend(check(case, temp.path(), &store, &memo, &packages));
-                    }
-                    outcomes
-                })
-            })
-            .collect();
-        workers
-            .into_iter()
-            .flat_map(|w| w.join().unwrap())
-            .collect()
-    });
+    let mut outcomes: Vec<_> = parallel_on(threads, &cases, |case| {
+        check(case, temp.path(), &store, &memo, &packages)
+    })
+    .into_iter()
+    .flatten()
+    .collect();
     outcomes.sort_by(|a, b| a.0.cmp(&b.0));
     suite.finish(outcomes);
 }

@@ -16,17 +16,9 @@ use std::time::Duration;
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
 use lsp_types::Url;
 use nomi_testkit::lsp::{child_connection, reap};
+use nomi_testkit::packages::CORE_AND_JSON_APP;
 use serde_json::{Value, json};
 use website::{fixture_cache, offline};
-
-const ELM_JSON: &str = r#"{
-    "type": "application",
-    "source-directories": ["src"],
-    "elm-version": "0.19.1",
-    "dependencies": { "direct": { "elm/core": "1.0.5", "elm/json": "1.1.4" }, "indirect": {} },
-    "test-dependencies": { "direct": {}, "indirect": {} }
-}
-"#;
 
 /// A module of a package the project doesn't depend on yet.
 const MAIN: &str = "module Main exposing (main)\n\nimport Html\n\n\nmain =\n    Html.text \"hi\"\n";
@@ -132,7 +124,7 @@ impl Client {
 /// `src/Main.elm`, which imports `Html`.
 fn project(dir: &Path) -> String {
     fs::create_dir_all(dir.join("src")).unwrap();
-    fs::write(dir.join("elm.json"), ELM_JSON).unwrap();
+    fs::write(dir.join("elm.json"), CORE_AND_JSON_APP).unwrap();
     fs::write(dir.join("src/Main.elm"), MAIN).unwrap();
     Url::from_file_path(dir.join("src/Main.elm"))
         .unwrap()
@@ -161,7 +153,7 @@ fn each_install_question_answers_for_its_own_project() {
         "{}",
         elm_json("first")
     );
-    assert_eq!(elm_json("second"), ELM_JSON);
+    assert_eq!(elm_json("second"), CORE_AND_JSON_APP);
 }
 
 /// A request right after an install, with no edit between, sees the

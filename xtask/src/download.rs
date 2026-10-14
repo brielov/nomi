@@ -6,7 +6,6 @@ use std::io::Read;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-use sha1::{Digest as _, Sha1};
 
 /// Largest download accepted; the biggest pinned asset is about 15 MB.
 const LIMIT: u64 = 256 * 1024 * 1024;
@@ -56,11 +55,6 @@ fn agent() -> &'static ureq::Agent {
 /// website's `endpoint.json` hashes.
 pub(crate) fn zipball(name: &str, version: &str) -> String {
     format!("https://github.com/{name}/zipball/{version}/")
-}
-
-/// The SHA-1 of `bytes`, in lower-case hex.
-pub(crate) fn sha1(bytes: &[u8]) -> String {
-    nomi_base::hex(&Sha1::digest(bytes))
 }
 
 /// Whether the stamp file `stamp` holds exactly `expected`.
@@ -150,7 +144,10 @@ mod tests {
             nomi_testkit::sha256_hex(b"abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
-        assert_eq!(sha1(b"abc"), "a9993e364706816aba3e25717850c26c9cd0d89d");
+        assert_eq!(
+            nomi_registry::store::sha1(b"abc"),
+            "a9993e364706816aba3e25717850c26c9cd0d89d"
+        );
     }
 
     #[test]

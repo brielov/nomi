@@ -6,9 +6,9 @@
 //! 0.19.3, and by module, then name, in it.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::fmt::Write;
 
 use nomi_base::Compat;
+use nomi_base::diagnostic::json::strict_string;
 use nomi_compiler::canonical::{Alias, Home, Type, Union};
 use nomi_compiler::interface::{self, Interface};
 use nomi_compiler::optimized::Global;
@@ -245,9 +245,9 @@ fn encode(
         .map(|alias| {
             format!(
                 "{}:{{\"args\":{},\"type\":{}}}",
-                string(&alias.name),
+                strict_string(&alias.name),
                 strings(&alias.vars),
-                string(&line(&alias.ty))
+                strict_string(&line(&alias.ty))
             )
         })
         .collect();
@@ -255,13 +255,13 @@ fn encode(
         .map(|union| {
             let tags: Vec<String> = (union.tags.iter())
                 .map(|(ctor, args)| {
-                    let args: Vec<String> = args.iter().map(|a| string(&line(a))).collect();
-                    format!("{}:[{}]", string(ctor), args.join(","))
+                    let args: Vec<String> = args.iter().map(|a| strict_string(&line(a))).collect();
+                    format!("{}:[{}]", strict_string(ctor), args.join(","))
                 })
                 .collect();
             format!(
                 "{}:{{\"args\":{},\"tags\":{{{}}}}}",
-                string(&union.name),
+                strict_string(&union.name),
                 strings(&union.vars),
                 tags.join(",")
             )
@@ -270,7 +270,7 @@ fn encode(
     format!(
         "{{\"versions\":{{\"elm\":\"{compat}\"}},\"types\":{{\"message\":{},\
          \"aliases\":{{{}}},\"unions\":{{{}}}}}}}",
-        string(&line(message)),
+        strict_string(&line(message)),
         aliases.join(","),
         unions.join(",")
     )
@@ -338,28 +338,9 @@ fn doc(ty: &Public, context: Context) -> String {
     }
 }
 
-/// A JSON string, its tabs and control characters escaped too, which
-/// the reports' JSON ([`nomi_base::diagnostic::json::escape`]) leaves.
-fn string(text: &str) -> String {
-    let mut out = String::from("\"");
-    for c in text.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => _ = write!(out, "\\u{:04x}", c as u32),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
-}
-
 /// A JSON array of strings.
 fn strings(items: &[String]) -> String {
-    let items: Vec<String> = items.iter().map(|i| string(i)).collect();
+    let items: Vec<String> = items.iter().map(|i| strict_string(i)).collect();
     format!("[{}]", items.join(","))
 }
 

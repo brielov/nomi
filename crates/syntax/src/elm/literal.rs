@@ -30,11 +30,9 @@ fn class_width(p: &P<'_>, pos: usize, ascii: fn(u8) -> bool, unicode: fn(char) -
     };
     let c = if p.v1() {
         // 0.19.1 decodes without checking the continuation bytes.
-        let lead = u32::from(b) & (0x7F >> width);
-        let code = bytes[1..]
-            .iter()
-            .fold(i64::from(lead), |acc, &w| (acc << 6) + i64::from(w) - 0x80);
-        u32::try_from(code).ok().and_then(char::from_u32)
+        u32::try_from(utf8::unchecked_code(bytes, width))
+            .ok()
+            .and_then(char::from_u32)
     } else {
         std::str::from_utf8(bytes)
             .ok()
@@ -314,7 +312,6 @@ fn bad_end(p: &P<'_>, pos: usize) -> bool {
 fn chomp_int(p: &P<'_>, start: usize, mut pos: usize) -> Scanned {
     loop {
         match p.byte(pos) {
-            None => return Ok((pos, Number::Int)),
             Some(b'0'..=b'9') => pos += 1,
             Some(b'.') => {
                 let digits = p.bytes(start, pos);
@@ -322,7 +319,7 @@ fn chomp_int(p: &P<'_>, start: usize, mut pos: usize) -> Scanned {
             }
             Some(b'e' | b'E') => return chomp_exponent(p, pos + 1),
             Some(_) if bad_end(p, pos) => return Err((pos, E::Number::NumberEnd)),
-            Some(_) => return Ok((pos, Number::Int)),
+            _ => return Ok((pos, Number::Int)),
         }
     }
 }
@@ -347,11 +344,10 @@ fn chomp_fraction(p: &P<'_>, pos: usize, n: impl FnOnce() -> Name) -> Scanned {
     let mut pos = pos + 2;
     loop {
         match p.byte(pos) {
-            None => return Ok((pos, Number::Float)),
             Some(b'0'..=b'9') => pos += 1,
             Some(b'e' | b'E') => return chomp_exponent(p, pos + 1),
             Some(_) if bad_end(p, pos) => return Err((pos, E::Number::NumberEnd)),
-            Some(_) => return Ok((pos, Number::Float)),
+            _ => return Ok((pos, Number::Float)),
         }
     }
 }
@@ -370,7 +366,6 @@ fn chomp_exponent(p: &P<'_>, pos: usize) -> Scanned {
 
 fn chomp_zero(p: &P<'_>, pos: usize) -> Scanned {
     match p.byte(pos) {
-        None => Ok((pos, Number::Int)),
         Some(b'x') => match chomp_hex(p.src(), pos + 1, p.compat, |at| bad_end(p, at)) {
             (end, Hex::Code(_)) => Ok((end, Number::Int)),
             (end, Hex::Bad | Hex::None) => Err((end, E::Number::NumberHexDigit)),
@@ -378,7 +373,7 @@ fn chomp_zero(p: &P<'_>, pos: usize) -> Scanned {
         Some(b'.') => chomp_fraction(p, pos, || "0".into()),
         Some(b'0'..=b'9') => Err((pos, E::Number::NumberNoLeadingZero)),
         Some(_) if bad_end(p, pos) => Err((pos, E::Number::NumberEnd)),
-        Some(_) => Ok((pos, Number::Int)),
+        _ => Ok((pos, Number::Int)),
     }
 }
 

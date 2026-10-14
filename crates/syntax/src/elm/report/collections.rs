@@ -14,6 +14,10 @@ use crate::elm::error::{BadOperator, Expr, List, Position, Record, Tuple};
 
 impl Reporter<'_, '_> {
     /// `toRecordReport`.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "upstream's `toRecordReport`, one message per error"
+    )]
     pub(super) fn record(
         &self,
         context: &Context<'_>,

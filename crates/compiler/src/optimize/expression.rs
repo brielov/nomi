@@ -37,6 +37,10 @@ pub(super) fn optimize(
     nomi_base::grow(|| optimize_(cx, tracker, cycle, expr))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "upstream's `optimize`, one short arm per expression"
+)]
 fn optimize_(cx: &Context, t: &mut Tracker, cycle: &Cycle, expr: &canonical::Expr) -> Expr {
     match &expr.kind {
         ExprKind::VarLocal(name) => Expr::VarLocal(name.clone()),

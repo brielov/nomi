@@ -70,6 +70,8 @@ option_option = "warn"
 struct_excessive_bools = "warn"
 # T5
 match_wildcard_for_single_variants = "warn"
+# F2
+too_many_lines = "warn"
 # F3
 needless_pass_by_ref_mut = "warn"
 needless_pass_by_value = "warn"
@@ -83,6 +85,8 @@ needless_collect = "warn"
 or_fun_call = "warn"
 redundant_clone = "warn"
 stable_sort_primitive = "warn"
+# D1
+match_same_arms = "warn"
 # Plain code
 bool_to_int_with_if = "warn"
 cast_lossless = "warn"

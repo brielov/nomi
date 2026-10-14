@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use nomi_base::diagnostic::code::Keyword;
 use nomi_syntax::{SyntaxKind, SyntaxNode};
 use ungrammar::{Grammar, Rule};
 
@@ -58,11 +59,7 @@ fn fixed_texts_round_trip() {
 
 #[test]
 fn elm_reserved_words_are_exactly_the_keywords() {
-    // From elm/compiler's Parse.Variable.reservedWords.
-    let reserved = [
-        "if", "then", "else", "case", "of", "let", "in", "type", "module", "where", "import",
-        "exposing", "as", "port",
-    ];
+    let reserved = Keyword::ALL.map(Keyword::as_str);
     let keywords: BTreeSet<_> = SyntaxKind::ALL
         .iter()
         .filter(|k| k.is_keyword())

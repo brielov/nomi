@@ -6,6 +6,7 @@ use nomi_base::{ghc, grow_large};
 
 use super::engine::{Alt, P, R};
 use super::whitespace::{forced_ws, padded, rest_of_line, whitespace, with_eol};
+use crate::lexer::is_operator;
 
 // VARIABLES
 
@@ -77,9 +78,9 @@ pub(super) fn any_op(p: &mut P<'_>) -> R<()> {
     )
 }
 
-/// `Help.isSymbol`: GHC's symbols, and these ASCII ones.
+/// `Help.isSymbol`: GHC's symbols, and the ASCII ones the lexer takes.
 fn is_symbol(c: char) -> bool {
-    ghc::is_symbol(c) || "+-/*=.$<>:&|^?%#@~!".contains(c)
+    ghc::is_symbol(c) || (c.is_ascii() && is_operator(c as u8))
 }
 
 /// `symOp`: a run of symbols that is not one of the reserved ones.

@@ -9,6 +9,10 @@ use crate::types::expected::{PCategory, PContext, PExpected};
 use crate::types::localizer::Localizer;
 
 /// `toPatternReport`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "upstream's `toPatternReport`, one message per context"
+)]
 pub(super) fn pattern_report(
     cx: &ReportContext<'_>,
     localizer: &Localizer,

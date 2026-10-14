@@ -16,7 +16,8 @@ use nomi_engine::graph::module_path;
 use nomi_engine::index::{Index, Indexed};
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{
-    SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, child_token, parse_module, tokens,
+    SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, child_token, parse_module,
+    significant_tokens, tokens,
 };
 
 use crate::completion::DEFAULT_IMPORTS;
@@ -832,8 +833,8 @@ fn name_range(root: &SyntaxNode, range: TextRange, span: NameSpan) -> Option<Tex
         SyntaxElement::Node(node) => node,
         SyntaxElement::Token(token) => token.parent()?,
     };
-    let mut names = tokens(&node)
-        .filter(|t| range.contains_range(t.text_range()) && !t.kind().is_trivia())
+    let mut names = significant_tokens(&node)
+        .filter(|t| range.contains_range(t.text_range()))
         .filter(|t| {
             !matches!(
                 t.kind(),

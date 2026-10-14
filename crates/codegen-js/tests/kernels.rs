@@ -41,10 +41,7 @@ fn kernels_parse_as_elm_parsed_them() {
     let mut checked = 0;
     for compat in Compat::ALL {
         let elm = format!("elm-{compat}");
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../compiler/tests/optimized/artifacts")
-            .join(&elm)
-            .join("o.dat");
+        let path = nomi_testkit::optimized_artifacts(compat).join("o.dat");
         let graph = binary::decode_global_graph(&fs::read(&path).unwrap(), compat).unwrap();
         for (global, node) in &graph.nodes {
             let Node::Kernel(chunks, deps) = node else {

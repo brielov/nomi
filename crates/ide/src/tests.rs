@@ -3,17 +3,9 @@ use std::path::{Path, PathBuf};
 
 use nomi_engine::index::{Index, PackageModules};
 use nomi_engine::{Snapshot, Vfs};
+use nomi_testkit::packages::CORE_AND_JSON_APP;
 
 use super::*;
-
-const APP: &str = r#"{
-    "type": "application",
-    "source-directories": ["src"],
-    "elm-version": "0.19.1",
-    "dependencies": { "direct": { "elm/core": "1.0.5", "elm/json": "1.1.4" }, "indirect": {} },
-    "test-dependencies": { "direct": {}, "indirect": {} }
-}
-"#;
 
 /// A project with `module` at `src/Main.elm`, open in an editor.
 fn open(module: &str) -> (tempfile::TempDir, Vfs, PathBuf) {
@@ -21,7 +13,7 @@ fn open(module: &str) -> (tempfile::TempDir, Vfs, PathBuf) {
     // Found files have their canonical names, which differ where the
     // temporary directory is behind a link, as on macOS.
     let root = nomi_engine::canonical(dir.path()).unwrap();
-    fs::write(root.join("elm.json"), APP).unwrap();
+    fs::write(root.join("elm.json"), CORE_AND_JSON_APP).unwrap();
     fs::create_dir(root.join("src")).unwrap();
     let path = root.join("src/Main.elm");
     let vfs = Vfs::new();

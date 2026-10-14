@@ -3,7 +3,7 @@
 //! `Reporting/Exit/Help.hs`. Keys stay in upstream's order and strings are
 //! escaped as `E.chars` escapes them, so the bytes match.
 
-use std::fmt;
+use std::fmt::{self, Write};
 
 use super::Report;
 use super::code::Region;
@@ -29,7 +29,7 @@ impl fmt::Display for Json {
             Json::Null => f.write_str("null"),
             Json::Bool(b) => write!(f, "{b}"),
             Json::Int(n) => write!(f, "{n}"),
-            Json::Str(s) => write_str(f, s),
+            Json::Str(s) => write_quoted(f, s, escape),
             Json::Array(items) => {
                 f.write_str("[")?;
                 for (i, item) in items.iter().enumerate() {
@@ -67,13 +67,18 @@ pub fn escape(byte: u8) -> Option<&'static str> {
     }
 }
 
-/// `s` quoted as `E.chars` writes it.
-fn write_str(f: &mut fmt::Formatter<'_>, s: &str) -> fmt::Result {
+/// `s` quoted, each byte `escape` gives text for replaced by it, as
+/// `E.chars` does with [`escape`]. `escape` replaces ASCII bytes only.
+pub fn write_quoted(
+    f: &mut impl Write,
+    s: &str,
+    escape: impl Fn(u8) -> Option<&'static str>,
+) -> fmt::Result {
     f.write_str("\"")?;
     let mut done = 0;
     for (i, byte) in s.bytes().enumerate() {
         if let Some(escaped) = escape(byte) {
-            // What `escape` escapes is ASCII, so `i` starts a character.
+            // What `escape` replaces is ASCII, so `i` starts a character.
             f.write_str(&s[done..i])?;
             f.write_str(escaped)?;
             done = i + 1;
@@ -81,6 +86,27 @@ fn write_str(f: &mut fmt::Formatter<'_>, s: &str) -> fmt::Result {
     }
     f.write_str(&s[done..])?;
     f.write_str("\"")
+}
+
+/// `text` as a JSON string with every control character escaped, as
+/// aeson writes one: `\n`, `\r` and `\t` by name, the others as `\u00XX`.
+/// The reports' strings ([`escape`]) leave tabs and control characters as
+/// they are.
+pub fn strict_string(text: &str) -> String {
+    let mut out = String::from("\"");
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c < ' ' => _ = write!(out, "\\u{:04x}", u32::from(c)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 fn string(s: impl Into<String>) -> Json {

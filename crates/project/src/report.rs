@@ -220,6 +220,10 @@ pub(crate) fn kept(region: json::Region, compat: Compat) -> Region {
 
 /// `toOutlineProblemReport`: what a field's own decoder rejected, in
 /// `region`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "upstream's `toOutlineProblemReport`, one message per problem"
+)]
 fn outline_problem(
     source: &Source<'_>,
     compat: Compat,

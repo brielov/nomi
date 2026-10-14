@@ -103,10 +103,10 @@ pub(crate) fn no_outline(purpose: &str) -> Report {
 /// source directories, as `root` holds them, must exist, and be
 /// different directories.
 pub(crate) fn check_source_dirs(root: &Path, outline: &Outline) -> Result<(), Report> {
-    let Outline::App(app) = outline else {
+    if let Outline::Pkg(_) = outline {
         return Ok(());
-    };
-    let dirs: Vec<String> = app.source_dirs.iter().filter_map(|d| d.path()).collect();
+    }
+    let dirs = outline.source_dirs();
     let missing: Vec<String> = (dirs.iter())
         .filter(|dir| !root.join(dir).is_dir())
         .cloned()

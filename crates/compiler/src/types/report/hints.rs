@@ -15,6 +15,10 @@ pub(super) fn problems_to_hint(problems: &[Problem]) -> Vec<Doc> {
 }
 
 /// `problemToHint`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "upstream's `problemToHint`, one hint per problem"
+)]
 fn problem_to_hint(problem: &Problem) -> Vec<Doc> {
     // A hint whose one green word is `function`.
     let fancy = |before: &str, function: &str, after: &str| {

@@ -306,6 +306,10 @@ impl Reporter<'_, '_> {
     // MODULES
 
     /// `toParseErrorReport`.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "upstream's `toParseErrorReport`, one message per error"
+    )]
     fn module(&self, module: &Module) -> Problem {
         match module {
             Module::ModuleSpace(space, cur) => self.space(*space, *cur),

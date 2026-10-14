@@ -326,9 +326,8 @@ impl<'t> Glsl<'t> {
                 self.error = Error::unknown(start, self.detail);
             }
             match rule(self) {
-                Ok(()) if self.pos == start => return Ok(()),
+                _ if self.pos == start => return Ok(()),
                 Ok(()) => first = false,
-                Err(Fail) if self.pos == start => return Ok(()),
                 Err(Fail) => return Err(Fail),
             }
         }

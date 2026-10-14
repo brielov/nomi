@@ -324,17 +324,7 @@ impl Lower {
                 let args = call.arguments().map(|a| self.expr(Some(a))).collect();
                 Expr::Call { function, args }
             }
-            E::OperatorChain(chain) => {
-                let mut operands: Vec<_> = chain.exprs().map(|e| self.expr(Some(e))).collect();
-                let ops: Vec<_> = chain.ops().map(|op| unspaced(op.syntax())).collect();
-                // A recovered chain still has an operand around each
-                // operator: missing ones are `Missing`, extra ones go.
-                while operands.len() < ops.len() + 1 {
-                    operands.push(self.expr(None));
-                }
-                operands.truncate(ops.len() + 1);
-                Expr::Binops { operands, ops }
-            }
+            E::OperatorChain(chain) => self.binops(&chain),
             E::UnitExpr(_) => Expr::Unit,
             E::TupleExpr(tuple) => Expr::Tuple(tuple.exprs().map(|e| self.expr(Some(e))).collect()),
             E::ListExpr(list) => Expr::List(list.exprs().map(|e| self.expr(Some(e))).collect()),
@@ -360,24 +350,7 @@ impl Lower {
                 Some(field) => Expr::Accessor(field.text().to_owned()),
                 None => Expr::Missing,
             },
-            E::IfExpr(mut branch) => {
-                let mut branches = Vec::new();
-                loop {
-                    let condition = self.expr(branch.condition());
-                    let then = self.expr(branch.then_branch());
-                    branches.push((condition, then));
-                    match branch.else_branch() {
-                        Some(E::IfExpr(next)) => branch = next,
-                        otherwise => {
-                            let otherwise = self.expr(otherwise);
-                            break Expr::If {
-                                branches,
-                                otherwise,
-                            };
-                        }
-                    }
-                }
-            }
+            E::IfExpr(branch) => self.if_chain(branch),
             E::CaseExpr(case) => {
                 let scrutinee = self.expr(case.expr());
                 let branches = case
@@ -389,26 +362,7 @@ impl Lower {
                     branches,
                 }
             }
-            E::LetExpr(let_) => {
-                let defs = let_
-                    .let_decls()
-                    .filter_map(|decl| match decl {
-                        ast::LetDecl::LetValue(value) => self.value(
-                            value.signature(),
-                            value.definition().as_ref(),
-                            None,
-                            value.syntax(),
-                        ),
-                        ast::LetDecl::LetDestructure(d) => {
-                            let pattern = self.pattern(d.pattern());
-                            let body = self.expr(d.expr());
-                            Some(self.def(Def::Destruct { pattern, body }, Some(d.syntax())))
-                        }
-                    })
-                    .collect();
-                let body = self.expr(let_.expr());
-                Expr::Let { defs, body }
-            }
+            E::LetExpr(let_) => self.let_(&let_),
             E::LambdaExpr(lambda) => {
                 let params = lambda.patterns().map(|p| self.pattern(Some(p))).collect();
                 let body = self.expr(lambda.expr());
@@ -426,6 +380,59 @@ impl Lower {
             E::TupleConstructorExpr(_) | E::RangeExpr(_) => Expr::Missing,
         };
         self.alloc_expr(lowered, Some(&node))
+    }
+
+    fn binops(&mut self, chain: &ast::OperatorChain) -> Expr {
+        let mut operands: Vec<_> = chain.exprs().map(|e| self.expr(Some(e))).collect();
+        let ops: Vec<_> = chain.ops().map(|op| unspaced(op.syntax())).collect();
+        // A recovered chain still has an operand around each operator:
+        // missing ones are `Missing`, extra ones go.
+        while operands.len() < ops.len() + 1 {
+            operands.push(self.expr(None));
+        }
+        operands.truncate(ops.len() + 1);
+        Expr::Binops { operands, ops }
+    }
+
+    /// An `if` and the `else if`s after it, as one expression.
+    fn if_chain(&mut self, mut branch: ast::IfExpr) -> Expr {
+        let mut branches = Vec::new();
+        loop {
+            let condition = self.expr(branch.condition());
+            let then = self.expr(branch.then_branch());
+            branches.push((condition, then));
+            match branch.else_branch() {
+                Some(ast::Expr::IfExpr(next)) => branch = next,
+                otherwise => {
+                    let otherwise = self.expr(otherwise);
+                    return Expr::If {
+                        branches,
+                        otherwise,
+                    };
+                }
+            }
+        }
+    }
+
+    fn let_(&mut self, let_: &ast::LetExpr) -> Expr {
+        let defs = let_
+            .let_decls()
+            .filter_map(|decl| match decl {
+                ast::LetDecl::LetValue(value) => self.value(
+                    value.signature(),
+                    value.definition().as_ref(),
+                    None,
+                    value.syntax(),
+                ),
+                ast::LetDecl::LetDestructure(d) => {
+                    let pattern = self.pattern(d.pattern());
+                    let body = self.expr(d.expr());
+                    Some(self.def(Def::Destruct { pattern, body }, Some(d.syntax())))
+                }
+            })
+            .collect();
+        let body = self.expr(let_.expr());
+        Expr::Let { defs, body }
     }
 
     fn fields(&mut self, fields: impl Iterator<Item = ast::Field>) -> Vec<(Spanned, ExprId)> {

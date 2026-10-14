@@ -31,6 +31,10 @@ enum Context<'a> {
 /// first row it starts at row 65,535 and dies showing no lines; nomi shows
 /// the row, as later releases do. 0.19.1 also dies on a string byte that
 /// can't start UTF-8, which nomi reports as later releases do.
+#[expect(
+    clippy::too_many_lines,
+    reason = "upstream's `parseErrorToReport`, one message per error"
+)]
 pub(super) fn parse_error(source: &Source<'_>, compat: Compat, error: &ParseError) -> Report {
     let first = compat.first_position();
     let at = kept(

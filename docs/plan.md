@@ -49,7 +49,7 @@ nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it wait
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **Q.14**; B.n waits for the reference machine.
+4. Resume at the first unchecked box. Right now that is **QF.9**; B.n waits for the reference machine.
 
 ### Test tiers
 
@@ -1153,7 +1153,12 @@ A second, independent audit of the same code (2026-10-13, kept in `~/.cache/nomi
 
   Done: a queue read to its end is emptied, the compaction of partly read queues kept, so an idle runtime holds no finished fiber's result (a test runs a child Node with `--expose-gc`, and fails without the fix); the replay line a failing property prints is `NOMI_SEED=n node --test`, which runs that property again, and `check` takes no label that could drift from its test's title (a test runs the printed line through the shell); the fiber and clock tests share one manual driver and one shuffled loop. Reviewed against §13: scopes and tasks are opened in one place each, the four exit kinds are constants, a flag and a redundant sequence number are gone, `Scope.owner` was never read, and `#step` went from 165 lines to about 105, its await, reap and async cases methods of their own. The runtime's 47 tests pass, the model properties across 200,000 seeds. Left out: the exit-unwinding loop stays inside `#step`, as moving it cost about 10% on error and scope paths.
 
-- [ ] **Q.14** `quality: across crates`. Whatever duplication between crates the steps above left, and the lints that need judgment (`match_same_arms`, `too_many_lines`) on once every crate passes them.
+- [x] **Q.14** `quality: across crates`. Whatever duplication between crates the steps above left, and the lints that need judgment (`match_same_arms`, `too_many_lines`) on once every crate passes them.
+
+  Done: `match_same_arms` and `too_many_lines` are on, under D1 and F2. Their 48 sites are fixed: identical arms merged where they mean the same thing, kept with a reason where two upstream cases only happen to share a body today; long functions split along upstream's own seams (`constrain_` into `constrainList`, `constrainBinop`, `constrainLambda`, `constrainRecord` and `constrainTuple`, HIR lowering's binops, ifs and lets, codegen's let and shader cases), and 14 one-arm-per-case ports of upstream functions kept whole with a reason. Every copy listed for adoption since Q.2 was checked; the ones left went to their owners: 0.19.1's unchecked UTF-8 and the strict and quoted JSON writers to base, `Outline::source_dirs` to project, the solver scenarios, `parallel_on`, the optimized-artifact paths and the core-and-json application to testkit, and registry's `sha1` to every test that hashed archives itself. Measured against Q.13b over ten cold docspell builds each: the same, 1.20 s against 1.21 median, 5.37 s of CPU against 5.40. CI and the `syntax`, `format`, `outline`, `check`, `graphs`, `objects`, `javascript`, `docs`, `tests` and `lsp` corpus suites give their results unchanged, run on the reference machine.
+
+
+- [ ] **QF.9** `fix: names, not the comments before them`. A module name, variable pattern or literal can begin with a comment the parser placed inside the node (`module {- c -} Main`); hover, completion and xtask's error recorder took the node's first token, the comment, for the name. The first significant token is the name. **Check:** hover and completion on a module name preceded by a comment answer for the name, as elm-language-server's tree, which keeps comments out of the name, does.
 
 The survey behind these steps (11 reviews, every file read: 118 major, 514 minor and 405 small findings, about 7,600 removable lines of 124,000) is kept in `~/.cache/nomi-dev/quality/` on the development machine, one report per crate group; a step without it re-reviews its crate first. Findings that would change behavior are not in this milestone: they are listed in its last step's commit for a decision.
 

@@ -82,12 +82,6 @@ fn constrain_(
     if let Some(recorded) = &mut vars.recorded {
         recorded.push((region, expected.ty().clone()));
     }
-    let foreign = |name: &str, annotation: &canonical::Annotation, expected| Constraint::Foreign {
-        region,
-        name: name.to_owned(),
-        annotation: Box::new(annotation.clone()),
-        expected,
-    };
     match &expr.kind {
         ExprKind::VarLocal(name) | ExprKind::VarTopLevel(_, name) => Constraint::Local {
             region,
@@ -108,7 +102,7 @@ fn constrain_(
             op: name,
             annotation,
             ..
-        }) => foreign(name, annotation, expected),
+        }) => foreign(region, name, annotation, expected),
         ExprKind::Str(_) => equal(region, Category::String, types::string(), expected),
         ExprKind::Chr(_) => equal(region, Category::Char, types::char(), expected),
         ExprKind::Int(_) => {
@@ -116,24 +110,7 @@ fn constrain_(
             exists(vec![v], equal(region, Category::Number, var(v), expected))
         }
         ExprKind::Float(_) => equal(region, Category::Float, types::float(), expected),
-        ExprKind::List(entries) => {
-            let entry_var = vars.flex_var();
-            let entry = var(entry_var);
-            let entry_cons = (entries.iter().enumerate())
-                .map(|(i, e)| {
-                    let expected =
-                        Expected::FromContext(region, Context::ListEntry(i), entry.clone());
-                    constrain(vars, rtv, e, expected)
-                })
-                .collect();
-            exists(
-                vec![entry_var],
-                and(vec![
-                    and(entry_cons),
-                    equal(region, Category::List, list(entry), expected),
-                ]),
-            )
-        }
+        ExprKind::List(entries) => list_con(vars, rtv, region, entries, expected),
         ExprKind::Negate(inner) => {
             let number_var = vars.flex_number();
             let number = var(number_var);
@@ -147,54 +124,11 @@ fn constrain_(
             exists(vec![number_var], and(vec![number_con, negate_con]))
         }
         ExprKind::Binop {
-            operator: Operator { op, annotation, .. },
+            operator,
             left,
             right,
-        } => {
-            let left_var = vars.flex_var();
-            let right_var = vars.flex_var();
-            let answer_var = vars.flex_var();
-            let binop_type = fun(var(left_var), fun(var(right_var), var(answer_var)));
-            let op_con = foreign(op, annotation, Expected::NoExpectation(binop_type));
-            let left_con = constrain(
-                vars,
-                rtv,
-                left,
-                Expected::FromContext(region, Context::OpLeft(op.clone()), var(left_var)),
-            );
-            let right_con = constrain(
-                vars,
-                rtv,
-                right,
-                Expected::FromContext(region, Context::OpRight(op.clone()), var(right_var)),
-            );
-            let answer_con = equal(
-                region,
-                Category::CallResult(MaybeName::OpName(op.clone())),
-                var(answer_var),
-                expected,
-            );
-            exists(
-                vec![left_var, right_var, answer_var],
-                and(vec![op_con, left_con, right_con, answer_con]),
-            )
-        }
-        ExprKind::Lambda(params, body) => {
-            let Args {
-                vars: arg_vars,
-                ty,
-                result,
-                state,
-            } = args(vars, params);
-            let body_con = constrain(vars, rtv, body, Expected::NoExpectation(result));
-            exists(
-                arg_vars,
-                and(vec![
-                    state.over(body_con),
-                    equal(region, Category::Lambda, ty, expected),
-                ]),
-            )
-        }
+        } => binop(vars, rtv, region, operator, [left, right], expected),
+        ExprKind::Lambda(params, body) => lambda(vars, rtv, region, params, body, expected),
         ExprKind::Call(function, arguments) => {
             call(vars, rtv, region, function, arguments, expected)
         }
@@ -218,102 +152,237 @@ fn constrain_(
             let body_con = constrain(vars, rtv, body, expected);
             destruct(vars, rtv, region, pattern, value, body_con)
         }
-        ExprKind::Accessor(field) => {
-            let ext_var = vars.flex_var();
-            let field_var = vars.flex_var();
-            let record = Type::Record(
-                BTreeMap::from([(Text::new(field), var(field_var))]),
-                Box::new(var(ext_var)),
-            );
-            exists(
-                vec![field_var, ext_var],
-                equal(
-                    region,
-                    Category::Accessor(field.clone()),
-                    fun(record, var(field_var)),
-                    expected,
-                ),
-            )
-        }
+        ExprKind::Accessor(field) => accessor(vars, region, field, expected),
         ExprKind::Access {
             record,
             field,
             field_region,
-        } => {
-            let ext_var = vars.flex_var();
-            let field_var = vars.flex_var();
-            let record_type = Type::Record(
-                BTreeMap::from([(Text::new(field), var(field_var))]),
-                Box::new(var(ext_var)),
-            );
-            let context = Context::RecordAccess {
-                record: record.region,
-                record_name: access_name(record),
-                field_region: *field_region,
-                field: field.clone(),
-            };
-            let record_con = constrain(
-                vars,
-                rtv,
-                record,
-                Expected::FromContext(region, context, record_type),
-            );
-            exists(
-                vec![field_var, ext_var],
-                and(vec![
-                    record_con,
-                    equal(
-                        region,
-                        Category::Access(field.clone()),
-                        var(field_var),
-                        expected,
-                    ),
-                ]),
-            )
-        }
+        } => access(vars, rtv, region, record, field, *field_region, expected),
         ExprKind::Update {
             name,
             record,
             fields,
         } => update(vars, rtv, region, name, record, fields, expected),
-        ExprKind::Record(fields) => {
-            let mut field_vars = Vec::new();
-            let mut field_types = BTreeMap::new();
-            let mut cons = Vec::new();
-            for (name, value) in in_name_order(vars.compat, fields) {
-                let v = vars.flex_var();
-                cons.push(constrain(vars, rtv, value, Expected::NoExpectation(var(v))));
-                field_vars.push(v);
-                field_types.insert(Text::new(name), var(v));
-            }
-            let record_type = Type::Record(field_types, Box::new(Type::EmptyRecord));
-            cons.push(equal(region, Category::Record, record_type, expected));
-            exists(field_vars, and(cons))
-        }
+        ExprKind::Record(fields) => record(vars, rtv, region, fields, expected),
         ExprKind::Unit => equal(region, Category::Unit, Type::Unit, expected),
-        ExprKind::Tuple(a, b, c) => {
-            let a_var = vars.flex_var();
-            let b_var = vars.flex_var();
-            let a_con = constrain(vars, rtv, a, Expected::NoExpectation(var(a_var)));
-            let b_con = constrain(vars, rtv, b, Expected::NoExpectation(var(b_var)));
-            let c = c.as_ref().map(|c| {
-                let c_var = vars.flex_var();
-                let c_con = constrain(vars, rtv, c, Expected::NoExpectation(var(c_var)));
-                (c_var, c_con)
-            });
-            let ty = Type::Tuple(
-                Box::new(var(a_var)),
-                Box::new(var(b_var)),
-                c.as_ref().map(|(c_var, _)| Box::new(var(*c_var))),
-            );
-            let tuple_con = equal(region, Category::Tuple, ty, expected);
-            let (c_var, c_con) = c.unzip();
-            let flex_vars = [a_var, b_var].into_iter().chain(c_var).collect();
-            let cons = [a_con, b_con].into_iter().chain(c_con).chain([tuple_con]);
-            exists(flex_vars, and(cons.collect()))
-        }
+        ExprKind::Tuple(a, b, c) => tuple(vars, rtv, region, [a, b], c.as_deref(), expected),
         ExprKind::Shader(_, shader) => shader_con(vars, region, shader, expected),
     }
+}
+
+/// `{ ext | field : a }`, with `ext` and `a` fresh; and the two variables,
+/// `a`'s first.
+fn with_field(vars: &mut Variables, field: &str) -> (Type, [Variable; 2]) {
+    let ext_var = vars.flex_var();
+    let field_var = vars.flex_var();
+    let ty = Type::Record(
+        BTreeMap::from([(Text::new(field), var(field_var))]),
+        Box::new(var(ext_var)),
+    );
+    (ty, [field_var, ext_var])
+}
+
+/// `constrain`'s case for `.field`.
+fn accessor(
+    vars: &mut Variables,
+    region: TextRange,
+    field: &str,
+    expected: Expected<Type>,
+) -> Constraint {
+    let (record, [field_var, ext_var]) = with_field(vars, field);
+    let ty = fun(record, var(field_var));
+    let category = Category::Accessor(field.to_owned());
+    exists(
+        vec![field_var, ext_var],
+        equal(region, category, ty, expected),
+    )
+}
+
+/// `constrain`'s case for `record.field`.
+fn access(
+    vars: &mut Variables,
+    rtv: &Rtv,
+    region: TextRange,
+    record: &Expr,
+    field: &str,
+    field_region: TextRange,
+    expected: Expected<Type>,
+) -> Constraint {
+    let (record_type, [field_var, ext_var]) = with_field(vars, field);
+    let context = Context::RecordAccess {
+        record: record.region,
+        record_name: access_name(record),
+        field_region,
+        field: field.to_owned(),
+    };
+    let record_con = constrain(
+        vars,
+        rtv,
+        record,
+        Expected::FromContext(region, context, record_type),
+    );
+    let category = Category::Access(field.to_owned());
+    exists(
+        vec![field_var, ext_var],
+        and(vec![
+            record_con,
+            equal(region, category, var(field_var), expected),
+        ]),
+    )
+}
+
+fn foreign(
+    region: TextRange,
+    name: &str,
+    annotation: &canonical::Annotation,
+    expected: Expected<Type>,
+) -> Constraint {
+    Constraint::Foreign {
+        region,
+        name: name.to_owned(),
+        annotation: Box::new(annotation.clone()),
+        expected,
+    }
+}
+
+/// `constrainList`.
+fn list_con(
+    vars: &mut Variables,
+    rtv: &Rtv,
+    region: TextRange,
+    entries: &[Expr],
+    expected: Expected<Type>,
+) -> Constraint {
+    let entry_var = vars.flex_var();
+    let entry = var(entry_var);
+    let entry_cons = (entries.iter().enumerate())
+        .map(|(i, e)| {
+            let expected = Expected::FromContext(region, Context::ListEntry(i), entry.clone());
+            constrain(vars, rtv, e, expected)
+        })
+        .collect();
+    exists(
+        vec![entry_var],
+        and(vec![
+            and(entry_cons),
+            equal(region, Category::List, list(entry), expected),
+        ]),
+    )
+}
+
+/// `constrainBinop`.
+fn binop(
+    vars: &mut Variables,
+    rtv: &Rtv,
+    region: TextRange,
+    Operator { op, annotation, .. }: &Operator,
+    [left, right]: [&Expr; 2],
+    expected: Expected<Type>,
+) -> Constraint {
+    let left_var = vars.flex_var();
+    let right_var = vars.flex_var();
+    let answer_var = vars.flex_var();
+    let binop_type = fun(var(left_var), fun(var(right_var), var(answer_var)));
+    let op_con = foreign(region, op, annotation, Expected::NoExpectation(binop_type));
+    let left_con = constrain(
+        vars,
+        rtv,
+        left,
+        Expected::FromContext(region, Context::OpLeft(op.clone()), var(left_var)),
+    );
+    let right_con = constrain(
+        vars,
+        rtv,
+        right,
+        Expected::FromContext(region, Context::OpRight(op.clone()), var(right_var)),
+    );
+    let answer_con = equal(
+        region,
+        Category::CallResult(MaybeName::OpName(op.clone())),
+        var(answer_var),
+        expected,
+    );
+    exists(
+        vec![left_var, right_var, answer_var],
+        and(vec![op_con, left_con, right_con, answer_con]),
+    )
+}
+
+/// `constrainLambda`.
+fn lambda(
+    vars: &mut Variables,
+    rtv: &Rtv,
+    region: TextRange,
+    params: &[Pattern],
+    body: &Expr,
+    expected: Expected<Type>,
+) -> Constraint {
+    let Args {
+        vars: arg_vars,
+        ty,
+        result,
+        state,
+    } = args(vars, params);
+    let body_con = constrain(vars, rtv, body, Expected::NoExpectation(result));
+    exists(
+        arg_vars,
+        and(vec![
+            state.over(body_con),
+            equal(region, Category::Lambda, ty, expected),
+        ]),
+    )
+}
+
+/// `constrainRecord`.
+fn record(
+    vars: &mut Variables,
+    rtv: &Rtv,
+    region: TextRange,
+    fields: &BTreeMap<String, Expr>,
+    expected: Expected<Type>,
+) -> Constraint {
+    let mut field_vars = Vec::new();
+    let mut field_types = BTreeMap::new();
+    let mut cons = Vec::new();
+    for (name, value) in in_name_order(vars.compat, fields) {
+        let v = vars.flex_var();
+        cons.push(constrain(vars, rtv, value, Expected::NoExpectation(var(v))));
+        field_vars.push(v);
+        field_types.insert(Text::new(name), var(v));
+    }
+    let record_type = Type::Record(field_types, Box::new(Type::EmptyRecord));
+    cons.push(equal(region, Category::Record, record_type, expected));
+    exists(field_vars, and(cons))
+}
+
+/// `constrainTuple`.
+fn tuple(
+    vars: &mut Variables,
+    rtv: &Rtv,
+    region: TextRange,
+    [a, b]: [&Expr; 2],
+    c: Option<&Expr>,
+    expected: Expected<Type>,
+) -> Constraint {
+    let a_var = vars.flex_var();
+    let b_var = vars.flex_var();
+    let a_con = constrain(vars, rtv, a, Expected::NoExpectation(var(a_var)));
+    let b_con = constrain(vars, rtv, b, Expected::NoExpectation(var(b_var)));
+    let c = c.map(|c| {
+        let c_var = vars.flex_var();
+        let c_con = constrain(vars, rtv, c, Expected::NoExpectation(var(c_var)));
+        (c_var, c_con)
+    });
+    let ty = Type::Tuple(
+        Box::new(var(a_var)),
+        Box::new(var(b_var)),
+        c.as_ref().map(|(c_var, _)| Box::new(var(*c_var))),
+    );
+    let tuple_con = equal(region, Category::Tuple, ty, expected);
+    let (c_var, c_con) = c.unzip();
+    let flex_vars = [a_var, b_var].into_iter().chain(c_var).collect();
+    let cons = [a_con, b_con].into_iter().chain(c_con).chain([tuple_con]);
+    exists(flex_vars, and(cons.collect()))
 }
 
 /// `getName`: what a call calls.

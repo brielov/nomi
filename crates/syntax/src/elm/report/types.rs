@@ -91,6 +91,10 @@ impl Reporter<'_, '_> {
     }
 
     /// `toTRecordReport`.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "upstream's `toTRecordReport`, one message per error"
+    )]
     fn record_type(&self, context: &TypeContext<'_>, record: &TRecord, start: Position) -> Problem {
         let partway =
             || reflow("I am partway through parsing a record type, but I got stuck here:");

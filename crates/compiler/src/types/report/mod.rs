@@ -222,6 +222,10 @@ fn mix_types(explanation: &str) -> Doc {
 }
 
 /// `toExprReport`'s `FromContext` cases.
+#[expect(
+    clippy::too_many_lines,
+    reason = "upstream's `toExprReport` cases, one message per context"
+)]
 fn from_context(
     cx: &ReportContext<'_>,
     localizer: &Localizer,

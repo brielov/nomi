@@ -23,9 +23,9 @@ use super::process::run_to_files;
 use super::sandbox::{json_report, offline, sanitized};
 use super::{by_output, cache_dir, cores, elm_header, fresh_dir, generated, pinned_elm};
 use crate::corpus::compat;
-use crate::corpus::parallel_on;
 use crate::corpus::syntax::CRASH;
 use crate::references::References;
+use nomi_testkit::parallel_on;
 
 const FIXTURES: &str = "crates/project/tests/outline_fixtures";
 

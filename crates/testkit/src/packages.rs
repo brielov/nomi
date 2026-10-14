@@ -14,6 +14,17 @@ pub fn dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages")
 }
 
+/// The `elm.json` of an application of `src` that depends on elm/core
+/// and elm/json alone.
+pub const CORE_AND_JSON_APP: &str = r#"{
+    "type": "application",
+    "source-directories": ["src"],
+    "elm-version": "0.19.1",
+    "dependencies": { "direct": { "elm/core": "1.0.5", "elm/json": "1.1.4" }, "indirect": {} },
+    "test-dependencies": { "direct": {}, "indirect": {} }
+}
+"#;
+
 /// One release, as `manifest.toml` lists it.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]

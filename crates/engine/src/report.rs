@@ -508,6 +508,10 @@ pub(crate) fn one_line(title: &'static str, message: &str) -> Report {
 }
 
 /// `toProjectProblemReport` for the problems the crawl finds.
+#[expect(
+    clippy::too_many_lines,
+    reason = "upstream's `toProjectProblemReport`, one message per problem"
+)]
 pub(crate) fn project_problem(problem: &ProjectProblem, compat: Compat) -> Report {
     let red = |path: &Path| text(display(path)).color(Color::Red).indent(4);
     let red_lines = |paths: &[&Path]| {
@@ -645,10 +649,10 @@ fn learn_about_cycles(compat: Compat) -> Doc {
     const BEFORE: &str = "Learn more about why this is disallowed and how to break cycles here:";
     match compat {
         Compat::V0_19_1 | Compat::V0_19_2 => {
-            let mut words: Vec<Doc> = BEFORE.split(' ').map(text).collect();
-            let last = words.pop().expect("words");
+            let mut before: Vec<Doc> = words(BEFORE).collect();
+            let last = before.pop().expect("words");
             fill_sep(
-                words
+                before
                     .into_iter()
                     .chain([last.append(Doc::link("import-cycles"))]),
             )
@@ -793,20 +797,15 @@ mod tests {
             ")".repeat(depth)
         );
         // Dropping a tree this deep needs the engine's stack.
-        let problem = std::thread::Builder::new()
-            .stack_size(nomi_base::STACK_SIZE)
-            .spawn(move || {
-                let errors = nomi_syntax::parse_module(&contents).errors().to_vec();
-                syntax_problem(
-                    &contents,
-                    &errors,
-                    nomi_syntax::Source::Application,
-                    Compat::LATEST,
-                )
-            })
-            .unwrap()
-            .join()
-            .unwrap();
+        let problem = nomi_base::on_core_stack(|| {
+            let errors = nomi_syntax::parse_module(&contents).errors().to_vec();
+            syntax_problem(
+                &contents,
+                &errors,
+                nomi_syntax::Source::Application,
+                Compat::LATEST,
+            )
+        });
         let json = problem.to_json(Compat::LATEST).to_string();
         assert!(json.contains("\"TOO MUCH NESTING\""), "{json}");
         assert!(json.contains("more than 25,000 levels deep"), "{json}");

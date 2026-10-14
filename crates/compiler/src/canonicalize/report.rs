@@ -56,19 +56,17 @@ fn snip(
     snippet(before, (cx.trim)(range), highlight.map(cx.trim), after)
 }
 
-fn yellow(s: impl Into<String>) -> Doc {
-    dull_yellow(text(s))
-}
-
 /// The suggestions of names close to a missing one: one as a question,
 /// more as a list; `none` where there are none.
 fn suggestions(found: &[String], none: Doc) -> Doc {
     match found {
         [] => none,
-        [alt] => fill_sep(words("Maybe you want").chain([yellow(alt.clone()), text("instead?")])),
+        [alt] => {
+            fill_sep(words("Maybe you want").chain([dull_yellow(alt.clone()), text("instead?")]))
+        }
         alts => stack([
             text("These names seem close though:"),
-            vcat(alts.iter().map(|a| yellow(a.clone()))).indent(4),
+            vcat(alts.iter().map(|a| dull_yellow(a.clone()))).indent(4),
         ]),
     }
 }
@@ -104,6 +102,10 @@ fn thing(kind: NameKind) -> &'static str {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "upstream's `toReport`, one message per error"
+)]
 fn report(error: &Error, cx: &Context<'_>) -> Report {
     match error {
         Error::AnnotationTooShort {
@@ -602,7 +604,12 @@ fn ambiguous(
                     "This name is exposed by {} of your imports, so I am not sure which one to use:",
                     homes.len()
                 )),
-                vcat(homes.iter().map(|h| yellow(format!("{}.{name}", h.module)))).indent(4),
+                vcat(
+                    homes
+                        .iter()
+                        .map(|h| dull_yellow(format!("{}.{name}", h.module))),
+                )
+                .indent(4),
                 reflow(
                     "I recommend using qualified names for imported values. I also recommend having at most one `exposing (..)` per file to make name clashes like this less common in the long run.",
                 ),
@@ -683,7 +690,7 @@ fn not_found(
         } else {
             stack([
                 reflow(some),
-                vcat(nearby.iter().map(|n| yellow(n.clone()))).indent(4),
+                vcat(nearby.iter().map(|n| dull_yellow(n.clone()))).indent(4),
                 hint,
             ])
         }
@@ -838,7 +845,7 @@ fn port_details(name: &str, problem: &PortProblem) -> (String, Doc) {
             format!("There is something off about this `{name}` port declaration."),
             stack([
                 reflow("To receive messages from JavaScript, you need to define a port like this:"),
-                yellow(format!("port {name} : (Int -> msg) -> Sub msg")).indent(4),
+                dull_yellow(format!("port {name} : (Int -> msg) -> Sub msg")).indent(4),
                 reflow(
                     "Now every time JS sends an `Int` to this port, it is converted to a `msg`. And if you subscribe, those `msg` values will be piped into your `update` function. The only thing you can customize here is the `Int` type.",
                 ),
@@ -960,7 +967,7 @@ fn unbound_type_vars(
         let mut overview: Vec<Doc> = words("Type variables").collect();
         let names = std::iter::once(first)
             .chain(rest)
-            .map(|n| yellow(n.text.clone()));
+            .map(|n| dull_yellow(n.text.clone()));
         overview.extend(comma_sep(Conjunction::And, names.collect()));
         overview.extend(words("are unbound in the"));
         overview.push(quoted(name));
@@ -1026,7 +1033,7 @@ fn unused_type_vars(
         overview.push(text("definition."));
         let stuff = comma_sep(
             Conjunction::And,
-            unused.iter().map(|n| yellow(*n)).collect(),
+            unused.iter().map(|n| dull_yellow(*n)).collect(),
         );
         ("UNUSED TYPE VARIABLES", None, overview, stuff)
     };
@@ -1069,7 +1076,7 @@ fn type_var_problems(
     let unbound: Vec<&str> = unbound.iter().map(|a| a.text.as_str()).collect();
     let mut used: Vec<Doc> = if let [x] = &unbound[..] {
         (words("Type variable"))
-            .chain([yellow(format!("`{x}`"))])
+            .chain([dull_yellow(format!("`{x}`"))])
             .chain(words(
                 "appears in the definition, but I do not see it declared.",
             ))
@@ -1078,7 +1085,7 @@ fn type_var_problems(
         (words("Type variables"))
             .chain(comma_sep(
                 Conjunction::And,
-                unbound.iter().map(|n| yellow(*n)).collect(),
+                unbound.iter().map(|n| dull_yellow(*n)).collect(),
             ))
             .chain(words(
                 "are used in the definition, but I do not see them declared.",
@@ -1087,13 +1094,13 @@ fn type_var_problems(
     };
     if let [x] = &unused[..] {
         used.extend(words("Likewise, type variable"));
-        used.push(yellow(format!("`{x}`")));
+        used.push(dull_yellow(format!("`{x}`")));
         used.extend(words("is delared, but not used."));
     } else {
         used.extend(words("Likewise, type variables"));
         used.extend(comma_sep(
             Conjunction::And,
-            unused.iter().map(|n| yellow(*n)).collect(),
+            unused.iter().map(|n| dull_yellow(*n)).collect(),
         ));
         used.extend(words("are delared, but not used."));
     }

@@ -22,15 +22,14 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, bail, ensure};
 use nomi_base::Compat;
 use nomi_project::Version;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
+use nomi_testkit::solver::{Project, Release, Scenario, Universe};
 
 use super::sandbox::offline;
 use super::{cache_dir, cores, generated, oracles_dir, remove_tree};
 use crate::corpus::compat;
-use crate::corpus::parallel_on;
 use crate::download;
 use crate::references::References;
+use nomi_testkit::parallel_on;
 
 const SUITE: &str = "crates/registry/tests/solver";
 
@@ -102,108 +101,6 @@ const GHC_PACKAGES: &[&str] = &[
     "snap-server",
     "crypton",
 ];
-
-/// A solver scenario, as `scenarios/<name>.json` and each entry of
-/// `generated.json` hold it.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct Scenario {
-    /// `universes/<name>.json`, whose registry and releases come first.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    universe: Option<String>,
-    /// Each package's versions, newest first.
-    #[serde(default)]
-    registry: BTreeMap<String, Vec<String>>,
-    /// Each release's metadata, by `<name>@<version>`. A release the
-    /// registry lists without metadata isn't in the package cache.
-    #[serde(default)]
-    releases: BTreeMap<String, Release>,
-    project: Project,
-    /// The package to add, as `install` does.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    add: Option<String>,
-}
-
-/// A registry and the metadata of its releases.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct Universe {
-    registry: BTreeMap<String, Vec<String>>,
-    releases: BTreeMap<String, Release>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct Release {
-    /// Its `elm-version`.
-    elm: String,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    deps: BTreeMap<String, String>,
-    /// Whether its sources are in the cache; offline, upstream skips a
-    /// release without them.
-    #[serde(default = "yes", skip_serializing_if = "is_yes")]
-    src: bool,
-    /// Whether its `elm.json` is unreadable.
-    #[serde(default, skip_serializing_if = "is_no")]
-    broken: bool,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
-enum Project {
-    #[serde(rename_all = "kebab-case")]
-    Application {
-        /// Its `elm-version`; the Compat's own by default.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        elm: Option<String>,
-        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-        direct: BTreeMap<String, String>,
-        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-        indirect: BTreeMap<String, String>,
-        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-        test_direct: BTreeMap<String, String>,
-        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-        test_indirect: BTreeMap<String, String>,
-    },
-    #[serde(rename_all = "kebab-case")]
-    Package {
-        elm: String,
-        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-        deps: BTreeMap<String, String>,
-        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-        test_deps: BTreeMap<String, String>,
-    },
-}
-
-impl Default for Project {
-    fn default() -> Project {
-        Project::Package {
-            elm: String::new(),
-            deps: BTreeMap::new(),
-            test_deps: BTreeMap::new(),
-        }
-    }
-}
-
-fn yes() -> bool {
-    true
-}
-
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "serde's `skip_serializing_if` passes the field by reference"
-)]
-fn is_yes(b: &bool) -> bool {
-    *b
-}
-
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "serde's `skip_serializing_if` passes the field by reference"
-)]
-fn is_no(b: &bool) -> bool {
-    !*b
-}
 
 /// A scenario, with the registry and releases it sees.
 struct Resolved {
@@ -285,7 +182,7 @@ fn load_scenarios(suite: &Path) -> Result<BTreeMap<String, Scenario>> {
 
 /// The scenario's registry and releases, over its universe's.
 fn resolve(suite: &Path, scenario: &Scenario) -> Result<Universe> {
-    let mut universe = match &scenario.universe {
+    let universe: Universe = match &scenario.universe {
         Some(name) => {
             let path = suite.join("universes").join(format!("{name}.json"));
             let text =
@@ -294,8 +191,7 @@ fn resolve(suite: &Path, scenario: &Scenario) -> Result<Universe> {
         }
         None => Universe::default(),
     };
-    universe.registry.extend(scenario.registry.clone());
-    universe.releases.extend(scenario.releases.clone());
+    let universe = universe.with(scenario);
     for (name, versions) in &universe.registry {
         ensure!(!versions.is_empty(), "{name} has no versions");
         let parsed = (versions.iter())
@@ -478,23 +374,7 @@ fn solve(
         if release.src {
             fs::create_dir_all(release_dir.join("src"))?;
         }
-        let text = if release.broken {
-            "{}".to_owned()
-        } else {
-            json!({
-                "type": "package",
-                "name": name,
-                "summary": "fixture",
-                "license": "BSD-3-Clause",
-                "version": vsn,
-                "exposed-modules": ["Fixture"],
-                "elm-version": release.elm,
-                "dependencies": release.deps,
-                "test-dependencies": {},
-            })
-            .to_string()
-        };
-        fs::write(release_dir.join("elm.json"), text)?;
+        fs::write(release_dir.join("elm.json"), release.elm_json(name, vsn))?;
     }
     let mut registry = String::new();
     for (name, versions) in &universe.registry {
@@ -505,7 +385,7 @@ fn solve(
     fs::create_dir_all(project.join("src"))?;
     fs::write(
         project.join("elm.json"),
-        outline(&scenario.project, compat).to_string(),
+        scenario.project.elm_json(compat).to_string(),
     )?;
     let mut command = Command::new(oracle);
     command
@@ -523,40 +403,6 @@ fn solve(
         String::from_utf8_lossy(&output.stderr)
     );
     Ok(String::from_utf8(output.stdout)?)
-}
-
-/// The project's `elm.json`.
-fn outline(project: &Project, compat: Compat) -> serde_json::Value {
-    match project {
-        Project::Application {
-            elm,
-            direct,
-            indirect,
-            test_direct,
-            test_indirect,
-        } => json!({
-            "type": "application",
-            "source-directories": ["src"],
-            "elm-version": elm.as_deref().unwrap_or(compat.as_str()),
-            "dependencies": { "direct": direct, "indirect": indirect },
-            "test-dependencies": { "direct": test_direct, "indirect": test_indirect },
-        }),
-        Project::Package {
-            elm,
-            deps,
-            test_deps,
-        } => json!({
-            "type": "package",
-            "name": "nomi/root",
-            "summary": "fixture",
-            "license": "BSD-3-Clause",
-            "version": "1.0.0",
-            "exposed-modules": ["Main"],
-            "elm-version": elm,
-            "dependencies": deps,
-            "test-dependencies": test_deps,
-        }),
-    }
 }
 
 /// `generated.json`: one scenario a line, so a change diffs by scenario.

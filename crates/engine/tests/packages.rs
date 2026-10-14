@@ -8,7 +8,6 @@ use nomi_base::Compat;
 use nomi_engine::{Pool, packages};
 use nomi_project::{Name, Version};
 use nomi_registry::{Http, HttpError, PackageProblem, Store};
-use sha1::{Digest, Sha1};
 
 const LATEST: Compat = Compat::LATEST;
 
@@ -26,7 +25,7 @@ impl Http for Website {
             return Err(HttpError::Status(404));
         }
         if url.ends_with("endpoint.json") {
-            let hash = nomi_base::hex(&Sha1::digest(&self.archive));
+            let hash = nomi_registry::store::sha1(&self.archive);
             return Ok(format!(r#"{{"url":"https://archive/","hash":"{hash}"}}"#).into_bytes());
         }
         {

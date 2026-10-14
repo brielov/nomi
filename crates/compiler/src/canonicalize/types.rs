@@ -32,6 +32,10 @@ fn canonicalize_(env: &Env<'_>, module: &hir::Module, id: TypeId) -> R<Type> {
     match &module.types[id] {
         // Lowering leaves this only where the syntax is wrong, which a
         // module canonicalized has no part of.
+        #[expect(
+            clippy::match_same_arms,
+            reason = "the unit only stands in for what is missing"
+        )]
         hir::Type::Missing => Ok(Type::Unit),
         hir::Type::Var(name) => Ok(Type::Var(name.clone())),
         hir::Type::Named {

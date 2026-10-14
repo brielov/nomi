@@ -9,6 +9,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use nomi_base::ElmPosition;
+use nomi_base::diagnostic::json::strict_string;
 
 use crate::console::Console;
 use crate::format::{Mode, Outcome, decode, format_text, rewrite};
@@ -130,34 +131,38 @@ pub fn run(vfs: &Vfs, options: &Options, console: &mut dyn Console) -> Exit {
                 false
             }
         },
-        Task::ValidateFiles(files) => {
-            let results = Pool::global().map(files, |file| {
-                let formatted = vfs.read_bytes(&file).map(is_formatted);
-                (file, formatted)
-            });
-            let mut succeeded = true;
-            let mut entries = Vec::new();
-            for (file, formatted) in results {
-                match formatted {
-                    Ok(formatted) => {
-                        entries.extend(validation_entry(&file.display().to_string(), formatted));
-                    }
-                    Err(e) => {
-                        console.err(&crashed(&file, &e));
-                        succeeded = false;
-                    }
-                }
-            }
-            succeeded &= entries.is_empty();
-            console.out(&json_list(&entries));
-            succeeded
-        }
+        Task::ValidateFiles(files) => validate_files(vfs, files, console),
     };
     if succeeded {
         Exit::Success
     } else {
         Exit::Failure
     }
+}
+
+/// `--validate` over `files`, read and checked in parallel: whether all
+/// are formatted.
+fn validate_files(vfs: &Vfs, files: Vec<PathBuf>, console: &mut dyn Console) -> bool {
+    let results = Pool::global().map(files, |file| {
+        let formatted = vfs.read_bytes(&file).map(is_formatted);
+        (file, formatted)
+    });
+    let mut succeeded = true;
+    let mut entries = Vec::new();
+    for (file, formatted) in results {
+        match formatted {
+            Ok(formatted) => {
+                entries.extend(validation_entry(&file.display().to_string(), formatted));
+            }
+            Err(e) => {
+                console.err(&crashed(&file, &e));
+                succeeded = false;
+            }
+        }
+    }
+    succeeded &= entries.is_empty();
+    console.out(&json_list(&entries));
+    succeeded
 }
 
 /// The modules `inputs` name, or a line for each one that names none.
@@ -372,8 +377,8 @@ fn validation_entry(path: &str, formatted: Result<bool, ElmPosition>) -> Option<
     };
     Some(format!(
         "{{\"path\":{},\"message\":{}}}",
-        json_string(path),
-        json_string(message)
+        strict_string(path),
+        strict_string(message)
     ))
 }
 
@@ -384,25 +389,4 @@ fn json_list(entries: &[String]) -> String {
     } else {
         format!("[{}\n]\n", entries.join("\n,"))
     }
-}
-
-/// A JSON string as aeson writes it: only `"`, `\` and control characters
-/// are escaped, `\n`, `\r` and `\t` by name.
-fn json_string(text: &str) -> String {
-    let mut json = String::from("\"");
-    for c in text.chars() {
-        match c {
-            '"' => json.push_str("\\\""),
-            '\\' => json.push_str("\\\\"),
-            '\n' => json.push_str("\\n"),
-            '\r' => json.push_str("\\r"),
-            '\t' => json.push_str("\\t"),
-            c if c < ' ' => {
-                let _ = write!(json, "\\u{:04x}", u32::from(c));
-            }
-            c => json.push(c),
-        }
-    }
-    json.push('"');
-    json
 }

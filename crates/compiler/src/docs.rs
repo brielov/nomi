@@ -406,7 +406,7 @@ fn comments(module: &hir::Module) -> BTreeMap<&str, &str> {
 }
 
 /// What JSON escaping does with a carriage return.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 enum Returns {
     /// As `E.chars` does.
     Escape,
@@ -421,20 +421,10 @@ struct JsonString<'t>(&'t str, Returns);
 impl fmt::Display for JsonString<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let JsonString(text, returns) = *self;
-        f.write_char('"')?;
-        let mut done = 0;
-        for (i, byte) in text.bytes().enumerate() {
-            if let Some(escaped) = json::escape(byte) {
-                // What `escape` escapes is ASCII, so `i` starts a character.
-                f.write_str(&text[done..i])?;
-                if byte != b'\r' || returns == Returns::Escape {
-                    f.write_str(escaped)?;
-                }
-                done = i + 1;
-            }
-        }
-        f.write_str(&text[done..])?;
-        f.write_char('"')
+        json::write_quoted(f, text, |byte| match (byte, returns) {
+            (b'\r', Returns::Drop) => Some(""),
+            _ => json::escape(byte),
+        })
     }
 }
 

@@ -23,9 +23,9 @@ pub mod website;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use nomi_base::Compat;
+use nomi_testkit::parallel_on;
 use nomi_testkit::ratchet::Suite;
 use nomi_testkit::transcript::{self, Case, ROOT_LENGTH, crashed, recorded};
 use website::offline;
@@ -73,32 +73,12 @@ fn elm_make() {
     }
     // Each run is a process; a few at once.
     let workers = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
-    let next = AtomicUsize::new(0);
-    let outcomes: Vec<(String, Result<(), String>)> = std::thread::scope(|scope| {
-        let threads: Vec<_> = (0..workers)
-            .map(|_| {
-                scope.spawn(|| {
-                    let mut done = Vec::new();
-                    loop {
-                        let i = next.fetch_add(1, Ordering::Relaxed);
-                        let Some((id, case, expected)) = runs.get(i) else {
-                            return done;
-                        };
-                        let outcome = run(&elm, cache.path(), case, expected);
-                        if let (Err(why), Ok(_)) = (&outcome, std::env::var("NOMI_SHOW")) {
-                            eprintln!("FAIL {id}\n{why}");
-                        }
-                        done.push((i, (id.clone(), outcome)));
-                    }
-                })
-            })
-            .collect();
-        let mut all: Vec<_> = threads
-            .into_iter()
-            .flat_map(|t| t.join().unwrap())
-            .collect();
-        all.sort_by_key(|(i, _)| *i);
-        all.into_iter().map(|(_, outcome)| outcome).collect()
+    let outcomes = parallel_on(workers, &runs, |(id, case, expected)| {
+        let outcome = run(&elm, cache.path(), case, expected);
+        if let (Err(why), Ok(_)) = (&outcome, std::env::var("NOMI_SHOW")) {
+            eprintln!("FAIL {id}\n{why}");
+        }
+        (id.clone(), outcome)
     });
     eprintln!("elm_make: {crashes} runs skipped where elm crashed");
     Suite::open(dir).finish(outcomes);

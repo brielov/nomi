@@ -34,8 +34,9 @@ fn qualified_name(namespace: &[Upper], last: &str) -> Line {
 /// Upstream's `formatVar`.
 fn var(var: &Ref) -> Line {
     match var {
-        Ref::Var(namespace, Lower(last)) => qualified_name(namespace, last),
-        Ref::Tag(namespace, Upper(last)) => qualified_name(namespace, last),
+        Ref::Var(namespace, Lower(last)) | Ref::Tag(namespace, Upper(last)) => {
+            qualified_name(namespace, last)
+        }
         Ref::Op(op) => operator(op),
     }
 }
@@ -54,6 +55,10 @@ pub(super) fn format_expression(expr: &Expr) -> (SyntaxContext, Block) {
     nomi_base::grow_large(|| format_expression_unguarded(expr))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "upstream's `formatExpression`, one short arm per expression"
+)]
 fn format_expression_unguarded(expr: &Expr) -> (SyntaxContext, Block) {
     match expr {
         Expr::Literal(value) => (SyntaxSeparated, literal(value)),

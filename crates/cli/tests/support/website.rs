@@ -13,7 +13,6 @@ use nomi_base::Compat;
 use nomi_project::Name;
 use nomi_registry::{Http, HttpError, Index, Store};
 use nomi_testkit::{files_below, packages};
-use sha1::{Digest, Sha1};
 use tempfile::TempDir;
 
 /// nomi copied into a new directory as `name`, which makes it the
@@ -145,7 +144,7 @@ impl Http for Website {
     fn get(&self, url: &str) -> Result<Vec<u8>, HttpError> {
         let archive = self.archive(url).ok_or(HttpError::Status(404))?;
         if url.ends_with("endpoint.json") {
-            let hash = nomi_base::hex(&Sha1::digest(archive));
+            let hash = nomi_registry::store::sha1(archive);
             let zip = url.replace("endpoint.json", "archive.zip");
             return Ok(format!(r#"{{"url":"{zip}","hash":"{hash}"}}"#).into_bytes());
         }

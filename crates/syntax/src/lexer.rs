@@ -670,7 +670,7 @@ fn is_operator_char(c: char) -> bool {
 /// Whether elm-format takes the ASCII `byte` in an operator: elm's
 /// [`BINOP_CHARS`](nomi_base::diagnostic::code::BINOP_CHARS), and `$`, `#`,
 /// `@` and `~`.
-fn is_operator(byte: u8) -> bool {
+pub(crate) fn is_operator(byte: u8) -> bool {
     matches!(
         byte,
         b'+' | b'-'

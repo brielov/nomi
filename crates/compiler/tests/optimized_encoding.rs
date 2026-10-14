@@ -4,23 +4,16 @@
 //! of elm/core and elm/json, kernels included.
 
 use std::fs;
-use std::path::{Path, PathBuf};
 
 use nomi_base::Compat;
 use nomi_compiler::optimized::binary;
-
-/// What each release wrote, under `elm-<release>/`.
-fn artifacts(compat: Compat) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/optimized/artifacts")
-        .join(format!("elm-{compat}"))
-}
+use nomi_testkit::optimized_artifacts;
 
 #[test]
 fn module_graphs_round_trip() {
     let mut checked = 0;
     for compat in Compat::ALL {
-        for case in fs::read_dir(artifacts(compat)).unwrap() {
+        for case in fs::read_dir(optimized_artifacts(compat)).unwrap() {
             let case = case.unwrap().path();
             if !case.is_dir() {
                 continue;
@@ -42,7 +35,7 @@ fn module_graphs_round_trip() {
 #[test]
 fn dependency_graphs_round_trip() {
     for compat in Compat::ALL {
-        let path = artifacts(compat).join("o.dat");
+        let path = optimized_artifacts(compat).join("o.dat");
         let bytes = fs::read(&path).unwrap();
         let graph = binary::decode_global_graph(&bytes, compat)
             .unwrap_or_else(|| panic!("{} doesn't decode", path.display()));

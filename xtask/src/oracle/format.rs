@@ -16,9 +16,9 @@ use nomi_testkit::sha256_hex as sha256;
 use super::process::run_within;
 use super::{generated, pinned_binary, remove_tree};
 use crate::corpus::format::{self as corpus_format, Outcome};
-use crate::corpus::parallel_on;
 use crate::corpus::syntax::{self as corpus_syntax, Sources};
 use crate::references::References;
+use nomi_testkit::parallel_on;
 
 /// The fixture suite: inputs, elm-format's outputs and `passing.txt`.
 const FIXTURES: &str = "crates/format/tests/format_fixtures";

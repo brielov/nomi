@@ -338,23 +338,8 @@ fn to_diff(localizer: &Localizer, ctx: Context, t1: &Type, t2: &Type) -> Diff<Do
 
 fn to_diff_(localizer: &Localizer, ctx: Context, t1: &Type, t2: &Type) -> Diff<Doc> {
     use Type as T;
-    match (t1, t2) {
-        (T::Unit, T::Unit) | (T::Error, T::Error) | (T::Infinite, T::Infinite) => {
-            return same(localizer, ctx, t1);
-        }
-        (T::FlexVar(x), T::FlexVar(y))
-        | (T::FlexSuper(_, x), T::FlexSuper(_, y))
-        | (T::RigidVar(x), T::RigidVar(y))
-        | (T::RigidSuper(_, x), T::RigidSuper(_, y))
-            if x == y =>
-        {
-            return same(localizer, ctx, t1);
-        }
-        (T::FlexVar(_), _) | (_, T::FlexVar(_)) => return similar(localizer, ctx, t1, t2),
-        (T::FlexSuper(s, _), t) | (t, T::FlexSuper(s, _)) if is_super(*s, t) => {
-            return similar(localizer, ctx, t1, t2);
-        }
-        _ => {}
+    if let Some(diff) = same_or_similar(localizer, ctx, t1, t2) {
+        return diff;
     }
     match (t1, t2) {
         (T::Lambda(a, b, cs), T::Lambda(x, y, zs)) => {
@@ -424,11 +409,7 @@ fn to_diff_(localizer: &Localizer, ctx: Context, t1: &Type, t2: &Type) -> Diff<D
                 && is_similar(&to_diff(localizer, ctx, &args[0], t2)) =>
         {
             different(
-                render::apply(
-                    ctx,
-                    yellow(localizer.to_doc(home, name)),
-                    vec![to_doc(localizer, Context::App, &args[0])],
-                ),
+                highlighted_app(localizer, ctx, home, name, &args[0]),
                 to_doc(localizer, ctx, t2),
                 vec![Problem::AnythingFromMaybe],
             )
@@ -440,11 +421,7 @@ fn to_diff_(localizer: &Localizer, ctx: Context, t1: &Type, t2: &Type) -> Diff<D
         {
             different(
                 to_doc(localizer, ctx, t1),
-                render::apply(
-                    ctx,
-                    yellow(localizer.to_doc(home, name)),
-                    vec![to_doc(localizer, Context::App, &args[0])],
-                ),
+                highlighted_app(localizer, ctx, home, name, &args[0]),
                 Vec::new(),
             )
         }
@@ -456,6 +433,44 @@ fn to_diff_(localizer: &Localizer, ctx: Context, t1: &Type, t2: &Type) -> Diff<D
             problems(t1, t2),
         ),
     }
+}
+
+/// `toDiff`'s first cases: two types the same or similar at a glance.
+fn same_or_similar(localizer: &Localizer, ctx: Context, t1: &Type, t2: &Type) -> Option<Diff<Doc>> {
+    use Type as T;
+    match (t1, t2) {
+        (T::Unit, T::Unit) | (T::Error, T::Error) | (T::Infinite, T::Infinite) => {
+            Some(same(localizer, ctx, t1))
+        }
+        (T::FlexVar(x), T::FlexVar(y))
+        | (T::FlexSuper(_, x), T::FlexSuper(_, y))
+        | (T::RigidVar(x), T::RigidVar(y))
+        | (T::RigidSuper(_, x), T::RigidSuper(_, y))
+            if x == y =>
+        {
+            Some(same(localizer, ctx, t1))
+        }
+        (T::FlexVar(_), _) | (_, T::FlexVar(_)) => Some(similar(localizer, ctx, t1, t2)),
+        (T::FlexSuper(s, _), t) | (t, T::FlexSuper(s, _)) if is_super(*s, t) => {
+            Some(similar(localizer, ctx, t1, t2))
+        }
+        _ => None,
+    }
+}
+
+/// `name arg`, the name highlighted.
+fn highlighted_app(
+    localizer: &Localizer,
+    ctx: Context,
+    home: &Home,
+    name: &str,
+    arg: &Type,
+) -> Doc {
+    render::apply(
+        ctx,
+        yellow(localizer.to_doc(home, name)),
+        vec![to_doc(localizer, Context::App, arg)],
+    )
 }
 
 /// `sequenceA` of each pair's diff in `context`.
@@ -540,6 +555,10 @@ fn problems(t1: &Type, t2: &Type) -> Vec<Problem> {
         super_type,
         other: other.clone(),
     };
+    #[expect(
+        clippy::match_same_arms,
+        reason = "upstream's order, the first type's variables before the second's"
+    )]
     let problem = match (t1, t2) {
         (T::RigidVar(x), other) => Problem::BadRigidVar(x.clone(), other.clone()),
         (T::FlexSuper(s, _), other) => bad_flex_super(Direction::Have, *s, other),
@@ -664,22 +683,18 @@ fn diff_record(
 
 /// `extToDiff`.
 fn ext_to_diff(ext1: &Extension, ext2: &Extension) -> Diff<Option<Doc>> {
+    use Extension as E;
     let status = match (ext1, ext2) {
-        (Extension::Closed, Extension::Closed | Extension::FlexOpen(_)) => Status::Similar,
-        (Extension::Closed, Extension::RigidOpen(_)) => Status::Different(Vec::new()),
-        (Extension::FlexOpen(_), _) => Status::Similar,
-        (Extension::RigidOpen(_), Extension::Closed) => Status::Different(Vec::new()),
-        (Extension::RigidOpen(_), Extension::FlexOpen(_)) => Status::Similar,
-        (Extension::RigidOpen(x), Extension::RigidOpen(y)) => {
-            if x == y {
-                Status::Similar
-            } else {
-                Status::Different(vec![Problem::BadRigidVar(
-                    x.clone(),
-                    Type::RigidVar(y.clone()),
-                )])
-            }
+        (E::Closed, E::RigidOpen(_)) | (E::RigidOpen(_), E::Closed) => {
+            Status::Different(Vec::new())
         }
+        (E::RigidOpen(x), E::RigidOpen(y)) if x != y => {
+            Status::Different(vec![Problem::BadRigidVar(
+                x.clone(),
+                Type::RigidVar(y.clone()),
+            )])
+        }
+        _ => Status::Similar,
     };
     let (a, b) = (ext_to_doc(ext1), ext_to_doc(ext2));
     match status {

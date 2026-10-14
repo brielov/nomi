@@ -294,9 +294,14 @@ fn padding(start: usize, column: usize, width: usize) -> usize {
     (width as isize - used).max(0) as usize
 }
 
+/// `makeNakedLink`: where `page` of `compat`'s docs is.
+pub fn naked_link(compat: Compat, page: &str) -> String {
+    format!("https://elm-lang.org/{compat}/{page}")
+}
+
 /// `makeLink`.
 fn link(compat: Compat, page: &str) -> String {
-    format!("<https://elm-lang.org/{compat}/{page}>")
+    format!("<{}>", naked_link(compat, page))
 }
 
 /// `SetColor Foreground`: vivid colors are the bright ones.
