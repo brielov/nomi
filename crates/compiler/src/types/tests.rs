@@ -1,3 +1,4 @@
+use super::names::{from_type_variable, from_type_variable_scheme, to_annotation, to_error_type};
 use super::*;
 use crate::canonical::Type as T;
 use nomi_base::Text;
@@ -20,7 +21,7 @@ fn an_annotation_names_unnamed_variables_after_the_users() {
     let number = vars.flex_number();
     let inner = vars.fresh(Content::Structure(FlatType::Fun1(unnamed, number)));
     let outer = vars.fresh(Content::Structure(FlatType::Fun1(user, inner)));
-    let annotation = vars.to_annotation(outer);
+    let annotation = to_annotation(&mut vars, outer);
     let var = |n: &str| Box::new(T::Var(n.to_owned()));
     assert_eq!(
         *annotation.ty,
@@ -37,7 +38,7 @@ fn one_name_on_two_variables_is_numbered_apart() {
     let tuple = vars.fresh(Content::Structure(FlatType::Tuple1(first, second, None)));
     // The second is visited first, so it keeps `a`.
     assert_eq!(
-        vars.to_error_type(tuple),
+        to_error_type(&mut vars, tuple),
         error::Type::Tuple(
             Box::new(error::Type::RigidVar("a1".to_owned())),
             Box::new(error::Type::RigidVar("a".to_owned())),
@@ -51,7 +52,7 @@ fn an_error_type_flattens_functions_and_cuts_infinite_types() {
     let mut vars = Variables::default();
     let a = vars.flex_var();
     let list = vars.fresh(Content::Structure(FlatType::App1(
-        core("List"),
+        Home::core("List"),
         Text::from("List"),
         vec![a],
     )));
@@ -60,9 +61,13 @@ fn an_error_type_flattens_functions_and_cuts_infinite_types() {
     vars.union(a, list, descriptor);
     let f = vars.fresh(Content::Structure(FlatType::Fun1(a, a)));
     let g = vars.fresh(Content::Structure(FlatType::Fun1(a, f)));
-    let infinite = error::Type::Type(core("List"), "List".to_owned(), vec![error::Type::Infinite]);
+    let infinite = error::Type::Type(
+        Home::core("List"),
+        "List".to_owned(),
+        vec![error::Type::Infinite],
+    );
     assert_eq!(
-        vars.to_error_type(g),
+        to_error_type(&mut vars, g),
         error::Type::Lambda(
             Box::new(infinite.clone()),
             Box::new(infinite.clone()),
@@ -77,14 +82,14 @@ mod unification {
 
     fn app(vars: &mut Variables, module: &str, name: &str, args: Vec<Variable>) -> Variable {
         vars.fresh(Content::Structure(FlatType::App1(
-            core(module),
+            Home::core(module),
             Text::from(name),
             args,
         )))
     }
 
     fn ok(answer: &Answer) -> bool {
-        matches!(answer, Answer::Ok(_))
+        answer.mismatch.is_none()
     }
 
     #[test]
@@ -94,16 +99,16 @@ mod unification {
         assert!(ok(&unify(&mut vars, number, int)));
         let number = vars.flex_number();
         let string = app(&mut vars, "String", "String", vec![]);
-        let Answer::Err(_, expected, actual) = unify(&mut vars, number, string) else {
+        let Some(mismatch) = unify(&mut vars, number, string).mismatch else {
             panic!("number isn't String");
         };
         assert_eq!(
-            *expected,
-            error::Type::FlexSuper(error::Super::Number, "number".to_owned())
+            mismatch.actual,
+            error::Type::FlexSuper(SuperType::Number, "number".to_owned())
         );
         assert_eq!(
-            *actual,
-            error::Type::Type(core("String"), "String".to_owned(), vec![])
+            mismatch.expected,
+            error::Type::Type(Home::core("String"), "String".to_owned(), vec![])
         );
         // An error then unifies with anything.
         let float = app(&mut vars, "Basics", "Float", vec![]);
@@ -123,9 +128,9 @@ mod unification {
         let element = vars.flex_var();
         let list = app(&mut vars, "List", "List", vec![element]);
         let comparable = vars.fresh(Content::FlexSuper(SuperType::Comparable, None));
-        let Answer::Ok(fresh) = unify(&mut vars, comparable, list) else {
-            panic!("a list can be comparable");
-        };
+        let answer = unify(&mut vars, comparable, list);
+        assert!(ok(&answer), "a list can be comparable");
+        let fresh = answer.fresh;
         assert_eq!(fresh.len(), 1);
         assert_eq!(
             vars.content(element),
@@ -147,9 +152,9 @@ mod unification {
             BTreeMap::from([(Text::new("y"), int)]),
             ext2,
         )));
-        let Answer::Ok(fresh) = unify(&mut vars, one, two) else {
-            panic!("open records meet");
-        };
+        let answer = unify(&mut vars, one, two);
+        assert!(ok(&answer), "open records meet");
+        let fresh = answer.fresh;
         // A shared extension and a record for each side's own fields.
         assert_eq!(fresh.len(), 3);
         let Content::Structure(FlatType::Record1(fields, _)) = vars.content(one) else {
@@ -210,7 +215,7 @@ mod pattern_constraints {
         // The tail is matched before the head, the parts before the whole.
         let categories: Vec<PCategory> = (state.cons.iter())
             .map(|c| match c {
-                Constraint::Pattern(_, category, _, _) => category.clone(),
+                Constraint::Pattern { category, .. } => category.clone(),
                 other => panic!("{other:?}"),
             })
             .collect();
@@ -269,13 +274,17 @@ mod expression_constraints {
             Constraint::Let {
                 header, body_con, ..
             },
-            Constraint::Equal(_, Category::Lambda, Type::Fun(..), _),
+            Constraint::Equal {
+                category: Category::Lambda,
+                ty: Type::Fun(..),
+                ..
+            },
         ] = &cons[..]
         else {
             panic!("{cons:?}");
         };
         assert!(header.contains_key("x"));
-        assert!(matches!(&**body_con, Constraint::Local(_, name, _) if name == "x"));
+        assert!(matches!(&**body_con, Constraint::Local { name, .. } if name == "x"));
     }
 }
 
@@ -288,7 +297,7 @@ mod comparison {
     use crate::types::render::Context;
 
     fn basics(name: &str) -> E {
-        E::Type(core("Basics"), name.to_owned(), vec![])
+        E::Type(Home::core("Basics"), name.to_owned(), vec![])
     }
 
     fn localizer() -> Localizer {
@@ -298,10 +307,10 @@ mod comparison {
     #[test]
     fn a_comparison_finds_the_problem_to_explain() {
         let l = localizer();
-        let (_, _, problems) = to_comparison(&l, &basics("Int"), &basics("Float"));
+        let problems = to_comparison(&l, &basics("Int"), &basics("Float")).problems;
         assert_eq!(problems, [Problem::IntFloat]);
-        let maybe = E::Type(core("Maybe"), "Maybe".to_owned(), vec![basics("Int")]);
-        let (_, _, problems) = to_comparison(&l, &maybe, &basics("Int"));
+        let maybe = E::Type(Home::core("Maybe"), "Maybe".to_owned(), vec![basics("Int")]);
+        let problems = to_comparison(&l, &maybe, &basics("Int")).problems;
         assert_eq!(problems, [Problem::AnythingFromMaybe]);
         let record = |fields: &[&str]| {
             E::Record(
@@ -312,8 +321,8 @@ mod comparison {
                 Extension::Closed,
             )
         };
-        let (_, _, problems) =
-            to_comparison(&l, &record(&["nmae", "age"]), &record(&["name", "age"]));
+        let problems =
+            to_comparison(&l, &record(&["nmae", "age"]), &record(&["name", "age"])).problems;
         assert_eq!(
             problems,
             [Problem::FieldTypo(
@@ -326,7 +335,7 @@ mod comparison {
     #[test]
     fn functions_print_flat_and_arguments_parenthesized() {
         let l = localizer();
-        let list = E::Type(core("List"), "List".to_owned(), vec![basics("Int")]);
+        let list = E::Type(Home::core("List"), "List".to_owned(), vec![basics("Int")]);
         let f = E::Lambda(
             Box::new(E::Lambda(
                 Box::new(basics("Int")),
@@ -340,7 +349,7 @@ mod comparison {
             to_doc(&l, Context::None, &f).plain(),
             "(Int -> Bool) -> List Int -> a"
         );
-        let qualified = E::Type(core("Dict"), "Dict".to_owned(), vec![]);
+        let qualified = E::Type(Home::core("Dict"), "Dict".to_owned(), vec![]);
         assert_eq!(to_doc(&l, Context::None, &qualified).plain(), "Dict.Dict");
     }
 }
@@ -419,12 +428,11 @@ mod modules {
         assert!(
             matches!(
                 &errors[..],
-                [TypeError::BadExpr(
-                    _,
-                    Category::Number,
-                    _,
-                    Expected::FromContext(_, expected::Context::CallArg(_, 0), _),
-                )]
+                [TypeError::BadExpr {
+                    category: Category::Number,
+                    expected: Expected::FromContext(_, expected::Context::CallArg(_, 0), _),
+                    ..
+                }]
             ),
             "{errors:?}"
         );

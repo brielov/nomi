@@ -7,14 +7,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::error::{self, Extension};
 use super::{
-    Content, Descriptor, FlatType, GET_VAR_NAMES_MARK, OCCURS_MARK, SuperType, Variable, Variables,
+    Content, FlatType, GET_VAR_NAMES_MARK, OCCURS_MARK, SuperType, Variable, Variables,
     in_name_order,
 };
 use crate::canonical::{self, AliasType, FieldType};
 
 /// `Name.fromTypeVariable`: `name` numbered `index`, after an `_` where
 /// it ends in a digit; `name` itself for 0.
-pub fn from_type_variable(name: &str, index: usize) -> String {
+pub(super) fn from_type_variable(name: &str, index: usize) -> String {
     if index == 0 {
         name.to_owned()
     } else if name.ends_with(|c: char| c.is_ascii_digit()) {
@@ -26,7 +26,7 @@ pub fn from_type_variable(name: &str, index: usize) -> String {
 
 /// `Name.fromTypeVariableScheme`: `a` to `z`, then `a1` to `z1`, and so
 /// on.
-pub fn from_type_variable_scheme(scheme: usize) -> String {
+pub(super) fn from_type_variable_scheme(scheme: usize) -> String {
     let letter = char::from(b'a' + (scheme % 26) as u8);
     match scheme / 26 {
         0 => letter.to_string(),
@@ -46,16 +46,38 @@ struct NameState {
 }
 
 impl NameState {
-    /// `makeNameState`.
-    fn new(taken: &BTreeMap<String, Variable>) -> NameState {
+    /// `getVarNames`, then `makeNameState`: the names the variables under
+    /// `var` have, each unnamed one to be named from the rest.
+    fn of(vars: &mut Variables, var: Variable) -> NameState {
+        let mut taken = BTreeMap::new();
+        var_names(vars, var, &mut taken);
         NameState {
-            taken: taken.keys().cloned().collect(),
+            taken: taken.into_keys().collect(),
             normals: 0,
             numbers: 0,
             comparables: 0,
             appendables: 0,
             compappends: 0,
         }
+    }
+
+    /// The name of the unnamed flexible variable `var`, ranging over
+    /// `super_type`: the first free one of its kind, written back.
+    fn name(
+        &mut self,
+        vars: &mut Variables,
+        var: Variable,
+        super_type: Option<SuperType>,
+    ) -> String {
+        let name = match super_type {
+            None => self.fresh_var(),
+            Some(s) => self.fresh_super(s),
+        };
+        vars.get_mut(var).content = match super_type {
+            None => Content::FlexVar(Some(name.clone())),
+            Some(s) => Content::FlexSuper(s, Some(name.clone())),
+        };
+        name
     }
 
     /// `getFreshVarName`.
@@ -95,12 +117,12 @@ impl NameState {
 /// variable, a name on two different ones renamed apart. A child comes
 /// before the one written before it, as upstream's `foldrM` visits them.
 fn var_names(vars: &mut Variables, var: Variable, taken: &mut BTreeMap<String, Variable>) {
-    let descriptor = vars.get(var).clone();
+    let descriptor = vars.get_mut(var);
     if descriptor.mark == GET_VAR_NAMES_MARK {
         return;
     }
-    vars.get_mut(var).mark = GET_VAR_NAMES_MARK;
-    match descriptor.content {
+    descriptor.mark = GET_VAR_NAMES_MARK;
+    match descriptor.content.clone() {
         Content::Error | Content::FlexVar(None) | Content::FlexSuper(_, None) => {}
         Content::FlexVar(Some(name)) => {
             add_name(vars, 0, &name, var, |n| Content::FlexVar(Some(n)), taken);
@@ -136,10 +158,7 @@ fn var_names(vars: &mut Variables, var: Variable, taken: &mut BTreeMap<String, V
             }
             FlatType::EmptyRecord1 | FlatType::Unit1 => {}
             FlatType::Record1(fields, extension) => {
-                let ordered: Vec<Variable> = (in_name_order(vars.compat, &fields).into_iter())
-                    .map(|(_, v)| *v)
-                    .collect();
-                for field in ordered.into_iter().rev() {
+                for (_, &field) in in_name_order(vars.compat, &fields).into_iter().rev() {
                     var_names(vars, field, taken);
                 }
                 var_names(vars, extension, taken);
@@ -181,10 +200,10 @@ fn add_name(
     }
 }
 
+/// `toAnnotation`: the type `var` stands for, each unnamed variable
+/// named, with its free variables.
 pub(super) fn to_annotation(vars: &mut Variables, var: Variable) -> canonical::Annotation {
-    let mut taken = BTreeMap::new();
-    var_names(vars, var, &mut taken);
-    let mut state = NameState::new(&taken);
+    let mut state = NameState::of(vars, var);
     let ty = to_can_type(vars, var, &mut state);
     canonical::Annotation {
         free: state.taken.into_iter().collect(),
@@ -198,16 +217,8 @@ fn to_can_type(vars: &mut Variables, var: Variable, state: &mut NameState) -> ca
     match vars.content(var) {
         Content::Structure(flat) => flat_to_can_type(vars, flat, state),
         Content::FlexVar(Some(name)) | Content::FlexSuper(_, Some(name)) => T::Var(name),
-        Content::FlexVar(None) => {
-            let name = state.fresh_var();
-            vars.get_mut(var).content = Content::FlexVar(Some(name.clone()));
-            T::Var(name)
-        }
-        Content::FlexSuper(s, None) => {
-            let name = state.fresh_super(s);
-            vars.get_mut(var).content = Content::FlexSuper(s, Some(name.clone()));
-            T::Var(name)
-        }
+        Content::FlexVar(None) => T::Var(state.name(vars, var, None)),
+        Content::FlexSuper(s, None) => T::Var(state.name(vars, var, Some(s))),
         Content::RigidVar(name) | Content::RigidSuper(_, name) => T::Var(name),
         Content::Alias(home, name, args, real) => {
             let args = (args.into_iter())
@@ -280,20 +291,21 @@ fn flat_to_can_type(
     }
 }
 
+/// `toErrorType`: the type `var` stands for, as an error shows it.
 pub(super) fn to_error_type(vars: &mut Variables, var: Variable) -> error::Type {
-    let mut taken = BTreeMap::new();
-    var_names(vars, var, &mut taken);
-    let mut state = NameState::new(&taken);
+    let mut state = NameState::of(vars, var);
     to_err(vars, var, &mut state)
 }
 
 /// `variableToErrorType`: a variable met again under itself is `∞`.
 fn to_err(vars: &mut Variables, var: Variable, state: &mut NameState) -> error::Type {
-    let Descriptor { mark, content, .. } = vars.get(var).clone();
+    let descriptor = vars.get_mut(var);
+    let mark = descriptor.mark;
     if mark == OCCURS_MARK {
         return error::Type::Infinite;
     }
-    vars.get_mut(var).mark = OCCURS_MARK;
+    descriptor.mark = OCCURS_MARK;
+    let content = descriptor.content.clone();
     let ty = content_to_err(vars, var, content, state);
     vars.get_mut(var).mark = mark;
     ty
@@ -310,19 +322,11 @@ fn content_to_err(
     match content {
         Content::Structure(flat) => flat_to_err(vars, flat, state),
         Content::FlexVar(Some(name)) => E::FlexVar(name),
-        Content::FlexVar(None) => {
-            let name = state.fresh_var();
-            vars.get_mut(var).content = Content::FlexVar(Some(name.clone()));
-            E::FlexVar(name)
-        }
-        Content::FlexSuper(s, Some(name)) => E::FlexSuper(s.to_error(), name),
-        Content::FlexSuper(s, None) => {
-            let name = state.fresh_super(s);
-            vars.get_mut(var).content = Content::FlexSuper(s, Some(name.clone()));
-            E::FlexSuper(s.to_error(), name)
-        }
+        Content::FlexVar(None) => E::FlexVar(state.name(vars, var, None)),
+        Content::FlexSuper(s, Some(name)) => E::FlexSuper(s, name),
+        Content::FlexSuper(s, None) => E::FlexSuper(s, state.name(vars, var, Some(s))),
         Content::RigidVar(name) => E::RigidVar(name),
-        Content::RigidSuper(s, name) => E::RigidSuper(s.to_error(), name),
+        Content::RigidSuper(s, name) => E::RigidSuper(s, name),
         Content::Alias(home, name, args, real) => {
             let args = (args.into_iter())
                 .map(|(n, a)| (n, to_err(vars, a, state)))
@@ -360,7 +364,12 @@ fn flat_to_err(vars: &mut Variables, flat: FlatType, state: &mut NameState) -> e
                 .into_iter())
             .map(|(n, &v)| (n.to_string(), to_err(vars, v, state)))
             .collect();
-            match error::iterated_dealias(to_err(vars, extension, state)) {
+            // `iteratedDealias`, keeping what it stands for.
+            let mut ext = to_err(vars, extension, state);
+            while let E::Alias(_, _, _, real) = ext {
+                ext = *real;
+            }
+            match ext {
                 E::Record(sub_fields, sub_ext) => {
                     fields.extend(sub_fields);
                     E::Record(fields, sub_ext)

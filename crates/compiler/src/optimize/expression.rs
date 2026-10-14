@@ -3,22 +3,22 @@
 //! loops. Each step registers what it needs in the [`Tracker`] in
 //! upstream's order, which decides the names it generates.
 
-use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use nomi_base::diagnostic::code::Region;
 use nomi_base::{Compat, TextRange};
 
-use super::names::{self, Tracker};
+use super::names::Tracker;
 use super::{case, literal};
-use crate::canonical::{self, CtorOpts, Def as CDef, ExprKind, Operator, PatternKind};
-use crate::optimized::{Def, Destructor, Expr, Path};
+use crate::canonical::{self, CtorOpts, Def as CDef, ExprKind, Home, Operator, PatternKind};
+use crate::optimized::{Choice, Decider, Def, Destructor, Expr, Path};
+use crate::types::in_name_order;
 
 /// What optimizing a module's expressions needs to know.
 pub(super) struct Context<'a> {
     pub compat: Compat,
     /// The module's home, for `Debug` values.
-    pub home: &'a canonical::Home,
+    pub home: &'a Home,
     /// A canonical expression's region as rows and columns.
     pub region: &'a dyn Fn(TextRange) -> Region,
 }
@@ -34,9 +34,7 @@ pub(super) fn optimize(
     cycle: &Cycle,
     expr: &canonical::Expr,
 ) -> Expr {
-    stacker::maybe_grow(64 * 1024, 1024 * 1024, || {
-        optimize_(cx, tracker, cycle, expr)
-    })
+    nomi_base::grow(|| optimize_(cx, tracker, cycle, expr))
 }
 
 fn optimize_(cx: &Context, t: &mut Tracker, cycle: &Cycle, expr: &canonical::Expr) -> Expr {
@@ -69,9 +67,7 @@ fn optimize_(cx: &Context, t: &mut Tracker, cycle: &Cycle, expr: &canonical::Exp
             index,
             ..
         } => t.ctor(home, name, *index, *opts),
-        ExprKind::VarDebug { home, name, .. } => {
-            names::debug_value(t, name, home, (cx.region)(expr.region))
-        }
+        ExprKind::VarDebug { home, name, .. } => t.debug(name, home, (cx.region)(expr.region)),
         ExprKind::Chr(token) => {
             t.kernel("Utils");
             Expr::Chr(literal::char(cx.compat, token))
@@ -84,7 +80,7 @@ fn optimize_(cx: &Context, t: &mut Tracker, cycle: &Cycle, expr: &canonical::Exp
             Expr::List(entries.iter().map(|e| optimize(cx, t, cycle, e)).collect())
         }
         ExprKind::Negate(expr) => {
-            let func = t.global(&names::basics(), "negate");
+            let func = t.global(&Home::core("Basics"), "negate");
             let arg = optimize(cx, t, cycle, expr);
             Expr::Call(Box::new(func), vec![arg])
         }
@@ -119,14 +115,7 @@ fn optimize_(cx: &Context, t: &mut Tracker, cycle: &Cycle, expr: &canonical::Exp
             optimize_def(cx, t, cycle, def, body)
         }
         ExprKind::LetRec(defs, body) => {
-            if let [def] = defs.as_slice() {
-                let def = potential_tail_call_def(cx, t, cycle, def);
-                Expr::Let(Box::new(def), Box::new(optimize(cx, t, cycle, body)))
-            } else {
-                let body = optimize(cx, t, cycle, body);
-                defs.iter()
-                    .fold(body, |body, def| optimize_def(cx, t, cycle, def, body))
-            }
+            let_rec(cx, t, cycle, defs, |t| optimize(cx, t, cycle, body))
         }
         ExprKind::LetDestruct {
             pattern,
@@ -167,7 +156,7 @@ fn optimize_(cx: &Context, t: &mut Tracker, cycle: &Cycle, expr: &canonical::Exp
                 t.field(field);
             }
             let record = optimize(cx, t, cycle, record);
-            let updates = in_order(cx.compat, updates)
+            let updates = (in_name_order(cx.compat, updates).into_iter())
                 .map(|(field, update)| (field.clone(), optimize(cx, t, cycle, &update.value)))
                 .collect();
             Expr::Update(Box::new(record), updates)
@@ -176,7 +165,7 @@ fn optimize_(cx: &Context, t: &mut Tracker, cycle: &Cycle, expr: &canonical::Exp
             for field in fields.keys() {
                 t.field(field);
             }
-            let fields = in_order(cx.compat, fields)
+            let fields = (in_name_order(cx.compat, fields).into_iter())
                 .map(|(field, value)| (field.clone(), optimize(cx, t, cycle, value)))
                 .collect();
             Expr::Record(fields)
@@ -218,41 +207,41 @@ fn shader_source(source: &str) -> String {
     out
 }
 
-/// A map's entries in the order upstream traverses it: its names' order,
-/// which 0.19.3 made length first.
-fn in_order<T>(compat: Compat, map: &BTreeMap<String, T>) -> impl Iterator<Item = (&String, &T)> {
-    let mut entries: Vec<_> = map.iter().collect();
-    if compat == Compat::V0_19_3 {
-        entries.sort_by(|a, b| fast(a.0, b.0));
-    }
-    entries.into_iter()
-}
-
-/// `compareFast`: by length, then bytes.
-fn fast(a: &str, b: &str) -> Ordering {
-    a.len().cmp(&b.len()).then_with(|| a.cmp(b))
-}
-
 /// `foldr Opt.Destruct body destructors`.
 pub(super) fn wrap(destructors: Vec<Destructor>, body: Expr) -> Expr {
     (destructors.into_iter().rev()).fold(body, |body, d| Expr::Destruct(d, Box::new(body)))
 }
 
-/// A definition's name, parameters and body.
-pub(super) fn parts(def: &CDef) -> (&str, Vec<&canonical::Pattern>, &canonical::Expr) {
+/// A definition's parameters and body.
+pub(super) fn parts(def: &CDef) -> (Vec<&canonical::Pattern>, &canonical::Expr) {
     match def {
-        CDef::Def {
-            name, params, body, ..
-        } => (name, params.iter().collect(), body),
-        CDef::TypedDef {
-            name, params, body, ..
-        } => (name, params.iter().map(|(p, _)| p).collect(), body),
+        CDef::Def { params, body, .. } => (params.iter().collect(), body),
+        CDef::TypedDef { params, body, .. } => (params.iter().map(|(p, _)| p).collect(), body),
+    }
+}
+
+/// A recursive `let` of `defs`: one is a function that may loop, more
+/// are each optimized as they are; then `body`.
+fn let_rec(
+    cx: &Context,
+    t: &mut Tracker,
+    cycle: &Cycle,
+    defs: &[CDef],
+    body: impl FnOnce(&mut Tracker) -> Expr,
+) -> Expr {
+    if let [def] = defs {
+        let def = potential_tail_call_def(cx, t, cycle, def);
+        Expr::Let(Box::new(def), Box::new(body(t)))
+    } else {
+        let body = body(t);
+        defs.iter()
+            .fold(body, |body, def| optimize_def(cx, t, cycle, def, body))
     }
 }
 
 /// `optimizeDef`: `def`, then `body` in its scope.
 fn optimize_def(cx: &Context, t: &mut Tracker, cycle: &Cycle, def: &CDef, body: Expr) -> Expr {
-    let (name, params, expr) = parts(def);
+    let (params, expr) = parts(def);
     let expr = optimize(cx, t, cycle, expr);
     let value = if params.is_empty() {
         expr
@@ -260,7 +249,10 @@ fn optimize_def(cx: &Context, t: &mut Tracker, cycle: &Cycle, def: &CDef, body: 
         let (names, destructors) = destruct_args(cx, t, params);
         Expr::Function(names, Box::new(wrap(destructors, expr)))
     };
-    Expr::Let(Box::new(Def::Def(name.to_owned(), value)), Box::new(body))
+    Expr::Let(
+        Box::new(Def::Def(def.name().to_owned(), value)),
+        Box::new(body),
+    )
 }
 
 /// `destructArgs`: a name for each argument, and what to take from those
@@ -320,7 +312,6 @@ fn destruct_help(
         | PatternKind::Str(_)
         | PatternKind::Int(_)
         | PatternKind::Bool(..) => {}
-        PatternKind::List(items) if items.is_empty() => {}
         PatternKind::Var(name) => rev.push(Destructor {
             name: name.clone(),
             path,
@@ -353,27 +344,12 @@ fn destruct_help(
         }
         PatternKind::Tuple(a, b, None) => destruct_two(cx, t, path, a, b, rev),
         PatternKind::Tuple(a, b, Some(c)) => {
-            let root = if let Path::Root(_) = path {
-                path
-            } else {
-                let name = t.generate();
-                rev.push(Destructor {
-                    name: name.clone(),
-                    path,
-                });
-                Path::Root(name)
-            };
+            let root = rooted(t, path, rev);
             destruct_help(cx, t, at(0, &root), a, rev);
             destruct_help(cx, t, at(1, &root), b, rev);
             destruct_help(cx, t, at(2, &root), c, rev);
         }
-        PatternKind::List(items) => {
-            let rest = canonical::Pattern {
-                region: pattern.region,
-                kind: PatternKind::List(items[1..].to_vec()),
-            };
-            destruct_two(cx, t, path, &items[0], &rest, rev);
-        }
+        PatternKind::List(items) => destruct_list(cx, t, path, items, rev),
         PatternKind::Cons(head, tail) => destruct_two(cx, t, path, head, tail, rev),
         PatternKind::Ctor { union, args, .. } => {
             if let [arg] = args.as_slice() {
@@ -383,16 +359,7 @@ fn destruct_help(
                 };
                 destruct_help(cx, t, path, &arg.arg, rev);
             } else {
-                let root = if let Path::Root(_) = path {
-                    path
-                } else {
-                    let name = t.generate();
-                    rev.push(Destructor {
-                        name: name.clone(),
-                        path,
-                    });
-                    Path::Root(name)
-                };
+                let root = rooted(t, path, rev);
                 for arg in args {
                     destruct_help(cx, t, at(arg.index, &root), &arg.arg, rev);
                 }
@@ -410,24 +377,45 @@ fn destruct_two(
     b: &canonical::Pattern,
     rev: &mut Vec<Destructor>,
 ) {
-    let root = if let Path::Root(_) = path {
-        path
-    } else {
-        let name = t.generate();
-        rev.push(Destructor {
-            name: name.clone(),
-            path,
-        });
-        Path::Root(name)
-    };
+    let root = rooted(t, path, rev);
     destruct_help(cx, t, Path::Index(0, Box::new(root.clone())), a, rev);
     destruct_help(cx, t, Path::Index(1, Box::new(root)), b, rev);
 }
 
+/// `destructTwo` of a list pattern's first item and the list of the rest,
+/// down to the empty one, which takes nothing.
+fn destruct_list(
+    cx: &Context,
+    t: &mut Tracker,
+    path: Path,
+    items: &[canonical::Pattern],
+    rev: &mut Vec<Destructor>,
+) {
+    let Some((first, rest)) = items.split_first() else {
+        return;
+    };
+    let root = rooted(t, path, rev);
+    destruct_help(cx, t, Path::Index(0, Box::new(root.clone())), first, rev);
+    destruct_list(cx, t, Path::Index(1, Box::new(root)), rest, rev);
+}
+
+/// `path` where it is a root; else a generated name, bound to it first.
+fn rooted(t: &mut Tracker, path: Path, rev: &mut Vec<Destructor>) -> Path {
+    if let Path::Root(_) = path {
+        return path;
+    }
+    let name = t.generate();
+    rev.push(Destructor {
+        name: name.clone(),
+        path,
+    });
+    Path::Root(name)
+}
+
 /// `optimizePotentialTailCallDef`.
 fn potential_tail_call_def(cx: &Context, t: &mut Tracker, cycle: &Cycle, def: &CDef) -> Def {
-    let (name, params, body) = parts(def);
-    potential_tail_call(cx, t, cycle, name, params, body)
+    let (params, body) = parts(def);
+    potential_tail_call(cx, t, cycle, def.name(), params, body)
 }
 
 /// `optimizePotentialTailCall`: a function, as a loop if it calls itself
@@ -498,19 +486,9 @@ fn optimize_tail(
             let body = optimize_tail(cx, t, cycle, root, args, body);
             optimize_def(cx, t, cycle, def, body)
         }
-        ExprKind::LetRec(defs, body) => {
-            if let [def] = defs.as_slice() {
-                let def = potential_tail_call_def(cx, t, cycle, def);
-                Expr::Let(
-                    Box::new(def),
-                    Box::new(optimize_tail(cx, t, cycle, root, args, body)),
-                )
-            } else {
-                let body = optimize_tail(cx, t, cycle, root, args, body);
-                defs.iter()
-                    .fold(body, |body, def| optimize_def(cx, t, cycle, def, body))
-            }
-        }
+        ExprKind::LetRec(defs, body) => let_rec(cx, t, cycle, defs, |t| {
+            optimize_tail(cx, t, cycle, root, args, body)
+        }),
         ExprKind::LetDestruct {
             pattern,
             value,
@@ -532,7 +510,28 @@ fn optimize_tail(
             |cx, t, b| optimize_tail(cx, t, cycle, root, args, b),
             cycle,
         ),
-        _ => optimize(cx, t, cycle, expr),
+        ExprKind::VarLocal(_)
+        | ExprKind::VarTopLevel(..)
+        | ExprKind::VarKernel { .. }
+        | ExprKind::VarForeign { .. }
+        | ExprKind::VarCtor { .. }
+        | ExprKind::VarDebug { .. }
+        | ExprKind::VarOperator(_)
+        | ExprKind::Chr(_)
+        | ExprKind::Str(_)
+        | ExprKind::Int(_)
+        | ExprKind::Float(_)
+        | ExprKind::List(_)
+        | ExprKind::Negate(_)
+        | ExprKind::Binop { .. }
+        | ExprKind::Lambda(..)
+        | ExprKind::Accessor(_)
+        | ExprKind::Access { .. }
+        | ExprKind::Update { .. }
+        | ExprKind::Record(_)
+        | ExprKind::Unit
+        | ExprKind::Tuple(..)
+        | ExprKind::Shader(..) => optimize(cx, t, cycle, expr),
     }
 }
 
@@ -553,12 +552,12 @@ fn optimize_case(
         Expr::VarLocal(root) => root.clone(),
         _ => temp.clone(),
     };
-    let branches: Vec<(canonical::Pattern, Expr)> = (branches.iter())
+    let branches: Vec<(&canonical::Pattern, Expr)> = (branches.iter())
         .map(|(pattern, branch)| {
             let mut destructors = Vec::new();
             destruct_help(cx, t, Path::Root(root.clone()), pattern, &mut destructors);
             let branch = body(cx, t, branch);
-            (pattern.clone(), wrap(destructors, branch))
+            (pattern, wrap(destructors, branch))
         })
         .collect();
     match subject {
@@ -572,28 +571,50 @@ fn optimize_case(
 
 /// `hasTailCall`.
 fn has_tail_call(expr: &Expr) -> bool {
-    use crate::optimized::{Choice, Decider};
-    fn decider(d: &Decider<Choice>) -> bool {
-        match d {
-            Decider::Leaf(Choice::Inline(expr)) => has_tail_call(expr),
-            Decider::Leaf(Choice::Jump(_)) => false,
-            Decider::Chain {
-                success, failure, ..
-            } => decider(success) || decider(failure),
-            Decider::FanOut {
-                tests, fallback, ..
-            } => decider(fallback) || tests.iter().any(|(_, d)| decider(d)),
-        }
-    }
     match expr {
         Expr::TailCall(..) => true,
         Expr::If(branches, otherwise) => {
             has_tail_call(otherwise) || branches.iter().any(|(_, b)| has_tail_call(b))
         }
         Expr::Let(_, body) | Expr::Destruct(_, body) => has_tail_call(body),
-        Expr::Case {
-            decider: d, jumps, ..
-        } => decider(d) || jumps.iter().any(|(_, e)| has_tail_call(e)),
-        _ => false,
+        Expr::Case { decider, jumps, .. } => {
+            decider_has_tail_call(decider) || jumps.iter().any(|(_, e)| has_tail_call(e))
+        }
+        Expr::Bool(_)
+        | Expr::Chr(_)
+        | Expr::Str(_)
+        | Expr::Int(_)
+        | Expr::Float(_)
+        | Expr::VarLocal(_)
+        | Expr::VarGlobal(_)
+        | Expr::VarEnum(..)
+        | Expr::VarBox(_)
+        | Expr::VarCycle(..)
+        | Expr::VarDebug { .. }
+        | Expr::VarKernel { .. }
+        | Expr::List(_)
+        | Expr::Function(..)
+        | Expr::Call(..)
+        | Expr::Accessor(_)
+        | Expr::Access(..)
+        | Expr::Update(..)
+        | Expr::Record(_)
+        | Expr::Unit
+        | Expr::Tuple(..)
+        | Expr::Shader { .. } => false,
+    }
+}
+
+/// `hasTailCall` of a decision's inlined branches.
+fn decider_has_tail_call(decider: &Decider<Choice>) -> bool {
+    match decider {
+        Decider::Leaf(Choice::Inline(expr)) => has_tail_call(expr),
+        Decider::Leaf(Choice::Jump(_)) => false,
+        Decider::Chain {
+            success, failure, ..
+        } => decider_has_tail_call(success) || decider_has_tail_call(failure),
+        Decider::FanOut {
+            tests, fallback, ..
+        } => decider_has_tail_call(fallback) || tests.iter().any(|(_, d)| decider_has_tail_call(d)),
     }
 }

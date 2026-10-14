@@ -13,25 +13,41 @@ use std::collections::BTreeMap;
 use nomi_base::{Text, TextRange};
 
 use super::expected::{Category, Expected, PCategory, PExpected};
+use super::names::{to_annotation, to_error_type};
 use super::occurs::occurs;
-use super::unify::{Answer, unify};
+use super::unify::{Mismatched, unify};
 use super::{
-    Constraint, Content, Descriptor, FlatType, Mark, NO_MARK, NO_RANK, OUTERMOST_RANK, SuperType,
-    Type, Variable, Variables, error, in_name_order,
+    AliasReal, Constraint, Content, Descriptor, FlatType, Mark, NO_MARK, NO_RANK, OUTERMOST_RANK,
+    Type, Variable, Variables, children, error, in_name_order,
 };
 use crate::canonical::{self, AliasType};
 
 /// `Error.Error`: a type error, as the solver finds it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TypeError {
-    BadExpr(TextRange, Category, error::Type, Expected<error::Type>),
-    BadPattern(TextRange, PCategory, error::Type, PExpected<error::Type>),
-    InfiniteType(TextRange, String, error::Type),
+    BadExpr {
+        region: TextRange,
+        category: Category,
+        actual: error::Type,
+        expected: Expected<error::Type>,
+    },
+    BadPattern {
+        region: TextRange,
+        category: PCategory,
+        actual: error::Type,
+        expected: PExpected<error::Type>,
+    },
+    /// A local whose type contains itself: its name, and its type.
+    InfiniteType {
+        region: TextRange,
+        name: String,
+        ty: error::Type,
+    },
 }
 
 /// `run`: the annotation of every top-level value, or the errors, the
 /// latest first, as upstream's list has them.
-pub fn run(
+pub(super) fn run(
     vars: &mut Variables,
     constraint: &Constraint,
 ) -> Result<BTreeMap<String, canonical::Annotation>, Vec<TypeError>> {
@@ -53,7 +69,7 @@ pub fn run(
     if errors.is_empty() {
         Ok(saved
             .into_iter()
-            .map(|(name, var)| (name, vars.to_annotation(var)))
+            .map(|(name, var)| (name, to_annotation(vars, var)))
             .collect())
     } else {
         errors.reverse();
@@ -75,68 +91,71 @@ struct Solver<'v> {
     errors: Vec<TypeError>,
 }
 
+/// A name a `let` header binds, where, and its variable.
+struct Local {
+    name: String,
+    region: TextRange,
+    var: Variable,
+}
+
 impl Solver<'_> {
     fn solve(&mut self, rank: u32, constraint: &Constraint) {
-        stacker::maybe_grow(128 * 1024, 2 * 1024 * 1024, || {
-            self.solve_(rank, constraint);
-        });
+        nomi_base::grow_large(|| self.solve_(rank, constraint));
     }
 
     fn solve_(&mut self, rank: u32, constraint: &Constraint) {
         match constraint {
             Constraint::True => {}
             Constraint::SaveTheEnvironment => self.saved = self.env.clone(),
-            Constraint::Equal(region, category, ty, expectation) => {
+            Constraint::Equal {
+                region,
+                category,
+                ty,
+                expected,
+            } => {
                 let actual = self.type_to_variable(rank, ty);
-                let expected = self.type_to_variable(rank, expectation.ty());
-                if let Some((actual, expected)) = self.unify(rank, actual, expected) {
-                    let err = TypeError::BadExpr(
-                        *region,
-                        category.clone(),
-                        actual,
-                        expectation.replace(expected),
-                    );
-                    self.errors.push(err);
-                }
+                self.check_expr(rank, *region, actual, expected, || category.clone());
             }
-            Constraint::Local(region, name, expectation) => {
-                let var = self.env[name];
-                let actual = self.make_copy(rank, var);
-                let expected = self.type_to_variable(rank, expectation.ty());
-                if let Some((actual, expected)) = self.unify(rank, actual, expected) {
-                    let category = Category::Local(name.clone());
-                    self.errors.push(TypeError::BadExpr(
-                        *region,
-                        category,
-                        actual,
-                        expectation.replace(expected),
-                    ));
-                }
+            Constraint::Local {
+                region,
+                name,
+                expected,
+            } => {
+                let actual = self.make_copy(rank, self.env[name]);
+                self.check_expr(rank, *region, actual, expected, || {
+                    Category::Local(name.clone())
+                });
             }
-            Constraint::Foreign(region, name, annotation, expectation) => {
+            Constraint::Foreign {
+                region,
+                name,
+                annotation,
+                expected,
+            } => {
                 let actual = self.src_type_to_variable(rank, &annotation.free, &annotation.ty);
-                let expected = self.type_to_variable(rank, expectation.ty());
-                if let Some((actual, expected)) = self.unify(rank, actual, expected) {
-                    let category = Category::Foreign(name.clone());
-                    self.errors.push(TypeError::BadExpr(
-                        *region,
-                        category,
-                        actual,
-                        expectation.replace(expected),
-                    ));
-                }
+                self.check_expr(rank, *region, actual, expected, || {
+                    Category::Foreign(name.clone())
+                });
             }
-            Constraint::Pattern(region, category, ty, expectation) => {
+            Constraint::Pattern {
+                region,
+                category,
+                ty,
+                expected,
+            } => {
                 let actual = self.type_to_variable(rank, ty);
-                let expected = self.type_to_variable(rank, expectation.ty());
-                if let Some((actual, expected)) = self.unify(rank, actual, expected) {
-                    let err = TypeError::BadPattern(
-                        *region,
-                        category.clone(),
+                let expected_var = self.type_to_variable(rank, expected.ty());
+                if let Some(mismatch) = self.unify(rank, actual, expected_var) {
+                    let Mismatched {
                         actual,
-                        expectation.replace(expected),
-                    );
-                    self.errors.push(err);
+                        expected: found,
+                    } = *mismatch;
+                    self.errors.push(TypeError::BadPattern {
+                        region: *region,
+                        category: category.clone(),
+                        actual,
+                        expected: expected.replace(found),
+                    });
                 }
             }
             Constraint::And(constraints) => {
@@ -163,10 +182,7 @@ impl Solver<'_> {
             } if rigid_vars.is_empty() && flex_vars.is_empty() => {
                 self.solve(rank, header_con);
                 let locals = self.locals(rank, header);
-                let added = self.extend_env(&locals);
-                self.solve(rank, body_con);
-                self.restore_env(added);
-                self.occurs_checks(&locals);
+                self.solve_body(rank, &locals, body_con);
             }
             Constraint::Let {
                 rigid_vars,
@@ -174,35 +190,79 @@ impl Solver<'_> {
                 header,
                 header_con,
                 body_con,
-            } => {
-                // Work in the next pool, to localize the header.
-                let next = rank + 1;
-                if next as usize >= self.pools.len() {
-                    let len = self.pools.len();
-                    self.pools.resize(len * 2, Vec::new());
-                }
-                let all: Vec<Variable> = rigid_vars.iter().chain(flex_vars).copied().collect();
-                for &var in &all {
-                    self.vars.get_mut(var).rank = next;
-                }
-                self.pools[next as usize] = all.into_iter().rev().collect();
-                let locals = self.locals(next, header);
-                self.solve(next, header_con);
-                let young = self.mark;
-                let visit = young.next();
-                let final_mark = visit.next();
-                self.generalize(young, visit, next);
-                self.pools[next as usize].clear();
-                for &rigid in rigid_vars {
-                    self.is_generic(rigid);
-                }
-                self.mark = final_mark;
-                let added = self.extend_env(&locals);
-                self.solve(rank, body_con);
-                self.restore_env(added);
-                self.occurs_checks(&locals);
-            }
+            } => self.solve_let(rank, rigid_vars, flex_vars, header, header_con, body_con),
         }
+    }
+
+    /// The `Equal`, `Local` and `Foreign` constraints' end: `actual`
+    /// against what `expected` expects, a mismatch an error of
+    /// `category`.
+    fn check_expr(
+        &mut self,
+        rank: u32,
+        region: TextRange,
+        actual: Variable,
+        expected: &Expected<Type>,
+        category: impl FnOnce() -> Category,
+    ) {
+        let expected_var = self.type_to_variable(rank, expected.ty());
+        if let Some(mismatch) = self.unify(rank, actual, expected_var) {
+            let Mismatched {
+                actual,
+                expected: found,
+            } = *mismatch;
+            self.errors.push(TypeError::BadExpr {
+                region,
+                category: category(),
+                actual,
+                expected: expected.replace(found),
+            });
+        }
+    }
+
+    /// A generalizing `CLet`: the header solved a rank deeper, what
+    /// didn't escape generalized, then the body.
+    fn solve_let(
+        &mut self,
+        rank: u32,
+        rigid_vars: &[Variable],
+        flex_vars: &[Variable],
+        header: &BTreeMap<String, (TextRange, Type)>,
+        header_con: &Constraint,
+        body_con: &Constraint,
+    ) {
+        // Work in the next pool, to localize the header.
+        let next = rank + 1;
+        if next as usize >= self.pools.len() {
+            let len = self.pools.len();
+            self.pools.resize(len * 2, Vec::new());
+        }
+        let all: Vec<Variable> = rigid_vars.iter().chain(flex_vars).copied().collect();
+        for &var in &all {
+            self.vars.get_mut(var).rank = next;
+        }
+        self.pools[next as usize] = all.into_iter().rev().collect();
+        let locals = self.locals(next, header);
+        self.solve(next, header_con);
+        let young = self.mark;
+        let visit = young.next();
+        let final_mark = visit.next();
+        self.generalize(young, visit, next);
+        self.pools[next as usize].clear();
+        for &rigid in rigid_vars {
+            self.assert_generic(rigid);
+        }
+        self.mark = final_mark;
+        self.solve_body(rank, &locals, body_con);
+    }
+
+    /// A `CLet`'s body, its header's locals in scope, then their occurs
+    /// checks.
+    fn solve_body(&mut self, rank: u32, locals: &[Local], body_con: &Constraint) {
+        let added = self.extend_env(locals);
+        self.solve(rank, body_con);
+        self.restore_env(added);
+        self.occurs_checks(locals);
     }
 
     /// Unifies, pooling the variables unification made; on a mismatch,
@@ -212,38 +272,31 @@ impl Solver<'_> {
         rank: u32,
         actual: Variable,
         expected: Variable,
-    ) -> Option<(error::Type, error::Type)> {
-        match unify(self.vars, actual, expected) {
-            Answer::Ok(made) => {
-                self.introduce(rank, &made);
-                None
-            }
-            Answer::Err(made, actual, expected) => {
-                self.introduce(rank, &made);
-                Some((*actual, *expected))
-            }
-        }
+    ) -> Option<Box<Mismatched>> {
+        let answer = unify(self.vars, actual, expected);
+        self.introduce(rank, &answer.fresh);
+        answer.mismatch
     }
 
     /// The header's types as variables, by name with their regions.
-    fn locals(
-        &mut self,
-        rank: u32,
-        header: &BTreeMap<String, (TextRange, Type)>,
-    ) -> Vec<(String, TextRange, Variable)> {
+    fn locals(&mut self, rank: u32, header: &BTreeMap<String, (TextRange, Type)>) -> Vec<Local> {
         (in_name_order(self.vars.compat, header).into_iter())
-            .map(|(name, (region, ty))| (name.clone(), *region, self.type_to_variable(rank, ty)))
+            .map(|(name, (region, ty))| Local {
+                name: name.clone(),
+                region: *region,
+                var: self.type_to_variable(rank, ty),
+            })
             .collect()
     }
 
     /// `Map.union env locals`: a name in scope already keeps its
     /// variable. The names added, to take out again.
-    fn extend_env(&mut self, locals: &[(String, TextRange, Variable)]) -> Vec<String> {
+    fn extend_env(&mut self, locals: &[Local]) -> Vec<String> {
         let mut added = Vec::new();
-        for (name, _, var) in locals {
-            if !self.env.contains_key(name) {
-                self.env.insert(name.clone(), *var);
-                added.push(name.clone());
+        for local in locals {
+            if !self.env.contains_key(&local.name) {
+                self.env.insert(local.name.clone(), local.var);
+                added.push(local.name.clone());
             }
         }
         added
@@ -257,22 +310,26 @@ impl Solver<'_> {
 
     /// `occurs`, for each local in name order: a type containing itself
     /// is an error, and its variable becomes one.
-    fn occurs_checks(&mut self, locals: &[(String, TextRange, Variable)]) {
-        for (name, region, var) in locals {
-            if occurs(self.vars, *var) {
-                let ty = self.vars.to_error_type(*var);
-                self.vars.get_mut(*var).content = Content::Error;
-                self.errors
-                    .push(TypeError::InfiniteType(*region, name.clone(), ty));
+    fn occurs_checks(&mut self, locals: &[Local]) {
+        for local in locals {
+            if occurs(self.vars, local.var) {
+                let ty = to_error_type(self.vars, local.var);
+                self.vars.get_mut(local.var).content = Content::Error;
+                self.errors.push(TypeError::InfiniteType {
+                    region: local.region,
+                    name: local.name.clone(),
+                    ty,
+                });
             }
         }
     }
 
-    /// `isGeneric`: a rigid variable generalized, as every one must be.
-    fn is_generic(&mut self, var: Variable) {
+    /// `isGeneric`: panics unless the rigid variable `var` was
+    /// generalized, as every one must be.
+    fn assert_generic(&mut self, var: Variable) {
         let rank = self.vars.get(var).rank;
         if rank != NO_RANK {
-            let ty = self.vars.to_error_type(var);
+            let ty = to_error_type(self.vars, var);
             panic!("a rigid variable escaped its annotation: {ty:?} [rank = {rank}]");
         }
     }
@@ -288,34 +345,22 @@ impl Solver<'_> {
 
     /// `register`: a fresh variable for `content`, pooled.
     fn register(&mut self, rank: u32, content: Content) -> Variable {
-        let var = self.vars.fresh_descriptor(Descriptor {
-            content,
-            rank,
-            mark: NO_MARK,
-            copy: None,
-        });
+        let var = self
+            .vars
+            .fresh_descriptor(Descriptor::at_rank(content, rank));
         self.pools[rank as usize].push(var);
         var
     }
 
-    /// `typeToVariable`.
+    /// `typeToVariable`. Constraint generation makes no place holders,
+    /// so `typeToVar`'s aliases in scope are never looked at.
     fn type_to_variable(&mut self, rank: u32, ty: &Type) -> Variable {
-        self.type_to_var(rank, &BTreeMap::new(), ty)
-    }
-
-    /// `typeToVar`.
-    fn type_to_var(
-        &mut self,
-        rank: u32,
-        aliases: &BTreeMap<String, Variable>,
-        ty: &Type,
-    ) -> Variable {
-        stacker::maybe_grow(64 * 1024, 1024 * 1024, || match ty {
+        nomi_base::grow(|| match ty {
             Type::Var(v) => *v,
             Type::App(home, name, args) => {
                 let args = args
                     .iter()
-                    .map(|a| self.type_to_var(rank, aliases, a))
+                    .map(|a| self.type_to_variable(rank, a))
                     .collect();
                 self.register(
                     rank,
@@ -323,34 +368,32 @@ impl Solver<'_> {
                 )
             }
             Type::Fun(a, b) => {
-                let a = self.type_to_var(rank, aliases, a);
-                let b = self.type_to_var(rank, aliases, b);
+                let a = self.type_to_variable(rank, a);
+                let b = self.type_to_variable(rank, b);
                 self.register(rank, Content::Structure(FlatType::Fun1(a, b)))
             }
             Type::Alias(home, name, args, real) => {
                 let args: Vec<(String, Variable)> = args
                     .iter()
-                    .map(|(n, a)| (n.clone(), self.type_to_var(rank, aliases, a)))
+                    .map(|(n, a)| (n.clone(), self.type_to_variable(rank, a)))
                     .collect();
-                let dict: BTreeMap<String, Variable> = args.iter().cloned().collect();
-                let real = self.type_to_var(rank, &dict, real);
+                let real = self.type_to_variable(rank, real);
                 self.register(rank, Content::Alias(home.clone(), name.clone(), args, real))
             }
-            Type::PlaceHolder(name) => aliases[name],
             Type::Record(fields, ext) => {
                 let fields = fields
                     .iter()
-                    .map(|(n, f)| (n.clone(), self.type_to_var(rank, aliases, f)))
+                    .map(|(n, f)| (n.clone(), self.type_to_variable(rank, f)))
                     .collect();
-                let ext = self.type_to_var(rank, aliases, ext);
+                let ext = self.type_to_variable(rank, ext);
                 self.register(rank, Content::Structure(FlatType::Record1(fields, ext)))
             }
             Type::EmptyRecord => self.register(rank, Content::Structure(FlatType::EmptyRecord1)),
             Type::Unit => self.register(rank, Content::Structure(FlatType::Unit1)),
             Type::Tuple(a, b, c) => {
-                let a = self.type_to_var(rank, aliases, a);
-                let b = self.type_to_var(rank, aliases, b);
-                let c = c.as_ref().map(|c| self.type_to_var(rank, aliases, c));
+                let a = self.type_to_variable(rank, a);
+                let b = self.type_to_variable(rank, b);
+                let c = c.as_ref().map(|c| self.type_to_variable(rank, c));
                 self.register(rank, Content::Structure(FlatType::Tuple1(a, b, c)))
             }
         })
@@ -370,16 +413,9 @@ impl Solver<'_> {
         let mut flex = BTreeMap::new();
         let mut made = Vec::new();
         for name in names {
-            let content = match SuperType::of_name(name) {
-                Some(s) => Content::FlexSuper(s, Some(name.clone())),
-                None => Content::FlexVar(Some(name.clone())),
-            };
-            let var = self.vars.fresh_descriptor(Descriptor {
-                content,
-                rank,
-                mark: NO_MARK,
-                copy: None,
-            });
+            let var = self
+                .vars
+                .fresh_descriptor(Descriptor::at_rank(Content::flex_named(name), rank));
             flex.insert(name.clone(), var);
             made.push(var);
         }
@@ -395,7 +431,7 @@ impl Solver<'_> {
         ty: &canonical::Type,
     ) -> Variable {
         use canonical::Type as C;
-        stacker::maybe_grow(64 * 1024, 1024 * 1024, || match ty {
+        nomi_base::grow(|| match ty {
             C::Lambda(a, b) => {
                 let a = self.src_type_to_var(rank, flex, a);
                 let b = self.src_type_to_var(rank, flex, b);
@@ -464,37 +500,23 @@ impl Solver<'_> {
 
     /// `makeCopyHelp`.
     fn copy_help(&mut self, max_rank: u32, var: Variable) -> Variable {
-        stacker::maybe_grow(64 * 1024, 1024 * 1024, || {
-            let Descriptor {
-                content,
-                rank,
-                copy,
-                ..
-            } = self.vars.get(var).clone();
-            if let Some(copy) = copy {
+        nomi_base::grow(|| {
+            let descriptor = self.vars.get(var);
+            if let Some(copy) = descriptor.copy {
                 return copy;
             }
-            if rank != NO_RANK {
+            if descriptor.rank != NO_RANK {
                 return var;
             }
-            let fresh = |content| Descriptor {
-                content,
-                rank: max_rank,
-                mark: NO_MARK,
-                copy: None,
-            };
-            let copy = self.vars.fresh_descriptor(fresh(content.clone()));
+            let content = descriptor.content.clone();
+            let copy = self
+                .vars
+                .fresh_descriptor(Descriptor::at_rank(content.clone(), max_rank));
             self.pools[max_rank as usize].push(copy);
             // Linked before copying the parts, so a cycle stops here.
-            self.vars.set(
-                var,
-                Descriptor {
-                    content: content.clone(),
-                    rank,
-                    mark: NO_MARK,
-                    copy: Some(copy),
-                },
-            );
+            let descriptor = self.vars.get_mut(var);
+            descriptor.mark = NO_MARK;
+            descriptor.copy = Some(copy);
             let new_content = match content {
                 Content::Structure(flat) => Content::Structure(self.copy_flat(max_rank, flat)),
                 Content::FlexVar(_) | Content::FlexSuper(..) | Content::Error => return copy,
@@ -509,7 +531,8 @@ impl Solver<'_> {
                     Content::Alias(home, name, args, real)
                 }
             };
-            self.vars.set(copy, fresh(new_content));
+            self.vars
+                .set(copy, Descriptor::at_rank(new_content, max_rank));
             copy
         })
     }
@@ -541,21 +564,15 @@ impl Solver<'_> {
 
     /// `restore`: the copy links undone.
     fn restore(&mut self, var: Variable) {
-        stacker::maybe_grow(64 * 1024, 1024 * 1024, || {
-            let Descriptor { content, copy, .. } = self.vars.get(var).clone();
-            if copy.is_none() {
+        nomi_base::grow(|| {
+            let descriptor = self.vars.get_mut(var);
+            if descriptor.copy.is_none() {
                 return;
             }
-            self.vars.set(
-                var,
-                Descriptor {
-                    content: content.clone(),
-                    rank: NO_RANK,
-                    mark: NO_MARK,
-                    copy: None,
-                },
-            );
-            for child in children(&content) {
+            descriptor.rank = NO_RANK;
+            descriptor.mark = NO_MARK;
+            descriptor.copy = None;
+            for child in children(&descriptor.content, AliasReal::Include) {
                 self.restore(child);
             }
         });
@@ -604,16 +621,13 @@ impl Solver<'_> {
     /// `adjustRank`: ranks never increase going deeper, so a structure's
     /// outermost rank stands for all of it.
     fn adjust_rank(&mut self, young: Mark, visit: Mark, group_rank: u32, var: Variable) -> u32 {
-        stacker::maybe_grow(64 * 1024, 1024 * 1024, || {
-            let Descriptor {
-                content,
-                rank,
-                mark,
-                ..
-            } = self.vars.get(var).clone();
+        nomi_base::grow(|| {
+            let descriptor = self.vars.get_mut(var);
+            let (rank, mark) = (descriptor.rank, descriptor.mark);
             if mark == young {
                 // Marked first, since it may be cyclic.
-                self.vars.get_mut(var).mark = visit;
+                descriptor.mark = visit;
+                let content = descriptor.content.clone();
                 let max_rank = self.adjust_content(young, visit, group_rank, &content);
                 self.vars.get_mut(var).rank = max_rank;
                 max_rank
@@ -621,7 +635,6 @@ impl Solver<'_> {
                 rank
             } else {
                 let min_rank = group_rank.min(rank);
-                let descriptor = self.vars.get_mut(var);
                 descriptor.rank = min_rank;
                 descriptor.mark = visit;
                 min_rank
@@ -671,24 +684,5 @@ impl Solver<'_> {
                 args.iter().fold(OUTERMOST_RANK, |r, (_, a)| r.max(go(*a)))
             }
         }
-    }
-}
-
-/// The variables a content holds, as `restoreContent` visits them.
-fn children(content: &Content) -> Vec<Variable> {
-    match content {
-        Content::FlexVar(_)
-        | Content::FlexSuper(..)
-        | Content::RigidVar(_)
-        | Content::RigidSuper(..)
-        | Content::Error => Vec::new(),
-        Content::Structure(flat) => match flat {
-            FlatType::App1(_, _, args) => args.clone(),
-            FlatType::Fun1(a, b) => vec![*a, *b],
-            FlatType::EmptyRecord1 | FlatType::Unit1 => Vec::new(),
-            FlatType::Record1(fields, ext) => fields.values().copied().chain([*ext]).collect(),
-            FlatType::Tuple1(a, b, c) => [Some(*a), Some(*b), *c].into_iter().flatten().collect(),
-        },
-        Content::Alias(_, _, args, real) => args.iter().map(|(_, a)| *a).chain([*real]).collect(),
     }
 }

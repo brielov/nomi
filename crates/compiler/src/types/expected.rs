@@ -13,40 +13,38 @@ pub enum Expected<T> {
     NoExpectation(T),
     FromContext(TextRange, Context, T),
     /// The annotated name, its arity, and where in its body.
-    FromAnnotation(String, usize, SubContext, T),
+    FromAnnotation {
+        name: String,
+        arity: usize,
+        sub: SubContext,
+        ty: T,
+    },
 }
 
 impl<T> Expected<T> {
-    pub fn ty(&self) -> &T {
+    pub(crate) fn ty(&self) -> &T {
         match self {
             Expected::NoExpectation(t)
             | Expected::FromContext(_, _, t)
-            | Expected::FromAnnotation(_, _, _, t) => t,
+            | Expected::FromAnnotation { ty: t, .. } => t,
         }
     }
 
     /// `typeReplace`: the same expectation of another type.
-    pub fn replace<U>(&self, ty: U) -> Expected<U> {
+    pub(crate) fn replace<U>(&self, ty: U) -> Expected<U> {
         match self {
             Expected::NoExpectation(_) => Expected::NoExpectation(ty),
             Expected::FromContext(region, context, _) => {
                 Expected::FromContext(*region, context.clone(), ty)
             }
-            Expected::FromAnnotation(name, arity, sub, _) => {
-                Expected::FromAnnotation(name.clone(), *arity, *sub, ty)
-            }
-        }
-    }
-
-    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Expected<U> {
-        match self {
-            Expected::NoExpectation(t) => Expected::NoExpectation(f(t)),
-            Expected::FromContext(region, context, t) => {
-                Expected::FromContext(region, context, f(t))
-            }
-            Expected::FromAnnotation(name, arity, sub, t) => {
-                Expected::FromAnnotation(name, arity, sub, f(t))
-            }
+            Expected::FromAnnotation {
+                name, arity, sub, ..
+            } => Expected::FromAnnotation {
+                name: name.clone(),
+                arity: *arity,
+                sub: *sub,
+                ty,
+            },
         }
     }
 }
@@ -63,9 +61,14 @@ pub enum Context {
     CaseBranch(usize),
     CallArity(MaybeName, usize),
     CallArg(MaybeName, usize),
-    /// The record's region, its name if it is a variable, the field's
-    /// region and the field.
-    RecordAccess(TextRange, Option<String>, TextRange, String),
+    /// An access of `field` in `record`, which is named where it is a
+    /// variable.
+    RecordAccess {
+        record: TextRange,
+        record_name: Option<String>,
+        field_region: TextRange,
+        field: String,
+    },
     /// The record, and each updated field's region.
     RecordUpdateKeys(String, BTreeMap<String, TextRange>),
     RecordUpdateValue(String),
@@ -120,27 +123,18 @@ pub enum PExpected<T> {
 }
 
 impl<T> PExpected<T> {
-    pub fn ty(&self) -> &T {
+    pub(crate) fn ty(&self) -> &T {
         match self {
             PExpected::PNoExpectation(t) | PExpected::PFromContext(_, _, t) => t,
         }
     }
 
     /// `ptypeReplace`.
-    pub fn replace<U>(&self, ty: U) -> PExpected<U> {
+    pub(crate) fn replace<U>(&self, ty: U) -> PExpected<U> {
         match self {
             PExpected::PNoExpectation(_) => PExpected::PNoExpectation(ty),
             PExpected::PFromContext(region, context, _) => {
                 PExpected::PFromContext(*region, context.clone(), ty)
-            }
-        }
-    }
-
-    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> PExpected<U> {
-        match self {
-            PExpected::PNoExpectation(t) => PExpected::PNoExpectation(f(t)),
-            PExpected::PFromContext(region, context, t) => {
-                PExpected::PFromContext(region, context, f(t))
             }
         }
     }

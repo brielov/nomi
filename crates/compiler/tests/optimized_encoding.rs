@@ -9,23 +9,18 @@ use std::path::{Path, PathBuf};
 use nomi_base::Compat;
 use nomi_compiler::optimized::binary;
 
-const RELEASES: [(&str, Compat); 3] = [
-    ("elm-0.19.1", Compat::V0_19_1),
-    ("elm-0.19.2", Compat::V0_19_2),
-    ("elm-0.19.3", Compat::V0_19_3),
-];
-
-fn artifacts(elm: &str) -> PathBuf {
+/// What each release wrote, under `elm-<release>/`.
+fn artifacts(compat: Compat) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/optimized/artifacts")
-        .join(elm)
+        .join(format!("elm-{compat}"))
 }
 
 #[test]
 fn module_graphs_round_trip() {
     let mut checked = 0;
-    for (elm, compat) in RELEASES {
-        for case in fs::read_dir(artifacts(elm)).unwrap() {
+    for compat in Compat::ALL {
+        for case in fs::read_dir(artifacts(compat)).unwrap() {
             let case = case.unwrap().path();
             if !case.is_dir() {
                 continue;
@@ -46,8 +41,8 @@ fn module_graphs_round_trip() {
 
 #[test]
 fn dependency_graphs_round_trip() {
-    for (elm, compat) in RELEASES {
-        let path = artifacts(elm).join("o.dat");
+    for compat in Compat::ALL {
+        let path = artifacts(compat).join("o.dat");
         let bytes = fs::read(&path).unwrap();
         let graph = binary::decode_global_graph(&bytes, compat)
             .unwrap_or_else(|| panic!("{} doesn't decode", path.display()));

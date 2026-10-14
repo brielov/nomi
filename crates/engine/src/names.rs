@@ -21,6 +21,7 @@ use nomi_compiler::interface::{Interface, Interfaces};
 use nomi_compiler::nitpick::{main as main_check, patterns, report as patterns_report};
 use nomi_compiler::optimize;
 use nomi_compiler::optimized::{LocalGraph, binary};
+use nomi_compiler::report::ReportContext;
 use nomi_compiler::types::localizer::Localizer;
 use nomi_compiler::types::report as types_report;
 use nomi_project::{ModuleName, Name};
@@ -541,7 +542,7 @@ impl Walk<'_> {
                     if !pattern_errors.is_empty() {
                         let source = Source::new(&module.text);
                         let trim = |range| trim(&root, range);
-                        let cx = patterns_report::ReportContext {
+                        let cx = ReportContext {
                             source: &source,
                             compat: self.env.compat(),
                             trim: &trim,
@@ -565,13 +566,12 @@ impl Walk<'_> {
                         let imports = with_defaults(&self.package, &hir.imports);
                         let localizer =
                             Localizer::from_module(self.env.compat(), hir.name(), &imports);
-                        let problem = main_check::to_problem(
-                            &error,
-                            &source,
-                            self.env.compat(),
-                            &trim,
-                            &localizer,
-                        );
+                        let cx = ReportContext {
+                            source: &source,
+                            compat: self.env.compat(),
+                            trim: &trim,
+                        };
+                        let problem = main_check::to_problem(&error, &cx, &localizer);
                         self.problems
                             .lock()
                             .unwrap()
@@ -587,8 +587,14 @@ impl Walk<'_> {
                             Ok(docs) => self.docs.lock().unwrap().push((i, docs)),
                             Err(error) => {
                                 let source = Source::new(&module.text);
-                                let problems =
-                                    docs::report::to_problems(&error, &source, self.env.compat());
+                                // Documentation's regions have no trivia
+                                // in front.
+                                let cx = ReportContext {
+                                    source: &source,
+                                    compat: self.env.compat(),
+                                    trim: &|range| range,
+                                };
+                                let problems = docs::report::to_problems(&error, &cx);
                                 self.problems
                                     .lock()
                                     .unwrap()
@@ -640,17 +646,16 @@ impl Walk<'_> {
                     let imports = with_defaults(&self.package, &hir.imports);
                     let localizer = Localizer::from_module(self.env.compat(), hir.name(), &imports);
                     let trim = |range| trim(&root, range);
-                    let cx = types_report::ReportContext {
+                    let cx = ReportContext {
                         source: &source,
                         compat: self.env.compat(),
                         trim: &trim,
-                        localizer: &localizer,
                     };
                     // In the solver's order, the latest first, as
                     // upstream reports them.
                     let problems = errors
                         .iter()
-                        .map(|e| types_report::to_problem(e, &cx))
+                        .map(|e| types_report::to_problem(e, &cx, &localizer))
                         .collect();
                     self.problems
                         .lock()

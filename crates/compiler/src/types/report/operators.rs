@@ -1,33 +1,143 @@
 //! Calls and operators: each operator's own explanation of a bad side.
 
-use super::*;
+use nomi_base::diagnostic::doc::{
+    Color, Doc, dull_yellow as yellow, fill_sep, green, hint, link, reflow, simple_hint,
+    simple_note, stack, text, vcat, words,
+};
+
+use super::t::Type;
+use super::{HintOrder, add_category, int_and_float_values, lone_type, type_comparison};
+use crate::canonical::Home;
+use crate::types::expected::Category;
+use crate::types::localizer::Localizer;
+use crate::types::{self, SuperType};
 
 /// `countArgs`.
-pub(super) fn count_args(ty: &t::Type) -> usize {
+pub(super) fn count_args(ty: &Type) -> usize {
     match ty {
-        t::Type::Lambda(_, _, rest) => 1 + rest.len(),
-        _ => 0,
+        Type::Lambda(_, _, rest) => 1 + rest.len(),
+        Type::Infinite
+        | Type::Error
+        | Type::FlexVar(_)
+        | Type::FlexSuper(..)
+        | Type::RigidVar(_)
+        | Type::RigidSuper(..)
+        | Type::Type(..)
+        | Type::Record(..)
+        | Type::Unit
+        | Type::Tuple(..)
+        | Type::Alias(..) => 0,
     }
 }
 
-fn atom(ty: &t::Type, test: fn(&crate::canonical::Home, &str) -> bool) -> bool {
-    matches!(ty, t::Type::Type(home, name, args) if args.is_empty() && test(home, name))
+fn atom(ty: &Type, test: fn(&Home, &str) -> bool) -> bool {
+    matches!(ty, Type::Type(home, name, args) if args.is_empty() && test(home, name))
 }
 
-fn is_int(ty: &t::Type) -> bool {
-    atom(ty, t::is_int)
+fn is_int(ty: &Type) -> bool {
+    atom(ty, types::is_int)
 }
 
-fn is_float(ty: &t::Type) -> bool {
-    atom(ty, t::is_float)
+fn is_float(ty: &Type) -> bool {
+    atom(ty, types::is_float)
 }
 
-fn is_string(ty: &t::Type) -> bool {
-    atom(ty, t::is_string)
+fn is_string(ty: &Type) -> bool {
+    atom(ty, types::is_string)
 }
 
-fn is_list(ty: &t::Type) -> bool {
-    matches!(ty, t::Type::Type(home, name, args) if args.len() == 1 && t::is_list(home, name))
+/// The element type of a list type.
+fn list_element(ty: &Type) -> Option<&Type> {
+    match ty {
+        Type::Type(home, name, args) if types::is_list(home, name) => match args.as_slice() {
+            [element] => Some(element),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// What a report says of a bad operand: the problem, and the details.
+pub(super) struct Explanation {
+    pub(super) problem: Doc,
+    pub(super) details: Doc,
+}
+
+impl Explanation {
+    fn new(problem: Doc, details: Doc) -> Explanation {
+        Explanation { problem, details }
+    }
+}
+
+/// Which operand of an operator a report is about.
+#[derive(Clone, Copy)]
+enum Side {
+    Left,
+    Right,
+}
+
+impl Side {
+    fn as_str(self) -> &'static str {
+        match self {
+            Side::Left => "left",
+            Side::Right => "right",
+        }
+    }
+}
+
+/// The arithmetic operators `badMath` explains.
+#[derive(Clone, Copy)]
+enum MathOp {
+    Add,
+    Mul,
+    Sub,
+    Pow,
+}
+
+impl MathOp {
+    fn symbol(self) -> &'static str {
+        match self {
+            MathOp::Add => "+",
+            MathOp::Mul => "*",
+            MathOp::Sub => "-",
+            MathOp::Pow => "^",
+        }
+    }
+
+    fn operation(self) -> &'static str {
+        match self {
+            MathOp::Add => "Addition",
+            MathOp::Mul => "Multiplication",
+            MathOp::Sub => "Subtraction",
+            MathOp::Pow => "Exponentiation",
+        }
+    }
+}
+
+/// The explanations `opLeftToDocs` and `opRightToDocs` share: of an
+/// arithmetic or boolean operator's bad `side`.
+fn arithmetic(
+    localizer: &Localizer,
+    category: &Category,
+    op: &str,
+    side: Side,
+    ty: &Type,
+    expected: &Type,
+) -> Option<Explanation> {
+    let math = |math_op| bad_math(localizer, category, math_op, side, ty, expected, Vec::new());
+    Some(match op {
+        "+" if is_string(ty) => bad_string_add(),
+        "+" if list_element(ty).is_some() => bad_list_add(localizer, category, side, ty, expected),
+        "+" => math(MathOp::Add),
+        "*" if list_element(ty).is_some() => bad_list_mul(localizer, category, side, ty, expected),
+        "*" => math(MathOp::Mul),
+        "-" => math(MathOp::Sub),
+        "^" => math(MathOp::Pow),
+        "/" => bad_f_div(localizer, side, ty, expected),
+        "//" => bad_i_div(localizer, side, ty, expected),
+        "&&" | "||" => bad_bool(localizer, op, side, ty, expected),
+        _ => return None,
+    })
 }
 
 /// `opLeftToDocs`.
@@ -35,59 +145,16 @@ pub(super) fn op_left(
     localizer: &Localizer,
     category: &Category,
     op: &str,
-    ty: &t::Type,
-    expected: &t::Type,
-) -> (Doc, Doc) {
+    ty: &Type,
+    expected: &Type,
+) -> Explanation {
+    if let Some(explanation) = arithmetic(localizer, category, op, Side::Left, ty, expected) {
+        return explanation;
+    }
     match op {
-        "+" if is_string(ty) => bad_string_add(),
-        "+" if is_list(ty) => bad_list_add(localizer, category, "left", ty, expected),
-        "+" => bad_math(
-            localizer,
-            category,
-            "Addition",
-            "left",
-            "+",
-            ty,
-            expected,
-            Vec::new(),
-        ),
-        "*" if is_list(ty) => bad_list_mul(localizer, category, "left", ty, expected),
-        "*" => bad_math(
-            localizer,
-            category,
-            "Multiplication",
-            "left",
-            "*",
-            ty,
-            expected,
-            Vec::new(),
-        ),
-        "-" => bad_math(
-            localizer,
-            category,
-            "Subtraction",
-            "left",
-            "-",
-            ty,
-            expected,
-            Vec::new(),
-        ),
-        "^" => bad_math(
-            localizer,
-            category,
-            "Exponentiation",
-            "left",
-            "^",
-            ty,
-            expected,
-            Vec::new(),
-        ),
-        "/" => bad_f_div(localizer, "left", ty, expected),
-        "//" => bad_i_div(localizer, "left", ty, expected),
-        "&&" | "||" => bad_bool(localizer, op, "left", ty, expected),
-        "<" | ">" | "<=" | ">=" => bad_comp_left(localizer, category, op, "left", ty, expected),
+        "<" | ">" | "<=" | ">=" => bad_comp_left(localizer, category, op, ty, expected),
         "++" => bad_append_left(localizer, category, ty, expected),
-        "<|" => (
+        "<|" => Explanation::new(
             reflow("The left side of (<|) needs to be a function so I can pipe arguments to it!"),
             lone_type(
                 localizer,
@@ -97,7 +164,7 @@ pub(super) fn op_left(
                 vec![reflow("This needs to be some kind of function though!")],
             ),
         ),
-        _ => (
+        _ => Explanation::new(
             reflow(&format!("The left argument of ({op}) is causing problems:")),
             type_comparison(
                 localizer,
@@ -106,6 +173,7 @@ pub(super) fn op_left(
                 &add_category("The left argument is", category),
                 &format!("But ({op}) needs the left argument to be:"),
                 Vec::new(),
+                HintOrder::ContextFirst,
             ),
         ),
     }
@@ -113,8 +181,16 @@ pub(super) fn op_left(
 
 /// `RightDocs`: whether a report highlights both operands or the right.
 pub(super) enum RightDocs {
-    Both((Doc, Doc)),
-    Right((Doc, Doc)),
+    Both(Explanation),
+    Right(Explanation),
+}
+
+/// Which way Int and Float are mixed: `FloatInt` with the Float on the
+/// left.
+#[derive(Clone, Copy)]
+enum Cast {
+    FloatInt,
+    IntFloat,
 }
 
 /// `opRightToDocs`.
@@ -122,73 +198,28 @@ pub(super) fn op_right(
     localizer: &Localizer,
     category: &Category,
     op: &str,
-    ty: &t::Type,
-    expected: &t::Type,
+    ty: &Type,
+    expected: &Type,
 ) -> RightDocs {
     let cast = if is_float(expected) && is_int(ty) {
-        Some(true)
+        Some(Cast::FloatInt)
     } else if is_int(expected) && is_float(ty) {
-        Some(false)
+        Some(Cast::IntFloat)
     } else {
         None
     };
+    if let ("+" | "*" | "-" | "^", Some(cast)) = (op, cast) {
+        return bad_cast(op, cast);
+    }
+    if let Some(explanation) = arithmetic(localizer, category, op, Side::Right, ty, expected) {
+        return RightDocs::Right(explanation);
+    }
     match op {
-        "+" | "*" | "-" | "^" if cast.is_some() => bad_cast(op, cast == Some(true)),
-        "+" if is_string(ty) => RightDocs::Right(bad_string_add()),
-        "+" if is_list(ty) => {
-            RightDocs::Right(bad_list_add(localizer, category, "right", ty, expected))
-        }
-        "+" => RightDocs::Right(bad_math(
-            localizer,
-            category,
-            "Addition",
-            "right",
-            "+",
-            ty,
-            expected,
-            Vec::new(),
-        )),
-        "*" if is_list(ty) => {
-            RightDocs::Right(bad_list_mul(localizer, category, "right", ty, expected))
-        }
-        "*" => RightDocs::Right(bad_math(
-            localizer,
-            category,
-            "Multiplication",
-            "right",
-            "*",
-            ty,
-            expected,
-            Vec::new(),
-        )),
-        "-" => RightDocs::Right(bad_math(
-            localizer,
-            category,
-            "Subtraction",
-            "right",
-            "-",
-            ty,
-            expected,
-            Vec::new(),
-        )),
-        "^" => RightDocs::Right(bad_math(
-            localizer,
-            category,
-            "Exponentiation",
-            "right",
-            "^",
-            ty,
-            expected,
-            Vec::new(),
-        )),
-        "/" => RightDocs::Right(bad_f_div(localizer, "right", ty, expected)),
-        "//" => RightDocs::Right(bad_i_div(localizer, "right", ty, expected)),
-        "&&" | "||" => RightDocs::Right(bad_bool(localizer, op, "right", ty, expected)),
         "<" | ">" | "<=" | ">=" => bad_comp_right(localizer, op, ty, expected),
         "==" | "/=" => bad_equality(localizer, op, ty, expected),
         "::" => bad_cons_right(localizer, category, ty, expected),
         "++" => bad_append_right(localizer, category, ty, expected),
-        "<|" => RightDocs::Right((
+        "<|" => RightDocs::Right(Explanation::new(
             reflow("I cannot send this through the (<|) pipe:"),
             type_comparison(
                 localizer,
@@ -197,11 +228,12 @@ pub(super) fn op_right(
                 "The argument is:",
                 "But (<|) is piping it to a function that expects:",
                 Vec::new(),
+                HintOrder::ContextFirst,
             ),
         )),
         "|>" => match (ty, expected) {
-            (t::Type::Lambda(expected_arg, _, _), t::Type::Lambda(arg, _, _)) => {
-                RightDocs::Right((
+            (Type::Lambda(expected_arg, _, _), Type::Lambda(arg, _, _)) => {
+                RightDocs::Right(Explanation::new(
                     reflow("This function cannot handle the argument sent through the (|>) pipe:"),
                     type_comparison(
                         localizer,
@@ -210,10 +242,11 @@ pub(super) fn op_right(
                         "The argument is:",
                         "But (|>) is piping it to a function that expects:",
                         Vec::new(),
+                        HintOrder::ContextFirst,
                     ),
                 ))
             }
-            _ => RightDocs::Right((
+            _ => RightDocs::Right(Explanation::new(
                 reflow(
                     "The right side of (|>) needs to be a function so I can pipe arguments to it!",
                 ),
@@ -238,10 +271,10 @@ fn bad_op_right_fallback(
     localizer: &Localizer,
     category: &Category,
     op: &str,
-    ty: &t::Type,
-    expected: &t::Type,
+    ty: &Type,
+    expected: &Type,
 ) -> RightDocs {
-    RightDocs::Right((
+    RightDocs::Right(Explanation::new(
         reflow(&format!(
             "The right argument of ({op}) is causing problems."
         )),
@@ -254,6 +287,7 @@ fn bad_op_right_fallback(
             vec![simple_hint(&format!(
                 "With operators like ({op}) I always check the left side first. If it seems fine, I assume it is correct and check the right side. So the problem may be in how the left and right arguments interact!"
             ))],
+            HintOrder::ContextFirst,
         ),
     ))
 }
@@ -262,21 +296,19 @@ fn bad_op_right_fallback(
 fn bad_cons_right(
     localizer: &Localizer,
     category: &Category,
-    ty: &t::Type,
-    expected: &t::Type,
+    ty: &Type,
+    expected: &Type,
 ) -> RightDocs {
-    match (ty, expected) {
-        (t::Type::Type(h1, n1, a1), t::Type::Type(h2, n2, a2))
-            if a1.len() == 1 && t::is_list(h1, n1) && a2.len() == 1 && t::is_list(h2, n2) =>
-        {
-            let (actual_element, expected_element) = (&a1[0], &a2[0]);
-            let hint = match expected_element {
-                t::Type::Type(h, n, a) if a.len() == 1 && t::is_list(h, n) => simple_hint(
+    match (list_element(ty), list_element(expected)) {
+        (Some(actual_element), Some(expected_element)) => {
+            let hint = if list_element(expected_element).is_some() {
+                simple_hint(
                     "Are you trying to append two lists? The (++) operator appends lists, whereas the (::) operator is only for adding ONE element to a list.",
-                ),
-                _ => reflow("Lists need ALL elements to be the same type though."),
+                )
+            } else {
+                reflow("Lists need ALL elements to be the same type though.")
             };
-            RightDocs::Both((
+            RightDocs::Both(Explanation::new(
                 reflow("I am having trouble with this (::) operator:"),
                 type_comparison(
                     localizer,
@@ -285,17 +317,16 @@ fn bad_cons_right(
                     "The left side of (::) is:",
                     "But you are trying to put that into a list filled with:",
                     vec![hint],
+                    HintOrder::ContextFirst,
                 ),
             ))
         }
-        (t::Type::Type(h1, n1, a1), _) if a1.len() == 1 && t::is_list(h1, n1) => {
-            bad_op_right_fallback(localizer, category, "::", ty, expected)
-        }
-        _ => {
-            let mut details = words("But (::) needs a");
-            details.push(yellow(text("List")));
-            details.extend(words("on the right."));
-            RightDocs::Right((
+        (Some(_), None) => bad_op_right_fallback(localizer, category, "::", ty, expected),
+        (None, _) => {
+            let details = (words("But (::) needs a"))
+                .chain([yellow("List")])
+                .chain(words("on the right."));
+            RightDocs::Right(Explanation::new(
                 reflow("The (::) operator can only add elements onto lists."),
                 lone_type(
                     localizer,
@@ -311,25 +342,39 @@ fn bad_cons_right(
 
 /// `AppendType`.
 enum AppendType {
-    Number(&'static str, &'static str),
+    /// A number, called `thing`, which `convert` makes a string.
+    Number {
+        thing: &'static str,
+        convert: &'static str,
+    },
     String,
     List,
     Other,
 }
 
 /// `toAppendType`.
-fn append_type(ty: &t::Type) -> AppendType {
+fn append_type(ty: &Type) -> AppendType {
+    let number = |thing, convert| AppendType::Number { thing, convert };
     match ty {
-        t::Type::Type(home, name, _) if t::is_int(home, name) => {
-            AppendType::Number("Int", "String.fromInt")
+        Type::Type(home, name, _) if types::is_int(home, name) => number("Int", "String.fromInt"),
+        Type::Type(home, name, _) if types::is_float(home, name) => {
+            number("Float", "String.fromFloat")
         }
-        t::Type::Type(home, name, _) if t::is_float(home, name) => {
-            AppendType::Number("Float", "String.fromFloat")
-        }
-        t::Type::Type(home, name, _) if t::is_string(home, name) => AppendType::String,
-        t::Type::Type(home, name, _) if t::is_list(home, name) => AppendType::List,
-        t::Type::FlexSuper(Super::Number, _) => AppendType::Number("number", "String.fromInt"),
-        _ => AppendType::Other,
+        Type::Type(home, name, _) if types::is_string(home, name) => AppendType::String,
+        Type::Type(home, name, _) if types::is_list(home, name) => AppendType::List,
+        Type::FlexSuper(SuperType::Number, _) => number("number", "String.fromInt"),
+        Type::Type(..)
+        | Type::Lambda(..)
+        | Type::Infinite
+        | Type::Error
+        | Type::FlexVar(_)
+        | Type::FlexSuper(..)
+        | Type::RigidVar(_)
+        | Type::RigidSuper(..)
+        | Type::Record(..)
+        | Type::Unit
+        | Type::Tuple(..)
+        | Type::Alias(..) => AppendType::Other,
     }
 }
 
@@ -337,29 +382,27 @@ fn append_type(ty: &t::Type) -> AppendType {
 fn bad_append_left(
     localizer: &Localizer,
     category: &Category,
-    ty: &t::Type,
-    expected: &t::Type,
-) -> (Doc, Doc) {
-    if let AppendType::Number(thing, from) = append_type(ty) {
-        let mut first = words("The (++) operator can append List and String values, but not");
-        first.push(yellow(text(thing)));
-        first.extend(words("values like this:"));
-        let mut second = words("Try using");
-        second.push(green(text(from)));
-        second.extend(words(
+    ty: &Type,
+    expected: &Type,
+) -> Explanation {
+    if let AppendType::Number { thing, convert } = append_type(ty) {
+        let first = words("The (++) operator can append List and String values, but not")
+            .chain([yellow(thing)])
+            .chain(words("values like this:"));
+        let second = (words("Try using")).chain([green(convert)]).chain(words(
             "to turn it into a string? Or put it in [] to make it a list? Or switch to the (::) operator?",
         ));
-        (fill_sep(first), fill_sep(second))
+        Explanation::new(fill_sep(first), fill_sep(second))
     } else {
-        let mut details = words("But the (++) operator is only for appending");
-        details.extend([
-            yellow(text("List")),
-            text("and"),
-            yellow(text("String")),
-            text("values."),
-        ]);
-        details.extend(words("Maybe put this value in [] to make it a list?"));
-        (
+        let details = (words("But the (++) operator is only for appending"))
+            .chain([
+                yellow("List"),
+                text("and"),
+                yellow("String"),
+                text("values."),
+            ])
+            .chain(words("Maybe put this value in [] to make it a list?"));
+        Explanation::new(
             reflow("The (++) operator cannot append this type of value:"),
             lone_type(
                 localizer,
@@ -376,35 +419,34 @@ fn bad_append_left(
 fn bad_append_right(
     localizer: &Localizer,
     category: &Category,
-    ty: &t::Type,
-    expected: &t::Type,
+    ty: &Type,
+    expected: &Type,
 ) -> RightDocs {
+    let appending = |kind, thing| {
+        let first = (words("I thought I was appending"))
+            .chain([yellow(kind)])
+            .chain(words("values here, not"))
+            .chain([yellow(thing)])
+            .chain(words("values like this:"));
+        fill_sep(first)
+    };
     match (append_type(expected), append_type(ty)) {
-        (AppendType::String, AppendType::Number(thing, from)) => {
-            let mut first = words("I thought I was appending");
-            first.push(yellow(text("String")));
-            first.extend(words("values here, not"));
-            first.push(yellow(text(thing)));
-            first.extend(words("values like this:"));
-            let mut second = words("Try using");
-            second.push(green(text(from)));
-            second.extend(words("to turn it into a string?"));
-            RightDocs::Right((fill_sep(first), fill_sep(second)))
-        }
-        (AppendType::List, AppendType::Number(thing, _)) => {
-            let mut first = words("I thought I was appending");
-            first.push(yellow(text("List")));
-            first.extend(words("values here, not"));
-            first.push(yellow(text(thing)));
-            first.extend(words("values like this:"));
-            RightDocs::Right((
-                fill_sep(first),
-                reflow("Try putting it in [] to make it a list?"),
+        (AppendType::String, AppendType::Number { thing, convert }) => {
+            let second = (words("Try using"))
+                .chain([green(convert)])
+                .chain(words("to turn it into a string?"));
+            RightDocs::Right(Explanation::new(
+                appending("String", thing),
+                fill_sep(second),
             ))
         }
+        (AppendType::List, AppendType::Number { thing, .. }) => RightDocs::Right(Explanation::new(
+            appending("List", thing),
+            reflow("Try putting it in [] to make it a list?"),
+        )),
         (AppendType::String, AppendType::List) => same_sides("String", "List"),
         (AppendType::List, AppendType::String) => same_sides("List", "String"),
-        _ => RightDocs::Both((
+        _ => RightDocs::Both(Explanation::new(
             reflow("The (++) operator cannot append these two values:"),
             type_comparison(
                 localizer,
@@ -413,6 +455,7 @@ fn bad_append_right(
                 "I already figured out that the left side of (++) is:",
                 &add_category("But this clashes with the right side, which is", category),
                 Vec::new(),
+                HintOrder::ContextFirst,
             ),
         )),
     }
@@ -420,31 +463,39 @@ fn bad_append_right(
 
 /// A String on one side of (++) and a List on the other.
 fn same_sides(left: &str, right: &str) -> RightDocs {
-    let mut details = words("I see a");
-    details.push(yellow(text(left.to_owned())));
-    details.extend(words("on the left and a"));
-    details.push(yellow(text(right.to_owned())));
-    details.extend(words(
-        "on the right. Which should it be? Does the string need [] around it to become a list?",
-    ));
-    RightDocs::Both((
+    let details = (words("I see a"))
+        .chain([yellow(left)])
+        .chain(words("on the left and a"))
+        .chain([yellow(right)])
+        .chain(words(
+            "on the right. Which should it be? Does the string need [] around it to become a list?",
+        ));
+    RightDocs::Both(Explanation::new(
         reflow("The (++) operator needs the same type of value on both sides:"),
         fill_sep(details),
     ))
 }
 
-/// `badCast`: Int and Float on either side; `float_int` when the left is
-/// the Float.
-fn bad_cast(op: &str, float_int: bool) -> RightDocs {
-    let an_int = vec![text("an"), yellow(text("Int"))];
-    let a_float = vec![text("a"), yellow(text("Float"))];
-    let (to_float, round) = (green(text("toFloat")), green(text("round")));
-    let details = if float_int {
-        cast_help(a_float, an_int, round, to_float)
-    } else {
-        cast_help(an_int, a_float, to_float, round)
+/// The note that Elm doesn't convert Ints to Floats implicitly.
+fn implicit_casts() -> Doc {
+    link(
+        "Note",
+        "Read",
+        "implicit-casts",
+        "to learn why Elm does not implicitly convert Ints to Floats.",
+    )
+}
+
+/// `badCast`: Int and Float on either side.
+fn bad_cast(op: &str, cast: Cast) -> RightDocs {
+    let an_int = [text("an"), yellow("Int")];
+    let a_float = [text("a"), yellow("Float")];
+    let (to_float, round) = (green("toFloat"), green("round"));
+    let details = match cast {
+        Cast::FloatInt => cast_help(a_float, an_int, round, to_float),
+        Cast::IntFloat => cast_help(an_int, a_float, to_float, round),
     };
-    RightDocs::Both((
+    RightDocs::Both(Explanation::new(
         reflow(&format!(
             "I need both sides of ({op}) to be the exact same type. Both Int or both Float."
         )),
@@ -453,75 +504,60 @@ fn bad_cast(op: &str, float_int: bool) -> RightDocs {
 }
 
 /// `badCastHelp`.
-fn cast_help(left: Vec<Doc>, right: Vec<Doc>, fix_left: Doc, fix_right: Doc) -> Doc {
-    let mut first = words("But I see");
-    first.extend(left);
-    first.extend(words("on the left and"));
-    first.extend(right);
-    first.extend(words("on the right."));
-    let mut second = vec![text("Use"), fix_left];
-    second.extend(words("on the left (or"));
-    second.push(fix_right);
-    second.extend(words("on the right) to make both sides match!"));
-    stack([
-        fill_sep(first),
-        fill_sep(second),
-        link(
-            "Note",
-            "Read",
-            "implicit-casts",
-            "to learn why Elm does not implicitly convert Ints to Floats.",
-        ),
-    ])
+fn cast_help(left: [Doc; 2], right: [Doc; 2], fix_left: Doc, fix_right: Doc) -> Doc {
+    let first = (words("But I see"))
+        .chain(left)
+        .chain(words("on the left and"))
+        .chain(right)
+        .chain(words("on the right."));
+    let second = [text("Use"), fix_left]
+        .into_iter()
+        .chain(words("on the left (or"))
+        .chain([fix_right])
+        .chain(words("on the right) to make both sides match!"));
+    stack([fill_sep(first), fill_sep(second), implicit_casts()])
 }
 
 /// `badStringAdd`.
-fn bad_string_add() -> (Doc, Doc) {
-    let mut first = words("I cannot do addition with");
-    first.push(yellow(text("String")));
-    first.extend(words("values like this one:"));
-    let mut works = words("The (+) operator only works with");
-    works.extend([
-        yellow(text("Int")),
-        text("and"),
-        yellow(text("Float")),
-        text("values."),
-    ]);
-    let mut hint = words("Switch to the");
-    hint.push(green(text("(++)")));
-    hint.extend(words("operator to append strings!"));
-    (fill_sep(first), stack([fill_sep(works), fancy_hint(hint)]))
+fn bad_string_add() -> Explanation {
+    let first = (words("I cannot do addition with"))
+        .chain([yellow("String")])
+        .chain(words("values like this one:"));
+    let works = words("The (+) operator only works with").chain(int_and_float_values());
+    let hint = hint(
+        (words("Switch to the"))
+            .chain([green("(++)")])
+            .chain(words("operator to append strings!")),
+    );
+    Explanation::new(fill_sep(first), stack([fill_sep(works), hint]))
 }
 
 /// `badListAdd`.
 fn bad_list_add(
     localizer: &Localizer,
     category: &Category,
-    direction: &str,
-    ty: &t::Type,
-    expected: &t::Type,
-) -> (Doc, Doc) {
-    let mut works = words("But (+) only works with");
-    works.extend([
-        yellow(text("Int")),
-        text("and"),
-        yellow(text("Float")),
-        text("values."),
-    ]);
-    let mut hint = words("Switch to the");
-    hint.push(green(text("(++)")));
-    hint.extend(words("operator to append lists!"));
-    (
+    side: Side,
+    ty: &Type,
+    expected: &Type,
+) -> Explanation {
+    let works = words("But (+) only works with").chain(int_and_float_values());
+    let hint = hint(
+        (words("Switch to the"))
+            .chain([green("(++)")])
+            .chain(words("operator to append lists!")),
+    );
+    let side = side.as_str();
+    Explanation::new(
         text("I cannot do addition with lists:"),
         lone_type(
             localizer,
             ty,
             expected,
             reflow(&add_category(
-                &format!("The {direction} side of (+) is"),
+                &format!("The {side} side of (+) is"),
                 category,
             )),
-            vec![fill_sep(works), fancy_hint(hint)],
+            vec![fill_sep(works), hint],
         ),
     )
 }
@@ -530,63 +566,52 @@ fn bad_list_add(
 fn bad_list_mul(
     localizer: &Localizer,
     category: &Category,
-    direction: &str,
-    ty: &t::Type,
-    expected: &t::Type,
-) -> (Doc, Doc) {
-    let mut hint = words("Maybe you want");
-    hint.push(green(text("List.repeat")));
-    hint.extend(words("to build a list of repeated values?"));
+    side: Side,
+    ty: &Type,
+    expected: &Type,
+) -> Explanation {
+    let hint = hint(
+        (words("Maybe you want"))
+            .chain([green("List.repeat")])
+            .chain(words("to build a list of repeated values?")),
+    );
     bad_math(
         localizer,
         category,
-        "Multiplication",
-        direction,
-        "*",
+        MathOp::Mul,
+        side,
         ty,
         expected,
-        vec![fancy_hint(hint)],
+        vec![hint],
     )
 }
 
 /// `badMath`.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "upstream's `badMath` takes these"
-)]
 fn bad_math(
     localizer: &Localizer,
     category: &Category,
-    operation: &str,
-    direction: &str,
-    op: &str,
-    ty: &t::Type,
-    expected: &t::Type,
+    op: MathOp,
+    side: Side,
+    ty: &Type,
+    expected: &Type,
     other_hints: Vec<Doc>,
-) -> (Doc, Doc) {
-    let mut works = vec![
-        text("But"),
-        text(format!("({op})")),
-        text("only"),
-        text("works"),
-        text("with"),
-    ];
-    works.extend([
-        yellow(text("Int")),
-        text("and"),
-        yellow(text("Float")),
-        text("values."),
-    ]);
+) -> Explanation {
+    let (symbol, side) = (op.symbol(), side.as_str());
+    let but = format!("But ({symbol}) only works with");
+    let works = words(&but).chain(int_and_float_values());
     let mut further = vec![fill_sep(works)];
     further.extend(other_hints);
-    (
-        reflow(&format!("{operation} does not work with this value:")),
+    Explanation::new(
+        reflow(&format!(
+            "{} does not work with this value:",
+            op.operation()
+        )),
         lone_type(
             localizer,
             ty,
             expected,
             reflow(&add_category(
-                &format!("The {direction} side of ({op}) is"),
+                &format!("The {side} side of ({symbol}) is"),
                 category,
             )),
             further,
@@ -596,88 +621,71 @@ fn bad_math(
 
 /// The opening of `badFDiv` and `badIDiv`: `The left side of (op) must
 /// be a Type,`.
-fn must_be(direction: &str, op: &str, article: &str, ty: &str) -> Vec<Doc> {
-    let mut docs = vec![text("The"), text(direction.to_owned())];
-    docs.extend(words(&format!("side of ({op}) must be {article}")));
-    docs.push(yellow(text(ty.to_owned())).append(text(",")));
+fn must_be(side: Side, op: &str, article: &str, ty: &str) -> Vec<Doc> {
+    let side = side.as_str();
+    let mut docs: Vec<Doc> =
+        words(&format!("The {side} side of ({op}) must be {article}")).collect();
+    docs.push(yellow(ty).append(text(",")));
     docs
 }
 
 /// `badFDiv`.
-fn bad_f_div(
-    localizer: &Localizer,
-    direction: &str,
-    ty: &t::Type,
-    expected: &t::Type,
-) -> (Doc, Doc) {
+fn bad_f_div(localizer: &Localizer, side: Side, ty: &Type, expected: &Type) -> Explanation {
     let details = if is_int(ty) {
-        let mut first = must_be(direction, "/", "a", "Float");
-        first.extend(words("but I am seeing an"));
-        first.push(yellow(text("Int")).append(text(".")));
-        first.extend(words("I recommend:"));
+        let first = (must_be(side, "/", "a", "Float").into_iter())
+            .chain(words("but I am seeing an"))
+            .chain([yellow("Int").append(text("."))])
+            .chain(words("I recommend:"));
         stack([
             fill_sep(first),
             vcat([
-                green(text("toFloat"))
+                green("toFloat")
                     .append(text(" for explicit conversions     "))
                     .append(text("(toFloat 5 / 2) == 2.5").color(Color::Black)),
-                green(text("(//)   "))
+                green("(//)   ")
                     .append(text(" for integer division         "))
                     .append(text("(5 // 2)        == 2").color(Color::Black)),
             ]),
-            link(
-                "Note",
-                "Read",
-                "implicit-casts",
-                "to learn why Elm does not implicitly convert Ints to Floats.",
-            ),
+            implicit_casts(),
         ])
     } else {
-        let mut seeing = must_be(direction, "/", "a", "Float");
-        seeing.extend(words("but instead I am seeing:"));
+        let seeing = must_be(side, "/", "a", "Float")
+            .into_iter()
+            .chain(words("but instead I am seeing:"));
         lone_type(localizer, ty, expected, fill_sep(seeing), Vec::new())
     };
-    (
+    Explanation::new(
         reflow("The (/) operator is specifically for floating-point division:"),
         details,
     )
 }
 
 /// `badIDiv`.
-fn bad_i_div(
-    localizer: &Localizer,
-    direction: &str,
-    ty: &t::Type,
-    expected: &t::Type,
-) -> (Doc, Doc) {
+fn bad_i_div(localizer: &Localizer, side: Side, ty: &Type, expected: &Type) -> Explanation {
     let details = if is_float(ty) {
-        let mut first = must_be(direction, "//", "an", "Int");
-        first.extend(words("but I am seeing a"));
-        first.push(yellow(text("Float")).append(text(".")));
-        first.extend(words(
-            "I recommend doing the conversion explicitly with one of these functions:",
-        ));
+        let first = (must_be(side, "//", "an", "Int").into_iter())
+            .chain(words("but I am seeing a"))
+            .chain([yellow("Float").append(text("."))])
+            .chain(words(
+                "I recommend doing the conversion explicitly with one of these functions:",
+            ));
         stack([
             fill_sep(first),
             vcat([
-                green(text("round")).append(text(" 3.5     == 4")),
-                green(text("floor")).append(text(" 3.5     == 3")),
-                green(text("ceiling")).append(text(" 3.5   == 4")),
-                green(text("truncate")).append(text(" 3.5  == 3")),
+                green("round").append(text(" 3.5     == 4")),
+                green("floor").append(text(" 3.5     == 3")),
+                green("ceiling").append(text(" 3.5   == 4")),
+                green("truncate").append(text(" 3.5  == 3")),
             ]),
-            link(
-                "Note",
-                "Read",
-                "implicit-casts",
-                "to learn why Elm does not implicitly convert Ints to Floats.",
-            ),
+            implicit_casts(),
         ])
     } else {
-        let mut seeing = must_be(direction, "//", "an", "Int");
-        seeing.extend(words("but instead I am seeing:"));
+        let seeing = must_be(side, "//", "an", "Int")
+            .into_iter()
+            .chain(words("but instead I am seeing:"));
         lone_type(localizer, ty, expected, fill_sep(seeing), Vec::new())
     };
-    (
+    Explanation::new(
         reflow("The (//) operator is specifically for integer division:"),
         details,
     )
@@ -687,18 +695,18 @@ fn bad_i_div(
 fn bad_bool(
     localizer: &Localizer,
     op: &str,
-    direction: &str,
-    ty: &t::Type,
-    expected: &t::Type,
-) -> (Doc, Doc) {
-    let mut seeing = words("Both sides of");
-    seeing.push(text(format!("({op})")));
-    seeing.extend(words("must be"));
-    seeing.push(yellow(text("Bool")));
-    seeing.extend(words("values, but the"));
-    seeing.push(text(direction.to_owned()));
-    seeing.extend(words("side is:"));
-    (
+    side: Side,
+    ty: &Type,
+    expected: &Type,
+) -> Explanation {
+    let seeing = (words("Both sides of"))
+        .chain([text(format!("({op})"))])
+        .chain(words("must be"))
+        .chain([yellow("Bool")])
+        .chain(words("values, but the"))
+        .chain([text(side.as_str())])
+        .chain(words("side is:"));
+    Explanation::new(
         reflow("I am struggling with this boolean operation:"),
         lone_type(localizer, ty, expected, fill_sep(seeing), Vec::new()),
     )
@@ -709,35 +717,29 @@ fn bad_comp_left(
     localizer: &Localizer,
     category: &Category,
     op: &str,
-    direction: &str,
-    ty: &t::Type,
-    expected: &t::Type,
-) -> (Doc, Doc) {
-    let mut works = vec![
-        text("But"),
-        text(format!("({op})")),
-        text("only"),
-        text("works"),
-        text("on"),
-    ];
-    works.extend([
-        yellow(text("Int")).append(text(",")),
-        yellow(text("Float")).append(text(",")),
-        yellow(text("Char")).append(text(",")),
-        text("and"),
-        yellow(text("String")),
-    ]);
-    works.extend(words(
-        "values. It can work on lists and tuples of comparable values as well, but it is usually better to find a different path.",
-    ));
-    (
+    ty: &Type,
+    expected: &Type,
+) -> Explanation {
+    let but = format!("But ({op}) only works on");
+    let works = (words(&but))
+        .chain([
+            yellow("Int").append(text(",")),
+            yellow("Float").append(text(",")),
+            yellow("Char").append(text(",")),
+            text("and"),
+            yellow("String"),
+        ])
+        .chain(words(
+            "values. It can work on lists and tuples of comparable values as well, but it is usually better to find a different path.",
+        ));
+    Explanation::new(
         reflow("I cannot do a comparison with this value:"),
         lone_type(
             localizer,
             ty,
             expected,
             reflow(&add_category(
-                &format!("The {direction} side of ({op}) is"),
+                &format!("The left side of ({op}) is"),
                 category,
             )),
             vec![fill_sep(works)],
@@ -746,8 +748,8 @@ fn bad_comp_left(
 }
 
 /// `badCompRight`.
-fn bad_comp_right(localizer: &Localizer, op: &str, ty: &t::Type, expected: &t::Type) -> RightDocs {
-    RightDocs::Both((
+fn bad_comp_right(localizer: &Localizer, op: &str, ty: &Type, expected: &Type) -> RightDocs {
+    RightDocs::Both(Explanation::new(
         reflow(&format!("I need both sides of ({op}) to be the same type:")),
         type_comparison(
             localizer,
@@ -758,12 +760,13 @@ fn bad_comp_right(localizer: &Localizer, op: &str, ty: &t::Type, expected: &t::T
             vec![reflow(&format!(
                 "I cannot compare different types though! Which side of ({op}) is the problem?"
             ))],
+            HintOrder::ContextFirst,
         ),
     ))
 }
 
 /// `badEquality`.
-fn bad_equality(localizer: &Localizer, op: &str, ty: &t::Type, expected: &t::Type) -> RightDocs {
+fn bad_equality(localizer: &Localizer, op: &str, ty: &Type, expected: &Type) -> RightDocs {
     let hint = if is_float(ty) || is_float(expected) {
         simple_note(
             "Equality on floats is not 100% reliable due to the design of IEEE 754. I recommend a check like (abs (x - y) < 0.0001) instead.",
@@ -771,7 +774,7 @@ fn bad_equality(localizer: &Localizer, op: &str, ty: &t::Type, expected: &t::Typ
     } else {
         reflow("Different types can never be equal though! Which side is messed up?")
     };
-    RightDocs::Both((
+    RightDocs::Both(Explanation::new(
         reflow(&format!("I need both sides of ({op}) to be the same type:")),
         type_comparison(
             localizer,
@@ -780,6 +783,7 @@ fn bad_equality(localizer: &Localizer, op: &str, ty: &t::Type, expected: &t::Typ
             &format!("The left side of ({op}) is:"),
             "But the right side is:",
             vec![hint],
+            HintOrder::ContextFirst,
         ),
     ))
 }

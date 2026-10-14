@@ -5,19 +5,18 @@
 //! and later releases write every escape as `\uXXXX`. A character is the
 //! same text in 0.19.1, and the character itself later.
 
+use std::fmt::Write as _;
+
 use nomi_base::Compat;
+use nomi_syntax::literal_body;
 
 /// The text a string literal's token stands for.
 pub(super) fn string(compat: Compat, token: &str) -> String {
-    let (body, multi) = if let Some(rest) = token.strip_prefix("\"\"\"") {
-        (rest.strip_suffix("\"\"\"").unwrap_or(rest), true)
-    } else {
-        let rest = token.strip_prefix('"').unwrap_or(token);
-        (rest.strip_suffix('"').unwrap_or(rest), false)
-    };
+    let body = literal_body(token).unwrap_or(token);
+    let multi = token.starts_with("\"\"\"");
     let v1 = compat == Compat::V0_19_1;
     let mut out = String::with_capacity(body.len());
-    let mut chars = body.chars().peekable();
+    let mut chars = body.chars();
     while let Some(c) = chars.next() {
         match c {
             '\'' if v1 => out.push_str("\\'"),
@@ -43,9 +42,8 @@ pub(super) fn string(compat: Compat, token: &str) -> String {
 
 /// What a character literal's token stands for.
 pub(super) fn char(compat: Compat, token: &str) -> String {
-    let rest = token.strip_prefix('\'').unwrap_or(token);
-    let body = rest.strip_suffix('\'').unwrap_or(rest);
-    let mut chars = body.chars().peekable();
+    let body = literal_body(token).unwrap_or(token);
+    let mut chars = body.chars();
     let Some(c) = chars.next() else {
         return String::new();
     };
@@ -77,7 +75,7 @@ enum Escape {
 }
 
 /// The escape after a backslash, which the parser has checked.
-fn escape(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Escape {
+fn escape(chars: &mut std::str::Chars<'_>) -> Escape {
     match chars.next() {
         Some('u') => {
             chars.next(); // `{`
@@ -110,14 +108,15 @@ fn plain_code(c: char) -> u32 {
 /// takes the pair of offset -1: 0.19.1's `divMod` floors, and later
 /// releases' unsigned arithmetic wraps to the same last 16 bits.
 fn code_point(out: &mut String, code: u32) {
-    if code < 0xFFFF {
-        out.push_str(&format!("\\u{code:04X}"));
+    // Writing to a `String` can't fail.
+    let _ = if code < 0xFFFF {
+        write!(out, "\\u{code:04X}")
     } else {
         let offset = i64::from(code) - 0x10000;
         let hi = offset.div_euclid(0x400) + 0xD800;
         let lo = offset.rem_euclid(0x400) + 0xDC00;
-        out.push_str(&format!("\\u{:04X}\\u{:04X}", hi & 0xFFFF, lo & 0xFFFF));
-    }
+        write!(out, "\\u{:04X}\\u{:04X}", hi & 0xFFFF, lo & 0xFFFF)
+    };
 }
 
 #[cfg(test)]

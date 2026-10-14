@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap};
 use nomi_base::Compat;
 use nomi_compiler::canonical::{Alias, AliasType, Home, Type, Union};
 use nomi_compiler::interface::Interface;
-use nomi_compiler::optimized::binary::{homes, names};
+use nomi_compiler::optimized::binary::homes;
 
 /// `Extract.Types`: each module's unions and aliases.
 pub type Types = HashMap<Home, ModuleTypes>;
@@ -180,9 +180,11 @@ pub fn metadata(compat: Compat, types: &Types, message: &Type) -> String {
 /// module then name, in it.
 fn seen_order(compat: Compat, a: &Seen, b: &Seen) -> Ordering {
     if compat == Compat::V0_19_3 {
-        homes(compat, &a.0, &b.0).then_with(|| names(compat, &a.1, &b.1))
+        homes(compat, &a.0, &b.0).then_with(|| compat.compare_names(&a.1, &b.1))
     } else {
-        names(compat, &a.1, &b.1).then_with(|| homes(compat, &a.0, &b.0))
+        compat
+            .compare_names(&a.1, &b.1)
+            .then_with(|| homes(compat, &a.0, &b.0))
     }
 }
 
@@ -208,7 +210,7 @@ fn extract(compat: Compat, deps: &mut Deps, ty: &Type) -> Public {
         Type::Record(fields, ext) => {
             // `fieldsToList`: by the order written, ties as the map lists.
             let mut listed: Vec<(&String, _)> = fields.iter().collect();
-            listed.sort_by(|a, b| names(compat, a.0, b.0));
+            listed.sort_by(|a, b| compat.compare_names(a.0, b.0));
             listed.sort_by_key(|(_, field)| field.order);
             let fields = (listed.into_iter())
                 .map(|(name, field)| (name.clone(), extract(compat, deps, &field.ty)))

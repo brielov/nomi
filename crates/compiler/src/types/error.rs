@@ -4,11 +4,13 @@
 
 use std::collections::BTreeMap;
 
-use nomi_base::diagnostic::doc::{Color, Doc, text};
+use nomi_base::diagnostic::doc::{Color, Doc, dull_yellow as yellow, text};
 
-use super::in_name_order;
 use super::localizer::Localizer;
 use super::render::{self, Context};
+use super::{
+    SuperType, in_name_order, is_bool, is_char, is_float, is_int, is_list, is_maybe, is_string,
+};
 use crate::canonical::Home;
 
 /// `T.Type`.
@@ -19,23 +21,14 @@ pub enum Type {
     Infinite,
     Error,
     FlexVar(String),
-    FlexSuper(Super, String),
+    FlexSuper(SuperType, String),
     RigidVar(String),
-    RigidSuper(Super, String),
+    RigidSuper(SuperType, String),
     Type(Home, String, Vec<Type>),
     Record(BTreeMap<String, Type>, Extension),
     Unit,
     Tuple(Box<Type>, Box<Type>, Option<Box<Type>>),
     Alias(Home, String, Vec<(String, Type)>, Box<Type>),
-}
-
-/// `T.Super`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Super {
-    Number,
-    Comparable,
-    Appendable,
-    CompAppend,
 }
 
 /// `T.Extension`: what a record type extends.
@@ -47,15 +40,15 @@ pub enum Extension {
 }
 
 /// `iteratedDealias`: what `ty` stands for under all its aliases.
-pub fn iterated_dealias(ty: Type) -> Type {
-    match ty {
-        Type::Alias(_, _, _, real) => iterated_dealias(*real),
-        ty => ty,
+pub(super) fn iterated_dealias(mut ty: &Type) -> &Type {
+    while let Type::Alias(_, _, _, real) = ty {
+        ty = real;
     }
+    ty
 }
 
 /// `toDoc`.
-pub fn to_doc(localizer: &Localizer, context: Context, ty: &Type) -> Doc {
+pub(super) fn to_doc(localizer: &Localizer, context: Context, ty: &Type) -> Doc {
     match ty {
         Type::Lambda(a, b, cs) => render::lambda(
             context,
@@ -118,7 +111,10 @@ fn fields_to_docs(localizer: &Localizer, fields: &BTreeMap<String, Type>) -> Vec
 }
 
 /// The names of `map`, in the release's order.
-fn names_in_order<T>(compat: nomi_base::Compat, map: &BTreeMap<String, T>) -> Vec<String> {
+pub(super) fn names_in_order<T>(
+    compat: nomi_base::Compat,
+    map: &BTreeMap<String, T>,
+) -> Vec<String> {
     in_name_order(compat, map)
         .into_iter()
         .map(|(n, _)| n.clone())
@@ -126,7 +122,7 @@ fn names_in_order<T>(compat: nomi_base::Compat, map: &BTreeMap<String, T>) -> Ve
 }
 
 /// `extToDoc`.
-fn ext_to_doc(ext: &Extension) -> Option<Doc> {
+pub(super) fn ext_to_doc(ext: &Extension) -> Option<Doc> {
     match ext {
         Extension::Closed => None,
         Extension::FlexOpen(x) | Extension::RigidOpen(x) => Some(text(x.clone())),
@@ -135,7 +131,7 @@ fn ext_to_doc(ext: &Extension) -> Option<Doc> {
 
 /// `Problem`: what a comparison of two types found, to explain.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Problem {
+pub(super) enum Problem {
     IntFloat,
     StringFromInt,
     StringFromFloat,
@@ -143,19 +139,38 @@ pub enum Problem {
     StringToFloat,
     AnythingToBool,
     AnythingFromMaybe,
-    ArityMismatch(usize, usize),
-    BadFlexSuper(Direction, Super, String, Type),
+    /// Functions of different arities: how many arguments each takes.
+    ArityMismatch {
+        actual: usize,
+        expected: usize,
+    },
+    /// A constrained variable on `direction`'s side, where `other` is.
+    BadFlexSuper {
+        direction: Direction,
+        super_type: SuperType,
+        other: Type,
+    },
     BadRigidVar(String, Type),
-    BadRigidSuper(Super, String, Type),
+    BadRigidSuper(SuperType, String, Type),
     FieldTypo(String, Vec<String>),
     FieldsMissing(Vec<String>),
 }
 
 /// `Direction`: which side of a comparison a super type is on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Direction {
+pub(super) enum Direction {
     Have,
     Need,
+}
+
+impl Direction {
+    /// `x` and `y` in comparison order, `x` on this side.
+    fn order<T>(self, x: T, y: T) -> (T, T) {
+        match self {
+            Direction::Have => (x, y),
+            Direction::Need => (y, x),
+        }
+    }
 }
 
 /// `Status`: alike, or different with what explains it.
@@ -209,15 +224,26 @@ fn sequence<T>(diffs: Vec<Diff<T>>) -> Diff<Vec<T>> {
     Diff { a, b, status }
 }
 
-/// `toComparison`: both types' docs, the differences marked, and the
-/// problems found.
-pub fn to_comparison(localizer: &Localizer, t1: &Type, t2: &Type) -> (Doc, Doc, Vec<Problem>) {
-    let diff = to_diff(localizer, Context::None, t1, t2);
+/// `toComparison`'s result: both types' docs, the differences marked,
+/// and the problems found.
+pub(super) struct Comparison {
+    pub(super) actual: Doc,
+    pub(super) expected: Doc,
+    pub(super) problems: Vec<Problem>,
+}
+
+/// `toComparison`.
+pub(super) fn to_comparison(localizer: &Localizer, actual: &Type, expected: &Type) -> Comparison {
+    let diff = to_diff(localizer, Context::None, actual, expected);
     let problems = match diff.status {
         Status::Similar => Vec::new(),
         Status::Different(problems) => problems,
     };
-    (diff.a, diff.b, problems)
+    Comparison {
+        actual: diff.a,
+        expected: diff.b,
+        problems,
+    }
 }
 
 fn same(localizer: &Localizer, context: Context, ty: &Type) -> Diff<Doc> {
@@ -245,80 +271,53 @@ fn different(a: Doc, b: Doc, problems: Vec<Problem>) -> Diff<Doc> {
     }
 }
 
-fn yellow(doc: Doc) -> Doc {
-    doc.color(Color::DullYellow)
-}
-
-fn home_is(home: &Home, module: &str) -> bool {
-    home.package == "elm/core" && home.module == module
-}
-
-pub fn is_int(home: &Home, name: &str) -> bool {
-    home_is(home, "Basics") && name == "Int"
-}
-
-pub fn is_float(home: &Home, name: &str) -> bool {
-    home_is(home, "Basics") && name == "Float"
-}
-
-pub fn is_string(home: &Home, name: &str) -> bool {
-    home_is(home, "String") && name == "String"
-}
-
-pub fn is_char(home: &Home, name: &str) -> bool {
-    home_is(home, "Char") && name == "Char"
-}
-
-pub fn is_list(home: &Home, name: &str) -> bool {
-    home_is(home, "List") && name == "List"
-}
-
-fn is_bool(home: &Home, name: &str) -> bool {
-    home_is(home, "Basics") && name == "Bool"
-}
-
-fn is_maybe(home: &Home, name: &str) -> bool {
-    home_is(home, "Maybe") && name == "Maybe"
-}
-
 /// `isSuper`.
-fn is_super(super_type: Super, ty: &Type) -> bool {
-    match iterated_dealias(ty.clone()) {
+fn is_super(super_type: SuperType, ty: &Type) -> bool {
+    use SuperType::{Appendable, CompAppend, Comparable, Number};
+    match iterated_dealias(ty) {
         Type::Type(h, n, args) => match super_type {
-            Super::Number => is_int(&h, &n) || is_float(&h, &n),
-            Super::Comparable => {
-                is_int(&h, &n)
-                    || is_float(&h, &n)
-                    || is_string(&h, &n)
-                    || is_char(&h, &n)
-                    || (is_list(&h, &n) && args.first().is_some_and(|a| is_super(super_type, a)))
+            Number => is_int(h, n) || is_float(h, n),
+            Comparable => {
+                is_int(h, n)
+                    || is_float(h, n)
+                    || is_string(h, n)
+                    || is_char(h, n)
+                    || (is_list(h, n) && args.first().is_some_and(|a| is_super(super_type, a)))
             }
-            Super::Appendable => is_string(&h, &n) || is_list(&h, &n),
-            Super::CompAppend => {
-                is_string(&h, &n)
-                    || (is_list(&h, &n)
-                        && args.first().is_some_and(|a| is_super(Super::Comparable, a)))
+            Appendable => is_string(h, n) || is_list(h, n),
+            CompAppend => {
+                is_string(h, n)
+                    || (is_list(h, n) && args.first().is_some_and(|a| is_super(Comparable, a)))
             }
         },
         Type::Tuple(a, b, c) => match super_type {
-            Super::Comparable => {
-                is_super(super_type, &a)
-                    && is_super(super_type, &b)
-                    && c.is_none_or(|c| is_super(super_type, &c))
+            Comparable => {
+                is_super(super_type, a)
+                    && is_super(super_type, b)
+                    && c.as_deref().is_none_or(|c| is_super(super_type, c))
             }
-            Super::Number | Super::Appendable | Super::CompAppend => false,
+            Number | Appendable | CompAppend => false,
         },
-        _ => false,
+        Type::Lambda(..)
+        | Type::Infinite
+        | Type::Error
+        | Type::FlexVar(_)
+        | Type::FlexSuper(..)
+        | Type::RigidVar(_)
+        | Type::RigidSuper(..)
+        | Type::Record(..)
+        | Type::Unit
+        | Type::Alias(..) => false,
     }
 }
 
 /// `nameClashToDoc`: a type of the same name as another, by its module.
-fn name_clash_to_doc(
+fn name_clash_to_doc<'t>(
     localizer: &Localizer,
     context: Context,
     home: &Home,
     name: &str,
-    args: &[Type],
+    args: impl IntoIterator<Item = &'t Type>,
 ) -> Doc {
     let name = text(home.module.clone())
         .color(Color::Yellow)
@@ -326,7 +325,7 @@ fn name_clash_to_doc(
     render::apply(
         context,
         name,
-        args.iter()
+        (args.into_iter())
             .map(|a| to_doc(localizer, Context::App, a))
             .collect(),
     )
@@ -358,12 +357,7 @@ fn to_diff(localizer: &Localizer, ctx: Context, t1: &Type, t2: &Type) -> Diff<Do
             if cs.len() == zs.len() {
                 let first = to_diff(localizer, Context::Func, a, x);
                 let second = to_diff(localizer, Context::Func, b, y);
-                let rest = sequence(
-                    cs.iter()
-                        .zip(zs)
-                        .map(|(c, z)| to_diff(localizer, Context::Func, c, z))
-                        .collect(),
-                );
+                let rest = diffs(localizer, Context::Func, cs.iter().zip(zs));
                 let status = merge(merge(first.status, second.status), rest.status);
                 Diff {
                     a: render::lambda(ctx, first.a, second.a, rest.a),
@@ -375,27 +369,25 @@ fn to_diff(localizer: &Localizer, ctx: Context, t1: &Type, t2: &Type) -> Diff<Do
                 different(
                     yellow(render::lambda(ctx, f(a), f(b), cs.iter().map(f).collect())),
                     yellow(render::lambda(ctx, f(x), f(y), zs.iter().map(f).collect())),
-                    vec![Problem::ArityMismatch(2 + cs.len(), 2 + zs.len())],
+                    vec![Problem::ArityMismatch {
+                        actual: 2 + cs.len(),
+                        expected: 2 + zs.len(),
+                    }],
                 )
             }
         }
-        (T::Tuple(a, b, None), T::Tuple(x, y, None)) => {
+        (T::Tuple(a, b, c), T::Tuple(x, y, z)) if c.is_some() == z.is_some() => {
             let first = to_diff(localizer, Context::None, a, x);
             let second = to_diff(localizer, Context::None, b, y);
+            let rest = diffs(
+                localizer,
+                Context::None,
+                c.iter().zip(z).map(|(c, z)| (&**c, &**z)),
+            );
             Diff {
-                a: render::tuple(first.a, second.a, Vec::new()),
-                b: render::tuple(first.b, second.b, Vec::new()),
-                status: merge(first.status, second.status),
-            }
-        }
-        (T::Tuple(a, b, Some(c)), T::Tuple(x, y, Some(z))) => {
-            let first = to_diff(localizer, Context::None, a, x);
-            let second = to_diff(localizer, Context::None, b, y);
-            let third = to_diff(localizer, Context::None, c, z);
-            Diff {
-                a: render::tuple(first.a, second.a, vec![third.a]),
-                b: render::tuple(first.b, second.b, vec![third.b]),
-                status: merge(merge(first.status, second.status), third.status),
+                a: render::tuple(first.a, second.a, rest.a),
+                b: render::tuple(first.b, second.b, rest.b),
+                status: merge(merge(first.status, second.status), rest.status),
             }
         }
         (T::Record(fields1, ext1), T::Record(fields2, ext2)) => {
@@ -404,32 +396,13 @@ fn to_diff(localizer: &Localizer, ctx: Context, t1: &Type, t2: &Type) -> Diff<Do
         (T::Type(home1, name1, args1), T::Type(home2, name2, args2))
             if home1 == home2 && name1 == name2 =>
         {
-            let args = sequence(
-                args1
-                    .iter()
-                    .zip(args2)
-                    .map(|(a, b)| to_diff(localizer, Context::App, a, b))
-                    .collect(),
-            );
-            Diff {
-                a: render::apply(ctx, localizer.to_doc(home1, name1), args.a),
-                b: render::apply(ctx, localizer.to_doc(home1, name1), args.b),
-                status: args.status,
-            }
+            diff_args(localizer, ctx, home1, name1, args1.iter().zip(args2))
         }
         (T::Alias(home1, name1, args1, _), T::Alias(home2, name2, args2, _))
             if home1 == home2 && name1 == name2 =>
         {
-            let args = sequence(
-                (args1.iter().zip(args2))
-                    .map(|((_, a), (_, b))| to_diff(localizer, Context::App, a, b))
-                    .collect(),
-            );
-            Diff {
-                a: render::apply(ctx, localizer.to_doc(home1, name1), args.a),
-                b: render::apply(ctx, localizer.to_doc(home1, name1), args.b),
-                status: args.status,
-            }
+            let pairs = args1.iter().zip(args2).map(|((_, a), (_, b))| (a, b));
+            diff_args(localizer, ctx, home1, name1, pairs)
         }
         // Then, specific problems.
         (T::Type(home1, name1, args1), T::Type(home2, name2, args2))
@@ -471,104 +444,125 @@ fn to_diff(localizer: &Localizer, ctx: Context, t1: &Type, t2: &Type) -> Diff<Do
                 Vec::new(),
             )
         }
-        (T::Alias(home1, name1, args1, real1), t2) => {
-            match diff_aliased_record(localizer, real1, t2) {
-                Some(diff) => Diff {
-                    a: yellow(alias_to_doc(localizer, ctx, home1, name1, args1)),
-                    b: diff.b,
-                    status: diff.status,
-                },
-                None => match t2 {
-                    T::Type(home2, name2, args2)
-                        if localizer.to_chars(home1, name1) == localizer.to_chars(home2, name2) =>
-                    {
-                        let args1: Vec<Type> = args1.iter().map(|(_, a)| a.clone()).collect();
-                        different(
-                            name_clash_to_doc(localizer, ctx, home1, name1, &args1),
-                            name_clash_to_doc(localizer, ctx, home2, name2, args2),
-                            Vec::new(),
-                        )
-                    }
-                    _ => different(
-                        yellow(to_doc(localizer, ctx, t1)),
-                        yellow(to_doc(localizer, ctx, t2)),
-                        Vec::new(),
-                    ),
-                },
-            }
-        }
-        (t1, T::Alias(home2, name2, args2, real2)) => {
-            match diff_aliased_record(localizer, t1, real2) {
-                Some(diff) => Diff {
-                    a: diff.a,
-                    b: yellow(alias_to_doc(localizer, ctx, home2, name2, args2)),
-                    status: diff.status,
-                },
-                None => match t1 {
-                    T::Type(home1, name1, args1)
-                        if localizer.to_chars(home1, name1) == localizer.to_chars(home2, name2) =>
-                    {
-                        let args2: Vec<Type> = args2.iter().map(|(_, a)| a.clone()).collect();
-                        different(
-                            name_clash_to_doc(localizer, ctx, home1, name1, args1),
-                            name_clash_to_doc(localizer, ctx, home2, name2, &args2),
-                            Vec::new(),
-                        )
-                    }
-                    _ => different(
-                        yellow(to_doc(localizer, ctx, t1)),
-                        yellow(to_doc(localizer, ctx, t2)),
-                        Vec::new(),
-                    ),
-                },
-            }
-        }
-        (t1, t2) => {
-            let doc1 = yellow(to_doc(localizer, ctx, t1));
-            let doc2 = yellow(to_doc(localizer, ctx, t2));
-            let problems = match (t1, t2) {
-                (T::RigidVar(x), other) => vec![Problem::BadRigidVar(x.clone(), other.clone())],
-                (T::FlexSuper(s, x), other) => vec![Problem::BadFlexSuper(
-                    Direction::Have,
-                    *s,
-                    x.clone(),
-                    other.clone(),
-                )],
-                (T::RigidSuper(s, x), other) => {
-                    vec![Problem::BadRigidSuper(*s, x.clone(), other.clone())]
-                }
-                (other, T::RigidVar(x)) => vec![Problem::BadRigidVar(x.clone(), other.clone())],
-                (other, T::FlexSuper(s, x)) => vec![Problem::BadFlexSuper(
-                    Direction::Need,
-                    *s,
-                    x.clone(),
-                    other.clone(),
-                )],
-                (other, T::RigidSuper(s, x)) => {
-                    vec![Problem::BadRigidSuper(*s, x.clone(), other.clone())]
-                }
-                (T::Type(h1, n1, a1), T::Type(h2, n2, a2)) if a1.is_empty() && a2.is_empty() => {
-                    if is_int(h1, n1) && is_float(h2, n2) || is_float(h1, n1) && is_int(h2, n2) {
-                        vec![Problem::IntFloat]
-                    } else if is_int(h1, n1) && is_string(h2, n2) {
-                        vec![Problem::StringFromInt]
-                    } else if is_float(h1, n1) && is_string(h2, n2) {
-                        vec![Problem::StringFromFloat]
-                    } else if is_string(h1, n1) && is_int(h2, n2) {
-                        vec![Problem::StringToInt]
-                    } else if is_string(h1, n1) && is_float(h2, n2) {
-                        vec![Problem::StringToFloat]
-                    } else if is_bool(h2, n2) {
-                        vec![Problem::AnythingToBool]
-                    } else {
-                        Vec::new()
-                    }
-                }
-                _ => Vec::new(),
-            };
-            different(doc1, doc2, problems)
-        }
+        (T::Alias(..), _) => diff_alias(localizer, ctx, t1, t2, Direction::Have),
+        (_, T::Alias(..)) => diff_alias(localizer, ctx, t2, t1, Direction::Need),
+        (t1, t2) => different(
+            yellow(to_doc(localizer, ctx, t1)),
+            yellow(to_doc(localizer, ctx, t2)),
+            problems(t1, t2),
+        ),
     }
+}
+
+/// `sequenceA` of each pair's diff in `context`.
+fn diffs<'t>(
+    localizer: &Localizer,
+    context: Context,
+    pairs: impl Iterator<Item = (&'t Type, &'t Type)>,
+) -> Diff<Vec<Doc>> {
+    sequence(
+        pairs
+            .map(|(a, b)| to_diff(localizer, context, a, b))
+            .collect(),
+    )
+}
+
+/// Two types of one name, `name` of `home`, applied to the arguments
+/// `pairs` compares.
+fn diff_args<'t>(
+    localizer: &Localizer,
+    ctx: Context,
+    home: &Home,
+    name: &str,
+    pairs: impl Iterator<Item = (&'t Type, &'t Type)>,
+) -> Diff<Doc> {
+    let args = diffs(localizer, Context::App, pairs);
+    Diff {
+        a: render::apply(ctx, localizer.to_doc(home, name), args.a),
+        b: render::apply(ctx, localizer.to_doc(home, name), args.b),
+        status: args.status,
+    }
+}
+
+/// `toDiff`'s alias on one side, `side`, and `other` on the other: the
+/// records they stand for compared, or a clash of names, or just
+/// different.
+fn diff_alias(
+    localizer: &Localizer,
+    ctx: Context,
+    alias: &Type,
+    other: &Type,
+    side: Direction,
+) -> Diff<Doc> {
+    let Type::Alias(home, name, args, real) = alias else {
+        unreachable!("an alias");
+    };
+    let (t1, t2) = side.order(&**real, other);
+    if let Some(diff) = diff_aliased_record(localizer, t1, t2) {
+        let alias = yellow(alias_to_doc(localizer, ctx, home, name, args));
+        let (a, b) = match side {
+            Direction::Have => (alias, diff.b),
+            Direction::Need => (diff.a, alias),
+        };
+        return Diff {
+            a,
+            b,
+            status: diff.status,
+        };
+    }
+    let (a, b) = match other {
+        Type::Type(other_home, other_name, other_args)
+            if localizer.to_chars(home, name) == localizer.to_chars(other_home, other_name) =>
+        {
+            let alias_args = args.iter().map(|(_, a)| a);
+            side.order(
+                name_clash_to_doc(localizer, ctx, home, name, alias_args),
+                name_clash_to_doc(localizer, ctx, other_home, other_name, other_args),
+            )
+        }
+        _ => side.order(
+            yellow(to_doc(localizer, ctx, alias)),
+            yellow(to_doc(localizer, ctx, other)),
+        ),
+    };
+    different(a, b, Vec::new())
+}
+
+/// What explains two types that differ outright.
+fn problems(t1: &Type, t2: &Type) -> Vec<Problem> {
+    use Type as T;
+    let bad_flex_super = |direction, super_type, other: &Type| Problem::BadFlexSuper {
+        direction,
+        super_type,
+        other: other.clone(),
+    };
+    let problem = match (t1, t2) {
+        (T::RigidVar(x), other) => Problem::BadRigidVar(x.clone(), other.clone()),
+        (T::FlexSuper(s, _), other) => bad_flex_super(Direction::Have, *s, other),
+        (T::RigidSuper(s, x), other) => Problem::BadRigidSuper(*s, x.clone(), other.clone()),
+        (other, T::RigidVar(x)) => Problem::BadRigidVar(x.clone(), other.clone()),
+        (other, T::FlexSuper(s, _)) => bad_flex_super(Direction::Need, *s, other),
+        (other, T::RigidSuper(s, x)) => Problem::BadRigidSuper(*s, x.clone(), other.clone()),
+        (T::Type(h1, n1, a1), T::Type(h2, n2, a2)) if a1.is_empty() && a2.is_empty() => {
+            if is_int(h1, n1) && is_float(h2, n2) || is_float(h1, n1) && is_int(h2, n2) {
+                Problem::IntFloat
+            } else if is_int(h1, n1) && is_string(h2, n2) {
+                Problem::StringFromInt
+            } else if is_float(h1, n1) && is_string(h2, n2) {
+                Problem::StringFromFloat
+            } else if is_string(h1, n1) && is_int(h2, n2) {
+                Problem::StringToInt
+            } else if is_string(h1, n1) && is_float(h2, n2) {
+                Problem::StringToFloat
+            } else if is_bool(h2, n2) {
+                Problem::AnythingToBool
+            } else {
+                return Vec::new();
+            }
+        }
+        _ => return Vec::new(),
+    };
+    vec![problem]
 }
 
 fn is_similar<T>(diff: &Diff<T>) -> bool {
@@ -577,9 +571,9 @@ fn is_similar<T>(diff: &Diff<T>) -> bool {
 
 /// `diffAliasedRecord`.
 fn diff_aliased_record(localizer: &Localizer, t1: &Type, t2: &Type) -> Option<Diff<Doc>> {
-    match (iterated_dealias(t1.clone()), iterated_dealias(t2.clone())) {
+    match (iterated_dealias(t1), iterated_dealias(t2)) {
         (Type::Record(fields1, ext1), Type::Record(fields2, ext2)) => {
-            Some(diff_record(localizer, &fields1, &ext1, &fields2, &ext2))
+            Some(diff_record(localizer, fields1, ext1, fields2, ext2))
         }
         _ => None,
     }
@@ -628,10 +622,8 @@ fn diff_record(
     } else {
         merge(both.status, Status::Different(Vec::new()))
     };
-    let mut left_names: Vec<String> = left.keys().map(|n| (*n).clone()).collect();
-    let mut right_names: Vec<String> = right.keys().map(|n| (*n).clone()).collect();
-    left_names.sort_by(|a, b| compat.compare_names(a, b));
-    right_names.sort_by(|a, b| compat.compare_names(a, b));
+    let left_names = compat.sorted_names(left.keys().map(|n| (*n).clone()));
+    let right_names = compat.sorted_names(right.keys().map(|n| (*n).clone()));
     docs1.extend(left);
     docs2.extend(right);
     docs1.sort_by(|a, b| compat.compare_names(a.0, b.0));
@@ -641,29 +633,22 @@ fn diff_record(
     let a = render::record(docs1.into_iter().map(|(_, d)| d).collect(), ext.a);
     let b = render::record(docs2.into_iter().map(|(_, d)| d).collect(), ext.b);
     let fixed = |e: &Extension| !matches!(e, Extension::FlexOpen(_));
+    let typo = |field: &String, fields: &BTreeMap<String, Type>| {
+        let names = names_in_order(compat, fields);
+        Status::Different(vec![Problem::FieldTypo(field.clone(), names)])
+    };
     let extra = match (fixed(ext1), fixed(ext2)) {
         (true, true) => match left_names.first() {
-            Some(f) => Status::Different(vec![Problem::FieldTypo(
-                f.clone(),
-                names_in_order(localizer.compat, fields2),
-            )]),
+            Some(f) => typo(f, fields2),
             None if right_names.is_empty() => Status::Similar,
             None => Status::Different(vec![Problem::FieldsMissing(right_names)]),
         },
-        (false, true) => match left_names.first() {
-            Some(f) => Status::Different(vec![Problem::FieldTypo(
-                f.clone(),
-                names_in_order(localizer.compat, fields2),
-            )]),
-            None => Status::Similar,
-        },
-        (true, false) => match right_names.first() {
-            Some(f) => Status::Different(vec![Problem::FieldTypo(
-                f.clone(),
-                names_in_order(localizer.compat, fields1),
-            )]),
-            None => Status::Similar,
-        },
+        (false, true) => left_names
+            .first()
+            .map_or(Status::Similar, |f| typo(f, fields2)),
+        (true, false) => right_names
+            .first()
+            .map_or(Status::Similar, |f| typo(f, fields1)),
         (false, false) => Status::Similar,
     };
     Diff {

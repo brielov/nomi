@@ -4,14 +4,14 @@
 
 use std::collections::BTreeMap;
 
+use nomi_base::TextRange;
 use nomi_base::diagnostic::Problem;
-use nomi_base::diagnostic::code::{self, Source};
-use nomi_base::diagnostic::doc::{self, Color, Doc, reflow, snippet, stack, text};
-use nomi_base::{Compat, TextRange};
+use nomi_base::diagnostic::doc::{self, dull_yellow, reflow, stack, text};
 
 use crate::canonical::{Annotation, Decl, MainKind, Type};
 use crate::canonicalize::effects::check_payload;
 use crate::canonicalize::error::InvalidPayload;
+use crate::report::{Report, ReportContext};
 use crate::types::localizer::Localizer;
 use crate::types::render::{Context, can_to_doc};
 
@@ -19,8 +19,13 @@ use crate::types::render::{Context, can_to_doc};
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
     BadType(TextRange, Type),
-    BadCycle(TextRange, String, Vec<String>),
-    BadFlags(TextRange, Type, InvalidPayload),
+    /// `main` in a cycle of definitions, `first` the one it starts from.
+    BadCycle {
+        region: TextRange,
+        first: String,
+        others: Vec<String>,
+    },
+    BadFlags(TextRange, InvalidPayload),
 }
 
 /// The first problem with `main`, in the order upstream adds the
@@ -37,8 +42,11 @@ pub fn check(decls: &[Decl], annotations: &BTreeMap<String, Annotation>) -> Opti
                     .chain(ds)
                     .find(|def| def.name() == "main")
                 {
-                    let names = ds.iter().map(|def| def.name().to_owned()).collect();
-                    return Some(Error::BadCycle(main.region(), d.name().to_owned(), names));
+                    return Some(Error::BadCycle {
+                        region: main.region(),
+                        first: d.name().to_owned(),
+                        others: ds.iter().map(|def| def.name().to_owned()).collect(),
+                    });
                 }
             }
         }
@@ -51,56 +59,47 @@ fn main_type(region: TextRange, ty: &Type) -> Option<Error> {
     match ty.main_kind() {
         MainKind::Static => None,
         MainKind::Program { flags, .. } => check_payload(&flags).err().map(|bad| {
-            let (bad_type, problem) = *bad;
-            Error::BadFlags(region, bad_type, problem)
+            let (_, problem) = *bad;
+            Error::BadFlags(region, problem)
         }),
         MainKind::Other => Some(Error::BadType(region, ty.clone())),
     }
 }
 
 /// `toReport`.
-pub fn to_problem(
-    error: &Error,
-    source: &Source<'_>,
-    compat: Compat,
-    trim: &dyn Fn(TextRange) -> TextRange,
-    localizer: &Localizer,
-) -> Problem {
-    let snip =
-        |region: TextRange, before: Doc, after: Doc| snippet(before, trim(region), None, after);
-    let (title, region, message) = match error {
-        Error::BadType(region, ty) => (
+pub fn to_problem(error: &Error, cx: &ReportContext<'_>, localizer: &Localizer) -> Problem {
+    let report = |title, region: TextRange, before, after| {
+        Report::new(title, region, cx.snippet(region, None, before, after))
+    };
+    cx.problem(&match error {
+        Error::BadType(region, ty) => report(
             "BAD MAIN TYPE",
             *region,
-            snip(
-                *region,
-                text("I cannot handle this type of `main` value:"),
-                stack([
-                    text("The type of `main` value I am seeing is:"),
-                    can_to_doc(localizer, Context::None, ty)
-                        .color(Color::DullYellow)
-                        .indent(4),
-                    reflow(
-                        "I only know how to handle Html, Svg, and Programs though. Modify `main` to be one of those types of values!",
-                    ),
-                ]),
-            ),
+            text("I cannot handle this type of `main` value:"),
+            stack([
+                text("The type of `main` value I am seeing is:"),
+                dull_yellow(can_to_doc(localizer, Context::None, ty)).indent(4),
+                reflow(
+                    "I only know how to handle Html, Svg, and Programs though. Modify `main` to be one of those types of values!",
+                ),
+            ]),
         ),
-        Error::BadCycle(region, name, names) => (
+        Error::BadCycle {
+            region,
+            first,
+            others,
+        } => report(
             "BAD MAIN",
             *region,
-            snip(
-                *region,
-                text("A `main` definition cannot be defined in terms of itself."),
-                stack([
-                    reflow(
-                        "It should be a boring value with no recursion. But instead it is involved in this cycle of definitions:",
-                    ),
-                    doc::cycle(std::iter::once(name.clone()).chain(names.iter().cloned())),
-                ]),
-            ),
+            text("A `main` definition cannot be defined in terms of itself."),
+            stack([
+                reflow(
+                    "It should be a boring value with no recursion. But instead it is involved in this cycle of definitions:",
+                ),
+                doc::cycle(std::iter::once(first.clone()).chain(others.iter().cloned())),
+            ]),
         ),
-        Error::BadFlags(region, _, problem) => {
+        Error::BadFlags(region, problem) => {
             let (a_thing, but) = match problem {
                 InvalidPayload::ExtendedRecord => (
                     "an extended record".to_owned(),
@@ -130,23 +129,14 @@ pub fn to_problem(
                     ]),
                 ),
             };
-            (
+            report(
                 "BAD FLAGS",
                 *region,
-                snip(
-                    *region,
-                    reflow(&format!(
-                        "Your `main` program wants {a_thing} from JavaScript."
-                    )),
-                    but,
-                ),
+                reflow(&format!(
+                    "Your `main` program wants {a_thing} from JavaScript."
+                )),
+                but,
             )
         }
-    };
-    let range = trim(region);
-    Problem::new(
-        title,
-        source.region(range, compat),
-        code::expand(&message, source, compat),
-    )
+    })
 }

@@ -7,118 +7,53 @@ mod operators;
 mod patterns;
 mod records;
 
+use nomi_base::TextRange;
 use nomi_base::diagnostic::Problem;
-use nomi_base::diagnostic::code::{self, Source};
 use nomi_base::diagnostic::doc::{
-    Color, Conjunction, Doc, args, comma_sep, fill_sep, ordinal, reflow, simple_hint, simple_note,
-    snippet, stack, text, vcat,
+    Doc, args, dull_yellow as yellow, fill_sep, link, ordinal, reflow, simple_hint, simple_note,
+    stack, text, words,
 };
-use nomi_base::{Compat, TextRange, suggest};
 
-use super::error::{self as t, Direction, Problem as TProblem, Super, to_comparison};
-use super::expected::{
-    Category, Context, Expected, MaybeName, PCategory, PContext, PExpected, SubContext,
-};
+use super::error::{self as t, Comparison, to_comparison};
+use super::expected::{Category, Context, Expected, MaybeName, SubContext};
 use super::localizer::Localizer;
 use super::solve::TypeError;
+use crate::report::{Report, ReportContext};
 use hints::problems_to_hint;
-use operators::{RightDocs, count_args, op_left, op_right};
-use patterns::pattern_report;
-
-/// What a report needs around its error.
-pub struct ReportContext<'a> {
-    pub source: &'a Source<'a>,
-    pub compat: Compat,
-    pub trim: &'a dyn Fn(TextRange) -> TextRange,
-    pub localizer: &'a Localizer,
-}
-
-impl std::fmt::Debug for ReportContext<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ReportContext")
-            .field("compat", &self.compat)
-            .finish_non_exhaustive()
-    }
-}
+use operators::{Explanation, RightDocs, count_args, op_left, op_right};
 
 /// `toReport`.
-pub fn to_problem(error: &TypeError, cx: &ReportContext<'_>) -> Problem {
-    let (title, range, message) = report(error, cx);
-    let range = (cx.trim)(range);
-    let region = cx.source.region(range, cx.compat);
-    Problem::new(title, region, code::expand(&message, cx.source, cx.compat))
-}
-
-fn report(error: &TypeError, cx: &ReportContext<'_>) -> (&'static str, TextRange, Doc) {
-    match error {
-        TypeError::BadExpr(region, category, actual, expected) => {
-            expr_report(cx, *region, category, actual, expected)
+pub fn to_problem(error: &TypeError, cx: &ReportContext<'_>, localizer: &Localizer) -> Problem {
+    let report = match error {
+        TypeError::BadExpr {
+            region,
+            category,
+            actual,
+            expected,
+        } => expr_report(cx, localizer, *region, category, actual, expected),
+        TypeError::BadPattern {
+            region,
+            category,
+            actual,
+            expected,
+        } => patterns::pattern_report(cx, localizer, *region, category, actual, expected),
+        TypeError::InfiniteType { region, name, ty } => {
+            records::infinite(cx, localizer, *region, name, ty)
         }
-        TypeError::BadPattern(region, category, actual, expected) => {
-            pattern_report(cx, *region, category, actual, expected)
-        }
-        TypeError::InfiniteType(region, name, overall) => {
-            records::infinite(cx, *region, name, overall)
-        }
-    }
+    };
+    cx.problem(&report)
 }
 
-/// `Code.toSnippet`: the code at `region`, `highlight` underlined.
-fn snip(
-    cx: &ReportContext<'_>,
-    region: TextRange,
-    highlight: Option<TextRange>,
-    before: Doc,
-    after: Doc,
-) -> Doc {
-    snippet(before, (cx.trim)(region), highlight.map(cx.trim), after)
+/// Where a comparison's hints go: the context's before the problem's, as
+/// `typeComparison` has them, or after, as `patternTypeComparison` does.
+#[derive(Clone, Copy)]
+enum HintOrder {
+    ContextFirst,
+    ProblemFirst,
 }
 
-fn yellow(doc: Doc) -> Doc {
-    doc.color(Color::DullYellow)
-}
-
-fn green(doc: Doc) -> Doc {
-    doc.color(Color::Green)
-}
-
-fn words(s: &str) -> Vec<Doc> {
-    s.split(' ').filter(|w| !w.is_empty()).map(text).collect()
-}
-
-/// `D.toFancyHint`.
-fn fancy_hint(docs: Vec<Doc>) -> Doc {
-    fill_sep(std::iter::once(text("Hint").underline().append(text(":"))).chain(docs))
-}
-
-/// `D.fancyLink`.
-fn fancy_link(label: &str, before: Vec<Doc>, page: &str, after: Vec<Doc>) -> Doc {
-    let label = text(label).underline().append(text(":"));
-    fill_sep(
-        std::iter::once(label)
-            .chain(before)
-            .chain([Doc::link(page)])
-            .chain(after),
-    )
-}
-
-/// `D.link`.
-fn link(label: &str, before: &str, page: &str, after: &str) -> Doc {
-    nomi_base::diagnostic::doc::link(label, before, page, after)
-}
-
-/// `D.reflowLink`.
-fn reflow_link(before: &str, page: &str, after: &str) -> Doc {
-    nomi_base::diagnostic::doc::reflow_link(before, page, after)
-}
-
-/// `Suggest.sort` of `candidates` against `target`.
-fn nearest(target: &str, mut candidates: Vec<String>) -> Vec<String> {
-    suggest::sort_texts(target, &mut candidates);
-    candidates
-}
-
-/// `typeComparison`.
+/// `typeComparison`: what `i_am_seeing` is, and what it is `instead_of`,
+/// then the hints.
 fn type_comparison(
     localizer: &Localizer,
     actual: &t::Type,
@@ -126,17 +61,25 @@ fn type_comparison(
     i_am_seeing: &str,
     instead_of: &str,
     context_hints: Vec<Doc>,
+    order: HintOrder,
 ) -> Doc {
-    let (actual_doc, expected_doc, problems) = to_comparison(localizer, actual, expected);
-    let mut docs = vec![
+    let Comparison {
+        actual,
+        expected,
+        problems,
+    } = to_comparison(localizer, actual, expected);
+    let problem_hints = problems_to_hint(&problems);
+    let hints = match order {
+        HintOrder::ContextFirst => [context_hints, problem_hints],
+        HintOrder::ProblemFirst => [problem_hints, context_hints],
+    };
+    let types = [
         reflow(i_am_seeing),
-        actual_doc.indent(4),
+        actual.indent(4),
         reflow(instead_of),
-        expected_doc.indent(4),
+        expected.indent(4),
     ];
-    docs.extend(context_hints);
-    docs.extend(problems_to_hint(&problems));
-    stack(docs)
+    stack(types.into_iter().chain(hints.into_iter().flatten()))
 }
 
 /// `loneType`.
@@ -147,11 +90,19 @@ fn lone_type(
     i_am_seeing: Doc,
     further: Vec<Doc>,
 ) -> Doc {
-    let (actual_doc, _, problems) = to_comparison(localizer, actual, expected);
-    let mut docs = vec![i_am_seeing, actual_doc.indent(4)];
-    docs.extend(further);
-    docs.extend(problems_to_hint(&problems));
-    stack(docs)
+    let comparison = to_comparison(localizer, actual, expected);
+    let hints = problems_to_hint(&comparison.problems);
+    stack(
+        [i_am_seeing, comparison.actual.indent(4)]
+            .into_iter()
+            .chain(further)
+            .chain(hints),
+    )
+}
+
+/// The `Int and Float values.` that ends what arithmetic works with.
+fn int_and_float_values() -> [Doc; 4] {
+    [yellow("Int"), text("and"), yellow("Float"), text("values.")]
 }
 
 /// `addCategory`.
@@ -182,35 +133,51 @@ fn add_category(this_is: &str, category: &Category) -> String {
     }
 }
 
+/// A type mismatch's two types, the expression's and the one it is
+/// expected to have, with where and what the expression is.
+struct Mismatch<'a> {
+    /// The expression's range.
+    expr_region: TextRange,
+    /// The range of what expected the type.
+    region: TextRange,
+    category: &'a Category,
+    actual: &'a t::Type,
+    expected: &'a t::Type,
+}
+
 /// `toExprReport`.
 fn expr_report(
     cx: &ReportContext<'_>,
+    localizer: &Localizer,
     expr_region: TextRange,
     category: &Category,
     actual: &t::Type,
     expected: &Expected<t::Type>,
-) -> (&'static str, TextRange, Doc) {
-    let localizer = cx.localizer;
+) -> Report {
+    let compare = |expected, this_is: &str, instead_of: &str| {
+        type_comparison(
+            localizer,
+            actual,
+            expected,
+            &add_category(this_is, category),
+            instead_of,
+            Vec::new(),
+            HintOrder::ContextFirst,
+        )
+    };
     match expected {
         Expected::NoExpectation(expected) => {
-            let comparison = type_comparison(
-                localizer,
-                actual,
-                expected,
-                &add_category("It is", category),
-                "But you are trying to use it as:",
-                Vec::new(),
-            );
-            let doc = snip(
-                cx,
-                expr_region,
-                None,
-                reflow("This expression is being used in an unexpected way:"),
-                comparison,
-            );
-            ("TYPE MISMATCH", expr_region, doc)
+            let comparison = compare(expected, "It is", "But you are trying to use it as:");
+            let problem = reflow("This expression is being used in an unexpected way:");
+            let doc = cx.snippet(expr_region, None, problem, comparison);
+            Report::mismatch(expr_region, doc)
         }
-        Expected::FromAnnotation(name, _, sub, expected) => {
+        Expected::FromAnnotation {
+            name,
+            sub,
+            ty: expected,
+            ..
+        } => {
             let (thing, it_is) = match sub {
                 SubContext::TypedIfBranch(i) => (
                     format!("{} branch of this `if` expression:", ordinal(i + 1)),
@@ -225,46 +192,43 @@ fn expr_report(
                     "The body is".to_owned(),
                 ),
             };
-            let comparison = type_comparison(
-                localizer,
+            let instead_of = format!("But the type annotation on `{name}` says it should be:");
+            let comparison = compare(expected, &it_is, &instead_of);
+            let problem = reflow(&format!("Something is off with the {thing}"));
+            let doc = cx.snippet(expr_region, None, problem, comparison);
+            Report::mismatch(expr_region, doc)
+        }
+        Expected::FromContext(region, context, expected) => {
+            let mismatch = Mismatch {
+                expr_region,
+                region: *region,
+                category,
                 actual,
                 expected,
-                &add_category(&it_is, category),
-                &format!("But the type annotation on `{name}` says it should be:"),
-                Vec::new(),
-            );
-            let doc = snip(
-                cx,
-                expr_region,
-                None,
-                reflow(&format!("Something is off with the {thing}")),
-                comparison,
-            );
-            ("TYPE MISMATCH", expr_region, doc)
+            };
+            from_context(cx, localizer, &mismatch, context)
         }
-        Expected::FromContext(region, context, expected) => from_context(
-            cx,
-            expr_region,
-            *region,
-            context,
-            category,
-            actual,
-            expected,
-        ),
     }
+}
+
+/// The hint that a list's or branches' values must be one type.
+fn mix_types(explanation: &str) -> Doc {
+    link(
+        "Hint",
+        explanation,
+        "custom-types",
+        "to learn how to “mix” types.",
+    )
 }
 
 /// `toExprReport`'s `FromContext` cases.
 fn from_context(
     cx: &ReportContext<'_>,
-    expr_region: TextRange,
-    region: TextRange,
+    localizer: &Localizer,
+    m: &Mismatch<'_>,
     context: &Context,
-    category: &Category,
-    actual: &t::Type,
-    expected: &t::Type,
-) -> (&'static str, TextRange, Doc) {
-    let localizer = cx.localizer;
+) -> Report {
+    let snip = |highlight, problem, details| cx.snippet(m.region, highlight, problem, details);
     let mismatch = |highlight: Option<TextRange>,
                     problem: &str,
                     this_is: &str,
@@ -272,69 +236,45 @@ fn from_context(
                     further: Vec<Doc>| {
         let comparison = type_comparison(
             localizer,
-            actual,
-            expected,
-            &add_category(this_is, category),
+            m.actual,
+            m.expected,
+            &add_category(this_is, m.category),
             instead_of,
             further,
+            HintOrder::ContextFirst,
         );
-        (
-            "TYPE MISMATCH",
-            expr_region,
-            snip(cx, region, highlight, reflow(problem), comparison),
+        Report::mismatch(m.expr_region, snip(highlight, reflow(problem), comparison))
+    };
+    let bad_type = |problem: &str, further: Vec<Doc>| {
+        let seeing = reflow(&add_category("It is", m.category));
+        let lone = lone_type(localizer, m.actual, m.expected, seeing, further);
+        Report::mismatch(
+            m.expr_region,
+            snip(Some(m.expr_region), reflow(problem), lone),
         )
     };
-    let bad_type =
-        |highlight: Option<TextRange>, problem: &str, this_is: &str, further: Vec<Doc>| {
-            let lone = lone_type(
-                localizer,
-                actual,
-                expected,
-                reflow(&add_category(this_is, category)),
-                further,
-            );
-            (
-                "TYPE MISMATCH",
-                expr_region,
-                snip(cx, region, highlight, reflow(problem), lone),
-            )
-        };
     match context {
         Context::ListEntry(index) => {
             let ith = ordinal(index + 1);
             mismatch(
-                Some(expr_region),
+                Some(m.expr_region),
                 &format!(
                     "The {ith} element of this list does not match all the previous elements:"
                 ),
                 &format!("The {ith} element is"),
                 "But all the previous elements in the list are:",
-                vec![link(
-                    "Hint",
+                vec![mix_types(
                     "Everything in a list must be the same type of value. This way, we never run into unexpected values partway through a List.map, List.foldl, etc. Read",
-                    "custom-types",
-                    "to learn how to “mix” types.",
                 )],
             )
         }
-        Context::Negate => bad_type(
-            Some(expr_region),
-            "I do not know how to negate this type of value:",
-            "It is",
-            vec![fill_sep([
-                text("But"),
-                text("I"),
-                text("only"),
-                text("now"),
-                text("how"),
-                text("to"),
-                text("negate"),
-                yellow(text("Int")),
-                text("and"),
-                yellow(text("Float")),
-                text("values."),
-            ])],
-        ),
+        Context::Negate => {
+            let only = words("But I only now how to negate").chain(int_and_float_values());
+            bad_type(
+                "I do not know how to negate this type of value:",
+                vec![fill_sep(only)],
+            )
+        }
         Context::CallArg(name, index) => {
             let ith = ordinal(index + 1);
             let this_function = match name {
@@ -350,7 +290,7 @@ fn from_context(
                 )]
             };
             mismatch(
-                Some(expr_region),
+                Some(m.expr_region),
                 &format!("The {ith} argument to {this_function} is not what I expect:"),
                 "This argument is",
                 &format!("But {this_function} needs the {ith} argument to be:"),
@@ -358,7 +298,7 @@ fn from_context(
             )
         }
         Context::RecordUpdateValue(field) => mismatch(
-            Some(expr_region),
+            Some(m.expr_region),
             &format!("I cannot update the `{field}` field like this:"),
             &format!("You are trying to update `{field}` to be"),
             "But it should be:",
@@ -374,28 +314,21 @@ fn from_context(
             Vec::new(),
         ),
         Context::OpLeft(op) => {
-            let (problem, details) = op_left(localizer, category, op, actual, expected);
-            (
-                "TYPE MISMATCH",
-                expr_region,
-                snip(cx, region, Some(expr_region), problem, details),
-            )
+            let Explanation { problem, details } =
+                op_left(localizer, m.category, op, m.actual, m.expected);
+            Report::mismatch(m.expr_region, snip(Some(m.expr_region), problem, details))
         }
         Context::OpRight(op) => {
-            let (highlight, (problem, details)) =
-                match op_right(localizer, category, op, actual, expected) {
-                    RightDocs::Both(docs) => (None, docs),
-                    RightDocs::Right(docs) => (Some(expr_region), docs),
+            let (highlight, Explanation { problem, details }) =
+                match op_right(localizer, m.category, op, m.actual, m.expected) {
+                    RightDocs::Both(explanation) => (None, explanation),
+                    RightDocs::Right(explanation) => (Some(m.expr_region), explanation),
                 };
-            (
-                "TYPE MISMATCH",
-                expr_region,
-                snip(cx, region, highlight, problem, details),
-            )
+            Report::mismatch(m.expr_region, snip(highlight, problem, details))
         }
         Context::CallArity(name, given) => {
             let missing = reflow("Are there any missing commas? Or missing parentheses?");
-            let problem = match count_args(actual) {
+            let problem = match count_args(m.actual) {
                 0 => {
                     let this_value = match name {
                         MaybeName::NoName => "This value".to_owned(),
@@ -422,75 +355,59 @@ fn from_context(
                     ))
                 }
             };
-            (
-                "TOO MANY ARGS",
-                expr_region,
-                snip(cx, region, Some(expr_region), problem, missing),
-            )
+            let doc = snip(Some(m.expr_region), problem, missing);
+            Report::new("TOO MANY ARGS", m.expr_region, doc)
         }
         Context::IfCondition => {
-            let mut need = words("But I need this `if` condition to be a");
-            need.extend([yellow(text("Bool")), text("value.")]);
+            let need = (words("But I need this `if` condition to be a"))
+                .chain([yellow("Bool"), text("value.")]);
             bad_type(
-                Some(expr_region),
                 "This `if` condition does not evaluate to a boolean value, True or False.",
-                "It is",
                 vec![fill_sep(need)],
             )
         }
         Context::IfBranch(index) => {
             let ith = ordinal(index + 1);
             mismatch(
-                Some(expr_region),
+                Some(m.expr_region),
                 &format!("The {ith} branch of this `if` does not match all the previous branches:"),
                 &format!("The {ith} branch is"),
                 "But all the previous branches result in:",
-                vec![link(
-                    "Hint",
+                vec![mix_types(
                     "All branches in an `if` must produce the same type of values. This way, no matter which branch we take, the result is always a consistent shape. Read",
-                    "custom-types",
-                    "to learn how to “mix” types.",
                 )],
             )
         }
         Context::CaseBranch(index) => {
             let ith = ordinal(index + 1);
             mismatch(
-                Some(expr_region),
+                Some(m.expr_region),
                 &format!(
                     "The {ith} branch of this `case` does not match all the previous branches:"
                 ),
                 &format!("The {ith} branch is"),
                 "But all the previous branches result in:",
-                vec![link(
-                    "Hint",
+                vec![mix_types(
                     "All branches in a `case` must produce the same type of values. This way, no matter which branch we take, the result is always a consistent shape. Read",
-                    "custom-types",
-                    "to learn how to “mix” types.",
                 )],
             )
         }
-        Context::RecordAccess(record_region, name, field_region, field) => records::record_access(
+        Context::RecordAccess {
+            record,
+            record_name,
+            field_region,
+            field,
+        } => records::record_access(
             cx,
-            expr_region,
-            region,
-            *record_region,
-            name.as_deref(),
+            localizer,
+            m,
+            *record,
+            record_name.as_deref(),
             *field_region,
             field,
-            category,
-            actual,
-            expected,
         ),
-        Context::RecordUpdateKeys(record, fields) => records::record_update_keys(
-            cx,
-            expr_region,
-            region,
-            record,
-            fields,
-            category,
-            actual,
-            expected,
-        ),
+        Context::RecordUpdateKeys(record, fields) => {
+            records::record_update_keys(cx, localizer, m, record, fields)
+        }
     }
 }

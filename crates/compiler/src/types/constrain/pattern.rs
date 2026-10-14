@@ -5,20 +5,20 @@ use std::collections::BTreeMap;
 
 use nomi_base::{Text, TextRange};
 
-use crate::canonical::{Pattern, PatternCtorArg, PatternKind};
+use crate::canonical::{Home, Pattern, PatternCtorArg, PatternKind};
 use crate::types::expected::{PCategory, PContext, PExpected};
 use crate::types::instantiate::from_src_type;
-use crate::types::{self, Constraint, Type, Variable, Variables, core};
+use crate::types::{self, Constraint, Type, Variable, Variables, list};
 
 /// `State`: the names bound so far, the variables made, and the
 /// constraints, in the order upstream finally reads them.
 #[derive(Debug, Default)]
-pub struct State {
-    pub headers: BTreeMap<String, (TextRange, Type)>,
+pub(crate) struct State {
+    pub(crate) headers: BTreeMap<String, (TextRange, Type)>,
     /// Latest first, as upstream's list.
-    pub vars: Vec<Variable>,
+    pub(crate) vars: Vec<Variable>,
     /// Earliest first: upstream's `reverse revCons`.
-    pub cons: Vec<Constraint>,
+    pub(crate) cons: Vec<Constraint>,
 }
 
 impl State {
@@ -31,22 +31,32 @@ impl State {
         self.headers
             .insert(name.to_owned(), (region, expectation.ty().clone()));
     }
-}
 
-fn list(entry: Type) -> Type {
-    Type::App(core("List"), Text::from("List"), vec![entry])
+    /// The pattern constraint that `ty` matches `expected`, of `category`.
+    fn matches(
+        &mut self,
+        region: TextRange,
+        category: PCategory,
+        ty: Type,
+        expected: PExpected<Type>,
+    ) {
+        self.cons.push(Constraint::Pattern {
+            region,
+            category,
+            ty,
+            expected,
+        });
+    }
 }
 
 /// `add`.
-pub fn add(
+pub(crate) fn add(
     vars: &mut Variables,
     pattern: &Pattern,
     expectation: PExpected<Type>,
     state: &mut State,
 ) {
-    stacker::maybe_grow(64 * 1024, 1024 * 1024, || {
-        add_(vars, pattern, expectation, state);
-    });
+    nomi_base::grow(|| add_(vars, pattern, expectation, state));
 }
 
 fn add_(vars: &mut Variables, pattern: &Pattern, expectation: PExpected<Type>, state: &mut State) {
@@ -56,12 +66,7 @@ fn add_(vars: &mut Variables, pattern: &Pattern, expectation: PExpected<Type>, s
         recorded.push((region, expectation.ty().clone()));
     }
     let simple = |category, ty, state: &mut State| {
-        state.cons.push(Constraint::Pattern(
-            region,
-            category,
-            ty,
-            expectation.clone(),
-        ));
+        state.matches(region, category, ty, expectation.clone());
     };
     match &pattern.kind {
         PatternKind::Anything => {}
@@ -85,12 +90,7 @@ fn add_(vars: &mut Variables, pattern: &Pattern, expectation: PExpected<Type>, s
                 Box::new(Type::Var(b_var)),
                 c_var.map(|v| Box::new(Type::Var(v))),
             );
-            state.cons.push(Constraint::Pattern(
-                region,
-                PCategory::PTuple,
-                ty,
-                expectation,
-            ));
+            state.matches(region, PCategory::PTuple, ty, expectation);
             state.add_vars(
                 [Some(a_var), Some(b_var), c_var]
                     .into_iter()
@@ -105,17 +105,16 @@ fn add_(vars: &mut Variables, pattern: &Pattern, expectation: PExpected<Type>, s
             name,
             args,
             ..
-        } => add_ctor(
-            vars,
-            region,
-            home,
-            type_name,
-            &union.vars,
-            name,
-            args,
-            expectation,
-            state,
-        ),
+        } => {
+            let ctor = CtorPattern {
+                home,
+                type_name,
+                type_vars: &union.vars,
+                name,
+                args,
+            };
+            add_ctor(vars, region, &ctor, expectation, state);
+        }
         PatternKind::List(patterns) => {
             let entry_var = vars.flex_var();
             let entry = Type::Var(entry_var);
@@ -124,12 +123,7 @@ fn add_(vars: &mut Variables, pattern: &Pattern, expectation: PExpected<Type>, s
                     PExpected::PFromContext(region, PContext::PListEntry(index), entry.clone());
                 add(vars, p, expected, state);
             }
-            state.cons.push(Constraint::Pattern(
-                region,
-                PCategory::PList,
-                list(entry),
-                expectation,
-            ));
+            state.matches(region, PCategory::PList, list(entry), expectation);
             state.add_vars(vec![entry_var]);
         }
         PatternKind::Cons(head, tail) => {
@@ -139,31 +133,21 @@ fn add_(vars: &mut Variables, pattern: &Pattern, expectation: PExpected<Type>, s
                 PExpected::PFromContext(region, PContext::PTail, list(entry.clone()));
             add(vars, tail, tail_expected, state);
             add(vars, head, PExpected::PNoExpectation(entry.clone()), state);
-            state.cons.push(Constraint::Pattern(
-                region,
-                PCategory::PList,
-                list(entry),
-                expectation,
-            ));
+            state.matches(region, PCategory::PList, list(entry), expectation);
             state.add_vars(vec![entry_var]);
         }
         PatternKind::Record(fields) => {
             let ext_var = vars.flex_var();
-            let field_vars: Vec<(String, Variable)> = fields
+            let field_vars: Vec<(Text, Variable)> = fields
                 .iter()
-                .map(|f| (f.clone(), vars.flex_var()))
+                .map(|f| (Text::new(f), vars.flex_var()))
                 .collect();
             let field_types: BTreeMap<Text, Type> = field_vars
                 .iter()
-                .map(|(n, v)| (Text::new(n), Type::Var(*v)))
+                .map(|(n, v)| (n.clone(), Type::Var(*v)))
                 .collect();
             let ty = Type::Record(field_types.clone(), Box::new(Type::Var(ext_var)));
-            state.cons.push(Constraint::Pattern(
-                region,
-                PCategory::PRecord,
-                ty,
-                expectation,
-            ));
+            state.matches(region, PCategory::PRecord, ty, expectation);
             // `Map.union headers …`: a name bound already keeps its type.
             for (name, ty) in field_types {
                 state
@@ -182,47 +166,44 @@ fn add_(vars: &mut Variables, pattern: &Pattern, expectation: PExpected<Type>, s
     }
 }
 
+/// A constructor pattern, as `addCtor` takes it.
+struct CtorPattern<'p> {
+    home: &'p Home,
+    type_name: &'p str,
+    /// Its union's type variables.
+    type_vars: &'p [String],
+    name: &'p str,
+    args: &'p [PatternCtorArg],
+}
+
 /// `addCtor`: the union's variables made flexible, each argument against
 /// the type the constructor gives it, then the union itself.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "upstream's `addCtor` takes these"
-)]
 fn add_ctor(
     vars: &mut Variables,
     region: TextRange,
-    home: &crate::canonical::Home,
-    type_name: &str,
-    type_vars: &[String],
-    ctor: &str,
-    args: &[PatternCtorArg],
+    ctor: &CtorPattern<'_>,
     expectation: PExpected<Type>,
     state: &mut State,
 ) {
-    let pairs: Vec<(String, Variable)> = type_vars
-        .iter()
-        .map(|v| (v.clone(), vars.name_to_flex(v)))
+    let flex: Vec<Variable> = (ctor.type_vars.iter())
+        .map(|v| vars.name_to_flex(v))
         .collect();
-    let free: BTreeMap<String, Type> = pairs
-        .iter()
-        .map(|(n, v)| (n.clone(), Type::Var(*v)))
+    let free: BTreeMap<String, Type> = (ctor.type_vars.iter().cloned())
+        .zip(flex.iter().map(|v| Type::Var(*v)))
         .collect();
-    for arg in args {
+    for arg in ctor.args {
         let ty = from_src_type(&free, &arg.ty);
-        let expected =
-            PExpected::PFromContext(region, PContext::PCtorArg(ctor.to_owned(), arg.index), ty);
-        add(vars, &arg.arg, expected, state);
+        let context = PContext::PCtorArg(ctor.name.to_owned(), arg.index);
+        add(
+            vars,
+            &arg.arg,
+            PExpected::PFromContext(region, context, ty),
+            state,
+        );
     }
-    let ty = Type::App(
-        home.clone(),
-        Text::from(type_name),
-        pairs.iter().map(|(_, v)| Type::Var(*v)).collect(),
-    );
-    state.cons.push(Constraint::Pattern(
-        region,
-        PCategory::PCtor(ctor.to_owned()),
-        ty,
-        expectation,
-    ));
-    state.add_vars(pairs.into_iter().map(|(_, v)| v).collect());
+    let args = flex.iter().map(|v| Type::Var(*v)).collect();
+    let ty = Type::App(ctor.home.clone(), Text::from(ctor.type_name), args);
+    let category = PCategory::PCtor(ctor.name.to_owned());
+    state.matches(region, category, ty, expectation);
+    state.add_vars(flex);
 }

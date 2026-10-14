@@ -9,18 +9,26 @@ use std::collections::BTreeMap;
 
 use nomi_base::Text;
 
+use super::names::to_error_type;
 use super::{
-    Content, Descriptor, FlatType, NO_MARK, SuperType, Variable, Variables, core, error,
-    in_name_order, occurs::occurs,
+    Content, Descriptor, FlatType, SuperType, Variable, Variables, error, in_name_order, is_char,
+    is_float, is_int, is_list, is_string, occurs::occurs,
 };
 use crate::canonical::Home;
 
 /// `Answer`: the variables unification made, and on a failure the two
 /// types as an error shows them.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Answer {
-    Ok(Vec<Variable>),
-    Err(Vec<Variable>, Box<error::Type>, Box<error::Type>),
+#[derive(Debug)]
+pub(super) struct Answer {
+    pub(super) fresh: Vec<Variable>,
+    pub(super) mismatch: Option<Box<Mismatched>>,
+}
+
+/// The two types that didn't unify, as an error shows them.
+#[derive(Debug)]
+pub(super) struct Mismatched {
+    pub(super) actual: error::Type,
+    pub(super) expected: error::Type,
 }
 
 /// A step that found a mismatch.
@@ -30,7 +38,7 @@ type Unify<T = ()> = Result<T, Mismatch>;
 
 /// `unify`: one type of `v1`'s and `v2`'s. On a mismatch both become an
 /// error, which unifies with anything, so one mistake shows once.
-pub fn unify(vars: &mut Variables, v1: Variable, v2: Variable) -> Answer {
+pub(super) fn unify(vars: &mut Variables, v1: Variable, v2: Variable) -> Answer {
     let mut state = State {
         vars,
         fresh: Vec::new(),
@@ -39,14 +47,13 @@ pub fn unify(vars: &mut Variables, v1: Variable, v2: Variable) -> Answer {
     let State { vars, mut fresh } = state;
     // Upstream's list has the latest first.
     fresh.reverse();
-    if let Ok(()) = result {
-        Answer::Ok(fresh)
-    } else {
-        let t1 = vars.to_error_type(v1);
-        let t2 = vars.to_error_type(v2);
+    let mismatch = result.is_err().then(|| {
+        let actual = to_error_type(vars, v1);
+        let expected = to_error_type(vars, v2);
         vars.union(v1, v2, Descriptor::new(Content::Error));
-        Answer::Err(fresh, Box::new(t1), Box::new(t2))
-    }
+        Box::new(Mismatched { actual, expected })
+    });
+    Answer { fresh, mismatch }
 }
 
 struct State<'v> {
@@ -55,13 +62,13 @@ struct State<'v> {
     fresh: Vec<Variable>,
 }
 
-/// `Context`: the two variables being unified, as found.
-#[derive(Clone)]
+/// `Context`: the two variables being unified, and the lower of their
+/// ranks, which whatever they become takes.
+#[derive(Clone, Copy)]
 struct Context {
     first: Variable,
-    first_desc: Descriptor,
     second: Variable,
-    second_desc: Descriptor,
+    rank: u32,
 }
 
 impl Context {
@@ -69,40 +76,18 @@ impl Context {
     fn reorient(self) -> Context {
         Context {
             first: self.second,
-            first_desc: self.second_desc,
             second: self.first,
-            second_desc: self.first_desc,
+            rank: self.rank,
         }
     }
-
-    fn rank(&self) -> u32 {
-        self.first_desc.rank.min(self.second_desc.rank)
-    }
-}
-
-fn is_number(home: &Home, name: &str) -> bool {
-    *home == core("Basics") && (name == "Int" || name == "Float")
-}
-
-fn is_string(home: &Home, name: &str) -> bool {
-    *home == core("String") && name == "String"
-}
-
-fn is_char(home: &Home, name: &str) -> bool {
-    *home == core("Char") && name == "Char"
-}
-
-fn is_list(home: &Home, name: &str) -> bool {
-    *home == core("List") && name == "List"
 }
 
 /// `atomMatchesSuper`.
 fn atom_matches_super(super_type: SuperType, home: &Home, name: &str) -> bool {
+    let number = || is_int(home, name) || is_float(home, name);
     match super_type {
-        SuperType::Number => is_number(home, name),
-        SuperType::Comparable => {
-            is_number(home, name) || is_string(home, name) || is_char(home, name)
-        }
+        SuperType::Number => number(),
+        SuperType::Comparable => number() || is_string(home, name) || is_char(home, name),
         SuperType::Appendable | SuperType::CompAppend => is_string(home, name),
     }
 }
@@ -110,10 +95,12 @@ fn atom_matches_super(super_type: SuperType, home: &Home, name: &str) -> bool {
 /// `combineRigidSupers`: whether a rigid variable of one kind can stand
 /// for a flexible one of another.
 fn combine_rigid_supers(rigid: SuperType, flex: SuperType) -> bool {
+    use SuperType::{Appendable, CompAppend, Comparable, Number};
     rigid == flex
-        || (rigid == SuperType::Number && flex == SuperType::Comparable)
-        || (rigid == SuperType::CompAppend
-            && (flex == SuperType::Comparable || flex == SuperType::Appendable))
+        || matches!(
+            (rigid, flex),
+            (Number, Comparable) | (CompAppend, Comparable | Appendable)
+        )
 }
 
 impl State<'_> {
@@ -122,25 +109,17 @@ impl State<'_> {
         clippy::unnecessary_wraps,
         reason = "each unifier step ends in a merge or a mismatch, so a merge is a `Unify` too, as upstream's is"
     )]
-    fn merge(&mut self, context: &Context, content: Content) -> Unify {
-        let descriptor = Descriptor {
-            content,
-            rank: context.rank(),
-            mark: NO_MARK,
-            copy: None,
-        };
+    fn merge(&mut self, context: Context, content: Content) -> Unify {
+        let descriptor = Descriptor::at_rank(content, context.rank);
         self.vars.union(context.first, context.second, descriptor);
         Ok(())
     }
 
-    /// `fresh`: a new variable at the lower rank, registered.
-    fn fresh(&mut self, context: &Context, content: Content) -> Variable {
-        let var = self.vars.fresh_descriptor(Descriptor {
-            content,
-            rank: context.rank(),
-            mark: NO_MARK,
-            copy: None,
-        });
+    /// `fresh`: a new variable at `rank`, registered.
+    fn fresh(&mut self, rank: u32, content: Content) -> Variable {
+        let var = self
+            .vars
+            .fresh_descriptor(Descriptor::at_rank(content, rank));
         self.fresh.push(var);
         var
     }
@@ -150,35 +129,36 @@ impl State<'_> {
         if self.vars.equivalent(left, right) {
             return Ok(());
         }
+        let first = self.vars.get(left);
+        let (first_rank, first) = (first.rank, first.content.clone());
+        let second = self.vars.get(right);
+        let (second_rank, second) = (second.rank, second.content.clone());
         let context = Context {
             first: left,
-            first_desc: self.vars.get(left).clone(),
             second: right,
-            second_desc: self.vars.get(right).clone(),
+            rank: first_rank.min(second_rank),
         };
-        stacker::maybe_grow(64 * 1024, 1024 * 1024, || self.actually(&context))
+        nomi_base::grow(|| self.actually(context, first, second))
     }
 
     /// `actuallyUnify`.
-    fn actually(&mut self, context: &Context) -> Unify {
-        let first = context.first_desc.content.clone();
-        let second = context.second_desc.content.clone();
-        match &first {
+    fn actually(&mut self, context: Context, first: Content, second: Content) -> Unify {
+        match first {
             Content::FlexVar(_) => self.flex(context, first, second),
-            Content::FlexSuper(s, _) => self.flex_super(context, *s, first.clone(), second),
+            Content::FlexSuper(s, _) => self.flex_super(context, s, first, second),
             Content::RigidVar(_) => self.rigid(context, None, first, &second),
-            Content::RigidSuper(s, _) => self.rigid(context, Some(*s), first.clone(), &second),
+            Content::RigidSuper(s, _) => self.rigid(context, Some(s), first, &second),
             Content::Alias(home, name, args, real) => {
-                self.alias(context, home, name, args, *real, second)
+                self.alias(context, home, name, args, real, second)
             }
-            Content::Structure(flat) => self.structure(context, flat, first.clone(), second),
+            Content::Structure(flat) => self.structure(context, flat, second),
             // Pretend it is fine, so one error doesn't cascade.
             Content::Error => self.merge(context, Content::Error),
         }
     }
 
     /// `unifyFlex`.
-    fn flex(&mut self, context: &Context, content: Content, other: Content) -> Unify {
+    fn flex(&mut self, context: Context, content: Content, other: Content) -> Unify {
         match other {
             Content::Error => self.merge(context, Content::Error),
             Content::FlexVar(None) => self.merge(context, content),
@@ -189,7 +169,7 @@ impl State<'_> {
     /// `unifyRigid`.
     fn rigid(
         &mut self,
-        context: &Context,
+        context: Context,
         super_type: Option<SuperType>,
         content: Content,
         other: &Content,
@@ -211,7 +191,7 @@ impl State<'_> {
     /// `unifyFlexSuper`.
     fn flex_super(
         &mut self,
-        context: &Context,
+        context: Context,
         s: SuperType,
         content: Content,
         other: Content,
@@ -246,7 +226,7 @@ impl State<'_> {
     }
 
     /// `unifyFlexSuperStructure`.
-    fn flex_super_structure(&mut self, context: &Context, s: SuperType, flat: &FlatType) -> Unify {
+    fn flex_super_structure(&mut self, context: Context, s: SuperType, flat: &FlatType) -> Unify {
         let structure = || Content::Structure(flat.clone());
         match flat {
             FlatType::App1(home, name, args) if args.is_empty() => {
@@ -277,12 +257,16 @@ impl State<'_> {
                     self.merge(context, structure())
                 }
             },
-            _ => Err(Mismatch),
+            FlatType::App1(..)
+            | FlatType::Fun1(..)
+            | FlatType::EmptyRecord1
+            | FlatType::Record1(..)
+            | FlatType::Unit1 => Err(Mismatch),
         }
     }
 
     /// `comparableOccursCheck`: of the second variable, as upstream's.
-    fn comparable_occurs_check(&mut self, context: &Context) -> Unify {
+    fn comparable_occurs_check(&mut self, context: Context) -> Unify {
         if occurs(self.vars, context.second) {
             Err(Mismatch)
         } else {
@@ -293,43 +277,31 @@ impl State<'_> {
     /// `unifyComparableRecursive`.
     fn comparable_recursive(&mut self, var: Variable) -> Unify {
         let rank = self.vars.get(var).rank;
-        let comp = self.vars.fresh_descriptor(Descriptor {
-            content: Content::FlexSuper(SuperType::Comparable, None),
-            rank,
-            mark: NO_MARK,
-            copy: None,
-        });
-        self.fresh.push(comp);
+        let comp = self.fresh(rank, Content::FlexSuper(SuperType::Comparable, None));
         self.guarded(comp, var)
     }
 
     /// `unifyAlias`.
     fn alias(
         &mut self,
-        context: &Context,
-        home: &Home,
-        name: &str,
-        args: &[(String, Variable)],
+        context: Context,
+        home: Home,
+        name: Text,
+        args: Vec<(String, Variable)>,
         real: Variable,
         other: Content,
     ) -> Unify {
         match other {
-            Content::FlexVar(_) => {
-                let content = Content::Alias(home.clone(), Text::from(name), args.to_vec(), real);
-                self.merge(context, content)
-            }
+            Content::FlexVar(_) => self.merge(context, Content::Alias(home, name, args, real)),
             Content::FlexSuper(..)
             | Content::RigidVar(_)
             | Content::RigidSuper(..)
             | Content::Structure(_) => self.guarded(real, context.second),
-            Content::Alias(other_home, other_name, other_args, other_real) => {
-                if name == other_name && *home == other_home {
-                    let pairs: Vec<(Variable, Variable)> = (args.iter().map(|(_, a)| *a))
-                        .zip(other_args.iter().map(|(_, a)| *a))
-                        .collect();
-                    self.all_args(pairs, args.len() == other_args.len())?;
-                    let content = Content::Alias(other_home, other_name, other_args, other_real);
-                    self.merge(context, content)
+            Content::Alias(ref other_home, ref other_name, ref other_args, other_real) => {
+                if name == *other_name && home == *other_home {
+                    let others = other_args.iter().map(|(_, a)| *a);
+                    self.all_args(args.iter().map(|(_, a)| *a), others)?;
+                    self.merge(context, other)
                 } else {
                     self.guarded(real, other_real)
                 }
@@ -340,9 +312,14 @@ impl State<'_> {
 
     /// `unifyArgs` and `unifyAliasArgs`: each pair, going on past a
     /// failure, then the whole fails if one did or one list was longer.
-    fn all_args(&mut self, pairs: Vec<(Variable, Variable)>, same_length: bool) -> Unify {
+    fn all_args(
+        &mut self,
+        left: impl ExactSizeIterator<Item = Variable>,
+        right: impl ExactSizeIterator<Item = Variable>,
+    ) -> Unify {
+        let same_length = left.len() == right.len();
         let mut failed = false;
-        for (a, b) in pairs {
+        for (a, b) in left.zip(right) {
             failed |= self.guarded(a, b).is_err();
         }
         if failed || !same_length {
@@ -353,18 +330,10 @@ impl State<'_> {
     }
 
     /// `unifyStructure`.
-    fn structure(
-        &mut self,
-        context: &Context,
-        flat: &FlatType,
-        content: Content,
-        other: Content,
-    ) -> Unify {
+    fn structure(&mut self, context: Context, flat: FlatType, other: Content) -> Unify {
         match other {
-            Content::FlexVar(_) => self.merge(context, content),
-            Content::FlexSuper(s, _) => {
-                self.flex_super_structure(&context.clone().reorient(), s, flat)
-            }
+            Content::FlexVar(_) => self.merge(context, Content::Structure(flat)),
+            Content::FlexSuper(s, _) => self.flex_super_structure(context.reorient(), s, &flat),
             Content::RigidVar(_) | Content::RigidSuper(..) => Err(Mismatch),
             Content::Alias(_, _, _, real) => self.guarded(context.first, real),
             Content::Error => self.merge(context, Content::Error),
@@ -372,42 +341,38 @@ impl State<'_> {
                 (
                     FlatType::App1(home, name, args),
                     FlatType::App1(other_home, other_name, other_args),
-                ) if home == other_home && name == other_name => {
-                    let pairs = args
-                        .iter()
-                        .copied()
-                        .zip(other_args.iter().copied())
-                        .collect();
-                    self.all_args(pairs, args.len() == other_args.len())?;
+                ) if home == *other_home && name == *other_name => {
+                    let others = other_args.iter().copied();
+                    self.all_args(args.into_iter(), others)?;
                     self.merge(context, other)
                 }
                 (FlatType::Fun1(arg1, res1), FlatType::Fun1(arg2, res2)) => {
-                    self.guarded(*arg1, *arg2)?;
-                    self.guarded(*res1, *res2)?;
+                    self.guarded(arg1, *arg2)?;
+                    self.guarded(res1, *res2)?;
                     self.merge(context, other)
                 }
                 (FlatType::EmptyRecord1, FlatType::EmptyRecord1)
                 | (FlatType::Unit1, FlatType::Unit1) => self.merge(context, other),
                 (FlatType::Record1(fields, ext), FlatType::EmptyRecord1) if fields.is_empty() => {
-                    self.guarded(*ext, context.second)
+                    self.guarded(ext, context.second)
                 }
                 (FlatType::EmptyRecord1, FlatType::Record1(fields, ext)) if fields.is_empty() => {
                     self.guarded(context.first, *ext)
                 }
                 (FlatType::Record1(fields1, ext1), FlatType::Record1(fields2, ext2)) => {
-                    let one = self.gather_fields(fields1.clone(), *ext1);
+                    let one = self.gather_fields(fields1, ext1);
                     let two = self.gather_fields(fields2.clone(), *ext2);
                     self.record(context, one, two)
                 }
                 (FlatType::Tuple1(a, b, None), FlatType::Tuple1(x, y, None)) => {
-                    self.guarded(*a, *x)?;
-                    self.guarded(*b, *y)?;
+                    self.guarded(a, *x)?;
+                    self.guarded(b, *y)?;
                     self.merge(context, other)
                 }
                 (FlatType::Tuple1(a, b, Some(c)), FlatType::Tuple1(x, y, Some(z))) => {
-                    self.guarded(*a, *x)?;
-                    self.guarded(*b, *y)?;
-                    self.guarded(*c, *z)?;
+                    self.guarded(a, *x)?;
+                    self.guarded(b, *y)?;
+                    self.guarded(c, *z)?;
                     self.merge(context, other)
                 }
                 _ => Err(Mismatch),
@@ -424,15 +389,20 @@ impl State<'_> {
         mut var: Variable,
     ) -> (BTreeMap<Text, Variable>, Variable) {
         loop {
-            match self.vars.content(var) {
+            match &self.vars.get(var).content {
                 Content::Structure(FlatType::Record1(sub_fields, sub_ext)) => {
                     for (name, field) in sub_fields {
-                        fields.entry(name).or_insert(field);
+                        fields.entry(name.clone()).or_insert(*field);
                     }
-                    var = sub_ext;
+                    var = *sub_ext;
                 }
-                Content::Alias(_, _, _, real) => var = real,
-                _ => return (fields, var),
+                Content::Alias(_, _, _, real) => var = *real,
+                Content::FlexVar(_)
+                | Content::FlexSuper(..)
+                | Content::RigidVar(_)
+                | Content::RigidSuper(..)
+                | Content::Structure(_)
+                | Content::Error => return (fields, var),
             }
         }
     }
@@ -440,7 +410,7 @@ impl State<'_> {
     /// `unifyRecord`.
     fn record(
         &mut self,
-        context: &Context,
+        context: Context,
         (fields1, ext1): (BTreeMap<Text, Variable>, Variable),
         (fields2, ext2): (BTreeMap<Text, Variable>, Variable),
     ) -> Unify {
@@ -455,33 +425,28 @@ impl State<'_> {
             .filter(|(n, _)| !fields1.contains_key(*n))
             .map(|(n, v)| (n.clone(), *v))
             .collect();
+        let rank = context.rank;
         match (unique1.is_empty(), unique2.is_empty()) {
             (true, true) => {
                 self.guarded(ext1, ext2)?;
                 self.shared_fields(context, &shared, BTreeMap::new(), ext1)
             }
             (true, false) => {
-                let sub = self.fresh(
-                    context,
-                    Content::Structure(FlatType::Record1(unique2, ext2)),
-                );
+                let sub = self.fresh(rank, Content::Structure(FlatType::Record1(unique2, ext2)));
                 self.guarded(ext1, sub)?;
                 self.shared_fields(context, &shared, BTreeMap::new(), sub)
             }
             (false, true) => {
-                let sub = self.fresh(
-                    context,
-                    Content::Structure(FlatType::Record1(unique1, ext1)),
-                );
+                let sub = self.fresh(rank, Content::Structure(FlatType::Record1(unique1, ext1)));
                 self.guarded(sub, ext2)?;
                 self.shared_fields(context, &shared, BTreeMap::new(), sub)
             }
             (false, false) => {
                 let mut others = unique1.clone();
                 others.extend(unique2.clone());
-                let ext = self.fresh(context, Content::FlexVar(None));
-                let sub1 = self.fresh(context, Content::Structure(FlatType::Record1(unique1, ext)));
-                let sub2 = self.fresh(context, Content::Structure(FlatType::Record1(unique2, ext)));
+                let ext = self.fresh(rank, Content::FlexVar(None));
+                let sub1 = self.fresh(rank, Content::Structure(FlatType::Record1(unique1, ext)));
+                let sub2 = self.fresh(rank, Content::Structure(FlatType::Record1(unique2, ext)));
                 self.guarded(ext1, sub2)?;
                 self.guarded(sub1, ext2)?;
                 self.shared_fields(context, &shared, others, ext)
@@ -493,24 +458,19 @@ impl State<'_> {
     /// each keeping the first record's variable.
     fn shared_fields(
         &mut self,
-        context: &Context,
+        context: Context,
         shared: &BTreeMap<Text, (Variable, Variable)>,
         others: BTreeMap<Text, Variable>,
         ext: Variable,
     ) -> Unify {
-        let count = shared.len();
         let mut matching = BTreeMap::new();
         // `Map.traverseMaybeWithKey`: in the release's name order.
-        let shared: Vec<(Text, (Variable, Variable))> = (in_name_order(self.vars.compat, shared)
-            .into_iter())
-        .map(|(n, pair)| (n.clone(), *pair))
-        .collect();
-        for (name, (actual, expected)) in shared {
+        for (name, &(actual, expected)) in in_name_order(self.vars.compat, shared) {
             if self.guarded(actual, expected).is_ok() {
-                matching.insert(name, actual);
+                matching.insert(name.clone(), actual);
             }
         }
-        if matching.len() != count {
+        if matching.len() != shared.len() {
             return Err(Mismatch);
         }
         // `Map.union matchingFields otherFields`: the shared win.

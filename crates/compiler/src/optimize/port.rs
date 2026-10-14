@@ -3,25 +3,17 @@
 //! has already checked. Record fields are taken in the release's order of
 //! names.
 
-use std::collections::BTreeMap;
-
 use nomi_base::Compat;
 
-use super::names::{self, Tracker};
-use crate::canonical::{FieldType, Home, Type};
+use super::names::Tracker;
+use crate::canonical::{Home, Type};
 use crate::optimized::{Destructor, Expr, Path};
+use crate::types::in_name_order;
 
 fn json(module: &str) -> Home {
     Home {
         package: "elm/json".into(),
         module: module.into(),
-    }
-}
-
-fn maybe() -> Home {
-    Home {
-        package: "elm/core".into(),
-        module: "Maybe".into(),
     }
 }
 
@@ -33,6 +25,14 @@ fn decode(t: &mut Tracker, name: &str) -> Expr {
     t.global(&json("Json.Decode"), name)
 }
 
+fn identity(t: &mut Tracker) -> Expr {
+    t.global(&Home::core("Basics"), "identity")
+}
+
+fn maybe(t: &mut Tracker, name: &str) -> Expr {
+    t.global(&Home::core("Maybe"), name)
+}
+
 fn call(func: Expr, args: Vec<Expr>) -> Expr {
     Expr::Call(Box::new(func), args)
 }
@@ -41,23 +41,19 @@ fn local(name: &str) -> Expr {
     Expr::VarLocal(name.to_owned())
 }
 
-/// A record's fields in the order upstream lists them (`Map.toList`).
-fn fields(compat: Compat, fields: &BTreeMap<String, FieldType>) -> Vec<(&String, &FieldType)> {
-    let mut list: Vec<_> = fields.iter().collect();
-    if compat == Compat::V0_19_3 {
-        list.sort_by(|a, b| a.0.len().cmp(&b.0.len()).then_with(|| a.0.cmp(b.0)));
-    }
-    list
+/// `\$ -> body`, as encoders take what they encode.
+fn over_dollar(body: Expr) -> Expr {
+    Expr::Function(vec!["$".to_owned()], Box::new(body))
 }
 
 /// `toEncoder`.
 pub(super) fn to_encoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
     match ty {
         Type::Alias { args, aliased, .. } => to_encoder(compat, t, &aliased.dealias(args)),
-        Type::Unit => Expr::Function(vec!["$".to_owned()], Box::new(encode(t, "null"))),
+        Type::Unit => over_dollar(encode(t, "null")),
         Type::Tuple(a, b, c) => {
             let list = encode(t, "list");
-            let identity = t.global(&names::basics(), "identity");
+            let identity = identity(t);
             let mut encoded = Vec::new();
             for (arg, ty) in [("a", Some(a)), ("b", Some(b)), ("c", c.as_ref())] {
                 if let Some(ty) = ty {
@@ -83,20 +79,16 @@ pub(super) fn to_encoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
                     Box::new(body),
                 )
             });
-            Expr::Function(vec!["$".to_owned()], Box::new(body))
+            over_dollar(body)
         }
         Type::Type { name, args, .. } => match (name.as_str(), args.as_slice()) {
-            ("Float", []) => encode(t, "float"),
-            ("Int", []) => encode(t, "int"),
-            ("Bool", []) => encode(t, "bool"),
-            ("String", []) => encode(t, "string"),
-            ("Value", []) => t.global(&names::basics(), "identity"),
+            ("Float" | "Int" | "Bool" | "String", []) => encode(t, &name.to_ascii_lowercase()),
+            ("Value", []) => identity(t),
             ("Maybe", [arg]) => {
                 let null = encode(t, "null");
                 let encoder = to_encoder(compat, t, arg);
-                let destruct = t.global(&maybe(), "destruct");
-                let body = call(destruct, vec![null, encoder, local("$")]);
-                Expr::Function(vec!["$".to_owned()], Box::new(body))
+                let destruct = maybe(t, "destruct");
+                over_dollar(call(destruct, vec![null, encoder, local("$")]))
             }
             ("List", [arg]) => {
                 let list = encode(t, "list");
@@ -110,7 +102,7 @@ pub(super) fn to_encoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
         },
         Type::Record(record, None) => {
             let object = encode(t, "object");
-            let pairs = (fields(compat, record).into_iter())
+            let pairs = (in_name_order(compat, record).into_iter())
                 .map(|(name, field)| {
                     let encoder = to_encoder(compat, t, &field.ty);
                     let access = Expr::Access(Box::new(local("$")), name.clone());
@@ -124,8 +116,7 @@ pub(super) fn to_encoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
             for name in record.keys() {
                 t.field(name);
             }
-            let body = call(object, vec![Expr::List(pairs)]);
-            Expr::Function(vec!["$".to_owned()], Box::new(body))
+            over_dollar(call(object, vec![Expr::List(pairs)]))
         }
         Type::Lambda(..) | Type::Var(_) | Type::Record(_, Some(_)) => {
             unreachable!("a port of a type checkPayload refuses")
@@ -171,14 +162,11 @@ pub(super) fn to_decoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
             decoder
         }
         Type::Type { name, args, .. } => match (name.as_str(), args.as_slice()) {
-            ("Float", []) => decode(t, "float"),
-            ("Int", []) => decode(t, "int"),
-            ("Bool", []) => decode(t, "bool"),
-            ("String", []) => decode(t, "string"),
+            ("Float" | "Int" | "Bool" | "String", []) => decode(t, &name.to_ascii_lowercase()),
             ("Value", []) => decode(t, "value"),
             ("Maybe", [arg]) => {
-                let nothing = t.global(&maybe(), "Nothing");
-                let just = t.global(&maybe(), "Just");
+                let nothing = maybe(t, "Nothing");
+                let just = maybe(t, "Just");
                 let one_of = decode(t, "oneOf");
                 let null = decode(t, "null");
                 let map = decode(t, "map");
@@ -208,7 +196,7 @@ pub(super) fn to_decoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
                 t.field(name);
             }
             let mut decoder = call(succeed, vec![value]);
-            for (key, field) in fields(compat, record) {
+            for (key, field) in in_name_order(compat, record) {
                 let and_then = decode(t, "andThen");
                 let at = decode(t, "field");
                 let sub = to_decoder(compat, t, &field.ty);

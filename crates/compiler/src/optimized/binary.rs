@@ -28,6 +28,7 @@ use nomi_base::Compat;
 use nomi_base::diagnostic::code::{Position, Region};
 
 use crate::canonical::{AliasType, CtorOpts, FieldType, Home, Type};
+use crate::types::SuperType;
 
 /// `Binary.encode` of a module's graph, as `<Module>.elmo` holds it.
 pub fn encode_local_graph(graph: &LocalGraph, compat: Compat) -> Vec<u8> {
@@ -67,31 +68,15 @@ pub fn decode_global_graph(bytes: &[u8], compat: Compat) -> Option<GlobalGraph> 
     input.done().then_some(graph)
 }
 
-/// `Ord Name`: by bytes, or in 0.19.3 by length, then bytes
-/// (`compareFast`).
-pub fn names(compat: Compat, a: &str, b: &str) -> Ordering {
-    if compat == Compat::V0_19_3 {
-        a.len()
-            .cmp(&b.len())
-            .then_with(|| a.as_bytes().cmp(b.as_bytes()))
-    } else {
-        a.as_bytes().cmp(b.as_bytes())
-    }
-}
-
-/// `Ord ModuleName.Canonical`: by module name, then package, by author,
-/// then project, each by bytes.
+/// `Ord ModuleName.Canonical`: by module name as the release orders
+/// names, then package, by author, then project, each by bytes.
 pub fn homes(compat: Compat, a: &Home, b: &Home) -> Ordering {
-    let package = |home: &Home| {
-        let (author, project) = split(home);
-        (author.as_bytes().to_vec(), project.as_bytes().to_vec())
-    };
-    names(compat, &a.module, &b.module).then_with(|| package(a).cmp(&package(b)))
+    (compat.compare_names(&a.module, &b.module)).then_with(|| split(a).cmp(&split(b)))
 }
 
 /// `Ord Opt.Global`: by name, then home.
 pub fn globals(compat: Compat, a: &Global, b: &Global) -> Ordering {
-    names(compat, &a.name, &b.name).then_with(|| homes(compat, &a.home, &b.home))
+    (compat.compare_names(&a.name, &b.name)).then_with(|| homes(compat, &a.home, &b.home))
 }
 
 /// A home's package, as author and project.
@@ -102,13 +87,12 @@ fn split(home: &Home) -> (&str, &str) {
 /// 0.19.3's constraint on a type variable, from its name (`TypeVar.hs`,
 /// `varFromString`).
 fn constraint(name: &str) -> u8 {
-    match name {
-        _ if name.len() < 6 => 0,
-        _ if name.starts_with("comparable") => 1,
-        _ if name.starts_with("appendable") => 2,
-        _ if name.starts_with("compappend") => 3,
-        _ if name.starts_with("number") => 4,
-        _ => 0,
+    match SuperType::of_name(name) {
+        None => 0,
+        Some(SuperType::Comparable) => 1,
+        Some(SuperType::Appendable) => 2,
+        Some(SuperType::CompAppend) => 3,
+        Some(SuperType::Number) => 4,
     }
 }
 
@@ -224,23 +208,33 @@ impl Out {
         self.list(names, |out, name| out.name(name));
     }
 
-    fn name_set(&mut self, set: &BTreeSet<String>) {
-        let mut sorted: Vec<&String> = set.iter().collect();
-        sorted.sort_by(|a, b| names(self.compat, a, b));
-        self.count(sorted.len());
-        for name in sorted {
-            self.name(name);
+    /// A map's or set's `items`, counted, in `order`.
+    fn sorted<T>(
+        &mut self,
+        mut items: Vec<T>,
+        order: impl Fn(&T, &T) -> Ordering,
+        mut put: impl FnMut(&mut Out, T),
+    ) {
+        items.sort_by(order);
+        self.count(items.len());
+        for item in items {
+            put(self, item);
         }
     }
 
+    fn name_set(&mut self, set: &BTreeSet<String>) {
+        let compat = self.compat;
+        let order = |a: &&String, b: &&String| compat.compare_names(a, b);
+        self.sorted(set.iter().collect(), order, |out, name| out.name(name));
+    }
+
     fn name_map<T>(&mut self, map: &BTreeMap<String, T>, mut put: impl FnMut(&mut Out, &T)) {
-        let mut sorted: Vec<(&String, &T)> = map.iter().collect();
-        sorted.sort_by(|a, b| names(self.compat, a.0, b.0));
-        self.count(sorted.len());
-        for (name, value) in sorted {
-            self.name(name);
-            put(self, value);
-        }
+        let compat = self.compat;
+        let order = |a: &(&String, &T), b: &(&String, &T)| compat.compare_names(a.0, b.0);
+        self.sorted(map.iter().collect(), order, |out, (name, value)| {
+            out.name(name);
+            put(out, value);
+        });
     }
 
     fn home(&mut self, home: &Home) {
@@ -256,22 +250,18 @@ impl Out {
     }
 
     fn global_set(&mut self, set: &BTreeSet<Global>) {
-        let mut sorted: Vec<&Global> = set.iter().collect();
-        sorted.sort_by(|a, b| globals(self.compat, a, b));
-        self.count(sorted.len());
-        for global in sorted {
-            self.global(global);
-        }
+        let compat = self.compat;
+        let order = |a: &&Global, b: &&Global| globals(compat, a, b);
+        self.sorted(set.iter().collect(), order, Out::global);
     }
 
     fn nodes(&mut self, nodes: &BTreeMap<Global, Node>) {
-        let mut sorted: Vec<(&Global, &Node)> = nodes.iter().collect();
-        sorted.sort_by(|a, b| globals(self.compat, a.0, b.0));
-        self.count(sorted.len());
-        for (global, node) in sorted {
-            self.global(global);
-            self.node(node);
-        }
+        let compat = self.compat;
+        let order = |a: &(&Global, &Node), b: &(&Global, &Node)| globals(compat, a.0, b.0);
+        self.sorted(nodes.iter().collect(), order, |out, (global, node)| {
+            out.global(global);
+            out.node(node);
+        });
     }
 
     fn fields(&mut self, fields: &BTreeMap<String, i64>) {
@@ -1214,7 +1204,6 @@ impl<'a> In<'a> {
     }
 
     fn expr(&mut self) -> Option<Expr> {
-        let boxed = |e: Expr| Box::new(e);
         Some(match self.u8()? {
             0 => Expr::Bool(self.bool()?),
             1 => Expr::Chr(self.chr()?),
@@ -1237,23 +1226,23 @@ impl<'a> In<'a> {
                 name: self.name()?,
             },
             12 => Expr::List(self.list(In::expr)?),
-            13 => Expr::Function(self.names()?, boxed(self.expr()?)),
-            14 => Expr::Call(boxed(self.expr()?), self.list(In::expr)?),
+            13 => Expr::Function(self.names()?, Box::new(self.expr()?)),
+            14 => Expr::Call(Box::new(self.expr()?), self.list(In::expr)?),
             15 => Expr::TailCall(
                 self.name()?,
                 self.list(|input| Some((input.name()?, input.expr()?)))?,
             ),
             16 => Expr::If(
                 self.list(|input| Some((input.expr()?, input.expr()?)))?,
-                boxed(self.expr()?),
+                Box::new(self.expr()?),
             ),
-            17 => Expr::Let(Box::new(self.def()?), boxed(self.expr()?)),
+            17 => Expr::Let(Box::new(self.def()?), Box::new(self.expr()?)),
             18 => Expr::Destruct(
                 Destructor {
                     name: self.name()?,
                     path: self.path()?,
                 },
-                boxed(self.expr()?),
+                Box::new(self.expr()?),
             ),
             19 => Expr::Case {
                 label: self.name()?,
@@ -1262,20 +1251,20 @@ impl<'a> In<'a> {
                 jumps: self.list(|input| Some((input.index()?, input.expr()?)))?,
             },
             20 => Expr::Accessor(self.name()?),
-            21 => Expr::Access(boxed(self.expr()?), self.name()?),
-            22 => Expr::Update(boxed(self.expr()?), self.name_map(In::expr)?),
+            21 => Expr::Access(Box::new(self.expr()?), self.name()?),
+            22 => Expr::Update(Box::new(self.expr()?), self.name_map(In::expr)?),
             23 => Expr::Record(self.name_map(In::expr)?),
             24 => Expr::Unit,
-            25 if self.v3() => Expr::Tuple(boxed(self.expr()?), boxed(self.expr()?), None),
+            25 if self.v3() => Expr::Tuple(Box::new(self.expr()?), Box::new(self.expr()?), None),
             26 if self.v3() => Expr::Tuple(
-                boxed(self.expr()?),
-                boxed(self.expr()?),
-                Some(boxed(self.expr()?)),
+                Box::new(self.expr()?),
+                Box::new(self.expr()?),
+                Some(Box::new(self.expr()?)),
             ),
             27 if self.v3() => self.shader()?,
             25 => Expr::Tuple(
-                boxed(self.expr()?),
-                boxed(self.expr()?),
+                Box::new(self.expr()?),
+                Box::new(self.expr()?),
                 Option::from(self.maybe(In::expr)?).map(Box::new),
             ),
             26 => self.shader()?,

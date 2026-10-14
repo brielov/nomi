@@ -10,17 +10,17 @@ use nomi_base::{Text, TextRange};
 
 use super::pattern::{self, State};
 use crate::canonical::{
-    self, Def, Expr, ExprKind, FieldUpdate, Operator, Pattern, ShaderType, ShaderTypes,
+    self, Def, Expr, ExprKind, FieldUpdate, Home, Operator, Pattern, ShaderType, ShaderTypes,
 };
 use crate::types::expected::{
     Category, Context, Expected, MaybeName, PContext, PExpected, SubContext,
 };
 use crate::types::instantiate::from_src_type;
-use crate::types::{self, Constraint, Type, Variable, Variables, core, exists, fun, in_name_order};
+use crate::types::{self, Constraint, Type, Variable, Variables, exists, fun, in_name_order, list};
 
 /// `RTV`: the rigid type variables the annotations around an expression
 /// introduced, by name.
-pub type Rtv = BTreeMap<String, Type>;
+pub(super) type Rtv = BTreeMap<String, Type>;
 
 fn var(v: Variable) -> Type {
     Type::Var(v)
@@ -31,7 +31,12 @@ fn and(cons: Vec<Constraint>) -> Constraint {
 }
 
 fn equal(region: TextRange, category: Category, ty: Type, expected: Expected<Type>) -> Constraint {
-    Constraint::Equal(region, category, ty, expected)
+    Constraint::Equal {
+        region,
+        category,
+        ty,
+        expected,
+    }
 }
 
 /// `CLet` with no rigid variables.
@@ -50,20 +55,21 @@ fn flex_let(
     }
 }
 
-fn list(entry: Type) -> Type {
-    Type::App(core("List"), Text::from("List"), vec![entry])
+impl State {
+    /// `CLet` of what the patterns bound over `body`.
+    fn over(self, body: Constraint) -> Constraint {
+        flex_let(self.vars, self.headers, and(self.cons), body)
+    }
 }
 
 /// `constrain`.
-pub fn constrain(
+pub(crate) fn constrain(
     vars: &mut Variables,
     rtv: &Rtv,
     expr: &Expr,
     expected: Expected<Type>,
 ) -> Constraint {
-    stacker::maybe_grow(128 * 1024, 2 * 1024 * 1024, || {
-        constrain_(vars, rtv, expr, expected)
-    })
+    nomi_base::grow_large(|| constrain_(vars, rtv, expr, expected))
 }
 
 fn constrain_(
@@ -76,18 +82,18 @@ fn constrain_(
     if let Some(recorded) = &mut vars.recorded {
         recorded.push((region, expected.ty().clone()));
     }
-    let foreign = |name: &str, annotation: &canonical::Annotation, expected| {
-        Constraint::Foreign(
-            region,
-            name.to_owned(),
-            Box::new(annotation.clone()),
-            expected,
-        )
+    let foreign = |name: &str, annotation: &canonical::Annotation, expected| Constraint::Foreign {
+        region,
+        name: name.to_owned(),
+        annotation: Box::new(annotation.clone()),
+        expected,
     };
     match &expr.kind {
-        ExprKind::VarLocal(name) | ExprKind::VarTopLevel(_, name) => {
-            Constraint::Local(region, name.clone(), expected)
-        }
+        ExprKind::VarLocal(name) | ExprKind::VarTopLevel(_, name) => Constraint::Local {
+            region,
+            name: name.clone(),
+            expected,
+        },
         ExprKind::VarKernel { .. } => Constraint::True,
         ExprKind::VarForeign {
             name, annotation, ..
@@ -184,7 +190,7 @@ fn constrain_(
             exists(
                 arg_vars,
                 and(vec![
-                    flex_let(state.vars, state.headers, and(state.cons), body_con),
+                    state.over(body_con),
                     equal(region, Category::Lambda, ty, expected),
                 ]),
             )
@@ -240,12 +246,12 @@ fn constrain_(
                 BTreeMap::from([(Text::new(field), var(field_var))]),
                 Box::new(var(ext_var)),
             );
-            let context = Context::RecordAccess(
-                record.region,
-                access_name(record),
-                *field_region,
-                field.clone(),
-            );
+            let context = Context::RecordAccess {
+                record: record.region,
+                record_name: access_name(record),
+                field_region: *field_region,
+                field: field.clone(),
+            };
             let record_con = constrain(
                 vars,
                 rtv,
@@ -290,27 +296,21 @@ fn constrain_(
             let b_var = vars.flex_var();
             let a_con = constrain(vars, rtv, a, Expected::NoExpectation(var(a_var)));
             let b_con = constrain(vars, rtv, b, Expected::NoExpectation(var(b_var)));
-            match c {
-                None => {
-                    let ty = Type::Tuple(Box::new(var(a_var)), Box::new(var(b_var)), None);
-                    let tuple_con = equal(region, Category::Tuple, ty, expected);
-                    exists(vec![a_var, b_var], and(vec![a_con, b_con, tuple_con]))
-                }
-                Some(c) => {
-                    let c_var = vars.flex_var();
-                    let c_con = constrain(vars, rtv, c, Expected::NoExpectation(var(c_var)));
-                    let ty = Type::Tuple(
-                        Box::new(var(a_var)),
-                        Box::new(var(b_var)),
-                        Some(Box::new(var(c_var))),
-                    );
-                    let tuple_con = equal(region, Category::Tuple, ty, expected);
-                    exists(
-                        vec![a_var, b_var, c_var],
-                        and(vec![a_con, b_con, c_con, tuple_con]),
-                    )
-                }
-            }
+            let c = c.as_ref().map(|c| {
+                let c_var = vars.flex_var();
+                let c_con = constrain(vars, rtv, c, Expected::NoExpectation(var(c_var)));
+                (c_var, c_con)
+            });
+            let ty = Type::Tuple(
+                Box::new(var(a_var)),
+                Box::new(var(b_var)),
+                c.as_ref().map(|(c_var, _)| Box::new(var(*c_var))),
+            );
+            let tuple_con = equal(region, Category::Tuple, ty, expected);
+            let (c_var, c_con) = c.unzip();
+            let flex_vars = [a_var, b_var].into_iter().chain(c_var).collect();
+            let cons = [a_con, b_con].into_iter().chain(c_con).chain([tuple_con]);
+            exists(flex_vars, and(cons.collect()))
         }
         ExprKind::Shader(_, shader) => shader_con(vars, region, shader, expected),
     }
@@ -325,7 +325,28 @@ fn call_name(expr: &Expr) -> MaybeName {
         | ExprKind::VarKernel { name, .. } => MaybeName::FuncName(name.clone()),
         ExprKind::VarCtor { name, .. } => MaybeName::CtorName(name.clone()),
         ExprKind::VarOperator(operator) => MaybeName::OpName(operator.op.clone()),
-        _ => MaybeName::NoName,
+        ExprKind::VarDebug { .. }
+        | ExprKind::Chr(_)
+        | ExprKind::Str(_)
+        | ExprKind::Int(_)
+        | ExprKind::Float(_)
+        | ExprKind::List(_)
+        | ExprKind::Negate(_)
+        | ExprKind::Binop { .. }
+        | ExprKind::Lambda(..)
+        | ExprKind::Call(..)
+        | ExprKind::If(..)
+        | ExprKind::Let(..)
+        | ExprKind::LetRec(..)
+        | ExprKind::LetDestruct { .. }
+        | ExprKind::Case(..)
+        | ExprKind::Accessor(_)
+        | ExprKind::Access { .. }
+        | ExprKind::Update { .. }
+        | ExprKind::Record(_)
+        | ExprKind::Unit
+        | ExprKind::Tuple(..)
+        | ExprKind::Shader(..) => MaybeName::NoName,
     }
 }
 
@@ -335,7 +356,31 @@ fn access_name(expr: &Expr) -> Option<String> {
         ExprKind::VarLocal(name)
         | ExprKind::VarTopLevel(_, name)
         | ExprKind::VarForeign { name, .. } => Some(name.clone()),
-        _ => None,
+        ExprKind::VarKernel { .. }
+        | ExprKind::VarCtor { .. }
+        | ExprKind::VarDebug { .. }
+        | ExprKind::VarOperator(_)
+        | ExprKind::Chr(_)
+        | ExprKind::Str(_)
+        | ExprKind::Int(_)
+        | ExprKind::Float(_)
+        | ExprKind::List(_)
+        | ExprKind::Negate(_)
+        | ExprKind::Binop { .. }
+        | ExprKind::Lambda(..)
+        | ExprKind::Call(..)
+        | ExprKind::If(..)
+        | ExprKind::Let(..)
+        | ExprKind::LetRec(..)
+        | ExprKind::LetDestruct { .. }
+        | ExprKind::Case(..)
+        | ExprKind::Accessor(_)
+        | ExprKind::Access { .. }
+        | ExprKind::Update { .. }
+        | ExprKind::Record(_)
+        | ExprKind::Unit
+        | ExprKind::Tuple(..)
+        | ExprKind::Shader(..) => None,
     }
 }
 
@@ -353,19 +398,16 @@ fn call(
     let result_var = vars.flex_var();
     let func_con = constrain(vars, rtv, function, Expected::NoExpectation(var(func_var)));
     let mut arg_vars = Vec::new();
-    let mut arg_types = Vec::new();
     let mut arg_cons = Vec::new();
     for (i, arg) in arguments.iter().enumerate() {
         let v = vars.flex_var();
-        let expected = Expected::FromContext(region, Context::CallArg(name.clone(), i), var(v));
+        let context = Context::CallArg(name.clone(), i);
+        let expected = Expected::FromContext(region, context, var(v));
         arg_cons.push(constrain(vars, rtv, arg, expected));
         arg_vars.push(v);
-        arg_types.push(var(v));
     }
-    let arity_type = arg_types
-        .into_iter()
-        .rev()
-        .fold(var(result_var), |result, arg| fun(arg, result));
+    let arity_type =
+        (arg_vars.iter().rev()).fold(var(result_var), |result, arg| fun(var(*arg), result));
     let category = Category::CallResult(name.clone());
     let mut all_vars = vec![func_var, result_var];
     all_vars.extend(arg_vars);
@@ -403,21 +445,19 @@ fn if_(
         .iter()
         .map(|(c, _)| constrain(vars, rtv, c, bool_expect.clone()))
         .collect();
-    let exprs: Vec<&Expr> = branches
-        .iter()
-        .map(|(_, e)| e)
-        .chain(std::iter::once(otherwise))
-        .collect();
+    let exprs = (branches.iter().map(|(_, e)| e)).chain([otherwise]);
     match expected {
-        Expected::FromAnnotation(name, arity, _, ty) => {
-            let branch_cons = (exprs.iter().enumerate())
+        Expected::FromAnnotation {
+            name, arity, ty, ..
+        } => {
+            let branch_cons = (exprs.enumerate())
                 .map(|(i, e)| {
-                    let expected = Expected::FromAnnotation(
-                        name.clone(),
+                    let expected = Expected::FromAnnotation {
+                        name: name.clone(),
                         arity,
-                        SubContext::TypedIfBranch(i),
-                        ty.clone(),
-                    );
+                        sub: SubContext::TypedIfBranch(i),
+                        ty: ty.clone(),
+                    };
                     constrain(vars, rtv, e, expected)
                 })
                 .collect();
@@ -425,7 +465,7 @@ fn if_(
         }
         expected => {
             let branch_var = vars.flex_var();
-            let branch_cons = (exprs.iter().enumerate())
+            let branch_cons = (exprs.enumerate())
                 .map(|(i, e)| {
                     let expected =
                         Expected::FromContext(region, Context::IfBranch(i), var(branch_var));
@@ -463,15 +503,17 @@ fn case(
     );
     let p_expect = |i| PExpected::PFromContext(region, PContext::PCaseMatch(i), ptrn_type.clone());
     match expected {
-        Expected::FromAnnotation(name, arity, _, ty) => {
+        Expected::FromAnnotation {
+            name, arity, ty, ..
+        } => {
             let mut cons = vec![expr_con];
             for (i, (pattern, body)) in branches.iter().enumerate() {
-                let expected = Expected::FromAnnotation(
-                    name.clone(),
+                let expected = Expected::FromAnnotation {
+                    name: name.clone(),
                     arity,
-                    SubContext::TypedCaseBranch(i),
-                    ty.clone(),
-                );
+                    sub: SubContext::TypedCaseBranch(i),
+                    ty: ty.clone(),
+                };
                 cons.push(case_branch(vars, rtv, pattern, body, p_expect(i), expected));
             }
             exists(vec![ptrn_var], and(cons))
@@ -509,7 +551,7 @@ fn case_branch(
     let mut state = State::default();
     pattern::add(vars, pattern, p_expect, &mut state);
     let body_con = constrain(vars, rtv, body, expected);
-    flex_let(state.vars, state.headers, and(state.cons), body_con)
+    state.over(body_con)
 }
 
 /// `constrainUpdate`.
@@ -581,7 +623,7 @@ fn shader_con(
             Type::Record(fields, Box::new(base))
         }
     };
-    let webgl = canonical::Home {
+    let webgl = Home {
         package: "elm-explorations/webgl".into(),
         module: "WebGL".into(),
     };
@@ -691,8 +733,8 @@ struct TypedArgs {
 
 /// `constrainTypedArgs`: each parameter against its annotated type.
 fn typed_args(
-    rtv: &Rtv,
     vars: &mut Variables,
+    rtv: &Rtv,
     name: &str,
     params: &[(Pattern, canonical::Type)],
     result: &canonical::Type,
@@ -719,7 +761,7 @@ fn typed_args(
 
 /// The rigid variables an annotation's free variables add to `rtv`, in
 /// name order, and `rtv` with them.
-fn new_rigids(vars: &mut Variables, rtv: &Rtv, free: &[String]) -> (Vec<Variable>, Rtv) {
+pub(super) fn new_rigids(vars: &mut Variables, rtv: &Rtv, free: &[String]) -> (Vec<Variable>, Rtv) {
     let mut names: Vec<&String> = free.iter().filter(|n| !rtv.contains_key(*n)).collect();
     names.sort();
     names.dedup();
@@ -733,65 +775,95 @@ fn new_rigids(vars: &mut Variables, rtv: &Rtv, free: &[String]) -> (Vec<Variable
     (rigids, new_rtv)
 }
 
+/// A definition constrained, before it is bound: the variables it makes,
+/// its type, and its body's constraint under its parameters.
+struct Defined {
+    /// An unannotated definition's parameters' and result's variables,
+    /// or an annotated one's new rigid variables.
+    vars: Vec<Variable>,
+    ty: Type,
+    con: Constraint,
+}
+
+/// An unannotated definition, its parameters' patterns bound after what
+/// `seed` holds.
+fn untyped(
+    vars: &mut Variables,
+    rtv: &Rtv,
+    params: &[Pattern],
+    body: &Expr,
+    seed: State,
+) -> Defined {
+    let Args {
+        vars: arg_vars,
+        ty,
+        result,
+        state,
+    } = args_help(vars, params, seed);
+    let expr_con = constrain(vars, rtv, body, Expected::NoExpectation(result));
+    Defined {
+        vars: arg_vars,
+        ty,
+        con: state.over(expr_con),
+    }
+}
+
+/// An annotated definition, named `name`, with the annotation's `free`
+/// variables, its typed `params` and its `result`.
+fn typed(
+    vars: &mut Variables,
+    rtv: &Rtv,
+    name: &str,
+    free: &[String],
+    params: &[(Pattern, canonical::Type)],
+    body: &Expr,
+    result: &canonical::Type,
+) -> Defined {
+    let (rigids, new_rtv) = new_rigids(vars, rtv, free);
+    let TypedArgs { ty, result, state } = typed_args(vars, &new_rtv, name, params, result);
+    let expected = Expected::FromAnnotation {
+        name: name.to_owned(),
+        arity: params.len(),
+        sub: SubContext::TypedBody,
+        ty: result,
+    };
+    let expr_con = constrain(vars, &new_rtv, body, expected);
+    Defined {
+        vars: rigids,
+        ty,
+        con: state.over(expr_con),
+    }
+}
+
 /// `constrainDef`.
-pub fn constrain_def(
+pub(super) fn constrain_def(
     vars: &mut Variables,
     rtv: &Rtv,
     def: &Def,
     body_con: Constraint,
 ) -> Constraint {
+    let bind = |rigid_vars, flex_vars, ty, con| Constraint::Let {
+        rigid_vars,
+        flex_vars,
+        header: BTreeMap::from([(def.name().to_owned(), (def.region(), ty))]),
+        header_con: Box::new(con),
+        body_con: Box::new(body_con),
+    };
     match def {
-        Def::Def {
-            name,
-            region,
-            params,
-            body,
-        } => {
-            let Args {
-                vars: arg_vars,
-                ty,
-                result,
-                state,
-            } = args(vars, params);
-            let expr_con = constrain(vars, rtv, body, Expected::NoExpectation(result));
-            Constraint::Let {
-                rigid_vars: Vec::new(),
-                flex_vars: arg_vars,
-                header: BTreeMap::from([(name.clone(), (*region, ty))]),
-                header_con: Box::new(flex_let(
-                    state.vars,
-                    state.headers,
-                    and(state.cons),
-                    expr_con,
-                )),
-                body_con: Box::new(body_con),
-            }
+        Def::Def { params, body, .. } => {
+            let defined = untyped(vars, rtv, params, body, State::default());
+            bind(Vec::new(), defined.vars, defined.ty, defined.con)
         }
         Def::TypedDef {
             name,
-            region,
             free,
             params,
             body,
             result,
+            ..
         } => {
-            let (rigids, new_rtv) = new_rigids(vars, rtv, free);
-            let TypedArgs { ty, result, state } = typed_args(&new_rtv, vars, name, params, result);
-            let expected =
-                Expected::FromAnnotation(name.clone(), params.len(), SubContext::TypedBody, result);
-            let expr_con = constrain(vars, &new_rtv, body, expected);
-            Constraint::Let {
-                rigid_vars: rigids,
-                flex_vars: Vec::new(),
-                header: BTreeMap::from([(name.clone(), (*region, ty))]),
-                header_con: Box::new(flex_let(
-                    state.vars,
-                    state.headers,
-                    and(state.cons),
-                    expr_con,
-                )),
-                body_con: Box::new(body_con),
-            }
+            let defined = typed(vars, rtv, name, free, params, body, result);
+            bind(defined.vars, Vec::new(), defined.ty, defined.con)
         }
     }
 }
@@ -799,7 +871,7 @@ pub fn constrain_def(
 /// `Info`: what the annotated or the unannotated definitions of a
 /// recursive group gathered.
 #[derive(Default)]
-struct Info {
+struct Group {
     vars: Vec<Variable>,
     /// Latest first, as upstream's list.
     cons: Vec<Constraint>,
@@ -807,75 +879,56 @@ struct Info {
 }
 
 /// `constrainRecursiveDefs`.
-pub fn constrain_recursive_defs<'d>(
+pub(super) fn constrain_recursive_defs<'d>(
     vars: &mut Variables,
     rtv: &Rtv,
     defs: impl IntoIterator<Item = &'d Def>,
     body_con: Constraint,
 ) -> Constraint {
-    let mut rigid = Info::default();
-    let mut flex = Info::default();
+    let mut rigid = Group::default();
+    let mut flex = Group::default();
     for def in defs {
         match def {
-            Def::Def {
-                name,
-                region,
-                params,
-                body,
-            } => {
-                let state = State {
+            Def::Def { params, body, .. } => {
+                let seed = State {
                     vars: std::mem::take(&mut flex.vars),
                     ..State::default()
                 };
-                let Args {
-                    vars: arg_vars,
-                    ty,
-                    result,
-                    state,
-                } = args_help(vars, params, state);
-                let expr_con = constrain(vars, rtv, body, Expected::NoExpectation(result));
                 // The group's earlier variables end up in this one's
                 // pattern scope, and the group keeps only this
                 // definition's parameters and result, as upstream's do.
-                let def_con = flex_let(state.vars, state.headers, and(state.cons), expr_con);
-                flex.vars = arg_vars;
-                flex.cons.insert(0, def_con);
-                flex.headers.insert(name.clone(), (*region, ty));
+                let defined = untyped(vars, rtv, params, body, seed);
+                flex.vars = defined.vars;
+                flex.cons.insert(0, defined.con);
+                flex.headers
+                    .insert(def.name().to_owned(), (def.region(), defined.ty));
             }
             Def::TypedDef {
                 name,
-                region,
                 free,
                 params,
                 body,
                 result,
+                ..
             } => {
-                let (rigids, new_rtv) = new_rigids(vars, rtv, free);
-                let TypedArgs { ty, result, state } =
-                    typed_args(&new_rtv, vars, name, params, result);
-                let expected = Expected::FromAnnotation(
-                    name.clone(),
-                    params.len(),
-                    SubContext::TypedBody,
-                    result,
-                );
-                let expr_con = constrain(vars, &new_rtv, body, expected);
-                let def_con = flex_let(state.vars, state.headers, and(state.cons), expr_con);
+                let defined = typed(vars, rtv, name, free, params, body, result);
                 // `Map.foldr (:) rigidVars newRigids`.
-                let mut new_vars = rigids.clone();
+                let mut new_vars = defined.vars.clone();
                 new_vars.extend(std::mem::take(&mut rigid.vars));
                 rigid.vars = new_vars;
                 rigid.cons.insert(
                     0,
                     Constraint::Let {
-                        rigid_vars: rigids,
+                        rigid_vars: defined.vars,
                         flex_vars: Vec::new(),
                         header: BTreeMap::new(),
-                        header_con: Box::new(def_con),
+                        header_con: Box::new(defined.con),
                         body_con: Box::new(Constraint::True),
                     },
                 );
-                rigid.headers.insert(name.clone(), (*region, ty));
+                rigid
+                    .headers
+                    .insert(def.name().to_owned(), (def.region(), defined.ty));
             }
         }
     }

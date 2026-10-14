@@ -1,144 +1,141 @@
 //! The hints a comparison's first problem gives (`problemToHint`).
 
-use super::*;
+use nomi_base::diagnostic::doc::{
+    Conjunction, Doc, comma_sep, dull_yellow as yellow, green, hint, labelled, link, reflow_link,
+    simple_hint, text, words,
+};
+use nomi_base::suggest::nearest;
+
+use super::t::{Direction, Problem, Type};
+use crate::types::{SuperType, is_string};
 
 /// `problemsToHint`: the first problem's.
-pub(super) fn problems_to_hint(problems: &[TProblem]) -> Vec<Doc> {
+pub(super) fn problems_to_hint(problems: &[Problem]) -> Vec<Doc> {
     problems.first().map(problem_to_hint).unwrap_or_default()
 }
 
 /// `problemToHint`.
-fn problem_to_hint(problem: &TProblem) -> Vec<Doc> {
-    let fancy = |s: &[&str], green_word: &str, rest: &[&str]| {
-        let mut docs: Vec<Doc> = s.iter().map(|w| text(*w)).collect();
-        docs.push(green(text(green_word.to_owned())));
-        docs.extend(rest.iter().map(|w| text(*w)));
-        vec![fancy_hint(docs)]
+fn problem_to_hint(problem: &Problem) -> Vec<Doc> {
+    // A hint whose one green word is `function`.
+    let fancy = |before: &str, function: &str, after: &str| {
+        vec![hint(
+            words(before).chain([green(function)]).chain(words(after)),
+        )]
     };
     match problem {
-        TProblem::IntFloat => {
-            let mut after =
-                words("to learn why Elm does not implicitly convert Ints to Floats. Use");
-            after.push(green(text("toFloat")));
-            after.push(text("and"));
-            after.push(green(text("round")));
-            after.extend(words("to do explicit conversions."));
-            vec![fancy_link(
-                "Note",
-                vec![text("Read")],
-                "implicit-casts",
-                after,
-            )]
+        Problem::IntFloat => {
+            let docs = (words("Read"))
+                .chain([Doc::link("implicit-casts")])
+                .chain(words(
+                    "to learn why Elm does not implicitly convert Ints to Floats. Use",
+                ))
+                .chain([green("toFloat"), text("and"), green("round")])
+                .chain(words("to do explicit conversions."));
+            vec![labelled("Note", docs)]
         }
-        TProblem::StringFromInt => fancy(
-            &[
-                "Want", "to", "convert", "an", "Int", "into", "a", "String?", "Use", "the",
-            ],
+        Problem::StringFromInt => fancy(
+            "Want to convert an Int into a String? Use the",
             "String.fromInt",
-            &["function!"],
+            "function!",
         ),
-        TProblem::StringFromFloat => fancy(
-            &[
-                "Want", "to", "convert", "a", "Float", "into", "a", "String?", "Use", "the",
-            ],
+        Problem::StringFromFloat => fancy(
+            "Want to convert a Float into a String? Use the",
             "String.fromFloat",
-            &["function!"],
+            "function!",
         ),
-        TProblem::StringToInt => fancy(
-            &[
-                "Want", "to", "convert", "a", "String", "into", "an", "Int?", "Use", "the",
-            ],
+        Problem::StringToInt => fancy(
+            "Want to convert a String into an Int? Use the",
             "String.toInt",
-            &["function!"],
+            "function!",
         ),
-        TProblem::StringToFloat => fancy(
-            &[
-                "Want", "to", "convert", "a", "String", "into", "a", "Float?", "Use", "the",
-            ],
+        Problem::StringToFloat => fancy(
+            "Want to convert a String into a Float? Use the",
             "String.toFloat",
-            &["function!"],
+            "function!",
         ),
-        TProblem::AnythingToBool => vec![simple_hint(
+        Problem::AnythingToBool => vec![simple_hint(
             "Elm does not have “truthiness” such that ints and strings and lists are automatically converted to booleans. Do that conversion explicitly!",
         )],
-        TProblem::AnythingFromMaybe => fancy(
-            &["Use"],
+        Problem::AnythingFromMaybe => fancy(
+            "Use",
             "Maybe.withDefault",
-            &[
-                "to", "handle", "possible", "errors.", "Longer", "term,", "it", "is", "usually",
-                "better", "to", "write", "out", "the", "full", "`case`", "though!",
-            ],
+            "to handle possible errors. Longer term, it is usually better to write out the full `case` though!",
         ),
-        TProblem::ArityMismatch(x, y) => vec![simple_hint(&if x < y {
+        Problem::ArityMismatch { actual, expected } => vec![simple_hint(&if actual < expected {
             format!(
                 "It looks like it takes too few arguments. I was expecting {} more.",
-                y - x
+                expected - actual
             )
         } else {
             format!(
                 "It looks like it takes too many arguments. I see {} extra.",
-                x - y
+                actual - expected
             )
         })],
-        TProblem::BadFlexSuper(direction, s, _, ty) => match ty {
-            t::Type::Infinite | t::Type::Error | t::Type::FlexVar(_) => Vec::new(),
-            t::Type::FlexSuper(s2, _) => bad_flex_flex_super(*s, *s2),
-            t::Type::RigidVar(y) => bad_rigid_var(y, to_a_super_thing(*s)),
-            t::Type::RigidSuper(s2, _) => bad_rigid_super(*s2, to_a_super_thing(*s)),
-            _ => bad_flex_super(*direction, *s, ty),
+        Problem::BadFlexSuper {
+            direction,
+            super_type: s,
+            other,
+        } => match other {
+            Type::Infinite | Type::Error | Type::FlexVar(_) => Vec::new(),
+            Type::FlexSuper(s2, _) => bad_flex_flex_super(*s, *s2),
+            Type::RigidVar(y) => bad_rigid_var(y, to_a_super_thing(*s)),
+            Type::RigidSuper(s2, _) => bad_rigid_super(*s2, to_a_super_thing(*s)),
+            Type::Lambda(..)
+            | Type::Type(..)
+            | Type::Record(..)
+            | Type::Unit
+            | Type::Tuple(..)
+            | Type::Alias(..) => bad_flex_super(*direction, *s, other),
         },
-        TProblem::BadRigidVar(x, ty) => match ty {
-            t::Type::Lambda(..) => bad_rigid_var(x, "a function"),
-            t::Type::Infinite | t::Type::Error | t::Type::FlexVar(_) => Vec::new(),
-            t::Type::FlexSuper(s, _) => bad_rigid_var(x, to_a_super_thing(*s)),
-            t::Type::RigidVar(y) | t::Type::RigidSuper(_, y) => bad_double_rigid(x, y),
-            t::Type::Type(_, n, _) | t::Type::Alias(_, n, _, _) => {
+        Problem::BadRigidVar(x, ty) => match ty {
+            Type::Lambda(..) => bad_rigid_var(x, "a function"),
+            Type::Infinite | Type::Error | Type::FlexVar(_) => Vec::new(),
+            Type::FlexSuper(s, _) => bad_rigid_var(x, to_a_super_thing(*s)),
+            Type::RigidVar(y) | Type::RigidSuper(_, y) => bad_double_rigid(x, y),
+            Type::Type(_, n, _) | Type::Alias(_, n, _, _) => {
                 bad_rigid_var(x, &format!("a `{n}` value"))
             }
-            t::Type::Record(..) => bad_rigid_var(x, "a record"),
-            t::Type::Unit => bad_rigid_var(x, "a unit value"),
-            t::Type::Tuple(..) => bad_rigid_var(x, "a tuple"),
+            Type::Record(..) => bad_rigid_var(x, "a record"),
+            Type::Unit => bad_rigid_var(x, "a unit value"),
+            Type::Tuple(..) => bad_rigid_var(x, "a tuple"),
         },
-        TProblem::BadRigidSuper(s, x, ty) => match ty {
-            t::Type::Lambda(..) => bad_rigid_super(*s, "a function"),
-            t::Type::Infinite | t::Type::Error | t::Type::FlexVar(_) => Vec::new(),
-            t::Type::FlexSuper(s2, _) => bad_rigid_super(*s, to_a_super_thing(*s2)),
-            t::Type::RigidVar(y) | t::Type::RigidSuper(_, y) => bad_double_rigid(x, y),
-            t::Type::Type(_, n, _) | t::Type::Alias(_, n, _, _) => {
+        Problem::BadRigidSuper(s, x, ty) => match ty {
+            Type::Lambda(..) => bad_rigid_super(*s, "a function"),
+            Type::Infinite | Type::Error | Type::FlexVar(_) => Vec::new(),
+            Type::FlexSuper(s2, _) => bad_rigid_super(*s, to_a_super_thing(*s2)),
+            Type::RigidVar(y) | Type::RigidSuper(_, y) => bad_double_rigid(x, y),
+            Type::Type(_, n, _) | Type::Alias(_, n, _, _) => {
                 bad_rigid_super(*s, &format!("a `{n}` value"))
             }
-            t::Type::Record(..) => bad_rigid_super(*s, "a record"),
-            t::Type::Unit => bad_rigid_super(*s, "a unit value"),
-            t::Type::Tuple(..) => bad_rigid_super(*s, "a tuple"),
+            Type::Record(..) => bad_rigid_super(*s, "a record"),
+            Type::Unit => bad_rigid_super(*s, "a unit value"),
+            Type::Tuple(..) => bad_rigid_super(*s, "a tuple"),
         },
-        TProblem::FieldsMissing(fields) => {
-            let docs: Vec<Doc> = fields.iter().map(|f| green(text(f.clone()))).collect();
+        Problem::FieldsMissing(fields) => {
+            let docs: Vec<Doc> = fields.iter().map(|f| green(f.as_str())).collect();
             match &docs[..] {
                 [] => Vec::new(),
                 [f1] => {
-                    let mut hint = words("Looks like the");
-                    hint.push(f1.clone());
-                    hint.extend(words("field is missing."));
-                    vec![fancy_hint(hint)]
+                    let docs = words("Looks like the").chain([f1.clone()]);
+                    vec![hint(docs.chain(words("field is missing.")))]
                 }
                 _ => {
-                    let mut hint = words("Looks like fields");
-                    hint.extend(comma_sep(Conjunction::And, docs));
-                    hint.extend(words("are missing."));
-                    vec![fancy_hint(hint)]
+                    let docs = words("Looks like fields").chain(comma_sep(Conjunction::And, docs));
+                    vec![hint(docs.chain(words("are missing.")))]
                 }
             }
         }
-        TProblem::FieldTypo(typo, possibilities) => {
-            match nearest(typo, possibilities.clone()).first() {
+        Problem::FieldTypo(typo, possibilities) => {
+            match nearest(typo, possibilities.clone(), 1).first() {
                 None => Vec::new(),
                 Some(nearest) => {
-                    let mut hint = words("Seems like a record field typo. Maybe");
-                    hint.push(yellow(text(typo.clone())));
-                    hint.extend(words("should be"));
-                    hint.push(green(text(nearest.clone())).append(text("?")));
+                    let docs = (words("Seems like a record field typo. Maybe"))
+                        .chain([yellow(typo.as_str())])
+                        .chain(words("should be"))
+                        .chain([green(nearest.as_str()).append(text("?"))]);
                     vec![
-                        fancy_hint(hint),
+                        hint(docs),
                         simple_hint(
                             "Can more type annotations be added? Type annotations always help me give more specific messages, and I think they could help a lot in this case!",
                         ),
@@ -149,13 +146,18 @@ fn problem_to_hint(problem: &TProblem) -> Vec<Doc> {
     }
 }
 
+/// The link to advice on type annotations.
+fn more_advice() -> Doc {
+    reflow_link("Read", "type-annotations", "for more advice!")
+}
+
 /// `badRigidVar`.
 fn bad_rigid_var(name: &str, a_thing: &str) -> Vec<Doc> {
     vec![
         simple_hint(&format!(
             "Your type annotation uses type variable `{name}` which means ANY type of value can flow through, but your code is saying it specifically wants {a_thing}. Maybe change your type annotation to be more specific? Maybe change the code to be more general?"
         )),
-        reflow_link("Read", "type-annotations", "for more advice!"),
+        more_advice(),
     ]
 }
 
@@ -165,31 +167,31 @@ fn bad_double_rigid(x: &str, y: &str) -> Vec<Doc> {
         simple_hint(&format!(
             "Your type annotation uses `{x}` and `{y}` as separate type variables. Your code seems to be saying they are the same though. Maybe they should be the same in your type annotation? Maybe your code uses them in a weird way?"
         )),
-        reflow_link("Read", "type-annotations", "for more advice!"),
+        more_advice(),
     ]
 }
 
 /// `toASuperThing`.
-fn to_a_super_thing(s: Super) -> &'static str {
+fn to_a_super_thing(s: SuperType) -> &'static str {
     match s {
-        Super::Number => "a `number` value",
-        Super::Comparable => "a `comparable` value",
-        Super::CompAppend => "a `compappend` value",
-        Super::Appendable => "an `appendable` value",
+        SuperType::Number => "a `number` value",
+        SuperType::Comparable => "a `comparable` value",
+        SuperType::CompAppend => "a `compappend` value",
+        SuperType::Appendable => "an `appendable` value",
     }
 }
 
 /// `badFlexSuper`.
-fn bad_flex_super(direction: Direction, s: Super, ty: &t::Type) -> Vec<Doc> {
+fn bad_flex_super(direction: Direction, s: SuperType, ty: &Type) -> Vec<Doc> {
     match s {
-        Super::Comparable => match ty {
-            t::Type::Record(..) => vec![link(
+        SuperType::Comparable => match ty {
+            Type::Record(..) => vec![link(
                 "Hint",
                 "I do not know how to compare records. I can only compare ints, floats, chars, strings, lists of comparable values, and tuples of comparable values. Check out",
                 "comparing-records",
                 "for ideas on how to proceed.",
             )],
-            t::Type::Type(_, name, _) => vec![
+            Type::Type(_, name, _) => vec![
                 simple_hint(&format!(
                     "I do not know how to compare `{name}` values. I can only compare ints, floats, chars, strings, lists of comparable values, and tuples of comparable values."
                 )),
@@ -203,65 +205,57 @@ fn bad_flex_super(direction: Direction, s: Super, ty: &t::Type) -> Vec<Doc> {
                 "I only know how to compare ints, floats, chars, strings, lists of comparable values, and tuples of comparable values.",
             )],
         },
-        Super::Appendable => vec![simple_hint("I only know how to append strings and lists.")],
-        Super::CompAppend => vec![simple_hint(
+        SuperType::Appendable => vec![simple_hint("I only know how to append strings and lists.")],
+        SuperType::CompAppend => vec![simple_hint(
             "Only strings and lists are both comparable and appendable.",
         )],
-        Super::Number => match ty {
-            t::Type::Type(home, name, _) if t::is_string(home, name) => match direction {
-                Direction::Have => {
-                    let mut docs = words("Try using");
-                    docs.push(green(text("String.fromInt")));
-                    docs.extend(words("to convert it to a string?"));
-                    vec![fancy_hint(docs)]
-                }
-                Direction::Need => {
-                    let mut docs = words("Try using");
-                    docs.push(green(text("String.toInt")));
-                    docs.extend(words("to convert it to an integer?"));
-                    vec![fancy_hint(docs)]
-                }
-            },
-            _ => vec![fancy_hint(vec![
-                text("Only"),
-                green(text("Int")),
-                text("and"),
-                green(text("Float")),
-                text("values"),
-                text("work"),
-                text("as"),
-                text("numbers."),
-            ])],
+        SuperType::Number => match ty {
+            Type::Type(home, name, _) if is_string(home, name) => {
+                let (function, into) = match direction {
+                    Direction::Have => ("String.fromInt", "to convert it to a string?"),
+                    Direction::Need => ("String.toInt", "to convert it to an integer?"),
+                };
+                vec![hint(
+                    words("Try using")
+                        .chain([green(function)])
+                        .chain(words(into)),
+                )]
+            }
+            _ => vec![hint(
+                [text("Only"), green("Int"), text("and"), green("Float")]
+                    .into_iter()
+                    .chain(words("values work as numbers.")),
+            )],
         },
     }
 }
 
 /// `badRigidSuper`.
-fn bad_rigid_super(s: Super, a_thing: &str) -> Vec<Doc> {
+fn bad_rigid_super(s: SuperType, a_thing: &str) -> Vec<Doc> {
     let (super_type, many_things) = match s {
-        Super::Number => ("number", "ints AND floats"),
-        Super::Comparable => (
+        SuperType::Number => ("number", "ints AND floats"),
+        SuperType::Comparable => (
             "comparable",
             "ints, floats, chars, strings, lists, and tuples",
         ),
-        Super::Appendable => ("appendable", "strings AND lists"),
-        Super::CompAppend => ("compappend", "strings AND lists"),
+        SuperType::Appendable => ("appendable", "strings AND lists"),
+        SuperType::CompAppend => ("compappend", "strings AND lists"),
     };
     vec![
         simple_hint(&format!(
             "The `{super_type}` in your type annotation is saying that {many_things} can flow through, but your code is saying it specifically wants {a_thing}. Maybe change your type annotation to be more specific? Maybe change the code to be more general?"
         )),
-        reflow_link("Read", "type-annotations", "for more advice!"),
+        more_advice(),
     ]
 }
 
 /// `badFlexFlexSuper`.
-fn bad_flex_flex_super(s1: Super, s2: Super) -> Vec<Doc> {
+fn bad_flex_flex_super(s1: SuperType, s2: SuperType) -> Vec<Doc> {
     let like_this = |s| match s {
-        Super::Number => "a number",
-        Super::Comparable => "comparable",
-        Super::CompAppend => "a compappend",
-        Super::Appendable => "appendable",
+        SuperType::Number => "a number",
+        SuperType::Comparable => "comparable",
+        SuperType::CompAppend => "a compappend",
+        SuperType::Appendable => "appendable",
     };
     vec![simple_hint(&format!(
         "There are no values in Elm that are both {} and {}.",

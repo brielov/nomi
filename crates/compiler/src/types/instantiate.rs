@@ -11,7 +11,7 @@ use crate::canonical::{self, AliasType};
 
 /// `fromSrcType`. Every variable of `ty` is in `free`, as canonicalization
 /// made sure.
-pub fn from_src_type(free: &BTreeMap<String, Type>, ty: &canonical::Type) -> Type {
+pub(super) fn from_src_type(free: &BTreeMap<String, Type>, ty: &canonical::Type) -> Type {
     use canonical::Type as C;
     let go = |t: &canonical::Type| from_src_type(free, t);
     match ty {

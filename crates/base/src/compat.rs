@@ -72,12 +72,14 @@ impl Compat {
 
     /// How the release orders names, wherever an order shows: as bytes,
     /// and from 0.19.3 shorter names first (`compareFast`).
+    #[inline]
     pub fn compare_names(self, a: &str, b: &str) -> Ordering {
         self.compare_name_bytes(a.as_bytes(), b.as_bytes())
     }
 
     /// [`Compat::compare_names`] of names kept as bytes, as 0.19.1 keeps
     /// module names it never checked are UTF-8.
+    #[inline]
     pub fn compare_name_bytes(self, a: &[u8], b: &[u8]) -> Ordering {
         match self {
             Compat::V0_19_1 | Compat::V0_19_2 => a.cmp(b),

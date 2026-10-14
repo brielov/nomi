@@ -8,16 +8,16 @@
 
 /// A point: an index into its [`UnionFind`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Point(u32);
+pub(crate) struct Point(u32);
 
 impl Point {
-    pub fn index(self) -> usize {
+    fn index(self) -> usize {
         self.0 as usize
     }
 }
 
 #[derive(Clone, Debug)]
-enum Info<T> {
+enum Slot<T> {
     /// A root: how many points it stands for, and their value.
     Root {
         weight: u32,
@@ -28,8 +28,8 @@ enum Info<T> {
 
 /// Points, each linked to another or the root of a set with a value.
 #[derive(Clone, Debug)]
-pub struct UnionFind<T> {
-    points: Chunks<Info<T>>,
+pub(crate) struct UnionFind<T> {
+    points: Chunks<Slot<T>>,
 }
 
 impl<T> Default for UnionFind<T> {
@@ -85,31 +85,23 @@ impl<T> std::ops::IndexMut<usize> for Chunks<T> {
 
 impl<T> UnionFind<T> {
     /// `fresh`: a point in a set of its own.
-    pub fn fresh(&mut self, value: T) -> Point {
+    pub(crate) fn fresh(&mut self, value: T) -> Point {
         let point = Point(u32::try_from(self.points.len()).expect("fewer than 2^32 points"));
-        self.points.push(Info::Root { weight: 1, value });
+        self.points.push(Slot::Root { weight: 1, value });
         point
-    }
-
-    pub fn len(&self) -> usize {
-        self.points.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.points.len() == 0
     }
 
     /// `repr`: the root of `point`'s set, each point passed on the way
     /// linked straight to it.
     fn repr(&mut self, point: Point) -> Point {
         let mut root = point;
-        while let Info::Link(next) = self.points[root.index()] {
+        while let Slot::Link(next) = self.points[root.index()] {
             root = next;
         }
         let mut at = point;
-        while let Info::Link(next) = self.points[at.index()] {
+        while let Slot::Link(next) = self.points[at.index()] {
             if next != root {
-                self.points[at.index()] = Info::Link(root);
+                self.points[at.index()] = Slot::Link(root);
             }
             at = next;
         }
@@ -117,59 +109,59 @@ impl<T> UnionFind<T> {
     }
 
     /// The value of `point`'s set.
-    pub fn get(&mut self, point: Point) -> &T {
+    pub(crate) fn get(&mut self, point: Point) -> &T {
         let root = self.repr(point);
         match &self.points[root.index()] {
-            Info::Root { value, .. } => value,
-            Info::Link(_) => unreachable!("a root links nowhere"),
+            Slot::Root { value, .. } => value,
+            Slot::Link(_) => unreachable!("a root links nowhere"),
         }
     }
 
     /// The value of `point`'s set, to change.
-    pub fn get_mut(&mut self, point: Point) -> &mut T {
+    pub(crate) fn get_mut(&mut self, point: Point) -> &mut T {
         let root = self.repr(point);
         match &mut self.points[root.index()] {
-            Info::Root { value, .. } => value,
-            Info::Link(_) => unreachable!("a root links nowhere"),
+            Slot::Root { value, .. } => value,
+            Slot::Link(_) => unreachable!("a root links nowhere"),
         }
     }
 
-    pub fn set(&mut self, point: Point, value: T) {
+    pub(crate) fn set(&mut self, point: Point, value: T) {
         *self.get_mut(point) = value;
     }
 
     /// `union`: one set of `a`'s and `b`'s, with `value`.
-    pub fn union(&mut self, a: Point, b: Point, value: T) {
+    pub(crate) fn union(&mut self, a: Point, b: Point, value: T) {
         let (a, b) = (self.repr(a), self.repr(b));
         if a == b {
             self.set(a, value);
             return;
         }
-        let weight = |info: &Info<T>| match info {
-            Info::Root { weight, .. } => *weight,
-            Info::Link(_) => unreachable!("a root links nowhere"),
+        let weight = |slot: &Slot<T>| match slot {
+            Slot::Root { weight, .. } => *weight,
+            Slot::Link(_) => unreachable!("a root links nowhere"),
         };
         let (wa, wb) = (
             weight(&self.points[a.index()]),
             weight(&self.points[b.index()]),
         );
         let (root, child) = if wa >= wb { (a, b) } else { (b, a) };
-        self.points[child.index()] = Info::Link(root);
-        self.points[root.index()] = Info::Root {
+        self.points[child.index()] = Slot::Link(root);
+        self.points[root.index()] = Slot::Root {
             weight: wa + wb,
             value,
         };
     }
 
     /// `equivalent`: whether `a` and `b` are in one set.
-    pub fn equivalent(&mut self, a: Point, b: Point) -> bool {
+    pub(crate) fn equivalent(&mut self, a: Point, b: Point) -> bool {
         self.repr(a) == self.repr(b)
     }
 
     /// `redundant`: whether `point` links to another, so a set holds it
     /// under another root.
-    pub fn redundant(&self, point: Point) -> bool {
-        matches!(self.points[point.index()], Info::Link(_))
+    pub(crate) fn redundant(&self, point: Point) -> bool {
+        matches!(self.points[point.index()], Slot::Link(_))
     }
 }
 

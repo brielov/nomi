@@ -8,7 +8,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use nomi_base::Compat;
 use nomi_base::diagnostic::code::{Position, Region};
 use nomi_compiler::canonical::{CtorOpts, Home};
-use nomi_compiler::optimized::binary::names;
 use nomi_compiler::optimized::{
     Choice, Decider, Def, Destructor, DtPath, Expr, Global, Main, Path, Test,
 };
@@ -243,7 +242,7 @@ impl Gen<'_> {
     /// lists them.
     fn in_order<'b>(&self, names_: impl Iterator<Item = &'b String>) -> Vec<&'b String> {
         let mut sorted: Vec<&String> = names_.collect();
-        sorted.sort_by(|a, b| names(self.compat, a, b));
+        sorted.sort_by(|a, b| self.compat.compare_names(a, b));
         sorted
     }
 

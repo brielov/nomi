@@ -43,71 +43,51 @@ impl Tracker {
         self.deps.insert(Global::kernel(self.compat, home));
     }
 
-    /// `registerGlobal`.
-    pub(super) fn global(&mut self, home: &Home, name: &str) -> Expr {
+    /// `name` of `home` needed.
+    fn register(&mut self, home: &Home, name: &str) -> Global {
         let global = Global {
             home: home.clone(),
             name: name.to_owned(),
         };
         self.deps.insert(global.clone());
-        Expr::VarGlobal(global)
+        global
+    }
+
+    /// `registerGlobal`.
+    pub(super) fn global(&mut self, home: &Home, name: &str) -> Expr {
+        Expr::VarGlobal(self.register(home, name))
     }
 
     /// `registerCtor`: a constructor as its union is represented; `True`
     /// and `False` are literals.
     pub(super) fn ctor(&mut self, home: &Home, name: &str, index: usize, opts: CtorOpts) -> Expr {
-        let global = Global {
-            home: home.clone(),
-            name: name.to_owned(),
-        };
-        self.deps.insert(global.clone());
+        let global = self.register(home, name);
+        let basics = || home.is("elm/core", "Basics");
         match opts {
             CtorOpts::Normal => Expr::VarGlobal(global),
-            CtorOpts::Enum if *home == basics() && name == "True" => Expr::Bool(true),
-            CtorOpts::Enum if *home == basics() && name == "False" => Expr::Bool(false),
+            CtorOpts::Enum if name == "True" && basics() => Expr::Bool(true),
+            CtorOpts::Enum if name == "False" && basics() => Expr::Bool(false),
             CtorOpts::Enum => Expr::VarEnum(global, index),
             CtorOpts::Unbox => {
-                self.deps.insert(Global {
-                    home: basics(),
-                    name: "identity".to_owned(),
-                });
+                self.register(&Home::core("Basics"), "identity");
                 Expr::VarBox(global)
             }
+        }
+    }
+
+    /// `registerDebug`: a `Debug` value, used in `home` at `region`.
+    pub(super) fn debug(&mut self, name: &str, home: &Home, region: Region) -> Expr {
+        self.register(&Home::core("Debug"), name);
+        Expr::VarDebug {
+            name: name.to_owned(),
+            home: home.clone(),
+            region,
+            unhandled: None,
         }
     }
 
     /// `registerField`.
     pub(super) fn field(&mut self, name: &str) {
         *self.fields.entry(name.to_owned()).or_default() += 1;
-    }
-}
-
-/// `ModuleName.basics`.
-pub(super) fn basics() -> Home {
-    Home {
-        package: "elm/core".into(),
-        module: "Basics".into(),
-    }
-}
-
-/// `ModuleName.debug`.
-pub(super) fn debug() -> Home {
-    Home {
-        package: "elm/core".into(),
-        module: "Debug".into(),
-    }
-}
-
-/// `registerDebug`: a `Debug` value, used in `home` at `region`.
-pub(super) fn debug_value(tracker: &mut Tracker, name: &str, home: &Home, region: Region) -> Expr {
-    tracker.deps.insert(Global {
-        home: debug(),
-        name: name.to_owned(),
-    });
-    Expr::VarDebug {
-        name: name.to_owned(),
-        home: home.clone(),
-        region,
-        unhandled: None,
     }
 }

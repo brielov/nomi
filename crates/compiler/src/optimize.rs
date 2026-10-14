@@ -76,11 +76,10 @@ fn add_alias(compat: Compat, home: &Home, name: &str, ty: &Type, graph: &mut Loc
     let Type::Record(fields, None) = ty else {
         return;
     };
-    let mut ordered: Vec<(&String, u16)> = fields.iter().map(|(n, f)| (n, f.order)).collect();
-    ordered.sort_by(|a, b| compat.compare_names(a.0, b.0));
-    ordered.sort_by_key(|(_, order)| *order);
+    let mut ordered = compat.sorted_names(fields.keys());
+    ordered.sort_by_key(|name| fields[*name].order);
     let function = Expr::Function(
-        ordered.iter().map(|(n, _)| (*n).clone()).collect(),
+        ordered.into_iter().cloned().collect(),
         Box::new(Expr::Record(
             fields
                 .keys()
@@ -150,7 +149,8 @@ fn add_def(
     def: &CDef,
     graph: &mut LocalGraph,
 ) {
-    let (name, params, body) = expression::parts(def);
+    let name = def.name();
+    let (params, body) = expression::parts(def);
     let mut main_deps = BTreeSet::new();
     if name == "main"
         && let Some(annotation) = annotations.get(name)
@@ -208,7 +208,8 @@ fn add_rec_defs(cx: &Context, defs: &[&CDef], graph: &mut LocalGraph) {
     let mut values = Vec::new();
     let mut functions = Vec::new();
     for def in defs {
-        let (name, params, body) = expression::parts(def);
+        let name = def.name();
+        let (params, body) = expression::parts(def);
         if params.is_empty() {
             let value = expression::optimize(cx, &mut tracker, &cycle, body);
             values.push((name.to_owned(), value));

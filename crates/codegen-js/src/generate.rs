@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use nomi_base::Compat;
 use nomi_compiler::canonical::Home;
-use nomi_compiler::optimized::binary::{globals, homes, names};
+use nomi_compiler::optimized::binary::{globals, homes};
 use nomi_compiler::optimized::{Chunk, Def, EffectsType, Expr, Global, GlobalGraph, Main, Node};
 
 use crate::builder::{self, Expr as Js, LValue, Stmt};
@@ -392,7 +392,7 @@ fn exports(cx: &Gen, trie: &Trie) -> String {
         items.push(format!("'init':{}", builder::expr(&cx.main(home, main))));
     }
     let mut subs: Vec<(&&str, &Trie)> = trie.subs.iter().collect();
-    subs.sort_by(|a, b| names(cx.compat, a.0, b.0));
+    subs.sort_by(|a, b| cx.compat.compare_names(a.0, b.0));
     if subs.len() > 1 {
         subs[1..].reverse();
     }

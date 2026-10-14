@@ -1,24 +1,18 @@
 //! `Reporting/Error/Docs.hs`: what elm reports of documentation it can't
 //! make, a report per problem.
 
-use nomi_base::Compat;
 use nomi_base::TextRange;
 use nomi_base::diagnostic::Problem;
-use nomi_base::diagnostic::code::{self, Source};
-use nomi_base::diagnostic::doc::{self, Doc, reflow, snippet, stack, text};
+use nomi_base::diagnostic::doc::{self, Doc, reflow, stack, text};
 
 use super::{DefProblem, Error, NameProblem};
+use crate::report::{Report, ReportContext};
 
 /// `toReports`.
-pub fn to_problems(error: &Error, source: &Source<'_>, compat: Compat) -> Vec<Problem> {
-    let problem = |title: &'static str, region: TextRange, message: Doc| {
-        Problem::new(
-            title,
-            source.region(region, compat),
-            code::expand(&message, source, compat),
-        )
-    };
-    let snip = |region: TextRange, before: Doc, after: Doc| snippet(before, region, None, after);
+pub fn to_problems(error: &Error, cx: &ReportContext<'_>) -> Vec<Problem> {
+    let problem =
+        |title, region: TextRange, message: Doc| cx.problem(&Report::new(title, region, message));
+    let snip = |region: TextRange, before: Doc, after: Doc| cx.snippet(region, None, before, after);
     let more_advice = || {
         doc::link(
             "Note",
@@ -51,7 +45,7 @@ pub fn to_problems(error: &Error, source: &Source<'_>, compat: Compat) -> Vec<Pr
             ),
         )],
         Error::SyntaxProblem(syntax) => {
-            vec![nomi_syntax::elm::docs_problem(source, syntax, compat)]
+            vec![nomi_syntax::elm::docs_problem(cx.source, syntax, cx.compat)]
         }
         Error::NameProblems(problems) => (problems.iter())
             .map(|p| match p {

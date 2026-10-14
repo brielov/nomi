@@ -11,6 +11,7 @@ pub mod interface;
 pub mod nitpick;
 pub mod optimize;
 pub mod optimized;
+pub mod report;
 pub mod types;
 
 #[cfg(test)]

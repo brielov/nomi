@@ -18,6 +18,7 @@ use super::error::{
 };
 use crate::canonical::Home;
 use crate::hir::{self, Spanned, TypeId};
+use crate::report::Report;
 use crate::types::render::{self, Context as Parens};
 
 /// What a report needs around its error.
@@ -42,23 +43,6 @@ pub fn to_problem(error: &Error, cx: &Context<'_>) -> Problem {
     let region = cx.source.region((cx.trim)(report.range), cx.compat);
     let message = code::expand(&report.message, cx.source, cx.compat);
     Problem::new(report.title, region, message)
-}
-
-/// A report before its range is trimmed and placed.
-struct Report {
-    title: &'static str,
-    range: TextRange,
-    message: Doc,
-}
-
-impl Report {
-    fn new(title: &'static str, range: TextRange, message: Doc) -> Report {
-        Report {
-            title,
-            range,
-            message,
-        }
-    }
 }
 
 /// A snippet of `range`, trimmed, between `before` and `after`.

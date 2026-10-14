@@ -8,7 +8,6 @@ use nomi_codegen_js::generate::generate;
 use nomi_codegen_js::mode::{Mode, shorten_field_names};
 use nomi_compiler::canonical::Home;
 use nomi_compiler::nitpick::debug::graph_has_debug_uses;
-use nomi_compiler::optimized::binary::names;
 use nomi_compiler::optimized::{GlobalGraph, LocalGraph, Main};
 use nomi_project::ModuleName;
 
@@ -57,7 +56,7 @@ pub fn program(
     let (graph, mut types) = dependencies;
     // `foldr addLocalGraph`: modules in the release's order of names, the
     // first one's applied last.
-    locals.sort_by(|a, b| names(compat, &b.0.to_string(), &a.0.to_string()));
+    locals.sort_by(|a, b| compat.compare_names(&b.0.to_string(), &a.0.to_string()));
     let graph = locals.into_iter().fold(graph, add_local_graph);
     let mode = match kind {
         Kind::Dev => Mode::Dev { debug: None },
@@ -91,6 +90,6 @@ pub fn debug_uses(compat: Compat, optimized: &Optimized) -> Vec<ModuleName> {
         .filter(|(_, graph)| graph_has_debug_uses(graph))
         .map(|(name, _)| name.clone())
         .collect();
-    modules.sort_by(|a, b| names(compat, &a.to_string(), &b.to_string()));
+    modules.sort_by(|a, b| compat.compare_names(&a.to_string(), &b.to_string()));
     modules
 }

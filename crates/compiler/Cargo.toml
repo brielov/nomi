@@ -10,11 +10,10 @@ publish.workspace = true
 nomi-base.workspace = true
 nomi-syntax.workspace = true
 rustc-hash.workspace = true
-stacker.workspace = true
 
 [dev-dependencies]
+nomi-testkit.workspace = true
 proptest.workspace = true
-sha2.workspace = true
 
 [lints]
 workspace = true

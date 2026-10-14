@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 use nomi_base::Compat;
 use nomi_base::diagnostic::Report;
 use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, hsep, reflow, sep, text, vcat};
-use nomi_compiler::optimized::binary::names;
 use nomi_compiler::types::render::{self, Context};
 use nomi_project::version::Version;
 use nomi_project::{Name, Outline};
@@ -136,7 +135,7 @@ fn keyed<T>(compat: Compat, entries: Vec<(String, T)>) -> Vec<(String, T)> {
         map.insert(name, entry);
     }
     let mut entries: Vec<(String, T)> = map.into_iter().collect();
-    entries.sort_by(|a, b| names(compat, &a.0, &b.0));
+    entries.sort_by(|a, b| compat.compare_names(&a.0, &b.0));
     entries
 }
 

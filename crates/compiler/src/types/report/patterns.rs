@@ -1,45 +1,51 @@
 //! Patterns that match the wrong type (`toPatternReport`).
 
-use super::*;
+use nomi_base::TextRange;
+use nomi_base::diagnostic::doc::{Doc, link, ordinal, reflow};
+
+use super::{HintOrder, mix_types, t, type_comparison};
+use crate::report::{Report, ReportContext};
+use crate::types::expected::{PCategory, PContext, PExpected};
+use crate::types::localizer::Localizer;
 
 /// `toPatternReport`.
 pub(super) fn pattern_report(
     cx: &ReportContext<'_>,
+    localizer: &Localizer,
     pattern_region: TextRange,
     category: &PCategory,
     actual: &t::Type,
     expected: &PExpected<t::Type>,
-) -> (&'static str, TextRange, Doc) {
-    let localizer = cx.localizer;
+) -> Report {
+    // `patternTypeComparison`: as `typeComparison`, the problem's hint
+    // before the context's.
+    let compare = |expected, matches: &str, instead_of: &str, hints: Vec<Doc>| {
+        let i_am_seeing = add_pattern_category(matches, category);
+        type_comparison(
+            localizer,
+            actual,
+            expected,
+            &i_am_seeing,
+            instead_of,
+            hints,
+            HintOrder::ProblemFirst,
+        )
+    };
     let doc = match expected {
-        PExpected::PNoExpectation(expected) => snip(
-            cx,
-            pattern_region,
-            None,
-            reflow("This pattern is being used in an unexpected way:"),
-            pattern_comparison(
-                localizer,
-                actual,
-                expected,
-                &add_pattern_category("It is", category),
-                "But it needs to match:",
-                Vec::new(),
-            ),
-        ),
+        PExpected::PNoExpectation(expected) => {
+            let comparison = compare(expected, "It is", "But it needs to match:", Vec::new());
+            let problem = reflow("This pattern is being used in an unexpected way:");
+            cx.snippet(pattern_region, None, problem, comparison)
+        }
         PExpected::PFromContext(region, context, expected) => {
             let (problem, details) = match context {
                 PContext::PTypedArg(name, index) => {
                     let ith = ordinal(index + 1);
                     (
                         reflow(&format!("The {ith} argument to `{name}` is weird.")),
-                        pattern_comparison(
-                            localizer,
-                            actual,
+                        compare(
                             expected,
-                            &add_pattern_category(
-                                "The argument is a pattern that matches",
-                                category,
-                            ),
+                            "The argument is a pattern that matches",
                             &format!(
                                 "But the type annotation on `{name}` says the {ith} argument should be:"
                             ),
@@ -49,11 +55,9 @@ pub(super) fn pattern_report(
                 }
                 PContext::PCaseMatch(0) => (
                     reflow("The 1st pattern in this `case` causing a mismatch:"),
-                    pattern_comparison(
-                        localizer,
-                        actual,
+                    compare(
                         expected,
-                        &add_pattern_category("The first pattern is trying to match", category),
+                        "The first pattern is trying to match",
                         "But the expression between `case` and `of` is:",
                         vec![reflow(
                             "These can never match! Is the pattern the problem? Or is it the expression?",
@@ -66,14 +70,9 @@ pub(super) fn pattern_report(
                         reflow(&format!(
                             "The {ith} pattern in this `case` does not match the previous ones."
                         )),
-                        pattern_comparison(
-                            localizer,
-                            actual,
+                        compare(
                             expected,
-                            &add_pattern_category(
-                                &format!("The {ith} pattern is trying to match"),
-                                category,
-                            ),
+                            &format!("The {ith} pattern is trying to match"),
                             "But all the previous patterns match:",
                             vec![link(
                                 "Note",
@@ -88,11 +87,9 @@ pub(super) fn pattern_report(
                     let ith = ordinal(index + 1);
                     (
                         reflow(&format!("The {ith} argument to `{name}` is weird.")),
-                        pattern_comparison(
-                            localizer,
-                            actual,
+                        compare(
                             expected,
-                            &add_pattern_category("It is trying to match", category),
+                            "It is trying to match",
                             &format!("But `{name}` needs its {ith} argument to be:"),
                             Vec::new(),
                         ),
@@ -104,65 +101,30 @@ pub(super) fn pattern_report(
                         reflow(&format!(
                             "The {ith} pattern in this list does not match all the previous ones:"
                         )),
-                        pattern_comparison(
-                            localizer,
-                            actual,
+                        compare(
                             expected,
-                            &add_pattern_category(
-                                &format!("The {ith} pattern is trying to match"),
-                                category,
-                            ),
+                            &format!("The {ith} pattern is trying to match"),
                             "But all the previous patterns in the list are:",
-                            vec![link(
-                                "Hint",
+                            vec![mix_types(
                                 "Everything in a list must be the same type of value. This way, we never run into unexpected values partway through a List.map, List.foldl, etc. Read",
-                                "custom-types",
-                                "to learn how to “mix” types.",
                             )],
                         ),
                     )
                 }
                 PContext::PTail => (
                     reflow("The pattern after (::) is causing issues."),
-                    pattern_comparison(
-                        localizer,
-                        actual,
+                    compare(
                         expected,
-                        &add_pattern_category(
-                            "The pattern after (::) is trying to match",
-                            category,
-                        ),
+                        "The pattern after (::) is trying to match",
                         "But it needs to match lists like this:",
                         Vec::new(),
                     ),
                 ),
             };
-            snip(cx, *region, Some(pattern_region), problem, details)
+            cx.snippet(*region, Some(pattern_region), problem, details)
         }
     };
-    ("TYPE MISMATCH", pattern_region, doc)
-}
-
-/// `patternTypeComparison`: as `typeComparison`, the problem's hint
-/// before the context's.
-fn pattern_comparison(
-    localizer: &Localizer,
-    actual: &t::Type,
-    expected: &t::Type,
-    i_am_seeing: &str,
-    instead_of: &str,
-    context_hints: Vec<Doc>,
-) -> Doc {
-    let (actual_doc, expected_doc, problems) = to_comparison(localizer, actual, expected);
-    let mut docs = vec![
-        reflow(i_am_seeing),
-        actual_doc.indent(4),
-        reflow(instead_of),
-        expected_doc.indent(4),
-    ];
-    docs.extend(problems_to_hint(&problems));
-    docs.extend(context_hints);
-    stack(docs)
+    Report::mismatch(pattern_region, doc)
 }
 
 /// `addPatternCategory`.
