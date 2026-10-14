@@ -49,7 +49,7 @@ nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it wait
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is the MQ exit review; B.n waits for the reference machine.
+4. Resume at the first unchecked box. Right now that is **Q.15**; B.n waits for the reference machine.
 
 ### Test tiers
 
@@ -1162,6 +1162,16 @@ A second, independent audit of the same code (2026-10-13, kept in `~/.cache/nomi
 
   Done: a comment on a line of its own before a module name, variable pattern or literal belongs to that node in nomi's tree, so its first token was the comment. Hover's and completion's module names, and xtask's mutation generator's parameters, locals and literals, take the first significant token. A unit test hovers a module name below such a comment; it fails on the old code. The transcripts and the `lsp` corpus suite are unchanged.
 
+
+- [ ] **Q.15** `quality: exit findings, foundations`. The exit review (12 fresh reviews, every file read again, kept in `~/.cache/nomi-dev/quality/exit/`) found 149 places still short of §13: work done twice or copied to be read, flags and tuples where types belong, duplicated helpers, `_` arms deciding per variant, long functions. This step fixes base's, project's, registry's and syntax's (38); the steps after it the rest, crate by crate.
+- [ ] **Q.15a** `quality: exit findings, format` (10).
+- [ ] **Q.15b** `quality: exit findings, compiler` (27).
+- [ ] **Q.15c** `quality: exit findings, codegen-js, test and testkit` (14).
+- [ ] **Q.15d** `quality: exit findings, engine` (15).
+- [ ] **Q.15e** `quality: exit findings, ide` (17).
+- [ ] **Q.15f** `quality: exit findings, lsp and cli` (11).
+- [ ] **Q.15g** `quality: exit findings, xtask` (20).
+- [ ] **QF.10** `fix: the runtime's tasks are checked`. A nested `null` or `undefined` task (`andThen(undefined, f)`, `uninterruptible(null)`, `scoped(undefined)`) makes the interpreter throw out of its drain, leaving the runtime awake and running no fiber again; and the `INTERRUPT` task tag and the `INTERRUPTED` exit kind are one string, so an interrupt exit passes for a task. With the runtime's five other exit findings. **Check:** a test for each, failing on the old runtime.
 
 The survey behind these steps (11 reviews, every file read: 118 major, 514 minor and 405 small findings, about 7,600 removable lines of 124,000) is kept in `~/.cache/nomi-dev/quality/` on the development machine, one report per crate group; a step without it re-reviews its crate first. Findings that would change behavior are not in this milestone: they are listed in its last step's commit for a decision.
 
