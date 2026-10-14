@@ -224,17 +224,19 @@ fn comment(comment: &Comment) -> Block {
 }
 
 /// Upstream's `formatComments`.
-fn comments(comments: &[Comment]) -> Option<Block> {
-    let (first, rest) = comments.split_first()?;
-    Some(space_sep_or_stack(
-        comment(first),
-        rest.iter().map(comment).collect(),
-    ))
+fn comments<'c>(comments: impl IntoIterator<Item = &'c Comment>) -> Option<Block> {
+    let mut comments = comments.into_iter();
+    let first = comment(comments.next()?);
+    Some(space_sep_or_stack(first, comments.map(comment).collect()))
 }
 
 /// `inner` between the comments before and after it; upstream's
 /// `formatCommented`.
-fn commented(pre: &[Comment], inner: Block, post: &[Comment]) -> Block {
+fn commented<'c>(
+    pre: impl IntoIterator<Item = &'c Comment>,
+    inner: Block,
+    post: impl IntoIterator<Item = &'c Comment>,
+) -> Block {
     commented_with(ForceMultiline(false), pre, inner, post)
 }
 
@@ -244,7 +246,12 @@ fn commented_forced(pre: &[Comment], inner: Block, post: &[Comment]) -> Block {
     commented_with(ForceMultiline(true), pre, inner, post)
 }
 
-fn commented_with(force: ForceMultiline, pre: &[Comment], inner: Block, post: &[Comment]) -> Block {
+fn commented_with<'c>(
+    force: ForceMultiline,
+    pre: impl IntoIterator<Item = &'c Comment>,
+    inner: Block,
+    post: impl IntoIterator<Item = &'c Comment>,
+) -> Block {
     forceable_space_sep_or_stack1(
         force,
         comments(pre)
@@ -256,8 +263,8 @@ fn commented_with(force: ForceMultiline, pre: &[Comment], inner: Block, post: &[
 }
 
 /// Upstream's `formatPreCommented`.
-fn pre_commented(pre: &[Comment], inner: Block) -> Block {
-    commented(pre, inner, &[])
+fn pre_commented<'c>(pre: impl IntoIterator<Item = &'c Comment>, inner: Block) -> Block {
+    commented(pre, inner, [])
 }
 
 /// Upstream's `formatTailCommented`.

@@ -4,7 +4,7 @@
 use super::declarations::declarations;
 use super::{expect_indented, is_parenthesized_op, module_name, parenthesized_op, skip_junk};
 use crate::SyntaxKind as K;
-use crate::parser::{Parser, SyntaxErrorKind};
+use crate::parser::{Parser, Scan, SyntaxErrorKind};
 
 pub(super) fn module(p: &mut Parser<'_>) {
     let m = p.start();
@@ -125,39 +125,48 @@ fn at_exposing_list(p: &mut Parser<'_>) -> bool {
 /// Whether a whole parenthesized exposing list is ahead, which elm-format
 /// reads wherever it stands.
 fn at_whole_list(p: &mut Parser<'_>) -> bool {
-    let mut n = 1;
+    let mut scan = p.scan(1);
     loop {
-        n = match (p.nth(n), p.nth(n + 1), p.nth(n + 2)) {
-            (K::DotDot | K::LowerIdent, ..) => n + 1,
-            (K::UpperIdent, K::LParen, _) => match variants_end(p, n + 2) {
-                Some(end) => end,
-                None => return false,
-            },
-            (K::UpperIdent, ..) => n + 1,
-            (K::LParen, op, K::RParen) if is_parenthesized_op(op) => n + 3,
+        match (scan.nth(0), scan.nth(1), scan.nth(2)) {
+            (K::DotDot | K::LowerIdent, ..) => scan.skip(1),
+            (K::UpperIdent, K::LParen, _) => {
+                scan.skip(2);
+                if !skip_variants(&mut scan) {
+                    return false;
+                }
+            }
+            (K::UpperIdent, ..) => scan.skip(1),
+            (K::LParen, op, K::RParen) if is_parenthesized_op(op) => scan.skip(3),
             _ => return false,
-        };
-        match p.nth(n) {
-            K::Comma => n += 1,
+        }
+        match scan.nth(0) {
+            K::Comma => scan.skip(1),
             K::RParen => return true,
             _ => return false,
         }
     }
 }
 
-/// Past the `)` of the variants starting at token `n`, if they close.
-fn variants_end(p: &mut Parser<'_>, mut n: usize) -> Option<usize> {
-    if p.nth(n) == K::DotDot {
-        return (p.nth(n + 1) == K::RParen).then_some(n + 2);
+/// Whether the variants `scan` is at close, and if so, past their `)`.
+fn skip_variants(scan: &mut Scan<'_, '_>) -> bool {
+    if scan.nth(0) == K::DotDot {
+        if scan.nth(1) != K::RParen {
+            return false;
+        }
+        scan.skip(2);
+        return true;
     }
     loop {
-        if p.nth(n) != K::UpperIdent {
-            return None;
+        if scan.nth(0) != K::UpperIdent {
+            return false;
         }
-        match p.nth(n + 1) {
-            K::Comma => n += 2,
-            K::RParen => return Some(n + 2),
-            _ => return None,
+        match scan.nth(1) {
+            K::Comma => scan.skip(2),
+            K::RParen => {
+                scan.skip(2);
+                return true;
+            }
+            _ => return false,
         }
     }
 }

@@ -134,7 +134,7 @@ fn comment(token: &SyntaxToken) -> Comment {
         return Comment::TrickOpener;
     }
     if text[2..].starts_with('-') {
-        return Comment::TrickBlock(block_body(&text[3..]));
+        return Comment::TrickBlock(block_body(&text[3..]).to_owned());
     }
     // Haskell's `lines`: no last line after a final newline.
     let lines = block_body(&text[2..])
@@ -155,11 +155,9 @@ fn line_comment(text: &str) -> Comment {
 /// A block comment's text between its opening and `-}`, without the
 /// spaces at either end; upstream's `closeComment`, after the spaces the
 /// opening skips.
-pub(super) fn block_body(text: &str) -> String {
+pub(super) fn block_body(text: &str) -> &str {
     let text = text.strip_suffix("-}").expect("the lexer closes comments");
-    text.trim_start_matches(' ')
-        .trim_end_matches(' ')
-        .to_owned()
+    text.trim_start_matches(' ').trim_end_matches(' ')
 }
 
 /// Removes from each line after the first the indentation they all
@@ -168,10 +166,7 @@ fn trim_indent(mut lines: Vec<String>) -> Vec<String> {
     let depth = lines
         .iter()
         .skip(1)
-        .filter_map(|line| {
-            let indent = line.chars().take_while(|&c| is_space(c)).count();
-            (indent != line.chars().count()).then_some(indent)
-        })
+        .filter_map(|line| line.chars().position(|c| !is_space(c)))
         .min()
         .unwrap_or(0);
     for line in lines.iter_mut().skip(1) {

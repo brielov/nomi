@@ -16,7 +16,7 @@ use crate::tree::{C0Eol, Declaration, Docs, ElmCode, Expr, TopLevelStructure, c}
 pub(super) fn docs(token: &SyntaxToken) -> Docs {
     let text = cursor::block_body(&token.text()[3..]);
     Docs {
-        blocks: markdown::parse(&text, &mut elm_code),
+        blocks: markdown::parse(text, &mut elm_code),
         source: token.text().to_owned(),
     }
 }

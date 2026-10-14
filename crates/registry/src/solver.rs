@@ -101,7 +101,7 @@ pub fn verify_in<P: Packages>(
     let details = solution
         .into_iter()
         .map(|(name, version)| {
-            let deps = search.releases.found(&name, version).deps.clone();
+            let deps = search.releases.take(&name, version).deps;
             (name, Details { version, deps })
         })
         .collect();
@@ -279,6 +279,8 @@ struct Releases<'p, P> {
     read: BTreeMap<(Name, Version), Option<Release>>,
 }
 
+const FOUND: &str = "a release in a solution was found";
+
 impl<'p, P: Packages> Releases<'p, P> {
     fn new(packages: &'p mut P) -> Releases<'p, P> {
         Releases {
@@ -298,9 +300,15 @@ impl<'p, P: Packages> Releases<'p, P> {
 
     /// A release read and found, as each in a solution is.
     fn found(&self, name: &Name, version: Version) -> &Release {
-        self.read[&(name.clone(), version)]
-            .as_ref()
-            .expect("a release in a solution was found")
+        self.read[&(name.clone(), version)].as_ref().expect(FOUND)
+    }
+
+    /// [`Releases::found`], taken out once the search is over.
+    fn take(&mut self, name: &Name, version: Version) -> Release {
+        self.read
+            .remove(&(name.clone(), version))
+            .flatten()
+            .expect(FOUND)
     }
 }
 

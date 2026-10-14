@@ -6,6 +6,7 @@ use std::cmp::Ordering;
 
 use nomi_base::Compat;
 
+use crate::json::decode::{Expectation, Problem};
 use crate::json::{Cursor, Position};
 use crate::outline::{DetectError, Exposed, SrcDir};
 use crate::{
@@ -467,6 +468,25 @@ fn exposed_modules_keep_their_sections() {
     assert_eq!(headers, [b"B".as_slice(), b"A"]);
     let modules: Vec<&[u8]> = pkg.exposed.modules().map(ModuleName::as_bytes).collect();
     assert_eq!(modules, [b"Basics".as_slice(), b"List", b"Maybe"]);
+}
+
+#[test]
+fn exposed_modules_are_a_list_or_else_sections() {
+    let src = String::from_utf8(pkg("0.19.0 <= v < 0.20.0", "A")).unwrap();
+    let src = src.replace(r#"["A"]"#, r#""A""#);
+    let Err(OutlineError::Decode(Problem::Field(key, problem))) = Outline::read(src.as_bytes(), V3)
+    else {
+        panic!("decoded")
+    };
+    assert_eq!(key, b"exposed-modules");
+    let Problem::OneOf(list, dict) = *problem else {
+        panic!("{problem:?}")
+    };
+    assert!(matches!(*list, Problem::Expecting(_, Expectation::Array)));
+    assert!(matches!(
+        dict[..],
+        [Problem::Expecting(_, Expectation::Object)]
+    ));
 }
 
 fn pkg(elm: &str, module: &str) -> Vec<u8> {

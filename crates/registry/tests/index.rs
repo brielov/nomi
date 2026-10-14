@@ -75,7 +75,8 @@ fn updates_ask_for_what_came_after_and_put_the_first_newest() {
         .answering(&since(4), news)
         .answering(&since(7), "[]");
     let index = Index::fetch(&http, LATEST).unwrap();
-    let updated = index.update(&http, LATEST).unwrap().unwrap();
+    let mut updated = index.clone();
+    assert_eq!(updated.update(&http, LATEST), Ok(3));
     // `foldr` adds the last release first, so the first is the newest,
     // whatever the numbers say.
     assert_eq!(
@@ -84,13 +85,18 @@ fn updates_ask_for_what_came_after_and_put_the_first_newest() {
     );
     assert_eq!(versions(&updated, "elm/http"), [v(2, 0, 0)]);
     assert_eq!(updated.count(), 7);
-    assert_eq!(updated.update(&http, LATEST), Ok(None));
+    let before = updated.clone();
+    assert_eq!(updated.update(&http, LATEST), Ok(0));
+    assert_eq!(updated, before);
     assert_eq!(http.asked()[1..], [since(4), since(7)]);
+    // A failed update leaves the index as it was.
     let http = Fixture::default().answering(&since(4), r#"["elm/json"]"#);
+    let mut failed = index.clone();
     assert!(matches!(
-        index.update(&http, LATEST),
+        failed.update(&http, LATEST),
         Err(RegistryProblem::Data(..))
     ));
+    assert_eq!(failed, index);
 }
 
 #[test]

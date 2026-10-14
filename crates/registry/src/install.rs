@@ -73,19 +73,26 @@ fn plan_app<P: Packages>(
     if app.direct.contains_key(pkg) {
         return Ok(Plan::AlreadyInstalled);
     }
-    let promote = |from: fn(&mut AppOutline) -> &mut BTreeMap<Name, Version>| {
+    let promote = |version, from: fn(&mut AppOutline) -> &mut BTreeMap<Name, Version>| {
         let mut app = app.clone();
-        let version = from(&mut app).remove(pkg)?;
+        from(&mut app).remove(pkg);
         app.direct.insert(pkg.clone(), version);
-        Some(Outline::App(app))
+        Outline::App(app)
     };
-    if let Some(outline) = promote(|app| &mut app.indirect) {
-        return Ok(Plan::PromoteIndirect(outline));
+    if let Some(&version) = app.indirect.get(pkg) {
+        return Ok(Plan::PromoteIndirect(promote(version, |app| {
+            &mut app.indirect
+        })));
     }
-    if let Some(outline) =
-        promote(|app| &mut app.test_direct).or_else(|| promote(|app| &mut app.test_indirect))
-    {
-        return Ok(Plan::PromoteTest(outline));
+    if let Some(&version) = app.test_direct.get(pkg) {
+        return Ok(Plan::PromoteTest(promote(version, |app| {
+            &mut app.test_direct
+        })));
+    }
+    if let Some(&version) = app.test_indirect.get(pkg) {
+        return Ok(Plan::PromoteTest(promote(version, |app| {
+            &mut app.test_indirect
+        })));
     }
     if packages.versions(pkg).is_none() {
         return Err(InstallProblem::UnknownPackage);
@@ -100,7 +107,7 @@ fn plan_app<P: Packages>(
 }
 
 /// `makePkgPlan`: the package joins the dependencies up to its next major
-/// version, and dependencies it moves keep their places.
+/// version.
 fn plan_pkg<P: Packages>(
     packages: &mut P,
     compat: Compat,
@@ -119,34 +126,19 @@ fn plan_pkg<P: Packages>(
     if packages.versions(pkg).is_none() {
         return Err(InstallProblem::UnknownPackage);
     }
-    let mut old = outline.test_deps.clone();
-    old.extend(outline.deps.iter().map(|(n, &c)| (n.clone(), c)));
-    let mut constraints = old.clone();
+    let mut constraints = outline.test_deps.clone();
+    constraints.extend(outline.deps.iter().map(|(n, &c)| (n.clone(), c)));
     constraints.insert(pkg.clone(), Constraint::anything(compat));
     let solution = solver::verify(packages, compat, &constraints)
         .map_err(InstallProblem::Solver)?
         .ok_or(InstallProblem::NoSolution)?;
-    let version = solution[pkg].version;
-    let mut new = old.clone();
-    new.insert(pkg.clone(), Constraint::until_next_major(version, compat));
-    let changes = changes(&old, &new);
-    let news = changes.iter().filter_map(|(name, change)| match change {
-        Change::Insert(c) | Change::Change { new: c, .. } => Some((name, *c)),
-        Change::Remove(_) => None,
-    });
+    let constraint = Constraint::until_next_major(solution[pkg].version, compat);
+    // Upstream diffs the constraints before and after (`detectChanges`)
+    // and adds what is new (`addNews`), which can only be the package.
     let mut outline = outline.clone();
-    // `addNews`: new constraints replace old ones, and only the package
-    // itself joins
-    for (name, constraint) in news {
-        if name == pkg || outline.deps.contains_key(name) {
-            outline.deps.insert(name.clone(), constraint);
-        }
-        if let Some(c) = outline.test_deps.get_mut(name) {
-            *c = constraint;
-        }
-    }
+    outline.deps.insert(pkg.clone(), constraint);
     Ok(Plan::Pkg {
-        changes,
+        changes: BTreeMap::from([(pkg.clone(), Change::Insert(constraint))]),
         outline,
         solution: solution
             .into_iter()

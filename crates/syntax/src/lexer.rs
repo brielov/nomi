@@ -206,7 +206,15 @@ impl<'a> Lexer<'a> {
             b',' => self.single(SyntaxKind::Comma),
             b'\\' => self.single(SyntaxKind::Backslash),
             b'_' => self.single(SyntaxKind::Underscore),
-            b'`' if self.backticked_end(start).is_some() => self.backticked(start),
+            b'`' => match self.backticked_end(start) {
+                // An infix call, an operator to the grammar; elm's
+                // validation reports it.
+                Some(end) => {
+                    self.offset = end;
+                    SyntaxKind::Operator
+                }
+                None => self.identifier_or_invalid(),
+            },
             byte if is_operator(byte) => self.operator(),
             _ if self.char_at(start).is_some_and(is_operator_char) => self.operator(),
             _ => self.identifier_or_invalid(),
@@ -529,13 +537,6 @@ impl<'a> Lexer<'a> {
                 _ => return None,
             }
         }
-    }
-
-    /// An infix call, an operator to the grammar; elm's validation reports
-    /// it.
-    fn backticked(&mut self, start: usize) -> SyntaxKind {
-        self.offset = self.backticked_end(start).expect("the caller checked");
-        SyntaxKind::Operator
     }
 
     fn identifier_or_invalid(&mut self) -> SyntaxKind {

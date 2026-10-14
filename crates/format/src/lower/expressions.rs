@@ -10,7 +10,7 @@ use super::literal::{is_number, literal, negative};
 use super::patterns::pattern;
 use super::{
     VALID, bool_literal, commas, eol_after, lower_name, namespace, pair, preceded, sectioned,
-    start, surround, symbol, upper_name, with_eol,
+    start, surround, surrounded, symbol, upper_name, with_eol,
 };
 use crate::tree::{
     ApplicationMultiline, Around, BinopsClause, C2, CaseBranch, Comments, CommonDeclaration, Expr,
@@ -26,7 +26,7 @@ fn expr_unguarded(cx: &mut Cursor, node: &ast::Expr) -> Expr {
         ast::Expr::LiteralExpr(e) => Expr::Literal(literal(e.syntax())),
         ast::Expr::NameExpr(e) => name(e),
         ast::Expr::OperatorFunction(e) => Expr::Var(Ref::Op(symbol(&e.op().expect(VALID)))),
-        ast::Expr::TupleConstructorExpr(e) => Expr::TupleFunction(commas(e.syntax()).len() + 1),
+        ast::Expr::TupleConstructorExpr(e) => Expr::TupleFunction(commas(e.syntax()).count() + 1),
         ast::Expr::NegateExpr(e) => {
             let operand = e.expr().expect(VALID);
             // Upstream reads a `-` touching a number as part of it.
@@ -43,11 +43,9 @@ fn expr_unguarded(cx: &mut Cursor, node: &ast::Expr) -> Expr {
         ast::Expr::OperatorChain(e) => binops(cx, e),
         ast::Expr::UnitExpr(e) => Expr::Unit(cx.take(start(&e.r_paren_token().expect(VALID)))),
         ast::Expr::ParenExpr(e) => {
-            let close = e.r_paren_token().expect(VALID);
-            let items = e.expr().into_iter();
-            let item = surround(cx, e.syntax(), items, &close, |cx, e| with_eol(cx, e, expr))
-                .pop()
-                .expect(VALID);
+            let close = start(&e.r_paren_token().expect(VALID));
+            let inner = e.expr().expect(VALID);
+            let item = surrounded(cx, &inner, close, |cx, e| with_eol(cx, e, expr));
             Expr::Parens(Box::new(eol_after(item)))
         }
         ast::Expr::TupleExpr(e) => {

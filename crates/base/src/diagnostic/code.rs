@@ -348,15 +348,18 @@ impl Expander<'_, '_> {
     /// is on the last of them, or else the lines it covers marked.
     fn render(&self, region: Region, highlight: Region) -> Doc {
         let first = self.compat.first_position();
-        let lines: Vec<(u32, &str)> = (self.source.lines.iter().enumerate())
-            .skip(region.start.row.saturating_sub(first) as usize)
-            .take((region.end.row.saturating_sub(region.start.row) + 1) as usize)
-            .map(|(i, line)| (i as u32 + first, *line))
-            .collect();
+        let all = &self.source.lines;
+        let skip = (region.start.row.saturating_sub(first) as usize).min(all.len());
+        let take = (region.end.row.saturating_sub(region.start.row) + 1) as usize;
+        let lines = &all[skip..all.len().min(skip + take)];
+        let top = skip as u32 + first;
         // Upstream fails when there are no lines to take the width from.
-        let width = lines.last().map_or(0, |&(row, _)| self.shown(row).len());
+        let width = match lines.len() {
+            0 => 0,
+            n => self.shown(top + n as u32 - 1).len(),
+        };
         let underline = self.underline(width, region.end.row, highlight);
-        self.draw(width, highlight, &lines, underline)
+        self.draw(width, highlight, top, lines, underline)
     }
 
     /// `makeUnderline`: carets under a one-row `highlight` on the last
@@ -371,17 +374,19 @@ impl Expander<'_, '_> {
         Some(text(" ".repeat(spaces)).append(red("^".repeat(carets))))
     }
 
-    /// `drawLines`: each line numbered, then `underline` if there is
-    /// one, or else a `>` on the lines `highlight` covers.
+    /// `drawLines`: each line, the first kept as row `top`, numbered,
+    /// then `underline` if there is one, or else a `>` on the lines
+    /// `highlight` covers.
     fn draw(
         &self,
         width: usize,
         highlight: Region,
-        lines: &[(u32, &str)],
+        top: u32,
+        lines: &[&str],
         underline: Option<Doc>,
     ) -> Doc {
         let marked = underline.is_none();
-        let line = |&(row, line): &(u32, &str)| {
+        let line = |(&line, row): (&&str, u32)| {
             let spacer = if marked && highlight.start.row <= row && row <= highlight.end.row {
                 red(">")
             } else {
@@ -392,8 +397,7 @@ impl Expander<'_, '_> {
                 .append(text(line))
         };
         vcat(
-            lines
-                .iter()
+            (lines.iter().zip(top..))
                 .map(line)
                 .chain([underline.unwrap_or_else(Doc::empty)]),
         )

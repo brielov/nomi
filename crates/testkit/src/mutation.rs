@@ -8,6 +8,8 @@ use std::fs;
 use std::path::Path;
 use std::str::FromStr;
 
+use sha2::{Digest as _, Sha256};
+
 /// What a mutation may insert: separators, brackets, layout and comments.
 const INSERTIONS: &[&str] = &[
     " ", "\n", "\r", "\t", ",", ".", "=", "->", "(", ")", "[", "]", "{", "}", "--x\n", "{-x-}",
@@ -75,14 +77,14 @@ pub fn suite(seed_name: &str, source: &str) -> Vec<Mutation> {
 /// The SHA-256 of every mutation's name and source, so stored verdicts
 /// can tell when the generator or a seed changed under them.
 pub fn digest(mutations: &[Mutation]) -> String {
-    let mut bytes = Vec::new();
+    let mut hasher = Sha256::new();
     for m in mutations {
-        bytes.extend(m.name.as_bytes());
-        bytes.push(0);
-        bytes.extend(m.source.as_bytes());
-        bytes.push(0);
+        for part in [&m.name, &m.source] {
+            hasher.update(part);
+            hasher.update([0]);
+        }
     }
-    crate::sha256_hex(&bytes)
+    nomi_base::hex(&hasher.finalize())
 }
 
 /// One change to a source at a character boundary.

@@ -6,7 +6,7 @@ use super::cursor::Cursor;
 use super::literal::literal;
 use super::{
     VALID, bool_literal, lower_name, parens_or_bare, preceded, separated, start, surround,
-    upper_ref,
+    surrounded, upper_ref,
 };
 use crate::tree::{LiteralValue, Pattern, c};
 
@@ -26,10 +26,8 @@ fn pattern_unguarded(cx: &mut Cursor, node: &ast::Pattern) -> Pattern {
             Pattern::Unit(cx.take(start(&p.r_paren_token().expect(VALID))))
         }
         ast::Pattern::ParenPattern(p) => {
-            let close = p.r_paren_token().expect(VALID);
-            let item = surround(cx, p.syntax(), p.pattern().into_iter(), &close, pattern)
-                .pop()
-                .expect(VALID);
+            let close = start(&p.r_paren_token().expect(VALID));
+            let item = surrounded(cx, &p.pattern().expect(VALID), close, pattern);
             parens_or_bare(item, Pattern::Parens)
         }
         ast::Pattern::TuplePattern(p) => {

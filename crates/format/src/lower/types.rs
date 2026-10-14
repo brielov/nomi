@@ -5,7 +5,7 @@ use nomi_syntax::ast::{self, AstNode};
 use super::cursor::Cursor;
 use super::{
     VALID, commas, eol_after, lower_name, pair, parens_or_bare, preceded, sectioned, separated,
-    start, surround, upper_ref, with_eol,
+    start, surround, surrounded, upper_ref, with_eol,
 };
 use crate::tree::{Around, AroundEol, Type, TypeConstructor, c};
 
@@ -21,18 +21,15 @@ fn ty_unguarded(cx: &mut Cursor, node: &ast::Type) -> Type {
             construction(cx, node, TypeConstructor::Named(name), t.types())
         }
         ast::Type::TupleConstructorType(t) => {
-            let size = commas(t.syntax()).len() + 1;
+            let size = commas(t.syntax()).count() + 1;
             construction(cx, node, TypeConstructor::Tuple(size), t.types())
         }
         ast::Type::TypeVar(t) => Type::Variable(lower_name(&t.lower_ident_token().expect(VALID))),
         ast::Type::UnitType(t) => Type::Unit(cx.take(start(&t.r_paren_token().expect(VALID)))),
         ast::Type::ParenType(t) => {
-            let close = t.r_paren_token().expect(VALID);
-            let item = surround(cx, t.syntax(), t.ty().into_iter(), &close, |cx, t| {
-                with_eol(cx, t, ty)
-            })
-            .pop()
-            .expect(VALID);
+            let close = start(&t.r_paren_token().expect(VALID));
+            let inner = t.ty().expect(VALID);
+            let item = surrounded(cx, &inner, close, |cx, t| with_eol(cx, t, ty));
             parens_or_bare(eol_after(item), Type::Parens)
         }
         ast::Type::TupleType(t) => {

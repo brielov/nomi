@@ -70,7 +70,7 @@ fn settings(cx: &mut Cursor, fields: &ast::EffectFields) -> C2<Vec<SourceSetting
     let settings = comma_list(
         cx,
         items,
-        &commas(fields.syntax()),
+        commas(fields.syntax()),
         Some(start(&r_brace)),
         |cx, field| {
             let key = field.lower_ident_token().expect(VALID);
@@ -139,7 +139,7 @@ fn detailed_listing(cx: &mut Cursor, list: &ast::ExposingList) -> Listing<Detail
     let dot_dot = list.dot_dot_token();
     let items = |cx: &mut Cursor, end| {
         let items = list.items().map(|i| (cx.range(i.syntax()), i)).collect();
-        to_detailed_listing(comma_list(cx, items, &commas(list.syntax()), end, value))
+        to_detailed_listing(comma_list(cx, items, commas(list.syntax()), end, value))
     };
     match (list.l_paren_token(), list.r_paren_token()) {
         (Some(l_paren), Some(r_paren)) => listing(cx, &l_paren, &r_paren, dot_dot, items),
@@ -175,7 +175,7 @@ fn listing<T>(
 fn comma_list<N, T>(
     cx: &mut Cursor,
     items: Vec<(TextRange, N)>,
-    commas: &[TextSize],
+    mut commas: impl Iterator<Item = TextSize>,
     end: Option<TextSize>,
     mut lower: impl FnMut(&mut Cursor, N) -> T,
 ) -> Vec<C2<T>> {
@@ -187,8 +187,8 @@ fn comma_list<N, T>(
             let before = cx.take(range.start());
             let value = lower(cx, node);
             let mut after: Comments = cx.eol(range).map(Comment::Line).into_iter().collect();
-            match commas.get(i) {
-                Some(&comma) if i + 1 < count => after.extend(cx.take(comma)),
+            match commas.next() {
+                Some(comma) if i + 1 < count => after.extend(cx.take(comma)),
                 _ => after.extend(end.map(|end| cx.take(end)).unwrap_or_default()),
             }
             c(Around { before, after }, value)
@@ -221,7 +221,7 @@ fn value(cx: &mut Cursor, item: ast::Exposed) -> Value {
                 let items = child_tokens(variants.syntax(), SyntaxKind::UpperIdent)
                     .map(|t| (t.text_range(), upper_name(&t)))
                     .collect();
-                let ctors = comma_list(cx, items, &commas(variants.syntax()), end, |_, n| n);
+                let ctors = comma_list(cx, items, commas(variants.syntax()), end, |_, n| n);
                 let mut set = BTreeMap::new();
                 for ctor in ctors {
                     insert_with(&mut set, ctor.value, c(ctor.comments, ()), |new, old| {

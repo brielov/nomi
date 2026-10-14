@@ -5,6 +5,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use sha2::{Digest as _, Sha256};
+
 /// Copies the directories and regular files below `from` to `to`,
 /// leaving out each entry, and what's below it, whose path relative to
 /// `from` `keep` refuses. Anything else, such as a symbolic link, is left
@@ -54,15 +56,15 @@ pub fn files_below(root: &Path) -> io::Result<Vec<String>> {
 /// The SHA-256 of `sha256sum`'s listing of `files` under `root`, a
 /// `<hash>  ./<file>` line each, so one hash pins a whole tree.
 pub fn tree_digest(root: &Path, files: &[String]) -> io::Result<String> {
-    let mut listing = String::new();
+    let mut listing = Sha256::new();
     for file in files {
         let bytes = fs::read(root.join(file))?;
-        listing.push_str(&crate::sha256_hex(&bytes));
-        listing.push_str("  ./");
-        listing.push_str(file);
-        listing.push('\n');
+        listing.update(crate::sha256_hex(&bytes));
+        listing.update("  ./");
+        listing.update(file);
+        listing.update("\n");
     }
-    Ok(crate::sha256_hex(listing.as_bytes()))
+    Ok(nomi_base::hex(&listing.finalize()))
 }
 
 /// A new directory below `base` whose path is `length` bytes long: elm

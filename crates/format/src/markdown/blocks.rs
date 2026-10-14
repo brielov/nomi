@@ -100,7 +100,7 @@ impl Stack {
     /// Upstream's `processLine`.
     fn process_line(&mut self, text: &str) {
         let (rest, unmatched) = self.try_open_containers(text);
-        let offset = (text.chars().count() - rest.chars().count()) as i64;
+        let offset = text[..text.len() - rest.len()].chars().count() as i64;
         let top = self.0.last().expect("the document");
         let top_last_is_text = top.last_is_text();
         let last_line_is_text = unmatched == 0 && top_last_is_text;

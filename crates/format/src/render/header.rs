@@ -356,20 +356,16 @@ fn exports(groups: &[Vec<C2<Value>>], footer: Option<Block>) -> Block {
             groups
                 .iter()
                 .map(|values| {
-                    let before: Comments = values
-                        .iter()
-                        .flat_map(|v| v.comments.before.clone())
-                        .collect();
-                    let after: Comments = values
-                        .iter()
-                        .flat_map(|v| v.comments.after.clone())
-                        .collect();
                     let inner = group(
                         Delimiters::NONE,
                         ForceMultiline(false),
                         values.iter().map(|v| value(&v.value)).collect(),
                     );
-                    commented(&before, inner, &after)
+                    commented(
+                        values.iter().flat_map(|v| &v.comments.before),
+                        inner,
+                        values.iter().flat_map(|v| &v.comments.after),
+                    )
                 })
                 .collect(),
         ),
@@ -555,20 +551,13 @@ fn op(symbol: &Symbol) -> Block {
 
 /// A type, with `(..)` for any constructors, as Elm 0.19 exposes them.
 fn union(type_name: &Upper, post: &Comments, ctors: &Listing<CommentedMap<Upper, ()>>) -> Block {
-    let ctors = listing(ctors, |ctors| {
-        ctors
-            .iter()
-            .map(|(ctor, v)| {
-                commented(
-                    &v.comments.before,
-                    Block::line(name(&ctor.0)),
-                    &v.comments.after,
-                )
-            })
-            .collect()
-    });
     let mut line = name(&type_name.0);
-    if ctors.is_some() {
+    let exposed = match ctors {
+        Listing::Closed => false,
+        Listing::Open(_) => true,
+        Listing::Explicit(ctors, _) => !ctors.is_empty(),
+    };
+    if exposed {
         line.push(Line::text("(..)"));
     }
     tail_commented(Block::line(line), post)

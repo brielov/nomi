@@ -204,11 +204,11 @@ fn starts_with_minus(expr: &Expr) -> bool {
 fn commented_expression(expr: &C2<Expr>) -> Block {
     let around = &expr.comments;
     match &expr.value {
-        Expr::Parens(inner) => {
-            let before = [&around.before[..], &inner.comments.before].concat();
-            let after = [&inner.comments.after[..], &around.after].concat();
-            commented(&before, expression_alone(&inner.value), &after)
-        }
+        Expr::Parens(inner) => commented(
+            around.before.iter().chain(&inner.comments.before),
+            expression_alone(&inner.value),
+            inner.comments.after.iter().chain(&around.after),
+        ),
         value => commented(&around.before, expression_alone(value), &around.after),
     }
 }
@@ -217,13 +217,10 @@ fn commented_expression(expr: &C2<Expr>) -> Block {
 /// comments `pre`.
 fn pre_commented_expression(context: SyntaxContext, pre: &[Comment], expr: &Expr) -> Block {
     match expr {
-        Expr::Parens(inner) if inner.comments.after.is_empty() => {
-            let pre = [pre, &inner.comments.before].concat();
-            pre_commented(
-                &pre,
-                syntax_parens(context, format_expression(&inner.value)),
-            )
-        }
+        Expr::Parens(inner) if inner.comments.after.is_empty() => pre_commented(
+            pre.iter().chain(&inner.comments.before),
+            syntax_parens(context, format_expression(&inner.value)),
+        ),
         value => pre_commented(pre, syntax_parens(context, format_expression(value))),
     }
 }
@@ -419,15 +416,7 @@ fn case(subject: &C2<Expr>, multiline: ForceMultiline, branches: &[CaseBranch]) 
 fn case_branch(branch: &CaseBranch) -> Block {
     let workaround = |block| negative_case_pattern_workaround(&branch.pattern, block);
     let alone = pattern_alone(&branch.pattern);
-    let stacked = workaround(Block::stack1(
-        branch
-            .before_pattern
-            .iter()
-            .map(comment)
-            .chain([alone.clone()])
-            .chain(branch.before_arrow.iter().map(comment)),
-    ));
-    let pattern = workaround(alone);
+    let before_pattern = branch.before_pattern.iter().map(comment);
     let body = Block::stack1(
         branch
             .after_arrow
@@ -435,18 +424,17 @@ fn case_branch(branch: &CaseBranch) -> Block {
             .map(comment)
             .chain([expression_alone(&branch.body)]),
     );
-    let arrow = |pattern| Block::line(Line::row([pattern, Line::space(), Line::text("->")]));
-    match (stacked, pattern) {
-        (Block::SingleLine(pattern), _) => Block::stack1([arrow(pattern), body.indent()]),
-        (_, Block::SingleLine(pattern)) if branch.before_arrow.is_empty() => Block::stack1(
-            branch
-                .before_pattern
-                .iter()
-                .map(comment)
-                .chain([arrow(pattern), body.indent()]),
-        ),
-        (stacked, _) => Block::stack1([stacked, text("->").indent(), body.indent().indent()]),
+    if alone.is_line() && branch.before_arrow.is_empty() {
+        let pattern = (workaround(alone).into_line()).expect("parentheses keep a line one line");
+        let arrow = Block::line(Line::row([pattern, Line::space(), Line::text("->")]));
+        return Block::stack1(before_pattern.chain([arrow, body.indent()]));
     }
+    let stacked = workaround(Block::stack1(
+        before_pattern
+            .chain([alone])
+            .chain(branch.before_arrow.iter().map(comment)),
+    ));
+    Block::stack1([stacked, text("->").indent(), body.indent().indent()])
 }
 
 /// Upstream parenthesizes a negative literal a case branch matches.

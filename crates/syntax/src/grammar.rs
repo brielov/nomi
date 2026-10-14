@@ -166,11 +166,14 @@ fn sequence_tail(p: &mut Parser<'_>, close: K, item: impl Fn(&mut Parser<'_>)) -
 /// Whether the tokens from the `n`th on are commas, at least one, then
 /// `)`: the inside of `(,)`, `(,,)` and so on.
 fn at_tuple_constructor(p: &mut Parser<'_>, n: usize) -> bool {
-    let mut end = n;
-    while p.nth(end) == K::Comma {
-        end += 1;
+    let mut scan = p.scan(n);
+    if scan.nth(0) != K::Comma {
+        return false;
     }
-    end > n && p.nth(end) == K::RParen
+    while scan.nth(0) == K::Comma {
+        scan.skip(1);
+    }
+    scan.nth(0) == K::RParen
 }
 
 /// The commas and the `)` of a tuple constructor, after its `(`.

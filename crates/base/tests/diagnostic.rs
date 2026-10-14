@@ -1,65 +1,12 @@
+use nomi_base::diagnostic::Snippet;
 use nomi_base::diagnostic::doc::{
     Color, Conjunction, Line, comma_sep, cyan, dull_yellow, fill_sep, hint, labelled, link, red,
     reflow, reflow_link, sep, simple_note, stack, text, vcat, words,
 };
-use nomi_base::diagnostic::{OverlappingEdits, Snippet};
-use nomi_base::{Code, Diagnostic, Doc, Edit, FileId, Fix, Severity, Span, TextRange, TextSize};
+use nomi_base::{Doc, TextRange, TextSize};
 
-const UNFINISHED_LET: Code = Code::new("syntax/unfinished-let");
-
-fn span(file: u32, start: u32, end: u32) -> Span {
-    Span::new(
-        FileId::from_raw(file),
-        TextRange::new(TextSize::new(start), TextSize::new(end)),
-    )
-}
-
-#[test]
-fn codes_are_lower_case_words() {
-    for code in [
-        "syntax",
-        "syntax/unfinished-let",
-        "lint/unused-import",
-        "e2e/x1",
-    ] {
-        assert_eq!(Code::new(code).as_str(), code);
-    }
-    assert_eq!(UNFINISHED_LET.to_string(), "syntax/unfinished-let");
-}
-
-#[test]
-fn malformed_codes_are_rejected() {
-    for code in ["", "Syntax", "a--b", "a/", "/a", "a-/b", "a b", "a_b", "-a"] {
-        let result = std::panic::catch_unwind(|| Code::new(code));
-        assert!(result.is_err(), "{code:?} was accepted");
-    }
-}
-
-#[test]
-fn a_diagnostic_carries_its_parts() {
-    let note = text("the let starts here");
-    let fix = Fix::new("Add `in`", vec![Edit::new(span(0, 9, 9), " in")]).unwrap();
-    let diagnostic = Diagnostic::error(
-        UNFINISHED_LET,
-        "UNFINISHED LET",
-        span(0, 4, 9),
-        stack([
-            reflow("I was partway through a let."),
-            Doc::snippet(span(0, 0, 9).range, span(0, 4, 9).range),
-        ]),
-    )
-    .with_label(span(0, 0, 3), note.clone())
-    .with_fix(fix.clone());
-    assert_eq!(diagnostic.severity, Severity::Error);
-    assert_eq!(diagnostic.title, "UNFINISHED LET");
-    assert_eq!(diagnostic.secondary[0].span, span(0, 0, 3));
-    assert_eq!(diagnostic.secondary[0].note, note);
-    assert_eq!(diagnostic.fixes, [fix]);
-    assert_eq!(
-        diagnostic.message.plain(),
-        "I was partway through a let.[snippet]"
-    );
-    assert!(Severity::Hint < Severity::Warning && Severity::Warning < Severity::Error);
+fn range(start: u32, end: u32) -> TextRange {
+    TextRange::new(TextSize::new(start), TextSize::new(end))
 }
 
 #[test]
@@ -157,51 +104,12 @@ fn links_and_hints_stay_symbolic() {
     );
     assert_eq!(simple_note("It is fine.").plain(), "Note: It is fine.");
     assert_eq!(
-        Doc::snippet(span(0, 0, 4).range, span(0, 1, 2).range),
+        Doc::snippet(range(0, 4), range(1, 2)),
         Doc::Snippet(Snippet {
-            region: span(0, 0, 4).range,
-            highlight: span(0, 1, 2).range
+            region: range(0, 4),
+            highlight: range(1, 2)
         })
     );
     assert_eq!(Color::Red.json_name(), "RED");
     assert_eq!(Color::DullRed.json_name(), "red");
-}
-
-#[test]
-fn fix_edits_are_sorted_and_applied() {
-    let fix = Fix::new(
-        "Rename",
-        vec![
-            Edit::new(span(0, 6, 9), "qux"),
-            Edit::new(span(1, 0, 0), "elsewhere"),
-            Edit::new(span(0, 0, 3), "baz"),
-            // Touching the previous edit is fine.
-            Edit::new(span(0, 3, 3), "!"),
-        ],
-    )
-    .unwrap();
-    let starts: Vec<_> = fix
-        .edits()
-        .iter()
-        .map(|e| (e.span.file.raw(), u32::from(e.span.range.start())))
-        .collect();
-    assert_eq!(starts, [(0, 0), (0, 3), (0, 6), (1, 0)]);
-    assert_eq!(fix.apply(FileId::from_raw(0), "foo = bar"), "baz! = qux");
-    assert_eq!(fix.apply(FileId::from_raw(1), "x"), "elsewherex");
-    assert_eq!(fix.apply(FileId::from_raw(2), "untouched"), "untouched");
-}
-
-#[test]
-fn overlapping_edits_are_rejected() {
-    let overlap = |a: Span, b: Span| Fix::new("f", vec![Edit::new(a, "a"), Edit::new(b, "b")]);
-    let err: OverlappingEdits = overlap(span(0, 0, 4), span(0, 3, 5)).unwrap_err();
-    assert_eq!(
-        (err.first.insert.as_str(), err.second.insert.as_str()),
-        ("a", "b")
-    );
-    assert!(overlap(span(0, 0, 4), span(0, 1, 2)).is_err());
-    // Two insertions at one point have no defined order.
-    assert!(overlap(span(0, 2, 2), span(0, 2, 2)).is_err());
-    assert!(overlap(span(0, 0, 4), span(1, 0, 4)).is_ok());
-    assert!(overlap(span(0, 0, 2), span(0, 2, 4)).is_ok());
 }

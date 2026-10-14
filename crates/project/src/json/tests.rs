@@ -305,30 +305,6 @@ fn keys_fail_on_their_own_region() {
 }
 
 #[test]
-fn one_of_lists_every_problem_in_order() {
-    let value = decoded("true");
-    let p = decode::one_of(
-        &value,
-        &mut [
-            &mut |v: &Value<'_>| decode::string::<()>(v).map(|_| ()),
-            &mut |v: &Value<'_>| decode::list(v, decode::string).map(|_| ()),
-            &mut |v: &Value<'_>| decode::field(v, b"a", decode::string).map(|_| ()),
-        ],
-    );
-    let Err(Problem::OneOf(first, rest)) = p else {
-        panic!("{p:?}")
-    };
-    assert!(matches!(*first, Problem::Expecting(_, Expectation::String)));
-    assert!(matches!(
-        rest.as_slice(),
-        [
-            Problem::Expecting(_, Expectation::Array),
-            Problem::Expecting(_, Expectation::Object)
-        ]
-    ));
-}
-
-#[test]
 fn of_alternatives_the_first_deepest_is_reported() {
     let start = Position { row: 1, col: 1 };
     let leaf = |x| Problem::Failure(Region { start, end: start }, x);

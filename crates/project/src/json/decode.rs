@@ -55,9 +55,6 @@ fn depth<X>(problem: &Problem<X>) -> usize {
     }
 }
 
-/// One of [`one_of`]'s alternatives.
-pub(crate) type Alternative<'a, 'f, T, X> = dyn FnMut(&Value<'a>) -> Decoded<T, X> + 'f;
-
 fn expecting<T, X>(value: &Value<'_>, expectation: Expectation) -> Decoded<T, X> {
     Err(Problem::Expecting(value.region, expectation))
 }
@@ -157,27 +154,6 @@ pub fn field<'a, T, X>(
         Some((_, v)) => entry(v).map_err(|p| Problem::Field(key.to_vec(), Box::new(p))),
         None => expecting(value, Expectation::ObjectWith(key.to_vec())),
     }
-}
-
-/// `oneOf`: the first alternative that decodes, or every one's problem.
-///
-/// # Panics
-///
-/// With no alternatives, as upstream crashes.
-pub(crate) fn one_of<'a, 'f, T, X>(
-    value: &Value<'a>,
-    alternatives: &mut [&mut Alternative<'a, 'f, T, X>],
-) -> Decoded<T, X> {
-    let mut problems = Vec::new();
-    for alternative in alternatives.iter_mut() {
-        match alternative(value) {
-            Ok(t) => return Ok(t),
-            Err(problem) => problems.push(problem),
-        }
-    }
-    let mut problems = problems.into_iter();
-    let first = problems.next().expect("Json.Decode.oneOf []");
-    Err(Problem::OneOf(Box::new(first), problems.collect()))
 }
 
 /// `failure`: the caller's problem, on this value.

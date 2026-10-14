@@ -6,7 +6,6 @@
 mod common;
 
 use common::Verdict;
-use nomi_syntax::Tool;
 use nomi_testkit::ratchet::Suite;
 
 #[test]
@@ -21,28 +20,15 @@ fn seed_outcomes(seed: &common::Seed) -> Vec<Outcome> {
     let mut outcomes = Vec::with_capacity(seed.cases.len());
     for (m, verdicts) in &seed.cases {
         let parse = nomi_syntax::parse_module(&m.source);
-        // Releases rarely differ; validate each tool once.
-        let mut seen: Vec<(Tool, bool)> = Vec::new();
-        let mut accepts = |tool: Tool| {
-            if let Some(&(_, accepted)) = seen.iter().find(|(t, _)| *t == tool) {
-                accepted
-            } else {
-                let accepted =
-                    parse.errors().is_empty() && nomi_syntax::validate(&parse, tool).is_empty();
-                seen.push((tool, accepted));
-                accepted
+        let accepts =
+            |tool| parse.errors().is_empty() && nomi_syntax::validate(&parse, tool).is_empty();
+        let mut cells = seed.columns.iter().zip(verdicts);
+        let mismatch = cells.find_map(|((column, tool), verdict)| match verdict {
+            Verdict::Accepted if !accepts(*tool) => Some(format!("{column} accepts, nomi rejects")),
+            Verdict::Rejected(cell) if accepts(*tool) => {
+                Some(format!("{column} rejects ({cell}), nomi accepts"))
             }
-        };
-        let mismatch = (seed.columns.iter().zip(verdicts)).find_map(|((column, tool), verdict)| {
-            match (verdict, accepts(*tool)) {
-                (Verdict::Accepted, false) => Some(format!("{column} accepts, nomi rejects")),
-                (Verdict::Rejected(cell), true) => {
-                    Some(format!("{column} rejects ({cell}), nomi accepts"))
-                }
-                (Verdict::Accepted, true)
-                | (Verdict::Rejected(_), false)
-                | (Verdict::Crashed, _) => None,
-            }
+            Verdict::Accepted | Verdict::Rejected(_) | Verdict::Crashed => None,
         });
         outcomes.push((seed.case_id(m), mismatch.map_or(Ok(()), Err)));
     }

@@ -348,10 +348,6 @@ impl<'a> Parser<'a> {
 
     /// `pInt`, called on a digit.
     fn int(&mut self) -> Parsed<Kind<'a>> {
-        let digits = self.src[self.pos..]
-            .iter()
-            .take_while(|b| b.is_ascii_digit())
-            .count();
         if self.src[self.pos] == b'0' {
             return match self.src.get(self.pos + 1) {
                 Some(b'0'..=b'9') => Err(ParseError::at(
@@ -365,11 +361,15 @@ impl<'a> Parser<'a> {
                 }
             };
         }
-        let n = self.src[self.pos..self.pos + digits]
+        let mut n = 0i64;
+        let mut digits = 0;
+        for d in self.src[self.pos..]
             .iter()
-            .fold(0i64, |n, d| {
-                n.wrapping_mul(10).wrapping_add(i64::from(d - b'0'))
-            });
+            .take_while(|b| b.is_ascii_digit())
+        {
+            n = n.wrapping_mul(10).wrapping_add(i64::from(d - b'0'));
+            digits += 1;
+        }
         if let Some(b'.' | b'e' | b'E') = self.src.get(self.pos + digits) {
             return Err(ParseError::at(
                 self.cur.slide(digits),

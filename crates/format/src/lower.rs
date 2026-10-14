@@ -62,7 +62,11 @@ pub(crate) fn module(root: &SyntaxNode, text: &str) -> Module {
         Some(import) => cx.range(import.syntax()).start(),
         None => fresh_line_end(root, body_start),
     }));
-    let used = qualifiers(root);
+    let used = if imports.is_empty() {
+        BTreeSet::new()
+    } else {
+        qualifiers(root)
+    };
     let mut merged = BTreeMap::new();
     let mut body = Vec::new();
     for (i, import) in imports.iter().enumerate() {
@@ -188,10 +192,8 @@ fn symbol(op: &ast::Op) -> Symbol {
 }
 
 /// Where each comma among the children of `node` starts.
-fn commas(node: &SyntaxNode) -> Vec<TextSize> {
-    child_tokens(node, SyntaxKind::Comma)
-        .map(|t| start(&t))
-        .collect()
+fn commas(node: &SyntaxNode) -> impl Iterator<Item = TextSize> + use<> {
+    child_tokens(node, SyntaxKind::Comma).map(|t| start(&t))
 }
 
 /// `items`, each with the comments before it.
@@ -218,16 +220,26 @@ fn surround<N: AstNode, T>(
     close: &SyntaxToken,
     mut lower: impl FnMut(&mut Cursor, &N) -> T,
 ) -> Vec<C2<T>> {
-    let commas = commas(node);
+    let mut commas = commas(node);
     items
-        .enumerate()
-        .map(|(i, item)| {
-            let before = cx.take(cx.range(item.syntax()).start());
-            let value = lower(cx, &item);
-            let after = cx.take(commas.get(i).copied().unwrap_or_else(|| start(close)));
-            c(Around { before, after }, value)
+        .map(|item| {
+            let end = commas.next().unwrap_or_else(|| start(close));
+            surrounded(cx, &item, end, &mut lower)
         })
         .collect()
+}
+
+/// `item`, with the comments before it and those after it up to `end`.
+fn surrounded<N: AstNode, T>(
+    cx: &mut Cursor,
+    item: &N,
+    end: TextSize,
+    lower: impl FnOnce(&mut Cursor, &N) -> T,
+) -> C2<T> {
+    let before = cx.take(cx.range(item.syntax()).start());
+    let value = lower(cx, item);
+    let after = cx.take(end);
+    c(Around { before, after }, value)
 }
 
 /// The comma-separated `items` of `node`, each with the comments before
@@ -240,14 +252,14 @@ fn sectioned<N: AstNode, T>(
     close: &SyntaxToken,
     mut lower: impl FnMut(&mut Cursor, &N) -> T,
 ) -> (Sequence<T>, Comments) {
-    let commas = commas(node);
+    let mut commas = commas(node);
     let mut leading = Vec::new();
     let mut terms = Vec::new();
-    for (i, item) in items.enumerate() {
+    for item in items {
         let after_separator = cx.take(cx.range(item.syntax()).start());
         let value = lower(cx, &item);
         let eol = cx.eol(cx.range(item.syntax()));
-        let next = commas.get(i).copied().unwrap_or_else(|| start(close));
+        let next = commas.next().unwrap_or_else(|| start(close));
         let before_next = cx.take(next);
         let comments = SeparatorComments {
             before_separator: std::mem::replace(&mut leading, before_next),

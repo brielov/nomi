@@ -298,37 +298,34 @@ pub(super) struct Commented<T> {
 }
 
 /// `surround''`: `inner`s separated by commas between `left` and
-/// `right`, each with whether a comment was around it.
+/// `right`; the item, with whether a comment was around it, when there
+/// is just one.
 pub(super) fn surround_commented<'s, T>(
     p: &mut P<'s>,
     left: char,
     right: char,
     inner: Alt<'_, 's, T>,
-) -> R<Vec<Commented<T>>> {
+) -> R<Option<Commented<T>>> {
     p.char(left)?;
-    let mut items = Vec::new();
     let pre = whitespace(p)?;
     let first = p.option(|p| {
         let value = inner(p)?;
         Ok((value, whitespace(p)?))
     })?;
-    if let Some((value, post)) = first {
-        items.push(Commented {
-            commented: pre | post,
-            value,
-        });
+    let mut only = first.map(|(value, post)| Commented {
+        commented: pre | post,
+        value,
+    });
+    if only.is_some() {
         while p.option(|p| p.char(','))?.is_some() {
-            let pre = whitespace(p)?;
-            let value = inner(p)?;
-            let post = whitespace(p)?;
-            items.push(Commented {
-                commented: pre | post,
-                value,
-            });
+            whitespace(p)?;
+            inner(p)?;
+            whitespace(p)?;
+            only = None;
         }
     }
     p.char(right)?;
-    Ok(items)
+    Ok(only)
 }
 
 /// `accessible`: `e`, then any `.field`s.

@@ -32,14 +32,16 @@ pub fn distance<T: PartialEq>(a: &[T], b: &[T]) -> usize {
 /// unchecked UTF-8 decoding can make values no `char` holds; those have
 /// no case.
 pub fn sort<V>(target: &[u32], values: &mut [V], to_codes: impl Fn(&V) -> Vec<u32>) {
-    let lower = |codes: &[u32]| -> Vec<u32> {
+    let lower = |mut codes: Vec<u32>| {
+        for code in &mut codes {
+            if let Some(c) = char::from_u32(*code) {
+                *code = crate::ghc::to_lower(c).into();
+            }
+        }
         codes
-            .iter()
-            .map(|&code| char::from_u32(code).map_or(code, |c| crate::ghc::to_lower(c).into()))
-            .collect()
     };
-    let target = lower(target);
-    values.sort_by_cached_key(|v| distance(&target, &lower(&to_codes(v))));
+    let target = lower(target.to_vec());
+    values.sort_by_cached_key(|v| distance(&target, &lower(to_codes(v))));
 }
 
 /// `text`'s code points, as [`sort`] compares strings.

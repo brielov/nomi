@@ -50,14 +50,11 @@ fn record(p: &mut P<'_>) -> R<Shape> {
 
 /// `tuple`: in parentheses with no comments, one pattern is itself.
 fn tuple(p: &mut P<'_>) -> R<Shape> {
-    let patterns = surround_commented(p, '(', ')', &mut expr)?;
-    Ok(match patterns[..] {
-        [
-            Commented {
-                commented: false,
-                value: shape,
-            },
-        ] => shape,
+    Ok(match surround_commented(p, '(', ')', &mut expr)? {
+        Some(Commented {
+            commented: false,
+            value: shape,
+        }) => shape,
         _ => Shape::Other,
     })
 }

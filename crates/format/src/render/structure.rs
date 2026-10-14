@@ -36,8 +36,9 @@ fn all_lines(blocks: &[Block]) -> bool {
     blocks.iter().all(Block::is_line)
 }
 
-fn lines(blocks: Vec<Block>) -> Vec<Line> {
-    Block::all_singles(blocks).unwrap_or_else(|_| unreachable!("checked to be single lines"))
+/// The lines of `blocks`, which [`all_lines`] found single.
+fn lines(blocks: impl IntoIterator<Item = Block>) -> impl Iterator<Item = Line> {
+    (blocks.into_iter()).map(|block| block.into_line().expect("checked to be single lines"))
 }
 
 /// Joins `first` and `rest` with spaces when nothing forces a break and
@@ -51,9 +52,7 @@ fn joined_or(
     stack: impl FnOnce(Block, Vec<Block>) -> Block,
 ) -> Block {
     if !force.0 && first.is_line() && all_lines(&rest) {
-        let mut parts = lines(vec![first]);
-        parts.extend(lines(rest));
-        return Block::line(join(parts));
+        return Block::line(join(lines(std::iter::once(first).chain(rest)).collect()));
     }
     stack(first, rest)
 }

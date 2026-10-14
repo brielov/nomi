@@ -13,7 +13,7 @@ use nomi_base::Compat;
 
 use nomi_base::diagnostic::json::escape;
 
-use crate::json::decode::{self, Alternative, Decoded, Problem};
+use crate::json::decode::{self, Decoded, Problem};
 use crate::json::{self, Cursor, ParseError, Position, Value, encode};
 use crate::{Constraint, ConstraintError, License, ModuleName, Name, Version, scan};
 
@@ -448,23 +448,23 @@ fn deps<'a, T>(
     )
 }
 
-/// `exposedDecoder`: a list of modules, or else an object of sections.
+/// `exposedDecoder`: a list of modules, or else an object of sections;
+/// failing both, both problems, as `oneOf` gives them.
 fn exposed(value: &Value<'_>, compat: Compat) -> Decoded<Exposed, OutlineProblem> {
     let module =
         |e: &Value<'_>| custom(e, compat, ModuleName::parse, OutlineProblem::BadModuleName);
     let modules = |v: &Value<'_>| decode::list(v, module);
-    let mut list = |v: &Value<'_>| modules(v).map(Exposed::List);
-    let mut dict = |v: &Value<'_>| {
-        decode::pairs(
-            v,
-            |bytes, _| bounded(bytes, 20, OutlineProblem::BadModuleHeaderTooLong),
-            modules,
-        )
-        .map(Exposed::Dict)
+    let not_list = match modules(value) {
+        Ok(list) => return Ok(Exposed::List(list)),
+        Err(problem) => problem,
     };
-    let alternatives: &mut [&mut Alternative<'_, '_, Exposed, OutlineProblem>] =
-        &mut [&mut list, &mut dict];
-    decode::one_of(value, alternatives)
+    decode::pairs(
+        value,
+        |bytes, _| bounded(bytes, 20, OutlineProblem::BadModuleHeaderTooLong),
+        modules,
+    )
+    .map(Exposed::Dict)
+    .map_err(|not_dict| Problem::OneOf(Box::new(not_list), vec![not_dict]))
 }
 
 /// `boundParser`: the raw bytes if there are fewer than `bound` of them.

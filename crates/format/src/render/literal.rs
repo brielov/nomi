@@ -4,6 +4,8 @@
 //! Numbers print as GHC's `printf` prints them, and strings escape what
 //! GHC's `isPrint` and `isSpace` reject.
 
+use std::fmt;
+
 use nomi_base::ghc::{is_print, is_space};
 use num_bigint::BigUint;
 
@@ -172,7 +174,8 @@ fn digit_string(digits: &[u8]) -> String {
 
 /// Upstream's `printf "%f"`, which is GHC's `showFFloat Nothing`.
 fn fixed(f: f64) -> String {
-    signed(f, &format!("1{}.0", "0".repeat(309)), |f| {
+    // `1` and 309 zeros, which `0` fills the empty string out to.
+    signed(f, format_args!("1{:0<309}.0", ""), |f| {
         let (digits, e) = digits(f);
         let digits = digit_string(&digits);
         if e <= 0 {
@@ -194,7 +197,7 @@ fn fixed(f: f64) -> String {
 
 /// Upstream's `printf "%e"`, which is GHC's `showEFloat Nothing`.
 fn exponent(f: f64) -> String {
-    signed(f, "1.0e309", |f| {
+    signed(f, format_args!("1.0e309"), |f| {
         let (digits, e) = digits(f);
         let e = e - 1;
         match &digits[..] {
@@ -211,7 +214,7 @@ fn exponent(f: f64) -> String {
 /// literal too large for a double, `Infinity`, a name Elm doesn't
 /// define; nomi spells it `infinite`, the least power of ten that reads
 /// back as infinite (`DECISIONS.md`).
-fn signed(f: f64, infinite: &str, magnitude: impl FnOnce(f64) -> String) -> String {
+fn signed(f: f64, infinite: fmt::Arguments<'_>, magnitude: impl FnOnce(f64) -> String) -> String {
     if f.is_nan() {
         return "NaN".to_owned();
     }

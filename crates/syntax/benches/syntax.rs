@@ -49,6 +49,18 @@ const SHAPES: &[Shape] = &[
         run: parse,
     },
     Shape {
+        name: "tuple constructor",
+        input: |n| format!("x =\n    ({})\n", ",".repeat(n)),
+        size: 50_000,
+        run: parse,
+    },
+    Shape {
+        name: "outdented import list",
+        input: |n| format!("import A\n( a{})\n", "\n, a".repeat(n)),
+        size: 20_000,
+        run: parse,
+    },
+    Shape {
         name: "shader",
         input: |n| {
             let body = "\n  x = vec4(a.xy, 1.0) * m[2] + f(b, c);".repeat(n);

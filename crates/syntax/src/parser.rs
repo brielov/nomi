@@ -291,6 +291,29 @@ enum Event {
     Tombstone,
 }
 
+/// A walk forwards over the significant tokens ahead, for a rule that
+/// looks past any number of them: [`Parser::nth`] counts from the current
+/// token each time.
+pub(crate) struct Scan<'p, 't> {
+    parser: &'p mut Parser<'t>,
+    /// Where the walk's token is in the lookahead, or its end.
+    from: usize,
+}
+
+impl Scan<'_, '_> {
+    /// The `n`th significant token from the walk's, or [`SyntaxKind::Eof`].
+    pub(crate) fn nth(&mut self, n: usize) -> SyntaxKind {
+        let ahead = self.parser.nth_ahead_from(self.from, n);
+        ahead.map_or(SyntaxKind::Eof, |(_, a)| a.token.kind)
+    }
+
+    /// Moves the walk `n` significant tokens on.
+    pub(crate) fn skip(&mut self, n: usize) {
+        let ahead = self.parser.nth_ahead_from(self.from, n);
+        self.from = ahead.map_or(self.parser.ahead.len(), |(i, _)| i);
+    }
+}
+
 /// A token lexed but not yet consumed.
 #[derive(Clone, Copy, Debug)]
 struct Ahead {
@@ -437,8 +460,14 @@ impl<'t> Parser<'t> {
 
     /// The `n`th significant token ahead, and its index in the lookahead.
     fn nth_ahead(&mut self, n: usize) -> Option<(usize, Ahead)> {
+        self.nth_ahead_from(0, n)
+    }
+
+    /// [`Parser::nth_ahead`], counting from the token at index `from` in
+    /// the lookahead.
+    fn nth_ahead_from(&mut self, from: usize, n: usize) -> Option<(usize, Ahead)> {
         let mut seen = 0;
-        for i in 0.. {
+        for i in from.. {
             let a = self.ahead_at(i)?;
             if a.token.kind.is_trivia() {
                 continue;
@@ -458,6 +487,16 @@ impl<'t> Parser<'t> {
     /// The `n`th significant token ahead, or [`SyntaxKind::Eof`].
     pub(crate) fn nth(&mut self, n: usize) -> SyntaxKind {
         self.nth_token(n).map_or(SyntaxKind::Eof, |a| a.token.kind)
+    }
+
+    /// A walk over the significant tokens ahead, from the `n`th.
+    pub(crate) fn scan(&mut self, n: usize) -> Scan<'_, 't> {
+        let mut scan = Scan {
+            parser: self,
+            from: 0,
+        };
+        scan.skip(n);
+        scan
     }
 
     /// The `n`th significant token's text, if there is one.

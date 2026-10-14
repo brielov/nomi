@@ -130,7 +130,7 @@ These rules are the architecture. Breaking one requires an entry in `DECISIONS.m
 
 | Crate | Owns | Must not |
 |---|---|---|
-| `base` | `FileId`; interned names; text ranges; `LineIndex` (byte ↔ Elm column ↔ UTF-16); GHC's character classes and case mapping; upstream's suggestion ranking; the diagnostic model | depend on other nomi crates |
+| `base` | `FileId`; interned names; text ranges; `LineIndex` (byte ↔ Elm column ↔ UTF-16); GHC's character classes and case mapping; upstream's suggestion ranking; upstream's reports and their rendering | depend on other nomi crates |
 | `syntax` | lexer, parser, rowan CST, generated typed views | know about formatting or semantics |
 | `format` | formatter tree, comment attachment, Box renderer | do I/O or spawn threads |
 | `compiler` | HIR, canonicalize, types, nitpick, optimize, interfaces | know about platforms, paths or I/O |
@@ -138,7 +138,7 @@ These rules are the architecture. Breaking one requires an entry in `DECISIONS.m
 | `project` | elm's JSON, elm.json, nomi.toml, workspace graph (pure) | touch the network |
 | `registry` | registry protocol, solver and its explanations, package store | — |
 | `engine` | VFS, build graph, scheduling, caches, cancellation, the only thread pool | contain compiler logic |
-| `ide` | hover, completion, navigation, rename and code actions over engine snapshots | use LSP types |
+| `ide` | problems, hover, completion, navigation, rename and code actions over engine snapshots | use LSP types |
 | `lsp` | protocol, position encoding, request queue, debouncing | contain analysis |
 | `test` | discovery, runner generation, execution, reporters | — |
 | `cli` | `nomi`, plus `elm` and `elm-format` behavior when invoked under those names | contain logic beyond argument mapping |
@@ -149,11 +149,10 @@ Next to the crates:
 - `runtime/` holds the JS kernels and the fiber runtime for each platform.
 - `packages/` holds the `nomi/*` Elm packages, which are bundled with the toolchain.
 
-**Diagnostics.** There is one structured model: a stable code, upstream's title, primary and secondary spans, a message document (text, code, hints) and optional fixes. Phases never format strings. The model has three renderers:
+**Diagnostics.** There are two models, one for each shape upstream gives a problem (`DECISIONS.md`, 2026-10-14):
 
-- the terminal, in upstream style;
-- `--report=json`, in upstream's shape;
-- LSP, where fixes become code actions.
+- upstream's reports, base's `Report` and `Problem`: a title, the region as the release keeps it, and a message document (text, code, hints) that phases build rather than format strings. base renders them to the terminal, in upstream's style, and to `--report=json`, in upstream's shape.
+- the editor's problems, ide's: a byte range in a file, a severity, the message as elm-language-server writes it, its source and code, and the edits that fix it. lsp maps them to the protocol, and code actions key on their codes.
 
 ## 5. Syntax and formatting
 

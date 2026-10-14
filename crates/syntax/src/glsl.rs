@@ -485,7 +485,7 @@ impl<'t> Glsl<'t> {
         let name = &self.text[start..self.pos];
         let problem = if RESERVED_WORDS.contains(&name) {
             "is reserved"
-        } else if KEYWORDS.contains(&name) {
+        } else if KEYWORDS.contains(&name) || TYPES.contains(&name) {
             "is a keyword"
         } else if name.contains("__") {
             "is reserved (two consecutive underscores)"
@@ -493,7 +493,10 @@ impl<'t> Glsl<'t> {
             self.blanks();
             return Ok(());
         };
-        let message = Text::Owned(format!("{name} {problem}"));
+        let message = match self.detail {
+            Detail::Offset => Text::Str(""),
+            Detail::Messages => Text::Owned(format!("{name} {problem}")),
+        };
         Err(self.fail_at(self.pos, Kind::Message, message))
     }
 

@@ -105,16 +105,16 @@ impl Index {
         path: &Path,
         compat: Compat,
     ) -> Result<(Index, Option<RegistryProblem>), LatestError> {
-        let Some(saved) = Index::read(path, compat).map_err(LatestError::Io)? else {
+        let Some(mut saved) = Index::read(path, compat).map_err(LatestError::Io)? else {
             let index = Index::fetch(http, compat).map_err(LatestError::Registry)?;
             index.write(path).map_err(LatestError::Io)?;
             return Ok((index, None));
         };
         match saved.update(http, compat) {
-            Ok(None) => Ok((saved, None)),
-            Ok(Some(index)) => {
-                index.write(path).map_err(LatestError::Io)?;
-                Ok((index, None))
+            Ok(0) => Ok((saved, None)),
+            Ok(_) => {
+                saved.write(path).map_err(LatestError::Io)?;
+                Ok((saved, None))
             }
             Err(problem) => Ok((saved, Some(problem))),
         }
@@ -132,13 +132,10 @@ impl Index {
         }
     }
 
-    /// `update`: the index with the releases published since it was
-    /// fetched, or `None` when there are none.
-    pub fn update(
-        &self,
-        http: &impl Http,
-        compat: Compat,
-    ) -> Result<Option<Index>, RegistryProblem> {
+    /// `update`: adds the releases published since the index was fetched,
+    /// and says how many there were. When that fails, the index is as it
+    /// was.
+    pub fn update(&mut self, http: &impl Http, compat: Compat) -> Result<usize, RegistryProblem> {
         let url = format!("{DOMAIN}/all-packages/since/{}", self.count);
         let body = http
             .post(&url)
@@ -146,13 +143,12 @@ impl Index {
         let Some(news) = since(&body, compat) else {
             return Err(RegistryProblem::Data(url, body));
         };
-        if news.is_empty() {
-            return Ok(None);
+        let added = news.len();
+        if added > 0 {
+            self.add(news);
+            self.responses.push(body);
         }
-        let mut index = self.clone();
-        index.add(news);
-        index.responses.push(body);
-        Ok(Some(index))
+        Ok(added)
     }
 
     /// The index saved at `path`, as `compat` reads it, or `None` when

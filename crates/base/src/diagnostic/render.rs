@@ -128,7 +128,7 @@ impl<'d> Renderer<'d> {
                     continue;
                 }
                 Cmd::Restore(style) => {
-                    self.restyle(style, &restore_codes(style));
+                    self.restyle(style, restore_codes(style));
                     continue;
                 }
             };
@@ -191,7 +191,7 @@ impl<'d> Renderer<'d> {
             self.stack.push(Cmd::Restore(self.style));
             let mut style = self.style;
             let code = set(&mut style);
-            self.restyle(style, &[code]);
+            self.restyle(style, [code]);
         }
         self.stack.push(Cmd::doc(indent, mode, doc));
     }
@@ -202,12 +202,12 @@ impl<'d> Renderer<'d> {
     }
 
     /// An `SGR` to `style` by `codes`: `setSGRCode`, or the end of a chunk.
-    fn restyle(&mut self, style: Style, codes: &[u8]) {
+    fn restyle(&mut self, style: Style, codes: impl IntoIterator<Item = u8>) {
         match self.output {
             Output::Plain => {}
             Output::Ansi => {
                 self.out.push_str("\x1b[");
-                for (i, code) in codes.iter().enumerate() {
+                for (i, code) in codes.into_iter().enumerate() {
                     let sep = if i == 0 { "" } else { ";" };
                     // Writing to a `String` can't fail.
                     let _ = write!(self.out, "{sep}{code}");
@@ -325,13 +325,10 @@ fn color_code(color: Color) -> u8 {
 /// `RestoreFormat`: a reset, then the color and underlining in effect,
 /// in that order. Upstream restores the intensity between the two, but
 /// no report sets it.
-fn restore_codes(style: Style) -> Vec<u8> {
-    let mut codes = vec![0];
-    codes.extend(style.color.map(color_code));
-    if style.underline {
-        codes.push(4);
-    }
-    codes
+fn restore_codes(style: Style) -> impl Iterator<Item = u8> {
+    std::iter::once(0)
+        .chain(style.color.map(color_code))
+        .chain(style.underline.then_some(4))
 }
 
 #[cfg(test)]
