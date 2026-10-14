@@ -131,10 +131,16 @@ impl Server {
                 vfs.disk_changed();
             });
         }
-        // Its standard error, if any, is written last.
+        // Its standard error, if any, is written last; but a run left
+        // unanswered ends with what a missing answer says, which isn't the
+        // question's.
+        let printed = match answer {
+            Answer::Unanswered if console.asked => console.out,
+            Answer::Unanswered | Answer::Yes => console.out + &console.err,
+        };
         Installed {
             asked: console.asked,
-            printed: console.out + &console.err,
+            printed,
         }
     }
 

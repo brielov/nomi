@@ -38,6 +38,8 @@ struct Client {
     next_id: i32,
     /// The questions the server asked, not yet answered.
     questions: Vec<Request>,
+    /// The messages the server showed.
+    shown: Vec<String>,
 }
 
 impl Client {
@@ -56,6 +58,7 @@ impl Client {
             child,
             connection,
             next_id: 0,
+            shown: Vec::new(),
             questions: Vec::new(),
         };
         client.request(
@@ -86,6 +89,10 @@ impl Client {
                     return response.result.unwrap_or(Value::Null);
                 }
                 Message::Request(question) => self.questions.push(question),
+                Message::Notification(note) if note.method == "window/showMessage" => {
+                    let message = note.params["message"].as_str().unwrap_or_default();
+                    self.shown.push(message.to_owned());
+                }
                 _ => {}
             }
         }
@@ -191,4 +198,28 @@ fn a_request_after_an_install_sees_the_package() {
     let shown = found["contents"]["value"].as_str().unwrap_or_default();
     assert!(shown.contains("text : String -> Html.Html msg"), "{found}");
     client.shutdown();
+}
+
+/// The question shows the install's prompt alone, and what the editor
+/// shows once it is answered, the answered run's words alone.
+#[test]
+fn an_install_shows_its_question_and_then_its_outcome() {
+    let cache = cache();
+    let work = tempfile::tempdir().unwrap();
+    let main = project(&nomi_engine::canonical(work.path()).unwrap());
+    let mut client = Client::start(cache.path());
+    client.install_html(&main);
+    let question = client.questions.pop().unwrap();
+    let asked = question.params["message"].as_str().unwrap();
+    assert!(
+        asked.ends_with("Would you like me to update your elm.json accordingly?"),
+        "{asked}"
+    );
+    client.answer(&question, "Yes");
+    // Its answer is read before the next request is.
+    client.request("shutdown", Value::Null);
+    let shown = std::mem::take(&mut client.shown);
+    client.notify("exit", Value::Null);
+    reap(client.child);
+    assert_eq!(shown, ["Success!"]);
 }
