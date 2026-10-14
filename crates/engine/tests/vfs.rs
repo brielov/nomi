@@ -4,7 +4,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use nomi_engine::Vfs;
+use nomi_engine::{Vfs, discover};
 
 const MODULE: &str = "module A exposing (x)\n\n\nx =\n    1\n";
 
@@ -47,7 +47,7 @@ fn discovery_finds_elm_files_in_name_order() {
     ] {
         touch(root, path);
     }
-    let files = Vfs::new().discover(root).unwrap();
+    let files = discover(root).unwrap();
     assert_eq!(
         relative(root, &files),
         [
@@ -66,21 +66,21 @@ fn a_file_is_itself_whatever_its_extension() {
     let dir = tempfile::tempdir().unwrap();
     touch(dir.path(), "notes.txt");
     let file = dir.path().join("notes.txt");
-    assert_eq!(Vfs::new().discover(&file).unwrap(), [file]);
+    assert_eq!(discover(&file).unwrap(), [file]);
 }
 
 #[test]
 fn a_skipped_root_holds_nothing() {
     let dir = tempfile::tempdir().unwrap();
     touch(dir.path(), "elm-stuff/A.elm");
-    let files = Vfs::new().discover(&dir.path().join("elm-stuff")).unwrap();
+    let files = discover(&dir.path().join("elm-stuff")).unwrap();
     assert!(files.is_empty());
 }
 
 #[test]
 fn a_missing_root_is_an_error() {
     let dir = tempfile::tempdir().unwrap();
-    let error = Vfs::new().discover(&dir.path().join("gone")).unwrap_err();
+    let error = discover(&dir.path().join("gone")).unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::NotFound);
 }
 
@@ -91,7 +91,7 @@ fn discovery_follows_symbolic_links() {
     let root = dir.path();
     touch(root, "a/F.elm");
     std::os::unix::fs::symlink(root.join("a"), root.join("z")).unwrap();
-    let files = Vfs::new().discover(root).unwrap();
+    let files = discover(root).unwrap();
     assert_eq!(relative(root, &files), ["a/F.elm", "z/F.elm"]);
 }
 

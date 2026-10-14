@@ -13,7 +13,7 @@ use nomi_compiler::hir::Expr;
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{Tool, parse_module, validate};
 
-use crate::{Pool, Vfs};
+use crate::{Pool, Vfs, discover};
 
 /// What a run does with a module that isn't formatted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -120,14 +120,14 @@ pub fn decode(bytes: Vec<u8>) -> Result<String, ElmPosition> {
     })
 }
 
-/// Formats every module the `roots` name, as [`Vfs::discover`] finds them;
+/// Formats every module the `roots` name, as [`discover`] finds them;
 /// a module named twice is formatted once.
 pub fn format_paths(vfs: &Vfs, roots: &[PathBuf], mode: Mode) -> Report {
     let mut report = Report::default();
     let mut seen = HashSet::new();
     let mut files = Vec::new();
     for root in roots {
-        match vfs.discover(root) {
+        match discover(root) {
             Ok(found) if found.is_empty() => report.roots.push((root.clone(), RootError::Empty)),
             Ok(found) => files.extend(found.into_iter().filter(|file| {
                 seen.insert(fs::canonicalize(file).unwrap_or_else(|_| file.clone()))

@@ -9,31 +9,31 @@
 //! first in key order wins: modules by name in the release's order,
 //! packages by author then project.
 
-use crate::timings::{Phase, time};
-use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use nomi_base::Compat;
-use nomi_base::diagnostic::code::Source;
 use nomi_codegen_js::debug::{ModuleTypes, Types};
 use nomi_codegen_js::kernel;
 use nomi_compiler::canonical::Home;
 use nomi_compiler::canonicalize::module::{canonicalize, interface};
 use nomi_compiler::hir;
-use nomi_compiler::interface::Interface;
-use nomi_compiler::optimize;
+use nomi_compiler::interface::{Interface, Interfaces};
 use nomi_compiler::optimized::binary;
 use nomi_compiler::optimized::{Chunk, GlobalGraph, LocalGraph};
+use nomi_project::Name;
 use nomi_project::outline::PkgOutline;
-use nomi_project::{Name, Outline};
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::parse_module;
 
 use crate::artifacts::{Artifacts, Hash, Key};
-use crate::names::trim;
+use crate::graph::module_path;
+use crate::names::{infer, optimize};
+use crate::project::package_outline;
+use crate::schedule;
+use crate::timings::{self, Phase, time};
 
 /// What a package's build makes of one of its modules (`Details.Result`).
 enum Built {
@@ -79,28 +79,23 @@ impl Dependencies {
     /// [`Dependencies::graph`] and [`Dependencies::types`], taking each
     /// build rather than copying it where nothing else holds it.
     pub fn into_graph_and_types(self) -> (GlobalGraph, Types) {
-        let mut ordered: Vec<(Name, Arc<PackageBuild>)> = self.packages.into_iter().collect();
-        ordered.sort_by(|(a, _), (b, _)| packages_order(a, b));
         let mut merged = GlobalGraph::default();
         let mut types = Types::new();
-        for (_, build) in ordered.into_iter().rev() {
-            let build = Arc::try_unwrap(build).unwrap_or_else(|shared| (*shared).clone());
-            merged.nodes.extend(build.graph.nodes);
-            merged.fields.extend(build.graph.fields);
+        for build in self.packages.into_values().rev() {
+            let build = Arc::unwrap_or_clone(build);
+            merged.add(build.graph);
             types.extend(build.types);
         }
         (merged, types)
     }
 
     /// The packages' graphs merged, the whole of what `o.dat` holds:
-    /// `Map.foldr addObjects`, so the first package by name wins.
+    /// `Map.foldr addObjects` over names in `Ord Pkg.Name`'s order, which
+    /// is [`Name`]'s, so the first package by name, merged last, wins.
     pub fn graph(&self) -> GlobalGraph {
-        let mut ordered: Vec<(&Name, &Arc<PackageBuild>)> = self.packages.iter().collect();
-        ordered.sort_by(|(a, _), (b, _)| packages_order(a, b));
         let mut merged = GlobalGraph::default();
-        for (_, build) in ordered.into_iter().rev() {
-            merged.nodes.extend(build.graph.nodes.clone());
-            merged.fields.extend(build.graph.fields.clone());
+        for build in self.packages.values().rev() {
+            merged.add(build.graph.clone());
         }
         merged
     }
@@ -139,28 +134,16 @@ pub fn build_each(
 ) -> Result<Dependencies, String> {
     let mut outlines = BTreeMap::new();
     for (name, dir) in packages {
-        let bytes = fs::read(dir.join("elm.json")).map_err(|e| format!("{name}: {e}"))?;
-        match Outline::decode(&bytes, compat) {
-            Ok(Outline::Pkg(pkg)) => {
-                outlines.insert(name.clone(), (pkg, dir.clone()));
-            }
-            _ => return Err(format!("{name}'s elm.json isn't a package's")),
-        }
+        let pkg = package_outline(dir, compat)
+            .map_err(|e| format!("{name}: {e}"))?
+            .ok_or_else(|| format!("{name}'s elm.json isn't a package's"))?;
+        outlines.insert(name.clone(), (pkg, dir.clone()));
     }
     // Each package waits on its dependencies among `packages`, and builds
     // as soon as they have, on whichever thread is free.
     let names: Vec<&Name> = outlines.keys().collect();
-    let index: HashMap<&Name, usize> = names.iter().enumerate().map(|(i, n)| (*n, i)).collect();
-    let imports: Vec<Vec<usize>> = (names.iter())
-        .map(|name| {
-            (outlines[*name].0.deps.keys())
-                .filter_map(|dep| index.get(dep).copied())
-                .collect()
-        })
-        .collect();
-    if !crate::names::cyclic(&imports).is_empty() {
-        return Err("the packages depend on each other in a cycle".to_owned());
-    }
+    let imports = schedule::dag(&names, |name| outlines[name].0.deps.keys())
+        .ok_or("the packages depend on each other in a cycle")?;
     let memo_now: &Memo = memo;
     let job = |i: usize,
                deps: &[&(Hash, Arc<PackageBuild>)]|
@@ -172,7 +155,7 @@ pub fn build_each(
             .part("name", name.to_string().as_bytes())
             .part("version", pkg.version.to_string().as_bytes());
         let mut dependencies: BTreeMap<Name, Arc<PackageBuild>> = BTreeMap::new();
-        for (&d, (dep_key, dep_build)) in imports[i].iter().zip(deps.iter().map(|d| (&d.0, &d.1))) {
+        for (&d, (dep_key, dep_build)) in imports[i].iter().zip(deps.iter().copied()) {
             key = key.part("dependency", names[d].to_string().as_bytes());
             key = key.hash("build", *dep_key);
             dependencies.insert(names[d].clone(), dep_build.clone());
@@ -202,23 +185,13 @@ pub fn build_each(
         done(name, &build);
         Ok((key, build))
     };
-    let snapshot = crate::Vfs::new().snapshot();
-    let outcomes =
-        crate::schedule::run(&snapshot, &imports, job).expect("a snapshot nothing edits");
     let mut built: BTreeMap<Name, Arc<PackageBuild>> = BTreeMap::new();
-    for (name, outcome) in names.iter().zip(outcomes) {
-        match outcome {
-            crate::schedule::Outcome::Done((key, build)) => {
-                memo.insert(key, build.clone());
-                built.insert((*name).clone(), build);
-            }
-            crate::schedule::Outcome::Failed(why) => return Err(why),
-            // Only after a dependency failed, which comes first.
-            crate::schedule::Outcome::Blocked => {}
+    for (name, made) in names.iter().zip(schedule::run_all(&imports, job)?) {
+        if let Some((key, build)) = made {
+            memo.insert(key, build.clone());
+            built.insert((*name).clone(), build);
         }
     }
-    // Only the packages asked for, though the memo may hold more.
-    built.retain(|name, _| outlines.contains_key(name));
     Ok(Dependencies { packages: built })
 }
 
@@ -242,15 +215,17 @@ fn build_package(
         }
     }
     let exposed: Vec<String> = pkg.exposed.modules().map(|m| m.to_string()).collect();
-    let kernels = name.author() == "elm" || name.author() == "elm-explorations";
     let package = Package {
         compat,
         name: name.to_string(),
         src: dir.join("src"),
-        kernels,
+        kernels: name.is_kernel(),
         foreigns: &foreigns,
     };
-    let (interfaces, modules) = package.build(&exposed, visible)?;
+    let PackageModules {
+        interfaces,
+        built: modules,
+    } = package.build(&exposed, visible)?;
     let types: Types = (interfaces.iter())
         .filter(|(m, _)| matches!(modules.get(*m), Some(Built::Local(_))))
         .map(|(m, interface)| {
@@ -337,12 +312,6 @@ fn decode_build(bytes: &[u8], compat: Compat) -> Option<PackageBuild> {
     })
 }
 
-/// `Ord Pkg.Name`: author, then project, each by bytes.
-fn packages_order(a: &Name, b: &Name) -> Ordering {
-    (a.author().as_bytes(), a.project().as_bytes())
-        .cmp(&(b.author().as_bytes(), b.project().as_bytes()))
-}
-
 /// One package's build.
 struct Package<'a> {
     compat: Compat,
@@ -362,6 +331,13 @@ struct Read {
     module: hir::Module,
 }
 
+impl Read {
+    /// The modules it imports.
+    fn imports(&self) -> impl Iterator<Item = &str> {
+        self.module.imports.iter().map(|i| i.name.text.as_str())
+    }
+}
+
 /// What a crawl found under a name: a module to compile, a kernel, or
 /// nothing, a module the package doesn't have being a foreign one.
 enum Found {
@@ -371,17 +347,35 @@ enum Found {
     Foreign,
 }
 
+/// What a package's crawl found: the modules to compile, and its kernels
+/// built.
+struct Crawled {
+    modules: BTreeMap<String, Read>,
+    built: BTreeMap<String, Built>,
+}
+
 /// What one module's compile made.
-type Compiled = (Interface, LocalGraph);
+struct Compiled {
+    interface: Interface,
+    graph: LocalGraph,
+}
+
+/// What a package's modules made: every module's interface, its
+/// dependencies' exposed ones too, and what each module became.
+struct PackageModules {
+    interfaces: HashMap<String, Interface>,
+    built: BTreeMap<String, Built>,
+}
 
 /// The interfaces a package module reads: its package imports' over its
-/// dependencies'.
+/// dependencies'. Not `names::Layered`, whose local interfaces decode
+/// only when read.
 struct Layered<'a> {
     local: HashMap<&'a str, &'a Interface>,
     visible: &'a HashMap<String, Interface>,
 }
 
-impl nomi_compiler::interface::Interfaces for Layered<'_> {
+impl Interfaces for Layered<'_> {
     fn get(&self, module: &str) -> Option<&Interface> {
         match self.local.get(module) {
             Some(interface) => Some(interface),
@@ -393,19 +387,44 @@ impl nomi_compiler::interface::Interfaces for Layered<'_> {
 impl Package<'_> {
     /// `crawlModule` from `exposed`, then `compile` of each module the
     /// crawl reached: every module's interface, and what each became. The
-    /// crawl reads each wave of modules on the pool, and the modules
-    /// compile on it along their imports.
-    #[expect(
-        clippy::type_complexity,
-        reason = "the interfaces and the built modules, which the one caller takes apart at once"
-    )]
+    /// modules compile on the pool along their imports.
     fn build(
         &self,
         exposed: &[String],
         mut interfaces: HashMap<String, Interface>,
-    ) -> Result<(HashMap<String, Interface>, BTreeMap<String, Built>), String> {
-        let mut modules: BTreeMap<String, Read> = BTreeMap::new();
-        let mut built: BTreeMap<String, Built> = BTreeMap::new();
+    ) -> Result<PackageModules, String> {
+        let Crawled { modules, mut built } = self.crawl(exposed)?;
+        let names: Vec<&str> = modules.keys().map(String::as_str).collect();
+        let imports = schedule::dag(&names, |name| modules[name].imports())
+            .ok_or_else(|| format!("{}: its modules import each other in a cycle", self.name))?;
+        let visible = &interfaces;
+        let job = |i: usize, deps: &[&Compiled]| -> Result<Compiled, String> {
+            let name = names[i];
+            let local = (imports[i].iter().zip(deps))
+                .map(|(&d, compiled)| (names[d], &compiled.interface))
+                .collect();
+            let layered = Layered { local, visible };
+            timings::module(format_args!("{} {name}", self.name), || {
+                self.compile(name, &modules[name], &layered)
+            })
+        };
+        let compiled = schedule::run_all(&imports, job)?;
+        for (name, compiled) in names.iter().zip(compiled) {
+            if let Some(Compiled { interface, graph }) = compiled {
+                interfaces.insert((*name).to_owned(), interface);
+                built.insert((*name).to_owned(), Built::Local(graph));
+            }
+        }
+        Ok(PackageModules { interfaces, built })
+    }
+
+    /// `crawlModule` from `exposed`, each wave of modules read on the
+    /// pool.
+    fn crawl(&self, exposed: &[String]) -> Result<Crawled, String> {
+        let mut crawled = Crawled {
+            modules: BTreeMap::new(),
+            built: BTreeMap::new(),
+        };
         let mut seen: HashSet<String> = HashSet::new();
         let mut wave: Vec<String> = (exposed.iter())
             .filter(|name| seen.insert((*name).clone()))
@@ -418,74 +437,22 @@ impl Package<'_> {
             });
             let mut next = Vec::new();
             for (name, found) in found {
-                let (imports, found): (Vec<String>, Found) = match found? {
+                match found? {
                     Found::Module(read) => {
-                        let imports = (read.module.imports.iter())
-                            .map(|i| i.name.text.clone())
-                            .collect();
-                        (imports, Found::Module(read))
+                        let new = read.imports().filter(|i| seen.insert((*i).to_owned()));
+                        next.extend(new.map(str::to_owned));
+                        crawled.modules.insert(name, *read);
                     }
-                    Found::Kernel(chunks, imports) => (imports, Found::Kernel(chunks, Vec::new())),
-                    Found::Foreign => (Vec::new(), Found::Foreign),
-                };
-                match found {
-                    Found::Module(read) => {
-                        modules.insert(name, *read);
-                    }
-                    Found::Kernel(chunks, _) => {
-                        built.insert(name, Built::Kernel(chunks));
+                    Found::Kernel(chunks, imports) => {
+                        next.extend(imports.into_iter().filter(|i| seen.insert(i.clone())));
+                        crawled.built.insert(name, Built::Kernel(chunks));
                     }
                     Found::Foreign => {}
                 }
-                next.extend(imports.into_iter().filter(|i| seen.insert(i.clone())));
             }
             wave = next;
         }
-        let names: Vec<&String> = modules.keys().collect();
-        let index: HashMap<&str, usize> = (names.iter().enumerate())
-            .map(|(i, name)| (name.as_str(), i))
-            .collect();
-        let imports: Vec<Vec<usize>> = (names.iter())
-            .map(|name| {
-                (modules[*name].module.imports.iter())
-                    .filter_map(|i| index.get(i.name.text.as_str()).copied())
-                    .collect()
-            })
-            .collect();
-        if !crate::names::cyclic(&imports).is_empty() {
-            return Err(format!(
-                "{}: its modules import each other in a cycle",
-                self.name
-            ));
-        }
-        let visible = &interfaces;
-        let job = |i: usize, deps: &[&Compiled]| -> Result<Compiled, String> {
-            let name = names[i];
-            let local = (imports[i].iter().zip(deps))
-                .map(|(&d, (interface, _))| (names[d].as_str(), interface))
-                .collect();
-            let layered = Layered { local, visible };
-            crate::timings::module(&format!("{} {name}", self.name), || {
-                self.compile(name, &modules[name], &layered)
-            })
-        };
-        let snapshot = crate::Vfs::new().snapshot();
-        let outcomes =
-            crate::schedule::run(&snapshot, &imports, job).expect("a snapshot nothing edits");
-        let mut compiled = Vec::new();
-        for (name, outcome) in names.iter().zip(outcomes) {
-            match outcome {
-                crate::schedule::Outcome::Done(made) => compiled.push(((*name).clone(), made)),
-                crate::schedule::Outcome::Failed(why) => return Err(why),
-                // Only after an import failed, which comes first.
-                crate::schedule::Outcome::Blocked => {}
-            }
-        }
-        for (name, (interface, graph)) in compiled {
-            interfaces.insert(name.clone(), interface);
-            built.insert(name, Built::Local(graph));
-        }
-        Ok((interfaces, built))
+        Ok(crawled)
     }
 
     /// What the crawl finds under `name`.
@@ -504,9 +471,8 @@ impl Package<'_> {
             let imports = content.imports.iter().map(|i| i.module.clone()).collect();
             return Ok(Found::Kernel(content.chunks, imports));
         }
-        let file = self.src.join(format!("{}.elm", name.replace('.', "/")));
         // A module the package doesn't have is a foreign one.
-        let Ok(text) = fs::read_to_string(&file) else {
+        let Ok(text) = fs::read_to_string(self.src.join(module_path(name, "elm"))) else {
             return Ok(Found::Foreign);
         };
         let parse = time(Phase::Parse, || parse_module(&text));
@@ -533,21 +499,17 @@ impl Package<'_> {
             canonicalize(self.compat, package, interfaces, &read.module)
         })
         .map_err(|errors| format!("{package} {name}: {errors:?}"))?;
-        let annotations = time(Phase::Types, || {
-            let (inferred, leftovers) =
-                nomi_compiler::types::infer_leaving(self.compat, &canonical);
-            crate::trash::defer(leftovers);
-            inferred
-        })
-        .map_err(|errors| format!("{package} {name}: type errors {errors:?}"))?;
-        let root = read.parse.syntax();
-        let source = Source::new(&read.text);
-        let region = |range| source.region(trim(&root, range), self.compat);
-        let graph = time(Phase::Optimize, || {
-            optimize::module(self.compat, &annotations, &canonical, &region)
-        });
-        let made = time(Phase::Interface, || interface(&canonical, &annotations));
-        Ok((made, graph))
+        let annotations = infer(self.compat, &canonical)
+            .map_err(|errors| format!("{package} {name}: type errors {errors:?}"))?;
+        let graph = optimize(
+            self.compat,
+            &annotations,
+            &canonical,
+            &read.text,
+            &read.parse.syntax(),
+        );
+        let interface = time(Phase::Interface, || interface(&canonical, &annotations));
+        Ok(Compiled { interface, graph })
     }
 
     /// `gatherObjects`: the modules' graphs and kernels folded from the
@@ -555,16 +517,11 @@ impl Package<'_> {
     /// field counts replace those of the modules after it.
     fn gather(&self, built: BTreeMap<String, Built>) -> GlobalGraph {
         let mut ordered: Vec<(String, Built)> = built.into_iter().collect();
-        if self.compat == Compat::V0_19_3 {
-            ordered.sort_by(|(a, _), (b, _)| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
-        }
+        ordered.sort_by(|(a, _), (b, _)| self.compat.compare_names(a, b));
         let mut graph = GlobalGraph::default();
         for (name, built) in ordered.into_iter().rev() {
             match built {
-                Built::Local(local) => {
-                    graph.nodes.extend(local.nodes);
-                    graph.fields.extend(local.fields);
-                }
+                Built::Local(local) => graph.add_local(local),
                 Built::Kernel(chunks) => {
                     let short = name.strip_prefix("Elm.Kernel.").unwrap_or(&name);
                     kernel::add_kernel(self.compat, &mut graph, short, chunks);

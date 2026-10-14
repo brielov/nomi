@@ -2,8 +2,9 @@
 //! `elm make` checks it, and published as elm-language-server publishes
 //! its `elm make` diagnostics, with the annotations an open file leaves
 //! out. One worker thread runs the checks in turn. A change waits a
-//! moment for the next one, and only the latest revision is checked;
-//! opening or saving a file is checked at once. With
+//! moment for the next one, and only the latest revision is checked, a
+//! check stopping when a newer revision comes; opening or saving a file is
+//! checked at once. With
 //! `onlyUpdateDiagnosticsOnSave`, only opening and saving are, and
 //! annotations aren't suggested, as elm-language-server does then.
 
@@ -19,6 +20,7 @@ use lsp_types::notification::PublishDiagnostics;
 use lsp_types::{Diagnostic, DiagnosticSeverity, DiagnosticTag, PublishDiagnosticsParams, Url};
 use nomi_base::ColumnUnit;
 use nomi_engine::index::{self, Memo};
+use nomi_engine::schedule::Cancelled;
 use nomi_engine::{Snapshot, Store, live};
 use nomi_ide::{Problem, Severity};
 use serde_json::{Value, json};
@@ -197,8 +199,11 @@ fn work(shared: &Shared, jobs: &Receiver<Job>) {
     // elm-review's problems by file, from the last open or save that ran
     // it, less the files changed since.
     let mut reviewed: HashMap<PathBuf, Vec<Problem>> = HashMap::new();
+    // A save whose check a newer revision cancelled: that revision's check
+    // takes it over, as if it had come while the save's waited.
+    let mut cancelled_save = false;
     while let Ok(mut job) = jobs.recv() {
-        let mut saved = job.saved;
+        let mut saved = job.saved || std::mem::take(&mut cancelled_save);
         let mut changed = std::mem::take(&mut job.changed);
         loop {
             let wait = if saved { Duration::ZERO } else { DEBOUNCE };
@@ -231,7 +236,7 @@ fn work(shared: &Shared, jobs: &Receiver<Job>) {
         // publishes none for it rather than end diagnostics for the
         // session, or leave the client waiting.
         let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let found = problems(shared, &job, &settings, saved, &mut reviewed);
+            let found = problems(shared, &job, &settings, saved, &mut reviewed)?;
             let mut by_file: HashMap<PathBuf, Vec<Problem>> = HashMap::new();
             for problem in &found {
                 by_file
@@ -250,9 +255,16 @@ fn work(shared: &Shared, jobs: &Receiver<Job>) {
                 let diagnostic = diagnostic(&problem, &uri, &Text::new(&text, shared.unit));
                 files.entry(uri).or_default().push(diagnostic);
             }
-            (by_file, files)
+            Ok((by_file, files))
         }));
-        let (by_file, mut files) = checked.unwrap_or_else(|_| (HashMap::new(), files));
+        let (by_file, mut files) = match checked {
+            Ok(Ok(checked)) => checked,
+            Ok(Err(Cancelled)) => {
+                cancelled_save = saved;
+                continue;
+            }
+            Err(_) => (HashMap::new(), files),
+        };
         publish_if_current(&shared.publishing, &job.snapshot, || {
             *shared
                 .latest
@@ -274,14 +286,15 @@ fn work(shared: &Shared, jobs: &Receiver<Job>) {
 
 /// The problems of every project with an open file: elm's, the lint
 /// rules' in open files, and the annotations they leave out, as
-/// `settings` has them.
+/// `settings` has them; cancelled once a newer revision makes the job's
+/// stale.
 fn problems(
     shared: &Shared,
     job: &Job,
     settings: &Settings,
     saved: bool,
     reviewed: &mut HashMap<PathBuf, Vec<Problem>>,
-) -> Vec<Problem> {
+) -> Result<Vec<Problem>, Cancelled> {
     let snapshot = &job.snapshot;
     let mut projects: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
     let mut found = Vec::new();
@@ -339,6 +352,10 @@ fn problems(
                     });
             (checked, index)
         });
+        let Ok(checked) = checked else {
+            keep(shared, memo);
+            return Err(Cancelled);
+        };
         match checked {
             Some(live) => found.extend(nomi_ide::compiler_problems(snapshot, &live, &open)),
             None => {
@@ -384,12 +401,17 @@ fn problems(
             }
         }
     }
+    keep(shared, memo);
+    Ok(found)
+}
+
+/// Keeps the packages `memo` built for the checks after.
+fn keep(shared: &Shared, memo: Memo) {
     shared
         .memo
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .extend(memo);
-    found
 }
 
 /// elm-review's problems in the project at `root`, where the client

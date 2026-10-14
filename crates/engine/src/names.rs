@@ -3,17 +3,16 @@
 //! upstream's `Build.hs` checks them. A module whose import failed is
 //! blocked and stays silent.
 
-use crate::timings::{Phase, time};
-use std::collections::{BTreeMap, HashMap, HashSet};
-
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use nomi_base::diagnostic::Problem;
 use nomi_base::diagnostic::code::Source;
-use nomi_base::{Compat, TextRange};
+use nomi_base::{Compat, TextRange, lock};
+use nomi_compiler::canonical::Annotation;
 use nomi_compiler::canonicalize::foreign::with_defaults;
-use nomi_compiler::canonicalize::module::{canonicalize, interface};
+use nomi_compiler::canonicalize::module::{Canonical, canonicalize, interface};
 use nomi_compiler::canonicalize::report;
 use nomi_compiler::docs;
 use nomi_compiler::hir;
@@ -23,15 +22,17 @@ use nomi_compiler::optimize;
 use nomi_compiler::optimized::{LocalGraph, binary};
 use nomi_compiler::report::ReportContext;
 use nomi_compiler::types::localizer::Localizer;
-use nomi_compiler::types::report as types_report;
+use nomi_compiler::types::{self, Inferred, report as types_report};
 use nomi_project::{ModuleName, Name};
 use nomi_syntax::SyntaxNode;
 use nomi_syntax::ast::{self, AstNode};
 
 use crate::artifacts::{Artifacts, Hash, Key};
-use crate::graph::{Env, Graph, Module, Owner, Root, Status};
-use crate::objects;
-use crate::schedule::{self, Outcome};
+use crate::graph::{self, Env, Graph, Module, Root, Status};
+use crate::report::imports_amiss;
+use crate::schedule::{self, Cancelled, Outcome};
+use crate::timings::{self, Phase, time};
+use crate::{Snapshot, objects};
 
 /// Each package's exposed modules' interfaces, by package.
 pub type PackageInterfaces = BTreeMap<Name, HashMap<String, Interface>>;
@@ -149,7 +150,7 @@ impl<'a> Building<'a> {
     /// Builds the packages, once, opening each direct dependency's gate,
     /// its place among them, as soon as it is built.
     pub fn build(&self, open: &(dyn Fn(usize) + Sync)) {
-        let mut built = self.built.lock().unwrap();
+        let mut built = lock(&self.built);
         if built.is_some() {
             return;
         }
@@ -178,214 +179,195 @@ impl<'a> Building<'a> {
     /// What building the packages came to.
     pub fn finish(self) -> Result<objects::Dependencies, String> {
         self.build(&|_| {});
-        (self.built.into_inner().unwrap()).expect("the packages built")
+        let built = self
+            .built
+            .into_inner()
+            .unwrap_or_else(PoisonError::into_inner);
+        built.expect("the packages built")
     }
 }
 
-/// Each local module's naming and type problems, by path: every module
-/// the build reached whose path isn't in `failed` and none of whose local
-/// imports failed or was blocked, checked after those imports.
-pub fn canonicalize_graph(
-    env: &Env,
-    graph: &Graph,
-    packages: &HashMap<String, Interface>,
-    failed: &HashSet<PathBuf>,
-) -> HashMap<PathBuf, Vec<Problem>> {
-    check_graph(env, graph, packages.into(), failed, None, Goals::default()).problems
-}
-
-/// What checking a graph found, and which modules it checked rather than
-/// took from the artifact cache.
+/// What checking a graph found and made.
 #[derive(Debug, Default)]
-pub struct Checked {
+pub(crate) struct Walked {
+    /// The problems of each module the earlier phases passed that has
+    /// some, by path.
     pub problems: HashMap<PathBuf, Vec<Problem>>,
+    /// The modules checked rather than taken from the artifact cache.
     pub ran: Vec<PathBuf>,
-    /// The documentation of each module asked for that has it.
+    /// The documentation of each module asked for.
     pub docs: Vec<docs::Module>,
-    /// Each module's optimized graph, when asked for, in the order checked.
+    /// Each module's optimized graph, when asked for.
     pub optimized: Vec<(ModuleName, LocalGraph)>,
     /// Each optimized module's interface, for the debugger's types.
-    pub interfaces: Vec<(ModuleName, Arc<LazyInterface>)>,
+    pub interfaces: Vec<ModuleInterface>,
     /// How many modules came out clean, checked or reused: what elm
     /// counts as compiled in a project of no `elm-stuff`.
     pub compiled: usize,
 }
 
 /// What a check makes beyond its problems.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Goals<'a> {
-    /// The modules to document, as `elm make --docs` documents a
-    /// package's exposed modules.
-    pub documented: &'a [ModuleName],
-    /// Whether to optimize every module, as `elm make` does before it
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Goal<'a> {
+    Check,
+    /// The documentation of these modules, as `elm make --docs`
+    /// documents a package's exposed ones.
+    Document(&'a [ModuleName]),
+    /// Every module's optimized graph, as `elm make` makes them before it
     /// generates code.
-    pub optimize: bool,
+    Optimize,
 }
 
-/// [`canonicalize_graph`], reusing `artifacts` (architecture §6): a
-/// module whose source, release, package and imports' interfaces are
-/// what a clean check of it saw before takes the interface it made then,
-/// unchecked. An edit that leaves a module's interface as it was leaves
-/// its importers' keys as they were, so they are skipped too: the early
-/// cutoff. What `goals` asks for is made after everything else checks
-/// out, from modules always checked afresh.
-pub fn check_graph(
+/// Each local module of `graph` checked after the local modules it
+/// imports, every module the build reached but those with problems of
+/// their own (`report::imports_amiss`) and those whose local imports
+/// failed or were blocked; until `snapshot` goes stale. What `artifacts`
+/// holds is reused (architecture §6): a module whose source, release,
+/// package and imports' interfaces are what a clean check of it saw
+/// before takes the interface it made then, unchecked. An edit that
+/// leaves a module's interface as it was leaves its importers' keys as
+/// they were, so they are skipped too: the early cutoff. What `goal` asks
+/// for is made after everything else checks out, from modules always
+/// checked afresh.
+pub(crate) fn check_graph(
     env: &Env,
     graph: &Graph,
     packages: Packages<'_>,
-    failed: &HashSet<PathBuf>,
+    snapshot: &Snapshot,
     artifacts: Option<&Artifacts>,
-    goals: Goals<'_>,
-) -> Checked {
-    let package = match env.owner() {
-        Owner::Package(name) => name.to_string(),
-        Owner::Application => "author/project".to_owned(),
+    goal: Goal<'_>,
+) -> Result<Walked, Cancelled> {
+    let (nodes, imports) = nodes(env.compat(), graph);
+    let walk = Walk {
+        env,
+        package: env.owner().package_name(),
+        packages,
+        artifacts,
+        goal,
+        nodes: &nodes,
+        imports: &imports,
+        package_hashes: Mutex::new(HashMap::new()),
     };
-    // The local modules in the release's order of names, then the roots
-    // outside the source directories.
-    let mut names: Vec<&ModuleName> = graph.modules.keys().collect();
-    names.sort_by(|a, b| a.compare(b, env.compat()));
-    let mut nodes: Vec<Node<'_>> = (names.iter())
-        .map(|name| match &graph.modules[*name] {
-            Status::Local(module) => Node::Module(module),
-            Status::BadModule(_) => Node::Bad,
-            _ => Node::Foreign,
-        })
-        .collect();
-    let index: HashMap<&ModuleName, usize> =
-        names.iter().enumerate().map(|(i, n)| (*n, i)).collect();
-    for root in &graph.roots {
-        if let Root::Outside(Ok(module)) = root {
-            nodes.push(Node::Module(module));
+    let job = |i, deps: &[&Made]| walk.job(i, deps);
+    let outcomes = match packages {
+        Packages::Built(_) => schedule::run(Some(snapshot), &imports, job),
+        // Each module waits on the packages exposing what it imports.
+        Packages::Building(building) => {
+            let gates: Vec<Vec<usize>> = (nodes.iter())
+                .map(|node| {
+                    let Node::Module(module) = node else {
+                        return Vec::new();
+                    };
+                    let mut gates: Vec<usize> = (module.imports.iter())
+                        .flat_map(|import| building.gates(&import.name.to_string()))
+                        .copied()
+                        .collect();
+                    gates.sort_unstable();
+                    gates.dedup();
+                    gates
+                })
+                .collect();
+            let open = |open: &(dyn Fn(usize) + Sync)| building.build(open);
+            schedule::run_gated(Some(snapshot), &imports, &gates, open, job)
+        }
+    }?;
+    let mut walked = Walked::default();
+    for (node, outcome) in nodes.iter().zip(outcomes) {
+        let Node::Module(module) = node else {
+            continue;
+        };
+        match outcome {
+            Outcome::Done(made) => {
+                walked.compiled += 1;
+                if made.fresh {
+                    walked.ran.push(module.path.clone());
+                }
+                walked.docs.extend(made.docs);
+                if let Some(graph) = made.graph {
+                    walked.optimized.push((module.name.clone(), graph));
+                    walked.interfaces.push(ModuleInterface {
+                        name: module.name.clone(),
+                        interface: made.interface,
+                    });
+                }
+            }
+            Outcome::Failed(problems) => {
+                walked.ran.push(module.path.clone());
+                walked.problems.insert(module.path.clone(), problems);
+            }
+            Outcome::Blocked => {}
         }
     }
-    // Each module waits on the local modules it imports; one already
-    // failed waits on nothing, as it won't run.
+    Ok(walked)
+}
+
+/// The walk's nodes: the local modules of `graph` in the release's order
+/// of names, then the roots outside the source directories; and the
+/// local modules each imports, by place.
+fn nodes(compat: Compat, graph: &Graph) -> (Vec<Node<'_>>, Vec<Vec<usize>>) {
+    let (names, index) = graph::ordered(compat, &graph.modules);
+    let node = |module| {
+        if imports_amiss(graph, module) {
+            Node::Failed
+        } else {
+            Node::Module(module)
+        }
+    };
+    let mut nodes: Vec<Node<'_>> = (names.iter())
+        .map(|name| match &graph.modules[*name] {
+            Status::Local(module) => node(module),
+            Status::BadModule(_) => Node::Failed,
+            Status::Foreign(_) | Status::Kernel | Status::BadImport(_) => Node::Foreign,
+        })
+        .collect();
+    for root in &graph.roots {
+        if let Root::Outside(Ok(module)) = root {
+            nodes.push(node(module));
+        }
+    }
     let mut imports: Vec<Vec<usize>> = (nodes.iter())
-        .map(|node| match node {
-            Node::Module(module) if !failed.contains(&module.path) => {
-                let mut deps: Vec<usize> = (module.imports.iter())
-                    .filter_map(|import| index.get(&import.name).copied())
-                    .filter(|&d| !matches!(nodes[d], Node::Foreign))
-                    .collect();
-                deps.dedup();
-                deps
-            }
-            _ => Vec::new(),
+        .map(|node| {
+            let Node::Module(module) = node else {
+                return Vec::new();
+            };
+            let mut deps: Vec<usize> = (module.imports.iter())
+                .filter_map(|import| index.get(&import.name).copied())
+                .filter(|&d| !matches!(nodes[d], Node::Foreign))
+                .collect();
+            deps.dedup();
+            deps
         })
         .collect();
     // A cycle was reported before canonicalization; its modules stay
     // silent, as upstream's walk leaves them.
-    let cyclic = cyclic(&imports);
-    for &i in &cyclic {
+    for i in schedule::cyclic(&imports) {
         imports[i].clear();
+        nodes[i] = Node::Failed;
     }
-    let walk = Walk {
-        env,
-        package,
-        packages,
-        failed,
-        artifacts,
-        goals,
-        nodes: &nodes,
-        imports: &imports,
-        cyclic: &cyclic,
-        package_hashes: Mutex::new(HashMap::new()),
-        problems: Mutex::new(HashMap::new()),
-        ran: Mutex::new(Vec::new()),
-        docs: Mutex::new(Vec::new()),
-        optimized: Mutex::new(Vec::new()),
-        optimized_interfaces: Mutex::new(Vec::new()),
-    };
-    let snapshot = crate::Vfs::new().snapshot();
-    let job = |i, deps: &[&Made]| walk.job(i, deps);
-    let outcomes = match packages {
-        Packages::Built(_) => schedule::run(&snapshot, &imports, job),
-        // Each module waits on the packages exposing what it imports.
-        Packages::Building(building) => {
-            let gates: Vec<Vec<usize>> = (nodes.iter())
-                .map(|node| match node {
-                    Node::Module(module) => {
-                        let mut gates: Vec<usize> = (module.imports.iter())
-                            .flat_map(|import| building.gates(&import.name.to_string()))
-                            .copied()
-                            .collect();
-                        gates.sort_unstable();
-                        gates.dedup();
-                        gates
-                    }
-                    _ => Vec::new(),
-                })
-                .collect();
-            schedule::run_gated(
-                &snapshot,
-                &imports,
-                &gates,
-                |open| building.build(open),
-                job,
-            )
-        }
-    };
-    let outcomes = outcomes.expect("a snapshot nothing edits");
-    let compiled = (nodes.iter().zip(&outcomes))
-        .filter(|(node, outcome)| {
-            matches!(node, Node::Module(..)) && matches!(outcome, Outcome::Done(_))
-        })
-        .count();
-    Checked {
-        problems: walk.problems.into_inner().unwrap(),
-        ran: by_node(walk.ran.into_inner().unwrap()),
-        docs: by_node(walk.docs.into_inner().unwrap()),
-        optimized: by_node(walk.optimized.into_inner().unwrap()),
-        interfaces: by_node(walk.optimized_interfaces.into_inner().unwrap()),
-        compiled,
-    }
-}
-
-/// `items` in the order of the nodes that made them.
-fn by_node<T>(mut items: Vec<(usize, T)>) -> Vec<T> {
-    items.sort_by_key(|(i, _)| *i);
-    items.into_iter().map(|(_, item)| item).collect()
-}
-
-/// The modules on an import cycle, by Kahn's algorithm.
-pub(crate) fn cyclic(imports: &[Vec<usize>]) -> Vec<usize> {
-    let mut waiting: Vec<usize> = imports.iter().map(Vec::len).collect();
-    let mut importers = vec![Vec::new(); imports.len()];
-    for (i, deps) in imports.iter().enumerate() {
-        for &d in deps {
-            importers[d].push(i);
-        }
-    }
-    let mut ready: Vec<usize> = (0..imports.len()).filter(|&i| waiting[i] == 0).collect();
-    let mut done = vec![false; imports.len()];
-    while let Some(i) = ready.pop() {
-        done[i] = true;
-        for &importer in &importers[i] {
-            waiting[importer] -= 1;
-            if waiting[importer] == 0 {
-                ready.push(importer);
-            }
-        }
-    }
-    (0..imports.len()).filter(|&i| !done[i]).collect()
+    (nodes, imports)
 }
 
 /// A module of the build, as the walk sees it.
 enum Node<'g> {
     /// A module to check.
     Module(&'g Module),
-    /// One that didn't parse or isn't where its name says.
-    Bad,
+    /// One that won't be: it didn't parse, isn't where its name says, has
+    /// problems with its imports or imports itself. Its importers are
+    /// blocked.
+    Failed,
     /// A name the graph resolved elsewhere.
     Foreign,
 }
 
-/// What a module made that its importers need: its interface and that
-/// interface's hash.
+/// What a module made: its interface and that interface's hash, which
+/// its importers read, and what the goal asks of it.
 struct Made {
     interface: Arc<LazyInterface>,
     hash: Hash,
+    /// Whether it was checked rather than taken from the artifact cache.
+    fresh: bool,
+    docs: Option<docs::Module>,
+    graph: Option<LocalGraph>,
 }
 
 /// A module's interface, decoded from the artifact cache only when
@@ -420,8 +402,12 @@ impl LazyInterface {
     }
 }
 
-/// A module and its interface.
-type ModuleInterface = (ModuleName, Arc<LazyInterface>);
+/// A module of the build, and its interface.
+#[derive(Clone, Debug)]
+pub struct ModuleInterface {
+    pub name: ModuleName,
+    pub interface: Arc<LazyInterface>,
+}
 
 /// The interfaces one module reads: its local imports' over the
 /// packages'.
@@ -441,250 +427,231 @@ impl Interfaces for Layered<'_> {
 
 struct Walk<'g> {
     env: &'g Env,
+    /// The package the modules are homes in.
     package: String,
     packages: Packages<'g>,
-    failed: &'g HashSet<PathBuf>,
     artifacts: Option<&'g Artifacts>,
-    goals: Goals<'g>,
+    goal: Goal<'g>,
     nodes: &'g [Node<'g>],
     imports: &'g [Vec<usize>],
-    cyclic: &'g [usize],
     /// Each package interface's hash, made once.
     package_hashes: Mutex<HashMap<String, Hash>>,
-    problems: Mutex<HashMap<PathBuf, Vec<Problem>>>,
-    /// The modules checked rather than reused, by node.
-    ran: Mutex<Vec<(usize, PathBuf)>>,
-    docs: Mutex<Vec<(usize, docs::Module)>>,
-    optimized: Mutex<Vec<(usize, (ModuleName, LocalGraph))>>,
-    optimized_interfaces: Mutex<Vec<(usize, ModuleInterface)>>,
 }
 
 impl Walk<'_> {
-    /// Node `i`'s work, given what its local imports made.
-    fn job(&self, i: usize, deps: &[&Made]) -> Result<Made, ()> {
-        let Node::Module(module) = &self.nodes[i] else {
-            return Err(());
+    /// Node `i`'s work, given what its local imports made: what it made,
+    /// or its problems. A node that isn't a module to check fails with
+    /// none.
+    fn job(&self, i: usize, deps: &[&Made]) -> Result<Made, Vec<Problem>> {
+        let Node::Module(module) = self.nodes[i] else {
+            return Err(Vec::new());
         };
-        if self.failed.contains(&module.path) || self.cyclic.contains(&i) {
-            return Err(());
-        }
         let local: HashMap<&str, &Made> = (self.imports[i].iter().zip(deps))
-            .filter_map(|(&d, made)| match &self.nodes[d] {
+            .filter_map(|(&d, made)| match self.nodes[d] {
                 Node::Module(dep) => Some((dep.name.to_str()?, *made)),
-                _ => None,
+                Node::Failed | Node::Foreign => None,
             })
             .collect();
-        let name = module.name.to_string();
-        crate::timings::module(&name, || self.module(i, module, &local))
+        timings::module(&module.name, || self.module(module, &local))
     }
 
-    /// Canonicalizes `module`, its local imports having made `local`.
-    fn module(&self, i: usize, module: &Module, local: &HashMap<&str, &Made>) -> Result<Made, ()> {
+    /// `module`, its local imports having made `local`: from the artifact
+    /// cache where it holds what the goal asks for, else checked.
+    fn module(&self, module: &Module, local: &HashMap<&str, &Made>) -> Result<Made, Vec<Problem>> {
+        let document =
+            matches!(self.goal, Goal::Document(modules) if modules.contains(&module.name));
+        let cache = (self.artifacts.filter(|_| !document))
+            .map(|artifacts| (artifacts, self.key(module, local)));
+        if let Some((artifacts, key)) = cache
+            && let Some(made) = self.cached(artifacts, key)
+        {
+            return Ok(made);
+        }
+        self.compile(module, local, document, cache)
+    }
+
+    /// What `artifacts` files under `key`: the module's interface and,
+    /// optimizing, its graph.
+    fn cached(&self, artifacts: &Artifacts, key: Hash) -> Option<Made> {
+        let (bytes, hash) = time(Phase::CacheRead, || artifacts.get_hashed(key))?;
+        let graph = match self.goal {
+            Goal::Optimize => Some(time(Phase::CacheRead, || {
+                let bytes = artifacts.get(graph_key(key))?;
+                binary::decode_local_graph(&bytes, self.env.compat())
+            })?),
+            Goal::Check | Goal::Document(_) => None,
+        };
+        // The encoding is canonical, so its bytes hash as the interface's
+        // own encoding would.
+        Some(Made {
+            interface: Arc::new(LazyInterface::encoded(bytes)),
+            hash,
+            fresh: false,
+            docs: None,
+            graph,
+        })
+    }
+
+    /// Canonicalizes, types and checks `module`, its local imports having
+    /// made `local`, then makes what the goal asks of it: its
+    /// documentation if it is `document`ed, its graph optimizing. What it
+    /// makes is filed in `cache`.
+    fn compile(
+        &self,
+        module: &Module,
+        local: &HashMap<&str, &Made>,
+        document: bool,
+        cache: Option<(&Artifacts, Hash)>,
+    ) -> Result<Made, Vec<Problem>> {
+        let compat = self.env.compat();
         let interfaces = Layered {
-            local: local
-                .iter()
+            local: (local.iter())
                 .map(|(name, made)| (*name, &*made.interface))
                 .collect(),
             packages: self.packages,
         };
-        let document = self.goals.documented.contains(&module.name);
-        let key = (self.artifacts.filter(|_| !document)).map(|_| self.key(module, local));
-        if let (Some(artifacts), Some(key)) = (self.artifacts, key)
-            && let Some((bytes, hash)) = time(Phase::CacheRead, || artifacts.get_hashed(key))
-        {
-            // The encoding is canonical, so its bytes hash as the
-            // interface's own encoding would.
-            let made = Made {
-                interface: Arc::new(LazyInterface::encoded(bytes)),
-                hash,
-            };
-            // Optimizing, the module's graph must be filed too.
-            let graph = (self.goals.optimize).then(|| {
-                time(Phase::CacheRead, || {
-                    let bytes = artifacts.get(graph_key(key))?;
-                    binary::decode_local_graph(&bytes, self.env.compat())
-                })
-            });
-            match graph {
-                None => return Ok(made),
-                Some(Some(graph)) => {
-                    self.optimized
-                        .lock()
-                        .unwrap()
-                        .push((i, (module.name.clone(), graph)));
-                    let entry = (module.name.clone(), made.interface.clone());
-                    self.optimized_interfaces.lock().unwrap().push((i, entry));
-                    return Ok(made);
-                }
-                Some(None) => {}
-            }
-        }
-        self.ran.lock().unwrap().push((i, module.path.clone()));
         let root = module.parse.syntax();
         let hir = time(Phase::Lower, || {
             hir::lower(&ast::Module::cast(root.clone()).expect("a module"))
         });
         let canonical = time(Phase::Canonicalize, || {
-            canonicalize(self.env.compat(), &self.package, &interfaces, &hir)
+            canonicalize(compat, &self.package, &interfaces, &hir)
         });
-        match canonical {
-            Ok(canonical) => match time(Phase::Types, || {
-                let (inferred, leftovers) =
-                    nomi_compiler::types::infer_leaving(self.env.compat(), &canonical);
-                crate::trash::defer(leftovers);
-                inferred
-            }) {
-                Ok(annotations) => {
-                    // Then the patterns, as upstream's `nitpick`.
-                    let pattern_errors = time(Phase::Checks, || {
-                        patterns::check(self.env.compat(), &canonical.decls)
-                    });
-                    if !pattern_errors.is_empty() {
-                        let source = Source::new(&module.text);
-                        let trim = |range| trim(&root, range);
-                        let cx = ReportContext {
-                            source: &source,
-                            compat: self.env.compat(),
-                            trim: &trim,
-                        };
-                        let problems = (pattern_errors.iter())
-                            .map(|e| patterns_report::to_problem(e, &cx))
-                            .collect();
-                        self.problems
-                            .lock()
-                            .unwrap()
-                            .insert(module.path.clone(), problems);
-                        return Err(());
-                    }
-                    // Then `main`, as upstream's `optimize` checks it.
-                    let main = time(Phase::Checks, || {
-                        main_check::check(&canonical.decls, &annotations)
-                    });
-                    if let Some(error) = main {
-                        let source = Source::new(&module.text);
-                        let trim = |range| trim(&root, range);
-                        let imports = with_defaults(&self.package, &hir.imports);
-                        let localizer =
-                            Localizer::from_module(self.env.compat(), hir.name(), &imports);
-                        let cx = ReportContext {
-                            source: &source,
-                            compat: self.env.compat(),
-                            trim: &trim,
-                        };
-                        let problem = main_check::to_problem(&error, &cx, &localizer);
-                        self.problems
-                            .lock()
-                            .unwrap()
-                            .insert(module.path.clone(), vec![problem]);
-                        return Err(());
-                    }
-                    // Then the documentation, as `Build.compile` makes it.
-                    if document {
-                        let docs = time(Phase::Checks, || {
-                            docs::from_module(self.env.compat(), &module.text, &hir, &canonical)
-                        });
-                        match docs {
-                            Ok(docs) => self.docs.lock().unwrap().push((i, docs)),
-                            Err(error) => {
-                                let source = Source::new(&module.text);
-                                // Documentation's regions have no trivia
-                                // in front.
-                                let cx = ReportContext {
-                                    source: &source,
-                                    compat: self.env.compat(),
-                                    trim: &|range| range,
-                                };
-                                let problems = docs::report::to_problems(&error, &cx);
-                                self.problems
-                                    .lock()
-                                    .unwrap()
-                                    .insert(module.path.clone(), problems);
-                                return Err(());
-                            }
-                        }
-                    }
-                    if self.goals.optimize {
-                        let source = Source::new(&module.text);
-                        let region =
-                            |range: TextRange| source.region(trim(&root, range), self.env.compat());
-                        let graph = time(Phase::Optimize, || {
-                            optimize::module(self.env.compat(), &annotations, &canonical, &region)
-                        });
-                        if let (Some(artifacts), Some(key)) = (self.artifacts, key) {
-                            time(Phase::CacheWrite, || {
-                                let bytes = binary::encode_local_graph(&graph, self.env.compat());
-                                let _ = artifacts.put(graph_key(key), &bytes);
-                            });
-                        }
-                        self.optimized
-                            .lock()
-                            .unwrap()
-                            .push((i, (module.name.clone(), graph)));
-                    }
-                    let (interface, bytes) = time(Phase::Interface, || {
-                        let interface = interface(&canonical, &annotations);
-                        let bytes = interface.encode();
-                        (interface, bytes)
-                    });
-                    if let (Some(artifacts), Some(key)) = (self.artifacts, key) {
-                        // A cache that can't be written only costs a
-                        // check next time.
-                        let _ = time(Phase::CacheWrite, || artifacts.put(key, &bytes));
-                    }
-                    let made = Made {
-                        interface: Arc::new(LazyInterface::ready(interface)),
-                        hash: Hash::of(&bytes),
-                    };
-                    if self.goals.optimize {
-                        let entry = (module.name.clone(), made.interface.clone());
-                        self.optimized_interfaces.lock().unwrap().push((i, entry));
-                    }
-                    Ok(made)
-                }
-                Err(errors) => {
-                    let source = Source::new(&module.text);
-                    let imports = with_defaults(&self.package, &hir.imports);
-                    let localizer = Localizer::from_module(self.env.compat(), hir.name(), &imports);
-                    let trim = |range| trim(&root, range);
-                    let cx = ReportContext {
-                        source: &source,
-                        compat: self.env.compat(),
-                        trim: &trim,
-                    };
-                    // In the solver's order, the latest first, as
-                    // upstream reports them.
-                    let problems = errors
-                        .iter()
-                        .map(|e| types_report::to_problem(e, &cx, &localizer))
-                        .collect();
-                    self.problems
-                        .lock()
-                        .unwrap()
-                        .insert(module.path.clone(), problems);
-                    Err(())
-                }
-            },
-            Err(errors) => {
-                let source = Source::new(&module.text);
-                let trim = |range| trim(&root, range);
-                let cx = report::Context {
-                    source: &source,
-                    module: &hir,
-                    compat: self.env.compat(),
-                    trim: &trim,
-                };
-                let problems = errors.iter().map(|e| report::to_problem(e, &cx)).collect();
-                self.problems
-                    .lock()
-                    .unwrap()
-                    .insert(module.path.clone(), problems);
-                Err(())
+        let canonical = canonical.map_err(|errors| {
+            let source = Source::new(&module.text);
+            let trim = |range| trim(&root, range);
+            let cx = report::Context {
+                source: &source,
+                module: &hir,
+                compat,
+                trim: &trim,
+            };
+            (errors.iter())
+                .map(|e| report::to_problem(e, &cx))
+                .collect::<Vec<_>>()
+        })?;
+        // In the solver's order, the latest first, as upstream reports
+        // them.
+        let annotations = infer(compat, &canonical).map_err(|errors| {
+            let localizer = self.localizer(&hir);
+            self.report(module, &root, |cx| {
+                (errors.iter())
+                    .map(|e| types_report::to_problem(e, cx, &localizer))
+                    .collect()
+            })
+        })?;
+        self.checks(module, &root, &hir, &canonical, &annotations)?;
+        let docs = if document {
+            Some(self.document(module, &hir, &canonical)?)
+        } else {
+            None
+        };
+        let graph = matches!(self.goal, Goal::Optimize).then(|| {
+            let graph = optimize(compat, &annotations, &canonical, &module.text, &root);
+            if let Some((artifacts, key)) = cache {
+                time(Phase::CacheWrite, || {
+                    let bytes = binary::encode_local_graph(&graph, compat);
+                    let _ = artifacts.put(graph_key(key), &bytes);
+                });
             }
+            graph
+        });
+        let (interface, bytes) = time(Phase::Interface, || {
+            let interface = interface(&canonical, &annotations);
+            let bytes = interface.encode();
+            (interface, bytes)
+        });
+        if let Some((artifacts, key)) = cache {
+            // A cache that can't be written only costs a check next time.
+            let _ = time(Phase::CacheWrite, || artifacts.put(key, &bytes));
         }
+        Ok(Made {
+            interface: Arc::new(LazyInterface::ready(interface)),
+            hash: Hash::of(&bytes),
+            fresh: true,
+            docs,
+            graph,
+        })
     }
-}
 
-impl Walk<'_> {
+    /// The checks after types: the patterns, as upstream's `nitpick`
+    /// checks them, then `main`, as its `optimize` does.
+    fn checks(
+        &self,
+        module: &Module,
+        root: &SyntaxNode,
+        hir: &hir::Module,
+        canonical: &Canonical,
+        annotations: &BTreeMap<String, Annotation>,
+    ) -> Result<(), Vec<Problem>> {
+        let compat = self.env.compat();
+        let pattern_errors = time(Phase::Checks, || patterns::check(compat, &canonical.decls));
+        if !pattern_errors.is_empty() {
+            return Err(self.report(module, root, |cx| {
+                (pattern_errors.iter())
+                    .map(|e| patterns_report::to_problem(e, cx))
+                    .collect()
+            }));
+        }
+        let main = time(Phase::Checks, || {
+            main_check::check(&canonical.decls, annotations)
+        });
+        if let Some(error) = main {
+            let localizer = self.localizer(hir);
+            return Err(self.report(module, root, |cx| {
+                vec![main_check::to_problem(&error, cx, &localizer)]
+            }));
+        }
+        Ok(())
+    }
+
+    /// The documentation of `module`, as `Build.compile` makes it.
+    fn document(
+        &self,
+        module: &Module,
+        hir: &hir::Module,
+        canonical: &Canonical,
+    ) -> Result<docs::Module, Vec<Problem>> {
+        let compat = self.env.compat();
+        let docs = time(Phase::Checks, || {
+            docs::from_module(compat, &module.text, hir, canonical)
+        });
+        docs.map_err(|error| {
+            let source = Source::new(&module.text);
+            // Documentation's regions have no trivia in front.
+            let cx = ReportContext {
+                source: &source,
+                compat,
+                trim: &|range| range,
+            };
+            docs::report::to_problems(&error, &cx)
+        })
+    }
+
+    /// The problems `report` makes with what reporting on `module` reads:
+    /// its source, and its tree `root` for ranges without the trivia in
+    /// front.
+    fn report(
+        &self,
+        module: &Module,
+        root: &SyntaxNode,
+        report: impl FnOnce(&ReportContext<'_>) -> Vec<Problem>,
+    ) -> Vec<Problem> {
+        let source = Source::new(&module.text);
+        let trim = |range| trim(root, range);
+        report(&ReportContext {
+            source: &source,
+            compat: self.env.compat(),
+            trim: &trim,
+        })
+    }
+
+    /// How reports name the types `hir` sees.
+    fn localizer(&self, hir: &hir::Module) -> Localizer {
+        let imports = with_defaults(&self.package, &hir.imports);
+        Localizer::from_module(self.env.compat(), hir.name(), &imports)
+    }
+
     /// The artifact key of `module`: everything checking it reads.
     fn key(&self, module: &Module, local: &HashMap<&str, &Made>) -> Hash {
         let mut key = Key::new("module")
@@ -706,21 +673,41 @@ impl Walk<'_> {
         }
         key.finish()
     }
-}
 
-impl Walk<'_> {
     /// The hash of the package interface of `module`, made once.
     fn package_hash(&self, module: &str) -> Option<Hash> {
-        if let Some(hash) = self.package_hashes.lock().unwrap().get(module) {
+        if let Some(hash) = lock(&self.package_hashes).get(module) {
             return Some(*hash);
         }
         let hash = Hash::of(&self.packages.get(module)?.encode());
-        self.package_hashes
-            .lock()
-            .unwrap()
-            .insert(module.to_owned(), hash);
+        lock(&self.package_hashes).insert(module.to_owned(), hash);
         Some(hash)
     }
+}
+
+/// `canonical`'s types inferred, what inferring leaves freed once the
+/// modules waiting on it have started.
+pub(crate) fn infer(compat: Compat, canonical: &Canonical) -> Inferred {
+    time(Phase::Types, || {
+        let (inferred, leftovers) = types::infer_leaving(compat, canonical);
+        crate::trash::defer(leftovers);
+        inferred
+    })
+}
+
+/// `canonical` optimized, its regions in `text`, whose tree is `root`.
+pub(crate) fn optimize(
+    compat: Compat,
+    annotations: &BTreeMap<String, Annotation>,
+    canonical: &Canonical,
+    text: &str,
+    root: &SyntaxNode,
+) -> LocalGraph {
+    let source = Source::new(text);
+    let region = |range| source.region(trim(root, range), compat);
+    time(Phase::Optimize, || {
+        optimize::module(compat, annotations, canonical, &region)
+    })
 }
 
 /// Where a module's optimized graph is filed: beside the interface filed

@@ -208,6 +208,22 @@ pub struct GlobalGraph {
     pub fields: BTreeMap<String, i64>,
 }
 
+impl GlobalGraph {
+    /// `addGlobalGraph`, with `other`'s nodes and field counts replacing
+    /// the graph's where they share a key.
+    pub fn add(&mut self, other: GlobalGraph) {
+        self.nodes.extend(other.nodes);
+        self.fields.extend(other.fields);
+    }
+
+    /// `addLocalGraph`, with `local`'s nodes and field counts replacing
+    /// the graph's where they share a key.
+    pub fn add_local(&mut self, local: LocalGraph) {
+        self.nodes.extend(local.nodes);
+        self.fields.extend(local.fields);
+    }
+}
+
 /// `Opt.LocalGraph`: one module's.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LocalGraph {

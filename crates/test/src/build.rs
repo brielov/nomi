@@ -172,8 +172,8 @@ pub fn build<H: Http + Sync>(
     let found_tests: Vec<(String, Vec<String>)> = (found.iter())
         .filter_map(|module| {
             let name = ModuleName::new(&module.name);
-            let (_, interface) = interfaces.iter().find(|(n, _)| *n == name)?;
-            let tests = tests(module, interface.get());
+            let found = interfaces.iter().find(|m| m.name == name)?;
+            let tests = tests(module, found.interface.get());
             (!tests.is_empty()).then(|| (module.name.clone(), tests))
         })
         .collect();

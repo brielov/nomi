@@ -2,12 +2,10 @@
 //! nomi's phases go (`Make.hs`, `Build.hs`). The project and its
 //! dependencies load first, then the modules the paths name, or a
 //! package's exposed ones, are crawled. Only the earliest failing phase of
-//! each module is shown, and a module whose imports failed stays silent;
-//! so far the phases are syntax, module names and imports.
+//! each module is shown, and a module whose imports failed stays silent.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use nomi_base::diagnostic::doc::{Color, reflow, text, vcat};
 use nomi_base::diagnostic::json;
@@ -20,13 +18,14 @@ use nomi_registry::{Http, Store, details, report as registry_report};
 
 use crate::artifacts::{Artifacts, Key};
 use crate::console::{self, Console, Personality};
-use crate::graph::{Env, Foreigns, Graph, Owner};
+use crate::graph::{Env, Foreigns, Graph, Owner, RootMain};
 use crate::install::{details_problem, one_line};
 use crate::make::{self, Make};
-use crate::names::{Goals, Packages};
+use crate::names::{ModuleInterface, Packages};
 use crate::paths::Cache;
-use crate::project::Project;
+use crate::project::{self, Project};
 use crate::report::{self, ModuleErrors};
+use crate::schedule::Cancelled;
 use crate::{Pool, Snapshot, Vfs, env, names, objects, packages};
 
 /// What checking found.
@@ -43,7 +42,9 @@ pub enum Checked {
 /// How the outcome is shown: `--report=json` or for people.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Style {
+    /// Reports for people, with a line saying how it went.
     Terminal,
+    /// `--report=json`.
     Json,
 }
 
@@ -57,264 +58,133 @@ pub fn run(
     dir: &Path,
     cache: &Cache,
     http: &(impl Http + Sync),
-    paths: &[PathBuf],
+    paths: Vec<PathBuf>,
     style: Style,
 ) -> bool {
     make::run(vfs, console, dir, cache, http, &Make::check(paths, style))
 }
 
-/// Checks the modules of the project `env` describes, as `elm make`
-/// builds from `paths`, or from the package's exposed modules when there
-/// are none.
-pub fn check(
-    snapshot: &Snapshot,
-    env: &Env,
-    outline: &Outline,
-    paths: &[PathBuf],
-    personality: Personality,
-    packages: Packages<'_>,
-) -> Checked {
-    check_with(snapshot, env, outline, paths, personality, packages, None).0
+/// What to build: the modules of the project `env` describes, as `elm
+/// make` builds from `paths`, or from the package's exposed modules when
+/// there are none, reading them from `snapshot`.
+#[derive(Clone, Copy, Debug)]
+pub struct Build<'a> {
+    pub snapshot: &'a Snapshot,
+    pub env: &'a Env,
+    pub outline: &'a Outline,
+    pub paths: &'a [PathBuf],
+    /// Whose words the reports are in.
+    pub personality: Personality,
+    pub packages: Packages<'a>,
+    /// What earlier builds left, reused (architecture §6).
+    pub artifacts: Option<&'a Artifacts>,
 }
 
-/// [`check`], reusing what `artifacts` holds of earlier checks; and the
-/// modules it checked rather than reused.
-pub fn check_with(
-    snapshot: &Snapshot,
-    env: &Env,
-    outline: &Outline,
-    paths: &[PathBuf],
-    personality: Personality,
-    packages: Packages<'_>,
-    artifacts: Option<&Artifacts>,
-) -> (Checked, Vec<PathBuf>) {
-    let built = build(
-        snapshot,
-        env,
-        outline,
-        paths,
-        personality,
-        packages,
-        artifacts,
-        Goal::Check,
-    );
-    (built.checked, built.ran)
-}
-
-/// [`check_with`] for `elm make`: also each root and whether it defines
-/// `main`, and how many modules came out clean.
-pub fn make_with(
-    snapshot: &Snapshot,
-    env: &Env,
-    outline: &Outline,
-    paths: &[PathBuf],
-    personality: Personality,
-    packages: Packages<'_>,
-    artifacts: Option<&Artifacts>,
-) -> (Checked, Vec<(ModuleName, bool)>, usize) {
-    let built = build(
-        snapshot,
-        env,
-        outline,
-        paths,
-        personality,
-        packages,
-        artifacts,
-        Goal::Check,
-    );
-    (built.checked, built.mains, built.compiled)
-}
-
-/// What `elm make --docs` makes of the package `env` describes: its
-/// exposed modules checked as [`check`] checks them and documented, and
-/// `docs.json` if nothing was wrong, and how many modules came out clean.
-pub fn docs(
-    snapshot: &Snapshot,
-    env: &Env,
-    outline: &Outline,
-    personality: Personality,
-    packages: Packages<'_>,
-) -> (Checked, Option<String>, usize) {
-    docs_with(snapshot, env, outline, personality, packages, None)
-}
-
-/// [`docs`], reusing what `artifacts` holds of the modules it doesn't
-/// document.
-pub fn docs_with(
-    snapshot: &Snapshot,
-    env: &Env,
-    outline: &Outline,
-    personality: Personality,
-    packages: Packages<'_>,
-    artifacts: Option<&Artifacts>,
-) -> (Checked, Option<String>, usize) {
-    let built = build(
-        snapshot,
-        env,
-        outline,
-        &[],
-        personality,
-        packages,
-        artifacts,
-        Goal::Docs,
-    );
-    let json = matches!(built.checked, Checked::Fine)
-        .then(|| nomi_compiler::docs::encode(env.compat(), &built.docs));
-    (built.checked, json, built.compiled)
-}
-
-/// What [`build`] makes beyond the problems.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Goal {
+/// What a build makes beyond the problems.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Goal {
     Check,
-    /// A package's exposed modules' documentation.
+    /// A package's exposed modules' documentation, `docs.json`, as `elm
+    /// make --docs` makes it.
     Docs,
-    /// Every module's optimized graph.
+    /// Every module's optimized graph, as `elm make` makes them before it
+    /// generates code.
     Optimize,
 }
 
-/// What [`build`] found and made.
-struct Built {
-    checked: Checked,
-    /// The modules checked rather than reused.
-    ran: Vec<PathBuf>,
-    docs: Vec<nomi_compiler::docs::Module>,
-    /// The roots, and whether each defines `main`.
-    mains: Vec<(ModuleName, bool)>,
-    optimized: Vec<(ModuleName, LocalGraph)>,
-    interfaces: Vec<(ModuleName, Arc<names::LazyInterface>)>,
-    /// How many modules came out clean.
-    compiled: usize,
-}
-
-impl Built {
-    fn failed(checked: Checked) -> Built {
-        Built {
-            checked,
-            ran: Vec::new(),
-            docs: Vec::new(),
-            mains: Vec::new(),
-            optimized: Vec::new(),
-            interfaces: Vec::new(),
-            compiled: 0,
-        }
-    }
-}
-
-/// What [`optimize`] makes of a project.
-#[derive(Clone, Debug, Default)]
-pub struct Optimized {
-    /// The roots, and whether each defines `main`.
-    pub roots: Vec<(ModuleName, bool)>,
-    /// Each module's graph.
-    pub graphs: Vec<(ModuleName, LocalGraph)>,
-    /// Each module's interface.
-    pub interfaces: Vec<(ModuleName, Arc<names::LazyInterface>)>,
+/// What a build found and made.
+#[derive(Debug)]
+pub struct Built {
+    pub checked: Checked,
     /// The modules checked rather than taken from the artifact cache.
     pub ran: Vec<PathBuf>,
     /// How many modules came out clean, checked or reused.
     pub compiled: usize,
+    /// `docs.json`, documenting, if nothing was wrong.
+    pub docs: Option<String>,
+    /// What optimizing made.
+    pub optimized: Optimized,
 }
 
-/// What `elm make` optimizes of the project `env` describes, building
-/// as [`check`] does, when nothing was wrong.
-pub fn optimize(
-    snapshot: &Snapshot,
-    env: &Env,
-    outline: &Outline,
-    paths: &[PathBuf],
-    personality: Personality,
-    packages: Packages<'_>,
-    artifacts: Option<&Artifacts>,
-) -> (Checked, Optimized) {
-    let built = build(
-        snapshot,
-        env,
-        outline,
-        paths,
-        personality,
-        packages,
-        artifacts,
-        Goal::Optimize,
-    );
-    let optimized = Optimized {
-        roots: built.mains,
-        graphs: built.optimized,
-        interfaces: built.interfaces,
-        ran: built.ran,
-        compiled: built.compiled,
-    };
-    (built.checked, optimized)
+/// What optimizing a project makes.
+#[derive(Clone, Debug, Default)]
+pub struct Optimized {
+    /// The roots, and whether each defines `main`.
+    pub roots: Vec<RootMain>,
+    /// Each module's graph.
+    pub graphs: Vec<(ModuleName, LocalGraph)>,
+    /// Each module's interface.
+    pub interfaces: Vec<ModuleInterface>,
 }
 
-/// [`check_with`], making what `goal` asks for too.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "each of the checks above passes its own mix of these"
-)]
-fn build(
-    snapshot: &Snapshot,
-    env: &Env,
-    outline: &Outline,
-    paths: &[PathBuf],
-    personality: Personality,
-    packages: Packages<'_>,
-    artifacts: Option<&Artifacts>,
-    goal: Goal,
-) -> Built {
-    let exposed: Vec<ModuleName> = match outline {
-        Outline::Pkg(pkg) => pkg.exposed.modules().cloned().collect(),
-        Outline::App(_) => Vec::new(),
-    };
-    let graph = if !paths.is_empty() {
-        Graph::from_paths(snapshot, env, paths)
-    } else if let Outline::App(_) = outline {
-        return Built::failed(Checked::Project(no_input(personality, true)));
-    } else if exposed.is_empty() {
-        return Built::failed(Checked::Project(no_input(personality, false)));
-    } else {
-        Graph::from_exposed(snapshot, env, &exposed)
-    };
-    let graph = match graph {
-        Ok(graph) => graph,
-        Err(problem) => {
-            return Built::failed(Checked::Project(report::project_problem(
-                &problem,
-                env.compat(),
-            )));
+impl Build<'_> {
+    /// Builds what `goal` asks for, as `elm make` does; cancelled once the
+    /// snapshot is stale.
+    pub fn run(&self, goal: Goal) -> Result<Built, Cancelled> {
+        let failed = |report| Built {
+            checked: Checked::Project(report),
+            ran: Vec::new(),
+            compiled: 0,
+            docs: None,
+            optimized: Optimized::default(),
+        };
+        let (env, paths) = (self.env, self.paths);
+        let exposed: Vec<ModuleName> = match self.outline {
+            Outline::Pkg(pkg) => pkg.exposed.modules().cloned().collect(),
+            Outline::App(_) => Vec::new(),
+        };
+        let graph = if !paths.is_empty() {
+            Graph::from_paths(self.snapshot, env, paths)
+        } else if exposed.is_empty() {
+            return Ok(failed(no_input(self.personality, self.outline)));
+        } else {
+            Graph::from_exposed(self.snapshot, env, &exposed)
+        };
+        let graph = match graph {
+            Ok(graph) => graph,
+            Err(problem) => return Ok(failed(report::project_problem(&problem, env.compat()))),
+        };
+        if paths.is_empty()
+            && let Some(report) = report::missing_exposed(&graph, &exposed)
+        {
+            return Ok(failed(report));
         }
-    };
-    if paths.is_empty()
-        && let Some(report) = report::missing_exposed(&graph, &exposed)
-    {
-        return Built::failed(Checked::Project(report));
-    }
-    let earlier = report::module_errors(env, &graph);
-    let failed: HashSet<PathBuf> = earlier.iter().map(|m| m.path.clone()).collect();
-    let documented: &[ModuleName] = if goal == Goal::Docs && paths.is_empty() {
-        &exposed
-    } else {
-        &[]
-    };
-    let goals = Goals {
-        documented,
-        optimize: goal == Goal::Optimize,
-    };
-    let later = names::check_graph(env, &graph, packages, &failed, artifacts, goals);
-    let modules = report::module_errors_with(env, &graph, &later.problems);
-    let checked = if modules.is_empty() {
-        Checked::Fine
-    } else {
-        Checked::Modules(modules)
-    };
-    Built {
-        checked,
-        ran: later.ran,
-        docs: later.docs,
-        mains: graph.root_mains(),
-        optimized: later.optimized,
-        interfaces: later.interfaces,
-        compiled: later.compiled,
+        let walk_goal = match goal {
+            Goal::Docs if paths.is_empty() => names::Goal::Document(&exposed),
+            Goal::Check | Goal::Docs => names::Goal::Check,
+            Goal::Optimize => names::Goal::Optimize,
+        };
+        let walked = names::check_graph(
+            env,
+            &graph,
+            self.packages,
+            self.snapshot,
+            self.artifacts,
+            walk_goal,
+        )?;
+        let modules = report::module_errors(env, &graph, walked.problems);
+        let checked = if modules.is_empty() {
+            Checked::Fine
+        } else {
+            Checked::Modules(modules)
+        };
+        let docs = (goal == Goal::Docs && matches!(checked, Checked::Fine))
+            .then(|| nomi_compiler::docs::encode(env.compat(), &walked.docs));
+        let roots = match goal {
+            Goal::Optimize => graph.root_mains(),
+            Goal::Check | Goal::Docs => Vec::new(),
+        };
+        Ok(Built {
+            checked,
+            ran: walked.ran,
+            compiled: walked.compiled,
+            docs,
+            optimized: Optimized {
+                roots,
+                graphs: walked.optimized,
+                interfaces: walked.interfaces,
+            },
+        })
     }
 }
 
@@ -332,18 +202,14 @@ pub fn show(
         (Checked::Fine, Style::Terminal) => {
             console.out("No problems in syntax, module names, imports, names or types.\n");
         }
+        (Checked::Project(_), Style::Terminal) => show_reports(console, root, checked, compat),
+        (Checked::Modules(modules), Style::Terminal) => {
+            console.out(&format!("{}\n", problems_summary(modules.len())));
+            show_reports(console, root, checked, compat);
+        }
         (Checked::Fine, Style::Json) => {}
-        (Checked::Project(report), Style::Terminal) => console::report(console, report, compat),
         (Checked::Project(report), Style::Json) => {
             console.err(&json::report(report, compat).to_string());
-        }
-        (Checked::Modules(modules), Style::Terminal) => {
-            let summary = match modules.len() {
-                1 => "Detected problems in 1 module.".to_owned(),
-                n => format!("Detected problems in {n} modules."),
-            };
-            console.out(&format!("{summary}\n"));
-            console::report_doc(console, &report::modules_doc(root, modules), compat);
         }
         (Checked::Modules(modules), Style::Json) => {
             let modules = modules.iter().map(|m| m.to_json(compat)).collect();
@@ -352,8 +218,33 @@ pub fn show(
     }
 }
 
+/// The reports of `checked` on standard error, in the terminal style,
+/// without the line saying how it went.
+pub(crate) fn show_reports(
+    console: &mut dyn Console,
+    root: &Path,
+    checked: &Checked,
+    compat: Compat,
+) {
+    match checked {
+        Checked::Fine => {}
+        Checked::Project(report) => console::report(console, report, compat),
+        Checked::Modules(modules) => {
+            console::report_doc(console, &report::modules_doc(root, modules), compat);
+        }
+    }
+}
+
+/// The terminal style's line for problems in `modules` modules.
+pub(crate) fn problems_summary(modules: usize) -> String {
+    match modules {
+        1 => "Detected problems in 1 module.".to_owned(),
+        n => format!("Detected problems in {n} modules."),
+    }
+}
+
 /// `MakeAppNeedsFileNames` and `MakePkgNeedsExposing`.
-fn no_input(personality: Personality, app: bool) -> Report {
+fn no_input(personality: Personality, outline: &Outline) -> Report {
     let command = match personality {
         Personality::Nomi => "nomi check".to_owned(),
         Personality::Elm => personality.command(ElmCommand::Make),
@@ -366,12 +257,15 @@ fn no_input(personality: Personality, app: bool) -> Report {
             .color(Color::Green)
             .indent(4),
     ]);
-    let advice = if app {
-        "I recommend reading through https://guide.elm-lang.org for guidance on what to \
-         actually put in those files!"
-    } else {
-        "You can also entries to the \"exposed-modules\" list in your elm.json file, and I \
-         will try to compile the relevant files."
+    let advice = match outline {
+        Outline::App(_) => {
+            "I recommend reading through https://guide.elm-lang.org for guidance on what to \
+             actually put in those files!"
+        }
+        Outline::Pkg(_) => {
+            "You can also entries to the \"exposed-modules\" list in your elm.json file, and I \
+             will try to compile the relevant files."
+        }
     };
     Report::new(
         "NO INPUT",
@@ -383,6 +277,7 @@ fn no_input(personality: Personality, app: bool) -> Report {
 
 /// What a project builds with, as `Details.load` finds it.
 pub(crate) struct Sources {
+    /// The modules the direct dependencies expose, by name.
     pub foreigns: Foreigns,
     /// Each direct dependency, in order of names, and the modules it
     /// exposes.
@@ -431,7 +326,7 @@ pub(crate) fn sources(
         let _ = artifacts.put(key, encode_releases(&releases).as_bytes());
         releases
     };
-    let fetched = packages::fetch(Pool::global(), &store, http, compat, releases.clone());
+    let fetched = packages::fetch(Pool::global(), &store, http, compat, &releases);
     let direct: Vec<&Name> = match &project.outline {
         Outline::App(app) => app.direct.keys().collect(),
         Outline::Pkg(pkg) => pkg.deps.keys().collect(),
@@ -441,26 +336,19 @@ pub(crate) fn sources(
     for ((name, version), dir) in releases.iter().zip(fetched) {
         let dir =
             dir.map_err(|problem| registry_report::package_problem(name, *version, &problem))?;
-        packages.push((name.clone(), dir.clone()));
-        if !direct.contains(&name) {
-            continue;
+        if direct.contains(&name) {
+            let Ok(Some(pkg)) = project::package_outline(&dir, compat) else {
+                return Err(one_line(
+                    "CORRUPT PACKAGE DATA",
+                    &format!(
+                        "I could not read the elm.json of {name} {version} in {}.",
+                        dir.display()
+                    ),
+                ));
+            };
+            exposing.insert(name.clone(), pkg.exposed.modules().cloned().collect());
         }
-        let unreadable = || {
-            one_line(
-                "CORRUPT PACKAGE DATA",
-                &format!(
-                    "I could not read the elm.json of {name} {version} in {}.",
-                    dir.display()
-                ),
-            )
-        };
-        let bytes = std::fs::read(dir.join("elm.json")).map_err(|_| unreadable())?;
-        match Outline::decode(&bytes, compat) {
-            Ok(Outline::Pkg(pkg)) => {
-                exposing.insert(name.clone(), pkg.exposed.modules().cloned().collect());
-            }
-            _ => return Err(unreadable()),
-        }
+        packages.push((name.clone(), dir));
     }
     let direct: Vec<(Name, Vec<ModuleName>)> = (direct.into_iter())
         .filter_map(|name| Some((name.clone(), exposing.remove(name)?)))
@@ -496,7 +384,7 @@ pub(crate) fn foreigns(
     http: &(impl Http + Sync),
     project: &Project,
     personality: Personality,
-) -> Result<(Foreigns, HashMap<String, Interface>, objects::Dependencies), Report> {
+) -> Result<(Foreigns, HashMap<String, Interface>), Report> {
     let sources = sources(cache, http, project, personality)?;
     let artifacts = Artifacts::new(cache);
     let built = objects::build(
@@ -507,11 +395,7 @@ pub(crate) fn foreigns(
     );
     let built = built.map_err(|why| packages_problem(&why))?;
     let direct: Vec<Name> = sources.direct.into_iter().map(|(name, _)| name).collect();
-    Ok((
-        sources.foreigns,
-        names::visible(&built.exposed(), &direct),
-        built,
-    ))
+    Ok((sources.foreigns, names::visible(&built.exposed(), &direct)))
 }
 
 /// A package nomi couldn't build.
@@ -532,8 +416,7 @@ pub fn env_of(
     let (owner, src_dirs) = match outline {
         Outline::App(app) => (
             Owner::Application,
-            app.source_dirs
-                .iter()
+            (app.source_dirs.iter())
                 .filter_map(|d| d.path())
                 .map(PathBuf::from)
                 .collect::<Vec<_>>(),

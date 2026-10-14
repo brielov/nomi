@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow, bail};
 use nomi_base::Compat;
 use nomi_compiler::interface::Interface;
-use nomi_engine::check::{self, Checked};
+use nomi_engine::check::{self, Build, Checked, Goal};
 use nomi_engine::console::Personality;
 use nomi_engine::graph::Foreigns;
 use nomi_engine::{Vfs, names};
@@ -159,14 +159,18 @@ fn run(
     )
     .map_err(|r| r.title.to_string())?
     .with_cwd(&project.root);
-    let checked = check::check(
-        &Vfs::new().snapshot(),
-        &env,
-        &project.outline,
-        &project.paths,
-        Personality::Elm,
-        (&visible).into(),
-    );
+    let build = Build {
+        snapshot: &Vfs::new().snapshot(),
+        env: &env,
+        outline: &project.outline,
+        paths: &project.paths,
+        personality: Personality::Elm,
+        packages: (&visible).into(),
+        artifacts: None,
+    };
+    let checked = (build.run(Goal::Check))
+        .expect("nothing revises the corpus")
+        .checked;
     match checked {
         Checked::Fine => Ok(()),
         Checked::Project(report) => Err(report.title.to_string()),

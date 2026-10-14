@@ -251,7 +251,7 @@ fn main() -> ExitCode {
                 Some(ReportFormat::Json) => Style::Json,
                 None => Style::Terminal,
             };
-            check::run(&Vfs::new(), console, dir, cache, http, &paths, style)
+            check::run(&Vfs::new(), console, dir, cache, http, paths, style)
         }),
     };
     exit(succeeded)

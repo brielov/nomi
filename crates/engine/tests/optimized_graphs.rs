@@ -5,11 +5,12 @@
 #![cfg(unix)]
 
 #[path = "support/projects.rs"]
-mod projects;
+pub mod projects;
 
 use std::fs;
 use std::path::Path;
 
+use nomi_base::Compat;
 use nomi_testkit::ratchet::Suite;
 use nomi_testkit::transcript::Case;
 
@@ -17,7 +18,6 @@ use nomi_testkit::transcript::Case;
 fn optimized_graphs() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let cases = manifest.join("../compiler/tests/optimized");
-    let packages = manifest.join("../compiler/tests/packages");
     let default = fs::read_to_string(cases.join("default.elm.json")).unwrap();
     let mut names: Vec<_> = fs::read_dir(cases.join("cases"))
         .unwrap()
@@ -28,7 +28,7 @@ fn optimized_graphs() {
     for path in &names {
         let case_name = path.file_stem().unwrap().to_string_lossy().into_owned();
         let case = Case::parse(&fs::read_to_string(path).unwrap()).unwrap();
-        for compat in projects::ALL {
+        for compat in Compat::ALL {
             let elm = cases
                 .join("artifacts")
                 .join(format!("elm-{compat}"))
@@ -40,7 +40,7 @@ fn optimized_graphs() {
                 .map(|e| e.unwrap().path())
                 .collect();
             expected.sort();
-            let made = projects::optimized(&case, compat, &default, &packages);
+            let made = projects::optimized(&case, compat, &default);
             for file in expected {
                 let module = file.file_stem().unwrap().to_string_lossy().into_owned();
                 let id = format!("{case_name} {module} as {compat}");
@@ -54,10 +54,7 @@ fn optimized_graphs() {
                         }
                     },
                 };
-                if let (Err(why), Ok(_)) = (&outcome, std::env::var("NOMI_SHOW")) {
-                    eprintln!("FAIL {id}: {why}");
-                }
-                outcomes.push((id, outcome));
+                outcomes.push(projects::shown(id, outcome));
             }
         }
     }
@@ -65,7 +62,7 @@ fn optimized_graphs() {
 }
 
 /// Where nomi's graph first differs from elm's.
-fn difference(nomi: &[u8], elm: &[u8], compat: nomi_base::Compat) -> String {
+fn difference(nomi: &[u8], elm: &[u8], compat: Compat) -> String {
     use nomi_compiler::optimized::binary::decode_local_graph;
     let (Some(nomi), Some(elm)) = (
         decode_local_graph(nomi, compat),

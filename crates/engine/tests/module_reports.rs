@@ -1,8 +1,7 @@
 //! `nomi check` against `elm make --output=/dev/null`, for the projects
 //! in `tests/modules/cases` (`cargo xtask oracle modules` records them):
 //! the same `--report=json`, and the same terminal report on standard
-//! error, from each elm. Every case fails, if it does, in the phases nomi
-//! has: the project, syntax, module names and imports.
+//! error, from each elm.
 //!
 //! The reports were recorded on Linux. On Windows elm draws cycles in
 //! ASCII and separates paths with `\`, as nomi does there, so they hold
@@ -10,23 +9,19 @@
 #![cfg(unix)]
 
 #[path = "support/projects.rs"]
-mod projects;
+pub mod projects;
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use nomi_base::Compat;
+use nomi_engine::check::Goal;
 use nomi_testkit::transcript::Case;
 
-use projects::{ALL, compat_name, same_json, table};
+use projects::{compat_name, same_json, table};
 
 fn dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/modules")
-}
-
-/// The fixture packages, whose sources make the interfaces;
-/// `tests/modules/packages` keeps only the `elm.json` the oracle had.
-fn packages() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages")
 }
 
 #[test]
@@ -45,9 +40,9 @@ fn module_reports() {
         let stem = file.strip_suffix(".case").unwrap();
         let case = Case::parse(&fs::read_to_string(dir().join("cases").join(file)).unwrap())
             .unwrap_or_else(|e| panic!("{file}: {e}"));
-        for compat in ALL {
+        for compat in Compat::ALL {
             let key = (stem.to_owned(), compat_name(compat));
-            let (json, stderr) = projects::run(&case, compat, &default, &packages());
+            let (json, stderr, _) = projects::run(&case, compat, &default, Goal::Check);
             let elm = &reports[&key];
             if !same_json(elm, &json) {
                 failures.push(format!(

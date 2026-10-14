@@ -7,25 +7,28 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use nomi_base::Compat;
 use nomi_compiler::canonicalize::module::{Canonical, canonicalize_with_references, interface};
 use nomi_compiler::canonicalize::references::Reference;
 use nomi_compiler::hir;
 use nomi_compiler::interface::Interface;
-use nomi_project::{ModuleName, Name, Outline};
+use nomi_compiler::types::{self, ExprTypes, Inferred};
+use nomi_project::{Constraint, ModuleName, Name, Outline};
 use nomi_registry::Store;
 use nomi_syntax::SyntaxNode;
 use nomi_syntax::ast::{self, AstNode};
 
 use crate::check::env_of;
-use crate::graph::{Foreigns, Graph, Owner, Root, Status};
+use crate::graph::{Env, Foreigns, Graph, Module, Root, Status, written_imports};
 use crate::names::{self, PackageInterfaces};
-use crate::{Snapshot, Vfs};
+use crate::paths::ELM_JSON;
+use crate::project::package_outline;
+use crate::vfs::{canonical, canonical_or_given};
+use crate::{Snapshot, discover};
 
-/// Each package directory's build, kept between indexes.
-pub type Memo = crate::objects::Memo;
+pub use crate::objects::Memo;
 
 /// A project's modules and packages, for navigation.
 #[derive(Debug)]
@@ -34,6 +37,7 @@ pub struct Index {
     /// The package the project's own modules are homes in;
     /// `author/project` for an application, as upstream names it.
     pub package: String,
+    /// Each module of the project's own the index could read.
     pub modules: Vec<Arc<Indexed>>,
     /// Each dependency's source directory, by package name.
     pub packages: HashMap<String, PathBuf>,
@@ -45,6 +49,7 @@ pub struct Index {
 /// One of the project's own modules.
 #[derive(Clone, Debug)]
 pub struct Indexed {
+    /// Its file, as the index read it.
     pub path: PathBuf,
     pub name: String,
     pub text: Arc<str>,
@@ -52,15 +57,13 @@ pub struct Indexed {
     /// across threads as a cursor isn't.
     pub green: nomi_syntax::GreenNode,
     pub hir: hir::Module,
+    /// What each name it writes refers to.
     pub references: Vec<Reference>,
     /// The module canonicalized, where it canonicalizes, for hover to
     /// infer its expressions' types.
     pub canonical: Option<Canonical>,
     /// Its types, inferred the first time they're asked for.
-    pub typed: std::sync::OnceLock<(
-        nomi_compiler::types::Inferred,
-        nomi_compiler::types::ExprTypes,
-    )>,
+    pub typed: OnceLock<(Inferred, ExprTypes)>,
 }
 
 impl Indexed {
@@ -70,17 +73,11 @@ impl Indexed {
     }
 
     /// Its declarations' types and its expressions', inferred once.
-    pub fn types(
-        &self,
-        compat: Compat,
-    ) -> Option<&(
-        nomi_compiler::types::Inferred,
-        nomi_compiler::types::ExprTypes,
-    )> {
+    pub fn types(&self, compat: Compat) -> Option<&(Inferred, ExprTypes)> {
         let canonical = self.canonical.as_ref()?;
         Some(
             self.typed
-                .get_or_init(|| nomi_compiler::types::infer_types(compat, canonical)),
+                .get_or_init(|| types::infer_types(compat, canonical)),
         )
     }
 }
@@ -92,9 +89,9 @@ impl Index {
         if let Some(module) = self.modules.iter().find(|m| m.path == path) {
             return Some(module);
         }
-        let path = canonical(path);
+        let path = canonical_or_given(path);
         (self.modules.iter())
-            .find(|m| canonical(&m.path) == path)
+            .find(|m| canonical_or_given(&m.path) == path)
             .map(|m| &**m)
     }
 
@@ -104,125 +101,95 @@ impl Index {
     }
 }
 
-/// `path` with its symbolic links resolved as far as it exists, so a
-/// buffer the editor hasn't saved has the name its directory gives it.
-fn canonical(path: &Path) -> PathBuf {
-    crate::vfs::canonical(path).unwrap_or_else(|_| path.to_owned())
-}
-
 /// The `elm.json` of the project that owns `file`: the nearest above it.
 pub fn manifest(snapshot: &Snapshot, file: &Path) -> Option<PathBuf> {
     file.ancestors()
         .skip(1)
-        .map(|dir| dir.join("elm.json"))
+        .map(|dir| dir.join(ELM_JSON))
         .find(|manifest| snapshot.is_file(manifest))
 }
 
-/// A project as the editor sees it: its outline, its environment, and
-/// what the store holds of its dependencies.
+/// A project as the editor sees it: its outline, and what the store holds
+/// of its dependencies.
 pub(crate) struct Setup {
+    /// The directory of its `elm.json`.
     pub root: PathBuf,
     pub outline: Outline,
     pub compat: Compat,
-    pub env: crate::graph::Env,
+    /// Each release the store holds, and the directory of its source.
     pub sources: Vec<(Name, PathBuf)>,
     pub direct: Vec<Name>,
     /// Whether the store holds every dependency.
     pub complete: bool,
 }
 
-/// The project whose `elm.json` is `manifest`; none where it isn't
-/// readable.
-pub(crate) fn setup(snapshot: &Snapshot, store: &Store, manifest: &Path) -> Option<Setup> {
-    let root = manifest.parent()?.to_owned();
-    let (outline, compat) = Outline::detect(&snapshot.read_bytes(manifest).ok()?).ok()?;
-    let (sources, direct) = releases(store, &outline, compat);
-    let complete = match &outline {
-        Outline::App(app) => sources.len() == app.direct.len() + app.indirect.len(),
-        Outline::Pkg(pkg) => (pkg.deps.keys()).all(|name| sources.iter().any(|(n, _)| n == name)),
-    };
-    let mut exposing = Vec::new();
-    for name in &direct {
-        let Some((_, dir)) = sources.iter().find(|(n, _)| n == name) else {
-            continue;
+impl Setup {
+    /// The project whose `elm.json` is `manifest`; none where it isn't
+    /// readable.
+    pub(crate) fn read(snapshot: &Snapshot, store: &Store, manifest: &Path) -> Option<Setup> {
+        let root = manifest.parent()?.to_owned();
+        let (outline, compat) = Outline::detect(&snapshot.read_bytes(manifest).ok()?).ok()?;
+        let (sources, direct) = releases(store, &outline, compat);
+        let complete = match &outline {
+            Outline::App(app) => sources.len() == app.direct.len() + app.indirect.len(),
+            Outline::Pkg(pkg) => {
+                (pkg.deps.keys()).all(|name| sources.iter().any(|(n, _)| n == name))
+            }
         };
-        if let Some(Outline::Pkg(pkg)) = package_outline(dir, compat) {
-            exposing.push((name.clone(), pkg.exposed.modules().cloned().collect()));
-        }
+        Some(Setup {
+            root,
+            outline,
+            compat,
+            sources,
+            direct,
+            complete,
+        })
     }
-    let env = env_of(&root, &outline, compat, Foreigns::new(exposing)).ok()?;
-    Some(Setup {
-        root,
-        outline,
-        compat,
-        env,
-        sources,
-        direct,
-        complete,
-    })
-}
 
-/// [`setup`] as elm-test and elm-language-server see the project: with its
-/// test dependencies, and with `tests/` among its source directories
-/// where it has one.
-fn setup_with_tests(snapshot: &Snapshot, store: &Store, manifest: &Path) -> Option<Setup> {
-    let mut setup = setup(snapshot, store, manifest)?;
-    let (sources, direct) = match &setup.outline {
-        Outline::App(app) => {
-            let sources = (app.test_direct.iter().chain(&app.test_indirect))
-                .filter_map(|(name, &version)| {
-                    Some((name.clone(), store.get(name, version).ok()??))
-                })
-                .collect();
-            (sources, app.test_direct.keys().cloned().collect::<Vec<_>>())
-        }
-        Outline::Pkg(pkg) => {
-            let mut sources = setup.sources.clone();
-            resolve(
-                store,
-                setup.compat,
-                pkg.test_deps.iter().map(|(n, c)| (n.clone(), *c)).collect(),
-                &mut sources,
-            );
-            (sources, pkg.test_deps.keys().cloned().collect())
-        }
-    };
-    for (name, dir) in sources {
-        if !setup.sources.iter().any(|(n, _)| *n == name) {
-            setup.sources.push((name, dir));
-        }
-    }
-    for name in direct {
-        if !setup.direct.contains(&name) {
-            setup.direct.push(name);
-        }
-    }
-    let tests = setup.root.join("tests");
-    let mut src_dirs = setup.env.src_dirs().to_vec();
-    // Directories are the disk's; the Vfs keeps files.
-    let listed = crate::vfs::canonical(&tests).is_ok_and(|t| src_dirs.contains(&t));
-    if tests.is_dir() && !listed {
-        src_dirs.push(tests);
-    }
-    let mut exposing = Vec::new();
-    for name in &setup.direct {
-        let Some((_, dir)) = setup.sources.iter().find(|(n, _)| n == name) else {
-            continue;
+    /// The project as elm-test and elm-language-server see it: with its
+    /// test dependencies.
+    fn with_tests(mut self, store: &Store) -> Setup {
+        let direct: Vec<Name> = match &self.outline {
+            Outline::App(app) => {
+                for (name, &version) in app.test_direct.iter().chain(&app.test_indirect) {
+                    if !self.sources.iter().any(|(n, _)| n == name)
+                        && let Ok(Some(dir)) = store.get(name, version)
+                    {
+                        self.sources.push((name.clone(), dir));
+                    }
+                }
+                app.test_direct.keys().cloned().collect()
+            }
+            Outline::Pkg(pkg) => {
+                let pending = pkg.test_deps.iter().map(|(n, c)| (n.clone(), *c));
+                resolve(store, self.compat, pending.collect(), &mut self.sources);
+                pkg.test_deps.keys().cloned().collect()
+            }
         };
-        if let Some(Outline::Pkg(pkg)) = package_outline(dir, setup.compat) {
-            exposing.push((name.clone(), pkg.exposed.modules().cloned().collect()));
+        for name in direct {
+            if !self.direct.contains(&name) {
+                self.direct.push(name);
+            }
         }
+        self
     }
-    let owner = setup.env.owner().clone();
-    setup.env = crate::graph::Env::new(
-        setup.compat,
-        &setup.root,
-        owner,
-        &src_dirs,
-        Foreigns::new(exposing),
-    )
-    .ok()?;
-    Some(setup)
+
+    /// The project's build environment, with the modules each direct
+    /// dependency the store holds exposes.
+    pub(crate) fn env(&self) -> Option<Env> {
+        let exposing = self.direct.iter().filter_map(|name| {
+            let (_, dir) = self.sources.iter().find(|(n, _)| n == name)?;
+            let pkg = package_outline(dir, self.compat).ok()??;
+            Some((name.clone(), pkg.exposed.modules().cloned().collect()))
+        });
+        env_of(
+            &self.root,
+            &self.outline,
+            self.compat,
+            Foreigns::new(exposing),
+        )
+        .ok()
+    }
 }
 
 /// The newest release in the store of each package `pending` names, in
@@ -230,7 +197,7 @@ fn setup_with_tests(snapshot: &Snapshot, store: &Store, manifest: &Path) -> Opti
 fn resolve(
     store: &Store,
     compat: Compat,
-    mut pending: Vec<(Name, nomi_project::Constraint)>,
+    mut pending: Vec<(Name, Constraint)>,
     sources: &mut Vec<(Name, PathBuf)>,
 ) {
     while let Some((name, constraint)) = pending.pop() {
@@ -244,7 +211,7 @@ fn resolve(
         else {
             continue;
         };
-        if let Some(Outline::Pkg(dep)) = package_outline(&dir, compat) {
+        if let Ok(Some(dep)) = package_outline(&dir, compat) {
             pending.extend(dep.deps.iter().map(|(n, c)| (n.clone(), *c)));
         }
         sources.push((name, dir));
@@ -252,11 +219,10 @@ fn resolve(
 }
 
 /// The `.elm` files under the source directories of `env`, from the disk.
-pub(crate) fn discover(env: &crate::graph::Env) -> Vec<PathBuf> {
-    let vfs = Vfs::new();
+pub(crate) fn elm_files(env: &Env) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     for dir in env.src_dirs() {
-        let found = vfs.discover(dir).unwrap_or_default();
+        let found = discover(dir).unwrap_or_default();
         paths.extend(
             found
                 .into_iter()
@@ -284,23 +250,29 @@ pub fn index_from(
     previous: Option<&Index>,
 ) -> Option<Index> {
     let manifest = manifest(snapshot, file)?;
+    let setup = Setup::read(snapshot, store, &manifest)?.with_tests(store);
+    let mut env = setup.env()?;
+    let tests = setup.root.join("tests");
+    // Directories are the disk's; the Vfs keeps files.
+    let listed = canonical(&tests).is_ok_and(|t| env.src_dirs().contains(&t));
+    if tests.is_dir() && !listed {
+        env = env.with_src_dir(&tests).ok()?;
+    }
     let Setup {
         compat,
-        env,
         sources,
         direct,
         ..
-    } = setup_with_tests(snapshot, store, &manifest)?;
+    } = setup;
     // A package nomi can't canonicalize leaves the project's own modules
     // to navigate.
     let packages: PackageInterfaces =
         names::package_interfaces_with(compat, &sources, memo).unwrap_or_default();
     let mut interfaces = names::visible(&packages, &direct);
-    let mut paths = discover(&env);
+    let mut paths = elm_files(&env);
     // The file itself, which may be open in the editor and not yet
-    // saved.
-    // Discovery starts from the canonical source directories.
-    let wanted = canonical(file);
+    // saved. Discovery starts from the canonical source directories.
+    let wanted = canonical_or_given(file);
     if !paths.contains(&wanted) {
         paths.push(wanted);
     }
@@ -310,13 +282,7 @@ pub fn index_from(
         .or_else(|_| Graph::from_paths(snapshot, &env, &named(&env, &paths)))
         .or_else(|_| Graph::from_paths(snapshot, &env, &[]))
         .ok()?;
-    let package = match env.owner() {
-        Owner::Package(name) => name.to_string(),
-        Owner::Application => "author/project".to_owned(),
-    };
-    // Each module after the local modules it imports.
-    let mut order: Vec<&ModuleName> = graph.modules.keys().collect();
-    order.sort_by(|a, b| a.compare(b, compat));
+    let package = env.owner().package_name();
     // Only an index of the same packages has the same interfaces of them.
     let previous = previous.filter(|p| {
         p.compat == compat
@@ -331,9 +297,11 @@ pub fn index_from(
         interfaces: &mut interfaces,
         seen: HashSet::new(),
         modules: Vec::new(),
-        previous,
-        same: std::cell::RefCell::new(HashMap::new()),
+        reuse: previous.map(Reuse::new),
     };
+    // Each module after the local modules it imports.
+    let mut order: Vec<&ModuleName> = graph.modules.keys().collect();
+    order.sort_by(|a, b| a.compare(b, compat));
     for name in order {
         visit.local(name);
     }
@@ -342,28 +310,7 @@ pub fn index_from(
             visit.module(module);
         }
     }
-    // A file no module name fits, such as `src/main.elm`, is in no graph;
-    // it's read on its own.
-    // Each path resolved once: resolving touches the disk.
-    let mut indexed: HashSet<PathBuf> =
-        (visit.modules.iter()).map(|m| canonical(&m.path)).collect();
-    for path in &paths {
-        if indexed.contains(&canonical(path)) {
-            continue;
-        }
-        let Ok(text) = snapshot.read(path) else {
-            continue;
-        };
-        let text: Arc<str> = text.into();
-        let parse = nomi_syntax::parse_module(&text);
-        let imports: Vec<ModuleName> = (ast::Module::cast(parse.syntax()).iter())
-            .flat_map(crate::graph::written_imports)
-            .map(|import| import.name)
-            .collect();
-        let before = visit.modules.len();
-        visit.visit(path, None, &text, &parse.syntax(), &imports);
-        indexed.extend(visit.modules[before..].iter().map(|m| canonical(&m.path)));
-    }
+    visit.orphans(snapshot, &paths);
     let modules = visit.modules;
     Some(Index {
         compat,
@@ -378,7 +325,7 @@ pub fn index_from(
 
 /// The paths of `paths` that some module name fits: under a source
 /// directory, each part a capitalized name.
-fn named(env: &crate::graph::Env, paths: &[PathBuf]) -> Vec<PathBuf> {
+fn named(env: &Env, paths: &[PathBuf]) -> Vec<PathBuf> {
     let fits = |path: &Path| {
         env.src_dirs().iter().any(|dir| {
             path.strip_prefix(dir).is_ok_and(|relative| {
@@ -424,10 +371,6 @@ fn releases(store: &Store, outline: &Outline, compat: Compat) -> (Vec<(Name, Pat
     }
 }
 
-fn package_outline(dir: &Path, compat: Compat) -> Option<Outline> {
-    Outline::decode(&std::fs::read(dir.join("elm.json")).ok()?, compat).ok()
-}
-
 struct Visit<'v> {
     graph: &'v Graph,
     compat: Compat,
@@ -435,10 +378,37 @@ struct Visit<'v> {
     interfaces: &'v mut HashMap<String, Interface>,
     seen: HashSet<ModuleName>,
     modules: Vec<Arc<Indexed>>,
-    previous: Option<&'v Index>,
+    reuse: Option<Reuse<'v>>,
+}
+
+/// An earlier index of the project, whose modules a new one reuses.
+struct Reuse<'p> {
+    previous: &'p Index,
+    /// Its modules, by path.
+    by_path: HashMap<&'p Path, &'p Arc<Indexed>>,
+    /// Its modules' names.
+    names: HashSet<&'p str>,
+    /// The names of the modules indexed so far.
+    indexed: HashSet<String>,
     /// Whether each project module's interface is as in `previous`, once
     /// it is final.
-    same: std::cell::RefCell<HashMap<String, bool>>,
+    same: HashMap<String, bool>,
+}
+
+impl<'p> Reuse<'p> {
+    fn new(previous: &'p Index) -> Reuse<'p> {
+        let mut by_path = HashMap::new();
+        for module in &previous.modules {
+            by_path.entry(module.path.as_path()).or_insert(module);
+        }
+        Reuse {
+            previous,
+            by_path,
+            names: previous.modules.iter().map(|m| m.name.as_str()).collect(),
+            indexed: HashSet::new(),
+            same: HashMap::new(),
+        }
+    }
 }
 
 impl Visit<'_> {
@@ -457,11 +427,11 @@ impl Visit<'_> {
                     self.visit(&bad.path, None, text, &parse.syntax(), &imports);
                 }
             }
-            _ => {}
+            Some(Status::Foreign(_) | Status::Kernel | Status::BadImport(_)) | None => {}
         }
     }
 
-    fn module(&mut self, module: &crate::graph::Module) {
+    fn module(&mut self, module: &Module) {
         let imports: Vec<ModuleName> = module.imports.iter().map(|i| i.name.clone()).collect();
         let syntax = module.parse.syntax();
         self.visit(
@@ -473,28 +443,65 @@ impl Visit<'_> {
         );
     }
 
+    /// Each file of `paths` no module name fits, such as `src/main.elm`,
+    /// which is in no graph, read on its own.
+    fn orphans(&mut self, snapshot: &Snapshot, paths: &[PathBuf]) {
+        // Each path resolved once: resolving touches the disk.
+        let mut indexed: HashSet<PathBuf> = (self.modules.iter())
+            .map(|m| canonical_or_given(&m.path))
+            .collect();
+        for path in paths {
+            if indexed.contains(&canonical_or_given(path)) {
+                continue;
+            }
+            let Ok(text) = snapshot.read(path) else {
+                continue;
+            };
+            let text: Arc<str> = text.into();
+            let parse = nomi_syntax::parse_module(&text);
+            let imports: Vec<ModuleName> = (ast::Module::cast(parse.syntax()).iter())
+                .flat_map(written_imports)
+                .map(|import| import.name)
+                .collect();
+            let before = self.modules.len();
+            self.visit(path, None, &text, &parse.syntax(), &imports);
+            indexed.extend(
+                self.modules[before..]
+                    .iter()
+                    .map(|m| canonical_or_given(&m.path)),
+            );
+        }
+    }
+
     /// The previous index's module at `path`, where its text is `text` and
     /// each of the project's modules it imports has the interface it had.
     fn reusable(
-        &self,
+        &mut self,
         path: &Path,
         text: &Arc<str>,
         imports: &[ModuleName],
     ) -> Option<Arc<Indexed>> {
-        let previous = self.previous?;
-        let module = (previous.modules.iter()).find(|m| m.path == path && *m.text == **text)?;
+        let reuse = self.reuse.as_mut()?;
+        let module = Arc::clone(reuse.by_path.get(path).filter(|m| *m.text == **text)?);
         let unchanged = imports.iter().all(|import| {
             let name = import.to_string();
-            if let Some(&same) = self.same.borrow().get(&name) {
+            if let Some(&same) = reuse.same.get(&name) {
                 return same;
             }
-            let local = previous.modules.iter().any(|m| m.name == name)
-                || self.modules.iter().any(|m| m.name == name);
-            let same = !local || self.interfaces.get(&name) == previous.interfaces.get(&name);
-            self.same.borrow_mut().insert(name, same);
+            let local = reuse.names.contains(name.as_str()) || reuse.indexed.contains(&name);
+            let same = !local || self.interfaces.get(&name) == reuse.previous.interfaces.get(&name);
+            reuse.same.insert(name, same);
             same
         });
-        unchanged.then(|| Arc::clone(module))
+        unchanged.then_some(module)
+    }
+
+    /// `module` among the modules indexed.
+    fn push(&mut self, module: Arc<Indexed>) {
+        if let Some(reuse) = &mut self.reuse {
+            reuse.indexed.insert(module.name.clone());
+        }
+        self.modules.push(module);
     }
 
     /// Canonicalizes a module after its local imports, whatever became
@@ -512,12 +519,13 @@ impl Visit<'_> {
             self.local(import);
         }
         if let Some(reused) = self.reusable(path, text, imports) {
+            let previous = self.reuse.as_ref().map(|reuse| reuse.previous);
             if reused.canonical.is_some()
-                && let Some(interface) = self.previous.and_then(|p| p.interfaces.get(&reused.name))
+                && let Some(interface) = previous.and_then(|p| p.interfaces.get(&reused.name))
             {
                 (self.interfaces).insert(reused.name.clone(), interface.clone());
             }
-            self.modules.push(reused);
+            self.push(reused);
             return;
         }
         let Some(syntax) = ast::Module::cast(root.clone()) else {
@@ -530,11 +538,10 @@ impl Visit<'_> {
         let canonical = canonical.ok();
         if let Some(canonical) = &canonical {
             // Typed where it type-checks, as written where it doesn't.
-            let annotations =
-                nomi_compiler::types::infer(self.compat, canonical).unwrap_or_default();
+            let annotations = types::infer(self.compat, canonical).unwrap_or_default();
             (self.interfaces).insert(name.clone(), interface(canonical, &annotations));
         }
-        self.modules.push(Arc::new(Indexed {
+        self.push(Arc::new(Indexed {
             path: path.to_owned(),
             name,
             text: text.clone(),
@@ -542,7 +549,7 @@ impl Visit<'_> {
             hir,
             references,
             canonical,
-            typed: std::sync::OnceLock::new(),
+            typed: OnceLock::new(),
         }));
     }
 }

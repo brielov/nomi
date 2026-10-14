@@ -42,6 +42,7 @@ const UNUSED_FOR: Duration = Duration::from_secs(5 * 24 * 60 * 60);
 pub struct Hash(pub [u8; 32]);
 
 impl Hash {
+    /// The hash of `bytes`.
     pub fn of(bytes: &[u8]) -> Hash {
         Hash(Sha256::digest(bytes).into())
     }
@@ -49,7 +50,7 @@ impl Hash {
 
 impl fmt::Display for Hash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.iter().try_for_each(|b| write!(f, "{b:02x}"))
+        f.write_str(&nomi_base::hex(&self.0))
     }
 }
 
@@ -83,6 +84,7 @@ impl Key {
         .part("toolchain", toolchain)
     }
 
+    /// The key with the part `name`, `bytes` long, added.
     pub fn part(mut self, name: &str, bytes: &[u8]) -> Key {
         for bytes in [name.as_bytes(), bytes] {
             self.hasher.update((bytes.len() as u64).to_le_bytes());
@@ -91,10 +93,12 @@ impl Key {
         self
     }
 
+    /// The key with the part `name`, a hash, added.
     pub fn hash(self, name: &str, hash: Hash) -> Key {
         self.part(name, &hash.0)
     }
 
+    /// The hash of every part added.
     pub fn finish(self) -> Hash {
         Hash(self.hasher.finalize().into())
     }
@@ -161,6 +165,7 @@ pub struct Trimmed {
 }
 
 impl Artifacts {
+    /// The artifact cache in `cache`.
     pub fn new(cache: &paths::Cache) -> Artifacts {
         Artifacts {
             dir: cache.artifacts().join(LAYOUT),
@@ -168,7 +173,7 @@ impl Artifacts {
     }
 
     fn path(&self, key: Hash) -> PathBuf {
-        let hex = key.to_string();
+        let hex = nomi_base::hex(&key.0);
         self.dir.join(&hex[..2]).join(hex)
     }
 
@@ -179,7 +184,7 @@ impl Artifacts {
     }
 
     /// [`Artifacts::get`], with the payload's hash, which the entry holds.
-    pub fn get_hashed(&self, key: Hash) -> Option<(Vec<u8>, Hash)> {
+    pub(crate) fn get_hashed(&self, key: Hash) -> Option<(Vec<u8>, Hash)> {
         self.get_at(key, SystemTime::now())
     }
 

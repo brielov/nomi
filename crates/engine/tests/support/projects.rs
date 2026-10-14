@@ -1,12 +1,9 @@
 //! Running `nomi check` on a project an oracle recorded elm on, as the
 //! oracle made it: in a directory whose path is as long as the oracle's,
-//! with the case's files dated a second apart, and an application's
-//! `elm-version` set to the release under test. Shared by the suites
-//! whose cases are projects.
-#![allow(
-    dead_code,
-    reason = "shared by several test binaries, each using part of it"
-)]
+//! with the case's files dated a second apart, an application's
+//! `elm-version` set to the release under test, and the fixture packages.
+//! Shared by the suites whose cases are projects, each test target taking
+//! it as a public module, as each uses part of it.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -15,30 +12,28 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use nomi_base::Compat;
+use nomi_compiler::interface::Interface;
+use nomi_compiler::optimized::binary;
 use nomi_engine::Vfs;
-use nomi_engine::check::{self, Style};
+use nomi_engine::check::{self, Build, Built, Checked, Goal, Optimized, Style};
 use nomi_engine::console::{Console, Personality};
-use nomi_engine::graph::Foreigns;
-use nomi_engine::names;
-use nomi_engine::{javascript, objects};
+use nomi_engine::graph::{Env, Foreigns};
+use nomi_engine::{javascript, names, objects};
 use nomi_project::{ModuleName, Name, Outline};
-use nomi_testkit::transcript::Case;
+use nomi_testkit::packages;
+use nomi_testkit::transcript::{Case, ROOT_LENGTH};
 use serde_json::Value;
 
-pub(crate) const ALL: [Compat; 3] = [Compat::V0_19_1, Compat::V0_19_2, Compat::V0_19_3];
-
 /// What a cell holds where elm crashed; nothing to compare.
-pub(crate) const CRASH: &str = "crash";
+pub const CRASH: &str = "crash";
 
-/// As long as the project directory the oracle ran elm in.
-const ROOT_LENGTH: usize = 96;
-
-pub(crate) fn compat_name(compat: Compat) -> String {
+/// What a table calls the release `compat`.
+pub fn compat_name(compat: Compat) -> String {
     format!("elm {compat}")
 }
 
 /// A table an oracle recorded, by case and elm.
-pub(crate) fn table(path: &Path) -> BTreeMap<(String, String), String> {
+pub fn table(path: &Path) -> BTreeMap<(String, String), String> {
     let text = fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("{}: {e}; run the oracle", path.display()));
     let mut out = BTreeMap::new();
@@ -56,29 +51,109 @@ pub(crate) fn table(path: &Path) -> BTreeMap<(String, String), String> {
     out
 }
 
-/// What `nomi check` writes on standard error for `case`, with
-/// `--report=json` and without, building with the packages stored under
-/// `packages` (`<author>/<project>/<version>/elm.json`) and
-/// `default_elm_json` where the case has no `elm.json`.
-pub(crate) fn run(
+/// What `nomi check` writes on standard error for `case` built as `goal`
+/// asks, with `--report=json` and without, with `default_elm_json` where
+/// the case has no `elm.json`; and the `docs.json` it writes, if it
+/// writes one.
+pub fn run(
     case: &Case,
     compat: Compat,
     default_elm_json: &str,
-    packages: &Path,
-) -> (String, String) {
-    let (json, stderr, _) = build(case, compat, default_elm_json, packages, false);
-    (json, stderr)
+    goal: Goal,
+) -> (String, String, Option<String>) {
+    let project = Project::new(case, compat, default_elm_json);
+    let paths = match goal {
+        Goal::Docs => Vec::new(),
+        Goal::Check | Goal::Optimize => paths(case),
+    };
+    let built = project.build(&paths, goal);
+    let root_text = project.root.to_str().unwrap().to_owned();
+    let [json, stderr] = [Style::Json, Style::Terminal].map(|style| {
+        let mut console = Captured::default();
+        check::show(&mut console, &project.root, &built.checked, compat, style);
+        console.err.replace(&root_text, "$ROOT")
+    });
+    (json, stderr, built.docs)
 }
 
-/// [`run`] as `elm make --docs` runs, and the `docs.json` it writes, if
-/// it writes one.
-pub(crate) fn run_docs(
+/// What `elm make` optimizes of `case`, built as [`run`] builds it: each
+/// module's graph, by name, as `compat` writes it to `<Module>.elmo`; or
+/// why there is none.
+pub fn optimized(
     case: &Case,
     compat: Compat,
     default_elm_json: &str,
-    packages: &Path,
-) -> (String, String, Option<String>) {
-    build(case, compat, default_elm_json, packages, true)
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let (_, optimized) = optimize(case, compat, default_elm_json)?;
+    Ok((optimized.graphs.into_iter())
+        .map(|(name, graph)| (name.to_string(), binary::encode_local_graph(&graph, compat)))
+        .collect())
+}
+
+/// The JavaScript `elm make` would generate for `case` as `kind`, built
+/// as [`run`] builds it; or why there is none.
+pub fn javascript(
+    case: &Case,
+    compat: Compat,
+    kind: javascript::Kind,
+    default_elm_json: &str,
+) -> Result<Vec<u8>, String> {
+    let (project, optimized) = optimize(case, compat, default_elm_json)?;
+    let Outline::App(app) = &project.outline else {
+        return Err("only applications generate JavaScript".to_owned());
+    };
+    let sources: Vec<(Name, PathBuf)> = (app.direct.iter())
+        .chain(&app.indirect)
+        .map(|(name, version)| {
+            let dir = packages::dir()
+                .join(name.to_string())
+                .join(version.to_string());
+            (name.clone(), dir)
+        })
+        .collect();
+    let dependencies = dependencies(compat, &sources)?;
+    let root = match optimized.roots.as_slice() {
+        [root] => Some(root.name.to_string()),
+        _ => None,
+    };
+    let js = javascript::program(compat, kind, "author/project", dependencies, optimized);
+    let html = (case.args.iter()).any(|a| a.starts_with("--output=") && a.ends_with(".html"));
+    match root {
+        Some(module) if html => Ok(nomi_codegen_js::html::sandwich(&module, &js)),
+        _ => Ok(js),
+    }
+}
+
+/// `case`'s project, and what `elm make` optimizes of it; or the terminal
+/// report on why it doesn't.
+fn optimize(
+    case: &Case,
+    compat: Compat,
+    default_elm_json: &str,
+) -> Result<(Project, Optimized), String> {
+    let project = Project::new(case, compat, default_elm_json);
+    let built = project.build(&paths(case), Goal::Optimize);
+    if !matches!(built.checked, Checked::Fine) {
+        let mut console = Captured::default();
+        check::show(
+            &mut console,
+            &project.root,
+            &built.checked,
+            compat,
+            Style::Terminal,
+        );
+        return Err(console.err);
+    }
+    Ok((project, built.optimized))
+}
+
+/// The outcome of the case `id`, shown on standard error where it failed
+/// and `NOMI_SHOW` is set.
+pub fn shown(id: String, outcome: Result<(), String>) -> (String, Result<(), String>) {
+    if let (Err(why), Ok(_)) = (&outcome, std::env::var("NOMI_SHOW")) {
+        eprintln!("FAIL {id}\n{why}");
+    }
+    (id, outcome)
 }
 
 /// A case's project, made as the oracle made it, and what checking it
@@ -87,14 +162,15 @@ struct Project {
     _temp: tempfile::TempDir,
     root: PathBuf,
     outline: Outline,
-    env: nomi_engine::graph::Env,
-    interfaces: HashMap<String, nomi_compiler::interface::Interface>,
+    env: Env,
+    interfaces: HashMap<String, Interface>,
 }
 
 impl Project {
-    fn new(case: &Case, compat: Compat, default_elm_json: &str, packages: &Path) -> Project {
+    fn new(case: &Case, compat: Compat, default_elm_json: &str) -> Project {
         let temp = tempfile::tempdir().unwrap();
-        let root = padded(temp.path());
+        let root =
+            nomi_testkit::padded_dir(&fs::canonicalize(temp.path()).unwrap(), ROOT_LENGTH).unwrap();
         case.create_files(&root).unwrap();
         case.date_files(&root).unwrap();
         let manifest = root.join("elm.json");
@@ -106,11 +182,8 @@ impl Project {
             Outline::App(app) => app.direct.keys().cloned().collect(),
             Outline::Pkg(pkg) => pkg.deps.keys().cloned().collect(),
         };
-        let foreigns = Foreigns::new(
-            deps.iter()
-                .map(|dep| (dep.clone(), exposing(packages, dep, compat))),
-        );
-        let interfaces = names::visible(&interfaces(packages, compat), &deps);
+        let foreigns = Foreigns::new(deps.iter().map(|dep| (dep.clone(), exposing(dep, compat))));
+        let interfaces = names::visible(&interfaces(compat), &deps);
         let env = check::env_of(&root, &outline, compat, foreigns)
             .unwrap()
             .with_cwd(&root);
@@ -122,6 +195,20 @@ impl Project {
             interfaces,
         }
     }
+
+    /// The project built from `paths` as `goal` asks.
+    fn build(&self, paths: &[PathBuf], goal: Goal) -> Built {
+        let build = Build {
+            snapshot: &Vfs::new().snapshot(),
+            env: &self.env,
+            outline: &self.outline,
+            paths,
+            personality: Personality::Elm,
+            packages: (&self.interfaces).into(),
+            artifacts: None,
+        };
+        build.run(goal).unwrap()
+    }
 }
 
 /// The paths `elm make` is given among a case's arguments.
@@ -130,100 +217,6 @@ fn paths(case: &Case) -> Vec<PathBuf> {
         .filter(|a| !a.starts_with("--"))
         .map(PathBuf::from)
         .collect()
-}
-
-/// What `elm make` optimizes of `case`, built as [`run`] builds it: each
-/// module's graph, by name, as `compat` writes it to `<Module>.elmo`; or
-/// why there is none.
-pub(crate) fn optimized(
-    case: &Case,
-    compat: Compat,
-    default_elm_json: &str,
-    packages: &Path,
-) -> Result<Vec<(String, Vec<u8>)>, String> {
-    let project = Project::new(case, compat, default_elm_json, packages);
-    let (checked, optimized) = check::optimize(
-        &Vfs::new().snapshot(),
-        &project.env,
-        &project.outline,
-        &paths(case),
-        Personality::Elm,
-        (&project.interfaces).into(),
-        None,
-    );
-    if !matches!(checked, check::Checked::Fine) {
-        let mut console = Captured::default();
-        check::show(
-            &mut console,
-            &project.root,
-            &checked,
-            compat,
-            Style::Terminal,
-        );
-        return Err(console.err);
-    }
-    Ok((optimized.graphs.into_iter())
-        .map(|(name, graph)| {
-            let bytes = nomi_compiler::optimized::binary::encode_local_graph(&graph, compat);
-            (name.to_string(), bytes)
-        })
-        .collect())
-}
-
-/// The JavaScript `elm make` would generate for `case` in `mode` (`dev`,
-/// `debug` or `optimize`), built as [`run`] builds it; or why there is
-/// none.
-pub(crate) fn javascript(
-    case: &Case,
-    compat: Compat,
-    mode: &str,
-    default_elm_json: &str,
-    packages: &Path,
-) -> Result<Vec<u8>, String> {
-    let project = Project::new(case, compat, default_elm_json, packages);
-    let (checked, optimized) = check::optimize(
-        &Vfs::new().snapshot(),
-        &project.env,
-        &project.outline,
-        &paths(case),
-        Personality::Elm,
-        (&project.interfaces).into(),
-        None,
-    );
-    if !matches!(checked, check::Checked::Fine) {
-        let mut console = Captured::default();
-        check::show(
-            &mut console,
-            &project.root,
-            &checked,
-            compat,
-            Style::Terminal,
-        );
-        return Err(console.err);
-    }
-    let Outline::App(app) = &project.outline else {
-        return Err("only applications generate JavaScript".to_owned());
-    };
-    let sources: Vec<(Name, PathBuf)> = (app.direct.iter())
-        .chain(&app.indirect)
-        .map(|(name, version)| {
-            let dir = packages.join(name.to_string()).join(version.to_string());
-            (name.clone(), dir)
-        })
-        .collect();
-    let dependencies = dependencies(compat, &sources)?;
-    let kind = match mode {
-        "dev" => javascript::Kind::Dev,
-        "debug" => javascript::Kind::Debug,
-        _ => javascript::Kind::Optimize,
-    };
-    let roots = optimized.roots.clone();
-    let js = javascript::program(compat, kind, "author/project", dependencies, optimized);
-    let html = (case.args.iter()).any(|a| a.starts_with("--output=") && a.ends_with(".html"));
-    match roots.as_slice() {
-        [(module, _)] if html => Ok(nomi_codegen_js::html::sandwich(&module.to_string(), &js)),
-        _ => Ok(js),
-    }
 }
 
 /// The merged graph of `sources` as `compat` builds it, and their
@@ -245,47 +238,8 @@ fn dependencies(
     Ok((built.graph(), built.types()))
 }
 
-fn build(
-    case: &Case,
-    compat: Compat,
-    default_elm_json: &str,
-    packages: &Path,
-    docs: bool,
-) -> (String, String, Option<String>) {
-    let project = Project::new(case, compat, default_elm_json, packages);
-    let (root, outline, env, interfaces) = (
-        &project.root,
-        &project.outline,
-        &project.env,
-        &project.interfaces,
-    );
-    let snapshot = Vfs::new().snapshot();
-    let (checked, written) = if docs {
-        let (checked, docs, _) =
-            check::docs(&snapshot, env, outline, Personality::Elm, interfaces.into());
-        (checked, docs)
-    } else {
-        let checked = check::check(
-            &snapshot,
-            env,
-            outline,
-            &paths(case),
-            Personality::Elm,
-            interfaces.into(),
-        );
-        (checked, None)
-    };
-    let root_text = root.to_str().unwrap().to_owned();
-    let [json, stderr] = [Style::Json, Style::Terminal].map(|style| {
-        let mut console = Captured::default();
-        check::show(&mut console, root, &checked, compat, style);
-        console.err.replace(&root_text, "$ROOT")
-    });
-    (json, stderr, written)
-}
-
 /// Whether nomi's `--report=json` says what elm's cell does.
-pub(crate) fn same_json(elm: &str, nomi: &str) -> bool {
+pub fn same_json(elm: &str, nomi: &str) -> bool {
     match elm {
         "accepted" => nomi.is_empty(),
         elm => {
@@ -295,18 +249,8 @@ pub(crate) fn same_json(elm: &str, nomi: &str) -> bool {
     }
 }
 
-/// A new directory in `base` whose canonical path is [`ROOT_LENGTH`]
-/// bytes long, as the oracle's was.
-fn padded(base: &Path) -> PathBuf {
-    let base = fs::canonicalize(base).unwrap();
-    let len = base.to_str().unwrap().len();
-    let dir = base.join("p".repeat(ROOT_LENGTH - len - 1));
-    fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-/// Dates the case's files a second apart in their order, as the oracle
-/// did.
+/// An application's `elm.json` `text` with its `elm-version` set to
+/// `compat`'s.
 fn with_elm_version(text: &str, compat: Compat) -> String {
     const KEY: &str = "\"elm-version\": \"";
     if !text.contains("\"type\": \"application\"") {
@@ -317,63 +261,50 @@ fn with_elm_version(text: &str, compat: Compat) -> String {
     format!("{}{compat}{}", &text[..start], &text[end..])
 }
 
-/// The interfaces of every package stored under `packages`, as `compat`
-/// reads them, made once per run.
-pub(crate) fn interfaces(packages: &Path, compat: Compat) -> Arc<names::PackageInterfaces> {
-    type Made = HashMap<(PathBuf, Compat), Arc<names::PackageInterfaces>>;
-    static MADE: OnceLock<Mutex<Made>> = OnceLock::new();
+/// The interfaces of every fixture package, as `compat` reads them, made
+/// once per run.
+pub fn interfaces(compat: Compat) -> Arc<names::PackageInterfaces> {
+    static MADE: OnceLock<Mutex<HashMap<Compat, Arc<names::PackageInterfaces>>>> = OnceLock::new();
     let made = MADE.get_or_init(Default::default);
-    let key = (packages.to_owned(), compat);
-    if let Some(interfaces) = made.lock().unwrap().get(&key) {
+    if let Some(interfaces) = made.lock().unwrap().get(&compat) {
         return interfaces.clone();
     }
     let mut sources = Vec::new();
-    for author in fs::read_dir(packages).unwrap() {
+    for author in fs::read_dir(packages::dir()).unwrap() {
         let author = author.unwrap().path();
         if !author.is_dir() {
             continue;
         }
         for project in fs::read_dir(&author).unwrap() {
             let project = project.unwrap().path();
-            let version = fs::read_dir(&project)
-                .unwrap()
-                .next()
-                .unwrap()
-                .unwrap()
-                .path();
             let name = format!(
                 "{}/{}",
                 author.file_name().unwrap().to_string_lossy(),
                 project.file_name().unwrap().to_string_lossy()
             );
-            let name = Name::parse(
-                name.as_bytes(),
-                nomi_project::json::Cursor::start(compat),
-                compat,
-            )
-            .unwrap();
-            sources.push((name, version));
+            sources.push((name.parse().unwrap(), only_version(&project)));
         }
     }
     let interfaces = Arc::new(names::package_interfaces(compat, &sources).unwrap());
-    made.lock().unwrap().insert(key, interfaces.clone());
+    made.lock().unwrap().insert(compat, interfaces.clone());
     interfaces
 }
 
-/// The modules `dep`'s stored `elm.json` exposes.
-pub(crate) fn exposing(packages: &Path, dep: &Name, compat: Compat) -> Vec<ModuleName> {
-    let dir = packages.join(dep.to_string());
-    let version = fs::read_dir(&dir)
-        .unwrap_or_else(|_| panic!("{dep} isn't stored"))
-        .next()
-        .unwrap()
-        .unwrap()
-        .path();
-    let text = fs::read(version.join("elm.json")).unwrap();
+/// The modules the fixture `dep`'s `elm.json` exposes.
+pub fn exposing(dep: &Name, compat: Compat) -> Vec<ModuleName> {
+    let dir = packages::dir().join(dep.to_string());
+    assert!(dir.is_dir(), "{dep} isn't stored");
+    let text = fs::read(only_version(&dir).join("elm.json")).unwrap();
     match Outline::decode(&text, compat).unwrap() {
         Outline::Pkg(pkg) => pkg.exposed.modules().cloned().collect(),
         Outline::App(_) => panic!("{dep} is an application"),
     }
+}
+
+/// The directory of the one release a fixture package's directory `dir`
+/// holds.
+fn only_version(dir: &Path) -> PathBuf {
+    fs::read_dir(dir).unwrap().next().unwrap().unwrap().path()
 }
 
 /// A console that keeps what is written to standard error, as a pipe

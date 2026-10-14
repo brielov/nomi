@@ -16,9 +16,9 @@ pub fn fetch(
     store: &Store,
     http: &(impl Http + Sync),
     compat: Compat,
-    releases: Vec<(Name, Version)>,
+    releases: &[(Name, Version)],
 ) -> Vec<Result<PathBuf, PackageProblem>> {
-    pool.map(releases, |(name, version)| {
-        store.fetch(http, &name, version, compat)
+    pool.map(releases.iter().collect(), |(name, version)| {
+        store.fetch(http, name, *version, compat)
     })
 }

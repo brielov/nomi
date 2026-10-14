@@ -2,24 +2,28 @@
 //! re-checks a module only where its source or its imports' interfaces
 //! changed. An edit to a body leaves the module's interface as it was,
 //! so its importers are skipped. Optimizing, as `elm make` does, files
-//! each module's graph beside its interface.
+//! each module's graph beside its interface. A check whose files a newer
+//! revision replaced stops, and files nothing more.
 #![cfg(unix)]
 
 #[path = "support/projects.rs"]
-mod projects;
+pub mod projects;
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use nomi_base::Compat;
+use nomi_compiler::interface::Interface;
 use nomi_compiler::optimized::binary;
 use nomi_engine::Vfs;
 use nomi_engine::artifacts::Artifacts;
-use nomi_engine::check::{self, Checked};
+use nomi_engine::check::{self, Build, Checked, Goal};
 use nomi_engine::console::Personality;
-use nomi_engine::graph::Foreigns;
+use nomi_engine::graph::{Env, Foreigns};
 use nomi_engine::names;
 use nomi_engine::paths::Cache;
+use nomi_engine::schedule::Cancelled;
 use nomi_project::{Name, Outline};
 
 const ELM_JSON: &str = r#"{
@@ -70,63 +74,60 @@ impl Project {
     /// Checks the project, and names the modules checked rather than
     /// reused, sorted.
     fn check(&self) -> Vec<String> {
-        self.build(false).0
+        self.build(Goal::Check).0
     }
 
     /// Optimizes the project as `elm make` does: the modules checked
     /// rather than reused, sorted, and every module's graph, encoded.
     fn optimize(&self) -> (Vec<String>, Vec<(String, Vec<u8>)>) {
-        self.build(true)
+        self.build(Goal::Optimize)
     }
 
-    fn build(&self, optimize: bool) -> (Vec<String>, Vec<(String, Vec<u8>)>) {
+    fn build(&self, goal: Goal) -> (Vec<String>, Vec<(String, Vec<u8>)>) {
         let compat = Compat::V0_19_1;
-        let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages");
-        let outline = Outline::decode(ELM_JSON.as_bytes(), compat).unwrap();
-        let core = Name::core();
-        let foreigns =
-            Foreigns::new([(core.clone(), projects::exposing(&packages, &core, compat))]);
-        let interfaces = names::visible(&projects::interfaces(&packages, compat), &[core]);
-        let env = check::env_of(&self.root, &outline, compat, foreigns)
-            .unwrap()
-            .with_cwd(&self.root);
-        let snapshot = Vfs::new().snapshot();
-        let paths = [PathBuf::from("src/Main.elm")];
-        let artifacts = Some(&self.artifacts);
-        let (checked, ran, graphs) = if optimize {
-            let (checked, optimized) = check::optimize(
-                &snapshot,
-                &env,
-                &outline,
-                &paths,
-                Personality::Nomi,
-                (&interfaces).into(),
-                artifacts,
-            );
-            let mut graphs: Vec<(String, Vec<u8>)> = (optimized.graphs.iter())
-                .map(|(name, graph)| (name.to_string(), binary::encode_local_graph(graph, compat)))
-                .collect();
-            graphs.sort();
-            (checked, optimized.ran, graphs)
-        } else {
-            let (checked, ran) = check::check_with(
-                &snapshot,
-                &env,
-                &outline,
-                &paths,
-                Personality::Nomi,
-                (&interfaces).into(),
-                artifacts,
-            );
-            (checked, ran, Vec::new())
+        let (outline, env, interfaces) = environment(&self.root, ELM_JSON, compat);
+        let build = Build {
+            snapshot: &Vfs::new().snapshot(),
+            env: &env,
+            outline: &outline,
+            paths: &[PathBuf::from("src/Main.elm")],
+            personality: Personality::Nomi,
+            packages: (&interfaces).into(),
+            artifacts: Some(&self.artifacts),
         };
-        assert!(matches!(checked, Checked::Fine), "{checked:?}");
-        let mut names: Vec<String> = (ran.iter())
+        let built = build.run(goal).unwrap();
+        assert!(
+            matches!(built.checked, Checked::Fine),
+            "{:?}",
+            built.checked
+        );
+        let mut graphs: Vec<(String, Vec<u8>)> = (built.optimized.graphs.iter())
+            .map(|(name, graph)| (name.to_string(), binary::encode_local_graph(graph, compat)))
+            .collect();
+        graphs.sort();
+        let mut names: Vec<String> = (built.ran.iter())
             .map(|p| p.file_stem().unwrap().to_string_lossy().into_owned())
             .collect();
         names.sort();
         (names, graphs)
     }
+}
+
+/// What checking the project at `root` of the outline `elm_json` reads:
+/// the outline, the environment, and elm/core's interfaces.
+fn environment(
+    root: &Path,
+    elm_json: &str,
+    compat: Compat,
+) -> (Outline, Env, HashMap<String, Interface>) {
+    let outline = Outline::decode(elm_json.as_bytes(), compat).unwrap();
+    let core = Name::core();
+    let foreigns = Foreigns::new([(core.clone(), projects::exposing(&core, compat))]);
+    let interfaces = names::visible(&projects::interfaces(compat), &[core]);
+    let env = check::env_of(root, &outline, compat, foreigns)
+        .unwrap()
+        .with_cwd(root);
+    (outline, env, interfaces)
 }
 
 #[test]
@@ -192,31 +193,51 @@ fn documenting_reuses_the_modules_it_does_not_document() {
     let main = "module Main exposing (value)\n\n{-| A module.\n\n@docs value\n\n-}\n\nimport Middle\n\n\n{-| A value.\n-}\nvalue : Int\nvalue =\n    Middle.twice 2\n";
     project.write("Main", main);
     fs::write(project.root.join("elm.json"), PKG_JSON).unwrap();
-    let compat = Compat::V0_19_1;
-    let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages");
-    let outline = Outline::decode(PKG_JSON.as_bytes(), compat).unwrap();
-    let core = Name::core();
-    let foreigns = Foreigns::new([(core.clone(), projects::exposing(&packages, &core, compat))]);
-    let interfaces = names::visible(&projects::interfaces(&packages, compat), &[core]);
-    let env = check::env_of(&project.root, &outline, compat, foreigns)
-        .unwrap()
-        .with_cwd(&project.root);
+    let (outline, env, interfaces) = environment(&project.root, PKG_JSON, Compat::V0_19_1);
     let docs = |artifacts| {
-        let snapshot = Vfs::new().snapshot();
-        let (checked, json, _) = check::docs_with(
-            &snapshot,
-            &env,
-            &outline,
-            Personality::Elm,
-            (&interfaces).into(),
+        let build = Build {
+            snapshot: &Vfs::new().snapshot(),
+            env: &env,
+            outline: &outline,
+            paths: &[],
+            personality: Personality::Elm,
+            packages: (&interfaces).into(),
             artifacts,
+        };
+        let built = build.run(Goal::Docs).unwrap();
+        assert!(
+            matches!(built.checked, Checked::Fine),
+            "{:?}",
+            built.checked
         );
-        assert!(matches!(checked, Checked::Fine), "{checked:?}");
-        json.unwrap()
+        built.docs.unwrap()
     };
     let fresh = docs(None);
     // Cold, then warm with Middle and Base read back.
     assert_eq!(docs(Some(&project.artifacts)), fresh);
     assert_eq!(docs(Some(&project.artifacts)), fresh);
     assert!(fresh.contains("A value."), "{fresh}");
+}
+
+#[test]
+fn a_new_revision_cancels_the_check() {
+    let project = Project::new();
+    let (outline, env, interfaces) = environment(&project.root, ELM_JSON, Compat::V0_19_1);
+    let vfs = Vfs::new();
+    let snapshot = vfs.snapshot();
+    // A revision after the one the check reads, as an editor's next edit.
+    vfs.disk_changed();
+    let build = Build {
+        snapshot: &snapshot,
+        env: &env,
+        outline: &outline,
+        paths: &[PathBuf::from("src/Main.elm")],
+        personality: Personality::Nomi,
+        packages: (&interfaces).into(),
+        artifacts: Some(&project.artifacts),
+    };
+    assert!(matches!(build.run(Goal::Check), Err(Cancelled)));
+    // No module started, so none was filed, and the next check checks
+    // every one.
+    assert_eq!(project.check(), ["Base", "Main", "Middle"]);
 }

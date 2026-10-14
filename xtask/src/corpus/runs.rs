@@ -23,7 +23,7 @@ use anyhow::{Context, Result, bail};
 use nomi_base::Compat;
 use nomi_compiler::interface::Interface;
 use nomi_compiler::optimized::binary;
-use nomi_engine::check::{self, Checked, Style};
+use nomi_engine::check::{self, Build, Built, Checked, Goal, Style};
 use nomi_engine::console::{Console, Personality};
 use nomi_engine::graph::Foreigns;
 use nomi_engine::{Vfs, javascript, names};
@@ -268,43 +268,39 @@ fn run(
         .map_err(|r| r.title.to_string())?
         .with_cwd(&root);
     let snapshot = Vfs::new().snapshot();
+    let build = Build {
+        snapshot: &snapshot,
+        env: &env,
+        outline: &project.outline,
+        paths: &project.paths,
+        personality: Personality::Elm,
+        packages: (&visible).into(),
+        artifacts: None,
+    };
+    let built = |build: Build<'_>, goal| build.run(goal).expect("nothing revises the corpus");
     let checked = match suite {
         Suite::Docs => {
-            let (checked, docs, _) = check::docs(
-                &snapshot,
-                &env,
-                &project.outline,
-                Personality::Elm,
-                (&visible).into(),
+            let built = built(
+                Build {
+                    paths: &[],
+                    ..build
+                },
+                Goal::Docs,
             );
-            if let Some(docs) = docs {
+            if let Some(docs) = built.docs {
                 return Ok(format!("docs {}", sha256(docs.as_bytes())));
             }
-            checked
+            built.checked
         }
         Suite::Check => {
-            let checked = check::check(
-                &snapshot,
-                &env,
-                &project.outline,
-                &project.paths,
-                Personality::Elm,
-                (&visible).into(),
-            );
+            let checked = built(build, Goal::Check).checked;
             if matches!(checked, Checked::Fine) {
                 return Ok(OK.to_owned());
             }
             checked
         }
         Suite::Objects => {
-            let checked = check::check(
-                &snapshot,
-                &env,
-                &project.outline,
-                &project.paths,
-                Personality::Elm,
-                (&visible).into(),
-            );
+            let checked = built(build, Goal::Check).checked;
             if matches!(checked, Checked::Fine) {
                 let graph = OBJECTS.with(|memos| {
                     let mut memos = memos.borrow_mut();
@@ -318,15 +314,9 @@ fn run(
             checked
         }
         Suite::JavaScript => {
-            let (checked, optimized) = check::optimize(
-                &snapshot,
-                &env,
-                &project.outline,
-                &project.paths,
-                Personality::Elm,
-                (&visible).into(),
-                None,
-            );
+            let Built {
+                checked, optimized, ..
+            } = built(build, Goal::Optimize);
             if matches!(checked, Checked::Fine) {
                 let built = OBJECTS.with(|memos| {
                     let mut memos = memos.borrow_mut();
@@ -360,15 +350,9 @@ fn run(
             checked
         }
         Suite::Graphs => {
-            let (checked, optimized) = check::optimize(
-                &snapshot,
-                &env,
-                &project.outline,
-                &project.paths,
-                Personality::Elm,
-                (&visible).into(),
-                None,
-            );
+            let Built {
+                checked, optimized, ..
+            } = built(build, Goal::Optimize);
             if matches!(checked, Checked::Fine) {
                 // elm writes no `.elmo` for a root outside the source
                 // directories, which it compiles but doesn't keep.

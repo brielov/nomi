@@ -8,17 +8,21 @@ use nomi_codegen_js::generate::generate;
 use nomi_codegen_js::mode::{Mode, shorten_field_names};
 use nomi_compiler::canonical::Home;
 use nomi_compiler::nitpick::debug::graph_has_debug_uses;
-use nomi_compiler::optimized::{GlobalGraph, LocalGraph, Main};
+use nomi_compiler::optimized::{GlobalGraph, Main};
 use nomi_project::ModuleName;
 
+use crate::Pool;
 use crate::check::Optimized;
 
 /// How code is generated: `elm make`'s default, `--debug` or
 /// `--optimize`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
+    /// `elm make`'s default.
     Dev,
+    /// `--debug`, with the debugger and the types it shows.
     Debug,
+    /// `--optimize`, with field names shortened.
     Optimize,
 }
 
@@ -35,7 +39,6 @@ pub fn program(
         roots,
         graphs: mut locals,
         interfaces,
-        ..
     } = optimized;
     let home = |name: &ModuleName| Home {
         package: package.into(),
@@ -43,26 +46,30 @@ pub fn program(
     };
     // `gatherMains`.
     let mut mains: Vec<(Home, Main)> = Vec::new();
-    for (name, _) in &roots {
+    for root in &roots {
         let main = (locals.iter())
-            .find(|(local, _)| local == name)
+            .find(|(local, _)| *local == root.name)
             .and_then(|(_, graph)| graph.main.clone());
-        if let Some(main) = main
-            && !mains.iter().any(|(h, _)| *h == home(name))
-        {
-            mains.push((home(name), main));
+        if let Some(main) = main {
+            let home = home(&root.name);
+            if !mains.iter().any(|(h, _)| *h == home) {
+                mains.push((home, main));
+            }
         }
     }
-    let (graph, mut types) = dependencies;
+    let (mut graph, mut types) = dependencies;
     // `foldr addLocalGraph`: modules in the release's order of names, the
     // first one's applied last.
-    locals.sort_by(|a, b| compat.compare_names(&b.0.to_string(), &a.0.to_string()));
-    let graph = locals.into_iter().fold(graph, add_local_graph);
+    locals.sort_by(|a, b| b.0.compare(&a.0, compat));
+    for (_, local) in locals {
+        graph.add_local(local);
+    }
     let mode = match kind {
         Kind::Dev => Mode::Dev { debug: None },
         Kind::Debug => {
-            for (name, interface) in &interfaces {
-                types.insert(home(name), ModuleTypes::from_interface(interface.get()));
+            for module in &interfaces {
+                let types_of = ModuleTypes::from_interface(module.interface.get());
+                types.insert(home(&module.name), types_of);
             }
             Mode::Dev { debug: Some(types) }
         }
@@ -71,16 +78,8 @@ pub fn program(
     let js = generate(compat, &mode, &graph, &mains);
     // Every package's code is in the graph, so freeing it takes a while,
     // which a build need not wait for.
-    crate::pool::Pool::global().spawn(move || drop((graph, mode)));
+    Pool::global().drop_later((graph, mode));
     js
-}
-
-/// `Opt.addLocalGraph`: left-biased unions, so the module's nodes and
-/// field counts replace the graph's.
-fn add_local_graph(mut graph: GlobalGraph, (_, local): (ModuleName, LocalGraph)) -> GlobalGraph {
-    graph.nodes.extend(local.nodes);
-    graph.fields.extend(local.fields);
-    graph
 }
 
 /// `checkForDebugUses`: the modules using `Debug`, in the release's order
@@ -90,6 +89,6 @@ pub fn debug_uses(compat: Compat, optimized: &Optimized) -> Vec<ModuleName> {
         .filter(|(_, graph)| graph_has_debug_uses(graph))
         .map(|(name, _)| name.clone())
         .collect();
-    modules.sort_by(|a, b| compat.compare_names(&a.to_string(), &b.to_string()));
+    modules.sort_by(|a, b| a.compare(b, compat));
     modules
 }

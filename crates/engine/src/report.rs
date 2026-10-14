@@ -13,31 +13,44 @@ use std::time::SystemTime;
 use nomi_base::diagnostic::code::{Position, Region, Source};
 use nomi_base::diagnostic::doc::{
     Color, Doc, fill_sep, hint, reflow, reflow_link, simple_hint, simple_note, stack, text, vcat,
+    words,
 };
 use nomi_base::diagnostic::json::{self, Json};
 use nomi_base::diagnostic::{Problem, Report};
 use nomi_base::{Compat, TextRange, TextSize};
 use nomi_project::ModuleName;
+use nomi_project::report::elm_json_path;
 use nomi_syntax::{DEPTH_LIMIT, SyntaxError, SyntaxErrorKind, elm};
 
 use crate::graph::{
-    BadModule, Env, Graph, ImportProblem, Module, ModuleProblem, Problem as GraphProblem, Root,
-    Status,
+    BadModule, Env, Graph, ImportProblem, Module, ModuleProblem, ProjectProblem, Root, Status,
+    module_path,
 };
 
 /// One module's problems, as `--report=json` lists them.
 #[derive(Clone, Debug)]
 pub struct ModuleErrors {
+    /// The module's file, as the build found it.
     pub path: PathBuf,
     /// Its name as the build knows it, or `???` for a file outside the
     /// source directories that doesn't parse.
     pub name: String,
     /// When the file last changed, which orders the terminal's report.
     pub modified: SystemTime,
+    /// Its problems, in the order upstream reports them.
     pub problems: Vec<Problem>,
 }
 
 impl ModuleErrors {
+    fn new(env: &Env, path: &Path, name: String, problems: Vec<Problem>) -> ModuleErrors {
+        ModuleErrors {
+            path: path.to_owned(),
+            name,
+            modified: modified(env, path),
+            problems,
+        }
+    }
+
     /// `Error.toJson`'s module entry.
     pub fn to_json(&self, compat: Compat) -> Json {
         json::module(
@@ -48,37 +61,30 @@ impl ModuleErrors {
     }
 }
 
-/// Every module of `graph` with problems of its own: a header or syntax
+/// Every module of `graph` with problems: of its own, a header or syntax
 /// that is wrong, or imports that name no one module (`checkModule`'s
-/// `RProblem`s). A module that only imports a broken one is blocked, and
-/// not here. In upstream's order (`gatherProblemsOrMains`): the roots
-/// outside the source directories as given, then the modules by name.
-pub fn module_errors(env: &Env, graph: &Graph) -> Vec<ModuleErrors> {
-    module_errors_with(env, graph, &HashMap::new())
-}
-
-/// [`module_errors`], with the problems a later phase found in modules
-/// the earlier phases passed, by path.
-pub fn module_errors_with(
+/// `RProblem`s); or those a later phase found, by path, in modules the
+/// earlier phases passed. A module that only imports a broken one is
+/// blocked, and not here. In upstream's order (`gatherProblemsOrMains`):
+/// the roots outside the source directories as given, then the modules by
+/// name.
+pub(crate) fn module_errors(
     env: &Env,
     graph: &Graph,
-    later: &HashMap<PathBuf, Vec<Problem>>,
+    mut later: HashMap<PathBuf, Vec<Problem>>,
 ) -> Vec<ModuleErrors> {
-    let imports = |env: &Env, graph: &Graph, module: &Module| {
-        imports(env, graph, module).or_else(|| {
-            let problems = later.get(&module.path)?.clone();
-            Some(ModuleErrors {
-                path: module.path.clone(),
-                name: module.name.to_string(),
-                modified: modified(env, &module.path),
-                problems,
-            })
-        })
+    let mut own_or_later = |module: &Module| {
+        let mut problems = import_problems(env, graph, module);
+        if problems.is_empty() {
+            problems = later.remove(&module.path).unwrap_or_default();
+        }
+        (!problems.is_empty())
+            .then(|| ModuleErrors::new(env, &module.path, module.name.to_string(), problems))
     };
     let mut errors = Vec::new();
     for root in &graph.roots {
         match root {
-            Root::Outside(Ok(module)) => errors.extend(imports(env, graph, module)),
+            Root::Outside(Ok(module)) => errors.extend(own_or_later(module)),
             Root::Outside(Err(bad)) => errors.extend(bad_module(env, bad, "???")),
             Root::Inside(_) => {}
         }
@@ -87,9 +93,9 @@ pub fn module_errors_with(
     modules.sort_by(|(a, _), (b, _)| a.compare(b, env.compat()));
     for (name, status) in modules {
         match status {
-            Status::Local(module) => errors.extend(imports(env, graph, module)),
+            Status::Local(module) => errors.extend(own_or_later(module)),
             Status::BadModule(bad) => errors.extend(bad_module(env, bad, &name.to_string())),
-            _ => {}
+            Status::Foreign(_) | Status::Kernel | Status::BadImport(_) => {}
         }
     }
     errors
@@ -106,7 +112,7 @@ fn modified(env: &Env, path: &Path) -> SystemTime {
 /// `Error.toDoc`: each module's reports, oldest module first, with a
 /// separator between modules that names them. A report's bar gives its
 /// path from `root`.
-pub fn modules_doc(root: &Path, modules: &[ModuleErrors]) -> Doc {
+pub(crate) fn modules_doc(root: &Path, modules: &[ModuleErrors]) -> Doc {
     let mut sorted: Vec<&ModuleErrors> = modules.iter().collect();
     sorted.sort_by_key(|m| m.modified);
     // Module paths are canonical, which on Windows spells the drive
@@ -156,34 +162,23 @@ fn separator(before: &str, after: &str) -> Doc {
     .color(Color::DullRed)
 }
 
-fn imports(env: &Env, graph: &Graph, module: &Module) -> Option<ModuleErrors> {
-    let problems = import_problems(env, graph, module);
-    (!problems.is_empty()).then(|| ModuleErrors {
-        path: module.path.clone(),
-        name: module.name.to_string(),
-        modified: modified(env, &module.path),
-        problems,
-    })
-}
-
 fn bad_module(env: &Env, bad: &BadModule, name: &str) -> Option<ModuleErrors> {
     let problem = module_problem(env, bad, &ModuleName::new(name))?;
-    Some(ModuleErrors {
-        path: bad.path.clone(),
-        name: name.to_owned(),
-        modified: modified(env, &bad.path),
-        problems: vec![problem],
-    })
+    Some(ModuleErrors::new(
+        env,
+        &bad.path,
+        name.to_owned(),
+        vec![problem],
+    ))
 }
 
 /// The report on a module that can't be read as the one its path names:
 /// elm's syntax error, or `MODULE NAME MISSING` or `MODULE NAME MISMATCH`
 /// against `expected`. `None` for a file that can't be read, which
 /// upstream doesn't report.
-pub fn module_problem(env: &Env, bad: &BadModule, expected: &ModuleName) -> Option<Problem> {
+fn module_problem(env: &Env, bad: &BadModule, expected: &ModuleName) -> Option<Problem> {
     let compat = env.compat();
     let (_, contents) = bad.source.as_ref()?;
-    let source = Source::new(contents);
     match &bad.problem {
         ModuleProblem::Unreadable(_) => None,
         ModuleProblem::Syntax(errors) => {
@@ -192,6 +187,7 @@ pub fn module_problem(env: &Env, bad: &BadModule, expected: &ModuleName) -> Opti
         ModuleProblem::Encoding(bytes) => Some(encoding_problem(contents, bytes, env, compat)),
         ModuleProblem::NameUnspecified => Some(name_unspecified(expected, compat)),
         ModuleProblem::NameMismatch { actual, range } => {
+            let source = Source::new(contents);
             let region = source.region(*range, compat);
             let message = source.snippet(
                 compat,
@@ -329,14 +325,22 @@ fn name_unspecified(name: &ModuleName, compat: Compat) -> Problem {
     Problem::new("MODULE NAME MISSING", Region { start, end: start }, message)
 }
 
+/// Whether an import `module` writes names no one module, so that
+/// [`import_problems`] has a report: upstream has no region for a default
+/// import, and crashes on one alone.
+pub(crate) fn imports_amiss(graph: &Graph, module: &Module) -> bool {
+    (module.imports.iter()).any(|import| {
+        import.range.is_some()
+            && matches!(graph.modules.get(&import.name), Some(Status::BadImport(_)))
+    })
+}
+
 /// `checkDeps`'s import problems and `toImportErrors`: one report for each
 /// of `module`'s imports, default ones included, that names no one
 /// module, in the order it imports them.
-pub fn import_problems(env: &Env, graph: &Graph, module: &Module) -> Vec<Problem> {
+fn import_problems(env: &Env, graph: &Graph, module: &Module) -> Vec<Problem> {
     // Most modules import nothing amiss, and need no more.
-    let bad = (module.imports.iter())
-        .any(|import| matches!(graph.modules.get(&import.name), Some(Status::BadImport(_))));
-    if !bad {
+    if !imports_amiss(graph, module) {
         return Vec::new();
     }
     let compat = env.compat();
@@ -374,7 +378,7 @@ pub fn import_problems(env: &Env, graph: &Graph, module: &Module) -> Vec<Problem
 }
 
 /// `Import.toReport`.
-pub fn import_problem(
+fn import_problem(
     source: &Source<'_>,
     compat: Compat,
     region: Region,
@@ -395,15 +399,13 @@ pub fn import_problem(
                      of your elm.json to make sure all the packages you need are listed there!",
                 ),
                 Some(package) => hint(
-                    ["Maybe", "you", "want", "the"]
-                        .map(text)
-                        .into_iter()
+                    words("Maybe you want the")
                         .chain([text(format!("`{name}`"))])
-                        .chain(["module", "defined", "in", "the"].map(text))
+                        .chain(words("module defined in the"))
                         .chain([text(package)])
-                        .chain(["package?", "Running"].map(text))
+                        .chain(words("package? Running"))
                         .chain([text(format!("elm install {package}")).color(Color::Green)])
-                        .chain(["should", "make", "it", "available!"].map(text)),
+                        .chain(words("should make it available!")),
                 ),
             };
             let after = stack([
@@ -419,11 +421,9 @@ pub fn import_problem(
             ("MODULE NOT FOUND", after)
         }
         ImportProblem::Ambiguous { path, dep, .. } => {
-            let words = |s: &str| s.split(' ').map(text).collect::<Vec<_>>();
             let after = stack([
                 fill_sep(
                     words("But I found multiple modules with that name. One in the")
-                        .into_iter()
                         .chain([text(dep.to_string()).color(Color::DullYellow)])
                         .chain(words("package, and another defined locally in the"))
                         .chain([text(display(path)).color(Color::DullYellow)])
@@ -503,7 +503,7 @@ fn display(path: &Path) -> String {
 }
 
 /// `toProjectProblemReport` for the problems the crawl finds.
-pub fn project_problem(problem: &GraphProblem, compat: Compat) -> Report {
+pub(crate) fn project_problem(problem: &ProjectProblem, compat: Compat) -> Report {
     let red = |path: &Path| text(display(path)).color(Color::Red).indent(4);
     let red_lines = |paths: &[&Path]| {
         vcat(paths.iter().map(|p| text(display(p))))
@@ -511,7 +511,7 @@ pub fn project_problem(problem: &GraphProblem, compat: Compat) -> Report {
             .indent(4)
     };
     match problem {
-        GraphProblem::PathUnknown(path) => Report::new(
+        ProjectProblem::PathUnknown(path) => Report::new(
             "FILE NOT FOUND",
             None,
             "I cannot find this file:",
@@ -525,7 +525,7 @@ pub fn project_problem(problem: &GraphProblem, compat: Compat) -> Report {
                 ),
             ],
         ),
-        GraphProblem::WithBadExtension(path) => Report::new(
+        ProjectProblem::WithBadExtension(path) => Report::new(
             "UNEXPECTED FILE EXTENSION",
             None,
             "I can only compile Elm files (with a .elm extension) but you want me to compile:",
@@ -534,7 +534,7 @@ pub fn project_problem(problem: &GraphProblem, compat: Compat) -> Report {
                 reflow("Is there a typo? Can the file extension be changed?"),
             ],
         ),
-        GraphProblem::WithAmbiguousSrcDir {
+        ProjectProblem::WithAmbiguousSrcDir {
             path,
             first,
             second,
@@ -554,7 +554,7 @@ pub fn project_problem(problem: &GraphProblem, compat: Compat) -> Report {
                 reflow("Try to make it so no source directory contains another source directory!"),
             ],
         ),
-        GraphProblem::MainPathDuplicate { first, second } => Report::new(
+        ProjectProblem::MainPathDuplicate { first, second } => Report::new(
             "CONFUSING FILES",
             None,
             "You are telling me to compile these two files:",
@@ -572,7 +572,7 @@ pub fn project_problem(problem: &GraphProblem, compat: Compat) -> Report {
                 }),
             ],
         ),
-        GraphProblem::RootNameDuplicate {
+        ProjectProblem::RootNameDuplicate {
             name,
             first,
             second,
@@ -589,7 +589,7 @@ pub fn project_problem(problem: &GraphProblem, compat: Compat) -> Report {
                 reflow("Try changing to a different module name in one of them!"),
             ],
         ),
-        GraphProblem::RootNameInvalid { path, src_dir, .. } => {
+        ProjectProblem::RootNameInvalid { path, src_dir, .. } => {
             let mut dir = display(src_dir);
             if !dir.ends_with(std::path::MAIN_SEPARATOR) {
                 dir.push(std::path::MAIN_SEPARATOR);
@@ -617,7 +617,7 @@ pub fn project_problem(problem: &GraphProblem, compat: Compat) -> Report {
                 ],
             )
         }
-        GraphProblem::Cycle { first, rest } => Report::doc(
+        ProjectProblem::Cycle { first, rest } => Report::doc(
             "IMPORT CYCLE",
             None,
             reflow("Your module imports form a cycle:"),
@@ -657,9 +657,10 @@ fn naming_table(src_dir: &Path, names: &[&str]) -> Doc {
     let pairs: Vec<(String, String)> = names
         .iter()
         .map(|name| {
-            let file: PathBuf = name.split('.').collect();
-            let path = src_dir.join(file).with_extension("elm");
-            ((*name).to_owned(), display(&path))
+            (
+                (*name).to_owned(),
+                display(&src_dir.join(module_path(name, "elm"))),
+            )
         })
         .collect();
     let width = |s: &String| s.chars().count();
@@ -680,16 +681,16 @@ fn naming_table(src_dir: &Path, names: &[&str]) -> Doc {
 
 /// `finalizeExposed`'s `BP_MissingExposed`: the first exposed module, in
 /// the order `elm.json` lists them, that names no one module.
-pub fn missing_exposed(graph: &Graph, exposed: &[ModuleName]) -> Option<Report> {
-    let (name, problem) = exposed
-        .iter()
-        .find_map(|name| match graph.modules.get(name) {
-            Some(Status::BadImport(problem)) => Some((name, problem)),
-            _ => None,
-        })?;
+pub(crate) fn missing_exposed(graph: &Graph, exposed: &[ModuleName]) -> Option<Report> {
+    let (name, problem) = exposed.iter().find_map(|name| {
+        let Some(Status::BadImport(problem)) = graph.modules.get(name) else {
+            return None;
+        };
+        Some((name, problem))
+    })?;
     let module = text(name.to_string()).color(Color::Red).indent(4);
     let start = "The  \"exposed-modules\" of your elm.json lists the following module:";
-    let path = Some("elm.json".to_owned());
+    let path = elm_json_path();
     let not_found = "But I cannot find it in your src/ directory. Is there a typo? Was it renamed?";
     Some(match problem {
         ImportProblem::NotFound => {
@@ -771,21 +772,11 @@ pub fn debug_remnants(modules: &[ModuleName]) -> Report {
 mod tests {
     use nomi_base::diagnostic::render::{self, Styles};
     use nomi_base::{Compat, TextRange};
-    use nomi_project::Name;
 
     use super::*;
 
     fn plain(doc: &Doc) -> String {
         render::render(doc, Compat::LATEST, 80, Styles::Plain)
-    }
-
-    fn name(text: &str) -> Name {
-        Name::parse(
-            text.as_bytes(),
-            nomi_project::json::Cursor::start(Compat::LATEST),
-            Compat::LATEST,
-        )
-        .unwrap()
     }
 
     #[test]
@@ -830,7 +821,7 @@ mod tests {
     #[test]
     fn a_root_that_isnt_elm() {
         let report = project_problem(
-            &GraphProblem::WithBadExtension(PathBuf::from("src/main.js")),
+            &ProjectProblem::WithBadExtension(PathBuf::from("src/main.js")),
             Compat::LATEST,
         );
         assert_eq!(report.title, "UNEXPECTED FILE EXTENSION");
@@ -848,8 +839,8 @@ mod tests {
         let source = Source::new(text);
         let region = source.region(TextRange::new(36.into(), 39.into()), Compat::LATEST);
         let problem = ImportProblem::AmbiguousForeign {
-            dep: name("elm/url"),
-            rivals: vec![name("author/url")],
+            dep: "elm/url".parse().unwrap(),
+            rivals: vec!["author/url".parse().unwrap()],
         };
         let problem = import_problem(
             &source,

@@ -4,18 +4,19 @@
 //! with them are upstream's. Before anything compiles, the modules import
 //! no cycle and the roots' names are unique (`checkMidpointAndRoots`).
 
-use crate::timings::Phase;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
-use nomi_base::{Compat, FileId, TextRange, ghc};
+use nomi_base::{Compat, FileId, TextRange, ghc, lock};
 use nomi_compiler::graph;
 use nomi_project::{ModuleName, Name};
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{Parse, Source, SyntaxError, SyntaxKind, Tool, parse_module, validate};
 
+use crate::timings::{Phase, time};
 use crate::vfs::canonical;
 use crate::{Pool, Snapshot};
 
@@ -37,11 +38,21 @@ const DEFAULT_IMPORTS: [&str; 11] = [
 /// Whose modules these are (`Parse.ProjectType`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Owner {
+    /// An application's, which upstream homes in `author/project`.
     Application,
     Package(Name),
 }
 
 impl Owner {
+    /// The package the modules are homes in: `author/project` for an
+    /// application, as upstream names it.
+    pub(crate) fn package_name(&self) -> String {
+        match self {
+            Owner::Application => "author/project".to_owned(),
+            Owner::Package(name) => name.to_string(),
+        }
+    }
+
     fn source(&self) -> Source {
         match self {
             Owner::Application => Source::Application,
@@ -93,12 +104,13 @@ impl Foreigns {
         Foreigns(foreigns.collect())
     }
 
+    /// The package exposing `module`, and any others that do.
     pub fn get(&self, module: &ModuleName) -> Option<&Foreign> {
         self.0.get(module)
     }
 
     /// Every module a direct dependency exposes, in no particular order.
-    pub fn names(&self) -> impl Iterator<Item = &ModuleName> {
+    pub(crate) fn names(&self) -> impl Iterator<Item = &ModuleName> {
         self.0.keys()
     }
 }
@@ -142,6 +154,13 @@ impl Env {
         })
     }
 
+    /// The environment with `dir` among its source directories too,
+    /// resolved as [`Env::new`] resolves them.
+    pub(crate) fn with_src_dir(mut self, dir: &Path) -> io::Result<Env> {
+        self.src_dirs.push(canonical(&self.root.join(dir))?);
+        Ok(self)
+    }
+
     /// Resolves the paths given to [`Graph::from_paths`] against `cwd`,
     /// as elm resolves them against its working directory. Reports still
     /// name them as given.
@@ -149,9 +168,7 @@ impl Env {
         self.cwd = cwd.to_owned();
         self
     }
-}
 
-impl Env {
     /// What paths given to [`Graph::from_paths`] are relative to.
     pub fn cwd(&self) -> &Path {
         &self.cwd
@@ -162,6 +179,7 @@ impl Env {
         &self.owner
     }
 
+    /// The release the project is built as.
     pub fn compat(&self) -> Compat {
         self.compat
     }
@@ -171,6 +189,7 @@ impl Env {
         self.owner.source()
     }
 
+    /// The modules the direct dependencies expose.
     pub fn foreigns(&self) -> &Foreigns {
         &self.foreigns
     }
@@ -184,6 +203,7 @@ impl Env {
 /// The modules a build reads, and where it starts.
 #[derive(Debug)]
 pub struct Graph {
+    /// What each name the crawl reached led to.
     pub modules: HashMap<ModuleName, Status>,
     pub roots: Vec<Root>,
 }
@@ -191,25 +211,43 @@ pub struct Graph {
 impl Graph {
     /// Each root's name and whether it defines `main`, in order
     /// (`Build.getRootNames`, and `getMain`'s answer).
-    pub fn root_mains(&self) -> Vec<(ModuleName, bool)> {
+    pub(crate) fn root_mains(&self) -> Vec<RootMain> {
+        let main = |module: &Module| RootMain {
+            name: module.name.clone(),
+            has_main: module.has_main,
+        };
         (self.roots.iter())
             .filter_map(|root| match root {
-                Root::Inside(name) => match self.modules.get(name) {
-                    Some(Status::Local(module)) => Some((name.clone(), module.has_main)),
-                    _ => None,
+                Root::Inside(name) => match self.modules.get(name)? {
+                    Status::Local(module) => Some(main(module)),
+                    Status::Foreign(_)
+                    | Status::Kernel
+                    | Status::BadImport(_)
+                    | Status::BadModule(_) => None,
                 },
-                Root::Outside(Ok(module)) => Some((module.name.clone(), module.has_main)),
+                Root::Outside(Ok(module)) => Some(main(module)),
                 Root::Outside(Err(_)) => None,
             })
             .collect()
     }
 }
 
+/// A root of a build, by name, and whether it defines `main`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RootMain {
+    pub name: ModuleName,
+    pub has_main: bool,
+}
+
 /// What a module's name led to (`Build.Status`).
 #[derive(Clone, Debug)]
 pub enum Status {
+    /// A module of the project's own.
     Local(Module),
+    /// A module this direct dependency exposes.
     Foreign(Name),
+    /// Kernel code, which only `elm/` and `elm-explorations/` packages
+    /// have.
     Kernel,
     BadImport(ImportProblem),
     BadModule(BadModule),
@@ -223,6 +261,7 @@ pub struct Module {
     pub path: PathBuf,
     pub file: FileId,
     pub text: Arc<str>,
+    /// Its tree, which has no syntax errors.
     pub parse: Parse,
     /// The name in its header; `Main` for a root with none.
     pub name: ModuleName,
@@ -232,6 +271,7 @@ pub struct Module {
     pub has_main: bool,
 }
 
+/// A module an import names.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Import {
     pub name: ModuleName,
@@ -242,6 +282,7 @@ pub struct Import {
 /// Why an import names no one module (`Import.Problem`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ImportProblem {
+    /// Neither a source directory nor a dependency has it.
     NotFound,
     /// A source directory has the module, and so does a dependency.
     Ambiguous {
@@ -253,10 +294,7 @@ pub enum ImportProblem {
     /// project.
     AmbiguousLocal(Vec<PathBuf>),
     /// Two or more dependencies expose it.
-    AmbiguousForeign {
-        dep: Name,
-        rivals: Vec<Name>,
-    },
+    AmbiguousForeign { dep: Name, rivals: Vec<Name> },
 }
 
 /// A module that can't be read as the one its path names.
@@ -268,6 +306,7 @@ pub struct BadModule {
     /// The tree read from the text, recovered past any syntax errors,
     /// for the editor (R4); the build reads no further than the problem.
     pub parse: Option<Box<Parse>>,
+    /// Why it can't be read.
     pub problem: ModuleProblem,
 }
 
@@ -282,6 +321,7 @@ impl BadModule {
     }
 }
 
+/// Why a module can't be read as the one its path names.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModuleProblem {
     /// Reading the file failed; a file that isn't UTF-8 is
@@ -291,6 +331,7 @@ pub enum ModuleProblem {
     /// The file isn't UTF-8: its bytes, which elm's parser reads as they
     /// are, and the source shows with replacement characters.
     Encoding(Vec<u8>),
+    /// What nomi's grammar rejects, in order.
     Syntax(Vec<SyntaxError>),
     /// No header, where the path says the name (`ModuleNameUnspecified`).
     NameUnspecified,
@@ -311,9 +352,10 @@ pub enum Root {
 }
 
 /// Why the modules can't be built: the part of
-/// `Exit.BuildProjectProblem` the crawl finds.
+/// `Exit.BuildProjectProblem` the crawl finds, each variant upstream's
+/// `BP_` one.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Problem {
+pub enum ProjectProblem {
     PathUnknown(PathBuf),
     WithBadExtension(PathBuf),
     WithAmbiguousSrcDir {
@@ -351,7 +393,7 @@ impl Graph {
         snapshot: &Snapshot,
         env: &Env,
         exposed: &[ModuleName],
-    ) -> Result<Graph, Problem> {
+    ) -> Result<Graph, ProjectProblem> {
         let mut modules = HashMap::new();
         crawl(snapshot, env, &mut modules, exposed.to_vec());
         check_cycles(env.compat, &modules)?;
@@ -361,7 +403,11 @@ impl Graph {
 
     /// `fromPaths`: the files at `paths` and all they import, as
     /// `elm make` builds them.
-    pub fn from_paths(snapshot: &Snapshot, env: &Env, paths: &[PathBuf]) -> Result<Graph, Problem> {
+    pub fn from_paths(
+        snapshot: &Snapshot,
+        env: &Env,
+        paths: &[PathBuf],
+    ) -> Result<Graph, ProjectProblem> {
         let locations = find_roots(snapshot, env, paths)?;
         let roots = Pool::global().map(locations, |location| match location {
             Location::Inside(name) => Root::Inside(name),
@@ -473,84 +519,72 @@ fn crawl_module(snapshot: &Snapshot, env: &Env, name: &ModuleName) -> Status {
 
 /// `Module.toFilePath name <.> ext`; a name that isn't UTF-8 has none.
 fn module_file(name: &ModuleName, ext: &str) -> Option<PathBuf> {
-    let mut file: PathBuf = name.to_str()?.split('.').collect();
+    Some(module_path(name.to_str()?, ext))
+}
+
+/// `Module.toFilePath name <.> ext`: the path below a source directory of
+/// the module `name`.
+pub(crate) fn module_path(name: &str, ext: &str) -> PathBuf {
+    let mut file: PathBuf = name.split('.').collect();
     file.set_extension(ext);
-    Some(file)
+    file
+}
+
+/// What decides how a file's text reads, beside the text.
+#[derive(PartialEq, Eq)]
+struct ReadAs {
+    tool: Tool,
+    /// Whether the module is elm/core's, which imports nothing by default.
+    core: bool,
+    expected: Option<ModuleName>,
 }
 
 /// What each path's latest text read as, kept for the next build, as an
 /// editor's checks read a project's unchanged files again and again.
 struct Read {
     text: Arc<str>,
-    tool: Tool,
-    core: bool,
-    expected: Option<ModuleName>,
+    read_as: ReadAs,
     read: Result<Module, BadModule>,
 }
 
 /// Whether reads are kept, as a long-lived process such as the language
 /// server wants and a one-off build doesn't, whose trees go when it's done.
-static KEEP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static KEEP: AtomicBool = AtomicBool::new(false);
 
 /// Keeps each file's read for the next build while its text is the same.
 pub fn keep_reads() {
-    KEEP.store(true, std::sync::atomic::Ordering::Relaxed);
+    KEEP.store(true, Ordering::Relaxed);
 }
 
 impl Read {
     fn kept() -> bool {
-        KEEP.load(std::sync::atomic::Ordering::Relaxed)
+        KEEP.load(Ordering::Relaxed)
     }
 
-    fn all() -> &'static std::sync::Mutex<HashMap<PathBuf, Read>> {
-        static ALL: std::sync::OnceLock<std::sync::Mutex<HashMap<PathBuf, Read>>> =
-            std::sync::OnceLock::new();
+    fn all() -> &'static Mutex<HashMap<PathBuf, Read>> {
+        static ALL: OnceLock<Mutex<HashMap<PathBuf, Read>>> = OnceLock::new();
         ALL.get_or_init(Default::default)
     }
 
-    fn cached(
-        path: &Path,
-        text: &str,
-        tool: Tool,
-        core: bool,
-        expected: Option<&ModuleName>,
-    ) -> Option<Result<Module, BadModule>> {
+    fn cached(path: &Path, text: &str, read_as: &ReadAs) -> Option<Result<Module, BadModule>> {
         if !Self::kept() {
             return None;
         }
-        let all = Self::all()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let all = lock(Self::all());
         let kept = all.get(path)?;
-        (*kept.text == *text
-            && kept.tool == tool
-            && kept.core == core
-            && kept.expected.as_ref() == expected)
-            .then(|| kept.read.clone())
+        (*kept.text == *text && kept.read_as == *read_as).then(|| kept.read.clone())
     }
 
-    fn keep(
-        path: PathBuf,
-        text: Arc<str>,
-        tool: Tool,
-        core: bool,
-        expected: Option<&ModuleName>,
-        read: &Result<Module, BadModule>,
-    ) {
+    fn keep(path: PathBuf, text: Arc<str>, read_as: ReadAs, read: &Result<Module, BadModule>) {
         if !Self::kept() {
             return;
         }
         let kept = Read {
             text,
-            tool,
-            core,
-            expected: expected.cloned(),
+            read_as,
             read: read.clone(),
         };
-        (Self::all()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner))
-        .insert(path, kept);
+        lock(Self::all()).insert(path, kept);
     }
 }
 
@@ -562,7 +596,7 @@ fn read(
     path: PathBuf,
     expected: Option<&ModuleName>,
 ) -> Result<Module, BadModule> {
-    crate::timings::time(Phase::Parse, || read_file(snapshot, env, path, expected))
+    time(Phase::Parse, || read_file(snapshot, env, path, expected))
 }
 
 fn read_file(
@@ -593,9 +627,12 @@ fn read_file(
         }
         Err(e) => return Err(unreadable(&path, e)),
     };
-    let tool = Tool::Elm(env.owner.source(), env.compat);
-    let core = env.owner.is_core();
-    if let Some(read) = Read::cached(&path, &text, tool, core, expected) {
+    let read_as = ReadAs {
+        tool: Tool::Elm(env.owner.source(), env.compat),
+        core: env.owner.is_core(),
+        expected: expected.cloned(),
+    };
+    if let Some(read) = Read::cached(&path, &text, &read_as) {
         // Its file as this snapshot numbers it.
         return match read {
             Ok(module) => Ok(Module { file, ..module }),
@@ -605,8 +642,15 @@ fn read_file(
             }),
         };
     }
-    let read = read_text(env, path.clone(), expected, file, text.clone(), tool);
-    Read::keep(path, text, tool, core, expected, &read);
+    let read = read_text(
+        env,
+        path.clone(),
+        expected,
+        file,
+        text.clone(),
+        read_as.tool,
+    );
+    Read::keep(path, text, read_as, &read);
     read
 }
 
@@ -659,12 +703,12 @@ fn read_text(
         })
         .collect();
     imports.extend(written_imports(&syntax));
-    let has_main = syntax.decls().any(|decl| match decl {
-        ast::Decl::ValueDecl(value) => value
-            .definition()
-            .and_then(|d| d.lower_ident_token())
-            .is_some_and(|name| name.text() == "main"),
-        _ => false,
+    let has_main = syntax.decls().any(|decl| {
+        let ast::Decl::ValueDecl(value) = decl else {
+            return false;
+        };
+        (value.definition().and_then(|d| d.lower_ident_token()))
+            .is_some_and(|name| name.text() == "main")
     });
     Ok(Module {
         path,
@@ -690,20 +734,21 @@ pub(crate) fn written_imports(syntax: &ast::Module) -> impl Iterator<Item = Impo
 
 /// A module name as written, without the trivia around it, and where.
 fn name_of(name: &ast::ModuleName) -> (ModuleName, TextRange) {
-    let segments: Vec<_> = name
-        .syntax()
-        .children_with_tokens()
+    let mut text = String::new();
+    let mut range: Option<TextRange> = None;
+    let segments = (name.syntax().children_with_tokens())
         .filter_map(|e| e.into_token())
-        .filter(|t| t.kind() == SyntaxKind::UpperIdent)
-        .collect();
-    let text: Vec<&str> = segments.iter().map(|t| t.text()).collect();
-    let range = match (segments.first(), segments.last()) {
-        (Some(first), Some(last)) => {
-            TextRange::new(first.text_range().start(), last.text_range().end())
+        .filter(|t| t.kind() == SyntaxKind::UpperIdent);
+    for segment in segments {
+        let at = segment.text_range();
+        if range.is_some() {
+            text.push('.');
         }
-        _ => name.syntax().text_range(),
-    };
-    (ModuleName::new(&text.join(".")), range)
+        text.push_str(segment.text());
+        range = Some(range.map_or(at, |r| r.cover(at)));
+    }
+    let range = range.unwrap_or_else(|| name.syntax().text_range());
+    (ModuleName::new(&text), range)
 }
 
 /// `RootLocation`.
@@ -714,17 +759,21 @@ enum Location {
 
 /// `findRoots`: each path's location, the first problem in the order the
 /// paths come, then `checkRoots`: no file given twice.
-fn find_roots(snapshot: &Snapshot, env: &Env, paths: &[PathBuf]) -> Result<Vec<Location>, Problem> {
+fn find_roots(
+    snapshot: &Snapshot,
+    env: &Env,
+    paths: &[PathBuf],
+) -> Result<Vec<Location>, ProjectProblem> {
     let mut infos = Vec::with_capacity(paths.len());
     for path in paths {
         infos.push(root_info(snapshot, env, path)?);
     }
     let mut by_file: HashMap<&[u8], Vec<&Path>> = HashMap::new();
-    for (absolute, relative, _) in &infos {
+    for (given, (absolute, _)) in paths.iter().zip(&infos) {
         by_file
             .entry(absolute.as_os_str().as_encoded_bytes())
             .or_default()
-            .push(relative);
+            .push(given);
     }
     // Upstream's map orders the paths as strings, so by their bytes.
     let mut files: Vec<_> = by_file.into_iter().collect();
@@ -732,22 +781,29 @@ fn find_roots(snapshot: &Snapshot, env: &Env, paths: &[PathBuf]) -> Result<Vec<L
     if let Some((_, given)) = files.into_iter().find(|(_, given)| given.len() > 1) {
         // `fromListWith` puts the later path first.
         let n = given.len();
-        return Err(Problem::MainPathDuplicate {
+        return Err(ProjectProblem::MainPathDuplicate {
             first: given[n - 1].to_owned(),
             second: given[n - 2].to_owned(),
         });
     }
-    Ok(infos.into_iter().map(|(_, _, location)| location).collect())
+    Ok(infos.into_iter().map(|(_, location)| location).collect())
 }
 
-/// `getRootInfo`: the file's resolved path, the path as given, and where
-/// it lies.
+/// A source directory a root lies in, the names its path there makes,
+/// and whether each is a good one.
+struct Inside<'a> {
+    src_dir: &'a Path,
+    names: Vec<String>,
+    good: bool,
+}
+
+/// `getRootInfo`: the file's resolved path, and where it lies.
 fn root_info(
     snapshot: &Snapshot,
     env: &Env,
     path: &Path,
-) -> Result<(PathBuf, PathBuf, Location), Problem> {
-    let unknown = || Problem::PathUnknown(path.to_owned());
+) -> Result<(PathBuf, Location), ProjectProblem> {
+    let unknown = || ProjectProblem::PathUnknown(path.to_owned());
     let at = env.cwd.join(path);
     if !snapshot.is_file(&at) {
         return Err(unknown());
@@ -759,14 +815,12 @@ fn root_info(
     // `splitExtension`: from the last dot.
     let file = file.as_encoded_bytes();
     let dot = file.iter().rposition(|&b| b == b'.');
-    if dot.is_none_or(|dot| &file[dot..] != b".elm") {
-        return Err(Problem::WithBadExtension(path.to_owned()));
-    }
-    let stem = String::from_utf8_lossy(&file[..dot.unwrap_or(file.len())]).into_owned();
-    let stem_good = std::str::from_utf8(&file[..dot.unwrap_or(file.len())]).is_ok_and(is_good_name);
-    let inside: Vec<(&PathBuf, Vec<String>, bool)> = env
-        .src_dirs
-        .iter()
+    let Some(dot) = dot.filter(|&dot| &file[dot..] == b".elm") else {
+        return Err(ProjectProblem::WithBadExtension(path.to_owned()));
+    };
+    let stem = String::from_utf8_lossy(&file[..dot]).into_owned();
+    let stem_good = std::str::from_utf8(&file[..dot]).is_ok_and(is_good_name);
+    let inside: Vec<Inside<'_>> = (env.src_dirs.iter())
         .filter_map(|src_dir| {
             let rest = dir.strip_prefix(src_dir).ok()?;
             let mut names = Vec::new();
@@ -776,22 +830,28 @@ fn root_info(
                 names.push(segment.to_string_lossy().into_owned());
             }
             names.push(stem.clone());
-            Some((src_dir, names, good))
+            Some(Inside {
+                src_dir,
+                names,
+                good,
+            })
         })
         .collect();
     let location = match inside.as_slice() {
         [] => Location::Outside(path.to_owned()),
-        [(_, names, true)] => {
-            let mut file: PathBuf = names.iter().collect();
-            file.set_extension("elm");
-            let mut matching = env
-                .src_dirs
-                .iter()
+        [
+            Inside {
+                names, good: true, ..
+            },
+        ] => {
+            let name = names.join(".");
+            let file = module_path(&name, "elm");
+            let mut matching = (env.src_dirs.iter())
                 .map(|src_dir| src_dir.join(&file))
                 .filter(|path| snapshot.is_file(path));
-            let name = ModuleName::new(&names.join("."));
+            let name = ModuleName::new(&name);
             if let (Some(first), Some(second)) = (matching.next(), matching.next()) {
-                return Err(Problem::RootNameDuplicate {
+                return Err(ProjectProblem::RootNameDuplicate {
                     name,
                     first,
                     second,
@@ -799,22 +859,28 @@ fn root_info(
             }
             Location::Inside(name)
         }
-        [(src_dir, names, false)] => {
-            return Err(Problem::RootNameInvalid {
+        [
+            Inside {
+                src_dir,
+                names,
+                good: false,
+            },
+        ] => {
+            return Err(ProjectProblem::RootNameInvalid {
                 path: path.to_owned(),
-                src_dir: (*src_dir).clone(),
+                src_dir: src_dir.to_path_buf(),
                 names: names.clone(),
             });
         }
-        [(first, ..), (second, ..), ..] => {
-            return Err(Problem::WithAmbiguousSrcDir {
+        [first, second, ..] => {
+            return Err(ProjectProblem::WithAmbiguousSrcDir {
                 path: path.to_owned(),
-                first: (*first).clone(),
-                second: (*second).clone(),
+                first: first.src_dir.to_path_buf(),
+                second: second.src_dir.to_path_buf(),
             });
         }
     };
-    Ok((absolute, path.to_owned(), location))
+    Ok((absolute, location))
 }
 
 /// `isGoodName`: a capital, then letters, numbers and underscores, as
@@ -827,20 +893,19 @@ fn is_good_name(name: &str) -> bool {
 /// `checkForCycles`: the first strongly connected component that holds a
 /// cycle, as `Data.Graph` finds them over the modules in upstream's order,
 /// each with the edges its imports make to the others crawled.
-fn check_cycles(compat: Compat, modules: &HashMap<ModuleName, Status>) -> Result<(), Problem> {
-    let mut names: Vec<&ModuleName> = modules.keys().collect();
-    names.sort_by(|a, b| a.compare(b, compat));
-    let index: HashMap<&ModuleName, usize> =
-        names.iter().enumerate().map(|(i, &n)| (n, i)).collect();
-    let edges: Vec<Vec<usize>> = names
-        .iter()
+fn check_cycles(
+    compat: Compat,
+    modules: &HashMap<ModuleName, Status>,
+) -> Result<(), ProjectProblem> {
+    let (names, index) = ordered(compat, modules);
+    let edges: Vec<Vec<usize>> = (names.iter())
         .map(|name| match &modules[*name] {
-            Status::Local(module) => module
-                .imports
-                .iter()
+            Status::Local(module) => (module.imports.iter())
                 .filter_map(|import| index.get(&import.name).copied())
                 .collect(),
-            _ => Vec::new(),
+            Status::Foreign(_) | Status::Kernel | Status::BadImport(_) | Status::BadModule(_) => {
+                Vec::new()
+            }
         })
         .collect();
     for component in graph::components(&edges) {
@@ -852,12 +917,24 @@ fn check_cycles(compat: Compat, modules: &HashMap<ModuleName, Status>) -> Result
             Compat::V0_19_1 | Compat::V0_19_2 => component,
             Compat::V0_19_3 => graph::minimal_cycle(&edges, &component),
         };
-        return Err(Problem::Cycle {
+        return Err(ProjectProblem::Cycle {
             first: names[cycle[0]].clone(),
             rest: cycle[1..].iter().map(|&i| names[i].clone()).collect(),
         });
     }
     Ok(())
+}
+
+/// The names of `modules` in the release's order, and each one's place in
+/// it.
+pub(crate) fn ordered(
+    compat: Compat,
+    modules: &HashMap<ModuleName, Status>,
+) -> (Vec<&ModuleName>, HashMap<&ModuleName, usize>) {
+    let mut names: Vec<&ModuleName> = modules.keys().collect();
+    names.sort_by(|a, b| a.compare(b, compat));
+    let index = names.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+    (names, index)
 }
 
 /// `checkUniqueRoots`: no two roots outside the source directories have a
@@ -866,7 +943,7 @@ fn check_unique_roots(
     compat: Compat,
     modules: &HashMap<ModuleName, Status>,
     roots: &[Root],
-) -> Result<(), Problem> {
+) -> Result<(), ProjectProblem> {
     let mut outsides: HashMap<&ModuleName, Vec<&Path>> = HashMap::new();
     for root in roots {
         if let Root::Outside(Ok(module)) = root {
@@ -878,7 +955,7 @@ fn check_unique_roots(
     for (name, paths) in &outsides {
         if let [.., second, first] = paths.as_slice() {
             // `fromListWith` puts the later path first.
-            return Err(Problem::RootNameDuplicate {
+            return Err(ProjectProblem::RootNameDuplicate {
                 name: (*name).clone(),
                 first: first.to_path_buf(),
                 second: second.to_path_buf(),
@@ -887,7 +964,7 @@ fn check_unique_roots(
     }
     for (name, paths) in &outsides {
         if let Some(Status::Local(module)) = modules.get(*name) {
-            return Err(Problem::RootNameDuplicate {
+            return Err(ProjectProblem::RootNameDuplicate {
                 name: (*name).clone(),
                 first: paths[0].to_path_buf(),
                 second: module.path.clone(),

@@ -4,16 +4,18 @@
 //! failed doesn't run: upstream reports only the earliest failing phase,
 //! and the modules it blocks stay silent.
 //!
-//! Each module's work is a phase between checks of the snapshot: once the
-//! snapshot is stale, no further module starts, and the run ends
-//! [`Cancelled`] when the ones running finish. A run that ends stale is
-//! cancelled too, so what it returns was made from current files; a
-//! caller publishing it later checks again.
+//! Each module's work is a phase between checks of the snapshot it reads,
+//! if it reads one: once the snapshot is stale, no further module starts,
+//! and the run ends [`Cancelled`] when the ones running finish. A run that
+//! ends stale is cancelled too, so what it returns was made from current
+//! files; a caller publishing it later checks again.
 //!
 //! A module may also wait on gates, opened by work running alongside, as
 //! a project's modules wait on the packages they import while the rest
 //! are still building.
 
+use std::collections::HashMap;
+use std::hash::Hash;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -22,7 +24,9 @@ use crate::{Pool, Snapshot};
 /// What came of one module.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome<T, E> {
+    /// It ran, and made this.
     Done(T),
+    /// It ran, and failed.
     Failed(E),
     /// A module it imports failed or was blocked, so it didn't run.
     Blocked,
@@ -33,14 +37,15 @@ pub enum Outcome<T, E> {
 pub struct Cancelled;
 
 /// Runs `job` on each module of the DAG whose module `i` imports
-/// `imports[i]`, giving it what each of those made, in that order.
-/// The outcomes come back in the modules' order.
+/// `imports[i]`, giving it what each of those made, in that order, until
+/// `snapshot`, if there is one, goes stale. The outcomes come back in the
+/// modules' order.
 ///
 /// # Panics
 ///
 /// If the imports form a cycle, which `graph` reports first.
 pub fn run<T, E, F>(
-    snapshot: &Snapshot,
+    snapshot: Option<&Snapshot>,
     imports: &[Vec<usize>],
     job: F,
 ) -> Result<Vec<Outcome<T, E>>, Cancelled>
@@ -57,7 +62,7 @@ where
 /// alongside, each once, by calling what it is given. A module whose gate
 /// never opens doesn't run, and comes back blocked.
 pub fn run_gated<T, E, F, O>(
-    snapshot: &Snapshot,
+    snapshot: Option<&Snapshot>,
     imports: &[Vec<usize>],
     gates: &[Vec<usize>],
     open: O,
@@ -70,12 +75,6 @@ where
     O: FnOnce(&(dyn Fn(usize) + Sync)) + Send,
 {
     let n = imports.len();
-    let mut importers = vec![Vec::new(); n];
-    for (i, deps) in imports.iter().enumerate() {
-        for &d in deps {
-            importers[d].push(i);
-        }
-    }
     let mut waiters: Vec<Vec<usize>> = Vec::new();
     for (i, gates) in gates.iter().enumerate() {
         for &g in gates {
@@ -88,7 +87,7 @@ where
     let run = Run {
         snapshot,
         imports,
-        importers,
+        importers: importers(imports),
         waiting: (imports.iter().zip(gates))
             .map(|(d, g)| AtomicUsize::new(d.len() + g.len()))
             .collect(),
@@ -113,7 +112,7 @@ where
         }
     });
     // The last modules may have run on what went stale under them.
-    if run.cancelled.load(Ordering::Relaxed) || snapshot.is_stale() {
+    if run.cancelled.load(Ordering::Relaxed) || run.stale() {
         return Err(Cancelled);
     }
     // The imports form no cycle, so a module that didn't run waited on a
@@ -123,8 +122,75 @@ where
     Ok(outcomes.collect())
 }
 
+/// [`run`] with no snapshot to go stale: what each module made, those a
+/// failure blocked having nothing; or the first failure in the modules'
+/// order, which upstream reports.
+pub(crate) fn run_all<T, E, F>(imports: &[Vec<usize>], job: F) -> Result<Vec<Option<T>>, E>
+where
+    T: Send + Sync,
+    E: Send + Sync,
+    F: Fn(usize, &[&T]) -> Result<T, E> + Sync,
+{
+    let outcomes = run(None, imports, job).expect("only a snapshot going stale cancels");
+    (outcomes.into_iter())
+        .map(|outcome| match outcome {
+            Outcome::Done(made) => Ok(Some(made)),
+            Outcome::Failed(e) => Err(e),
+            Outcome::Blocked => Ok(None),
+        })
+        .collect()
+}
+
+/// The imports of the modules `keys` names, by place, each module
+/// importing what `deps` names of them; none if they import each other in
+/// a cycle.
+pub(crate) fn dag<'k, K, D>(keys: &[&'k K], deps: impl Fn(&'k K) -> D) -> Option<Vec<Vec<usize>>>
+where
+    K: Hash + Eq + ?Sized,
+    D: IntoIterator<Item = &'k K>,
+{
+    let index: HashMap<&K, usize> = keys.iter().enumerate().map(|(i, k)| (*k, i)).collect();
+    let imports: Vec<Vec<usize>> = (keys.iter())
+        .map(|key| {
+            (deps(key).into_iter())
+                .filter_map(|d| index.get(d).copied())
+                .collect()
+        })
+        .collect();
+    cyclic(&imports).is_empty().then_some(imports)
+}
+
+/// The modules that import each module.
+fn importers(imports: &[Vec<usize>]) -> Vec<Vec<usize>> {
+    let mut importers = vec![Vec::new(); imports.len()];
+    for (i, deps) in imports.iter().enumerate() {
+        for &d in deps {
+            importers[d].push(i);
+        }
+    }
+    importers
+}
+
+/// The modules on an import cycle, by Kahn's algorithm.
+pub(crate) fn cyclic(imports: &[Vec<usize>]) -> Vec<usize> {
+    let mut waiting: Vec<usize> = imports.iter().map(Vec::len).collect();
+    let importers = importers(imports);
+    let mut ready: Vec<usize> = (0..imports.len()).filter(|&i| waiting[i] == 0).collect();
+    let mut done = vec![false; imports.len()];
+    while let Some(i) = ready.pop() {
+        done[i] = true;
+        for &importer in &importers[i] {
+            waiting[importer] -= 1;
+            if waiting[importer] == 0 {
+                ready.push(importer);
+            }
+        }
+    }
+    (0..imports.len()).filter(|&i| !done[i]).collect()
+}
+
 struct Run<'a, T, E, F> {
-    snapshot: &'a Snapshot,
+    snapshot: Option<&'a Snapshot>,
     imports: &'a [Vec<usize>],
     importers: Vec<Vec<usize>>,
     /// How many of each module's imports haven't finished.
@@ -140,8 +206,12 @@ where
     E: Send + Sync,
     F: Fn(usize, &[&T]) -> Result<T, E> + Sync,
 {
+    fn stale(&self) -> bool {
+        self.snapshot.is_some_and(Snapshot::is_stale)
+    }
+
     fn module<'s>(&'s self, scope: &rayon::Scope<'s>, i: usize) {
-        if self.cancelled.load(Ordering::Relaxed) || self.snapshot.is_stale() {
+        if self.cancelled.load(Ordering::Relaxed) || self.stale() {
             self.cancelled.store(true, Ordering::Relaxed);
             return;
         }
@@ -149,7 +219,7 @@ where
             .iter()
             .map(|&d| match self.outcomes[d].get() {
                 Some(Outcome::Done(made)) => Some(made),
-                _ => None,
+                Some(Outcome::Failed(_) | Outcome::Blocked) | None => None,
             })
             .collect();
         let outcome = match made {

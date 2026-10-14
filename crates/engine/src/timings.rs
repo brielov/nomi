@@ -3,15 +3,16 @@
 //! build's; work runs on the pool, so its times, added across threads, come
 //! to about the build's CPU time. Off, a phase costs one load of a flag.
 
-use std::fmt::Write as _;
+use std::fmt::{Display, Write as _};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use nomi_base::lock;
+
 /// What a build spends its time on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Phase {
-    // Stages.
+pub(crate) enum Phase {
     /// Reading `elm.json` and the dependencies' interfaces.
     Load,
     /// Building the dependencies.
@@ -23,7 +24,6 @@ pub enum Phase {
     Generate,
     /// Writing the output.
     Write,
-    // Work.
     /// Reading and parsing a module, and validating its syntax.
     Parse,
     /// Lowering the syntax tree.
@@ -71,31 +71,30 @@ static MODULES: Mutex<Vec<(String, Duration)>> = Mutex::new(Vec::new());
 const SLOWEST: usize = 10;
 
 /// Whether `NOMI_TIMINGS` asks for timings.
-pub fn on() -> bool {
+pub(crate) fn on() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| std::env::var_os("NOMI_TIMINGS").is_some_and(|v| !v.is_empty() && v != "0"))
 }
 
 /// Runs `f`, counting its time to `phase`.
-pub fn time<T>(phase: Phase, f: impl FnOnce() -> T) -> T {
-    if !on() {
-        return f();
-    }
-    let start = Instant::now();
-    let result = f();
-    add(phase, start.elapsed());
-    result
+pub(crate) fn time<T>(phase: Phase, f: impl FnOnce() -> T) -> T {
+    timed(f, |took| add(phase, took))
 }
 
-/// Runs `f`, the whole of checking `module`, for the list of the slowest.
-pub fn module<T>(module: &str, f: impl FnOnce() -> T) -> T {
+/// Runs `f`, the whole of checking the module `label` names, for the list
+/// of the slowest.
+pub(crate) fn module<T>(label: impl Display, f: impl FnOnce() -> T) -> T {
+    timed(f, |took| lock(&MODULES).push((label.to_string(), took)))
+}
+
+/// Runs `f`, giving `record` how long it took when timings are on.
+fn timed<T>(f: impl FnOnce() -> T, record: impl FnOnce(Duration)) -> T {
     if !on() {
         return f();
     }
     let start = Instant::now();
     let result = f();
-    let took = start.elapsed();
-    MODULES.lock().unwrap().push((module.to_owned(), took));
+    record(start.elapsed());
     result
 }
 
@@ -107,7 +106,7 @@ fn add(phase: Phase, took: Duration) {
 }
 
 /// The table of what was counted, for a build that took `wall`.
-pub fn report(wall: Duration) -> String {
+pub(crate) fn report(wall: Duration) -> String {
     let mut out = String::new();
     let ms = |nanos: u64| nanos as f64 / 1e6;
     let mut section = |title: &str, phases: &[Phase]| {
@@ -130,7 +129,7 @@ pub fn report(wall: Duration) -> String {
     };
     section("stages (wall)", &STAGES);
     section("work (all threads)", &WORK);
-    let mut modules = MODULES.lock().unwrap().clone();
+    let mut modules = lock(&MODULES).clone();
     if !modules.is_empty() {
         modules.sort_by_key(|m| std::cmp::Reverse(m.1));
         let _ = writeln!(out, "slowest modules");

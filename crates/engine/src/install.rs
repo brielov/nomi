@@ -261,10 +261,9 @@ fn verify(
         .into_iter()
         .map(|(name, details)| (name, details.version))
         .collect::<Vec<_>>();
-    let names = releases.clone();
-    let fetched = packages::fetch(Pool::global(), store, http, compat, releases);
+    let fetched = packages::fetch(Pool::global(), store, http, compat, &releases);
     // Upstream reports the first of the releases it couldn't download.
-    match names
+    match releases
         .iter()
         .zip(fetched)
         .find_map(|(release, r)| r.err().map(|e| (release, e)))

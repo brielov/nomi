@@ -2,18 +2,21 @@
 //! its dependencies load it.
 
 use std::collections::BTreeMap;
+use std::io;
 use std::path::{Path, PathBuf};
 
 use nomi_base::{Compat, Report};
+use nomi_project::outline::PkgOutline;
 use nomi_project::{Outline, report};
 
 use crate::Vfs;
 use crate::console::Personality;
 use crate::install::one_line;
-use crate::paths::Root;
+use crate::paths::{ELM_JSON, Root};
 
 /// A project's `elm.json`, read.
 pub(crate) struct Project {
+    /// Where its `elm.json` is.
     pub path: PathBuf,
     pub outline: Outline,
     /// The release the outline names.
@@ -62,6 +65,16 @@ impl Project {
             )
         })
     }
+}
+
+/// The outline of the package whose files are in `dir`, as `compat`
+/// reads it; none where its `elm.json` isn't a package's.
+pub(crate) fn package_outline(dir: &Path, compat: Compat) -> io::Result<Option<PkgOutline>> {
+    let bytes = std::fs::read(dir.join(ELM_JSON))?;
+    Ok(match Outline::decode(&bytes, compat) {
+        Ok(Outline::Pkg(pkg)) => Some(pkg),
+        Ok(Outline::App(_)) | Err(_) => None,
+    })
 }
 
 /// What nomi's own commands say where there is no project for `purpose`.

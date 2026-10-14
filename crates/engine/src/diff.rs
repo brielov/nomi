@@ -13,15 +13,15 @@ use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, hsep, reflow, sep, text, 
 use nomi_compiler::types::render::{self, Context};
 use nomi_project::version::Version;
 use nomi_project::{Name, Outline};
-use nomi_registry::{Http, HttpError, Index, LatestError};
+use nomi_registry::{Http, HttpError, Index};
 use nomi_syntax::ast::{self, AstNode};
 use serde_json::Value as Json;
 
-use crate::Vfs;
-use crate::check::{self, Checked, env_of, foreigns};
+use crate::check::{Build, Checked, Goal, env_of, foreigns};
 use crate::console::{self, Console, Personality};
 use crate::paths::{Cache, Root};
 use crate::project::{Project, check_source_dirs};
+use crate::{Vfs, env};
 
 /// `Elm.Compiler.Type.Type`: a type as documentation writes it, its names
 /// unqualified as the decoder reads them.
@@ -776,7 +776,7 @@ pub fn run(
         }
         Err(Stop::Build(checked)) => {
             let root = root.as_ref().map_or(dir, Root::dir);
-            crate::make::show_reports(console, root, &checked, compat);
+            crate::check::show_reports(console, root, &checked, compat);
             false
         }
     }
@@ -836,19 +836,8 @@ pub(crate) fn latest(
     compat: Compat,
     context: &str,
 ) -> Result<Index, Report> {
-    const TITLE: &str = "PROBLEM UPDATING PACKAGE LIST";
-    match Index::latest_strict(http, &cache.index(), compat) {
-        Ok(index) => Ok(index),
-        Err(LatestError::Registry(problem)) => Err(nomi_registry::report::registry_problem(
-            TITLE, &problem, context,
-        )),
-        Err(LatestError::Io(e)) => Err(Report::new(
-            TITLE,
-            None,
-            &format!("{context}, but I could not read or write the copy kept in the cache: {e}"),
-            [],
-        )),
-    }
+    Index::latest_strict(http, &cache.index(), compat)
+        .map_err(|e| env::latest_problem("PROBLEM UPDATING PACKAGE LIST", context, e))
 }
 
 /// `readOutline`: the project, a package the registry knows.
@@ -956,26 +945,29 @@ pub(crate) fn local_docs_json(
     let compat = project.compat;
     let dir = root.dir();
     check_source_dirs(dir, &project.outline)?;
-    let (foreigns, interfaces, _) = foreigns(cache, http, project, Personality::Elm)?;
+    let (foreigns, interfaces) = foreigns(cache, http, project, Personality::Elm)?;
     if let Outline::Pkg(pkg) = &project.outline
         && pkg.exposed.modules().next().is_none()
     {
         return Err(no_exposed().into());
     }
     let env = env_of(dir, &project.outline, compat, foreigns)?.with_cwd(dir);
-    let (checked, json, _) = check::docs(
-        &vfs.snapshot(),
-        &env,
-        &project.outline,
-        Personality::Elm,
-        (&interfaces).into(),
-    );
-    match json {
+    let build = Build {
+        snapshot: &vfs.snapshot(),
+        env: &env,
+        outline: &project.outline,
+        paths: &[],
+        personality: Personality::Elm,
+        packages: (&interfaces).into(),
+        artifacts: None,
+    };
+    let built = (build.run(Goal::Docs)).expect("nothing revises the files while diff builds");
+    match built.docs {
         Some(json) => Ok((
             decode(compat, json.as_bytes()).expect("docs nomi wrote"),
             json,
         )),
-        None => Err(Stop::Build(checked)),
+        None => Err(Stop::Build(built.checked)),
     }
 }
 

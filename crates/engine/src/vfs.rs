@@ -9,9 +9,9 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, PoisonError, RwLock, RwLockReadGuard};
 
-use nomi_base::FileId;
+use nomi_base::{FileId, lock};
 use walkdir::WalkDir;
 
 /// Directories discovery never enters, as elm-format skips them: packages
@@ -63,13 +63,13 @@ pub struct Snapshot {
 
 impl Files {
     fn id(&self, path: &Path) -> io::Result<FileId> {
-        let known = self.0.read().unwrap().given.get(path).copied();
+        let known = self.read().given.get(path).copied();
         if let Some(id) = known {
             return Ok(id);
         }
         let given = path;
         let path = canonical(path)?;
-        let mut interner = self.0.write().unwrap();
+        let mut interner = self.0.write().unwrap_or_else(PoisonError::into_inner);
         if let Some(&id) = interner.ids.get(&path) {
             interner.given.insert(given.to_owned(), id);
             return Ok(id);
@@ -84,7 +84,13 @@ impl Files {
     }
 
     fn path(&self, id: FileId) -> Arc<Path> {
-        self.0.read().unwrap().paths[id.raw() as usize].clone()
+        self.read().paths[id.raw() as usize].clone()
+    }
+
+    /// The interner, read even after a writer panicked, as writers only
+    /// add to it.
+    fn read(&self) -> RwLockReadGuard<'_, Interner> {
+        self.0.read().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -128,6 +134,11 @@ pub fn canonical(path: &Path) -> io::Result<PathBuf> {
     Ok(resolved)
 }
 
+/// [`canonical`], or `path` as given where that fails.
+pub(crate) fn canonical_or_given(path: &Path) -> PathBuf {
+    canonical(path).unwrap_or_else(|_| path.to_owned())
+}
+
 /// `path` without the `\\?\` prefix Windows' canonical paths have, where
 /// the path means the same without it, as `C:\x` or `\\server\share`:
 /// with it, a path makes no `file:` URL and starts no other path given
@@ -152,6 +163,7 @@ fn plain(path: PathBuf) -> PathBuf {
 }
 
 impl Snapshot {
+    /// The revision the files are at.
     pub fn revision(&self) -> Revision {
         self.revision
     }
@@ -213,6 +225,7 @@ impl Snapshot {
 }
 
 impl Vfs {
+    /// The disk, with nothing laid over it.
     pub fn new() -> Vfs {
         Vfs::default()
     }
@@ -221,7 +234,7 @@ impl Vfs {
     pub fn snapshot(&self) -> Snapshot {
         // The overlays are read under their lock, so the revision and
         // the overlays agree.
-        let overlays = self.overlays.lock().unwrap();
+        let overlays = lock(&self.overlays);
         Snapshot {
             revision: Revision(self.latest.load(Ordering::Acquire)),
             files: self.files.clone(),
@@ -230,6 +243,7 @@ impl Vfs {
         }
     }
 
+    /// The latest revision.
     pub fn revision(&self) -> Revision {
         Revision(self.latest.load(Ordering::Acquire))
     }
@@ -248,7 +262,7 @@ impl Vfs {
     /// exist on disk, until [`Vfs::remove_overlay`].
     pub fn set_overlay(&self, path: &Path, text: impl Into<Arc<str>>) -> io::Result<Revision> {
         let id = self.file_id(path)?;
-        let mut overlays = self.overlays.lock().unwrap();
+        let mut overlays = lock(&self.overlays);
         Arc::make_mut(&mut overlays).insert(id, text.into());
         Ok(self.next())
     }
@@ -256,7 +270,7 @@ impl Vfs {
     /// Returns the file at `path` to its text on disk.
     pub fn remove_overlay(&self, path: &Path) -> io::Result<Revision> {
         let id = self.file_id(path)?;
-        let mut overlays = self.overlays.lock().unwrap();
+        let mut overlays = lock(&self.overlays);
         Arc::make_mut(&mut overlays).remove(&id);
         Ok(self.next())
     }
@@ -264,7 +278,7 @@ impl Vfs {
     /// Records that the disk changed, as a file watcher reports it, so
     /// snapshots taken before are stale.
     pub fn disk_changed(&self) -> Revision {
-        let _overlays = self.overlays.lock().unwrap();
+        let _overlays = lock(&self.overlays);
         self.next()
     }
 
@@ -332,32 +346,32 @@ impl Vfs {
         }
         self.write(path, text)
     }
+}
 
-    /// The Elm modules `root` names, as elm-format finds them: a file is
-    /// itself, whatever its extension, and a directory is every `.elm` file
-    /// under it, following symbolic links and skipping `elm-stuff`,
-    /// `node_modules` and `.git`, the root included. Files come depth
-    /// first, each directory's entries in the order of their names, where
-    /// elm-format takes the order the disk lists them in.
-    pub fn discover(&self, root: &Path) -> io::Result<Vec<PathBuf>> {
-        if !fs::metadata(root)?.is_dir() {
-            return Ok(vec![root.to_owned()]);
-        }
-        let walk = WalkDir::new(root)
-            .follow_links(true)
-            .sort_by_file_name()
-            .into_iter()
-            .filter_entry(|entry| !(entry.file_type().is_dir() && skipped(entry.path())));
-        let mut files = Vec::new();
-        for entry in walk {
-            let entry = entry?;
-            let path = entry.path();
-            if entry.file_type().is_file() && path.extension().is_some_and(|e| e == ELM) {
-                files.push(entry.into_path());
-            }
-        }
-        Ok(files)
+/// The Elm modules `root` names, as elm-format finds them: a file is
+/// itself, whatever its extension, and a directory is every `.elm` file
+/// under it, following symbolic links and skipping `elm-stuff`,
+/// `node_modules` and `.git`, the root included. Files come depth
+/// first, each directory's entries in the order of their names, where
+/// elm-format takes the order the disk lists them in.
+pub fn discover(root: &Path) -> io::Result<Vec<PathBuf>> {
+    if !fs::metadata(root)?.is_dir() {
+        return Ok(vec![root.to_owned()]);
     }
+    let walk = WalkDir::new(root)
+        .follow_links(true)
+        .sort_by_file_name()
+        .into_iter()
+        .filter_entry(|entry| !(entry.file_type().is_dir() && skipped(entry.path())));
+    let mut files = Vec::new();
+    for entry in walk {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type().is_file() && path.extension().is_some_and(|e| e == ELM) {
+            files.push(entry.into_path());
+        }
+    }
+    Ok(files)
 }
 
 fn skipped(dir: &Path) -> bool {

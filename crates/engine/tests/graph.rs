@@ -8,21 +8,12 @@ use std::path::{Path, PathBuf};
 use nomi_base::Compat;
 use nomi_engine::Vfs;
 use nomi_engine::graph::{
-    Env, Foreigns, Graph, ImportProblem, ModuleProblem, Owner, Problem, Root, Status,
+    Env, Foreigns, Graph, ImportProblem, ModuleProblem, Owner, ProjectProblem, Root, Status,
 };
-use nomi_project::ModuleName;
-use nomi_project::Name;
-use nomi_project::json::Cursor as JsonCursor;
-
-const ALL: [Compat; 3] = [Compat::V0_19_1, Compat::V0_19_2, Compat::V0_19_3];
+use nomi_project::{ModuleName, Name};
 
 fn name(text: &str) -> Name {
-    Name::parse(
-        text.as_bytes(),
-        JsonCursor::start(Compat::LATEST),
-        Compat::LATEST,
-    )
-    .unwrap()
+    text.parse().unwrap()
 }
 
 fn m(text: &str) -> ModuleName {
@@ -77,13 +68,13 @@ fn app_in(root: &Path, compat: Compat, dirs: &[&str]) -> Env {
     Env::new(compat, root, Owner::Application, &dirs, foreigns).unwrap()
 }
 
-fn from_paths(root: &Path, env: &Env, paths: &[&str]) -> Result<Graph, Problem> {
+fn from_paths(root: &Path, env: &Env, paths: &[&str]) -> Result<Graph, ProjectProblem> {
     let paths: Vec<PathBuf> = paths.iter().map(|p| root.join(p)).collect();
     Graph::from_paths(&Vfs::new().snapshot(), env, &paths)
 }
 
-fn cycle(problem: Problem) -> Vec<String> {
-    let Problem::Cycle { first, rest } = problem else {
+fn cycle(problem: ProjectProblem) -> Vec<String> {
+    let ProjectProblem::Cycle { first, rest } = problem else {
         panic!("not a cycle: {problem:?}");
     };
     std::iter::once(first)
@@ -129,7 +120,7 @@ fn cycles_are_reported_as_each_release_reports_them() {
     module(root, "B", &["C"]);
     module(root, "C", &["Bb", "Main"]);
     module(root, "Bb", &["B"]);
-    for compat in ALL {
+    for compat in Compat::ALL {
         let problem = from_paths(root, &app(root, compat), &["src/Main.elm"]).unwrap_err();
         let want: &[&str] = match compat {
             Compat::V0_19_3 => &["B", "C", "Bb"],
@@ -157,7 +148,7 @@ fn a_module_importing_itself_is_a_cycle() {
     let root = dir.path();
     module(root, "Main", &["Main"]);
     // 0.19.3 crashes or hangs here; nomi reports the module alone.
-    for compat in ALL {
+    for compat in Compat::ALL {
         let problem = from_paths(root, &app(root, compat), &["src/Main.elm"]).unwrap_err();
         assert_eq!(cycle(problem), ["Main"], "{compat:?}");
     }
@@ -306,13 +297,13 @@ fn roots_are_checked_in_the_order_given() {
     );
     assert_eq!(
         from_paths(root, &env, &["src/Gone.elm", "src/Main.js"]).unwrap_err(),
-        Problem::PathUnknown(root.join("src/Gone.elm"))
+        ProjectProblem::PathUnknown(root.join("src/Gone.elm"))
     );
     assert_eq!(
         from_paths(root, &env, &["src/Main.js", "src/Gone.elm"]).unwrap_err(),
-        Problem::WithBadExtension(root.join("src/Main.js"))
+        ProjectProblem::WithBadExtension(root.join("src/Main.js"))
     );
-    let Problem::RootNameInvalid { names, .. } =
+    let ProjectProblem::RootNameInvalid { names, .. } =
         from_paths(root, &env, &["src/bad/Name.elm"]).unwrap_err()
     else {
         panic!("bad is no module name");
@@ -320,7 +311,7 @@ fn roots_are_checked_in_the_order_given() {
     assert_eq!(names, ["bad", "Name"]);
     assert_eq!(
         from_paths(root, &env, &["src/Main.elm", "src/../src/Main.elm"]).unwrap_err(),
-        Problem::MainPathDuplicate {
+        ProjectProblem::MainPathDuplicate {
             first: root.join("src/../src/Main.elm"),
             second: root.join("src/Main.elm"),
         }
@@ -334,7 +325,7 @@ fn a_root_names_one_module() {
     let env = app_in(root, Compat::LATEST, &["src", "lib"]);
     write(root, "src/A.elm", "module A exposing (..)\n\nx = 1\n");
     write(root, "lib/A.elm", "module A exposing (..)\n\nx = 1\n");
-    let Problem::RootNameDuplicate { name, .. } =
+    let ProjectProblem::RootNameDuplicate { name, .. } =
         from_paths(root, &env, &["src/A.elm"]).unwrap_err()
     else {
         panic!("A is in both");
@@ -349,7 +340,7 @@ fn a_root_names_one_module() {
     write(root, "other/Two.elm", "x = 1\n");
     assert_eq!(
         from_paths(root, &env, &["other/One.elm", "other/Two.elm"]).unwrap_err(),
-        Problem::RootNameDuplicate {
+        ProjectProblem::RootNameDuplicate {
             name: m("Main"),
             first: root.join("other/Two.elm"),
             second: root.join("other/One.elm"),
@@ -366,7 +357,7 @@ fn a_root_names_one_module() {
         "module B exposing (..)\n\nimport C\n\nx = 1\n",
     );
     write(root, "src/C.elm", "module C exposing (..)\n\nx = 1\n");
-    let Problem::RootNameDuplicate { name, first, .. } =
+    let ProjectProblem::RootNameDuplicate { name, first, .. } =
         from_paths(root, &env, &["other/Uses.elm"]).unwrap_err()
     else {
         panic!("C is outside and in");

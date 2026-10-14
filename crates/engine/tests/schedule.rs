@@ -24,7 +24,7 @@ fn build(
 ) -> (Vec<Outcome<Made, String>>, Vec<usize>) {
     let artifacts = Artifacts::new(&Cache::new(cache.to_owned()));
     let compiled = Mutex::new(Vec::new());
-    let outcomes = run(&Vfs::new().snapshot(), imports, |i, made: &[&Made]| {
+    let outcomes = run(None, imports, |i, made: &[&Made]| {
         let source = sources[i];
         if source.starts_with('!') {
             return Err(format!("module {i} fails"));
@@ -92,7 +92,7 @@ fn modules_start_once_their_imports_finish() {
         })
         .collect();
     let order = AtomicUsize::new(0);
-    let outcomes = run(&Vfs::new().snapshot(), &imports, |i, made: &[&usize]| {
+    let outcomes = run(None, &imports, |i, made: &[&usize]| {
         assert_eq!(made.len(), imports[i].len());
         Ok::<_, ()>(order.fetch_add(1, Ordering::SeqCst))
     })
@@ -116,7 +116,7 @@ fn a_stale_snapshot_stops_the_run() {
     let snapshot = vfs.snapshot();
     let imports = vec![vec![], vec![0], vec![1]];
     let ran = AtomicUsize::new(0);
-    let result = run(&snapshot, &imports, |i, _: &[&()]| {
+    let result = run(Some(&snapshot), &imports, |i, _: &[&()]| {
         ran.fetch_add(1, Ordering::SeqCst);
         if i == 0 {
             vfs.disk_changed();
@@ -125,14 +125,19 @@ fn a_stale_snapshot_stops_the_run() {
     });
     assert_eq!(result, Err(Cancelled));
     assert_eq!(ran.load(Ordering::SeqCst), 1);
-    assert!(run(&vfs.snapshot(), &imports, |_, _: &[&()]| Ok::<_, ()>(())).is_ok());
+    assert!(
+        run(Some(&vfs.snapshot()), &imports, |_, _: &[&()]| Ok::<_, ()>(
+            ()
+        ))
+        .is_ok()
+    );
 }
 
 #[test]
 fn a_run_that_ends_stale_is_cancelled() {
     let vfs = Vfs::new();
     let snapshot = vfs.snapshot();
-    let result = run(&snapshot, &[vec![]], |_, _: &[&()]| {
+    let result = run(Some(&snapshot), &[vec![]], |_, _: &[&()]| {
         vfs.disk_changed();
         Ok::<_, ()>(())
     });
@@ -148,7 +153,7 @@ fn modules_wait_on_their_gates() {
     let opened = Mutex::new(false);
     let order = Mutex::new(Vec::new());
     let outcomes = run_gated(
-        &Vfs::new().snapshot(),
+        None,
         &imports,
         &gates,
         |open| {

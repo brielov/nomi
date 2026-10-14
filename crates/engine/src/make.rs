@@ -4,35 +4,41 @@
 //! a package's exposed ones, built; then the documentation is written, or
 //! the code generated.
 
-use crate::timings::{self, Phase};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::time::Instant;
 
-use nomi_base::Report;
-use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, reflow, simple_note, text, vcat};
+use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, reflow, simple_note, text, vcat, words};
+use nomi_base::{Compat, Report};
 use nomi_project::{ModuleName, Outline};
+use nomi_registry::Http;
 
-use crate::Vfs;
 use crate::artifacts::Artifacts;
-use crate::check::show;
-use crate::check::{self, Checked, Style, env_of};
+use crate::check::{
+    self, Build, Built, Checked, Goal, Sources, Style, env_of, problems_summary, show, show_reports,
+};
 use crate::console::{Console, Personality};
+use crate::graph::{Env, RootMain};
 use crate::install::one_line;
-use crate::javascript;
-use crate::names::{Building, LazyInterface, Packages};
+use crate::names::{Building, ModuleInterface, Packages};
+use crate::objects::Dependencies;
 use crate::paths::{Cache, Root};
 use crate::project::{self, Project, check_source_dirs};
-use crate::report;
-use nomi_registry::Http;
+use crate::timings::{self, Phase};
+use crate::{Pool, Vfs, javascript, report};
 
 /// What `elm make` was asked for (`Make.Flags`, with the paths).
 #[derive(Clone, Debug)]
 pub struct Make {
+    /// The modules to build; none for a package's exposed ones.
     pub paths: Vec<PathBuf>,
+    /// Whose words the reports are in.
     pub personality: Personality,
     pub style: Style,
+    /// `--debug`.
     pub debug: bool,
+    /// `--optimize`.
     pub optimize: bool,
+    /// `--output`, if given.
     pub output: Option<Output>,
     /// Where to write a package's `docs.json`.
     pub docs: Option<PathBuf>,
@@ -41,8 +47,11 @@ pub struct Make {
 /// `Make.Output`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Output {
+    /// A JavaScript file.
     Js(PathBuf),
+    /// An HTML page that starts the one root.
     Html(PathBuf),
+    /// Nothing: the build is checked, and generates no code.
     DevNull,
 }
 
@@ -79,9 +88,9 @@ pub fn take_extension(path: &str) -> &str {
 
 impl Make {
     /// What `nomi check` asks for: `elm make --output=/dev/null`.
-    pub fn check(paths: &[PathBuf], style: Style) -> Make {
+    pub fn check(paths: Vec<PathBuf>, style: Style) -> Make {
         Make {
-            paths: paths.to_vec(),
+            paths,
             personality: Personality::Nomi,
             style,
             debug: false,
@@ -89,6 +98,32 @@ impl Make {
             output: Some(Output::DevNull),
             docs: None,
         }
+    }
+
+    /// What `make` reports where there is no project.
+    fn no_outline(&self) -> Report {
+        match self.personality {
+            Personality::Elm => no_outline(),
+            Personality::Nomi if self.output == Some(Output::DevNull) => {
+                project::no_outline("to check")
+            }
+            Personality::Nomi => project::no_outline("to build"),
+        }
+    }
+
+    /// Whether the build shows elm's terminal style, with its progress.
+    fn terminal(&self) -> bool {
+        self.personality == Personality::Elm && self.style == Style::Terminal
+    }
+
+    /// Whether a package's `docs.json` is asked for.
+    fn documenting(&self) -> bool {
+        self.docs.is_some() && self.paths.is_empty()
+    }
+
+    /// Whether code is to be generated.
+    fn generating(&self) -> bool {
+        !self.paths.is_empty() && self.output != Some(Output::DevNull)
     }
 }
 
@@ -103,8 +138,16 @@ pub fn run(
     http: &(impl Http + Sync),
     make: &Make,
 ) -> bool {
-    let started = std::time::Instant::now();
-    let ok = build(vfs, console, dir, cache, http, make, &mut None);
+    let started = Instant::now();
+    let goal = if make.documenting() {
+        Goal::Docs
+    } else if make.generating() {
+        Goal::Optimize
+    } else {
+        Goal::Check
+    };
+    let ok = build(vfs, console, dir, cache, http, make, goal)
+        .is_some_and(|clean| write(vfs, console, dir, make, clean));
     if timings::on() {
         console.err(&timings::report(started.elapsed()));
     }
@@ -121,11 +164,39 @@ pub fn interfaces(
     cache: &Cache,
     http: &(impl Http + Sync),
     make: &Make,
-) -> Option<Vec<(ModuleName, Arc<LazyInterface>)>> {
-    let mut kept = Some(Vec::new());
-    build(vfs, console, dir, cache, http, make, &mut kept).then_some(kept?)
+) -> Option<Vec<ModuleInterface>> {
+    let goal = if make.documenting() {
+        Goal::Docs
+    } else {
+        Goal::Optimize
+    };
+    let clean = build(vfs, console, dir, cache, http, make, goal)?;
+    let interfaces = clean.built.optimized.interfaces.clone();
+    write(vfs, console, dir, make, clean).then_some(interfaces)
 }
 
+/// A build in which nothing was wrong, and what writing its output reads.
+struct Clean {
+    /// The directory of the project's `elm.json`.
+    root: PathBuf,
+    compat: Compat,
+    env: Env,
+    /// How code is generated.
+    kind: javascript::Kind,
+    dependencies: Dependencies,
+    built: Built,
+}
+
+/// The project at `root`, loaded, and what it builds with.
+struct Loaded {
+    compat: Compat,
+    outline: Outline,
+    env: Env,
+    sources: Sources,
+}
+
+/// Builds `goal` for `make` of the project around `dir`, showing what
+/// was wrong if anything was.
 fn build(
     vfs: &Vfs,
     console: &mut dyn Console,
@@ -133,139 +204,166 @@ fn build(
     cache: &Cache,
     http: &(impl Http + Sync),
     make: &Make,
-    kept: &mut Option<Vec<(ModuleName, Arc<LazyInterface>)>>,
-) -> bool {
+    goal: Goal,
+) -> Option<Clean> {
     let personality = make.personality;
-    let Some(root) = Root::find(vfs, dir) else {
-        let report = match personality {
-            Personality::Elm => no_outline(),
-            Personality::Nomi if make.output == Some(Output::DevNull) => {
-                project::no_outline("to check")
-            }
-            Personality::Nomi => project::no_outline("to build"),
-        };
-        show(
-            console,
-            dir,
-            &Checked::Project(report),
-            nomi_base::Compat::LATEST,
-            make.style,
-        );
-        return false;
+    let fail = |console: &mut dyn Console, root: &Path, report, compat| {
+        show(console, root, &Checked::Project(report), compat, make.style);
+        None
     };
-    if make.debug && make.optimize {
-        let report = cannot_optimize_and_debug();
-        show(
-            console,
-            dir,
-            &Checked::Project(report),
-            nomi_base::Compat::LATEST,
-            make.style,
-        );
-        return false;
-    }
-    let mut compat = nomi_base::Compat::LATEST;
-    let loaded = (|| {
-        let project = timings::time(Phase::Load, || Project::read(vfs, &root, personality))?;
-        compat = project.compat;
-        let root = root.dir().to_owned();
-        check_source_dirs(&root, &project.outline)?;
-        let sources = check::sources(cache, http, &project, personality)?;
-        let env = env_of(&root, &project.outline, compat, sources.foreigns.clone())?.with_cwd(dir);
-        Ok::<_, Report>((root, project.outline, env, sources))
-    })();
-    let terminal = personality == Personality::Elm && make.style == Style::Terminal;
-    let (root, outline, env, sources) = match loaded {
-        Ok(loaded) => loaded,
-        Err(report) => {
-            if terminal {
-                details_progress(console, 0);
-            }
-            show(console, dir, &Checked::Project(report), compat, make.style);
-            return false;
+    // What fails before the dependencies are ready, which elm's progress
+    // says they are.
+    let unready = |console: &mut dyn Console, report, compat| {
+        if make.terminal() {
+            details_progress(console, 0);
         }
+        fail(console, dir, report, compat)
     };
+    let Some(root) = Root::find(vfs, dir) else {
+        return fail(console, dir, make.no_outline(), Compat::LATEST);
+    };
+    let kind = match (make.debug, make.optimize) {
+        (true, true) => return fail(console, dir, cannot_optimize_and_debug(), Compat::LATEST),
+        (true, false) => javascript::Kind::Debug,
+        (false, true) => javascript::Kind::Optimize,
+        (false, false) => javascript::Kind::Dev,
+    };
+    let Loaded {
+        compat,
+        outline,
+        env,
+        sources,
+    } = match load(vfs, &root, dir, cache, http, personality) {
+        Ok(loaded) => loaded,
+        Err((report, compat)) => return unready(console, report, compat),
+    };
+    let root = root.dir().to_owned();
     let snapshot = vfs.snapshot();
     let artifacts = Artifacts::new(cache);
     // The dependencies build as the modules are found and checked, each
     // module once the packages it imports are built.
     let building = Building::new(compat, sources.packages, Some(&artifacts), sources.direct);
-    let documenting = make.docs.is_some() && make.paths.is_empty();
-    let generating = !make.paths.is_empty() && make.output != Some(Output::DevNull);
-    let mut optimized = None;
-    let modules = timings::time(Phase::Modules, || {
-        let packages = Packages::Building(&building);
-        if documenting {
-            check::docs_with(
-                &snapshot,
-                &env,
-                &outline,
-                personality,
-                packages,
-                Some(&artifacts),
-            )
-        } else if generating || kept.is_some() {
-            let (checked, made) = check::optimize(
-                &snapshot,
-                &env,
-                &outline,
-                &make.paths,
-                personality,
-                packages,
-                Some(&artifacts),
-            );
-            let compiled = made.compiled;
-            optimized = Some(made);
-            (checked, None, compiled)
-        } else {
-            let (checked, _, compiled) = check::make_with(
-                &snapshot,
-                &env,
-                &outline,
-                &make.paths,
-                personality,
-                packages,
-                Some(&artifacts),
-            );
-            (checked, None, compiled)
-        }
+    let built = timings::time(Phase::Modules, || {
+        let build = Build {
+            snapshot: &snapshot,
+            env: &env,
+            outline: &outline,
+            paths: &make.paths,
+            personality,
+            packages: Packages::Building(&building),
+            artifacts: Some(&artifacts),
+        };
+        build
+            .run(goal)
+            .expect("nothing revises the files while make builds")
     });
     // What the modules make counts only once the dependencies are built,
     // as their problems come first.
     let dependencies = match building.finish() {
         Ok(dependencies) => dependencies,
-        Err(why) => {
-            if terminal {
-                details_progress(console, 0);
-            }
-            let report = check::packages_problem(&why);
-            show(console, dir, &Checked::Project(report), compat, make.style);
-            return false;
-        }
+        Err(why) => return unready(console, check::packages_problem(&why), compat),
     };
+    let built_packages = dependencies.packages.len();
+    shown(
+        console,
+        make,
+        &root,
+        compat,
+        &outline,
+        built_packages,
+        &built,
+    )
+    .then(|| Clean {
+        root,
+        compat,
+        env,
+        kind,
+        dependencies,
+        built,
+    })
+}
+
+/// Shows how the build of the project at `root` went, in `make`'s style:
+/// elm's progress over the dependencies, `dependencies` of them, and the
+/// modules, and what was wrong if anything was. Whether nothing was.
+fn shown(
+    console: &mut dyn Console,
+    make: &Make,
+    root: &Path,
+    compat: Compat,
+    outline: &Outline,
+    dependencies: usize,
+    built: &Built,
+) -> bool {
+    let terminal = make.terminal();
     if terminal {
-        details_progress(console, dependencies.packages.len());
+        details_progress(console, dependencies);
     }
-    let (checked, docs, compiled) = modules;
     // `elm make` without files, in an application or a package exposing
     // nothing, stops before it builds.
     let no_input = make.paths.is_empty()
-        && match &outline {
+        && match outline {
             Outline::App(_) => true,
             Outline::Pkg(pkg) => pkg.exposed.modules().next().is_none(),
         };
     if terminal && !no_input {
-        build_progress(console, compiled, &checked);
+        build_progress(console, built.compiled, &built.checked);
     }
-    if !matches!(checked, Checked::Fine) {
-        if terminal {
-            show_reports(console, &root, &checked, compat);
-        } else {
-            show(console, &root, &checked, compat, make.style);
-        }
-        return false;
+    if matches!(built.checked, Checked::Fine) {
+        return true;
     }
-    let fail = |console: &mut dyn Console, report: Report| {
+    if terminal {
+        show_reports(console, root, &built.checked, compat);
+    } else {
+        show(console, root, &built.checked, compat, make.style);
+    }
+    false
+}
+
+/// The project at `root`, and what it builds with, every release
+/// downloaded; or the report on why not, in the words of the release it
+/// names, where it names one.
+fn load(
+    vfs: &Vfs,
+    root: &Root,
+    dir: &Path,
+    cache: &Cache,
+    http: &(impl Http + Sync),
+    personality: Personality,
+) -> Result<Loaded, (Report, Compat)> {
+    let project = timings::time(Phase::Load, || Project::read(vfs, root, personality))
+        .map_err(|report| (report, Compat::LATEST))?;
+    let compat = project.compat;
+    let fail = |report| (report, compat);
+    check_source_dirs(root.dir(), &project.outline).map_err(fail)?;
+    let sources = check::sources(cache, http, &project, personality).map_err(fail)?;
+    let env = env_of(
+        root.dir(),
+        &project.outline,
+        compat,
+        sources.foreigns.clone(),
+    );
+    Ok(Loaded {
+        compat,
+        outline: project.outline,
+        env: env.map_err(fail)?.with_cwd(dir),
+        sources,
+    })
+}
+
+/// Writes what the clean build made, as `make` asks: the documentation,
+/// or the code and, in the terminal style, a diagram of where it went.
+/// Whether nothing was wrong.
+fn write(vfs: &Vfs, console: &mut dyn Console, dir: &Path, make: &Make, clean: Clean) -> bool {
+    let Clean {
+        root,
+        compat,
+        env,
+        kind,
+        dependencies,
+        built,
+    } = clean;
+    let fail = |console: &mut dyn Console, report| {
         show(
             console,
             &root,
@@ -275,7 +373,7 @@ fn build(
         );
         false
     };
-    if let (Some(path), Some(docs)) = (&make.docs, docs) {
+    if let (Some(path), Some(docs)) = (&make.docs, &built.docs) {
         let path = dir.join(path);
         if let Err(e) = vfs.create(&path, docs.as_bytes()) {
             let report = one_line(
@@ -286,35 +384,22 @@ fn build(
         }
     }
     let mut diagram = None;
-    if let Some(kept) = kept {
-        *kept = optimized
-            .as_ref()
-            .map_or_else(Vec::new, |o| o.interfaces.clone());
-    }
-    if let Some(optimized) = optimized.filter(|_| generating) {
-        let target = match target(make.output.as_ref(), &optimized.roots) {
+    if make.generating() {
+        let target = match target(make.output.as_ref(), &built.optimized.roots) {
             Ok(target) => target,
             Err(report) => return fail(console, report),
         };
         if let Some(target) = target {
-            let kind = if make.optimize {
-                let uses = javascript::debug_uses(compat, &optimized);
+            if kind == javascript::Kind::Optimize {
+                let uses = javascript::debug_uses(compat, &built.optimized);
                 if !uses.is_empty() {
                     return fail(console, report::debug_remnants(&uses));
                 }
-                javascript::Kind::Optimize
-            } else if make.debug {
-                javascript::Kind::Debug
-            } else {
-                javascript::Kind::Dev
-            };
-            let package = match &outline {
-                Outline::App(_) => "author/project".to_owned(),
-                Outline::Pkg(pkg) => pkg.name.to_string(),
-            };
+            }
+            let package = env.owner().package_name();
             let bytes = timings::time(Phase::Generate, || {
                 let types = dependencies.into_graph_and_types();
-                let js = javascript::program(compat, kind, &package, types, optimized);
+                let js = javascript::program(compat, kind, &package, types, built.optimized);
                 match &target.html {
                     Some(module) => nomi_codegen_js::html::sandwich(&module.to_string(), &js),
                     None => js,
@@ -332,15 +417,14 @@ fn build(
                 );
                 return fail(console, report);
             }
-            let names: Vec<String> = target.names.iter().map(|n| n.to_string()).collect();
-            diagram = Some(gen_diagram(&names, &target.path.to_string_lossy()));
+            diagram = Some(gen_diagram(&target.names, &target.path.to_string_lossy()));
         }
     }
     // What the build checked is freed while it reports, or not at all
     // when the process ends first.
-    crate::pool::Pool::global().spawn(move || drop((checked, env)));
+    Pool::global().drop_later((built.checked, env));
     // elm's success line came with the build's progress; nomi's comes now.
-    if !terminal {
+    if !make.terminal() {
         show(console, &root, &Checked::Fine, compat, make.style);
     }
     if let Some(diagram) = diagram
@@ -383,10 +467,7 @@ fn build_progress(console: &mut dyn Console, compiled: usize, checked: &Checked)
             1 => "Success! Compiled 1 module.".to_owned(),
             n => format!("Success! Compiled {n} modules."),
         },
-        Checked::Modules(modules) => match modules.len() {
-            1 => "Detected problems in 1 module.".to_owned(),
-            n => format!("Detected problems in {n} modules."),
-        },
+        Checked::Modules(modules) => problems_summary(modules.len()),
         Checked::Project(_) => "Detected a problem.".to_owned(),
     };
     let width = 12 + compiled.to_string().len();
@@ -398,52 +479,57 @@ fn build_progress(console: &mut dyn Console, compiled: usize, checked: &Checked)
     console.out(&out);
 }
 
-/// The reports of `checked`, without the summary [`build_progress`] has
-/// shown.
-pub(crate) fn show_reports(
-    console: &mut dyn Console,
-    root: &Path,
-    checked: &Checked,
-    compat: nomi_base::Compat,
-) {
-    match checked {
-        Checked::Fine => {}
-        Checked::Project(report) => crate::console::report(console, report, compat),
-        Checked::Modules(modules) => {
-            crate::console::report_doc(console, &report::modules_doc(root, modules), compat);
-        }
-    }
-}
-
 /// `toGenDiagram`: each module given, an arrow to the file they went to.
-fn gen_diagram(names: &[String], output: &str) -> String {
-    let (hbar, vtop, vmiddle, vbottom) = if cfg!(windows) {
-        ('-', '+', '+', '+')
-    } else {
-        ('─', '┬', '┤', '┘')
-    };
+fn gen_diagram(names: &[ModuleName], output: &str) -> String {
+    let Glyphs {
+        bar,
+        top,
+        middle,
+        bottom,
+    } = GLYPHS;
+    let names: Vec<String> = names.iter().map(ToString::to_string).collect();
     let width = 3 + names.iter().map(|n| n.chars().count()).max().unwrap_or(0);
     let line = |name: &str, end: &str| {
-        let bar: String = std::iter::repeat_n(hbar, width - name.chars().count()).collect();
-        format!("    {name} {bar}{end}")
+        let bars: String = std::iter::repeat_n(bar, width - name.chars().count()).collect();
+        format!("    {name} {bars}{end}")
     };
-    match names {
+    match names.as_slice() {
         [] => String::new(),
         [name] => line(name, &format!("> {output}\n")),
         [first, rest @ ..] => {
-            let mut lines = vec![line(first, &format!("{vtop}{hbar}{hbar}> {output}"))];
+            let mut lines = vec![line(first, &format!("{top}{bar}{bar}> {output}"))];
             for (i, name) in rest.iter().enumerate() {
-                let end = if i + 1 == rest.len() {
-                    vbottom
-                } else {
-                    vmiddle
-                };
+                let end = if i + 1 == rest.len() { bottom } else { middle };
                 lines.push(line(name, &end.to_string()));
             }
             lines.iter().map(|l| format!("{l}\n")).collect()
         }
     }
 }
+
+/// The lines [`gen_diagram`] draws with, which are ASCII on Windows.
+struct Glyphs {
+    bar: char,
+    top: char,
+    middle: char,
+    bottom: char,
+}
+
+const GLYPHS: Glyphs = if cfg!(windows) {
+    Glyphs {
+        bar: '-',
+        top: '+',
+        middle: '+',
+        bottom: '+',
+    }
+} else {
+    Glyphs {
+        bar: '─',
+        top: '┬',
+        middle: '┤',
+        bottom: '┘',
+    }
+};
 
 /// Where `run` writes the code, the module an HTML page starts, and the
 /// modules the terminal style says went there.
@@ -453,15 +539,18 @@ struct Target {
     names: Vec<ModuleName>,
 }
 
-/// What `Make.hs` generates for `output` from `roots`, each a root and
-/// whether it defines `main`: without `--output`, `index.html` for one
-/// `main` and `elm.js` for more; JavaScript only when every root has a
-/// `main`; HTML only for one root, which does.
-fn target(output: Option<&Output>, roots: &[(ModuleName, bool)]) -> Result<Option<Target>, Report> {
-    let mains: Vec<&ModuleName> = (roots.iter())
-        .filter(|(_, main)| *main)
-        .map(|(name, _)| name)
-        .collect();
+/// What `Make.hs` generates for `output` from `roots`: without
+/// `--output`, `index.html` for one `main` and `elm.js` for more;
+/// JavaScript only when every root has a `main`; HTML only for one root,
+/// which does.
+fn target(output: Option<&Output>, roots: &[RootMain]) -> Result<Option<Target>, Report> {
+    let named = |main: bool| -> Vec<&ModuleName> {
+        (roots.iter())
+            .filter(|root| root.has_main == main)
+            .map(|root| &root.name)
+            .collect()
+    };
+    let mains = named(true);
     match output {
         Some(Output::DevNull) => Ok(None),
         None => Ok(match mains.as_slice() {
@@ -477,27 +566,30 @@ fn target(output: Option<&Output>, roots: &[(ModuleName, bool)]) -> Result<Optio
                 names: mains.iter().map(|n| (*n).clone()).collect(),
             }),
         }),
-        Some(Output::Js(path)) => {
-            let no_mains: Vec<&ModuleName> = (roots.iter())
-                .filter(|(_, main)| !main)
-                .map(|(name, _)| name)
-                .collect();
-            match no_mains.as_slice() {
-                [] => Ok(Some(Target {
-                    path: path.clone(),
-                    html: None,
-                    names: roots.iter().map(|(n, _)| n.clone()).collect(),
-                })),
-                names => Err(non_main_files_into_javascript(names)),
-            }
-        }
+        Some(Output::Js(path)) => match named(false).as_slice() {
+            [] => Ok(Some(Target {
+                path: path.clone(),
+                html: None,
+                names: roots.iter().map(|root| root.name.clone()).collect(),
+            })),
+            names => Err(non_main_files_into_javascript(names)),
+        },
         Some(Output::Html(path)) => match roots {
-            [(name, true)] => Ok(Some(Target {
+            [
+                RootMain {
+                    name,
+                    has_main: true,
+                },
+            ] => Ok(Some(Target {
                 path: path.clone(),
                 html: Some(name.clone()),
                 names: vec![name.clone()],
             })),
-            [(_, false)] => Err(no_main()),
+            [
+                RootMain {
+                    has_main: false, ..
+                },
+            ] => Err(no_main()),
             _ => Err(multiple_files_into_html()),
         },
     }
@@ -505,12 +597,9 @@ fn target(output: Option<&Output>, roots: &[(ModuleName, bool)]) -> Result<Optio
 
 /// `MakeMultipleFilesIntoHtml`.
 fn multiple_files_into_html() -> Report {
-    let words = |s: &'static str| s.split_whitespace().map(text).collect::<Vec<_>>();
     let flagged = |before: &'static str, flag: &'static str, after: &'static str| {
-        let mut docs = words(before);
-        docs.push(text(flag).color(Color::DullYellow));
-        docs.extend(words(after));
-        fill_sep(docs)
+        let flag = text(flag).color(Color::DullYellow);
+        fill_sep(words(before).chain([flag]).chain(words(after)))
     };
     Report::new(
         "TOO MANY FILES",
@@ -640,12 +729,14 @@ fn no_outline() -> Report {
 
 /// `MakeCannotOptimizeAndDebug`.
 fn cannot_optimize_and_debug() -> Report {
-    let words = |s: &'static str| s.split_whitespace().map(text).collect::<Vec<_>>();
-    let mut first = words("I cannot compile with");
-    first.push(text("--optimize").color(Color::Red));
-    first.push(text("and"));
-    first.push(text("--debug").color(Color::Red));
-    first.extend(words("at the same time."));
+    let flags = [
+        text("--optimize").color(Color::Red),
+        text("and"),
+        text("--debug").color(Color::Red),
+    ];
+    let first = words("I cannot compile with")
+        .chain(flags)
+        .chain(words("at the same time."));
     Report::doc(
         "CLASHING FLAGS",
         None,

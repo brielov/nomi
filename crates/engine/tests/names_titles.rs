@@ -4,49 +4,12 @@
 #![cfg(unix)]
 
 #[path = "support/projects.rs"]
-mod projects;
+pub mod projects;
 
 #[path = "support/names.rs"]
-mod names;
-
-use nomi_testkit::ratchet::Suite;
-use serde_json::Value;
-
-/// A report reduced to what this ratchet holds nomi to: the project's
-/// problem's title, or each module's path and its problems' titles and
-/// regions.
-fn titles(json: &str) -> Value {
-    if json.is_empty() || json == "accepted" {
-        return Value::Null;
-    }
-    let report: Value = serde_json::from_str(json).unwrap();
-    if report["type"] == "error" {
-        return report["title"].clone();
-    }
-    let modules = report["errors"].as_array().unwrap().iter().map(|module| {
-        let problems = module["problems"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|p| serde_json::json!([p["title"], p["region"]]));
-        serde_json::json!([module["path"], problems.collect::<Vec<_>>()])
-    });
-    Value::Array(modules.collect())
-}
+pub mod names;
 
 #[test]
 fn names_titles() {
-    let outcomes = names::runs().into_iter().map(|run| {
-        let (elm, nomi) = (titles(&run.elm_json), titles(&run.json));
-        let outcome = if elm == nomi {
-            Ok(())
-        } else {
-            Err(format!("nomi: {nomi}\nelm: {elm}"))
-        };
-        if let (Err(why), Ok(_)) = (&outcome, std::env::var("NOMI_SHOW")) {
-            eprintln!("FAIL {}\n{why}", run.id);
-        }
-        (run.id, outcome)
-    });
-    Suite::open(names::dir().with_file_name("names_titles")).finish(outcomes);
+    names::titles_ratchet("names");
 }

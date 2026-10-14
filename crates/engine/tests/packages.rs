@@ -6,7 +6,6 @@ use std::time::Duration;
 
 use nomi_base::Compat;
 use nomi_engine::{Pool, packages};
-use nomi_project::json::Cursor as JsonCursor;
 use nomi_project::{Name, Version};
 use nomi_registry::{Http, HttpError, PackageProblem, Store};
 use sha1::{Digest, Sha1};
@@ -27,10 +26,7 @@ impl Http for Website {
             return Err(HttpError::Status(404));
         }
         if url.ends_with("endpoint.json") {
-            let hash: String = Sha1::digest(&self.archive)
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect();
+            let hash = nomi_base::hex(&Sha1::digest(&self.archive));
             return Ok(format!(r#"{{"url":"https://archive/","hash":"{hash}"}}"#).into_bytes());
         }
         {
@@ -59,14 +55,14 @@ fn releases_download_in_parallel_and_in_order() {
         archive: zip.finish().unwrap().into_inner(),
         ..Website::default()
     };
-    let core = Name::parse(b"elm/core", JsonCursor::start(LATEST), LATEST).unwrap();
+    let core: Name = "elm/core".parse().unwrap();
     let releases: Vec<_> = (0..8)
         .map(|patch| (core.clone(), Version::new(1, 0, patch)))
         .collect();
     let temp = tempfile::tempdir().unwrap();
     let store = Store::new(temp.path().to_path_buf());
     let pool = Pool::global();
-    let results = packages::fetch(pool, &store, &website, LATEST, releases);
+    let results = packages::fetch(pool, &store, &website, LATEST, &releases);
     assert_eq!(results.len(), 8);
     for (patch, result) in results.iter().enumerate() {
         match result {

@@ -1,34 +1,90 @@
-//! The oracle's projects (`cargo xtask oracle names`, `oracle types`):
-//! the curated cases, the seeds, and the seeds' mutations, each run as
-//! every release, for the naming and type ratchets.
-#![allow(
-    dead_code,
-    reason = "shared by several test binaries, each using part of it"
-)]
+//! The oracle's projects (`cargo xtask oracle names`, `oracle types` and
+//! the like): the curated cases, the seeds, and the seeds' mutations,
+//! each run as every release, and the two ratchets each suite of them
+//! has, of whole reports and of titles.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use nomi_base::Compat;
+use nomi_engine::check::Goal;
 use nomi_testkit::edit;
+use nomi_testkit::ratchet::Suite;
 use nomi_testkit::transcript::Case;
+use serde_json::Value;
 
-use crate::projects::{self, ALL, CRASH, compat_name, table};
+use crate::projects::{self, CRASH, compat_name, same_json, shown, table};
 
-pub(crate) fn dir() -> PathBuf {
-    suite("names")
+/// The ratchet of the suite `suite`'s whole reports: each project as each
+/// release, passing when nomi's `--report=json` and terminal report are
+/// elm's, and, as `goal` asks, its `docs.json`.
+pub fn reports_ratchet(suite: &str, goal: Goal) {
+    let dir = suite_dir(suite);
+    let outcomes = runs(&dir, goal).map(|run| {
+        let outcome = if !same_json(&run.elm_json, &run.json) {
+            Err(format!(
+                "--report=json:\nnomi: {}\nelm: {}",
+                run.json, run.elm_json
+            ))
+        } else if run.terminal != run.elm_terminal {
+            Err(format!(
+                "terminal:\nnomi:\n{}\nelm:\n{}",
+                run.terminal, run.elm_terminal
+            ))
+        } else if run.docs != run.elm_docs {
+            Err(format!(
+                "docs.json:\nnomi: {:?}\nelm: {:?}",
+                run.docs, run.elm_docs
+            ))
+        } else {
+            Ok(())
+        };
+        shown(run.id, outcome)
+    });
+    Suite::open(dir.with_file_name(format!("{suite}_reports"))).finish(outcomes);
+}
+
+/// The ratchet of the suite `suite`'s titles: each project as each
+/// release, passing when nomi reports the problems elm does, by title and
+/// region, in each module elm names.
+pub fn titles_ratchet(suite: &str) {
+    let dir = suite_dir(suite);
+    let outcomes = runs(&dir, Goal::Check).map(|run| {
+        let (elm, nomi) = (titles(&run.elm_json), titles(&run.json));
+        let outcome = if elm == nomi {
+            Ok(())
+        } else {
+            Err(format!("nomi: {nomi}\nelm: {elm}"))
+        };
+        shown(run.id, outcome)
+    });
+    Suite::open(dir.with_file_name(format!("{suite}_titles"))).finish(outcomes);
+}
+
+/// A report reduced to what a titles ratchet holds nomi to: the project's
+/// problem's title, or each module's path and its problems' titles and
+/// regions.
+fn titles(json: &str) -> Value {
+    if json.is_empty() || json == "accepted" {
+        return Value::Null;
+    }
+    let report: Value = serde_json::from_str(json).unwrap();
+    if report["type"] == "error" {
+        return report["title"].clone();
+    }
+    let modules = report["errors"].as_array().unwrap().iter().map(|module| {
+        let problems = (module["problems"].as_array().unwrap().iter())
+            .map(|p| serde_json::json!([p["title"], p["region"]]));
+        serde_json::json!([module["path"], problems.collect::<Vec<_>>()])
+    });
+    Value::Array(modules.collect())
 }
 
 /// The directory of the suite `name`.
-pub(crate) fn suite(name: &str) -> PathBuf {
+fn suite_dir(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join(name)
-}
-
-/// The fixture packages every project builds with.
-fn packages() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages")
 }
 
 /// Each project by its id: `case/…`, `seed/…` and `mutation/…`.
@@ -74,73 +130,46 @@ fn projects(dir: &Path) -> Vec<(String, Case)> {
 }
 
 /// What elm said and what nomi said about one project as one release.
-pub(crate) struct Run {
+struct Run {
     /// `<project id>/<release>`, the ratchet's case.
-    pub id: String,
-    pub elm_json: String,
-    pub elm_terminal: String,
-    pub json: String,
-    pub terminal: String,
+    id: String,
+    elm_json: String,
+    elm_terminal: String,
+    json: String,
+    terminal: String,
     /// The `docs.json` each wrote, for `--docs` projects.
-    pub elm_docs: Option<String>,
-    pub docs: Option<String>,
+    elm_docs: Option<String>,
+    docs: Option<String>,
 }
 
-/// Every naming project as every release, but where elm crashed.
-pub(crate) fn runs() -> Vec<Run> {
-    runs_in(&dir())
-}
-
-/// Every project of the suite in `dir` as every release, but where elm
-/// crashed.
-pub(crate) fn runs_in(dir: &Path) -> Vec<Run> {
-    runs_with(dir, false)
-}
-
-/// [`runs_in`] for a suite of `elm make --docs` projects, with the
-/// `docs.json` each wrote.
-pub(crate) fn docs_runs_in(dir: &Path) -> Vec<Run> {
-    runs_with(dir, true)
-}
-
-fn runs_with(dir: &Path, docs: bool) -> Vec<Run> {
-    let written = if docs {
-        table(&dir.join("docs.tsv"))
-    } else {
-        Default::default()
+/// Every project of the suite in `dir` as every release, built as `goal`
+/// asks, but where elm crashed; each run as it comes.
+fn runs(dir: &Path, goal: Goal) -> impl Iterator<Item = Run> {
+    let written = match goal {
+        Goal::Docs => table(&dir.join("docs.tsv")),
+        Goal::Check | Goal::Optimize => Default::default(),
     };
     let reports = table(&dir.join("reports.tsv"));
     let terminal = table(&dir.join("terminal.tsv"));
     let default = fs::read_to_string(dir.join("default.elm.json")).unwrap();
-    let mut runs = Vec::new();
-    for (id, case) in projects(dir) {
-        for compat in ALL {
-            let key = (id.clone(), compat_name(compat));
-            let elm_json = reports[&key].clone();
-            if elm_json == CRASH {
-                continue;
-            }
-            let (json, nomi_terminal, nomi_docs) = if docs {
-                projects::run_docs(&case, compat, &default, &packages())
-            } else {
-                let (json, terminal) = projects::run(&case, compat, &default, &packages());
-                (json, terminal, None)
-            };
-            let elm_docs = (written.get(&key)).filter(|cell| *cell != "none").cloned();
-            runs.push(Run {
-                id: format!("{id}/{}", version(compat)),
-                elm_json,
-                elm_terminal: serde_json::from_str(&terminal[&key]).unwrap(),
-                json,
-                terminal: nomi_terminal,
-                elm_docs,
-                docs: nomi_docs,
-            });
+    let cases = projects(dir)
+        .into_iter()
+        .flat_map(|(id, case)| Compat::ALL.map(|compat| (id.clone(), case.clone(), compat)));
+    cases.filter_map(move |(id, case, compat)| {
+        let key = (id, compat_name(compat));
+        let elm_json = reports[&key].clone();
+        if elm_json == CRASH {
+            return None;
         }
-    }
-    runs
-}
-
-fn version(compat: Compat) -> String {
-    compat.to_string()
+        let (json, nomi_terminal, docs) = projects::run(&case, compat, &default, goal);
+        Some(Run {
+            id: format!("{}/{compat}", key.0),
+            elm_docs: (written.get(&key)).filter(|cell| *cell != "none").cloned(),
+            elm_json,
+            elm_terminal: serde_json::from_str(&terminal[&key]).unwrap(),
+            json,
+            terminal: nomi_terminal,
+            docs,
+        })
+    })
 }

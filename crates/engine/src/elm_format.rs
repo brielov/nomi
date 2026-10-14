@@ -11,7 +11,7 @@ use nomi_base::ElmPosition;
 
 use crate::console::Console;
 use crate::format::{decode, format_text};
-use crate::{Pool, Vfs, paths};
+use crate::{Pool, Vfs, discover, paths};
 
 /// The `--elm-version` values upstream accepts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,7 +63,7 @@ enum Outcome {
 
 /// Runs elm-format with `options`, as upstream's `main'` does.
 pub fn run(vfs: &Vfs, options: &Options, console: &mut dyn Console) -> Exit {
-    let files = match resolve(vfs, &options.inputs) {
+    let files = match resolve(&options.inputs) {
         Ok(files) => files,
         Err(problems) => {
             let mut text = String::from(
@@ -168,12 +168,12 @@ pub fn run(vfs: &Vfs, options: &Options, console: &mut dyn Console) -> Exit {
 }
 
 /// The modules `inputs` name, or a line for each one that names none.
-fn resolve(vfs: &Vfs, inputs: &[PathBuf]) -> Result<Vec<PathBuf>, Vec<String>> {
+fn resolve(inputs: &[PathBuf]) -> Result<Vec<PathBuf>, Vec<String>> {
     let mut files = Vec::new();
     let mut problems = Vec::new();
     for input in inputs {
         let shown = input.display();
-        match vfs.discover(input) {
+        match discover(input) {
             Ok(found) if found.is_empty() => problems.push(format!(
                 "{shown}: Directory does not contain any *.elm files"
             )),

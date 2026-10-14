@@ -36,7 +36,7 @@ pub fn run(
             false
         }
         Err(Stop::Build(checked)) => {
-            crate::make::show_reports(console, root.dir(), &checked, compat);
+            crate::check::show_reports(console, root.dir(), &checked, compat);
             false
         }
     }
