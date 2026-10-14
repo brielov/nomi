@@ -4,76 +4,45 @@
 //! records. Where nomi deviates on purpose, `deviations/` holds the case
 //! with nomi's transcript beside it, by hand, and `DECISIONS.md` says why.
 
-use std::fs;
+#[path = "support/website.rs"]
+pub mod website;
+
 use std::path::Path;
 use std::process::Command;
 
-use nomi_testkit::transcript::Case;
+use nomi_testkit::transcript::{Case, check_transcripts};
 
 #[test]
 fn elm_format_transcripts() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm_format");
-    let bin = tempfile::tempdir().unwrap();
-    let elm_format = bin
-        .path()
-        .join(format!("elm-format{}", std::env::consts::EXE_SUFFIX));
-    fs::copy(env!("CARGO_BIN_EXE_nomi"), &elm_format).unwrap();
-    let mut cases = Vec::new();
-    for (inputs, expected) in [("cases", "expected"), ("deviations", "deviations")] {
-        for entry in fs::read_dir(dir.join(inputs)).unwrap() {
-            let path = entry.unwrap().path();
-            if path.extension().is_some_and(|e| e == "case") {
-                cases.push((
-                    path.clone(),
-                    dir.join(expected)
-                        .join(path.with_extension("txt").file_name().unwrap()),
-                ));
+    let (_bin, elm_format) = website::personality("elm-format");
+    let mut ran = 0;
+    for (cases, expected) in [("cases", "expected"), ("deviations", "deviations")] {
+        ran += check_transcripts(&dir.join(cases), &dir.join(expected), |_, case| {
+            if !creatable(case) {
+                return None;
             }
-        }
+            let work = tempfile::tempdir().unwrap();
+            case.create_files(work.path()).unwrap();
+            let actual = case
+                .run(Command::new(&elm_format), work.path())
+                .unwrap()
+                .render();
+            // The transcripts were recorded on Linux; Windows separates the
+            // paths of the files a directory holds with `\`.
+            Some(if cfg!(windows) {
+                (actual.split_inclusive('\n'))
+                    .map(|line| match line.strip_prefix("|Processing file ") {
+                        Some(path) => format!("|Processing file {}", path.replace('\\', "/")),
+                        None => line.to_owned(),
+                    })
+                    .collect()
+            } else {
+                actual
+            })
+        });
     }
-    cases.sort();
-    assert!(cases.len() > 50, "found only {} cases", cases.len());
-    let mut failures = Vec::new();
-    for (case_path, expected_path) in &cases {
-        let name = case_path.file_stem().unwrap().to_string_lossy();
-        let case = Case::parse(&fs::read_to_string(case_path).unwrap())
-            .unwrap_or_else(|e| panic!("{name}: {e}"));
-        if !creatable(&case) {
-            continue;
-        }
-        let expected = fs::read_to_string(expected_path)
-            .unwrap_or_else(|e| panic!("{name}: {e}; rerun `cargo xtask oracle transcripts`"));
-        let work = tempfile::tempdir().unwrap();
-        case.create_files(work.path()).unwrap();
-        let actual = case
-            .run(Command::new(&elm_format), work.path())
-            .unwrap()
-            .render();
-        // The transcripts were recorded on Linux; Windows separates the
-        // paths of the files a directory holds with `\`.
-        let actual = if cfg!(windows) {
-            (actual.split_inclusive('\n'))
-                .map(|line| match line.strip_prefix("|Processing file ") {
-                    Some(path) => format!("|Processing file {}", path.replace('\\', "/")),
-                    None => line.to_owned(),
-                })
-                .collect()
-        } else {
-            actual
-        };
-        if actual != expected {
-            failures.push(format!(
-                "{name}:\n--- expected\n{expected}--- actual\n{actual}"
-            ));
-        }
-    }
-    assert!(
-        failures.is_empty(),
-        "{} of {} transcripts differ:\n\n{}",
-        failures.len(),
-        cases.len(),
-        failures.join("\n")
-    );
+    assert!(ran > 50, "ran only {ran} cases");
 }
 
 /// Whether this platform can hold the case's files: Windows forbids some

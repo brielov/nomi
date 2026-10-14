@@ -3,14 +3,13 @@
 //! arguments onto them.
 
 use std::ffi::OsString;
-use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use nomi_engine::check::{self, Style};
-use nomi_engine::console::{Personality, StdConsole};
-use nomi_engine::format::{self, Mode, Outcome};
+use nomi_engine::console::{Console, Personality, StdConsole};
+use nomi_engine::format::{self, Mode};
 use nomi_engine::paths::Cache;
 use nomi_engine::{
     Context, Vfs, Web, bump, diff, init, install, make, publish, remove, tree, update,
@@ -25,9 +24,8 @@ struct Cli {
     command: Option<Command>,
 }
 
-/// Subcommands are added by the plan steps that implement them. Each one
-/// declares the Elm names it answers to as aliases, e.g.
-/// `#[command(visible_alias = "make")] Build`.
+/// nomi's commands, each with the name elm gives it, where elm has it,
+/// as a visible alias.
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Format Elm modules as elm-format 0.8.8 does.
@@ -173,19 +171,21 @@ fn main() -> ExitCode {
         }) => {
             let mode = if check { Mode::Check } else { Mode::Write };
             if stdin {
-                format_stdin(mode)
+                format::run_stdin(&mut StdConsole, mode)
             } else {
-                format_paths(&paths, mode)
+                format::run(&Vfs::new(), &mut StdConsole, &paths, mode)
             }
         }
         Some(Command::New { dir }) => new(Personality::Nomi, dir),
         Some(Command::Add { package }) => add(Personality::Nomi, Some(&package)),
-        Some(Command::Rm { package }) => rm(&package),
-        Some(Command::Update { package }) => {
-            in_project(|console, cx| update::run(cx, console, package.as_deref()))
+        Some(Command::Rm { package }) => {
+            in_project(|cx, console| remove::run(cx, console, &package))
         }
-        Some(Command::Outdated) => in_project(|console, cx| update::outdated(cx, console)),
-        Some(Command::Tree) => in_project(|console, cx| tree::run(cx, console)),
+        Some(Command::Update { package }) => {
+            in_project(|cx, console| update::run(cx, console, package.as_deref()))
+        }
+        Some(Command::Outdated) => in_project(update::outdated),
+        Some(Command::Tree) => in_project(tree::run),
         Some(Command::Lsp { .. }) => match nomi_lsp::stdio() {
             Ok(()) => true,
             Err(e) => {
@@ -202,49 +202,42 @@ fn main() -> ExitCode {
             report,
         }) => {
             let output = match output.as_deref().map(make::Output::parse) {
-                None => None,
-                Some(Some(output)) => Some(output),
                 Some(None) => {
                     eprintln!("error: --output takes a file ending in .js or .html, or /dev/null");
                     return exit(false);
                 }
+                output => output.flatten(),
             };
             let make = make::Make {
                 paths,
                 personality: Personality::Nomi,
-                style: match report {
-                    Some(ReportFormat::Json) => Style::Json,
-                    None => Style::Terminal,
-                },
+                style: style(report),
                 debug,
                 optimize,
                 output,
                 docs,
             };
-            in_project(|console, cx| make::run(cx, console, &make))
+            in_project(|cx, console| make::run(cx, console, &make))
         }
-        Some(Command::Diff { args }) => {
-            let args: Vec<&str> = args.iter().map(String::as_str).collect();
-            let Some(args) = diff::parse_args(&args) else {
-                eprintln!(
-                    "error: diff takes nothing, a version, two versions, or a package and two versions"
-                );
-                return exit(false);
-            };
-            in_project(|console, cx| diff::run(cx, console, &args))
-        }
-        Some(Command::Publish) => in_project(|console, cx| publish::run(cx, console)),
-        Some(Command::Bump) => in_project(|console, cx| bump::run(cx, console)),
+        Some(Command::Diff { args }) => diff(
+            &args.iter().map(String::as_str).collect::<Vec<_>>(),
+            "diff takes nothing, a version, two versions, or a package and two versions",
+        ),
+        Some(Command::Publish) => in_project(publish::run),
+        Some(Command::Bump) => in_project(bump::run),
         Some(Command::Test { args }) => return elm_test(args.into_iter()),
-        Some(Command::Check { paths, report }) => in_project(|console, cx| {
-            let style = match report {
-                Some(ReportFormat::Json) => Style::Json,
-                None => Style::Terminal,
-            };
-            check::run(cx, console, paths, style)
-        }),
+        Some(Command::Check { paths, report }) => {
+            in_project(|cx, console| check::run(cx, console, paths, style(report)))
+        }
     };
     exit(succeeded)
+}
+
+fn style(report: Option<ReportFormat>) -> Style {
+    match report {
+        Some(ReportFormat::Json) => Style::Json,
+        None => Style::Terminal,
+    }
 }
 
 /// elm-test's command line, as `elm-test` or `nomi test`.
@@ -253,14 +246,10 @@ fn elm_test(args: impl Iterator<Item = OsString>) -> ExitCode {
     let (Some(cache), Some(cwd)) = (cache(), current_dir()) else {
         return ExitCode::FAILURE;
     };
-    let cx = Context {
-        vfs: &Vfs::new(),
-        dir: &cwd,
-        cache: &cache,
-        http: &Web::new(),
-    };
     let var = |name: &str| std::env::var(name).ok();
-    let code = nomi_test::main(&cx, &mut StdConsole, &args, &var);
+    let code = run_in(&cwd, &cache, |cx, console| {
+        nomi_test::main(cx, console, &args, &var)
+    });
     ExitCode::from(u8::try_from(code).unwrap_or(1))
 }
 
@@ -276,39 +265,50 @@ fn exit(succeeded: bool) -> ExitCode {
 fn new(personality: Personality, dir: Option<PathBuf>) -> bool {
     let Some(cache) = cache() else { return false };
     let dir = dir.unwrap_or_else(|| PathBuf::from("."));
-    let cx = Context {
-        vfs: &Vfs::new(),
-        dir: &dir,
-        cache: &cache,
-        http: &Web::new(),
-    };
-    init::run(&cx, &mut StdConsole, personality)
+    run_in(&dir, &cache, |cx, console| {
+        init::run(cx, console, personality)
+    })
 }
 
 /// `nomi add` and `elm install`, for the project around the current
 /// directory.
 fn add(personality: Personality, package: Option<&str>) -> bool {
-    in_project(|console, cx| install::run(cx, console, personality, package))
+    in_project(|cx, console| install::run(cx, console, personality, package))
 }
 
-/// `nomi rm`, for the project around the current directory.
-fn rm(package: &str) -> bool {
-    in_project(|console, cx| remove::run(cx, console, package))
+/// `nomi diff` and `elm diff`, for the project around the current
+/// directory, saying `usage` where `args` are none of its four forms.
+fn diff(args: &[&str], usage: &str) -> bool {
+    let Some(args) = diff::parse_args(args) else {
+        eprintln!("error: {usage}");
+        return false;
+    };
+    in_project(|cx, console| diff::run(cx, console, &args))
 }
 
 /// `command` for the project around the current directory.
-pub(crate) fn in_project(command: impl FnOnce(&mut StdConsole, &Context<'_, Web>) -> bool) -> bool {
+fn in_project(command: impl FnOnce(&Context<'_, Web>, &mut dyn Console) -> bool) -> bool {
     let Some(cache) = cache() else { return false };
     let Some(dir) = current_dir() else {
         return false;
     };
+    run_in(&dir, &cache, command)
+}
+
+/// `command` run in `dir`, with the cache at `cache` and the package
+/// website, on the process's standard streams.
+fn run_in<T>(
+    dir: &Path,
+    cache: &Cache,
+    command: impl FnOnce(&Context<'_, Web>, &mut dyn Console) -> T,
+) -> T {
     let cx = Context {
         vfs: &Vfs::new(),
-        dir: &dir,
-        cache: &cache,
+        dir,
+        cache,
         http: &Web::new(),
     };
-    command(&mut StdConsole, &cx)
+    command(&cx, &mut StdConsole)
 }
 
 fn current_dir() -> Option<PathBuf> {
@@ -321,50 +321,4 @@ fn cache() -> Option<Cache> {
     Cache::locate()
         .inspect_err(|e| eprintln!("error: {e}"))
         .ok()
-}
-
-fn format_paths(paths: &[PathBuf], mode: Mode) -> bool {
-    let report = format::format_paths(&Vfs::new(), paths, mode);
-    for (root, error) in &report.roots {
-        eprintln!("error: {}: {error}", root.display());
-    }
-    for (file, outcome) in &report.files {
-        match outcome {
-            Outcome::Unchanged => {}
-            Outcome::Formatted if mode == Mode::Check => println!("{}", file.display()),
-            Outcome::Formatted => {}
-            Outcome::Invalid(at) => {
-                eprintln!(
-                    "error: {}:{}:{}: syntax error",
-                    file.display(),
-                    at.row,
-                    at.column
-                );
-            }
-            Outcome::Failed(e) => eprintln!("error: {}: {e}", file.display()),
-        }
-    }
-    report.succeeded(mode)
-}
-
-fn format_stdin(mode: Mode) -> bool {
-    let mut text = String::new();
-    if let Err(e) = io::stdin().read_to_string(&mut text) {
-        eprintln!("error: <stdin>: {e}");
-        return false;
-    }
-    match format::format_text(&text) {
-        Ok(formatted) if mode == Mode::Check => {
-            let unchanged = formatted == text;
-            if !unchanged {
-                println!("<stdin>");
-            }
-            unchanged
-        }
-        Ok(formatted) => io::stdout().write_all(formatted.as_bytes()).is_ok(),
-        Err(at) => {
-            eprintln!("error: <stdin>:{}:{}: syntax error", at.row, at.column);
-            false
-        }
-    }
 }

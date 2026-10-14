@@ -32,6 +32,7 @@ icu_casemap = { version = "=1.5.1", default-features = false, features = ["compi
 lsp-server = "0.7.8"
 # 0.95 names documents by `url::Url`, which converts to and from paths.
 lsp-types = "=0.95.1"
+mimalloc = { version = "0.1", default-features = false, features = ["no_thp"] }
 num-bigint = "0.5"
 proptest = "1"
 pubgrub = "0.3"

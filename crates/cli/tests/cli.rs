@@ -1,3 +1,6 @@
+//! `nomi`'s own command line: its version, an unknown argument, and the
+//! language server on the standard streams.
+
 use std::process::Command;
 
 #[test]

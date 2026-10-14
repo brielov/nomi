@@ -4,13 +4,13 @@
 #![cfg(unix)]
 
 #[path = "support/website.rs"]
-mod website;
+pub mod website;
 
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use website::{Website, offline};
+use website::offline;
 
 const ELM_JSON: &str = r#"{
     "type": "application",
@@ -53,9 +53,7 @@ fn check(project: &Path, cache: &Path) {
 
 #[test]
 fn a_build_trims_what_went_unused() {
-    let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages");
-    let cache = tempfile::tempdir().unwrap();
-    Website::with_sources(&packages).fill(cache.path());
+    let cache = website::fixture_cache();
     let project = tempfile::tempdir().unwrap();
     fs::write(project.path().join("elm.json"), ELM_JSON).unwrap();
     fs::create_dir(project.path().join("src")).unwrap();

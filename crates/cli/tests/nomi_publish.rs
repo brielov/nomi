@@ -6,18 +6,18 @@
 #![cfg(unix)]
 
 #[path = "support/registry.rs"]
-mod registry;
+pub mod registry;
 #[path = "support/server.rs"]
-mod server;
+pub mod server;
 #[path = "support/website.rs"]
-mod website;
+pub mod website;
 
 use std::fs;
-use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 
+use nomi_base::Compat;
 use server::Server;
 use sha1::{Digest, Sha1};
 
@@ -86,14 +86,14 @@ fn a_tagged_package_publishes() {
     git(&["commit", "--quiet", "-m", "first"]);
     git(&["tag", "-a", "1.0.0", "-m", "new release"]);
     let commit = git(&["rev-list", "-n", "1", "1.0.0"]).trim().to_owned();
-    let zipball = zipball(&root);
-    let zip_hash: String = Sha1::digest(&zipball)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    // The zipball GitHub would serve of the tag: its files under one top
+    // directory.
+    let files = ["elm.json", "README.md", "LICENSE", "src/Greet.elm"];
+    let zipball = website::zipped("nomi-test-greet-0000000", &root, &files);
+    let zip_hash = nomi_base::hex(&Sha1::digest(&zipball));
 
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm_publish");
-    let website = registry::registry(&fixtures, "0.19.3");
+    let website = registry::registry(&fixtures, Compat::LATEST);
     let registered: Arc<Mutex<Option<Registration>>> = Arc::default();
     let kept = registered.clone();
     let sha = commit.clone();
@@ -104,7 +104,10 @@ fn a_tagged_package_publishes() {
             }
             ("GET", "/github/nomi-test/greet/zipball/1.0.0/") => Some(zipball.clone()),
             ("POST", p) if p.starts_with("/register?") => {
-                *kept.lock().unwrap() = Some((p.to_owned(), body.to_vec()));
+                *kept.lock().unwrap() = Some(Registration {
+                    path: p.to_owned(),
+                    body: body.to_vec(),
+                });
                 Some(Vec::new())
             }
             _ => website(method, path, body),
@@ -112,9 +115,7 @@ fn a_tagged_package_publishes() {
     ));
 
     let cache = tempfile::tempdir().unwrap();
-    let bin = tempfile::tempdir().unwrap();
-    let elm = bin.path().join("elm");
-    fs::copy(env!("CARGO_BIN_EXE_nomi"), &elm).unwrap();
+    let (_bin, elm) = website::personality("elm");
     let output = website::offline(&elm, cache.path())
         .arg("publish")
         .current_dir(&root)
@@ -167,7 +168,7 @@ fn a_tagged_package_publishes() {
         "{stdout}"
     );
 
-    let (path, body) = registered.lock().unwrap().clone().expect("a registration");
+    let Registration { path, body } = registered.lock().unwrap().take().expect("a registration");
     assert_eq!(
         path,
         format!("/register?name=nomi-test/greet&version=1.0.0&commit-hash={commit}")
@@ -187,20 +188,9 @@ fn a_tagged_package_publishes() {
     assert!(part("docs.json").starts_with(r#"[{"name":"Greet","comment":" Greetings."#));
 }
 
-/// A registration the server kept: its path and query, and its body.
-type Registration = (String, Vec<u8>);
-
-/// The zipball GitHub would serve of `root`: its files under one top
-/// directory.
-fn zipball(root: &Path) -> Vec<u8> {
-    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    let options = zip::write::SimpleFileOptions::default();
-    zip.add_directory("nomi-test-greet-0000000/", options)
-        .unwrap();
-    for file in ["elm.json", "README.md", "LICENSE", "src/Greet.elm"] {
-        zip.start_file(format!("nomi-test-greet-0000000/{file}"), options)
-            .unwrap();
-        zip.write_all(&fs::read(root.join(file)).unwrap()).unwrap();
-    }
-    zip.finish().unwrap().into_inner()
+/// A registration the server kept.
+struct Registration {
+    /// Its path and query.
+    path: String,
+    body: Vec<u8>,
 }

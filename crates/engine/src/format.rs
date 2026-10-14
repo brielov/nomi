@@ -1,5 +1,5 @@
 //! `nomi format`: every module under some paths, formatted in parallel on
-//! the engine's pool.
+//! the engine's pool, or standard input.
 
 use std::collections::HashSet;
 use std::fmt;
@@ -12,6 +12,7 @@ use nomi_compiler::hir::Expr;
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{Tool, parse_module, validate};
 
+use crate::console::Console;
 use crate::vfs::canonical_or_given;
 use crate::{Pool, Vfs, discover};
 
@@ -147,6 +148,68 @@ pub fn format_paths(vfs: &Vfs, roots: &[PathBuf], mode: Mode) -> Run {
         (file, outcome)
     });
     run
+}
+
+/// `nomi format`: formats every module `paths` name, or in
+/// [`Mode::Check`] lists those that aren't formatted, and names each path
+/// and module it couldn't take on standard error. Whether it found
+/// nothing wrong.
+pub fn run(vfs: &Vfs, console: &mut dyn Console, paths: &[PathBuf], mode: Mode) -> bool {
+    let done = format_paths(vfs, paths, mode);
+    for (root, error) in &done.roots {
+        console.err(&format!("error: {}: {error}\n", root.display()));
+    }
+    for (file, outcome) in &done.files {
+        let file = file.display();
+        match outcome {
+            Outcome::Unchanged => {}
+            Outcome::Formatted => {
+                if mode == Mode::Check {
+                    console.out(&format!("{file}\n"));
+                }
+            }
+            Outcome::Invalid(at) => console.err(&format!(
+                "error: {file}:{}:{}: syntax error\n",
+                at.row, at.column
+            )),
+            Outcome::Failed(e) => console.err(&format!("error: {file}: {e}\n")),
+        }
+    }
+    done.succeeded(mode)
+}
+
+/// `nomi format --stdin`: standard input formatted to standard output,
+/// or in [`Mode::Check`] named there if it isn't formatted. Whether it
+/// found nothing wrong.
+pub fn run_stdin(console: &mut dyn Console, mode: Mode) -> bool {
+    let read = console.read_all();
+    let text = match read.and_then(|bytes| io::read_to_string(&*bytes)) {
+        Ok(text) => text,
+        Err(e) => {
+            console.err(&format!("error: <stdin>: {e}\n"));
+            return false;
+        }
+    };
+    match format_text(&text) {
+        Ok(formatted) if mode == Mode::Check => {
+            let unchanged = formatted == text;
+            if !unchanged {
+                console.out("<stdin>\n");
+            }
+            unchanged
+        }
+        Ok(formatted) => {
+            console.out(&formatted);
+            true
+        }
+        Err(at) => {
+            console.err(&format!(
+                "error: <stdin>:{}:{}: syntax error\n",
+                at.row, at.column
+            ));
+            false
+        }
+    }
 }
 
 /// What becomes of `text`, the module at `path`, formatted, and in

@@ -12,11 +12,11 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
+mimalloc.workspace = true
 nomi-base.workspace = true
 nomi-engine.workspace = true
 nomi-lsp.workspace = true
 nomi-test.workspace = true
-mimalloc = { version = "0.1", default-features = false, features = ["no_thp"] }
 
 [dev-dependencies]
 lsp-server.workspace = true

@@ -3,25 +3,28 @@
 //! found first, each in the order the command declares them, then any
 //! flag left is unknown, then the arguments are parsed.
 
-use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, reflow, text, vcat};
+use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, green, red, reflow, text, vcat, words};
 
 /// `Parser`: what a flag's value or an argument is, and how to read it.
 pub(crate) struct Parser<T> {
-    pub singular: &'static str,
-    pub parse: fn(&str) -> Option<T>,
-    pub examples: &'static [&'static str],
+    pub(crate) singular: &'static str,
+    pub(crate) parse: fn(&str) -> Option<T>,
+    pub(crate) examples: &'static [&'static str],
 }
 
 /// A flag a command declares: on/off, or with a value.
-pub(crate) enum Flag {
+enum Flag {
     OnOff(&'static str),
-    Value(&'static str, &'static str),
+    Value {
+        name: &'static str,
+        singular: &'static str,
+    },
 }
 
 impl Flag {
     fn name(&self) -> &'static str {
         match self {
-            Flag::OnOff(name) | Flag::Value(name, _) => name,
+            Flag::OnOff(name) | Flag::Value { name, .. } => name,
         }
     }
 }
@@ -29,7 +32,8 @@ impl Flag {
 /// `Chunk`s not yet taken by a flag.
 pub(crate) struct Chunks<'a> {
     chunks: Vec<&'a str>,
-    declared: &'a [Flag],
+    /// The flags looked for so far, in order.
+    declared: Vec<Flag>,
 }
 
 /// `Value`: what follows a flag.
@@ -43,10 +47,10 @@ enum Found<'a> {
 }
 
 impl<'a> Chunks<'a> {
-    pub(crate) fn new(args: &'a [&'a str], declared: &'a [Flag]) -> Chunks<'a> {
+    pub(crate) fn new(args: &'a [&'a str]) -> Chunks<'a> {
         Chunks {
             chunks: args.to_vec(),
-            declared,
+            declared: Vec::new(),
         }
     }
 
@@ -70,6 +74,7 @@ impl<'a> Chunks<'a> {
 
     /// `chompOnOffFlag`.
     pub(crate) fn on_off(&mut self, name: &'static str) -> Result<bool, Error> {
+        self.declared.push(Flag::OnOff(name));
         match self.find(name) {
             None => Ok(false),
             Some((_, Found::Nope)) => Ok(true),
@@ -78,9 +83,10 @@ impl<'a> Chunks<'a> {
                 self.chunks.insert(at, chunk);
                 Ok(true)
             }
-            Some((_, Found::Definitely(value))) => {
-                Err(Error::FlagWithValue(name, value.to_owned()))
-            }
+            Some((_, Found::Definitely(value))) => Err(Error::FlagWithValue {
+                flag: name,
+                value: value.to_owned(),
+            }),
         }
     }
 
@@ -90,6 +96,10 @@ impl<'a> Chunks<'a> {
         name: &'static str,
         parser: &Parser<T>,
     ) -> Result<Option<T>, Error> {
+        self.declared.push(Flag::Value {
+            name,
+            singular: parser.singular,
+        });
         let value = match self.find(name) {
             None => return Ok(None),
             Some((_, Found::Nope)) => {
@@ -99,11 +109,11 @@ impl<'a> Chunks<'a> {
         };
         match (parser.parse)(value) {
             Some(value) => Ok(Some(value)),
-            None => Err(Error::FlagWithBadValue(
-                name,
-                value.to_owned(),
-                parser.expectation(),
-            )),
+            None => Err(Error::FlagWithBadValue {
+                flag: name,
+                value: value.to_owned(),
+                expected: parser.expectation(),
+            }),
         }
     }
 
@@ -112,7 +122,7 @@ impl<'a> Chunks<'a> {
         if let Some(unknown) = self.chunks.iter().find(|c| c.starts_with('-')) {
             return Err(Error::FlagUnknown(
                 unknown.to_string(),
-                nearby(unknown, self.declared),
+                nearby(unknown, &self.declared),
             ));
         }
         (self.chunks.iter())
@@ -143,9 +153,16 @@ pub(crate) struct Expectation {
 /// The errors `elm make`'s parsing can find (`Terminal.Error`).
 #[derive(Debug)]
 pub(crate) enum Error {
-    FlagWithValue(&'static str, String),
+    FlagWithValue {
+        flag: &'static str,
+        value: String,
+    },
     FlagWithNoValue(&'static str, Expectation),
-    FlagWithBadValue(&'static str, String, Expectation),
+    FlagWithBadValue {
+        flag: &'static str,
+        value: String,
+        expected: Expectation,
+    },
     /// The flag, and the declared ones nearest it.
     FlagUnknown(String, Vec<String>),
     ArgBad(String, Expectation),
@@ -164,7 +181,7 @@ fn nearby(unknown: &str, declared: &[Flag]) -> Vec<String> {
                 nomi_base::suggest::distance(&name, &flag.name().chars().collect::<Vec<_>>());
             let shown = match flag {
                 Flag::OnOff(name) => format!("--{name}"),
-                Flag::Value(name, singular) => format!("--{name}={}", token(singular)),
+                Flag::Value { name, singular } => format!("--{name}={}", token(singular)),
             };
             (distance, shown)
         })
@@ -181,82 +198,89 @@ fn token(singular: &str) -> String {
     format!("<{}>", singular.replace(' ', "-"))
 }
 
+/// `singular`'s token, in yellow.
+fn yellow(singular: &str) -> Doc {
+    text(token(singular)).color(Color::Yellow)
+}
+
+/// The words of `before`, then `doc`, then the words of `after`, filled.
+fn sentence(before: &str, doc: Doc, after: &str) -> Doc {
+    fill_sep(words(before).chain([doc]).chain(words(after)))
+}
+
+/// `lines`, in green and indented as one block.
+fn green_block(lines: impl IntoIterator<Item = Doc>) -> Doc {
+    vcat(lines).color(Color::Green).indent(4)
+}
+
+/// `summary`, the `original` argument in red, then `explanation`.
+fn help(summary: &str, original: String, explanation: impl IntoIterator<Item = Doc>) -> Vec<Doc> {
+    [reflow(summary), red(original).indent(4)]
+        .into_iter()
+        .chain(explanation)
+        .collect()
+}
+
+/// A flag's examples, each in green, or its token where it has none.
+fn examples(name: &str, expected: &Expectation) -> Doc {
+    let lines: Vec<String> = if expected.examples.is_empty() {
+        vec![format!("--{name}={}", token(expected.singular))]
+    } else {
+        (expected.examples.iter().take(4))
+            .map(|x| format!("--{name}={x}"))
+            .collect()
+    };
+    vcat(lines.into_iter().map(green)).indent(4)
+}
+
 impl Error {
     /// `exitWithError`'s documents, each to be followed by a blank line.
     pub(crate) fn to_docs(&self) -> Vec<Doc> {
-        let red = |s: String| text(s).color(Color::Red);
-        let green = |s: String| text(s).color(Color::Green);
-        let yellow = |s: &str| text(token(s)).color(Color::Yellow);
-        let words = |s: &str| s.split_whitespace().map(text).collect::<Vec<_>>();
-        let help = |summary: &str, original: String, mut explanation: Vec<Doc>| {
-            let mut docs = vec![reflow(summary), red(original).indent(4)];
-            docs.append(&mut explanation);
-            docs
-        };
-        let examples = |name: &str, e: &Expectation| {
-            let lines: Vec<String> = if e.examples.is_empty() {
-                vec![format!("--{name}={}", token(e.singular))]
-            } else {
-                (e.examples.iter().take(4))
-                    .map(|x| format!("--{name}={x}"))
-                    .collect()
-            };
-            vcat(lines.into_iter().map(green)).indent(4)
-        };
         match self {
-            Error::FlagWithValue(name, value) => help(
+            Error::FlagWithValue { flag, value } => help(
                 "This on/off flag was given a value:",
-                format!("--{name}={value}"),
-                vec![
+                format!("--{flag}={value}"),
+                [
                     vcat([
                         text(
                             "An on/off flag either exists or not. It cannot have an equals sign and value.",
                         ),
                         text("Maybe you want this instead?"),
                     ]),
-                    green(format!("--{name}")).indent(4),
+                    green(format!("--{flag}")).indent(4),
                 ],
             ),
-            Error::FlagWithNoValue(name, e) => help(
+            Error::FlagWithNoValue(flag, expected) => help(
                 "This flag needs more information:",
-                format!("--{name}"),
-                vec![
-                    fill_sep(
-                        words("It needs a")
-                            .into_iter()
-                            .chain([yellow(e.singular)])
-                            .chain(words("like this:")),
-                    ),
-                    examples(name, e),
+                format!("--{flag}"),
+                [
+                    sentence("It needs a", yellow(expected.singular), "like this:"),
+                    examples(flag, expected),
                 ],
             ),
-            Error::FlagWithBadValue(name, value, e) => help(
+            Error::FlagWithBadValue {
+                flag,
+                value,
+                expected,
+            } => help(
                 "This flag was given a bad value:",
-                format!("--{name}={value}"),
-                vec![
-                    fill_sep(
-                        words("I need a valid")
-                            .into_iter()
-                            .chain([yellow(e.singular)])
-                            .chain(words("value. For example:")),
+                format!("--{flag}={value}"),
+                [
+                    sentence(
+                        "I need a valid",
+                        yellow(expected.singular),
+                        "value. For example:",
                     ),
-                    examples(name, e),
+                    examples(flag, expected),
                 ],
             ),
             Error::FlagUnknown(unknown, nearby) => {
                 let explanation = match nearby.as_slice() {
                     [] => vec![],
-                    [one] => vec![fill_sep(
-                        words("Maybe you want")
-                            .into_iter()
-                            .chain([green(one.clone())])
-                            .chain(words("instead?")),
-                    )],
+                    [one] => vec![sentence("Maybe you want", green(one.as_str()), "instead?")],
                     many => vec![
-                        fill_sep(words("Maybe you want one of these instead?")),
-                        vcat(many.iter().map(|f| text(f.clone())))
-                            .color(Color::Green)
-                            .indent(4),
+                        reflow("Maybe you want one of these instead?"),
+                        green_block(many.iter().map(|f| text(f.as_str()))),
                     ],
                 };
                 help(
@@ -265,25 +289,17 @@ impl Error {
                     explanation,
                 )
             }
-            Error::ArgBad(arg, e) => {
-                let these = if e.examples.len() == 1 {
-                    words("this:")
+            Error::ArgBad(arg, expected) => {
+                let after = if expected.examples.len() == 1 {
+                    "value, like this:"
                 } else {
-                    words("one of these:")
+                    "value, like one of these:"
                 };
                 vec![
                     text("I am having trouble with this argument:"),
                     red(arg.clone()).indent(4),
-                    fill_sep(
-                        words("It is supposed to be a")
-                            .into_iter()
-                            .chain([yellow(e.singular)])
-                            .chain(words("value, like"))
-                            .chain(these),
-                    ),
-                    vcat(e.examples.iter().map(|x| text(*x)))
-                        .color(Color::Green)
-                        .indent(4),
+                    sentence("It is supposed to be a", yellow(expected.singular), after),
+                    green_block(expected.examples.iter().map(|x| text(*x))),
                 ]
             }
         }

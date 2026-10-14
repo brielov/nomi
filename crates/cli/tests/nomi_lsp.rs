@@ -6,7 +6,7 @@
 //! for the compiler's tests.
 
 #[path = "support/website.rs"]
-mod website;
+pub mod website;
 
 use std::fs;
 use std::path::Path;
@@ -17,7 +17,7 @@ use lsp_server::{Connection, Message, Notification, Request, RequestId, Response
 use lsp_types::Url;
 use nomi_testkit::lsp::{child_connection, reap};
 use serde_json::{Value, json};
-use website::{Website, offline};
+use website::{fixture_cache, offline};
 
 const ELM_JSON: &str = r#"{
     "type": "application",
@@ -128,14 +128,6 @@ impl Client {
     }
 }
 
-/// A cache that knows and holds the vendored packages.
-fn cache() -> tempfile::TempDir {
-    let cache = tempfile::tempdir().unwrap();
-    let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages");
-    Website::with_sources(&packages).fill(cache.path());
-    cache
-}
-
 /// An application of elm/core and elm/json at `dir`, and the URI of its
 /// `src/Main.elm`, which imports `Html`.
 fn project(dir: &Path) -> String {
@@ -151,7 +143,7 @@ fn project(dir: &Path) -> String {
 /// the other order: each answer installs, or doesn't, in its own.
 #[test]
 fn each_install_question_answers_for_its_own_project() {
-    let cache = cache();
+    let cache = fixture_cache();
     let work = tempfile::tempdir().unwrap();
     let root = nomi_engine::canonical(work.path()).unwrap();
     let mut client = Client::start(cache.path());
@@ -176,7 +168,7 @@ fn each_install_question_answers_for_its_own_project() {
 /// package installed.
 #[test]
 fn a_request_after_an_install_sees_the_package() {
-    let cache = cache();
+    let cache = fixture_cache();
     let work = tempfile::tempdir().unwrap();
     let main = project(&nomi_engine::canonical(work.path()).unwrap());
     let mut client = Client::start(cache.path());
@@ -204,7 +196,7 @@ fn a_request_after_an_install_sees_the_package() {
 /// shows once it is answered, the answered run's words alone.
 #[test]
 fn an_install_shows_its_question_and_then_its_outcome() {
-    let cache = cache();
+    let cache = fixture_cache();
     let work = tempfile::tempdir().unwrap();
     let main = project(&nomi_engine::canonical(work.path()).unwrap());
     let mut client = Client::start(cache.path());

@@ -46,9 +46,8 @@ fn help() -> ExitCode {
 /// request or error. Options take no abbreviations and none may repeat;
 /// `--name=value` and `--name value` both work, and after `--` every
 /// argument is an INPUT.
-fn parse(args: impl Iterator<Item = OsString>) -> Result<Options, Stop> {
+fn parse(mut args: impl Iterator<Item = OsString>) -> Result<Options, Stop> {
     let mut options = Options::default();
-    let mut args = args.peekable();
     let mut positional_only = false;
     while let Some(arg) = args.next() {
         let text = arg.to_string_lossy().into_owned();
@@ -70,47 +69,20 @@ fn parse(args: impl Iterator<Item = OsString>) -> Result<Options, Stop> {
             });
         };
         let (name, inline) = match long.split_once('=') {
-            Some((name, value)) => (name, Some(value.to_owned())),
+            Some((name, value)) => (name, Some(value)),
             None => (long, None),
         };
         match name {
             // Upstream ignores a value given to `--help`.
             "help" => return Err(Stop::Help),
-            "yes" | "validate" | "stdin" => {
-                let flag = match name {
-                    "yes" => &mut options.yes,
-                    "validate" => &mut options.validate,
-                    _ => &mut options.stdin,
-                };
-                if inline.is_some() || *flag {
-                    return Err(invalid());
-                }
-                *flag = true;
+            "yes" => switch(&mut options.yes, inline, invalid)?,
+            "validate" => switch(&mut options.validate, inline, invalid)?,
+            "stdin" => switch(&mut options.stdin, inline, invalid)?,
+            "output" if options.output.is_none() => {
+                options.output = Some(PathBuf::from(value(name, inline, &mut args)?));
             }
-            "output" | "elm-version" => {
-                let taken = match name {
-                    "output" => options.output.is_some(),
-                    _ => options.elm_version.is_some(),
-                };
-                if taken {
-                    return Err(invalid());
-                }
-                let value = match inline {
-                    Some(value) => value,
-                    None => match args.next() {
-                        Some(value) => value.to_string_lossy().into_owned(),
-                        None => {
-                            return Err(Stop::Error(format!(
-                                "The option `--{name}` expects an argument."
-                            )));
-                        }
-                    },
-                };
-                if name == "output" {
-                    options.output = Some(PathBuf::from(value));
-                } else {
-                    options.elm_version = Some(elm_version(&value)?);
-                }
+            "elm-version" if options.elm_version.is_none() => {
+                options.elm_version = Some(elm_version(&value(name, inline, &mut args)?)?);
             }
             _ => return Err(invalid()),
         }
@@ -118,6 +90,30 @@ fn parse(args: impl Iterator<Item = OsString>) -> Result<Options, Stop> {
     // optparse-applicative's `many` collects arguments last first.
     options.inputs.reverse();
     Ok(options)
+}
+
+/// Turns on a switch, which takes no value and may be given once.
+fn switch(flag: &mut bool, inline: Option<&str>, invalid: impl Fn() -> Stop) -> Result<(), Stop> {
+    if inline.is_some() || *flag {
+        return Err(invalid());
+    }
+    *flag = true;
+    Ok(())
+}
+
+/// The value of the option `name`: given inline, or the next argument.
+fn value(
+    name: &str,
+    inline: Option<&str>,
+    args: &mut impl Iterator<Item = OsString>,
+) -> Result<String, Stop> {
+    if let Some(value) = inline {
+        return Ok(value.to_owned());
+    }
+    let next = args
+        .next()
+        .ok_or_else(|| Stop::Error(format!("The option `--{name}` expects an argument.")))?;
+    Ok(next.to_string_lossy().into_owned())
 }
 
 fn elm_version(value: &str) -> Result<ElmVersion, Stop> {

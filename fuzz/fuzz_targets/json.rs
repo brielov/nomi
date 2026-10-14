@@ -6,14 +6,15 @@
 
 use libfuzzer_sys::fuzz_target;
 use nomi_base::Compat;
-use nomi_project::json::{encode, parse};
+use nomi_project::json::encode::{self, Value};
+use nomi_project::json::parse;
 
 fuzz_target!(|bytes: &[u8]| {
     for compat in Compat::ALL {
         let Ok(value) = parse(bytes, compat) else {
             continue;
         };
-        let value = encode::Value::from(&value);
+        let value = Value::from(&value);
         // An int that wrapped negative is written with a sign the parser
         // refuses, as upstream's would be.
         if has_negative(&value) {
@@ -21,15 +22,22 @@ fuzz_target!(|bytes: &[u8]| {
         }
         let written = encode::write(&value);
         let again = parse(&written, compat).expect("what was written parses");
-        assert_eq!(encode::Value::from(&again), value);
+        // Compared as written, which is guarded against deep nesting
+        // where comparing the values isn't.
+        assert_eq!(encode::write(&Value::from(&again)), written);
     }
 });
 
-fn has_negative(value: &encode::Value) -> bool {
-    match value {
-        encode::Value::Int(n) => *n < 0,
-        encode::Value::Array(entries) => entries.iter().any(has_negative),
-        encode::Value::Object(fields) => fields.iter().any(|(_, v)| has_negative(v)),
-        _ => false,
+/// Whether `value` holds a negative int, at any depth.
+fn has_negative(value: &Value) -> bool {
+    let mut pending = vec![value];
+    while let Some(value) = pending.pop() {
+        match value {
+            Value::Int(n) if *n < 0 => return true,
+            Value::Array(entries) => pending.extend(entries),
+            Value::Object(fields) => pending.extend(fields.iter().map(|(_, v)| v)),
+            Value::Int(_) | Value::String(_) | Value::Bool(_) | Value::Null => {}
+        }
     }
+    false
 }

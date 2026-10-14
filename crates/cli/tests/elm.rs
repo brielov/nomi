@@ -7,14 +7,15 @@
 //! holds the releases under `elm/packages/` and nothing else.
 
 #[path = "support/website.rs"]
-mod website;
+pub mod website;
 
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::process::Stdio;
 
-use nomi_testkit::transcript::Case;
+use nomi_testkit::transcript::{Case, check_transcripts};
+use tempfile::TempDir;
 use website::{Website, offline};
 
 /// Cases nomi's transcript can't match here, and where they are tested
@@ -28,70 +29,77 @@ const ELSEWHERE: &[(&str, &str)] = &[(
 #[test]
 fn elm_transcripts() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm");
-    let bin = tempfile::tempdir().unwrap();
-    let elm = bin
-        .path()
-        .join(format!("elm{}", std::env::consts::EXE_SUFFIX));
-    fs::copy(env!("CARGO_BIN_EXE_nomi"), &elm).unwrap();
+    let (_bin, elm) = website::personality("elm");
     let website = Website::new(&dir.join("packages"));
-    let mut cases = Vec::new();
-    for entry in fs::read_dir(dir.join("cases")).unwrap() {
-        let path = entry.unwrap().path();
-        let name = path.file_stem().unwrap().to_string_lossy().into_owned();
-        if path.extension().is_some_and(|e| e == "case")
-            && !ELSEWHERE.iter().any(|(case, _)| *case == name)
-        {
-            cases.push((name, path));
+    let ran = check_transcripts(&dir.join("cases"), &dir.join("expected"), |name, case| {
+        if ELSEWHERE.iter().any(|(case, _)| *case == name) {
+            return None;
         }
-    }
-    cases.sort();
-    assert!(cases.len() >= 20, "found only {} cases", cases.len());
-    let mut failures = Vec::new();
-    for (name, path) in &cases {
-        let case = Case::parse(&fs::read_to_string(path).unwrap())
-            .unwrap_or_else(|e| panic!("{name}: {e}"));
-        let expected = fs::read_to_string(dir.join("expected").join(format!("{name}.txt")))
-            .unwrap_or_else(|e| panic!("{name}: {e}; rerun `cargo xtask oracle transcripts`"));
         let cache = tempfile::tempdir().unwrap();
         website.fill(cache.path());
         let work = tempfile::tempdir().unwrap();
         case.create_files(work.path()).unwrap();
-        let actual = case
-            .run(offline(&elm, cache.path()), work.path())
+        let transcript = case.run(offline(&elm, cache.path()), work.path());
+        Some(transcript.unwrap().render())
+    });
+    assert!(ran >= 20, "ran only {ran} cases");
+}
+
+/// The `install_add` case's application, with a cache that knows the
+/// fixture registry's releases.
+struct Project {
+    cache: TempDir,
+    work: TempDir,
+}
+
+impl Project {
+    fn new() -> Project {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm");
+        let cache = tempfile::tempdir().unwrap();
+        Website::new(&dir.join("packages")).fill(cache.path());
+        let case = fs::read_to_string(dir.join("cases/install_add.case")).unwrap();
+        let work = tempfile::tempdir().unwrap();
+        Case::parse(&case)
             .unwrap()
-            .render();
-        if actual != expected {
-            failures.push(format!(
-                "{name}:\n--- expected\n{expected}--- actual\n{actual}"
-            ));
-        }
+            .create_files(work.path())
+            .unwrap();
+        Project { cache, work }
     }
-    assert!(
-        failures.is_empty(),
-        "{} of {} transcripts differ:\n\n{}",
-        failures.len(),
-        cases.len(),
-        failures.join("\n")
-    );
+
+    /// The output of `nomi` with `args` here, which must succeed,
+    /// answering yes to any question.
+    fn nomi(&self, args: &[&str]) -> String {
+        let mut command = offline(Path::new(env!("CARGO_BIN_EXE_nomi")), self.cache.path());
+        let mut child = command
+            .args(args)
+            .current_dir(self.work.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(b"y\n").unwrap();
+        let output = child.wait_with_output().unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        assert!(
+            output.status.success(),
+            "nomi {args:?}:\n{stdout}{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        stdout
+    }
 }
 
 /// `nomi rm`, which upstream has no command for, takes out what `nomi
 /// add` put in.
 #[test]
 fn rm_undoes_add() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm");
-    let cache = tempfile::tempdir().unwrap();
-    Website::new(&dir.join("packages")).fill(cache.path());
-    let case =
-        Case::parse(&fs::read_to_string(dir.join("cases/install_add.case")).unwrap()).unwrap();
-    let work = tempfile::tempdir().unwrap();
-    case.create_files(work.path()).unwrap();
-    let elm_json = work.path().join("elm.json");
+    let project = Project::new();
+    let elm_json = project.work.path().join("elm.json");
     let before = fs::read_to_string(&elm_json).unwrap();
-    let nomi = |args: &[&str]| nomi(cache.path(), work.path(), args);
-    nomi(&["add", "elm/http"]);
+    project.nomi(&["add", "elm/http"]);
     assert_ne!(fs::read_to_string(&elm_json).unwrap(), before);
-    let removed = nomi(&["rm", "elm/http"]);
+    let removed = project.nomi(&["rm", "elm/http"]);
     assert_eq!(fs::read_to_string(&elm_json).unwrap(), before, "{removed}");
     for gone in ["elm/http", "elm/bytes", "elm/file"] {
         assert!(removed.contains(gone), "{removed}");
@@ -103,16 +111,9 @@ fn rm_undoes_add() {
 /// only releases.
 #[test]
 fn tree_outdated_and_update() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm");
-    let cache = tempfile::tempdir().unwrap();
-    Website::new(&dir.join("packages")).fill(cache.path());
-    let case =
-        Case::parse(&fs::read_to_string(dir.join("cases/install_add.case")).unwrap()).unwrap();
-    let work = tempfile::tempdir().unwrap();
-    case.create_files(work.path()).unwrap();
-    let nomi = |args: &[&str]| nomi(cache.path(), work.path(), args);
+    let project = Project::new();
     assert_eq!(
-        nomi(&["tree"]),
+        project.nomi(&["tree"]),
         "\
 elm/browser 1.0.2
 ├── elm/core 1.0.5
@@ -133,10 +134,13 @@ elm/core 1.0.5
 elm/html 1.0.1 (*)
 "
     );
-    assert_eq!(nomi(&["outdated"]), "Everything is up to date!\n");
-    assert_eq!(nomi(&["update"]), "Everything is up to date!\n");
-    nomi(&["add", "elm/http"]);
-    assert_eq!(nomi(&["update", "elm/http"]), "Everything is up to date!\n");
+    assert_eq!(project.nomi(&["outdated"]), "Everything is up to date!\n");
+    assert_eq!(project.nomi(&["update"]), "Everything is up to date!\n");
+    project.nomi(&["add", "elm/http"]);
+    assert_eq!(
+        project.nomi(&["update", "elm/http"]),
+        "Everything is up to date!\n"
+    );
 }
 
 /// `nomi check` on an application whose dependencies are the fixture
@@ -144,13 +148,7 @@ elm/html 1.0.1 (*)
 /// standard output, and the dependencies' modules known by name.
 #[test]
 fn check_reports_as_elm_make() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm");
-    let cache = tempfile::tempdir().unwrap();
-    Website::new(&dir.join("packages")).fill(cache.path());
-    let case =
-        Case::parse(&fs::read_to_string(dir.join("cases/install_add.case")).unwrap()).unwrap();
-    let work = tempfile::tempdir().unwrap();
-    case.create_files(work.path()).unwrap();
+    let Project { cache, work } = Project::new();
     let check = |args: &[&str]| {
         let output = offline(Path::new(env!("CARGO_BIN_EXE_nomi")), cache.path())
             .arg("check")
@@ -158,11 +156,11 @@ fn check_reports_as_elm_make() {
             .current_dir(work.path())
             .output()
             .unwrap();
-        (
-            output.status.success(),
-            String::from_utf8(output.stdout).unwrap(),
-            String::from_utf8(output.stderr).unwrap(),
-        )
+        Ran {
+            ok: output.status.success(),
+            stdout: String::from_utf8(output.stdout).unwrap(),
+            stderr: String::from_utf8(output.stderr).unwrap(),
+        }
     };
     // The registry's packages hold only their elm.json, so a module that
     // checks cleanly uses none of their values.
@@ -171,7 +169,7 @@ fn check_reports_as_elm_make() {
         "module Main exposing (x)\n\nimport Html\n\n\nx =\n    1\n",
     )
     .unwrap();
-    let (ok, stdout, stderr) = check(&["src/Main.elm"]);
+    let Ran { ok, stdout, stderr } = check(&["src/Main.elm"]);
     assert!(ok, "{stdout}{stderr}");
     assert!(stdout.starts_with("No problems in syntax"), "{stdout}");
 
@@ -180,7 +178,7 @@ fn check_reports_as_elm_make() {
         "module Main exposing (main)\n\nimport Html\nimport Htm.Attributes\n\n\nmain =\n    Html.text \"hi\"\n",
     )
     .unwrap();
-    let (ok, stdout, stderr) = check(&["src/Main.elm"]);
+    let Ran { ok, stdout, stderr } = check(&["src/Main.elm"]);
     assert!(!ok);
     assert_eq!(stdout, "Detected problems in 1 module.\n");
     let bar = stderr.lines().next().unwrap();
@@ -193,7 +191,7 @@ fn check_reports_as_elm_make() {
         "{bar}"
     );
     assert!(stderr.contains("Html.Attributes"), "{stderr}");
-    let (ok, stdout, stderr) = check(&["src/Main.elm", "--report", "json"]);
+    let Ran { ok, stdout, stderr } = check(&["src/Main.elm", "--report", "json"]);
     assert!(!ok);
     assert_eq!(stdout, "");
     assert!(
@@ -201,31 +199,15 @@ fn check_reports_as_elm_make() {
         "{stderr}"
     );
 
-    let (ok, _, stderr) = check(&[]);
+    let Ran { ok, stderr, .. } = check(&[]);
     assert!(!ok);
     assert!(stderr.starts_with("-- NO INPUT"), "{stderr}");
     assert!(stderr.contains("nomi check src/Main.elm"), "{stderr}");
 }
 
-/// The output of `nomi` with `args` in `work`, which must succeed,
-/// answering yes to any question.
-fn nomi(cache: &Path, work: &Path, args: &[&str]) -> String {
-    let mut command = offline(Path::new(env!("CARGO_BIN_EXE_nomi")), cache);
-    let mut child = command
-        .args(args)
-        .current_dir(work)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(b"y\n").unwrap();
-    let output = child.wait_with_output().unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    assert!(
-        output.status.success(),
-        "nomi {args:?}:\n{stdout}{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    stdout
+/// What a command did: whether it succeeded, and what it printed.
+struct Ran {
+    ok: bool,
+    stdout: String,
+    stderr: String,
 }

@@ -25,10 +25,12 @@
 use std::fmt::Write as _;
 use std::fs;
 use std::io::{self, Read, Write as _};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, UNIX_EPOCH};
+
+use nomi_base::Compat;
 
 /// A parsed case file.
 #[derive(Clone, Debug, Default)]
@@ -108,6 +110,31 @@ impl Case {
         Ok(())
     }
 
+    /// Whether the case is an application whose `elm-version` names a
+    /// release nomi emulates, which a replay runs as each.
+    pub fn pins_release(&self) -> bool {
+        (self.files.iter()).any(|(path, text)| {
+            path == "elm.json"
+                && text.contains(APPLICATION)
+                && (Compat::ALL.iter()).any(|r| text.contains(&elm_version(*r)))
+        })
+    }
+
+    /// The case with its application's pinned `elm-version` set to
+    /// `release`, as the oracle ran it.
+    pub fn as_release(&self, release: Compat) -> Case {
+        let mut case = self.clone();
+        let to = elm_version(release);
+        for (path, text) in &mut case.files {
+            if path == "elm.json" && text.contains(APPLICATION) {
+                for pinned in Compat::ALL {
+                    *text = text.replace(&elm_version(pinned), &to);
+                }
+            }
+        }
+        case
+    }
+
     /// The case's arguments, with `$ROOT` standing for `dir`.
     pub fn args_in(&self, dir: &Path) -> Vec<String> {
         let root = dir.to_string_lossy();
@@ -170,6 +197,85 @@ impl Case {
         }
         Ok(child)
     }
+}
+
+/// What an `elm.json` of an application says.
+const APPLICATION: &str = "\"type\": \"application\"";
+
+/// An `elm.json`'s `elm-version` field, naming `release`.
+fn elm_version(release: Compat) -> String {
+    format!("\"elm-version\": \"{release}\"")
+}
+
+/// The case files in `dir`, `<name>.case`, by name, parsed, in name
+/// order.
+pub fn cases(dir: &Path) -> Vec<(String, Case)> {
+    let mut paths: Vec<PathBuf> = fs::read_dir(dir)
+        .and_then(|entries| entries.map(|entry| Ok(entry?.path())).collect())
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+    paths.retain(|path| path.extension().is_some_and(|e| e == "case"));
+    paths.sort_by(|a, b| a.file_stem().cmp(&b.file_stem()));
+    (paths.iter())
+        .map(|path| {
+            let name = path.file_stem().expect("a case file").to_string_lossy();
+            let text =
+                fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            let case = Case::parse(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            (name.into_owned(), case)
+        })
+        .collect()
+}
+
+/// Runs each case in `cases` that `run` takes, which gives its
+/// transcript, and fails, showing the differences, unless each is the
+/// transcript of the same name in `expected`, `<name>.txt`, read once the
+/// case has run. How many cases ran.
+pub fn check_transcripts(
+    cases: &Path,
+    expected: &Path,
+    mut run: impl FnMut(&str, &Case) -> Option<String>,
+) -> usize {
+    let mut ran = 0;
+    let mut failures = Vec::new();
+    for (name, case) in self::cases(cases) {
+        let Some(actual) = run(&name, &case) else {
+            continue;
+        };
+        ran += 1;
+        let path = expected.join(format!("{name}.txt"));
+        let expected =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        if actual != expected {
+            failures.push(format!(
+                "{name}:\n--- expected\n{expected}--- actual\n{actual}"
+            ));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} of {ran} transcripts differ:\n\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+    ran
+}
+
+/// The transcript an oracle recorded for `release`, among the
+/// `recordings` of a case: each distinct one follows a `### ` line naming
+/// the elms that gave it, as `### elm 0.19.1, elm 0.19.2` does.
+pub fn recorded(recordings: &str, release: Compat) -> Option<&str> {
+    let elm = format!("elm {release}");
+    (recordings.split("### ").skip(1)).find_map(|group| {
+        let (elms, transcript) = group.split_once('\n')?;
+        elms.split(", ").any(|e| e == elm).then_some(transcript)
+    })
+}
+
+/// Whether elm died making `transcript`, by a signal or an internal
+/// error, where nomi reports what it finds (`DECISIONS.md`, 2026-10-08).
+pub fn crashed(transcript: &str) -> bool {
+    transcript.starts_with("=== killed")
+        || transcript.contains("bypassed the normal error reporting process")
 }
 
 /// Everything `pipe` gives, read on a thread of its own.
@@ -468,6 +574,28 @@ mod tests {
         assert_eq!(case.links, [("c".to_owned(), "b".to_owned())]);
         assert!(Case::parse("=== bytes a\n\\q\n").is_err());
         assert!(Case::parse("=== argv\n").is_err());
+    }
+
+    #[test]
+    fn recordings_name_the_releases_that_gave_them() {
+        let text = "### elm 0.19.1, elm 0.19.2\n=== exit 0\n### elm 0.19.3\n=== killed\n";
+        assert_eq!(recorded(text, Compat::V0_19_2), Some("=== exit 0\n"));
+        let last = recorded(text, Compat::V0_19_3).unwrap();
+        assert!(crashed(last) && !crashed("=== exit 0\n"));
+    }
+
+    #[test]
+    fn a_pinned_application_runs_as_each_release() {
+        let case = |kind: &str| {
+            let elm_json = format!(r#"{{"type": "{kind}", "elm-version": "0.19.1"}}"#);
+            Case::parse(&format!("=== file elm.json\n{elm_json}\n")).unwrap()
+        };
+        assert!(case("application").pins_release() && !case("package").pins_release());
+        let as_latest = case("application").as_release(Compat::V0_19_3);
+        assert_eq!(
+            as_latest.files[0].1,
+            "{\"type\": \"application\", \"elm-version\": \"0.19.3\"}\n"
+        );
     }
 
     #[test]

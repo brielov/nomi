@@ -8,42 +8,21 @@
 //! fixture packages and nothing else. The tests run in Node.
 
 #[path = "support/website.rs"]
-mod website;
+pub mod website;
 
 use std::fs;
 use std::path::Path;
 
-use nomi_testkit::transcript::{Case, normalize_elm_test};
-use website::{Website, offline};
+use nomi_testkit::transcript::{Case, check_transcripts, normalize_elm_test};
+use website::offline;
 
 #[test]
 fn elm_test_transcripts() {
     nomi_testkit::require_node();
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm_test");
-    let bin = tempfile::tempdir().unwrap();
-    let elm_test = bin
-        .path()
-        .join(format!("elm-test{}", std::env::consts::EXE_SUFFIX));
-    fs::copy(env!("CARGO_BIN_EXE_nomi"), &elm_test).unwrap();
-    let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages");
-    let cache = tempfile::tempdir().unwrap();
-    Website::with_sources(&packages).fill(cache.path());
-    let mut cases = Vec::new();
-    for entry in fs::read_dir(dir.join("cases")).unwrap() {
-        let path = entry.unwrap().path();
-        let name = path.file_stem().unwrap().to_string_lossy().into_owned();
-        if path.extension().is_some_and(|e| e == "case") {
-            cases.push((name, path));
-        }
-    }
-    cases.sort();
-    assert!(cases.len() >= 30, "found only {} cases", cases.len());
-    let mut failures = Vec::new();
-    for (name, path) in &cases {
-        let case = Case::parse(&fs::read_to_string(path).unwrap())
-            .unwrap_or_else(|e| panic!("{name}: {e}"));
-        let expected = fs::read_to_string(dir.join("expected").join(format!("{name}.txt")))
-            .unwrap_or_else(|e| panic!("{name}: {e}; rerun `cargo xtask oracle transcripts`"));
+    let (_bin, elm_test) = website::personality("elm-test");
+    let cache = website::fixture_cache();
+    let ran = check_transcripts(&dir.join("cases"), &dir.join("expected"), |_, case| {
         let work = tempfile::tempdir().unwrap();
         let work = nomi_engine::canonical(work.path()).unwrap();
         let root = work.join("project");
@@ -58,20 +37,9 @@ fn elm_test_transcripts() {
         let home = cache.path().display().to_string();
         transcript.stdout = normalize_elm_test(&transcript.stdout, &dir, &home);
         transcript.stderr = normalize_elm_test(&transcript.stderr, &dir, &home);
-        let actual = transcript.render();
-        if actual != expected {
-            failures.push(format!(
-                "{name}:\n--- expected\n{expected}--- actual\n{actual}"
-            ));
-        }
-    }
-    assert!(
-        failures.is_empty(),
-        "{} of {} transcripts differ:\n\n{}",
-        failures.len(),
-        cases.len(),
-        failures.join("\n")
-    );
+        Some(transcript.render())
+    });
+    assert!(ran >= 30, "ran only {ran} cases");
 }
 
 /// `elm-test --watch` runs the tests, then again when a test file
@@ -85,9 +53,7 @@ fn watch_runs_again_on_changes() {
 
     nomi_testkit::require_node();
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm_test");
-    let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages");
-    let cache = tempfile::tempdir().unwrap();
-    Website::with_sources(&packages).fill(cache.path());
+    let cache = website::fixture_cache();
     let case =
         Case::parse(&fs::read_to_string(dir.join("cases/passing_console.case")).unwrap()).unwrap();
     let work = tempfile::tempdir().unwrap();

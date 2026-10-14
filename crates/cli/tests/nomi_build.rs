@@ -8,31 +8,20 @@
 #![cfg(unix)]
 
 #[path = "support/website.rs"]
-mod website;
+pub mod website;
 
 use std::fs;
 use std::path::Path;
 
-use nomi_testkit::transcript::Case;
-use website::{Website, offline};
+use nomi_testkit::transcript::check_transcripts;
+use website::offline;
 
 #[test]
 fn nomi_build_transcripts() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/nomi_build");
-    let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages");
-    let cache = tempfile::tempdir().unwrap();
-    Website::with_sources(&packages).fill(cache.path());
+    let cache = website::fixture_cache();
     let bless = std::env::var_os("NOMI_BLESS").is_some();
-    let mut paths: Vec<_> = fs::read_dir(dir.join("cases"))
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .collect();
-    paths.sort();
-    let mut failures = Vec::new();
-    for path in &paths {
-        let name = path.file_stem().unwrap().to_string_lossy().into_owned();
-        let case = Case::parse(&fs::read_to_string(path).unwrap())
-            .unwrap_or_else(|e| panic!("{name}: {e}"));
+    check_transcripts(&dir.join("cases"), &dir.join("expected"), |name, case| {
         let work = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(work.path()).unwrap();
         case.create_files(&root).unwrap();
@@ -40,21 +29,12 @@ fn nomi_build_transcripts() {
         let actual = case
             .run(offline(program, cache.path()), &root)
             .unwrap()
-            .compared(&case, &root);
-        let expected_path = dir.join("expected").join(format!("{name}.txt"));
+            .compared(case, &root);
         if bless {
-            fs::write(&expected_path, &actual).unwrap();
-            continue;
+            fs::write(dir.join("expected").join(format!("{name}.txt")), &actual).unwrap();
         }
-        let expected = fs::read_to_string(&expected_path)
-            .unwrap_or_else(|e| panic!("{name}: {e}; run with NOMI_BLESS=1"));
-        if actual != expected {
-            failures.push(format!(
-                "{name}\n--- expected\n{expected}--- actual\n{actual}"
-            ));
-        }
-    }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+        Some(actual)
+    });
 }
 
 /// A project built once keeps its dependencies as solved until its
@@ -62,9 +42,7 @@ fn nomi_build_transcripts() {
 /// reads no package list.
 #[test]
 fn a_built_project_keeps_its_dependencies_solved() {
-    let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages");
-    let cache = tempfile::tempdir().unwrap();
-    Website::with_sources(&packages).fill(cache.path());
+    let cache = website::fixture_cache();
     let work = tempfile::tempdir().unwrap();
     let root = fs::canonicalize(work.path()).unwrap();
     let outline = |core: &str| {
