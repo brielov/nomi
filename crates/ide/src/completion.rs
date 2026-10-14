@@ -11,34 +11,42 @@
 //! prefix and its label, its type as label details, Markdown
 //! documentation as hover's, and the word before the cursor replaced.
 
+use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use nomi_base::{TextRange, TextSize};
+use nomi_compiler::canonical::{Home, Type};
+use nomi_compiler::interface::Interface;
 use nomi_engine::Snapshot;
+use nomi_engine::graph::module_path;
 use nomi_engine::index::{Index, Indexed};
 use nomi_project::Outline;
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, parse_module};
+use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, child_token, parse_module};
 
-use crate::Edit;
-use crate::tree::{child, code_range, token, words};
+use crate::completion_general::{Possible, possible_imports};
+use crate::hover::{Names, declaration_hint, render};
+use crate::structure::glob_order;
+use crate::tree::{child, code_range, last_child_token, words, written_imports};
+use crate::{Edit, next_line};
 
-/// What a completion is, as the protocol numbers it.
+/// What a completion is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CompletionKind {
-    Text = 1,
-    Function = 3,
-    Field = 5,
-    Variable = 6,
-    Module = 9,
-    Enum = 13,
-    Keyword = 14,
-    Snippet = 15,
-    EnumMember = 20,
-    Struct = 22,
-    Operator = 24,
+    Text,
+    Function,
+    Field,
+    Variable,
+    Module,
+    Enum,
+    Keyword,
+    Snippet,
+    EnumMember,
+    Struct,
+    Operator,
 }
 
 /// One completion.
@@ -46,15 +54,20 @@ pub enum CompletionKind {
 pub struct Completion {
     pub label: String,
     pub kind: CompletionKind,
+    /// What the editor sorts it by.
     pub sort_text: Option<String>,
+    /// What the editor matches the typed word against, where not its
+    /// label.
     pub filter_text: Option<String>,
     /// Markdown.
     pub documentation: Option<String>,
+    /// What an auto-import does.
     pub detail: Option<String>,
     /// The type after the label: ` : Int`.
     pub label_detail: Option<String>,
     /// The module after the label, for an auto-import.
     pub label_description: Option<String>,
+    /// Whether the editor selects it first.
     pub preselect: bool,
     /// What the completion replaces, and with what; none for a snippet
     /// or a keyword, which the editor inserts as it sees fit.
@@ -64,12 +77,70 @@ pub struct Completion {
     pub additional_edits: Vec<Edit>,
 }
 
-/// The completions at a place: a list, or a list and whether it's
-/// incomplete; none where elm-language-server answers nothing.
+impl Completion {
+    /// `label`, of `kind`, and nothing else.
+    pub(crate) fn of(label: &str, kind: CompletionKind) -> Completion {
+        Completion {
+            label: label.to_owned(),
+            kind,
+            sort_text: None,
+            filter_text: None,
+            documentation: None,
+            detail: None,
+            label_detail: None,
+            label_description: None,
+            preselect: false,
+            edit: None,
+            snippet: None,
+            additional_edits: Vec::new(),
+        }
+    }
+
+    /// `label`, replacing `range` with it, sorted under `sort`.
+    pub(crate) fn new(
+        label: &str,
+        kind: CompletionKind,
+        sort: &str,
+        range: TextRange,
+    ) -> Completion {
+        Completion {
+            sort_text: Some(format!("{sort}_{label}")),
+            edit: Some(Edit {
+                range,
+                text: label.to_owned(),
+            }),
+            ..Completion::of(label, kind)
+        }
+    }
+
+    /// With `documentation`, where it says anything.
+    pub(crate) fn documented(self, documentation: Option<String>) -> Completion {
+        Completion {
+            documentation: documentation.filter(|d| !d.is_empty()),
+            ..self
+        }
+    }
+
+    /// With `detail` as its label details, where it knows every type.
+    pub(crate) fn typed(self, detail: Option<String>) -> Completion {
+        Completion {
+            label_detail: detail.filter(|d| !d.contains("unknown")),
+            ..self
+        }
+    }
+}
+
+/// The completions at a place, in the protocol's two shapes; none where
+/// elm-language-server answers nothing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Completions {
-    List(Vec<Completion>),
-    Incomplete(Vec<Completion>, bool),
+    /// Items alone.
+    Items(Vec<Completion>),
+    /// A completion list: items, and whether typing on would change them.
+    List {
+        items: Vec<Completion>,
+        incomplete: bool,
+    },
 }
 
 /// The completions at `offset` in the file at `path`.
@@ -81,25 +152,13 @@ pub fn completions(
 ) -> Option<Completions> {
     let module = index.module(path)?;
     let text = &*module.text;
-    let at = usize::from(offset);
-    let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
-    let line = &text[line_start..];
-    let line = &line[..line.find('\n').unwrap_or(line.len())];
-    let column = at - line_start;
-    // The word before the cursor, qualified names included.
-    let word_start = word_start(line, column);
-    let word = &line[word_start..column];
-    // The whole name the cursor is in, what follows it too.
-    let name_end = line[column..]
-        .find(|c: char| !(c.is_alphanumeric() || c == '_'))
-        .map_or(line.len(), |i| column + i);
-    let name_at = &line[word_start..name_end];
-    let range = |from: usize| TextRange::new(TextSize::new((line_start + from) as u32), offset);
-    let context = Context::new(snapshot, index, module, path);
-    if in_comment(&module.root(), offset, &line[..column]) {
-        return Some(Completions::List(Vec::new()));
+    let cursor = Cursor::of(text, offset);
+    let (line, name_at) = (cursor.line, cursor.name());
+    let root = module.root();
+    if in_comment(&root, offset, &line[..cursor.column]) {
+        return Some(Completions::Items(Vec::new()));
     }
-    let before = line[..word_start].trim_end();
+    let before = cursor.before();
     // A module's name, after `module`, `port module` or `effect module`.
     if before.ends_with("module")
         && matches!(
@@ -110,8 +169,7 @@ pub fn completions(
         return None;
     }
     // Not a pattern's name, nor an import's alias.
-    let named = module
-        .root()
+    let named = root
         .token_at_offset(offset)
         .find(|t| t.kind() == SyntaxKind::LowerIdent)
         .and_then(|t| t.parent());
@@ -121,63 +179,40 @@ pub fn completions(
         || (import && before.ends_with(" as"))
         || (import && name_at == "as")
     {
-        return Some(Completions::List(Vec::new()));
+        return Some(Completions::Items(Vec::new()));
     }
-    // At a line's start: the name an annotation above declares, or the
-    // annotation a definition below wants.
-    if word_start == 0 {
-        let mut lines = text[..line_start].lines().rev();
-        let above = lines.next().unwrap_or("");
-        let below = text[line_start + line.len()..].trim_start_matches('\n');
-        let below = below.lines().next().unwrap_or("");
-        let name = |l: &str| -> Option<String> {
-            let name: String = l
-                .chars()
-                .take_while(|c| c.is_alphanumeric() || *c == '_')
-                .collect();
-            name.starts_with(|c: char| c.is_lowercase()).then_some(name)
-        };
-        if let Some(name) = name(above).filter(|n| above[n.len()..].trim_start().starts_with(':')) {
-            return Some(Completions::List(vec![item(
-                &name,
-                CompletionKind::Text,
-                "a",
-                range(0),
-                None,
-                None,
-            )]));
-        }
-        // An annotation below too, under a line of just a word being
-        // typed, which tree-sitter-elm then reads as running on into it.
-        let alone = !word.is_empty() && line.trim_end() == name_at;
-        let wanted = |n: &String| {
-            let rest = &below[n.len()..];
-            rest.contains('=') || (alone && rest.trim_start().starts_with(':'))
-        };
-        if let Some(name) = name(below).filter(wanted) {
-            let label = format!("{name} : ");
-            return Some(Completions::List(vec![item(
-                &label,
-                CompletionKind::Text,
-                "a",
-                range(0),
-                None,
-                None,
-            )]));
-        }
+    if cursor.word_start == 0
+        && let Some(label) = declared_around(text, &cursor)
+    {
+        let found = Completion::new(&label, CompletionKind::Text, "a", cursor.range(0));
+        return Some(Completions::Items(vec![found]));
     }
+    let context = Context::new(snapshot, index, module, path);
+    place_completions(&context, &cursor, offset)
+}
+
+/// The completions at `offset`, where `cursor` is, in a place that has
+/// some: an exposing list, an import, after a dot, in a record, at a
+/// line's start, or anywhere else.
+fn place_completions(
+    context: &Context<'_>,
+    cursor: &Cursor<'_>,
+    offset: TextSize,
+) -> Option<Completions> {
+    let (index, module) = (context.index, context.module);
+    let (text, line, before) = (&*module.text, cursor.line, cursor.before());
+    let (word, name_at) = (cursor.word(), cursor.name());
     // An exposing list: the module's own, or an import's. A header's
     // `exposing` is part of its list to tree-sitter-elm.
-    let header = ["module ", "port module ", "effect module "]
-        .iter()
-        .any(|h| line.starts_with(h));
-    let list_at = match line[name_end..].find('(') {
-        Some(open) if header && name_at == "exposing" => line_start + name_end + open + 1,
-        _ => at,
+    let list_at = match line[cursor.name_end..].find('(') {
+        Some(open) if is_header(line) && name_at == "exposing" => {
+            cursor.line_start + cursor.name_end + open + 1
+        }
+        _ => usize::from(offset),
     };
     if let Some(list) = exposing_list(text, list_at) {
-        let replace = range(word_start);
-        return Some(Completions::List(match list {
+        let replace = cursor.range(cursor.word_start);
+        return Some(Completions::Items(match list {
             Exposing::Module(written) => context
                 .top_levels(replace, true)
                 .into_iter()
@@ -189,39 +224,35 @@ pub fn completions(
     }
     // After `import`, the modules.
     if before.ends_with("import") && !word.contains('.') {
-        return Some(Completions::List(
-            context.importable(range(word_start), None),
-        ));
+        let found = context.modules(cursor.range(cursor.word_start), None);
+        return Some(Completions::Items(found));
     }
     // After a dot: a module's names, or a record's fields; but an
     // accessor being typed, `.name`, gets the general list.
     let accessor = word.starts_with('.') && word.len() > 1 && !word[1..].contains('.');
     if let Some(dot) = word.rfind('.').filter(|_| !accessor) {
         let target = &word[..dot];
-        let replace = range(word_start + dot + 1);
+        let replace = cursor.range(cursor.word_start + dot + 1);
         let importing = before.ends_with("import");
-        if !target.is_empty() && target.starts_with(|c: char| c.is_uppercase()) {
+        if target.starts_with(|c: char| c.is_uppercase()) {
             let found = context.qualified(target, replace, importing);
             if !found.is_empty() || importing {
-                return Some(Completions::List(found));
+                return Some(Completions::Items(found));
             }
         }
-        let record = TextSize::new((line_start + word_start + dot) as u32);
-        let fields = crate::record_fields::after(snapshot, index, module, record, replace);
-        return Some(Completions::List(fields));
+        let record = TextSize::new((cursor.line_start + cursor.word_start + dot) as u32);
+        let fields = crate::record_fields::after(index, module, record, replace);
+        return Some(Completions::Items(fields));
     }
     // In a record: its fields.
-    if let Some(fields) =
-        crate::record_fields::inside(snapshot, index, module, offset, range(word_start))
-    {
-        return Some(Completions::List(fields));
+    let replace = cursor.range(cursor.word_start);
+    if let Some(fields) = crate::record_fields::inside(index, module, offset, replace) {
+        return Some(Completions::Items(fields));
     }
     // At a line's start: what may start a declaration.
-    if word_start == 0 {
-        return Some(Completions::List(crate::completion_general::start_of_line(
-            &context,
-            range(0),
-        )));
+    if cursor.word_start == 0 {
+        let found = crate::completion_general::start_of_line(context, replace);
+        return Some(Completions::Items(found));
     }
     // Everything else: the general list. Its auto-imports rank by the
     // whole name the cursor is in, as tree-sitter's node there has it. A
@@ -233,12 +264,16 @@ pub fn completions(
         name_at
     };
     // An accessor's name is replaced, its dot stays.
-    let start = if accessor { word_start + 1 } else { word_start };
+    let start = if accessor {
+        cursor.word_start + 1
+    } else {
+        cursor.word_start
+    };
     Some(crate::completion_general::general(
-        &context,
+        context,
         offset,
-        range(start),
-        &line[start..column],
+        cursor.range(start),
+        &line[start..cursor.column],
         name,
     ))
 }
@@ -249,17 +284,96 @@ const KEYWORDS: &[&str] = &[
     "import", "as", "port", "where",
 ];
 
-/// Where the word before `column` starts: letters, digits, `_` and dots.
-fn word_start(line: &str, column: usize) -> usize {
-    let mut start = column;
-    for (i, c) in line[..column].char_indices().rev() {
-        if c.is_alphanumeric() || c == '_' || c == '.' {
-            start = i;
-        } else {
-            break;
+/// The cursor's place on its line.
+struct Cursor<'t> {
+    line: &'t str,
+    /// Where the line starts in the text.
+    line_start: usize,
+    /// How far into the line the cursor is.
+    column: usize,
+    /// Where the word before the cursor starts: letters, digits, `_` and
+    /// dots, qualified names included.
+    word_start: usize,
+    /// Where the whole name the cursor is in ends, what follows it too.
+    name_end: usize,
+}
+
+impl<'t> Cursor<'t> {
+    fn of(text: &'t str, offset: TextSize) -> Cursor<'t> {
+        let at = usize::from(offset);
+        let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
+        let line = &text[line_start..];
+        let line = &line[..line.find('\n').unwrap_or(line.len())];
+        let column = at - line_start;
+        let word_start = (line[..column].char_indices().rev())
+            .take_while(|&(_, c)| c.is_alphanumeric() || c == '_' || c == '.')
+            .last()
+            .map_or(column, |(i, _)| i);
+        let name_end = line[column..]
+            .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .map_or(line.len(), |i| column + i);
+        Cursor {
+            line,
+            line_start,
+            column,
+            word_start,
+            name_end,
         }
     }
-    start
+
+    /// The word before the cursor.
+    fn word(&self) -> &'t str {
+        &self.line[self.word_start..self.column]
+    }
+
+    /// The whole name the cursor is in.
+    fn name(&self) -> &'t str {
+        &self.line[self.word_start..self.name_end]
+    }
+
+    /// What comes before the word on the line, but trailing space.
+    fn before(&self) -> &'t str {
+        self.line[..self.word_start].trim_end()
+    }
+
+    /// From `from` in the line to the cursor.
+    fn range(&self, from: usize) -> TextRange {
+        let offset = |at: usize| TextSize::new((self.line_start + at) as u32);
+        TextRange::new(offset(from), offset(self.column))
+    }
+}
+
+/// At a line's start: the name an annotation above declares, or the
+/// annotation a definition below wants.
+fn declared_around(text: &str, cursor: &Cursor<'_>) -> Option<String> {
+    let above = text[..cursor.line_start].lines().next_back().unwrap_or("");
+    let below = text[cursor.line_start + cursor.line.len()..].trim_start_matches('\n');
+    let below = below.lines().next().unwrap_or("");
+    let name = |l: &str| -> Option<String> {
+        let name: String = l
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+        name.starts_with(|c: char| c.is_lowercase()).then_some(name)
+    };
+    if let Some(name) = name(above).filter(|n| above[n.len()..].trim_start().starts_with(':')) {
+        return Some(name);
+    }
+    // An annotation below too, under a line of just a word being typed,
+    // which tree-sitter-elm then reads as running on into it.
+    let alone = !cursor.word().is_empty() && cursor.line.trim_end() == cursor.name();
+    let wanted = |n: &String| {
+        let rest = &below[n.len()..];
+        rest.contains('=') || (alone && rest.trim_start().starts_with(':'))
+    };
+    name(below).filter(wanted).map(|name| format!("{name} : "))
+}
+
+/// Whether `line` starts a module's header.
+fn is_header(line: &str) -> bool {
+    ["module ", "port module ", "effect module "]
+        .iter()
+        .any(|h| line.starts_with(h))
 }
 
 /// Whether `offset` is in a comment.
@@ -286,70 +400,70 @@ fn exposing_list(text: &str, at: usize) -> Option<Exposing> {
     let before = &text[..at];
     let open = before.rfind("exposing")?;
     let rest = &before[open + "exposing".len()..];
-    let rest = rest.trim_start();
-    let inside = rest.strip_prefix('(')?;
+    let inside = rest.trim_start().strip_prefix('(')?;
     // Still open: `Msg(..)` closes its own parenthesis.
-    let mut depth = 0;
-    for c in inside.chars() {
-        match c {
-            '(' => depth += 1,
-            ')' if depth == 0 => return None,
-            ')' => depth -= 1,
-            _ => {}
-        }
+    if closing_paren(inside).is_some() {
+        return None;
     }
     // The declaration the list belongs to: its line's start.
     let start = before[..open].rfind('\n').map_or(0, |i| i + 1);
-    let head = &before[start..open];
-    if let Some(name) = head.trim_start().strip_prefix("import ") {
+    let head = before[start..open].trim_start();
+    if let Some(name) = head.strip_prefix("import ") {
         let name = name.split_whitespace().next()?;
         return Some(Exposing::Import(name.to_owned()));
     }
-    let header = head.trim_start();
-    if header.starts_with("module ")
-        || header.starts_with("port module ")
-        || header.starts_with("effect module ")
-    {
-        // The whole list, through the name at the cursor and after it.
-        let after = &text[at..];
-        let mut depth = 0;
-        let close = after
-            .char_indices()
-            .find(|&(_, c)| {
-                match c {
-                    '(' => depth += 1,
-                    ')' if depth == 0 => return true,
-                    ')' => depth -= 1,
-                    _ => {}
-                }
-                false
-            })
-            .map_or(after.len(), |(i, _)| i);
-        let whole = format!("{inside}{}", &after[..close]);
-        let written: Vec<String> = (whole.split(','))
-            .map(|w| w.trim().to_owned())
-            .filter(|w| !w.is_empty())
-            .collect();
-        return Some(Exposing::Module(written));
+    if !is_header(head) {
+        return None;
     }
-    None
+    // The whole list, through the name at the cursor and after it.
+    let after = &text[at..];
+    let close = closing_paren(after).unwrap_or(after.len());
+    let whole = format!("{inside}{}", &after[..close]);
+    let written: Vec<String> = (whole.split(','))
+        .map(|w| w.trim().to_owned())
+        .filter(|w| !w.is_empty())
+        .collect();
+    Some(Exposing::Module(written))
 }
 
-/// What completions read.
-/// A module the project may import, its file and its package.
-pub(crate) type Importable = (String, Option<PathBuf>, Option<String>);
+/// Where the `)` that closes a parenthesis open before `text` is.
+fn closing_paren(text: &str) -> Option<usize> {
+    let mut depth = 0;
+    text.char_indices()
+        .find(|&(_, c)| {
+            match c {
+                '(' => depth += 1,
+                ')' if depth == 0 => return true,
+                ')' => depth -= 1,
+                _ => {}
+            }
+            false
+        })
+        .map(|(i, _)| i)
+}
 
+/// A module the project may import.
+pub(crate) struct Importable {
+    pub(crate) name: String,
+    pub(crate) path: PathBuf,
+    /// The package it's of: a dependency, or the project, where that's a
+    /// package.
+    pub(crate) package: Option<String>,
+}
+
+/// What completions and code actions read, each read once a request.
 pub(crate) struct Context<'c> {
     pub snapshot: &'c Snapshot,
     pub index: &'c Index,
     pub module: &'c Indexed,
     pub path: &'c Path,
-    /// What one completion reads again and again, read once.
-    importable: std::cell::OnceCell<Vec<Importable>>,
-    sources: std::cell::RefCell<HashMap<String, Option<(SyntaxNode, PathBuf)>>>,
-    names: std::cell::OnceCell<crate::hover::Names>,
-    signatures: std::cell::RefCell<HashMap<String, Rc<HashMap<String, String>>>>,
-    exposed: std::cell::RefCell<HashMap<String, Option<Rc<Vec<PlainName>>>>>,
+    importable: OnceCell<Vec<Importable>>,
+    possible: OnceCell<Vec<Possible>>,
+    import_at: OnceCell<TextSize>,
+    sources: RefCell<HashMap<String, Option<(SyntaxNode, PathBuf)>>>,
+    names: OnceCell<Names>,
+    signatures: RefCell<HashMap<String, Rc<HashMap<String, String>>>>,
+    exposed: RefCell<HashMap<String, Option<Rc<Vec<ExposedName>>>>>,
 }
 
 impl<'c> Context<'c> {
@@ -364,11 +478,13 @@ impl<'c> Context<'c> {
             index,
             module,
             path,
-            importable: std::cell::OnceCell::new(),
-            sources: std::cell::RefCell::new(HashMap::new()),
-            names: std::cell::OnceCell::new(),
-            signatures: std::cell::RefCell::new(HashMap::new()),
-            exposed: std::cell::RefCell::new(HashMap::new()),
+            importable: OnceCell::new(),
+            possible: OnceCell::new(),
+            import_at: OnceCell::new(),
+            sources: RefCell::default(),
+            names: OnceCell::new(),
+            signatures: RefCell::default(),
+            exposed: RefCell::default(),
         }
     }
 
@@ -378,10 +494,15 @@ impl<'c> Context<'c> {
             .get_or_init(|| importable_modules(self.snapshot, self.index, self.path))
     }
 
+    /// [`possible_imports`] of the module.
+    pub(crate) fn possible_imports(&self) -> &[Possible] {
+        self.possible.get_or_init(|| possible_imports(self))
+    }
+
     /// How the module writes types' names.
-    pub(crate) fn names(&self) -> &crate::hover::Names {
+    pub(crate) fn names(&self) -> &Names {
         self.names
-            .get_or_init(|| crate::hover::Names::of(self.index, self.module))
+            .get_or_init(|| Names::of(self.index, self.module))
     }
 }
 
@@ -391,6 +512,13 @@ impl Context<'_> {
     /// `(..)` too in its own exposing list.
     pub(crate) fn top_levels(&self, range: TextRange, exposing: bool) -> Vec<Completion> {
         let root = &self.module.root();
+        let item = |name: &SyntaxToken, kind| {
+            Completion::new(name.text(), kind, "b", range)
+                .documented(declaration_hint(root, name, None))
+        };
+        let value = |name: &SyntaxToken| {
+            item(name, CompletionKind::Function).typed(self.value_detail(name.text()))
+        };
         let mut found = Vec::new();
         for decl in root.children() {
             match decl.kind() {
@@ -402,88 +530,38 @@ impl Context<'_> {
                     if !definition.children().any(|c| ast::Expr::can_cast(c.kind())) {
                         continue;
                     }
-                    let Some(name) = nomi_syntax::child_token(&definition, SyntaxKind::LowerIdent)
-                    else {
-                        continue;
-                    };
-                    let documentation = crate::hover::declaration_hint(root, &name, None);
-                    let detail = self.value_detail(name.text());
-                    found.push(item(
-                        name.text(),
-                        CompletionKind::Function,
-                        "b",
-                        range,
-                        documentation,
-                        detail,
-                    ));
+                    found.extend(
+                        child_token(&definition, SyntaxKind::LowerIdent).map(|n| value(&n)),
+                    );
                 }
                 SyntaxKind::PortDecl => {
-                    let Some(name) = nomi_syntax::child_token(&decl, SyntaxKind::LowerIdent) else {
-                        continue;
-                    };
-                    let documentation = crate::hover::declaration_hint(root, &name, None);
-                    let detail = self.value_detail(name.text());
-                    found.push(item(
-                        name.text(),
-                        CompletionKind::Function,
-                        "b",
-                        range,
-                        documentation,
-                        detail,
-                    ));
+                    found.extend(child_token(&decl, SyntaxKind::LowerIdent).map(|n| value(&n)));
                 }
                 SyntaxKind::CustomTypeDecl => {
-                    let Some(name) = nomi_syntax::child_token(&decl, SyntaxKind::UpperIdent) else {
+                    let Some(name) = child_token(&decl, SyntaxKind::UpperIdent) else {
                         continue;
                     };
-                    let documentation = crate::hover::declaration_hint(root, &name, None);
-                    found.push(item(
-                        name.text(),
-                        CompletionKind::Enum,
-                        "b",
-                        range,
-                        documentation.clone(),
-                        None,
-                    ));
-                    if exposing {
+                    let union = item(&name, CompletionKind::Enum);
+                    let open = exposing.then(|| {
                         let label = format!("{}(..)", name.text());
-                        found.push(item(
-                            &label,
-                            CompletionKind::Enum,
-                            "b",
-                            range,
-                            documentation,
-                            None,
-                        ));
-                    }
+                        Completion::new(&label, CompletionKind::Enum, "b", range)
+                            .documented(union.documentation.clone())
+                    });
+                    found.push(union);
+                    found.extend(open);
                     for variant in decl.children().filter(|c| c.kind() == SyntaxKind::Variant) {
-                        let Some(name) = token(&variant, SyntaxKind::UpperIdent) else {
+                        let Some(name) = child_token(&variant, SyntaxKind::UpperIdent) else {
                             continue;
                         };
-                        let detail = self.value_detail(&name);
-                        found.push(item(
-                            &name,
-                            CompletionKind::EnumMember,
-                            "b",
-                            range,
-                            None,
-                            detail,
-                        ));
+                        found.push(
+                            Completion::new(name.text(), CompletionKind::EnumMember, "b", range)
+                                .typed(self.value_detail(name.text())),
+                        );
                     }
                 }
                 SyntaxKind::TypeAliasDecl => {
-                    let Some(name) = nomi_syntax::child_token(&decl, SyntaxKind::UpperIdent) else {
-                        continue;
-                    };
-                    let documentation = crate::hover::declaration_hint(root, &name, None);
-                    found.push(item(
-                        name.text(),
-                        CompletionKind::Struct,
-                        "b",
-                        range,
-                        documentation,
-                        None,
-                    ));
+                    let name = child_token(&decl, SyntaxKind::UpperIdent);
+                    found.extend(name.map(|name| item(&name, CompletionKind::Struct)));
                 }
                 _ => {}
             }
@@ -493,36 +571,27 @@ impl Context<'_> {
 
     /// A top-level value's or constructor's type, as label details, as the
     /// module writes it.
-    pub(crate) fn value_detail(&self, name: &str) -> Option<String> {
+    fn value_detail(&self, name: &str) -> Option<String> {
         let Some(canonical) = self.module.canonical.as_ref() else {
             // A constructor's type is in its declaration.
             return written_constructor_type(&self.module.root(), name);
         };
-        let localizer = self.names();
         // The module's types, inferred once for every name asked about.
-        let inferred = self
-            .module
-            .types(self.index.compat)
-            .map(|(inferred, _)| inferred);
-        let annotation = match inferred {
-            Some(Ok(inferred)) => inferred.get(name).cloned(),
+        let inferred = match self.module.types(self.index.compat) {
+            Some((Ok(inferred), _)) => inferred.get(name),
             _ => None,
-        }
-        .or_else(|| canonical.annotations.get(name).cloned());
-        let ty = match annotation {
-            Some(annotation) => (*annotation.ty).clone(),
-            None => {
-                // A constructor: its type from its union, or as written
-                // where the module has no interface yet.
-                return match self.index.interfaces.get(&self.module.name) {
-                    Some(interface) => {
-                        constructor_type(localizer, interface, &self.module.name, name)
-                    }
-                    None => written_constructor_type(&self.module.root(), name),
-                };
-            }
         };
-        Some(format!(" : {}", crate::hover::render(localizer, &ty)))
+        let Some(annotation) = inferred.or_else(|| canonical.annotations.get(name)) else {
+            // A constructor: its type from its union, or as written where
+            // the module has no interface yet.
+            return match self.index.interfaces.get(&self.module.name) {
+                Some(interface) => {
+                    constructor_type(self.names(), interface, &self.module.name, name)
+                }
+                None => written_constructor_type(&self.module.root(), name),
+            };
+        };
+        Some(format!(" : {}", render(self.names(), &annotation.ty)))
     }
 
     /// `getExposedFromModule`: what the module `name` exposes, for an
@@ -530,49 +599,23 @@ impl Context<'_> {
     fn exposed_by(&self, name: &str, range: TextRange) -> Option<Vec<Completion>> {
         let (root, _) = self.module_source(name)?;
         let mut found = Vec::new();
-        for exposed in exposed(&root) {
-            let documentation = crate::hover::declaration_hint(&root, &exposed.name, None);
-            match exposed.kind {
-                Exposed::Alias => found.push(item(
-                    exposed.label.as_str(),
-                    CompletionKind::Struct,
-                    "c",
-                    range,
-                    documentation,
-                    None,
-                )),
+        for exposed in self.exposed_names(name)?.iter() {
+            let label = exposed.label.as_str();
+            let documentation = declaration_hint(&root, &exposed.name, None);
+            let item = |label: &str, kind| {
+                Completion::new(label, kind, "c", range).documented(documentation.clone())
+            };
+            match &exposed.kind {
+                Exposed::Alias => found.push(item(label, CompletionKind::Struct)),
                 Exposed::Type { variants } => {
                     if !variants.is_empty() {
-                        let label = format!("{}(..)", exposed.label.as_str());
-                        found.push(item(
-                            &label,
-                            CompletionKind::Enum,
-                            "c",
-                            range,
-                            documentation.clone(),
-                            None,
-                        ));
+                        found.push(item(&format!("{label}(..)"), CompletionKind::Enum));
                     }
-                    found.push(item(
-                        exposed.label.as_str(),
-                        CompletionKind::Enum,
-                        "c",
-                        range,
-                        documentation,
-                        None,
-                    ));
+                    found.push(item(label, CompletionKind::Enum));
                 }
-                Exposed::Value | Exposed::Operator => {
-                    let detail = self.foreign_detail(name, exposed.label.as_str());
-                    found.push(item(
-                        exposed.label.as_str(),
-                        CompletionKind::Function,
-                        "c",
-                        range,
-                        documentation,
-                        detail,
-                    ));
-                }
+                Exposed::Value | Exposed::Operator => found.push(
+                    item(label, CompletionKind::Function).typed(self.foreign_detail(name, label)),
+                ),
             }
         }
         Some(found)
@@ -582,50 +625,41 @@ impl Context<'_> {
     /// module writes it.
     pub(crate) fn foreign_detail(&self, home: &str, name: &str) -> Option<String> {
         let written = self.signature(home, name);
-        let localizer = self.names().clone().written_as(written);
+        let names = self.names().clone().written_as(written);
         let interface = self.index.interfaces.get(home)?;
         if let Some(annotation) = interface.values.get(name) {
-            return Some(format!(
-                " : {}",
-                crate::hover::render(&localizer, &annotation.ty)
-            ));
+            return Some(format!(" : {}", render(&names, &annotation.ty)));
         }
-        constructor_type(&localizer, interface, home, name)
+        constructor_type(&names, interface, home, name)
     }
 
     /// `getImportableModules`: the modules the project may import, its
     /// own then its direct dependencies' exposed ones, each package as
     /// its `elm.json` lists them; those under `under.` alone, named past
     /// it, where given.
-    fn importable(&self, range: TextRange, under: Option<&str>) -> Vec<Completion> {
+    fn modules(&self, range: TextRange, under: Option<&str>) -> Vec<Completion> {
         let mut found = Vec::new();
-        for (name, path, _) in self.importable_modules().to_vec() {
-            if name == self.module.name {
+        for module in self.importable_modules() {
+            if module.name == self.module.name {
                 continue;
             }
             let label = match under {
-                Some(under) => match name.strip_prefix(&format!("{under}.")) {
-                    Some(rest) => rest.to_owned(),
-                    None => continue,
+                Some(under) => match module.name.strip_prefix(under) {
+                    Some(rest) if rest.starts_with('.') => &rest[1..],
+                    _ => continue,
                 },
-                None => name.clone(),
+                None => &module.name,
             };
-            let documentation = path
-                .and_then(|path| self.snapshot.read(&path).ok())
-                .and_then(|text| {
-                    let root = parse_module(&text).syntax();
-                    let header = child(&root, SyntaxKind::ModuleHeader)?;
-                    let name = child(&header, SyntaxKind::ModuleName)?.first_token()?;
-                    crate::hover::declaration_hint(&root, &name, None)
-                });
-            found.push(item(
-                &label,
-                CompletionKind::Module,
-                "b",
-                range,
-                documentation,
-                None,
-            ));
+            let documentation = (self.snapshot.read(&module.path).ok()).and_then(|text| {
+                let root = parse_module(&text).syntax();
+                let header = child(&root, SyntaxKind::ModuleHeader)?;
+                let name = child(&header, SyntaxKind::ModuleName)?.first_token()?;
+                declaration_hint(&root, &name, None)
+            });
+            found.push(
+                Completion::new(label, CompletionKind::Module, "b", range)
+                    .documented(documentation),
+            );
         }
         found
     }
@@ -634,205 +668,156 @@ impl Context<'_> {
     /// then, outside an import, what its modules expose: the ones
     /// imported as it, or else the ones of that name, with an import.
     fn qualified(&self, target: &str, range: TextRange, importing: bool) -> Vec<Completion> {
-        let mut found = self.importable(range, Some(target));
+        let mut found = self.modules(range, Some(target));
         if importing {
             return found;
         }
-        let imports: Vec<(String, Option<String>)> = (self.module.root().children())
-            .filter(|n| n.kind() == SyntaxKind::Import)
-            .filter_map(|import| {
-                let name = words(&child(&import, SyntaxKind::ModuleName)?);
-                let alias = child(&import, SyntaxKind::ImportAlias)
-                    .and_then(|a| token(&a, SyntaxKind::UpperIdent));
-                Some((name, alias))
-            })
-            .collect();
-        let defaults = default_imports();
-        let mut matched: Vec<(String, bool)> = Vec::new();
-        for (name, alias) in imports
-            .iter()
-            .map(|(n, a)| (n.clone(), a.clone()))
-            .chain(defaults)
-        {
-            let named = alias.as_deref() == Some(target) || (alias.is_none() && name == target);
+        let imports: Vec<_> = written_imports(&self.module.root()).collect();
+        let written = (imports.iter()).map(|i| (i.module.as_str(), i.alias.as_deref()));
+        let defaults = DEFAULT_IMPORTS.iter().map(|d| (d.module, d.alias));
+        // Each module, and whether it's imported.
+        let mut matched: Vec<(&str, bool)> = Vec::new();
+        for (name, alias) in written.chain(defaults) {
+            let named = alias == Some(target) || (alias.is_none() && name == target);
             if named && !matched.iter().any(|(m, _)| *m == name) {
                 matched.push((name, true));
             }
         }
-        if matched.is_empty() && !imports.iter().any(|(n, _)| n == target) {
-            for (name, _, _) in self.importable_modules().to_vec() {
-                let fits = if target.contains('.') {
-                    name == target
-                } else {
-                    name == target || name.ends_with(&format!(".{target}"))
-                };
-                if fits {
+        if matched.is_empty() && !imports.iter().any(|i| i.module == target) {
+            for module in self.importable_modules() {
+                let name = module.name.as_str();
+                let ends = (name.strip_suffix(target)).is_some_and(|rest| rest.ends_with('.'));
+                if name == target || (ends && !target.contains('.')) {
                     matched.push((name, false));
                 }
             }
         }
         for (name, imported) in matched {
-            let Some((root, _)) = self.module_source(&name) else {
+            let (Some((root, _)), Some(exposed)) =
+                (self.module_source(name), self.exposed_names(name))
+            else {
                 continue;
             };
-            let import_edit = (!imported).then(|| self.add_import(&name, target));
-            for exposed in exposed(&root) {
-                let mut completions = Vec::new();
-                match &exposed.kind {
-                    // `getSubmodulesOrValues` has no operators.
-                    Exposed::Operator => {}
-                    Exposed::Value => {
-                        let detail = self.foreign_detail(&name, exposed.label.as_str());
-                        let ty = detail
-                            .as_deref()
-                            .map(|d| d.trim_start_matches(" : ").to_owned());
-                        let annotation = ty.map(|ty| format!("{} : {ty}", exposed.label.as_str()));
-                        let documentation =
-                            crate::hover::declaration_hint(&root, &exposed.name, annotation);
-                        completions.push(item(
-                            exposed.label.as_str(),
-                            CompletionKind::Function,
-                            "a",
-                            range,
-                            documentation,
-                            detail,
-                        ));
-                    }
-                    Exposed::Alias => {
-                        let documentation =
-                            crate::hover::declaration_hint(&root, &exposed.name, None);
-                        completions.push(item(
-                            exposed.label.as_str(),
-                            CompletionKind::Struct,
-                            "a",
-                            range,
-                            documentation,
-                            None,
-                        ));
-                    }
-                    Exposed::Type { variants } => {
-                        let documentation =
-                            crate::hover::declaration_hint(&root, &exposed.name, None);
-                        completions.push(item(
-                            exposed.label.as_str(),
-                            CompletionKind::Enum,
-                            "a",
-                            range,
-                            documentation,
-                            None,
-                        ));
-                        for variant in variants {
-                            let detail = self.foreign_detail(&name, variant.text());
-                            let documentation =
-                                crate::hover::declaration_hint(&root, variant, None);
-                            completions.push(item(
-                                variant.text(),
-                                CompletionKind::EnumMember,
-                                "a",
-                                range,
-                                documentation,
-                                detail,
-                            ));
-                        }
-                    }
-                }
-                for mut completion in completions {
-                    if let Some(edit) = &import_edit {
-                        let alias = if target == name {
-                            String::new()
-                        } else {
-                            format!(" as '{target}'")
-                        };
-                        completion.detail = Some(format!("Auto import module '{name}'{alias}"));
+            let import = (!imported).then(|| {
+                let alias = if target == name {
+                    String::new()
+                } else {
+                    format!(" as '{target}'")
+                };
+                let detail = format!("Auto import module '{name}'{alias}");
+                (detail, self.add_import(name, Some(target), None))
+            });
+            for exposed in exposed.iter() {
+                let start = found.len();
+                self.qualified_items(name, &root, exposed, range, &mut found);
+                if let Some((detail, edit)) = &import {
+                    for completion in &mut found[start..] {
+                        completion.detail = Some(detail.clone());
                         completion.additional_edits = vec![edit.clone()];
                     }
-                    found.push(completion);
                 }
             }
         }
         found
     }
 
-    /// `RefactorEditUtils.addImport`: `import name` (as `alias`) on the
-    /// line after the last import, or after the header.
-    pub(crate) fn add_import(&self, name: &str, alias: &str) -> Edit {
-        let root = &self.module.root();
-        let text = &*self.module.text;
-        // After the last import, or the module's doc comment, or its
-        // header.
-        let last = (root.children())
-            .filter(|n| n.kind() == SyntaxKind::Import)
-            .last()
-            .and_then(|n| code_range(&n))
-            .or_else(|| {
-                nomi_syntax::child_token(root, SyntaxKind::DocComment).map(|t| t.text_range())
-            })
-            .or_else(|| child(root, SyntaxKind::ModuleHeader).and_then(|h| code_range(&h)));
-        let line = last.map_or(1, |r| {
-            text[..usize::from(r.end())].matches('\n').count() + 1
-        });
-        let at = text
-            .match_indices('\n')
-            .nth(line.saturating_sub(1))
-            .map_or(text.len(), |(i, _)| i + 1);
-        let at = if line == 0 { 0 } else { at };
-        let alias = if alias == name {
-            String::new()
-        } else {
-            format!(" as {alias}")
+    /// What `exposed` in the module `home`, whose tree is `root`, gives
+    /// after its qualifier, as `a`: a value with its type, a type with its
+    /// variants.
+    fn qualified_items(
+        &self,
+        home: &str,
+        root: &SyntaxNode,
+        exposed: &ExposedName,
+        range: TextRange,
+        found: &mut Vec<Completion>,
+    ) {
+        let label = exposed.label.as_str();
+        let item = |label: &str, kind, name: &SyntaxToken, annotation| {
+            Completion::new(label, kind, "a", range)
+                .documented(declaration_hint(root, name, annotation))
         };
-        Edit {
-            range: TextRange::empty(TextSize::new(at as u32)),
-            text: format!("import {name}{alias}\n"),
+        match &exposed.kind {
+            // `getSubmodulesOrValues` has no operators.
+            Exposed::Operator => {}
+            Exposed::Value => {
+                let detail = self.foreign_detail(home, label);
+                let annotation = (detail.as_deref())
+                    .map(|d| format!("{label} : {}", d.trim_start_matches(" : ")));
+                let kind = CompletionKind::Function;
+                found.push(item(label, kind, &exposed.name, annotation).typed(detail));
+            }
+            Exposed::Alias => found.push(item(label, CompletionKind::Struct, &exposed.name, None)),
+            Exposed::Type { variants } => {
+                found.push(item(label, CompletionKind::Enum, &exposed.name, None));
+                for variant in variants {
+                    let detail = self.foreign_detail(home, variant.text());
+                    let kind = CompletionKind::EnumMember;
+                    found.push(item(variant.text(), kind, variant, None).typed(detail));
+                }
+            }
         }
+    }
+
+    /// `RefactorEditUtils.addImport`: `import module`, as `alias` where
+    /// that's another name, exposing `value` where given, on the line
+    /// after the last import, or after the module's doc comment or header.
+    pub(crate) fn add_import(
+        &self,
+        module: &str,
+        alias: Option<&str>,
+        value: Option<&str>,
+    ) -> Edit {
+        let at = *self.import_at.get_or_init(|| {
+            let root = &self.module.root();
+            let last = (root.children())
+                .filter(|n| n.kind() == SyntaxKind::Import)
+                .last()
+                .and_then(|n| code_range(&n))
+                .or_else(|| child_token(root, SyntaxKind::DocComment).map(|t| t.text_range()))
+                .or_else(|| child(root, SyntaxKind::ModuleHeader).and_then(|h| code_range(&h)));
+            next_line(
+                &self.module.text,
+                last.map_or(TextSize::new(0), TextRange::end),
+            )
+        });
+        let mut text = format!("import {module}");
+        if let Some(alias) = alias.filter(|a| *a != module) {
+            let _ = write!(text, " as {alias}");
+        }
+        if let Some(value) = value {
+            let _ = write!(text, " exposing ({value})");
+        }
+        text.push('\n');
+        Edit::insert(at, text)
     }
 
     /// What the module `name` exposes, as [`exposed`] reads it from
     /// [`Context::module_source`], each module's worked out once.
-    pub(crate) fn exposed_names(&self, name: &str) -> Option<Rc<Vec<PlainName>>> {
+    pub(crate) fn exposed_names(&self, name: &str) -> Option<Rc<Vec<ExposedName>>> {
         if let Some(names) = self.exposed.borrow().get(name) {
             return names.clone();
         }
-        let names = self.module_source(name).map(|(root, _)| {
-            let names = (exposed(&root).into_iter()).map(|e| PlainName {
-                label: e.label,
-                name: e.name.text().to_owned(),
-                name_at: e.name.text_range().start(),
-                kind: match e.kind {
-                    Exposed::Operator => PlainExposed::Operator,
-                    Exposed::Value => PlainExposed::Value,
-                    Exposed::Alias => PlainExposed::Alias,
-                    Exposed::Type { variants } => PlainExposed::Type {
-                        variants: (variants.iter())
-                            .map(|v| (v.text().to_owned(), v.text_range().start()))
-                            .collect(),
-                    },
-                },
-            });
-            Rc::new(names.collect())
-        });
+        let names = self
+            .module_source(name)
+            .map(|(root, _)| Rc::new(exposed(&root)));
         (self.exposed.borrow_mut()).insert(name.to_owned(), names.clone());
         names
     }
 
-    /// [`crate::hover::declaration_hint`] of `name` in the module
-    /// `module`, whose tree is `root`: made once where the module is a
-    /// package's, whose sources never change.
+    /// [`declaration_hint`] of `name` in the module `module`, whose tree is
+    /// `root`: made once where the module is a package's, whose sources
+    /// never change.
     pub(crate) fn hint(
         &self,
         module: &str,
         root: &SyntaxNode,
         name: &SyntaxToken,
     ) -> Option<String> {
-        let make = || crate::hover::declaration_hint(root, name, None);
+        let make = || declaration_hint(root, name, None);
         let package = (self.module_source(module))
             .map(|(_, path)| path)
-            .filter(|path| {
-                self.index
-                    .packages
-                    .values()
-                    .any(|dir| path.starts_with(dir))
-            });
+            .filter(|path| self.is_package_file(path));
         match package {
             Some(path) => {
                 let at = name.text_range().start();
@@ -840,6 +825,11 @@ impl Context<'_> {
             }
             None => make(),
         }
+    }
+
+    /// Whether `path` is in a dependency's sources.
+    fn is_package_file(&self, path: &Path) -> bool {
+        (self.index.packages.values()).any(|dir| path.starts_with(dir))
     }
 
     /// The annotation of `name` in the module `home` as written, each
@@ -851,24 +841,16 @@ impl Context<'_> {
         } else {
             let mut all = HashMap::new();
             if let Some((root, _)) = self.module_source(home) {
-                for decl in root
-                    .children()
-                    .filter(|d| d.kind() == SyntaxKind::ValueDecl)
-                {
-                    let name = child(&decl, SyntaxKind::Definition)
-                        .and_then(|def| nomi_syntax::child_token(&def, SyntaxKind::LowerIdent));
-                    if let (Some(name), Some(signature)) =
-                        (name, child(&decl, SyntaxKind::Signature))
-                    {
+                for decl in root.children().filter_map(ast::ValueDecl::cast) {
+                    let name = decl.definition().and_then(|d| d.lower_ident_token());
+                    if let (Some(name), Some(signature)) = (name, decl.signature()) {
                         all.entry(name.text().to_owned())
-                            .or_insert_with(|| signature.text().to_string());
+                            .or_insert_with(|| signature.syntax().text().to_string());
                     }
                 }
             }
             let all = Rc::new(all);
-            self.signatures
-                .borrow_mut()
-                .insert(home.to_owned(), all.clone());
+            (self.signatures.borrow_mut()).insert(home.to_owned(), all.clone());
             all
         };
         all.get(name).cloned()
@@ -881,52 +863,43 @@ impl Context<'_> {
         if let Some(found) = self.sources.borrow().get(name) {
             return found.clone();
         }
-        let found = (|| {
-            // The project's own, as the index has them parsed already,
-            // where no dependency has one of the name.
-            let own = self.index.named(name);
-            let dependency = (self.importable_modules().iter())
-                .skip(self.index.modules.len())
-                .find(|(module, _, _)| module == name)
-                .and_then(|(_, path, _)| path.clone());
-            let path = match (dependency, own) {
-                (Some(path), _) => path,
-                (None, Some(own)) => return Some((own.root(), own.path.clone())),
-                (None, None) => crate::navigation::module_file(self.snapshot, self.index, name)?,
-            };
-            // A package's sources never change: each is parsed once.
-            if self
-                .index
-                .packages
-                .values()
-                .any(|dir| path.starts_with(dir))
-            {
-                return Some((self.index.package_files.tree(&path)?, path));
-            }
-            let text = self.snapshot.read(&path).ok()?;
-            Some((parse_module(&text).syntax(), path))
-        })();
-        self.sources
-            .borrow_mut()
-            .insert(name.to_owned(), found.clone());
+        let found = self.read_source(name);
+        (self.sources.borrow_mut()).insert(name.to_owned(), found.clone());
         found
+    }
+
+    /// [`Context::module_source`], read.
+    fn read_source(&self, name: &str) -> Option<(SyntaxNode, PathBuf)> {
+        // The project's own, as the index has them parsed already,
+        // where no dependency has one of the name.
+        let dependency = (self.importable_modules().iter())
+            .skip(self.index.modules.len())
+            .find(|m| m.name == name);
+        let path = match (dependency, self.index.named(name)) {
+            (Some(dependency), _) => dependency.path.clone(),
+            (None, Some(own)) => return Some((own.root(), own.path.clone())),
+            (None, None) => crate::navigation::module_file(self.snapshot, self.index, name)?,
+        };
+        // A package's sources never change: each is parsed once.
+        if self.is_package_file(&path) {
+            return Some((self.index.package_files.tree(&path)?, path));
+        }
+        let text = self.snapshot.read(&path).ok()?;
+        Some((parse_module(&text).syntax(), path))
     }
 }
 
 /// A constructor's type as its custom type's declaration writes it: its
 /// arguments, then the type with its parameters.
 fn written_constructor_type(root: &SyntaxNode, name: &str) -> Option<String> {
-    let variant = root
-        .children()
-        .filter(|n| n.kind() == SyntaxKind::CustomTypeDecl)
-        .flat_map(|d| {
-            d.children()
-                .filter(|c| c.kind() == SyntaxKind::Variant)
-                .collect::<Vec<_>>()
-        })
-        .find(|v| token(v, SyntaxKind::UpperIdent).as_deref() == Some(name))?;
-    let union = variant.parent()?;
-    let mut result = token(&union, SyntaxKind::UpperIdent)?;
+    let variant = (root.children())
+        .filter_map(ast::CustomTypeDecl::cast)
+        .flat_map(|d| d.variants())
+        .find(|v| v.upper_ident_token().is_some_and(|t| t.text() == name))?;
+    let union = variant.syntax().parent()?;
+    let mut result = child_token(&union, SyntaxKind::UpperIdent)?
+        .text()
+        .to_owned();
     for param in union
         .children()
         .filter(|c| c.kind() == SyntaxKind::TypeParam)
@@ -934,10 +907,7 @@ fn written_constructor_type(root: &SyntaxNode, name: &str) -> Option<String> {
         result.push(' ');
         result.push_str(&words(&param));
     }
-    let mut parts: Vec<String> = (variant.children())
-        .filter(|c| ast::Type::can_cast(c.kind()))
-        .map(|t| words(&t))
-        .collect();
+    let mut parts: Vec<String> = variant.types().map(|t| words(t.syntax())).collect();
     parts.push(result);
     Some(format!(" : {}", parts.join(" -> ")))
 }
@@ -945,24 +915,16 @@ fn written_constructor_type(root: &SyntaxNode, name: &str) -> Option<String> {
 /// A constructor's type as label details: its arguments, then its
 /// union, which an interface of `module` declares.
 fn constructor_type(
-    localizer: &crate::hover::Names,
-    interface: &nomi_compiler::interface::Interface,
+    names: &Names,
+    interface: &Interface,
     module: &str,
     name: &str,
 ) -> Option<String> {
-    use nomi_compiler::canonical::{Home, Type};
-    use nomi_compiler::interface::Union;
-    let (union_name, union) = interface.unions.iter().find_map(|(union_name, union)| {
-        let union = match union {
-            Union::Open(u) | Union::Closed(u) | Union::Private(u) => u,
-        };
-        union
-            .ctors
-            .iter()
-            .any(|c| c.name == name)
-            .then_some((union_name, union))
+    let (union_name, union, ctor) = interface.unions.iter().find_map(|(union_name, union)| {
+        let union = union.whole();
+        let ctor = union.ctors.iter().find(|c| c.name == name)?;
+        Some((union_name, union, ctor))
     })?;
-    let ctor = union.ctors.iter().find(|c| c.name == name)?;
     let home = Home {
         package: interface.home.as_str().into(),
         module: module.into(),
@@ -972,10 +934,8 @@ fn constructor_type(
         name: union_name.clone(),
         args: union.vars.iter().map(|v| Type::Var(v.clone())).collect(),
     };
-    let ty = (ctor.args.iter().rev()).fold(result, |acc, arg| {
-        Type::Lambda(Box::new(arg.clone()), Box::new(acc))
-    });
-    Some(format!(" : {}", crate::hover::render(localizer, &ty)))
+    let ty = Type::function(ctor.args.iter().cloned(), result);
+    Some(format!(" : {}", render(names, &ty)))
 }
 
 /// What a module exposes, in its exposing list's order.
@@ -990,23 +950,7 @@ pub(crate) enum Exposed {
     },
 }
 
-/// [`ExposedName`] without its tree: what a module exposes, kept between
-/// completions while its text is the same.
-pub(crate) struct PlainName {
-    pub(crate) label: String,
-    /// Its declaration's name.
-    pub(crate) name: String,
-    pub(crate) name_at: TextSize,
-    pub(crate) kind: PlainExposed,
-}
-
-pub(crate) enum PlainExposed {
-    Operator,
-    Value,
-    Alias,
-    Type { variants: Vec<(String, TextSize)> },
-}
-
+/// A name a module exposes.
 pub(crate) struct ExposedName {
     /// What it's called: an operator's symbol.
     pub(crate) label: String,
@@ -1016,44 +960,18 @@ pub(crate) struct ExposedName {
     pub(crate) kind: Exposed,
 }
 
-/// The names a module's header exposes, as `ISourceFile.exposing` has
-/// them (`binder.ts`). An explicit list gives its values, then its types,
-/// each in the list's order. `(..)` gives the module's names in the order
-/// they first went into its scope: the default imports' names first,
-/// then its declarations'.
-pub(crate) fn exposed(root: &SyntaxNode) -> Vec<ExposedName> {
-    let Some(header) = child(root, SyntaxKind::ModuleHeader) else {
-        return Vec::new();
-    };
-    let Some(list) = child(&header, SyntaxKind::ExposingList) else {
-        return Vec::new();
-    };
-    let declarations: Vec<(SyntaxNode, SyntaxToken)> = (root.children())
-        .filter_map(|decl| {
-            let token = match decl.kind() {
-                SyntaxKind::ValueDecl => child(&decl, SyntaxKind::Definition)
-                    .and_then(|d| nomi_syntax::child_token(&d, SyntaxKind::LowerIdent)),
-                SyntaxKind::PortDecl => nomi_syntax::child_token(&decl, SyntaxKind::LowerIdent),
-                SyntaxKind::CustomTypeDecl | SyntaxKind::TypeAliasDecl => {
-                    nomi_syntax::child_token(&decl, SyntaxKind::UpperIdent)
-                }
-                _ => None,
-            }?;
-            Some((decl, token))
-        })
-        .collect();
-    let entry = |decl: &SyntaxNode, name: &SyntaxToken, with_variants: bool| -> ExposedName {
+impl ExposedName {
+    /// The declaration `decl`, whose name is `name`, exposed: a custom
+    /// type with its variants where `with_variants` says.
+    fn of(decl: &SyntaxNode, name: &SyntaxToken, with_variants: bool) -> ExposedName {
         let kind = match decl.kind() {
             SyntaxKind::TypeAliasDecl => Exposed::Alias,
             SyntaxKind::CustomTypeDecl => Exposed::Type {
-                variants: if with_variants {
-                    (decl.children())
-                        .filter(|c| c.kind() == SyntaxKind::Variant)
-                        .filter_map(|v| nomi_syntax::child_token(&v, SyntaxKind::UpperIdent))
-                        .collect()
-                } else {
-                    Vec::new()
-                },
+                variants: (decl.children())
+                    .filter(|_| with_variants)
+                    .filter(|c| c.kind() == SyntaxKind::Variant)
+                    .filter_map(|v| child_token(&v, SyntaxKind::UpperIdent))
+                    .collect(),
             },
             _ => Exposed::Value,
         };
@@ -1062,54 +980,74 @@ pub(crate) fn exposed(root: &SyntaxNode) -> Vec<ExposedName> {
             name: name.clone(),
             kind,
         }
-    };
-    if nomi_syntax::child_token(&list, SyntaxKind::DotDot).is_some() {
-        let defaults: Vec<String> = default_imports()
-            .into_iter()
-            .map(|(name, alias)| alias.unwrap_or(name))
-            .collect();
-        let mut order: Vec<&(SyntaxNode, SyntaxToken)> = declarations.iter().collect();
-        order.sort_by_key(|(_, name)| {
-            defaults
-                .iter()
-                .position(|d| d == name.text())
-                .unwrap_or(defaults.len())
-        });
-        return order
-            .into_iter()
-            .map(|(decl, name)| entry(decl, name, true))
-            .collect();
     }
+}
+
+/// The names a module's header exposes, as `ISourceFile.exposing` has
+/// them (`binder.ts`). An explicit list gives its values, then its types,
+/// each in the list's order. `(..)` gives the module's names in the order
+/// they first went into its scope: the default imports' names first,
+/// then its declarations'.
+pub(crate) fn exposed(root: &SyntaxNode) -> Vec<ExposedName> {
+    let list = (ast::Module::cast(root.clone()))
+        .and_then(|m| m.module_header())
+        .and_then(|header| header.exposing_list());
+    let Some(list) = list else {
+        return Vec::new();
+    };
+    let declarations: Vec<(SyntaxNode, SyntaxToken)> = (root.children())
+        .filter_map(|decl| {
+            let token = match decl.kind() {
+                SyntaxKind::ValueDecl => child(&decl, SyntaxKind::Definition)
+                    .and_then(|d| child_token(&d, SyntaxKind::LowerIdent)),
+                SyntaxKind::PortDecl => child_token(&decl, SyntaxKind::LowerIdent),
+                SyntaxKind::CustomTypeDecl | SyntaxKind::TypeAliasDecl => {
+                    child_token(&decl, SyntaxKind::UpperIdent)
+                }
+                _ => None,
+            }?;
+            Some((decl, token))
+        })
+        .collect();
+    if list.dot_dot_token().is_none() {
+        return listed(root, &list, &declarations);
+    }
+    let mut order: Vec<&(SyntaxNode, SyntaxToken)> = declarations.iter().collect();
+    order.sort_by_key(|(_, name)| {
+        (DEFAULT_IMPORTS.iter())
+            .position(|d| d.alias.unwrap_or(d.module) == name.text())
+            .unwrap_or(DEFAULT_IMPORTS.len())
+    });
+    (order.into_iter())
+        .map(|(decl, name)| ExposedName::of(decl, name, true))
+        .collect()
+}
+
+/// The names an explicit exposing `list` of the module `root` exposes,
+/// as `declarations` declare them: its operators, then its values, then
+/// its types.
+fn listed(
+    root: &SyntaxNode,
+    list: &ast::ExposingList,
+    declarations: &[(SyntaxNode, SyntaxToken)],
+) -> Vec<ExposedName> {
     // Each name's first declaration, for the list's names to look up.
     let mut by_name: HashMap<&str, &(SyntaxNode, SyntaxToken)> = HashMap::new();
-    for declaration in &declarations {
+    for declaration in declarations {
         by_name.entry(declaration.1.text()).or_insert(declaration);
     }
     let declared = |name: &str| by_name.get(name).copied();
-    let items: Vec<SyntaxNode> = list.children().collect();
+    let items: Vec<SyntaxNode> = list.syntax().children().collect();
     let mut found = Vec::new();
-    for item in items
-        .iter()
-        .filter(|i| i.kind() == SyntaxKind::ExposedOperator)
-    {
-        let written = words(item);
-        let op = written
-            .trim_start_matches('(')
-            .trim_end_matches(')')
-            .trim()
-            .to_owned();
+    for item in (items.iter()).filter(|i| i.kind() == SyntaxKind::ExposedOperator) {
+        let op = operator(item);
         let infix = (root.children())
             .filter(|n| n.kind() == SyntaxKind::InfixDecl)
             .find(|n| {
                 n.children()
                     .any(|c| c.kind() == SyntaxKind::Op && words(&c) == op)
             });
-        let function = infix.and_then(|i| {
-            (i.children_with_tokens())
-                .filter_map(|e| e.into_token())
-                .filter(|t| t.kind() == SyntaxKind::LowerIdent)
-                .last()
-        });
+        let function = infix.and_then(|i| last_child_token(&i, SyntaxKind::LowerIdent));
         let name = function.and_then(|f| declared(f.text()).map(|(_, token)| token.clone()));
         if let Some(name) = name {
             found.push(ExposedName {
@@ -1119,80 +1057,110 @@ pub(crate) fn exposed(root: &SyntaxNode) -> Vec<ExposedName> {
             });
         }
     }
-    for item in items
-        .iter()
-        .filter(|i| i.kind() == SyntaxKind::ExposedValue)
-    {
+    for item in (items.iter()).filter(|i| i.kind() == SyntaxKind::ExposedValue) {
         if let Some((decl, name)) = declared(&words(item)) {
-            found.push(entry(decl, name, false));
+            found.push(ExposedName::of(decl, name, false));
         }
     }
-    for item in items.iter().filter(|i| i.kind() == SyntaxKind::ExposedType) {
+    for item in (items.iter()).filter(|i| i.kind() == SyntaxKind::ExposedType) {
         let with_variants = child(item, SyntaxKind::ExposedVariants).is_some();
-        let name = token(item, SyntaxKind::UpperIdent).unwrap_or_default();
-        if let Some((decl, token)) = declared(&name) {
-            found.push(entry(decl, token, with_variants));
+        let name = child_token(item, SyntaxKind::UpperIdent);
+        if let Some((decl, token)) = name.and_then(|name| declared(name.text())) {
+            found.push(ExposedName::of(decl, token, with_variants));
         }
     }
     found
 }
 
-/// The modules every module imports, by name and alias.
-pub(crate) fn default_imports() -> Vec<(String, Option<String>)> {
-    [
-        ("Basics", None),
-        ("List", None),
-        ("Maybe", None),
-        ("Result", None),
-        ("String", None),
-        ("Char", None),
-        ("Tuple", None),
-        ("Debug", None),
-        ("Platform", None),
-        ("Platform.Cmd", Some("Cmd")),
-        ("Platform.Sub", Some("Sub")),
-    ]
-    .into_iter()
-    .map(|(n, a)| (n.to_owned(), a.map(str::to_owned)))
-    .collect()
+/// The symbol an exposing list's operator entry names.
+pub(crate) fn operator(item: &SyntaxNode) -> String {
+    let written = words(item);
+    (written.trim_start_matches('(').trim_end_matches(')').trim()).to_owned()
 }
 
-/// The modules the project of `path` may import, each with its file and
-/// package: its own, then each direct dependency's exposed modules, in
-/// `elm.json` order.
-pub(crate) fn importable_modules(
-    snapshot: &Snapshot,
-    index: &Index,
-    path: &Path,
-) -> Vec<(String, Option<PathBuf>, Option<String>)> {
-    let mut found: Vec<(String, Option<PathBuf>, Option<String>)> = (index.modules.iter())
-        .map(|m| (m.name.clone(), Some(m.path.clone()), None))
+/// One of the imports every module has, as elm-language-server writes
+/// them out.
+pub(crate) struct DefaultImport {
+    pub(crate) module: &'static str,
+    pub(crate) alias: Option<&'static str>,
+    /// Its exposing list, where it has one.
+    pub(crate) exposing: Option<DefaultExposing>,
+}
+
+/// A default import's exposing list: everything, or these types, each
+/// with its variants or not, and operators.
+pub(crate) enum DefaultExposing {
+    All,
+    Explicit {
+        types: &'static [(&'static str, bool)],
+        operators: &'static [&'static str],
+    },
+}
+
+/// The modules every module imports, in elm-language-server's order.
+pub(crate) const DEFAULT_IMPORTS: [DefaultImport; 11] = {
+    const fn import(module: &'static str, exposing: Option<DefaultExposing>) -> DefaultImport {
+        DefaultImport {
+            module,
+            alias: None,
+            exposing,
+        }
+    }
+    const fn types(module: &'static str, types: &'static [(&'static str, bool)]) -> DefaultImport {
+        let operators = &[];
+        import(module, Some(DefaultExposing::Explicit { types, operators }))
+    }
+    [
+        import("Basics", Some(DefaultExposing::All)),
+        import(
+            "List",
+            Some(DefaultExposing::Explicit {
+                types: &[("List", false)],
+                operators: &["::"],
+            }),
+        ),
+        types("Maybe", &[("Maybe", true)]),
+        types("Result", &[("Result", true)]),
+        types("String", &[("String", false)]),
+        types("Char", &[("Char", false)]),
+        import("Tuple", None),
+        import("Debug", None),
+        types("Platform", &[("Program", false)]),
+        DefaultImport {
+            alias: Some("Cmd"),
+            ..types("Platform.Cmd", &[("Cmd", false)])
+        },
+        DefaultImport {
+            alias: Some("Sub"),
+            ..types("Platform.Sub", &[("Sub", false)])
+        },
+    ]
+};
+
+/// The modules the project of `path` may import: its own, then each
+/// direct dependency's exposed modules, in `elm.json` order.
+fn importable_modules(snapshot: &Snapshot, index: &Index, path: &Path) -> Vec<Importable> {
+    let mut found: Vec<Importable> = (index.modules.iter())
+        .map(|m| Importable {
+            name: m.name.clone(),
+            path: m.path.clone(),
+            package: None,
+        })
         .collect();
     // As elm-language-server finds the files: a directory's files, then
     // its subdirectories', each by name.
-    found.sort_by_cached_key(|(_, path, _)| {
-        let components: Vec<_> = path.iter().flatten().collect();
-        let last = components.len().saturating_sub(1);
-        (components.into_iter().enumerate())
-            .map(|(i, c)| (i != last, c.to_owned()))
-            .collect::<Vec<_>>()
-    });
-    let Some(manifest) = nomi_engine::index::manifest(snapshot, path) else {
-        return found;
-    };
-    let Ok(bytes) = snapshot.read_bytes(&manifest) else {
-        return found;
-    };
-    let Ok((outline, compat)) = Outline::detect(&bytes) else {
-        return found;
-    };
-    let direct: Vec<String> = match &outline {
-        Outline::App(app) => app.direct.keys().map(ToString::to_string).collect(),
-        Outline::Pkg(pkg) => {
+    found.sort_by_cached_key(|m| glob_order(&m.path));
+    let manifest = nomi_engine::index::manifest(snapshot, path);
+    let outline = (manifest.and_then(|m| snapshot.read_bytes(&m).ok()))
+        .and_then(|bytes| Outline::detect(&bytes).ok());
+    let direct: Vec<String> = match outline {
+        None => return found,
+        Some((Outline::App(app), _)) => app.direct.keys().map(ToString::to_string).collect(),
+        Some((Outline::Pkg(pkg), _)) => {
             // A package's own modules are of its package, which ranks them
             // among the dependencies.
             for module in &mut found {
-                module.2 = Some(pkg.name.to_string());
+                module.package = Some(pkg.name.to_string());
             }
             // elm-language-server offers its test dependencies' modules
             // too, everywhere in it.
@@ -1202,81 +1170,26 @@ pub(crate) fn importable_modules(
         }
     };
     for package in direct {
-        let Some(dir) = index.packages.get(&package) else {
+        let (Some(dir), Some(exposed)) =
+            (index.packages.get(&package), index.exposed.get(&package))
+        else {
             continue;
         };
-        let Ok(bytes) = std::fs::read(dir.join("elm.json")) else {
-            continue;
-        };
-        let Ok(Outline::Pkg(pkg)) = Outline::decode(&bytes, compat) else {
-            continue;
-        };
-        // In the order elm-language-server finds their files: a
-        // directory's files, then its subdirectories', each by name.
-        let exposed: Vec<String> = pkg.exposed.modules().map(ToString::to_string).collect();
-        for file in walk(&dir.join("src")) {
-            let Ok(relative) = file.strip_prefix(dir.join("src")) else {
-                continue;
-            };
-            let parts: Vec<String> = relative
-                .with_extension("")
-                .iter()
-                .map(|p| p.to_string_lossy().into_owned())
-                .collect();
-            let module = parts.join(".");
-            if exposed.contains(&module) {
-                found.push((module, Some(file), Some(package.clone())));
-            }
-        }
+        let src = dir.join("src");
+        let mut files: Vec<(&String, PathBuf)> = (exposed.iter())
+            .map(|module| (module, src.join(module_path(module, "elm"))))
+            .filter(|(_, file)| snapshot.is_file(file))
+            .collect();
+        // In the order elm-language-server finds them.
+        files.sort_by_cached_key(|(_, file)| glob_order(file));
+        files.dedup_by(|a, b| a.1 == b.1);
+        found.extend(files.into_iter().map(|(module, path)| Importable {
+            name: module.clone(),
+            path,
+            package: Some(package.clone()),
+        }));
     }
     found
-}
-
-/// The `.elm` files under `dir`: its own by name, then each
-/// subdirectory's.
-fn walk(dir: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut entries: Vec<PathBuf> = entries.filter_map(|e| Some(e.ok()?.path())).collect();
-    entries.sort();
-    let (dirs, files): (Vec<PathBuf>, Vec<PathBuf>) = entries.into_iter().partition(|p| p.is_dir());
-    let mut found: Vec<PathBuf> = files
-        .into_iter()
-        .filter(|f| f.extension().is_some_and(|e| e == "elm"))
-        .collect();
-    for dir in dirs {
-        found.extend(walk(&dir));
-    }
-    found
-}
-
-/// A completion of a label, replacing `range` with it.
-pub(crate) fn item(
-    label: &str,
-    kind: CompletionKind,
-    sort: &str,
-    range: TextRange,
-    documentation: Option<String>,
-    label_detail: Option<String>,
-) -> Completion {
-    Completion {
-        label: label.to_owned(),
-        kind,
-        sort_text: Some(format!("{sort}_{label}")),
-        filter_text: None,
-        documentation: documentation.filter(|d| !d.is_empty()),
-        detail: None,
-        label_detail: label_detail.filter(|d| !d.contains("unknown")),
-        label_description: None,
-        preselect: false,
-        edit: Some(Edit {
-            range,
-            text: label.to_owned(),
-        }),
-        snippet: None,
-        additional_edits: Vec::new(),
-    }
 }
 
 #[cfg(test)]

@@ -247,7 +247,7 @@ fn name_token(root: &SyntaxNode, range: TextRange) -> Option<SyntaxToken> {
 
 /// A `let` value's type as elm-language-server writes it: its
 /// parameters' types, then its body's, by `typed`.
-fn composed(
+pub(crate) fn composed(
     definition: &SyntaxNode,
     typed: impl Fn(TextRange) -> Option<String>,
 ) -> Option<String> {

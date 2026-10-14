@@ -9,23 +9,18 @@
 //! own type checker has them, not elm's: nomi writes them from elm's
 //! reports with that checker's messages (`diagnostics.ts`).
 
-use std::cell::OnceCell;
-use std::path::{Path, PathBuf};
+use std::cell::{OnceCell, RefCell};
+use std::path::Path;
 
 use nomi_base::{TextRange, TextSize};
-use std::collections::BTreeMap;
+use nomi_compiler::types::ExprTypes;
+use nomi_engine::Snapshot;
+use nomi_engine::index::{Index, PackageModules};
+use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
-use nomi_compiler::types::{ExprTypes, error};
-use nomi_engine::index::Index;
-use nomi_engine::{Snapshot, Store};
-use nomi_project::Outline;
-use nomi_syntax::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
-
-use crate::Edit;
 use crate::completion::Context;
-use crate::completion_general::{compare_ranking, importable};
 use crate::problems::{Code, Problem, Severity, Source};
-use crate::tree::{child, code_range};
+use crate::{Edit, FileEdits};
 
 mod extract;
 mod import;
@@ -35,42 +30,65 @@ mod refactor;
 mod unused;
 mod usage;
 
-use import::*;
-use missing::*;
-use refactor::*;
-use unused::*;
-use usage::*;
+use extract::{AliasOf, Place};
+use import::{import_actions, import_all, install_actions};
+use missing::{
+    case_branch_actions, case_branch_all, is_missing_field, is_missing_patterns, missing_field,
+    missing_patterns, record_field_actions, record_field_all,
+};
+use refactor::{annotation_actions, annotation_all, refactor_edits_in, refactors};
+use unused::{RemovedImports, parameter_removal_actions, unused_actions, unused_all};
+use usage::{
+    external_function_actions, external_function_all, local_function_actions, local_function_all,
+    parameter_actions, union_actions, union_all,
+};
 
 pub use moving::{Destination, MoveEdit, move_destinations, move_function};
-pub use refactor::{exposing_edit, refactor_edits};
+pub use refactor::{Exposure, exposing_edit, refactor_edits};
 
 /// A diagnostic as code actions see it: one the editor sends, or one of
 /// the program's.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Diagnosed {
-    pub code: String,
+    pub code: DiagnosticCode,
     pub message: String,
     pub range: TextRange,
     pub severity: Severity,
-    /// `Elm` or `ElmLS`.
-    pub source: String,
+    /// Who reports it, where it's one elm-language-server knows.
+    pub source: Option<Source>,
     /// Whether it marks code nothing needs.
     pub unnecessary: bool,
     /// The edits that fix it, which elm-review gives.
     pub fixes: Vec<Edit>,
 }
 
+/// A diagnostic's code.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiagnosticCode {
+    /// One of elm-language-server's.
+    Known(Code),
+    /// Another tool's, which only elm's reports' fixes look past.
+    Other,
+    /// None, which leaves the diagnostic out of the fixes and refactors.
+    Missing,
+}
+
 impl Diagnosed {
     fn of(problem: &Problem) -> Diagnosed {
         Diagnosed {
-            code: problem.code.as_str().to_owned(),
+            code: DiagnosticCode::Known(problem.code),
             message: problem.message.clone(),
             range: problem.range,
             severity: problem.severity,
-            source: problem.code.source().as_str().to_owned(),
+            source: Some(problem.code.source()),
             unnecessary: problem.unnecessary,
             fixes: problem.fixes.clone(),
         }
+    }
+
+    /// Whether its code is `code`.
+    fn is(&self, code: Code) -> bool {
+        self.code == DiagnosticCode::Known(code)
     }
 }
 
@@ -83,37 +101,27 @@ pub struct Request<'a> {
     /// The file's latest problems, as published.
     pub problems: &'a [Problem],
     pub packages: &'a PackageModules,
-    /// Whether the editor resolves a refactor's edits later.
-    pub lazy: bool,
-    /// Whether the editor moves functions, asking where to.
-    pub move_function: bool,
+    pub resolve: Resolve,
+    pub moving: Moving,
 }
 
-/// `ElmPackageCache`'s modules: the packages downloaded whose newest
-/// release exposes each module.
-#[derive(Debug, Default)]
-pub struct PackageModules(BTreeMap<String, Vec<String>>);
-
-impl PackageModules {
-    pub fn read(store: &Store) -> PackageModules {
-        let mut modules: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        for (package, sources) in store.newest().unwrap_or_default() {
-            let Ok(text) = std::fs::read(sources.join("elm.json")) else {
-                continue;
-            };
-            if let Ok((Outline::Pkg(outline), _)) = Outline::detect(&text) {
-                for module in outline.exposed.modules() {
-                    modules
-                        .entry(module.to_string())
-                        .or_default()
-                        .push(package.to_string());
-                }
-            }
-        }
-        PackageModules(modules)
-    }
+/// When a refactor's edits are made.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Resolve {
+    /// With its action.
+    Now,
+    /// When the editor resolves its action.
+    Later,
 }
 
+/// Whether the editor moves functions, asking where to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Moving {
+    Supported,
+    Unsupported,
+}
+
+/// An action's kind, as the protocol names them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ActionKind {
     QuickFix,
@@ -134,19 +142,144 @@ pub enum ActionDiagnostics {
 /// What an action carries for elm-language-server.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ActionData {
-    /// A fix, by its id, and whether it fixes every diagnostic.
-    Fix { id: &'static str, all: bool },
-    /// A refactor, by its name and action, at the range it was asked
-    /// about, which resolving it reads again.
+    /// A fix, and whether it fixes every diagnostic.
+    Fix { id: FixId, all: bool },
+    /// A refactor, at the range it was asked about, which resolving it
+    /// reads again.
     Refactor {
-        name: &'static str,
-        action: &'static str,
+        action: RefactorAction,
         range: TextRange,
         /// Where the editor starts renaming what it made.
         rename: Option<RenameAt>,
     },
     /// Elm make's suggestions carry nothing.
     None,
+}
+
+/// A fix, as elm-language-server registers it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FixId {
+    Import,
+    MakeDeclarationFromUsage,
+    MakeExternalDeclarationFromUsage,
+    AddTypeAnnotation,
+    AddMissingRecordField,
+    AddMissingCaseBranches,
+    ElmReviewFix,
+    AddMissingUnionType,
+    AddNewFunctionParameter,
+    RemoveUnused,
+    RemoveUnusedParameter,
+    InstallPackage,
+}
+
+impl FixId {
+    /// Its id, as elm-language-server writes it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FixId::Import => "import",
+            FixId::MakeDeclarationFromUsage => "make_declaration_from_usage",
+            FixId::MakeExternalDeclarationFromUsage => "make_external_declaration_from_usage",
+            FixId::AddTypeAnnotation => "add_type_annotation",
+            FixId::AddMissingRecordField => "add_missing_record_field",
+            FixId::AddMissingCaseBranches => "add_missing_case_branches",
+            FixId::ElmReviewFix => "elm_review_fix",
+            FixId::AddMissingUnionType => "add_missing_union_type",
+            FixId::AddNewFunctionParameter => "add_new_function_parameter",
+            FixId::RemoveUnused => "remove_unused",
+            FixId::RemoveUnusedParameter => "remove_unused_parameter",
+            FixId::InstallPackage => "install_package",
+        }
+    }
+}
+
+/// A refactor's action, which names the refactor it's one of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RefactorAction {
+    AddTypeAnnotation,
+    ExtractFunction(Place),
+    ExtractTypeAlias(AliasOf),
+    ExposeFunction,
+    UnexposeFunction,
+    ExposeType,
+    UnexposeType,
+    ExposeTypeWithVariants,
+    MoveFunction,
+}
+
+impl RefactorAction {
+    const ALL: [RefactorAction; 12] = [
+        RefactorAction::AddTypeAnnotation,
+        RefactorAction::ExtractFunction(Place::Let),
+        RefactorAction::ExtractFunction(Place::TopLevel),
+        RefactorAction::ExtractTypeAlias(AliasOf::Type),
+        RefactorAction::ExtractTypeAlias(AliasOf::Parenthesized),
+        RefactorAction::ExtractTypeAlias(AliasOf::Parts),
+        RefactorAction::ExposeFunction,
+        RefactorAction::UnexposeFunction,
+        RefactorAction::ExposeType,
+        RefactorAction::UnexposeType,
+        RefactorAction::ExposeTypeWithVariants,
+        RefactorAction::MoveFunction,
+    ];
+
+    /// The action as elm-language-server names it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RefactorAction::AddTypeAnnotation => "add_type_annotation",
+            RefactorAction::ExtractFunction(Place::Let) => "extract_let",
+            RefactorAction::ExtractFunction(Place::TopLevel) => "extract_top_level",
+            RefactorAction::ExtractTypeAlias(AliasOf::Type) => "extract_type_alias",
+            RefactorAction::ExtractTypeAlias(AliasOf::Parenthesized) => {
+                "extract_type_alias_parenthesized_expr"
+            }
+            RefactorAction::ExtractTypeAlias(AliasOf::Parts) => {
+                "extract_type_alias_partial_type_expr"
+            }
+            RefactorAction::ExposeFunction => "expose_function",
+            RefactorAction::UnexposeFunction => "unexpose_function",
+            RefactorAction::ExposeType => "expose_type",
+            RefactorAction::UnexposeType => "unexpose_type",
+            RefactorAction::ExposeTypeWithVariants => "expose_type_with_variants",
+            RefactorAction::MoveFunction => "move_function",
+        }
+    }
+
+    /// The action `name` names, where it's one.
+    pub fn parse(name: &str) -> Option<RefactorAction> {
+        RefactorAction::ALL
+            .into_iter()
+            .find(|action| action.as_str() == name)
+    }
+
+    /// The refactor it's one of, as elm-language-server names it.
+    pub fn refactor(self) -> &'static str {
+        match self {
+            RefactorAction::AddTypeAnnotation => "add_type_annotation",
+            RefactorAction::ExtractFunction(_) => "extract_function",
+            RefactorAction::ExtractTypeAlias(_) => "extract_type_alias",
+            RefactorAction::ExposeFunction
+            | RefactorAction::UnexposeFunction
+            | RefactorAction::ExposeType
+            | RefactorAction::UnexposeType
+            | RefactorAction::ExposeTypeWithVariants => "expose_unexpose",
+            RefactorAction::MoveFunction => "move_function",
+        }
+    }
+
+    fn kind(self) -> ActionKind {
+        match self {
+            RefactorAction::AddTypeAnnotation
+            | RefactorAction::ExtractFunction(_)
+            | RefactorAction::ExtractTypeAlias(_) => ActionKind::RefactorExtract,
+            RefactorAction::ExposeFunction
+            | RefactorAction::UnexposeFunction
+            | RefactorAction::ExposeType
+            | RefactorAction::UnexposeType
+            | RefactorAction::ExposeTypeWithVariants => ActionKind::Refactor,
+            RefactorAction::MoveFunction => ActionKind::RefactorMove,
+        }
+    }
 }
 
 /// A command the editor runs for an action.
@@ -168,38 +301,30 @@ pub struct RenameAt {
 }
 
 /// A refactor at a range: `IRefactorCodeAction` before its edits.
-pub(super) struct Refactor {
-    pub name: &'static str,
-    pub action: &'static str,
-    pub title: String,
-    pub kind: ActionKind,
-    pub command: Option<ActionCommand>,
+struct Refactor {
+    action: RefactorAction,
+    title: String,
+    command: Option<ActionCommand>,
 }
 
 impl Refactor {
-    pub(crate) fn new(
-        name: &'static str,
-        action: &'static str,
-        title: impl Into<String>,
-        kind: ActionKind,
-    ) -> Refactor {
+    fn new(action: RefactorAction, title: impl Into<String>) -> Refactor {
         Refactor {
-            name,
             action,
             title: title.into(),
-            kind,
             command: None,
         }
     }
 }
 
+/// A code action.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Action {
     pub title: String,
     pub kind: ActionKind,
     pub diagnostics: Option<ActionDiagnostics>,
     /// Each file's edits; none for an action whose edit comes later.
-    pub edits: Option<Vec<(PathBuf, Vec<Edit>)>>,
+    pub edits: Option<FileEdits>,
     pub data: ActionData,
     /// Whether the editor should prefer it; none for elm make's.
     pub preferred: Option<bool>,
@@ -208,8 +333,8 @@ pub struct Action {
 
 /// A fix's registration: `ICodeActionRegistration`.
 struct Fix {
-    id: &'static str,
-    codes: &'static [&'static str],
+    id: FixId,
+    codes: &'static [Code],
     /// elm's reports it answers too, where elm-language-server answers
     /// its own checker's (DECISIONS 2026-10-12).
     reports: Option<fn(&Diagnosed) -> bool>,
@@ -220,16 +345,33 @@ struct Fix {
 impl Fix {
     /// Whether it fixes `diagnostic`: by its code, or as elm's report.
     fn applies(&self, diagnostic: &Diagnosed) -> bool {
-        self.codes.contains(&diagnostic.code.as_str())
-            || (self.reports).is_some_and(|is| diagnostic.source == "Elm" && is(diagnostic))
+        self.fixes(diagnostic)
+            || (self.reports)
+                .is_some_and(|is| diagnostic.source == Some(Source::Elm) && is(diagnostic))
+    }
+
+    /// Whether it's registered for `diagnostic`'s code.
+    fn fixes(&self, diagnostic: &Diagnosed) -> bool {
+        self.codes.iter().any(|code| diagnostic.is(*code))
     }
 }
 
-/// A fix's action: its title, each file's edits, and the command it runs.
-type Offer = (String, FileEdits, Option<ActionCommand>);
+/// A fix's action.
+struct Offer {
+    title: String,
+    edits: FileEdits,
+    command: Option<ActionCommand>,
+}
 
-/// Each file's edits, in order.
-type FileEdits = Vec<(PathBuf, Vec<Edit>)>;
+impl Offer {
+    fn new(title: impl Into<String>, edits: FileEdits) -> Offer {
+        Offer {
+            title: title.into(),
+            edits,
+            command: None,
+        }
+    }
+}
 
 /// A fix-all's edits for one diagnostic, added to those so far: in the
 /// file, sorted at the end, or in any files, each file's in order.
@@ -239,36 +381,62 @@ enum AllEdits {
     Files(fn(&Fixing<'_>, &Diagnosed, &mut FileEdits)),
 }
 
+/// How strongly the editor should prefer an action: `isPreferredFix`'s
+/// map, keyed by a fix's id or a refactor's name.
 #[derive(Clone, Copy)]
 struct Preferred {
     priority: u8,
+    /// Whether only one action of its key may be preferred.
     only_one: bool,
 }
 
-/// The preferred fixes and refactors, by id or name: elm-language-server
-/// keeps them in one map, so a fix and a refactor of one name share it.
-fn preferred(key: &str) -> Option<Preferred> {
-    let (priority, only_one) = match key {
-        "import" => (1, true),
-        "expose_unexpose" => (2, false),
-        "add_type_annotation" => (3, false),
-        _ => return None,
-    };
-    Some(Preferred { priority, only_one })
+impl Preferred {
+    /// The preference of an action carrying `data`, where it has one.
+    /// Each priority is one key's.
+    fn of(data: &ActionData) -> Option<Preferred> {
+        use RefactorAction as R;
+        let (priority, only_one) = match data {
+            ActionData::Fix {
+                id: FixId::Import,
+                all: false,
+            } => (1, true),
+            ActionData::Refactor {
+                action:
+                    R::ExposeFunction
+                    | R::UnexposeFunction
+                    | R::ExposeType
+                    | R::UnexposeType
+                    | R::ExposeTypeWithVariants,
+                ..
+            } => (2, false),
+            ActionData::Fix {
+                id: FixId::AddTypeAnnotation,
+                all: false,
+            }
+            | ActionData::Refactor {
+                action: R::AddTypeAnnotation,
+                ..
+            } => (3, false),
+            ActionData::Fix { .. } | ActionData::Refactor { .. } | ActionData::None => {
+                return None;
+            }
+        };
+        Some(Preferred { priority, only_one })
+    }
 }
 
 /// The fixes, in elm-language-server's registration order.
 const FIXES: &[Fix] = &[
     Fix {
-        id: "import",
-        codes: &["missing_value"],
+        id: FixId::Import,
+        codes: &[Code::MissingValue],
         reports: None,
         actions: import_actions,
         all: Some(("Add all missing imports", AllEdits::Here(import_all))),
     },
     Fix {
-        id: "make_declaration_from_usage",
-        codes: &["missing_value"],
+        id: FixId::MakeDeclarationFromUsage,
+        codes: &[Code::MissingValue],
         reports: None,
         actions: local_function_actions,
         all: Some((
@@ -277,8 +445,8 @@ const FIXES: &[Fix] = &[
         )),
     },
     Fix {
-        id: "make_external_declaration_from_usage",
-        codes: &["missing_value"],
+        id: FixId::MakeExternalDeclarationFromUsage,
+        codes: &[Code::MissingValue],
         reports: None,
         actions: external_function_actions,
         all: Some((
@@ -287,8 +455,8 @@ const FIXES: &[Fix] = &[
         )),
     },
     Fix {
-        id: "add_type_annotation",
-        codes: &["missing_type_annotation"],
+        id: FixId::AddTypeAnnotation,
+        codes: &[Code::MissingTypeAnnotation],
         reports: None,
         actions: annotation_actions,
         all: Some((
@@ -297,8 +465,8 @@ const FIXES: &[Fix] = &[
         )),
     },
     Fix {
-        id: "add_missing_record_field",
-        codes: &["record_field"],
+        id: FixId::AddMissingRecordField,
+        codes: &[Code::RecordField],
         reports: Some(is_missing_field),
         actions: record_field_actions,
         all: Some((
@@ -307,8 +475,8 @@ const FIXES: &[Fix] = &[
         )),
     },
     Fix {
-        id: "add_missing_case_branches",
-        codes: &["incomplete_case_pattern"],
+        id: FixId::AddMissingCaseBranches,
+        codes: &[Code::IncompleteCasePattern],
         reports: Some(is_missing_patterns),
         actions: case_branch_actions,
         all: Some((
@@ -317,15 +485,15 @@ const FIXES: &[Fix] = &[
         )),
     },
     Fix {
-        id: "elm_review_fix",
-        codes: &["elm_review"],
+        id: FixId::ElmReviewFix,
+        codes: &[Code::ElmReview],
         reports: None,
         actions: review_actions,
         all: None,
     },
     Fix {
-        id: "add_missing_union_type",
-        codes: &["missing_value"],
+        id: FixId::AddMissingUnionType,
+        codes: &[Code::MissingValue],
         reports: None,
         actions: union_actions,
         all: Some((
@@ -334,15 +502,23 @@ const FIXES: &[Fix] = &[
         )),
     },
     Fix {
-        id: "add_new_function_parameter",
-        codes: &["missing_value"],
+        id: FixId::AddNewFunctionParameter,
+        codes: &[Code::MissingValue],
         reports: None,
         actions: parameter_actions,
         all: None,
     },
     Fix {
-        id: "remove_unused",
-        codes: UNUSED,
+        id: FixId::RemoveUnused,
+        codes: &[
+            Code::UnusedImport,
+            Code::UnusedImportedValue,
+            Code::UnusedAlias,
+            Code::UnusedTopLevel,
+            Code::UnusedPattern,
+            Code::UnusedValueConstructor,
+            Code::UnusedTypeAlias,
+        ],
         reports: None,
         actions: unused_actions,
         all: Some((
@@ -351,39 +527,35 @@ const FIXES: &[Fix] = &[
         )),
     },
     Fix {
-        id: "remove_unused_parameter",
-        codes: &["unused_pattern"],
+        id: FixId::RemoveUnusedParameter,
+        codes: &[Code::UnusedPattern],
         reports: None,
         actions: parameter_removal_actions,
         all: None,
     },
     Fix {
-        id: "install_package",
-        codes: &["import_resolve"],
+        id: FixId::InstallPackage,
+        codes: &[Code::ImportResolve],
         reports: None,
         actions: install_actions,
         all: None,
     },
 ];
 
-/// The module with its missing values made `Debug.todo`: its types,
-/// and where each missing value went, by its range before.
+/// The module with its missing values made `Debug.todo`: its types, and
+/// the ranges the missing values had, in order.
 struct Usage {
     types: ExprTypes,
-    moved: Vec<(TextRange, TextRange)>,
+    missing: Vec<TextRange>,
 }
 
-/// What fixes read: the file, and its program diagnostics.
+/// What fixes read: the file, the request, and its program diagnostics.
 struct Fixing<'a> {
     context: Context<'a>,
+    request: &'a Request<'a>,
     program: Vec<Diagnosed>,
-    packages: &'a PackageModules,
-    /// The diagnostics the editor sent.
-    given: &'a [Diagnosed],
-    /// Whether the editor moves functions.
-    move_function: bool,
     /// What a fix-all removes from each import so far.
-    removed_imports: std::cell::RefCell<RemovedImports>,
+    removed_imports: RefCell<RemovedImports>,
     /// The types usage gives the missing values, inferred once.
     usage: OnceCell<Option<Usage>>,
 }
@@ -408,80 +580,18 @@ pub fn code_actions(
     }
     let fixing = Fixing {
         context: Context::new(snapshot, index, module, path),
-        program: program_diagnostics(&module.root(), &module.text, request.problems),
-        packages: request.packages,
-        given: request.given,
-        move_function: request.move_function,
-        removed_imports: Default::default(),
+        request,
+        program: program_diagnostics(&module.text, &module.root(), request.problems),
+        removed_imports: RefCell::default(),
         usage: OnceCell::new(),
     };
-    let mut results: Vec<Action> = Vec::new();
-    // Each diagnostic's range becomes the request's, so refactors see the
-    // last one's.
-    let mut range = request.range;
-    for (i, given) in request.given.iter().enumerate() {
-        if given.code.is_empty() {
-            continue;
-        }
-        range = given.range;
-        for fix in FIXES.iter().filter(|f| f.applies(given)) {
-            let found = (fix.actions)(&fixing, given.range);
-            if found.is_empty() {
-                continue;
-            }
-            for (title, edits, command) in found {
-                results.push(Action {
-                    title,
-                    kind: ActionKind::QuickFix,
-                    diagnostics: Some(ActionDiagnostics::Given(i)),
-                    edits: Some(edits),
-                    data: ActionData::Fix {
-                        id: fix.id,
-                        all: false,
-                    },
-                    preferred: None,
-                    command,
-                });
-            }
-            // Another diagnostic it fixes. elm's report and the checker's
-            // form of it nomi writes are one.
-            let same = |d: &Diagnosed| {
-                d == given || (d.range == given.range && fix.reports.is_some_and(|is| is(given)))
-            };
-            let others =
-                (fixing.program.iter()).any(|d| !same(d) && fix.codes.contains(&d.code.as_str()));
-            if let Some((title, edits_for)) = fix.all
-                && others
-            {
-                results.push(fix_all(&fixing, fix, title, edits_for, path));
-            }
-        }
-    }
-    for refactor in refactors(&fixing, range, request.given) {
-        let edits = (!request.lazy)
-            .then(|| refactor_edits_in(&fixing.context, refactor.action, range))
-            .flatten();
-        let rename = edits.as_ref().and_then(|(_, rename)| *rename);
-        results.push(Action {
-            title: refactor.title,
-            kind: refactor.kind,
-            diagnostics: None,
-            edits: edits.map(|(edits, _)| vec![(path.to_owned(), edits)]),
-            data: ActionData::Refactor {
-                name: refactor.name,
-                action: refactor.action,
-                range,
-                rename,
-            },
-            preferred: None,
-            command: refactor.command,
-        });
-    }
-    let preferred: Vec<Option<bool>> = (0..results.len())
-        .map(|i| Some(is_preferred(&results, i)))
+    let (mut results, range) = fix_actions(&fixing);
+    results.extend(refactor_actions(&fixing, range));
+    let preferred: Vec<bool> = (0..results.len())
+        .map(|i| is_preferred(&results, i))
         .collect();
     for (action, preferred) in results.iter_mut().zip(preferred) {
-        action.preferred = preferred;
+        action.preferred = Some(preferred);
     }
     for (i, given) in request.given.iter().enumerate() {
         results.extend(elm_make_actions(path, i, given));
@@ -489,13 +599,85 @@ pub fn code_actions(
     results
 }
 
+/// The fixes of each diagnostic the editor sent, and the range the
+/// refactors are asked about: each diagnostic's becomes the request's, so
+/// they see the last one's.
+fn fix_actions(fixing: &Fixing<'_>) -> (Vec<Action>, TextRange) {
+    let mut results = Vec::new();
+    let mut range = fixing.request.range;
+    for (i, given) in fixing.request.given.iter().enumerate() {
+        if given.code == DiagnosticCode::Missing {
+            continue;
+        }
+        range = given.range;
+        for fix in FIXES.iter().filter(|f| f.applies(given)) {
+            let found = (fix.actions)(fixing, given.range);
+            if found.is_empty() {
+                continue;
+            }
+            results.extend(found.into_iter().map(|offer| Action {
+                title: offer.title,
+                kind: ActionKind::QuickFix,
+                diagnostics: Some(ActionDiagnostics::Given(i)),
+                edits: Some(offer.edits),
+                data: ActionData::Fix {
+                    id: fix.id,
+                    all: false,
+                },
+                preferred: None,
+                command: offer.command,
+            }));
+            // Another diagnostic it fixes. elm's report and the checker's
+            // form of it nomi writes are one.
+            let same = |d: &Diagnosed| {
+                d == given || (d.range == given.range && fix.reports.is_some_and(|is| is(given)))
+            };
+            let others = (fixing.program.iter()).any(|d| !same(d) && fix.fixes(d));
+            if let Some((title, edits_for)) = fix.all
+                && others
+            {
+                results.push(fix_all(fixing, fix, title, edits_for));
+            }
+        }
+    }
+    (results, range)
+}
+
+/// The refactors at `range`, their edits made unless the editor resolves
+/// them later.
+fn refactor_actions(fixing: &Fixing<'_>, range: TextRange) -> Vec<Action> {
+    let path = fixing.context.path;
+    (refactors(fixing, range).into_iter())
+        .map(|refactor| {
+            let edits = match fixing.request.resolve {
+                Resolve::Now => refactor_edits_in(&fixing.context, refactor.action, range),
+                Resolve::Later => None,
+            };
+            let rename = edits.as_ref().and_then(|(_, rename)| *rename);
+            Action {
+                title: refactor.title,
+                kind: refactor.action.kind(),
+                diagnostics: None,
+                edits: edits.map(|(edits, _)| FileEdits::of(path, edits)),
+                data: ActionData::Refactor {
+                    action: refactor.action,
+                    range,
+                    rename,
+                },
+                preferred: None,
+                command: refactor.command,
+            }
+        })
+        .collect()
+}
+
 /// `getDiagnostics`: the checker's, its suggestions, then the lint rules'.
-fn program_diagnostics(root: &SyntaxNode, text: &str, problems: &[Problem]) -> Vec<Diagnosed> {
+fn program_diagnostics(text: &str, root: &SyntaxNode, problems: &[Problem]) -> Vec<Diagnosed> {
     let mut found = Vec::new();
     for problem in problems.iter().filter(|p| p.code.source() == Source::Elm) {
         let elm = Diagnosed::of(problem);
         if problem.code == Code::MissingValue {
-            let name = &text[std::ops::Range::<usize>::from(problem.range)];
+            let name = &text[problem.range];
             found.push(Diagnosed {
                 message: format!("No definition found for `{name}`."),
                 ..elm
@@ -505,7 +687,7 @@ fn program_diagnostics(root: &SyntaxNode, text: &str, problems: &[Problem]) -> V
                 .map(|p| format!("  {p}\n"))
                 .collect();
             found.push(Diagnosed {
-                code: "incomplete_case_pattern".to_owned(),
+                code: DiagnosticCode::Known(Code::IncompleteCasePattern),
                 message: format!(
                     "This `case` does not have branches for all possibilities.\nMissing possibilities include:\n{missing}"
                 ),
@@ -515,7 +697,7 @@ fn program_diagnostics(root: &SyntaxNode, text: &str, problems: &[Problem]) -> V
             && let Some((_, field)) = missing_field(root, &elm)
         {
             found.push(Diagnosed {
-                code: "record_field".to_owned(),
+                code: DiagnosticCode::Known(Code::RecordField),
                 message: format!("The record does not have a `{}` field.", field.text()),
                 range: field.text_range(),
                 ..elm
@@ -537,17 +719,11 @@ fn program_diagnostics(root: &SyntaxNode, text: &str, problems: &[Problem]) -> V
 
 /// `getFixAllCodeAction`: the edits for each program diagnostic of the
 /// fix's codes, sorted, each starting no earlier than the last ends.
-fn fix_all(
-    fixing: &Fixing<'_>,
-    fix: &Fix,
-    title: &str,
-    edits_for: AllEdits,
-    path: &Path,
-) -> Action {
-    let mut edits = Vec::new();
-    let mut files: Vec<(PathBuf, Vec<Edit>)> = Vec::new();
+fn fix_all(fixing: &Fixing<'_>, fix: &Fix, title: &str, edits_for: AllEdits) -> Action {
     let mut diagnostics = Vec::new();
-    for diagnostic in (fixing.program.iter()).filter(|d| fix.codes.contains(&d.code.as_str())) {
+    let mut edits = Vec::new();
+    let mut files = FileEdits::default();
+    for diagnostic in (fixing.program.iter()).filter(|d| fix.fixes(d)) {
         diagnostics.push(diagnostic.clone());
         match edits_for {
             AllEdits::Here(add) => add(fixing, diagnostic, &mut edits),
@@ -565,7 +741,7 @@ fn fix_all(
             }
             last_end = Some(edit.range.end());
         }
-        files = vec![(path.to_owned(), edits)];
+        files = here(fixing, edits);
     }
     Action {
         title: title.to_owned(),
@@ -584,33 +760,21 @@ fn fix_all(
 /// `isPreferredFix`: no other action outranks it, and for a fix there
 /// can be only one of, no other of the same fix ties it.
 fn is_preferred(actions: &[Action], i: usize) -> bool {
-    let priority = |action: &Action| {
-        let key = match action.data {
-            ActionData::Fix { id, all: false } => id,
-            ActionData::Refactor { name, .. } => name,
-            _ => return None,
-        };
-        preferred(key).map(|p| (key, p))
-    };
-    let Some((key, mine)) = priority(&actions[i]) else {
+    let Some(mine) = Preferred::of(&actions[i].data) else {
         return false;
     };
-    actions.iter().enumerate().all(|(j, other)| {
-        if j == i {
-            return true;
-        }
-        match priority(other) {
-            None => true,
-            Some((_, theirs)) if theirs.priority < mine.priority => true,
-            Some((_, theirs)) if theirs.priority > mine.priority => false,
-            Some((other_key, _)) => !(mine.only_one && other_key == key),
-        }
+    (actions.iter().enumerate()).all(|(j, other)| {
+        j == i
+            || Preferred::of(&other.data).is_none_or(|theirs| {
+                theirs.priority < mine.priority
+                    || (theirs.priority == mine.priority && !mine.only_one)
+            })
     })
 }
 
 /// `ElmMakeDiagnostics.onCodeAction`: elm's suggested names.
 fn elm_make_actions(path: &Path, i: usize, given: &Diagnosed) -> Vec<Action> {
-    if given.source != "Elm" {
+    if given.source != Some(Source::Elm) {
         return Vec::new();
     }
     let message = &given.message;
@@ -653,13 +817,13 @@ fn elm_make_actions(path: &Path, i: usize, given: &Diagnosed) -> Vec<Action> {
             title: format!("Change to `{name}`"),
             kind: ActionKind::QuickFix,
             diagnostics: Some(ActionDiagnostics::Given(i)),
-            edits: Some(vec![(
-                path.to_owned(),
+            edits: Some(FileEdits::of(
+                path,
                 vec![Edit {
                     range: given.range,
                     text: name,
                 }],
-            )]),
+            )),
             data: ActionData::None,
             preferred: None,
             command: None,
@@ -671,8 +835,6 @@ fn elm_make_actions(path: &Path, i: usize, given: &Diagnosed) -> Vec<Action> {
 /// `getNamedDescendantForPosition` finds it: after a name's character
 /// the token that character is in, else the one starting there.
 fn token_at(root: &SyntaxNode, offset: TextSize) -> Option<SyntaxToken> {
-    // `getNamedDescendantForPosition`: after a name's character, the name
-    // that ends there.
     let found = root.token_at_offset(offset);
     let before = found.clone().left_biased().and_then(|left| {
         let within = usize::from(offset.checked_sub(left.text_range().start())?);
@@ -694,6 +856,7 @@ fn definition_name(token: &SyntaxToken) -> Option<SyntaxNode> {
     .then_some(definition)
 }
 
+/// `node`'s first own name, lower or upper case.
 fn name_of(node: &SyntaxNode) -> Option<SyntaxToken> {
     (node.children_with_tokens())
         .filter_map(|e| e.into_token())
@@ -701,31 +864,15 @@ fn name_of(node: &SyntaxNode) -> Option<SyntaxToken> {
 }
 
 /// `edits` in the file the request is about.
-fn here(fixing: &Fixing<'_>, edits: Vec<Edit>) -> Vec<(PathBuf, Vec<Edit>)> {
-    vec![(fixing.context.path.to_owned(), edits)]
-}
-
-/// `Utils.mergeChanges`: each file's edits after those it has.
-fn merge(files: &mut FileEdits, more: FileEdits) {
-    for (path, edits) in more {
-        match files.iter_mut().find(|(p, _)| *p == path) {
-            Some((_, existing)) => existing.extend(edits),
-            None => files.push((path, edits)),
-        }
-    }
+fn here(fixing: &Fixing<'_>, edits: Vec<Edit>) -> FileEdits {
+    FileEdits::of(fixing.context.path, edits)
 }
 
 /// `elmReviewFixAction`: elm-review's fix for each diagnostic the editor
 /// sent that has one, as elm-language-server offers all of them for each.
 fn review_actions(fixing: &Fixing<'_>, _range: TextRange) -> Vec<Offer> {
-    (fixing.given.iter())
-        .filter(|d| d.code == "elm_review" && !d.fixes.is_empty())
-        .map(|d| {
-            (
-                "Apply elm-review fix".to_owned(),
-                here(fixing, d.fixes.clone()),
-                None,
-            )
-        })
+    (fixing.request.given.iter())
+        .filter(|d| d.is(Code::ElmReview) && !d.fixes.is_empty())
+        .map(|d| Offer::new("Apply elm-review fix", here(fixing, d.fixes.clone())))
         .collect()
 }

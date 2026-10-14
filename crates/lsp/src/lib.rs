@@ -25,12 +25,13 @@ use lsp_types::request::{
     GotoTypeDefinition, HoverRequest, PrepareRenameRequest, References, Rename, Request as _,
 };
 use lsp_types::{
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DocumentFormattingParams, DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams,
-    DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, InitializeParams,
-    Location, OneOf, PublishDiagnosticsParams, ReferenceParams, ServerCapabilities, ServerInfo,
-    SymbolInformation, SymbolKind, TextDocumentPositionParams, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit, Url,
+    CompletionItemKind, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DocumentFormattingParams, DocumentHighlight,
+    DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
+    GotoDefinitionResponse, InitializeParams, Location, OneOf, PublishDiagnosticsParams,
+    ReferenceParams, ServerCapabilities, ServerInfo, SymbolInformation, SymbolKind,
+    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit, Url,
 };
 use nomi_base::{ColumnUnit, TextSize};
 use nomi_engine::index::{self, Index, Memo};
@@ -300,7 +301,7 @@ struct Server {
     /// Whether the client resolves a code action's edit later.
     resolves_edits: bool,
     /// The packages downloaded and the modules they expose, read once.
-    packages: Option<nomi_ide::PackageModules>,
+    packages: Option<index::PackageModules>,
     /// Installs waiting for the user's answer, by the id of the question.
     installs: HashMap<lsp_server::RequestId, Install>,
 }
@@ -354,8 +355,12 @@ impl Server {
             }),
             "codeAction/resolve" => parse(request).and_then(|a: Value| self.resolve_action(a)),
             "elm/expose" | "elm/unexpose" => {
-                let expose = request.method == "elm/expose";
-                parse(request).and_then(|p: Value| self.expose(&p, expose))
+                let exposure = if request.method == "elm/expose" {
+                    nomi_ide::Exposure::Expose
+                } else {
+                    nomi_ide::Exposure::Unexpose
+                };
+                parse(request).and_then(|p: Value| self.expose(&p, exposure))
             }
             "workspace/willRenameFiles" => {
                 parse(request).map(|p: lsp_types::RenameFilesParams| self.rename_files(&p))
@@ -1076,8 +1081,11 @@ impl Server {
         };
         Ok(match found {
             None => Value::Null,
-            Some(nomi_ide::Completions::List(list)) => Value::Array(items(list)),
-            Some(nomi_ide::Completions::Incomplete(list, incomplete)) => {
+            Some(nomi_ide::Completions::Items(list)) => Value::Array(items(list)),
+            Some(nomi_ide::Completions::List {
+                items: list,
+                incomplete,
+            }) => {
                 serde_json::json!({ "isIncomplete": incomplete, "items": items(list) })
             }
         })
@@ -1094,7 +1102,7 @@ fn completion_item(c: nomi_ide::Completion, text: &Text, label_details: bool) ->
             serde_json::json!({ "kind": "markdown", "value": documentation }),
         );
     }
-    item.insert("kind".into(), serde_json::json!(c.kind as u32));
+    item.insert("kind".into(), serde_json::json!(completion_kind(c.kind)));
     item.insert("label".into(), serde_json::json!(c.label));
     if let Some(sort) = c.sort_text {
         item.insert("sortText".into(), serde_json::json!(sort));
@@ -1139,6 +1147,23 @@ fn completion_item(c: nomi_ide::Completion, text: &Text, label_details: bool) ->
         item.insert("labelDetails".into(), Value::Object(details));
     }
     Value::Object(item)
+}
+
+/// The protocol's number for a completion's kind.
+fn completion_kind(kind: nomi_ide::CompletionKind) -> CompletionItemKind {
+    match kind {
+        nomi_ide::CompletionKind::Text => CompletionItemKind::TEXT,
+        nomi_ide::CompletionKind::Function => CompletionItemKind::FUNCTION,
+        nomi_ide::CompletionKind::Field => CompletionItemKind::FIELD,
+        nomi_ide::CompletionKind::Variable => CompletionItemKind::VARIABLE,
+        nomi_ide::CompletionKind::Module => CompletionItemKind::MODULE,
+        nomi_ide::CompletionKind::Enum => CompletionItemKind::ENUM,
+        nomi_ide::CompletionKind::Keyword => CompletionItemKind::KEYWORD,
+        nomi_ide::CompletionKind::Snippet => CompletionItemKind::SNIPPET,
+        nomi_ide::CompletionKind::EnumMember => CompletionItemKind::ENUM_MEMBER,
+        nomi_ide::CompletionKind::Struct => CompletionItemKind::STRUCT,
+        nomi_ide::CompletionKind::Operator => CompletionItemKind::OPERATOR,
+    }
 }
 
 fn publish_if_current(publishing: &Mutex<()>, snapshot: &Snapshot, publish: impl FnOnce()) -> bool {

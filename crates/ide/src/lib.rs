@@ -26,7 +26,7 @@ mod symbols;
 mod tree;
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use nomi_base::diagnostic::code::{Position, Region};
 use nomi_base::diagnostic::render::{self, Styles};
@@ -39,8 +39,8 @@ use nomi_syntax::{Tool, parse_module, validate};
 
 pub use actions::{
     Action, ActionCommand, ActionData, ActionDiagnostics, ActionKind, Destination, Diagnosed,
-    MoveEdit, PackageModules, RenameAt, Request, code_actions, exposing_edit, move_destinations,
-    move_function, refactor_edits,
+    DiagnosticCode, Exposure, FixId, MoveEdit, Moving, RefactorAction, RenameAt, Request, Resolve,
+    code_actions, exposing_edit, move_destinations, move_function, refactor_edits,
 };
 pub use completion::{Completion, CompletionKind, Completions, completions};
 pub use files::{created_module_header, renamed_files};
@@ -70,6 +70,110 @@ pub struct Diagnostic {
 pub struct Edit {
     pub range: TextRange,
     pub text: String,
+}
+
+impl Edit {
+    /// `range` taken out.
+    fn delete(range: TextRange) -> Edit {
+        Edit {
+            range,
+            text: String::new(),
+        }
+    }
+
+    /// `text` put in at `at`.
+    fn insert(at: TextSize, text: String) -> Edit {
+        Edit {
+            range: TextRange::empty(at),
+            text,
+        }
+    }
+}
+
+/// Each file's edits, the files in the order they first had one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileEdits<E = Edit>(Vec<(PathBuf, Vec<E>)>);
+
+impl<E> FileEdits<E> {
+    /// `edits` of the file at `path`.
+    fn of(path: &Path, edits: Vec<E>) -> FileEdits<E> {
+        FileEdits(vec![(path.to_owned(), edits)])
+    }
+
+    /// The edits of the file at `path` so far, none where it has none.
+    fn file(&mut self, path: &Path) -> &mut Vec<E> {
+        let at = if let Some(at) = self.0.iter().position(|(p, _)| p == path) {
+            at
+        } else {
+            self.0.push((path.to_owned(), Vec::new()));
+            self.0.len() - 1
+        };
+        &mut self.0[at].1
+    }
+
+    /// `other`'s edits after those each file has (`Utils.mergeChanges`).
+    fn merge(&mut self, other: FileEdits<E>) {
+        for (path, edits) in other {
+            self.file(&path).extend(edits);
+        }
+    }
+
+    fn iter(&self) -> std::slice::Iter<'_, (PathBuf, Vec<E>)> {
+        self.0.iter()
+    }
+}
+
+impl<E> Default for FileEdits<E> {
+    fn default() -> FileEdits<E> {
+        FileEdits(Vec::new())
+    }
+}
+
+impl<E> IntoIterator for FileEdits<E> {
+    type Item = (PathBuf, Vec<E>);
+    type IntoIter = std::vec::IntoIter<(PathBuf, Vec<E>)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<'f, E> IntoIterator for &'f mut FileEdits<E> {
+    type Item = &'f mut (PathBuf, Vec<E>);
+    type IntoIter = std::slice::IterMut<'f, (PathBuf, Vec<E>)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter_mut()
+    }
+}
+
+impl<'f, E> IntoIterator for &'f FileEdits<E> {
+    type Item = &'f (PathBuf, Vec<E>);
+    type IntoIter = std::slice::Iter<'f, (PathBuf, Vec<E>)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+/// How many characters `offset` is past the start of its line in `text`.
+fn column(text: &str, offset: TextSize) -> usize {
+    let before = &text[..usize::from(offset)];
+    let line = before.rfind('\n').map_or(0, |i| i + 1);
+    before[line..].chars().count()
+}
+
+/// Where the line after the one `offset` is on starts in `text`, or its
+/// end where that's the last.
+fn next_line(text: &str, offset: TextSize) -> TextSize {
+    let at = usize::from(offset);
+    let next = text[at..].find('\n').map_or(text.len(), |i| at + i + 1);
+    TextSize::new(next as u32)
+}
+
+/// Where the last line of `text` starts.
+fn last_line(text: &str) -> TextSize {
+    TextSize::new(text.rfind('\n').map_or(0, |i| i + 1) as u32)
 }
 
 /// How the project that owns a file reads it: the release its `elm.json`

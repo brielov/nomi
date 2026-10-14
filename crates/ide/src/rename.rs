@@ -14,14 +14,14 @@ use nomi_engine::graph::module_path;
 use nomi_engine::index::{Index, Indexed};
 use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, tokens};
 
-use crate::Edit;
 use crate::navigation::Declaration;
+use crate::{Edit, FileEdits};
 
 /// What renaming changes: each file's edits, in the order the references
 /// come, and the module's file moved, where a module is renamed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rename {
-    pub files: Vec<(PathBuf, Vec<Edit>)>,
+    pub files: FileEdits,
     pub moved: Option<Move>,
 }
 
@@ -107,7 +107,7 @@ pub fn rename(
         }
         None => token.text().to_owned(),
     };
-    let mut files: Vec<(PathBuf, Vec<Edit>)> = Vec::new();
+    let mut files = FileEdits::default();
     // Each file's text, read once for each run of its references.
     let mut read: Option<(PathBuf, Arc<str>)> = None;
     for location in crate::references(snapshot, index, path, offset, Declaration::Include) {
@@ -125,10 +125,7 @@ pub fn rename(
             range: TextRange::at(start, TextSize::of(original.as_str())),
             text: new_name.clone(),
         };
-        match files.iter_mut().find(|(p, _)| *p == location.path) {
-            Some((_, edits)) => edits.push(edit),
-            None => files.push((location.path, vec![edit])),
-        }
+        files.file(&location.path).push(edit);
     }
     let moved = header.then(|| {
         // The source directory the module's file is in, by its name.

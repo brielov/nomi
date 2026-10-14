@@ -9,8 +9,8 @@ use nomi_engine::index::{self, Index};
 use nomi_project::Outline;
 use nomi_syntax::ast::{self, AstNode};
 
-use crate::Edit;
 use crate::tree::code_range;
+use crate::{Edit, FileEdits};
 
 /// The source directories of the project that owns `path`.
 fn source_dirs(snapshot: &Snapshot, path: &Path) -> Vec<PathBuf> {
@@ -78,12 +78,7 @@ pub fn created_module_header(snapshot: &Snapshot, path: &Path) -> Option<Edit> {
 
 /// The edits renaming the file or folder at `old` to `new` takes: each
 /// module in it renamed after its new place, wherever it's named.
-pub fn renamed_files(
-    snapshot: &Snapshot,
-    index: &Index,
-    old: &Path,
-    new: &Path,
-) -> Vec<(PathBuf, Vec<Edit>)> {
+pub fn renamed_files(snapshot: &Snapshot, index: &Index, old: &Path, new: &Path) -> FileEdits {
     if let Some(module) = index.module(old) {
         return renamed_module(snapshot, index, &module.path, new);
     }
@@ -92,41 +87,36 @@ pub fn renamed_files(
         .into_iter()
         .flatten()
         .collect();
-    let mut found: Vec<(PathBuf, Vec<Edit>)> = Vec::new();
+    let mut found = FileEdits::default();
     for module in &index.modules {
         let Some(rest) = olds.iter().find_map(|o| module.path.strip_prefix(o).ok()) else {
             continue;
         };
-        for (path, edits) in renamed_module(snapshot, index, &module.path, &new.join(rest)) {
-            match found.iter_mut().find(|(p, _)| *p == path) {
-                Some((_, existing)) => existing.extend(edits),
-                None => found.push((path, edits)),
-            }
-        }
+        found.merge(renamed_module(
+            snapshot,
+            index,
+            &module.path,
+            &new.join(rest),
+        ));
     }
     found
 }
 
-fn renamed_module(
-    snapshot: &Snapshot,
-    index: &Index,
-    old: &Path,
-    new: &Path,
-) -> Vec<(PathBuf, Vec<Edit>)> {
+fn renamed_module(snapshot: &Snapshot, index: &Index, old: &Path, new: &Path) -> FileEdits {
     let Some(name) = module_name(snapshot, new) else {
-        return Vec::new();
+        return FileEdits::default();
     };
     let Some(module) = index.module(old) else {
-        return Vec::new();
+        return FileEdits::default();
     };
     let at = (module.root().children().find_map(ast::ModuleHeader::cast))
         .and_then(|header| header.module_name())
         .and_then(|name| code_range(name.syntax()));
     let Some(at) = at else {
-        return Vec::new();
+        return FileEdits::default();
     };
     match crate::rename(snapshot, index, old, at.start(), &name) {
         Ok(Some(rename)) => rename.files,
-        _ => Vec::new(),
+        _ => FileEdits::default(),
     }
 }

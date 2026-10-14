@@ -3,9 +3,20 @@
 //! and doc comment, to the end of the destination, and every module that
 //! uses it imports it from there.
 
-use crate::Declaration;
+use std::path::{Path, PathBuf};
 
-use super::*;
+use nomi_base::{TextRange, TextSize};
+use nomi_engine::Snapshot;
+use nomi_engine::index::{Index, Indexed};
+use nomi_syntax::{SyntaxKind, SyntaxNode, child_token};
+
+use super::refactor::{Commas, expose_edit, unexpose_edit};
+use super::token_at;
+use super::unused::{import_exposing, remove_from_import};
+use crate::completion::Context;
+use crate::navigation::Declaration;
+use crate::tree::{child, code_range, written_imports};
+use crate::{Edit, FileEdits};
 
 /// A place a function can move to: one of the project's other modules,
 /// by its file's name and folder, as written from the project's root.
@@ -21,7 +32,7 @@ pub struct Destination {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MoveEdit {
     Edit(Edit),
-    AtLine(u32, String),
+    AtLine { line: u32, text: String },
 }
 
 /// `getMoveDestinations`: the project's modules but the one at `source`.
@@ -60,11 +71,10 @@ pub fn move_function(
     source: &Path,
     offset: TextSize,
     destination: &Path,
-) -> Option<Vec<(PathBuf, Vec<MoveEdit>)>> {
+) -> Option<FileEdits<MoveEdit>> {
     let module = index.module(source)?;
     let target = index.module(destination)?;
-    let (root, text) = (&module.root(), &*module.text);
-    let token = token_at(root, offset)?;
+    let token = token_at(&module.root(), offset)?;
     let parent = token.parent()?;
     let declaration = match parent.kind() {
         SyntaxKind::Definition | SyntaxKind::Signature => parent.parent()?,
@@ -75,154 +85,159 @@ pub fn move_function(
     }
     let definition = child(&declaration, SyntaxKind::Definition)?;
     let signature = child(&declaration, SyntaxKind::Signature);
-    let name = token.text().to_owned();
-    let first = signature.clone().unwrap_or_else(|| definition.clone());
+    let (range, function) = moved_text(&module.text, &definition, signature.as_ref())?;
+    let name = token.text();
+    let declaring = [Some(&definition), signature.as_ref()];
+    let at = token.text_range().start();
+    let uses = uses(snapshot, index, source, at, module, &declaring);
+    // The source's edits, then the destination's, each file once.
+    let mut files = FileEdits(vec![
+        (module.path.clone(), Vec::new()),
+        (target.path.clone(), Vec::new()),
+    ]);
+    files
+        .file(&module.path)
+        .push(MoveEdit::Edit(Edit::delete(range)));
+    let line = target.text.matches('\n').count() as u32 + 1;
+    let text = function;
+    files
+        .file(&target.path)
+        .push(MoveEdit::AtLine { line, text });
+    let mut edit = |path: &Path, edit: Edit| files.file(path).push(MoveEdit::Edit(edit));
+    if let Some(unexposed) = unexpose_edit(&module.root(), &module.text, name) {
+        edit(&module.path, unexposed);
+    }
+    // Each file that uses it: its import of the old module loses it.
+    let mut using: Vec<&Path> = Vec::new();
+    for u in &uses {
+        if !using.contains(&u.path.as_path()) {
+            using.push(&u.path);
+        }
+    }
+    for path in &using {
+        if let Some(unimported) = index
+            .module(path)
+            .and_then(|o| unimport(o, &module.name, name))
+        {
+            edit(path, unimported);
+        }
+    }
+    // The destination exposes it where others use it unqualified.
+    if (uses.iter()).any(|u| u.path != target.path && u.qualifier.is_none())
+        && let Some(exposed) = expose_edit(&target.root(), &target.text, name)
+    {
+        edit(&target.path, exposed);
+    }
+    // Qualified uses name the new module, or none in the destination.
+    for u in &uses {
+        if let Some(requalified) = u.requalified(target) {
+            edit(&u.path, requalified);
+        }
+    }
+    // And each file that uses it imports the new module.
+    let source_uses = (uses.iter()).any(|u| u.path == module.path && !u.declaring);
+    for path in using.into_iter().filter(|p| *p != target.path) {
+        if path == module.path && !source_uses {
+            continue;
+        }
+        let Some(other) = index.module(path) else {
+            continue;
+        };
+        let expose = (uses.iter()).any(|u| u.path == path && u.qualifier.is_none());
+        let context = Context::new(snapshot, index, other, path);
+        edit(
+            path,
+            context.add_import(&target.name, None, expose.then_some(name)),
+        );
+    }
+    Some(files)
+}
+
+/// The references to the function named at `at` in the file at `path`,
+/// which `module` is, and how each is written: in `declaring`, its
+/// definition and signature, or elsewhere.
+fn uses(
+    snapshot: &Snapshot,
+    index: &Index,
+    path: &Path,
+    at: TextSize,
+    module: &Indexed,
+    declaring: &[Option<&SyntaxNode>],
+) -> Vec<Use> {
+    let all = Declaration::Include;
+    (crate::references(snapshot, index, path, at, all).into_iter())
+        .filter_map(|location| {
+            let other = index.module(&location.path)?;
+            let at = token_at(&other.root(), location.range.end() - TextSize::new(1))?;
+            let declaring = at.parent_ancestors().any(|a| {
+                a.kind() == SyntaxKind::ExposingList
+                    || (other.path == module.path && declaring.contains(&Some(&a)))
+            });
+            let qualifier = (at.parent())
+                .and_then(|p| child(&p, SyntaxKind::Qualifier))
+                .and_then(|q| child_token(&q, SyntaxKind::UpperIdent))
+                .map(|t| t.text_range());
+            Some(Use {
+                path: other.path.clone(),
+                qualifier,
+                declaring,
+            })
+        })
+        .collect()
+}
+
+impl Use {
+    /// Where it's qualified, the qualifier naming `target`, the module the
+    /// function moves to, or none in that module.
+    fn requalified(&self, target: &Indexed) -> Option<Edit> {
+        let qualifier = self.qualifier?;
+        Some(if self.path == target.path {
+            Edit::delete(TextRange::new(
+                qualifier.start(),
+                qualifier.end() + TextSize::new(1),
+            ))
+        } else {
+            Edit {
+                range: qualifier,
+                text: target.name.clone(),
+            }
+        })
+    }
+}
+
+/// The function `definition` defines, with its signature and a comment
+/// right before them: where it's written, and the text it moves as.
+fn moved_text(
+    text: &str,
+    definition: &SyntaxNode,
+    signature: Option<&SyntaxNode>,
+) -> Option<(TextRange, String)> {
+    let first = signature.unwrap_or(definition);
     let comment = std::iter::successors(first.first_token()?.prev_token(), |t| t.prev_token())
         .find(|t| !matches!(t.kind(), SyntaxKind::Whitespace | SyntaxKind::Newline))
         .filter(|t| matches!(t.kind(), SyntaxKind::BlockComment | SyntaxKind::DocComment));
-    let written = |node: &SyntaxNode| {
-        code_range(node).map(|r| text[std::ops::Range::<usize>::from(r)].to_owned())
-    };
-    let start = match (&comment, &signature) {
+    let defined = code_range(definition)?;
+    let start = match (&comment, signature) {
         (Some(comment), _) => comment.text_range().start(),
         (None, Some(signature)) => code_range(signature)?.start(),
-        (None, None) => code_range(&definition)?.start(),
+        (None, None) => defined.start(),
     };
-    let end = code_range(&definition)?.end();
     let mut function = String::from("\n\n");
     if let Some(comment) = &comment {
         function.push_str(comment.text());
         function.push('\n');
     }
-    if let Some(signature) = &signature {
-        function.push_str(&written(signature)?);
+    if let Some(signature) = signature {
+        function.push_str(&text[code_range(signature)?]);
         function.push('\n');
     }
-    function.push_str(&written(&definition)?);
-    let module_name = module.name.clone();
-    let target_name = target.name.clone();
+    function.push_str(&text[defined]);
+    Some((TextRange::new(start, defined.end()), function))
+}
 
-    let all = Declaration::Include;
-    let uses: Vec<Use> =
-        (crate::references(snapshot, index, source, token.text_range().start(), all).into_iter())
-            .filter_map(|location| {
-                let other = index.module(&location.path)?;
-                let at = token_at(&other.root(), location.range.end() - TextSize::new(1))?;
-                let declaring = at.parent_ancestors().any(|a| {
-                    matches!(a.kind(), SyntaxKind::ExposingList)
-                        || (other.path == module.path
-                            && (a == definition || signature.as_ref() == Some(&a)))
-                });
-                let qualifier = (at.parent())
-                    .and_then(|p| p.children().find(|c| c.kind() == SyntaxKind::Qualifier))
-                    .and_then(|q| nomi_syntax::child_token(&q, SyntaxKind::UpperIdent))
-                    .map(|t| t.text_range());
-                Some(Use {
-                    path: other.path.clone(),
-                    qualifier,
-                    declaring,
-                })
-            })
-            .collect();
-    let source_uses = (uses.iter()).any(|u| u.path == module.path && !u.declaring);
-    let mut files: Vec<(PathBuf, Vec<MoveEdit>)> = vec![
-        (module.path.clone(), Vec::new()),
-        (target.path.clone(), Vec::new()),
-    ];
-    let push = |files: &mut Vec<(PathBuf, Vec<MoveEdit>)>, path: &Path, edit: MoveEdit| match files
-        .iter_mut()
-        .find(|(p, _)| p == path)
-    {
-        Some((_, edits)) => edits.push(edit),
-        None => files.push((path.to_owned(), vec![edit])),
-    };
-    push(
-        &mut files,
-        &module.path,
-        MoveEdit::Edit(Edit {
-            range: TextRange::new(start, end),
-            text: String::new(),
-        }),
-    );
-    let target_line = target.text.matches('\n').count() as u32 + 1;
-    push(
-        &mut files,
-        &target.path,
-        MoveEdit::AtLine(target_line, function),
-    );
-    if let Some(edit) = unexpose_edit(root, text, &name) {
-        push(&mut files, &module.path, MoveEdit::Edit(edit));
-    }
-    // Each file that uses it: its import of the old module loses it.
-    let mut using: Vec<PathBuf> = Vec::new();
-    for u in &uses {
-        if !using.contains(&u.path) {
-            using.push(u.path.clone());
-        }
-    }
-    for path in &using {
-        let Some(other) = index.module(path) else {
-            continue;
-        };
-        let import = (other.root().children())
-            .filter(|n| n.kind() == SyntaxKind::Import)
-            .find(|i| {
-                child(i, SyntaxKind::ModuleName)
-                    .is_some_and(|n| crate::tree::words(&n) == module_name)
-            });
-        if let Some(import) = import {
-            let list = child(&import, SyntaxKind::ExposingList);
-            let exposed: Vec<SyntaxNode> = (list.iter())
-                .flat_map(|l| l.children())
-                .filter(|n| matches!(n.kind(), SyntaxKind::ExposedValue | SyntaxKind::ExposedType))
-                .collect();
-            if let Some(edit) =
-                remove_from_import(&other.text, list.as_ref(), &exposed, &name, false)
-            {
-                push(&mut files, path, MoveEdit::Edit(edit));
-            }
-        }
-    }
-    // The destination exposes it where others use it unqualified.
-    if uses
-        .iter()
-        .any(|u| u.path != target.path && u.qualifier.is_none())
-        && let Some(edit) = expose_edit(&target.root(), &target.text, &name, false)
-    {
-        push(&mut files, &target.path, MoveEdit::Edit(edit));
-    }
-    // Qualified uses name the new module, or none in the destination.
-    for u in &uses {
-        let Some(qualifier) = u.qualifier else {
-            continue;
-        };
-        let edit = if u.path == target.path {
-            Edit {
-                range: TextRange::new(qualifier.start(), qualifier.end() + TextSize::new(1)),
-                text: String::new(),
-            }
-        } else {
-            Edit {
-                range: qualifier,
-                text: target_name.clone(),
-            }
-        };
-        push(&mut files, &u.path, MoveEdit::Edit(edit));
-    }
-    // And each file that uses it imports the new module.
-    for path in using.iter().filter(|p| **p != target.path) {
-        if *path == module.path && !source_uses {
-            continue;
-        }
-        let Some(other) = index.module(path) else {
-            continue;
-        };
-        let expose = uses
-            .iter()
-            .any(|u| u.path == *path && u.qualifier.is_none());
-        let context = Context::new(snapshot, index, other, path);
-        let edit = add_import(&context, &target_name, expose.then_some(name.as_str()), "");
-        push(&mut files, path, MoveEdit::Edit(edit));
-    }
-    Some(files)
+/// `name` out of `other`'s import of the module `from`.
+fn unimport(other: &Indexed, from: &str, name: &str) -> Option<Edit> {
+    let import = written_imports(&other.root()).find(|i| i.module == from)?;
+    let (list, exposed) = import_exposing(&import.node);
+    remove_from_import(&other.text, list.as_ref(), &exposed, name, Commas::Nearest)
 }

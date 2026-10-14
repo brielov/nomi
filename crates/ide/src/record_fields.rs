@@ -12,18 +12,16 @@ use nomi_base::{TextRange, TextSize};
 use nomi_compiler::canonical::Home;
 use nomi_compiler::canonicalize::references::{Kind, Target};
 use nomi_compiler::types::{self, error};
-use nomi_engine::Snapshot;
 use nomi_engine::index::{Index, Indexed};
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{SyntaxKind, SyntaxNode, child_token};
 
 use crate::Edit;
 use crate::completion::{Completion, CompletionKind};
-use crate::tree::{child, code_range, declared_type, token};
+use crate::tree::{child, code_range, code_text, declared_type};
 
 /// The fields of the record before the dot at `dot`.
 pub(crate) fn after(
-    snapshot: &Snapshot,
     index: &Index,
     module: &Indexed,
     dot: TextSize,
@@ -46,7 +44,6 @@ pub(crate) fn after(
             return fields;
         }
     }
-    let _ = snapshot;
     // The innermost expression before the dot, which the access binds
     // tighter than anything around it.
     let before_dot = |root: &SyntaxNode| {
@@ -148,21 +145,22 @@ pub(crate) fn patched(
     replaced: TextRange,
     insert: &str,
 ) -> Option<(SyntaxNode, types::ExprTypes)> {
-    patched_all(index, module, &[(replaced, insert.to_owned())])
+    let edit = Edit {
+        range: replaced,
+        text: insert.to_owned(),
+    };
+    patched_all(index, module, &[edit])
 }
 
 /// [`patched`] with each of `edits`, in order and apart, made at once.
 pub(crate) fn patched_all(
     index: &Index,
     module: &Indexed,
-    edits: &[(TextRange, String)],
+    edits: &[Edit],
 ) -> Option<(SyntaxNode, types::ExprTypes)> {
     let mut text = module.text.to_string();
-    for (replaced, insert) in edits.iter().rev() {
-        text.replace_range(
-            usize::from(replaced.start())..usize::from(replaced.end()),
-            insert,
-        );
+    for edit in edits.iter().rev() {
+        text.replace_range(std::ops::Range::<usize>::from(edit.range), &edit.text);
     }
     let parse = nomi_syntax::parse_module(&text);
     if !parse.errors().is_empty() {
@@ -183,7 +181,6 @@ pub(crate) fn patched_all(
 /// The fields to complete at `offset` where a record, an update or a
 /// record pattern names them; none where `offset` isn't such a place.
 pub(crate) fn inside(
-    snapshot: &Snapshot,
     index: &Index,
     module: &Indexed,
     offset: TextSize,
@@ -209,11 +206,7 @@ pub(crate) fn inside(
         return None;
     }
     let before = text[..open].trim_end();
-    let base = between
-        .split('|')
-        .next()
-        .filter(|_| between.contains('|'))
-        .map(str::trim)
+    let base = update_base(between)
         .filter(|b| !b.is_empty() && b.chars().all(|c| c.is_alphanumeric() || c == '_'));
     let alias = match base {
         // An update: its record's.
@@ -237,7 +230,6 @@ pub(crate) fn inside(
             None => returned_alias(index, module, TextSize::new(open as u32)),
         },
     };
-    let _ = snapshot;
     if let Some(alias) = alias {
         return Some(alias_fields(&alias, range));
     }
@@ -266,14 +258,15 @@ pub(crate) fn inside(
 }
 
 /// A type alias's declaration, and the module that has it.
-struct Alias<'i> {
-    decl: SyntaxNode,
-    module: &'i Indexed,
+pub(crate) struct Alias<'i> {
+    pub(crate) decl: SyntaxNode,
+    pub(crate) module: &'i Indexed,
 }
 
 /// The fields `alias` declares, as completions.
 fn alias_fields(alias: &Alias<'_>, range: TextRange) -> Vec<Completion> {
-    let name = token(&alias.decl, SyntaxKind::UpperIdent).unwrap_or_default();
+    let name = child_token(&alias.decl, SyntaxKind::UpperIdent);
+    let name = name.as_ref().map_or("", |n| n.text());
     let Some(record) = alias
         .decl
         .children()
@@ -282,12 +275,11 @@ fn alias_fields(alias: &Alias<'_>, range: TextRange) -> Vec<Completion> {
         return Vec::new();
     };
     (record.children())
-        .filter(|c| c.kind() == SyntaxKind::FieldType)
+        .filter_map(ast::FieldType::cast)
         .filter_map(|field| {
-            let label = token(&field, SyntaxKind::LowerIdent)?;
-            let ty = field.children().find(|c| ast::Type::can_cast(c.kind()))?;
-            let ty = text_of(&ty)?;
-            Some(field_completion(&label, &ty, &name, range))
+            let label = field.lower_ident_token()?;
+            let ty = code_text(field.ty()?.syntax())?;
+            Some(field_completion(label.text(), &ty, name, range))
         })
         .collect()
 }
@@ -300,38 +292,21 @@ pub(crate) fn field_completion(label: &str, ty: &str, alias: &str, range: TextRa
         format!("Refers to the `{label}` field on `{alias}`")
     };
     Completion {
-        label: label.to_owned(),
-        kind: CompletionKind::Field,
-        sort_text: None,
-        filter_text: None,
         documentation: Some(format!("\n```elm\n{ty}\n```\n\n\n---\n\n{refers}")),
-        detail: None,
         label_detail: (ty != "unknown").then(|| format!(" : {ty}")),
-        label_description: None,
         preselect: true,
         edit: Some(Edit {
             range,
             text: label.to_owned(),
         }),
-        snippet: None,
-        additional_edits: Vec::new(),
+        ..Completion::of(label, CompletionKind::Field)
     }
-}
-
-/// The declaration of the alias of the variable `name` written at `at`.
-pub(crate) fn alias_declaration(
-    index: &Index,
-    module: &Indexed,
-    at: TextSize,
-    name: &str,
-) -> Option<SyntaxNode> {
-    alias_of_name(index, module, at, name).map(|alias| alias.decl)
 }
 
 /// The alias of the variable `name` written at `at`: by the annotation
 /// of the parameter binding it, the field a record pattern binds it as,
 /// or the function it names.
-fn alias_of_name<'i>(
+pub(crate) fn alias_of_name<'i>(
     index: &'i Index,
     module: &'i Indexed,
     at: TextSize,
@@ -449,12 +424,9 @@ fn field_alias<'i>(index: &'i Index, alias: &Alias<'i>, field: &str) -> Option<A
         .children()
         .find(|c| c.kind() == SyntaxKind::RecordType)?;
     let declared = (record.children())
-        .filter(|c| c.kind() == SyntaxKind::FieldType)
-        .find(|f| token(f, SyntaxKind::LowerIdent).as_deref() == Some(field))?;
-    let ty = declared
-        .children()
-        .find(|c| ast::Type::can_cast(c.kind()))?;
-    named_alias(index, alias.module, &ty)
+        .filter_map(ast::FieldType::cast)
+        .find(|f| f.lower_ident_token().is_some_and(|t| t.text() == field))?;
+    named_alias(index, alias.module, declared.ty()?.syntax())
 }
 
 /// The alias of the record that is the value of `field` in the record
@@ -468,12 +440,7 @@ fn outer_field_alias<'i>(
 ) -> Option<Alias<'i>> {
     let outer = open_brace(text, open)?;
     let between = &text[outer + 1..open];
-    let base = between
-        .split('|')
-        .next()
-        .filter(|_| between.contains('|'))
-        .map(str::trim);
-    let outer_alias = match base {
+    let outer_alias = match update_base(between) {
         Some(base) => {
             let at = outer + 1 + between.find(base)?;
             alias_of_name(index, module, TextSize::new(at as u32), base)?
@@ -575,6 +542,12 @@ fn result_type(ty: &SyntaxNode) -> SyntaxNode {
     ty
 }
 
+/// The record an update written as `between` its `{` and the cursor
+/// updates: what comes before its `|`.
+fn update_base(between: &str) -> Option<&str> {
+    between.split_once('|').map(|(base, _)| base.trim())
+}
+
 /// The `{` around `at` that isn't closed before it.
 fn open_brace(text: &str, at: usize) -> Option<usize> {
     let mut depth = 0;
@@ -618,10 +591,4 @@ fn in_pattern(text: &str, open: usize) -> bool {
     // `f {` on a declaration's line, before its `=`.
     let declares = head.trim_start().starts_with(|c: char| c.is_lowercase()) && !head.contains('=');
     declares && line_rest.contains('=')
-}
-
-fn text_of(node: &SyntaxNode) -> Option<String> {
-    let range = code_range(node)?;
-    let start = range.start() - node.text_range().start();
-    Some(node.text().slice(start..start + range.len()).to_string())
 }

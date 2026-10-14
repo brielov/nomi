@@ -383,7 +383,7 @@ pub fn workspace_symbols(index: &Index, query: &str) -> Vec<(PathBuf, Symbol)> {
 
 /// A path's place in the order a glob finds files: a directory's files,
 /// then its subdirectories'.
-fn glob_order(path: &Path) -> Vec<(bool, String)> {
+pub(crate) fn glob_order(path: &Path) -> Vec<(bool, String)> {
     let parts: Vec<String> = path
         .iter()
         .map(|p| p.to_string_lossy().into_owned())

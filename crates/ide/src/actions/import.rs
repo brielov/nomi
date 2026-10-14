@@ -1,105 +1,104 @@
 //! Fixes that import what's missing: a value or module from the project
 //! or its packages, or a package to install.
 
-use super::*;
+use nomi_base::TextRange;
 
-/// The name a missing-value diagnostic is about: its module as written,
-/// empty when unqualified, and its last part.
-pub(super) fn missing_name(fixing: &Fixing<'_>, range: TextRange) -> (String, String) {
-    let text = &fixing.context.module.text[std::ops::Range::<usize>::from(range)];
-    match text.rsplit_once('.') {
-        Some((module, name)) => (module.to_owned(), name.to_owned()),
-        None => (String::new(), text.to_owned()),
+use super::{ActionCommand, Diagnosed, Fixing, Offer, here};
+use crate::Edit;
+use crate::completion_general::compare_ranking;
+
+/// The name a missing-value diagnostic is about: its qualifier as
+/// written, where it has one, and its last part.
+pub(super) struct MissingName<'t> {
+    pub(super) qualifier: Option<&'t str>,
+    pub(super) name: &'t str,
+}
+
+impl<'t> MissingName<'t> {
+    pub(super) fn at(fixing: &Fixing<'t>, range: TextRange) -> MissingName<'t> {
+        let module = fixing.context.module;
+        let text = &module.text[range];
+        let (qualifier, name) = match text.rsplit_once('.') {
+            Some((qualifier, name)) => (Some(qualifier).filter(|q| !q.is_empty()), name),
+            None => (None, text),
+        };
+        MissingName { qualifier, name }
     }
 }
 
-/// The imports that would bring the missing name at `range`: one that
-/// exposes it, or for a qualified name, a module named so or ending so.
-pub(super) fn imports_for(
-    fixing: &Fixing<'_>,
-    range: TextRange,
-) -> Vec<(String, Option<String>, Edit)> {
-    let (target, name) = missing_name(fixing, range);
-    let qualified = !target.is_empty();
-    (importable(&fixing.context).into_iter())
-        .filter(|p| {
-            p.value == name
-                && (!qualified
-                    || if target.contains('.') {
-                        p.module == target
-                    } else {
-                        p.module.ends_with(&target)
-                    })
-        })
-        .map(|p| {
-            let value =
-                (!qualified).then(|| p.value_to_import.clone().unwrap_or_else(|| p.value.clone()));
-            let edit = add_import(&fixing.context, &p.module, value.as_deref(), &target);
-            (p.module, value, edit)
-        })
-        .collect()
+/// An import that brings a missing name: of `module`, exposing `value`
+/// where the name is unqualified.
+struct ImportFix<'p> {
+    module: &'p str,
+    value: Option<&'p str>,
+    edit: Edit,
 }
 
-/// `RefactorEditUtils.addImport`.
-pub(super) fn add_import(
-    context: &Context<'_>,
-    module: &str,
-    value: Option<&str>,
-    alias: &str,
-) -> Edit {
-    let mut edit = context.add_import(module, module);
-    let alias = if !alias.is_empty() && alias != module {
-        format!(" as {alias}")
-    } else {
-        String::new()
+/// The imports that would bring `missing`: one that exposes it, or for a
+/// qualified name, a module named so or ending so.
+fn imports_for<'f>(
+    fixing: &'f Fixing<'_>,
+    missing: &'f MissingName<'_>,
+) -> impl Iterator<Item = ImportFix<'f>> {
+    let fits = |module: &str| match missing.qualifier {
+        None => true,
+        Some(qualifier) if qualifier.contains('.') => module == qualifier,
+        Some(qualifier) => module.ends_with(qualifier),
     };
-    edit.text = match value {
-        Some(value) => format!("import {module}{alias} exposing ({value})\n"),
-        None => format!("import {module}{alias}\n"),
-    };
-    edit
+    (fixing.context.possible_imports().iter())
+        .filter(move |p| p.value == missing.name && fits(&p.module))
+        .map(move |p| {
+            let value = missing.qualifier.is_none().then(|| {
+                let value = p.value_to_import.as_deref();
+                value.unwrap_or(&p.value)
+            });
+            let edit = (fixing.context).add_import(&p.module, missing.qualifier, value);
+            ImportFix {
+                module: &p.module,
+                value,
+                edit,
+            }
+        })
 }
 
 pub(super) fn import_actions(fixing: &Fixing<'_>, range: TextRange) -> Vec<Offer> {
-    let (target, _) = missing_name(fixing, range);
-    (imports_for(fixing, range).into_iter())
-        .map(|(module, value, edit)| {
-            let alias = if !target.is_empty() && module != target {
-                format!(" as \"{target}\"")
-            } else {
-                String::new()
+    let missing = MissingName::at(fixing, range);
+    (imports_for(fixing, &missing))
+        .map(|fix| {
+            let alias = match missing.qualifier {
+                Some(qualifier) if fix.module != qualifier => format!(" as \"{qualifier}\""),
+                _ => String::new(),
             };
-            let title = match value {
+            let module = fix.module;
+            let title = match fix.value {
                 Some(value) => format!("Import '{value}' from module \"{module}\"{alias}"),
                 None => format!("Import module \"{module}\"{alias}"),
             };
-            (title, here(fixing, vec![edit]), None)
+            Offer::new(title, here(fixing, vec![fix.edit]))
         })
         .collect()
 }
 
 pub(super) fn import_all(fixing: &Fixing<'_>, diagnostic: &Diagnosed, edits: &mut Vec<Edit>) {
-    if let Some((_, _, edit)) = imports_for(fixing, diagnostic.range).into_iter().next()
-        && !edits.iter().any(|e| e.text == edit.text)
+    let missing = MissingName::at(fixing, diagnostic.range);
+    if let Some(fix) = imports_for(fixing, &missing).next()
+        && !edits.iter().any(|e| e.text == fix.edit.text)
     {
-        edits.push(edit);
+        edits.push(fix.edit);
     }
 }
 
 /// `installPackageCodeAction`: each package that has the missing
 /// module, by rank, installed by a command rather than an edit.
 pub(super) fn install_actions(fixing: &Fixing<'_>, range: TextRange) -> Vec<Offer> {
-    let module = &fixing.context.module.text[std::ops::Range::<usize>::from(range)];
-    let mut packages = (fixing.packages.0.get(module).cloned()).unwrap_or_default();
+    let module = &fixing.context.module.text[range];
+    let mut packages = fixing.request.packages.exposing(module).to_vec();
     packages.sort_by(|a, b| compare_ranking(a, b));
     (packages.into_iter())
-        .map(|package| {
-            let title = format!("Install package \"{package}\"");
-            (
-                title,
-                here(fixing, Vec::new()),
-                Some(ActionCommand::InstallPackage { package }),
-            )
+        .map(|package| Offer {
+            title: format!("Install package \"{package}\""),
+            edits: here(fixing, Vec::new()),
+            command: Some(ActionCommand::InstallPackage { package }),
         })
         .collect()
 }

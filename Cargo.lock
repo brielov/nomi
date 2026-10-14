@@ -1036,6 +1036,7 @@ dependencies = [
  "nomi-format",
  "nomi-project",
  "nomi-syntax",
+ "nomi-testkit",
  "similar",
  "tempfile",
 ]

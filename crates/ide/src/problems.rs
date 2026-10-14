@@ -50,6 +50,13 @@ impl Source {
             Source::ElmReview => "elm-review",
         }
     }
+
+    /// The source a diagnostic names as `name`, where it is one.
+    pub fn parse(name: &str) -> Option<Source> {
+        [Source::Elm, Source::ElmLs, Source::ElmReview]
+            .into_iter()
+            .find(|source| source.as_str() == name)
+    }
 }
 
 macro_rules! codes {
@@ -291,7 +298,7 @@ pub fn missing_annotations(index: &Index, path: &Path) -> Vec<Problem> {
     };
     // A module that doesn't parse has its syntax error to show, and its
     // recovered tree's types are no one's.
-    if !nomi_syntax::parse_module(&module.text).errors().is_empty() {
+    if !module.parses {
         return Vec::new();
     }
     let (Some(canonical), Some((Ok(inferred), _))) =

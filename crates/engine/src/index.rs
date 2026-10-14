@@ -5,7 +5,7 @@
 //! application's releases are the ones its `elm.json` pins, and a
 //! package's are the newest the store holds in each range.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -19,7 +19,7 @@ use nomi_compiler::types::{self, ExprTypes, Inferred};
 use nomi_project::{Constraint, ModuleName, Name, Outline};
 use nomi_registry::Store;
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{GreenNode, SyntaxNode};
+use nomi_syntax::{GreenNode, Parse, SyntaxNode};
 
 use crate::check::env_of;
 use crate::graph::{Env, Foreigns, Graph, Module, Root, Status, written_imports};
@@ -42,6 +42,9 @@ pub struct Index {
     pub modules: Vec<Arc<Indexed>>,
     /// Each dependency's source directory, by package name.
     pub packages: HashMap<String, PathBuf>,
+    /// The modules each direct dependency the store holds exposes, by
+    /// package name.
+    pub exposed: HashMap<String, Vec<String>>,
     /// The interface of every module the project's modules may import:
     /// the direct dependencies' exposed ones and the project's own.
     pub interfaces: HashMap<String, Interface>,
@@ -90,6 +93,38 @@ impl PackageFiles {
     }
 }
 
+/// `ElmPackageCache`'s modules: for each module, the packages the store
+/// holds whose newest release exposes it.
+#[derive(Debug, Default)]
+pub struct PackageModules(BTreeMap<String, Vec<String>>);
+
+impl PackageModules {
+    /// The modules of the packages in `store`, as their `elm.json`s list
+    /// them.
+    pub fn read(store: &Store) -> PackageModules {
+        let mut modules: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for (package, sources) in store.newest().unwrap_or_default() {
+            let Ok(text) = fs::read(sources.join(ELM_JSON)) else {
+                continue;
+            };
+            if let Ok((Outline::Pkg(outline), _)) = Outline::detect(&text) {
+                for module in outline.exposed.modules() {
+                    modules
+                        .entry(module.to_string())
+                        .or_default()
+                        .push(package.to_string());
+                }
+            }
+        }
+        PackageModules(modules)
+    }
+
+    /// The packages that expose `module`.
+    pub fn exposing(&self, module: &str) -> &[String] {
+        self.0.get(module).map_or(&[], Vec::as_slice)
+    }
+}
+
 /// One of the project's own modules.
 #[derive(Clone, Debug)]
 pub struct Indexed {
@@ -97,6 +132,9 @@ pub struct Indexed {
     pub path: PathBuf,
     pub name: String,
     pub text: Arc<str>,
+    /// Whether its text parses without errors: a module that doesn't is
+    /// indexed as far as its recovered tree goes.
+    pub parses: bool,
     /// Its tree, which [`Indexed::root`] makes a cursor into; shareable
     /// across threads as a cursor isn't.
     pub green: GreenNode,
@@ -218,19 +256,25 @@ impl Setup {
         self
     }
 
+    /// The modules each direct dependency the store holds exposes.
+    pub(crate) fn exposing(&self) -> Vec<(Name, Vec<ModuleName>)> {
+        (self.direct.iter())
+            .filter_map(|name| {
+                let (_, dir) = self.sources.iter().find(|(n, _)| n == name)?;
+                let pkg = package_outline(dir, self.compat).ok()??;
+                Some((name.clone(), pkg.exposed.modules().cloned().collect()))
+            })
+            .collect()
+    }
+
     /// The project's build environment, with the modules each direct
-    /// dependency the store holds exposes.
-    pub(crate) fn env(&self) -> Option<Env> {
-        let exposing = self.direct.iter().filter_map(|name| {
-            let (_, dir) = self.sources.iter().find(|(n, _)| n == name)?;
-            let pkg = package_outline(dir, self.compat).ok()??;
-            Some((name.clone(), pkg.exposed.modules().cloned().collect()))
-        });
+    /// dependency exposes, as `exposing` lists them.
+    pub(crate) fn env(&self, exposing: &[(Name, Vec<ModuleName>)]) -> Option<Env> {
         env_of(
             &self.root,
             &self.outline,
             self.compat,
-            Foreigns::new(exposing),
+            Foreigns::new(exposing.iter().cloned()),
         )
         .ok()
     }
@@ -296,7 +340,8 @@ pub fn index_from(
 ) -> Option<Index> {
     let manifest = manifest(snapshot, file)?;
     let setup = Setup::read(snapshot, store, &manifest)?.with_tests(store);
-    let mut env = setup.env()?;
+    let exposing = setup.exposing();
+    let mut env = setup.env(&exposing)?;
     let tests = setup.root.join("tests");
     // Directories are the disk's; the Vfs keeps files.
     let listed = canonical(&tests).is_ok_and(|t| env.src_dirs().contains(&t));
@@ -358,10 +403,17 @@ pub fn index_from(
     visit.orphans(snapshot, &paths);
     let modules = visit.modules;
     let package_files = previous.map_or_else(Default::default, |p| Arc::clone(&p.package_files));
+    let exposed = (exposing.into_iter())
+        .map(|(name, modules)| {
+            let modules = modules.iter().map(ToString::to_string).collect();
+            (name.to_string(), modules)
+        })
+        .collect();
     Some(Index {
         compat,
         package,
         modules,
+        exposed,
         interfaces,
         package_files,
         packages: (sources.into_iter())
@@ -471,7 +523,7 @@ impl Visit<'_> {
                 if let (Some(parse), Some((_, text))) = (&bad.parse, &bad.source) {
                     let imports: Vec<ModuleName> =
                         bad.imports().into_iter().map(|i| i.name).collect();
-                    self.visit(&bad.path, None, text, &parse.syntax(), &imports);
+                    self.visit(&bad.path, None, text, parse, &imports);
                 }
             }
             Some(Status::Foreign(_) | Status::Kernel | Status::BadImport(_)) | None => {}
@@ -480,12 +532,11 @@ impl Visit<'_> {
 
     fn module(&mut self, module: &Module) {
         let imports: Vec<ModuleName> = module.imports.iter().map(|i| i.name.clone()).collect();
-        let syntax = module.parse.syntax();
         self.visit(
             &module.path,
             Some(&module.name),
             &module.text,
-            &syntax,
+            &module.parse,
             &imports,
         );
     }
@@ -511,7 +562,7 @@ impl Visit<'_> {
                 .map(|import| import.name)
                 .collect();
             let before = self.modules.len();
-            self.visit(path, None, &text, &parse.syntax(), &imports);
+            self.visit(path, None, &text, &parse, &imports);
             indexed.extend(
                 self.modules[before..]
                     .iter()
@@ -559,7 +610,7 @@ impl Visit<'_> {
         path: &Path,
         name: Option<&ModuleName>,
         text: &Arc<str>,
-        root: &SyntaxNode,
+        parse: &Parse,
         imports: &[ModuleName],
     ) {
         for import in imports {
@@ -575,6 +626,7 @@ impl Visit<'_> {
             self.push(reused);
             return;
         }
+        let root = parse.syntax();
         let Some(syntax) = ast::Module::cast(root.clone()) else {
             return;
         };
@@ -592,6 +644,7 @@ impl Visit<'_> {
             path: path.to_owned(),
             name,
             text: text.clone(),
+            parses: parse.errors().is_empty(),
             green: root.green().into_owned(),
             hir,
             references,

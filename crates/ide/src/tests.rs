@@ -1,7 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use nomi_engine::Vfs;
+use nomi_engine::index::{Index, PackageModules};
+use nomi_engine::{Snapshot, Vfs};
 
 use super::*;
 
@@ -30,6 +31,15 @@ fn open(module: &str) -> (tempfile::TempDir, Vfs, PathBuf) {
 
 fn at(text: &str, range: TextRange) -> &str {
     &text[range]
+}
+
+/// `text` with `edits` made.
+fn apply(text: &str, edits: &[Edit]) -> String {
+    let mut after = text.to_owned();
+    for edit in edits.iter().rev() {
+        after.replace_range(std::ops::Range::<usize>::from(edit.range), &edit.text);
+    }
+    after
 }
 
 #[test]
@@ -85,11 +95,7 @@ fn formatting_edits_only_what_changes() {
     let before = "module Main exposing (x, y)\n\n\nx = 1\n\n\n\n\ny =\n  2\n";
     let (_dir, vfs, path) = open(before);
     let edits = format(&vfs.snapshot(), &path).unwrap().unwrap();
-    let mut after = before.to_owned();
-    for edit in edits.iter().rev() {
-        after.replace_range(std::ops::Range::<usize>::from(edit.range), &edit.text);
-    }
-    assert_eq!(after, nomi_format::format(before).unwrap());
+    assert_eq!(apply(before, &edits), nomi_format::format(before).unwrap());
     // The header and `x`'s name are kept.
     assert!(
         edits.iter().all(|e| u32::from(e.range.start()) > 30),
@@ -143,30 +149,59 @@ fn symbols_are_listed_as_elm_language_server_lists_them() {
     );
 }
 
-/// A package store holding the compiler's fixture copy of elm/core 1.0.5.
-fn store() -> (tempfile::TempDir, nomi_engine::Store) {
-    fn copy(from: &Path, to: &Path) {
-        fs::create_dir_all(to).unwrap();
-        for entry in fs::read_dir(from).unwrap() {
-            let entry = entry.unwrap();
-            let target = to.join(entry.file_name());
-            if entry.file_type().unwrap().is_dir() {
-                copy(&entry.path(), &target);
-            } else {
-                fs::copy(entry.path(), target).unwrap();
-            }
-        }
-    }
-    let dir = tempfile::tempdir().unwrap();
+/// The project of the file at `path`, as `vfs` has it, indexed with a
+/// package store holding the fixture copy of elm/core 1.0.5.
+struct Project {
+    snapshot: Snapshot,
+    index: Index,
+    store: nomi_engine::Store,
+    _store_dir: tempfile::TempDir,
+}
+
+fn indexed(vfs: &Vfs, path: &Path) -> Project {
+    let store_dir = tempfile::tempdir().unwrap();
     let hash = "0".repeat(40);
-    let core =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages/elm/core/1.0.5");
-    copy(&core, &dir.path().join("sources").join(&hash));
-    let release = dir.path().join("releases/elm/core");
+    let core = nomi_testkit::packages::dir().join("elm/core/1.0.5");
+    let sources = store_dir.path().join("sources").join(&hash);
+    nomi_testkit::copy_tree(&core, &sources, |_| true).unwrap();
+    let release = store_dir.path().join("releases/elm/core");
     fs::create_dir_all(&release).unwrap();
     fs::write(release.join("1.0.5"), format!("{hash}\n")).unwrap();
-    let store = nomi_engine::Store::new(dir.path().to_owned());
-    (dir, store)
+    let store = nomi_engine::Store::new(store_dir.path().to_owned());
+    let snapshot = vfs.snapshot();
+    let index =
+        nomi_engine::index::index(&snapshot, &store, path, &mut Default::default()).unwrap();
+    Project {
+        snapshot,
+        index,
+        store,
+        _store_dir: store_dir,
+    }
+}
+
+/// One of elm's reports, at `range`.
+fn elm_report(code: Code, message: &str, range: TextRange) -> Diagnosed {
+    Diagnosed {
+        code: DiagnosticCode::Known(code),
+        message: message.to_owned(),
+        range,
+        severity: Severity::Error,
+        source: Some(Source::Elm),
+        unnecessary: false,
+        fixes: Vec::new(),
+    }
+}
+
+/// A code action request about `given` at its range.
+fn request<'a>(given: &'a [Diagnosed], packages: &'a PackageModules) -> Request<'a> {
+    Request {
+        range: given[0].range,
+        given,
+        problems: &[],
+        packages,
+        resolve: Resolve::Now,
+        moving: Moving::Unsupported,
+    }
 }
 
 const NAVIGATED: &str = "module Main exposing (main, Shape(..))
@@ -213,7 +248,7 @@ fn navigated() -> (tempfile::TempDir, Vfs, PathBuf, PathBuf) {
     (dir, vfs, path, other)
 }
 
-/// The offset of the `n`th `needle` in `text`, plus `plus`.
+/// The offset of the `n`th `needle` in `text`, plus one.
 fn offset(text: &str, needle: &str, n: usize) -> TextSize {
     let at = text.match_indices(needle).nth(n).unwrap().0;
     TextSize::new(at as u32 + 1)
@@ -232,11 +267,11 @@ fn an_unsaved_buffer_behind_a_link_is_found() {
     let path = link.join("src/Main.elm");
     let vfs = Vfs::new();
     vfs.set_overlay(&path, NAVIGATED).unwrap();
-    let (_store_dir, store) = store();
-    let snapshot = vfs.snapshot();
-    let index =
-        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
-    let found = definition(&snapshot, &index, &path, offset(NAVIGATED, "area", 0)).unwrap();
+    let project = indexed(&vfs, &path);
+    let Project {
+        snapshot, index, ..
+    } = &project;
+    let found = definition(snapshot, index, &path, offset(NAVIGATED, "area", 0)).unwrap();
     assert_eq!(
         found.path,
         nomi_engine::canonical(dir.path())
@@ -248,11 +283,11 @@ fn an_unsaved_buffer_behind_a_link_is_found() {
 #[test]
 fn definition_finds_locals_top_level_names_and_other_modules() {
     let (_dir, vfs, path, other) = navigated();
-    let (_store_dir, store) = store();
-    let snapshot = vfs.snapshot();
-    let index =
-        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
-    let go = |needle, n| definition(&snapshot, &index, &path, offset(NAVIGATED, needle, n));
+    let project = indexed(&vfs, &path);
+    let Project {
+        snapshot, index, ..
+    } = &project;
+    let go = |needle, n| definition(snapshot, index, &path, offset(NAVIGATED, needle, n));
     // `size` in the body, to its `let`.
     let found = go("size", 1).unwrap();
     assert_eq!(
@@ -294,16 +329,16 @@ fn definition_finds_locals_top_level_names_and_other_modules() {
 #[test]
 fn references_and_highlights_find_every_use() {
     let (_dir, vfs, path, other) = navigated();
-    let (_store_dir, store) = store();
-    let snapshot = vfs.snapshot();
-    let index =
-        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    let project = indexed(&vfs, &path);
+    let Project {
+        snapshot, index, ..
+    } = &project;
     // `helper`, from its use in Main: with the declaration, Other's
     // definition first, then Other's exposing list, as Other comes first,
     // then Main's import and use.
     let found = references(
-        &snapshot,
-        &index,
+        snapshot,
+        index,
         &path,
         offset(NAVIGATED, "helper", 1),
         Declaration::Include,
@@ -324,7 +359,7 @@ fn references_and_highlights_find_every_use() {
         ]
     );
     // `shape` in `area`, where it binds and where it's used.
-    let found = highlights(&snapshot, &index, &path, offset(NAVIGATED, "shape", 0));
+    let found = highlights(snapshot, index, &path, offset(NAVIGATED, "shape", 0));
     let found: Vec<&str> = found.iter().map(|&r| at(NAVIGATED, r)).collect();
     assert_eq!(found, ["shape", "shape"]);
 }
@@ -332,26 +367,26 @@ fn references_and_highlights_find_every_use() {
 #[test]
 fn hover_shows_definitions_as_elm_language_server_does() {
     let (_dir, vfs, path, _other) = navigated();
-    let (_store_dir, store) = store();
-    let snapshot = vfs.snapshot();
-    let index =
-        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    let project = indexed(&vfs, &path);
+    let Project {
+        snapshot, index, ..
+    } = &project;
     // `area`, which has no annotation: its inferred type, then its name
     // and parameters.
-    let found = hover(&snapshot, &index, &path, offset(NAVIGATED, "area", 1)).unwrap();
+    let found = hover(snapshot, index, &path, offset(NAVIGATED, "area", 1)).unwrap();
     assert_eq!(
         found.markdown,
         "\n```elm\narea : Shape -> Float\n```\n\n\n---\n\n\n```elm\narea shape\n```\n"
     );
     // `size` in the body, a variable of `let`.
-    let found = hover(&snapshot, &index, &path, offset(NAVIGATED, "size", 1)).unwrap();
+    let found = hover(snapshot, index, &path, offset(NAVIGATED, "size", 1)).unwrap();
     assert_eq!(
         found.markdown,
         "\n```elm\nsize : number\n```\n\n\n---\n\nDefined in local let scope"
     );
     // `r`, a case branch's variable: a parameter, linked to where its
     // type is declared.
-    let found = hover(&snapshot, &index, &path, offset(NAVIGATED, "r * r", 0)).unwrap();
+    let found = hover(snapshot, index, &path, offset(NAVIGATED, "r * r", 0)).unwrap();
     assert_eq!(
         found.markdown,
         "\n```elm\nr : Float\n```\n\n\n---\n\nLocal parameter"
@@ -364,13 +399,13 @@ fn hover_shows_definitions_as_elm_language_server_does() {
 #[test]
 fn completion_after_a_qualifier_offers_what_its_module_exposes() {
     let (_dir, vfs, path, _other) = navigated();
-    let (_store_dir, store) = store();
-    let snapshot = vfs.snapshot();
-    let index =
-        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    let project = indexed(&vfs, &path);
+    let Project {
+        snapshot, index, ..
+    } = &project;
     // After `Other.`: what Other exposes, with its type.
     let at_twice = offset(NAVIGATED, "twice", 0) - TextSize::new(1);
-    let Some(Completions::List(found)) = completions(&snapshot, &index, &path, at_twice) else {
+    let Some(Completions::Items(found)) = completions(snapshot, index, &path, at_twice) else {
         panic!("a list of its own");
     };
     let labels: Vec<&str> = found.iter().map(|c| c.label.as_str()).collect();
@@ -386,30 +421,19 @@ fn completion_after_a_qualifier_offers_what_its_module_exposes() {
 fn a_missing_module_offers_the_packages_that_expose_it() {
     let text = "module Main exposing (main)\n\nimport Dict\n\n\nmain =\n    Dict.empty\n";
     let (_dir, vfs, path) = open(text);
-    let (_store_dir, store) = store();
-    let snapshot = vfs.snapshot();
-    let index =
-        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    let project = indexed(&vfs, &path);
+    let Project {
+        snapshot,
+        index,
+        store,
+        ..
+    } = &project;
     let at = text.find("Dict").unwrap() as u32;
-    let given = [Diagnosed {
-        code: "import_resolve".to_owned(),
-        message: "MODULE NOT FOUND - You are trying to import a `Dict` module:".to_owned(),
-        range: TextRange::new(TextSize::new(at), TextSize::new(at + 4)),
-        severity: Severity::Error,
-        source: "Elm".to_owned(),
-        unnecessary: false,
-        fixes: Vec::new(),
-    }];
-    let packages = PackageModules::read(&store);
-    let request = Request {
-        range: given[0].range,
-        given: &given,
-        problems: &[],
-        packages: &packages,
-        lazy: false,
-        move_function: false,
-    };
-    let found = code_actions(&snapshot, &index, &path, &request);
+    let message = "MODULE NOT FOUND - You are trying to import a `Dict` module:";
+    let range = TextRange::new(TextSize::new(at), TextSize::new(at + 4));
+    let given = [elm_report(Code::ImportResolve, message, range)];
+    let packages = PackageModules::read(store);
+    let found = code_actions(snapshot, index, &path, &request(&given, &packages));
     let offered: Vec<_> = (found.iter())
         .map(|a| (a.title.as_str(), a.command.clone()))
         .collect();
@@ -424,16 +448,9 @@ fn a_missing_module_offers_the_packages_that_expose_it() {
     );
     // A module no package downloaded has: nothing to install.
     let missing = TextRange::new(TextSize::new(at), TextSize::new(at + 2));
-    let given = [Diagnosed {
-        range: missing,
-        ..given[0].clone()
-    }];
-    let request = Request {
-        range: missing,
-        given: &given,
-        ..request
-    };
-    assert_eq!(code_actions(&snapshot, &index, &path, &request), []);
+    let given = [elm_report(Code::ImportResolve, message, missing)];
+    let found = code_actions(snapshot, index, &path, &request(&given, &packages));
+    assert_eq!(found, []);
 }
 
 #[test]
@@ -441,55 +458,49 @@ fn exposing_edits_keep_the_list_well_formed() {
     let text = "module Main exposing (a, B(..), c)\n\n\na =\n    1\n";
     let (_dir, vfs, path) = open(text);
     let snapshot = vfs.snapshot();
-    let edit = |name, expose| {
-        let edit = exposing_edit(&snapshot, &path, name, expose)?;
-        let mut after = text.to_owned();
-        after.replace_range(std::ops::Range::<usize>::from(edit.range), &edit.text);
-        Some(after.lines().next().unwrap().to_owned())
+    let edit = |name, exposure| {
+        let edit = exposing_edit(&snapshot, &path, name, exposure)?;
+        Some(apply(text, &[edit]).lines().next().unwrap().to_owned())
     };
+    let (expose, unexpose) = (Exposure::Expose, Exposure::Unexpose);
     // The first and middle ones take the comma after them, the last the
     // one before it.
     assert_eq!(
-        edit("a", false).as_deref(),
+        edit("a", unexpose).as_deref(),
         Some("module Main exposing (B(..), c)")
     );
     assert_eq!(
-        edit("B", false).as_deref(),
+        edit("B", unexpose).as_deref(),
         Some("module Main exposing (a, c)")
     );
     assert_eq!(
-        edit("c", false).as_deref(),
+        edit("c", unexpose).as_deref(),
         Some("module Main exposing (a, B(..))")
     );
     assert_eq!(
-        edit("d", true).as_deref(),
+        edit("d", expose).as_deref(),
         Some("module Main exposing (a, B(..), c, d)")
     );
     // Already exposed, or not there to unexpose.
-    assert_eq!(edit("a", true), None);
-    assert_eq!(edit("d", false), None);
+    assert_eq!(edit("a", expose), None);
+    assert_eq!(edit("d", unexpose), None);
     // The only one exposed stays, as elm-format would add it back.
     let (_dir, vfs, path) = open("module Main exposing (a)\n\n\na =\n    1\n");
-    assert_eq!(exposing_edit(&vfs.snapshot(), &path, "a", false), None);
+    assert_eq!(exposing_edit(&vfs.snapshot(), &path, "a", unexpose), None);
 }
 
 #[test]
 fn a_resolved_annotation_is_inferred_at_the_definitions_column() {
     let text = "module Main exposing (main)\n\n\nmain =\n    let\n        twice n =\n            n * 2\n    in\n    twice 2\n";
     let (_dir, vfs, path) = open(text);
-    let (_store_dir, store) = store();
-    let snapshot = vfs.snapshot();
-    let index =
-        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    let project = indexed(&vfs, &path);
+    let Project {
+        snapshot, index, ..
+    } = &project;
     let at = TextSize::new(text.find("twice n").unwrap() as u32 + 1);
-    let (edits, rename) = refactor_edits(
-        &index,
-        &snapshot,
-        &path,
-        "add_type_annotation",
-        TextRange::empty(at),
-    )
-    .unwrap();
+    let action = RefactorAction::AddTypeAnnotation;
+    let (edits, rename) =
+        refactor_edits(index, snapshot, &path, action, TextRange::empty(at)).unwrap();
     assert_eq!(rename, None);
     assert_eq!(edits.len(), 1);
     assert_eq!(edits[0].text, "twice : number -> number\n        ");
@@ -499,42 +510,22 @@ fn a_resolved_annotation_is_inferred_at_the_definitions_column() {
 /// The actions for one of elm's reports, at `region` in `text`.
 fn actions_for(text: &str, region: &str, message: &str) -> (String, Vec<Action>) {
     let (_dir, vfs, path) = open(text);
-    let (_store_dir, store) = store();
-    let snapshot = vfs.snapshot();
-    let index =
-        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    let project = indexed(&vfs, &path);
+    let Project {
+        snapshot, index, ..
+    } = &project;
     let at = text.find(region).unwrap() as u32;
     let range = TextRange::new(TextSize::new(at), TextSize::new(at + region.len() as u32));
-    let given = [Diagnosed {
-        code: "elm_make".to_owned(),
-        message: message.to_owned(),
-        range,
-        severity: Severity::Error,
-        source: "Elm".to_owned(),
-        unnecessary: false,
-        fixes: Vec::new(),
-    }];
+    let given = [elm_report(Code::ElmMake, message, range)];
     let packages = PackageModules::default();
-    let request = Request {
-        range,
-        given: &given,
-        problems: &[],
-        packages: &packages,
-        lazy: false,
-        move_function: false,
-    };
-    let found = code_actions(&snapshot, &index, &path, &request);
+    let found = code_actions(snapshot, index, &path, &request(&given, &packages));
     (text.to_owned(), found)
 }
 
-/// `text` with an action's edits made.
+/// `text` with an action's edits of its first file made.
 fn applied(text: &str, action: &Action) -> String {
-    let mut after = text.to_owned();
-    let (_, edits) = &action.edits.as_ref().unwrap()[0];
-    for edit in edits.iter().rev() {
-        after.replace_range(std::ops::Range::<usize>::from(edit.range), &edit.text);
-    }
-    after
+    let (_, edits) = action.edits.iter().flatten().next().unwrap();
+    apply(text, edits)
 }
 
 #[test]
@@ -588,15 +579,15 @@ fn a_qualified_type_is_one_name() {
     let main =
         "module Main exposing (x)\n\nimport Dict\n\n\nx : Dict.Dict Int Int -> Int\nx v =\n    1\n";
     let (_dir, vfs, path) = open(main);
-    let (_store_dir, store) = store();
-    let snapshot = vfs.snapshot();
-    let index =
-        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    let project = indexed(&vfs, &path);
+    let Project {
+        snapshot, index, ..
+    } = &project;
     let qualifier = TextSize::new(main.find("Dict.Dict").unwrap() as u32);
     let name = qualifier + TextSize::new(5);
-    let found = definition(&snapshot, &index, &path, qualifier).unwrap();
-    assert_eq!(Some(found), definition(&snapshot, &index, &path, name));
-    let hovered = hover(&snapshot, &index, &path, qualifier).unwrap();
+    let found = definition(snapshot, index, &path, qualifier).unwrap();
+    assert_eq!(Some(found), definition(snapshot, index, &path, name));
+    let hovered = hover(snapshot, index, &path, qualifier).unwrap();
     assert!(
         hovered.markdown.contains("type Dict k v"),
         "{}",
@@ -608,12 +599,12 @@ fn a_qualified_type_is_one_name() {
 fn an_alias_pattern_is_typed_as_its_pattern() {
     let main = "module Main exposing (f)\n\n\nf : { a : Int, b : String } -> Int\nf ({ a } as whole) =\n    a\n";
     let (_dir, vfs, path) = open(main);
-    let (_store_dir, store) = store();
-    let snapshot = vfs.snapshot();
-    let index =
-        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    let project = indexed(&vfs, &path);
+    let Project {
+        snapshot, index, ..
+    } = &project;
     let at = TextSize::new(main.find("whole").unwrap() as u32 + 1);
-    let found = hover(&snapshot, &index, &path, at).unwrap();
+    let found = hover(snapshot, index, &path, at).unwrap();
     assert_eq!(
         found.markdown,
         "\n```elm\nwhole : { a : Int, b : String }\n```\n\n\n---\n\nLocal parameter"
@@ -625,12 +616,12 @@ fn a_call_is_typed_through_its_last_arguments_parentheses() {
     // elm's region for `matrix (size - 1)` ends before the `)`.
     let main = "module Main exposing (matrix)\n\n\nmatrix : Int -> List Int\nmatrix size =\n    if size <= 0 then\n        []\n\n    else\n        let\n            subMatrix =\n                matrix (size - 1)\n        in\n        subMatrix\n";
     let (_dir, vfs, path) = open(main);
-    let (_store_dir, store) = store();
-    let snapshot = vfs.snapshot();
-    let index =
-        nomi_engine::index::index(&snapshot, &store, &path, &mut Default::default()).unwrap();
+    let project = indexed(&vfs, &path);
+    let Project {
+        snapshot, index, ..
+    } = &project;
     let at = TextSize::new(main.find("subMatrix").unwrap() as u32 + 1);
-    let found = hover(&snapshot, &index, &path, at).unwrap();
+    let found = hover(snapshot, index, &path, at).unwrap();
     assert_eq!(
         found.markdown,
         "\n```elm\nsubMatrix : List Int\n```\n\n\n---\n\nDefined in local let scope"

@@ -13,11 +13,6 @@ pub(crate) fn child(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxNode> {
     node.children().find(|c| c.kind() == kind)
 }
 
-/// The text of `node`'s first token of `kind` among its own.
-pub(crate) fn token(node: &SyntaxNode, kind: SyntaxKind) -> Option<String> {
-    child_token(node, kind).map(|t| t.text().to_owned())
-}
-
 /// `node`'s last child token of `kind`, among its own.
 pub(crate) fn last_child_token(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxToken> {
     (node.children_with_tokens())

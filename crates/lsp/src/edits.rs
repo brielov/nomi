@@ -132,8 +132,9 @@ impl Server {
         let Some(index) = self.index(&snapshot, &path) else {
             return Ok(action);
         };
-        if let Some((edits, rename)) =
-            nomi_ide::refactor_edits(&index, &snapshot, &path, name, range)
+        if let Some(refactor) = nomi_ide::RefactorAction::parse(name)
+            && let Some((edits, rename)) =
+                nomi_ide::refactor_edits(&index, &snapshot, &path, refactor, range)
         {
             let edits: Vec<TextEdit> = (edits.iter())
                 .map(|e| TextEdit::new(text.range(e.range), e.text.clone()))
@@ -152,7 +153,7 @@ impl Server {
     pub(crate) fn expose(
         &mut self,
         params: &Value,
-        expose: bool,
+        exposure: nomi_ide::Exposure,
     ) -> Result<Value, (ErrorCode, String)> {
         let (Some(uri), Some(name)) = (params["uri"].as_str(), params["name"].as_str()) else {
             return Err((ErrorCode::InvalidParams, "a file and a name".to_owned()));
@@ -162,7 +163,7 @@ impl Server {
         let path = document.path.clone();
         let text = Text::new(&document.text, self.unit);
         let snapshot = self.vfs.snapshot();
-        if let Some(edit) = nomi_ide::exposing_edit(&snapshot, &path, name, expose) {
+        if let Some(edit) = nomi_ide::exposing_edit(&snapshot, &path, name, exposure) {
             let edit = TextEdit::new(text.range(edit.range), edit.text);
             let params = serde_json::json!({ "edit": { "changes": { uri.as_str(): [edit] } } });
             self.ask("workspace/applyEdit", params);
@@ -283,9 +284,9 @@ impl Server {
             let edits: Vec<TextEdit> = (edits.into_iter())
                 .map(|edit| match edit {
                     nomi_ide::MoveEdit::Edit(e) => TextEdit::new(text.range(e.range), e.text),
-                    nomi_ide::MoveEdit::AtLine(line, inserted) => {
+                    nomi_ide::MoveEdit::AtLine { line, text } => {
                         let at = lsp_types::Position::new(line, 0);
-                        TextEdit::new(lsp_types::Range::new(at, at), inserted)
+                        TextEdit::new(lsp_types::Range::new(at, at), text)
                     }
                 })
                 .collect();
@@ -332,10 +333,13 @@ impl Server {
         let given_json = &params.context.diagnostics;
         let given: Vec<nomi_ide::Diagnosed> = (given_json.iter())
             .map(|d| nomi_ide::Diagnosed {
-                code: (d.data.as_ref())
-                    .and_then(|data| data["code"].as_str())
-                    .unwrap_or_default()
-                    .to_owned(),
+                code: match (d.data.as_ref()).and_then(|data| data["code"].as_str()) {
+                    None | Some("") => nomi_ide::DiagnosticCode::Missing,
+                    Some(code) => nomi_ide::Code::parse(code).map_or(
+                        nomi_ide::DiagnosticCode::Other,
+                        nomi_ide::DiagnosticCode::Known,
+                    ),
+                },
                 message: d.message.clone(),
                 range: text.text_range(d.range),
                 severity: match d.severity {
@@ -345,7 +349,7 @@ impl Server {
                     }
                     _ => nomi_ide::Severity::Warning,
                 },
-                source: d.source.clone().unwrap_or_default(),
+                source: d.source.as_deref().and_then(nomi_ide::Source::parse),
                 unnecessary: (d.tags.iter().flatten()).any(|t| *t == DiagnosticTag::UNNECESSARY),
                 // elm-review's fixes, as its diagnostic carries them.
                 fixes: (d.data.as_ref())
@@ -378,19 +382,26 @@ impl Server {
         let store = &self.store;
         let packages = self
             .packages
-            .get_or_insert_with(|| nomi_ide::PackageModules::read(store));
+            .get_or_insert_with(|| index::PackageModules::read(store));
         let request = nomi_ide::Request {
             range: text.text_range(params.range),
             given: &given,
             problems: &problems,
             packages,
-            lazy: self.resolves_edits,
-            move_function: self
-                .settings
-                .lock()
+            resolve: if self.resolves_edits {
+                nomi_ide::Resolve::Later
+            } else {
+                nomi_ide::Resolve::Now
+            },
+            moving: if (self.settings.lock())
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .extended_capabilities
-                .move_function,
+                .move_function
+            {
+                nomi_ide::Moving::Supported
+            } else {
+                nomi_ide::Moving::Unsupported
+            },
         };
         let actions = nomi_ide::code_actions(&snapshot, index, &path, &request);
         let mut found = Vec::new();
@@ -412,11 +423,16 @@ impl Server {
                 Some(nomi_ide::ActionDiagnostics::Program(diagnostics)) => {
                     let diagnostics: Vec<Value> = (diagnostics.iter())
                         .map(|d| {
+                            let code = match d.code {
+                                nomi_ide::DiagnosticCode::Known(code) => code.as_str(),
+                                nomi_ide::DiagnosticCode::Other
+                                | nomi_ide::DiagnosticCode::Missing => "",
+                            };
                             let mut json = serde_json::json!({
-                                "code": d.code, "message": d.message,
+                                "code": code, "message": d.message,
                                 "range": text.range(d.range),
                                 "severity": severity_number(d.severity),
-                                "source": d.source, "uri": uri,
+                                "source": d.source.map(nomi_ide::Source::as_str), "uri": uri,
                             });
                             if d.unnecessary {
                                 json["tags"] = serde_json::json!([1]);
@@ -446,22 +462,21 @@ impl Server {
             }
             match action.data {
                 nomi_ide::ActionData::Fix { id, all: false } => {
-                    json.insert("data".into(), serde_json::json!({ "fixId": id }));
+                    json.insert("data".into(), serde_json::json!({ "fixId": id.as_str() }));
                 }
                 nomi_ide::ActionData::Fix { id, all: true } => {
                     json.insert(
                         "data".into(),
-                        serde_json::json!({ "fixId": id, "isFixAll": true }),
+                        serde_json::json!({ "fixId": id.as_str(), "isFixAll": true }),
                     );
                 }
                 nomi_ide::ActionData::Refactor {
-                    name,
                     action,
                     range,
                     rename,
                 } => {
                     let mut data = serde_json::json!({
-                        "actionName": action, "refactorName": name,
+                        "actionName": action.as_str(), "refactorName": action.refactor(),
                         "range": text.range(range), "uri": uri,
                     });
                     if let Some(rename) = rename {

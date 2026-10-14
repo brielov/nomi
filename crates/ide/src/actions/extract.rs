@@ -3,12 +3,48 @@
 //! offered where tree-sitter-elm has a node of the right kind exactly at
 //! the range, which this module reads off nomi's tree.
 
-use super::*;
+use std::fmt::Write as _;
 
-/// What tree-sitter-elm's deepest named node exactly at `range` would be
-/// called, roughly: enough to tell an expression (`*_expr`) or a type
-/// (`*type*`) from the rest. A single name is an identifier there.
-fn exact_kind(root: &SyntaxNode, range: TextRange) -> Option<(SyntaxNode, &'static str)> {
+use nomi_base::{TextRange, TextSize};
+use nomi_compiler::types::error;
+use nomi_syntax::ast::{self, AstNode};
+use nomi_syntax::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, significant_tokens};
+
+use super::refactor::outermost_function;
+use super::{Fixing, Refactor, RefactorAction, RenameAt, token_at};
+use crate::completion::Context;
+use crate::tree::{code_range, skip_trivia, words};
+use crate::{Edit, column, last_line, next_line};
+
+/// Where an extracted function goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Place {
+    /// The enclosing `let`.
+    Let,
+    TopLevel,
+}
+
+/// What an extracted type alias is of: the type exactly at the range, the
+/// one in the parentheses it covers, or the run of a function type's
+/// parts it covers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AliasOf {
+    Type,
+    Parenthesized,
+    Parts,
+}
+
+/// What tree-sitter-elm's deepest named node exactly at a range is, as
+/// far as extracting tells: an expression or a type.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Exact {
+    Expression,
+    Type,
+}
+
+/// The deepest node exactly at `range`, roughly as tree-sitter-elm would
+/// have it, and what it is. A single name is an identifier there.
+fn exact_node(root: &SyntaxNode, range: TextRange) -> Option<(SyntaxNode, Exact)> {
     if range.is_empty() {
         return None;
     }
@@ -21,7 +57,7 @@ fn exact_kind(root: &SyntaxNode, range: TextRange) -> Option<(SyntaxNode, &'stat
             let parent = token.parent()?;
             return (parent.kind() == SyntaxKind::LiteralExpr
                 && code_range(&parent) == Some(range))
-            .then_some((parent, "literal_expr"));
+            .then_some((parent, Exact::Expression));
         }
         SyntaxElement::Node(node) => node,
     };
@@ -32,10 +68,7 @@ fn exact_kind(root: &SyntaxNode, range: TextRange) -> Option<(SyntaxNode, &'stat
     while let Some(inner) = node.children().find(|c| code_range(c) == Some(range)) {
         node = inner;
     }
-    let tokens: Vec<SyntaxToken> = (node.descendants_with_tokens())
-        .filter_map(|e| e.into_token())
-        .filter(|t| !t.kind().is_trivia())
-        .collect();
+    let tokens: Vec<SyntaxToken> = significant_tokens(&node).collect();
     let one_name = tokens.len() == 1
         && matches!(
             tokens[0].kind(),
@@ -51,72 +84,57 @@ fn exact_kind(root: &SyntaxNode, range: TextRange) -> Option<(SyntaxNode, &'stat
     if one_name || qualified_name {
         return None;
     }
-    let parent = node.parent();
-    let parent_kind = parent.as_ref().map(SyntaxNode::kind);
+    let parent_kind = node.parent().as_ref().map(SyntaxNode::kind);
     // tree-sitter-elm's `case` in parentheses runs on to the `)`.
     let closed = || {
-        node.last_token()
-            .and_then(|t| {
-                std::iter::successors(t.next_token(), |t| t.next_token())
-                    .find(|t| !t.kind().is_trivia())
-            })
+        (node.last_token().and_then(|t| t.next_token()))
+            .and_then(skip_trivia)
             .is_some_and(|t| t.kind() == SyntaxKind::RParen)
     };
     if node.kind() == SyntaxKind::CaseExpr && parent_kind == Some(SyntaxKind::ParenExpr) && closed()
     {
         return None;
     }
-    let kind = match node.kind() {
+    let exact = match node.kind() {
         SyntaxKind::NameExpr => return None,
-        SyntaxKind::LiteralExpr => "literal_expr",
-        SyntaxKind::NamedType => "type_ref",
-        SyntaxKind::RecordType => "record_type",
-        SyntaxKind::TupleType => "tuple_type",
-        SyntaxKind::FieldType => "field_type",
+        SyntaxKind::NamedType
+        | SyntaxKind::RecordType
+        | SyntaxKind::TupleType
+        | SyntaxKind::FieldType => Exact::Type,
         // A function type nested in another is part of tree-sitter's flat
         // type_expression, and parentheses are its own tokens.
-        SyntaxKind::FunctionType if parent_kind != Some(SyntaxKind::FunctionType) => {
-            "type_expression"
-        }
-        SyntaxKind::ParenType if parent_kind == Some(SyntaxKind::Signature) => "type_expression",
-        kind if format!("{kind:?}").ends_with("Expr") || kind == SyntaxKind::OperatorChain => {
-            "expr"
+        SyntaxKind::FunctionType if parent_kind != Some(SyntaxKind::FunctionType) => Exact::Type,
+        SyntaxKind::ParenType if parent_kind == Some(SyntaxKind::Signature) => Exact::Type,
+        // An operator's function is an identifier there.
+        kind if ast::Expr::can_cast(kind) && kind != SyntaxKind::OperatorFunction => {
+            Exact::Expression
         }
         _ => return None,
     };
-    Some((node, kind))
+    Some((node, exact))
 }
 
 /// The refactors that extract what `range` covers, in registration order.
 pub(super) fn extract_refactors(fixing: &Fixing<'_>, range: TextRange) -> Vec<Refactor> {
     let module = fixing.context.module;
+    let root = module.root();
+    let exact = exact_node(&root, range);
     let mut found = Vec::new();
-    if let Some((node, kind)) = exact_kind(&module.root(), range)
-        && kind.contains("expr")
-        && kind != "type_expression"
-    {
+    if let Some((node, Exact::Expression)) = &exact {
         if node.ancestors().any(|a| a.kind() == SyntaxKind::LetExpr) {
-            found.push(Refactor::new(
-                "extract_function",
-                "extract_let",
-                "Extract function to enclosing let",
-                ActionKind::RefactorExtract,
-            ));
+            let action = RefactorAction::ExtractFunction(Place::Let);
+            found.push(Refactor::new(action, "Extract function to enclosing let"));
         }
-        found.push(Refactor::new(
-            "extract_function",
-            "extract_top_level",
-            "Extract function to top level",
-            ActionKind::RefactorExtract,
-        ));
+        let action = RefactorAction::ExtractFunction(Place::TopLevel);
+        found.push(Refactor::new(action, "Extract function to top level"));
     }
-    if let Some(action) = type_alias_action(&module.root(), &module.text, range) {
-        found.push(Refactor::new(
-            "extract_type_alias",
-            action,
-            "Extract type alias",
-            ActionKind::RefactorExtract,
-        ));
+    let of = match exact {
+        Some((_, Exact::Type)) => Some(AliasOf::Type),
+        Some((_, Exact::Expression)) | None => alias_of(&root, &module.text, range),
+    };
+    if let Some(of) = of {
+        let action = RefactorAction::ExtractTypeAlias(of);
+        found.push(Refactor::new(action, "Extract type alias"));
     }
     found
 }
@@ -139,18 +157,9 @@ fn top_level_part(node: &SyntaxNode) -> Option<SyntaxNode> {
     })
 }
 
-fn line_of(text: &str, at: TextSize) -> usize {
-    text[..usize::from(at)].matches('\n').count()
-}
-
-fn column_of(text: &str, at: TextSize) -> usize {
-    let line_start = text[..usize::from(at)].rfind('\n').map_or(0, |i| i + 1);
-    text[line_start..usize::from(at)].chars().count()
-}
-
 /// The renaming position after an edit inserted `inserted` at `at`: as
-/// many lines lower as it adds when it's above `range`, and one column
-/// right inside added parentheses.
+/// many lines lower as it adds when it's on a line above `range`'s, and
+/// one column right inside added parentheses.
 fn rename_after(
     text: &str,
     at: TextSize,
@@ -158,7 +167,8 @@ fn rename_after(
     range: TextRange,
     parenthesized: bool,
 ) -> RenameAt {
-    let lines = if line_of(text, at) < line_of(text, range.start()) {
+    let above = at < range.start() && text[TextRange::new(at, range.start())].contains('\n');
+    let lines = if above {
         inserted.matches('\n').count() as u32
     } else {
         0
@@ -172,7 +182,7 @@ fn rename_after(
 
 /// `createFunction`: `newFunction`, typed or not, taking `args`, with
 /// `content` indented four past `target` from where it was at `from`.
-fn new_function(
+fn extracted_function(
     ty: Option<&str>,
     args: &[String],
     content: &str,
@@ -204,12 +214,12 @@ fn new_function(
 /// place of what it was made from.
 pub(super) fn function_edits(
     context: &Context<'_>,
-    action: &str,
+    place: Place,
     range: TextRange,
 ) -> Option<(Vec<Edit>, Option<RenameAt>)> {
     let module = context.module;
     let (root, text) = (&module.root(), &*module.text);
-    let (mut node, _) = exact_kind(root, range)?;
+    let (mut node, _) = exact_node(root, range)?;
     let mut parenthesized = node.kind() == SyntaxKind::ParenExpr;
     if parenthesized {
         node = node.children().next()?;
@@ -224,54 +234,53 @@ pub(super) fn function_edits(
         parenthesized = true;
     }
     let node_range = code_range(&node)?;
-    let (insert_at, target_column, target_let, annotate) = if action == "extract_let" {
-        let let_expr = node.ancestors().find(|a| a.kind() == SyntaxKind::LetExpr)?;
-        let last = (let_expr.children())
-            .filter(|c| matches!(c.kind(), SyntaxKind::LetValue | SyntaxKind::LetDestructure))
-            .last()?;
-        let line = line_of(text, code_range(&last)?.end()) + 1;
-        let column = column_of(text, code_range(&let_expr)?.start()) + 4;
-        (line_start(text, line), column, Some(let_expr), false)
-    } else {
-        let line = match node
-            .ancestors()
-            .find(|a| a.parent().is_some_and(|p| p.kind() == SyntaxKind::Module))
-        {
-            Some(top) => line_of(text, code_range(&top)?.end()) + 1,
-            None => text.matches('\n').count(),
-        };
-        (line_start(text, line), 0, None, true)
+    let (insert_at, target_column, target_let) = match place {
+        Place::Let => {
+            let let_expr = node.ancestors().find(|a| a.kind() == SyntaxKind::LetExpr)?;
+            let last = (let_expr.children())
+                .filter(|c| matches!(c.kind(), SyntaxKind::LetValue | SyntaxKind::LetDestructure))
+                .last()?;
+            let at = next_line(text, code_range(&last)?.end());
+            (
+                at,
+                column(text, code_range(&let_expr)?.start()) + 4,
+                Some(let_expr),
+            )
+        }
+        Place::TopLevel => {
+            let top = (node.ancestors())
+                .find(|a| a.parent().is_some_and(|p| p.kind() == SyntaxKind::Module));
+            let at = match top {
+                Some(top) => next_line(text, code_range(&top)?.end()),
+                None => last_line(text),
+            };
+            (at, 0, None)
+        }
     };
     let args = arguments(context, &node, target_let.as_ref());
-    let ty = annotate
-        .then(|| function_type(context, &node, &args))
-        .flatten();
+    let ty = match place {
+        Place::Let => None,
+        Place::TopLevel => function_type(context, &node, &args),
+    };
     let names: Vec<String> = args.iter().map(|a| a.text().to_owned()).collect();
-    let content = &text[std::ops::Range::<usize>::from(node_range)];
-    let function = new_function(
+    let function = extracted_function(
         ty.as_deref(),
         &names,
-        content,
-        column_of(text, node_range.start()),
+        &text[node_range],
+        column(text, node_range.start()),
         target_column,
     );
-    let call = if names.is_empty() {
-        "newFunction".to_owned()
-    } else {
-        format!("newFunction {}", names.join(" "))
-    };
+    let mut call = "newFunction".to_owned();
+    for name in &names {
+        let _ = write!(call, " {name}");
+    }
     let parenthesized = parenthesized && !names.is_empty();
-    let call = if parenthesized {
-        format!("({call})")
-    } else {
-        call
-    };
+    if parenthesized {
+        call = format!("({call})");
+    }
     let rename = rename_after(text, insert_at, &function, range, parenthesized);
     let edits = vec![
-        Edit {
-            range: TextRange::empty(insert_at),
-            text: function,
-        },
+        Edit::insert(insert_at, function),
         Edit { range, text: call },
     ];
     Some((edits, Some(rename)))
@@ -284,8 +293,7 @@ fn arguments(
     node: &SyntaxNode,
     target_let: Option<&SyntaxNode>,
 ) -> Vec<SyntaxToken> {
-    let module = context.module;
-    let root = &module.root();
+    let root = &context.module.root();
     let within = node.text_range();
     let mut found: Vec<SyntaxToken> = Vec::new();
     for reference in node.descendants().filter(|n| {
@@ -317,28 +325,21 @@ fn arguments(
             continue;
         }
         let at = name.text_range().start();
-        match crate::scopes::local(root, at) {
+        let seen = match crate::scopes::local(root, at) {
+            // A `let` sees what's in scope around it.
             Some((binder, scope)) => {
-                if within.contains_range(binder) {
-                    continue;
-                }
-                // A `let` sees what's in scope around it.
-                let seen =
-                    target_let.is_some_and(|l| scope.text_range().contains_range(l.text_range()));
-                if seen {
-                    continue;
-                }
+                within.contains_range(binder)
+                    || target_let.is_some_and(|l| scope.text_range().contains_range(l.text_range()))
             }
+            // Top-level values and imports are seen from anywhere.
             None => {
-                // Top-level values and imports are seen from anywhere.
-                if crate::navigation::definition(context.snapshot, context.index, context.path, at)
+                crate::navigation::definition(context.snapshot, context.index, context.path, at)
                     .is_some()
-                {
-                    continue;
-                }
             }
+        };
+        if !seen {
+            found.push(name);
         }
-        found.push(name);
     }
     found
 }
@@ -355,19 +356,17 @@ fn function_type(context: &Context<'_>, node: &SyntaxNode, args: &[SyntaxToken])
             .cloned()
     };
     let body = type_at(code_range(node)?)?;
-    let ty = if args.is_empty() {
-        body
-    } else {
-        let mut parts: Vec<error::Type> = (args.iter())
-            .map(|a| a.parent().and_then(|p| code_range(&p)).and_then(type_at))
-            .collect::<Option<_>>()?;
-        parts.push(body);
-        let first = parts.remove(0);
-        let second = parts.remove(0);
-        error::Type::Lambda(Box::new(first), Box::new(second), parts)
+    let mut parts = (args.iter())
+        .map(|a| a.parent().and_then(|p| code_range(&p)).and_then(type_at))
+        .collect::<Option<Vec<error::Type>>>()?
+        .into_iter()
+        .chain([body]);
+    let first = parts.next()?;
+    let ty = match parts.next() {
+        None => first,
+        Some(second) => error::Type::Lambda(Box::new(first), Box::new(second), parts.collect()),
     };
-    let names = crate::hover::Names::of(context.index, module);
-    Some(crate::hover::render_error(&names, &ty))
+    Some(crate::hover::render_error(context.names(), &ty))
 }
 
 /// The tree-sitter `type_expression` `node` is in: the outermost of a chain
@@ -377,31 +376,19 @@ fn type_expression_of(node: &SyntaxNode) -> Option<SyntaxNode> {
     loop {
         let parent = current.parent()?;
         match parent.kind() {
-            SyntaxKind::FunctionType => {
-                let mut top = parent;
-                while let Some(up) = top
-                    .parent()
-                    .filter(|u| u.kind() == SyntaxKind::FunctionType)
-                {
-                    top = up;
-                }
-                return Some(top);
-            }
+            SyntaxKind::FunctionType => return Some(outermost_function(parent)),
             SyntaxKind::Signature | SyntaxKind::ParenType => return Some(current),
             _ => current = parent,
         }
     }
 }
 
-/// Which type alias extraction applies at `range`: of a type exactly
-/// there, of one in parentheses, or of a run of a function's parameters.
-fn type_alias_action(root: &SyntaxNode, text: &str, range: TextRange) -> Option<&'static str> {
-    if exact_kind(root, range).is_some_and(|(_, kind)| kind.contains("type")) {
-        return Some("extract_type_alias");
-    }
+/// Which type alias extraction applies at `range` where no type is
+/// exactly there: of one in parentheses, or of a run of a function's
+/// parameters.
+fn alias_of(root: &SyntaxNode, text: &str, range: TextRange) -> Option<AliasOf> {
     let start = token_at(root, range.start())?;
-    let before_end = text[..usize::from(range.end())].chars().last();
-    if before_end == Some(')') {
+    if text[..usize::from(range.end())].ends_with(')') {
         let close = root
             .token_at_offset(range.end() - TextSize::new(1))
             .right_biased()?;
@@ -412,7 +399,7 @@ fn type_alias_action(root: &SyntaxNode, text: &str, range: TextRange) -> Option<
                 .is_some_and(|p| p.kind() == SyntaxKind::ParenType)
             && start.parent() == close.parent()
         {
-            return Some("extract_type_alias_parenthesized_expr");
+            return Some(AliasOf::Parenthesized);
         }
     }
     let end = token_at(root, range.end())?;
@@ -425,91 +412,87 @@ fn type_alias_action(root: &SyntaxNode, text: &str, range: TextRange) -> Option<
     (type_expression_of(&first)? == type_expression_of(&last)?
         && first_range.start() == range.start()
         && last_range.end() == range.end())
-    .then_some("extract_type_alias_partial_type_expr")
+    .then_some(AliasOf::Parts)
+}
+
+/// The named types of a function type's parts `range` runs over, as
+/// tree-sitter's flat `type_expression` has them.
+fn parts_at(root: &SyntaxNode, range: TextRange) -> Option<Vec<SyntaxNode>> {
+    let start = token_at(root, range.start())?;
+    let end = token_at(root, range.end())?;
+    let first = start
+        .parent_ancestors()
+        .find(|a| a.kind() == SyntaxKind::NamedType)?;
+    let mut parts = Vec::new();
+    let mut current = Some(type_expression_of(&first)?);
+    while let Some(ty) = current.take() {
+        if ty.kind() == SyntaxKind::FunctionType {
+            let mut children = ty.children();
+            parts.extend(children.next());
+            current = children.next();
+        } else {
+            parts.push(ty);
+        }
+    }
+    let within = TextRange::new(start.text_range().start(), end.text_range().end());
+    let parts = (parts.into_iter())
+        .filter(|n| n.kind() == SyntaxKind::NamedType && within.contains_range(n.text_range()));
+    Some(parts.collect())
 }
 
 /// `extractTypeAliasCodeAction`'s edits: `NewType`, declared above the
 /// declaration, in place of the types it was made from.
 pub(super) fn type_alias_edits(
     context: &Context<'_>,
-    action: &str,
+    of: AliasOf,
     range: TextRange,
 ) -> Option<(Vec<Edit>, Option<RenameAt>)> {
     let module = context.module;
     let (root, text) = (&module.root(), &*module.text);
-    let nodes: Vec<SyntaxNode> = match action {
-        "extract_type_alias_partial_type_expr" => {
-            let start = token_at(root, range.start())?;
-            let end = token_at(root, range.end())?;
-            let first = start
-                .parent_ancestors()
-                .find(|a| a.kind() == SyntaxKind::NamedType)?;
-            let expression = type_expression_of(&first)?;
-            // Its parts as tree-sitter's flat type_expression has them.
-            let mut parts = Vec::new();
-            let mut current = Some(expression);
-            while let Some(ty) = current.take() {
-                if ty.kind() == SyntaxKind::FunctionType {
-                    let mut children = ty.children();
-                    parts.extend(children.next());
-                    current = children.next();
-                } else {
-                    parts.push(ty);
-                }
-            }
-            (parts.into_iter())
-                .filter(|n| {
-                    n.kind() == SyntaxKind::NamedType
-                        && n.text_range().start() >= start.text_range().start()
-                        && n.text_range().end() <= end.text_range().end()
-                })
-                .collect()
-        }
-        "extract_type_alias_parenthesized_expr" => {
+    let nodes: Vec<SyntaxNode> = match of {
+        AliasOf::Parts => parts_at(root, range)?,
+        AliasOf::Parenthesized => {
             let open = token_at(root, range.start())?;
             vec![open.parent()?.children().next()?]
         }
-        _ => vec![exact_kind(root, range)?.0],
+        AliasOf::Type => vec![exact_node(root, range)?.0],
     };
-    let first = nodes.first()?;
-    let line = match top_level_part(first) {
-        Some(top) => line_of(text, code_range(&top)?.start()).saturating_sub(1),
-        None => text.matches('\n').count(),
+    let insert_at = match top_level_part(nodes.first()?) {
+        // The line above the declaration's.
+        Some(top) => {
+            let before = &text[..usize::from(code_range(&top)?.start())];
+            last_line(before.rfind('\n').map_or("", |end| &before[..end]))
+        }
+        None => last_line(text),
     };
-    let insert_at = line_start(text, line);
     let mut args: Vec<String> = Vec::new();
     for node in &nodes {
         for var in node
             .descendants()
             .filter(|n| n.kind() == SyntaxKind::TypeVar)
         {
-            let name = crate::tree::words(&var);
+            let name = words(&var);
             if !args.contains(&name) {
                 args.push(name);
             }
         }
     }
     let written: Vec<&str> = (nodes.iter())
-        .filter_map(|n| code_range(n).map(|r| &text[std::ops::Range::<usize>::from(r)]))
+        .filter_map(|n| code_range(n).map(|r| &text[r]))
         .collect();
     let parameters: String = args.iter().map(|a| format!(" {a}")).collect();
     let alias = format!(
         "\ntype alias NewType{parameters} = {}\n\n",
         written.join(" -> ")
     );
-    let parenthesized = action == "extract_type_alias_parenthesized_expr" && !args.is_empty();
-    let replacement = format!("NewType{parameters}");
-    let replacement = if parenthesized {
-        format!("({replacement})")
-    } else {
-        replacement
-    };
+    let parenthesized = of == AliasOf::Parenthesized && !args.is_empty();
+    let mut replacement = format!("NewType{parameters}");
+    if parenthesized {
+        replacement = format!("({replacement})");
+    }
     let rename = rename_after(text, insert_at, &alias, range, parenthesized);
     let edits = vec![
-        Edit {
-            range: TextRange::empty(insert_at),
-            text: alias,
-        },
+        Edit::insert(insert_at, alias),
         Edit {
             range,
             text: replacement,

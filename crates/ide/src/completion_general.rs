@@ -12,19 +12,22 @@
 //! At a line's start it offers declarations instead: a snippet for each
 //! function used but not defined, its keywords and its snippets.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use nomi_base::{TextRange, TextSize};
+use nomi_compiler::types::{ExprTypes, error};
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
+use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, child_token};
 
 use crate::Edit;
 use crate::completion::{
-    Completion, CompletionKind, Completions, Context, Exposed, PlainExposed, default_imports,
-    exposed, item,
+    Completion, CompletionKind, Completions, Context, DEFAULT_IMPORTS, DefaultExposing, Exposed,
+    ExposedName, Importable, operator,
 };
 use crate::completion_data::{LIST_MARKDOWN, RANKING, SNIPPETS_INLINE, SNIPPETS_START_OF_LINE};
-use crate::tree::{child, code_range, token, words};
+use crate::hover::{Names, composed, render_error, type_of};
+use crate::tree::{child, code_range, code_text, words, written_imports};
 
 /// The general list at `offset`, replacing `range`, `word` typed of the
 /// name `name` the cursor is in.
@@ -39,17 +42,17 @@ pub(crate) fn general(
     items.extend(scope(context, offset, range));
     let imports = Imports::of(context);
     items.extend(imports.completions(context, range, word));
-    items.push(Completion {
-        documentation: Some(LIST_MARKDOWN.to_owned()),
-        ..item("List", CompletionKind::Enum, "d0000", range, None, None)
-    });
+    items.push(
+        Completion::new("List", CompletionKind::Enum, "d0000", range)
+            .documented(Some(LIST_MARKDOWN.to_owned())),
+    );
     items.extend(snippets(SNIPPETS_INLINE));
     items.extend(keywords(&[
         "if", "then", "else", "let", "in", "case", "alias", "exposing",
     ]));
-    let (possible, incomplete) = possible_imports(context, &imports, range, name);
+    let (possible, incomplete) = auto_imports(context, &imports, range, name);
     items.extend(possible);
-    Completions::Incomplete(items, incomplete)
+    Completions::List { items, incomplete }
 }
 
 /// The list at a line's start.
@@ -66,7 +69,7 @@ pub(crate) fn start_of_line(context: &Context<'_>, range: TextRange) -> Vec<Comp
         .filter(|n| n.kind() == SyntaxKind::ValueDecl)
         .filter_map(|d| child(&d, SyntaxKind::Definition))
         .filter(|d| !d.children().any(|c| ast::Pattern::can_cast(c.kind())))
-        .filter_map(|d| nomi_syntax::child_token(&d, SyntaxKind::LowerIdent))
+        .filter_map(|d| child_token(&d, SyntaxKind::LowerIdent))
         .map(|t| t.text().to_owned())
         .collect();
     // Each call of an unqualified function nothing declares or exposes.
@@ -86,9 +89,7 @@ pub(crate) fn start_of_line(context: &Context<'_>, range: TextRange) -> Vec<Comp
         })
         .collect();
     found.extend(
-        missing
-            .iter()
-            .map(|name| item(name, CompletionKind::Text, "a", range, None, None)),
+        (missing.iter()).map(|name| Completion::new(name, CompletionKind::Text, "a", range)),
     );
     found.extend(keywords(&["type", "import", "module", "port"]));
     found.extend(snippets(SNIPPETS_START_OF_LINE));
@@ -110,11 +111,12 @@ fn top_levels(context: &Context<'_>, range: TextRange) -> Vec<Completion> {
 /// A top-level value's or port's annotation as written, as label
 /// details.
 fn written_annotation(root: &SyntaxNode, name: &str) -> Option<String> {
+    let named = |token: Option<SyntaxToken>| token.is_some_and(|t| t.text() == name);
     let decl = (root.children()).find(|d| match d.kind() {
-        SyntaxKind::ValueDecl => child(d, SyntaxKind::Definition)
-            .and_then(|def| nomi_syntax::child_token(&def, SyntaxKind::LowerIdent))
-            .is_some_and(|t| t.text() == name),
-        SyntaxKind::PortDecl => token(d, SyntaxKind::LowerIdent).as_deref() == Some(name),
+        SyntaxKind::ValueDecl => named(
+            child(d, SyntaxKind::Definition).and_then(|d| child_token(&d, SyntaxKind::LowerIdent)),
+        ),
+        SyntaxKind::PortDecl => named(child_token(d, SyntaxKind::LowerIdent)),
         _ => false,
     })?;
     let signature = match decl.kind() {
@@ -124,7 +126,7 @@ fn written_annotation(root: &SyntaxNode, name: &str) -> Option<String> {
     let ty = signature
         .children()
         .find(|c| ast::Type::can_cast(c.kind()))?;
-    Some(format!(" : {}", text_of(&ty)?))
+    Some(format!(" : {}", code_text(&ty)?))
 }
 
 /// What a scope binds, as the binder calls it.
@@ -159,10 +161,10 @@ fn scope(context: &Context<'_>, offset: TextSize, range: TextRange) -> Vec<Compl
     // The module as it would be with something written at the cursor,
     // for the types of the names.
     let typed = typed_module(context, range);
-    let names = context.names().clone();
-    let type_at = |at: TextRange| -> Option<nomi_compiler::types::error::Type> {
+    let names = context.names();
+    let type_at = |at: TextRange| -> Option<&error::Type> {
         let (root, types) = typed.as_ref()?;
-        let find = |at: TextRange| crate::hover::type_of(root, types, at).cloned();
+        let find = |at: TextRange| type_of(root, types, at);
         // An alias's type is its whole pattern's.
         find(at).or_else(|| {
             let alias = (root.token_at_offset(at.start()).right_biased())
@@ -171,6 +173,7 @@ fn scope(context: &Context<'_>, offset: TextSize, range: TextRange) -> Vec<Compl
             find(code_range(&alias)?)
         })
     };
+    let bare = Names::bare();
     let mut found = Vec::new();
     for (i, binding) in bindings.into_iter().enumerate() {
         let Binding {
@@ -181,34 +184,38 @@ fn scope(context: &Context<'_>, offset: TextSize, range: TextRange) -> Vec<Compl
         } = binding;
         let ty = definition.is_none().then(|| type_at(at)).flatten();
         let detail = match &definition {
-            Some(definition) => definition_type(definition, &type_at, &names),
-            None => ty.as_ref().map(|ty| crate::hover::render_error(&names, ty)),
+            Some(definition) => {
+                let typed = |at| type_at(at).map(|ty| render_error(names, ty));
+                composed(definition, typed).filter(|ty| !ty.is_empty())
+            }
+            None => ty.map(|ty| render_error(names, ty)),
         };
         let (kind, documentation) = match bound {
             Bound::Let => (CompletionKind::Function, "Defined in local let scope"),
             Bound::Case => (CompletionKind::Variable, "Defined in local case branch"),
             Bound::Parameter => (CompletionKind::Variable, "Local parameter"),
         };
-        let sort = format!("a{i}");
-        let detail = detail.map(|ty| format!(" : {ty}"));
-        let documentation = Some(documentation.to_owned());
-        found.push(item(&name, kind, &sort, range, documentation, detail));
+        found.push(
+            Completion::new(&name, kind, &format!("a{i}"), range)
+                .documented(Some(documentation.to_owned()))
+                .typed(detail.map(|ty| format!(" : {ty}"))),
+        );
         // A record parameter's fields, written through it.
-        let record = match &ty {
-            Some(nomi_compiler::types::error::Type::Alias(_, _, _, body)) => Some(&**body),
-            ty => ty.as_ref(),
+        let record = match ty {
+            Some(error::Type::Alias(_, _, _, body)) => Some(&**body),
+            ty => ty,
         };
         if bound == Bound::Parameter
-            && let Some(nomi_compiler::types::error::Type::Record(fields, _)) = record
+            && let Some(error::Type::Record(fields, _)) = record
         {
             for (field, field_type) in fields {
-                let rendered = crate::hover::render_error(&crate::hover::Names::bare(), field_type);
+                let rendered = render_error(&bare, field_type);
                 let label = format!("{name}.{field}");
-                let mut completion =
-                    crate::record_fields::field_completion(field, &rendered, &name, range);
-                completion.label = label.clone();
-                completion.edit = Some(Edit { range, text: label });
-                found.push(completion);
+                found.push(Completion {
+                    label: label.clone(),
+                    edit: Some(Edit { range, text: label }),
+                    ..crate::record_fields::field_completion(field, &rendered, &name, range)
+                });
             }
         }
     }
@@ -227,7 +234,7 @@ fn bindings_around(token: &SyntaxToken) -> Vec<Binding> {
                         SyntaxKind::LetValue => {
                             let definition = child(&decl, SyntaxKind::Definition);
                             let name = (definition.as_ref())
-                                .and_then(|d| nomi_syntax::child_token(d, SyntaxKind::LowerIdent));
+                                .and_then(|d| child_token(d, SyntaxKind::LowerIdent));
                             if let (Some(name), Some(definition)) = (name, definition) {
                                 found.push(Binding {
                                     name: name.text().to_owned(),
@@ -273,34 +280,12 @@ fn pattern_bindings(node: &SyntaxNode, bound: Bound) -> impl Iterator<Item = Bin
 fn typed_module<'c>(
     context: &'c Context<'_>,
     range: TextRange,
-) -> Option<(
-    SyntaxNode,
-    std::borrow::Cow<'c, nomi_compiler::types::ExprTypes>,
-)> {
+) -> Option<(SyntaxNode, Cow<'c, ExprTypes>)> {
     if let Some((_, types)) = context.module.types(context.index.compat) {
-        return Some((context.module.root(), std::borrow::Cow::Borrowed(types)));
+        return Some((context.module.root(), Cow::Borrowed(types)));
     }
     crate::record_fields::patched(context.index, context.module, range, "Debug.todo \"\"")
-        .map(|(root, types)| (root, std::borrow::Cow::Owned(types)))
-}
-
-/// A `let` declaration's type: its parameters', then its body's.
-fn definition_type(
-    definition: &SyntaxNode,
-    type_at: &dyn Fn(TextRange) -> Option<nomi_compiler::types::error::Type>,
-    names: &crate::hover::Names,
-) -> Option<String> {
-    let mut parts = Vec::new();
-    for part in definition.children() {
-        let at = code_range(&part)?;
-        let ty = crate::hover::render_error(names, &type_at(at)?);
-        if ast::Pattern::can_cast(part.kind()) && ty.contains("->") {
-            parts.push(format!("({ty})"));
-        } else {
-            parts.push(ty);
-        }
-    }
-    (!parts.is_empty()).then(|| parts.join(" -> "))
+        .map(|(root, types)| (root, Cow::Owned(types)))
 }
 
 /// What an import brings, as elm-language-server's `Imports` holds it.
@@ -313,6 +298,8 @@ struct Imported {
     /// The declaring module's tree, and the name the symbol's node has.
     root: SyntaxNode,
     name: SyntaxToken,
+    /// Whether the module's import has an exposing list.
+    listed: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -324,6 +311,16 @@ enum ImportedKind {
     Constructor,
     /// A record alias as its constructor, which the list leaves out.
     AliasConstructor,
+}
+
+impl ImportedKind {
+    /// The kind of an exposed value or operator.
+    fn of_value(exposed: &ExposedName) -> ImportedKind {
+        match exposed.kind {
+            Exposed::Operator => ImportedKind::Operator,
+            Exposed::Value | Exposed::Alias | Exposed::Type { .. } => ImportedKind::Function,
+        }
+    }
 }
 
 /// A `MultiMap`: keys in the order they were first set, each with its
@@ -379,189 +376,162 @@ struct Imports {
     modules: Vec<String>,
 }
 
+/// An import as `Imports` reads it.
+struct Import {
+    module: String,
+    alias: Option<String>,
+    exposing: Option<Exposing>,
+}
+
 impl Imports {
     fn of(context: &Context<'_>) -> Imports {
+        let written: Vec<Import> = (written_imports(&context.module.root()))
+            .map(|import| Import {
+                exposing: (import.node.exposing_list()).map(|list| exposing_of(list.syntax())),
+                module: import.module,
+                alias: import.alias,
+            })
+            .collect();
+        // Whether a module's import has an exposing list: the first
+        // written import of it, or else its default one.
+        let listed = |module: &str| match written.iter().find(|i| i.module == module) {
+            Some(import) => import.exposing.is_some(),
+            None => (DEFAULT_IMPORTS.iter()).any(|d| d.module == module && d.exposing.is_some()),
+        };
+        let defaults: Vec<Import> = (DEFAULT_IMPORTS.iter())
+            .filter(|_| context.index.package != "elm/core")
+            .map(|d| Import {
+                module: d.module.to_owned(),
+                alias: d.alias.map(str::to_owned),
+                exposing: d.exposing.as_ref().map(Exposing::of_default),
+            })
+            .collect();
+        let packages: HashMap<&str, &Option<String>> = (context.importable_modules().iter())
+            .map(|m| (m.name.as_str(), &m.package))
+            .collect();
         let mut imports = Imports::default();
-        let mut written: Vec<(String, Option<String>, Option<SyntaxNode>)> = Vec::new();
-        if context.index.package != "elm/core" {
-            for (name, alias) in default_imports() {
-                written.push((name, alias, None));
-            }
-        }
-        for import in context
-            .module
-            .root()
-            .children()
-            .filter(|n| n.kind() == SyntaxKind::Import)
-        {
-            let Some(name) = child(&import, SyntaxKind::ModuleName).map(|n| words(&n)) else {
+        for import in defaults.iter().chain(&written) {
+            let name = import.module.as_str();
+            let (Some((root, _)), Some(all)) =
+                (context.module_source(name), context.exposed_names(name))
+            else {
                 continue;
             };
-            let alias = child(&import, SyntaxKind::ImportAlias)
-                .and_then(|a| token(&a, SyntaxKind::UpperIdent));
-            written.push((name, alias, child(&import, SyntaxKind::ExposingList)));
-        }
-        let packages: HashMap<String, Option<String>> =
-            (context.importable_modules().to_vec().into_iter())
-                .map(|(module, _, package)| (module, package))
-                .collect();
-        for (i, (name, alias, list)) in written.iter().enumerate() {
-            let Some((root, _)) = context.module_source(name) else {
-                continue;
-            };
-            let package = packages.get(name).cloned().flatten();
-            imports.modules.push(name.clone());
-            let prefix = alias.as_deref().unwrap_or(name);
-            let all = exposed(&root);
+            let package = packages.get(name).copied().cloned().flatten();
+            let listed = listed(name);
+            imports.modules.push(name.to_owned());
             let entry = |label: &str, kind, name_token: &SyntaxToken| Imported {
                 label: label.to_owned(),
                 kind,
-                module: name.clone(),
+                module: name.to_owned(),
                 package: package.clone(),
                 root: root.clone(),
                 name: name_token.clone(),
+                listed,
             };
             // Qualified, everything the module exposes.
-            for exposed in &all {
-                let label = format!("{prefix}.{}", exposed.label);
-                match &exposed.kind {
-                    Exposed::Value => imports
-                        .vars
-                        .set(&label, entry(&label, ImportedKind::Function, &exposed.name)),
-                    Exposed::Operator => {}
-                    Exposed::Alias => {
-                        imports
-                            .types
-                            .set(&label, entry(&label, ImportedKind::Alias, &exposed.name));
-                        if record_alias(&exposed.name) {
-                            imports.constructors.set(
-                                &label,
-                                entry(&label, ImportedKind::AliasConstructor, &exposed.name),
-                            );
-                        }
-                    }
-                    Exposed::Type { variants } => {
-                        imports
-                            .types
-                            .set(&label, entry(&label, ImportedKind::Type, &exposed.name));
-                        for variant in variants {
-                            let label = format!("{prefix}.{}", variant.text());
-                            imports
-                                .constructors
-                                .set(&label, entry(&label, ImportedKind::Constructor, variant));
-                        }
-                    }
-                }
+            let prefix = import.alias.as_deref().unwrap_or(name);
+            for exposed in all.iter() {
+                imports.add_exposed(&entry, exposed, Some(prefix));
             }
             // Unqualified, what the import's list exposes.
-            let exposing =
-                virtual_exposing(i, name, context).or_else(|| list.as_ref().map(exposing_of));
-            match exposing {
+            match &import.exposing {
                 None => {}
                 Some(Exposing::All) => {
-                    for exposed in &all {
-                        let label = exposed.label.as_str();
-                        match &exposed.kind {
-                            Exposed::Value | Exposed::Operator => {
-                                let kind = if matches!(exposed.kind, Exposed::Operator) {
-                                    ImportedKind::Operator
-                                } else {
-                                    ImportedKind::Function
-                                };
-                                imports.vars.set(label, entry(label, kind, &exposed.name));
-                            }
-                            Exposed::Alias => {
-                                imports
-                                    .types
-                                    .set(label, entry(label, ImportedKind::Alias, &exposed.name));
-                                if record_alias(&exposed.name) {
-                                    imports.constructors.set(
-                                        label,
-                                        entry(label, ImportedKind::AliasConstructor, &exposed.name),
-                                    );
-                                }
-                            }
-                            Exposed::Type { variants } => {
-                                imports
-                                    .types
-                                    .set(label, entry(label, ImportedKind::Type, &exposed.name));
-                                for variant in variants {
-                                    imports.constructors.set(
-                                        variant.text(),
-                                        entry(variant.text(), ImportedKind::Constructor, variant),
-                                    );
-                                }
-                            }
-                        }
+                    for exposed in all.iter() {
+                        imports.add_exposed(&entry, exposed, None);
                     }
                 }
-                Some(Exposing::Explicit {
-                    operators,
-                    values,
-                    types,
-                }) => {
-                    let find = |name: &str| all.iter().find(|e| e.label == name);
-                    for op in operators.iter().chain(&values) {
-                        if let Some(exposed) = find(op) {
-                            let kind = if matches!(exposed.kind, Exposed::Operator) {
-                                ImportedKind::Operator
-                            } else {
-                                ImportedKind::Function
-                            };
-                            imports.vars.set(op, entry(op, kind, &exposed.name));
-                        }
-                    }
-                    for (type_name, open) in &types {
-                        let Some(exposed) = find(type_name) else {
-                            continue;
-                        };
-                        match &exposed.kind {
-                            Exposed::Type { variants } => {
-                                imports.types.replace(
-                                    type_name,
-                                    entry(type_name, ImportedKind::Type, &exposed.name),
-                                );
-                                if *open {
-                                    for variant in variants {
-                                        imports.constructors.set(
-                                            variant.text(),
-                                            entry(
-                                                variant.text(),
-                                                ImportedKind::Constructor,
-                                                variant,
-                                            ),
-                                        );
-                                    }
-                                }
-                            }
-                            Exposed::Alias => {
-                                imports.types.replace(
-                                    type_name,
-                                    entry(type_name, ImportedKind::Alias, &exposed.name),
-                                );
-                                if !*open && record_alias(&exposed.name) {
-                                    imports.constructors.set(
-                                        type_name,
-                                        entry(
-                                            type_name,
-                                            ImportedKind::AliasConstructor,
-                                            &exposed.name,
-                                        ),
-                                    );
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
+                Some(Exposing::Explicit(listed)) => imports.add_listed(&entry, &all, listed),
             }
         }
         imports
     }
 
+    /// `exposed`, as an import of its whole module brings it: qualified
+    /// with `prefix` where given, but for an operator, or else bare; an
+    /// alias of a record as its constructor too, a type with its variants.
+    fn add_exposed(
+        &mut self,
+        entry: &impl Fn(&str, ImportedKind, &SyntaxToken) -> Imported,
+        exposed: &ExposedName,
+        prefix: Option<&str>,
+    ) {
+        fn qualified<'l>(prefix: Option<&str>, label: &'l str) -> Cow<'l, str> {
+            match prefix {
+                Some(prefix) => Cow::Owned(format!("{prefix}.{label}")),
+                None => Cow::Borrowed(label),
+            }
+        }
+        let label = qualified(prefix, &exposed.label);
+        match &exposed.kind {
+            Exposed::Operator if prefix.is_some() => {}
+            Exposed::Value | Exposed::Operator => {
+                let kind = ImportedKind::of_value(exposed);
+                self.vars.set(&label, entry(&label, kind, &exposed.name));
+            }
+            Exposed::Alias => {
+                (self.types).set(&label, entry(&label, ImportedKind::Alias, &exposed.name));
+                if record_alias(&exposed.name) {
+                    let kind = ImportedKind::AliasConstructor;
+                    (self.constructors).set(&label, entry(&label, kind, &exposed.name));
+                }
+            }
+            Exposed::Type { variants } => {
+                (self.types).set(&label, entry(&label, ImportedKind::Type, &exposed.name));
+                for variant in variants {
+                    let label = qualified(prefix, variant.text());
+                    let constructor = entry(&label, ImportedKind::Constructor, variant);
+                    self.constructors.set(&label, constructor);
+                }
+            }
+        }
+    }
+
+    /// What an explicit exposing list brings of `all` a module exposes:
+    /// its operators and values, then its types, each replacing what came
+    /// before, with their variants where `(..)` says.
+    fn add_listed(
+        &mut self,
+        entry: &impl Fn(&str, ImportedKind, &SyntaxToken) -> Imported,
+        all: &[ExposedName],
+        listed: &Listed,
+    ) {
+        let find = |name: &str| all.iter().find(|e| e.label == name);
+        for op in listed.operators.iter().chain(&listed.values) {
+            if let Some(exposed) = find(op) {
+                let kind = ImportedKind::of_value(exposed);
+                self.vars.set(op, entry(op, kind, &exposed.name));
+            }
+        }
+        for (label, open) in &listed.types {
+            let Some(exposed) = find(label) else {
+                continue;
+            };
+            match &exposed.kind {
+                Exposed::Type { variants } => {
+                    (self.types).replace(label, entry(label, ImportedKind::Type, &exposed.name));
+                    for variant in variants.iter().filter(|_| *open) {
+                        let constructor = entry(variant.text(), ImportedKind::Constructor, variant);
+                        self.constructors.set(variant.text(), constructor);
+                    }
+                }
+                Exposed::Alias => {
+                    (self.types).replace(label, entry(label, ImportedKind::Alias, &exposed.name));
+                    if !*open && record_alias(&exposed.name) {
+                        let kind = ImportedKind::AliasConstructor;
+                        (self.constructors).set(label, entry(label, kind, &exposed.name));
+                    }
+                }
+                Exposed::Value | Exposed::Operator => {}
+            }
+        }
+    }
+
     /// `getCompletionsFromOtherFile`: what the imports bring, values,
     /// then types, then constructors.
     fn completions(&self, context: &Context<'_>, range: TextRange, word: &str) -> Vec<Completion> {
+        let word = word.to_lowercase();
         let mut found = Vec::new();
         let elements = self.vars.iter().chain(self.types.iter()).chain(
             self.constructors
@@ -572,10 +542,9 @@ impl Imports {
             let label = element.label.as_str();
             let dot = label.rfind('.');
             let value = dot.map_or(label, |d| &label[d + 1..]);
-            let exposes = Self::exposing_list(context, &element.module);
-            let filter = if !exposes
+            let filter = if !element.listed
                 && element.module != "Basics"
-                && value.to_lowercase().starts_with(&word.to_lowercase())
+                && value.to_lowercase().starts_with(&word)
             {
                 value
             } else {
@@ -603,7 +572,9 @@ impl Imports {
                 ImportedKind::Alias => (CompletionKind::Struct, documentation(), None),
                 ImportedKind::AliasConstructor => continue,
             };
-            let mut completion = item(label, kind, &sort, range, documentation, detail);
+            let mut completion = Completion::new(label, kind, &sort, range)
+                .documented(documentation)
+                .typed(detail);
             if kind != CompletionKind::Operator {
                 completion.filter_text = Some(filter.to_owned());
             }
@@ -612,69 +583,39 @@ impl Imports {
         }
         found
     }
-
-    /// Whether the import of `module` has an exposing list.
-    fn exposing_list(context: &Context<'_>, module: &str) -> bool {
-        let defaults: Vec<&str> = vec![
-            "Basics",
-            "List",
-            "Maybe",
-            "Result",
-            "String",
-            "Char",
-            "Platform",
-            "Platform.Cmd",
-            "Platform.Sub",
-        ];
-        let written = (context.module.root().children())
-            .filter(|n| n.kind() == SyntaxKind::Import)
-            .find(|i| child(i, SyntaxKind::ModuleName).is_some_and(|n| words(&n) == module));
-        match written {
-            // The last import of a module stands, as a map's set does.
-            Some(import) => child(&import, SyntaxKind::ExposingList).is_some(),
-            None => defaults.contains(&module),
-        }
-    }
 }
 
 /// How an import exposes names.
 enum Exposing {
     All,
-    Explicit {
-        operators: Vec<String>,
-        values: Vec<String>,
-        types: Vec<(String, bool)>,
-    },
+    Explicit(Listed),
 }
 
-/// The exposing list of the `i`th import, where it's one of the default
-/// imports elm-language-server writes out.
-fn virtual_exposing(i: usize, name: &str, context: &Context<'_>) -> Option<Exposing> {
-    if context.index.package == "elm/core" || i >= default_imports().len() {
-        return None;
+/// The names an explicit exposing list has: its types each with whether
+/// it has its variants.
+struct Listed {
+    operators: Vec<String>,
+    values: Vec<String>,
+    types: Vec<(String, bool)>,
+}
+
+impl Exposing {
+    /// A default import's list, as elm-language-server writes it out.
+    fn of_default(exposing: &DefaultExposing) -> Exposing {
+        match exposing {
+            DefaultExposing::All => Exposing::All,
+            DefaultExposing::Explicit { types, operators } => Exposing::Explicit(Listed {
+                operators: operators.iter().map(|o| (*o).to_owned()).collect(),
+                values: Vec::new(),
+                types: types.iter().map(|(t, o)| ((*t).to_owned(), *o)).collect(),
+            }),
+        }
     }
-    let explicit = |types: &[(&str, bool)], operators: &[&str]| Exposing::Explicit {
-        operators: operators.iter().map(|o| (*o).to_owned()).collect(),
-        values: Vec::new(),
-        types: types.iter().map(|(t, o)| ((*t).to_owned(), *o)).collect(),
-    };
-    Some(match name {
-        "Basics" => Exposing::All,
-        "List" => explicit(&[("List", false)], &["::"]),
-        "Maybe" => explicit(&[("Maybe", true)], &[]),
-        "Result" => explicit(&[("Result", true)], &[]),
-        "String" => explicit(&[("String", false)], &[]),
-        "Char" => explicit(&[("Char", false)], &[]),
-        "Platform" => explicit(&[("Program", false)], &[]),
-        "Platform.Cmd" => explicit(&[("Cmd", false)], &[]),
-        "Platform.Sub" => explicit(&[("Sub", false)], &[]),
-        _ => return None,
-    })
 }
 
 /// An import's exposing list, as `Imports` reads it.
 fn exposing_of(list: &SyntaxNode) -> Exposing {
-    if nomi_syntax::child_token(list, SyntaxKind::DotDot).is_some() {
+    if child_token(list, SyntaxKind::DotDot).is_some() {
         return Exposing::All;
     }
     let mut operators = Vec::new();
@@ -682,29 +623,21 @@ fn exposing_of(list: &SyntaxNode) -> Exposing {
     let mut types = Vec::new();
     for item in list.children() {
         match item.kind() {
-            SyntaxKind::ExposedOperator => {
-                let written = words(&item);
-                operators.push(
-                    written
-                        .trim_start_matches('(')
-                        .trim_end_matches(')')
-                        .trim()
-                        .to_owned(),
-                );
-            }
+            SyntaxKind::ExposedOperator => operators.push(operator(&item)),
             SyntaxKind::ExposedValue => values.push(words(&item)),
             SyntaxKind::ExposedType => {
-                let name = token(&item, SyntaxKind::UpperIdent).unwrap_or_default();
+                let name = child_token(&item, SyntaxKind::UpperIdent);
+                let name = name.map(|t| t.text().to_owned()).unwrap_or_default();
                 types.push((name, child(&item, SyntaxKind::ExposedVariants).is_some()));
             }
             _ => {}
         }
     }
-    Exposing::Explicit {
+    Exposing::Explicit(Listed {
         operators,
         values,
         types,
-    }
+    })
 }
 
 /// Whether the alias whose name is `name` is a record's, so also its
@@ -738,54 +671,15 @@ pub(crate) struct Possible {
     pub module: String,
     pub value: String,
     pub value_to_import: Option<String>,
-    pub package: Option<String>,
     kind: ImportedKind,
-    /// Where its name is in its module, whose tree is read for the few
-    /// that are shown.
-    name_at: TextSize,
+    /// The name its declaration has in its module.
+    name: SyntaxToken,
 }
 
 /// `ImportUtils.getPossibleImports`: what the project's other modules
 /// expose, the project's own first, then the packages by rank; the
 /// project's by how much of the module's name they share.
-pub(crate) fn importable(context: &Context<'_>) -> Vec<Possible> {
-    let mut possible = Vec::new();
-    for (module, path, package) in context.importable_modules().to_vec() {
-        if module == "Basics" || path.as_deref() == Some(context.path) {
-            continue;
-        }
-        let Some(exposed) = context.exposed_names(&module) else {
-            continue;
-        };
-        for exposed in exposed.iter() {
-            let kind = match &exposed.kind {
-                PlainExposed::Value => ImportedKind::Function,
-                PlainExposed::Operator => ImportedKind::Operator,
-                PlainExposed::Alias => ImportedKind::Alias,
-                PlainExposed::Type { .. } => ImportedKind::Type,
-            };
-            possible.push(Possible {
-                module: module.clone(),
-                value: exposed.label.clone(),
-                value_to_import: None,
-                package: package.clone(),
-                kind,
-                name_at: exposed.name_at,
-            });
-            if let PlainExposed::Type { variants } = &exposed.kind {
-                for (variant, at) in variants {
-                    possible.push(Possible {
-                        module: module.clone(),
-                        value: variant.clone(),
-                        value_to_import: Some(format!("{}(..)", exposed.name)),
-                        package: package.clone(),
-                        kind: ImportedKind::Constructor,
-                        name_at: *at,
-                    });
-                }
-            }
-        }
-    }
+pub(crate) fn possible_imports(context: &Context<'_>) -> Vec<Possible> {
     let current = &context.module.name;
     let score = |module: &str| -> usize {
         current
@@ -794,30 +688,66 @@ pub(crate) fn importable(context: &Context<'_>) -> Vec<Possible> {
             .take_while(|(a, b)| a == b)
             .count()
     };
-    possible.sort_by(|a, b| match (&a.package, &b.package) {
+    // A module's names all share its place: the modules are sorted,
+    // stably, then their names listed.
+    let mut modules: Vec<&Importable> = (context.importable_modules().iter())
+        .filter(|m| m.name != "Basics" && m.path != context.path)
+        .collect();
+    modules.sort_by(|a, b| match (&a.package, &b.package) {
         (None, Some(_)) => std::cmp::Ordering::Less,
         (Some(_), None) => std::cmp::Ordering::Greater,
         (Some(a), Some(b)) => compare_ranking(a, b),
-        (None, None) => score(&b.module).cmp(&score(&a.module)),
+        (None, None) => score(&b.name).cmp(&score(&a.name)),
     });
+    let mut possible = Vec::new();
+    for module in modules {
+        let Some(exposed) = context.exposed_names(&module.name) else {
+            continue;
+        };
+        let candidate = |value: &str, kind, name: &SyntaxToken| Possible {
+            module: module.name.clone(),
+            value: value.to_owned(),
+            value_to_import: None,
+            kind,
+            name: name.clone(),
+        };
+        for exposed in exposed.iter() {
+            let kind = match &exposed.kind {
+                Exposed::Value => ImportedKind::Function,
+                Exposed::Operator => ImportedKind::Operator,
+                Exposed::Alias => ImportedKind::Alias,
+                Exposed::Type { .. } => ImportedKind::Type,
+            };
+            possible.push(candidate(&exposed.label, kind, &exposed.name));
+            if let Exposed::Type { variants } = &exposed.kind {
+                for variant in variants {
+                    possible.push(Possible {
+                        value_to_import: Some(format!("{}(..)", exposed.name.text())),
+                        ..candidate(variant.text(), ImportedKind::Constructor, variant)
+                    });
+                }
+            }
+        }
+    }
     possible
 }
 
-/// The auto-imports: what [`importable`] offers that no import brings
-/// yet, the closest to `word` first.
-fn possible_imports(
+/// The auto-imports: what [`possible_imports`] offers that no import
+/// brings yet, the closest to `word` first.
+fn auto_imports(
     context: &Context<'_>,
     imports: &Imports,
     range: TextRange,
     word: &str,
 ) -> (Vec<Completion>, bool) {
-    let mut possible = importable(context);
-    possible.retain(|p| {
-        p.module != context.module.name
-            && !(imports.vars.has(&p.value, &p.module)
-                || imports.types.has(&p.value, &p.module)
-                || imports.constructors.has(&p.value, &p.module))
-    });
+    let mut possible: Vec<&Possible> = (context.possible_imports().iter())
+        .filter(|p| {
+            p.module != context.module.name
+                && !(imports.vars.has(&p.value, &p.module)
+                    || imports.types.has(&p.value, &p.module)
+                    || imports.constructors.has(&p.value, &p.module))
+        })
+        .collect();
     let filter = word.to_lowercase();
     let imported = |module: &str| imports.modules.iter().any(|m| m == module);
     // Those starting with it first, then those with it in them, then those
@@ -833,76 +763,35 @@ fn possible_imports(
     let incomplete = possible.len() > 50;
     let mut found = Vec::new();
     for (i, p) in possible.iter().take(49).enumerate() {
-        let detail = format!("Auto import from module '{}'", p.module);
-        let edit = add_import_exposing(
-            context,
-            &p.module,
-            p.value_to_import.as_deref().unwrap_or(&p.value),
-        );
-        let sort = if i < 10 {
+        let documentation = || {
+            let (root, _) = context.module_source(&p.module)?;
+            context.hint(&p.module, &root, &p.name)
+        };
+        let detail = || context.foreign_detail(&p.module, &p.value);
+        let (kind, documentation, detail) = match p.kind {
+            ImportedKind::Function => (CompletionKind::Function, documentation(), detail()),
+            ImportedKind::Alias => (CompletionKind::Struct, documentation(), None),
+            ImportedKind::Type => (CompletionKind::Enum, documentation(), None),
+            ImportedKind::Constructor => (CompletionKind::EnumMember, None, detail()),
+            ImportedKind::Operator | ImportedKind::AliasConstructor => continue,
+        };
+        // A constructor's index isn't padded.
+        let sort = if i < 10 && kind != CompletionKind::EnumMember {
             format!("f0{i}")
         } else {
             format!("f{i}")
         };
-        let documentation = || {
-            let (root, _) = context.module_source(&p.module)?;
-            let name = root.token_at_offset(p.name_at).right_biased()?;
-            context.hint(&p.module, &root, &name)
-        };
-        let mut completion = match p.kind {
-            ImportedKind::Function => {
-                let detail = context.foreign_detail(&p.module, &p.value);
-                item(
-                    &p.value,
-                    CompletionKind::Function,
-                    &sort,
-                    range,
-                    documentation(),
-                    detail,
-                )
-            }
-            ImportedKind::Alias => item(
-                &p.value,
-                CompletionKind::Struct,
-                &sort,
-                range,
-                documentation(),
-                None,
-            ),
-            ImportedKind::Type => item(
-                &p.value,
-                CompletionKind::Enum,
-                &sort,
-                range,
-                documentation(),
-                None,
-            ),
-            ImportedKind::Constructor => {
-                let detail = context.foreign_detail(&p.module, &p.value);
-                item(
-                    &p.value,
-                    CompletionKind::EnumMember,
-                    &format!("f{i}"),
-                    range,
-                    None,
-                    detail,
-                )
-            }
-            ImportedKind::Operator | ImportedKind::AliasConstructor => continue,
-        };
-        completion.detail = Some(detail);
-        completion.additional_edits = vec![edit];
-        completion.label_description = Some(p.module.clone());
-        found.push(completion);
+        let value = p.value_to_import.as_deref().unwrap_or(&p.value);
+        found.push(Completion {
+            detail: Some(format!("Auto import from module '{}'", p.module)),
+            additional_edits: vec![context.add_import(&p.module, None, Some(value))],
+            label_description: Some(p.module.clone()),
+            ..Completion::new(&p.value, kind, &sort, range)
+                .documented(documentation)
+                .typed(detail)
+        });
     }
     (found, incomplete)
-}
-
-/// `RefactorEditUtils.addImport` with a value: `import M exposing (v)`.
-fn add_import_exposing(context: &Context<'_>, module: &str, value: &str) -> Edit {
-    let mut edit = context.add_import(module, module);
-    edit.text = format!("import {module} exposing ({value})\n");
-    edit
 }
 
 /// Snippets from a table.
@@ -920,18 +809,10 @@ fn snippet(label: &str, text: &str, documentation: Option<&str>, keyword: bool) 
         CompletionKind::Snippet
     };
     Completion {
-        label: label.to_owned(),
-        kind,
         sort_text: Some(format!("s_{label}")),
-        filter_text: None,
         documentation: documentation.map(str::to_owned),
-        detail: None,
-        label_detail: None,
-        label_description: None,
-        preselect: false,
-        edit: None,
         snippet: Some(text.to_owned()),
-        additional_edits: Vec::new(),
+        ..Completion::of(label, kind)
     }
 }
 
@@ -939,24 +820,8 @@ fn snippet(label: &str, text: &str, documentation: Option<&str>, keyword: bool) 
 fn keywords(words: &[&str]) -> Vec<Completion> {
     (words.iter())
         .map(|word| Completion {
-            label: (*word).to_owned(),
-            kind: CompletionKind::Keyword,
             sort_text: Some(format!("a_{word}")),
-            filter_text: None,
-            documentation: None,
-            detail: None,
-            label_detail: None,
-            label_description: None,
-            preselect: false,
-            edit: None,
-            snippet: None,
-            additional_edits: Vec::new(),
+            ..Completion::of(word, CompletionKind::Keyword)
         })
         .collect()
-}
-
-fn text_of(node: &SyntaxNode) -> Option<String> {
-    let range = code_range(node)?;
-    let start = range.start() - node.text_range().start();
-    Some(node.text().slice(start..start + range.len()).to_string())
 }

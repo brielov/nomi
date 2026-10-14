@@ -1,9 +1,17 @@
 //! What elm's reports say is missing: a `case`'s branches and a record's
 //! field.
 
-use nomi_syntax::ast::{self, AstNode};
+use std::fmt::Write as _;
 
-use super::*;
+use nomi_base::TextRange;
+use nomi_syntax::ast::{self, AstNode};
+use nomi_syntax::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, child_token, tokens};
+
+use super::usage::{render_usage, todo_at, todo_type, with_todos};
+use super::{Diagnosed, Fixing, Offer, here};
+use crate::problems::Code;
+use crate::tree::{code_range, last_child_token};
+use crate::{Edit, FileEdits, column};
 
 /// Whether `diagnostic` is elm's report of a `case` that misses patterns.
 pub(super) fn is_missing_patterns(diagnostic: &Diagnosed) -> bool {
@@ -33,34 +41,22 @@ pub(super) fn missing_patterns(message: &str) -> Vec<String> {
 /// `addMissingCaseBranchesCodeAction`: a `Debug.todo` branch for each
 /// missing pattern after the last branch, prefixed as the first branch's
 /// constructor is qualified.
-pub(super) fn case_branch_edits(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> Vec<Edit> {
+fn case_branch_edit(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> Option<Edit> {
     let module = fixing.context.module;
     let text = &*module.text;
     let case = match module.root().covering_element(diagnostic.range) {
         SyntaxElement::Node(node) => node,
-        SyntaxElement::Token(token) => match token.parent() {
-            Some(parent) => parent,
-            None => return Vec::new(),
-        },
+        SyntaxElement::Token(token) => token.parent()?,
     };
-    let Some(case) = case.ancestors().find(|n| n.kind() == SyntaxKind::CaseExpr) else {
-        return Vec::new();
-    };
+    let case = case
+        .ancestors()
+        .find(|n| n.kind() == SyntaxKind::CaseExpr)?;
     let branches: Vec<SyntaxNode> = case
         .children()
         .filter(|c| c.kind() == SyntaxKind::CaseBranch)
         .collect();
-    let (Some(first), Some(last)) = (branches.first(), branches.last()) else {
-        return Vec::new();
-    };
-    let column_of = |at: TextSize| {
-        let line_start = text[..usize::from(at)].rfind('\n').map_or(0, |i| i + 1);
-        text[line_start..usize::from(at)].chars().count()
-    };
-    let Some(first_range) = code_range(first) else {
-        return Vec::new();
-    };
-    let indent = column_of(first_range.start());
+    let (first, last) = (branches.first()?, branches.last()?);
+    let indent = column(text, code_range(first)?.start());
     let pattern = first.children().find(|c| ast::Pattern::can_cast(c.kind()));
     let body = first
         .children()
@@ -68,11 +64,10 @@ pub(super) fn case_branch_edits(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> 
         .last();
     let body_indent = body
         .and_then(|b| code_range(&b))
-        .map_or(indent + 4, |r| column_of(r.start()));
+        .map_or(indent + 4, |r| column(text, r.start()));
     // The first branch's upper-case names but the last, as its prefix.
     let mut uppers: Vec<String> = (pattern.iter())
-        .flat_map(|p| p.descendants_with_tokens())
-        .filter_map(|e| e.into_token())
+        .flat_map(tokens)
         .filter(|t| t.kind() == SyntaxKind::UpperIdent)
         .map(|t| t.text().to_owned())
         .collect();
@@ -85,38 +80,28 @@ pub(super) fn case_branch_edits(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> 
         } else {
             format!("{prefix}.{missing}")
         };
-        inserted.push_str(&format!(
+        let _ = write!(
+            inserted,
             "\n\n{}{missing} ->\n{}Debug.todo \"branch '{missing}' not implemented\"",
             " ".repeat(indent),
             " ".repeat(body_indent)
-        ));
+        );
     }
-    let Some(end) = code_range(last).map(|r| r.end()) else {
-        return Vec::new();
-    };
-    vec![Edit {
-        range: TextRange::empty(end),
-        text: inserted,
-    }]
+    Some(Edit::insert(code_range(last)?.end(), inserted))
 }
 
 pub(super) fn case_branch_actions(fixing: &Fixing<'_>, range: TextRange) -> Vec<Offer> {
     // The diagnostic at `range`, whose message lists what's missing.
-    let given = (fixing.given.iter()).find(|d| {
-        d.range == range && (is_missing_patterns(d) || d.code == "incomplete_case_pattern")
+    let given = (fixing.request.given.iter()).find(|d| {
+        d.range == range && (is_missing_patterns(d) || d.is(Code::IncompleteCasePattern))
     });
-    let edits = given
-        .map(|d| case_branch_edits(fixing, d))
-        .unwrap_or_default();
-    vec![(
-        "Add missing case branches".to_owned(),
-        here(fixing, edits),
-        None,
-    )]
+    let edits = given.and_then(|d| case_branch_edit(fixing, d));
+    let edits = here(fixing, edits.into_iter().collect());
+    vec![Offer::new("Add missing case branches", edits)]
 }
 
 pub(super) fn case_branch_all(fixing: &Fixing<'_>, diagnostic: &Diagnosed, edits: &mut Vec<Edit>) {
-    edits.extend(case_branch_edits(fixing, diagnostic));
+    edits.extend(case_branch_edit(fixing, diagnostic));
 }
 
 /// Whether `diagnostic` is elm's report of a record without a field.
@@ -145,20 +130,14 @@ pub(super) fn missing_field(
             SyntaxKind::FieldAccessExpr | SyntaxKind::RecordUpdateExpr | SyntaxKind::Field
         )
     })?;
-    let field_name = |node: &SyntaxNode| {
-        (node.children_with_tokens())
-            .filter_map(|e| e.into_token())
-            .filter(|t| t.kind() == SyntaxKind::LowerIdent)
-            .last()
-    };
     match owner.kind() {
-        SyntaxKind::FieldAccessExpr => Some((owner.clone(), field_name(&owner)?)),
+        SyntaxKind::FieldAccessExpr => {
+            let name = last_child_token(&owner, SyntaxKind::LowerIdent)?;
+            Some((owner, name))
+        }
         SyntaxKind::Field => {
-            let name = code_range(&owner).and_then(|_| {
-                (owner.children_with_tokens())
-                    .filter_map(|e| e.into_token())
-                    .find(|t| t.kind() == SyntaxKind::LowerIdent)
-            })?;
+            let name =
+                code_range(&owner).and_then(|_| child_token(&owner, SyntaxKind::LowerIdent))?;
             Some((owner.parent()?, name))
         }
         _ => {
@@ -176,9 +155,7 @@ pub(super) fn missing_field(
                         .filter_map(|e| e.into_token())
                         .any(|t| t.kind() == SyntaxKind::LowerIdent && t.text() == wanted)
                 })?;
-            let name = (field.children_with_tokens())
-                .filter_map(|e| e.into_token())
-                .find(|t| t.kind() == SyntaxKind::LowerIdent)?;
+            let name = child_token(&field, SyntaxKind::LowerIdent)?;
             Some((owner, name))
         }
     }
@@ -186,134 +163,85 @@ pub(super) fn missing_field(
 
 /// `addMissingRecordFieldCodeAction`: the field, typed as its usage
 /// expects, after the last field of the record's alias in this file.
-pub(super) fn record_field_edits(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> FileEdits {
+fn record_field_edits(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> Option<FileEdits> {
     let context = &fixing.context;
     let module = context.module;
-    let Some((owner, field)) = missing_field(&module.root(), diagnostic) else {
-        return Vec::new();
-    };
+    let (owner, field) = missing_field(&module.root(), diagnostic)?;
     // The record: the access's target, or the update's.
-    let Some(target) = (owner.children_with_tokens()).find_map(|e| match e {
-        SyntaxElement::Node(n) => nomi_syntax::child_token(&n, SyntaxKind::LowerIdent),
+    let target = (owner.children_with_tokens()).find_map(|e| match e {
+        SyntaxElement::Node(n) => child_token(&n, SyntaxKind::LowerIdent),
         SyntaxElement::Token(t) => (t.kind() == SyntaxKind::LowerIdent).then_some(t),
-    }) else {
-        return Vec::new();
-    };
-    let Some(alias) = crate::record_fields::alias_declaration(
-        context.index,
-        module,
-        target.text_range().start(),
-        target.text(),
-    ) else {
-        return Vec::new();
-    };
+    })?;
+    let at = target.text_range().start();
+    let alias = crate::record_fields::alias_of_name(context.index, module, at, target.text())?;
     // In this file only: its tree is this module's.
-    if !alias
-        .ancestors()
-        .last()
-        .is_some_and(|root| root.text() == *module.text)
-    {
-        return Vec::new();
+    let alias = alias.decl;
+    if !(alias.ancestors().last()).is_some_and(|root| root.text() == *module.text) {
+        return None;
     }
-    let Some(record) = alias
+    let record = alias
         .children()
-        .find(|c| c.kind() == SyntaxKind::RecordType)
-    else {
-        return Vec::new();
-    };
-    let Some(last) = record
+        .find(|c| c.kind() == SyntaxKind::RecordType)?;
+    let last = record
         .children()
         .filter(|c| c.kind() == SyntaxKind::FieldType)
-        .last()
-    else {
-        return Vec::new();
-    };
+        .last()?;
     // The type the usage expects: the access, or the update's value.
-    let typed = if owner.kind() == SyntaxKind::FieldAccessExpr {
-        code_range(&owner).and_then(|range| expression_type(fixing, range))
+    let expression = if owner.kind() == SyntaxKind::FieldAccessExpr {
+        code_range(&owner)
     } else {
-        field
-            .parent()
-            .and_then(|f| f.children().last())
-            .and_then(|value| code_range(&value))
-            .and_then(|range| expression_type(fixing, range))
+        (field.parent().and_then(|f| f.children().last())).and_then(|value| code_range(&value))
     };
-    let Some(ty) = typed else {
-        return Vec::new();
-    };
+    let ty = expression_type(fixing, expression?)?;
     let text = &*module.text;
-    let Some(last_range) = code_range(&last) else {
-        return Vec::new();
-    };
-    let line_of = |at: TextSize| text[..usize::from(at)].matches('\n').count();
+    let last_range = code_range(&last)?;
     let record_range = code_range(&record).unwrap_or(last_range);
-    let new_line = line_of(record_range.start()) != line_of(record_range.end());
-    let line_start = text[..usize::from(last_range.start())]
-        .rfind('\n')
-        .map_or(0, |i| i + 1);
-    let column = text[line_start..usize::from(last_range.start())]
-        .chars()
-        .count();
-    let prefix = if new_line {
-        format!("\n{}", " ".repeat(column.saturating_sub(2)))
+    let prefix = if text[record_range].contains('\n') {
+        let indent = column(text, last_range.start()).saturating_sub(2);
+        format!("\n{}", " ".repeat(indent))
     } else {
         String::new()
     };
-    let edit = Edit {
-        range: TextRange::empty(last_range.end()),
-        text: format!("{prefix}, {} : {ty}", field.text()),
-    };
-    here(fixing, vec![edit])
+    let edit = Edit::insert(
+        last_range.end(),
+        format!("{prefix}, {} : {ty}", field.text()),
+    );
+    Some(here(fixing, vec![edit]))
 }
 
 /// The type the expression at `range` has where it's used: the module
 /// inferred with it made `Debug.todo`, and the missing values too.
-pub(super) fn expression_type(fixing: &Fixing<'_>, range: TextRange) -> Option<String> {
-    let module = fixing.context.module;
-    let insert = "(Debug.todo \"\")";
-    let mut edits: Vec<(TextRange, String)> = (fixing.program.iter())
+fn expression_type(fixing: &Fixing<'_>, range: TextRange) -> Option<String> {
+    let mut ranges: Vec<TextRange> = (fixing.program.iter())
         .filter(|d| {
-            d.code == "missing_value"
+            d.is(Code::MissingValue)
                 && (d.range.end() <= range.start() || d.range.start() >= range.end())
         })
-        .map(|d| (d.range, insert.to_owned()))
+        .map(|d| d.range)
         .collect();
-    edits.push((range, insert.to_owned()));
-    edits.sort_by_key(|(r, _)| r.start());
-    let (_, types) = crate::record_fields::patched_all(fixing.context.index, module, &edits)?;
-    let shift: i64 = (edits.iter())
-        .take_while(|(r, _)| r.start() < range.start())
-        .map(|(r, i)| i.len() as i64 - i64::from(u32::from(r.len())))
-        .sum();
-    let start = TextSize::new((i64::from(u32::from(range.start())) + shift) as u32);
-    let at = TextRange::at(start, TextSize::of(insert));
-    let inner = TextRange::new(at.start() + TextSize::new(1), at.end() - TextSize::new(1));
-    let ty = (types.iter())
-        .rev()
-        .find(|(r, _)| *r == at || *r == inner)
-        .map(|(_, ty)| ty)?;
+    ranges.push(range);
+    ranges.sort_by_key(|r| r.start());
+    let types = with_todos(fixing, &ranges)?;
+    let ty = todo_type(&types, todo_at(&ranges, range))?;
     Some(render_usage(fixing, ty))
 }
 
 pub(super) fn record_field_actions(fixing: &Fixing<'_>, range: TextRange) -> Vec<Offer> {
-    let given = (fixing.given.iter())
-        .find(|d| d.range == range && (is_missing_field(d) || d.code == "record_field"));
-    let Some(given) = given else {
+    let given = (fixing.request.given.iter())
+        .find(|d| d.range == range && (is_missing_field(d) || d.is(Code::RecordField)));
+    let Some(edits) = given.and_then(|given| record_field_edits(fixing, given)) else {
         return Vec::new();
     };
-    let edits = record_field_edits(fixing, given);
-    if edits.is_empty() {
-        return Vec::new();
-    }
-    let single = edits.iter().all(|(_, e)| e.len() == 1);
-    let title = if single {
+    let title = if edits.iter().all(|(_, e)| e.len() == 1) {
         "Create missing record field"
     } else {
         "Create missing record fields"
     };
-    vec![(title.to_owned(), edits, None)]
+    vec![Offer::new(title, edits)]
 }
 
 pub(super) fn record_field_all(fixing: &Fixing<'_>, diagnostic: &Diagnosed, files: &mut FileEdits) {
-    merge(files, record_field_edits(fixing, diagnostic));
+    if let Some(edits) = record_field_edits(fixing, diagnostic) {
+        files.merge(edits);
+    }
 }

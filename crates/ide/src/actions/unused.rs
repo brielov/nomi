@@ -5,28 +5,25 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use nomi_base::{TextRange, TextSize};
+use nomi_project::Outline;
 use nomi_syntax::ast::{self, AstNode};
+use nomi_syntax::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 
-use super::*;
-
-/// The lint codes `remove_unused` fixes.
-pub(super) const UNUSED: &[&str] = &[
-    "unused_import",
-    "unused_imported_value",
-    "unused_alias",
-    "unused_top_level",
-    "unused_pattern",
-    "unused_value_constructor",
-    "unused_type_alias",
-];
+use super::refactor::{Commas, remove_exposed, with_commas, written};
+use super::{Diagnosed, DiagnosticCode, Fixing, Offer, here, name_of, token_at};
+use crate::completion::Context;
+use crate::problems::Code;
+use crate::tree::{child, code_range, declaration_range, last_child_token, variant_range, words};
+use crate::{Edit, FileEdits, next_line};
 
 /// For each diagnostic the editor sent, the action that removes what it
 /// reports, as elm-language-server offers all of them for each one.
 pub(super) fn unused_actions(fixing: &Fixing<'_>, _range: TextRange) -> Vec<Offer> {
-    (fixing.given.iter())
+    (fixing.request.given.iter())
         .filter_map(|d| {
             let (title, edits) = unused_edits(fixing, d, None);
-            Some((title?, here(fixing, edits), None))
+            Some(Offer::new(title?, here(fixing, edits)))
         })
         .collect()
 }
@@ -40,7 +37,8 @@ pub(super) fn unused_all(fixing: &Fixing<'_>, diagnostic: &Diagnosed, edits: &mu
 pub(super) type RemovedImports = BTreeMap<String, BTreeSet<String>>;
 
 /// `getEditsForDiagnostic`: what removing the unused code `diagnostic`
-/// reports takes, and its title where it has one.
+/// reports takes, and its title where it has one: a fix-all's edits may
+/// have none.
 fn unused_edits(
     fixing: &Fixing<'_>,
     diagnostic: &Diagnosed,
@@ -52,51 +50,49 @@ fn unused_edits(
     let Some(token) = token_at(root, range.start()) else {
         return (None, Vec::new());
     };
-    let delete = |range: TextRange| Edit {
-        range,
-        text: String::new(),
+    // What a removal of `range`, where there's one, offers.
+    let removal = |title: String, range: Option<TextRange>| match range {
+        Some(range) => (Some(title), vec![Edit::delete(range)]),
+        None => (None, Vec::new()),
     };
-    match diagnostic.code.as_str() {
-        "unused_import" => {
+    let DiagnosticCode::Known(code) = diagnostic.code else {
+        return (None, Vec::new());
+    };
+    match code {
+        Code::UnusedImport => {
             let name = (token.parent_ancestors())
                 .find(|a| a.kind() == SyntaxKind::Import)
                 .and_then(|i| child(&i, SyntaxKind::ModuleName))
-                .map_or_else(|| token.text().to_owned(), |n| crate::tree::words(&n));
-            let line = text[..usize::from(range.end())].matches('\n').count();
-            let end = line_start(text, line + 1);
-            let title = format!("Remove unused import `{name}`");
+                .map_or_else(|| token.text().to_owned(), |n| words(&n));
+            let range = TextRange::new(range.start(), next_line(text, range.end()));
             (
-                Some(title),
-                vec![delete(TextRange::new(range.start(), end))],
+                Some(format!("Remove unused import `{name}`")),
+                vec![Edit::delete(range)],
             )
         }
-        "unused_alias" => {
+        Code::UnusedAlias => {
             let name = token_at(root, range.end())
                 .filter(|t| t.kind() == SyntaxKind::UpperIdent)
                 .or_else(|| root.token_at_offset(range.end()).left_biased());
             let name = name.map(|t| t.text().to_owned()).unwrap_or_default();
-            let start = range.start() - TextSize::new(1);
-            let title = format!("Remove unused alias `{name}`");
+            let range = TextRange::new(range.start() - TextSize::new(1), range.end());
             (
-                Some(title),
-                vec![delete(TextRange::new(start, range.end()))],
+                Some(format!("Remove unused alias `{name}`")),
+                vec![Edit::delete(range)],
             )
         }
-        "unused_top_level" => match remove_function(&token) {
-            Some(range) => {
-                let title = format!("Remove function `{}`", token.text());
-                (Some(title), vec![delete(range)])
-            }
-            None => (None, Vec::new()),
-        },
-        "unused_pattern" => {
+        Code::UnusedTopLevel => {
+            let title = format!("Remove function `{}`", token.text());
+            removal(title, remove_function(&token))
+        }
+        Code::UnusedPattern => {
             let field = token.parent().filter(|p| {
                 p.kind() == SyntaxKind::FieldPattern
                     && p.parent()
                         .is_some_and(|r| r.kind() == SyntaxKind::RecordPattern)
             });
             let edit = match field {
-                Some(field) => remove_record_field(&field).map(delete),
+                Some(field) => with_commas(&field, Commas::BeforeElseAfter).map(Edit::delete),
                 None => Some(Edit {
                     range,
                     text: "_".to_owned(),
@@ -105,24 +101,16 @@ fn unused_edits(
             let title = format!("Fix unused pattern `{}`", token.text());
             (Some(title), edit.into_iter().collect())
         }
-        "unused_value_constructor" => match remove_variant(&token) {
-            Some(range) => {
-                let title = format!("Remove unused value constructor `{}`", token.text());
-                (Some(title), vec![delete(range)])
-            }
-            None => (None, Vec::new()),
-        },
-        "unused_type_alias" => {
-            let alias = (token.parent_ancestors()).find(|a| a.kind() == SyntaxKind::TypeAliasDecl);
-            match alias.and_then(|a| code_range(&a)) {
-                Some(range) => {
-                    let title = format!("Remove unused type alias `{}`", token.text());
-                    (Some(title), vec![delete(range)])
-                }
-                None => (None, Vec::new()),
-            }
+        Code::UnusedValueConstructor => {
+            let title = format!("Remove unused value constructor `{}`", token.text());
+            removal(title, remove_variant(&token))
         }
-        "unused_imported_value" => imported_value_edits(fixing, &token, removed),
+        Code::UnusedTypeAlias => {
+            let alias = (token.parent_ancestors()).find(|a| a.kind() == SyntaxKind::TypeAliasDecl);
+            let title = format!("Remove unused type alias `{}`", token.text());
+            removal(title, alias.and_then(|a| code_range(&a)))
+        }
+        Code::UnusedImportedValue => imported_value_edits(fixing, &token, removed),
         _ => (None, Vec::new()),
     }
 }
@@ -135,59 +123,61 @@ fn imported_value_edits(
     removed: Option<&mut RemovedImports>,
 ) -> (Option<String>, Vec<Edit>) {
     let text = &*fixing.context.module.text;
-    let Some(import) = token
-        .parent_ancestors()
-        .find(|a| a.kind() == SyntaxKind::Import)
-    else {
+    let Some(import) = token.parent_ancestors().find_map(ast::Import::cast) else {
         return (None, Vec::new());
     };
-    let Some(module) = child(&import, SyntaxKind::ModuleName).map(|n| crate::tree::words(&n))
-    else {
+    let Some(module) = import.module_name().map(|n| words(n.syntax())) else {
         return (None, Vec::new());
     };
-    let list = child(&import, SyntaxKind::ExposingList);
-    let exposed: Vec<SyntaxNode> = (list.iter())
-        .flat_map(|l| l.children())
-        .filter(|n| matches!(n.kind(), SyntaxKind::ExposedValue | SyntaxKind::ExposedType))
-        .collect();
+    let (list, exposed) = import_exposing(&import);
     let all: Vec<&str> = exposed.iter().map(|n| written(text, n)).collect();
     let name = token.text();
-    let fix_all = removed.is_some();
-    let mut gone = BTreeSet::new();
-    if let Some(removed) = removed {
-        let set = removed.entry(module).or_default();
-        set.insert(name.to_owned());
-        gone = set.clone();
-        // Every value of the list goes: the list goes.
-        if all.iter().all(|v| gone.contains(*v))
-            && let Some(edit) = list.as_ref().and_then(|l| without_list(text, l))
-        {
-            return (None, vec![edit]);
-        }
+    // What a fix-all has removed from the import, this one too.
+    let gone = removed.map(|removed| {
+        let gone = removed.entry(module).or_default();
+        gone.insert(name.to_owned());
+        &*gone
+    });
+    // Every value of the list goes: the list goes.
+    if let Some(gone) = gone
+        && all.iter().all(|v| gone.contains(*v))
+        && let Some(edit) = list.as_ref().and_then(without_list)
+    {
+        return (None, vec![edit]);
     }
-    let Some(edit) = remove_from_import(text, list.as_ref(), &exposed, name, false) else {
+    let Some(edit) = remove_from_import(text, list.as_ref(), &exposed, name, Commas::Nearest)
+    else {
         return (None, Vec::new());
     };
     // The values a fix-all removes from a list's end: the comma before the
     // first of them goes too.
-    if fix_all && all.len() > 2 {
-        let reversed: Vec<&str> = all.iter().rev().copied().collect();
-        if let Some(first_used) = reversed.iter().position(|v| !gone.contains(*v))
-            && first_used >= 2
-            && let Some(with_comma) = remove_from_import(
-                text,
-                list.as_ref(),
-                &exposed,
-                reversed[first_used - 1],
-                true,
-            )
-        {
-            return (None, vec![with_comma, edit]);
-        }
+    if let Some(gone) = gone
+        && all.len() > 2
+        && let Some(used) = all.iter().rev().position(|v| !gone.contains(*v))
+        && used >= 2
+        && let Some(with_comma) = remove_from_import(
+            text,
+            list.as_ref(),
+            &exposed,
+            all[all.len() - used],
+            Commas::Before,
+        )
+    {
+        return (None, vec![with_comma, edit]);
     }
     // elm-language-server says "type" only where its node is the exposed
     // type itself, and the diagnostic starts at the name.
     (Some(format!("Remove unused value `{name}`")), vec![edit])
+}
+
+/// `import`'s exposing list, and the values and types it exposes.
+pub(super) fn import_exposing(import: &ast::Import) -> (Option<SyntaxNode>, Vec<SyntaxNode>) {
+    let list = import.exposing_list().map(|l| l.syntax().clone());
+    let exposed = (list.iter())
+        .flat_map(|l| l.children())
+        .filter(|n| matches!(n.kind(), SyntaxKind::ExposedValue | SyntaxKind::ExposedType))
+        .collect();
+    (list, exposed)
 }
 
 /// `removeValueFromImport`: the whole exposing list when `name` is all
@@ -197,22 +187,20 @@ pub(super) fn remove_from_import(
     list: Option<&SyntaxNode>,
     exposed: &[SyntaxNode],
     name: &str,
-    force: bool,
+    commas: Commas,
 ) -> Option<Edit> {
     if exposed.len() == 1 && written(text, &exposed[0]) == name {
-        return without_list(text, list?);
+        return without_list(list?);
     }
-    remove_exposed(exposed, text, name, force)
+    remove_exposed(exposed, text, name, commas)
 }
 
 /// `removeImportExposingList`: from the space before `exposing` to the
 /// list's end.
-fn without_list(_text: &str, list: &SyntaxNode) -> Option<Edit> {
+fn without_list(list: &SyntaxNode) -> Option<Edit> {
     let range = code_range(list)?;
-    Some(Edit {
-        range: TextRange::new(range.start() - TextSize::new(1), range.end()),
-        text: String::new(),
-    })
+    let start = range.start() - TextSize::new(1);
+    Some(Edit::delete(TextRange::new(start, range.end())))
 }
 
 /// The element before `element` that isn't whitespace, as tree-sitter's
@@ -257,32 +245,6 @@ fn remove_function(token: &SyntaxToken) -> Option<TextRange> {
     Some(TextRange::new(start, end))
 }
 
-/// `removeRecordPatternValue`: a field of a record pattern, with the
-/// comma before it, or else the one after it.
-fn remove_record_field(field: &SyntaxNode) -> Option<TextRange> {
-    let range = code_range(field)?;
-    let siblings: Vec<SyntaxElement> = (field.parent()?.children_with_tokens())
-        .filter(|e| !matches!(e.kind(), SyntaxKind::Whitespace | SyntaxKind::Newline))
-        .collect();
-    let at = siblings.iter().position(|e| e.as_node() == Some(field))?;
-    let comma_before = at
-        .checked_sub(1)
-        .and_then(|i| siblings.get(i))
-        .filter(|e| e.kind() == SyntaxKind::Comma);
-    let mut start = range.start();
-    let mut end = range.end();
-    if let Some(comma) = comma_before {
-        start = comma.text_range().start();
-    } else if siblings
-        .get(at + 1)
-        .is_some_and(|e| e.kind() == SyntaxKind::Comma)
-        && let Some(after) = siblings.get(at + 2)
-    {
-        end = after.text_range().start();
-    }
-    Some(TextRange::new(start, end))
-}
-
 /// `removeTypeValue`: a constructor of a custom type, or the whole type
 /// when it's the only one.
 fn remove_variant(token: &SyntaxToken) -> Option<TextRange> {
@@ -294,17 +256,17 @@ fn remove_variant(token: &SyntaxToken) -> Option<TextRange> {
         .filter(|c| c.kind() == SyntaxKind::Variant)
         .collect();
     if variants.len() == 1 {
-        return crate::tree::declaration_range(&declaration);
+        return declaration_range(&declaration);
     }
     let name = token.text();
     let variant = (variants.iter()).find(|v| {
-        let words = crate::tree::words(v);
-        words == name || words.starts_with(&format!("{name} "))
+        let words = words(v);
+        (words.strip_prefix(name)).is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
     });
     let Some(variant) = variant else {
         return Some(token.text_range());
     };
-    let extent = |v: &SyntaxNode| crate::tree::variant_range(v).or_else(|| code_range(v));
+    let extent = |v: &SyntaxNode| variant_range(v).or_else(|| code_range(v));
     let range = extent(variant)?;
     let siblings: Vec<SyntaxElement> = (declaration.children_with_tokens())
         .filter(|e| !e.kind().is_trivia())
@@ -340,21 +302,54 @@ fn remove_variant(token: &SyntaxToken) -> Option<TextRange> {
 /// sent, the parameter, its type in the signature, and the argument each
 /// call passes it, across the project's files.
 pub(super) fn parameter_removal_actions(fixing: &Fixing<'_>, _range: TextRange) -> Vec<Offer> {
-    (fixing.given.iter())
-        .filter(|d| d.code == "unused_pattern")
+    (fixing.request.given.iter())
+        .filter(|d| d.is(Code::UnusedPattern))
         .filter_map(|d| remove_parameter(fixing, d))
         .collect()
 }
 
+/// A parameter to remove: its pattern, its place among its value's, how
+/// many those are, and the value's declaration and name.
+struct Parameter {
+    pattern: SyntaxNode,
+    index: usize,
+    count: usize,
+    declaration: SyntaxNode,
+    name: SyntaxToken,
+}
+
 fn remove_parameter(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> Option<Offer> {
+    let parameter = removable(fixing, diagnostic)?;
+    let text = &*fixing.context.module.text;
+    // What comes before it, comments passed over.
+    let first = parameter.pattern.first_token()?;
+    let previous = std::iter::successors(first.prev_token(), |t| t.prev_token())
+        .find(|t| !t.kind().is_trivia())?;
+    let before = previous.text_range().end();
+    let mut edits = vec![remove_argument(text, before, &parameter.pattern)?];
+    if let Some(signature) = child(&parameter.declaration, SyntaxKind::Signature) {
+        edits.push(signature_edit(&signature, &parameter)?);
+    }
+    let mut changes = here(fixing, edits);
+    changes.merge(call_edits(fixing, &parameter)?);
+    for (_, edits) in &mut changes {
+        *edits = disjoint(std::mem::take(edits))?;
+    }
+    let title = format!("Remove unused parameter `{}`", words(&parameter.pattern));
+    Some(Offer::new(title, changes))
+}
+
+/// The parameter an unused pattern's `diagnostic` is about, where it can
+/// go: not an entry point's, a package's API's or an operator's, nor a
+/// recursive value's only one.
+fn removable(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> Option<Parameter> {
     let context = &fixing.context;
-    let module = context.module;
-    let (root, text) = (&module.root(), &*module.text);
+    let root = &context.module.root();
     let token = token_at(root, diagnostic.range.start())?;
-    let parameter = token
+    let pattern = token
         .parent()
         .filter(|p| p.kind() == SyntaxKind::VarPattern)?;
-    let definition = parameter
+    let definition = pattern
         .parent()
         .filter(|d| d.kind() == SyntaxKind::Definition)?;
     let declaration = definition.parent()?;
@@ -367,7 +362,7 @@ fn remove_parameter(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> Option<Offer
     let parameters: Vec<SyntaxNode> = (definition.children())
         .filter(|c| ast::Pattern::can_cast(c.kind()))
         .collect();
-    let index = parameters.iter().position(|p| *p == parameter)?;
+    let index = parameters.iter().position(|p| *p == pattern)?;
     let name = name_of(&definition)?;
     let top = declaration.kind() == SyntaxKind::ValueDecl;
     if top && (name.text() == "main" || exposed_by_package(context, root, name.text())) {
@@ -384,72 +379,63 @@ fn remove_parameter(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> Option<Offer
         // Elm doesn't allow recursive values.
         return None;
     }
-    // What comes before it, comments passed over.
-    let previous = std::iter::successors(parameter.first_token()?.prev_token(), |t| t.prev_token())
-        .find(|t| !t.kind().is_trivia())?;
-    let path = context.path.to_owned();
-    let mut changes: FileEdits = vec![(
-        path,
-        vec![remove_argument(
-            text,
-            previous.text_range().end(),
-            &parameter,
-        )?],
-    )];
-    if let Some(signature) = child(&declaration, SyntaxKind::Signature) {
-        let parts = flat_type(&signature)?;
-        let arrows: Vec<usize> = (parts.iter().enumerate())
-            .filter(|(_, p)| p.kind() == SyntaxKind::Arrow)
-            .map(|(i, _)| i)
-            .collect();
-        if arrows.len() < parameters.len() {
-            return None;
-        }
-        let start = if index == 0 {
-            parts.first()?
-        } else {
-            parts.get(arrows[index - 1] + 1)?
-        };
-        let end = parts.get(arrows[index] + 1)?;
-        changes[0].1.push(Edit {
-            range: TextRange::new(start.text_range().start(), end.text_range().start()),
-            text: String::new(),
-        });
+    Some(Parameter {
+        pattern,
+        index,
+        count: parameters.len(),
+        declaration,
+        name,
+    })
+}
+
+/// The parameter's type out of its value's `signature`.
+fn signature_edit(signature: &SyntaxNode, parameter: &Parameter) -> Option<Edit> {
+    let parts = flat_type(signature)?;
+    let arrows: Vec<usize> = (parts.iter().enumerate())
+        .filter(|(_, p)| p.kind() == SyntaxKind::Arrow)
+        .map(|(i, _)| i)
+        .collect();
+    if arrows.len() < parameter.count {
+        return None;
     }
-    // Each call, in each of the project's files.
-    let declared = name.text_range();
+    let start = match parameter.index {
+        0 => parts.first()?,
+        index => parts.get(arrows[index - 1] + 1)?,
+    };
+    let end = parts.get(arrows[parameter.index] + 1)?;
+    let range = TextRange::new(start.text_range().start(), end.text_range().start());
+    Some(Edit::delete(range))
+}
+
+/// The argument each call of the parameter's value passes it, out, in
+/// each of the project's files; none where a file doesn't parse, or the
+/// value is used other than called.
+fn call_edits(fixing: &Fixing<'_>, parameter: &Parameter) -> Option<FileEdits> {
+    let context = &fixing.context;
+    if !context.index.modules.iter().all(|m| m.parses) {
+        return None;
+    }
+    let (name, declared) = (parameter.name.text(), parameter.name.text_range());
+    let mut changes = FileEdits::default();
     for other in &context.index.modules {
-        if !nomi_syntax::parse_module(&other.text).errors().is_empty() {
-            return None;
-        }
         for reference in other.root().descendants().filter(|n| {
             matches!(
                 n.kind(),
                 SyntaxKind::NameExpr | SyntaxKind::RecordUpdateExpr
             )
         }) {
-            let Some(identifier) = (reference.children_with_tokens())
-                .filter_map(|e| e.into_token())
-                .filter(|t| t.kind() == SyntaxKind::LowerIdent)
-                .last()
-            else {
+            let Some(identifier) = last_child_token(&reference, SyntaxKind::LowerIdent) else {
                 continue;
             };
-            if identifier.text() != name.text() {
+            if identifier.text() != name {
                 continue;
             }
-            let found = crate::navigation::definition(
-                context.snapshot,
-                context.index,
-                &other.path,
-                identifier.text_range().start(),
-            );
-            let Some(found) = found else {
-                // An unresolved use of the name might be this function's.
-                return None;
-            };
+            let at = identifier.text_range().start();
+            // An unresolved use of the name might be this function's.
+            let found =
+                crate::navigation::definition(context.snapshot, context.index, &other.path, at)?;
             // Definitions answer with the declaring node.
-            if found.range.start() != declared.start() || found.path != module.path {
+            if found.range.start() != declared.start() || found.path != context.module.path {
                 continue;
             }
             if reference.kind() != SyntaxKind::NameExpr {
@@ -470,45 +456,37 @@ fn remove_parameter(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> Option<Offer
                 return None;
             }
             let arguments: Vec<SyntaxNode> = parts.collect();
-            let argument = arguments.get(index)?;
-            let before = match index {
+            let argument = arguments.get(parameter.index)?;
+            let before = match parameter.index {
                 0 => code_range(&target)?.end(),
-                _ => code_range(&arguments[index - 1])?.end(),
+                index => code_range(&arguments[index - 1])?.end(),
             };
             let edit = remove_argument(&other.text, before, argument)?;
-            match changes.iter_mut().find(|(p, _)| *p == other.path) {
-                Some((_, edits)) => edits.push(edit),
-                None => changes.push((other.path.clone(), vec![edit])),
-            }
+            changes.file(&other.path).push(edit);
         }
     }
-    // A call inside an argument that goes: the outer deletion keeps it.
-    for (_, edits) in &mut changes {
-        edits.sort_by(|a, b| {
-            a.range
-                .start()
-                .cmp(&b.range.start())
-                .then(b.range.end().cmp(&a.range.end()))
-        });
-        let mut disjoint: Vec<Edit> = Vec::new();
-        for edit in edits.drain(..) {
-            if let Some(previous) = disjoint.last()
-                && edit.range.start() < previous.range.end()
-            {
-                if edit.range.end() <= previous.range.end() {
-                    continue;
-                }
-                return None;
+    Some(changes)
+}
+
+/// `edits` in order, but those inside another, which removes them with
+/// it; none where two overlap otherwise.
+fn disjoint(mut edits: Vec<Edit>) -> Option<Vec<Edit>> {
+    edits.sort_by(|a, b| {
+        (a.range.start().cmp(&b.range.start())).then(b.range.end().cmp(&a.range.end()))
+    });
+    let mut kept: Vec<Edit> = Vec::new();
+    for edit in edits {
+        if let Some(previous) = kept.last()
+            && edit.range.start() < previous.range.end()
+        {
+            if edit.range.end() <= previous.range.end() {
+                continue;
             }
-            disjoint.push(edit);
+            return None;
         }
-        *edits = disjoint;
+        kept.push(edit);
     }
-    let title = format!(
-        "Remove unused parameter `{}`",
-        crate::tree::words(&parameter)
-    );
-    Some((title, changes, None))
+    Some(kept)
 }
 
 /// `removeArgument`: from the end of what comes before, or from the
@@ -521,10 +499,7 @@ fn remove_argument(text: &str, before: TextSize, argument: &SyntaxNode) -> Optio
     } else {
         range.start()
     };
-    Some(Edit {
-        range: TextRange::new(start, range.end()),
-        text: String::new(),
-    })
+    Some(Edit::delete(TextRange::new(start, range.end())))
 }
 
 /// A signature's type as tree-sitter-elm's flat `type_expression` has its
@@ -586,11 +561,7 @@ fn is_recursive(context: &Context<'_>, declaration: &SyntaxNode) -> bool {
             .descendants()
             .filter(|n| n.kind() == SyntaxKind::NameExpr)
         {
-            let Some(identifier) = (reference.children_with_tokens())
-                .filter_map(|e| e.into_token())
-                .filter(|t| t.kind() == SyntaxKind::LowerIdent)
-                .last()
-            else {
+            let Some(identifier) = last_child_token(&reference, SyntaxKind::LowerIdent) else {
                 continue;
             };
             let found = crate::navigation::definition(

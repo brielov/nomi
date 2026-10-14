@@ -1,54 +1,55 @@
 //! The inferred annotation, as a fix and a refactor, and exposing or
 //! unexposing a declaration.
 
-use crate::lens::{Exposable, exposes};
+use std::path::Path;
 
-use super::*;
+use nomi_base::TextRange;
+use nomi_engine::Snapshot;
+use nomi_engine::index::Index;
+use nomi_syntax::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
+
+use super::{
+    ActionCommand, Diagnosed, Fixing, Moving, Offer, Refactor, RefactorAction, RenameAt,
+    definition_name, extract, here, name_of, token_at,
+};
+use crate::completion::Context;
+use crate::lens::{Exposable, exposes};
+use crate::problems::Code;
+use crate::tree::{child, code_range};
+use crate::{Edit, column};
 
 /// `addTypeAnnotationCodeAction`'s edit: the inferred annotation above the
 /// definition whose name is at `range`, at its column.
-pub(super) fn annotation_edits(context: &Context<'_>, range: TextRange) -> Option<Vec<Edit>> {
+fn annotation_edit(context: &Context<'_>, range: TextRange) -> Option<Edit> {
     let module = context.module;
     let token = token_at(&module.root(), range.start())?;
     let definition = definition_name(&token)?;
     let ty = crate::hover::definition_type(context.index, module, &definition)?;
     let start = token.text_range().start();
-    let text = &*module.text;
-    let line_start = text[..usize::from(start)].rfind('\n').map_or(0, |i| i + 1);
-    let column = text[line_start..usize::from(start)].chars().count();
-    Some(vec![Edit {
-        range: TextRange::empty(start),
-        text: format!("{} : {ty}\n{}", token.text(), " ".repeat(column)),
-    }])
+    let indent = " ".repeat(column(&module.text, start));
+    Some(Edit::insert(
+        start,
+        format!("{} : {ty}\n{indent}", token.text()),
+    ))
 }
 
 pub(super) fn annotation_actions(fixing: &Fixing<'_>, range: TextRange) -> Vec<Offer> {
-    (annotation_edits(&fixing.context, range).into_iter())
-        .map(|edits| {
-            (
-                "Add inferred annotation".to_owned(),
-                here(fixing, edits),
-                None,
-            )
-        })
+    (annotation_edit(&fixing.context, range).into_iter())
+        .map(|edit| Offer::new("Add inferred annotation", here(fixing, vec![edit])))
         .collect()
 }
 
 pub(super) fn annotation_all(fixing: &Fixing<'_>, diagnostic: &Diagnosed, edits: &mut Vec<Edit>) {
-    if let Some(found) = annotation_edits(&fixing.context, diagnostic.range)
-        && !edits.iter().any(|e| e.text == found[0].text)
+    if let Some(found) = annotation_edit(&fixing.context, diagnostic.range)
+        && !edits.iter().any(|e| e.text == found.text)
     {
-        edits.extend(found);
+        edits.push(found);
     }
 }
 
 /// The refactors at `range`, in elm-language-server's registration
-/// order: name, action, title and kind.
-pub(super) fn refactors(
-    fixing: &Fixing<'_>,
-    range: TextRange,
-    given: &[Diagnosed],
-) -> Vec<Refactor> {
+/// order.
+pub(super) fn refactors(fixing: &Fixing<'_>, range: TextRange) -> Vec<Refactor> {
     let mut found = Vec::new();
     let root = &fixing.context.module.root();
     let text = &*fixing.context.module.text;
@@ -60,13 +61,10 @@ pub(super) fn refactors(
     let annotated = definition_name(&token)
         .and_then(|d| d.parent())
         .map(|d| child(&d, SyntaxKind::Signature).is_some());
-    if annotated == Some(false) && !given.iter().any(|d| d.code == "missing_type_annotation") {
-        found.push(Refactor::new(
-            "add_type_annotation",
-            "add_type_annotation",
-            "Add inferred annotation",
-            ActionKind::RefactorExtract,
-        ));
+    let given = fixing.request.given;
+    if annotated == Some(false) && !given.iter().any(|d| d.is(Code::MissingTypeAnnotation)) {
+        let action = RefactorAction::AddTypeAnnotation;
+        found.push(Refactor::new(action, "Add inferred annotation"));
     }
     found.extend(extract::extract_refactors(fixing, range));
     let parent = token.parent();
@@ -75,7 +73,6 @@ pub(super) fn refactors(
     let in_let = token
         .parent_ancestors()
         .any(|a| a.kind() == SyntaxKind::LetExpr);
-    let expose = "expose_unexpose";
     // A value's name, or what tree-sitter-elm takes for one: the whole
     // type of a signature, whose punctuation is its own.
     let function = if token.kind() == SyntaxKind::LowerIdent
@@ -91,72 +88,42 @@ pub(super) fn refactors(
     if let Some(function) = &function
         && !in_let
     {
-        if exposes(root, function, Exposable::Value) {
-            found.push(Refactor::new(
-                expose,
-                "unexpose_function",
-                "Unexpose Function",
-                ActionKind::Refactor,
-            ));
+        found.push(if exposes(root, function, Exposable::Value) {
+            Refactor::new(RefactorAction::UnexposeFunction, "Unexpose Function")
         } else {
-            found.push(Refactor::new(
-                expose,
-                "expose_function",
-                "Expose Function",
-                ActionKind::Refactor,
-            ));
-        }
+            Refactor::new(RefactorAction::ExposeFunction, "Expose Function")
+        });
     }
     if token.kind() == SyntaxKind::UpperIdent
         && named
-        && matches!(
-            parent_kind,
-            Some(SyntaxKind::TypeAliasDecl | SyntaxKind::CustomTypeDecl)
-        )
+        && let Some(kind @ (SyntaxKind::TypeAliasDecl | SyntaxKind::CustomTypeDecl)) = parent_kind
     {
-        let alias = if parent_kind == Some(SyntaxKind::TypeAliasDecl) {
+        let alias = if kind == SyntaxKind::TypeAliasDecl {
             " Alias"
         } else {
             ""
         };
         if exposes(root, token.text(), Exposable::Type) {
-            found.push(Refactor::new(
-                expose,
-                "unexpose_type",
-                format!("Unexpose Type{alias}"),
-                ActionKind::Refactor,
-            ));
+            let title = format!("Unexpose Type{alias}");
+            found.push(Refactor::new(RefactorAction::UnexposeType, title));
         } else {
-            found.push(Refactor::new(
-                expose,
-                "expose_type",
-                format!("Expose Type{alias}"),
-                ActionKind::Refactor,
-            ));
-            if parent_kind == Some(SyntaxKind::CustomTypeDecl) {
-                found.push(Refactor::new(
-                    expose,
-                    "expose_type_with_variants",
-                    "Expose Type with Variants",
-                    ActionKind::Refactor,
-                ));
+            let title = format!("Expose Type{alias}");
+            found.push(Refactor::new(RefactorAction::ExposeType, title));
+            if kind == SyntaxKind::CustomTypeDecl {
+                let action = RefactorAction::ExposeTypeWithVariants;
+                found.push(Refactor::new(action, "Expose Type with Variants"));
             }
         }
     }
     // Moving a function, which the client asks where to and the server
-    // then does (9.16).
-    if fixing.move_function
+    // then does.
+    if fixing.request.moving == Moving::Supported
         && let Some(function) = function
         && !in_let
     {
         found.push(Refactor {
             command: Some(ActionCommand::MoveFunction { name: function }),
-            ..Refactor::new(
-                "move_function",
-                "move_function",
-                "Move Function",
-                ActionKind::RefactorMove,
-            )
+            ..Refactor::new(RefactorAction::MoveFunction, "Move Function")
         });
     }
     found
@@ -165,7 +132,7 @@ pub(super) fn refactors(
 /// The type of a signature, when `token` is punctuation tree-sitter-elm
 /// gives to its outermost `type_expression`: the arrows of a function
 /// type written there, and the parentheses around it or its parts.
-pub(super) fn signature_type(token: &SyntaxToken) -> Option<SyntaxNode> {
+fn signature_type(token: &SyntaxToken) -> Option<SyntaxNode> {
     if token.kind().is_trivia()
         || matches!(
             token.kind(),
@@ -176,20 +143,11 @@ pub(super) fn signature_type(token: &SyntaxToken) -> Option<SyntaxNode> {
     }
     // tree-sitter-elm's type_expression is flat where nomi nests a
     // function type's arrows to the right.
-    let climb = |mut node: SyntaxNode| {
-        while let Some(up) = node
-            .parent()
-            .filter(|u| u.kind() == SyntaxKind::FunctionType)
-        {
-            node = up;
-        }
-        node
-    };
     let parent = token.parent()?;
     let top = match parent.kind() {
-        SyntaxKind::FunctionType => climb(parent),
+        SyntaxKind::FunctionType => outermost_function(parent),
         SyntaxKind::ParenType => match parent.parent()? {
-            up if up.kind() == SyntaxKind::FunctionType => climb(up),
+            up if up.kind() == SyntaxKind::FunctionType => outermost_function(up),
             _ => parent,
         },
         _ => return None,
@@ -199,12 +157,20 @@ pub(super) fn signature_type(token: &SyntaxToken) -> Option<SyntaxNode> {
         .then_some(top)
 }
 
+/// The outermost of the function types `ty` is the result of, or `ty`.
+pub(super) fn outermost_function(mut ty: SyntaxNode) -> SyntaxNode {
+    while let Some(up) = (ty.parent()).filter(|u| u.kind() == SyntaxKind::FunctionType) {
+        ty = up;
+    }
+    ty
+}
+
 /// A refactor's edits, as resolving it gives them.
 pub fn refactor_edits(
     index: &Index,
     snapshot: &Snapshot,
     path: &Path,
-    action: &str,
+    action: RefactorAction,
     range: TextRange,
 ) -> Option<(Vec<Edit>, Option<RenameAt>)> {
     let module = index.module(path)?;
@@ -214,46 +180,44 @@ pub fn refactor_edits(
 
 pub(super) fn refactor_edits_in(
     context: &Context<'_>,
-    action: &str,
+    action: RefactorAction,
     range: TextRange,
 ) -> Option<(Vec<Edit>, Option<RenameAt>)> {
     let module = context.module;
-    match action {
-        "add_type_annotation" => annotation_edits(context, range).map(|e| (e, None)),
-        "extract_let" | "extract_top_level" => extract::function_edits(context, action, range),
-        "extract_type_alias"
-        | "extract_type_alias_parenthesized_expr"
-        | "extract_type_alias_partial_type_expr" => {
-            extract::type_alias_edits(context, action, range)
+    // What's exposed or unexposed: the name at the range.
+    let name = || {
+        let token = token_at(&module.root(), range.start())?;
+        Some(match signature_type(&token) {
+            Some(ty) => written(&module.text, &ty).to_owned(),
+            None => token.text().to_owned(),
+        })
+    };
+    let (root, text) = (&module.root(), &*module.text);
+    let edit = match action {
+        RefactorAction::AddTypeAnnotation => annotation_edit(context, range),
+        RefactorAction::ExtractFunction(place) => {
+            return extract::function_edits(context, place, range);
         }
-        "unexpose_function"
-        | "unexpose_type"
-        | "expose_function"
-        | "expose_type"
-        | "expose_type_with_variants" => {
-            let token = token_at(&module.root(), range.start())?;
-            let name = match signature_type(&token) {
-                Some(ty) => written(&module.text, &ty).to_owned(),
-                None => token.text().to_owned(),
-            };
-            let edit = match action {
-                "expose_function" | "expose_type" => {
-                    expose_edit(&module.root(), &module.text, &name, false)
-                }
-                "expose_type_with_variants" => {
-                    expose_edit(&module.root(), &module.text, &name, true)
-                }
-                _ => unexpose_edit(&module.root(), &module.text, &name),
-            };
-            edit.map(|edit| (vec![edit], None))
+        RefactorAction::ExtractTypeAlias(of) => {
+            return extract::type_alias_edits(context, of, range);
         }
-        _ => None,
-    }
+        RefactorAction::ExposeFunction | RefactorAction::ExposeType => {
+            expose_edit(root, text, &name()?)
+        }
+        RefactorAction::ExposeTypeWithVariants => {
+            expose_edit(root, text, &format!("{}(..)", name()?))
+        }
+        RefactorAction::UnexposeFunction | RefactorAction::UnexposeType => {
+            unexpose_edit(root, text, &name()?)
+        }
+        RefactorAction::MoveFunction => None,
+    };
+    edit.map(|edit| (vec![edit], None))
 }
 
 /// The exposed values and types of the module's exposing list
 /// (`getModuleExposingListNodes`).
-pub(super) fn exposed_nodes(root: &SyntaxNode) -> Vec<SyntaxNode> {
+fn exposed_nodes(root: &SyntaxNode) -> Vec<SyntaxNode> {
     (root.children())
         .find(|n| n.kind() == SyntaxKind::ModuleHeader)
         .and_then(|header| child(&header, SyntaxKind::ExposingList))
@@ -265,71 +229,85 @@ pub(super) fn exposed_nodes(root: &SyntaxNode) -> Vec<SyntaxNode> {
         .unwrap_or_default()
 }
 
+/// `node` as `text` writes it, without the trivia around it.
 pub(super) fn written<'t>(text: &'t str, node: &SyntaxNode) -> &'t str {
-    code_range(node).map_or("", |r| &text[std::ops::Range::<usize>::from(r)])
+    code_range(node).map_or("", |r| &text[r])
+}
+
+/// Whether a name goes into a module's exposing list or out of it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Exposure {
+    Expose,
+    Unexpose,
 }
 
 /// The edit of the file at `path` that exposes `name`, or unexposes it:
 /// elm-language-server's `elm/expose` and `elm/unexpose` requests.
-pub fn exposing_edit(snapshot: &Snapshot, path: &Path, name: &str, expose: bool) -> Option<Edit> {
+pub fn exposing_edit(
+    snapshot: &Snapshot,
+    path: &Path,
+    name: &str,
+    exposure: Exposure,
+) -> Option<Edit> {
     let text = snapshot.read(path).ok()?;
     let root = nomi_syntax::parse_module(&text).syntax();
-    if expose {
-        expose_edit(&root, &text, name, false)
-    } else {
-        unexpose_edit(&root, &text, name)
+    match exposure {
+        Exposure::Expose => expose_edit(&root, &text, name),
+        Exposure::Unexpose => unexpose_edit(&root, &text, name),
     }
 }
 
-/// `exposeValueInModule`: `, name` after the last exposed, unless the
-/// list is `..` or exposes it already.
-pub(crate) fn expose_edit(
-    root: &SyntaxNode,
-    text: &str,
-    name: &str,
-    with_variants: bool,
-) -> Option<Edit> {
+/// `exposeValueInModule`: `, entry` after the last exposed, unless the
+/// list is `..` or has it already.
+pub(super) fn expose_edit(root: &SyntaxNode, text: &str, entry: &str) -> Option<Edit> {
     let nodes = exposed_nodes(root);
-    let name = if with_variants {
-        format!("{name}(..)")
-    } else {
-        name.to_owned()
-    };
-    if nodes.iter().any(|n| written(text, n) == name) {
+    if nodes.iter().any(|n| written(text, n) == entry) {
         return None;
     }
     let last = code_range(nodes.last()?)?;
-    Some(Edit {
-        range: TextRange::empty(last.end()),
-        text: format!(", {name}"),
-    })
+    Some(Edit::insert(last.end(), format!(", {entry}")))
 }
 
 /// `unexposedValueInModule`: `name` out of the exposing list, with the
 /// comma between it and its neighbor, unless it's the only one.
-pub(crate) fn unexpose_edit(root: &SyntaxNode, text: &str, name: &str) -> Option<Edit> {
+pub(super) fn unexpose_edit(root: &SyntaxNode, text: &str, name: &str) -> Option<Edit> {
     let nodes = exposed_nodes(root);
     if nodes.len() <= 1 {
         return None;
     }
-    remove_exposed(&nodes, text, name, false)
+    remove_exposed(&nodes, text, name, Commas::Nearest)
+}
+
+/// Which commas go with a name out of a list.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Commas {
+    /// The one after it, or the one before it where it's last.
+    Nearest,
+    /// The one before it too.
+    Before,
+    /// The one before it, or else the one after it.
+    BeforeElseAfter,
 }
 
 /// `removeValueFromExposingList`: the exposed `name` (or `name(..)`) out
-/// of its list, with the comma after it, or before it when it's last or
-/// `force` says so.
-pub(crate) fn remove_exposed(
+/// of its list, with the commas `commas` says.
+pub(super) fn remove_exposed(
     nodes: &[SyntaxNode],
     text: &str,
     name: &str,
-    force: bool,
+    commas: Commas,
 ) -> Option<Edit> {
     let node = (nodes.iter()).find(|n| {
         let written = written(text, n);
-        written == name || written == format!("{name}(..)")
+        written == name || written.strip_suffix("(..)") == Some(name)
     })?;
+    with_commas(node, commas).map(Edit::delete)
+}
+
+/// `node`, without the trivia around it, with the commas `commas` says
+/// among its siblings as tree-sitter has them: no whitespace.
+pub(super) fn with_commas(node: &SyntaxNode, commas: Commas) -> Option<TextRange> {
     let range = code_range(node)?;
-    // Its siblings as tree-sitter has them: no whitespace.
     let siblings: Vec<SyntaxElement> = (node.parent()?.children_with_tokens())
         .filter(|e| !matches!(e.kind(), SyntaxKind::Whitespace | SyntaxKind::Newline))
         .collect();
@@ -338,18 +316,22 @@ pub(crate) fn remove_exposed(
         i.and_then(|i| siblings.get(i))
             .is_some_and(|e| e.kind() == kind)
     };
-    let mut start = range.start();
-    let mut end = range.end();
-    if is(at.checked_sub(1), SyntaxKind::Comma) && (is(Some(at + 1), SyntaxKind::RParen) || force) {
-        start = siblings[at - 1].text_range().start();
-    }
-    if is(Some(at + 1), SyntaxKind::Comma)
-        && let Some(after) = siblings.get(at + 2)
-    {
-        end = after.text_range().start();
-    }
-    Some(Edit {
-        range: TextRange::new(start, end),
-        text: String::new(),
-    })
+    let before = is(at.checked_sub(1), SyntaxKind::Comma);
+    let after = is(Some(at + 1), SyntaxKind::Comma) && siblings.get(at + 2).is_some();
+    let (before, after) = match commas {
+        Commas::Nearest => (before && is(Some(at + 1), SyntaxKind::RParen), after),
+        Commas::Before => (before, after),
+        Commas::BeforeElseAfter => (before, !before && after),
+    };
+    let start = if before {
+        siblings[at - 1].text_range().start()
+    } else {
+        range.start()
+    };
+    let end = if after {
+        siblings[at + 2].text_range().start()
+    } else {
+        range.end()
+    };
+    Some(TextRange::new(start, end))
 }

@@ -47,7 +47,7 @@ pub fn check(
     let Some(setup) = Setup::read(snapshot, store, manifest).filter(|setup| setup.complete) else {
         return Ok(None);
     };
-    let Some(env) = setup.env() else {
+    let Some(env) = setup.env(&setup.exposing()) else {
         return Ok(None);
     };
     let Setup {

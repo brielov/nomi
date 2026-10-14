@@ -19,6 +19,7 @@ use nomi_syntax::{
     SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, child_token, parse_module, tokens,
 };
 
+use crate::completion::DEFAULT_IMPORTS;
 use crate::hover::{trimmed, types_at};
 use crate::tree::{
     child, code_range, declaration_range, declared_type, last_child_token, variant_range, words,
@@ -522,9 +523,9 @@ fn module_at(root: &SyntaxNode, offset: TextSize) -> Option<String> {
                 .map(|i| i.module);
             // The default imports alias `Platform.Cmd` and `Platform.Sub`.
             let default = || {
-                (crate::completion::default_imports().into_iter())
-                    .find(|(_, alias)| alias.as_deref() == Some(written.as_str()))
-                    .map(|(name, _)| name)
+                (DEFAULT_IMPORTS.iter())
+                    .find(|d| d.alias == Some(written.as_str()))
+                    .map(|d| d.module.to_owned())
             };
             Some(aliased.or_else(default).unwrap_or(written))
         }
@@ -574,7 +575,7 @@ fn module_references(index: &Index, name: &str, declaration: Declaration) -> Vec
         // Imported with an alias, even one of the same name, its
         // qualifiers are the alias's. The default imports alias
         // `Platform.Cmd` and `Platform.Sub` everywhere.
-        let aliased = matches!(name, "Platform.Cmd" | "Platform.Sub")
+        let aliased = (DEFAULT_IMPORTS.iter()).any(|d| d.alias.is_some() && d.module == name)
             || written_imports(&root).any(|i| i.node.import_alias().is_some() && i.module == name);
         for node in root.descendants() {
             match node.kind() {
