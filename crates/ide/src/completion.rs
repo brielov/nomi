@@ -25,7 +25,9 @@ use nomi_engine::graph::module_path;
 use nomi_engine::index::{Index, Indexed};
 use nomi_project::Outline;
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, child_token, parse_module};
+use nomi_syntax::{
+    SyntaxKind, SyntaxNode, SyntaxToken, child_token, parse_module, significant_tokens,
+};
 
 use crate::completion_general::{Possible, possible_imports};
 use crate::hover::{Names, declaration_hint, render};
@@ -653,7 +655,7 @@ impl Context<'_> {
             let documentation = (self.snapshot.read(&module.path).ok()).and_then(|text| {
                 let root = parse_module(&text).syntax();
                 let header = child(&root, SyntaxKind::ModuleHeader)?;
-                let name = child(&header, SyntaxKind::ModuleName)?.first_token()?;
+                let name = significant_tokens(&child(&header, SyntaxKind::ModuleName)?).next()?;
                 declaration_hint(&root, &name, None)
             });
             found.push(

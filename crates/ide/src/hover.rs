@@ -28,7 +28,7 @@ use nomi_compiler::types::{ExprTypes, error};
 use nomi_engine::Snapshot;
 use nomi_engine::index::{Index, Indexed};
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, child_token};
+use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, child_token, significant_tokens};
 
 use crate::navigation::Location;
 use crate::tree::{child, code_range, code_text, declaration_range, skip_trivia, words};
@@ -234,8 +234,11 @@ fn name_token(root: &SyntaxNode, range: TextRange) -> Option<SyntaxToken> {
     let token = skip_trivia(root.token_at_offset(range.start()).right_biased()?)?;
     let parent = token.parent()?;
     match parent.kind() {
-        // A header's name, not its `module` keyword.
-        SyntaxKind::ModuleHeader => child(&parent, SyntaxKind::ModuleName)?.first_token(),
+        // A header's name, not its `module` keyword, nor a comment on a
+        // line of its own above the name, which the name's node holds.
+        SyntaxKind::ModuleHeader => {
+            significant_tokens(&child(&parent, SyntaxKind::ModuleName)?).next()
+        }
         // A declaration's name, not its `type` or `port` keyword.
         SyntaxKind::TypeAliasDecl | SyntaxKind::CustomTypeDecl => {
             child_token(&parent, SyntaxKind::UpperIdent)
@@ -664,4 +667,20 @@ pub(crate) fn trimmed(root: &SyntaxNode, range: TextRange) -> Option<TextRange> 
     let token = skip_trivia(root.token_at_offset(range.start()).right_biased()?)?;
     let start = token.text_range().start();
     (start <= range.end()).then(|| TextRange::new(start, range.end()))
+}
+
+#[cfg(test)]
+mod tests {
+    use nomi_base::{TextRange, TextSize};
+    use nomi_syntax::parse_module;
+
+    use super::name_token;
+
+    #[test]
+    fn a_module_name_is_its_name_past_a_comment_above_it() {
+        let text = "module\n    -- the app\n    Main exposing (main)\n";
+        let root = parse_module(text).syntax();
+        let range = TextRange::new(TextSize::new(0), TextSize::of(text));
+        assert_eq!(name_token(&root, range).unwrap().text(), "Main");
+    }
 }

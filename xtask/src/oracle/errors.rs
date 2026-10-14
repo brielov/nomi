@@ -17,7 +17,9 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, child_token, parse_module};
+use nomi_syntax::{
+    SyntaxKind, SyntaxNode, SyntaxToken, child_token, parse_module, significant_tokens,
+};
 use nomi_testkit::edit::{self, Edit};
 use nomi_testkit::transcript::{Case, cases};
 
@@ -211,7 +213,7 @@ fn definition(node: &SyntaxNode, edits: &mut Edits<'_>) {
     let params: Vec<SyntaxToken> = node
         .children()
         .filter(|c| c.kind() == SyntaxKind::VarPattern)
-        .filter_map(|c| c.first_token())
+        .filter_map(|c| significant_tokens(&c).next())
         .collect();
     if let [first, second, ..] = &params[..] {
         let note = format!("{} named {}", second.text(), first.text());
@@ -227,7 +229,7 @@ fn definition(node: &SyntaxNode, edits: &mut Edits<'_>) {
         let body = node.children().find(|c| ast::Expr::can_cast(c.kind()));
         for local in body.iter().flat_map(|b| b.descendants()) {
             if local.kind() == SyntaxKind::VarPattern
-                && let Some(name) = local.first_token()
+                && let Some(name) = significant_tokens(&local).next()
                 && name.text() != first.text()
             {
                 let note = format!("{} named {}", name.text(), first.text());
@@ -259,7 +261,7 @@ fn types(seed: &str, case: &Case) -> Vec<Edit> {
             match node.kind() {
                 // A literal of another type.
                 SyntaxKind::LiteralExpr => {
-                    let Some(token) = node.first_token() else {
+                    let Some(token) = significant_tokens(&node).next() else {
                         continue;
                     };
                     let other = match token.kind() {
