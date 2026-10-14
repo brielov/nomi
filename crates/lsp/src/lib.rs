@@ -82,6 +82,11 @@ pub fn run(connection: &Connection) -> Result<(), Error> {
     let cache = Cache::locate().ok();
     let store = Store::new(cache.as_ref().map_or_else(PathBuf::new, Cache::packages));
     let artifacts = cache.as_ref().map(nomi_engine::artifacts::Artifacts::new);
+    // An editor may be all that builds: it trims the cache as a build
+    // does, once it starts, without holding up the handshake.
+    if let Some(artifacts) = artifacts.clone() {
+        std::thread::spawn(move || artifacts.trim());
+    }
     serve_with(connection, store, Memo::new(), artifacts)
 }
 

@@ -20,7 +20,7 @@ use crate::console::{Console, Personality};
 use crate::graph::{Env, RootMain};
 use crate::names::{Building, ModuleInterface, Packages};
 use crate::objects::Dependencies;
-use crate::paths::Root;
+use crate::paths::{Cache, Root};
 use crate::project::{self, Project, check_source_dirs};
 use crate::report::{self, one_line};
 use crate::timings::{self, Phase};
@@ -141,6 +141,7 @@ pub fn run(cx: &Context<'_, impl Http + Sync>, console: &mut dyn Console, make: 
     };
     let ok = build(cx, console, make, goal)
         .is_some_and(|clean| write(cx.vfs, console, cx.dir, make, clean));
+    trim(cx.cache);
     if timings::on() {
         console.err(&timings::report(started.elapsed()));
     }
@@ -160,9 +161,17 @@ pub fn interfaces(
     } else {
         Goal::Optimize
     };
-    let clean = build(cx, console, make, goal)?;
+    let built = build(cx, console, make, goal);
+    trim(cx.cache);
+    let clean = built?;
     let interfaces = clean.built.optimized.interfaces.clone();
     write(cx.vfs, console, cx.dir, make, clean).then_some(interfaces)
+}
+
+/// Trims the artifact cache as a build ends, as `go build` trims its own:
+/// at most once a day, and a trim that fails costs only disk space.
+fn trim(cache: &Cache) {
+    let _ = Artifacts::new(cache).trim();
 }
 
 /// A build in which nothing was wrong, and what writing its output reads.
