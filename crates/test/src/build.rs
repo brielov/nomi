@@ -12,8 +12,8 @@ use nomi_engine::check::Style;
 use nomi_engine::console::{Console, Personality};
 use nomi_engine::make::{self, Make, Output};
 use nomi_engine::paths::Cache;
-use nomi_engine::test_deps::{self, Solve};
-use nomi_engine::{Http, Vfs};
+use nomi_engine::test_deps::{self, Dependencies, Solve};
+use nomi_engine::{Context, Http, Vfs};
 use nomi_project::outline::{AppOutline, SrcDir};
 use nomi_project::{ModuleName, Outline, Version};
 
@@ -55,6 +55,18 @@ pub struct Env<'a, H> {
     pub color: bool,
 }
 
+impl<H> Env<'_, H> {
+    /// What a command of the engine's run in `dir` takes from it.
+    pub(crate) fn at<'b>(&'b self, dir: &'b Path) -> Context<'b, H> {
+        Context {
+            vfs: self.vfs,
+            dir,
+            cache: self.cache,
+            http: self.http,
+        }
+    }
+}
+
 impl<H> std::fmt::Debug for Env<'_, H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Env")
@@ -86,7 +98,7 @@ fn prepare<H: Http + Sync>(
     let src = dir.join("src");
     fs::create_dir_all(src.join("Test/Generated")).map_err(|e| io(&dir, &e))?;
     let runner = runner::sources(&tests_dir).map_err(|e| io(&dir, &e))?;
-    let (direct, indirect) = test_deps::dependencies(
+    let Dependencies { direct, indirect } = test_deps::dependencies(
         &project.elm_json,
         &project.outline,
         &dir,
@@ -158,11 +170,8 @@ pub fn build<H: Http + Sync>(
     // The test modules first, for their types; then `main` over them.
     let mut quiet = Quiet::new(env.color && console.err_is_terminal());
     let interfaces = make::interfaces(
-        env.vfs,
+        &env.at(&dir),
         &mut quiet,
-        &dir,
-        env.cache,
-        env.http,
         &elm_make(files.to_vec(), Style::Terminal, Output::DevNull),
     );
     let Some(interfaces) = interfaces else {
@@ -186,11 +195,8 @@ pub fn build<H: Http + Sync>(
     let js = dir.join("elmTestOutput.js");
     let mut quiet = Quiet::new(env.color && console.err_is_terminal());
     let made = make::run(
-        env.vfs,
+        &env.at(&dir),
         &mut quiet,
-        &dir,
-        env.cache,
-        env.http,
         &elm_make(vec![main], Style::Terminal, Output::Js(js.clone())),
     );
     if !made {
@@ -226,9 +232,7 @@ pub fn make<H: Http + Sync>(
 ) -> Result<bool, Failure> {
     let dir = prepare(env, console, project, &mut |_, _| {})?;
     let make = elm_make(files.to_vec(), style, Output::DevNull);
-    Ok(make::run(
-        env.vfs, console, &dir, env.cache, env.http, &make,
-    ))
+    Ok(make::run(&env.at(&dir), console, &make))
 }
 
 /// Where `project`'s generated project is: elm-test's

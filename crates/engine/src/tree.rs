@@ -2,7 +2,7 @@
 //! project builds with, under the dependencies that need them.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::fmt::Write;
 
 use nomi_base::{Compat, Report};
 use nomi_project::{Name, Outline};
@@ -10,52 +10,43 @@ use nomi_registry::{Details, Http, Store, details};
 
 use crate::console::{self, Console, Personality};
 use crate::install::details_problem;
-use crate::paths::Cache;
 use crate::project::Project;
-use crate::{Vfs, env};
+use crate::{Context, env};
 
-/// Prints the dependency tree of the project around `dir`. Whether it
-/// succeeded.
-pub fn run(
-    vfs: &Vfs,
-    console: &mut dyn Console,
-    dir: &Path,
-    cache: &Cache,
-    http: &impl Http,
-) -> bool {
+/// Prints the dependency tree of the project around the directory.
+/// Whether it succeeded.
+pub fn run(cx: &Context<'_, impl Http>, console: &mut dyn Console) -> bool {
     let mut compat = Compat::LATEST;
-    let result = (|| {
-        let project = Project::load(vfs, dir, "to show")?;
-        compat = project.compat;
-        let store = Store::new(cache.packages());
-        let mut registry = env::registry(
-            cache,
-            &store,
-            http,
-            compat,
-            "I need the list of published packages to know what your dependencies need",
-        )?;
-        let solution = details::verify(&mut registry, compat, &project.outline)
-            .map_err(|problem| details_problem(&problem, compat, Personality::Nomi))?;
-        let (direct, test): (Vec<&Name>, Vec<&Name>) = match &project.outline {
-            Outline::App(app) => (
-                app.direct.keys().collect(),
-                app.test_direct.keys().collect(),
-            ),
-            Outline::Pkg(pkg) => (pkg.deps.keys().collect(), pkg.test_deps.keys().collect()),
-        };
-        Ok::<_, Report>(render(&direct, &test, &solution))
-    })();
-    match result {
-        Ok(tree) => {
-            console.out(&tree);
-            true
-        }
-        Err(problem) => {
-            console::report(console, &problem, compat);
-            false
-        }
-    }
+    let result = tree(cx, console, &mut compat);
+    console::reported(console, result, compat)
+}
+
+fn tree(
+    cx: &Context<'_, impl Http>,
+    console: &mut dyn Console,
+    compat: &mut Compat,
+) -> Result<bool, Report> {
+    let project = Project::load(cx.vfs, cx.dir, "to show")?;
+    *compat = project.compat;
+    let store = Store::new(cx.cache.packages());
+    let mut registry = env::registry(
+        cx.cache,
+        &store,
+        cx.http,
+        *compat,
+        "I need the list of published packages to know what your dependencies need",
+    )?;
+    let solution = details::verify(&mut registry, *compat, &project.outline)
+        .map_err(|problem| details_problem(&problem, *compat, Personality::Nomi))?;
+    let (direct, test): (Vec<&Name>, Vec<&Name>) = match &project.outline {
+        Outline::App(app) => (
+            app.direct.keys().collect(),
+            app.test_direct.keys().collect(),
+        ),
+        Outline::Pkg(pkg) => (pkg.deps.keys().collect(), pkg.test_deps.keys().collect()),
+    };
+    console.out(&render(&direct, &test, &solution));
+    Ok(true)
 }
 
 /// The trees under `direct` and then `test`, each release's dependencies
@@ -100,8 +91,7 @@ impl<'a> Tree<'a> {
             .collect();
         let repeated = !deps.is_empty() && !self.shown.insert(name);
         let mark = if repeated { " (*)" } else { "" };
-        self.out
-            .push_str(&format!("{lead}{name} {}{mark}\n", details.version));
+        let _ = writeln!(self.out, "{lead}{name} {}{mark}", details.version);
         if repeated {
             return;
         }
@@ -119,7 +109,6 @@ impl<'a> Tree<'a> {
 
 #[cfg(test)]
 mod tests {
-    use nomi_project::json::Cursor;
     use nomi_project::{Constraint, Version};
 
     use super::*;
@@ -127,7 +116,7 @@ mod tests {
     #[test]
     fn each_tree_shows_once() {
         let compat = Compat::LATEST;
-        let name = |s: &str| Name::parse(s.as_bytes(), Cursor::start(compat), compat).unwrap();
+        let name = |s: &str| s.parse::<Name>().unwrap();
         let release = |deps: &[&str]| Details {
             version: Version::new(1, 0, 0),
             deps: deps

@@ -19,14 +19,14 @@ use nomi_registry::{Http, Store, details, report as registry_report};
 use crate::artifacts::{Artifacts, Key};
 use crate::console::{self, Console, Personality};
 use crate::graph::{Env, Foreigns, Graph, Owner, RootMain};
-use crate::install::{details_problem, one_line};
+use crate::install::details_problem;
 use crate::make::{self, Make};
 use crate::names::{ModuleInterface, Packages};
 use crate::paths::Cache;
 use crate::project::{self, Project};
-use crate::report::{self, ModuleErrors};
+use crate::report::{self, ModuleErrors, one_line};
 use crate::schedule::Cancelled;
-use crate::{Pool, Snapshot, Vfs, env, names, objects, packages};
+use crate::{Context, Pool, Snapshot, env, names, objects, packages};
 
 /// What checking found.
 #[derive(Debug)]
@@ -48,20 +48,17 @@ pub enum Style {
     Json,
 }
 
-/// Checks the project around `dir`, building from `paths`, or a
+/// Checks the project around the directory, building from `paths`, or a
 /// package's exposed modules when there are none, and shows what it
 /// found: `elm make --output=/dev/null`, as [`make::run`] runs it.
 /// Whether nothing was wrong.
 pub fn run(
-    vfs: &Vfs,
+    cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
-    dir: &Path,
-    cache: &Cache,
-    http: &(impl Http + Sync),
     paths: Vec<PathBuf>,
     style: Style,
 ) -> bool {
-    make::run(vfs, console, dir, cache, http, &Make::check(paths, style))
+    make::run(cx, console, &Make::check(paths, style))
 }
 
 /// What to build: the modules of the project `env` describes, as `elm

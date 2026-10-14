@@ -12,7 +12,7 @@ use nomi_base::diagnostic::doc::Doc;
 use nomi_engine::check::Style;
 use nomi_engine::console::{self, Console, Personality, StdConsole};
 use nomi_engine::make::{self, Make, Output};
-use nomi_engine::{Vfs, bump, diff, publish};
+use nomi_engine::{bump, diff, publish};
 
 use crate::terminal::{self, Chunks, Flag, Parser};
 
@@ -37,12 +37,8 @@ pub(crate) fn main(args: impl Iterator<Item = OsString>) -> ExitCode {
             );
             false
         }
-        ["publish"] => crate::in_project(|console, dir, cache, http| {
-            publish::run(&Vfs::new(), console, dir, cache, http)
-        }),
-        ["bump"] => crate::in_project(|console, dir, cache, http| {
-            bump::run(&Vfs::new(), console, dir, cache, http)
-        }),
+        ["publish"] => crate::in_project(|console, cx| publish::run(cx, console)),
+        ["bump"] => crate::in_project(|console, cx| bump::run(cx, console)),
         _ => {
             eprintln!("error: nomi doesn't answer to `elm {}` yet", args.join(" "));
             false
@@ -61,9 +57,7 @@ fn diff(args: &[&str]) -> bool {
         );
         return false;
     };
-    crate::in_project(|console, dir, cache, http| {
-        diff::run(&Vfs::new(), console, dir, cache, http, &args)
-    })
+    crate::in_project(|console, cx| diff::run(cx, console, &args))
 }
 
 /// `make`'s flags, in the order `Main.hs` declares them.
@@ -132,7 +126,5 @@ fn make(args: &[&str]) -> bool {
             return false;
         }
     };
-    crate::in_project(|console, dir, cache, http| {
-        make::run(&Vfs::new(), console, dir, cache, http, &make)
-    })
+    crate::in_project(|console, cx| make::run(cx, console, &make))
 }

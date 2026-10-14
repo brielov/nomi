@@ -18,7 +18,7 @@ use nomi_syntax::elm::docs::{self as syntax, DocKind, DocName, SyntaxProblem};
 
 use crate::canonical::{Decl, Def, Type};
 use crate::canonicalize::module::{Canonical, Export, Exports};
-use crate::hir::{self, Associativity, Fixity};
+use crate::hir::{self, Fixity};
 use crate::types::localizer::Localizer;
 use crate::types::render::{Context, can_to_doc};
 
@@ -533,11 +533,7 @@ fn encode_module(out: &mut String, m: &Module) -> fmt::Result {
     })?;
     out.push_str(",\"binops\":");
     list(out, &m.binops, |out, (name, b)| {
-        let associativity = match b.fixity.associativity {
-            Associativity::Left => "left",
-            Associativity::Non => "non",
-            Associativity::Right => "right",
-        };
+        let associativity = b.fixity.associativity.json_name();
         let (comment, ty, precedence) = (comment(&b.comment), chars(&b.ty), b.fixity.precedence);
         write!(
             out,

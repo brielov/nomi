@@ -7,7 +7,6 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -16,7 +15,7 @@ use nomi_compiler::interface::Interface;
 use nomi_compiler::optimized::binary;
 use nomi_engine::Vfs;
 use nomi_engine::check::{self, Build, Built, Checked, Goal, Optimized, Style};
-use nomi_engine::console::{Console, Personality};
+use nomi_engine::console::{Captured, Personality};
 use nomi_engine::graph::{Env, Foreigns};
 use nomi_engine::{javascript, names, objects};
 use nomi_project::{ModuleName, Name, Outline};
@@ -305,27 +304,4 @@ pub fn exposing(dep: &Name, compat: Compat) -> Vec<ModuleName> {
 /// holds.
 fn only_version(dir: &Path) -> PathBuf {
     fs::read_dir(dir).unwrap().next().unwrap().unwrap().path()
-}
-
-/// A console that keeps what is written to standard error, as a pipe
-/// would.
-#[derive(Default)]
-struct Captured {
-    err: String,
-}
-
-impl Console for Captured {
-    fn out(&mut self, _: &str) {}
-
-    fn err(&mut self, text: &str) {
-        self.err.push_str(text);
-    }
-
-    fn read_line(&mut self) -> io::Result<Option<String>> {
-        Ok(None)
-    }
-
-    fn read_all(&mut self) -> io::Result<Vec<u8>> {
-        Ok(Vec::new())
-    }
 }

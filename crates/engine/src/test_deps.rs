@@ -1,5 +1,4 @@
-//! The dependencies of elm-test's generated project, as it
-//! solves them
+//! The dependencies of elm-test's generated project, as it solves them
 //! (`Solve.getDependencies`): the project's direct and test-direct
 //! dependencies, held exactly in an application, and what the runner
 //! needs, newest first; first from the packages already downloaded, then
@@ -10,26 +9,32 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use nomi_base::{Compat, Report};
+use nomi_project::{Constraint, Name, Outline, Version};
+pub use nomi_registry::solver::Order;
+use nomi_registry::solver::{self, Details};
+use nomi_registry::{Http, Known, Packages, Release, Store};
+
 use crate::artifacts::Hash;
 use crate::env;
-use crate::paths::Cache;
-use nomi_base::{Compat, Report};
-use nomi_project::json::Cursor;
-use nomi_project::{Constraint, Name, Outline, Version};
-use nomi_registry::solver::{self, Details, Order};
-use nomi_registry::{Http, Known, Packages, Release, Store};
+use crate::paths::{Cache, ELM_JSON};
+use crate::report::one_line;
 
 /// The generated project is elm-test's, which says 0.19.3.
 const COMPAT: Compat = Compat::V0_19_3;
 
 /// A solution: the dependencies the constraints name, and the rest.
-pub type Dependencies = (BTreeMap<Name, Version>, BTreeMap<Name, Version>);
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Dependencies {
+    pub direct: BTreeMap<Name, Version>,
+    pub indirect: BTreeMap<Name, Version>,
+}
 
-/// How elm-test solves: `--dependencies oldest`, which only a package's
-/// ranges leave room for, and `--offline`.
+/// How elm-test solves: `--dependencies`, whose `oldest` only a
+/// package's ranges leave room for, and `--offline`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Solve {
-    pub oldest: bool,
+    pub order: Order,
     pub offline: bool,
 }
 
@@ -46,45 +51,40 @@ pub fn dependencies(
     how: Solve,
     solving: &mut dyn FnMut(),
 ) -> Result<Dependencies, Report> {
-    let oldest = how.oldest && matches!(outline, Outline::Pkg(_));
+    let order = match outline {
+        Outline::App(_) => Order::NewestFirst,
+        Outline::Pkg(_) => how.order,
+    };
     let mut key = elm_json.to_vec();
-    if oldest {
+    if order == Order::OldestFirst {
         key.extend_from_slice(b"\0oldest");
     }
-    let hex: String = (Hash::of(&key).0.iter())
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    let kept = dir.join(format!("dependencies.{hex}"));
-    if let Some(dependencies) = fs::read_to_string(&kept).ok().and_then(|t| read(&t)) {
+    let kept = dir.join(format!("dependencies.{}", Hash::of(&key)));
+    if let Some(dependencies) =
+        (fs::read_to_string(&kept).ok()).and_then(|t| Dependencies::decode(&t))
+    {
         return Ok(dependencies);
     }
     solving();
-    let how = Solve { oldest, ..how };
-    let dependencies = solve(outline, cache, http, how)?;
+    let dependencies = solve(outline, cache, http, Solve { order, ..how })?;
     // A solution that can't be kept is solved again next time.
-    let _ = fs::write(&kept, write(&dependencies));
+    let _ = fs::write(&kept, dependencies.encode());
     Ok(dependencies)
 }
 
 /// What the generated project needs: the project's dependencies, its
 /// tests', and the runner's.
 fn constraints(outline: &Outline) -> Result<BTreeMap<Name, Constraint>, Report> {
-    let mut constraints: BTreeMap<Name, Constraint> = match outline {
-        Outline::App(app) => (app.direct.iter().chain(&app.test_direct))
-            .map(|(name, &version)| (name.clone(), Constraint::exactly(version)))
-            .collect(),
-        Outline::Pkg(pkg) => pkg.deps.clone(),
+    let (mut constraints, tests): (BTreeMap<Name, Constraint>, _) = match outline {
+        Outline::App(app) => {
+            let exactly = (app.direct.iter().chain(&app.test_direct))
+                .map(|(name, &version)| (name.clone(), Constraint::exactly(version)));
+            (exactly.collect(), BTreeMap::new())
+        }
+        Outline::Pkg(pkg) => (pkg.deps.clone(), pkg.test_deps.clone()),
     };
-    let tests = match outline {
-        Outline::App(_) => BTreeMap::new(),
-        Outline::Pkg(pkg) => pkg.test_deps.clone(),
-    };
-    let runner = [Name::core(), Name::json(), Name::time(), Name::random()].map(|name| {
-        (
-            name,
-            Constraint::until_next_major(Version::new(1, 0, 0), COMPAT),
-        )
-    });
+    let runner = [Name::core(), Name::json(), Name::time(), Name::random()]
+        .map(|name| (name, Constraint::until_next_major(Version::ONE, COMPAT)));
     for (name, constraint) in tests.into_iter().chain(runner) {
         let both = match constraints.get(&name) {
             Some(held) => held.intersect(&constraint),
@@ -108,18 +108,14 @@ fn solve(
 ) -> Result<Dependencies, Report> {
     let constraints = constraints(outline)?;
     let store = Store::new(cache.packages());
-    let split = |solution: BTreeMap<Name, Details>| -> Dependencies {
-        (solution.into_iter())
+    let split = |solution: BTreeMap<Name, Details>| {
+        let (direct, indirect) = (solution.into_iter())
             .map(|(name, details)| (name, details.version))
-            .partition(|(name, _)| constraints.contains_key(name))
-    };
-    let order = if how.oldest {
-        Order::OldestFirst
-    } else {
-        Order::NewestFirst
+            .partition(|(name, _)| constraints.contains_key(name));
+        Dependencies { direct, indirect }
     };
     let mut local = Local::new(&store).map_err(|e| io_problem(&e))?;
-    if let Ok(Some(solution)) = solver::verify_in(&mut local, COMPAT, &constraints, order) {
+    if let Ok(Some(solution)) = solver::verify_in(&mut local, COMPAT, &constraints, how.order) {
         return Ok(split(solution));
     }
     if how.offline {
@@ -134,7 +130,7 @@ fn solve(
         COMPAT,
         "I need the list of published packages to find the tests' dependencies",
     )?;
-    match solver::verify_in(&mut registry, COMPAT, &constraints, order) {
+    match solver::verify_in(&mut registry, COMPAT, &constraints, how.order) {
         Ok(Some(solution)) => Ok(split(solution)),
         Ok(None) => Err(no_solution(
             "I could not find versions of the project's dependencies and the test runner's that work together.",
@@ -144,15 +140,13 @@ fn solve(
 }
 
 fn no_solution(message: &str) -> Report {
-    Report::new("NO SOLUTION FOR THE TESTS", None, message, [])
+    one_line("NO SOLUTION FOR THE TESTS", message)
 }
 
 fn io_problem(e: &io::Error) -> Report {
-    Report::new(
+    one_line(
         "PROBLEM READING PACKAGES",
-        None,
         &format!("I could not read the packages nomi has downloaded: {e}"),
-        [],
     )
 }
 
@@ -180,7 +174,7 @@ impl Packages for Local<'_> {
         let Some(dir) = self.store.get(name, version)? else {
             return Ok(None);
         };
-        Ok(Release::decode(&fs::read(dir.join("elm.json"))?, COMPAT))
+        Ok(Release::decode(&fs::read(dir.join(ELM_JSON))?, COMPAT))
     }
 
     fn offline(&self) -> bool {
@@ -188,31 +182,31 @@ impl Packages for Local<'_> {
     }
 }
 
-/// A kept solution: a line for each dependency, `direct` or `indirect`.
-fn write((direct, indirect): &Dependencies) -> String {
-    let lines = |kind: &str, deps: &BTreeMap<Name, Version>| -> String {
-        (deps.iter())
-            .map(|(name, version)| format!("{kind} {name} {version}\n"))
-            .collect()
-    };
-    lines("direct", direct) + &lines("indirect", indirect)
-}
-
-fn read(text: &str) -> Option<Dependencies> {
-    let (mut direct, mut indirect) = (BTreeMap::new(), BTreeMap::new());
-    for line in text.lines() {
-        let mut parts = line.split(' ');
-        let deps = match parts.next()? {
-            "direct" => &mut direct,
-            "indirect" => &mut indirect,
-            _ => return None,
+impl Dependencies {
+    /// The solution as it is kept: a line for each dependency, `direct`
+    /// or `indirect`.
+    fn encode(&self) -> String {
+        let lines = |kind: &str, deps: &BTreeMap<Name, Version>| -> String {
+            (deps.iter())
+                .map(|(name, version)| format!("{kind} {name} {version}\n"))
+                .collect()
         };
-        let name = Name::parse(parts.next()?.as_bytes(), Cursor::start(COMPAT), COMPAT).ok()?;
-        let version =
-            Version::parse(parts.next()?.as_bytes(), Cursor::start(COMPAT), COMPAT).ok()?;
-        deps.insert(name, version);
+        lines("direct", &self.direct) + &lines("indirect", &self.indirect)
     }
-    Some((direct, indirect))
+
+    fn decode(text: &str) -> Option<Dependencies> {
+        let mut dependencies = Dependencies::default();
+        for line in text.lines() {
+            let mut parts = line.split(' ');
+            let deps = match parts.next()? {
+                "direct" => &mut dependencies.direct,
+                "indirect" => &mut dependencies.indirect,
+                _ => return None,
+            };
+            deps.insert(parts.next()?.parse().ok()?, parts.next()?.parse().ok()?);
+        }
+        Some(dependencies)
+    }
 }
 
 #[cfg(test)]
@@ -221,12 +215,15 @@ mod tests {
 
     #[test]
     fn kept_solutions_read_back() {
-        let name = |s: &str| Name::parse(s.as_bytes(), Cursor::start(COMPAT), COMPAT).unwrap();
-        let dependencies = (
-            BTreeMap::from([(name("elm/core"), Version::new(1, 0, 5))]),
-            BTreeMap::from([(name("elm/html"), Version::new(1, 0, 1))]),
+        let name = |s: &str| s.parse::<Name>().unwrap();
+        let dependencies = Dependencies {
+            direct: BTreeMap::from([(name("elm/core"), Version::new(1, 0, 5))]),
+            indirect: BTreeMap::from([(name("elm/html"), Version::new(1, 0, 1))]),
+        };
+        assert_eq!(
+            Dependencies::decode(&dependencies.encode()),
+            Some(dependencies)
         );
-        assert_eq!(read(&write(&dependencies)), Some(dependencies));
-        assert_eq!(read("both elm/core 1.0.5\n"), None);
+        assert_eq!(Dependencies::decode("both elm/core 1.0.5\n"), None);
     }
 }

@@ -3,7 +3,6 @@
 
 use std::collections::HashSet;
 use std::fmt;
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -13,6 +12,7 @@ use nomi_compiler::hir::Expr;
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{Tool, parse_module, validate};
 
+use crate::vfs::canonical_or_given;
 use crate::{Pool, Vfs, discover};
 
 /// What a run does with a module that isn't formatted.
@@ -48,12 +48,14 @@ pub enum RootError {
 
 /// Everything a run did, in the order of the paths it was given.
 #[derive(Debug, Default)]
-pub struct Report {
+pub struct Run {
+    /// The paths that named no modules, and why.
     pub roots: Vec<(PathBuf, RootError)>,
+    /// Each module, and what became of it.
     pub files: Vec<(PathBuf, Outcome)>,
 }
 
-impl Report {
+impl Run {
     /// Whether the run found nothing wrong: every path named modules,
     /// each one valid, and in [`Mode::Check`] formatted already.
     pub fn succeeded(&self, mode: Mode) -> bool {
@@ -89,8 +91,8 @@ pub fn format_text(text: &str) -> Result<String, ElmPosition> {
 
 /// How formatting `text`, a module `tool` accepts, changes what elm reads
 /// in it: where its HIR's shape (`nomi_compiler::hir::shape`) first
-/// differs, nothing where it reads the same or doesn't format (plan
-/// 5.15). elm-format reads a CRLF line break in a multiline string as
+/// differs, nothing where it reads the same or doesn't format.
+/// elm-format reads a CRLF line break in a multiline string as
 /// `\n` where elm reads both characters, a change nomi keeps
 /// (`DECISIONS.md`), so a module with one is allowed it.
 pub fn shape_change(text: &str, tool: Tool) -> Option<String> {
@@ -122,32 +124,35 @@ pub fn decode(bytes: Vec<u8>) -> Result<String, ElmPosition> {
 
 /// Formats every module the `roots` name, as [`discover`] finds them;
 /// a module named twice is formatted once.
-pub fn format_paths(vfs: &Vfs, roots: &[PathBuf], mode: Mode) -> Report {
-    let mut report = Report::default();
+pub fn format_paths(vfs: &Vfs, roots: &[PathBuf], mode: Mode) -> Run {
+    let mut run = Run::default();
     let mut seen = HashSet::new();
     let mut files = Vec::new();
     for root in roots {
         match discover(root) {
-            Ok(found) if found.is_empty() => report.roots.push((root.clone(), RootError::Empty)),
-            Ok(found) => files.extend(found.into_iter().filter(|file| {
-                seen.insert(fs::canonicalize(file).unwrap_or_else(|_| file.clone()))
-            })),
-            Err(e) => report.roots.push((root.clone(), RootError::Io(e))),
+            Ok(found) if found.is_empty() => run.roots.push((root.clone(), RootError::Empty)),
+            Ok(found) => {
+                files.extend(
+                    (found.into_iter()).filter(|file| seen.insert(canonical_or_given(file))),
+                );
+            }
+            Err(e) => run.roots.push((root.clone(), RootError::Io(e))),
         }
     }
-    report.files = Pool::global().map(files, |file| {
-        let outcome = format_file(vfs, &file, mode);
+    run.files = Pool::global().map(files, |file| {
+        let outcome = match vfs.read(&file) {
+            Ok(text) => rewrite(vfs, &file, &text, mode),
+            Err(e) => Outcome::Failed(e),
+        };
         (file, outcome)
     });
-    report
+    run
 }
 
-fn format_file(vfs: &Vfs, path: &Path, mode: Mode) -> Outcome {
-    let text = match vfs.read(path) {
-        Ok(text) => text,
-        Err(e) => return Outcome::Failed(e),
-    };
-    let formatted = match format_text(&text) {
+/// What becomes of `text`, the module at `path`, formatted, and in
+/// [`Mode::Write`] written back where that changes it.
+pub(crate) fn rewrite(vfs: &Vfs, path: &Path, text: &str, mode: Mode) -> Outcome {
+    let formatted = match format_text(text) {
         Ok(formatted) => formatted,
         Err(at) => return Outcome::Invalid(at),
     };

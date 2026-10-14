@@ -69,9 +69,10 @@ pub struct Details {
 }
 
 /// The order the search tries a package's versions in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Order {
     /// Upstream's.
+    #[default]
     NewestFirst,
     /// elm-test's `--dependencies oldest`.
     OldestFirst,

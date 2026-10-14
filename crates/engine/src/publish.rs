@@ -10,74 +10,61 @@ use std::process::{Command, Stdio};
 
 use nomi_base::Compat;
 use nomi_base::diagnostic::Report;
-use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, reflow, simple_note, text, vcat};
+use nomi_base::diagnostic::doc::{Color, fill_sep, reflow, simple_note, text, vcat, words};
+use nomi_project::report::elm_json_path;
 use nomi_project::version::Version;
 use nomi_project::{Name, Outline};
 use nomi_registry::http::DOMAIN;
 use nomi_registry::{Http, HttpError, Known, Part};
 
-use crate::Vfs;
+use crate::Context;
+use crate::bump::{NEW_PACKAGE_OVERVIEW, Possibility, possibilities};
 use crate::console::{self, Console, Personality};
 use crate::diff::{self, Magnitude, Stop};
-use crate::paths::{Cache, Root};
+use crate::paths::Root;
 use crate::project::Project;
+use crate::report::one_line;
 
-/// `elm publish` for the project around `dir`. Whether it published.
-pub fn run(
-    vfs: &Vfs,
-    console: &mut dyn Console,
-    dir: &Path,
-    cache: &Cache,
-    http: &(impl Http + Sync),
-) -> bool {
-    let Some(root) = Root::find(vfs, dir) else {
+/// `elm publish` for the project around the directory. Whether it
+/// published.
+pub fn run(cx: &Context<'_, impl Http + Sync>, console: &mut dyn Console) -> bool {
+    let Some(root) = Root::find(cx.vfs, cx.dir) else {
         console::report(console, &no_outline(), Compat::LATEST);
         return false;
     };
-    let compat = Project::read(vfs, &root, Personality::Elm).map_or(Compat::LATEST, |p| p.compat);
-    match publish(vfs, console, &root, cache, http, compat) {
-        Ok(()) => true,
-        Err(Stop::Report(report)) => {
-            console::report(console, &report, compat);
-            false
-        }
-        Err(Stop::Build(checked)) => {
-            crate::check::show_reports(console, root.dir(), &checked, compat);
-            false
-        }
+    let project = Project::read(cx.vfs, &root, Personality::Elm);
+    let compat = project.as_ref().map_or(Compat::LATEST, |p| p.compat);
+    let published = publish(cx, console, project, compat);
+    if let Err(stop) = &published {
+        stop.show(console, root.dir(), compat);
     }
+    published.is_ok()
 }
 
 fn publish(
-    vfs: &Vfs,
+    cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
-    root: &Root,
-    cache: &Cache,
-    http: &(impl Http + Sync),
+    project: Result<Project, Report>,
     compat: Compat,
 ) -> Result<(), Stop> {
     let index = diff::latest(
-        http,
-        cache,
+        cx,
         compat,
         "I need the latest list of published packages to make sure this is safe to publish",
     )?;
-    let project = Project::read(vfs, root, Personality::Elm)?;
+    let project = project?;
     let Outline::Pkg(pkg) = &project.outline else {
-        return Err(Report::new(
+        return Err(one_line(
             "UNPUBLISHABLE",
-            None,
             "I cannot publish applications, only packages!",
-            [],
         )
         .into());
     };
-    let (name, version) = (pkg.name.clone(), pkg.version);
-    let known = index.versions(&name);
+    let (name, version) = (&pkg.name, pkg.version);
+    let known = index.versions(name);
     match known {
         None => console.out(&format!(
-            "{}\nI will now verify that everything is in order...\n\n",
-            crate::bump::NEW_PACKAGE_OVERVIEW
+            "{NEW_PACKAGE_OVERVIEW}\nI will now verify that everything is in order...\n\n"
         )),
         Some(_) => console.out(&format!("Verifying {name} {version} ...\n\n")),
     }
@@ -88,142 +75,123 @@ fn publish(
     if summary.is_empty() || summary == "helpful summary of your project, less than 80 characters" {
         return Err(no_summary().into());
     }
-    let dir = root.dir();
-    check(
-        console,
-        compat,
-        Check::fixed(
-            "Looking for README.md",
-            "Found README.md",
-            "Problem with your README.md",
-        ),
-        || {
-            match std::fs::metadata(dir.join("README.md")) {
-            Err(_) => Err(bad_readme("NO README", "Every published package must have a helpful README.md file, but I do not see one in your project.").into()),
-            Ok(meta) if meta.len() < 300 => Err(bad_readme("SHORT README", "This README.md is too short. Having more details will help people assess your package quickly and fairly.").into()),
-            Ok(_) => Ok(()),
-        }
-        },
-    )?;
-    check(
-        console,
-        compat,
-        Check::fixed(
-            "Looking for LICENSE",
-            "Found LICENSE",
-            "Problem with your LICENSE",
-        ),
-        || {
-            if dir.join("LICENSE").exists() {
-                Ok(())
-            } else {
-                Err(no_license().into())
-            }
-        },
-    )?;
+    let dir = project.root.dir();
+    verify_readme(console, compat, dir)?;
+    verify_license(console, compat, dir)?;
     let (docs, docs_json) = check(
         console,
         compat,
-        Check::fixed(
-            "Verifying documentation...",
-            "Verified documentation",
-            "Problem with documentation",
-        ),
-        || diff::local_docs_json(vfs, root, &project, cache, http),
+        Check {
+            waiting: "Verifying documentation...",
+            success: "Verified documentation",
+            failure: "Problem with documentation",
+        },
+        || diff::local_docs_json(cx, &project),
     )?;
-    verify_version(console, cache, http, compat, &name, version, &docs, known)?;
-    if !git_available() {
+    verify_version(cx, console, compat, name, version, &docs, known)?;
+    if !git(dir, &["--version"]) {
         return Err(no_git().into());
     }
-    let tagged = format!("Is version {version} tagged on GitHub?");
-    let hash = check(
-        console,
-        compat,
-        Check::fixed(
-            &tagged,
-            &format!("Version {version} is tagged on GitHub"),
-            &format!("Version {version} is not tagged on GitHub!"),
-        ),
-        || verify_tag(dir, http, &name, version),
-    )?;
-    check(
-        console,
-        compat,
-        Check::fixed(
-            "Checking for uncommitted changes...",
-            "No uncommitted changes in local code",
-            "Your local code is different than the code tagged on GitHub",
-        ),
-        || {
-            if git(dir, &["diff-index", "--quiet", &hash, "--"]) {
-                Ok(())
-            } else {
-                Err(local_changes(version).into())
-            }
-        },
-    )?;
-    let zip_hash = verify_zip(console, compat, vfs, cache, http, &name, version)?;
+    let hash = verify_tag(cx.http, console, compat, dir, name, version)?;
+    verify_no_changes(console, compat, dir, &hash, version)?;
+    let zip_hash = verify_zip(cx, console, compat, name, version)?;
     console.out("\n");
     let url = format!("{DOMAIN}/register?name={name}&version={version}&commit-hash={hash}");
-    let file = |name: &str| -> Result<Vec<u8>, Stop> {
-        std::fs::read(dir.join(name)).map_err(|e| {
-            Stop::Report(Report::new(
-                "PROBLEM PUBLISHING PACKAGE",
-                None,
-                &format!("I could not read {name}: {e}"),
-                [],
-            ))
-        })
+    register(cx.http, &url, dir, docs_json, zip_hash)?;
+    console.out("Success!\n");
+    Ok(())
+}
+
+/// `verifyReadme`: a README of 300 bytes or more.
+fn verify_readme(console: &mut dyn Console, compat: Compat, dir: &Path) -> Result<(), Stop> {
+    let messages = Check {
+        waiting: "Looking for README.md",
+        success: "Found README.md",
+        failure: "Problem with your README.md",
+    };
+    check(console, compat, messages, || {
+        match std::fs::metadata(dir.join("README.md")) {
+            Err(_) => Err(bad_readme(
+                "NO README",
+                "Every published package must have a helpful README.md file, but I do not see \
+                 one in your project.",
+            )
+            .into()),
+            Ok(meta) if meta.len() < 300 => Err(bad_readme(
+                "SHORT README",
+                "This README.md is too short. Having more details will help people assess your \
+                 package quickly and fairly.",
+            )
+            .into()),
+            Ok(_) => Ok(()),
+        }
+    })
+}
+
+/// `verifyLicense`.
+fn verify_license(console: &mut dyn Console, compat: Compat, dir: &Path) -> Result<(), Stop> {
+    let messages = Check {
+        waiting: "Looking for LICENSE",
+        success: "Found LICENSE",
+        failure: "Problem with your LICENSE",
+    };
+    check(console, compat, messages, || {
+        if dir.join("LICENSE").exists() {
+            Ok(())
+        } else {
+            Err(no_license().into())
+        }
+    })
+}
+
+/// `register`: `elm.json`, the documentation, the README and the hash of
+/// GitHub's zipball, sent to the package website's `url`.
+fn register(
+    http: &impl Http,
+    url: &str,
+    dir: &Path,
+    docs_json: String,
+    zip_hash: String,
+) -> Result<(), Stop> {
+    let file = |name: &str, bytes: Vec<u8>| Part {
+        name: name.to_owned(),
+        file_name: Some(name.to_owned()),
+        bytes,
+    };
+    let read = |name: &str| match std::fs::read(dir.join(name)) {
+        Ok(bytes) => Ok(file(name, bytes)),
+        Err(e) => Err(one_line(
+            "PROBLEM PUBLISHING PACKAGE",
+            &format!("I could not read {name}: {e}"),
+        )),
     };
     let parts = [
-        Part {
-            name: "elm.json".to_owned(),
-            file_name: Some("elm.json".to_owned()),
-            bytes: file("elm.json")?,
-        },
-        Part {
-            name: "docs.json".to_owned(),
-            file_name: Some("docs.json".to_owned()),
-            bytes: docs_json.into_bytes(),
-        },
-        Part {
-            name: "README.md".to_owned(),
-            file_name: Some("README.md".to_owned()),
-            bytes: file("README.md")?,
-        },
+        read("elm.json")?,
+        file("docs.json", docs_json.into_bytes()),
+        read("README.md")?,
         Part {
             name: "github-hash".to_owned(),
             file_name: None,
             bytes: zip_hash.into_bytes(),
         },
     ];
-    http.upload(&url, &parts).map_err(|e| {
+    http.upload(url, &parts).map_err(|e| {
         nomi_registry::report::http_error(
             "PROBLEM PUBLISHING PACKAGE",
-            &url,
+            url,
             &e,
             "I need to send information about your package to the package website",
         )
     })?;
-    console.out("Success!\n");
     Ok(())
 }
 
 /// A check's messages: while it runs, when it passes, when it fails.
-struct Check {
-    waiting: String,
-    success: String,
-    failure: String,
-}
-
-impl Check {
-    fn fixed(waiting: &str, success: &str, failure: &str) -> Check {
-        Check {
-            waiting: waiting.to_owned(),
-            success: success.to_owned(),
-            failure: failure.to_owned(),
-        }
-    }
+#[derive(Clone, Copy)]
+struct Check<'a> {
+    waiting: &'a str,
+    success: &'a str,
+    failure: &'a str,
 }
 
 /// `reportCheck`: the waiting line, the work, then the line overwritten
@@ -234,12 +202,13 @@ fn check<T>(
     messages: Check,
     work: impl FnOnce() -> Result<T, Stop>,
 ) -> Result<T, Stop> {
+    let success = |_: &T| messages.success.to_owned();
     custom_check(
         console,
         compat,
-        &messages.waiting,
-        |_| messages.success,
-        &messages.failure,
+        messages.waiting,
+        success,
+        messages.failure,
         work,
     )
 }
@@ -253,7 +222,12 @@ fn custom_check<T>(
     failure: &str,
     work: impl FnOnce() -> Result<T, Stop>,
 ) -> Result<T, Stop> {
-    let (good, bad, wait) = marks();
+    let [good, bad, wait] = if cfg!(windows) {
+        ["+", "X", "-"]
+    } else {
+        ["●", "✗", "→"]
+    };
+    let wait = text(wait).color(Color::DullYellow);
     console::print(
         console,
         &text("  ").append(wait).space(text(waiting)),
@@ -268,52 +242,26 @@ fn custom_check<T>(
         format!("{message}{}", " ".repeat(pad))
     };
     if let Ok(value) = &result {
-        console::print(
-            console,
-            &text("\r  ")
-                .append(good)
-                .space(text(padded(&success(value)))),
-            compat,
-        );
+        let good = text(good).color(Color::Green);
+        let line = text("\r  ")
+            .append(good)
+            .space(text(padded(&success(value))));
+        console::print(console, &line, compat);
         console.out("\n");
     } else {
-        console::print(
-            console,
-            &text("\r  ").append(bad).space(text(padded(failure))),
-            compat,
-        );
+        let bad = text(bad).color(Color::Red);
+        let line = text("\r  ").append(bad).space(text(padded(failure)));
+        console::print(console, &line, compat);
         console.out("\n\n");
     }
     result
 }
 
-/// The good, bad and waiting marks.
-fn marks() -> (Doc, Doc, Doc) {
-    if cfg!(windows) {
-        (
-            text("+").color(Color::Green),
-            text("X").color(Color::Red),
-            text("-").color(Color::DullYellow),
-        )
-    } else {
-        (
-            text("●").color(Color::Green),
-            text("✗").color(Color::Red),
-            text("→").color(Color::DullYellow),
-        )
-    }
-}
-
 /// `verifyVersion`: 1.0.0 for a new package; otherwise not published yet,
 /// and the bump the API changes call for from a version it may follow.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "upstream's `verifyVersion` takes these, with its environment spread out"
-)]
 fn verify_version(
+    cx: &Context<'_, impl Http>,
     console: &mut dyn Console,
-    cache: &Cache,
-    http: &impl Http,
     compat: Compat,
     name: &Name,
     version: Version,
@@ -344,33 +292,26 @@ fn verify_version(
         if known.all().any(|v| v == version) {
             return Err(already_published(version).into());
         }
-        let found = crate::bump::possibilities(compat, known)
-            .into_iter()
-            .find(|(_, new, _)| *new == version);
-        let Some((old, new, magnitude)) = found else {
+        let found = (possibilities(compat, known).into_iter()).find(|p| p.new == version);
+        let Some(Possibility {
+            old,
+            new,
+            magnitude,
+        }) = found
+        else {
             return Err(invalid_bump(version, known.newest).into());
         };
         let purpose = format!("verify that {new} really does come next");
-        let old_docs = diff::fetch_docs(cache, http, compat, name, old, &purpose)?;
-        let changes = diff::diff(&old_docs, docs);
-        let real = diff::bump(compat, &changes, old);
+        let old_docs = diff::fetch_docs(cx, compat, name, old, &purpose)?;
+        let real_magnitude = diff::magnitude(&diff::diff(&old_docs, docs));
+        let real = real_magnitude.bump(old, compat);
         if real == new {
             Ok(Good::Bump(old, magnitude))
         } else {
-            Err(bad_bump(old, new, magnitude, real, diff::magnitude(&changes)).into())
+            Err(bad_bump(old, new, magnitude, real, real_magnitude).into())
         }
     })
     .map(|_| ())
-}
-
-/// Whether `git` is on the path.
-fn git_available() -> bool {
-    Command::new("git")
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok()
 }
 
 /// Whether `git args` succeeds in `dir`.
@@ -386,34 +327,69 @@ fn git(dir: &Path, args: &[&str]) -> bool {
 }
 
 /// `verifyTag`: the tag in git, then on GitHub, whose commit it names.
-fn verify_tag(dir: &Path, http: &impl Http, name: &Name, version: Version) -> Result<String, Stop> {
-    if !git(dir, &["show", "--name-only", &version.to_string(), "--"]) {
-        return Err(missing_tag(version).into());
-    }
-    let url = format!("https://api.github.com/repos/{name}/git/refs/tags/{version}");
-    let body = http.get(&url).map_err(|e| match e {
-        HttpError::Status(404) => no_tag_on_github(version),
-        e => nomi_registry::report::http_error(
-            "PROBLEM VERIFYING TAG",
-            &url,
-            &e,
-            "I need to check that the version tag is registered on GitHub",
-        ),
-    })?;
-    let hash = serde_json::from_slice::<serde_json::Value>(&body)
-        .ok()
-        .and_then(|json| json["object"]["sha"].as_str().map(str::to_owned));
-    hash.ok_or_else(|| Stop::Report(cannot_get_tag_data(version, &url, &body)))
+fn verify_tag(
+    http: &impl Http,
+    console: &mut dyn Console,
+    compat: Compat,
+    dir: &Path,
+    name: &Name,
+    version: Version,
+) -> Result<String, Stop> {
+    let messages = Check {
+        waiting: &format!("Is version {version} tagged on GitHub?"),
+        success: &format!("Version {version} is tagged on GitHub"),
+        failure: &format!("Version {version} is not tagged on GitHub!"),
+    };
+    check(console, compat, messages, || {
+        if !git(dir, &["show", "--name-only", &version.to_string(), "--"]) {
+            return Err(missing_tag(version).into());
+        }
+        let url = format!("https://api.github.com/repos/{name}/git/refs/tags/{version}");
+        let body = http.get(&url).map_err(|e| match e {
+            HttpError::Status(404) => no_tag_on_github(version),
+            e => nomi_registry::report::http_error(
+                "PROBLEM VERIFYING TAG",
+                &url,
+                &e,
+                "I need to check that the version tag is registered on GitHub",
+            ),
+        })?;
+        let hash = serde_json::from_slice::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|json| json["object"]["sha"].as_str().map(str::to_owned));
+        hash.ok_or_else(|| Stop::Report(cannot_get_tag_data(version, &url, &body)))
+    })
+}
+
+/// `verifyNoChanges`: the working directory holds the tagged commit,
+/// `hash`.
+fn verify_no_changes(
+    console: &mut dyn Console,
+    compat: Compat,
+    dir: &Path,
+    hash: &str,
+    version: Version,
+) -> Result<(), Stop> {
+    let messages = Check {
+        waiting: "Checking for uncommitted changes...",
+        success: "No uncommitted changes in local code",
+        failure: "Your local code is different than the code tagged on GitHub",
+    };
+    check(console, compat, messages, || {
+        if git(dir, &["diff-index", "--quiet", hash, "--"]) {
+            Ok(())
+        } else {
+            Err(local_changes(version).into())
+        }
+    })
 }
 
 /// `verifyZip`: GitHub's zipball of the tag downloaded and built, and its
 /// hash.
 fn verify_zip(
+    cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
     compat: Compat,
-    vfs: &Vfs,
-    cache: &Cache,
-    http: &(impl Http + Sync),
     name: &Name,
     version: Version,
 ) -> Result<String, Stop> {
@@ -422,43 +398,37 @@ fn verify_zip(
     let archive = check(
         console,
         compat,
-        Check::fixed(
-            "Downloading code from GitHub...",
-            "Code downloaded successfully from GitHub",
-            "Could not download code from GitHub!",
-        ),
+        Check {
+            waiting: "Downloading code from GitHub...",
+            success: "Code downloaded successfully from GitHub",
+            failure: "Could not download code from GitHub!",
+        },
         || {
-            http.get(&url).map_err(|e| {
+            cx.http.get(&url).map_err(|e| {
                 nomi_registry::report::http_error("PROBLEM DOWNLOADING CODE", &url, &e, context)
                     .into()
             })
         },
     )?;
     let hash = nomi_registry::store::sha1(&archive);
-    let prepublish = tempfile::tempdir().map_err(|e| {
-        Stop::Report(Report::new(
-            "PROBLEM DOWNLOADING CODE",
-            None,
-            &e.to_string(),
-            [],
-        ))
-    })?;
+    let prepublish = tempfile::tempdir()
+        .map_err(|e| Stop::Report(one_line("PROBLEM DOWNLOADING CODE", &e.to_string())))?;
     if nomi_registry::store::unpack(&archive, prepublish.path()).is_err() {
         return Err(cannot_decode_zip(&url).into());
     }
     check(
         console,
         compat,
-        Check::fixed(
-            "Verifying downloaded code...",
-            "Downloaded code compiles successfully",
-            "Cannot compile downloaded code!",
-        ),
+        Check {
+            waiting: "Verifying downloaded code...",
+            success: "Downloaded code compiles successfully",
+            failure: "Cannot compile downloaded code!",
+        },
         || {
             let root = Root::new(prepublish.path().to_owned());
-            let built = Project::read(vfs, &root, Personality::Elm)
+            let built = Project::read(cx.vfs, &root, Personality::Elm)
                 .ok()
-                .and_then(|project| diff::local_docs(vfs, &root, &project, cache, http).ok());
+                .and_then(|project| diff::local_docs(cx, &project).ok());
             built.map(|_| ()).ok_or_else(|| bad_zip().into())
         },
     )?;
@@ -477,28 +447,24 @@ fn no_outline() -> Report {
     )
 }
 
-fn words(s: &str) -> Vec<Doc> {
-    s.split_whitespace().map(text).collect()
-}
-
 /// `PublishNotInitialVersion`.
 fn not_initial_version(version: Version) -> Report {
-    let mut message = words("I cannot publish");
-    message.push(text(version.to_string()).color(Color::Red));
-    message.extend(words("as the initial version."));
-    let mut hint = words("Change it to");
-    hint.push(text("1.0.0").color(Color::Green));
-    hint.extend(words("which is the initial version for all Elm packages."));
+    let message = words("I cannot publish")
+        .chain([text(version.to_string()).color(Color::Red)])
+        .chain(words("as the initial version."));
+    let hint = words("Change it to")
+        .chain([text("1.0.0").color(Color::Green)])
+        .chain(words("which is the initial version for all Elm packages."));
     Report::doc("INVALID VERSION", None, fill_sep(message), [fill_sep(hint)])
 }
 
 /// `PublishAlreadyPublished`.
 fn already_published(version: Version) -> Report {
-    let mut first = words("Version");
-    first.push(text(version.to_string()).color(Color::Green));
-    first.extend(words(
-        "has already been published. You cannot publish it again!",
-    ));
+    let first = words("Version")
+        .chain([text(version.to_string()).color(Color::Green)])
+        .chain(words(
+            "has already been published. You cannot publish it again!",
+        ));
     Report::doc(
         "ALREADY PUBLISHED",
         None,
@@ -514,17 +480,20 @@ fn already_published(version: Version) -> Report {
 
 /// `PublishInvalidBump`.
 fn invalid_bump(stated: Version, latest: Version) -> Report {
-    let mut message = words("Your elm.json says the next version should be");
-    message.push(text(stated.to_string()).color(Color::Red).append(text(",")));
-    message.extend(words(
-        "but that is not valid based on the previously published versions.",
-    ));
-    let mut hint = words("Change the version back to");
-    hint.push(text(latest.to_string()).color(Color::Green));
-    hint.extend(words("which is the most recently published version. From there, have Elm bump the version by running:"));
+    let message = words("Your elm.json says the next version should be")
+        .chain([text(stated.to_string()).color(Color::Red).append(text(","))])
+        .chain(words(
+            "but that is not valid based on the previously published versions.",
+        ));
+    let hint = words("Change the version back to")
+        .chain([text(latest.to_string()).color(Color::Green)])
+        .chain(words(
+            "which is the most recently published version. From there, have Elm bump the \
+             version by running:",
+        ));
     Report::doc(
         "INVALID VERSION",
-        Some("elm.json".to_owned()),
+        elm_json_path(),
         fill_sep(message),
         [
             fill_sep(hint),
@@ -544,23 +513,23 @@ fn bad_bump(
     real: Version,
     real_magnitude: Magnitude,
 ) -> Report {
-    let mut message = words("Your elm.json says the next version should be");
-    message.push(text(new.to_string()).color(Color::Red).append(text(",")));
-    message.extend(words("indicating a"));
-    message.push(text(magnitude.name()));
-    message.extend(words(
-        "change to the public API. This does not match the API diff given by:",
-    ));
-    let mut says = words("This command says this is a");
-    says.push(text(real_magnitude.name()));
-    says.extend(words("change, so the next version should be"));
-    says.push(text(real.to_string()).color(Color::Green).append(text(".")));
-    says.extend(words(
-        "Double check everything to make sure you are publishing what you want!",
-    ));
+    let message = words("Your elm.json says the next version should be")
+        .chain([text(new.to_string()).color(Color::Red).append(text(","))])
+        .chain(words("indicating a"))
+        .chain([text(magnitude.name())])
+        .chain(words(
+            "change to the public API. This does not match the API diff given by:",
+        ));
+    let says = words("This command says this is a")
+        .chain([text(real_magnitude.name())])
+        .chain(words("change, so the next version should be"))
+        .chain([text(real.to_string()).color(Color::Green).append(text("."))])
+        .chain(words(
+            "Double check everything to make sure you are publishing what you want!",
+        ));
     Report::doc(
         "INVALID VERSION",
-        Some("elm.json".to_owned()),
+        elm_json_path(),
         fill_sep(message),
         [
             text(format!("elm diff {old}")).indent(4),
@@ -572,14 +541,14 @@ fn bad_bump(
 
 /// `PublishNoSummary`.
 fn no_summary() -> Report {
-    let mut message = words("To publish a package, your elm.json must have a");
-    message.push(text("\"summary\"").color(Color::DullYellow));
-    message.extend(words(
-        "field that gives a consice overview of your project.",
-    ));
+    let message = words("To publish a package, your elm.json must have a")
+        .chain([text("\"summary\"").color(Color::DullYellow)])
+        .chain(words(
+            "field that gives a consice overview of your project.",
+        ));
     Report::doc(
         "NO SUMMARY",
-        Some("elm.json".to_owned()),
+        elm_json_path(),
         fill_sep(message),
         [reflow(
             "The summary must be less than 80 characters. It should describe the concrete use of your package as clearly and as plainly as possible.",
@@ -589,14 +558,14 @@ fn no_summary() -> Report {
 
 /// `PublishNoExposed`.
 fn no_exposed() -> Report {
-    let mut message = words("To publish a package, the");
-    message.push(text("\"exposed-modules\"").color(Color::DullYellow));
-    message.extend(words(
-        "field of your elm.json must list at least one module.",
-    ));
+    let message = words("To publish a package, the")
+        .chain([text("\"exposed-modules\"").color(Color::DullYellow)])
+        .chain(words(
+            "field of your elm.json must list at least one module.",
+        ));
     Report::doc(
         "NO EXPOSED MODULES",
-        Some("elm.json".to_owned()),
+        elm_json_path(),
         fill_sep(message),
         [reflow(
             "Which modules do you want users of the package to have access to? Add their names to the \"exposed-modules\" list.",
@@ -640,9 +609,8 @@ fn no_license() -> Report {
 
 /// `PublishMissingTag`.
 fn missing_tag(version: Version) -> Report {
-    let mut message = words("Packages must be tagged in git, but I cannot find a");
-    message.push(text(version.to_string()).color(Color::Green));
-    message.push(text("tag."));
+    let message = words("Packages must be tagged in git, but I cannot find a")
+        .chain([text(version.to_string()).color(Color::Green), text("tag.")]);
     Report::doc(
         "NO TAG",
         None,
@@ -742,11 +710,12 @@ fn no_git() -> Report {
 
 /// `PublishLocalChanges`.
 fn local_changes(version: Version) -> Report {
-    let mut message = words("The code tagged as");
-    message.push(text(version.to_string()).color(Color::Green));
-    message.extend(words(
-        "in git does not match the code in your working directory. This means you have commits or local changes that are not going to be published!",
-    ));
+    let message = words("The code tagged as")
+        .chain([text(version.to_string()).color(Color::Green)])
+        .chain(words(
+            "in git does not match the code in your working directory. This means you have \
+             commits or local changes that are not going to be published!",
+        ));
     Report::doc(
         "LOCAL CHANGES",
         None,

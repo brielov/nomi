@@ -4,29 +4,33 @@
 //! changed, a change ignoring how type variables are named, and the
 //! magnitude of the whole. Each list is in the release's order of names.
 
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::collections::{BTreeMap, HashMap};
+use std::path::Path;
 
 use nomi_base::Compat;
 use nomi_base::diagnostic::Report;
-use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, hsep, reflow, sep, text, vcat};
-use nomi_compiler::types::render::{self, Context};
+use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, hsep, reflow, sep, text, vcat, words};
+use nomi_compiler::hir::Associativity;
+use nomi_compiler::types::{SuperType, render};
+use nomi_project::report::elm_json_path;
 use nomi_project::version::Version;
 use nomi_project::{Name, Outline};
 use nomi_registry::{Http, HttpError, Index};
 use nomi_syntax::ast::{self, AstNode};
 use serde_json::Value as Json;
 
-use crate::check::{Build, Checked, Goal, env_of, foreigns};
+use crate::check::{self, Build, Checked, Goal, env_of, foreigns};
 use crate::console::{self, Console, Personality};
-use crate::paths::{Cache, Root};
+use crate::paths::Root;
 use crate::project::{Project, check_source_dirs};
-use crate::{Vfs, env};
+use crate::report::one_line;
+use crate::{Context, env};
 
 /// `Elm.Compiler.Type.Type`: a type as documentation writes it, its names
 /// unqualified as the decoder reads them.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Type {
+#[expect(clippy::enum_variant_names, reason = "upstream's `Type.Type`")]
+enum Type {
     Lambda(Box<Type>, Box<Type>),
     Var(String),
     Type(String, Vec<Type>),
@@ -37,41 +41,41 @@ pub enum Type {
 
 /// `Docs.Union`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Union {
-    pub vars: Vec<String>,
-    pub ctors: Vec<(String, Vec<Type>)>,
+struct Union {
+    vars: Vec<String>,
+    ctors: Vec<(String, Vec<Type>)>,
 }
 
 /// `Docs.Alias`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Alias {
-    pub vars: Vec<String>,
-    pub ty: Type,
+struct Alias {
+    vars: Vec<String>,
+    ty: Type,
 }
 
 /// `Docs.Binop`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Binop {
-    pub ty: Type,
-    pub associativity: String,
-    pub precedence: i64,
+struct Binop {
+    ty: Type,
+    associativity: Associativity,
+    precedence: i64,
 }
 
 /// `Docs.Module`, each kind of entry by name in the release's order.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Module {
-    pub unions: Vec<(String, Union)>,
-    pub aliases: Vec<(String, Alias)>,
-    pub values: Vec<(String, Type)>,
-    pub binops: Vec<(String, Binop)>,
+pub(crate) struct Module {
+    unions: Vec<(String, Union)>,
+    aliases: Vec<(String, Alias)>,
+    values: Vec<(String, Type)>,
+    binops: Vec<(String, Binop)>,
 }
 
 /// `Docs.Documentation`: the modules by name in the release's order.
-pub type Documentation = Vec<(String, Module)>;
+pub(crate) type Documentation = Vec<(String, Module)>;
 
 /// `Docs.decoder`: `docs.json` read, its types parsed; `None` for
 /// anything else.
-pub fn decode(compat: Compat, bytes: &[u8]) -> Option<Documentation> {
+fn decode(compat: Compat, bytes: &[u8]) -> Option<Documentation> {
     let json: Json = serde_json::from_slice(bytes).ok()?;
     let mut modules = Vec::new();
     for module in json.as_array()? {
@@ -111,7 +115,7 @@ pub fn decode(compat: Compat, bytes: &[u8]) -> Option<Documentation> {
         for binop in module["binops"].as_array()? {
             let entry = Binop {
                 ty: ty(&binop["type"])?,
-                associativity: binop["associativity"].as_str()?.to_owned(),
+                associativity: Associativity::from_json_name(binop["associativity"].as_str()?)?,
                 precedence: binop["precedence"].as_i64()?,
             };
             binops.push((binop["name"].as_str()?.to_owned(), entry));
@@ -140,7 +144,7 @@ fn keyed<T>(compat: Compat, entries: Vec<(String, T)>) -> Vec<(String, T)> {
 }
 
 /// `Type.decoder`: a type from its text, qualifiers dropped.
-pub fn parse_type(text: &str) -> Option<Type> {
+fn parse_type(text: &str) -> Option<Type> {
     let parse = nomi_syntax::parse_type(text);
     if !parse.errors().is_empty() {
         return None;
@@ -195,231 +199,217 @@ fn from_ast(ty: &ast::Type) -> Option<Type> {
     })
 }
 
-/// `Changes`: entries added, changed (old and new) and removed.
-#[derive(Clone, Debug)]
-pub struct Changes<T> {
-    pub added: Vec<(String, T)>,
-    pub changed: Vec<(String, (T, T))>,
-    pub removed: Vec<(String, T)>,
+/// `Changes`: entries added, changed and removed, each kind in its
+/// release's order.
+struct Changes<'a, T> {
+    added: Vec<&'a (String, T)>,
+    changed: Vec<Changed<'a, T>>,
+    removed: Vec<&'a (String, T)>,
+}
+
+/// An entry of both releases that they don't have alike.
+struct Changed<'a, T> {
+    name: &'a str,
+    old: &'a T,
+    new: &'a T,
 }
 
 /// `getChanges`.
-fn changes<T: Clone>(
-    old: &[(String, T)],
-    new: &[(String, T)],
+fn changes<'a, T>(
+    old: &'a [(String, T)],
+    new: &'a [(String, T)],
     equivalent: impl Fn(&T, &T) -> bool,
-) -> Changes<T> {
-    let find = |list: &[(String, T)], name: &str| {
-        list.iter().find(|(n, _)| n == name).map(|(_, e)| e.clone())
+) -> Changes<'a, T> {
+    let by_name = |entries: &'a [(String, T)]| {
+        let mut map: HashMap<&str, &T> = HashMap::with_capacity(entries.len());
+        for (name, entry) in entries {
+            map.entry(name).or_insert(entry);
+        }
+        map
     };
+    let (olds, news) = (by_name(old), by_name(new));
     Changes {
         added: (new.iter())
-            .filter(|(n, _)| find(old, n).is_none())
-            .cloned()
+            .filter(|(name, _)| !olds.contains_key(name.as_str()))
             .collect(),
         changed: (old.iter())
-            .filter_map(|(n, o)| {
-                let new = find(new, n)?;
-                (!equivalent(o, &new)).then(|| (n.clone(), (o.clone(), new)))
+            .filter_map(|(name, old)| {
+                let new = news.get(name.as_str())?;
+                (!equivalent(old, new)).then_some(Changed { name, old, new })
             })
             .collect(),
         removed: (old.iter())
-            .filter(|(n, _)| find(new, n).is_none())
-            .cloned()
+            .filter(|(name, _)| !news.contains_key(name.as_str()))
             .collect(),
     }
 }
 
 /// `ModuleChanges`.
-#[derive(Clone, Debug)]
-pub struct ModuleChanges {
-    pub unions: Changes<Union>,
-    pub aliases: Changes<Alias>,
-    pub values: Changes<Type>,
-    pub binops: Changes<Binop>,
+struct ModuleChanges<'a> {
+    unions: Changes<'a, Union>,
+    aliases: Changes<'a, Alias>,
+    values: Changes<'a, Type>,
+    binops: Changes<'a, Binop>,
 }
 
 /// `PackageChanges`.
-#[derive(Clone, Debug)]
-pub struct PackageChanges {
-    pub added: Vec<String>,
-    pub changed: Vec<(String, ModuleChanges)>,
-    pub removed: Vec<String>,
+pub(crate) struct PackageChanges<'a> {
+    added: Vec<&'a str>,
+    changed: Vec<(&'a str, ModuleChanges<'a>)>,
+    removed: Vec<&'a str>,
 }
 
 /// `Magnitude`, in order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Magnitude {
+pub(crate) enum Magnitude {
     Patch,
     Minor,
     Major,
 }
 
 impl Magnitude {
-    pub fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Magnitude::Patch => "PATCH",
             Magnitude::Minor => "MINOR",
             Magnitude::Major => "MAJOR",
         }
     }
+
+    /// `bump`: the version after `version` that a change of this
+    /// magnitude calls for.
+    pub(crate) fn bump(self, version: Version, compat: Compat) -> Version {
+        match self {
+            Magnitude::Patch => version.bump_patch(compat),
+            Magnitude::Minor => version.bump_minor(compat),
+            Magnitude::Major => version.bump_major(compat),
+        }
+    }
 }
 
 /// `diff`: the modules added and removed, and those changed beyond a
 /// patch.
-pub fn diff(old: &Documentation, new: &Documentation) -> PackageChanges {
+pub(crate) fn diff<'a>(old: &'a Documentation, new: &'a Documentation) -> PackageChanges<'a> {
     let modules = changes(old, new, |_, _| false);
+    let name = |(name, _): &'a (String, Module)| name.as_str();
     PackageChanges {
-        added: modules.added.into_iter().map(|(n, _)| n).collect(),
+        added: modules.added.into_iter().map(name).collect(),
         changed: (modules.changed.into_iter())
-            .map(|(name, (old, new))| (name, diff_module(&old, &new)))
+            .map(|Changed { name, old, new }| (name, diff_module(old, new)))
             .filter(|(_, changes)| module_magnitude(changes) != Magnitude::Patch)
             .collect(),
-        removed: modules.removed.into_iter().map(|(n, _)| n).collect(),
+        removed: modules.removed.into_iter().map(name).collect(),
     }
 }
 
-fn diff_module(old: &Module, new: &Module) -> ModuleChanges {
+fn diff_module<'a>(old: &'a Module, new: &'a Module) -> ModuleChanges<'a> {
     ModuleChanges {
         unions: changes(&old.unions, &new.unions, equivalent_union),
-        aliases: changes(&old.aliases, &new.aliases, equivalent_alias),
-        values: changes(&old.values, &new.values, |a, b| {
-            equivalent_alias(&alias(a), &alias(b))
+        aliases: changes(&old.aliases, &new.aliases, |a, b| {
+            equivalent(&a.vars, &a.ty, &b.vars, &b.ty)
         }),
+        values: changes(&old.values, &new.values, |a, b| equivalent(&[], a, &[], b)),
         binops: changes(&old.binops, &new.binops, |a, b| {
-            equivalent_alias(&alias(&a.ty), &alias(&b.ty))
+            equivalent(&[], &a.ty, &[], &b.ty)
                 && a.associativity == b.associativity
                 && a.precedence == b.precedence
         }),
     }
 }
 
-fn alias(ty: &Type) -> Alias {
-    Alias {
-        vars: Vec::new(),
-        ty: ty.clone(),
-    }
-}
-
 /// `isEquivalentUnion`.
 fn equivalent_union(old: &Union, new: &Union) -> bool {
     old.ctors.len() == new.ctors.len()
-        && old.ctors.iter().zip(&new.ctors).all(|(a, b)| a.0 == b.0)
-        && old
-            .ctors
-            .iter()
-            .zip(&new.ctors)
-            .all(|((_, old_types), (_, new_types))| {
-                old_types.len() == new_types.len()
-                    && old_types.iter().zip(new_types).all(|(o, n)| {
-                        let o = Alias {
-                            vars: old.vars.clone(),
-                            ty: o.clone(),
-                        };
-                        let n = Alias {
-                            vars: new.vars.clone(),
-                            ty: n.clone(),
-                        };
-                        equivalent_alias(&o, &n)
-                    })
-            })
+        && (old.ctors.iter().zip(&new.ctors)).all(|((old_name, olds), (new_name, news))| {
+            old_name == new_name
+                && olds.len() == news.len()
+                && (olds.iter().zip(news)).all(|(o, n)| equivalent(&old.vars, o, &new.vars, n))
+        })
 }
 
-/// `isEquivalentAlias`.
-fn equivalent_alias(old: &Alias, new: &Alias) -> bool {
-    match diff_type(&old.ty, &new.ty) {
-        None => false,
-        Some(renamings) => {
-            let mut pairs: Vec<(String, String)> = old
-                .vars
-                .iter()
-                .cloned()
-                .zip(new.vars.iter().cloned())
-                .collect();
-            pairs.extend(renamings);
-            old.vars.len() == new.vars.len() && equivalent_renaming(&pairs)
-        }
-    }
+/// `isEquivalentAlias`: whether `new`, over `new_vars`, is `old`, over
+/// `old_vars`, with its variables renamed.
+fn equivalent(old_vars: &[String], old: &Type, new_vars: &[String], new: &Type) -> bool {
+    let mut renamings: Vec<(&str, &str)> = (old_vars.iter().zip(new_vars))
+        .map(|(o, n)| (o.as_str(), n.as_str()))
+        .collect();
+    old_vars.len() == new_vars.len()
+        && diff_type(old, new, &mut renamings)
+        && equivalent_renaming(&renamings)
 }
 
-/// `diffType`: the variables each old one became, if the types match.
-fn diff_type(old: &Type, new: &Type) -> Option<Vec<(String, String)>> {
+/// `diffType`: whether the types match, the variable each old one
+/// became pushed to `renamings`.
+fn diff_type<'a>(old: &'a Type, new: &'a Type, renamings: &mut Vec<(&'a str, &'a str)>) -> bool {
     match (old, new) {
-        (Type::Var(o), Type::Var(n)) => Some(vec![(o.clone(), n.clone())]),
+        (Type::Var(o), Type::Var(n)) => {
+            renamings.push((o, n));
+            true
+        }
         (Type::Lambda(a, b), Type::Lambda(x, y)) => {
-            let mut vars = diff_type(a, x)?;
-            vars.extend(diff_type(b, y)?);
-            Some(vars)
+            diff_type(a, x, renamings) && diff_type(b, y, renamings)
         }
         (Type::Type(o, oargs), Type::Type(n, nargs)) => {
-            if !same_name(o, n) || oargs.len() != nargs.len() {
-                return None;
-            }
-            let mut vars = Vec::new();
-            for (a, b) in oargs.iter().zip(nargs) {
-                vars.extend(diff_type(a, b)?);
-            }
-            Some(vars)
+            same_name(o, n) && diff_types(oargs, nargs, renamings)
         }
         (Type::Record(ofields, oext), Type::Record(nfields, next)) => match (oext, next) {
-            (None, Some(_)) | (Some(_), None) => None,
-            (None, None) => diff_fields(ofields, nfields),
+            (None, None) => diff_fields(ofields, nfields, renamings),
             (Some(o), Some(n)) => {
-                let mut vars = vec![(o.clone(), n.clone())];
-                vars.extend(diff_fields(ofields, nfields)?);
-                Some(vars)
+                renamings.push((o, n));
+                diff_fields(ofields, nfields, renamings)
             }
+            (None, Some(_)) | (Some(_), None) => false,
         },
-        (Type::Unit, Type::Unit) => Some(Vec::new()),
+        (Type::Unit, Type::Unit) => true,
         (Type::Tuple(a, b, cs), Type::Tuple(x, y, zs)) => {
-            if cs.len() != zs.len() {
-                return None;
-            }
-            let mut vars = diff_type(a, x)?;
-            vars.extend(diff_type(b, y)?);
-            for (c, z) in cs.iter().zip(zs) {
-                vars.extend(diff_type(c, z)?);
-            }
-            Some(vars)
+            diff_type(a, x, renamings)
+                && diff_type(b, y, renamings)
+                && diff_types(cs, zs, renamings)
         }
-        _ => None,
+        _ => false,
     }
+}
+
+/// [`diff_type`] of each type of `old` and the one of `new` beside it,
+/// which has as many.
+fn diff_types<'a>(
+    old: &'a [Type],
+    new: &'a [Type],
+    renamings: &mut Vec<(&'a str, &'a str)>,
+) -> bool {
+    old.len() == new.len() && (old.iter().zip(new)).all(|(o, n)| diff_type(o, n, renamings))
 }
 
 /// `isSameName`: very old docs don't qualify names.
 fn same_name(old: &str, new: &str) -> bool {
-    let old_parts: Vec<&str> = old.rsplit('.').collect();
-    let new_parts: Vec<&str> = new.rsplit('.').collect();
-    match (old_parts.as_slice(), new_parts.as_slice()) {
-        ([o], [n, ..]) | ([o, ..], [n]) => o == n,
-        _ => old == new,
+    if old.contains('.') && new.contains('.') {
+        return old == new;
     }
+    let [old, new] = [old, new].map(|name| name.rsplit_once('.').map_or(name, |(_, last)| last));
+    old == new
 }
 
 /// `diffFields`: by field name, which must be the same.
-fn diff_fields(old: &[(String, Type)], new: &[(String, Type)]) -> Option<Vec<(String, String)>> {
+fn diff_fields<'a>(
+    old: &'a [(String, Type)],
+    new: &'a [(String, Type)],
+    renamings: &mut Vec<(&'a str, &'a str)>,
+) -> bool {
     if old.len() != new.len() {
-        return None;
+        return false;
     }
     let mut old: Vec<&(String, Type)> = old.iter().collect();
     let mut new: Vec<&(String, Type)> = new.iter().collect();
     old.sort_by(|a, b| a.0.cmp(&b.0));
     new.sort_by(|a, b| a.0.cmp(&b.0));
-    if old.iter().zip(&new).any(|(a, b)| a.0 != b.0) {
-        return None;
-    }
-    let mut vars = Vec::new();
-    for (a, b) in old.iter().zip(&new) {
-        vars.extend(diff_type(&a.1, &b.1)?);
-    }
-    Some(vars)
+    (old.iter().zip(&new)).all(|(a, b)| a.0 == b.0 && diff_type(&a.1, &b.1, renamings))
 }
 
 /// `isEquivalentRenaming`: each old variable became one new one, of a
 /// kind that admits what it did, and no two became the same.
-fn equivalent_renaming(pairs: &[(String, String)]) -> bool {
+fn equivalent_renaming(pairs: &[(&str, &str)]) -> bool {
     let mut renamings: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-    for (old, new) in pairs {
+    for &(old, new) in pairs {
         renamings.entry(old).or_default().push(new);
     }
     let mut verified = Vec::new();
@@ -438,42 +428,19 @@ fn equivalent_renaming(pairs: &[(String, String)]) -> bool {
 
 /// `compatibleVars`.
 fn compatible_vars(old: &str, new: &str) -> bool {
-    use Category::{Any, Appendable, CompAppend, Comparable, Number};
+    use SuperType::{Appendable, CompAppend, Comparable, Number};
     matches!(
-        (category(old), category(new)),
-        (CompAppend, CompAppend)
-            | (Comparable | Number, Comparable)
-            | (Appendable, Appendable)
-            | (Number, Number)
-            | (_, Any)
+        (SuperType::of_name(old), SuperType::of_name(new)),
+        (Some(CompAppend), Some(CompAppend))
+            | (Some(Comparable | Number), Some(Comparable))
+            | (Some(Appendable), Some(Appendable))
+            | (Some(Number), Some(Number))
+            | (_, None)
     )
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Category {
-    CompAppend,
-    Comparable,
-    Appendable,
-    Number,
-    Any,
-}
-
-fn category(name: &str) -> Category {
-    if name.starts_with("compappend") {
-        Category::CompAppend
-    } else if name.starts_with("comparable") {
-        Category::Comparable
-    } else if name.starts_with("appendable") {
-        Category::Appendable
-    } else if name.starts_with("number") {
-        Category::Number
-    } else {
-        Category::Any
-    }
-}
-
 /// `toMagnitude`.
-pub fn magnitude(changes: &PackageChanges) -> Magnitude {
+pub(crate) fn magnitude(changes: &PackageChanges) -> Magnitude {
     let added = if changes.added.is_empty() {
         Magnitude::Patch
     } else {
@@ -490,7 +457,7 @@ pub fn magnitude(changes: &PackageChanges) -> Magnitude {
 }
 
 /// `moduleChangeMagnitude`.
-pub fn module_magnitude(changes: &ModuleChanges) -> Magnitude {
+fn module_magnitude(changes: &ModuleChanges) -> Magnitude {
     [
         change_magnitude(&changes.unions),
         change_magnitude(&changes.aliases),
@@ -512,17 +479,8 @@ fn change_magnitude<T>(changes: &Changes<T>) -> Magnitude {
     }
 }
 
-/// `bump`: the version the changes call for after `version`.
-pub fn bump(compat: Compat, changes: &PackageChanges, version: Version) -> Version {
-    match magnitude(changes) {
-        Magnitude::Patch => version.bump_patch(compat),
-        Magnitude::Minor => version.bump_minor(compat),
-        Magnitude::Major => version.bump_major(compat),
-    }
-}
-
 /// `toDoc`: the changes as `elm diff` prints them.
-pub fn to_doc(changes: &PackageChanges) -> Doc {
+fn to_doc(changes: &PackageChanges) -> Doc {
     if changes.added.is_empty() && changes.changed.is_empty() && changes.removed.is_empty() {
         return hsep([
             text("No API changes detected, so this is a"),
@@ -537,11 +495,11 @@ pub fn to_doc(changes: &PackageChanges) -> Doc {
     ]);
     let mut chunks = Vec::new();
     if !changes.added.is_empty() {
-        let names = vcat(changes.added.iter().map(text));
+        let names = vcat(changes.added.iter().copied().map(text));
         chunks.push(chunk("ADDED MODULES", Magnitude::Minor, names));
     }
     if !changes.removed.is_empty() {
-        let names = vcat(changes.removed.iter().map(text));
+        let names = vcat(changes.removed.iter().copied().map(text));
         chunks.push(chunk("REMOVED MODULES", Magnitude::Major, names));
     }
     for (name, module) in &changes.changed {
@@ -560,74 +518,70 @@ fn chunk(title: &str, magnitude: Magnitude, details: Doc) -> Doc {
 
 /// `changesToChunk`.
 fn module_chunk(name: &str, changes: &ModuleChanges) -> Doc {
-    let (union_add, union_change, union_remove) = triple(&changes.unions, union_doc);
-    let (alias_add, alias_change, alias_remove) = triple(&changes.aliases, alias_doc);
-    let (value_add, value_change, value_remove) = triple(&changes.values, value_doc);
-    let (binop_add, binop_change, binop_remove) = triple(&changes.binops, binop_doc);
-    let sections: Vec<Doc> = [
-        category_doc("Added", union_add, alias_add, value_add, binop_add),
-        category_doc(
+    let unions = sections(&changes.unions, union_doc);
+    let aliases = sections(&changes.aliases, alias_doc);
+    let values = sections(&changes.values, value_doc);
+    let binops = sections(&changes.binops, binop_doc);
+    // `changesToDoc`: unions, aliases, operators, then values.
+    let category = |title: &str, docs: [Vec<Doc>; 4]| {
+        let docs: Vec<Doc> = docs.into_iter().flatten().collect();
+        (!docs.is_empty()).then(|| vcat(std::iter::once(text(format!("{title}:"))).chain(docs)))
+    };
+    let categories = [
+        category(
+            "Added",
+            [unions.added, aliases.added, binops.added, values.added],
+        ),
+        category(
             "Removed",
-            union_remove,
-            alias_remove,
-            value_remove,
-            binop_remove,
+            [
+                unions.removed,
+                aliases.removed,
+                binops.removed,
+                values.removed,
+            ],
         ),
-        category_doc(
+        category(
             "Changed",
-            union_change,
-            alias_change,
-            value_change,
-            binop_change,
+            [
+                unions.changed,
+                aliases.changed,
+                binops.changed,
+                values.changed,
+            ],
         ),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
+    ];
     let mut spaced = Vec::new();
-    for (i, section) in sections.into_iter().enumerate() {
-        if i > 0 {
+    for category in categories.into_iter().flatten() {
+        if !spaced.is_empty() {
             spaced.push(text(""));
         }
-        spaced.push(section);
+        spaced.push(category);
     }
     chunk(name, module_magnitude(changes), vcat(spaced))
 }
 
-/// `changesToDocTriple`.
-fn triple<T>(changes: &Changes<T>, entry: fn(&str, &T) -> Doc) -> (Vec<Doc>, Vec<Doc>, Vec<Doc>) {
-    let indented = |(name, value): &(String, T)| entry(name, value).indent(4);
-    let diffed = |(name, (old, new)): &(String, (T, T))| {
+/// `changesToDocTriple`: the entries added, changed and removed.
+struct Sections {
+    added: Vec<Doc>,
+    changed: Vec<Doc>,
+    removed: Vec<Doc>,
+}
+
+fn sections<T>(changes: &Changes<T>, entry: fn(&str, &T) -> Doc) -> Sections {
+    let indented = |(name, value): &&(String, T)| entry(name, value).indent(4);
+    let diffed = |changed: &Changed<T>| {
         vcat([
-            text("  - ").append(entry(name, old)),
-            text("  + ").append(entry(name, new)),
+            text("  - ").append(entry(changed.name, changed.old)),
+            text("  + ").append(entry(changed.name, changed.new)),
             text(""),
         ])
     };
-    (
-        changes.added.iter().map(indented).collect(),
-        changes.changed.iter().map(diffed).collect(),
-        changes.removed.iter().map(indented).collect(),
-    )
-}
-
-/// `changesToDoc`: unions, aliases, operators, then values.
-fn category_doc(
-    category: &str,
-    unions: Vec<Doc>,
-    aliases: Vec<Doc>,
-    values: Vec<Doc>,
-    binops: Vec<Doc>,
-) -> Option<Doc> {
-    if unions.is_empty() && aliases.is_empty() && values.is_empty() && binops.is_empty() {
-        return None;
+    Sections {
+        added: changes.added.iter().map(indented).collect(),
+        changed: changes.changed.iter().map(diffed).collect(),
+        removed: changes.removed.iter().map(indented).collect(),
     }
-    let mut docs = vec![text(format!("{category}:"))];
-    docs.extend(unions);
-    docs.extend(aliases);
-    docs.extend(binops);
-    docs.extend(values);
-    Some(vcat(docs))
 }
 
 fn union_doc(name: &str, union: &Union) -> Doc {
@@ -638,8 +592,7 @@ fn union_doc(name: &str, union: &Union) -> Doc {
     let mut parts = vec![setup];
     for (i, (ctor, types)) in union.ctors.iter().enumerate() {
         let mark = if i == 0 { "=" } else { "|" };
-        let ctor = type_doc(&Type::Type(ctor.clone(), types.clone()));
-        parts.push(text(mark).space(ctor));
+        parts.push(text(mark).space(applied(render::Context::None, ctor, types)));
     }
     sep(parts).hang(4)
 }
@@ -660,7 +613,8 @@ fn value_doc(name: &str, ty: &Type) -> Doc {
 fn binop_doc(name: &str, binop: &Binop) -> Doc {
     let details = text(format!(
         "    ({}/{})",
-        binop.associativity, binop.precedence
+        binop.associativity.json_name(),
+        binop.precedence
     ))
     .color(Color::Black);
     text(format!("({name})"))
@@ -670,44 +624,48 @@ fn binop_doc(name: &str, binop: &Binop) -> Doc {
 }
 
 /// `Type.toDoc L.empty Type.None`.
-pub fn type_doc(ty: &Type) -> Doc {
-    to_doc_in(Context::None, ty)
+fn type_doc(ty: &Type) -> Doc {
+    to_doc_in(render::Context::None, ty)
 }
 
-fn to_doc_in(context: Context, ty: &Type) -> Doc {
+fn to_doc_in(context: render::Context, ty: &Type) -> Doc {
     match ty {
-        Type::Lambda(..) => {
-            let mut parts = Vec::new();
-            let mut at = ty;
+        Type::Lambda(arg, result) => {
+            let mut rest = Vec::new();
+            let mut at: &Type = result;
             while let Type::Lambda(arg, result) = at {
-                parts.push(to_doc_in(Context::Func, arg));
+                rest.push(to_doc_in(render::Context::Func, arg));
                 at = result;
             }
-            parts.push(to_doc_in(Context::Func, at));
-            let mut parts = parts.into_iter();
-            let a = parts.next().unwrap();
-            let b = parts.next().unwrap();
-            render::lambda(context, a, b, parts.collect())
+            rest.push(to_doc_in(render::Context::Func, at));
+            let mut rest = rest.into_iter();
+            let second = rest.next().expect("a result at least");
+            let first = to_doc_in(render::Context::Func, arg);
+            render::lambda(context, first, second, rest.collect())
         }
         Type::Var(x) => text(x),
         Type::Unit => text("()"),
         Type::Tuple(a, b, cs) => render::tuple(
-            to_doc_in(Context::None, a),
-            to_doc_in(Context::None, b),
-            cs.iter().map(|c| to_doc_in(Context::None, c)).collect(),
+            to_doc_in(render::Context::None, a),
+            to_doc_in(render::Context::None, b),
+            cs.iter()
+                .map(|c| to_doc_in(render::Context::None, c))
+                .collect(),
         ),
-        Type::Type(name, args) => render::apply(
-            context,
-            text(name),
-            args.iter().map(|a| to_doc_in(Context::App, a)).collect(),
-        ),
+        Type::Type(name, args) => applied(context, name, args),
         Type::Record(fields, ext) => render::record(
             (fields.iter())
-                .map(|(f, t)| (text(f), to_doc_in(Context::None, t)))
+                .map(|(f, t)| (text(f), to_doc_in(render::Context::None, t)))
                 .collect(),
             ext.as_ref().map(text),
         ),
     }
+}
+
+/// `name` applied to `args`, in `context`.
+fn applied(context: render::Context, name: &str, args: &[Type]) -> Doc {
+    let args = args.iter().map(|a| to_doc_in(render::Context::App, a));
+    render::apply(context, text(name), args.collect())
 }
 
 /// What `elm diff` was asked (`Diff.Args`).
@@ -725,20 +683,22 @@ pub enum Args {
 
 /// `elm diff`'s arguments, as its four forms take them.
 pub fn parse_args(args: &[&str]) -> Option<Args> {
-    let compat = Compat::LATEST;
-    let cursor = || nomi_project::json::Cursor::start(compat);
-    let version = |arg: &str| Version::parse(arg.as_bytes(), cursor(), compat).ok();
-    let name = |arg: &str| Name::parse(arg.as_bytes(), cursor(), compat).ok();
+    let version = |arg: &str| arg.parse().ok();
     match args {
         [] => Some(Args::CodeVsLatest),
         [v] => version(v).map(Args::CodeVsExactly),
         [v1, v2] => Some(Args::Local(version(v1)?, version(v2)?)),
-        [package, v1, v2] => Some(Args::Global(name(package)?, version(v1)?, version(v2)?)),
+        [package, v1, v2] => Some(Args::Global(
+            package.parse().ok()?,
+            version(v1)?,
+            version(v2)?,
+        )),
         _ => None,
     }
 }
 
-/// Why `elm diff` stopped: a report, or the build's problems.
+/// Why `elm diff`, `elm bump` or `elm publish` stopped: a report, or the
+/// build's problems.
 pub(crate) enum Stop {
     Report(Report),
     Build(Checked),
@@ -750,102 +710,96 @@ impl From<Report> for Stop {
     }
 }
 
+impl Stop {
+    /// Shows why a command on the project at `root` stopped.
+    pub(crate) fn show(&self, console: &mut dyn Console, root: &Path, compat: Compat) {
+        match self {
+            Stop::Report(report) => console::report(console, report, compat),
+            Stop::Build(checked) => check::show_reports(console, root, checked, compat),
+        }
+    }
+}
+
 /// `elm diff`: the changes `args` asks about, printed. Whether nothing
 /// was wrong.
-pub fn run(
-    vfs: &Vfs,
-    console: &mut dyn Console,
-    dir: &Path,
-    cache: &Cache,
-    http: &(impl Http + Sync),
-    args: &Args,
-) -> bool {
-    let root = Root::find(vfs, dir);
-    let compat = (root.as_ref())
-        .and_then(|root| Project::read(vfs, root, Personality::Elm).ok())
-        .map_or(Compat::LATEST, |p| p.compat);
-    match diff_args(vfs, root.as_ref(), cache, http, compat, args) {
-        Ok(changes) => {
-            console::print(console, &to_doc(&changes), compat);
+pub fn run(cx: &Context<'_, impl Http + Sync>, console: &mut dyn Console, args: &Args) -> bool {
+    let root = Root::find(cx.vfs, cx.dir);
+    let project = (root.as_ref()).map(|root| Project::read(cx.vfs, root, Personality::Elm));
+    let compat = match &project {
+        Some(Ok(project)) => project.compat,
+        Some(Err(_)) | None => Compat::LATEST,
+    };
+    match diff_args(cx, project, compat, args) {
+        Ok((old, new)) => {
+            console::print(console, &to_doc(&diff(&old, &new)), compat);
             console.out("\n");
             true
         }
-        Err(Stop::Report(report)) => {
-            console::report(console, &report, compat);
-            false
-        }
-        Err(Stop::Build(checked)) => {
-            let root = root.as_ref().map_or(dir, Root::dir);
-            crate::check::show_reports(console, root, &checked, compat);
+        Err(stop) => {
+            stop.show(console, root.as_ref().map_or(cx.dir, Root::dir), compat);
             false
         }
     }
 }
 
+/// The documentation `args` compares, the older first; `project` is the
+/// project around the directory, if there is one.
 fn diff_args(
-    vfs: &Vfs,
-    root: Option<&Root>,
-    cache: &Cache,
-    http: &(impl Http + Sync),
+    cx: &Context<'_, impl Http + Sync>,
+    project: Option<Result<Project, Report>>,
     compat: Compat,
     args: &Args,
-) -> Result<PackageChanges, Stop> {
+) -> Result<(Documentation, Documentation), Stop> {
     let index = latest(
-        http,
-        cache,
+        cx,
         compat,
         "I need the latest list of published packages before I do this diff",
     )?;
-    let docs = |name: &Name, version: Version| docs(cache, http, compat, &index, name, version);
+    let docs = |name: &Name, version: Version| docs(cx, compat, &index, name, version);
     match args {
         Args::Global(name, v1, v2) => {
             if let Err(nearby) = index.versions_or_nearby(name) {
                 return Err(unknown_package(name, &nearby).into());
             }
-            let old = docs(name, *v1.min(v2))?;
-            let new = docs(name, *v1.max(v2))?;
-            Ok(diff(&old, &new))
+            Ok((docs(name, *v1.min(v2))?, docs(name, *v1.max(v2))?))
         }
         Args::Local(v1, v2) => {
-            let (_, name) = read_outline(vfs, root, &index)?;
-            let old = docs(&name, *v1.min(v2))?;
-            let new = docs(&name, *v1.max(v2))?;
-            Ok(diff(&old, &new))
+            let (_, name) = read_outline(project, &index)?;
+            Ok((docs(&name, *v1.min(v2))?, docs(&name, *v1.max(v2))?))
         }
-        Args::CodeVsLatest | Args::CodeVsExactly(_) => {
-            let (project, name) = read_outline(vfs, root, &index)?;
-            let version = match args {
-                Args::CodeVsExactly(version) => *version,
-                _ => index.versions(&name).expect("a published package").newest,
-            };
-            let old = match args {
-                Args::CodeVsExactly(_) => docs(&name, version)?,
-                _ => fetch_docs(cache, http, compat, &name, version, DIFF)?,
-            };
-            let root = root.expect("a project");
-            let new = local_docs(vfs, root, &project, cache, http)?;
-            Ok(diff(&old, &new))
+        Args::CodeVsLatest => {
+            let (project, name) = read_outline(project, &index)?;
+            let newest = index.versions(&name).expect("a published package").newest;
+            let old = fetch_docs(cx, compat, &name, newest, DIFF)?;
+            Ok((old, local_docs(cx, &project)?))
+        }
+        Args::CodeVsExactly(version) => {
+            let (project, name) = read_outline(project, &index)?;
+            Ok((docs(&name, *version)?, local_docs(cx, &project)?))
         }
     }
 }
 
 /// `Registry.latest`, or the report on why there isn't one.
 pub(crate) fn latest(
-    http: &impl Http,
-    cache: &Cache,
+    cx: &Context<'_, impl Http>,
     compat: Compat,
     context: &str,
 ) -> Result<Index, Report> {
-    Index::latest_strict(http, &cache.index(), compat)
+    Index::latest_strict(cx.http, &cx.cache.index(), compat)
         .map_err(|e| env::latest_problem("PROBLEM UPDATING PACKAGE LIST", context, e))
 }
 
-/// `readOutline`: the project, a package the registry knows.
-fn read_outline(vfs: &Vfs, root: Option<&Root>, index: &Index) -> Result<(Project, Name), Stop> {
-    let Some(root) = root else {
+/// `readOutline`: the project, a package the registry knows, and its
+/// name.
+fn read_outline(
+    project: Option<Result<Project, Report>>,
+    index: &Index,
+) -> Result<(Project, Name), Stop> {
+    let Some(project) = project else {
         return Err(no_outline().into());
     };
-    let project = Project::read(vfs, root, Personality::Elm)?;
+    let project = project?;
     let name = match &project.outline {
         Outline::App(_) => return Err(application().into()),
         Outline::Pkg(pkg) => pkg.name.clone(),
@@ -858,8 +812,7 @@ fn read_outline(vfs: &Vfs, root: Option<&Root>, index: &Index) -> Result<(Projec
 
 /// `getDocs`: a release's documentation, if the registry lists it.
 fn docs(
-    cache: &Cache,
-    http: &impl Http,
+    cx: &Context<'_, impl Http>,
     compat: Compat,
     index: &Index,
     name: &Name,
@@ -869,20 +822,19 @@ fn docs(
     if !known.all().any(|v| v == version) {
         return Err(unknown_version(version, known.all().collect()).into());
     }
-    fetch_docs(cache, http, compat, name, version, DIFF)
+    fetch_docs(cx, compat, name, version, DIFF)
 }
 
 /// `Deps.Diff.getDocs`: from the cache, or the website, which is then
 /// kept; a cached copy that doesn't read is removed.
 pub(crate) fn fetch_docs(
-    cache: &Cache,
-    http: &impl Http,
+    cx: &Context<'_, impl Http>,
     compat: Compat,
     name: &Name,
     version: Version,
     purpose: &str,
 ) -> Result<Documentation, Stop> {
-    let path = docs_path(cache, name, version);
+    let path = cx.cache.docs(name, version);
     let context = format!("I need the docs for {version} to {purpose}");
     if let Ok(bytes) = std::fs::read(&path) {
         return if let Some(docs) = decode(compat, &bytes) {
@@ -896,8 +848,8 @@ pub(crate) fn fetch_docs(
         "{}/packages/{name}/{version}/docs.json",
         nomi_registry::http::DOMAIN
     );
-    let body =
-        (http.get(&url)).map_err(|e| docs_problem(&context, DocsProblem::Http(url.clone(), e)))?;
+    let body = (cx.http.get(&url))
+        .map_err(|e| docs_problem(&context, DocsProblem::Http(url.clone(), e)))?;
     match decode(compat, &body) {
         Some(docs) => {
             if let Some(dir) = path.parent() {
@@ -913,39 +865,23 @@ pub(crate) fn fetch_docs(
 /// What `elm diff` needs docs for.
 const DIFF: &str = "compute this diff";
 
-/// Where a release's documentation is kept.
-fn docs_path(cache: &Cache, name: &Name, version: Version) -> PathBuf {
-    cache
-        .dir()
-        .join("docs")
-        .join(name.to_string())
-        .join(version.to_string())
-        .join("docs.json")
-}
-
 /// `generateDocs`: the project's own documentation, built.
 pub(crate) fn local_docs(
-    vfs: &Vfs,
-    root: &Root,
+    cx: &Context<'_, impl Http + Sync>,
     project: &Project,
-    cache: &Cache,
-    http: &(impl Http + Sync),
 ) -> Result<Documentation, Stop> {
-    Ok(local_docs_json(vfs, root, project, cache, http)?.0)
+    Ok(local_docs_json(cx, project)?.0)
 }
 
 /// [`local_docs`], and the `docs.json` they read from.
 pub(crate) fn local_docs_json(
-    vfs: &Vfs,
-    root: &Root,
+    cx: &Context<'_, impl Http + Sync>,
     project: &Project,
-    cache: &Cache,
-    http: &(impl Http + Sync),
 ) -> Result<(Documentation, String), Stop> {
     let compat = project.compat;
-    let dir = root.dir();
+    let dir = project.root.dir();
     check_source_dirs(dir, &project.outline)?;
-    let (foreigns, interfaces) = foreigns(cache, http, project, Personality::Elm)?;
+    let (foreigns, interfaces) = foreigns(cx.cache, cx.http, project, Personality::Elm)?;
     if let Outline::Pkg(pkg) = &project.outline
         && pkg.exposed.modules().next().is_none()
     {
@@ -953,7 +889,7 @@ pub(crate) fn local_docs_json(
     }
     let env = env_of(dir, &project.outline, compat, foreigns)?.with_cwd(dir);
     let build = Build {
-        snapshot: &vfs.snapshot(),
+        snapshot: &cx.vfs.snapshot(),
         env: &env,
         outline: &project.outline,
         paths: &[],
@@ -972,14 +908,14 @@ pub(crate) fn local_docs_json(
 }
 
 /// `DocsProblem`.
-pub(crate) enum DocsProblem {
+enum DocsProblem {
     Cache,
     Http(String, HttpError),
     Data(String),
 }
 
 /// `toDocsProblemReport`.
-pub(crate) fn docs_problem(context: &str, problem: DocsProblem) -> Report {
+fn docs_problem(context: &str, problem: DocsProblem) -> Report {
     match problem {
         DocsProblem::Cache => Report::new(
             "PROBLEM LOADING DOCS",
@@ -995,11 +931,9 @@ pub(crate) fn docs_problem(context: &str, problem: DocsProblem) -> Report {
         DocsProblem::Http(url, error) => {
             nomi_registry::report::http_error("PROBLEM LOADING DOCS", &url, &error, context)
         }
-        DocsProblem::Data(url) => Report::new(
+        DocsProblem::Data(url) => one_line(
             "PROBLEM LOADING DOCS",
-            None,
             &format!("{context}, but I got data I cannot read from {url}"),
-            [],
         ),
     }
 }
@@ -1024,7 +958,7 @@ fn no_outline() -> Report {
 fn application() -> Report {
     Report::new(
         "CANNOT DIFF APPLICATIONS",
-        Some("elm.json".to_owned()),
+        elm_json_path(),
         "Your elm.json says this project is an application, but `elm diff` only works with \
          packages. That way there are previously published versions of the API to diff \
          against!",
@@ -1041,7 +975,7 @@ fn application() -> Report {
 fn no_exposed() -> Report {
     Report::new(
         "NO EXPOSED MODULES",
-        Some("elm.json".to_owned()),
+        elm_json_path(),
         "Your elm.json has no \"exposed-modules\" which means there is no public API at all \
          right now! What am I supposed to diff?",
         [reflow(
@@ -1052,11 +986,9 @@ fn no_exposed() -> Report {
 
 /// `DiffUnpublished`.
 fn unpublished() -> Report {
-    Report::new(
+    one_line(
         "UNPUBLISHED",
-        None,
         "This package is not published yet. There is nothing to diff against!",
-        [],
     )
 }
 
@@ -1087,16 +1019,15 @@ fn unknown_version(version: Version, mut published: Vec<Version>) -> Report {
             _ => rows.push(vec![v]),
         }
     }
-    let mut words: Vec<Doc> = vec![text("Version"), text(version.to_string()).color(Color::Red)];
-    words.extend(
-        "has never been published, so I cannot diff against it."
-            .split_whitespace()
-            .map(text),
-    );
+    let message = [text("Version"), text(version.to_string()).color(Color::Red)]
+        .into_iter()
+        .chain(words(
+            "has never been published, so I cannot diff against it.",
+        ));
     Report::doc(
         "UNKNOWN VERSION",
         None,
-        fill_sep(words),
+        fill_sep(message),
         [
             text("Here are all the versions that HAVE been published:"),
             vcat(
@@ -1119,7 +1050,7 @@ mod tests {
     }
 
     fn same(old: &str, new: &str) -> bool {
-        equivalent_alias(&alias(&value(old)), &alias(&value(new)))
+        equivalent(&[], &value(old), &[], &value(new))
     }
 
     #[test]

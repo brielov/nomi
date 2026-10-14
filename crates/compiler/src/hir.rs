@@ -180,6 +180,28 @@ pub enum Associativity {
     Right,
 }
 
+impl Associativity {
+    /// Its name in `docs.json`.
+    pub fn json_name(self) -> &'static str {
+        match self {
+            Associativity::Left => "left",
+            Associativity::Non => "non",
+            Associativity::Right => "right",
+        }
+    }
+
+    /// The associativity `docs.json` names `name` (`assocDecoder`).
+    pub fn from_json_name(name: &str) -> Option<Associativity> {
+        [
+            Associativity::Left,
+            Associativity::Non,
+            Associativity::Right,
+        ]
+        .into_iter()
+        .find(|a| a.json_name() == name)
+    }
+}
+
 /// How an operator groups with its neighbors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Fixity {

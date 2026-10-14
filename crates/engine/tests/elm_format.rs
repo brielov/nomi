@@ -7,39 +7,9 @@ use std::io;
 use std::path::PathBuf;
 
 use nomi_engine::Vfs;
-use nomi_engine::console::Console;
+use nomi_engine::console::Captured;
 use nomi_engine::elm_format::{ElmVersion, Exit, Options, run};
 use nomi_engine::format::decode;
-
-/// A console with its input given and its output kept.
-#[derive(Default)]
-struct Fake {
-    input: Vec<u8>,
-    lines: Vec<io::Result<String>>,
-    out: String,
-    err: String,
-}
-
-impl Console for Fake {
-    fn out(&mut self, text: &str) {
-        self.out.push_str(text);
-    }
-
-    fn err(&mut self, text: &str) {
-        self.err.push_str(text);
-    }
-
-    fn read_line(&mut self) -> io::Result<Option<String>> {
-        if self.lines.is_empty() {
-            return Ok(None);
-        }
-        self.lines.remove(0).map(Some)
-    }
-
-    fn read_all(&mut self) -> io::Result<Vec<u8>> {
-        Ok(std::mem::take(&mut self.input))
-    }
-}
 
 fn stdin(validate: bool) -> Options {
     Options {
@@ -61,9 +31,9 @@ fn text_that_is_not_utf8_fails_where_it_stops_being_utf8() {
 
 #[test]
 fn standard_input_that_is_not_utf8_is_a_syntax_error() {
-    let mut console = Fake {
+    let mut console = Captured {
         input: b"module A exposing (..)\nx = \"\xff\"\n".to_vec(),
-        ..Fake::default()
+        ..Captured::default()
     };
     assert_eq!(run(&Vfs::new(), &stdin(false), &mut console), Exit::Failure);
     assert_eq!(console.out, "");
@@ -71,9 +41,9 @@ fn standard_input_that_is_not_utf8_is_a_syntax_error() {
         console.err,
         "Unable to parse file <STDIN>:2:6 To see a detailed explanation, run elm make on the file.\n"
     );
-    let mut console = Fake {
+    let mut console = Captured {
         input: b"\xff".to_vec(),
-        ..Fake::default()
+        ..Captured::default()
     };
     assert_eq!(run(&Vfs::new(), &stdin(true), &mut console), Exit::Failure);
     assert_eq!(
@@ -94,7 +64,7 @@ fn a_module_that_is_not_utf8_is_left_alone() {
         elm_version: Some(ElmVersion::V0_19),
         ..Options::default()
     };
-    let mut console = Fake::default();
+    let mut console = Captured::default();
     assert_eq!(run(&Vfs::new(), &options, &mut console), Exit::Failure);
     assert_eq!(
         console.out,
@@ -116,12 +86,13 @@ fn a_failed_answer_stops_before_any_file_changes() {
         elm_version: Some(ElmVersion::V0_19),
         ..Options::default()
     };
-    let mut console = Fake {
-        lines: vec![
+    let mut console = Captured {
+        lines: [
             Ok("maybe".to_owned()),
             Err(io::Error::other("the terminal went away")),
-        ],
-        ..Fake::default()
+        ]
+        .into(),
+        ..Captured::default()
     };
     assert_eq!(run(&Vfs::new(), &options, &mut console), Exit::Failure);
     assert!(

@@ -4,13 +4,14 @@
 //! `CommandLine/TransformFiles.hs`. The options arrive parsed; the CLI
 //! emulates upstream's parser.
 
+use std::fmt::Write;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use nomi_base::ElmPosition;
 
 use crate::console::Console;
-use crate::format::{decode, format_text};
+use crate::format::{Mode, Outcome, decode, format_text, rewrite};
 use crate::{Pool, Vfs, discover, paths};
 
 /// The `--elm-version` values upstream accepts.
@@ -53,14 +54,6 @@ enum Task {
     ValidateFiles(Vec<PathBuf>),
 }
 
-/// What became of one module formatted in place.
-enum Outcome {
-    Unchanged,
-    Formatted,
-    Invalid(ElmPosition),
-    Failed(io::Error),
-}
-
 /// Runs elm-format with `options`, as upstream's `main'` does.
 pub fn run(vfs: &Vfs, options: &Options, console: &mut dyn Console) -> Exit {
     let files = match resolve(&options.inputs) {
@@ -70,7 +63,7 @@ pub fn run(vfs: &Vfs, options: &Options, console: &mut dyn Console) -> Exit {
                 "There was a problem reading one or more of the specified INPUT paths:\n\n",
             );
             for problem in problems {
-                text.push_str(&format!("    {problem}\n"));
+                let _ = writeln!(text, "    {problem}");
             }
             text.push_str("\nPlease check the given paths.\n\n");
             console.err(&text);
@@ -87,7 +80,7 @@ pub fn run(vfs: &Vfs, options: &Options, console: &mut dyn Console) -> Exit {
     };
     let version = options.elm_version.unwrap_or_else(|| detect_version(vfs));
     if version != ElmVersion::V0_19 {
-        console.err(unsupported(version, options.elm_version.is_some()));
+        console.err(unsupported(options.elm_version));
         return Exit::Failure;
     }
     let succeeded = match task {
@@ -211,17 +204,17 @@ fn task(options: &Options, files: Vec<PathBuf>) -> Result<Option<Task>, &'static
         (None, true) => Task::StdinToStdout,
         (Some(output), true) => Task::StdinToFile(output.clone()),
         (None, false) => Task::FilesInPlace(files),
-        (Some(output), false) if files.len() == 1 => {
-            Task::FileToFile(files.into_iter().next().unwrap(), output.clone())
-        }
-        (Some(_), false) => {
-            return Err(concat!(
-                "Can't write to the OUTPUT path, because multiple .elm files have been specified.\n",
-                "\n",
-                "Please remove the --output argument. The .elm files in INPUT will be formatted in place.\n",
-                "\n",
-            ));
-        }
+        (Some(output), false) => match <[PathBuf; 1]>::try_from(files) {
+            Ok([file]) => Task::FileToFile(file, output.clone()),
+            Err(_) => {
+                return Err(concat!(
+                    "Can't write to the OUTPUT path, because multiple .elm files have been specified.\n",
+                    "\n",
+                    "Please remove the --output argument. The .elm files in INPUT will be formatted in place.\n",
+                    "\n",
+                ));
+            }
+        },
     }))
 }
 
@@ -235,13 +228,17 @@ fn detect_version(vfs: &Vfs) -> ElmVersion {
     }
 }
 
-fn unsupported(version: ElmVersion, given: bool) -> &'static str {
-    match (version, given) {
-        (ElmVersion::V0_17, _) => {
+/// Why the version `given`, or else the one detected, which isn't 0.19,
+/// isn't formatted.
+fn unsupported(given: Option<ElmVersion>) -> &'static str {
+    match given {
+        Some(ElmVersion::V0_17) => {
             "nomi formats Elm 0.19 only; it does not support --elm-version=0.17.\n"
         }
-        (_, true) => "nomi formats Elm 0.19 only; it does not support --elm-version=0.18.\n",
-        (_, false) => concat!(
+        Some(ElmVersion::V0_18 | ElmVersion::V0_19) => {
+            "nomi formats Elm 0.19 only; it does not support --elm-version=0.18.\n"
+        }
+        None => concat!(
             "nomi formats Elm 0.19 only, and this directory has an elm-package.json but no ",
             "elm.json, which makes it Elm 0.18; pass --elm-version=0.19 to format it anyway.\n",
         ),
@@ -276,7 +273,7 @@ fn approve(files: &[PathBuf], console: &mut dyn Console) -> Result<bool, String>
     let mut prompt =
         String::from("This will overwrite the following files to use Elm's preferred style:\n\n");
     for file in files {
-        prompt.push_str(&format!("    {}\n", file.display()));
+        let _ = writeln!(prompt, "    {}", file.display());
     }
     prompt.push_str(concat!(
         "\n",
@@ -300,14 +297,8 @@ fn approve(files: &[PathBuf], console: &mut dyn Console) -> Result<bool, String>
 /// Formats `files` in place on the pool, then reports on each in order.
 fn in_place(vfs: &Vfs, files: Vec<PathBuf>, console: &mut dyn Console) -> bool {
     let outcomes = Pool::global().map(files, |file| {
-        let formatted = read(vfs, &file)
-            .map(|text| text.and_then(|text| format_text(&text).map(|f| (f != text, f))));
-        let outcome = match formatted {
-            Ok(Ok((false, _))) => Outcome::Unchanged,
-            Ok(Ok((true, text))) => match vfs.write(&file, &text) {
-                Ok(()) => Outcome::Formatted,
-                Err(e) => Outcome::Failed(e),
-            },
+        let outcome = match read(vfs, &file) {
+            Ok(Ok(text)) => rewrite(vfs, &file, &text, Mode::Write),
             Ok(Err(at)) => Outcome::Invalid(at),
             Err(e) => Outcome::Failed(e),
         };
@@ -406,7 +397,9 @@ fn json_string(text: &str) -> String {
             '\n' => json.push_str("\\n"),
             '\r' => json.push_str("\\r"),
             '\t' => json.push_str("\\t"),
-            c if c < ' ' => json.push_str(&format!("\\u{:04x}", c as u32)),
+            c if c < ' ' => {
+                let _ = write!(json, "\\u{:04x}", u32::from(c));
+            }
             c => json.push(c),
         }
     }

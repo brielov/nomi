@@ -4,57 +4,41 @@
 //! releases. Their messages follow `install`'s.
 
 use std::fmt::Display;
-use std::path::Path;
 
 use nomi_base::{Compat, Report};
-use nomi_project::{Name, Outline};
+use nomi_project::{Name, Outline, Version};
 use nomi_registry::update::DepKind;
 use nomi_registry::{Http, Outdated, SolverProblem, Store, UpdateProblem, report, update};
 
 use crate::console::{self, Console, Personality};
-use crate::install::{one_line, parse_name, plan_question};
-use crate::paths::Cache;
+use crate::install::{parse_name, plan_question};
 use crate::project::Project;
-use crate::{Vfs, env};
+use crate::report::one_line;
+use crate::{Context, env};
 
-/// Updates the dependencies of the project around `dir`, or only
-/// `package` and those that need it, once the user agrees. Whether it
-/// succeeded; a decline is a success.
-pub fn run(
-    vfs: &Vfs,
-    console: &mut dyn Console,
-    dir: &Path,
-    cache: &Cache,
-    http: &impl Http,
-    package: Option<&str>,
-) -> bool {
+/// Updates the dependencies of the project around the directory, or
+/// only `package` and those that need it, once the user agrees. Whether
+/// it succeeded; a decline is a success.
+pub fn run(cx: &Context<'_, impl Http>, console: &mut dyn Console, package: Option<&str>) -> bool {
     let mut compat = Compat::LATEST;
-    match update(vfs, console, dir, cache, http, package, &mut compat) {
-        Ok(succeeded) => succeeded,
-        Err(problem) => {
-            console::report(console, &problem, compat);
-            false
-        }
-    }
+    let result = update(cx, console, package, &mut compat);
+    console::reported(console, result, compat)
 }
 
 fn update(
-    vfs: &Vfs,
+    cx: &Context<'_, impl Http>,
     console: &mut dyn Console,
-    dir: &Path,
-    cache: &Cache,
-    http: &impl Http,
     package: Option<&str>,
     compat: &mut Compat,
 ) -> Result<bool, Report> {
     let package = package.map(parse_name).transpose()?;
-    let project = Project::load(vfs, dir, "to update")?;
+    let project = Project::load(cx.vfs, cx.dir, "to update")?;
     *compat = project.compat;
-    let store = Store::new(cache.packages());
+    let store = Store::new(cx.cache.packages());
     let mut registry = env::registry(
-        cache,
+        cx.cache,
         &store,
-        http,
+        cx.http,
         *compat,
         "I need the list of published packages to find newer releases",
     )?;
@@ -74,22 +58,13 @@ fn update(
         }
         update::Plan::App { changes, outline } => (changes, Outline::App(outline)),
     };
-    match console::ask(console, &plan_question(&changes), *compat) {
-        Err(e) => Err(one_line("PROBLEM READING ANSWER", &e.to_string())),
-        Ok(None) => {
-            console::no_answer(console, Personality::Nomi);
-            Ok(false)
-        }
-        Ok(Some(false)) => {
-            console.out("Okay, I did not change anything!\n");
-            Ok(true)
-        }
-        Ok(Some(true)) => {
-            project.write(vfs, &outline)?;
-            console.out("Success!\n");
-            Ok(true)
-        }
-    }
+    console::confirm(
+        console,
+        &plan_question(&changes),
+        *compat,
+        Personality::Nomi,
+        || project.write(cx.vfs, outline.write()),
+    )
 }
 
 fn update_problem(package: Option<&Name>, problem: UpdateProblem<SolverProblem>) -> Report {
@@ -101,13 +76,7 @@ fn update_problem(package: Option<&Name>, problem: UpdateProblem<SolverProblem>)
                 package.map_or_else(String::new, Name::to_string)
             ),
         ),
-        UpdateProblem::Unavailable(name, version) => one_line(
-            "PROBLEM LOADING PACKAGE",
-            &format!(
-                "I need the elm.json of {name} {version} to know what it depends on, but I \
-                 could not get it."
-            ),
-        ),
+        UpdateProblem::Unavailable(name, version) => unavailable(&name, version),
         UpdateProblem::NoSolution => one_line(
             "CANNOT FIND COMPATIBLE VERSIONS",
             "I cannot find a set of packages that satisfies elm.json, even when I let each \
@@ -117,42 +86,45 @@ fn update_problem(package: Option<&Name>, problem: UpdateProblem<SolverProblem>)
     }
 }
 
-/// Lists the dependencies of the project around `dir` that have newer
-/// releases. Whether it succeeded.
-pub fn outdated(
-    vfs: &Vfs,
-    console: &mut dyn Console,
-    dir: &Path,
-    cache: &Cache,
-    http: &impl Http,
-) -> bool {
+/// That the `elm.json` of a release the plan needs couldn't be had.
+pub(crate) fn unavailable(name: &Name, version: Version) -> Report {
+    one_line(
+        "PROBLEM LOADING PACKAGE",
+        &format!(
+            "I need the elm.json of {name} {version} to know what it depends on, but I could \
+             not get it."
+        ),
+    )
+}
+
+/// Lists the dependencies of the project around the directory that have
+/// newer releases. Whether it succeeded.
+pub fn outdated(cx: &Context<'_, impl Http>, console: &mut dyn Console) -> bool {
     let mut compat = Compat::LATEST;
-    let result = (|| {
-        let project = Project::load(vfs, dir, "to check")?;
-        compat = project.compat;
-        let store = Store::new(cache.packages());
-        let registry = env::registry(
-            cache,
-            &store,
-            http,
-            compat,
-            "I need the list of published packages to find newer releases",
-        )?;
-        Ok::<_, Report>(match &project.outline {
-            Outline::App(app) => table(&update::outdated_app(&registry, app)),
-            Outline::Pkg(pkg) => table(&update::outdated_pkg(&registry, pkg)),
-        })
-    })();
-    match result {
-        Ok(table) => {
-            console.out(&table);
-            true
-        }
-        Err(problem) => {
-            console::report(console, &problem, compat);
-            false
-        }
-    }
+    let result = outdated_table(cx, console, &mut compat);
+    console::reported(console, result, compat)
+}
+
+fn outdated_table(
+    cx: &Context<'_, impl Http>,
+    console: &mut dyn Console,
+    compat: &mut Compat,
+) -> Result<bool, Report> {
+    let project = Project::load(cx.vfs, cx.dir, "to check")?;
+    *compat = project.compat;
+    let store = Store::new(cx.cache.packages());
+    let registry = env::registry(
+        cx.cache,
+        &store,
+        cx.http,
+        *compat,
+        "I need the list of published packages to find newer releases",
+    )?;
+    console.out(&match &project.outline {
+        Outline::App(app) => table(&update::outdated_app(&registry, app)),
+        Outline::Pkg(pkg) => table(&update::outdated_pkg(&registry, pkg)),
+    });
+    Ok(true)
 }
 
 /// The outdated dependencies in columns, or that there are none.
@@ -201,16 +173,15 @@ fn table<T: Display>(outdated: &[Outdated<T>]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use nomi_project::json::Cursor;
-    use nomi_project::{Constraint, Version};
+    use nomi_project::Constraint;
 
     use super::*;
 
     #[test]
     fn outdated_dependencies_line_up() {
         let compat = Compat::LATEST;
-        let name = |s: &str| Name::parse(s.as_bytes(), Cursor::start(compat), compat).unwrap();
-        let v = |s: &str| Version::parse(s.as_bytes(), Cursor::start(compat), compat).unwrap();
+        let name = |s: &str| s.parse::<Name>().unwrap();
+        let v = |s: &str| s.parse::<Version>().unwrap();
         let app = [
             Outdated {
                 name: name("elm/http"),

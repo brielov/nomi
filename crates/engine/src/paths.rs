@@ -10,6 +10,8 @@ use std::ffi::OsString;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use nomi_project::{Name, Version};
+
 use crate::Vfs;
 
 /// The manifest of an Elm 0.19 project.
@@ -37,14 +39,17 @@ impl Root {
             .map(|d| Root(d.to_owned()))
     }
 
+    /// The project whose `elm.json` is in `dir`.
     pub fn new(dir: PathBuf) -> Root {
         Root(dir)
     }
 
+    /// The directory holding the project's `elm.json`.
     pub fn dir(&self) -> &Path {
         &self.0
     }
 
+    /// The project's `elm.json`.
     pub fn elm_json(&self) -> PathBuf {
         self.0.join(ELM_JSON)
     }
@@ -58,9 +63,9 @@ pub struct Cache(PathBuf);
 /// Why there is no cache directory.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CacheError {
-    /// The variable names a relative path, which would move with the
+    /// [`NOMI_CACHE`] names a relative path, which would move with the
     /// working directory.
-    Relative(&'static str),
+    Relative,
     /// No variable says where the user's caches go.
     Unknown,
 }
@@ -68,7 +73,7 @@ pub enum CacheError {
 impl fmt::Display for CacheError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CacheError::Relative(var) => write!(f, "{var} must be an absolute path"),
+            CacheError::Relative => write!(f, "{NOMI_CACHE} must be an absolute path"),
             CacheError::Unknown => write!(
                 f,
                 "nomi can't tell where to keep its cache; set {NOMI_CACHE} to a directory"
@@ -85,10 +90,12 @@ impl Cache {
         Cache::from_env(std::env::consts::OS, |var| std::env::var_os(var))
     }
 
+    /// The cache in `dir`.
     pub fn new(dir: PathBuf) -> Cache {
         Cache(dir)
     }
 
+    /// The cache's directory.
     pub fn dir(&self) -> &Path {
         &self.0
     }
@@ -116,6 +123,13 @@ impl Cache {
         self.0.join("packages")
     }
 
+    /// The documentation of `name` at `version`, which `elm diff` and
+    /// `elm bump` compare.
+    pub(crate) fn docs(&self, name: &Name, version: Version) -> PathBuf {
+        let path = self.0.join("docs").join(name.to_string());
+        path.join(version.to_string()).join("docs.json")
+    }
+
     /// [`Cache::locate`] on `os` with the variables `var` gives. The user's
     /// cache directory is Go's `os.UserCacheDir`: `%LocalAppData%` on
     /// Windows, `~/Library/Caches` on macOS, and elsewhere
@@ -127,7 +141,7 @@ impl Cache {
             return if dir.is_absolute() {
                 Ok(Cache(dir))
             } else {
-                Err(CacheError::Relative(NOMI_CACHE))
+                Err(CacheError::Relative)
             };
         }
         let home = || set("HOME").filter(|h| h.is_absolute());
@@ -176,7 +190,7 @@ mod tests {
         assert_eq!(cache("linux", &vars), Ok(at("/c")));
         assert_eq!(
             cache("linux", &[(NOMI_CACHE, "c")]),
-            Err(CacheError::Relative(NOMI_CACHE))
+            Err(CacheError::Relative)
         );
         assert_eq!(
             cache("linux", &[(NOMI_CACHE, ""), ("HOME", h.as_str())]),

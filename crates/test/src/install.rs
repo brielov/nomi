@@ -69,15 +69,7 @@ pub fn install<H: Http + Sync>(
         );
     }
     write(&scratch, &copy)?;
-    let installed = install::run(
-        env.vfs,
-        console,
-        Personality::Elm,
-        &scratch,
-        env.cache,
-        env.http,
-        Some(package),
-    );
+    let installed = install::run(&env.at(&scratch), console, Personality::Elm, Some(package));
     if !installed {
         return Err(None);
     }

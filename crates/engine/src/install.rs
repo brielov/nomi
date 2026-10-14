@@ -8,12 +8,12 @@
 
 use std::collections::BTreeMap;
 use std::fmt::Display;
-use std::path::Path;
 
-use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, hint, reflow, simple_note, text, vcat};
+use nomi_base::diagnostic::doc::{
+    Color, Doc, fill_sep, hint, hsep, reflow, simple_note, text, vcat, words,
+};
 use nomi_base::{Compat, Report};
-use nomi_project::json::Cursor;
-use nomi_project::report::ElmCommand;
+use nomi_project::report::{ElmCommand, elm_json_path};
 use nomi_project::{Name, Outline};
 use nomi_registry::{
     Change, Connection, DetailsProblem, Http, InstallProblem, Plan, Registry, SolverProblem, Store,
@@ -22,203 +22,141 @@ use nomi_registry::{
 
 use crate::console::{self, Console, Personality};
 use crate::paths::{Cache, Root};
-use crate::{Pool, Vfs, env, packages, project};
+use crate::project::{self, Project};
+use crate::report::one_line;
+use crate::{Context, Pool, env, packages};
 
-/// The path reports about the outline name.
-const ELM_JSON: &str = "elm.json";
-
-/// Adds `package` to the project around `dir`, once the user agrees; with
-/// no package, says what `install` is for. Whether it succeeded; a
-/// decline is a success.
+/// Adds `package` to the project around the directory, once the user
+/// agrees; with no package, says what `install` is for. Whether it
+/// succeeded; a decline is a success.
 pub fn run(
-    vfs: &Vfs,
+    cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
     personality: Personality,
-    dir: &Path,
-    cache: &Cache,
-    http: &(impl Http + Sync),
     package: Option<&str>,
 ) -> bool {
-    let mut install = Install {
-        vfs,
-        console,
-        personality,
-        cache,
-        compat: Compat::LATEST,
-    };
-    match install.run(dir, http, package) {
-        Ok(succeeded) => succeeded,
-        Err(problem) => {
-            console::report(install.console, &problem, install.compat);
-            false
-        }
-    }
+    let mut compat = Compat::LATEST;
+    let result = install(cx, console, personality, package, &mut compat);
+    console::reported(console, result, compat)
 }
 
-struct Install<'a> {
-    vfs: &'a Vfs,
-    console: &'a mut dyn Console,
+/// [`run`], with `compat` the release the project is built as once its
+/// outline is read.
+fn install(
+    cx: &Context<'_, impl Http + Sync>,
+    console: &mut dyn Console,
     personality: Personality,
-    cache: &'a Cache,
-    /// The release the project is built as, once its outline is read;
-    /// until then the newest.
-    compat: Compat,
+    package: Option<&str>,
+    compat: &mut Compat,
+) -> Result<bool, Report> {
+    // Upstream's argument parser rejects a bad name before anything
+    // looks for the project.
+    let package = package.map(parse_name).transpose()?;
+    let Some(root) = Root::find(cx.vfs, cx.dir) else {
+        return Err(no_outline(personality));
+    };
+    let Some(package) = &package else {
+        return Err(no_args(personality, cx.cache));
+    };
+    let src = project::elm_json(cx.vfs, &root)?;
+    // Upstream loads the registry before it reads the outline, so its
+    // problems come first; reading it as the release it names comes
+    // first here.
+    let project = Project::decode(&root, &src, personality);
+    if let Ok(project) = &project {
+        *compat = project.compat;
+    }
+    let store = Store::new(cx.cache.packages());
+    let mut registry = env::registry(
+        cx.cache,
+        &store,
+        cx.http,
+        *compat,
+        "I need the list of published packages to figure out how to install things",
+    )?;
+    let project = project?;
+    let old = &project.outline;
+    project::check_source_dirs(root.dir(), old)?;
+    let plan = install::plan(&mut registry, *compat, package, old)
+        .map_err(|problem| install_problem(&registry, package, old, problem))?;
+    let (question, new) = match plan {
+        Plan::AlreadyInstalled => {
+            console.out("It is already installed!\n");
+            return Ok(true);
+        }
+        Plan::PromoteIndirect(new) => (promote_indirect(), new),
+        Plan::PromoteTest(new) => (promote_test(), new),
+        Plan::App { changes, outline } => (plan_question(&changes), Outline::App(outline)),
+        Plan::Pkg {
+            changes, outline, ..
+        } => (plan_question(&changes), Outline::Pkg(outline)),
+    };
+    console::confirm(console, &question, *compat, personality, || {
+        project.write(cx.vfs, new.write())?;
+        let verified = verify(&mut registry, &store, cx.http, *compat, personality, &new);
+        if verified.is_err() {
+            project.write(cx.vfs, &src)?;
+        }
+        verified
+    })
 }
 
-impl Install<'_> {
-    fn run(
-        &mut self,
-        dir: &Path,
-        http: &(impl Http + Sync),
-        package: Option<&str>,
-    ) -> Result<bool, Report> {
-        // Upstream's argument parser rejects a bad name before anything
-        // looks for the project.
-        let package = package.map(parse_name).transpose()?;
-        let Some(root) = Root::find(self.vfs, dir) else {
-            return Err(self.no_outline());
-        };
-        let Some(package) = &package else {
-            return Err(self.no_args());
-        };
-        let path = root.elm_json();
-        let src = self.vfs.read_bytes(&path).map_err(|e| {
-            one_line(
-                "PROBLEM READING ELM.JSON",
-                &format!("I could not read elm.json: {e}"),
+/// `InstallNoOutline`.
+fn no_outline(personality: Personality) -> Report {
+    Report::new(
+        "NEW PROJECT?",
+        None,
+        "Are you trying to start a new project? Try this command instead:",
+        [
+            text(personality.command(ElmCommand::Init))
+                .color(Color::Green)
+                .indent(4),
+            reflow("It will help you get started!"),
+        ],
+    )
+}
+
+/// `InstallNoArgs`, naming nomi's package store where upstream names
+/// `ELM_HOME`.
+fn no_args(personality: Personality, cache: &Cache) -> Report {
+    let install = personality.command(ElmCommand::Install);
+    let make = personality.command(ElmCommand::Make);
+    Report::new(
+        "INSTALL WHAT?",
+        None,
+        "I am expecting commands like:",
+        [
+            vcat(
+                ["elm/http", "elm/json", "elm/random"]
+                    .map(|package| text(format!("{install} {package}"))),
             )
-        })?;
-        // Upstream loads the registry before it reads the outline, so its
-        // problems come first; reading it as the release it names comes
-        // first here.
-        let detected = Outline::detect(&src);
-        if let Ok((_, compat)) = &detected {
-            self.compat = *compat;
-        }
-        let store = Store::new(self.cache.packages());
-        let mut registry = env::registry(
-            self.cache,
-            &store,
-            http,
-            self.compat,
-            "I need the list of published packages to figure out how to install things",
-        )?;
-        let (old, _) = detected.map_err(|e| {
-            nomi_project::report::detect(&e, &src, &|c| self.personality.command(c))
-        })?;
-        project::check_source_dirs(root.dir(), &old)?;
-        let plan = install::plan(&mut registry, self.compat, package, &old)
-            .map_err(|problem| install_problem(&registry, package, &old, problem))?;
-        let (question, new) = match plan {
-            Plan::AlreadyInstalled => {
-                self.console.out("It is already installed!\n");
-                return Ok(true);
-            }
-            Plan::PromoteIndirect(new) => (promote_indirect(), new),
-            Plan::PromoteTest(new) => (promote_test(), new),
-            Plan::App { changes, outline } => (plan_question(&changes), Outline::App(outline)),
-            Plan::Pkg {
-                changes, outline, ..
-            } => (plan_question(&changes), Outline::Pkg(outline)),
-        };
-        match console::ask(self.console, &question, self.compat) {
-            Err(e) => Err(one_line("PROBLEM READING ANSWER", &e.to_string())),
-            Ok(None) => {
-                console::no_answer(self.console, self.personality);
-                Ok(false)
-            }
-            Ok(Some(false)) => {
-                self.console.out("Okay, I did not change anything!\n");
-                Ok(true)
-            }
-            Ok(Some(true)) => {
-                self.write(&path, &new.write())?;
-                if let Err(problem) = verify(
-                    &mut registry,
-                    &store,
-                    http,
-                    self.compat,
-                    self.personality,
-                    &new,
-                ) {
-                    self.write(&path, &src)?;
-                    return Err(problem);
-                }
-                self.console.out("Success!\n");
-                Ok(true)
-            }
-        }
-    }
-
-    fn write(&self, path: &Path, bytes: &[u8]) -> Result<(), Report> {
-        self.vfs.write(path, bytes).map_err(|e| {
-            one_line(
-                "PROBLEM WRITING ELM.JSON",
-                &format!("I could not write elm.json: {e}"),
-            )
-        })
-    }
-
-    /// `InstallNoOutline`.
-    fn no_outline(&self) -> Report {
-        Report::new(
-            "NEW PROJECT?",
-            None,
-            "Are you trying to start a new project? Try this command instead:",
-            [
-                text(self.personality.command(ElmCommand::Init))
-                    .color(Color::Green)
-                    .indent(4),
-                reflow("It will help you get started!"),
-            ],
-        )
-    }
-
-    /// `InstallNoArgs`, naming nomi's package store where upstream names
-    /// `ELM_HOME`.
-    fn no_args(&self) -> Report {
-        let install = self.personality.command(ElmCommand::Install);
-        let make = self.personality.command(ElmCommand::Make);
-        let words = |s: &'static str| s.split_whitespace().map(text);
-        Report::new(
-            "INSTALL WHAT?",
-            None,
-            "I am expecting commands like:",
-            [
-                vcat(
-                    ["elm/http", "elm/json", "elm/random"]
-                        .map(|package| text(format!("{install} {package}"))),
+            .indent(4)
+            .color(Color::Green),
+            hint(
+                words(
+                    "In JavaScript folks run `npm install` to start projects. \"Gotta \
+                     download everything!\" But why download packages again and again? \
+                     Instead, Elm caches packages in",
                 )
-                .indent(4)
-                .color(Color::Green),
-                hint(
-                    words(
-                        "In JavaScript folks run `npm install` to start projects. \"Gotta \
-                         download everything!\" But why download packages again and again? \
-                         Instead, Elm caches packages in",
-                    )
-                    .chain([
-                        text(self.cache.packages().display().to_string()).color(Color::DullYellow)
-                    ])
-                    .chain(words(
-                        "so each one is downloaded and built ONCE on your machine. Elm projects \
-                         check that cache before trying the internet. This reduces build times, \
-                         reduces server costs, and makes it easier to work offline. As a result",
-                    ))
-                    .chain([text(install).color(Color::DullCyan)])
-                    .chain(words(
-                        "is only for adding dependencies to elm.json, whereas",
-                    ))
-                    .chain([text(make.clone()).color(Color::DullCyan)])
-                    .chain(words(
-                        "is in charge of gathering dependencies and building everything. So \
-                         maybe try",
-                    ))
-                    .chain([text(make).color(Color::Green), text("instead?")]),
-                ),
-            ],
-        )
-    }
+                .chain([text(cache.packages().display().to_string()).color(Color::DullYellow)])
+                .chain(words(
+                    "so each one is downloaded and built ONCE on your machine. Elm projects \
+                     check that cache before trying the internet. This reduces build times, \
+                     reduces server costs, and makes it easier to work offline. As a result",
+                ))
+                .chain([text(install).color(Color::DullCyan)])
+                .chain(words(
+                    "is only for adding dependencies to elm.json, whereas",
+                ))
+                .chain([text(make.clone()).color(Color::DullCyan)])
+                .chain(words(
+                    "is in charge of gathering dependencies and building everything. So \
+                     maybe try",
+                ))
+                .chain([text(make).color(Color::Green), text("instead?")]),
+            ),
+        ],
+    )
 }
 
 fn install_problem<H: Http>(
@@ -236,11 +174,7 @@ fn install_problem<H: Http>(
                 .unwrap_or_default();
             unknown_package(package, &nearby, registry.connection)
         }
-        InstallProblem::NoSolution => no_solution(
-            package,
-            matches!(outline, Outline::App(_)),
-            registry.connection,
-        ),
+        InstallProblem::NoSolution => no_solution(package, outline, registry.connection),
         InstallProblem::Solver(problem) => report::solver_problem(&problem),
     }
 }
@@ -257,20 +191,15 @@ fn verify(
 ) -> Result<(), Report> {
     let solution = details::verify(registry, compat, outline)
         .map_err(|problem| details_problem(&problem, compat, personality))?;
-    let releases = solution
-        .into_iter()
+    let releases: Vec<_> = (solution.into_iter())
         .map(|(name, details)| (name, details.version))
-        .collect::<Vec<_>>();
+        .collect();
     let fetched = packages::fetch(Pool::global(), store, http, compat, &releases);
     // Upstream reports the first of the releases it couldn't download.
-    match releases
-        .iter()
-        .zip(fetched)
-        .find_map(|(release, r)| r.err().map(|e| (release, e)))
-    {
-        Some(((name, version), problem)) => Err(report::package_problem(name, *version, &problem)),
-        None => Ok(()),
+    for ((name, version), fetched) in releases.iter().zip(fetched) {
+        fetched.map_err(|problem| report::package_problem(name, *version, &problem))?;
     }
+    Ok(())
 }
 
 /// `toDetailsReport`, in `personality`'s words.
@@ -286,22 +215,12 @@ pub(crate) fn details_problem(
 /// The package argument. Upstream's argument parser reports a bad one
 /// with examples, which come with the rest of its usage errors.
 pub(crate) fn parse_name(arg: &str) -> Result<Name, Report> {
-    let compat = Compat::LATEST;
-    Name::parse(arg.as_bytes(), Cursor::start(compat), compat).map_err(|_| {
+    arg.parse().map_err(|_| {
         one_line(
             "BAD PACKAGE NAME",
             &format!("{arg} is not a package name, which looks like elm/http."),
         )
     })
-}
-
-/// A report of nomi's own whose message is one sentence.
-pub(crate) fn one_line(title: &'static str, message: &str) -> Report {
-    Report::new(title, None, message, [])
-}
-
-pub(crate) fn words(text: &str) -> impl Iterator<Item = Doc> + '_ {
-    text.split_whitespace().map(Doc::from)
 }
 
 fn promote_indirect() -> Doc {
@@ -338,15 +257,15 @@ fn promote_test() -> Doc {
 
 /// The `Changes` question: the plan, by kind of change.
 pub(crate) fn plan_question<T: Display>(changes: &BTreeMap<Name, Change<T>>) -> Doc {
-    let width = |s: String| s.chars().count();
+    let width = |s: &dyn Display| s.to_string().chars().count();
     let (mut name_w, mut left_w, mut right_w) = (0, 0, 0);
     for (name, change) in changes {
-        name_w = name_w.max(width(name.to_string()));
+        name_w = name_w.max(width(name));
         match change {
-            Change::Insert(v) | Change::Remove(v) => left_w = left_w.max(width(v.to_string())),
+            Change::Insert(v) | Change::Remove(v) => left_w = left_w.max(width(v)),
             Change::Change { old, new } => {
-                left_w = left_w.max(width(old.to_string()));
-                right_w = right_w.max(width(new.to_string()));
+                left_w = left_w.max(width(old));
+                right_w = right_w.max(width(new));
             }
         }
     }
@@ -354,7 +273,7 @@ pub(crate) fn plan_question<T: Display>(changes: &BTreeMap<Name, Change<T>>) -> 
         let v = v.to_string();
         text(format!(
             "{}{v}",
-            " ".repeat(w.saturating_sub(width(v.clone())))
+            " ".repeat(w.saturating_sub(v.chars().count()))
         ))
     };
     let name = |name: &Name| text(name.to_string()).fill(name_w + 3);
@@ -362,7 +281,7 @@ pub(crate) fn plan_question<T: Display>(changes: &BTreeMap<Name, Change<T>>) -> 
     for (n, change) in changes {
         match change {
             Change::Insert(v) => inserts.push(name(n).space(pad(left_w, v))),
-            Change::Change { old, new } => changed.push(nomi_base::diagnostic::doc::hsep([
+            Change::Change { old, new } => changed.push(hsep([
                 name(n),
                 pad(left_w, old),
                 text("=>"),
@@ -430,13 +349,16 @@ fn unknown_package(package: &Name, nearby: &[&Name], connection: Connection) -> 
 }
 
 /// `InstallNo{Online,Offline}{App,Pkg}Solution`.
-fn no_solution(package: &Name, app: bool, connection: Connection) -> Report {
-    let existing = if app { "dependencies" } else { "constraints" };
+fn no_solution(package: &Name, outline: &Outline, connection: Connection) -> Report {
+    let existing = match outline {
+        Outline::App(_) => "dependencies",
+        Outline::Pkg(_) => "constraints",
+    };
     let start = format!(
         "I cannot find a version of {package} that is compatible with your existing {existing}."
     );
-    let path = Some(ELM_JSON.to_owned());
-    match (connection, app) {
+    let path = elm_json_path();
+    match (connection, outline) {
         (Connection::Offline, _) => Report::new(
             "CANNOT FIND COMPATIBLE VERSION LOCALLY",
             path,
@@ -449,7 +371,7 @@ fn no_solution(package: &Name, app: bool, connection: Connection) -> Report {
                 reflow("Try again later when you have internet!"),
             ],
         ),
-        (Connection::Online, true) => Report::new(
+        (Connection::Online, Outline::App(_)) => Report::new(
             "CANNOT FIND COMPATIBLE VERSION",
             path,
             &start,
@@ -477,7 +399,7 @@ fn no_solution(package: &Name, app: bool, connection: Connection) -> Report {
                 ),
             ],
         ),
-        (Connection::Online, false) => Report::new(
+        (Connection::Online, Outline::Pkg(_)) => Report::new(
             "CANNOT FIND COMPATIBLE VERSION",
             path,
             &start,
@@ -503,33 +425,13 @@ fn no_solution(package: &Name, app: bool, connection: Connection) -> Report {
 
 #[cfg(test)]
 mod tests {
-    use std::io;
     use std::path::PathBuf;
 
     use nomi_registry::HttpError;
 
     use super::*;
-
-    #[derive(Default)]
-    struct Fake {
-        out: String,
-        err: String,
-    }
-
-    impl Console for Fake {
-        fn out(&mut self, text: &str) {
-            self.out.push_str(text);
-        }
-        fn err(&mut self, text: &str) {
-            self.err.push_str(text);
-        }
-        fn read_line(&mut self) -> io::Result<Option<String>> {
-            Ok(None)
-        }
-        fn read_all(&mut self) -> io::Result<Vec<u8>> {
-            Ok(Vec::new())
-        }
-    }
+    use crate::Vfs;
+    use crate::console::Captured;
 
     struct Unreachable;
 
@@ -548,17 +450,15 @@ mod tests {
     fn install_what_names_the_package_store() {
         let project = tempfile::tempdir().unwrap();
         std::fs::write(project.path().join("elm.json"), "{}").unwrap();
-        let mut console = Fake::default();
+        let mut console = Captured::default();
         let cache = Cache::new(PathBuf::from("/cache"));
-        let succeeded = run(
-            &Vfs::new(),
-            &mut console,
-            Personality::Elm,
-            project.path(),
-            &cache,
-            &Unreachable,
-            None,
-        );
+        let cx = Context {
+            vfs: &Vfs::new(),
+            dir: project.path(),
+            cache: &cache,
+            http: &Unreachable,
+        };
+        let succeeded = run(&cx, &mut console, Personality::Elm, None);
         assert!(!succeeded);
         assert_eq!(console.out, "");
         // The same length on Windows, where the separator differs.

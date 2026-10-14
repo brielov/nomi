@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use nomi_engine::check::Style;
 use nomi_engine::console::Console;
 use nomi_engine::paths::Cache;
-use nomi_engine::test_deps::Solve;
+use nomi_engine::test_deps::{Order, Solve};
 use nomi_engine::{Http, Vfs};
 use nomi_project::Outline;
 
@@ -368,7 +368,12 @@ fn set(flags: &mut Flags, spec: &Spec, value: Option<&str>) -> Result<bool, Stri
             }
         }
         "--compiler" => flags.compiler = value.map(str::to_owned),
-        "--dependencies" => flags.solve.oldest = choice(&["newest", "oldest"])? == "oldest",
+        "--dependencies" => {
+            flags.solve.order = match choice(&["newest", "oldest"])?.as_str() {
+                "oldest" => Order::OldestFirst,
+                _ => Order::NewestFirst,
+            }
+        }
         "--offline" => flags.solve.offline = true,
         "--output" if value != Some("/dev/null") => return Err(invalid(OUTPUT_ERROR)),
         "--version" => return Ok(false),

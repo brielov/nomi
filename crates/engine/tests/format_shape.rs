@@ -8,27 +8,22 @@ use std::path::{Path, PathBuf};
 use nomi_base::Compat;
 use nomi_engine::format::shape_change;
 use nomi_syntax::{Source, Tool, parse_module, validate};
+use nomi_testkit::{files_below, packages};
 
-fn modules(dir: &Path, found: &mut Vec<PathBuf>) {
-    for entry in std::fs::read_dir(dir).unwrap() {
-        let path = entry.unwrap().path();
-        if path.is_dir() {
-            modules(&path, found);
-        } else if path.extension().is_some_and(|e| e == "elm") {
-            found.push(path);
-        }
-    }
+/// The `.elm` files below `dir`.
+fn modules(dir: PathBuf) -> impl Iterator<Item = PathBuf> {
+    let files = files_below(&dir).unwrap();
+    (files.into_iter())
+        .filter(|file| file.ends_with(".elm"))
+        .map(move |file| dir.join(file))
 }
 
 #[test]
 fn formatting_keeps_the_hir_shape() {
-    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    let mut found = Vec::new();
-    modules(
-        &crates.join("format/tests/format_fixtures/inputs"),
-        &mut found,
-    );
-    modules(&crates.join("compiler/tests/packages"), &mut found);
+    let format = Path::new(env!("CARGO_MANIFEST_DIR")).join("../format/tests/format_fixtures");
+    let found: Vec<PathBuf> = modules(format.join("inputs"))
+        .chain(modules(packages::dir()))
+        .collect();
     assert!(found.len() > 1000, "{} modules", found.len());
     // An application's rules, or for infix declarations and effect
     // managers, a kernel package's.

@@ -18,13 +18,13 @@ use crate::check::{
 };
 use crate::console::{Console, Personality};
 use crate::graph::{Env, RootMain};
-use crate::install::one_line;
 use crate::names::{Building, ModuleInterface, Packages};
 use crate::objects::Dependencies;
-use crate::paths::{Cache, Root};
+use crate::paths::Root;
 use crate::project::{self, Project, check_source_dirs};
+use crate::report::{self, one_line};
 use crate::timings::{self, Phase};
-use crate::{Pool, Vfs, javascript, report};
+use crate::{Context, Pool, Vfs, javascript};
 
 /// What `elm make` was asked for (`Make.Flags`, with the paths).
 #[derive(Clone, Debug)]
@@ -127,17 +127,10 @@ impl Make {
     }
 }
 
-/// Makes what `make` asks for of the project around `dir`, and shows how
-/// it went. Whether nothing was wrong. With `NOMI_TIMINGS`, where the time
-/// went follows on standard error.
-pub fn run(
-    vfs: &Vfs,
-    console: &mut dyn Console,
-    dir: &Path,
-    cache: &Cache,
-    http: &(impl Http + Sync),
-    make: &Make,
-) -> bool {
+/// Makes what `make` asks for of the project around the directory, and
+/// shows how it went. Whether nothing was wrong. With `NOMI_TIMINGS`,
+/// where the time went follows on standard error.
+pub fn run(cx: &Context<'_, impl Http + Sync>, console: &mut dyn Console, make: &Make) -> bool {
     let started = Instant::now();
     let goal = if make.documenting() {
         Goal::Docs
@@ -146,23 +139,20 @@ pub fn run(
     } else {
         Goal::Check
     };
-    let ok = build(vfs, console, dir, cache, http, make, goal)
-        .is_some_and(|clean| write(vfs, console, dir, make, clean));
+    let ok = build(cx, console, make, goal)
+        .is_some_and(|clean| write(cx.vfs, console, cx.dir, make, clean));
     if timings::on() {
         console.err(&timings::report(started.elapsed()));
     }
     ok
 }
 
-/// The interfaces of the modules of a project around `dir`, built as
-/// [`run`] builds `make`'s paths, which it shows as it does; `None` if
-/// anything was wrong.
+/// The interfaces of the modules of a project around the directory,
+/// built as [`run`] builds `make`'s paths, which it shows as it does;
+/// `None` if anything was wrong.
 pub fn interfaces(
-    vfs: &Vfs,
+    cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
-    dir: &Path,
-    cache: &Cache,
-    http: &(impl Http + Sync),
     make: &Make,
 ) -> Option<Vec<ModuleInterface>> {
     let goal = if make.documenting() {
@@ -170,9 +160,9 @@ pub fn interfaces(
     } else {
         Goal::Optimize
     };
-    let clean = build(vfs, console, dir, cache, http, make, goal)?;
+    let clean = build(cx, console, make, goal)?;
     let interfaces = clean.built.optimized.interfaces.clone();
-    write(vfs, console, dir, make, clean).then_some(interfaces)
+    write(cx.vfs, console, cx.dir, make, clean).then_some(interfaces)
 }
 
 /// A build in which nothing was wrong, and what writing its output reads.
@@ -195,17 +185,15 @@ struct Loaded {
     sources: Sources,
 }
 
-/// Builds `goal` for `make` of the project around `dir`, showing what
-/// was wrong if anything was.
+/// Builds `goal` for `make` of the project around the directory, showing
+/// what was wrong if anything was.
 fn build(
-    vfs: &Vfs,
+    cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
-    dir: &Path,
-    cache: &Cache,
-    http: &(impl Http + Sync),
     make: &Make,
     goal: Goal,
 ) -> Option<Clean> {
+    let dir = cx.dir;
     let personality = make.personality;
     let fail = |console: &mut dyn Console, root: &Path, report, compat| {
         show(console, root, &Checked::Project(report), compat, make.style);
@@ -219,7 +207,7 @@ fn build(
         }
         fail(console, dir, report, compat)
     };
-    let Some(root) = Root::find(vfs, dir) else {
+    let Some(root) = Root::find(cx.vfs, dir) else {
         return fail(console, dir, make.no_outline(), Compat::LATEST);
     };
     let kind = match (make.debug, make.optimize) {
@@ -233,13 +221,13 @@ fn build(
         outline,
         env,
         sources,
-    } = match load(vfs, &root, dir, cache, http, personality) {
+    } = match load(cx, &root, personality) {
         Ok(loaded) => loaded,
         Err((report, compat)) => return unready(console, report, compat),
     };
     let root = root.dir().to_owned();
-    let snapshot = vfs.snapshot();
-    let artifacts = Artifacts::new(cache);
+    let snapshot = cx.vfs.snapshot();
+    let artifacts = Artifacts::new(cx.cache);
     // The dependencies build as the modules are found and checked, each
     // module once the packages it imports are built.
     let building = Building::new(compat, sources.packages, Some(&artifacts), sources.direct);
@@ -324,19 +312,16 @@ fn shown(
 /// downloaded; or the report on why not, in the words of the release it
 /// names, where it names one.
 fn load(
-    vfs: &Vfs,
+    cx: &Context<'_, impl Http + Sync>,
     root: &Root,
-    dir: &Path,
-    cache: &Cache,
-    http: &(impl Http + Sync),
     personality: Personality,
 ) -> Result<Loaded, (Report, Compat)> {
-    let project = timings::time(Phase::Load, || Project::read(vfs, root, personality))
+    let project = timings::time(Phase::Load, || Project::read(cx.vfs, root, personality))
         .map_err(|report| (report, Compat::LATEST))?;
     let compat = project.compat;
     let fail = |report| (report, compat);
     check_source_dirs(root.dir(), &project.outline).map_err(fail)?;
-    let sources = check::sources(cache, http, &project, personality).map_err(fail)?;
+    let sources = check::sources(cx.cache, cx.http, &project, personality).map_err(fail)?;
     let env = env_of(
         root.dir(),
         &project.outline,
@@ -346,7 +331,7 @@ fn load(
     Ok(Loaded {
         compat,
         outline: project.outline,
-        env: env.map_err(fail)?.with_cwd(dir),
+        env: env.map_err(fail)?.with_cwd(cx.dir),
         sources,
     })
 }

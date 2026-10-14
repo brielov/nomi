@@ -502,6 +502,11 @@ fn display(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
+/// A report of nomi's own whose message is one sentence.
+pub(crate) fn one_line(title: &'static str, message: &str) -> Report {
+    Report::new(title, None, message, [])
+}
+
 /// `toProjectProblemReport` for the problems the crawl finds.
 pub(crate) fn project_problem(problem: &ProjectProblem, compat: Compat) -> Report {
     let red = |path: &Path| text(display(path)).color(Color::Red).indent(4);

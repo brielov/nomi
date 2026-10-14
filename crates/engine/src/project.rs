@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use nomi_base::{Compat, Report};
 use nomi_project::outline::PkgOutline;
@@ -11,13 +11,12 @@ use nomi_project::{Outline, report};
 
 use crate::Vfs;
 use crate::console::Personality;
-use crate::install::one_line;
 use crate::paths::{ELM_JSON, Root};
+use crate::report::one_line;
 
 /// A project's `elm.json`, read.
 pub(crate) struct Project {
-    /// Where its `elm.json` is.
-    pub path: PathBuf,
+    pub root: Root,
     pub outline: Outline,
     /// The release the outline names.
     pub compat: Compat,
@@ -40,31 +39,43 @@ impl Project {
         root: &Root,
         personality: Personality,
     ) -> Result<Project, Report> {
-        let path = root.elm_json();
-        let src = vfs.read_bytes(&path).map_err(|e| {
-            one_line(
-                "PROBLEM READING ELM.JSON",
-                &format!("I could not read elm.json: {e}"),
-            )
-        })?;
-        let (outline, compat) = Outline::detect(&src)
-            .map_err(|e| report::detect(&e, &src, &|c| personality.command(c)))?;
+        Project::decode(root, &elm_json(vfs, root)?, personality)
+    }
+
+    /// The project at `root` whose `elm.json` holds `src`.
+    pub(crate) fn decode(
+        root: &Root,
+        src: &[u8],
+        personality: Personality,
+    ) -> Result<Project, Report> {
+        let (outline, compat) = Outline::detect(src)
+            .map_err(|e| report::detect(&e, src, &|c| personality.command(c)))?;
         Ok(Project {
-            path,
+            root: root.clone(),
             outline,
             compat,
         })
     }
 
-    /// Writes `outline` over the project's `elm.json`.
-    pub(crate) fn write(&self, vfs: &Vfs, outline: &Outline) -> Result<(), Report> {
-        vfs.write(&self.path, outline.write()).map_err(|e| {
+    /// Writes `bytes` over the project's `elm.json`.
+    pub(crate) fn write(&self, vfs: &Vfs, bytes: impl AsRef<[u8]>) -> Result<(), Report> {
+        vfs.write(&self.root.elm_json(), bytes).map_err(|e| {
             one_line(
                 "PROBLEM WRITING ELM.JSON",
                 &format!("I could not write elm.json: {e}"),
             )
         })
     }
+}
+
+/// What the `elm.json` at `root` holds.
+pub(crate) fn elm_json(vfs: &Vfs, root: &Root) -> Result<Vec<u8>, Report> {
+    vfs.read_bytes(&root.elm_json()).map_err(|e| {
+        one_line(
+            "PROBLEM READING ELM.JSON",
+            &format!("I could not read elm.json: {e}"),
+        )
+    })
 }
 
 /// The outline of the package whose files are in `dir`, as `compat`

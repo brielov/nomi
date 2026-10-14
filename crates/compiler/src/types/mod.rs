@@ -179,7 +179,7 @@ pub enum SuperType {
 
 impl SuperType {
     /// `toSuper`: what a type variable's name says it ranges over.
-    pub(crate) fn of_name(name: &str) -> Option<SuperType> {
+    pub fn of_name(name: &str) -> Option<SuperType> {
         if name.starts_with("number") {
             Some(SuperType::Number)
         } else if name.starts_with("comparable") {

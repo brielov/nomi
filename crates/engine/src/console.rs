@@ -1,11 +1,14 @@
 //! The terminal a command talks to: its standard streams, or a test's.
 
+use std::collections::VecDeque;
 use std::io::{self, BufRead, IsTerminal, Read, Write};
 
 use nomi_base::diagnostic::Doc;
 use nomi_base::diagnostic::render::{Styles, WIDTH, render};
 use nomi_base::{Compat, Report};
 use nomi_project::report::ElmCommand;
+
+use crate::report::one_line;
 
 /// The terminal a run talks to.
 pub trait Console {
@@ -78,14 +81,6 @@ pub enum Personality {
 }
 
 impl Personality {
-    /// The program's name, as messages begin with it.
-    pub fn program(self) -> &'static str {
-        match self {
-            Personality::Elm => "elm",
-            Personality::Nomi => "nomi",
-        }
-    }
-
     /// The command line that runs elm's `command`: `elm install`, or
     /// `nomi add`.
     pub fn command(self, command: ElmCommand) -> String {
@@ -103,16 +98,45 @@ impl Personality {
     }
 }
 
+/// A console that keeps what is printed and reads what it was given, as
+/// tests run commands.
+#[derive(Debug, Default)]
+pub struct Captured {
+    /// What `read_line` reads, a line at a time, before the input ends.
+    pub lines: VecDeque<io::Result<String>>,
+    /// What `read_all` reads.
+    pub input: Vec<u8>,
+    pub out: String,
+    pub err: String,
+}
+
+impl Console for Captured {
+    fn out(&mut self, text: &str) {
+        self.out.push_str(text);
+    }
+
+    fn err(&mut self, text: &str) {
+        self.err.push_str(text);
+    }
+
+    fn read_line(&mut self) -> io::Result<Option<String>> {
+        self.lines.pop_front().transpose()
+    }
+
+    fn read_all(&mut self) -> io::Result<Vec<u8>> {
+        Ok(std::mem::take(&mut self.input))
+    }
+}
+
 /// `Help.toStdout`: `doc` on standard output, styled on a terminal.
-pub fn print(console: &mut dyn Console, doc: &Doc, compat: Compat) {
+pub(crate) fn print(console: &mut dyn Console, doc: &Doc, compat: Compat) {
     let styles = styles(console.out_is_terminal());
     console.out(&render(doc, compat, WIDTH, styles));
 }
 
 /// `Exit.toStderr`: `report` on standard error, styled on a terminal.
 pub fn report(console: &mut dyn Console, report: &Report, compat: Compat) {
-    let styles = styles(console.err_is_terminal());
-    console.err(&render(&report.to_doc(), compat, WIDTH, styles));
+    report_doc(console, &report.to_doc(), compat);
 }
 
 /// `Exit.toStderr` of a document that isn't one report, as a list of
@@ -130,26 +154,88 @@ fn styles(terminal: bool) -> Styles {
     }
 }
 
+/// An answer to [`ask`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Answer {
+    Yes,
+    No,
+    /// Standard input ended first.
+    Ended,
+}
+
 /// `Reporting.ask`: `question`, then the answer, asked again until it is
-/// yes or no. An empty answer is yes. `None` when standard input ends
-/// first.
-pub fn ask(console: &mut dyn Console, question: &Doc, compat: Compat) -> io::Result<Option<bool>> {
+/// yes or no. An empty answer is yes.
+pub(crate) fn ask(console: &mut dyn Console, question: &Doc, compat: Compat) -> io::Result<Answer> {
     print(console, question, compat);
     loop {
         match console.read_line()?.as_deref() {
-            None => return Ok(None),
-            Some("" | "Y" | "y") => return Ok(Some(true)),
-            Some("n") => return Ok(Some(false)),
+            None => return Ok(Answer::Ended),
+            Some("" | "Y" | "y") => return Ok(Answer::Yes),
+            Some("n") => return Ok(Answer::No),
             Some(_) => console.out("Must type 'y' for yes or 'n' for no: "),
         }
     }
 }
 
+/// What a command that changes `elm.json` does once `answer`ed: `change`
+/// on a yes; on a no nothing, as it says; and where input ended, what a
+/// question without an answer says. Whether it succeeded: a decline is a
+/// success.
+pub(crate) fn answered(
+    console: &mut dyn Console,
+    personality: Personality,
+    answer: Answer,
+    change: impl FnOnce(&mut dyn Console) -> Result<(), Report>,
+) -> Result<bool, Report> {
+    match answer {
+        Answer::Yes => change(console).map(|()| true),
+        Answer::No => {
+            console.out("Okay, I did not change anything!\n");
+            Ok(true)
+        }
+        Answer::Ended => {
+            no_answer(console, personality);
+            Ok(false)
+        }
+    }
+}
+
+/// [`ask`]s `question` about a change to `elm.json`, and once
+/// [`answered`] yes makes it with `change` and says so.
+pub(crate) fn confirm(
+    console: &mut dyn Console,
+    question: &Doc,
+    compat: Compat,
+    personality: Personality,
+    change: impl FnOnce() -> Result<(), Report>,
+) -> Result<bool, Report> {
+    let answer = ask(console, question, compat)
+        .map_err(|e| one_line("PROBLEM READING ANSWER", &e.to_string()))?;
+    answered(console, personality, answer, |console| {
+        change()?;
+        console.out("Success!\n");
+        Ok(())
+    })
+}
+
 /// What a question without an answer says. Upstream's `getLine` throws,
 /// and the program dies with GHC's message for it.
-pub fn no_answer(console: &mut dyn Console, personality: Personality) {
+pub(crate) fn no_answer(console: &mut dyn Console, personality: Personality) {
     match personality {
         Personality::Elm => console.err("elm: <stdin>: hGetLine: end of file\n"),
         Personality::Nomi => console.err("error: standard input ended before an answer\n"),
     }
+}
+
+/// Whether a command that ended with `result` succeeded, its problem
+/// reported in `compat`'s words if it had one.
+pub(crate) fn reported(
+    console: &mut dyn Console,
+    result: Result<bool, Report>,
+    compat: Compat,
+) -> bool {
+    result.unwrap_or_else(|problem| {
+        report(console, &problem, compat);
+        false
+    })
 }

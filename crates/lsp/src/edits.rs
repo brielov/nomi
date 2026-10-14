@@ -93,15 +93,14 @@ impl Server {
         // A VFS of its own reads the disk's `elm.json`, not the editor's,
         // and makes a revision only if it writes.
         let vfs = Vfs::new();
-        nomi_engine::install::run(
-            &vfs,
-            &mut console,
-            nomi_engine::console::Personality::Elm,
-            root,
-            &cache,
-            &nomi_engine::Web::new(),
-            Some(package),
-        );
+        let cx = nomi_engine::Context {
+            vfs: &vfs,
+            dir: root,
+            cache: &cache,
+            http: &nomi_engine::Web::new(),
+        };
+        let personality = nomi_engine::console::Personality::Elm;
+        nomi_engine::install::run(&cx, &mut console, personality, Some(package));
         if vfs.revision() != nomi_engine::Revision::default() {
             {
                 let _held = self

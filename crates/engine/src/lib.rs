@@ -37,6 +37,18 @@ pub mod tree;
 pub mod update;
 mod vfs;
 
+use std::path::Path;
+
 pub use nomi_registry::{Http, HttpError, Store, Web};
 pub use pool::Pool;
 pub use vfs::{Revision, Snapshot, Vfs, canonical, discover};
+
+/// Where a command runs: the files it reads and writes, the directory it
+/// runs in, nomi's cache, and the package website.
+#[derive(Debug)]
+pub struct Context<'a, H> {
+    pub vfs: &'a Vfs,
+    pub dir: &'a Path,
+    pub cache: &'a paths::Cache,
+    pub http: &'a H,
+}
