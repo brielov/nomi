@@ -12,17 +12,13 @@ mod website;
 
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use nomi_testkit::transcript::{Case, normalize_elm_test};
 use website::{Website, offline};
 
 #[test]
 fn elm_test_transcripts() {
-    if Command::new("node").arg("--version").output().is_err() && std::env::var_os("CI").is_none() {
-        eprintln!("skipped: elm-test's runs need Node");
-        return;
-    }
+    nomi_testkit::require_node();
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm_test");
     let bin = tempfile::tempdir().unwrap();
     let elm_test = bin
@@ -87,10 +83,7 @@ fn watch_runs_again_on_changes() {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
-    if Command::new("node").arg("--version").output().is_err() && std::env::var_os("CI").is_none() {
-        eprintln!("skipped: elm-test's runs need Node");
-        return;
-    }
+    nomi_testkit::require_node();
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm_test");
     let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages");
     let cache = tempfile::tempdir().unwrap();

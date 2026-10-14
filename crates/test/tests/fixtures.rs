@@ -428,9 +428,7 @@ fn normalize(text: &str, dir: &Path) -> String {
 
 #[test]
 fn runs_print_what_elm_test_printed() {
-    if Command::new("node").arg("--version").output().is_err() && std::env::var_os("CI").is_none() {
-        return;
-    }
+    nomi_testkit::require_node();
     let temp = tempfile::tempdir().unwrap();
     let cache = cache(&temp.path().join("cache"));
     let suites = [

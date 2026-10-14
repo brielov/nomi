@@ -15,9 +15,21 @@ mod tree;
 
 pub use tree::{copy_tree, files_below, padded_dir, tree_digest};
 
+use std::process::Command;
+
 use sha2::{Digest as _, Sha256};
 
 /// The SHA-256 of `bytes`, in lower-case hex.
 pub fn sha256_hex(bytes: &[u8]) -> String {
     nomi_base::hex(&Sha256::digest(bytes))
+}
+
+/// Fails the test unless Node runs: the tests that run generated code
+/// need it, and never pass by skipping.
+pub fn require_node() {
+    let runs = Command::new("node")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success());
+    assert!(runs, "this test runs Node, which isn't on the PATH");
 }

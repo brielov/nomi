@@ -49,7 +49,7 @@ nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it wait
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **QF.1**; B.n waits for the reference machine.
+4. Resume at the first unchecked box. Right now that is **QF.2**; B.n waits for the reference machine.
 
 ### Test tiers
 
@@ -1077,7 +1077,10 @@ A second, independent audit of the same code (2026-10-13, kept in `~/.cache/nomi
 
   Done: an ordinary `canonicalize` runs with the recorder off and builds no navigation targets, which leaves no duplicates to remove (the editor's record-field lookup, which also discarded them, now calls it too); alias bodies are canonicalized once; imported unions are one shared `Arc<Union>` in interfaces, the canonical module, constructor patterns and the constructor table, which keeps a constructor's position rather than a copy of its arguments; operator chains are arranged with a stack, checked against the old arranger on every chain of up to six operators over eight fixities; annotation arity and payload types nothing read are gone; the solver and the interface readers share one converter; sequences are built forward; documentation types are made for what is documented, checked against the old writer on 3,000 random modules per release; and every recursive walk the audit listed is guarded, `iterated_dealias` now a loop. 53 lines fewer. Measured against Q.6b: docspell builds cold in 0.86 s against 0.89 with 5% less CPU, exosphere in 1.17 s against 1.20; the `check`, `graphs`, `objects`, `javascript` and `docs` corpus suites are unchanged. Left out: CF16 and CF17, CB11's merged report arms, CB24, CB26's direct streaming and the deduplicated decision paths, which want measuring or would split upstream's messages; deep `Type` clones, comparisons and drops are still unguarded.
 
-- [ ] **QF.1** `fix: tests that need Node fail without it`. Some test-runner tests skip when Node is missing, which the test tiers forbid (TEST-05). **Check:** with Node off the path, those tests fail.
+- [x] **QF.1** `fix: tests that need Node fail without it`. Some test-runner tests skip when Node is missing, which the test tiers forbid (TEST-05). **Check:** with Node off the path, those tests fail.
+
+  Done: three tests returned early without Node unless `CI` was set, the elm-test transcripts, `--watch` and the runner fixtures; they call testkit's `require_node`, which fails with a message saying Node isn't on the PATH. Run with an empty PATH, all three fail.
+
 - [ ] **QF.2** `fix: language-server comparisons count every answer`. The parity comparison iterates the expected requests only, so answers nomi adds pass unseen (FND-16, XTK-09). **Check:** a harness test where an extra answer fails, and every ratchet still passing.
 - [ ] **QF.3** `fix: transcript timeouts cover stdin`. A transcript writes all of stdin before its clock starts or its output is drained, so a child that doesn't read can hang it (FND-17, XTK-14). **Check:** a child that never reads a large stdin ends at the timeout.
 - [ ] **QF.4** `fix: test workers read whole messages`. A worker parses each socket read as one JSON message; a summary split across reads crashes it. elm-test's own worker does the same, but nomi's supervisor can frame its one message, so the worker can buffer to a newline (TEST-01). **Check:** the audit's split-write reproduction passes, and the elm-test transcripts are unchanged.
