@@ -484,14 +484,14 @@ The tests say what nomi does; this section says how its code reads. Each rule is
 - **T2. No boolean blindness.** A flag whose meaning isn't plain at the call site is an enum with two named variants. So are two or more `bool`s that travel together.
 - **T3. Records, not tuples.** A value with three or more parts, or two parts of the same type whose order isn't obvious, is a struct with named fields. A type alias for a tuple is a struct waiting to be written.
 - **T4. Illegal states are unrepresentable.** Fields that are only set together are one `Option` of a struct, and fields that exclude each other are one enum. `Option<Option<T>>` and `Result<T, Option<E>>` are named enums.
-- **T5. Matches are exhaustive.** A `match` that decides something for each variant of nomi's own enum lists the variants rather than ending in `_`, so a new variant is a compile error wherever it needs a decision. A `_` that means "any other kind", as over the hundreds of `SyntaxKind`s, is fine.
+- **T5. Matches are exhaustive.** A `match` that decides something for each variant of nomi's own enum lists the variants rather than ending in `_`, so a new variant is a compile error wherever it needs a decision. A `_` that means "any other kind", as over the hundreds of `SyntaxKind`s, is fine, and so is a predicate that picks a few variants with `matches!`.
 - **T6. Visibility is the smallest that compiles.** An item is private unless another module uses it, and `pub` only when another crate does.
 
 **Functions are small and honest.**
 - **F1. Decisions are pure; effects are at the edges.** A function that decides something takes values and returns values, and is tested as such. Loops that read files, wait, print or spawn call it; they don't contain it.
-- **F2. One thing per function.** A function past about 80 lines, or nested past four levels, is split along its cases. A long `match` whose arms are each short is fine.
+- **F2. One thing per function.** A function past about 80 lines, or nested past four levels, is split along its cases, where a piece names a decision or removes a copy; helpers that only forward, keeping every allocation they had, are no gain. A long `match` whose arms are each short is fine.
 - **F3. Signatures say what's used.** A parameter is borrowed unless the function keeps it; a function that can't fail doesn't return `Result`; a parameter, field or `self` that's never read is removed.
-- **F4. No needless work.** No `clone` where a borrow does, no `collect` to iterate once, no `format!` pushed into a `String` where `write!` does, no `to_string` of a `&str` that's only borrowed again.
+- **F4. No needless work.** Nothing is computed only to be discarded, inferred twice, or copied only to be looked at; no `clone` where a borrow does, no `collect` to iterate once, no `format!` pushed into a `String` where `write!` does, no `to_string` of a `&str` that's only borrowed again.
 - **F5. Panics state their invariant.** Outside tests, `unwrap` is replaced by `?`, by handling the case, or by `expect` saying why the case can't happen.
 
 **One way to do each thing.**
