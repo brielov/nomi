@@ -29,8 +29,16 @@ function main() {
     client.write(JSON.stringify(msg) + '\n');
   });
 
-  client.on('data', function (msg) {
-    send(JSON.parse(msg));
+  // A message is a line, which may come in pieces or with another.
+  var received = '';
+  client.on('data', function (chunk) {
+    received += chunk;
+    var end;
+    while ((end = received.indexOf('\n')) !== -1) {
+      var line = received.slice(0, end);
+      received = received.slice(end + 1);
+      send(JSON.parse(line));
+    }
   });
 }
 

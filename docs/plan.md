@@ -49,7 +49,7 @@ nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it wait
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **QF.4**; B.n waits for the reference machine.
+4. Resume at the first unchecked box. Right now that is **QF.5**; B.n waits for the reference machine.
 
 ### Test tiers
 
@@ -1089,7 +1089,10 @@ A second, independent audit of the same code (2026-10-13, kept in `~/.cache/nomi
 
   Done: testkit's transcripts feed the case's input on a thread of its own, so the output readers and the time limit start as the command does; a test gives `sh -c "sleep 30"` a megabyte it never reads, and the run ends at its 200 ms limit, where the write used to block for the whole 30 seconds.
 
-- [ ] **QF.4** `fix: test workers read whole messages`. A worker parses each socket read as one JSON message; a summary split across reads crashes it. elm-test's own worker does the same, but nomi's supervisor can frame its one message, so the worker can buffer to a newline (TEST-01). **Check:** the audit's split-write reproduction passes, and the elm-test transcripts are unchanged.
+- [x] **QF.4** `fix: test workers read whole messages`. A worker parses each socket read as one JSON message; a summary split across reads crashes it. elm-test's own worker does the same, but nomi's supervisor can frame its one message, so the worker can buffer to a newline (TEST-01). **Check:** the audit's split-write reproduction passes, and the elm-test transcripts are unchanged.
+
+  Done: the supervisor ends its summary with a newline, and both workers, nomi's `driver.js` and the vendored `after.js` (its patch noted in `THIRD-PARTY-NOTICES.md`), buffer the socket and parse whole lines. `tests/worker_messages.rs` sends a summary in two writes 50 ms apart: the worker gets it whole, where it used to fail on half a JSON value. The elm-test transcripts and the 14 corpus suites are unchanged.
+
 - [ ] **QF.5** `fix: the cache codec rejects overflowing lengths`. A tenth LEB128 byte above 1 is truncated rather than rejected, so a corrupt artifact can decode (CF01, CB16). **Check:** unit tests over the tenth byte, and every valid encoding unchanged.
 - [ ] **QF.6** `fix: language-server request identity and installs`. A reused request id can overwrite the context of one still pending, and installing a package through another VFS leaves the index and package suggestions stale (LSP-05/06); both verified first. **Check:** a test for overlapping requests with one id, and one for a request right after an install.
 - [ ] **Q.7** `quality: codegen-js`. Alias expansion, cores, name order and the region shift from the compiler and base; statements and kernels written into the output buffer rather than built and copied, and the AST states and options nothing constructs (CODEGEN-01/03–07); the rest of its findings.

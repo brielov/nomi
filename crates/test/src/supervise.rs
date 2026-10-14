@@ -323,7 +323,8 @@ impl State {
                         "todos": self.todos,
                     });
                     if let Some(stream) = self.connections.get_mut(&id) {
-                        let _ = stream.write_all(summary.to_string().as_bytes());
+                        // A line, as the worker reads its socket by lines.
+                        let _ = stream.write_all(format!("{summary}\n").as_bytes());
                     }
                 }
                 None
