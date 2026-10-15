@@ -1,6 +1,8 @@
 /*
 
 import Elm.Kernel.List exposing (fromArray, toArray)
+import Elm.Kernel.NomiFs exposing (cwd)
+import Elm.Kernel.NomiStdio exposing (stdin, stdout, stderr)
 import Elm.Kernel.Platform exposing (export)
 import Elm.Kernel.Scheduler exposing (runtime)
 import Elm.Kernel.Utils exposing (Tuple0, Tuple2)
@@ -14,9 +16,9 @@ import Nomi.Fiber as Fiber exposing (Success, Failure, Interrupted, Defect)
 
 // A program's `main`, applied as every `main` is to its flags' decoder and
 // the debugger's metadata. Its `init` runs the task `run` makes of the
-// process's arguments and variables on the program's runtime, under the
-// runtime's `main`, which owns the process from then on: its exit code,
-// and SIGINT and SIGTERM. The `program` mark tells an entry's shim that
+// process's arguments, variables, working directory and standard streams
+// on the program's runtime, under the runtime's `main`, which owns the
+// process from then on: its exit code, and SIGINT and SIGTERM. The `program` mark tells an entry's shim that
 // `init` starts that lifecycle, so the shim starts no worker's.
 function _Nomi_program(run)
 {
@@ -28,7 +30,8 @@ function _Nomi_program(run)
 			var vars = __List_fromArray(Object.entries(process.env).map(function(entry) {
 				return __Utils_Tuple2(entry[0], entry[1]);
 			}));
-			_Runtime.main(A2(run, args, vars), { runtime: __Scheduler_runtime });
+			var task = A6(run, args, vars, __NomiFs_cwd(), __NomiStdio_stdin, __NomiStdio_stdout, __NomiStdio_stderr);
+			_Runtime.main(task, { runtime: __Scheduler_runtime });
 		}
 		init.program = true;
 		return init;
@@ -38,6 +41,20 @@ function _Nomi_program(run)
 // Every `main` is exported through Platform's kernel, which upstream's
 // programs reach through `_Platform_initialize` and a nomi program here.
 void __Platform_export;
+
+
+// The task asks the program's lifecycle to stop it and exit with `code`,
+// then waits to be interrupted; the runtime has no lifecycle outside a
+// program, and the task dies there.
+function _Nomi_exitWith(code)
+{
+	return _Runtime.wait(function(resume) {
+		if (!_Runtime.requestExit(__Scheduler_runtime, code))
+		{
+			resume(_Runtime.die(new Error('Nomi.Process.exit is for a Nomi.program')));
+		}
+	});
+}
 
 
 // TASKS

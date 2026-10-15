@@ -8,6 +8,8 @@ module Nomi exposing (Program, program, Env, Net)
 
 import Dict exposing (Dict)
 import Elm.Kernel.Nomi
+import Nomi.Fs exposing (Fs)
+import Nomi.Stdio as Stdio
 import Task exposing (Task)
 
 
@@ -29,16 +31,31 @@ running its finalizers, and the process exits 130 or 143.
 program : (Env -> Task String ()) -> Program
 program run =
     Elm.Kernel.Nomi.program
-        (\args vars -> run { args = args, vars = Dict.fromList vars, net = Net })
+        (\args vars fs stdin stdout stderr ->
+            run
+                { args = args
+                , vars = Dict.fromList vars
+                , fs = fs
+                , net = Net
+                , stdin = stdin
+                , stdout = stdout
+                , stderr = stderr
+                }
+        )
 
 
 {-| What a program is given: the arguments after its file's name, the
-environment's variables, and the network to serve on.
+environment's variables, the directory it started in, the network to
+serve on, and the standard streams.
 -}
 type alias Env =
     { args : List String
     , vars : Dict String String
+    , fs : Fs
     , net : Net
+    , stdin : Stdio.Reader
+    , stdout : Stdio.Writer
+    , stderr : Stdio.Writer
     }
 
 

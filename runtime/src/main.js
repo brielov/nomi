@@ -8,9 +8,10 @@
 // exits at once. That deadline is real time and bounds the whole shutdown,
 // a server's drain included (a `draining` scope's, on the runtime's
 // clock), so a server lengthens it with `allowShutdown` to cover its
-// drain. A `Platform.worker` has no
-// root fiber: a signal shuts its runtime down directly, and until one comes
-// it lives as long as Node's event loop does.
+// drain. A program may also ask to exit with a code of its own
+// (`requestExit`), which stops it as a signal does. A `Platform.worker` has
+// no root fiber: a signal shuts its runtime down directly, and until one
+// comes it lives as long as Node's event loop does.
 
 import { ExitKind, Runtime } from "./fiber.js";
 
@@ -28,6 +29,17 @@ export function allowShutdown(runtime, ms) {
 }
 
 /**
+ * Stops the program running on `runtime` as a signal would, its finalizers
+ * running first, and exits with `code`; returns whether a lifecycle runs
+ * `runtime`. A program already stopping keeps the code it stops with.
+ */
+export function requestExit(runtime, code) {
+  const life = lifecycles.get(runtime);
+  life?.request(code);
+  return life !== undefined;
+}
+
+/**
  * Runs `task` as the process's program and resolves with the exit code it
  * exits with. `proc` defaults to `process`.
  */
@@ -36,7 +48,7 @@ export function main(task, { runtime = new Runtime(), proc = process, deadline =
   const ended = new Promise((resolve) => (root = runtime.fork(task, resolve)));
   const life = lifecycle(runtime, proc, deadline, () => runtime.interrupt(root));
   return ended.then((exit) => {
-    const { code, message } = outcome(exit, life.signalled());
+    const { code, message } = outcome(exit, life.stopping());
     if (message !== null) console.error(...message);
     return life.exit(code);
   });
@@ -53,13 +65,14 @@ export function worker(runtime, { proc = process, deadline = 10_000 } = {}) {
 }
 
 /**
- * Handles SIGINT and SIGTERM for a program on `runtime`: the first calls
- * `stop` with the code to exit with, and arms the deadline; a second, or
- * the deadline passing, exits at once. `exit(code)` shuts `runtime` down,
- * then exits.
+ * Handles SIGINT and SIGTERM for a program on `runtime`: the first, or an
+ * exit the program requests, calls `stop` with the code to exit with and
+ * arms the deadline; a signal after that, or the deadline passing, exits
+ * at once. `exit(code)` shuts `runtime` down, then exits.
  */
 function lifecycle(runtime, proc, deadline, stop) {
-  let signalled = null;
+  // The code the program is stopping with, once something stopped it.
+  let stopping = null;
   let deadlineTimer = null;
 
   const forceExit = (code, why) => {
@@ -72,17 +85,21 @@ function lifecycle(runtime, proc, deadline, stop) {
   };
   const handlers = Object.entries(SIGNALS).map(([signal, code]) => {
     const handler = () => {
-      if (signalled !== null) return forceExit(code, `${signal} again`);
-      signalled = code;
-      armDeadline(code);
-      stop(code);
+      if (stopping !== null) return forceExit(code, `${signal} again`);
+      life.request(code);
     };
     proc.on(signal, handler);
     return [signal, handler];
   });
 
   const life = {
-    signalled: () => signalled,
+    stopping: () => stopping,
+    request(code) {
+      if (stopping !== null) return;
+      stopping = code;
+      armDeadline(code);
+      stop(code);
+    },
     allow(ms) {
       deadline = Math.max(deadline, ms);
     },
@@ -105,10 +122,10 @@ function lifecycle(runtime, proc, deadline, stop) {
 /**
  * The code the process exits with once the program ended with `exit`, and
  * what the user should see, if anything, as `console.error`'s arguments. A
- * signal decides the code alone.
+ * signal, or an exit the program requested, decides the code alone.
  */
-function outcome(exit, signalled) {
-  if (signalled !== null) return { code: signalled, message: null };
+function outcome(exit, stopping) {
+  if (stopping !== null) return { code: stopping, message: null };
   switch (exit.$) {
     case ExitKind.SUCCESS:
       return { code: 0, message: null };

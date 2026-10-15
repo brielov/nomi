@@ -99,6 +99,13 @@ test("the exit code follows the program's exit", async () => {
   assert.match(died.stderr, /defect: Error: broken/);
 });
 
+test("a program that asks to exit runs its finalizers and exits with its code", async () => {
+  const { code, stdout, stderr } = await run("exit");
+  assert.equal(code, 3);
+  assert.deepEqual(stdout, ["a acquired", "a released"]);
+  assert.equal(stderr, "");
+});
+
 test("a worker's timer keeps it alive until a signal shuts its runtime down", posixSignals, async () => {
   for (const [signal, code] of [
     ["SIGTERM", 143],

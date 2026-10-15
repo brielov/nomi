@@ -1,7 +1,7 @@
 // A program for the lifecycle tests, picked by argv[2]. It prints "ready"
 // once it is waiting, so the test knows when to signal it.
 
-import { allowShutdown, main } from "../src/main.js";
+import { allowShutdown, main, requestExit } from "../src/main.js";
 import {
   acquireRelease,
   andThen,
@@ -43,6 +43,8 @@ const scenarios = {
       // Let the daemon start first.
       andThen(yieldNow, () => andThen(say("main done"), () => succeed())),
     ),
+  // Asks to exit 3 and waits; its resource is released first.
+  exit: () => scoped(andThen(resource("a"), () => andThen(sync(() => requestExit(runtime, 3)), () => forever))),
   ok: () => say("hello"),
   fail: () => fail("bad input"),
   defect: () => die(new Error("broken")),

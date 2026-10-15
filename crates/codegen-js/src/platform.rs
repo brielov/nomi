@@ -13,7 +13,7 @@ pub enum Platform {
 
 /// The kernel modules of the packages bundled with nomi, by short name,
 /// in order: each `packages/*/src/Elm/Kernel/*.js`.
-const BUNDLED_KERNELS: &[&str] = &["Nomi", "NomiServer"];
+const BUNDLED_KERNELS: &[&str] = &["Nomi", "NomiFs", "NomiServer", "NomiStdio"];
 
 impl Platform {
     /// The kernel modules, by short name, a program for the platform may
