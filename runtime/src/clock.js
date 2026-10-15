@@ -42,8 +42,9 @@ export class TestClock {
     return this.#timers.length;
   }
 
+  /** A delay that isn't a positive finite number is due at once. */
   setTimer(ms, fire) {
-    const timer = { due: this.#now + Math.max(0, ms), fire };
+    const timer = { due: this.#now + (ms > 0 && ms < Infinity ? ms : 0), fire };
     this.#timers.splice(this.#insertionPoint(timer.due), 0, timer);
     return () => {
       const i = this.#timers.indexOf(timer);

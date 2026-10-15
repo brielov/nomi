@@ -143,10 +143,7 @@ pub fn can_to_doc(localizer: &Localizer, context: Context, ty: &canonical::Type)
                 .collect(),
         ),
         T::Record(fields, ext) => {
-            // `fieldsToList`: by their place as written.
-            let mut fields: Vec<(&String, &canonical::FieldType)> = fields.iter().collect();
-            fields.sort_by_key(|(_, f)| f.order);
-            let entries = (fields.into_iter())
+            let entries = (canonical::fields_to_list(localizer.compat, fields).into_iter())
                 .map(|(n, f)| (text(n.clone()), can_to_doc(localizer, Context::None, &f.ty)))
                 .collect();
             record(entries, ext.as_ref().map(|e| text(e.clone())))

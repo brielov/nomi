@@ -162,3 +162,13 @@ test("the real clock sleeps on host timers", async () => {
   assert.equal(exit.$, "success");
   assert.ok(exit.value - before >= 19, `${exit.value - before} ms`);
 });
+
+test("a test clock's timer with no finite delay is due at once", () => {
+  const clock = new TestClock(10);
+  const fired = [];
+  for (const ms of [NaN, undefined, -5, Infinity]) clock.setTimer(ms, () => fired.push(clock.now()));
+  clock.setTimer(1, () => fired.push(clock.now()));
+  clock.idle();
+  clock.idle();
+  assert.deepEqual(fired, [10, 10, 10, 10, 11]);
+});

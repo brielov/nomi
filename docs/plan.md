@@ -49,7 +49,7 @@ nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it wait
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is MQ's **Exit**.
+4. Resume at the first unchecked box. Right now that is **Q.16a**.
 
 ### Test tiers
 
@@ -1198,6 +1198,17 @@ A second, independent audit of the same code (2026-10-13, kept in `~/.cache/nomi
 
   Done: a nested task the interpreter enters (`andThen`, `onError`, the masks, `scoped`) is checked where it enters, one nullish test rather than one per step, so a missing one is that fiber's defect and the drain goes on; the interrupt task's tag is `interruptFiber`, apart from every exit kind; `main` turns an exit into a code and message with a pure `outcome` over the exported `ExitKind`, throwing on a kind it doesn't know where it exited 0; `main`'s unused `log` option, the exports nothing imports and the `fibers` map nothing read are gone, and every export has a doc comment. The model's random programs gain a missing-task kind, and four unit tests cover the rest; five of the 50 tests fail on the old runtime. The model properties pass across 200,000 seeds, and the chain, nested, error, scope, mask and ensure paths take the same time.
 
+
+- [x] **QF.11** `fix: tied record fields and endless delays`. Types the compiler infers give every record field the same place, and upstream's `fieldsToList` breaks the tie in the release's name order; nomi's type printer broke it in byte order, so under 0.19.3 `main = { a = 1, bb = 2, c = 3 }` reported `{ a : number, bb : number2, c : number1 }` where elm 0.19.3 reports `{ a : number, c : number1, bb : number2 }`. And the runtime's test clock made a timer with a `NaN`, `undefined` or infinite delay due at that time, so virtual time stood at `NaN` or infinity for good. **Check:** a test for each, failing on the old code.
+
+  Done: the type printer lists a record's fields through `fields_to_list`, as the optimizer and canonicalization do, so ties follow the release's name order in BAD MAIN TYPE and in docs; the test clock makes every delay that isn't a positive finite number due at once, as it did zero and negative ones. A unit test prints an inferred record under 0.19.1 and 0.19.3, and a clock test sets the four delays; both fail on the old code. CI is green.
+
+The second exit review (12 fresh reviews, kept in `~/.cache/nomi-dev/quality/exit2/`) found every first-review fix holding and the runtime clean, and 59 smaller places elsewhere: the halves of earlier fixes left undone (aliases still copied, `diff_alias`'s `unreachable!`, the formatter's invariants formatting each module again), helpers re-spelled beside their shared versions, allocations made only to be read, a few tuples and wildcard arms. The steps below fix them.
+
+- [ ] **Q.16a** `quality: second exit findings, syntax and format` (base, project and registry 2; syntax 6; format 6).
+- [ ] **Q.16b** `quality: second exit findings, compiler, codegen-js, test and testkit` (compiler 10; codegen-js, test and testkit 7).
+- [ ] **Q.16c** `quality: second exit findings, engine, ide, lsp and cli` (engine 5; ide 8; lsp and cli 5).
+- [ ] **Q.16d** `quality: second exit findings, xtask` (10).
 
 The survey behind these steps (11 reviews, every file read: 118 major, 514 minor and 405 small findings, about 7,600 removable lines of 124,000) is kept in the development cache, `~/.cache/nomi-dev/quality/`, one report per crate group; a step without it re-reviews its crate first. Findings that would change behavior are not in this milestone: they are listed in its last step's commit for a decision.
 

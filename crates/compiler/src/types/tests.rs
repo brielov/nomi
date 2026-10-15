@@ -486,3 +486,23 @@ mod modules {
         );
     }
 }
+
+#[test]
+fn inferred_record_fields_print_in_the_release_name_order() {
+    use crate::canonical::FieldType;
+    use crate::types::localizer::Localizer;
+    use crate::types::render::{Context, can_to_doc};
+    use nomi_base::diagnostic::render::{Styles, render};
+    // Inferred fields share one place, so the name order breaks the tie.
+    let field = |name: &str| {
+        let ty = T::Var(String::from("a"));
+        (name.to_owned(), FieldType { order: 0, ty })
+    };
+    let record = T::Record(["a", "bb", "c"].map(field).into(), None);
+    let shown = |compat| {
+        let doc = can_to_doc(&Localizer::from_names(compat, []), Context::None, &record);
+        render(&doc, compat, 80, Styles::Plain)
+    };
+    assert_eq!(shown(Compat::V0_19_1), "{ a : a, bb : a, c : a }");
+    assert_eq!(shown(Compat::V0_19_3), "{ a : a, c : a, bb : a }");
+}
