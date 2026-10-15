@@ -205,11 +205,11 @@ pub(crate) fn record(tools: &Tools, scratch: &Path, case: &lsp::Case) -> Result<
         // It publishes only what changed, so silence alone tells.
         publishes: false,
     };
-    let root_uri = format!("file://{}", work.display());
+    let root_uri = lsp::dir_uri(&work);
     // The driver panics on a broken session; the server is reaped either
     // way.
     let transcript = panic::catch_unwind(AssertUnwindSafe(|| {
-        Driver::start(connection, &work, &root_uri, &session, timing).run(&session)
+        Driver::start(connection, &work, &session, timing).run(&session)
     }));
     lsp::reap(child);
     let transcript = transcript.map_err(|_| anyhow!("the session broke"))?;

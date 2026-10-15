@@ -298,8 +298,9 @@ impl Server {
         // A file of the project, for the index to start from: an open one,
         // or else its `elm.json`.
         let file = (self.documents.values())
-            .map(|d| d.path.clone())
+            .map(|d| &d.path)
             .find(|p| p.starts_with(&root))
+            .cloned()
             .unwrap_or_else(|| root.join("elm.json"));
         let Some(index) = self.index(&snapshot, &file) else {
             return Err(Failure::failed(format!(
@@ -363,7 +364,7 @@ impl Server {
                 let commands = lock(&self.shared.settings)
                     .extended_capabilities
                     .expose_commands;
-                match command_root(&snapshot, &path).filter(|_| commands) {
+                match commands.then(|| command_root(&snapshot, &path)).flatten() {
                     Some(root) => {
                         let verb = if exposed { "unexpose" } else { "expose" };
                         let arguments = vec![json!({ "uri": uri, "name": name_node })];

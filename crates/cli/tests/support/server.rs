@@ -17,6 +17,8 @@ pub struct Server {
 }
 
 impl Server {
+    /// Serves `handler` on a free loopback port until the test process
+    /// ends.
     pub fn start(handler: Arc<Handler>) -> Server {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());

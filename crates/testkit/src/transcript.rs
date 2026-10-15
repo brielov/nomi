@@ -112,14 +112,20 @@ impl Case {
         Ok(())
     }
 
-    /// Whether the case is an application whose `elm-version` names a
-    /// release nomi emulates, which a replay runs as each.
-    pub fn pins_release(&self) -> bool {
-        (self.files.iter()).any(|(path, text)| {
+    /// The releases a replay runs the case as: each nomi emulates for an
+    /// application whose `elm-version` names one, else the newest, as
+    /// nomi builds a package.
+    pub fn releases(&self) -> &'static [Compat] {
+        let pins = (self.files.iter()).any(|(path, text)| {
             path == "elm.json"
                 && text.contains(APPLICATION)
                 && (Compat::ALL.iter()).any(|r| text.contains(&elm_version(*r)))
-        })
+        });
+        if pins {
+            &Compat::ALL
+        } else {
+            &[Compat::LATEST]
+        }
     }
 
     /// The case with its application's pinned `elm-version` set to
@@ -575,7 +581,8 @@ mod tests {
             let elm_json = format!(r#"{{"type": "{kind}", "elm-version": "0.19.1"}}"#);
             Case::parse(&format!("=== file elm.json\n{elm_json}\n")).unwrap()
         };
-        assert!(case("application").pins_release() && !case("package").pins_release());
+        assert_eq!(case("application").releases(), Compat::ALL);
+        assert_eq!(case("package").releases(), [Compat::LATEST]);
         let as_latest = case("application").as_release(Compat::V0_19_3);
         assert_eq!(
             as_latest.files[0].1,

@@ -4,11 +4,12 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use lsp_types::request::{ApplyWorkspaceEdit, Request as _, ShowMessageRequest};
+use lsp_types::request::{ApplyWorkspaceEdit, Request, ShowMessageRequest};
 use lsp_types::{
-    CodeActionKind, CodeActionParams, Command, CreateFilesParams, Diagnostic, DiagnosticSeverity,
-    DiagnosticTag, ExecuteCommandParams, MessageType, Position, Range, RenameFilesParams, TextEdit,
-    Url, WorkspaceEdit,
+    ApplyWorkspaceEditParams, ApplyWorkspaceEditResponse, CodeActionKind, CodeActionParams,
+    Command, CreateFilesParams, Diagnostic, DiagnosticSeverity, DiagnosticTag,
+    ExecuteCommandParams, MessageActionItem, MessageType, Position, Range, RenameFilesParams,
+    ShowMessageRequestParams, TextEdit, Url, WorkspaceEdit,
 };
 use nomi_base::{TextSize, lock};
 use nomi_engine::console::{Captured, Personality};
@@ -18,10 +19,10 @@ use nomi_engine::{Revision, Snapshot, Vfs};
 use nomi_ide::{
     Action, ActionCommand, ActionData, ActionDiagnostics, ActionKind, Diagnosed, DiagnosticCode,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::diagnostics::{Cause, severity};
+use crate::diagnostics::{Cause, DiagnosticData, severity};
 use crate::position::{Files, Text};
 use crate::{Failure, Server, command_root, file_path, project_root};
 
@@ -42,6 +43,58 @@ pub(crate) enum Answer {
     Yes,
     /// Not at all: the install stops at its question.
     Unanswered,
+}
+
+/// The choices an install's question offers.
+#[derive(Clone, Copy)]
+pub(crate) enum Choice {
+    Yes,
+    No,
+}
+
+impl Choice {
+    pub(crate) fn title(self) -> &'static str {
+        match self {
+            Choice::Yes => "Yes",
+            Choice::No => "No",
+        }
+    }
+}
+
+/// What a refactor action carries for its resolve, as elm-language-server
+/// writes it.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RefactorData {
+    action_name: String,
+    refactor_name: String,
+    range: Range,
+    uri: Url,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rename_position: Option<Position>,
+}
+
+/// `workspace/applyEdit` marked as a refactoring, as elm-language-server
+/// sends a move; lsp-types has no field for the mark.
+enum ApplyRefactoring {}
+
+impl Request for ApplyRefactoring {
+    type Params = Refactoring;
+    type Result = ApplyWorkspaceEditResponse;
+    const METHOD: &'static str = ApplyWorkspaceEdit::METHOD;
+}
+
+#[derive(Serialize, Deserialize)]
+struct Refactoring {
+    label: String,
+    edit: WorkspaceEdit,
+    metadata: RefactoringMetadata,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RefactoringMetadata {
+    is_refactoring: bool,
 }
 
 /// What an install did: whether it asked its question, and what it
@@ -82,12 +135,15 @@ impl Server {
             }
             return Ok(None);
         }
-        let question = json!({
-            "type": MessageType::INFO,
-            "message": printed.replace("[Y/n]:", "").trim(),
-            "actions": [{ "title": "Yes" }, { "title": "No" }],
+        let actions = [Choice::Yes, Choice::No].map(|choice| MessageActionItem {
+            title: choice.title().to_owned(),
+            properties: HashMap::new(),
         });
-        let id = self.ask(ShowMessageRequest::METHOD, question);
+        let id = self.ask::<ShowMessageRequest>(ShowMessageRequestParams {
+            typ: MessageType::INFO,
+            message: printed.replace("[Y/n]:", "").trim().to_owned(),
+            actions: Some(actions.into()),
+        });
         let package = package.to_owned();
         self.installs.insert(
             id,
@@ -146,26 +202,25 @@ impl Server {
 
     /// `codeAction/resolve`: a refactor's edits, computed now.
     pub(crate) fn resolve_action(&self, mut action: Value) -> Result<Value, Failure> {
-        let data = &action["data"];
-        let (Some(uri), Some(name)) = (data["uri"].as_str(), data["actionName"].as_str()) else {
+        let Ok(data) = RefactorData::deserialize(&action["data"]) else {
             return Ok(action);
         };
-        let uri = Url::parse(uri).map_err(Failure::invalid)?;
-        let document = self.document(&uri)?;
+        let document = self.document(&data.uri)?;
         let text = Text::new(&document.text, self.shared.unit);
-        let range = Range::deserialize(&data["range"]).map_err(Failure::invalid)?;
-        let range = text.text_range(range);
-        let refactor = nomi_ide::RefactorAction::parse(name);
+        let range = text.text_range(data.range);
+        let Some(refactor) = nomi_ide::RefactorAction::parse(&data.action_name) else {
+            return Ok(action);
+        };
         let snapshot = self.vfs.snapshot();
         let Some(index) = self.index(&snapshot, &document.path) else {
             return Ok(action);
         };
-        if let Some(refactor) = refactor
-            && let Some((edits, rename)) =
-                nomi_ide::refactor_edits(&index, &snapshot, &document.path, refactor, range)
+        if let Some((edits, rename)) =
+            nomi_ide::refactor_edits(&index, &snapshot, &document.path, refactor, range)
         {
-            let edits: Vec<TextEdit> = edits.into_iter().map(|e| text.edit(e)).collect();
-            action["edit"] = json!({ "changes": { uri.as_str(): edits } });
+            let edits = edits.into_iter().map(|e| text.edit(e)).collect();
+            let edit = WorkspaceEdit::new(HashMap::from([(data.uri, edits)]));
+            action["edit"] = serde_json::to_value(edit).expect("an edit serializes");
             if let Some(rename) = rename {
                 action["data"]["renamePosition"] = json!(rename_position(&text, rename));
             }
@@ -188,8 +243,10 @@ impl Server {
         let edit = nomi_ide::exposing_edit(&self.vfs.snapshot(), &document.path, name, exposure);
         if let Some(edit) = edit {
             let edit = Text::new(&document.text, self.shared.unit).edit(edit);
-            let params = json!({ "edit": { "changes": { uri.as_str(): [edit] } } });
-            self.ask(ApplyWorkspaceEdit::METHOD, params);
+            self.ask::<ApplyWorkspaceEdit>(ApplyWorkspaceEditParams {
+                label: None,
+                edit: WorkspaceEdit::new(HashMap::from([(uri, vec![edit])])),
+            });
         }
         Ok(Value::Null)
     }
@@ -198,17 +255,21 @@ impl Server {
     /// applied by the client in one edit.
     pub(crate) fn created_files(&mut self, params: &CreateFilesParams) {
         let snapshot = self.vfs.snapshot();
-        let mut changes = serde_json::Map::new();
+        let mut changes = HashMap::new();
         for file in &params.files {
-            let header = file_path(&file.uri)
+            let Ok(uri) = Url::parse(&file.uri) else {
+                continue;
+            };
+            let header = (uri.to_file_path().ok())
                 .and_then(|path| nomi_ide::created_module_header(&snapshot, &path));
             if let Some(header) = header {
-                let edit = TextEdit::new(Range::default(), header.text);
-                changes.insert(file.uri.clone(), json!([edit]));
+                changes.insert(uri, vec![TextEdit::new(Range::default(), header.text)]);
             }
         }
-        let params = json!({ "edit": { "changes": changes } });
-        self.ask(ApplyWorkspaceEdit::METHOD, params);
+        self.ask::<ApplyWorkspaceEdit>(ApplyWorkspaceEditParams {
+            label: None,
+            edit: WorkspaceEdit::new(changes),
+        });
     }
 
     /// `workspace/willRenameFiles`: each module renamed after its new
@@ -230,10 +291,7 @@ impl Server {
                 changes.entry(uri).or_default().extend(edits);
             }
         }
-        WorkspaceEdit {
-            changes: Some(changes),
-            ..WorkspaceEdit::default()
-        }
+        WorkspaceEdit::new(changes)
     }
 
     /// The file a move request is about, and where in it.
@@ -278,7 +336,7 @@ impl Server {
         }) else {
             return Value::Null;
         };
-        let changes: HashMap<Url, Vec<TextEdit>> = (Files::new(&snapshot, self.shared.unit))
+        let changes = (Files::new(&snapshot, self.shared.unit))
             .edits(files, |text, edit| match edit {
                 nomi_ide::MoveEdit::Edit(e) => text.edit(e),
                 nomi_ide::MoveEdit::AtLine { line, text } => {
@@ -288,12 +346,13 @@ impl Server {
             })
             .into_iter()
             .collect();
-        let params = json!({
-            "label": "Move Function",
-            "edit": { "changes": changes },
-            "metadata": { "isRefactoring": true },
+        self.ask::<ApplyRefactoring>(Refactoring {
+            label: "Move Function".to_owned(),
+            edit: WorkspaceEdit::new(changes),
+            metadata: RefactoringMetadata {
+                is_refactoring: true,
+            },
         });
-        self.ask(ApplyWorkspaceEdit::METHOD, params);
         Value::Null
     }
 
@@ -301,6 +360,10 @@ impl Server {
         let uri = &params.text_document.uri;
         let document = self.document(uri)?;
         let path = &document.path;
+        let snapshot = self.vfs.snapshot();
+        let Some(index) = self.index(&snapshot, path) else {
+            return Ok(Value::Array(Vec::new()));
+        };
         let text = Text::new(&document.text, self.shared.unit);
         let client_diagnostics = &params.context.diagnostics;
         let given: Vec<Diagnosed> = (client_diagnostics.iter())
@@ -310,10 +373,6 @@ impl Server {
             .get(path)
             .cloned()
             .unwrap_or_default();
-        let snapshot = self.vfs.snapshot();
-        let Some(index) = self.index(&snapshot, path) else {
-            return Ok(Value::Array(Vec::new()));
-        };
         let moving = lock(&self.shared.settings)
             .extended_capabilities
             .move_function;
@@ -361,11 +420,13 @@ struct Asked<'a> {
 
 /// A diagnostic the client sent, as code actions read it.
 fn diagnosed(d: &Diagnostic, text: &Text) -> Diagnosed {
-    let data = d.data.as_ref();
+    let data = (d.data.as_ref())
+        .and_then(|data| DiagnosticData::deserialize(data).ok())
+        .unwrap_or_default();
     Diagnosed {
-        code: match data.and_then(|data| data["code"].as_str()) {
-            None | Some("") => DiagnosticCode::Missing,
-            Some(code) => {
+        code: match data.code.as_str() {
+            "" => DiagnosticCode::Missing,
+            code => {
                 nomi_ide::Code::parse(code).map_or(DiagnosticCode::Other, DiagnosticCode::Known)
             }
         },
@@ -381,13 +442,10 @@ fn diagnosed(d: &Diagnostic, text: &Text) -> Diagnosed {
         source: d.source.as_deref().and_then(nomi_ide::Source::parse),
         unnecessary: (d.tags.iter().flatten()).any(|t| *t == DiagnosticTag::UNNECESSARY),
         // elm-review's fixes, as its diagnostic carries them.
-        fixes: (data.and_then(|data| data["fixes"].as_array()).into_iter())
-            .flatten()
-            .filter_map(|fix| {
-                Some(nomi_ide::Edit {
-                    range: text.text_range(Range::deserialize(&fix["range"]).ok()?),
-                    text: fix["string"].as_str()?.to_owned(),
-                })
+        fixes: (data.fixes.into_iter().flatten())
+            .map(|fix| nomi_ide::Edit {
+                range: text.text_range(fix.range),
+                text: fix.string,
             })
             .collect(),
     }
@@ -397,65 +455,62 @@ fn diagnosed(d: &Diagnostic, text: &Text) -> Diagnosed {
 /// JSON: the program's carry a `uri` the protocol's type has no room for.
 fn action_json(action: Action, asked: Asked<'_>, files: &mut Files) -> Value {
     let Asked { uri, text, .. } = asked;
-    let mut data = None;
-    let mut command = None;
-    match action.data {
+    let (data, refactored) = match action.data {
         ActionData::Fix { id, all } => {
             let mut fix = json!({ "fixId": id.as_str() });
             if all {
                 fix["isFixAll"] = true.into();
             }
-            data = Some(fix);
+            (Some(fix), None)
         }
         ActionData::Refactor {
             action: refactor,
             range,
             rename,
         } => {
-            let mut refactor_data = json!({
-                "actionName": refactor.as_str(), "refactorName": refactor.refactor(),
-                "range": text.range(range), "uri": uri,
-            });
-            if let Some(rename) = rename {
-                refactor_data["renamePosition"] = json!(rename_position(text, rename));
-            }
-            if let Some(ActionCommand::MoveFunction { name }) = &action.command {
-                let arguments = vec![
-                    json!("moveFunction"),
-                    json!({ "textDocument": { "uri": uri }, "range": text.range(range) }),
-                    json!(name),
-                ];
-                let title = "Refactor".to_owned();
-                let root = command_root(asked.snapshot, asked.path).unwrap_or_default();
-                command = Some(Command::new(
-                    title,
-                    format!("elm.refactor-{root}"),
-                    Some(arguments),
-                ));
-            }
-            data = Some(refactor_data);
+            let range = text.range(range);
+            let data = RefactorData {
+                action_name: refactor.as_str().to_owned(),
+                refactor_name: refactor.refactor().to_owned(),
+                range,
+                uri: uri.clone(),
+                rename_position: rename.map(|rename| rename_position(text, rename)),
+            };
+            let data = serde_json::to_value(data).expect("a refactor's data serializes");
+            (Some(data), Some(range))
         }
-        ActionData::None => {}
-    }
-    if let Some(ActionCommand::InstallPackage { package }) = &action.command {
-        let arguments = vec![json!(uri), json!(package)];
-        let title = "Install Package".to_owned();
-        command = Some(Command::new(
-            title,
+        ActionData::None => (None, None),
+    };
+    // A move is offered only as a refactor, whose range it moves from.
+    let command = match &action.command {
+        None => None,
+        Some(ActionCommand::InstallPackage { package }) => Some(Command::new(
+            "Install Package".to_owned(),
             INSTALL_PACKAGE.to_owned(),
-            Some(arguments),
-        ));
-    }
+            Some(vec![json!(uri), json!(package)]),
+        )),
+        Some(ActionCommand::MoveFunction { name }) => refactored.map(|range| {
+            let arguments = vec![
+                json!("moveFunction"),
+                json!({ "textDocument": { "uri": uri }, "range": range }),
+                json!(name),
+            ];
+            let root = command_root(asked.snapshot, asked.path).unwrap_or_default();
+            Command::new(
+                "Refactor".to_owned(),
+                format!("elm.refactor-{root}"),
+                Some(arguments),
+            )
+        }),
+    };
     let kind = match action.kind {
         ActionKind::QuickFix => CodeActionKind::QUICKFIX,
         ActionKind::Refactor => CodeActionKind::REFACTOR,
         ActionKind::RefactorExtract => CodeActionKind::REFACTOR_EXTRACT,
         ActionKind::RefactorMove => CodeActionKind::new("refactor.move"),
     };
-    let edit = action.edits.map(|edits| WorkspaceEdit {
-        changes: Some(files.edits(edits, Text::edit).into_iter().collect()),
-        ..WorkspaceEdit::default()
-    });
+    let edit = (action.edits)
+        .map(|edits| WorkspaceEdit::new(files.edits(edits, Text::edit).into_iter().collect()));
     let mut json = serde_json::to_value(lsp_types::CodeAction {
         title: action.title,
         kind: Some(kind),

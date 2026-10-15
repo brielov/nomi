@@ -13,9 +13,9 @@ use std::path::Path;
 use std::process::{Child, Stdio};
 use std::time::Duration;
 
-use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
+use lsp_server::{Message, Request, Response};
 use lsp_types::Url;
-use nomi_testkit::lsp::{child_connection, reap};
+use nomi_testkit::lsp::{self, child_connection, reap};
 use nomi_testkit::packages::CORE_AND_JSON_APP;
 use serde_json::{Value, json};
 use website::{fixture_cache, offline};
@@ -26,8 +26,7 @@ const MAIN: &str = "module Main exposing (main)\n\nimport Html\n\n\nmain =\n    
 /// The editor's side of a `nomi lsp` session.
 struct Client {
     child: Child,
-    connection: Connection,
-    next_id: i32,
+    client: lsp::Client,
     /// The questions the server asked, not yet answered.
     questions: Vec<Request>,
     /// The messages the server showed.
@@ -48,8 +47,7 @@ impl Client {
             child_connection(child.stdin.take().unwrap(), child.stdout.take().unwrap());
         let mut client = Client {
             child,
-            connection,
-            next_id: 0,
+            client: lsp::Client::new(connection),
             shown: Vec::new(),
             questions: Vec::new(),
         };
@@ -64,47 +62,28 @@ impl Client {
     /// Sends a request and waits for its result, keeping the questions
     /// asked meanwhile.
     fn request(&mut self, method: &str, params: Value) -> Value {
-        self.next_id += 1;
-        let id = RequestId::from(self.next_id);
-        let request = Request::new(id.clone(), method.to_owned(), params);
-        self.connection
-            .sender
-            .send(Message::Request(request))
-            .unwrap();
-        loop {
-            let message = (self.connection.receiver)
-                .recv_timeout(Duration::from_secs(60))
-                .unwrap_or_else(|e| panic!("no answer to {method}: {e}"));
-            match message {
-                Message::Response(response) if response.id == id => {
-                    assert!(response.error.is_none(), "{response:?}");
-                    return response.result.unwrap_or(Value::Null);
-                }
-                Message::Request(question) => self.questions.push(question),
-                Message::Notification(note) if note.method == "window/showMessage" => {
-                    let message = note.params["message"].as_str().unwrap_or_default();
-                    self.shown.push(message.to_owned());
-                }
-                _ => {}
+        let id = self.client.send_request(method, params);
+        let within = Duration::from_secs(60);
+        let response = self.client.response(&id, within, |message| match message {
+            Message::Request(question) => self.questions.push(question),
+            Message::Notification(note) if note.method == "window/showMessage" => {
+                let message = note.params["message"].as_str().unwrap_or_default();
+                self.shown.push(message.to_owned());
             }
-        }
+            _ => {}
+        });
+        assert!(response.error.is_none(), "{response:?}");
+        response.result.unwrap_or(Value::Null)
     }
 
     fn notify(&self, method: &str, params: Value) {
-        let notification = Notification::new(method.to_owned(), params);
-        self.connection
-            .sender
-            .send(Message::Notification(notification))
-            .unwrap();
+        self.client.notify(method, params);
     }
 
     /// Answers `question` with the action titled `title`.
     fn answer(&self, question: &Request, title: &str) {
         let response = Response::new_ok(question.id.clone(), json!({ "title": title }));
-        self.connection
-            .sender
-            .send(Message::Response(response))
-            .unwrap();
+        self.client.respond(response);
     }
 
     /// Asks to install elm/html in the project of the file at `uri`.

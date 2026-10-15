@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{RecvTimeoutError, unbounded};
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
+use lsp_types::Url;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Map, Value, json};
 
@@ -365,6 +366,100 @@ pub fn child_connection(stdin: ChildStdin, stdout: ChildStdout) -> Connection {
     }
 }
 
+/// The client's end of a connection to a language server, which sends
+/// each request under an id of its own.
+pub struct Client {
+    pub connection: Connection,
+    sent: i32,
+}
+
+impl std::fmt::Debug for Client {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Client")
+            .field("sent", &self.sent)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Client {
+    pub fn new(connection: Connection) -> Client {
+        Client {
+            connection,
+            sent: 0,
+        }
+    }
+
+    /// Sends a request under a new id, which it gives back.
+    pub fn send_request(&mut self, method: &str, params: Value) -> RequestId {
+        self.sent += 1;
+        let id = RequestId::from(self.sent);
+        self.send(Message::Request(Request::new(
+            id.clone(),
+            method.to_owned(),
+            params,
+        )));
+        id
+    }
+
+    /// The answer to the request `id`, waited for at most `within`; what
+    /// else the server sends meanwhile goes to `other`.
+    pub fn response(
+        &self,
+        id: &RequestId,
+        within: Duration,
+        mut other: impl FnMut(Message),
+    ) -> Response {
+        let deadline = Instant::now() + within;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match self.connection.receiver.recv_timeout(left) {
+                Ok(Message::Response(response)) if response.id == *id => return response,
+                Ok(message) => other(message),
+                Err(RecvTimeoutError::Timeout) => panic!("no answer to request {id}"),
+                Err(RecvTimeoutError::Disconnected) => {
+                    panic!("the server left before answering request {id}")
+                }
+            }
+        }
+    }
+
+    pub fn notify(&self, method: &str, params: Value) {
+        self.send(Message::Notification(Notification::new(
+            method.to_owned(),
+            params,
+        )));
+    }
+
+    /// Answers a request the server sent.
+    pub fn respond(&self, response: Response) {
+        self.send(Message::Response(response));
+    }
+
+    fn send(&self, message: Message) {
+        self.connection
+            .sender
+            .send(message)
+            .expect("the server is listening");
+    }
+}
+
+/// The URI of the directory `dir`, without the last `/`, as servers
+/// name a project.
+pub fn dir_uri(dir: &Path) -> String {
+    let uri = Url::from_directory_path(dir).expect("an absolute directory");
+    uri.as_str().trim_end_matches('/').to_owned()
+}
+
+/// What to write for a directory a transcript names by each of `names`,
+/// as a URI and as a path: `to`. A resolved name holds the one behind a
+/// link, so it comes first.
+pub fn dir_replacements(names: &[&Path], to: &str) -> Vec<(String, String)> {
+    (names.iter())
+        .flat_map(|name| [dir_uri(name), name.display().to_string()])
+        .map(|name| (name, to.to_owned()))
+        .collect()
+}
+
 /// Waits for a child server to exit after `exit`, killing it after a
 /// while.
 pub fn reap(mut child: Child) {
@@ -389,12 +484,19 @@ pub struct Timing {
 
 /// The client side of a session.
 pub struct Driver {
-    connection: Connection,
+    client: Client,
     root: PathBuf,
+    timing: Timing,
+    workspace: Workspace,
+    /// The files open, by path in the project.
+    open: BTreeMap<String, OpenFile>,
+}
+
+/// What the client keeps of what the server sends unasked, and answers
+/// its requests from.
+struct Workspace {
     root_uri: String,
     settings: Map<String, Value>,
-    timing: Timing,
-    next_id: i32,
     /// The latest diagnostics published, by URI.
     published: BTreeMap<String, Value>,
     /// Edits the server applied through `workspace/applyEdit`, since the
@@ -402,8 +504,6 @@ pub struct Driver {
     applied: Vec<Value>,
     /// Opened files whose diagnostics haven't come yet, by URI.
     awaiting: BTreeSet<String>,
-    /// The files open, by path in the project.
-    open: BTreeMap<String, OpenFile>,
 }
 
 /// A file open in the editor.
@@ -424,38 +524,34 @@ impl std::fmt::Debug for Driver {
 
 impl Driver {
     /// Initializes the server at `connection` for the project at `root`,
-    /// whose URI is `root_uri`, and waits for it to settle.
-    pub fn start(
-        connection: Connection,
-        root: &Path,
-        root_uri: &str,
-        session: &Session,
-        timing: Timing,
-    ) -> Driver {
+    /// and waits for it to settle.
+    pub fn start(connection: Connection, root: &Path, session: &Session, timing: Timing) -> Driver {
         let mut settings = default_settings();
         settings.extend(session.settings.clone());
         let mut driver = Driver {
-            connection,
+            client: Client::new(connection),
             root: root.to_owned(),
-            root_uri: root_uri.trim_end_matches('/').to_owned(),
-            settings,
             timing,
-            next_id: 0,
-            published: BTreeMap::new(),
-            applied: Vec::new(),
-            awaiting: BTreeSet::new(),
+            workspace: Workspace {
+                root_uri: dir_uri(root),
+                settings,
+                published: BTreeMap::new(),
+                applied: Vec::new(),
+                awaiting: BTreeSet::new(),
+            },
             open: BTreeMap::new(),
         };
+        let root_uri = &driver.workspace.root_uri;
         let params = json!({
             "processId": null,
-            "rootUri": driver.root_uri,
-            "workspaceFolders": [{ "uri": driver.root_uri, "name": "case" }],
-            "initializationOptions": driver.settings,
+            "rootUri": root_uri,
+            "workspaceFolders": [{ "uri": root_uri, "name": "case" }],
+            "initializationOptions": driver.workspace.settings,
             "capabilities": client_capabilities(),
         });
         let initialized = driver.request("initialize", params);
         assert!(initialized.is_ok(), "initialize: {initialized:?}");
-        driver.notify("initialized", json!({}));
+        driver.client.notify("initialized", json!({}));
         driver.settle();
         driver
     }
@@ -484,11 +580,11 @@ impl Driver {
             // A notification: what the server applies in answer, once it's
             // quiet again.
             if step.method.is_notification() {
-                self.notify(step.method.as_str(), params);
+                self.client.notify(step.method.as_str(), params);
                 self.settle();
                 requests.push(json!({
                     "method": step.method,
-                    "applied": std::mem::take(&mut self.applied),
+                    "applied": std::mem::take(&mut self.workspace.applied),
                 }));
                 continue;
             }
@@ -503,10 +599,10 @@ impl Driver {
                 Ok(result) => entry.insert("result".into(), result),
                 Err(error) => entry.insert("error".into(), error),
             };
-            if !self.applied.is_empty() {
+            if !self.workspace.applied.is_empty() {
                 entry.insert(
                     "applied".into(),
-                    Value::Array(std::mem::take(&mut self.applied)),
+                    Value::Array(std::mem::take(&mut self.workspace.applied)),
                 );
             }
             requests.push(Value::Object(entry));
@@ -514,7 +610,7 @@ impl Driver {
         }
         let shutdown = self.request("shutdown", Value::Null);
         assert!(shutdown.is_ok(), "shutdown: {shutdown:?}");
-        self.notify("exit", Value::Null);
+        self.client.notify("exit", Value::Null);
         json!({ "diagnostics": diagnostics, "requests": requests })
     }
 
@@ -537,7 +633,7 @@ impl Driver {
         let text =
             std::fs::read_to_string(self.root.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"));
         if self.timing.publishes {
-            self.awaiting.insert(self.uri(file));
+            self.workspace.awaiting.insert(self.uri(file));
         }
         self.open.insert(
             file.to_owned(),
@@ -546,7 +642,7 @@ impl Driver {
                 text: text.clone(),
             },
         );
-        self.notify(
+        self.client.notify(
             Method::DidOpen.as_str(),
             json!({ "textDocument": {
                 "uri": self.uri(file), "languageId": "elm", "version": 1, "text": text,
@@ -583,7 +679,7 @@ impl Driver {
                     "textDocument": { "uri": uri, "version": open.version },
                     "contentChanges": changes,
                 });
-                self.notify(method, params);
+                self.client.notify(method, params);
                 self.settle();
                 Vec::new()
             }
@@ -594,15 +690,15 @@ impl Driver {
                 }
                 if self.timing.publishes {
                     let open: Vec<String> = self.open.keys().map(|f| self.uri(f)).collect();
-                    self.awaiting.extend(open);
+                    self.workspace.awaiting.extend(open);
                 }
-                self.notify(method, json!({ "textDocument": { "uri": self.uri(file) } }));
+                (self.client).notify(method, json!({ "textDocument": { "uri": self.uri(file) } }));
                 self.settle();
                 self.open.keys().cloned().collect()
             }
             Method::DidClose => {
                 self.open.remove(file);
-                self.notify(method, json!({ "textDocument": { "uri": self.uri(file) } }));
+                (self.client).notify(method, json!({ "textDocument": { "uri": self.uri(file) } }));
                 self.settle();
                 vec![file.clone()]
             }
@@ -632,14 +728,14 @@ impl Driver {
     fn diagnostics(&self, files: impl IntoIterator<Item = String>) -> Map<String, Value> {
         (files.into_iter())
             .map(|file| {
-                let published = self.published.get(&self.uri(&file)).cloned();
+                let published = self.workspace.published.get(&self.uri(&file)).cloned();
                 (file, published.unwrap_or_else(|| json!([])))
             })
             .collect()
     }
 
     fn uri(&self, file: &str) -> String {
-        format!("{}/{file}", self.root_uri)
+        format!("{}/{file}", self.workspace.root_uri)
     }
 
     fn params(&self, step: &Step) -> Value {
@@ -669,7 +765,7 @@ impl Driver {
                 };
             }
             if step.method == Method::CodeAction {
-                let diagnostics = self.published.get(&self.uri(file)).cloned();
+                let diagnostics = self.workspace.published.get(&self.uri(file)).cloned();
                 let range = params.get("range").cloned().unwrap_or(Value::Null);
                 let within: Vec<Value> = (diagnostics.unwrap_or_else(|| json!([])))
                     .as_array()
@@ -682,7 +778,7 @@ impl Driver {
             }
         }
         // `<project>` in the step's own stands for the project's URI.
-        let project = [("<project>".to_owned(), self.root_uri.clone())];
+        let project = [("<project>".to_owned(), self.workspace.root_uri.clone())];
         params.extend((step.params.iter()).map(|(key, value)| {
             (
                 replace_all(key.clone(), &project),
@@ -692,45 +788,16 @@ impl Driver {
         Value::Object(params)
     }
 
-    fn notify(&self, method: &str, params: Value) {
-        let notification = Notification::new(method.to_owned(), params);
-        self.send(Message::Notification(notification));
-    }
-
-    fn send(&self, message: Message) {
-        self.connection
-            .sender
-            .send(message)
-            .expect("the server is listening");
-    }
-
     /// Sends a request and waits for its answer, handling everything
     /// else that comes meanwhile: the result, or the error as JSON.
     fn request(&mut self, method: &str, params: Value) -> Result<Value, Value> {
-        self.next_id += 1;
-        let id = RequestId::from(self.next_id);
-        self.send(Message::Request(Request::new(
-            id.clone(),
-            method.to_owned(),
-            params,
-        )));
-        let deadline = Instant::now() + self.timing.answer;
-        loop {
-            let left = deadline.saturating_duration_since(Instant::now());
-            let message = match self.connection.receiver.recv_timeout(left) {
-                Ok(message) => message,
-                Err(RecvTimeoutError::Timeout) => panic!("no answer to {method}"),
-                Err(RecvTimeoutError::Disconnected) => panic!("the server left during {method}"),
-            };
-            match message {
-                Message::Response(response) if response.id == id => {
-                    return match response.error {
-                        Some(error) => Err(json!({ "code": error.code, "message": error.message })),
-                        None => Ok(response.result.unwrap_or(Value::Null)),
-                    };
-                }
-                message => self.handle(message),
-            }
+        let id = self.client.send_request(method, params);
+        let response = (self.client).response(&id, self.timing.answer, |message| {
+            self.workspace.handle(&self.client, message);
+        });
+        match response.error {
+            Some(error) => Err(json!({ "code": error.code, "message": error.message })),
+            None => Ok(response.result.unwrap_or(Value::Null)),
         }
     }
 
@@ -739,19 +806,26 @@ impl Driver {
     fn settle(&mut self) {
         let deadline = Instant::now() + self.timing.answer;
         loop {
-            match self.connection.receiver.recv_timeout(self.timing.quiet) {
-                Ok(message) => self.handle(message),
-                Err(RecvTimeoutError::Timeout) if self.awaiting.is_empty() => return,
+            match self
+                .client
+                .connection
+                .receiver
+                .recv_timeout(self.timing.quiet)
+            {
+                Ok(message) => self.workspace.handle(&self.client, message),
+                Err(RecvTimeoutError::Timeout) if self.workspace.awaiting.is_empty() => return,
                 Err(RecvTimeoutError::Timeout) if Instant::now() > deadline => {
-                    panic!("no diagnostics for {:?}", self.awaiting)
+                    panic!("no diagnostics for {:?}", self.workspace.awaiting)
                 }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => panic!("the server left"),
             }
         }
     }
+}
 
-    fn handle(&mut self, message: Message) {
+impl Workspace {
+    fn handle(&mut self, client: &Client, message: Message) {
         match message {
             Message::Notification(n) if n.method == "textDocument/publishDiagnostics" => {
                 // elm-language-server percent-encodes them, `@` as `%40`.
@@ -774,7 +848,7 @@ impl Driver {
                     }
                     _ => Value::Null,
                 };
-                self.send(Message::Response(Response::new_ok(request.id, result)));
+                client.respond(Response::new_ok(request.id, result));
             }
             _ => {}
         }

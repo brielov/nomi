@@ -49,7 +49,7 @@ nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it wait
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **Q.15f**.
+4. Resume at the first unchecked box. Right now that is **Q.15g**.
 
 ### Test tiers
 
@@ -1186,7 +1186,10 @@ A second, independent audit of the same code (2026-10-13, kept in `~/.cache/nomi
 
   Done: completion takes a module's tree from the index or the package cache rather than parsing it again per request; a linted file is read once; record field types and scopes' bindings are found by one `types_over` and one `bound_by`; one `project_outline` reads a file's project where four places did; `arguments`, `result_type` and `written` are `tree.rs`'s; whether to offer variants and which top levels to list are enums; snippets are a struct, generated so; matches deciding per variant list them; labels are unescaped by `serde_json`; the tests' store is testkit's; which files to analyse and what to do with a saved file's results are pure decisions, `Plan::of` and `Review::after`, each tested. 113 lines more, those decisions and their tests most of it. CI, the transcripts and the `lsp` corpus suite are unchanged. Surprises: a completion label with a raw control character beside an escape falls back to its text, where upstream's `JSON.parse` throws; every place reads `elm.json` as bytes, so one that isn't UTF-8 but that the outline reader accepts gives source directories and exposed modules too.
 
-- [ ] **Q.15f** `quality: exit findings, lsp and cli` (11).
+- [x] **Q.15f** `quality: exit findings, lsp and cli` (11).
+
+  Done: the payloads the server leaves in diagnostics and refactorings are serde structs, `DiagnosticData` and `RefactorData`, written and read through them; requests to the client are typed `ask::<R>` calls, the question's choices one `Choice` at both ends, and moving a function sends a typed request; an action's command is one exhaustive match; lens resolution checks its setting first; testkit has the one language-server `Client` both test drivers and the cancel test build on, and the root URI and the directories a transcript hides are worked out in one place for the tests and the corpus replay; `Case::releases`, `ratchet::shown` and the website transcripts serve both CLI runners. 72 lines more, the typed payloads and the shared client. CI, the transcripts and the `lsp` corpus suite are unchanged. Surprises, on malformed input alone: a refactoring whose data a client spoiled comes back unchanged where it was an invalid-params error; one bad elm-review fix drops its diagnostic's fixes; created files' edits are keyed by the parsed URI.
+
 - [ ] **Q.15g** `quality: exit findings, xtask` (20).
 - [x] **QF.10** `fix: the runtime's tasks are checked`. A nested `null` or `undefined` task (`andThen(undefined, f)`, `uninterruptible(null)`, `scoped(undefined)`) makes the interpreter throw out of its drain, leaving the runtime awake and running no fiber again; and the `INTERRUPT` task tag and the `INTERRUPTED` exit kind are one string, so an interrupt exit passes for a task. With the runtime's five other exit findings. **Check:** a test for each, failing on the old runtime.
 

@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use std::thread;
 
 use lsp_server::Connection;
-use lsp_types::Url;
 use nomi_engine::index::{self, Memo};
 use nomi_engine::{Store, Vfs};
 use nomi_testkit::lsp::{self, Driver, Session, Timing};
@@ -22,13 +21,8 @@ pub(crate) fn store(dir: &Path) -> (Store, Vec<(String, String)>) {
         let sources = package.sources(dir);
         let to = format!("<packages>/{}/{}", package.name, package.version);
         // As resolved and as the store names it, which differ behind a
-        // link (macOS's temporary directory); the longer first, since it
-        // holds the other.
-        for sources in [real(&sources), sources] {
-            let uri = Url::from_directory_path(&sources).unwrap();
-            replacements.push((uri.as_str().trim_end_matches('/').to_owned(), to.clone()));
-            replacements.push((sources.display().to_string(), to.clone()));
-        }
+        // link (macOS's temporary directory).
+        replacements.extend(lsp::dir_replacements(&[&real(&sources), &sources], &to));
     }
     (Store::new(dir.to_owned()), replacements)
 }
@@ -58,16 +52,13 @@ pub(crate) fn replay(
     memo: &Memo,
     replacements: &[(String, String)],
 ) -> Value {
-    let root_uri = Url::from_directory_path(work).unwrap();
-    let root_uri = root_uri.as_str().trim_end_matches('/').to_owned();
     let (server, client) = Connection::memory();
     let (store, memo) = (store.clone(), memo.clone());
     let handle = thread::spawn(move || nomi_lsp::serve(&server, store, memo));
-    let transcript = Driver::start(client, work, &root_uri, session, timing).run(session);
+    let transcript = Driver::start(client, work, session, timing).run(session);
     handle.join().unwrap().unwrap();
     let mut replacements = replacements.to_vec();
-    replacements.push((root_uri, "<project>".to_owned()));
-    replacements.push((work.display().to_string(), "<project>".to_owned()));
+    replacements.extend(lsp::dir_replacements(&[work], "<project>"));
     lsp::tidy(transcript, &replacements)
 }
 

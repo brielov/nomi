@@ -14,7 +14,7 @@ use std::path::Path;
 
 use nomi_base::Compat;
 use nomi_engine::javascript::Kind;
-use nomi_testkit::ratchet::Suite;
+use nomi_testkit::ratchet::{Suite, shown};
 use nomi_testkit::transcript;
 
 /// Each mode, as the cases' ids name it.
@@ -49,7 +49,7 @@ fn javascript() {
                     }
                     Err(why) => Err(why),
                 };
-                outcomes.push(projects::shown(id, outcome));
+                outcomes.push(shown(id, outcome));
             }
         }
     }

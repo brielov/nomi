@@ -149,15 +149,6 @@ fn optimize(
     Ok((project, built.optimized))
 }
 
-/// The outcome of the case `id`, shown on standard error where it failed
-/// and `NOMI_SHOW` is set.
-pub fn shown(id: String, outcome: Result<(), String>) -> (String, Result<(), String>) {
-    if let (Err(why), Ok(_)) = (&outcome, std::env::var("NOMI_SHOW")) {
-        eprintln!("FAIL {id}\n{why}");
-    }
-    (id, outcome)
-}
-
 /// A case's project, made as the oracle made it, and what checking it
 /// needs.
 struct Project {

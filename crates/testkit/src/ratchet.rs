@@ -173,6 +173,15 @@ impl Suite {
     }
 }
 
+/// The outcome of the case `id`, shown on standard error where it failed
+/// and `NOMI_SHOW` is set.
+pub fn shown(id: String, outcome: Result<(), String>) -> (String, Result<(), String>) {
+    if let (Err(why), Ok(_)) = (&outcome, std::env::var("NOMI_SHOW")) {
+        eprintln!("FAIL {id}\n{why}");
+    }
+    (id, outcome)
+}
+
 impl Expected {
     /// Whether `actual` is what the oracle produced.
     pub fn matches(&self, actual: &[u8]) -> bool {

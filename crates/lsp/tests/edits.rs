@@ -9,6 +9,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use nomi_base::{ColumnUnit, LineIndex, TextSize};
 use nomi_engine::Store;
 use nomi_engine::index::Memo;
 use nomi_testkit::lsp::{self, Session, Step, Timing};
@@ -93,15 +94,12 @@ fn offset(text: &str, at: f64) -> usize {
 
 /// The LSP position of `offset`, in UTF-16 columns.
 fn position(text: &str, offset: usize) -> lsp::Position {
-    let before = &text[..offset];
-    let line = before.matches('\n').count();
-    let column: usize = before[before.rfind('\n').map_or(0, |i| i + 1)..]
-        .chars()
-        .map(char::len_utf16)
-        .sum();
+    let at = LineIndex::new(text)
+        .line_col(text, TextSize::new(offset as u32), ColumnUnit::Utf16)
+        .expect("an offset on a character boundary");
     lsp::Position {
-        line: line as u32,
-        character: column as u32,
+        line: at.line,
+        character: at.col,
     }
 }
 

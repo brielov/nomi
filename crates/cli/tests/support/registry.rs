@@ -20,8 +20,8 @@ use std::sync::Arc;
 use nomi_base::Compat;
 use nomi_registry::Http;
 use nomi_testkit::packages;
-use nomi_testkit::ratchet::Suite;
-use nomi_testkit::transcript::{self, Case, ROOT_LENGTH, crashed, recorded};
+use nomi_testkit::ratchet::{Suite, shown};
+use nomi_testkit::transcript::{self, crashed, recorded};
 
 use super::server::{self, Server};
 use super::website::{self, Website, offline};
@@ -36,23 +36,21 @@ pub fn transcripts(cases: &str) {
     for (name, case) in transcript::cases(&dir.join("cases")) {
         let expected =
             fs::read_to_string(dir.join("expected").join(format!("{name}.txt"))).unwrap();
-        let releases: &[Compat] = if case.pins_release() {
-            &Compat::ALL
-        } else {
-            &[Compat::LATEST]
-        };
-        for &release in releases {
+        for &release in case.releases() {
             let id = format!("{name} as {release}");
             let Some(expected) = transcript(&expected, release) else {
                 continue;
             };
-            let case = case.as_release(release);
             let cache = tempfile::tempdir().unwrap();
-            let outcome = run(&elm, cache.path(), &server.url, &case, expected);
-            if let (Err(why), Ok(_)) = (&outcome, std::env::var("NOMI_SHOW")) {
-                eprintln!("FAIL {id}\n{why}");
-            }
-            outcomes.push((id, outcome));
+            // Every request is for the registry, which `NOMI_REGISTRY`
+            // sends to the loopback server, past the dead proxy `offline`
+            // names.
+            let mut command = offline(&elm, cache.path());
+            command
+                .env("NOMI_REGISTRY", &server.url)
+                .env_remove("ALL_PROXY");
+            let actual = website::transcript(&case.as_release(release), command);
+            outcomes.push(shown(id, website::matching(expected, &actual)));
         }
     }
     Suite::open(&dir).finish(outcomes);
@@ -103,33 +101,6 @@ pub fn registry(dir: &Path, release: Compat) -> Arc<server::Handler> {
             _ => None,
         },
     )
-}
-
-/// nomi's transcript of `case`, against `expected`.
-fn run(
-    elm: &Path,
-    cache: &Path,
-    registry: &str,
-    case: &Case,
-    expected: &str,
-) -> Result<(), String> {
-    let work = tempfile::tempdir().unwrap();
-    let root =
-        nomi_testkit::padded_dir(&fs::canonicalize(work.path()).unwrap(), ROOT_LENGTH).unwrap();
-    case.create_files(&root).unwrap();
-    case.date_files(&root).unwrap();
-    // Every request is for the registry, which `NOMI_REGISTRY` sends to
-    // the loopback server, past the dead proxy `offline` names.
-    let mut command = offline(elm, cache);
-    command
-        .env("NOMI_REGISTRY", registry)
-        .env_remove("ALL_PROXY");
-    let actual = case.run(command, &root).unwrap().compared(case, &root);
-    if actual == expected {
-        Ok(())
-    } else {
-        Err(format!("--- expected\n{expected}--- actual\n{actual}"))
-    }
 }
 
 /// The transcript `release` recorded, or where it crashed or hung, the

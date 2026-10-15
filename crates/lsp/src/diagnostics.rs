@@ -14,7 +14,9 @@ use std::time::Duration;
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 use lsp_server::Message;
 use lsp_types::notification::PublishDiagnostics;
-use lsp_types::{Diagnostic, DiagnosticSeverity, DiagnosticTag, PublishDiagnosticsParams, Url};
+use lsp_types::{
+    Diagnostic, DiagnosticSeverity, DiagnosticTag, PublishDiagnosticsParams, Range, Url,
+};
 use nomi_base::{ColumnUnit, lock};
 use nomi_engine::artifacts::Artifacts;
 use nomi_engine::index::{Index, Memo};
@@ -22,7 +24,7 @@ use nomi_engine::live::Live;
 use nomi_engine::schedule::Cancelled;
 use nomi_engine::{Snapshot, Store, live};
 use nomi_ide::{CheckSettings, Code, Problem, Reviewed, Severity};
-use serde_json::{Value, json};
+use serde::{Deserialize, Serialize};
 
 use crate::indexes::Indexes;
 use crate::position::Text;
@@ -269,15 +271,38 @@ fn diagnostics(
     by_file
 }
 
+/// What a diagnostic carries for the code actions it's sent back with, as
+/// elm-language-server writes it.
+#[derive(Serialize, Deserialize, Default)]
+#[serde(default)]
+pub(crate) struct DiagnosticData {
+    pub(crate) uri: String,
+    pub(crate) code: String,
+    /// elm-review's fixes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) fixes: Option<Vec<ReviewFix>>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct ReviewFix {
+    pub(crate) string: String,
+    pub(crate) range: Range,
+}
+
 fn diagnostic(problem: &Problem, uri: &Url, text: &Text) -> Diagnostic {
-    let data_uri = problem.relative.clone().unwrap_or_else(|| uri.to_string());
-    let mut data = json!({ "uri": data_uri, "code": problem.code.as_str() });
-    if problem.code == Code::ElmReview {
-        let fixes: Vec<Value> = (problem.fixes.iter())
-            .map(|f| json!({ "string": f.text, "range": text.range(f.range) }))
-            .collect();
-        data["fixes"] = fixes.into();
-    }
+    let data = DiagnosticData {
+        uri: problem.relative.clone().unwrap_or_else(|| uri.to_string()),
+        code: problem.code.as_str().to_owned(),
+        fixes: (problem.code == Code::ElmReview).then(|| {
+            (problem.fixes.iter())
+                .map(|f| ReviewFix {
+                    string: f.text.clone(),
+                    range: text.range(f.range),
+                })
+                .collect()
+        }),
+    };
+    let data = serde_json::to_value(data).expect("a diagnostic's data serializes");
     Diagnostic {
         range: text.range(problem.range),
         severity: Some(severity(problem.severity)),

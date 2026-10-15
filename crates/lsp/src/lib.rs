@@ -32,14 +32,15 @@ use lsp_types::request::{
 };
 use lsp_types::{
     ClientCapabilities, CodeActionOptions, CodeActionProviderCapability, CodeLensOptions,
-    CompletionOptions, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, ExecuteCommandOptions, FileOperationFilter, FileOperationPattern,
-    FileOperationPatternKind, FileOperationRegistrationOptions, FoldingRangeProviderCapability,
-    HoverProviderCapability, InitializeParams, InitializeResult,
-    LinkedEditingRangeServerCapabilities, OneOf, PositionEncodingKind, PublishDiagnosticsParams,
-    RenameOptions, SelectionRangeProviderCapability, ServerCapabilities, ServerInfo,
-    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TypeDefinitionProviderCapability, Url,
+    CompletionOptions, ConfigurationItem, ConfigurationParams, DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, ExecuteCommandOptions,
+    FileOperationFilter, FileOperationPattern, FileOperationPatternKind,
+    FileOperationRegistrationOptions, FoldingRangeProviderCapability, HoverProviderCapability,
+    InitializeParams, InitializeResult, LinkedEditingRangeServerCapabilities, MessageActionItem,
+    OneOf, PositionEncodingKind, PublishDiagnosticsParams, RenameOptions,
+    SelectionRangeProviderCapability, ServerCapabilities, ServerInfo, TextDocumentPositionParams,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    TextDocumentSyncSaveOptions, TypeDefinitionProviderCapability, Url,
     WorkspaceFileOperationsServerCapabilities, WorkspaceServerCapabilities,
 };
 use nomi_base::{TextSize, lock};
@@ -47,12 +48,12 @@ use nomi_engine::artifacts::Artifacts;
 use nomi_engine::index::{self, Index, Memo, PackageModules};
 use nomi_engine::paths::Cache;
 use nomi_engine::{Snapshot, Store, Vfs};
-use serde::Serialize;
+use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use diagnostics::{Cause, Diagnostics, Job, Shared};
-use edits::{Answer, INSTALL_PACKAGE, Install};
+use edits::{Answer, Choice, INSTALL_PACKAGE, Install};
 use indexes::Indexes;
 use position::Text;
 use settings::Settings;
@@ -478,17 +479,22 @@ impl Server {
     /// requests.
     fn pull_settings(&mut self) {
         if self.client.pulls_settings {
-            let params = json!({ "items": [{ "section": "elmLS" }] });
-            self.settings_request = Some(self.ask(WorkspaceConfiguration::METHOD, params));
+            let params = ConfigurationParams {
+                items: vec![ConfigurationItem {
+                    scope_uri: None,
+                    section: Some("elmLS".to_owned()),
+                }],
+            };
+            self.settings_request = Some(self.ask::<WorkspaceConfiguration>(params));
         }
     }
 
     fn response(&mut self, response: &Response) {
         let result = response.result.as_ref();
         if let Some(install) = self.installs.remove(&response.id) {
-            let agreed = result
-                .and_then(|r| r.get("title"))
-                .is_some_and(|t| t == "Yes");
+            let agreed = (result.and_then(|r| Option::<MessageActionItem>::deserialize(r).ok()))
+                .flatten()
+                .is_some_and(|item| item.title == Choice::Yes.title());
             if agreed {
                 let installed = self.install(&install.root, &install.package, Answer::Yes);
                 let printed = installed.printed.replacen(&install.printed, "", 1);
@@ -599,10 +605,10 @@ impl Server {
 
     /// Sends the client a request under an id no other has had, which its
     /// answer comes back with.
-    fn ask(&mut self, method: &str, params: impl Serialize) -> RequestId {
+    fn ask<R: lsp_types::request::Request>(&mut self, params: R::Params) -> RequestId {
         self.sent += 1;
         let id = RequestId::from(self.sent);
-        let request = Request::new(id.clone(), method.to_owned(), params);
+        let request = Request::new(id.clone(), R::METHOD.to_owned(), params);
         send(&self.shared.sender, Message::Request(request));
         id
     }

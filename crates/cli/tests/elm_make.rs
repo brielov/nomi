@@ -24,10 +24,9 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 
-use nomi_base::Compat;
 use nomi_testkit::parallel_on;
-use nomi_testkit::ratchet::Suite;
-use nomi_testkit::transcript::{self, Case, ROOT_LENGTH, crashed, recorded};
+use nomi_testkit::ratchet::{Suite, shown};
+use nomi_testkit::transcript::{self, Case, crashed, recorded};
 use website::offline;
 
 #[test]
@@ -40,67 +39,40 @@ fn elm_make() {
     let mut runs = Vec::new();
     let mut crashes = 0;
     for (name, case) in &cases {
-        let expected = fs::read_to_string(dir.join("expected").join(format!("{name}.txt")))
-            .unwrap_or_else(|e| panic!("{name}: {e}; rerun `cargo xtask oracle make`"));
-        let expected_terminal =
-            fs::read_to_string(dir.join("expected_terminal").join(format!("{name}.txt")))
-                .unwrap_or_else(|e| panic!("{name}: {e}; rerun `cargo xtask oracle make`"));
-        let releases: &[Compat] = if case.pins_release() {
-            &Compat::ALL
-        } else {
-            &[Compat::LATEST]
+        let read = |expected: &str| {
+            fs::read_to_string(dir.join(expected).join(format!("{name}.txt")))
+                .unwrap_or_else(|e| panic!("{name}: {e}; rerun `cargo xtask oracle make`"))
         };
-        for &release in releases {
-            let id = format!("{name} as {release}");
-            let Some(expected) = recorded(&expected, release) else {
-                panic!("{id}: no transcript; rerun `cargo xtask oracle make`");
-            };
-            if crashed(expected) {
-                crashes += 1;
-                continue;
+        let (json, terminal_style) = (read("expected"), read("expected_terminal"));
+        for &release in case.releases() {
+            let case = case.as_release(release);
+            let styles = [
+                ("", &json, case.clone()),
+                (" terminal", &terminal_style, terminal(case)),
+            ];
+            for (style, expected, case) in styles {
+                let id = format!("{name}{style} as {release}");
+                let Some(expected) = recorded(expected, release) else {
+                    panic!("{id}: no transcript; rerun `cargo xtask oracle make`");
+                };
+                // Where elm crashed in JSON, it isn't run in the terminal
+                // style either.
+                if crashed(expected) {
+                    crashes += 1;
+                    break;
+                }
+                runs.push((id, case, steady(expected)));
             }
-            runs.push((id, case.as_release(release), expected.to_owned()));
-            let id = format!("{name} terminal as {release}");
-            let Some(expected) = recorded(&expected_terminal, release) else {
-                panic!("{id}: no transcript; rerun `cargo xtask oracle make`");
-            };
-            if crashed(expected) {
-                crashes += 1;
-                continue;
-            }
-            runs.push((id, terminal(case.as_release(release)), steady(expected)));
         }
     }
     // Each run is a process; a few at once.
     let workers = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
     let outcomes = parallel_on(workers, &runs, |(id, case, expected)| {
-        let outcome = run(&elm, cache.path(), case, expected);
-        if let (Err(why), Ok(_)) = (&outcome, std::env::var("NOMI_SHOW")) {
-            eprintln!("FAIL {id}\n{why}");
-        }
-        (id.clone(), outcome)
+        let actual = website::transcript(case, offline(&elm, cache.path()));
+        shown(id.clone(), website::matching(expected, &steady(&actual)))
     });
     eprintln!("elm_make: {crashes} runs skipped where elm crashed");
     Suite::open(dir).finish(outcomes);
-}
-
-/// nomi's transcript of `case`, against `expected`.
-fn run(elm: &Path, cache: &Path, case: &Case, expected: &str) -> Result<(), String> {
-    let work = tempfile::tempdir().unwrap();
-    let root =
-        nomi_testkit::padded_dir(&fs::canonicalize(work.path()).unwrap(), ROOT_LENGTH).unwrap();
-    case.create_files(&root).unwrap();
-    case.date_files(&root).unwrap();
-    let actual = case
-        .run(offline(elm, cache), &root)
-        .unwrap()
-        .compared(case, &root);
-    let actual = steady(&actual);
-    if actual == expected {
-        Ok(())
-    } else {
-        Err(format!("--- expected\n{expected}--- actual\n{actual}"))
-    }
 }
 
 /// `case` in the terminal style: without `--report=json`.

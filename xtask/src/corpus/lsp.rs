@@ -24,7 +24,6 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
 use lsp_server::Connection;
-use lsp_types::Url;
 use nomi_base::Compat;
 use nomi_engine::Store;
 use nomi_engine::index::Memo;
@@ -532,12 +531,7 @@ fn replacements(packages: &Path) -> Result<Vec<(String, String)>> {
     let mut replacements = Vec::new();
     for release in &releases {
         let real = fs::canonicalize(&release.dir).unwrap_or_else(|_| release.dir.clone());
-        for path in [&real, &release.dir] {
-            if let Ok(uri) = Url::from_directory_path(path) {
-                replacements.push((uri.as_str().trim_end_matches('/').to_owned(), to(release)));
-            }
-            replacements.push((path.display().to_string(), to(release)));
-        }
+        replacements.extend(lsp::dir_replacements(&[&real, &release.dir], &to(release)));
     }
     for release in &releases {
         let cached = packages
@@ -585,8 +579,6 @@ pub(crate) fn check(root: &Path, record: bool, only: Option<&str>) -> Result<()>
         let dir = scratch.join("replay").join(&name);
         copy(project, &dir)?;
         let work = nomi_engine::canonical(&dir)?;
-        let root_uri = Url::from_directory_path(&work).map_err(|()| anyhow::anyhow!("a path"))?;
-        let root_uri = root_uri.as_str().trim_end_matches('/').to_owned();
         let (server, client) = Connection::memory();
         let (s, m) = (store.clone(), memo.clone());
         let handle = thread::spawn(move || nomi_lsp::serve(&server, s, m));
@@ -596,13 +588,12 @@ pub(crate) fn check(root: &Path, record: bool, only: Option<&str>) -> Result<()>
             publishes: true,
         };
         let transcript = std::panic::catch_unwind(AssertUnwindSafe(|| {
-            let driver = Driver::start(client, &work, &root_uri, session, timing);
+            let driver = Driver::start(client, &work, session, timing);
             driver.run(session)
         }));
         let _ = handle.join();
         let mut subs = replacements.clone();
-        subs.push((root_uri, "<project>".to_owned()));
-        subs.push((work.display().to_string(), "<project>".to_owned()));
+        subs.extend(lsp::dir_replacements(&[&work], "<project>"));
         let found = match transcript {
             Ok(t) => {
                 let t = lsp::tidy(t, &subs);

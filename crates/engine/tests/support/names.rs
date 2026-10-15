@@ -9,11 +9,11 @@ use std::path::{Path, PathBuf};
 use nomi_base::Compat;
 use nomi_engine::check::Goal;
 use nomi_testkit::edit;
-use nomi_testkit::ratchet::Suite;
+use nomi_testkit::ratchet::{Suite, shown};
 use nomi_testkit::transcript::{self, Case};
 use serde_json::Value;
 
-use crate::projects::{self, CRASH, compat_name, same_json, shown, table};
+use crate::projects::{self, CRASH, compat_name, same_json, table};
 
 /// The ratchet of the suite `suite`'s whole reports: each project as each
 /// release, passing when nomi's `--report=json` and terminal report are

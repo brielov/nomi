@@ -12,6 +12,7 @@ use std::process::Command;
 use nomi_base::Compat;
 use nomi_project::Name;
 use nomi_registry::{Http, HttpError, Index, Store};
+use nomi_testkit::transcript::{Case, ROOT_LENGTH};
 use nomi_testkit::{files_below, packages};
 use tempfile::TempDir;
 
@@ -43,6 +44,27 @@ pub fn offline(program: &Path, cache: &Path) -> Command {
     }
     command.env("ALL_PROXY", "http://127.0.0.1:9");
     command
+}
+
+/// nomi's transcript of `case`, run by `command` in a new directory
+/// padded to the recordings' length, as messages wrap by the paths they
+/// name.
+pub fn transcript(case: &Case, command: Command) -> String {
+    let work = tempfile::tempdir().unwrap();
+    let root =
+        nomi_testkit::padded_dir(&fs::canonicalize(work.path()).unwrap(), ROOT_LENGTH).unwrap();
+    case.create_files(&root).unwrap();
+    case.date_files(&root).unwrap();
+    case.run(command, &root).unwrap().compared(case, &root)
+}
+
+/// Whether `actual` is the transcript `expected`, and if not, both.
+pub fn matching(expected: &str, actual: &str) -> Result<(), String> {
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(format!("--- expected\n{expected}--- actual\n{actual}"))
+    }
 }
 
 /// A cache that knows and holds the packages vendored for the compiler's

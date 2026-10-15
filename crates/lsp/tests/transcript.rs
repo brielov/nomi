@@ -7,15 +7,18 @@ use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
+use lsp_server::{Connection, ErrorCode, Message, Response};
 use lsp_types::Url;
+use nomi_testkit::lsp;
 use nomi_testkit::packages::CORE_AND_JSON_APP;
 use serde_json::{Value, json};
 
+/// The longest any one answer may take.
+const ANSWER: Duration = Duration::from_secs(20);
+
 struct Client {
-    connection: Connection,
+    client: lsp::Client,
     server: Option<thread::JoinHandle<Result<(), nomi_lsp::Error>>>,
-    next_id: i32,
     capabilities: Value,
 }
 
@@ -30,9 +33,8 @@ impl Client {
         let (server, connection) = Connection::memory();
         let handle = thread::spawn(move || nomi_lsp::run(&server));
         let mut client = Client {
-            connection,
+            client: lsp::Client::new(connection),
             server: Some(handle),
-            next_id: 0,
             capabilities: Value::Null,
         };
         let response = client.request(
@@ -49,33 +51,17 @@ impl Client {
     }
 
     fn request(&mut self, method: &str, params: Value) -> Response {
-        self.next_id += 1;
-        let id = RequestId::from(self.next_id);
-        let request = Request::new(id.clone(), method.to_owned(), params);
-        self.connection
-            .sender
-            .send(Message::Request(request))
-            .unwrap();
-        loop {
-            match self.receive() {
-                Message::Response(response) if response.id == id => return response,
-                _ => {}
-            }
-        }
+        let id = self.client.send_request(method, params);
+        self.client.response(&id, ANSWER, drop)
     }
 
     fn notify(&self, method: &str, params: Value) {
-        let notification = Notification::new(method.to_owned(), params);
-        self.connection
-            .sender
-            .send(Message::Notification(notification))
-            .unwrap();
+        self.client.notify(method, params);
     }
 
     fn receive(&self) -> Message {
-        self.connection
-            .receiver
-            .recv_timeout(Duration::from_secs(20))
+        (self.client.connection.receiver)
+            .recv_timeout(ANSWER)
             .expect("the server answers")
     }
 
@@ -141,9 +127,16 @@ fn uri(path: &Path) -> Url {
 const USES_OTHER: &str =
     "module Main exposing (main)\n\nimport Other\n\n\nmain =\n    Other.helper ()\n";
 
-/// A project whose `src/Other.elm` is saved, not open, and the URIs of
-/// its `src/Main.elm` and `src/Other.elm`.
-fn two_modules() -> (tempfile::TempDir, Url, Url) {
+/// A project whose `src/Other.elm` is saved, not open.
+struct TwoModules {
+    _dir: tempfile::TempDir,
+    /// `src/Main.elm`'s URI.
+    main: Url,
+    /// `src/Other.elm`'s URI.
+    other: Url,
+}
+
+fn two_modules() -> TwoModules {
     let (dir, main) = project();
     let other = root(&dir).join("src/Other.elm");
     fs::write(
@@ -151,7 +144,11 @@ fn two_modules() -> (tempfile::TempDir, Url, Url) {
         "module Other exposing (helper)\n\n\nhelper x =\n    x\n",
     )
     .unwrap();
-    (dir, main, uri(&other))
+    TwoModules {
+        _dir: dir,
+        main,
+        other: uri(&other),
+    }
 }
 
 /// The parameters of a request at `line` and `character` in `uri`.
@@ -234,10 +231,7 @@ fn diagnostics_wait_for_a_save_when_asked_to() {
             "contentChanges": [{ "text": fixed }],
         }),
     );
-    let quiet = client
-        .connection
-        .receiver
-        .recv_timeout(Duration::from_millis(600));
+    let quiet = (client.client.connection.receiver).recv_timeout(Duration::from_millis(600));
     assert!(quiet.is_err(), "{quiet:?}");
     client.notify(
         "textDocument/didSave",
@@ -352,7 +346,7 @@ fn what_nomi_doesnt_answer_is_said_so() {
     let response = client.request("textDocument/signatureHelp", json!({}));
     assert_eq!(
         response.error.unwrap().code,
-        lsp_server::ErrorCode::MethodNotFound as i32
+        ErrorCode::MethodNotFound as i32
     );
     client.shutdown();
 }
@@ -360,7 +354,7 @@ fn what_nomi_doesnt_answer_is_said_so() {
 #[test]
 fn navigation_goes_to_definitions_and_finds_references_across_modules() {
     // `Other` is saved, not open: navigation reads it from the disk.
-    let (_dir, main, other) = two_modules();
+    let TwoModules { _dir, main, other } = two_modules();
     let mut client = Client::start(&[]);
     client.open(&main, USES_OTHER);
     // `helper` in `Other.helper`, to its name and parameters.
@@ -403,7 +397,7 @@ fn navigation_goes_to_definitions_and_finds_references_across_modules() {
 
 #[test]
 fn hover_and_completion_answer_without_packages() {
-    let (_dir, main, _) = two_modules();
+    let TwoModules { _dir, main, .. } = two_modules();
     let mut client = Client::start(&[]);
     client.open(&main, USES_OTHER);
     // `main`'s name: its inferred annotation, then its name.
@@ -430,30 +424,12 @@ fn a_cancelled_request_is_still_answered() {
     client.open(&main, "module Main exposing (x)\n\n\nx : Int\nx =\n    1\n");
     // Asked and cancelled at once: the answer may be the result or the
     // cancellation's error, but one comes, and the server goes on.
-    client.next_id += 1;
-    let id = RequestId::from(client.next_id);
     let params = json!({ "textDocument": { "uri": main } });
-    let request = Request::new(
-        id.clone(),
-        "textDocument/documentSymbol".to_owned(),
-        params.clone(),
-    );
-    client
-        .connection
-        .sender
-        .send(Message::Request(request))
-        .unwrap();
-    client.notify("$/cancelRequest", json!({ "id": client.next_id }));
-    loop {
-        match client.receive() {
-            Message::Response(response) if response.id == id => {
-                if let Some(error) = &response.error {
-                    assert_eq!(error.code, -32800, "{error:?}");
-                }
-                break;
-            }
-            _ => {}
-        }
+    let id = (client.client).send_request("textDocument/documentSymbol", params.clone());
+    client.notify("$/cancelRequest", json!({ "id": id }));
+    let response = client.client.response(&id, ANSWER, drop);
+    if let Some(error) = &response.error {
+        assert_eq!(error.code, ErrorCode::RequestCanceled as i32, "{error:?}");
     }
     let after = client.request("textDocument/documentSymbol", params);
     assert!(after.error.is_none(), "{after:?}");
