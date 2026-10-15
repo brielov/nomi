@@ -1,8 +1,6 @@
 use super::super::c;
-use crate::test_support::{block, line, lower as name, named, separated, upper};
-use crate::tree::{
-    Around, AroundEol, ForceMultiline, Pair, Sequence, Type, TypeConstructor, UpperRef,
-};
+use crate::test_support::{block, line, lower as name, named, separated, upper_ref};
+use crate::tree::{Around, AroundEol, ForceMultiline, Pair, Sequence, Type, TypeConstructor};
 
 fn lower(text: &str) -> Type {
     crate::lower::type_fragment(text)
@@ -92,13 +90,7 @@ fn constructors_and_their_arguments() {
     else {
         panic!()
     };
-    assert_eq!(
-        ctor,
-        TypeConstructor::Named(UpperRef {
-            namespace: vec![upper("Dict")],
-            name: upper("Dict"),
-        })
-    );
+    assert_eq!(ctor, TypeConstructor::Named(upper_ref(&["Dict"], "Dict")));
     assert_eq!(
         args,
         [

@@ -1,15 +1,14 @@
 //! Types; upstream's `formatType` and the parentheses it decides on.
 
-use crate::tree::{ApplicationMultiline, ForceMultiline, Multiline, Type, TypeConstructor};
+use crate::tree::{ApplicationMultiline, Multiline, Type, TypeConstructor};
 
 use super::block::{Block, Line};
 use super::structure::{
-    Delimiters, application, forceable_space_sep_or_stack, forceable_space_sep_or_stack1, group,
-    prefix_or_indented,
+    Delimiters, application, forceable_space_sep_or_stack, group, prefix_or_indented,
 };
 use super::{
-    c2, c2_eol, comments, eol_commented, name, pair, parens, pre_commented, record_like,
-    tuple_function, unit, upper_ref,
+    c2, c2_eol, eol_commented, name, pair, parens, pre_commented, record_like, tuple_function,
+    unit, upper_ref,
 };
 
 /// Where a type stands, from needing no parentheses to needing them most;
@@ -88,13 +87,7 @@ fn format_type_unguarded(ty: &Type) -> (TypeParensInner, Block) {
                         type_parens(ForLambda, format_type(&item.value)),
                     );
                     let arrow = prefix_or_indented(Block::line(Line::text("->")), term);
-                    forceable_space_sep_or_stack1(
-                        ForceMultiline(false),
-                        comments(&around.before_separator)
-                            .into_iter()
-                            .chain([arrow])
-                            .collect(),
-                    )
+                    pre_commented(&around.before_separator, arrow)
                 })
                 .collect();
             (

@@ -4,11 +4,20 @@ use nomi_base::TextRange;
 
 use crate::{SyntaxKind, SyntaxNode, SyntaxToken};
 
-/// `node`'s first child token of `kind`, among its own.
-pub fn child_token(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxToken> {
+/// `node`'s child tokens of `kind`, among its own.
+#[inline]
+pub fn child_tokens(
+    node: &SyntaxNode,
+    kind: SyntaxKind,
+) -> impl Iterator<Item = SyntaxToken> + use<> {
     node.children_with_tokens()
         .filter_map(rowan::NodeOrToken::into_token)
-        .find(|t| t.kind() == kind)
+        .filter(move |t| t.kind() == kind)
+}
+
+/// `node`'s first child token of `kind`, among its own.
+pub fn child_token(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxToken> {
+    child_tokens(node, kind).next()
 }
 
 /// Every token under `node`, in order.

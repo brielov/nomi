@@ -1,13 +1,10 @@
 //! Expected spellings are elm-format 0.8.8's.
 
 use super::*;
+use crate::test_support::code_points;
 
 fn spell(value: &LiteralValue) -> String {
     literal(value).render().trim_end_matches('\n').to_owned()
-}
-
-fn code_points(text: &str) -> Vec<u32> {
-    text.chars().map(u32::from).collect()
 }
 
 #[test]

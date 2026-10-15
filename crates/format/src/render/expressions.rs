@@ -12,8 +12,8 @@ use super::declarations::common;
 use super::patterns::{pattern_alone, pattern_argument};
 use super::structure::{Delimiters, application, group, interleave, intersperse};
 use super::{
-    BinaryOp, binary, comment, commented, commented_forced, literal::literal, name, operator, pair,
-    parens, pre_commented, push_name, qualified, record_like, sequence, syntax_parens, text,
+    BinaryOp, binary, c2, comment, commented, commented_forced, literal::literal, name, operator,
+    pair, parens, pre_commented, push_name, qualified, record_like, sequence, syntax_parens, text,
     tuple_function, unit,
 };
 
@@ -214,7 +214,7 @@ fn commented_expression(expr: &C2<Expr>) -> Block {
             expression_alone(&inner.value),
             inner.comments.after.iter().chain(&around.after),
         ),
-        value => commented(&around.before, expression_alone(value), &around.after),
+        _ => c2(expr, expression_alone),
     }
 }
 

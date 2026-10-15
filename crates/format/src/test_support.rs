@@ -3,8 +3,8 @@
 use nomi_syntax::{Tool, parse_module, validate};
 
 use crate::tree::{
-    Comment, Commented, Comments, ForceMultiline, Lower, Module, SeparatorComments, Type,
-    TypeConstructor, Upper, UpperRef,
+    Comment, Commented, Comments, ForceMultiline, Lower, Module, Namespace, SeparatorComments,
+    Type, TypeConstructor, Upper, UpperRef,
 };
 
 /// A `--` comment, `text` after the dashes.
@@ -34,13 +34,25 @@ pub(crate) fn upper(name: &str) -> Upper {
     Upper(name.to_owned())
 }
 
+pub(crate) fn names(names: &[&str]) -> Namespace {
+    names.iter().map(|n| upper(n)).collect()
+}
+
+pub(crate) fn upper_ref(namespace: &[&str], name: &str) -> UpperRef {
+    UpperRef {
+        namespace: names(namespace),
+        name: upper(name),
+    }
+}
+
+pub(crate) fn code_points(text: &str) -> Vec<u32> {
+    text.chars().map(u32::from).collect()
+}
+
 /// The type `name` in `namespace`, applied to `args`, all on one line.
 pub(crate) fn named(namespace: &[&str], name: &str, args: Vec<Type>) -> Type {
     Type::Construction {
-        ctor: TypeConstructor::Named(UpperRef {
-            namespace: namespace.iter().map(|n| upper(n)).collect(),
-            name: upper(name),
-        }),
+        ctor: TypeConstructor::Named(upper_ref(namespace, name)),
         args: args.into_iter().map(Commented::bare).collect(),
         force_multiline: ForceMultiline(false),
     }

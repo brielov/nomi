@@ -469,9 +469,7 @@ fn letters(comment: &SyntaxToken) -> String {
 /// Whether `minus` negates what follows: a negation's, or a pattern's
 /// literal's; a `-` in an operator chain subtracts.
 fn negates(minus: &SyntaxToken) -> bool {
-    minus
-        .parent()
-        .is_some_and(|p| p.kind() == SyntaxKind::NegateExpr)
+    parent_is(minus, SyntaxKind::NegateExpr)
         || minus
             .next_token()
             .is_some_and(|number| is_number(number.kind()) && number.parent() == minus.parent())

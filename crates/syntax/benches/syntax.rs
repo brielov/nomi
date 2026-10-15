@@ -5,17 +5,9 @@
 
 use nomi_base::Compat;
 use nomi_syntax::{Source, Tool, parse_module, validate};
-use nomi_testkit::bench::{SCALING, fail_if_slow, fastest, kib, ms, ratio};
+use nomi_testkit::bench::{Shape, scaling};
 
 const DECLARATIONS: &str = include_str!("../tests/syntax_mutations/seeds/Declarations.elm");
-
-struct Shape {
-    name: &'static str,
-    /// The input of a size.
-    input: fn(usize) -> String,
-    size: usize,
-    run: fn(&str),
-}
 
 const SHAPES: &[Shape] = &[
     Shape {
@@ -90,35 +82,5 @@ fn parse_and_validate(text: &str) {
 }
 
 fn main() {
-    // Deep trees need the stack the shell gives core work.
-    let failed = nomi_base::on_core_stack(|| {
-        println!(
-            "| {:<24} | {:>9} | {:>9} | {:>9} | {:>9} | {:>5} |",
-            "shape", "size", "time", "2× size", "time", "ratio"
-        );
-        println!(
-            "|{:-<26}|{:->11}|{:->11}|{:->11}|{:->11}|{:->7}|",
-            "", "", "", "", "", ""
-        );
-        let mut failed = Vec::new();
-        for shape in SHAPES {
-            let (small, large) = ((shape.input)(shape.size), (shape.input)(2 * shape.size));
-            let t1 = fastest(|| (shape.run)(&small));
-            let t2 = fastest(|| (shape.run)(&large));
-            let ratio = ratio(&[t1, t2]);
-            println!(
-                "| {:<24} | {:>9} | {:>9} | {:>9} | {:>9} | {ratio:>5.2} |",
-                shape.name,
-                kib(small.len()),
-                ms(t1),
-                kib(large.len()),
-                ms(t2),
-            );
-            if ratio >= SCALING {
-                failed.push(shape.name);
-            }
-        }
-        failed
-    });
-    fail_if_slow(&failed);
+    scaling(SHAPES, 2);
 }

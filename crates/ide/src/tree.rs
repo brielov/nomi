@@ -6,7 +6,7 @@
 
 use nomi_base::{TextRange, TextSize};
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, child_token, tokens};
+use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, child_token, child_tokens, tokens};
 
 /// `node`'s first child node of `kind`.
 pub(crate) fn child(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxNode> {
@@ -15,10 +15,7 @@ pub(crate) fn child(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxNode> {
 
 /// `node`'s last child token of `kind`, among its own.
 pub(crate) fn last_child_token(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxToken> {
-    (node.children_with_tokens())
-        .filter_map(SyntaxElement::into_token)
-        .filter(|t| t.kind() == kind)
-        .last()
+    child_tokens(node, kind).last()
 }
 
 /// `token`, or else the first after it that isn't trivia.

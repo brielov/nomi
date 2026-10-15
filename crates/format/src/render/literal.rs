@@ -4,7 +4,7 @@
 //! Numbers print as GHC's `printf` prints them, and strings escape what
 //! GHC's `isPrint` and `isSpace` reject.
 
-use std::fmt;
+use std::fmt::{self, Write as _};
 
 use nomi_base::ghc::{is_print, is_space};
 use num_bigint::BigUint;
@@ -83,59 +83,61 @@ fn scaled(f: f64) -> (Scaled, i32) {
     let at_power = m == 1 << 52;
     let pow = |base: u32, n: i32| BigUint::from(base).pow(n.unsigned_abs());
     let f = BigUint::from(m);
-    let (r, s, m_up, m_dn) = if e >= 0 {
+    let mut state = if e >= 0 {
         let be = pow(2, e);
         if at_power {
-            (&f * &be * 4u32, BigUint::from(4u32), &be * 2u32, be)
+            Scaled {
+                r: &f * &be * 4u32,
+                s: BigUint::from(4u32),
+                m_up: &be * 2u32,
+                m_dn: be,
+            }
         } else {
-            (&f * &be * 2u32, BigUint::from(2u32), be.clone(), be)
+            Scaled {
+                r: &f * &be * 2u32,
+                s: BigUint::from(2u32),
+                m_up: be.clone(),
+                m_dn: be,
+            }
         }
     } else if e > MIN_EXP && at_power {
-        (
-            &f * 4u32,
-            pow(2, -e + 1) * 2u32,
-            BigUint::from(2u32),
-            BigUint::from(1u32),
-        )
+        Scaled {
+            r: &f * 4u32,
+            s: pow(2, -e + 1) * 2u32,
+            m_up: BigUint::from(2u32),
+            m_dn: BigUint::from(1u32),
+        }
     } else {
-        (
-            &f * 2u32,
-            pow(2, -e) * 2u32,
-            BigUint::from(1u32),
-            BigUint::from(1u32),
-        )
+        Scaled {
+            r: &f * 2u32,
+            s: pow(2, -e) * 2u32,
+            m_up: BigUint::from(1u32),
+            m_dn: BigUint::from(1u32),
+        }
     };
     // `logBase 10 2` is slightly larger than 8651/28738.
     let k1 = lx * 8651 / 28738;
     let mut k = if lx >= 0 { k1 + 1 } else { k1 };
     loop {
         let fits = if k >= 0 {
-            &r + &m_up <= pow(10, k) * &s
+            &state.r + &state.m_up <= pow(10, k) * &state.s
         } else {
-            pow(10, -k) * (&r + &m_up) <= s
+            pow(10, -k) * (&state.r + &state.m_up) <= state.s
         };
         if fits {
             break;
         }
         k += 1;
     }
-    let scaled = if k >= 0 {
-        Scaled {
-            r,
-            s: s * pow(10, k),
-            m_up,
-            m_dn,
-        }
+    if k >= 0 {
+        state.s *= pow(10, k);
     } else {
         let bk = pow(10, -k);
-        Scaled {
-            r: r * &bk,
-            s,
-            m_up: m_up * &bk,
-            m_dn: m_dn * bk,
-        }
-    };
-    (scaled, k)
+        state.r *= &bk;
+        state.m_up *= &bk;
+        state.m_dn *= bk;
+    }
+    (state, k)
 }
 
 /// The digits `state` spells, up to where they tell the number from its
@@ -261,7 +263,9 @@ fn escape(style: Style, c: u32, out: &mut String) {
         (0x27, _) if style == Style::Char => out.push_str("\\'"),
         (_, Some(' ')) => out.push(' '),
         (_, Some(ch)) if !is_space(ch) => out.push(ch),
-        _ => out.push_str(&format!("\\u{{{c:04X}}}")),
+        _ => {
+            let _ = write!(out, "\\u{{{c:04X}}}");
+        }
     }
 }
 
@@ -275,11 +279,12 @@ fn escape_multi_quote(body: &str) -> String {
             quotes += 1;
             continue;
         }
-        out.push_str(&if quotes >= 3 { "\\\"" } else { "\"" }.repeat(quotes));
+        let quote = if quotes >= 3 { "\\\"" } else { "\"" };
+        out.extend(std::iter::repeat_n(quote, quotes));
         quotes = 0;
         out.push(c);
     }
-    out.push_str(&"\\\"".repeat(quotes));
+    out.extend(std::iter::repeat_n("\\\"", quotes));
     out
 }
 

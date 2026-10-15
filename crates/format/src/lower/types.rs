@@ -4,8 +4,8 @@ use nomi_syntax::ast::{self, AstNode};
 
 use super::cursor::Cursor;
 use super::{
-    VALID, commas, eol_after, lower_name, pair, parens_or_bare, preceded, sectioned, separated,
-    start, surround, surrounded, upper_ref, with_eol,
+    VALID, commas, eol_after, lower_name, name_before, pair, parens_or_bare, preceded, sectioned,
+    separated, start, surround, surrounded, upper_ref, with_eol,
 };
 use crate::tree::{Around, AroundEol, Type, TypeConstructor, c};
 
@@ -95,9 +95,7 @@ fn record(cx: &mut Cursor, node: &ast::RecordType) -> Type {
     let close = node.r_brace_token().expect(VALID);
     let base = node.record_extension().map(|extension| {
         let name = extension.lower_ident_token().expect(VALID);
-        let before = cx.take(start(&name));
-        let after = cx.take(start(&extension.pipe_token().expect(VALID)));
-        c(Around { before, after }, lower_name(&name))
+        name_before(cx, &name, &extension.pipe_token().expect(VALID))
     });
     let (fields, trailing) = sectioned(
         cx,

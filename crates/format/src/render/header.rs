@@ -4,9 +4,9 @@
 
 use crate::markdown;
 use crate::tree::{
-    Around, C1, C2, CommentedMap, Comments, CommonDeclaration, Declaration, DetailedListing,
-    ForceMultiline, Header, ImportKey, ImportMethod, Listing, Lower, Module, Pattern,
-    SourceSetting, SourceTag, Symbol, TopLevelStructure, Upper, Value, c,
+    Around, C1, C2, Comment, CommentedMap, Comments, CommonDeclaration, Declaration,
+    DetailedListing, ForceMultiline, Header, ImportKey, ImportMethod, Listing, Lower, Module,
+    Pattern, SourceSetting, SourceTag, Symbol, TopLevelStructure, Upper, Value, c,
 };
 
 use super::block::{Block, Line};
@@ -326,7 +326,7 @@ fn module_line_block(header: &Header, exposed: &SortedExports) -> Block {
     };
     let exposing = match &header.exports {
         Some(e) => commented(&e.comments.before, text("exposing"), &e.comments.after),
-        None => commented(&[], text("exposing"), &[]),
+        None => text("exposing"),
     };
     space_sep_or_indented(
         space_sep_or_indented(
@@ -347,7 +347,7 @@ fn exports(groups: &[Vec<C2<Value>>], footer: Option<Block>) -> Block {
             Delimiters::PARENS,
             footer,
             ForceMultiline(false),
-            group.iter().map(commented_value).collect(),
+            group.iter().map(|v| c2(v, value)).collect(),
         ),
         groups => group_with_footer(
             Delimiters::PARENS,
@@ -372,10 +372,6 @@ fn exports(groups: &[Vec<C2<Value>>], footer: Option<Block>) -> Block {
     }
 }
 
-fn commented_value(v: &C2<Value>) -> Block {
-    commented(&v.comments.before, value(&v.value), &v.comments.after)
-}
-
 /// `{ command = MyCmd, … }`; upstream's `formatSettings` over
 /// `formatRecordPair`.
 fn source_settings(settings: &[SourceSetting]) -> Block {
@@ -385,12 +381,8 @@ fn source_settings(settings: &[SourceSetting]) -> Block {
             let pair = equals_pair(
                 "=",
                 ForceMultiline(false),
-                commented(&[], Block::line(name(&key.value.0)), &key.comments.after),
-                commented(
-                    &value.comments.before,
-                    Block::line(name(&value.value.0)),
-                    &value.comments.after,
-                ),
+                tail_commented(Block::line(name(&key.value.0)), &key.comments.after),
+                c2(value, |v| Block::line(name(&v.0))),
             );
             pre_commented(&key.comments.before, pair)
         })
@@ -550,7 +542,7 @@ fn op(symbol: &Symbol) -> Block {
 }
 
 /// A type, with `(..)` for any constructors, as Elm 0.19 exposes them.
-fn union(type_name: &Upper, post: &Comments, ctors: &Listing<CommentedMap<Upper, ()>>) -> Block {
+fn union(type_name: &Upper, post: &[Comment], ctors: &Listing<CommentedMap<Upper, ()>>) -> Block {
     let mut line = name(&type_name.0);
     let exposed = match ctors {
         Listing::Closed => false,

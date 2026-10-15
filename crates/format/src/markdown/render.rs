@@ -2,6 +2,8 @@
 //! `formatDocComment`'s `cleanBlock`, which drops `(..)` from the `@docs`
 //! names at the top level.
 
+use std::fmt::Write as _;
+
 use super::{Block, Inline, LinkTarget, ListType, Reference};
 
 /// The text of a doc comment of `blocks`, with `format_code` giving Elm
@@ -167,20 +169,24 @@ impl<C> Context<'_, C> {
                     // Haskell's `lines`: no last line after a final newline.
                     formatted
                         .split_terminator('\n')
-                        .map(|line| format!("    {line}\n"))
-                        .collect()
+                        .fold(String::new(), |mut out, line| {
+                            out.extend(["    ", line, "\n"]);
+                            out
+                        })
                 } else {
                     format!("```{}\n{formatted}```\n", attr.lang)
                 }
             }
             Block::Html(text) => format!("{text}\n"),
             Block::HRule => "---\n".to_owned(),
-            Block::References(references) => references
-                .iter()
-                .map(|Reference { label, url, title }| {
-                    format!("[{label}]: {url}{}\n", quoted_title(title))
-                })
-                .collect(),
+            Block::References(references) => {
+                references
+                    .iter()
+                    .fold(String::new(), |mut out, Reference { label, url, title }| {
+                        let _ = writeln!(out, "[{label}]: {url}{}", quoted_title(title));
+                        out
+                    })
+            }
         }
     }
 }
@@ -190,8 +196,10 @@ impl<C> Context<'_, C> {
 fn prefix(first: &str, rest: &str, text: &str) -> String {
     text.split_terminator('\n')
         .enumerate()
-        .map(|(i, line)| format!("{}{line}\n", if i == 0 { first } else { rest }))
-        .collect()
+        .fold(String::new(), |mut out, (i, line)| {
+            out.extend([if i == 0 { first } else { rest }, line, "\n"]);
+            out
+        })
 }
 
 fn inlines(escape: Escape, inlines: &[Inline]) -> String {

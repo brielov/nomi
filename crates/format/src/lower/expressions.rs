@@ -1,6 +1,6 @@
 //! Expressions, after upstream's `Parse/Expression.hs`.
 
-use nomi_base::{TextRange, TextSize};
+use nomi_base::TextRange;
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{SyntaxNode, SyntaxToken, literal_body, significant_tokens};
 
@@ -9,11 +9,11 @@ use super::definitions::{destructure, value_parts};
 use super::literal::{is_number, literal, negative};
 use super::patterns::pattern;
 use super::{
-    VALID, bool_literal, commas, eol_after, lower_name, namespace, pair, preceded, sectioned,
-    start, surround, surrounded, symbol, upper_name, with_eol,
+    VALID, bool_literal, commas, eol_after, lower_name, name_before, namespace, pair, preceded,
+    sectioned, start, surround, surrounded, symbol, upper_name, with_eol,
 };
 use crate::tree::{
-    ApplicationMultiline, Around, BinopsClause, C2, CaseBranch, Comments, CommonDeclaration, Expr,
+    ApplicationMultiline, BinopsClause, C2, CaseBranch, Comments, CommonDeclaration, Expr,
     ForceMultiline, IfClause, LetDeclaration, LiteralValue, Lower, Multiline, Ref, c,
 };
 
@@ -74,9 +74,7 @@ fn expr_unguarded(cx: &mut Cursor, node: &ast::Expr) -> Expr {
         }
         ast::Expr::RecordUpdateExpr(e) => {
             let name = e.lower_ident_token().expect(VALID);
-            let before = cx.take(start(&name));
-            let after = cx.take(start(&e.pipe_token().expect(VALID)));
-            let base = c(Around { before, after }, lower_name(&name));
+            let base = name_before(cx, &name, &e.pipe_token().expect(VALID));
             let close = e.r_brace_token().expect(VALID);
             record(cx, e.syntax(), Some(base), e.fields(), &close)
         }
@@ -115,8 +113,13 @@ fn name(node: &ast::NameExpr) -> Expr {
 fn range(cx: &mut Cursor, node: &ast::RangeExpr) -> Expr {
     let mut bounds = node.exprs();
     let (low, high) = (bounds.next().expect(VALID), bounds.next().expect(VALID));
-    let low = bounded(cx, &low, start(&node.dot_dot_token().expect(VALID)));
-    let high = bounded(cx, &high, start(&node.r_bracket_token().expect(VALID)));
+    let low = surrounded(cx, &low, start(&node.dot_dot_token().expect(VALID)), expr);
+    let high = surrounded(
+        cx,
+        &high,
+        start(&node.r_bracket_token().expect(VALID)),
+        expr,
+    );
     Expr::Range {
         low: Box::new(low),
         high: Box::new(high),
@@ -146,14 +149,6 @@ fn glsl(node: &ast::GlslExpr) -> Expr {
         .filter(|&c| c != '\r')
         .collect();
     Expr::GlShader(source)
-}
-
-/// `node`, with the comments before it and those before `end`.
-fn bounded(cx: &mut Cursor, node: &ast::Expr, end: TextSize) -> C2<Expr> {
-    let before = cx.take(cx.range(node.syntax()).start());
-    let value = expr(cx, node);
-    let after = cx.take(end);
-    c(Around { before, after }, value)
 }
 
 /// A function and its arguments, breaking as the source does; upstream's
@@ -265,16 +260,21 @@ fn if_expr(cx: &mut Cursor, node: &ast::IfExpr) -> Expr {
 /// `if condition then body`, up to the `else`.
 fn if_clause(cx: &mut Cursor, node: &ast::IfExpr) -> IfClause {
     let condition = node.condition().expect(VALID);
-    let condition = bounded(cx, &condition, start(&node.then_token().expect(VALID)));
+    let condition = surrounded(
+        cx,
+        &condition,
+        start(&node.then_token().expect(VALID)),
+        expr,
+    );
     let body = node.then_branch().expect(VALID);
-    let body = bounded(cx, &body, start(&node.else_token().expect(VALID)));
+    let body = surrounded(cx, &body, start(&node.else_token().expect(VALID)), expr);
     IfClause { condition, body }
 }
 
 fn case(cx: &mut Cursor, node: &ast::CaseExpr) -> Expr {
     // Upstream reads `then` for `of`.
     let of = node.of_token().or_else(|| node.then_token()).expect(VALID);
-    let subject = bounded(cx, &node.expr().expect(VALID), start(&of));
+    let subject = surrounded(cx, &node.expr().expect(VALID), start(&of), expr);
     // Upstream tracks the newlines around the subject too.
     let after_case = node.case_token().expect(VALID).text_range().end();
     let multiline = ForceMultiline(cx.multiline(TextRange::new(after_case, start(&of))));

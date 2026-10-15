@@ -193,12 +193,7 @@ impl Stack {
         let parent = self.top();
         match top.kind {
             Kind::Reference => {
-                let text = top
-                    .children
-                    .iter()
-                    .map(text_of)
-                    .collect::<Vec<_>>()
-                    .join("\n");
+                let text = joined(&top.children);
                 if reference(strip(&text)).is_some() {
                     parent.children.push(Elt::Container(top));
                 }
@@ -652,13 +647,17 @@ fn indented_code<C>(
         .count();
     let mut lines: Vec<&str> = std::iter::once(first)
         .chain(&after[..count])
-        .flat_map(|e| match e {
-            // The blank line lost up to three spaces, and code four.
-            Elt::Leaf(Leaf::BlankLine(t)) => {
-                vec![t.char_indices().nth(1).map_or("", |(i, _)| &t[i..])]
-            }
-            Elt::Container(c) => c.children.iter().map(text_of).collect(),
-            Elt::Leaf(_) => Vec::new(),
+        .flat_map(|e| {
+            let (blank, children): (_, &[Elt]) = match e {
+                // The blank line lost up to three spaces, and code four.
+                Elt::Leaf(Leaf::BlankLine(t)) => (
+                    Some(t.char_indices().nth(1).map_or("", |(i, _)| &t[i..])),
+                    &[],
+                ),
+                Elt::Container(c) => (None, &c.children),
+                Elt::Leaf(_) => (None, &[]),
+            };
+            blank.into_iter().chain(children.iter().map(text_of))
         })
         .collect();
     while lines.last().is_some_and(|l| l.chars().all(|c| c == ' ')) {
@@ -679,10 +678,11 @@ fn references<C>(first: &Elt, after: &[Elt]) -> (Block<C>, usize) {
         .count();
     let references = std::iter::once(first)
         .chain(&after[..count])
-        .flat_map(|e| match e {
-            Elt::Container(c) => c.children.iter().map(text_of).collect(),
-            Elt::Leaf(_) => Vec::new(),
+        .filter_map(|e| match e {
+            Elt::Container(c) => Some(c),
+            Elt::Leaf(_) => None,
         })
+        .flat_map(|c| c.children.iter().map(text_of))
         .map(|line| reference(strip(line)).unwrap_or_else(Reference::unparsed))
         .collect();
     (Block::References(references), count)

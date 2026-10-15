@@ -1,8 +1,6 @@
 use super::super::c;
-use crate::test_support::{block, lower as name, separated, upper};
-use crate::tree::{
-    Around, C2, FloatRepr, IntRepr, LiteralValue, Pattern, Sequence, StringRepr, UpperRef,
-};
+use crate::test_support::{block, code_points, lower as name, separated, upper_ref};
+use crate::tree::{Around, C2, FloatRepr, IntRepr, LiteralValue, Pattern, Sequence, StringRepr};
 
 fn lower(text: &str) -> Pattern {
     crate::lower::pattern_fragment(text)
@@ -17,17 +15,6 @@ fn literal(text: &str) -> LiteralValue {
 
 fn var(name: &str) -> Pattern {
     Pattern::Var(self::name(name))
-}
-
-fn ctor(namespace: &[&str], name: &str) -> UpperRef {
-    UpperRef {
-        namespace: namespace.iter().map(|n| upper(n)).collect(),
-        name: upper(name),
-    }
-}
-
-fn chars(text: &str) -> Vec<u32> {
-    text.chars().map(u32::from).collect()
 }
 
 #[test]
@@ -52,7 +39,7 @@ fn cons_and_alias() {
 
 #[test]
 fn constructors() {
-    let just = |arg| Pattern::Data(ctor(&[], "Just"), vec![arg]);
+    let just = |arg| Pattern::Data(upper_ref(&[], "Just"), vec![arg]);
     assert_eq!(
         lower("Just {- a -} True"),
         just(c(
@@ -62,7 +49,7 @@ fn constructors() {
     );
     assert_eq!(
         lower("Basics.False"),
-        Pattern::Data(ctor(&["Basics"], "False"), vec![])
+        Pattern::Data(upper_ref(&["Basics"], "False"), vec![])
     );
     assert_eq!(lower("Just (_)"), just(c(vec![], Pattern::Anything)));
 }
@@ -123,14 +110,17 @@ fn strings_and_characters() {
     );
     assert_eq!(
         literal("\"\"\"é\r\n\rb\"\"\""),
-        LiteralValue::String(chars("é\n\rb"), StringRepr::TripleQuoted)
+        LiteralValue::String(code_points("é\n\rb"), StringRepr::TripleQuoted)
     );
     // A letter after `\x`'s digits makes the escape -2, a lone 0xFE byte
     // that reads the letters after it as the rest of its sequence.
     assert_eq!(
         literal("\"\\x202Bایران\""),
         LiteralValue::String(
-            [0x3D_8A1B, 0x8C].into_iter().chain(chars("ران")).collect(),
+            [0x3D_8A1B, 0x8C]
+                .into_iter()
+                .chain(code_points("ران"))
+                .collect(),
             StringRepr::SingleQuoted
         )
     );

@@ -4,13 +4,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use nomi_base::{TextRange, TextSize};
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxKind, SyntaxToken, significant_tokens};
+use nomi_syntax::{SyntaxKind, SyntaxToken, child_tokens};
 
 use super::cursor::Cursor;
-use super::{VALID, child_tokens, commas, lower_name, start, upper_name, upper_names};
+use super::{VALID, commas, lower_name, start, symbol, upper_name, upper_names};
 use crate::tree::{
     Around, C1, C2, Comment, CommentedMap, Comments, DetailedListing, ForceMultiline, Header,
-    ImportKey, ImportMethod, Listing, Namespace, SourceSetting, SourceTag, Symbol, Upper, Value, c,
+    ImportKey, ImportMethod, Listing, Namespace, SourceSetting, SourceTag, Upper, Value, c,
 };
 
 /// `moduleDecl`: the 0.16 form when `where` ends the header, else 0.17's.
@@ -202,12 +202,7 @@ fn value(cx: &mut Cursor, item: ast::Exposed) -> Value {
         ast::Exposed::ExposedValue(v) => {
             Value::Var(lower_name(&v.lower_ident_token().expect(VALID)))
         }
-        ast::Exposed::ExposedOperator(o) => {
-            // `-` lexes apart from other operators.
-            let op = o.op().expect(VALID);
-            let symbol = significant_tokens(op.syntax()).next().expect(VALID);
-            Value::Op(Symbol(symbol.text().to_owned()))
-        }
+        ast::Exposed::ExposedOperator(o) => Value::Op(symbol(&o.op().expect(VALID))),
         ast::Exposed::ExposedType(t) => {
             let name = upper_name(&t.upper_ident_token().expect(VALID));
             let Some(variants) = t.exposed_variants() else {

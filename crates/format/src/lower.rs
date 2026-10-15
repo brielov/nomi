@@ -22,7 +22,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use nomi_base::TextSize;
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, child_token, significant_tokens, tokens};
+use nomi_syntax::{
+    SyntaxKind, SyntaxNode, SyntaxToken, child_token, child_tokens, significant_tokens, tokens,
+};
 
 use crate::tree::{
     Around, C0Eol, C1, C2, Comment, Comments, Lower, Module, Namespace, Pair, SeparatorComments,
@@ -139,13 +141,6 @@ fn upper_name(token: &SyntaxToken) -> Upper {
     Upper(token.text().to_owned())
 }
 
-/// `node`'s child tokens of `kind`, among its own.
-fn child_tokens(node: &SyntaxNode, kind: SyntaxKind) -> impl Iterator<Item = SyntaxToken> + use<> {
-    node.children_with_tokens()
-        .filter_map(|e| e.into_token())
-        .filter(move |t| t.kind() == kind)
-}
-
 /// The uppercase names among `node`'s children, as a module name or a
 /// qualifier holds them.
 fn upper_names(node: &SyntaxNode) -> Namespace {
@@ -240,6 +235,13 @@ fn surrounded<N: AstNode, T>(
     let value = lower(cx, item);
     let after = cx.take(end);
     c(Around { before, after }, value)
+}
+
+/// `name`, with the comments before it and those before `next`.
+fn name_before(cx: &mut Cursor, name: &SyntaxToken, next: &SyntaxToken) -> C2<Lower> {
+    let before = cx.take(start(name));
+    let after = cx.take(start(next));
+    c(Around { before, after }, lower_name(name))
 }
 
 /// The comma-separated `items` of `node`, each with the comments before

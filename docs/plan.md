@@ -49,7 +49,7 @@ nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it wait
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **Q.15a**.
+4. Resume at the first unchecked box. Right now that is **Q.15b**.
 
 ### Test tiers
 
@@ -1166,7 +1166,10 @@ A second, independent audit of the same code (2026-10-13, kept in `~/.cache/nomi
 
   Done: 0.19.1's lenient UTF-8 scanning (`chomp` and the class widths) is base's alone, project and syntax both calling it; base's `Doc` is a struct over a crate-private tree, and `doc::from_chars` serves registry's unexpected bodies; store directories neither tool writes are skipped rather than read loosely; the parser's `bump` walks its lookahead once, and the grammar's operator and accessor checks share their helpers; `literal_body` reads shaders too, for validation, the formatter and the compiler; the lexer's error kinds drop payloads nothing read; the error ports' parsers lose parameters they never used. 60 lines fewer. Measured against Q.14: builds the same, formatting the corpus apps 0.29 s against 0.30. CI and the `syntax`, `format` and `outline` corpus suites are unchanged. Surprises: `nomi publish` panicked on a tag answer with a newline in its first 73 characters, and no longer does; an `elm.json` ending in a keyword and a cut-off character under 0.19.1 now keeps the keyword, as the syntax crate's scanner always did, where upstream reads past its buffer.
 
-- [ ] **Q.15a** `quality: exit findings, format` (10).
+- [x] **Q.15a** `quality: exit findings, format` (10).
+
+  Done: `bounded` and `commented_value` give way to `surrounded` and `c2`, and the four ports and extensions that took a name with its comments call one `name_before`; `child_tokens` is syntax's, beside `child_token`, which it defines; the syntax and format benchmarks print their scaling table through one `nomi_testkit::bench::scaling`; the unit tests share `code_points`, `names` and `upper_ref`; numbers' scaling state is a `Scaled` from the start rather than a tuple repacked into one; escapes and markdown's runs are written in place rather than formatted into strings first. 34 lines fewer. Formatting the corpus apps takes 0.28 s, as before. CI and the `syntax` and `format` corpus suites are unchanged.
+
 - [ ] **Q.15b** `quality: exit findings, compiler` (27).
 - [ ] **Q.15c** `quality: exit findings, codegen-js, test and testkit` (14).
 - [ ] **Q.15d** `quality: exit findings, engine` (15).

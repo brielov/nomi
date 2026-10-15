@@ -2,15 +2,13 @@
 //! `topLevel` in `Parse/Module.hs`.
 
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxKind, SyntaxToken, child_token};
+use nomi_syntax::{SyntaxKind, SyntaxToken, child_token, child_tokens};
 
 use super::cursor::Cursor;
 use super::definitions::{destructure, value_parts};
 use super::expressions::expr;
 use super::types::ty;
-use super::{
-    VALID, child_tokens, comments_before, lower_name, preceded, start, symbol, upper_name,
-};
+use super::{VALID, comments_before, lower_name, name_before, preceded, start, symbol, upper_name};
 use crate::tree::{
     Around, AroundEol, Assoc, BeforeEol, Declaration, Lower, NameWithArgs, OpenCommentedList,
     TopLevelStructure, c,
@@ -137,12 +135,11 @@ fn name_with_args(
 /// `port name : type`.
 fn port(cx: &mut Cursor, node: &ast::PortDecl) -> Declaration {
     let name = node.lower_ident_token().expect(VALID);
-    let before = cx.take(start(&name));
-    let after = cx.take(start(&node.colon_token().expect(VALID)));
+    let name = name_before(cx, &name, &node.colon_token().expect(VALID));
     let annotation = node.ty().expect(VALID);
     let before_type = cx.take(cx.range(annotation.syntax()).start());
     Declaration::PortAnnotation {
-        name: c(Around { before, after }, lower_name(&name)),
+        name,
         before_type,
         ty: ty(cx, &annotation),
     }
@@ -151,12 +148,11 @@ fn port(cx: &mut Cursor, node: &ast::PortDecl) -> Declaration {
 /// Elm 0.16's `port name = expr`.
 fn legacy_port(cx: &mut Cursor, node: &ast::LegacyPortDecl) -> Declaration {
     let name = node.lower_ident_token().expect(VALID);
-    let before = cx.take(start(&name));
-    let after = cx.take(start(&node.eq_token().expect(VALID)));
+    let name = name_before(cx, &name, &node.eq_token().expect(VALID));
     let value = node.expr().expect(VALID);
     let before_body = cx.take(cx.range(value.syntax()).start());
     Declaration::PortDefinition {
-        name: c(Around { before, after }, lower_name(&name)),
+        name,
         before_body,
         body: expr(cx, &value),
     }

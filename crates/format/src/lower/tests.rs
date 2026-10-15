@@ -1,5 +1,5 @@
 use super::*;
-use crate::test_support::{block, line, lowered, upper};
+use crate::test_support::{block, line, lowered, names, upper};
 use crate::tree::{
     Around, C1, CommentedMap, DetailedListing, Docs, ForceMultiline, Header, ImportKey,
     ImportMethod, Listing, SourceSetting, SourceTag,
@@ -10,10 +10,6 @@ fn comments(text: &str) -> Comments {
     let root = nomi_syntax::parse_module(text).syntax();
     let mut cx = Cursor::new(&root, text);
     cx.take(TextSize::of(text))
-}
-
-fn names(names: &[&str]) -> Vec<Upper> {
-    names.iter().map(|n| upper(n)).collect()
 }
 
 fn values(items: &[(&str, Comments, Comments)]) -> CommentedMap<Lower, ()> {
