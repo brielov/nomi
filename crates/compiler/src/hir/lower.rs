@@ -6,7 +6,7 @@
 
 use nomi_base::{TextRange, grow_large};
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, significant_tokens};
+use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, literal_body, significant_tokens};
 
 use super::{
     Alias, Associativity, Def, DefId, Exposed, Exposing, Expr, ExprId, Fixity, Import, Infix,
@@ -371,8 +371,9 @@ impl Lower {
             E::GlslExpr(glsl) => match glsl.glsl_token() {
                 Some(token) => {
                     let text = token.text();
-                    let source = text.strip_prefix("[glsl|").unwrap_or(text);
-                    Expr::Shader(source.strip_suffix("|]").unwrap_or(source).to_owned())
+                    // An unterminated shader runs to the end of the text.
+                    let source = literal_body(text).or_else(|| text.strip_prefix("[glsl|"));
+                    Expr::Shader(source.unwrap_or(text).to_owned())
                 }
                 None => Expr::Missing,
             },

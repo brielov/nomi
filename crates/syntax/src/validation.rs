@@ -13,7 +13,7 @@ use crate::ast::{self, AstNode};
 use crate::glsl;
 use crate::{
     LexErrorKind, Parse, SyntaxError, SyntaxErrorKind as E, SyntaxKind as K, SyntaxNode,
-    SyntaxToken, child_token, tokens, trimmed_range,
+    SyntaxToken, child_token, literal_body, tokens, trimmed_range,
 };
 
 /// The tool whose rules a tree must follow.
@@ -492,10 +492,7 @@ fn hex_escapes(token: &SyntaxToken, errors: &mut Vec<SyntaxError>) {
 /// elm parses each shader block's GLSL (`Parse/Shader.hs`). An
 /// unterminated block is the lexer's to report.
 fn shader(token: &SyntaxToken, errors: &mut Vec<SyntaxError>) {
-    let Some(glsl) = (token.text())
-        .strip_prefix("[glsl|")
-        .and_then(|rest| rest.strip_suffix("|]"))
-    else {
+    let Some(glsl) = literal_body(token.text()) else {
         return;
     };
     if let Some(offset) = glsl::rejection_offset(glsl) {

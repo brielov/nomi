@@ -667,18 +667,19 @@ impl<'t> Parser<'t> {
 
     /// Consumes the current token as its own kind.
     pub(crate) fn bump(&mut self) {
-        let kind = self.current();
-        self.bump_as(kind);
+        self.bump_kind(None);
     }
 
     /// Consumes the current token as `kind`, such as `alias` as
     /// [`SyntaxKind::AliasKw`].
     pub(crate) fn bump_as(&mut self, kind: SyntaxKind) {
-        assert!(!self.at(SyntaxKind::Eof), "bumped past the end");
-        if let Some(a) = self.nth_token(0)
-            && a.column < self.min_column
-            && self.anchor != Some(a.token.range.start())
-        {
+        self.bump_kind(Some(kind));
+    }
+
+    /// Consumes the current token as `kind`, or else as its own kind.
+    fn bump_kind(&mut self, kind: Option<SyntaxKind>) {
+        let a = self.nth_token(0).expect("bumped past the end");
+        if a.column < self.min_column && self.anchor != Some(a.token.range.start()) {
             self.unindented.push(a.token.range);
         }
         while let Some(Ahead { token, .. }) = self.ahead.pop_front() {
@@ -687,6 +688,7 @@ impl<'t> Parser<'t> {
                 break;
             }
         }
+        let kind = kind.unwrap_or(a.token.kind);
         self.events.push(Event::Token { kind });
     }
 

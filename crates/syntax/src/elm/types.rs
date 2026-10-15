@@ -10,7 +10,7 @@ use super::error::{CustomType, Position, TRecord, TTuple, Type};
 use super::literal::{foreign_upper, lower, upper};
 
 /// `term`.
-pub(super) fn term(p: &mut P<'_>) -> Result<(), Type> {
+fn term(p: &mut P<'_>) -> Result<(), Type> {
     grow_large(|| {
         one_of(
             p,

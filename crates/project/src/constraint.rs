@@ -53,7 +53,7 @@ pub enum ConstraintError {
 
 impl Constraint {
     /// `lower lower_op v upper_op upper`.
-    pub const fn new(lower: Version, lower_op: Op, upper_op: Op, upper: Version) -> Constraint {
+    const fn new(lower: Version, lower_op: Op, upper_op: Op, upper: Version) -> Constraint {
         Constraint {
             lower,
             lower_op,
@@ -102,17 +102,6 @@ impl Constraint {
         self.lower_op.holds(self.lower, version) && self.upper_op.holds(version, self.upper)
     }
 
-    /// `check`: whether `version` is below, within or above the range.
-    pub fn check(&self, version: Version) -> Ordering {
-        if !self.lower_op.holds(self.lower, version) {
-            Ordering::Less
-        } else if !self.upper_op.holds(version, self.upper) {
-            Ordering::Greater
-        } else {
-            Ordering::Equal
-        }
-    }
-
     /// The versions both allow, if any. Like upstream, a range that
     /// excludes its own single version (`1.0.0 < v <= 1.0.0`) still counts.
     pub fn intersect(&self, other: &Constraint) -> Option<Constraint> {
@@ -134,26 +123,6 @@ impl Constraint {
             Ordering::Greater => (other.upper, other.upper_op),
         };
         (lower <= upper).then_some(Constraint::new(lower, lower_op, upper_op, upper))
-    }
-
-    /// `expand`: the range stretched to take in `version`, up to the
-    /// major version after it.
-    pub fn expand(&self, version: Version, compat: Compat) -> Constraint {
-        if version < self.lower {
-            Constraint {
-                lower: version,
-                lower_op: Op::LessOrEqual,
-                ..*self
-            }
-        } else if version > self.upper {
-            Constraint {
-                upper_op: Op::Less,
-                upper: version.bump_major(compat),
-                ..*self
-            }
-        } else {
-            *self
-        }
     }
 
     /// `decoder`'s string parser.

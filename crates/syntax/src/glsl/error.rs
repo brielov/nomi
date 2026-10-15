@@ -3,6 +3,8 @@
 //! Parsec 3.1.13.0, 0.19.2 3.1.17.0 and 0.19.3 3.1.18.0; they differ in
 //! nothing a shader's error shows.
 
+use std::fmt::Write as _;
+
 /// A message's kind. Parsec sorts messages by kind alone, keeping each
 /// kind's in order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -164,7 +166,10 @@ impl Error {
             show_many("expecting", of(Kind::Expect)),
             show_many("", of(Kind::Message)),
         ]);
-        lines.iter().map(|line| format!("\n{line}")).collect()
+        lines
+            .iter()
+            .flat_map(|line| ["\n", line.as_str()])
+            .collect()
     }
 }
 
@@ -233,7 +238,7 @@ fn show_lit_char(c: char, next: Option<char>, out: &mut String) {
     match c {
         '\u{7f}' => out.push_str("\\DEL"),
         _ if c > '\u{7f}' => {
-            out.push_str(&format!("\\{}", c as u32));
+            let _ = write!(out, "\\{}", u32::from(c));
             if next.is_some_and(|n| n.is_ascii_digit()) {
                 out.push_str("\\&");
             }

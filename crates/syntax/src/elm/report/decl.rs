@@ -8,7 +8,7 @@ use nomi_base::diagnostic::{Doc, Problem};
 use super::expr::Context;
 use super::pattern::PContext;
 use super::types::TypeContext;
-use super::{Reporter, surroundings, to_region};
+use super::{Reporter, stray_title, surroundings, to_region, unmatched_close};
 use crate::elm::error::{CustomType, Decl, DeclDef, DeclType, Port, Position, TypeAlias};
 
 /// What a definition was missing where it stopped, as the `*IndentType`,
@@ -45,18 +45,15 @@ impl Reporter<'_, '_> {
     pub(super) fn decl_start(&self, cur: Position) -> Problem {
         let region = to_region(cur);
         match self.next(cur) {
-            Next::Close(close) => {
-                let (term, bracket) = (close.name(), close.char());
-                self.at(
-                    format!("STRAY {}", term.to_uppercase()),
-                    region,
-                    reflow(&format!("I was not expecting to see a {term} here:")),
-                    reflow(&format!(
-                        "This {bracket} does not match up with an earlier open {term}. Try \
-                         deleting it?"
-                    )),
-                )
-            }
+            Next::Close(close) => self.at(
+                stray_title(close),
+                region,
+                reflow(&format!(
+                    "I was not expecting to see a {} here:",
+                    close.name()
+                )),
+                unmatched_close(close),
+            ),
             Next::Keyword(keyword) => self.at(
                 "RESERVED WORD",
                 self.keyword_region(cur, keyword.as_str()),
@@ -580,7 +577,19 @@ fn reserved_at_top(keyword: Keyword) -> Doc {
                  program.",
             ),
         ]),
-        _ => reflow("It is a reserved word. Try changing the name to something else?"),
+        Keyword::As
+        | Keyword::In
+        | Keyword::Of
+        | Keyword::Let
+        | Keyword::Else
+        | Keyword::Port
+        | Keyword::Then
+        | Keyword::Type
+        | Keyword::Where
+        | Keyword::Module
+        | Keyword::Exposing => {
+            reflow("It is a reserved word. Try changing the name to something else?")
+        }
     }
 }
 
@@ -592,7 +601,7 @@ pub(super) fn stuck_in_definition(name: &str) -> Doc {
 }
 
 /// The definition of `greet`, which many reports show.
-pub(super) fn greet_example() -> Doc {
+fn greet_example() -> Doc {
     vcat([
         Doc::from("greet : String -> String"),
         Doc::from("greet name ="),

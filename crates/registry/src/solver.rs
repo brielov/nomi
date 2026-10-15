@@ -112,10 +112,10 @@ pub fn verify_in<P: Packages>(
 /// `AppSolution`: an application's dependencies before and after adding
 /// a package, or updating some.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AppSolution {
-    pub old: BTreeMap<Name, Version>,
-    pub new: BTreeMap<Name, Version>,
-    pub app: AppOutline,
+pub(crate) struct AppSolution {
+    pub(crate) old: BTreeMap<Name, Version>,
+    pub(crate) new: BTreeMap<Name, Version>,
+    pub(crate) app: AppOutline,
 }
 
 /// `addToApp`: the application with `pkg` among its direct dependencies,
@@ -123,7 +123,7 @@ pub struct AppSolution {
 /// application's dependencies: all held exactly, then only the direct
 /// ones, then each direct one up to its next minor version, then up to
 /// its next major one, then not at all.
-pub fn add_to_app<P: Packages>(
+pub(crate) fn add_to_app<P: Packages>(
     packages: &mut P,
     compat: Compat,
     pkg: &Name,
@@ -175,7 +175,7 @@ pub fn add_to_app<P: Packages>(
 /// direct one up to its next major version, each indirect one not at all.
 /// The others are held exactly, then, if that fails, only the direct
 /// ones. `None` if nothing works.
-pub fn update_app<P: Packages>(
+pub(crate) fn update_app<P: Packages>(
     packages: &mut P,
     compat: Compat,
     free: &BTreeSet<Name>,

@@ -6,10 +6,10 @@
 
 use std::path::Path;
 
-use nomi_base::Compat;
 use nomi_base::diagnostic::json;
 use nomi_project::Outline;
 use nomi_project::report::{self, ElmCommand};
+use nomi_testkit::release_column;
 
 const RERUN: &str = "rerun `cargo xtask oracle outline`";
 
@@ -28,8 +28,7 @@ fn reports() {
         let src = std::fs::read(dir.join(format!("{name}.json")))
             .unwrap_or_else(|e| panic!("{name}: {e}; {RERUN}"));
         for elm in elms.split(',') {
-            let compat: Compat = (elm.strip_prefix("elm ").and_then(|v| v.parse().ok()))
-                .unwrap_or_else(|| panic!("unknown elm {elm}"));
+            let compat = release_column(elm).unwrap_or_else(|| panic!("unknown elm {elm}"));
             let found = match Outline::read(&src, compat) {
                 Ok(_) => "accepted".to_owned(),
                 Err(e) => {

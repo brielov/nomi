@@ -2,7 +2,7 @@
 
 use nomi_base::{TextRange, TextSize};
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxNode, SyntaxToken, significant_tokens};
+use nomi_syntax::{SyntaxNode, SyntaxToken, literal_body, significant_tokens};
 
 use super::cursor::Cursor;
 use super::definitions::{destructure, value_parts};
@@ -140,8 +140,8 @@ fn lambda(cx: &mut Cursor, node: &ast::LambdaExpr) -> Expr {
 /// `[glsl| … |]`, without the carriage returns.
 fn glsl(node: &ast::GlslExpr) -> Expr {
     let token = node.glsl_token().expect(VALID);
-    let text = token.text();
-    let source = text["[glsl|".len()..text.len() - "|]".len()]
+    let source = literal_body(token.text())
+        .expect(VALID)
         .chars()
         .filter(|&c| c != '\r')
         .collect();

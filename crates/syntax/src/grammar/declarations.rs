@@ -5,7 +5,10 @@ use super::definitions::{at_value_name, value};
 use super::expressions::expr;
 use super::patterns::{at_pattern_atom, pattern_atom};
 use super::types::{at_type_argument, type_, type_atom};
-use super::{expect_indented, expect_part, is_parenthesized_op, parenthesized_op, skip_junk};
+use super::{
+    at_operator_token, expect_indented, expect_part, is_parenthesized_op, parenthesized_op,
+    skip_junk,
+};
 use crate::SyntaxKind as K;
 use crate::parser::{Marker, Parser, SyntaxErrorKind};
 
@@ -197,23 +200,13 @@ fn legacy_infix_keyword(p: &mut Parser<'_>) -> Option<K> {
 /// Elm 0.18's `infixl 6 +`, an associativity then a precedence then an
 /// operator, which elm-format still reads.
 fn at_legacy_infix(p: &mut Parser<'_>) -> bool {
-    legacy_infix_keyword(p).is_some() && p.nth(1) == K::Int && at_legacy_infix_op(p, 2)
+    legacy_infix_keyword(p).is_some() && p.nth(1) == K::Int && at_operator_token(p, 2)
 }
 
 /// Whether the current token is a single decimal digit, the only
 /// precedence upstream reads.
 fn at_single_digit(p: &mut Parser<'_>) -> bool {
     matches!(p.current_text().as_bytes(), [b'0'..=b'9'])
-}
-
-/// Upstream's `anyOp`: a symbol or a backticked function, which lexes
-/// as an operator. A `.` joined to a name is a field accessor.
-fn at_legacy_infix_op(p: &mut Parser<'_>, n: usize) -> bool {
-    match p.nth(n) {
-        K::Operator | K::Minus | K::ColonColon => true,
-        K::Dot => !(p.nth(n + 1) == K::LowerIdent && p.nth_is_joined(n + 1)),
-        _ => false,
-    }
 }
 
 /// `infixl 6 +`.

@@ -101,15 +101,9 @@ impl SrcDir {
         &self.0
     }
 
-    /// `Json.toChars`: the characters upstream makes of the bytes. Strings
-    /// from 0.19.2 on are valid UTF-8; 0.19.1's may not be, and it then
-    /// assembles characters unchecked, so a code may be no character at
-    /// all, even negative.
-    pub fn chars(&self) -> Vec<i64> {
-        utf8::unchecked_chars(&self.0).collect()
-    }
-
-    /// The path upstream uses, if its characters are characters.
+    /// The path upstream uses, if its characters are characters: strings
+    /// from 0.19.2 on are valid UTF-8, but 0.19.1's may not be, and its
+    /// `Json.toChars` then assembles codes that are none.
     pub fn path(&self) -> Option<String> {
         utf8::unchecked_chars(&self.0)
             .map(|code| u32::try_from(code).ok().and_then(char::from_u32))
@@ -121,7 +115,7 @@ impl SrcDir {
     /// rewrite, as upstream's do.
     fn encode(&self) -> encode::Value {
         let mut out = Vec::with_capacity(self.0.len());
-        for code in self.chars() {
+        for code in utf8::unchecked_chars(&self.0) {
             match u8::try_from(code).ok().and_then(escape) {
                 Some(escaped) => out.extend_from_slice(escaped.as_bytes()),
                 None => char_utf8(code, &mut out),
@@ -188,7 +182,7 @@ pub enum OutlineProblem {
     /// A dependency's name stops being a package name at this position.
     BadDependencyName(Position),
     /// No license by this name: the four nearest.
-    BadLicense(Vec<&'static str>),
+    BadLicense(Vec<License>),
     /// A summary of 80 bytes or more, escapes as written.
     BadSummaryTooLong,
     NoSrcDirs,
@@ -256,7 +250,7 @@ impl Outline {
     }
 
     /// The release this project is built as: see [`Outline::detect`].
-    pub fn compat(&self) -> Result<Compat, DetectError> {
+    fn compat(&self) -> Result<Compat, DetectError> {
         match self {
             Outline::App(app) => Compat::ALL
                 .into_iter()
@@ -360,7 +354,7 @@ impl Outline {
                     field("type", V::string(*b"package")),
                     field("name", chars(&pkg.name)),
                     field("summary", V::string(pkg.summary.clone())),
-                    field("license", V::string(pkg.license.as_bytes())),
+                    field("license", V::string(pkg.license.as_str())),
                     field("version", chars(&pkg.version)),
                     field("exposed-modules", exposed),
                     field("elm-version", chars(&pkg.elm)),

@@ -2,9 +2,7 @@
 //! follow upstream's code for each release; suggestions were ranked by a
 //! separate model of `Reporting/Suggest.hs`.
 
-use std::cmp::Ordering;
-
-use nomi_base::Compat;
+use nomi_base::{Compat, utf8};
 
 use crate::json::decode::{Expectation, Problem};
 use crate::json::{Cursor, Position};
@@ -166,15 +164,13 @@ fn constraints_display() {
 #[test]
 fn constraints_hold_versions() {
     let range = constraint("1.0.0 <= v < 2.0.0", V1).unwrap();
-    assert_eq!(range.check(v(0, 9, 9)), Ordering::Less);
-    assert_eq!(range.check(v(1, 0, 0)), Ordering::Equal);
-    assert_eq!(range.check(v(1, 9, 9)), Ordering::Equal);
-    assert_eq!(range.check(v(2, 0, 0)), Ordering::Greater);
+    assert!(!range.satisfies(v(0, 9, 9)));
+    assert!(range.satisfies(v(1, 0, 0)));
     assert!(range.satisfies(v(1, 5, 0)));
     assert!(!range.satisfies(v(2, 0, 0)));
     let open = constraint("1.0.0 < v <= 2.0.0", V1).unwrap();
-    assert_eq!(open.check(v(1, 0, 0)), Ordering::Less);
-    assert_eq!(open.check(v(2, 0, 0)), Ordering::Equal);
+    assert!(!open.satisfies(v(1, 0, 0)));
+    assert!(open.satisfies(v(2, 0, 0)));
 }
 
 #[test]
@@ -198,22 +194,6 @@ fn constraints_intersect() {
         .unwrap();
     assert_eq!(met.to_string(), "2.0.0 <= v < 2.0.0");
     assert!(!met.satisfies(v(2, 0, 0)));
-}
-
-#[test]
-fn constraints_expand() {
-    let range = constraint("1.0.0 < v < 2.0.0", V1).unwrap();
-    assert_eq!(
-        range.expand(v(0, 5, 0), V1).to_string(),
-        "0.5.0 <= v < 2.0.0"
-    );
-    assert_eq!(range.expand(v(1, 5, 0), V1), range);
-    // Only past the upper end: the upper end itself is left alone.
-    assert_eq!(range.expand(v(2, 0, 0), V1), range);
-    assert_eq!(
-        range.expand(v(2, 5, 0), V1).to_string(),
-        "1.0.0 < v < 3.0.0"
-    );
 }
 
 #[test]
@@ -341,10 +321,13 @@ fn licenses() {
     for compat in Compat::ALL {
         for code in ["BSD-3-Clause", "MIT"] {
             let license = License::check(code.as_bytes(), compat).unwrap();
-            assert_eq!(license.as_bytes(), code.as_bytes());
+            assert_eq!(license.as_str(), code);
         }
         // The raw string, escapes and all.
-        let suggest = |raw: &[u8]| License::check(raw, compat).unwrap_err();
+        let suggest = |raw: &[u8]| {
+            let nearest = License::check(raw, compat).unwrap_err();
+            nearest.into_iter().map(License::as_str).collect::<Vec<_>>()
+        };
         assert_eq!(suggest(br"MI\u0054")[0], "MIT");
         assert_eq!(suggest(b"mit"), ["MIT", "AAL", "Fair", "IPA"]);
         assert_eq!(suggest(b"BSD3"), ["0BSD", "ISC", "AAL", "Fair"]);
@@ -426,7 +409,8 @@ fn source_directories_outside_utf8_mangle_in_0_19_1() {
     let Outline::App(a) = &outline else {
         unreachable!()
     };
-    assert_eq!(a.source_dirs[0].chars(), [0x73, 0x72, 0x63, -94]);
+    let chars: Vec<i64> = utf8::unchecked_chars(a.source_dirs[0].raw()).collect();
+    assert_eq!(chars, [0x73, 0x72, 0x63, -94]);
     assert_eq!(a.source_dirs[0].path(), None);
     let written = outline.write();
     assert!(written.windows(6).any(|w| w == b"\"src\xA2\""));

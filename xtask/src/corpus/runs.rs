@@ -25,7 +25,7 @@ use nomi_engine::console::Captured;
 use nomi_engine::graph::Env;
 use nomi_engine::{javascript, names, objects};
 use nomi_project::Name;
-use nomi_testkit::sha256_hex as sha256;
+use nomi_testkit::{release_column, sha256_hex as sha256};
 
 use super::names::{Expected, Live, Project, build, solve};
 use super::{compat, parallel};
@@ -175,8 +175,7 @@ pub(super) fn load(root: &Path, suite: Suite) -> Result<BTreeMap<Compat, BTreeMa
         bail!("{path} has no header");
     };
     let compats = (elms.iter())
-        .map(|elm| (elm.strip_prefix("elm ")).with_context(|| format!("{path}'s column `{elm}`")))
-        .map(|version| Ok(version?.parse()?))
+        .map(|elm| release_column(elm).with_context(|| format!("{path}'s column `{elm}`")))
         .collect::<Result<Vec<Compat>>>()?;
     let mut columns: BTreeMap<Compat, BTreeMap<String, Cell>> = BTreeMap::new();
     for line in lines {

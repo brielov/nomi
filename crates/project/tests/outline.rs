@@ -13,6 +13,7 @@ use nomi_project::json::ParseErrorKind;
 use nomi_project::json::decode::{self, Problem};
 use nomi_project::outline::{OutlineProblem, SrcDir};
 use nomi_project::{Outline, OutlineError};
+use nomi_testkit::release_column;
 
 const RERUN: &str = "rerun `cargo xtask oracle outline`";
 
@@ -25,10 +26,7 @@ fn outline_fixtures() {
     let header: Vec<&str> = lines.next().expect("a header").split('\t').collect();
     let compats: Vec<Compat> = header[1..]
         .iter()
-        .map(|column| {
-            (column.strip_prefix("elm ").and_then(|v| v.parse().ok()))
-                .unwrap_or_else(|| panic!("unknown column {column}"))
-        })
+        .map(|column| release_column(column).unwrap_or_else(|| panic!("unknown column {column}")))
         .collect();
     let recorded: BTreeMap<&str, Vec<&str>> = lines
         .map(|line| {
@@ -54,11 +52,11 @@ fn outline_fixtures() {
         for (&compat, &expected) in compats.iter().zip(expected) {
             let read = Outline::read(&src, compat);
             let found = match &read {
-                Ok(_) => "accepted",
+                Ok(_) => Outcome::Accepted,
                 Err(e) => outcome(e, compat),
             };
-            if found != outcome_of(expected) {
-                failures.push(format!("{name} on {compat}: {found}, elm: {expected}"));
+            if found != Outcome::of_cell(expected) {
+                failures.push(format!("{name} on {compat}: {found:?}, elm: {expected}"));
             }
             if let Ok(outline) = read
                 && let Err(e) = rewrite(&outline, compat)
@@ -75,18 +73,31 @@ fn outline_fixtures() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// What elm does with an outline, from `oracle.tsv`'s cell: a report's
-/// title and the shape of its code excerpt are a report.
-fn outcome_of(cell: &str) -> &str {
-    match cell {
-        "accepted" | "loop" | "crash" => cell,
-        _ => "report",
+/// What elm does with an outline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Outcome {
+    Accepted,
+    Report,
+    Loop,
+    Crash,
+}
+
+impl Outcome {
+    /// From `oracle.tsv`'s cell: a report's title and the shape of its
+    /// code excerpt are a report.
+    fn of_cell(cell: &str) -> Outcome {
+        match cell {
+            "accepted" => Outcome::Accepted,
+            "loop" => Outcome::Loop,
+            "crash" => Outcome::Crash,
+            _ => Outcome::Report,
+        }
     }
 }
 
 /// What elm does with an outline nomi rejects with `error`: it reports
 /// the problem, unless it loops or crashes on the way.
-fn outcome(error: &OutlineError, compat: Compat) -> &'static str {
+fn outcome(error: &OutlineError, compat: Compat) -> Outcome {
     match error {
         // `parseErrorToReport` shows from `max 1 (row - 2)`, in 0.19.1's
         // 16-bit rows: from row 1 or 0 that wraps past the error, so there
@@ -94,7 +105,7 @@ fn outcome(error: &OutlineError, compat: Compat) -> &'static str {
         OutlineError::Parse(e)
             if (compat == Compat::V0_19_1 && e.at.row < 2) || e.kind == ParseErrorKind::Crash =>
         {
-            "crash"
+            Outcome::Crash
         }
         // `expectationToReport` defines the region it shows of a value on
         // one row as itself, and so never returns.
@@ -102,13 +113,13 @@ fn outcome(error: &OutlineError, compat: Compat) -> &'static str {
             if matches!(reported(problem), Problem::Expecting(region, _)
                 if region.start.row == region.end.row) =>
         {
-            "loop"
+            Outcome::Loop
         }
         OutlineError::Parse(_)
         | OutlineError::Decode(_)
         | OutlineError::NoPkgCore
         | OutlineError::NoAppCore
-        | OutlineError::NoAppJson => "report",
+        | OutlineError::NoAppJson => Outcome::Report,
     }
 }
 

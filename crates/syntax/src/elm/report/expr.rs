@@ -252,24 +252,26 @@ impl Reporter<'_, '_> {
             stack([
                 reflow("Maybe you want == instead? To check if two values are equal?"),
                 doc::simple_note(&if context.is_within(Node::Record) {
-                    "Records look like { x = 3, y = 4 } with the equals sign right after the \
-                     field name. So maybe you forgot a comma?"
-                        .to_owned()
+                    Cow::Borrowed(
+                        "Records look like { x = 3, y = 4 } with the equals sign right after \
+                         the field name. So maybe you forgot a comma?",
+                    )
                 } else {
                     match context.def_name() {
-                        None => "I may be getting confused by your indentation. I need all \
-                                 definitions to be indented exactly the same amount, so if \
-                                 this is meant to be a new definition, it may have too many \
-                                 spaces in front of it."
-                            .to_owned(),
-                        Some(name) => format!(
+                        None => Cow::Borrowed(
+                            "I may be getting confused by your indentation. I need all \
+                             definitions to be indented exactly the same amount, so if this is \
+                             meant to be a new definition, it may have too many spaces in front \
+                             of it.",
+                        ),
+                        Some(name) => Cow::Owned(format!(
                             "I may be getting confused by your indentation. I think I am \
                              still parsing the `{name}` definition. Is this supposed to be \
                              part of a definition after that? If so, the problem may be a \
                              bit before the equals sign. I need all definitions to be \
                              indented exactly the same amount, so the problem may be that \
                              this new definition has too many spaces in front of it."
-                        ),
+                        )),
                     }
                 }),
             ]),

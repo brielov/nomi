@@ -9,7 +9,7 @@
 
 use std::fmt::Write as _;
 
-use super::doc::{Color, Doc, Line};
+use super::doc::{Color, Doc, Line, Node};
 use crate::Compat;
 
 /// The width upstream lays everything out at.
@@ -135,11 +135,11 @@ impl<'d> Renderer<'d> {
             let push = |stack: &mut Vec<Cmd<'d>>, indent, mode, doc| {
                 stack.push(Cmd::doc(indent, mode, doc));
             };
-            match doc {
-                Doc::Empty => {}
-                Doc::Text(text) => self.push_text(text),
-                Doc::Link(page) => self.push_text(&link(self.compat, page)),
-                Doc::Line(line) => match (mode, line) {
+            match &doc.0 {
+                Node::Empty => {}
+                Node::Text(text) => self.push_text(text),
+                Node::Link(page) => self.push_text(&link(self.compat, page)),
+                Node::Line(line) => match (mode, line) {
                     (Mode::Flat, Line::Space) => self.push_text(" "),
                     (Mode::Flat, Line::Empty) => {}
                     // A flat group never holds a hard line, since it
@@ -150,13 +150,13 @@ impl<'d> Renderer<'d> {
                         self.column = indent;
                     }
                 },
-                Doc::Append(a, b) => {
+                Node::Append(a, b) => {
                     push(&mut self.stack, indent, mode, b);
                     push(&mut self.stack, indent, mode, a);
                 }
-                Doc::Nest(width, d) => push(&mut self.stack, indent + width, mode, d),
-                Doc::Align(d) => push(&mut self.stack, self.column, mode, d),
-                Doc::Group(d) => {
+                Node::Nest(width, d) => push(&mut self.stack, indent + width, mode, d),
+                Node::Align(d) => push(&mut self.stack, self.column, mode, d),
+                Node::Group(d) => {
                     let mode = if mode == Mode::Flat || self.fits(indent, d) {
                         Mode::Flat
                     } else {
@@ -164,22 +164,22 @@ impl<'d> Renderer<'d> {
                     };
                     push(&mut self.stack, indent, mode, d);
                 }
-                Doc::Fill(width, d) => {
+                Node::Fill(width, d) => {
                     self.stack.push(Cmd::Pad {
                         start: self.column,
                         width: *width,
                     });
                     push(&mut self.stack, indent, mode, d);
                 }
-                Doc::Color(color, d) => self.styled(indent, mode, d, |style| {
+                Node::Color(color, d) => self.styled(indent, mode, d, |style| {
                     style.color = Some(*color);
                     color_code(*color)
                 }),
-                Doc::Underline(d) => self.styled(indent, mode, d, |style| {
+                Node::Underline(d) => self.styled(indent, mode, d, |style| {
                     style.underline = true;
                     4
                 }),
-                Doc::Snippet(_) | Doc::Pair(_) => panic!("{UNEXPANDED}"),
+                Node::Snippet(_) | Node::Pair(_) => panic!("{UNEXPANDED}"),
             }
         }
         self
@@ -254,32 +254,32 @@ impl<'d> Renderer<'d> {
                 }
                 Cmd::Restore(_) => continue,
             };
-            match doc {
-                Doc::Empty => {}
-                Doc::Text(text) => column += text.chars().count(),
-                Doc::Link(page) => column += link(self.compat, page).chars().count(),
-                Doc::Line(line) => match (mode, line) {
+            match &doc.0 {
+                Node::Empty => {}
+                Node::Text(text) => column += text.chars().count(),
+                Node::Link(page) => column += link(self.compat, page).chars().count(),
+                Node::Line(line) => match (mode, line) {
                     (Mode::Flat, Line::Space) => column += 1,
                     (Mode::Flat, Line::Empty) => {}
                     (Mode::Flat, Line::Hard) => return false,
                     (Mode::Break, _) => return true,
                 },
-                Doc::Append(a, b) => {
+                Node::Append(a, b) => {
                     local.push(Cmd::doc(indent, mode, b));
                     local.push(Cmd::doc(indent, mode, a));
                 }
-                Doc::Nest(width, d) => local.push(Cmd::doc(indent + width, mode, d)),
-                Doc::Fill(width, d) => {
+                Node::Nest(width, d) => local.push(Cmd::doc(indent + width, mode, d)),
+                Node::Fill(width, d) => {
                     local.push(Cmd::Pad {
                         start: column,
                         width: *width,
                     });
                     local.push(Cmd::doc(indent, mode, d));
                 }
-                Doc::Align(d) | Doc::Group(d) | Doc::Color(_, d) | Doc::Underline(d) => {
+                Node::Align(d) | Node::Group(d) | Node::Color(_, d) | Node::Underline(d) => {
                     local.push(Cmd::doc(indent, mode, d));
                 }
-                Doc::Snippet(_) | Doc::Pair(_) => panic!("{UNEXPANDED}"),
+                Node::Snippet(_) | Node::Pair(_) => panic!("{UNEXPANDED}"),
             }
         }
     }
@@ -312,17 +312,10 @@ fn color_code(color: Color) -> u8 {
         Color::Green => (90, 2),
         Color::Yellow => (90, 3),
         Color::Blue => (90, 4),
-        Color::Magenta => (90, 5),
         Color::Cyan => (90, 6),
-        Color::White => (90, 7),
-        Color::DullBlack => (30, 0),
         Color::DullRed => (30, 1),
-        Color::DullGreen => (30, 2),
         Color::DullYellow => (30, 3),
-        Color::DullBlue => (30, 4),
-        Color::DullMagenta => (30, 5),
         Color::DullCyan => (30, 6),
-        Color::DullWhite => (30, 7),
     };
     base + index
 }

@@ -12,8 +12,8 @@ use std::fmt;
 
 use text_size::TextRange;
 
-use super::doc::{Doc, OneLine, Pair, TwoSnippets, framed, red, text, vcat};
-use crate::{ColumnUnit, Compat, LineIndex, ghc};
+use super::doc::{Doc, Node, OneLine, Pair, TwoSnippets, framed, red, text, vcat};
+use crate::{Compat, LineIndex, ghc};
 
 /// A file's text, split into lines as upstream splits it to show them
 /// (`Code.Source`).
@@ -174,7 +174,7 @@ impl<'a> Source<'a> {
         let position = |offset| {
             let elm = self
                 .index
-                .elm_position(self.text, offset, ColumnUnit::CodePoint)
+                .elm_position(self.text, offset)
                 .expect("a snippet within its file");
             Position {
                 row: compat.keep(elm.row),
@@ -257,12 +257,12 @@ impl<'a> Source<'a> {
     /// the line after `at`'s, after spaces.
     pub fn next_line_starts_with_keyword(
         &self,
-        keyword: &str,
+        keyword: Keyword,
         at: Position,
         compat: Compat,
     ) -> Option<Position> {
         self.next_line_starts(at, compat, |rest| {
-            rest.strip_prefix(keyword)
+            rest.strip_prefix(keyword.as_str())
                 .is_some_and(|after| !after.chars().next().is_some_and(is_inner))
         })
     }
@@ -318,19 +318,19 @@ struct Expander<'s, 'a> {
 impl Expander<'_, '_> {
     fn expand(&self, doc: &Doc) -> Doc {
         let boxed = |d: &Doc| Box::new(self.expand(d));
-        match doc {
-            Doc::Snippet(snippet) => {
+        match &doc.0 {
+            Node::Snippet(snippet) => {
                 self.render(self.region(snippet.region), self.region(snippet.highlight))
             }
-            Doc::Pair(pair) => self.pair(pair),
-            Doc::Append(a, b) => Doc::Append(boxed(a), boxed(b)),
-            Doc::Nest(width, d) => Doc::Nest(*width, boxed(d)),
-            Doc::Align(d) => Doc::Align(boxed(d)),
-            Doc::Group(d) => Doc::Group(boxed(d)),
-            Doc::Fill(width, d) => Doc::Fill(*width, boxed(d)),
-            Doc::Color(color, d) => Doc::Color(*color, boxed(d)),
-            Doc::Underline(d) => Doc::Underline(boxed(d)),
-            Doc::Empty | Doc::Text(_) | Doc::Line(_) | Doc::Link(_) => doc.clone(),
+            Node::Pair(pair) => self.pair(pair),
+            Node::Append(a, b) => Doc(Node::Append(boxed(a), boxed(b))),
+            Node::Nest(width, d) => Doc(Node::Nest(*width, boxed(d))),
+            Node::Align(d) => Doc(Node::Align(boxed(d))),
+            Node::Group(d) => Doc(Node::Group(boxed(d))),
+            Node::Fill(width, d) => Doc(Node::Fill(*width, boxed(d))),
+            Node::Color(color, d) => Doc(Node::Color(*color, boxed(d))),
+            Node::Underline(d) => Doc(Node::Underline(boxed(d))),
+            Node::Empty | Node::Text(_) | Node::Line(_) | Node::Link(_) => doc.clone(),
         }
     }
 

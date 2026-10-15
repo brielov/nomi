@@ -24,6 +24,6 @@ pub use http::{Http, HttpError, Part, Web};
 pub use index::{Connection, Index, Known, LatestError, RegistryProblem};
 pub use install::{Change, InstallProblem, Plan};
 pub use remove::RemoveProblem;
-pub use solver::{AppSolution, Details, Packages, Release};
+pub use solver::{Details, Packages, Release};
 pub use store::{PackageProblem, Store};
 pub use update::{Outdated, UpdateProblem};

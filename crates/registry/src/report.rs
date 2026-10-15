@@ -8,7 +8,7 @@
 //! 0.19.3 shows, and other failures with the client's message.
 
 use nomi_base::diagnostic::doc::{
-    Color, Doc, dull_yellow, fill_sep, green, note, red, reflow, text, vcat, words,
+    Color, Doc, dull_yellow, fill_sep, from_chars, green, note, red, reflow, text, vcat, words,
 };
 use nomi_base::{Compat, Report};
 use nomi_project::report::{self, ElmCommand, elm_json_path};
@@ -21,7 +21,7 @@ use crate::index::RegistryProblem;
 use crate::store::PackageProblem;
 
 /// Upstream's guess at what corrupted a response.
-const INTERCEPTED: &str = "We have gotten reports that schools, businesses, airports, etc. \
+pub const INTERCEPTED: &str = "We have gotten reports that schools, businesses, airports, etc. \
                            sometimes intercept requests and add things to the body or change its \
                            contents entirely. Could that be the problem?";
 
@@ -172,7 +172,7 @@ pub fn package_problem(name: &Name, version: Version, problem: &PackageProblem) 
             TITLE,
             None,
             &format!("I could not store the source code for {package}:"),
-            [verbatim(&e.to_string()).indent(4)],
+            [from_chars(&e.to_string()).indent(4)],
         ),
     }
 }
@@ -182,35 +182,40 @@ pub fn package_problem(name: &Name, version: Version, problem: &PackageProblem) 
 pub fn registry_problem(title: &'static str, problem: &RegistryProblem, context: &str) -> Report {
     match problem {
         RegistryProblem::Http(url, e) => http_error(title, url, e, context),
-        RegistryProblem::Data(url, body) => {
-            let whole = body.len() <= 76;
-            let shown = String::from_utf8_lossy(body);
-            let shown = if whole {
-                shown.into_owned()
-            } else {
-                shown.chars().take(73).chain("...".chars()).collect()
-            };
-            Report::new(
-                title,
-                None,
-                &format!("{context}, so I fetched:"),
-                [
-                    url_doc(url),
-                    reflow(&format!(
-                        "I got the data back, but it was not what I was expecting. The response \
-                         body contains {} bytes. Here is the {}",
-                        body.len(),
-                        if whole { "whole thing:" } else { "beginning:" }
-                    )),
-                    verbatim(&shown).color(Color::DullYellow).indent(4),
-                    reflow(&format!(
-                        "Does this error keep showing up? Maybe there is something weird with \
-                         your internet connection. {INTERCEPTED}"
-                    )),
-                ],
-            )
-        }
+        RegistryProblem::Data(url, body) => unexpected_body(title, url, body, context),
     }
+}
+
+/// The `Data` case of `toRegistryProblemReport`, which publishing's
+/// `PublishCannotGetTagData` repeats: `body`, fetched from `url` as
+/// `context` needed, was not what was expected.
+pub fn unexpected_body(title: &'static str, url: &str, body: &[u8], context: &str) -> Report {
+    let whole = body.len() <= 76;
+    let shown = String::from_utf8_lossy(body);
+    let shown = if whole {
+        shown.into_owned()
+    } else {
+        shown.chars().take(73).chain("...".chars()).collect()
+    };
+    Report::new(
+        title,
+        None,
+        &format!("{context}, so I fetched:"),
+        [
+            url_doc(url),
+            reflow(&format!(
+                "I got the data back, but it was not what I was expecting. The response body \
+                 contains {} bytes. Here is the {}",
+                body.len(),
+                if whole { "whole thing:" } else { "beginning:" }
+            )),
+            from_chars(&shown).color(Color::DullYellow).indent(4),
+            reflow(&format!(
+                "Does this error keep showing up? Maybe there is something weird with your \
+                 internet connection. {INTERCEPTED}"
+            )),
+        ],
+    )
 }
 
 /// `toSolverReport`.
@@ -261,7 +266,7 @@ pub fn solver_problem(problem: &SolverProblem) -> Report {
             None,
             "I need the elm.json of a package to help me search for a set of compatible \
              packages, but I could not read it:",
-            [verbatim(&e.to_string()).indent(4)],
+            [from_chars(&e.to_string()).indent(4)],
         ),
     }
 }
@@ -292,7 +297,7 @@ pub fn http_error(title: &'static str, url: &str, e: &HttpError, context: &str) 
         }
         HttpError::Transport(message) => vec![
             reflow("But my HTTP library is giving me the following error message:"),
-            verbatim(message).indent(4),
+            from_chars(message).indent(4),
             reflow(
                 "Are you somewhere with a slow internet connection? Or no internet? Does the \
                  link I am trying to fetch work in your browser? Maybe the site is down? Does \
@@ -312,11 +317,6 @@ pub fn http_error(title: &'static str, url: &str, e: &HttpError, context: &str) 
 /// A URL on its own line, as reports show the one they fetched.
 fn url_doc(url: &str) -> Doc {
     dull_yellow(url).indent(4)
-}
-
-/// `D.fromChars`: text as it is, its lines kept.
-fn verbatim(text: &str) -> Doc {
-    vcat(text.split('\n').map(Doc::from))
 }
 
 #[cfg(test)]

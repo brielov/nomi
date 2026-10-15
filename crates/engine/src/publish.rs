@@ -15,6 +15,7 @@ use nomi_project::report::elm_json_path;
 use nomi_project::version::Version;
 use nomi_project::{Name, Outline};
 use nomi_registry::http::DOMAIN;
+use nomi_registry::report::INTERCEPTED;
 use nomi_registry::{Http, HttpError, Known, Part};
 
 use crate::Context;
@@ -651,30 +652,11 @@ fn no_tag_on_github(version: Version) -> Report {
 
 /// `PublishCannotGetTagData`.
 fn cannot_get_tag_data(version: Version, url: &str, body: &[u8]) -> Report {
-    let shown = String::from_utf8_lossy(body);
-    let (whole, shown) = if body.len() <= 76 {
-        ("whole thing:", shown.into_owned())
-    } else {
-        (
-            "beginning:",
-            format!("{}...", shown.chars().take(73).collect::<String>()),
-        )
-    };
-    Report::new(
+    nomi_registry::report::unexpected_body(
         "PROBLEM VERIFYING TAG",
-        None,
-        &format!("I need to check that version {version} is tagged on GitHub, so I fetched:"),
-        [
-            text(url).color(Color::DullYellow).indent(4),
-            reflow(&format!(
-                "I got the data back, but it was not what I was expecting. The response body contains {} bytes. Here is the {whole}",
-                body.len()
-            )),
-            text(shown).color(Color::DullYellow).indent(4),
-            reflow(
-                "Does this error keep showing up? Maybe there is something weird with your internet connection. We have gotten reports that schools, businesses, airports, etc. sometimes intercept requests and add things to the body or change its contents entirely. Could that be the problem?",
-            ),
-        ],
+        url,
+        body,
+        &format!("I need to check that version {version} is tagged on GitHub"),
     )
 }
 
@@ -686,9 +668,10 @@ fn cannot_decode_zip(url: &str) -> Report {
         "I need to check that folks can download and build the source code when they install this package, so I downloaded the code from:",
         [
             text(url).color(Color::DullYellow).indent(4),
-            reflow(
-                "I was unable to unzip the archive though. Maybe there is something weird with your internet connection. We have gotten reports that schools, businesses, airports, etc. sometimes intercept requests and add things to the body or change its contents entirely. Could that be the problem?",
-            ),
+            reflow(&format!(
+                "I was unable to unzip the archive though. Maybe there is something weird with \
+                 your internet connection. {INTERCEPTED}"
+            )),
         ],
     )
 }

@@ -1,7 +1,7 @@
 //! The reports on expressions that hold blocks: `toLetReport` with its
 //! definitions and destructurings, `toCaseReport` and `toIfReport`.
 
-use nomi_base::diagnostic::code::Next;
+use nomi_base::diagnostic::code::{Keyword, Next};
 use nomi_base::diagnostic::doc::{self, blue, cyan, dull_yellow, green, reflow, stack, vcat};
 use nomi_base::diagnostic::{Doc, Problem};
 
@@ -358,8 +358,12 @@ impl Reporter<'_, '_> {
     pub(super) fn if_(&self, context: &Context<'_>, if_: &If, start: Position) -> Problem {
         let more =
             || reflow("I was expecting to see more of this `if` expression, but I got stuck here:");
-        let keyword_next = |keyword: &'static str| {
-            fill!["I was expecting to see the", cyan(keyword), "keyword next."]
+        let keyword_next = |keyword: Keyword| {
+            fill![
+                "I was expecting to see the",
+                cyan(keyword.as_str()),
+                "keyword next."
+            ]
         };
         let confused = || {
             doc::simple_note(
@@ -370,12 +374,20 @@ impl Reporter<'_, '_> {
             || reflow("I was expecting to see an expression next. Maybe it is not filled in yet?");
         match if_ {
             If::IfSpace(space, cur) => self.space(*space, *cur),
-            If::IfThen(cur) => {
-                self.stuck("UNFINISHED IF", start, *cur, more(), keyword_next("then"))
-            }
-            If::IfElse(cur) => {
-                self.stuck("UNFINISHED IF", start, *cur, more(), keyword_next("else"))
-            }
+            If::IfThen(cur) => self.stuck(
+                "UNFINISHED IF",
+                start,
+                *cur,
+                more(),
+                keyword_next(Keyword::Then),
+            ),
+            If::IfElse(cur) => self.stuck(
+                "UNFINISHED IF",
+                start,
+                *cur,
+                more(),
+                keyword_next(Keyword::Else),
+            ),
             If::IfElseBranchStart(cur) => self.stuck(
                 "UNFINISHED IF",
                 start,
@@ -405,7 +417,7 @@ impl Reporter<'_, '_> {
                 start,
                 *cur,
                 more(),
-                stack([keyword_next("then"), confused()]),
+                stack([keyword_next(Keyword::Then), confused()]),
             ),
             If::IfIndentThenBranch(cur) => self.stuck(
                 "UNFINISHED IF",
@@ -439,7 +451,7 @@ impl Reporter<'_, '_> {
 
     /// `IfIndentElse`: an `else` not indented enough, or none.
     fn missing_else(&self, start: Position, cur: Position) -> Problem {
-        match (self.source).next_line_starts_with_keyword("else", cur, self.compat) {
+        match (self.source).next_line_starts_with_keyword(Keyword::Else, cur, self.compat) {
             Some(else_cur) => self.within(
                 "WEIRD ELSE BRANCH",
                 surroundings(start, else_cur),

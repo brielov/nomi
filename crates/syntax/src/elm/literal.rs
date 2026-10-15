@@ -3,7 +3,7 @@
 //! parsers that read bytes rather than other parsers.
 
 use nomi_base::diagnostic::code::{BINOP_CHARS, Keyword};
-use nomi_base::{Compat, ghc, utf8};
+use nomi_base::{Compat, utf8};
 
 use super::engine::{Loc, P};
 use super::error::{self as E, BadOperator, Name, Position};
@@ -11,54 +11,13 @@ use crate::glsl::{self, Rejection};
 
 // VARIABLES
 
-/// What `chomp` in `AST/Prim/Variable.hs` takes of a character class: an
-/// ASCII byte by `ascii`, anything else decoded and tested by `unicode`.
-/// The width it takes, if any.
-fn class_width(p: &P<'_>, pos: usize, ascii: fn(u8) -> bool, unicode: fn(char) -> bool) -> usize {
-    let Some(b) = p.byte(pos) else {
-        return 0;
-    };
-    if ascii(b) {
-        return 1;
-    }
-    let width = match b {
-        0x00..0xC0 | 0xF8.. => return 0,
-        lead => utf8::char_width(lead),
-    };
-    let Some(bytes) = p.byte(pos + width - 1).map(|_| p.bytes(pos, pos + width)) else {
-        return 0;
-    };
-    let c = if p.v1() {
-        // 0.19.1 decodes without checking the continuation bytes.
-        u32::try_from(utf8::unchecked_code(bytes, width))
-            .ok()
-            .and_then(char::from_u32)
-    } else {
-        std::str::from_utf8(bytes)
-            .ok()
-            .and_then(|s| s.chars().next())
-    };
-    match c {
-        Some(c) if unicode(c) => width,
-        _ => 0,
-    }
-}
-
-fn upper_width(p: &P<'_>, pos: usize) -> usize {
-    class_width(p, pos, |b| b.is_ascii_uppercase(), ghc::is_upper)
-}
-
-fn lower_width(p: &P<'_>, pos: usize) -> usize {
-    class_width(p, pos, |b| b.is_ascii_lowercase(), ghc::is_lower)
+/// The width of the character at `pos` if `class` takes it, or zero.
+fn class_width(p: &P<'_>, pos: usize, class: fn(&[u8], Compat) -> usize) -> usize {
+    class(p.src().get(pos..).unwrap_or_default(), p.compat)
 }
 
 pub(super) fn inner_width(p: &P<'_>, pos: usize) -> usize {
-    class_width(
-        p,
-        pos,
-        |b| b.is_ascii_alphanumeric() || b == b'_',
-        ghc::is_alpha,
-    )
+    class_width(p, pos, utf8::inner_width)
 }
 
 /// The characters from `at` that go on with a name, and where they end.
@@ -73,8 +32,8 @@ pub(super) fn chomp_inners(p: &P<'_>, mut at: Loc) -> Loc {
 
 /// A name from `at` whose first character `first` takes, and where it
 /// ends: `at` if there is none.
-fn chomp_var(p: &P<'_>, at: Loc, first: fn(&P<'_>, usize) -> usize) -> Loc {
-    match first(p, at.pos) {
+fn chomp_var(p: &P<'_>, at: Loc, first: fn(&[u8], Compat) -> usize) -> Loc {
+    match class_width(p, at.pos, first) {
         0 => at,
         width => chomp_inners(p, at.step(p, width, 1)),
     }
@@ -91,7 +50,7 @@ pub(super) fn name(p: &P<'_>, from: usize, to: usize) -> Name {
 
 /// `Variable.lower`.
 pub(super) fn lower<X>(p: &mut P<'_>, to_error: impl FnOnce(Position) -> X) -> Result<Name, X> {
-    let end = chomp_var(p, p.here(), lower_width);
+    let end = chomp_var(p, p.here(), utf8::lower_width);
     if end.pos == p.pos || is_keyword(p.bytes(p.pos, end.pos)) {
         return Err(to_error(p.cur));
     }
@@ -102,7 +61,7 @@ pub(super) fn lower<X>(p: &mut P<'_>, to_error: impl FnOnce(Position) -> X) -> R
 
 /// `Variable.upper`.
 pub(super) fn upper<X>(p: &mut P<'_>, to_error: impl FnOnce(Position) -> X) -> Result<Name, X> {
-    let end = chomp_var(p, p.here(), upper_width);
+    let end = chomp_var(p, p.here(), utf8::upper_width);
     if end.pos == p.pos {
         return Err(to_error(p.cur));
     }
@@ -131,13 +90,13 @@ pub(super) fn matching_name<X>(
 
 /// `Variable.moduleName`.
 pub(super) fn module_name<X>(p: &mut P<'_>, to_error: impl FnOnce(Position) -> X) -> Result<(), X> {
-    let mut end = chomp_var(p, p.here(), upper_width);
+    let mut end = chomp_var(p, p.here(), utf8::upper_width);
     if end.pos == p.pos {
         return Err(to_error(p.cur));
     }
     while p.is_word(end.pos, b'.') {
         let dot = end.step(p, 1, 1);
-        let next = chomp_var(p, dot, upper_width);
+        let next = chomp_var(p, dot, utf8::upper_width);
         if next.pos == dot.pos {
             return p.cerr(to_error(next.cur));
         }
@@ -154,7 +113,7 @@ pub(super) fn foreign_upper<X>(
 ) -> Result<(), X> {
     let mut at = p.here();
     loop {
-        let end = chomp_var(p, at, upper_width);
+        let end = chomp_var(p, at, utf8::upper_width);
         if end.pos == at.pos {
             return Err(to_error(at.cur));
         }
@@ -171,7 +130,7 @@ pub(super) fn foreign_alpha<X>(
     p: &mut P<'_>,
     to_error: impl FnOnce(Position) -> X,
 ) -> Result<(), X> {
-    let lower_end = chomp_var(p, p.here(), lower_width);
+    let lower_end = chomp_var(p, p.here(), utf8::lower_width);
     if lower_end.pos > p.pos {
         if is_keyword(p.bytes(p.pos, lower_end.pos)) {
             return Err(to_error(p.cur));
@@ -179,18 +138,18 @@ pub(super) fn foreign_alpha<X>(
         p.ok_at(lower_end);
         return Ok(());
     }
-    let mut end = chomp_var(p, p.here(), upper_width);
+    let mut end = chomp_var(p, p.here(), utf8::upper_width);
     if end.pos == p.pos {
         return Err(to_error(p.cur));
     }
     while p.is_word(end.pos, b'.') {
         let dot = end.step(p, 1, 1);
-        let lower_end = chomp_var(p, dot, lower_width);
+        let lower_end = chomp_var(p, dot, utf8::lower_width);
         if lower_end.pos > dot.pos {
             p.ok_at(lower_end);
             return Ok(());
         }
-        let upper_end = chomp_var(p, dot, upper_width);
+        let upper_end = chomp_var(p, dot, utf8::upper_width);
         if upper_end.pos == dot.pos {
             // Before 0.19.3, `Variable.foreignAlphaHelp` ends a trailing
             // dot on an empty name and rejects it; 0.19.3 keeps the names
@@ -460,7 +419,9 @@ fn eat_unicode(p: &P<'_>, pos: usize) -> EscapeScan {
     }
     let code = match code {
         Hex::Code(code) if code <= 0x10FFFF => code as u32,
-        _ => return EscapeScan::Problem(E::Escape::BadUnicodeCode(width(3))),
+        Hex::Code(_) | Hex::None | Hex::Bad => {
+            return EscapeScan::Problem(E::Escape::BadUnicodeCode(width(3)));
+        }
     };
     if !(4..=6).contains(&digits) {
         return EscapeScan::Problem(E::Escape::BadUnicodeLength {

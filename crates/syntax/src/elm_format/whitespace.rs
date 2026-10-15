@@ -89,7 +89,7 @@ fn newline(p: &mut P<'_>) -> R<bool> {
 }
 
 /// `simpleNewline`, which notes it on the newline stack.
-pub(super) fn simple_newline(p: &mut P<'_>) -> R<()> {
+fn simple_newline(p: &mut P<'_>) -> R<()> {
     p.alt(|p| p.attempt(|p| p.string("\r\n")), |p| p.char('\n'))?;
     p.set_newline();
     Ok(())
@@ -160,7 +160,7 @@ fn close_comment(p: &mut P<'_>) -> R<()> {
 }
 
 /// `anyUntil end`: `end <|> (anyChar >> anyUntil end)`.
-pub(super) fn any_until(p: &mut P<'_>, mut end: impl FnMut(&mut P<'_>) -> R<()>) -> R<()> {
+fn any_until(p: &mut P<'_>, mut end: impl FnMut(&mut P<'_>) -> R<()>) -> R<()> {
     while !p.alt(|p| end(p).map(|()| true), |p| p.any_char().map(|_| false))? {}
     Ok(())
 }

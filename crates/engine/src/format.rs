@@ -6,7 +6,7 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use nomi_base::{ColumnUnit, ElmPosition, LineIndex, TextLen};
+use nomi_base::{ElmPosition, LineIndex, TextLen};
 
 use nomi_compiler::hir::Expr;
 use nomi_syntax::ast::{self, AstNode};
@@ -234,6 +234,6 @@ pub(crate) fn rewrite(vfs: &Vfs, path: &Path, text: &str, mode: Mode) -> Outcome
 /// parser never reports, falls back to the start.
 fn position(text: &str, offset: nomi_base::TextSize) -> ElmPosition {
     LineIndex::new(text)
-        .elm_position(text, offset, ColumnUnit::CodePoint)
+        .elm_position(text, offset)
         .unwrap_or(ElmPosition { row: 1, column: 1 })
 }

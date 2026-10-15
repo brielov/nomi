@@ -23,7 +23,7 @@ fn constructor0(p: &mut P<'_>) -> R<()> {
 }
 
 /// `term`.
-pub(super) fn term(p: &mut P<'_>) -> R<()> {
+fn term(p: &mut P<'_>) -> R<()> {
     grow_large(|| {
         p.alts(&mut [
             &mut tuple,

@@ -89,7 +89,7 @@ impl LineIndex {
         let (line, prefix) = self.prefix(text, offset)?;
         Ok(LineCol {
             line,
-            col: width(prefix.chars(), unit),
+            col: prefix.chars().map(|c| char_width(c, unit)).sum(),
         })
     }
 
@@ -119,17 +119,13 @@ impl LineIndex {
         }
     }
 
-    /// The position Elm would report for `offset`.
-    pub fn elm_position(
-        &self,
-        text: &str,
-        offset: TextSize,
-        unit: ColumnUnit,
-    ) -> Result<ElmPosition, PositionError> {
+    /// The position Elm would report for `offset`, its column in code
+    /// points other than CR.
+    pub fn elm_position(&self, text: &str, offset: TextSize) -> Result<ElmPosition, PositionError> {
         let (line, prefix) = self.prefix(text, offset)?;
         Ok(ElmPosition {
             row: line + 1,
-            column: width(prefix.chars().filter(|&c| c != '\r'), unit) + 1,
+            column: prefix.chars().filter(|&c| c != '\r').count() as u32 + 1,
         })
     }
 
@@ -214,10 +210,6 @@ impl LineIndex {
             "LineIndex queried with a different text"
         );
     }
-}
-
-fn width(chars: impl Iterator<Item = char>, unit: ColumnUnit) -> u32 {
-    chars.map(|c| char_width(c, unit)).sum()
 }
 
 fn char_width(c: char, unit: ColumnUnit) -> u32 {

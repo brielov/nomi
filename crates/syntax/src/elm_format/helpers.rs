@@ -39,7 +39,7 @@ pub(super) fn cap_var<'s>(p: &mut P<'s>) -> R<&'s str> {
 
 /// `qualifiedVar`: no `try` around a qualifier, so `Foo` fails having
 /// consumed.
-pub(super) fn qualified_var(p: &mut P<'_>) -> R<()> {
+fn qualified_var(p: &mut P<'_>) -> R<()> {
     p.many(|p| {
         cap_var(p)?;
         p.char('.')
@@ -157,18 +157,13 @@ pub(super) fn comma_sep1<'s>(p: &mut P<'s>, parser: Alt<'_, 's, ()>) -> R<()> {
     spacey_sep_by1(p, comma, parser)
 }
 
-/// `keyValue`.
-pub(super) fn key_value<'s>(
-    p: &mut P<'s>,
-    sep: fn(&mut P<'s>) -> R<()>,
-    key: fn(&mut P<'s>) -> R<&'s str>,
-    value: fn(&mut P<'s>) -> R<&'s str>,
-) -> R<()> {
-    key(p)?;
+/// `keyValue equals lowVar capVar`, the one `keyValue` elm-format reads.
+pub(super) fn key_value(p: &mut P<'_>) -> R<()> {
+    low_var(p)?;
     whitespace(p)?;
-    sep(p)?;
+    equals(p)?;
     whitespace(p)?;
-    value(p).map(drop)
+    cap_var(p).map(drop)
 }
 
 /// `separated`: `e`s between `sep`s, `Some` of the value of the one `e`
@@ -369,15 +364,10 @@ pub(super) fn shader(p: &mut P<'_>) -> R<()> {
 
 // COMMON
 
-/// `pair`.
-pub(super) fn pair<'s>(
-    p: &mut P<'s>,
-    a: fn(&mut P<'s>) -> R<&'s str>,
-    sep: fn(&mut P<'s>) -> R<()>,
-    b: fn(&mut P<'s>) -> R<()>,
-) -> R<()> {
+/// `pair lowVar`: a field name, `sep` and `b`.
+fn pair<'s>(p: &mut P<'s>, sep: fn(&mut P<'s>) -> R<()>, b: fn(&mut P<'s>) -> R<()>) -> R<()> {
     p.track_newline(|p| {
-        a(p)?;
+        low_var(p)?;
         whitespace(p)?;
         sep(p)?;
         whitespace(p)?;
@@ -401,7 +391,7 @@ pub(super) fn record<'s>(
                     p.string("|")
                 })
             })?;
-            sectioned_group(p, &mut |p| pair(p, low_var, sep, value))
+            sectioned_group(p, &mut |p| pair(p, sep, value))
         })
     })
 }

@@ -15,11 +15,7 @@ fn lc(line: u32, col: u32) -> LineCol {
 fn elm_positions_follow_lf_crlf_and_bare_cr() {
     let text = "one\r\ntwø\rthree\n";
     let index = LineIndex::new(text);
-    let elm = |n| {
-        index
-            .elm_position(text, at(n), ColumnUnit::CodePoint)
-            .unwrap()
-    };
+    let elm = |n| index.elm_position(text, at(n)).unwrap();
     assert_eq!(index.line_count(), 3);
     assert_eq!(elm(0), ElmPosition { row: 1, column: 1 });
     assert_eq!(elm(5), ElmPosition { row: 2, column: 1 });
@@ -69,7 +65,7 @@ fn empty_text_has_one_line() {
     let index = LineIndex::new("");
     assert_eq!(index.line_count(), 1);
     assert_eq!(
-        index.elm_position("", at(0), ColumnUnit::Utf16),
+        index.elm_position("", at(0)),
         Ok(ElmPosition { row: 1, column: 1 })
     );
     assert_eq!(index.offset("", lc(0, 0), ColumnUnit::Utf16), Ok(at(0)));
@@ -187,12 +183,12 @@ proptest! {
                 let pos = index.line_col(&text, at(offset), unit).unwrap();
                 prop_assert_eq!(pos, model(&text, offset, unit, false));
                 prop_assert_eq!(index.offset(&text, pos, unit), Ok(at(offset)));
-                let elm = model(&text, offset, unit, true);
-                prop_assert_eq!(
-                    index.elm_position(&text, at(offset), unit),
-                    Ok(ElmPosition { row: elm.line + 1, column: elm.col + 1 })
-                );
             }
+            let elm = model(&text, offset, ColumnUnit::CodePoint, true);
+            prop_assert_eq!(
+                index.elm_position(&text, at(offset)),
+                Ok(ElmPosition { row: elm.line + 1, column: elm.col + 1 })
+            );
         }
     }
 

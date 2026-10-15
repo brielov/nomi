@@ -8,11 +8,16 @@
 
 use text_size::TextRange;
 
-/// A document, as ansi-wl-pprint's `Doc` builds one.
+/// A document, as ansi-wl-pprint's `Doc` builds one: only through the
+/// functions here, so that its text never holds a newline.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Doc {
+pub struct Doc(pub(crate) Node);
+
+/// What a [`Doc`] is made of.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Node {
     Empty,
-    /// Never contains a newline; use [`Doc::line`].
+    /// Never empty, and never contains a newline; use [`Doc::line`].
     Text(String),
     Line(Line),
     /// One document, then the other.
@@ -44,7 +49,7 @@ pub enum Doc {
 /// become what they are named after, and `Hard` keeps the group from
 /// being laid out on one line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Line {
+pub(crate) enum Line {
     /// Always a newline (`hardline`).
     Hard,
     /// A newline, or a space in a group on one line (`line`).
@@ -55,19 +60,19 @@ pub enum Line {
 
 /// The lines covering `region`, with `highlight` underlined.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Snippet {
-    pub region: TextRange,
-    pub highlight: TextRange,
+pub(crate) struct Snippet {
+    pub(crate) region: TextRange,
+    pub(crate) highlight: TextRange,
 }
 
 /// Two regions, shown on one line when they share a row and as two
 /// snippets otherwise (`Code.toPair`).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Pair {
-    pub first: TextRange,
-    pub second: TextRange,
-    pub one_line: OneLine,
-    pub two_snippets: TwoSnippets,
+pub(crate) struct Pair {
+    pub(crate) first: TextRange,
+    pub(crate) second: TextRange,
+    pub(crate) one_line: OneLine,
+    pub(crate) two_snippets: TwoSnippets,
 }
 
 /// What a [`Pair`] shows around the one line holding both regions.
@@ -91,59 +96,52 @@ pub struct TwoSnippets {
 pub enum Color {
     Red,
     DullRed,
-    Magenta,
-    DullMagenta,
     Yellow,
     DullYellow,
     Green,
-    DullGreen,
     Cyan,
     DullCyan,
     Blue,
-    DullBlue,
     Black,
-    DullBlack,
-    White,
-    DullWhite,
 }
 
 impl Doc {
     /// Nothing (`empty`).
     pub fn empty() -> Doc {
-        Doc::Empty
+        Doc(Node::Empty)
     }
 
     /// A newline that is one even in a group on one line (`hardline`).
     pub fn line() -> Doc {
-        Doc::Line(Line::Hard)
+        Doc(Node::Line(Line::Hard))
     }
 
     /// A newline, or a space in a group on one line (`line`).
     pub fn softline() -> Doc {
-        Doc::Line(Line::Space)
+        Doc(Node::Line(Line::Space))
     }
 
     /// A newline, or nothing in a group on one line (`linebreak`).
     pub fn linebreak() -> Doc {
-        Doc::Line(Line::Empty)
+        Doc(Node::Line(Line::Empty))
     }
 
     /// The lines covering `region`, with `highlight` underlined.
     pub fn snippet(region: TextRange, highlight: TextRange) -> Doc {
-        Doc::Snippet(Snippet { region, highlight })
+        Doc(Node::Snippet(Snippet { region, highlight }))
     }
 
     /// A link to `page` of the compatibility target's docs.
     pub fn link(page: impl Into<String>) -> Doc {
-        Doc::Link(page.into())
+        Doc(Node::Link(page.into()))
     }
 
     /// This document, then `other` (`<>`).
     pub fn append(self, other: Doc) -> Doc {
         match (self, other) {
-            (Doc::Empty, other) => other,
-            (this, Doc::Empty) => this,
-            (this, other) => Doc::Append(Box::new(this), Box::new(other)),
+            (Doc(Node::Empty), other) => other,
+            (this, Doc(Node::Empty)) => this,
+            (this, other) => Doc(Node::Append(Box::new(this), Box::new(other))),
         }
     }
 
@@ -155,13 +153,13 @@ impl Doc {
     /// The lines this document breaks onto, indented by `width` more
     /// (`nest`).
     pub fn nest(self, width: usize) -> Doc {
-        Doc::Nest(width, Box::new(self))
+        Doc(Node::Nest(width, Box::new(self)))
     }
 
     /// The lines this document breaks onto, indented to the column it
     /// starts at (`align`).
     pub fn align(self) -> Doc {
-        Doc::Align(Box::new(self))
+        Doc(Node::Align(Box::new(self)))
     }
 
     /// The lines this document breaks onto, indented by `width` past the
@@ -172,12 +170,12 @@ impl Doc {
 
     /// This document on one line if it fits (`group`).
     pub fn group(self) -> Doc {
-        Doc::Group(Box::new(self))
+        Doc(Node::Group(Box::new(self)))
     }
 
     /// Pads with spaces to `width` columns (`fill`).
     pub fn fill(self, width: usize) -> Doc {
-        Doc::Fill(width, Box::new(self))
+        Doc(Node::Fill(width, Box::new(self)))
     }
 
     /// Every line of this document, the first too, indented by `width`
@@ -188,16 +186,18 @@ impl Doc {
 
     /// This document in `color`.
     pub fn color(self, color: Color) -> Doc {
-        Doc::Color(color, Box::new(self))
+        Doc(Node::Color(color, Box::new(self)))
     }
 
     /// This document underlined.
     pub fn underline(self) -> Doc {
-        Doc::Underline(Box::new(self))
+        Doc(Node::Underline(Box::new(self)))
     }
 
-    /// The text with layout and styles dropped: line breaks are as in a
-    /// group on one line, a hard one a space, and snippets are elided. For tests and logs, not for users.
+    /// The document as one line of text, for tests, logs and one-line
+    /// messages such as a type in an editor's problem: line breaks are as
+    /// in a group on one line, a hard one a space, styles are dropped and
+    /// snippets elided.
     pub fn plain(&self) -> String {
         let mut out = String::new();
         self.write_plain(&mut out);
@@ -205,22 +205,22 @@ impl Doc {
     }
 
     fn write_plain(&self, out: &mut String) {
-        match self {
-            Doc::Empty | Doc::Line(Line::Empty) => {}
-            Doc::Text(text) => out.push_str(text),
-            Doc::Line(_) => out.push(' '),
-            Doc::Append(a, b) => {
+        match &self.0 {
+            Node::Empty | Node::Line(Line::Empty) => {}
+            Node::Text(text) => out.push_str(text),
+            Node::Line(_) => out.push(' '),
+            Node::Append(a, b) => {
                 a.write_plain(out);
                 b.write_plain(out);
             }
-            Doc::Nest(_, d)
-            | Doc::Align(d)
-            | Doc::Group(d)
-            | Doc::Fill(_, d)
-            | Doc::Color(_, d)
-            | Doc::Underline(d) => d.write_plain(out),
-            Doc::Snippet(_) | Doc::Pair(_) => out.push_str("[snippet]"),
-            Doc::Link(page) => {
+            Node::Nest(_, d)
+            | Node::Align(d)
+            | Node::Group(d)
+            | Node::Fill(_, d)
+            | Node::Color(_, d)
+            | Node::Underline(d) => d.write_plain(out),
+            Node::Snippet(_) | Node::Pair(_) => out.push_str("[snippet]"),
+            Node::Link(page) => {
                 out.push('<');
                 out.push_str(page);
                 out.push('>');
@@ -238,9 +238,9 @@ pub fn text(text: impl Into<String>) -> Doc {
         "a document's text with a newline: {text:?}"
     );
     if text.is_empty() {
-        Doc::Empty
+        Doc::empty()
     } else {
-        Doc::Text(text)
+        Doc(Node::Text(text))
     }
 }
 
@@ -288,12 +288,12 @@ pub fn pair(
     one_line: OneLine,
     two_snippets: TwoSnippets,
 ) -> Doc {
-    Doc::Pair(Box::new(Pair {
+    Doc(Node::Pair(Box::new(Pair {
         first,
         second,
         one_line,
         two_snippets,
-    }))
+    })))
 }
 
 /// Words separated by spaces that never break.
@@ -305,6 +305,11 @@ pub fn hsep(docs: impl IntoIterator<Item = Doc>) -> Doc {
 /// `vcat` does.
 pub fn vcat(docs: impl IntoIterator<Item = Doc>) -> Doc {
     join(docs, Doc::linebreak)
+}
+
+/// `D.fromChars`: `text` as it is, its lines kept.
+pub fn from_chars(text: &str) -> Doc {
+    vcat(text.split('\n').map(Doc::from))
 }
 
 /// All on one line separated by spaces, or all on separate lines.
@@ -484,20 +489,38 @@ impl Color {
         match self {
             Color::Red => "RED",
             Color::DullRed => "red",
-            Color::Magenta => "MAGENTA",
-            Color::DullMagenta => "magenta",
             Color::Yellow => "YELLOW",
             Color::DullYellow => "yellow",
             Color::Green => "GREEN",
-            Color::DullGreen => "green",
             Color::Cyan => "CYAN",
             Color::DullCyan => "cyan",
             Color::Blue => "BLUE",
-            Color::DullBlue => "blue",
             Color::Black => "BLACK",
-            Color::DullBlack => "black",
-            Color::White => "WHITE",
-            Color::DullWhite => "white",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builders_make_upstreams_nodes() {
+        let range = |start: u32, end: u32| TextRange::new(start.into(), end.into());
+        assert_eq!(Doc::softline(), Doc(Node::Line(Line::Space)));
+        assert_eq!(
+            text("x").color(Color::Red).underline(),
+            Doc(Node::Underline(Box::new(Doc(Node::Color(
+                Color::Red,
+                Box::new(text("x"))
+            )))))
+        );
+        assert_eq!(
+            Doc::snippet(range(0, 4), range(1, 2)),
+            Doc(Node::Snippet(Snippet {
+                region: range(0, 4),
+                highlight: range(1, 2)
+            }))
+        );
     }
 }

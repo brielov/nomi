@@ -90,20 +90,23 @@ fn generate(grammar: &Grammar, tokens: &BTreeMap<String, String>) -> Result<Stri
     );
     let mut structs = Vec::new();
     for node in grammar.iter() {
-        let data = &grammar[node];
-        if let Some(variants) = enum_variants(grammar, &data.rule) {
-            enum_view(&mut out, &data.name, &variants);
+        let node = &grammar[node];
+        if let Some(variants) = enum_variants(grammar, &node.rule) {
+            enum_view(&mut out, &node.name, &variants);
         } else {
-            struct_view(&mut out, grammar, tokens, &data.name, &data.rule)?;
-            structs.push(format!("SyntaxKind::{}", data.name));
+            struct_view(&mut out, grammar, tokens, &node.name, &node.rule)?;
+            structs.push(&node.name);
         }
     }
-    let _ = write!(
-        out,
+    out.push_str(
         "\n/// Whether some view casts a node of `kind`.\n\
-         pub fn has_view(kind: SyntaxKind) -> bool {{\n    matches!(kind, {})\n}}\n",
-        structs.join(" | ")
+         pub fn has_view(kind: SyntaxKind) -> bool {\n    matches!(kind, ",
     );
+    for (i, name) in structs.iter().enumerate() {
+        let sep = if i == 0 { "" } else { " | " };
+        let _ = write!(out, "{sep}SyntaxKind::{name}");
+    }
+    out.push_str(")\n}\n");
     Ok(out)
 }
 
@@ -130,26 +133,32 @@ fn enum_view(out: &mut String, name: &str, variants: &[String]) {
     let _ = write!(
         out,
         "}}\n\nimpl AstNode for {name} {{\n\
-         fn can_cast(kind: SyntaxKind) -> bool {{\n\
-         {}\n}}\n\n\
-         fn cast(syntax: SyntaxNode) -> Option<Self> {{\n\
-         match syntax.kind() {{\n{}_ => None,\n}}\n}}\n\n\
-         fn syntax(&self) -> &SyntaxNode {{\n\
-         match self {{\n{}}}\n}}\n}}\n",
-        variants
-            .iter()
-            .map(|v| format!("{v}::can_cast(kind)"))
-            .collect::<Vec<_>>()
-            .join(" || "),
-        variants
-            .iter()
-            .map(|v| format!("SyntaxKind::{v} => Some({name}::{v}({v} {{ syntax }})),\n"))
-            .collect::<String>(),
-        variants
-            .iter()
-            .map(|v| format!("{name}::{v}(it) => &it.syntax,\n"))
-            .collect::<String>(),
+         fn can_cast(kind: SyntaxKind) -> bool {{\n"
     );
+    for (i, v) in variants.iter().enumerate() {
+        let sep = if i == 0 { "" } else { " || " };
+        let _ = write!(out, "{sep}{v}::can_cast(kind)");
+    }
+    out.push_str(
+        "\n}\n\n\
+         fn cast(syntax: SyntaxNode) -> Option<Self> {\n\
+         match syntax.kind() {\n",
+    );
+    for v in variants {
+        let _ = writeln!(
+            out,
+            "SyntaxKind::{v} => Some({name}::{v}({v} {{ syntax }})),"
+        );
+    }
+    out.push_str(
+        "_ => None,\n}\n}\n\n\
+         fn syntax(&self) -> &SyntaxNode {\n\
+         match self {\n",
+    );
+    for v in variants {
+        let _ = writeln!(out, "{name}::{v}(it) => &it.syntax,");
+    }
+    out.push_str("}\n}\n}\n");
     for v in variants {
         let _ = write!(
             out,

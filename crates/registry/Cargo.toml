@@ -18,7 +18,6 @@ zip.workspace = true
 [dev-dependencies]
 insta.workspace = true
 nomi-testkit.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 zip = { workspace = true, features = ["deflate"] }
 

@@ -24,7 +24,7 @@ impl Compat {
     /// The modulus columns wrap at while parsing, if they do: 0.19.1 keeps
     /// rows and columns in 16 bits (`Parse/Primitives.hs`, `Row`, `Col`),
     /// so a token far enough right looks unindented.
-    pub fn column_wrap(self) -> Option<u32> {
+    fn column_wrap(self) -> Option<u32> {
         match self {
             Compat::V0_19_1 => Some(1 << 16),
             Compat::V0_19_2 | Compat::V0_19_3 => None,
@@ -43,7 +43,7 @@ impl Compat {
 
     /// What `--report=json` regions count from: 0.19.2 prints the
     /// positions it keeps, from 0, and 0.19.3 adds 1 (`toEditorRowCol`).
-    pub fn first_json_position(self) -> u32 {
+    fn first_json_position(self) -> u32 {
         match self {
             Compat::V0_19_1 | Compat::V0_19_3 => 1,
             Compat::V0_19_2 => 0,
@@ -59,7 +59,7 @@ impl Compat {
     }
 
     /// A row or column as the release keeps it: 0.19.1's 16 bits wrap
-    /// it (see [`Compat::column_wrap`]).
+    /// it.
     pub fn wrap(self, n: u32) -> u32 {
         self.column_wrap().map_or(n, |wrap| n % wrap)
     }

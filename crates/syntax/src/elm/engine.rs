@@ -64,7 +64,7 @@ impl Loc {
 }
 
 /// An alternative for [`one_of`].
-pub(super) type Alt<'a, 's, T, X> = &'a mut dyn FnMut(&mut P<'s>) -> Result<T, X>;
+type Alt<'a, 's, T, X> = &'a mut dyn FnMut(&mut P<'s>) -> Result<T, X>;
 
 impl<'s> P<'s> {
     pub(super) fn new(src: &'s [u8], compat: Compat) -> P<'s> {
@@ -87,7 +87,7 @@ impl<'s> P<'s> {
     }
 
     /// The column a line starts at.
-    pub(super) fn first(&self) -> u32 {
+    fn first(&self) -> u32 {
         self.compat.first_position()
     }
 

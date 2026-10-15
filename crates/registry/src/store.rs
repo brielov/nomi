@@ -385,13 +385,7 @@ fn safe(path: &[u8]) -> Option<PathBuf> {
 /// The releases in a package's directory, oldest first.
 fn versions_in(dir: &Path) -> io::Result<Vec<Version>> {
     let mut versions: Vec<Version> = (names_in(dir)?.iter())
-        .filter_map(|file| {
-            let parts: Option<Vec<u32>> = file.split('.').map(|part| part.parse().ok()).collect();
-            match parts.as_deref() {
-                Some(&[major, minor, patch]) => Some(Version::new(major, minor, patch)),
-                _ => None,
-            }
-        })
+        .filter_map(|file| file.parse().ok())
         .collect();
     versions.sort();
     Ok(versions)

@@ -38,13 +38,15 @@ pub fn trimmed_range(node: &SyntaxNode) -> TextRange {
 }
 
 /// The text between the quotes of a string, multiline string or
-/// character literal, its escapes as written; `None` for other text, or
-/// a literal left open.
+/// character literal, its escapes as written, or between `[glsl|` and
+/// `|]` of a shader; `None` for other text, or a literal left open.
 pub fn literal_body(literal: &str) -> Option<&str> {
     if let Some(rest) = literal.strip_prefix("\"\"\"") {
         rest.strip_suffix("\"\"\"")
     } else if let Some(rest) = literal.strip_prefix('"') {
         rest.strip_suffix('"')
+    } else if let Some(rest) = literal.strip_prefix("[glsl|") {
+        rest.strip_suffix("|]")
     } else {
         literal.strip_prefix('\'')?.strip_suffix('\'')
     }
@@ -82,7 +84,9 @@ mod tests {
         assert_eq!(literal_body(r#""""a"b""""#), Some(r#"a"b"#));
         assert_eq!(literal_body(r#""""#), Some(""));
         assert_eq!(literal_body("'\\n'"), Some("\\n"));
+        assert_eq!(literal_body("[glsl| x |]"), Some(" x "));
         assert_eq!(literal_body("\"open"), None);
+        assert_eq!(literal_body("[glsl| x"), None);
         assert_eq!(literal_body("x"), None);
     }
 }

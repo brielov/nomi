@@ -1062,6 +1062,7 @@ name = "nomi-project"
 version = "0.4.0"
 dependencies = [
  "nomi-base",
+ "nomi-testkit",
  "proptest",
 ]
 
@@ -1074,7 +1075,6 @@ dependencies = [
  "nomi-project",
  "nomi-testkit",
  "pubgrub",
- "serde",
  "serde_json",
  "sha1",
  "tempfile",

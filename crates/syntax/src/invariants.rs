@@ -34,29 +34,32 @@ pub fn check_invariants(text: &str) {
     ];
     for (entry, parse) in entries {
         let parse = parse(text);
-        assert_eq!(
-            parse.syntax().to_string(),
-            text,
+        assert!(
+            parse.syntax().text() == text,
             "the {entry} tree holds the input"
         );
-        check_errors(text, parse.errors(), entry);
+        check_errors(text, parse.errors(), entry, None);
         for tool in TOOLS {
-            check_errors(text, &validate(&parse, tool), &format!("{entry}, {tool:?}"));
+            check_errors(text, &validate(&parse, tool), entry, Some(tool));
         }
     }
 }
 
-fn check_errors(text: &str, errors: &[SyntaxError], what: &str) {
+/// Checks the errors the `entry` tree has, or `tool`'s validation finds.
+fn check_errors(text: &str, errors: &[SyntaxError], entry: &str, tool: Option<Tool>) {
     let inside = |range: TextRange| {
         usize::from(range.end()) <= text.len()
             && text.is_char_boundary(range.start().into())
             && text.is_char_boundary(range.end().into())
     };
     for error in errors {
-        assert!(inside(error.range), "{what}: {error:?} is outside the text");
+        assert!(
+            inside(error.range),
+            "{entry}, {tool:?}: {error:?} is outside the text"
+        );
     }
     assert!(
         errors.is_sorted_by_key(|e| e.range.start()),
-        "{what}: errors are in source order"
+        "{entry}, {tool:?}: errors are in source order"
     );
 }

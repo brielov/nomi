@@ -2,6 +2,7 @@
 //! registry (`Deps/Website.hs`, `Http.hs`).
 
 use std::fmt;
+use std::io::Write as _;
 use std::time::Duration;
 
 use ureq::tls::{RootCerts, TlsConfig};
@@ -46,26 +47,25 @@ pub struct Part {
 
 impl Part {
     /// `multipart/form-data` of `parts`, between `boundary`s.
-    pub fn encode(parts: &[Part], boundary: &str) -> Vec<u8> {
+    fn encode(parts: &[Part], boundary: &str) -> Vec<u8> {
         let mut body = Vec::new();
         for part in parts {
-            body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
-            let disposition = match &part.file_name {
-                Some(file) => format!(
-                    "Content-Disposition: form-data; name=\"{}\"; filename=\"{file}\"\r\n",
-                    part.name
-                ),
-                None => format!("Content-Disposition: form-data; name=\"{}\"\r\n", part.name),
-            };
-            body.extend_from_slice(disposition.as_bytes());
-            if part.file_name.is_some() {
-                body.extend_from_slice(b"Content-Type: application/octet-stream\r\n");
+            let name = &part.name;
+            let _ = write!(
+                body,
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\""
+            );
+            if let Some(file) = &part.file_name {
+                let _ = write!(
+                    body,
+                    "; filename=\"{file}\"\r\nContent-Type: application/octet-stream"
+                );
             }
-            body.extend_from_slice(b"\r\n");
+            body.extend_from_slice(b"\r\n\r\n");
             body.extend_from_slice(&part.bytes);
             body.extend_from_slice(b"\r\n");
         }
-        body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+        let _ = write!(body, "--{boundary}--\r\n");
         body
     }
 }

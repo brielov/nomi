@@ -1,5 +1,7 @@
 //! UTF-8 as upstream's parsers walk it, a byte at a time.
 
+use crate::{Compat, ghc};
+
 /// `getCharWidth`: how many bytes the character starting with `lead`
 /// takes, as its high bits say. Upstream fails on a byte no character
 /// starts with; here a continuation byte counts as one and any byte from
@@ -48,9 +50,68 @@ pub fn unchecked_chars(bytes: &[u8]) -> impl Iterator<Item = i64> + '_ {
     })
 }
 
+/// `chompUpper`: the width of the character `rest` starts with if it can
+/// start a capitalized name, or zero.
+pub fn upper_width(rest: &[u8], compat: Compat) -> usize {
+    chomp(rest, |b| b.is_ascii_uppercase(), ghc::is_upper, compat)
+}
+
+/// `chompLower`: as [`upper_width`], for a lower-case name.
+pub fn lower_width(rest: &[u8], compat: Compat) -> usize {
+    chomp(rest, |b| b.is_ascii_lowercase(), ghc::is_lower, compat)
+}
+
+/// `chompInner`: as [`upper_width`], for a character that continues a
+/// name, `[A-Za-z0-9_]` or a letter outside ASCII.
+pub fn inner_width(rest: &[u8], compat: Compat) -> usize {
+    chomp(
+        rest,
+        |b| b.is_ascii_alphanumeric() || b == b'_',
+        ghc::is_alpha,
+        compat,
+    )
+}
+
+/// `AST/Prim/Variable.hs`'s `chomp`: the width of the character `rest`
+/// starts with if it is in a class, which takes ASCII by `ascii` and
+/// anything else by `unicode`; zero if it isn't. 0.19.2 and later decode
+/// strict UTF-8; 0.19.1's `get*WidthHelp` assembles the character from
+/// its lead byte's width unchecked. A sequence `rest` cuts off is in no
+/// class.
+fn chomp(
+    rest: &[u8],
+    ascii: impl Fn(u8) -> bool,
+    unicode: impl Fn(char) -> bool,
+    compat: Compat,
+) -> usize {
+    let Some(&lead) = rest.first() else {
+        return 0;
+    };
+    if ascii(lead) {
+        return 1;
+    }
+    let width = match lead {
+        0x00..0xC0 | 0xF8.. => return 0,
+        lead => char_width(lead),
+    };
+    let Some(bytes) = rest.get(..width) else {
+        return 0;
+    };
+    let c = match compat {
+        Compat::V0_19_1 => u32::try_from(unchecked_code(bytes, width))
+            .ok()
+            .and_then(char::from_u32),
+        Compat::V0_19_2 | Compat::V0_19_3 => std::str::from_utf8(bytes)
+            .ok()
+            .and_then(|s| s.chars().next()),
+    };
+    if c.is_some_and(unicode) { width } else { 0 }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{char_width, unchecked_chars};
+    use super::{char_width, inner_width, unchecked_chars, upper_width};
+    use crate::Compat;
 
     #[test]
     fn a_lead_byte_gives_its_characters_width() {
@@ -79,5 +140,20 @@ mod tests {
                 (0x02 << 12) - (0x80 << 6) - 0x80
             ]
         );
+    }
+
+    #[test]
+    fn name_classes_take_whole_characters() {
+        for compat in Compat::ALL {
+            assert_eq!(upper_width("Éa".as_bytes(), compat), 2);
+            assert_eq!(upper_width(b"a", compat), 0);
+            assert_eq!(inner_width(b"_", compat), 1);
+            assert_eq!(inner_width("→".as_bytes(), compat), 0);
+            // A sequence cut off by the end is no character.
+            assert_eq!(inner_width(b"\xC5", compat), 0);
+        }
+        // 0.19.1 assembles `C3 09` into `I` without checking it.
+        assert_eq!(upper_width(b"\xC3\x09", Compat::V0_19_1), 2);
+        assert_eq!(upper_width(b"\xC3\x09", Compat::V0_19_3), 0);
     }
 }

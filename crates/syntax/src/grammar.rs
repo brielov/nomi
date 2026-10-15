@@ -115,6 +115,23 @@ fn expect_part(p: &mut Parser<'_>, kind: K) -> bool {
     true
 }
 
+/// Whether the `n`th token ahead is an operator: upstream's `anyOp`, a
+/// symbol or a backticked function, which lexes as one, or a `.` that
+/// starts no accessor, which only elm-format takes.
+fn at_operator_token(p: &mut Parser<'_>, n: usize) -> bool {
+    match p.nth(n) {
+        K::Operator | K::Minus | K::ColonColon => true,
+        K::Dot => !at_accessor(p, n),
+        _ => false,
+    }
+}
+
+/// Whether the `n`th token ahead starts a `.field` accessor: a `.`
+/// touching the lower name after it.
+fn at_accessor(p: &mut Parser<'_>, n: usize) -> bool {
+    p.nth(n) == K::Dot && p.nth(n + 1) == K::LowerIdent && p.nth_is_joined(n + 1)
+}
+
 /// Whether `kind` is an operator that may stand in parentheses: elm takes
 /// `..` too (`Parse/Symbol.hs`, `operator`), and elm-format `.`.
 fn is_parenthesized_op(kind: K) -> bool {

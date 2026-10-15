@@ -10,8 +10,8 @@ pub mod render;
 
 use std::borrow::Cow;
 
+pub use doc::Doc;
 use doc::{Color, text};
-pub use doc::{Doc, Snippet};
 
 /// A problem that isn't in a module, such as a bad `elm.json` or a
 /// package that can't be found: `Help.Report`'s `Report`, which titles a

@@ -1,17 +1,12 @@
-use nomi_base::diagnostic::Snippet;
+use nomi_base::Doc;
 use nomi_base::diagnostic::doc::{
-    Color, Conjunction, Line, comma_sep, cyan, dull_yellow, fill_sep, hint, labelled, link, red,
-    reflow, reflow_link, sep, simple_note, stack, text, vcat, words,
+    Color, Conjunction, comma_sep, cyan, dull_yellow, fill_sep, from_chars, hint, labelled, link,
+    red, reflow, reflow_link, sep, simple_note, stack, text, vcat, words,
 };
-use nomi_base::{Doc, TextRange, TextSize};
-
-fn range(start: u32, end: u32) -> TextRange {
-    TextRange::new(TextSize::new(start), TextSize::new(end))
-}
 
 #[test]
 fn text_is_never_empty_and_append_drops_empties() {
-    assert_eq!(text(""), Doc::Empty);
+    assert_eq!(text(""), Doc::empty());
     assert_eq!(Doc::empty().append(text("a")), text("a"));
     assert_eq!(text("a").append(Doc::empty()), text("a"));
     assert_eq!(text("a").space(text("b")).plain(), "a b");
@@ -25,7 +20,7 @@ fn text_rejects_newlines() {
 
 #[test]
 fn combinators_build_upstreams_shapes() {
-    assert_eq!(vcat(Vec::new()), Doc::Empty);
+    assert_eq!(vcat(Vec::new()), Doc::empty());
     assert_eq!(
         vcat([text("a"), text("b")]),
         text("a").append(Doc::linebreak()).append(text("b"))
@@ -43,19 +38,15 @@ fn combinators_build_upstreams_shapes() {
         fill_sep([text("two"), text("words")])
     );
     assert_eq!(stack([text("a"), text("b")]).plain(), "ab");
-    assert_eq!(Doc::softline(), Doc::Line(Line::Space));
     assert_eq!(text("x").indent(2).plain(), "  x");
-    assert_eq!(
-        text("x").color(Color::Red).underline(),
-        Doc::Underline(Box::new(Doc::Color(Color::Red, Box::new(text("x")))))
-    );
-    assert_eq!(red(""), Doc::Color(Color::Red, Box::new(Doc::Empty)));
+    assert_eq!(red(""), Doc::empty().color(Color::Red));
     assert_eq!(cyan("x"), text("x").color(Color::Cyan));
     assert_eq!(dull_yellow(text("x")), text("x").color(Color::DullYellow));
     assert_eq!(
         words(" two\twords ").collect::<Vec<_>>(),
         [text("two"), text("words")]
     );
+    assert_eq!(from_chars("a\nb"), vcat([text("a"), text("b")]));
 }
 
 #[test]
@@ -103,13 +94,6 @@ fn links_and_hints_stay_symbolic() {
         ])
     );
     assert_eq!(simple_note("It is fine.").plain(), "Note: It is fine.");
-    assert_eq!(
-        Doc::snippet(range(0, 4), range(1, 2)),
-        Doc::Snippet(Snippet {
-            region: range(0, 4),
-            highlight: range(1, 2)
-        })
-    );
     assert_eq!(Color::Red.json_name(), "RED");
     assert_eq!(Color::DullRed.json_name(), "red");
 }

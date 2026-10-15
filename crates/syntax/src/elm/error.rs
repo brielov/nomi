@@ -37,6 +37,7 @@ pub enum Error {
     ParseError(Module),
 }
 
+/// `Module`: what stops a module's header, imports or declarations.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Module {
     ModuleSpace(Space, Position),
@@ -63,6 +64,7 @@ pub enum Module {
     Declarations(Decl),
 }
 
+/// `Exposing`: what stops an `exposing` list.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Exposing {
     ExposingSpace(Space, Position),
@@ -77,6 +79,7 @@ pub enum Exposing {
     ExposingIndentValue(Position),
 }
 
+/// `Decl`: what stops a top-level declaration.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Decl {
     DeclStart(Position),
@@ -87,6 +90,7 @@ pub enum Decl {
     DeclFreshLineAfterDocComment(Position),
 }
 
+/// `DeclDef`: what stops a top-level definition or its annotation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DeclDef {
     DeclDefSpace(Space, Position),
@@ -101,6 +105,7 @@ pub enum DeclDef {
     DeclDefIndentBody(Position),
 }
 
+/// `Port`: what stops a port declaration.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Port {
     PortSpace(Space, Position),
@@ -112,6 +117,7 @@ pub enum Port {
     PortIndentType(Position),
 }
 
+/// `DeclType`: what stops a `type` or `type alias` declaration.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DeclType {
     DtSpace(Space, Position),
@@ -121,6 +127,7 @@ pub enum DeclType {
     DtIndentName(Position),
 }
 
+/// `TypeAlias`: what stops a `type alias` declaration.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TypeAlias {
     AliasSpace(Space, Position),
@@ -131,6 +138,7 @@ pub enum TypeAlias {
     AliasIndentBody(Position),
 }
 
+/// `CustomType`: what stops a custom type declaration.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CustomType {
     CtSpace(Space, Position),
@@ -145,6 +153,7 @@ pub enum CustomType {
     CtIndentAfterEquals(Position),
 }
 
+/// `Expr`: what stops an expression.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Expr {
     Let(Box<Let>, Position),
@@ -171,6 +180,7 @@ pub enum Expr {
     IndentOperatorRight(Name, Position),
 }
 
+/// `Record`: what stops a record expression.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Record {
     RecordOpen(Position),
@@ -186,6 +196,7 @@ pub enum Record {
     RecordIndentExpr(Position),
 }
 
+/// `Tuple`: what stops a parenthesized expression or a tuple.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Tuple {
     TupleExpr(Expr, Position),
@@ -198,6 +209,7 @@ pub enum Tuple {
     TupleIndentEnd(Position),
 }
 
+/// `List`: what stops a list expression.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum List {
     ListSpace(Space, Position),
@@ -209,6 +221,7 @@ pub enum List {
     ListIndentExpr(Position),
 }
 
+/// `Func`: what stops an anonymous function.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Func {
     FuncSpace(Space, Position),
@@ -220,6 +233,7 @@ pub enum Func {
     FuncIndentBody(Position),
 }
 
+/// `Case`: what stops a `case` expression.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Case {
     CaseSpace(Space, Position),
@@ -236,6 +250,7 @@ pub enum Case {
     CasePatternAlignment(Indent, Position),
 }
 
+/// `If`: what stops an `if` expression.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum If {
     IfSpace(Space, Position),
@@ -252,6 +267,7 @@ pub enum If {
     IfIndentElse(Position),
 }
 
+/// `Let`: what stops a `let` expression.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Let {
     LetSpace(Space, Position),
@@ -266,6 +282,7 @@ pub enum Let {
     LetIndentBody(Position),
 }
 
+/// `Def`: what stops a definition in a `let`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Def {
     DefSpace(Space, Position),
@@ -281,6 +298,7 @@ pub enum Def {
     DefAlignment(Indent, Position),
 }
 
+/// `Destruct`: what stops a destructuring in a `let`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Destruct {
     DestructSpace(Space, Position),
@@ -291,6 +309,7 @@ pub enum Destruct {
     DestructIndentBody(Position),
 }
 
+/// `Pattern`: what stops a pattern.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Pattern {
     PRecord(PRecord, Position),
@@ -314,6 +333,7 @@ pub enum Pattern {
     PIndentAlias(Position),
 }
 
+/// `PRecord`: what stops a record pattern.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PRecord {
     PRecordOpen(Position),
@@ -325,6 +345,7 @@ pub enum PRecord {
     PRecordIndentField(Position),
 }
 
+/// `PTuple`: what stops a parenthesized pattern or a tuple pattern.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PTuple {
     PTupleOpen(Position),
@@ -336,6 +357,7 @@ pub enum PTuple {
     PTupleIndentExprN(Position),
 }
 
+/// `PList`: what stops a list pattern.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PList {
     PListOpen(Position),
@@ -347,6 +369,7 @@ pub enum PList {
     PListIndentExpr(Position),
 }
 
+/// `Type`: what stops a type.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Type {
     TRecord(Box<TRecord>, Position),
@@ -356,6 +379,7 @@ pub enum Type {
     TIndentStart(Position),
 }
 
+/// `TRecord`: what stops a record type.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TRecord {
     TRecordOpen(Position),
@@ -371,6 +395,7 @@ pub enum TRecord {
     TRecordIndentEnd(Position),
 }
 
+/// `TTuple`: what stops a parenthesized type or a tuple type.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TTuple {
     TTupleOpen(Position),
@@ -382,6 +407,7 @@ pub enum TTuple {
     TTupleIndentEnd(Position),
 }
 
+/// `Char`: what is wrong with a character literal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Char {
     CharNotUtf8,
@@ -391,6 +417,7 @@ pub enum Char {
     CharNotString(u32),
 }
 
+/// `String`: what is wrong with a string literal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum String {
     StringNotUtf8,
@@ -399,6 +426,7 @@ pub enum String {
     StringEscape(Escape),
 }
 
+/// `Escape`: what is wrong with an escape in a literal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Escape {
     EscapeUnknown,
@@ -413,6 +441,7 @@ pub enum Escape {
     },
 }
 
+/// `Number`: what is wrong with a number.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Number {
     NumberEnd,
@@ -423,6 +452,7 @@ pub enum Number {
     NumberNoLeadingZero,
 }
 
+/// `Space`: what is wrong in whitespace or a comment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Space {
     HasTab,

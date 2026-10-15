@@ -38,6 +38,11 @@ pub fn optimized_artifacts(compat: Compat) -> PathBuf {
         .join(format!("elm-{compat}"))
 }
 
+/// The release an oracle table's column names, as `elm 0.19.1` does.
+pub fn release_column(label: &str) -> Option<Compat> {
+    label.strip_prefix("elm ")?.parse().ok()
+}
+
 /// Runs `f` over `items` on `workers` threads, each taking the next item
 /// as it finishes one, and gives back the results in order.
 pub fn parallel_on<T: Sync, R: Send>(

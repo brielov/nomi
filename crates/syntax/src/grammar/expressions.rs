@@ -4,8 +4,9 @@
 use super::definitions::{at_value_name, value};
 use super::patterns::{at_pattern_argument, at_pattern_atom, pattern, pattern_atom};
 use super::{
-    at_tuple_constructor, expect_indented, expect_part, is_parenthesized_op, parenthesized_op,
-    qualified_name, sequence_tail, skip_junk, tuple_constructor_tail,
+    at_accessor, at_operator_token, at_tuple_constructor, expect_indented, expect_part,
+    is_parenthesized_op, parenthesized_op, qualified_name, sequence_tail, skip_junk,
+    tuple_constructor_tail,
 };
 use crate::SyntaxKind as K;
 use crate::parser::{CompletedMarker, Parser, SyntaxErrorKind};
@@ -230,15 +231,9 @@ fn lambda(p: &mut Parser<'_>) -> CompletedMarker {
     m.complete(p, K::LambdaExpr)
 }
 
-/// A `.` that starts no accessor is an operator too, which only
-/// elm-format takes.
+/// Whether an operator continues the construct being parsed.
 fn at_operator(p: &mut Parser<'_>) -> bool {
-    let operator = match p.current() {
-        K::Operator | K::Minus | K::ColonColon => true,
-        K::Dot => !starts_atom_here(p),
-        _ => false,
-    };
-    operator && p.at_indented()
+    at_operator_token(p, 0) && p.at_indented()
 }
 
 /// A function applied to its arguments, or a lone operand.
@@ -298,11 +293,7 @@ fn at_atom(p: &mut Parser<'_>) -> bool {
 }
 
 fn starts_atom_here(p: &mut Parser<'_>) -> bool {
-    if p.at(K::Dot) {
-        p.nth(1) == K::LowerIdent && p.nth_is_joined(1)
-    } else {
-        starts_atom(p.current())
-    }
+    at_accessor(p, 0) || starts_atom(p.current())
 }
 
 /// Whether `kind` starts an atom, a `.field` accessor aside.
@@ -362,9 +353,7 @@ fn atom(p: &mut Parser<'_>) -> CompletedMarker {
 /// `.name` touching `target` and each other: `model.user.name`. Each
 /// access nests, so each is guarded.
 fn field_access(p: &mut Parser<'_>, target: CompletedMarker) -> CompletedMarker {
-    let at_access =
-        p.at(K::Dot) && p.nth_is_joined(0) && p.nth(1) == K::LowerIdent && p.nth_is_joined(1);
-    if !at_access {
+    if !(at_accessor(p, 0) && p.nth_is_joined(0)) {
         // Neither tool reads an operator touching `target` and starting
         // with `.` as anything but a field access gone wrong.
         let dotted = p.at(K::Dot) || p.at(K::Operator) && p.current_text().starts_with('.');

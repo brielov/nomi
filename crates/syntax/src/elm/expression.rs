@@ -18,7 +18,7 @@ use super::{pattern, types};
 // TERMS
 
 /// `term`.
-pub(super) fn term(p: &mut P<'_>) -> Result<(), Expr> {
+fn term(p: &mut P<'_>) -> Result<(), Expr> {
     grow_large(|| {
         one_of(
             p,

@@ -4,10 +4,9 @@
 //! matches, so dispatching on that byte reproduces the backtracking, and
 //! any failure after it is final.
 
-use nomi_base::Compat;
+use nomi_base::{Compat, utf8};
 
 use super::cursor::{Cursor, Position, Region};
-use crate::scan;
 
 /// A parsed value and the region upstream records for it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -383,7 +382,7 @@ impl<'a> Parser<'a> {
     /// The keyword `word`, not followed by what could continue a name.
     fn keyword(&mut self, word: &[u8]) -> bool {
         let rest = &self.src[self.pos..];
-        if !rest.starts_with(word) || scan::inner(&rest[word.len()..], self.compat) > 0 {
+        if !rest.starts_with(word) || utf8::inner_width(&rest[word.len()..], self.compat) > 0 {
             return false;
         }
         self.advance(word.len());
@@ -399,11 +398,8 @@ fn string_problem(cur: Cursor, problem: StringProblem) -> ParseError {
 /// where elm crashes.
 fn char_width(lead: u8) -> Option<usize> {
     match lead {
-        0..0x80 => Some(1),
         0x80..0xC0 | 0xF8.. => None,
-        0xC0..0xE0 => Some(2),
-        0xE0..0xF0 => Some(3),
-        0xF0..0xF8 => Some(4),
+        lead => Some(utf8::char_width(lead)),
     }
 }
 

@@ -5,7 +5,9 @@ use nomi_base::diagnostic::code::{Bracket, Next};
 use nomi_base::diagnostic::doc::{self, cyan, dull_yellow, reflow, stack};
 use nomi_base::diagnostic::{Doc, Problem};
 
-use super::{Reporter, closing_paren_note, surroundings, to_region, try_adding};
+use super::{
+    Reporter, closing_paren_note, stray_title, surroundings, to_region, try_adding, unmatched_close,
+};
 use crate::elm::error::{Name, PList, PRecord, PTuple, Pattern, Position};
 
 /// `PContext`: where a pattern is.
@@ -310,21 +312,16 @@ impl Reporter<'_, '_> {
                      want that instead?",
                 ),
             ),
-            Next::Close(close) => {
-                let (term, bracket) = (close.name(), close.char());
-                self.stuck(
-                    format!("STRAY {}", term.to_uppercase()),
-                    start,
-                    cur,
-                    reflow(&format!(
-                        "I ran into a an unexpected {term} in this pattern:"
-                    )),
-                    reflow(&format!(
-                        "This {bracket} does not match up with an earlier open {term}. Try \
-                         deleting it?"
-                    )),
-                )
-            }
+            Next::Close(close) => self.stuck(
+                stray_title(close),
+                start,
+                cur,
+                reflow(&format!(
+                    "I ran into a an unexpected {} in this pattern:",
+                    close.name()
+                )),
+                unmatched_close(close),
+            ),
             Next::Upper(..) | Next::Lower(..) | Next::Other(_) => self.stuck(
                 "UNFINISHED PARENTHESES",
                 start,

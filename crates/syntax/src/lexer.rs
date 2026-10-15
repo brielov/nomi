@@ -30,8 +30,8 @@ pub enum LexErrorKind {
     UnexpectedEncoding,
     /// A `{-` comment the text ends inside.
     UnterminatedBlockComment,
-    /// `1.` with no digit after the dot; `integer` is the `1`.
-    MissingFractionDigits { integer: TextRange },
+    /// `1.` with no digit after the dot.
+    MissingFractionDigits,
     /// An exponent without digits, as in `1e`.
     MissingExponentDigits,
     /// `0x` without hexadecimal digits, or with a letter after them.
@@ -43,7 +43,7 @@ pub enum LexErrorKind {
     /// A character literal the line or the text ends inside.
     UnterminatedCharacter,
     /// A character literal holding other than one character.
-    CharacterLength { characters: u32 },
+    CharacterLength,
     /// A backslash escape neither tool knows, as in `\q`.
     UnknownEscape,
     /// `\u` without braces around its digits.
@@ -51,7 +51,7 @@ pub enum LexErrorKind {
     /// `\u{}` without digits, or past U+10FFFF.
     InvalidUnicodeCodePoint,
     /// `\u{…}` with fewer than 4 or more than 6 digits.
-    InvalidUnicodeEscapeLength { digits: usize, value: u32 },
+    InvalidUnicodeEscapeLength,
     /// A `"` string left open.
     UnterminatedString,
     /// A `"""` string the text ends inside.
@@ -329,11 +329,7 @@ impl<'a> Lexer<'a> {
                 b'\'' => {
                     self.offset += 1;
                     if characters != 1 {
-                        self.error(
-                            LexErrorKind::CharacterLength { characters },
-                            start,
-                            self.offset,
-                        );
+                        self.error(LexErrorKind::CharacterLength, start, self.offset);
                     }
                     return;
                 }
@@ -401,7 +397,7 @@ impl<'a> Lexer<'a> {
         } else if digits == 0 || value > 0x10_FFFF {
             Some(LexErrorKind::InvalidUnicodeCodePoint)
         } else if !(4..=6).contains(&digits) {
-            Some(LexErrorKind::InvalidUnicodeEscapeLength { digits, value })
+            Some(LexErrorKind::InvalidUnicodeEscapeLength)
         } else {
             None
         };
@@ -432,7 +428,7 @@ impl<'a> Lexer<'a> {
                     self.error(LexErrorKind::LeadingZero, self.offset, self.offset);
                     return SyntaxKind::Int;
                 }
-                Some(b'.') => return self.fraction(start),
+                Some(b'.') => return self.fraction(),
                 _ => {
                     self.check_number_end(LexErrorKind::NumberFollowedByIdentifier);
                     return SyntaxKind::Int;
@@ -441,7 +437,7 @@ impl<'a> Lexer<'a> {
         }
         self.consume_while(|byte| byte.is_ascii_digit());
         match self.byte_at(self.offset) {
-            Some(b'.') => self.fraction(start),
+            Some(b'.') => self.fraction(),
             Some(b'e' | b'E') => {
                 self.exponent();
                 SyntaxKind::Float
@@ -453,8 +449,8 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// At the `.` after the integer part that starts at `start`.
-    fn fraction(&mut self, start: usize) -> SyntaxKind {
+    /// At the `.` after the integer part.
+    fn fraction(&mut self) -> SyntaxKind {
         // elm-format's `[1..3]`, a range; the grammar reports it for elm.
         if self.byte_at(self.offset + 1) == Some(b'.') {
             return SyntaxKind::Int;
@@ -464,9 +460,7 @@ impl<'a> Lexer<'a> {
             .is_some_and(|byte| byte.is_ascii_digit())
         {
             self.error(
-                LexErrorKind::MissingFractionDigits {
-                    integer: range(start, self.offset),
-                },
+                LexErrorKind::MissingFractionDigits,
                 self.offset,
                 self.offset,
             );

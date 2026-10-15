@@ -10,7 +10,7 @@
 use std::cmp::Ordering;
 use std::fmt;
 
-use nomi_base::Compat;
+use nomi_base::{Compat, utf8};
 
 use crate::json::{Cursor, Position};
 use crate::scan;
@@ -62,13 +62,13 @@ impl ModuleName {
         };
         scan::whole(bytes, start, compat, |scan| {
             'segment: loop {
-                let width = scan::upper(scan.rest(), compat);
+                let width = utf8::upper_width(scan.rest(), compat);
                 if width == 0 {
                     return Err(scan.cursor());
                 }
                 scan.skip(width, columns(width));
                 loop {
-                    let width = scan::inner(scan.rest(), compat);
+                    let width = utf8::inner_width(scan.rest(), compat);
                     if width > 0 {
                         scan.skip(width, columns(width));
                     } else if scan.peek() == Some(b'.') {

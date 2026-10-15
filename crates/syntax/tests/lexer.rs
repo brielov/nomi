@@ -248,7 +248,7 @@ fn independent_malformed_tokens_report_without_losing_input() {
         errors(text),
         [
             LexErrorKind::UnterminatedString,
-            LexErrorKind::CharacterLength { characters: 0 },
+            LexErrorKind::CharacterLength,
             LexErrorKind::LeadingZero,
             LexErrorKind::InvalidHexDigit,
             LexErrorKind::MissingExponentDigits,
@@ -277,7 +277,7 @@ fn unterminated_literals_and_odd_characters() {
     assert_eq!(
         errors("'ab' 'a\n'\\"),
         [
-            LexErrorKind::CharacterLength { characters: 2 },
+            LexErrorKind::CharacterLength,
             LexErrorKind::UnterminatedCharacter,
             LexErrorKind::UnterminatedCharacter,
         ]
@@ -288,10 +288,7 @@ fn unterminated_literals_and_odd_characters() {
     );
     assert_eq!(errors("\"\\q\" '\\n'"), [LexErrorKind::UnknownEscape]);
     assert_eq!(errors(r#""\xzz" '\x41' '\x'"#), []);
-    assert_eq!(
-        errors(r"'\xg'"),
-        [LexErrorKind::CharacterLength { characters: 2 }]
-    );
+    assert_eq!(errors(r"'\xg'"), [LexErrorKind::CharacterLength]);
     assert_eq!(errors(r#""\n\r\t\"\'\\" '\t'"#), []);
     assert_eq!(errors("\"a\\"), [LexErrorKind::UnterminatedString]);
     assert_eq!(errors("{- {- -}"), [LexErrorKind::UnterminatedBlockComment]);
@@ -344,13 +341,7 @@ fn error_ranges_point_at_the_problem() {
     assert_eq!(at("12x"), [(2, 2)]);
     assert_eq!(at("\"\\u{1}\""), [(1, 6)]);
     assert_eq!(at(" \t"), [(1, 2)]);
-    let lexed = lex("12.x");
-    assert_eq!(
-        lexed.errors()[0].kind,
-        LexErrorKind::MissingFractionDigits {
-            integer: lexed.tokens()[0].range
-        }
-    );
+    assert_eq!(errors("12.x"), [LexErrorKind::MissingFractionDigits]);
     assert_eq!(at("12.x"), [(2, 2)]);
 }
 
@@ -394,9 +385,7 @@ fn number_boundaries_follow_the_reference_chompers() {
         errors("0xAg 0.x"),
         [
             LexErrorKind::InvalidHexDigit,
-            LexErrorKind::MissingFractionDigits {
-                integer: nomi_base::TextRange::new(5.into(), 6.into())
-            }
+            LexErrorKind::MissingFractionDigits,
         ]
     );
 }
@@ -412,27 +401,9 @@ fn unicode_escape_failures_retain_the_reason_and_literal_text() {
             r#""\u{FFFFFFFFFFFFFFFFFFFFFFFF}""#,
             LexErrorKind::InvalidUnicodeCodePoint,
         ),
-        (
-            r#""\u{00}""#,
-            LexErrorKind::InvalidUnicodeEscapeLength {
-                digits: 2,
-                value: 0,
-            },
-        ),
-        (
-            r#""\u{0ab}""#,
-            LexErrorKind::InvalidUnicodeEscapeLength {
-                digits: 3,
-                value: 0xab,
-            },
-        ),
-        (
-            r#""\u{0000000}""#,
-            LexErrorKind::InvalidUnicodeEscapeLength {
-                digits: 7,
-                value: 0,
-            },
-        ),
+        (r#""\u{00}""#, LexErrorKind::InvalidUnicodeEscapeLength),
+        (r#""\u{0ab}""#, LexErrorKind::InvalidUnicodeEscapeLength),
+        (r#""\u{0000000}""#, LexErrorKind::InvalidUnicodeEscapeLength),
     ] {
         assert_lossless(literal);
         assert_eq!(errors(literal), [expected], "{literal}");

@@ -14,7 +14,7 @@ use anyhow::{Context, Result, bail, ensure};
 use nomi_base::Compat;
 use nomi_syntax::{Source, Tool};
 use nomi_testkit::ratchet::Suite;
-use nomi_testkit::{files_below, sha256_hex as sha256};
+use nomi_testkit::{files_below, release_column, sha256_hex as sha256};
 use sha2::{Digest as _, Sha256};
 
 use super::{apps, corpus_dir, is_module, packages, parallel};
@@ -203,8 +203,8 @@ impl FromStr for Column {
     fn from_str(header: &str) -> Result<Column> {
         match header {
             "elm-format" => Ok(Column::ElmFormat),
-            _ => match header.strip_prefix("elm ") {
-                Some(version) => Ok(Column::Elm(version.parse()?)),
+            _ => match release_column(header) {
+                Some(compat) => Ok(Column::Elm(compat)),
                 None => bail!("unknown column `{header}`"),
             },
         }

@@ -3,7 +3,7 @@
 //! it does for each Compat, and leaves strings as written, escapes and
 //! all, so that writing them back with [`encode`] reproduces them.
 
-pub mod cursor;
+mod cursor;
 pub mod decode;
 pub mod encode;
 mod parse;

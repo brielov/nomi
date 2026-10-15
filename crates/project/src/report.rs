@@ -207,7 +207,7 @@ fn elm_json_snippet(
 
 /// A region of `elm.json`, as `compat` keeps it: the JSON parser's
 /// positions are the editor's, from 1.
-pub(crate) fn kept(region: json::Region, compat: Compat) -> Region {
+fn kept(region: json::Region, compat: Compat) -> Region {
     let keep = |p: json::Position| Position {
         row: compat.keep(p.row),
         col: compat.keep(p.col),
@@ -374,7 +374,7 @@ fn outline_problem(
                              close to what you wrote:",
                         )),
                 ),
-                vcat(suggestions.iter().map(|s| text(*s)))
+                vcat(suggestions.iter().map(|s| text(s.as_str())))
                     .color(Color::DullYellow)
                     .indent(4),
                 reflow("Check out https://spdx.org/licenses/ for the full list of options."),

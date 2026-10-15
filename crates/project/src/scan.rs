@@ -2,7 +2,7 @@
 //! bytes and the cursor there, and `fromSnippet`'s rule that a parse must
 //! take every byte. Failures are the cursor where upstream reports them.
 
-use nomi_base::{Compat, ghc, utf8};
+use nomi_base::Compat;
 
 use crate::json::{Cursor, Position};
 
@@ -85,61 +85,4 @@ pub(crate) fn whole<T>(
     let mut scan = Scan::new(bytes, start, compat);
     let parsed = parse(&mut scan).and_then(|t| scan.finish().map(|()| t));
     parsed.map_err(Cursor::position)
-}
-
-/// The width of the character `rest` starts with if it is good: ASCII by
-/// `ascii`, anything else by `unicode`; zero if it isn't. This is
-/// `AST/Prim/Variable.hs`'s `chomp` for 0.19.2 and later, which decodes
-/// strict UTF-8 within the input, and 0.19.1's `get*WidthHelp`, which
-/// assembles the character from its lead byte's width unchecked.
-pub(crate) fn chomp(
-    rest: &[u8],
-    ascii: impl Fn(u8) -> bool,
-    unicode: impl Fn(char) -> bool,
-    compat: Compat,
-) -> usize {
-    let Some(&lead) = rest.first() else {
-        return 0;
-    };
-    if ascii(lead) {
-        return 1;
-    }
-    let width = match lead {
-        0xC0..0xE0 => 2,
-        0xE0..0xF0 => 3,
-        0xF0..0xF8 => 4,
-        _ => return 0,
-    };
-    let c = match compat {
-        Compat::V0_19_1 => unchecked_char(rest, width),
-        Compat::V0_19_2 | Compat::V0_19_3 => rest
-            .get(..width)
-            .and_then(|bytes| std::str::from_utf8(bytes).ok())
-            .and_then(|s| s.chars().next()),
-    };
-    if c.is_some_and(unicode) { width } else { 0 }
-}
-
-/// `chompInner`: a character that continues a name, `[A-Za-z0-9_]` or a
-/// letter outside ASCII.
-pub(crate) fn inner(rest: &[u8], compat: Compat) -> usize {
-    chomp(
-        rest,
-        |b| b.is_ascii_alphanumeric() || b == b'_',
-        ghc::is_alpha,
-        compat,
-    )
-}
-
-/// `chompUpper`: a character that starts a capitalized name.
-pub(crate) fn upper(rest: &[u8], compat: Compat) -> usize {
-    chomp(rest, |b| b.is_ascii_uppercase(), ghc::is_upper, compat)
-}
-
-/// 0.19.1's `chr2`, `chr3` and `chr4` ([`utf8::unchecked_code`]). A
-/// result that is no character is no letter either.
-fn unchecked_char(bytes: &[u8], width: usize) -> Option<char> {
-    u32::try_from(utf8::unchecked_code(bytes, width))
-        .ok()
-        .and_then(char::from_u32)
 }

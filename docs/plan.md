@@ -49,7 +49,7 @@ nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it wait
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **Q.15**.
+4. Resume at the first unchecked box. Right now that is **Q.15a**.
 
 ### Test tiers
 
@@ -1162,7 +1162,10 @@ A second, independent audit of the same code (2026-10-13, kept in `~/.cache/nomi
   Done: a comment on a line of its own before a module name, variable pattern or literal belongs to that node in nomi's tree, so its first token was the comment. Hover's and completion's module names, and xtask's mutation generator's parameters, locals and literals, take the first significant token. A unit test hovers a module name below such a comment; it fails on the old code. The transcripts and the `lsp` corpus suite are unchanged.
 
 
-- [ ] **Q.15** `quality: exit findings, foundations`. The exit review (12 fresh reviews, every file read again, kept in `~/.cache/nomi-dev/quality/exit/`) found 149 places still short of §13: work done twice or copied to be read, flags and tuples where types belong, duplicated helpers, `_` arms deciding per variant, long functions. This step fixes base's, project's, registry's and syntax's (38); the steps after it the rest, crate by crate.
+- [x] **Q.15** `quality: exit findings, foundations`. The exit review (12 fresh reviews, every file read again, kept in `~/.cache/nomi-dev/quality/exit/`) found 149 places still short of §13: work done twice or copied to be read, flags and tuples where types belong, duplicated helpers, `_` arms deciding per variant, long functions. This step fixes base's, project's, registry's and syntax's (28); the steps after it the rest, crate by crate.
+
+  Done: 0.19.1's lenient UTF-8 scanning (`chomp` and the class widths) is base's alone, project and syntax both calling it; base's `Doc` is a struct over a crate-private tree, and `doc::from_chars` serves registry's unexpected bodies; store directories neither tool writes are skipped rather than read loosely; the parser's `bump` walks its lookahead once, and the grammar's operator and accessor checks share their helpers; `literal_body` reads shaders too, for validation, the formatter and the compiler; the lexer's error kinds drop payloads nothing read; the error ports' parsers lose parameters they never used. 60 lines fewer. Measured against Q.14: builds the same, formatting the corpus apps 0.29 s against 0.30. CI and the `syntax`, `format` and `outline` corpus suites are unchanged. Surprises: `nomi publish` panicked on a tag answer with a newline in its first 73 characters, and no longer does; an `elm.json` ending in a keyword and a cut-off character under 0.19.1 now keeps the keyword, as the syntax crate's scanner always did, where upstream reads past its buffer.
+
 - [ ] **Q.15a** `quality: exit findings, format` (10).
 - [ ] **Q.15b** `quality: exit findings, compiler` (27).
 - [ ] **Q.15c** `quality: exit findings, codegen-js, test and testkit` (14).

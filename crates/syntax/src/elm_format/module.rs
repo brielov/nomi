@@ -87,9 +87,7 @@ fn module_decl_0_17(p: &mut P<'_>) -> R<()> {
     dot_sep1(p, cap_var)?;
     p.option(|p| {
         commented_keyword(p, "where", |p| {
-            surround(p, '{', '}', |p| {
-                comma_sep1(p, &mut |p| key_value(p, equals, low_var, cap_var))
-            })
+            surround(p, '{', '}', |p| comma_sep1(p, &mut key_value))
         })
     })?;
     p.option(|p| {

@@ -4,9 +4,9 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use nomi_base::Compat;
 use nomi_syntax::{Source, Tool};
 use nomi_testkit::mutation::{self, Mutation};
+use nomi_testkit::release_column;
 
 pub(crate) const RERUN: &str = "rerun `cargo xtask oracle syntax mutations`";
 
@@ -107,9 +107,9 @@ fn cases(dir: &Path, seed: &mutation::Seed<Source>) -> Seed {
         .skip(1)
         .map(|column| match column {
             "elm-format" => (column.to_owned(), Tool::ElmFormat),
-            _ => match column.strip_prefix("elm ").map(str::parse::<Compat>) {
-                Some(Ok(compat)) => (column.to_owned(), Tool::Elm(seed.kind, compat)),
-                _ => panic!("{name}: unknown column `{column}`"),
+            _ => match release_column(column) {
+                Some(compat) => (column.to_owned(), Tool::Elm(seed.kind, compat)),
+                None => panic!("{name}: unknown column `{column}`"),
             },
         })
         .collect();

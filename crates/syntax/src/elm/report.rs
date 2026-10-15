@@ -553,20 +553,17 @@ impl Reporter<'_, '_> {
                 )),
             ),
             Next::Close(close) => {
-                let (term, bracket) = (close.name(), close.char());
+                let term = close.name();
                 self.at(
                     format!("UNEXPECTED {}", term.to_uppercase()),
                     to_region(cur),
                     reflow(&format!("I ran into an unexpected {term}:")),
-                    reflow(&format!(
-                        "This {bracket} does not match up with an earlier open {term}. Try \
-                     deleting it?"
-                    )),
+                    unmatched_close(close),
                 )
             }
-            Next::Lower(c, cs) | Next::Upper(c, cs) => self.at(
+            Next::Lower(_, cs) | Next::Upper(_, cs) => self.at(
                 "UNEXPECTED NAME",
-                self.keyword_region(cur, &format!("{c}{cs}")),
+                self.wider(cur, 1 + cs.chars().count() as u32),
                 reflow("I got stuck on this name:"),
                 confusing(),
             ),
@@ -997,6 +994,20 @@ impl Reporter<'_, '_> {
             ]),
         ))
     }
+}
+
+/// The title of a report on a `close` no open bracket matches.
+fn stray_title(close: Bracket) -> String {
+    format!("STRAY {}", close.name().to_uppercase())
+}
+
+/// What a `close` no open bracket matches gets told.
+fn unmatched_close(close: Bracket) -> Doc {
+    reflow(&format!(
+        "This {} does not match up with an earlier open {}. Try deleting it?",
+        close.char(),
+        close.name()
+    ))
 }
 
 /// "Try adding a `close` to see if that helps", and the sentence's end.

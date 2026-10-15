@@ -12,36 +12,38 @@ pub struct License(&'static str);
 /// the identifier it suggests.
 struct Candidate {
     text: &'static str,
-    code: &'static str,
+    license: License,
 }
 
 impl License {
-    /// The raw string bytes, as `encode` writes them.
-    pub fn as_bytes(self) -> &'static [u8] {
-        self.0.as_bytes()
+    /// The identifier, as `encode` writes it.
+    pub(crate) fn as_str(self) -> &'static str {
+        self.0
     }
 
     /// `check`: the license these raw string bytes name, or the four
     /// identifiers nearest to them. Escapes are not decoded, so `MI\u0054`
     /// is no license. An identifier can be suggested twice, once for
     /// itself and once for its full name.
-    pub fn check(raw: &[u8], compat: Compat) -> Result<License, Vec<&'static str>> {
+    pub(crate) fn check(raw: &[u8], compat: Compat) -> Result<License, Vec<License>> {
         if let Ok(i) = LICENSES.binary_search_by(|(code, _)| code.as_bytes().cmp(raw)) {
             return Ok(License(LICENSES[i].0));
         }
         let mut candidates: Vec<Candidate> = LICENSES
             .iter()
-            .map(|&(code, _)| Candidate { text: code, code })
-            .chain(
-                LICENSES
-                    .iter()
-                    .map(|&(code, name)| Candidate { text: name, code }),
-            )
+            .map(|&(code, _)| Candidate {
+                text: code,
+                license: License(code),
+            })
+            .chain(LICENSES.iter().map(|&(code, name)| Candidate {
+                text: name,
+                license: License(code),
+            }))
             .collect();
         suggest::sort(&code_points(raw, compat), &mut candidates, |c| {
             suggest::code_points(c.text)
         });
-        Err(candidates.into_iter().take(4).map(|c| c.code).collect())
+        Err(candidates.into_iter().take(4).map(|c| c.license).collect())
     }
 }
 

@@ -9,7 +9,7 @@
 //! its elm would, and the index works offline once fetched.
 
 use std::collections::BTreeMap;
-use std::io;
+use std::io::{self, Write as _};
 use std::path::Path;
 
 use nomi_base::Compat;
@@ -214,7 +214,7 @@ impl Index {
     fn encode(&self) -> Vec<u8> {
         let mut out = MAGIC.to_vec();
         for body in &self.responses {
-            out.extend_from_slice(format!("{}\n", body.len()).as_bytes());
+            let _ = writeln!(out, "{}", body.len());
             out.extend_from_slice(body);
             out.push(b'\n');
         }

@@ -1,6 +1,8 @@
 //! The reports on types: `toTypeReport` and the reports on records and
 //! tuples it leads to.
 
+use std::borrow::Cow;
+
 use nomi_base::diagnostic::code::{Bracket, Next};
 use nomi_base::diagnostic::doc::{self, dull_yellow, green, reflow, stack, vcat};
 use nomi_base::diagnostic::{Doc, Problem};
@@ -73,11 +75,11 @@ impl Reporter<'_, '_> {
                 )),
             );
         }
-        let something = match context {
-            TypeContext::Annotation(name) => format!("the `{name}` type annotation"),
-            TypeContext::CustomType => "a custom type".to_owned(),
-            TypeContext::TypeAlias => "a type alias".to_owned(),
-            TypeContext::Port => "a port".to_owned(),
+        let something: Cow<'_, str> = match context {
+            TypeContext::Annotation(name) => format!("the `{name}` type annotation").into(),
+            TypeContext::CustomType => "a custom type".into(),
+            TypeContext::TypeAlias => "a type alias".into(),
+            TypeContext::Port => "a port".into(),
         };
         self.stuck(
             format!("PROBLEM IN {}", context.thing().to_uppercase()),
