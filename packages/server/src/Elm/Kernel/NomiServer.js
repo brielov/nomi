@@ -49,7 +49,14 @@ function _NomiServer_open(config)
 	return _Runtime.async(function(resume) {
 		var server = { http: _NomiServer_http.createServer(), requests: [], taker: null };
 		server.http.on('request', function(req, res) {
-			var request = { req: req, res: res, body: null };
+			var request = { req: req, res: res, body: null, fiber: null, gone: false };
+			// The connection closed before the response was written: the
+			// client is gone, and its request is interrupted.
+			res.on('close', function() {
+				if (res.writableEnded) return;
+				request.gone = true;
+				request.fiber && __Scheduler_runtime.interrupt(request.fiber);
+			});
 			var taker = server.taker;
 			server.taker = null;
 			taker ? taker(_Runtime.succeed(request)) : server.requests.push(request);
@@ -77,7 +84,11 @@ function _NomiServer_accept(server, spawn, handle)
 		return function() { server.taker = null; };
 	});
 	var loop = _Runtime.andThen(next, function(request) {
-		return _Runtime.andThen(spawn(_NomiServer_respond(handle, request)), function() { return loop; });
+		return _Runtime.andThen(spawn(_NomiServer_respond(handle, request)), function(fiber) {
+			request.fiber = fiber;
+			request.gone && __Scheduler_runtime.interrupt(fiber);
+			return loop;
+		});
 	});
 	return loop;
 }
@@ -113,10 +124,14 @@ function _NomiServer_error(error)
 	}
 }
 
-// Answers `request` with the response the handler gives.
+// Answers `request` with the response the handler gives, on a fiber of its
+// own whose exit the request's fiber awaits, so a defect is answered here
+// and reported once, by `_NomiServer_died`, rather than by the runtime.
+// Interrupting the request's fiber interrupts the handler's, and its
+// finalizers run before the request's fiber ends.
 function _NomiServer_respond(handle, request)
 {
-	return _Runtime.andThen(handle(request), function(response) {
+	var answered = _Runtime.andThen(_Runtime.andThen(_Runtime.succeed(request), handle), function(response) {
 		return _Runtime.sync(function() {
 			var res = request.res;
 			var headers = __List_toArray(response.__$headers);
@@ -129,6 +144,35 @@ function _NomiServer_respond(handle, request)
 			return __Utils_Tuple0;
 		});
 	});
+	return _Runtime.andThen(_Runtime.fork(answered), function(fiber) {
+		return _Runtime.map(_Runtime.awaitFiber(fiber), function(exit) {
+			if (exit.$ === _Runtime.ExitKind.DEFECT)
+			{
+				_NomiServer_died(request, exit.defect);
+			}
+			return __Utils_Tuple0;
+		});
+	});
+}
+
+// Answers 500 for a handler that died, or closes the connection when the
+// response had begun, and writes one line to stderr naming the request.
+function _NomiServer_died(request, defect)
+{
+	var res = request.res;
+	if (res.headersSent)
+	{
+		res.destroy();
+	}
+	else if (!res.destroyed)
+	{
+		res.getHeaderNames().forEach(function(name) { res.removeHeader(name); });
+		res.statusCode = 500;
+		res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+		res.end('internal server error');
+	}
+	var described = String(defect).replace(/\s*\n\s*/g, ' ');
+	console.error('nomi: request ' + request.req.method + ' ' + request.req.url + ' died: ' + described);
 }
 
 

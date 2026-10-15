@@ -53,7 +53,12 @@ import Task exposing (Task)
 {-| Serves HTTP on the configured host and port, answering each request
 with the handler's response, until the task is interrupted. Then the
 server stops accepting connections, gives the requests in flight
-`drainMilliseconds` to finish, interrupts the rest, and closes.
+`drainMilliseconds` to finish, interrupts the rest, and closes their
+connections.
+
+Each request runs on a fiber of its own. A client that disconnects before
+its response is written interrupts it, so its finalizers run; a handler
+that dies, as `Debug.todo` does, answers 500 and writes a line to stderr.
 
     Nomi.program <|
         \env ->

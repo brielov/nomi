@@ -3,7 +3,7 @@
 //! its task as the process, which exits with how the task ended; its
 //! concurrent tasks and fibers end and interrupt as documented, and its
 //! fibers share refs and queues. nomi/server, bundled beside it, serves
-//! HTTP to a loopback client.
+//! HTTP to a loopback client, a request per fiber, and drains on SIGTERM.
 #![cfg(unix)]
 
 #[path = "support/website.rs"]
@@ -14,6 +14,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use website::offline;
@@ -309,6 +310,61 @@ handle req =
             Task.succeed (Server.text 200 echo |> Server.withHeader "X-Echo" echo)
 "#;
 
+/// A server on the port its first argument names, draining for the
+/// milliseconds its second names. `/hang` says so and never answers, with
+/// a finalizer that says so too; `/slow` says so and answers with its
+/// body; `/todo` dies; any other path is `ok`.
+const LIFECYCLE: &str = r#"module Main exposing (main)
+
+import Nomi
+import Nomi.Server as Server exposing (Request, Response)
+import Nomi.Task
+import Process
+import Task exposing (Task)
+
+
+main : Nomi.Program
+main =
+    Nomi.program <|
+        \env ->
+            let
+                defaults =
+                    Server.defaults
+
+                number i =
+                    List.drop i env.args |> List.head |> Maybe.andThen String.toInt |> Maybe.withDefault 0
+            in
+            Server.listen { defaults | port_ = number 0, drainMilliseconds = number 1 } handle env.net
+                |> Task.mapError Server.errorToString
+
+
+handle : Request -> Task Never Response
+handle req =
+    case Server.path req of
+        [ "hang" ] ->
+            say "hanging"
+                |> Task.andThen (\_ -> Process.sleep 3600000)
+                |> Task.map (\_ -> Server.text 200 "woke")
+                |> Nomi.Task.ensure (say "hang finalized")
+
+        [ "slow" ] ->
+            say "slow"
+                |> Task.andThen (\_ -> Server.body req)
+                |> Task.map (Server.text 200)
+                |> Task.onError (\error -> Task.succeed (Server.text 400 (Debug.toString error)))
+
+        [ "todo" ] ->
+            Debug.todo "boom"
+
+        _ ->
+            Task.succeed (Server.text 200 "ok")
+
+
+say : String -> Task x ()
+say line =
+    Task.succeed () |> Task.map (\_ -> Debug.log line ())
+"#;
+
 /// An application of `program` on nomi/core and nomi/server, in a new
 /// directory.
 fn project(program: &str) -> (tempfile::TempDir, PathBuf) {
@@ -574,36 +630,66 @@ fn free_port() -> u16 {
     listener.local_addr().unwrap().port()
 }
 
-/// [`SERVER`] serving on a port of its own, stopped when dropped.
+/// A server serving on a port of its own, stopped when dropped.
 struct Serving {
     port: u16,
     server: std::process::Child,
+    /// The lines the server prints on standard output.
+    said: mpsc::Receiver<String>,
     _work: tempfile::TempDir,
 }
 
 impl Serving {
     fn start() -> Serving {
-        let (work, root) = built(SERVER);
+        Serving::of(SERVER, &[])
+    }
+
+    /// `program` built and serving, with `args` after its port.
+    fn of(program: &str, args: &[&str]) -> Serving {
+        let (work, root) = built(program);
         let port = free_port();
-        let server = node()
-            .args(["dist/main.mjs", &port.to_string()])
+        let mut server = node()
+            .arg("dist/main.mjs")
+            .arg(port.to_string())
+            .args(args)
             .current_dir(&root)
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
+        let stdout = BufReader::new(server.stdout.take().unwrap());
+        let (lines, said) = mpsc::channel();
+        std::thread::spawn(move || {
+            for line in stdout.lines().map_while(Result::ok) {
+                if lines.send(line).is_err() {
+                    break;
+                }
+            }
+        });
         Serving {
             port,
             server,
+            said,
             _work: work,
         }
     }
 
-    /// `request` sent on a new connection once the server takes one; the
-    /// response's status, headers with lower-case names, and body.
-    fn send(&self, request: &[u8]) -> (u16, Vec<(String, String)>, String) {
+    /// Waits for the server to print `line`.
+    fn says(&self, line: &str) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            match (self.said).recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok(said) if said == line => return,
+                Ok(_) => {}
+                Err(e) => panic!("the server didn't print {line:?}: {e}"),
+            }
+        }
+    }
+
+    /// A new connection, once the server takes one.
+    fn connect(&self) -> TcpStream {
         let started = Instant::now();
-        let mut stream = loop {
+        let stream = loop {
             match TcpStream::connect(("127.0.0.1", self.port)) {
                 Ok(stream) => break stream,
                 Err(e) if started.elapsed() > Duration::from_secs(10) => panic!("{e}"),
@@ -613,18 +699,64 @@ impl Serving {
         stream
             .set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
-        stream.write_all(request).unwrap();
-        let mut response = String::new();
-        stream.read_to_string(&mut response).unwrap();
-        let (head, body) = response.split_once("\r\n\r\n").unwrap();
-        let mut lines = head.lines();
-        let status = lines.next().unwrap().split(' ').nth(1).unwrap();
-        let headers = lines
-            .map(|line| line.split_once(": ").unwrap())
-            .map(|(name, value)| (name.to_ascii_lowercase(), value.to_owned()))
-            .collect();
-        (status.parse().unwrap(), headers, body.to_owned())
+        stream
     }
+
+    /// `request` sent on a new connection; the response's status, headers
+    /// with lower-case names, and body.
+    fn send(&self, request: &[u8]) -> (u16, Vec<(String, String)>, String) {
+        let mut stream = self.connect();
+        stream.write_all(request).unwrap();
+        response(&mut stream)
+    }
+
+    /// Sends the server SIGTERM.
+    fn terminate(&self) {
+        let sent = Command::new("kill")
+            .args(["-TERM".to_owned(), self.server.id().to_string()])
+            .status()
+            .unwrap();
+        assert!(sent.success());
+    }
+
+    /// The server's exit code once it exits, within 15 seconds, and the
+    /// lines of standard error it wrote.
+    fn exit(&mut self) -> (Option<i32>, Vec<String>) {
+        let started = Instant::now();
+        while self.server.try_wait().unwrap().is_none() && started.elapsed().as_secs() < 15 {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let code = self
+            .server
+            .try_wait()
+            .unwrap()
+            .and_then(|status| status.code());
+        let mut stderr = String::new();
+        if code.is_some() {
+            let mut pipe = self.server.stderr.take().unwrap();
+            pipe.read_to_string(&mut stderr).unwrap();
+        }
+        let lines = (stderr.lines())
+            .filter(|line| !line.starts_with("Compiled in DEV mode."))
+            .map(str::to_owned)
+            .collect();
+        (code, lines)
+    }
+}
+
+/// The response read from `stream` to its end: its status, headers with
+/// lower-case names, and body.
+fn response(stream: &mut TcpStream) -> (u16, Vec<(String, String)>, String) {
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    let (head, body) = response.split_once("\r\n\r\n").unwrap();
+    let mut lines = head.lines();
+    let status = lines.next().unwrap().split(' ').nth(1).unwrap();
+    let headers = lines
+        .map(|line| line.split_once(": ").unwrap())
+        .map(|(name, value)| (name.to_ascii_lowercase(), value.to_owned()))
+        .collect();
+    (status.parse().unwrap(), headers, body.to_owned())
 }
 
 impl Drop for Serving {
@@ -687,19 +819,8 @@ fn a_server_reads_each_method_path_query_and_header_and_stops_on_sigterm() {
     }
     let (_, _, body) = serving.send(&request("GET", "/", "", b""));
     assert_eq!(body, "(Get,[],(Nothing,Nothing))");
-    let sent = Command::new("kill")
-        .args(["-TERM".to_owned(), serving.server.id().to_string()])
-        .status()
-        .unwrap();
-    assert!(sent.success());
-    let signalled = Instant::now();
-    while serving.server.try_wait().unwrap().is_none() && signalled.elapsed().as_secs() < 15 {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert_eq!(
-        serving.server.try_wait().unwrap().unwrap().code(),
-        Some(143)
-    );
+    serving.terminate();
+    assert_eq!(serving.exit(), (Some(143), vec![]));
 }
 
 #[test]
@@ -757,4 +878,96 @@ fn a_server_on_a_taken_port_fails_with_address_in_use() {
         errors(&ran),
         ["nomi: the program failed: the address is already in use"]
     );
+}
+
+#[test]
+fn a_client_that_disconnects_interrupts_its_request_and_runs_its_finalizers() {
+    nomi_testkit::require_node();
+    let mut serving = Serving::of(LIFECYCLE, &["5000"]);
+    let mut stream = serving.connect();
+    stream.write_all(&request("GET", "/hang", "", b"")).unwrap();
+    serving.says("hanging: ()");
+    drop(stream);
+    serving.says("hang finalized: ()");
+    let (status, _, body) = serving.send(&request("GET", "/", "", b""));
+    assert_eq!((status, body.as_str()), (200, "ok"));
+    serving.terminate();
+    assert_eq!(serving.exit(), (Some(143), vec![]));
+}
+
+#[test]
+fn a_handler_that_dies_answers_500_writes_one_line_and_the_server_serves_on() {
+    nomi_testkit::require_node();
+    let mut serving = Serving::of(LIFECYCLE, &["5000"]);
+    let (status, headers, body) =
+        serving.send(&request("GET", "/todo?x=1", "X-Gone: yes\r\n", b""));
+    assert_eq!((status, body.as_str()), (500, "internal server error"));
+    assert_eq!(
+        header(&headers, "content-type"),
+        Some("text/plain; charset=utf-8")
+    );
+    let (status, _, body) = serving.send(&request("GET", "/", "", b""));
+    assert_eq!((status, body.as_str()), (200, "ok"));
+    serving.terminate();
+    let line = LIFECYCLE
+        .lines()
+        .position(|line| line.contains("Debug.todo"))
+        .unwrap()
+        + 1;
+    assert_eq!(
+        serving.exit(),
+        (
+            Some(143),
+            vec![format!(
+                "nomi: request GET /todo?x=1 died: Error: TODO in module `Main` on line {line} boom"
+            )]
+        )
+    );
+}
+
+#[test]
+fn sigterm_refuses_new_connections_lets_a_response_in_flight_complete_and_exits_143() {
+    nomi_testkit::require_node();
+    let mut serving = Serving::of(LIFECYCLE, &["30000"]);
+    // The handler waits for the body, which is sent once the server
+    // refuses connections.
+    let mut stream = serving.connect();
+    let head =
+        b"POST /slow HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: 4\r\n\r\n";
+    stream.write_all(head).unwrap();
+    serving.says("slow: ()");
+    serving.terminate();
+    let signalled = Instant::now();
+    loop {
+        match TcpStream::connect(("127.0.0.1", serving.port)) {
+            Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => break,
+            _ if signalled.elapsed() > Duration::from_secs(10) => panic!("still accepting"),
+            _ => std::thread::sleep(Duration::from_millis(10)),
+        }
+    }
+    stream.write_all(b"done").unwrap();
+    let (status, _, body) = response(&mut stream);
+    assert_eq!((status, body.as_str()), (200, "done"));
+    assert_eq!(serving.exit(), (Some(143), vec![]));
+    // Well before the drain's 30 seconds pass.
+    assert!(signalled.elapsed() < Duration::from_secs(20));
+}
+
+#[test]
+fn a_request_still_running_when_the_drain_ends_is_interrupted_and_its_connection_closed() {
+    nomi_testkit::require_node();
+    let mut serving = Serving::of(LIFECYCLE, &["1000"]);
+    let mut stream = serving.connect();
+    stream.write_all(&request("GET", "/hang", "", b"")).unwrap();
+    serving.says("hanging: ()");
+    serving.terminate();
+    let signalled = Instant::now();
+    let mut answer = Vec::new();
+    // Closed, or reset, without a response.
+    let _ = stream.read_to_end(&mut answer);
+    assert_eq!(String::from_utf8_lossy(&answer), "");
+    serving.says("hang finalized: ()");
+    // Exited by itself, so with no line about the lifecycle's deadline.
+    assert_eq!(serving.exit(), (Some(143), vec![]));
+    assert!(signalled.elapsed() >= Duration::from_millis(900));
 }
