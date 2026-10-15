@@ -3,7 +3,7 @@
 import Elm.Kernel.List exposing (fromArray, toArray)
 import Elm.Kernel.Platform exposing (export)
 import Elm.Kernel.Scheduler exposing (runtime)
-import Elm.Kernel.Utils exposing (Tuple2)
+import Elm.Kernel.Utils exposing (Tuple0, Tuple2)
 import Maybe exposing (Just, Nothing)
 import Nomi.Fiber as Fiber exposing (Success, Failure, Interrupted, Defect)
 
@@ -118,4 +118,141 @@ function _Nomi_exit(exit)
 		default:
 			return __Fiber_Defect(String(exit.defect));
 	}
+}
+
+
+// REFS
+
+function _Nomi_makeRef(value)
+{
+	return _Runtime.sync(function() { return { value: value }; });
+}
+
+function _Nomi_getRef(ref)
+{
+	return _Runtime.sync(function() { return ref.value; });
+}
+
+var _Nomi_setRef = F2(function(value, ref)
+{
+	return _Runtime.sync(function() { ref.value = value; return __Utils_Tuple0; });
+});
+
+var _Nomi_updateRef = F2(function(f, ref)
+{
+	return _Runtime.sync(function() { ref.value = f(ref.value); return __Utils_Tuple0; });
+});
+
+// One step, so no other fiber runs between the read and the write.
+var _Nomi_modifyRef = F2(function(f, ref)
+{
+	return _Runtime.sync(function() {
+		var pair = f(ref.value);
+		ref.value = pair.b;
+		return pair.a;
+	});
+});
+
+
+// QUEUES
+
+// Items, at most `capacity` of them, and the fibers waiting to take or to
+// offer, oldest first. Takers wait only while there are no items, and
+// offerers only while the queue is full; each waits through the runtime's
+// `wait`, so whatever is handed to it is never dropped by an interruption,
+// and an interrupted waiter's cancel takes it out of line.
+function _Nomi_queue(capacity)
+{
+	return _Runtime.sync(function() {
+		return { capacity: capacity, items: [], takers: [], offerers: [] };
+	});
+}
+
+function _Nomi_bounded(capacity)
+{
+	return _Nomi_queue(Math.max(0, capacity));
+}
+
+var _Nomi_unbounded = _Nomi_queue(Infinity);
+
+var _Nomi_offer = F2(function(item, queue)
+{
+	return _Nomi_defer(function() {
+		var taker = queue.takers.shift();
+		if (taker)
+		{
+			taker(_Runtime.succeed(item));
+			return _Runtime.succeed(__Utils_Tuple0);
+		}
+		if (queue.items.length < queue.capacity)
+		{
+			queue.items.push(item);
+			return _Runtime.succeed(__Utils_Tuple0);
+		}
+		return _Nomi_waitIn(queue.offerers, function(resume) {
+			return { item: item, resume: resume };
+		});
+	});
+});
+
+function _Nomi_take(queue)
+{
+	return _Nomi_defer(function() {
+		var item = _Nomi_next(queue);
+		return item ? _Runtime.succeed(item.value) : _Nomi_waitIn(queue.takers, function(resume) {
+			return resume;
+		});
+	});
+}
+
+function _Nomi_poll(queue)
+{
+	return _Runtime.sync(function() {
+		var item = _Nomi_next(queue);
+		return item ? __Maybe_Just(item.value) : __Maybe_Nothing;
+	});
+}
+
+// The oldest item, which lets the oldest offerer in, or an offerer's item
+// directly when the queue holds none; `undefined` when there is neither.
+function _Nomi_next(queue)
+{
+	var offerer;
+	if (queue.items.length > 0)
+	{
+		var value = queue.items.shift();
+		offerer = queue.offerers.shift();
+		if (offerer)
+		{
+			queue.items.push(offerer.item);
+			offerer.resume(_Runtime.succeed(__Utils_Tuple0));
+		}
+		return { value: value };
+	}
+	offerer = queue.offerers.shift();
+	if (offerer)
+	{
+		offerer.resume(_Runtime.succeed(__Utils_Tuple0));
+		return { value: offerer.item };
+	}
+	return undefined;
+}
+
+// Waits at the back of `line` as `waiter(resume)`, leaving the line if
+// interrupted.
+function _Nomi_waitIn(line, waiter)
+{
+	return _Runtime.wait(function(resume) {
+		var entry = waiter(resume);
+		line.push(entry);
+		return function() {
+			line.splice(line.indexOf(entry), 1);
+		};
+	});
+}
+
+// The task `f` gives, called when the task runs.
+function _Nomi_defer(f)
+{
+	return _Runtime.andThen(_Runtime.succeed(__Utils_Tuple0), f);
 }

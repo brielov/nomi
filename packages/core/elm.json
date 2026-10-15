@@ -7,7 +7,9 @@
     "exposed-modules": [
         "Nomi",
         "Nomi.Task",
-        "Nomi.Fiber"
+        "Nomi.Fiber",
+        "Nomi.Ref",
+        "Nomi.Queue"
     ],
     "elm-version": "0.19.0 <= v < 0.20.0",
     "dependencies": {

@@ -7,6 +7,7 @@
 //   exit      the task has a result; frames unwind until one handles it
 //   sync      call a JS function; an exception becomes a defect
 //   async     suspend until the host calls `resume` with the next task
+//   wait      suspend until another fiber calls `resume` with the next task
 //   andThen   continue with `f(value)` on success
 //   onError   continue with `f(error)` on a typed failure
 //   fork      start a child fiber, succeed with its handle
@@ -49,6 +50,7 @@ import { RealClock } from "./clock.js";
 const EXIT = "exit";
 const SYNC = "sync";
 const ASYNC = "async";
+const WAIT = "wait";
 const AND_THEN = "andThen";
 const ON_ERROR = "onError";
 const FORK = "fork";
@@ -66,7 +68,7 @@ const WITH_FIBER = "withFiber";
 const REAP = "reap";
 const GATHER = "gather";
 
-const TAGS = new Set([EXIT, SYNC, ASYNC, AND_THEN, ON_ERROR, FORK, AWAIT, YIELD, MASK, SCOPED, INTERRUPT, SLEEP, NOW, RECEIVE]);
+const TAGS = new Set([EXIT, SYNC, ASYNC, WAIT, AND_THEN, ON_ERROR, FORK, AWAIT, YIELD, MASK, SCOPED, INTERRUPT, SLEEP, NOW, RECEIVE]);
 const INTERNAL = new Set([WITH_FIBER, REAP, GATHER]);
 
 // Frames that only the unwinding loop sees.
@@ -133,6 +135,15 @@ export const fromPromise = (f) =>
     );
     return () => controller.abort(new Interrupted());
   });
+
+/**
+ * Suspends the fiber as `async` does, for another fiber rather than the
+ * host, so the clock does not wait for it. The task given to `resume` runs
+ * before any interruption is delivered, so what a waker hands over, such
+ * as a queue's item, is never dropped; `register`'s cancel function, which
+ * interruption calls while the fiber waits, takes the waiter back.
+ */
+export const wait = (register) => ({ $: WAIT, register });
 
 /** The reason an interrupted host call's signal is aborted with. */
 export class Interrupted extends Error {
@@ -315,6 +326,9 @@ class Fiber {
   // `receive` the fiber is suspended on, if it is.
   mailbox = null;
   receiving = null;
+  // Whether the task a `wait` was resumed with runs before a pending
+  // interruption.
+  handedOff = false;
 
   constructor(task, parent) {
     this.parent = parent;
@@ -500,7 +514,8 @@ export class Runtime {
   /** Runs `fiber` until it suspends, finishes or uses its slice; returns the instructions run. */
   #step(fiber) {
     const stack = fiber.stack;
-    let task = this.#takeInterrupt(fiber) ? done(Exit.interrupt()) : fiber.task;
+    let task = !fiber.handedOff && this.#takeInterrupt(fiber) ? done(Exit.interrupt()) : fiber.task;
+    fiber.handedOff = false;
     fiber.status = RUNNING;
     for (let n = 1; ; n++) {
       if (n > this.#yieldEvery) {
@@ -571,7 +586,8 @@ export class Runtime {
           if (task === null) return n;
           break;
         case ASYNC:
-          task = this.#async(fiber, task.register);
+        case WAIT:
+          task = this.#async(fiber, task);
           if (task === null) return n;
           break;
         case SLEEP: {
@@ -687,14 +703,21 @@ export class Runtime {
     return null;
   }
 
-  /** Suspends `fiber` on the host, handing `register` its `resume`. */
-  #async(fiber, register) {
+  /** Suspends `fiber` on the host for an `async`, or on another fiber for a `wait`, handing `register` its `resume`. */
+  #async(fiber, { $, register }) {
     if (this.#takeInterrupt(fiber)) return done(Exit.interrupt());
     const epoch = this.#suspend(fiber);
-    fiber.io = true;
-    this.#io++;
+    const io = $ === ASYNC;
+    if (io) {
+      fiber.io = true;
+      this.#io++;
+    }
     try {
-      const cancel = register((next) => this.#resume(fiber, epoch, asTask(next)));
+      const cancel = register((next) => {
+        if (fiber.epoch !== epoch) return;
+        fiber.handedOff = !io;
+        this.#resume(fiber, epoch, asTask(next));
+      });
       if (fiber.epoch === epoch && typeof cancel === "function") fiber.cancel = cancel;
     } catch (error) {
       if (fiber.epoch === epoch) {

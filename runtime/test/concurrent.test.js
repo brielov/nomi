@@ -17,6 +17,7 @@ import {
   sleep,
   succeed,
   sync,
+  wait,
   yieldNow,
 } from "../src/fiber.js";
 
@@ -108,4 +109,39 @@ test("a task ending at once still ends all and race", () => {
   assert.deepEqual(both.exit, Exit.success([1, 2]));
   assert.deepEqual(first.exit, Exit.success("now"));
   assert.equal(at.exit.$, "success");
+});
+
+test("a fiber waiting on another lets the clock run, and interruption cancels its wait", () => {
+  const { runtime, flush, lines, log } = timed();
+  let resume;
+  let cancelled = 0;
+  const waiter = runtime.fork(wait((r) => ((resume = r), () => cancelled++)));
+  runtime.fork(andThen(sleep(1000), () => log("slept")));
+  flush();
+  assert.deepEqual(lines, ["1000 slept"]);
+  runtime.interrupt(waiter);
+  flush();
+  assert.deepEqual(waiter.exit, Exit.interrupt());
+  assert.equal(cancelled, 1);
+  // A waker coming late changes nothing.
+  resume(succeed("late"));
+  flush();
+  assert.deepEqual(waiter.exit, Exit.interrupt());
+});
+
+test("what a waker hands over runs before an interruption that follows it", () => {
+  const { runtime, flush } = manual();
+  const got = [];
+  let resume;
+  const waiter = runtime.fork(
+    andThen(
+      wait((r) => (resume = r)),
+      (item) => andThen(sync(() => got.push(item)), () => andThen(yieldNow, () => sync(() => got.push("unreachable")))),
+    ),
+  );
+  flush();
+  runtime.fork(sync(() => (resume(succeed("item")), runtime.interrupt(waiter))));
+  flush();
+  assert.deepEqual(got, ["item"]);
+  assert.deepEqual(waiter.exit, Exit.interrupt());
 });

@@ -1,7 +1,8 @@
 //! nomi/core's `Nomi.program`, bundled with nomi: built offline from the
 //! bundle, it is a Node entry unless the browser is asked for, and runs
 //! its task as the process, which exits with how the task ended; its
-//! concurrent tasks and fibers end and interrupt as documented.
+//! concurrent tasks and fibers end and interrupt as documented, and its
+//! fibers share refs and queues.
 #![cfg(unix)]
 
 #[path = "support/website.rs"]
@@ -146,6 +147,107 @@ defect exit =
 
         _ ->
             "not a defect"
+
+
+show : String -> Task x a -> Task y ()
+show label task =
+    task
+        |> Task.map Ok
+        |> Task.onError (Task.succeed << Err)
+        |> Task.map (\result -> Debug.log label result |> always ())
+
+
+say : String -> Task x ()
+say line =
+    Task.succeed () |> Task.map (\_ -> Debug.log line ())
+"#;
+
+/// A program that shares a `Ref` and `Queue`s between fibers, printing
+/// what each step gives. Its waits are short, but it runs on the virtual
+/// clock as its test does.
+const SHARED: &str = r#"module Main exposing (main)
+
+import Nomi
+import Nomi.Fiber as Fiber
+import Nomi.Queue as Queue exposing (Queue)
+import Nomi.Ref as Ref
+import Process
+import Task exposing (Task)
+
+
+main : Nomi.Program
+main =
+    Nomi.program <|
+        \_ -> Task.sequence checks |> Task.map (\_ -> ())
+
+
+checks : List (Task String ())
+checks =
+    [ Ref.make 0
+        |> Task.andThen
+            (\ref ->
+                Fiber.fork (after 1 (Ref.modify (\n -> ( n, n + 1 )) ref))
+                    |> List.repeat 100
+                    |> Task.sequence
+                    |> Task.andThen (Task.sequence << List.map Fiber.join)
+                    |> Task.andThen (\_ -> Ref.get ref)
+            )
+        |> show "modify"
+    , Ref.make 1
+        |> Task.andThen (\ref -> Ref.set 5 ref |> Task.andThen (\_ -> Ref.update ((*) 2) ref) |> Task.andThen (\_ -> Ref.get ref))
+        |> show "set and update"
+    , Queue.bounded 2
+        |> Task.andThen
+            (\queue ->
+                List.range 1 5
+                    |> List.map (\n -> Queue.offer n queue |> Task.andThen (\_ -> say ("offered " ++ String.fromInt n)))
+                    |> Task.sequence
+                    |> Fiber.fork
+                    |> Task.andThen (\_ -> Task.sequence (List.repeat 5 (after 10 (Queue.take queue |> Task.andThen (\n -> say ("took " ++ String.fromInt n))))))
+            )
+        |> show "bounded"
+    , Queue.unbounded |> Task.andThen Queue.poll |> show "poll"
+    , Queue.unbounded
+        |> Task.andThen (\queue -> Queue.offer "a" queue |> Task.andThen (\_ -> Queue.poll queue))
+        |> show "poll"
+    , Queue.unbounded
+        |> Task.andThen
+            (\queue ->
+                [ "a", "b", "c" ]
+                    |> List.map (\name -> Fiber.fork (Queue.take queue |> Task.andThen (\n -> say (name ++ " took " ++ String.fromInt n))))
+                    |> Task.sequence
+                    |> Task.andThen (\fibers -> after 10 (offerAll [ 1, 2, 3 ] queue) |> Task.andThen (\_ -> Task.sequence (List.map Fiber.join fibers)))
+            )
+        |> show "takers in order"
+    , Queue.unbounded
+        |> Task.andThen
+            (\queue ->
+                Fiber.fork (Queue.take queue |> Task.andThen (\_ -> say "unreachable"))
+                    |> Task.andThen (\taker -> after 10 (Fiber.interrupt taker))
+                    |> Task.andThen (\_ -> offerAll [ 7 ] queue)
+                    |> Task.andThen (\_ -> Queue.poll queue)
+            )
+        |> show "interrupted take"
+    , Queue.bounded 1
+        |> Task.andThen
+            (\queue ->
+                offerAll [ 1 ] queue
+                    |> Task.andThen (\_ -> Fiber.fork (offerAll [ 2 ] queue))
+                    |> Task.andThen (\offerer -> after 10 (Fiber.interrupt offerer))
+                    |> Task.andThen (\_ -> Task.map2 Tuple.pair (Queue.take queue) (Queue.poll queue))
+            )
+        |> show "interrupted offer"
+    ]
+
+
+offerAll : List a -> Queue a -> Task x ()
+offerAll items queue =
+    List.map (\item -> Queue.offer item queue) items |> Task.sequence |> Task.map (\_ -> ())
+
+
+after : Float -> Task x a -> Task x a
+after ms task =
+    Process.sleep ms |> Task.andThen (\_ -> task)
 
 
 show : String -> Task x a -> Task y ()
@@ -374,5 +476,47 @@ fn joining_a_fiber_that_dies_is_the_joiners_defect() {
     assert!(
         !errors.iter().any(|line| line.starts_with("nomi: fiber")),
         "{errors:?}"
+    );
+}
+
+#[test]
+fn fibers_share_refs_and_queues_in_order_and_interruption_loses_no_item() {
+    nomi_testkit::require_node();
+    let (_work, root) = built(SHARED);
+    let ran = node()
+        .arg("dist/main.mjs")
+        .env("NOMI_CLOCK", "virtual")
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert_eq!(ran.status.code(), Some(0), "{ran:?}");
+    assert_eq!(errors(&ran), Vec::<String>::new());
+    assert_eq!(
+        String::from_utf8_lossy(&ran.stdout)
+            .lines()
+            .collect::<Vec<_>>(),
+        [
+            "modify: Ok 100",
+            "set and update: Ok 10",
+            "offered 1: ()",
+            "offered 2: ()",
+            "took 1: ()",
+            "offered 3: ()",
+            "took 2: ()",
+            "offered 4: ()",
+            "took 3: ()",
+            "offered 5: ()",
+            "took 4: ()",
+            "took 5: ()",
+            "bounded: Ok [(),(),(),(),()]",
+            "poll: Ok Nothing",
+            "poll: Ok (Just \"a\")",
+            "a took 1: ()",
+            "b took 2: ()",
+            "c took 3: ()",
+            "takers in order: Ok [(),(),()]",
+            "interrupted take: Ok (Just 7)",
+            "interrupted offer: Ok (1,Nothing)",
+        ]
     );
 }
