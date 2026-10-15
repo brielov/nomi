@@ -40,6 +40,14 @@ import {
 
 class Boom extends Error {}
 
+/** A task left out of each constructor that takes one. */
+const MISSING = {
+  andThen: andThen(undefined, succeed),
+  onError: onError(null, fail),
+  uninterruptible: uninterruptible(null),
+  scoped: scoped(undefined),
+};
+
 function program(r, depth) {
   const leaf = depth <= 0;
   // Leaves are rarer above the bottom, so most programs have some shape.
@@ -50,6 +58,7 @@ function program(r, depth) {
     [1 * l, "throw"],
     [2 * l, "sync"],
     [3 * l, "async"],
+    [1 * l, "missing"],
     [leaf ? 0 : 3, "then"],
     [leaf ? 0 : 2, "bind"],
     [leaf ? 0 : 2, "catch"],
@@ -71,6 +80,8 @@ function program(r, depth) {
       return { kind, v: r.int(0, 9) };
     case "async":
       return { kind, v: r.int(0, 9), ok: r.bool(0.7), sync: r.bool(0.2) };
+    case "missing":
+      return { kind, via: r.pick(Object.keys(MISSING)) };
     case "then":
     case "catch":
       return { kind, a: sub(), add: r.int(1, 9) };
@@ -122,6 +133,8 @@ function build(p, ctx) {
         if (p.sync) resume(next);
         else pending.push(() => resume(next));
       });
+    case "missing":
+      return MISSING[p.via];
     case "then":
       return map(build(p.a, ctx), (x) => x + p.add);
     case "bind":
@@ -227,6 +240,8 @@ function model(p, entries) {
       return Exit.defect(`boom ${p.v}`);
     case "async":
       return p.ok ? Exit.success(p.v) : Exit.fail(p.v);
+    case "missing":
+      return Exit.defect("TypeError");
     case "then": {
       const x = model(p.a, entries);
       return x.$ === "success" ? Exit.success(x.value + p.add) : x;
@@ -335,7 +350,6 @@ test("random programs end as the model says, under any schedule", async () => {
       assert.deepEqual(normalize(root.exit), normalize(expected));
 
       // Finished fibers leave every table.
-      assert.equal(runtime.fibers.size, 0);
       assert.equal(runtime.root.fibers.size, 0);
       const fibers = entries.filter((e) => e.kind === "fiber");
       assert.ok(runtime.stats.started >= count(fibers, (e) => e.certain) + 1);
@@ -399,12 +413,36 @@ test("onError handles failures but not defects", () => {
   assert.deepEqual(uncaught.exit, Exit.defect("d"));
 });
 
-test("a continuation returning a non-task is a defect", () => {
+test("a continuation or resume handing back a non-task, an exit among them, is a defect", () => {
   const { runtime, flush } = manual();
-  const fiber = runtime.fork(andThen(succeed(1), () => 2));
+  const results = [2, Exit.success(1), Exit.fail(1), Exit.defect(1), Exit.interrupt()];
+  const continued = results.map((result) => runtime.fork(andThen(succeed(1), () => result)));
+  const resumed = runtime.fork(async((resume) => resume(Exit.interrupt())));
   flush();
-  assert.equal(fiber.exit.$, "defect");
-  assert.match(fiber.exit.defect.message, /expected a task, got number/);
+  assert.deepEqual(
+    [...continued, resumed].map((f) => f.exit.defect.message),
+    ["expected a task, got number", ...Array(5).fill("expected a task, got Object")],
+  );
+});
+
+test("a task missing where one belongs is a defect of its fiber, and the runtime runs on", () => {
+  const { runtime, flush, reports } = manual();
+  const fibers = Object.values(MISSING).map((task) => runtime.fork(task));
+  flush();
+  const later = runtime.fork(succeed("ran"));
+  flush();
+  for (const f of fibers) assert.match(f.exit.defect.message, /^expected a task, got (null|undefined)$/);
+  assert.equal(reports.length, fibers.length);
+  assert.deepEqual(later.exit, Exit.success("ran"));
+});
+
+test("awaiting or interrupting a non-fiber is a defect naming the constructor", () => {
+  const { runtime, flush } = manual();
+  const awaited = runtime.fork(awaitFiber("f"));
+  const interrupted = runtime.fork(interrupt(undefined));
+  flush();
+  assert.equal(awaited.exit.defect.message, "awaitFiber expects a fiber, got string");
+  assert.equal(interrupted.exit.defect.message, "interrupt expects a fiber, got undefined");
 });
 
 test("resume takes effect once", () => {
@@ -538,7 +576,7 @@ test("closing a scope interrupts its fibers and waits for them before finalizing
   assert.deepEqual(fiber.exit, Exit.success("done"));
   assert.deepEqual(log, ["child released", "parent finalized, child interrupt"]);
   assert.equal(state.cancelled, 1);
-  assert.equal(runtime.fibers.size, 0);
+  assert.deepEqual(runtime.stats, { started: 2, finished: 2 });
 });
 
 test("a fiber's children end with it; a daemon outlives it", () => {
@@ -578,7 +616,7 @@ test("shutdown also ends the fibers its finalizers start", async () => {
   await shutdown;
   assert.deepEqual(log, ["released", "daemon released"]);
   assert.equal(runtime.root.fibers.size, 0);
-  assert.equal(runtime.fibers.size, 0);
+  assert.deepEqual(runtime.stats, { started: 2, finished: 2 });
 });
 
 test("acquire is uninterruptible and release runs exactly once", () => {

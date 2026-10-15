@@ -91,6 +91,13 @@ test("the exit code follows the program's exit", async () => {
   assert.match(died.stderr, /defect: Error: broken/);
 });
 
+test("an exit main does not know is a runtime bug, not a clean exit", async () => {
+  const proc = Object.assign(new EventEmitter(), { exitCode: undefined, exit: () => {} });
+  const runtime = Object.assign(new Runtime(), { await: async () => ({ $: "lost" }) });
+  await assert.rejects(main(succeed(), { runtime, proc }), /not an exit: lost/);
+  assert.equal(proc.exitCode, undefined);
+});
+
 test("the runtime's metrics are complete when main resolves, before the process exits", async () => {
   // `exit` is only the fallback for a leaked handle; this test leaks none.
   const proc = Object.assign(new EventEmitter(), { exitCode: undefined, exit: () => {} });
@@ -99,7 +106,6 @@ test("the runtime's metrics are complete when main resolves, before the process 
   const code = await main(andThen(forkDaemon(daemon), () => succeed()), { runtime, proc });
   assert.equal(code, 0);
   assert.equal(proc.exitCode, 0);
-  assert.equal(runtime.fibers.size, 0);
   assert.deepEqual(runtime.stats, { started: 2, finished: 2 });
   // Signal handlers are gone, so the host's defaults apply again.
   assert.equal(proc.listenerCount("SIGINT") + proc.listenerCount("SIGTERM"), 0);

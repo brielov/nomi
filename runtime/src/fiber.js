@@ -50,7 +50,8 @@ const AWAIT = "await";
 const YIELD = "yield";
 const MASK = "mask";
 const SCOPED = "scoped";
-const INTERRUPT = "interrupt";
+// Not "interrupt", the exit kind: no exit may pass for a task.
+const INTERRUPT = "interruptFiber";
 const SLEEP = "sleep";
 const NOW = "now";
 // Internal: only this module builds these.
@@ -74,6 +75,10 @@ const FAIL = "fail";
 const DEFECT = "defect";
 const INTERRUPTED = "interrupt";
 
+/** The four ways a fiber ends, as the `$` of its exit. */
+export const ExitKind = Object.freeze({ SUCCESS, FAIL, DEFECT, INTERRUPTED });
+
+/** Builds exits: a value, a typed failure, a defect, or interruption. */
 export const Exit = Object.freeze({
   success: (value) => ({ $: SUCCESS, value }),
   fail: (error) => ({ $: FAIL, error }),
@@ -84,9 +89,15 @@ export const Exit = Object.freeze({
 // ---------------------------------------------------------------------------
 // Tasks
 
-export const done = (exit) => ({ $: EXIT, exit });
+const done = (exit) => ({ $: EXIT, exit });
+
+/** Succeeds with `value`. */
 export const succeed = (value) => done(Exit.success(value));
+
+/** Fails with the typed error `error`, which `onError` can handle. */
 export const fail = (error) => done(Exit.fail(error));
+
+/** Dies with `defect`, a broken contract that `onError` does not handle. */
 export const die = (defect) => done(Exit.defect(defect));
 
 /** Calls `f()` when run; its result is the value, its exception a defect. */
@@ -123,8 +134,13 @@ export class Interrupted extends Error {
   }
 }
 
+/** Continues with `f(value)` when `task` succeeds; failures, defects and interruption pass through. */
 export const andThen = (task, f) => ({ $: AND_THEN, task, f });
+
+/** Continues with `f(error)` when `task` fails; success, defects and interruption pass through. */
 export const onError = (task, f) => ({ $: ON_ERROR, task, f });
+
+/** Succeeds with `f(value)` when `task` succeeds; anything else passes through. */
 export const map = (task, f) => andThen(task, (value) => succeed(f(value)));
 
 /** Starts `task` on a child fiber in the current scope and succeeds with the fiber. */
@@ -139,6 +155,7 @@ export const awaitFiber = (fiber) => ({ $: AWAIT, fiber });
 /** Waits for `fiber` and ends the same way it did. */
 export const join = (fiber) => andThen(awaitFiber(fiber), done);
 
+/** Goes to the back of the run queue, so the other fibers run first. */
 export const yieldNow = Object.freeze({ $: YIELD });
 
 /** Suspends for `ms` milliseconds of the runtime's clock. */
@@ -208,7 +225,7 @@ const DONE = "done";
 let nextFiberId = 1;
 
 /** Fibers and finalizers that end together. */
-export class Scope {
+class Scope {
   fibers = new Set();
   finalizers = [];
 }
@@ -221,7 +238,7 @@ function openScope(fiber) {
   return scope;
 }
 
-export class Fiber {
+class Fiber {
   /** Unique within the process, for reports and debugging. */
   id = nextFiberId++;
   status = READY;
@@ -277,10 +294,9 @@ function defaultReport(defect, fiber) {
  * - `clock` serves `sleep` and `now`; see clock.js.
  */
 export class Runtime {
-  /** Live fibers by id; a finished fiber leaves at once. */
-  fibers = new Map();
   /** Where top-level fibers and daemons live; it is never closed. */
   root = new Scope();
+  /** Fibers started and finished so far; the difference is the live ones. */
   stats = { started: 0, finished: 0 };
 
   #queue = [];
@@ -355,7 +371,6 @@ export class Runtime {
   #spawn(task, scope) {
     const fiber = new Fiber(asTask(task), scope);
     scope.fibers.add(fiber);
-    this.fibers.set(fiber.id, fiber);
     this.stats.started++;
     this.#enqueue(fiber);
     return fiber;
@@ -446,7 +461,7 @@ export class Runtime {
         case AND_THEN:
         case ON_ERROR:
           stack.push(task);
-          task = task.task;
+          task = inner(task);
           break;
         case FORK:
           task = succeed(this.#spawn(task.task, task.daemon ? this.root : (fiber.scope ?? this.root)));
@@ -485,11 +500,11 @@ export class Runtime {
         case MASK:
           fiber.mask++;
           stack.push({ $: RESTORE });
-          task = task.task;
+          task = inner(task);
           break;
         case SCOPED:
           openScope(fiber);
-          task = task.task;
+          task = inner(task);
           break;
         case WITH_FIBER:
           task = call(task.f, fiber);
@@ -503,7 +518,10 @@ export class Runtime {
   /** Waits for the fiber `task` names, asking it to stop first when `task` is an `interrupt`. */
   #await(fiber, task) {
     const target = task.fiber;
-    if (!(target instanceof Fiber)) return die(new TypeError(`${task.$} expects a fiber, got ${describe(target)}`));
+    if (!(target instanceof Fiber)) {
+      const name = task.$ === INTERRUPT ? "interrupt" : "awaitFiber";
+      return die(new TypeError(`${name} expects a fiber, got ${describe(target)}`));
+    }
     if (task.$ === INTERRUPT) {
       if (target === fiber) {
         // Interrupting yourself takes effect as soon as it may.
@@ -646,7 +664,6 @@ export class Runtime {
     fiber.stack.length = 0;
     fiber.scope = null;
     fiber.parent.fibers.delete(fiber);
-    this.fibers.delete(fiber.id);
     this.stats.finished++;
     const observers = [...fiber.observers];
     const reapers = [...fiber.reapers];
@@ -664,6 +681,15 @@ export class Runtime {
       // A broken reporter must not take the runtime down with it.
     }
   }
+}
+
+/**
+ * The task an `andThen`, `onError`, mask or scope runs; a missing one is a
+ * defect. Any other non-task needs no check here: the interpreter's
+ * `default` makes it one.
+ */
+function inner(task) {
+  return task.task ?? die(notATask(task.task));
 }
 
 /** The task `f(value)` returns; an exception, or a value that is not a task, is a defect. */

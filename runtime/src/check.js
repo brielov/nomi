@@ -76,6 +76,7 @@ export async function check(generate, property, env = process.env) {
   }
 }
 
+/** A property's failure: the seed, the shrunk case, its cause and the command that replays it. */
 export class PropertyFailure extends Error {
   constructor(seed, original, smallest, cause) {
     const sizes = Array.isArray(original) ? ` (shrunk from ${original.length} to ${smallest.length} steps)` : "";
