@@ -6,11 +6,11 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use nomi_base::{Compat, Report};
+use nomi_base::{Compat, Platform, Report};
 use nomi_engine::artifacts::Hash;
 use nomi_engine::check::Style;
 use nomi_engine::console::{Console, Personality};
-use nomi_engine::javascript::{Dom, Format, Kind, Platform, Target};
+use nomi_engine::javascript::{Dom, Format, Kind, Target};
 use nomi_engine::make::{self, Make, Output};
 use nomi_engine::paths::Cache;
 use nomi_engine::test_deps::{self, Dependencies, Solve};

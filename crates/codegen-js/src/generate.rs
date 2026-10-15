@@ -7,8 +7,8 @@
 use std::collections::{BTreeMap, HashSet};
 use std::io::Write;
 
-use nomi_base::Compat;
 use nomi_base::diagnostic::render::naked_link;
+use nomi_base::{Compat, Platform};
 use nomi_compiler::canonical::Home;
 use nomi_compiler::optimized::binary::homes;
 use nomi_compiler::optimized::{Chunk, Def, EffectsType, Expr, Global, GlobalGraph, Main, Node};
@@ -17,7 +17,7 @@ use crate::builder::{self, Expr as Js, LValue, Stmt};
 use crate::expression::{Generator, code_to_expr, code_to_stmt_list};
 use crate::mode::Mode;
 use crate::name::Name;
-use crate::platform::{Format, Platform, Target, shim};
+use crate::platform::{Format, Target, shim};
 use crate::reach::{deps_of, identity, manager_functions};
 use crate::runtime;
 

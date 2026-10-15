@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, reflow, simple_note, text, vcat, words};
-use nomi_base::{Compat, Report};
+use nomi_base::{Compat, Platform, Report};
 use nomi_project::{ModuleName, Name, Outline};
 use nomi_registry::Http;
 
@@ -419,7 +419,7 @@ fn write(vfs: &Vfs, console: &mut dyn Console, dir: &Path, make: &Make, clean: C
             }
             let mut made_for = make.target;
             if make.platform_by_main && javascript::runs_on_node(&optimized) {
-                made_for.platform = javascript::Platform::Node;
+                made_for.platform = Platform::Node;
             }
             let package = env.owner().package_name();
             let bytes = timings::time(Phase::Generate, || {

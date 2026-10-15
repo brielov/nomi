@@ -1,6 +1,7 @@
 //! What a bad `elm.json` says (`Reporting/Exit.hs`): `toOutlineReport`,
 //! with the snippets of `toOutlineProblemReport`, and the version checks
-//! of `toDetailsReport`.
+//! of `toDetailsReport`; and what a bad `nomi.toml` says, in the same
+//! form ([`manifest`]).
 //!
 //! Reports name the commands they suggest through `command`, which turns
 //! elm's command into the command line that runs it, so nomi's own names
@@ -18,6 +19,9 @@ use crate::outline::{DetectError, OutlineError, OutlineProblem};
 use crate::{Constraint, Version};
 
 mod decode;
+mod manifest;
+
+pub use manifest::manifest;
 
 /// A command of elm's that a report suggests, which each tool names its
 /// own way.

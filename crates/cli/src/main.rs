@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use nomi_base::Platform;
 use nomi_engine::check::{self, Style};
 use nomi_engine::console::{Console, Personality, StdConsole};
 use nomi_engine::format::{self, Mode};
@@ -227,8 +228,8 @@ fn main() -> ExitCode {
             };
             let target = javascript::Target {
                 platform: match platform {
-                    None | Some(PlatformName::Browser) => javascript::Platform::Browser,
-                    Some(PlatformName::Node) => javascript::Platform::Node,
+                    None | Some(PlatformName::Browser) => Platform::Browser,
+                    Some(PlatformName::Node) => Platform::Node,
                 },
                 format: if module {
                     javascript::Format::EsModule

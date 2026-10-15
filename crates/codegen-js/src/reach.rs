@@ -185,7 +185,8 @@ fn unavailable_of(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::platform::{Dom, Platform};
+    use crate::platform::{Dom, unavailable};
+    use nomi_base::Platform;
     use nomi_compiler::optimized::{Chunk, Expr};
 
     fn global(module: &str, name: &str) -> Global {
@@ -281,7 +282,7 @@ mod tests {
         let lacking =
             |table: &[&str]| unavailable_of(Compat::V0_19_1, false, table, &graph, &mains);
         assert_eq!(
-            lacking(Platform::Node.unavailable(Dom::Native)),
+            lacking(unavailable(Platform::Node, Dom::Native)),
             Some(vec![
                 global("Main", "main"),
                 global("Page", "view"),
@@ -292,7 +293,7 @@ mod tests {
         // A program for the browser that defines, but never calls, what
         // needs a kernel only Node has.
         assert_eq!(lacking(&["Nomi"]), None);
-        assert_eq!(lacking(Platform::Browser.unavailable(Dom::Native)), None);
-        assert_eq!(lacking(Platform::Node.unavailable(Dom::Polyfilled)), None);
+        assert_eq!(lacking(unavailable(Platform::Browser, Dom::Native)), None);
+        assert_eq!(lacking(unavailable(Platform::Node, Dom::Polyfilled)), None);
     }
 }

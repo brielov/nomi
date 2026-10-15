@@ -4,6 +4,7 @@
 mod comments;
 mod ignore;
 mod layering;
+mod platform;
 mod pool;
 mod purity;
 mod size;
@@ -91,6 +92,9 @@ pub(crate) fn run(root: &Path) -> Result<Vec<String>> {
             violations.extend(size::check(&label, &source));
             violations.extend(comments::check(&label, &source));
             violations.extend(ignore::check(&label, &source));
+            if label.starts_with(platform::COMPILER) {
+                violations.extend(platform::check(&label, &source));
+            }
         }
     }
 

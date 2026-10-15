@@ -59,6 +59,14 @@ const ALLOWED_EXTERNAL: &[&str] = &[
     "typenum",
     "version_check",
     "cpufeatures",
+    // TOML, for nomi.toml; winnow reads the environment only under its
+    // `debug` feature, which nothing turns on
+    "toml",
+    "toml_parser",
+    "toml_datetime",
+    "toml_writer",
+    "serde_spanned",
+    "winnow",
     // Unicode general categories and case mappings, pinned to 15.1
     "icu_properties",
     "icu_properties_data",
@@ -150,7 +158,7 @@ fn is_ident(c: char) -> bool {
 }
 
 /// Offsets of `token` where it is not part of a longer identifier.
-fn token_offsets(code: &str, token: &str) -> Vec<usize> {
+pub(crate) fn token_offsets(code: &str, token: &str) -> Vec<usize> {
     let ends_in_ident = token.chars().last().is_some_and(is_ident);
     code.match_indices(token)
         .filter(|(i, _)| {

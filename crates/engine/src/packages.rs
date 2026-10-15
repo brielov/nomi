@@ -53,7 +53,8 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
-    use nomi_codegen_js::platform::{Dom, Platform};
+    use nomi_base::Platform;
+    use nomi_codegen_js::platform::{Dom, unavailable};
 
     #[test]
     fn the_browser_lacks_every_bundled_kernel() {
@@ -69,7 +70,7 @@ mod tests {
             }
         }
         kernels.sort();
-        assert_eq!(Platform::Browser.unavailable(Dom::Native), kernels);
+        assert_eq!(unavailable(Platform::Browser, Dom::Native), kernels);
         // Kernels share one namespace, keyed by short name; elm/*'s never
         // start with nomi's prefix.
         assert!(kernels.iter().all(|kernel| kernel.starts_with("Nomi")));

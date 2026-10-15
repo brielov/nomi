@@ -9,11 +9,12 @@ use std::path::PathBuf;
 
 use nomi_base::diagnostic::Report;
 use nomi_base::diagnostic::doc::{Color, reflow, text};
-use nomi_base::{Compat, kernel};
+use nomi_base::{Compat, Platform, kernel};
 use nomi_codegen_js::debug::{ModuleTypes, Types};
 use nomi_codegen_js::generate::generate;
 use nomi_codegen_js::kernel::{add_kernel, parse};
 use nomi_codegen_js::mode::{Mode, shorten_field_names};
+use nomi_codegen_js::platform;
 use nomi_codegen_js::reach::unavailable;
 use nomi_compiler::canonical::{Home, Type};
 use nomi_compiler::nitpick::debug::graph_has_debug_uses;
@@ -27,7 +28,7 @@ use crate::graph::module_path;
 use crate::paths::package_src;
 use crate::project::package_outline;
 
-pub use nomi_codegen_js::platform::{Dom, Format, Platform, Target};
+pub use nomi_codegen_js::platform::{Dom, Format, Target};
 
 /// How code is generated: `elm make`'s default, `--debug` or
 /// `--optimize`.
@@ -96,7 +97,7 @@ pub fn program(
         }
         Kind::Optimize => Mode::Prod(shorten_field_names(compat, &graph)),
     };
-    let mut lacking = target.platform.unavailable(target.dom).to_vec();
+    let mut lacking = platform::unavailable(target.platform, target.dom).to_vec();
     lacking.extend(unknown.iter().map(|release| release.module));
     let js = match unavailable(compat, &mode, &lacking, &graph, &mains) {
         Some(path) => Err(not_available(target.platform, &path, &unknown)),
@@ -127,7 +128,7 @@ fn replace_kernels(
     graph: &mut GlobalGraph,
 ) -> Vec<Unknown> {
     let mut unknown = Vec::new();
-    for replacement in platform.overrides() {
+    for replacement in platform::overrides(platform) {
         let Some((name, dir)) =
             (packages.iter()).find(|(name, _)| name.to_string() == replacement.package)
         else {

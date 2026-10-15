@@ -1063,6 +1063,7 @@ dependencies = [
  "nomi-base",
  "nomi-testkit",
  "proptest",
+ "toml",
 ]
 
 [[package]]

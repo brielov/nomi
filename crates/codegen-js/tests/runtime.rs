@@ -9,8 +9,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use nomi_base::Platform;
 use nomi_codegen_js::kernel;
-use nomi_codegen_js::platform::Platform;
+use nomi_codegen_js::platform::overrides;
 use nomi_codegen_js::runtime::prologue;
 use nomi_testkit::{packages, sha256_hex};
 
@@ -80,7 +81,7 @@ fn names_after<'a>(text: &'a str, prefix: &str) -> impl Iterator<Item = &'a str>
 
 #[test]
 fn each_node_kernel_replaces_the_vendored_file_and_keeps_its_names() {
-    for replacement in Platform::Node.overrides() {
+    for replacement in overrides(Platform::Node) {
         let package = packages::release(replacement.package).dir();
         let module = replacement.module;
         let upstream = package.join(format!("src/Elm/Kernel/{module}.js"));
