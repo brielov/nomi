@@ -86,30 +86,34 @@ fn problem_to_hint(problem: &Problem) -> Vec<Doc> {
             Type::RigidVar(y) => bad_rigid_var(y, to_a_super_thing(*s)),
             Type::RigidSuper(s2, _) => bad_rigid_super(*s2, to_a_super_thing(*s)),
             Type::Lambda(..)
-            | Type::Type(..)
+            | Type::Type { .. }
             | Type::Record(..)
             | Type::Unit
             | Type::Tuple(..)
-            | Type::Alias(..) => bad_flex_super(*direction, *s, other),
+            | Type::Alias { .. } => bad_flex_super(*direction, *s, other),
         },
-        Problem::BadRigidVar(x, ty) => match ty {
+        Problem::BadRigidVar { name: x, other: ty } => match ty {
             Type::Lambda(..) => bad_rigid_var(x, "a function"),
             Type::Infinite | Type::Error | Type::FlexVar(_) => Vec::new(),
             Type::FlexSuper(s, _) => bad_rigid_var(x, to_a_super_thing(*s)),
             Type::RigidVar(y) | Type::RigidSuper(_, y) => bad_double_rigid(x, y),
-            Type::Type(_, n, _) | Type::Alias(_, n, _, _) => {
+            Type::Type { name: n, .. } | Type::Alias { name: n, .. } => {
                 bad_rigid_var(x, &format!("a `{n}` value"))
             }
             Type::Record(..) => bad_rigid_var(x, "a record"),
             Type::Unit => bad_rigid_var(x, "a unit value"),
             Type::Tuple(..) => bad_rigid_var(x, "a tuple"),
         },
-        Problem::BadRigidSuper(s, x, ty) => match ty {
+        Problem::BadRigidSuper {
+            super_type: s,
+            name: x,
+            other: ty,
+        } => match ty {
             Type::Lambda(..) => bad_rigid_super(*s, "a function"),
             Type::Infinite | Type::Error | Type::FlexVar(_) => Vec::new(),
             Type::FlexSuper(s2, _) => bad_rigid_super(*s, to_a_super_thing(*s2)),
             Type::RigidVar(y) | Type::RigidSuper(_, y) => bad_double_rigid(x, y),
-            Type::Type(_, n, _) | Type::Alias(_, n, _, _) => {
+            Type::Type { name: n, .. } | Type::Alias { name: n, .. } => {
                 bad_rigid_super(*s, &format!("a `{n}` value"))
             }
             Type::Record(..) => bad_rigid_super(*s, "a record"),
@@ -130,23 +134,24 @@ fn problem_to_hint(problem: &Problem) -> Vec<Doc> {
                 }
             }
         }
-        Problem::FieldTypo(typo, possibilities) => {
-            match nearest(typo, possibilities.clone(), 1).first() {
-                None => Vec::new(),
-                Some(nearest) => {
-                    let docs = (words("Seems like a record field typo. Maybe"))
-                        .chain([yellow(typo.as_str())])
-                        .chain(words("should be"))
-                        .chain([green(nearest.as_str()).append(text("?"))]);
-                    vec![
-                        hint(docs),
-                        simple_hint(
-                            "Can more type annotations be added? Type annotations always help me give more specific messages, and I think they could help a lot in this case!",
-                        ),
-                    ]
-                }
+        Problem::FieldTypo {
+            typo,
+            fields: possibilities,
+        } => match nearest(typo, possibilities.clone(), 1).first() {
+            None => Vec::new(),
+            Some(nearest) => {
+                let docs = (words("Seems like a record field typo. Maybe"))
+                    .chain([yellow(typo.as_str())])
+                    .chain(words("should be"))
+                    .chain([green(nearest.as_str()).append(text("?"))]);
+                vec![
+                    hint(docs),
+                    simple_hint(
+                        "Can more type annotations be added? Type annotations always help me give more specific messages, and I think they could help a lot in this case!",
+                    ),
+                ]
             }
-        }
+        },
     }
 }
 
@@ -195,7 +200,7 @@ fn bad_flex_super(direction: Direction, s: SuperType, ty: &Type) -> Vec<Doc> {
                 "comparing-records",
                 "for ideas on how to proceed.",
             )],
-            Type::Type(_, name, _) => vec![
+            Type::Type { name, .. } => vec![
                 simple_hint(&format!(
                     "I do not know how to compare `{name}` values. I can only compare ints, floats, chars, strings, lists of comparable values, and tuples of comparable values."
                 )),
@@ -214,7 +219,7 @@ fn bad_flex_super(direction: Direction, s: SuperType, ty: &Type) -> Vec<Doc> {
             "Only strings and lists are both comparable and appendable.",
         )],
         SuperType::Number => match ty {
-            Type::Type(home, name, _) if is_string(home, name) => {
+            Type::Type { home, name, .. } if is_string(home, name) => {
                 let (function, into) = match direction {
                     Direction::Have => ("String.fromInt", "to convert it to a string?"),
                     Direction::Need => ("String.toInt", "to convert it to an integer?"),

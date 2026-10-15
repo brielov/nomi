@@ -24,11 +24,41 @@ pub enum Type {
     FlexSuper(SuperType, String),
     RigidVar(String),
     RigidSuper(SuperType, String),
-    Type(Home, String, Vec<Type>),
+    Type {
+        home: Home,
+        name: String,
+        args: Vec<Type>,
+    },
     Record(BTreeMap<String, Type>, Extension),
     Unit,
     Tuple(Box<Type>, Box<Type>, Option<Box<Type>>),
-    Alias(Home, String, Vec<(String, Type)>, Box<Type>),
+    /// An alias, its arguments by its variables, and what it stands for.
+    Alias {
+        home: Home,
+        name: String,
+        args: Vec<(String, Type)>,
+        real: Box<Type>,
+    },
+}
+
+impl Type {
+    /// `countArgs`: how many arguments a function of this type takes.
+    pub fn arity(&self) -> usize {
+        match self {
+            Type::Lambda(_, _, rest) => 1 + rest.len(),
+            Type::Infinite
+            | Type::Error
+            | Type::FlexVar(_)
+            | Type::FlexSuper(..)
+            | Type::RigidVar(_)
+            | Type::RigidSuper(..)
+            | Type::Type { .. }
+            | Type::Record(..)
+            | Type::Unit
+            | Type::Tuple(..)
+            | Type::Alias { .. } => 0,
+        }
+    }
 }
 
 /// `T.Extension`: what a record type extends.
@@ -41,7 +71,7 @@ pub enum Extension {
 
 /// `iteratedDealias`: what `ty` stands for under all its aliases.
 pub(super) fn iterated_dealias(mut ty: &Type) -> &Type {
-    while let Type::Alias(_, _, _, real) = ty {
+    while let Type::Alias { real, .. } = ty {
         ty = real;
     }
     ty
@@ -64,7 +94,7 @@ pub(super) fn to_doc(localizer: &Localizer, context: Context, ty: &Type) -> Doc 
         | Type::FlexSuper(_, name)
         | Type::RigidVar(name)
         | Type::RigidSuper(_, name) => text(name.clone()),
-        Type::Type(home, name, args) => render::apply(
+        Type::Type { home, name, args } => render::apply(
             context,
             localizer.to_doc(home, name),
             args.iter()
@@ -82,7 +112,9 @@ pub(super) fn to_doc(localizer: &Localizer, context: Context, ty: &Type) -> Doc 
                 .map(|c| to_doc(localizer, Context::None, c))
                 .collect(),
         ),
-        Type::Alias(home, name, args, _) => alias_to_doc(localizer, context, home, name, args),
+        Type::Alias {
+            home, name, args, ..
+        } => alias_to_doc(localizer, context, home, name, args),
     })
 }
 
@@ -150,9 +182,20 @@ pub(super) enum Problem {
         super_type: SuperType,
         other: Type,
     },
-    BadRigidVar(String, Type),
-    BadRigidSuper(SuperType, String, Type),
-    FieldTypo(String, Vec<String>),
+    BadRigidVar {
+        name: String,
+        other: Type,
+    },
+    BadRigidSuper {
+        super_type: SuperType,
+        name: String,
+        other: Type,
+    },
+    /// A field missing from one record, and the other's fields.
+    FieldTypo {
+        typo: String,
+        fields: Vec<String>,
+    },
     FieldsMissing(Vec<String>),
 }
 
@@ -275,7 +318,11 @@ fn different(a: Doc, b: Doc, problems: Vec<Problem>) -> Diff<Doc> {
 fn is_super(super_type: SuperType, ty: &Type) -> bool {
     use SuperType::{Appendable, CompAppend, Comparable, Number};
     nomi_base::grow(|| match iterated_dealias(ty) {
-        Type::Type(h, n, args) => match super_type {
+        Type::Type {
+            home: h,
+            name: n,
+            args,
+        } => match super_type {
             Number => is_int(h, n) || is_float(h, n),
             Comparable => {
                 is_int(h, n)
@@ -307,7 +354,7 @@ fn is_super(super_type: SuperType, ty: &Type) -> bool {
         | Type::RigidSuper(..)
         | Type::Record(..)
         | Type::Unit
-        | Type::Alias(..) => false,
+        | Type::Alias { .. } => false,
     })
 }
 
@@ -336,6 +383,10 @@ fn to_diff(localizer: &Localizer, ctx: Context, t1: &Type, t2: &Type) -> Diff<Do
     nomi_base::grow(|| to_diff_(localizer, ctx, t1, t2))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "upstream's `toDiff`, one arm per pair of types"
+)]
 fn to_diff_(localizer: &Localizer, ctx: Context, t1: &Type, t2: &Type) -> Diff<Doc> {
     use Type as T;
     if let Some(diff) = same_or_similar(localizer, ctx, t1, t2) {
@@ -382,28 +433,55 @@ fn to_diff_(localizer: &Localizer, ctx: Context, t1: &Type, t2: &Type) -> Diff<D
         (T::Record(fields1, ext1), T::Record(fields2, ext2)) => {
             diff_record(localizer, fields1, ext1, fields2, ext2)
         }
-        (T::Type(home1, name1, args1), T::Type(home2, name2, args2))
-            if home1 == home2 && name1 == name2 =>
-        {
+        (
+            T::Type {
+                home: home1,
+                name: name1,
+                args: args1,
+            },
+            T::Type {
+                home: home2,
+                name: name2,
+                args: args2,
+            },
+        ) if home1 == home2 && name1 == name2 => {
             diff_args(localizer, ctx, home1, name1, args1.iter().zip(args2))
         }
-        (T::Alias(home1, name1, args1, _), T::Alias(home2, name2, args2, _))
-            if home1 == home2 && name1 == name2 =>
-        {
+        (
+            T::Alias {
+                home: home1,
+                name: name1,
+                args: args1,
+                ..
+            },
+            T::Alias {
+                home: home2,
+                name: name2,
+                args: args2,
+                ..
+            },
+        ) if home1 == home2 && name1 == name2 => {
             let pairs = args1.iter().zip(args2).map(|((_, a), (_, b))| (a, b));
             diff_args(localizer, ctx, home1, name1, pairs)
         }
         // Then, specific problems.
-        (T::Type(home1, name1, args1), T::Type(home2, name2, args2))
-            if localizer.to_chars(home1, name1) == localizer.to_chars(home2, name2) =>
-        {
-            different(
-                name_clash_to_doc(localizer, ctx, home1, name1, args1),
-                name_clash_to_doc(localizer, ctx, home2, name2, args2),
-                Vec::new(),
-            )
-        }
-        (T::Type(home, name, args), t2)
+        (
+            T::Type {
+                home: home1,
+                name: name1,
+                args: args1,
+            },
+            T::Type {
+                home: home2,
+                name: name2,
+                args: args2,
+            },
+        ) if localizer.to_chars(home1, name1) == localizer.to_chars(home2, name2) => different(
+            name_clash_to_doc(localizer, ctx, home1, name1, args1),
+            name_clash_to_doc(localizer, ctx, home2, name2, args2),
+            Vec::new(),
+        ),
+        (T::Type { home, name, args }, t2)
             if args.len() == 1
                 && is_maybe(home, name)
                 && is_similar(&to_diff(localizer, ctx, &args[0], t2)) =>
@@ -414,7 +492,7 @@ fn to_diff_(localizer: &Localizer, ctx: Context, t1: &Type, t2: &Type) -> Diff<D
                 vec![Problem::AnythingFromMaybe],
             )
         }
-        (t1, T::Type(home, name, args))
+        (t1, T::Type { home, name, args })
             if args.len() == 1
                 && is_list(home, name)
                 && is_similar(&to_diff(localizer, ctx, t1, &args[0])) =>
@@ -425,8 +503,8 @@ fn to_diff_(localizer: &Localizer, ctx: Context, t1: &Type, t2: &Type) -> Diff<D
                 Vec::new(),
             )
         }
-        (T::Alias(..), _) => diff_alias(localizer, ctx, t1, t2, Direction::Have),
-        (_, T::Alias(..)) => diff_alias(localizer, ctx, t2, t1, Direction::Need),
+        (T::Alias { .. }, _) => diff_alias(localizer, ctx, t1, t2, Direction::Have),
+        (_, T::Alias { .. }) => diff_alias(localizer, ctx, t2, t1, Direction::Need),
         (t1, t2) => different(
             yellow(to_doc(localizer, ctx, t1)),
             yellow(to_doc(localizer, ctx, t2)),
@@ -513,7 +591,13 @@ fn diff_alias(
     other: &Type,
     side: Direction,
 ) -> Diff<Doc> {
-    let Type::Alias(home, name, args, real) = alias else {
+    let Type::Alias {
+        home,
+        name,
+        args,
+        real,
+    } = alias
+    else {
         unreachable!("an alias");
     };
     let (t1, t2) = side.order(&**real, other);
@@ -530,9 +614,11 @@ fn diff_alias(
         };
     }
     let (a, b) = match other {
-        Type::Type(other_home, other_name, other_args)
-            if localizer.to_chars(home, name) == localizer.to_chars(other_home, other_name) =>
-        {
+        Type::Type {
+            home: other_home,
+            name: other_name,
+            args: other_args,
+        } if localizer.to_chars(home, name) == localizer.to_chars(other_home, other_name) => {
             let alias_args = args.iter().map(|(_, a)| a);
             side.order(
                 name_clash_to_doc(localizer, ctx, home, name, alias_args),
@@ -560,13 +646,38 @@ fn problems(t1: &Type, t2: &Type) -> Vec<Problem> {
         reason = "upstream's order, the first type's variables before the second's"
     )]
     let problem = match (t1, t2) {
-        (T::RigidVar(x), other) => Problem::BadRigidVar(x.clone(), other.clone()),
+        (T::RigidVar(x), other) => Problem::BadRigidVar {
+            name: x.clone(),
+            other: other.clone(),
+        },
         (T::FlexSuper(s, _), other) => bad_flex_super(Direction::Have, *s, other),
-        (T::RigidSuper(s, x), other) => Problem::BadRigidSuper(*s, x.clone(), other.clone()),
-        (other, T::RigidVar(x)) => Problem::BadRigidVar(x.clone(), other.clone()),
+        (T::RigidSuper(s, x), other) => Problem::BadRigidSuper {
+            super_type: *s,
+            name: x.clone(),
+            other: other.clone(),
+        },
+        (other, T::RigidVar(x)) => Problem::BadRigidVar {
+            name: x.clone(),
+            other: other.clone(),
+        },
         (other, T::FlexSuper(s, _)) => bad_flex_super(Direction::Need, *s, other),
-        (other, T::RigidSuper(s, x)) => Problem::BadRigidSuper(*s, x.clone(), other.clone()),
-        (T::Type(h1, n1, a1), T::Type(h2, n2, a2)) if a1.is_empty() && a2.is_empty() => {
+        (other, T::RigidSuper(s, x)) => Problem::BadRigidSuper {
+            super_type: *s,
+            name: x.clone(),
+            other: other.clone(),
+        },
+        (
+            T::Type {
+                home: h1,
+                name: n1,
+                args: a1,
+            },
+            T::Type {
+                home: h2,
+                name: n2,
+                args: a2,
+            },
+        ) if a1.is_empty() && a2.is_empty() => {
             if is_int(h1, n1) && is_float(h2, n2) || is_float(h1, n1) && is_int(h2, n2) {
                 Problem::IntFloat
             } else if is_int(h1, n1) && is_string(h2, n2) {
@@ -658,7 +769,10 @@ fn diff_record(
     let fixed = |e: &Extension| !matches!(e, Extension::FlexOpen(_));
     let typo = |field: &String, fields: &BTreeMap<String, Type>| {
         let names = names_in_order(compat, fields);
-        Status::Different(vec![Problem::FieldTypo(field.clone(), names)])
+        Status::Different(vec![Problem::FieldTypo {
+            typo: field.clone(),
+            fields: names,
+        }])
     };
     let extra = match (fixed(ext1), fixed(ext2)) {
         (true, true) => match left_names.first() {
@@ -689,10 +803,10 @@ fn ext_to_diff(ext1: &Extension, ext2: &Extension) -> Diff<Option<Doc>> {
             Status::Different(Vec::new())
         }
         (E::RigidOpen(x), E::RigidOpen(y)) if x != y => {
-            Status::Different(vec![Problem::BadRigidVar(
-                x.clone(),
-                Type::RigidVar(y.clone()),
-            )])
+            Status::Different(vec![Problem::BadRigidVar {
+                name: x.clone(),
+                other: Type::RigidVar(y.clone()),
+            }])
         }
         _ => Status::Similar,
     };

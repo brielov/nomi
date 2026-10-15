@@ -24,7 +24,11 @@ use crate::types::in_name_order;
 pub enum Pattern<'u> {
     Anything,
     Literal(Literal<'u>),
-    Ctor(&'u Union, &'u str, Vec<Pattern<'u>>),
+    Ctor {
+        union: &'u Union,
+        name: &'u str,
+        args: Vec<Pattern<'u>>,
+    },
 }
 
 /// `Literal`, as written.
@@ -69,17 +73,14 @@ pub(super) const NIL: &str = "[]";
 /// A union of the type variables `vars`, its constructors `ctors` by
 /// name and arguments, indexed in order.
 fn union(vars: &[&str], ctors: Vec<(&str, Vec<Type>)>) -> Union {
-    let count = ctors.len();
     Union {
         vars: vars.iter().map(|v| (*v).to_owned()).collect(),
-        ctors: (ctors.into_iter().enumerate())
-            .map(|(index, (name, args))| Ctor {
+        ctors: (ctors.into_iter())
+            .map(|(name, args)| Ctor {
                 name: name.to_owned(),
-                index,
                 args,
             })
             .collect(),
-        count,
         opts: CtorOpts::Normal,
     }
 }
@@ -110,38 +111,58 @@ static LIST_UNION: LazyLock<Union> = LazyLock::new(|| {
 });
 
 /// `simplify`.
-pub fn simplify(pattern: &canonical::Pattern) -> Pattern<'_> {
+fn simplify(pattern: &canonical::Pattern) -> Pattern<'_> {
     nomi_base::grow(|| match &pattern.kind {
         PatternKind::Anything | PatternKind::Var(_) | PatternKind::Record(_) => Pattern::Anything,
-        PatternKind::Unit => Pattern::Ctor(&UNIT_UNION, UNIT, Vec::new()),
-        PatternKind::Tuple(a, b, None) => {
-            Pattern::Ctor(&PAIR_UNION, PAIR, vec![simplify(a), simplify(b)])
-        }
-        PatternKind::Tuple(a, b, Some(c)) => Pattern::Ctor(
-            &TRIPLE_UNION,
-            TRIPLE,
-            vec![simplify(a), simplify(b), simplify(c)],
-        ),
+        PatternKind::Unit => Pattern::Ctor {
+            union: &UNIT_UNION,
+            name: UNIT,
+            args: Vec::new(),
+        },
+        PatternKind::Tuple(a, b, None) => Pattern::Ctor {
+            union: &PAIR_UNION,
+            name: PAIR,
+            args: vec![simplify(a), simplify(b)],
+        },
+        PatternKind::Tuple(a, b, Some(c)) => Pattern::Ctor {
+            union: &TRIPLE_UNION,
+            name: TRIPLE,
+            args: vec![simplify(a), simplify(b), simplify(c)],
+        },
         PatternKind::Ctor {
             union, name, args, ..
-        } => Pattern::Ctor(union, name, args.iter().map(|a| simplify(&a.arg)).collect()),
-        PatternKind::List(entries) => (entries.iter().rev())
-            .fold(Pattern::Ctor(&LIST_UNION, NIL, Vec::new()), |tail, head| {
-                cons(head, tail)
-            }),
+        } => Pattern::Ctor {
+            union,
+            name,
+            args: args.iter().map(|a| simplify(&a.arg)).collect(),
+        },
+        PatternKind::List(entries) => (entries.iter().rev()).fold(
+            Pattern::Ctor {
+                union: &LIST_UNION,
+                name: NIL,
+                args: Vec::new(),
+            },
+            |tail, head| cons(head, tail),
+        ),
         PatternKind::Cons(head, tail) => cons(head, simplify(tail)),
         PatternKind::Alias(sub, _) => simplify(sub),
         PatternKind::Int(n) => Pattern::Literal(Literal::Int(*n)),
         PatternKind::Str(s) => Pattern::Literal(Literal::Str(s)),
         PatternKind::Chr(c) => Pattern::Literal(Literal::Chr(c)),
-        PatternKind::Bool(union, b) => {
-            Pattern::Ctor(union, if *b { "True" } else { "False" }, Vec::new())
-        }
+        PatternKind::Bool(union, b) => Pattern::Ctor {
+            union,
+            name: if *b { "True" } else { "False" },
+            args: Vec::new(),
+        },
     })
 }
 
 fn cons<'u>(head: &'u canonical::Pattern, tail: Pattern<'u>) -> Pattern<'u> {
-    Pattern::Ctor(&LIST_UNION, CONS, vec![simplify(head), tail])
+    Pattern::Ctor {
+        union: &LIST_UNION,
+        name: CONS,
+        args: vec![simplify(head), tail],
+    }
 }
 
 /// `check`: the module's pattern errors, in upstream's order.
@@ -315,7 +336,7 @@ impl<'u> Checker<'u> {
 fn collect_ctors<'u>(matrix: &[Vec<Pattern<'u>>]) -> BTreeMap<&'u str, &'u Union> {
     let mut ctors = BTreeMap::new();
     for row in matrix {
-        if let Some(Pattern::Ctor(union, name, _)) = row.first() {
+        if let Some(Pattern::Ctor { union, name, .. }) = row.first() {
             ctors.insert(*name, *union);
         }
     }
@@ -339,7 +360,7 @@ fn is_exhaustive<'u>(matrix: &[Vec<Pattern<'u>>], n: usize) -> Vec<Vec<Pattern<'
                 .collect();
             return prepend(&Pattern::Anything, is_exhaustive(&rest, n - 1));
         };
-        if ctors.len() < alts.count {
+        if ctors.len() < alts.ctors.len() {
             let rest: Vec<Vec<Pattern>> = matrix
                 .iter()
                 .filter_map(|r| specialize_anything(r))
@@ -349,8 +370,11 @@ fn is_exhaustive<'u>(matrix: &[Vec<Pattern<'u>>], n: usize) -> Vec<Vec<Pattern<'
             return (alts.ctors.iter())
                 .filter(|c| !ctors.contains_key(c.name.as_str()))
                 .flat_map(|c| {
-                    let missing =
-                        Pattern::Ctor(alts, &c.name, vec![Pattern::Anything; c.args.len()]);
+                    let missing = Pattern::Ctor {
+                        union: alts,
+                        name: &c.name,
+                        args: vec![Pattern::Anything; c.args.len()],
+                    };
                     prepend(&missing, tails.clone())
                 })
                 .collect();
@@ -365,7 +389,11 @@ fn is_exhaustive<'u>(matrix: &[Vec<Pattern<'u>>], n: usize) -> Vec<Vec<Pattern<'
             for missing in is_exhaustive(&specialized, arity + n - 1) {
                 let mut missing = missing.into_iter();
                 let args: Vec<Pattern> = missing.by_ref().take(arity).collect();
-                let mut row = vec![Pattern::Ctor(alts, &ctor.name, args)];
+                let mut row = vec![Pattern::Ctor {
+                    union: alts,
+                    name: &ctor.name,
+                    args,
+                }];
                 row.extend(missing);
                 rows.push(row);
             }
@@ -418,7 +446,7 @@ fn is_useful(matrix: &[Vec<Pattern>], vector: &[Pattern]) -> bool {
             return false;
         };
         match first {
-            Pattern::Ctor(_, name, args) => {
+            Pattern::Ctor { name, args, .. } => {
                 let specialized: Vec<Vec<Pattern>> = matrix
                     .iter()
                     .filter_map(|r| specialize_ctor(name, args.len(), r))
@@ -461,7 +489,7 @@ fn is_useful(matrix: &[Vec<Pattern>], vector: &[Pattern]) -> bool {
 fn is_complete<'u>(matrix: &[Vec<Pattern<'u>>]) -> Option<&'u [Ctor]> {
     let ctors = collect_ctors(matrix);
     let alts = *ctors.values().next()?;
-    (ctors.len() == alts.count).then_some(alts.ctors.as_slice())
+    (ctors.len() == alts.ctors.len()).then_some(alts.ctors.as_slice())
 }
 
 /// `specializeRowByCtor`.
@@ -470,7 +498,7 @@ fn specialize_ctor<'u>(name: &str, arity: usize, row: &[Pattern<'u>]) -> Option<
         .split_first()
         .expect("Compiler error! Empty matrices should not get specialized.");
     match first {
-        Pattern::Ctor(_, n, args) => {
+        Pattern::Ctor { name: n, args, .. } => {
             (*n == name).then(|| args.iter().chain(rest).cloned().collect())
         }
         Pattern::Anything => {
@@ -492,7 +520,7 @@ fn specialize_literal<'u>(literal: Literal<'_>, row: &[Pattern<'u>]) -> Option<V
     match first {
         Pattern::Literal(l) => (*l == literal).then(|| rest.to_vec()),
         Pattern::Anything => Some(rest.to_vec()),
-        Pattern::Ctor(..) => panic!(
+        Pattern::Ctor { .. } => panic!(
             "Compiler bug! After type checking, constructors and literals should never align in pattern match exhaustiveness checks."
         ),
     }
@@ -502,6 +530,6 @@ fn specialize_literal<'u>(literal: Literal<'_>, row: &[Pattern<'u>]) -> Option<V
 fn specialize_anything<'u>(row: &[Pattern<'u>]) -> Option<Vec<Pattern<'u>>> {
     match row.split_first()? {
         (Pattern::Anything, rest) => Some(rest.to_vec()),
-        (Pattern::Literal(_) | Pattern::Ctor(..), _) => None,
+        (Pattern::Literal(_) | Pattern::Ctor { .. }, _) => None,
     }
 }

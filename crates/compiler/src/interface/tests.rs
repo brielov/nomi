@@ -22,16 +22,13 @@ fn sample() -> Interface {
         ctors: vec![
             Ctor {
                 name: "Just".to_owned(),
-                index: 0,
                 args: vec![a()],
             },
             Ctor {
                 name: "Nothing".to_owned(),
-                index: 1,
                 args: vec![],
             },
         ],
-        count: 2,
         opts: CtorOpts::Normal,
     };
     let point = Type::Record(
@@ -101,21 +98,12 @@ fn sample() -> Interface {
 fn interfaces_round_trip() {
     let interface = sample();
     let bytes = interface.encode();
-    assert_eq!(Interface::decode(&bytes), Some(interface.clone()));
+    assert_eq!(Interface::decode(&bytes), Some(interface));
     // The same interface, built again, encodes alike; another doesn't.
     assert_eq!(sample().encode(), bytes);
     let mut other = sample();
     other.binops.get_mut("|>").unwrap().fixity.precedence = 1;
     assert_ne!(other.encode(), bytes);
-    for dependency in [
-        DependencyInterface::Public(interface.clone()),
-        DependencyInterface::Public(interface).privatize(),
-    ] {
-        assert_eq!(
-            DependencyInterface::decode(&dependency.encode()),
-            Some(dependency)
-        );
-    }
 }
 
 #[test]
@@ -139,8 +127,8 @@ fn damaged_bytes_are_none() {
     huge.push(0x01);
     huge.extend_from_slice(rest);
     assert_eq!(Interface::decode(&huge), None);
-    // Nor is one past 64 bits, which used to wrap round to an empty home
-    // and decode the rest.
+    // Nor is one past 64 bits, which a truncating decoder would read as an
+    // empty home before decoding the rest.
     let mut over = vec![version, 0];
     over.extend_from_slice(&[0x80; 9]);
     over.push(0x02);
@@ -152,14 +140,6 @@ fn damaged_bytes_are_none() {
 fn importers_see_the_public_parts() {
     let interface = sample();
     assert_eq!(interface.aliases["Point"].public(), None);
-    let DependencyInterface::Private {
-        unions, aliases, ..
-    } = DependencyInterface::Public(interface).privatize()
-    else {
-        panic!("privatize kept a public interface");
-    };
-    assert_eq!(unions["Maybe"].ctors.len(), 2);
-    assert!(aliases.contains_key("Point"));
 }
 
 fn name() -> impl Strategy<Value = String> {
@@ -232,16 +212,12 @@ fn interface() -> impl Strategy<Value = Interface> {
     let ctors = prop::collection::vec((name(), prop::collection::vec(ty(), 0..2)), 0..3);
     let union =
         (prop::collection::vec(name(), 0..2), ctors, 0..3u8).prop_map(|(vars, ctors, tag)| {
-            let count = ctors.len();
-            let ctors = ctors
-                .into_iter()
-                .enumerate()
-                .map(|(index, (name, args))| Ctor { name, index, args })
+            let ctors = (ctors.into_iter())
+                .map(|(name, args)| Ctor { name, args })
                 .collect();
             let union = canonical::Union {
                 vars,
                 ctors,
-                count,
                 opts: CtorOpts::Normal,
             }
             .into();

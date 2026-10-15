@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use nomi_base::{Compat, TextRange};
 
 use super::error::{Error, R, all, throw};
-use super::expr::{FreeLocals, LetBinding, LetNode, Use};
+use super::expr::{FreeLocals, LetBinding, Use};
 use crate::canonical::{Decl, Def, Expr, ExprKind};
 use crate::graph::{self, Node, Scc, strongly_connected};
 use crate::hir::Spanned;
@@ -27,7 +27,6 @@ pub(super) struct TopNode {
 /// which must be acyclic. The first component with a bad cycle stops the
 /// rest. The declarations, a value before those that use it.
 pub(super) fn top_level(compat: Compat, nodes: Vec<TopNode>) -> R<Vec<Decl>> {
-    let order = |a: &String, b: &String| compat.compare_names(a, b);
     let graph = (nodes.into_iter())
         .map(|node| Node {
             key: node.def.name().to_owned(),
@@ -36,33 +35,37 @@ pub(super) fn top_level(compat: Compat, nodes: Vec<TopNode>) -> R<Vec<Decl>> {
         })
         .collect();
     let mut decls = Vec::new();
-    for scc in strongly_connected(graph, order) {
+    for scc in strongly_connected(compat, graph) {
         let members = match scc {
             Scc::Acyclic(node) => {
-                decls.push(Decl::Declare(node.def));
+                decls.push(Decl::Declare(node.value.def));
                 continue;
             }
             Scc::Cyclic(members) => members,
         };
         let direct = (members.into_iter())
-            .map(|node| {
-                // `toNodeTwo`: a function's uses wait until it is called.
-                let edges = if node.def.has_params() {
-                    Vec::new()
-                } else {
-                    let direct = (node.free.iter())
-                        .filter(|(_, uses)| **uses == Use::Direct)
-                        .map(|(name, _)| name.clone());
-                    compat.sorted_names(direct)
-                };
-                Node {
-                    key: node.def.name().to_owned(),
-                    edges: edges.clone(),
-                    value: (node.def, edges),
-                }
-            })
+            .map(
+                |Node {
+                     value: node, key, ..
+                 }| {
+                    // `toNodeTwo`: a function's uses wait until it is called.
+                    let edges = if node.def.has_params() {
+                        Vec::new()
+                    } else {
+                        let direct = (node.free.iter())
+                            .filter(|(_, uses)| **uses == Use::Direct)
+                            .map(|(name, _)| name.clone());
+                        compat.sorted_names(direct)
+                    };
+                    Node {
+                        key,
+                        edges,
+                        value: node.def,
+                    }
+                },
+            )
             .collect();
-        let sccs = strongly_connected(direct, order);
+        let sccs = strongly_connected(compat, direct);
         let mut defs = all(sccs.into_iter().map(|scc| bad_cycle(compat, scc)))?.into_iter();
         if let Some(first) = defs.next() {
             decls.push(Decl::DeclareRec(first, defs.collect()));
@@ -72,23 +75,23 @@ pub(super) fn top_level(compat: Compat, nodes: Vec<TopNode>) -> R<Vec<Decl>> {
 }
 
 /// `detectBadCycles`.
-fn bad_cycle(compat: Compat, scc: Scc<(Def, Vec<String>)>) -> R<Def> {
+fn bad_cycle(compat: Compat, scc: Scc<Node<Def>>) -> R<Def> {
     let members = match scc {
-        Scc::Acyclic((def, _)) => return Ok(def),
+        Scc::Acyclic(node) => return Ok(node.value),
         Scc::Cyclic(members) => members,
     };
     let others = match compat {
-        Compat::V0_19_1 | Compat::V0_19_2 => (members[1..].iter())
-            .map(|(def, _)| def.name().to_owned())
-            .collect(),
+        Compat::V0_19_1 | Compat::V0_19_2 => {
+            members[1..].iter().map(|node| node.key.clone()).collect()
+        }
         Compat::V0_19_3 => {
-            let keyed = members.iter().map(|(def, edges)| (def.name(), &edges[..]));
+            let keyed = (members.iter()).map(|node| (node.key.as_str(), &node.edges[..]));
             (minimal_cycle(keyed).into_iter())
-                .map(|i| members[i].0.name().to_owned())
+                .map(|i| members[i].key.clone())
                 .collect()
         }
     };
-    let root = &members[0].0;
+    let root = &members[0].value;
     throw(Error::RecursiveDecl {
         range: root.region(),
         name: root.name().to_owned(),
@@ -123,26 +126,16 @@ fn minimal_cycle<'k>(component: impl Iterator<Item = (&'k str, &'k [String])>) -
 pub(super) fn let_cycles(
     compat: Compat,
     region: TextRange,
-    nodes: Vec<LetNode>,
+    mut nodes: Vec<Node<LetBinding>>,
     body: Expr,
 ) -> R<Expr> {
     // Upstream prepends each node as it goes, so its list runs last
     // first; that orders the nodes whose keys tie, as every `_ =` does.
-    let graph = (nodes.into_iter().rev())
-        .map(|node| {
-            let uses = compat.sorted_names(node.uses);
-            Node {
-                key: node.key.clone(),
-                edges: uses.clone(),
-                value: LetNode { uses, ..node },
-            }
-        })
-        .collect();
-    let order = |a: &String, b: &String| compat.compare_names(a, b);
-    let steps = all(strongly_connected(graph, order)
+    nodes.reverse();
+    let steps = all(strongly_connected(compat, nodes)
         .into_iter()
         .map(|scc| match scc {
-            Scc::Acyclic(node) => Ok(Step::One(Box::new(node.binding))),
+            Scc::Acyclic(node) => Ok(Step::One(Box::new(node.value))),
             Scc::Cyclic(nodes) => check_cycle(compat, nodes).map(Step::Rec),
         }))?;
     let wrap = |kind| Expr { region, kind };
@@ -169,8 +162,8 @@ enum Step {
 /// `checkCycle`: the first binding of the component that isn't a
 /// function is reported, with the others; or the functions, last first,
 /// as upstream gathers them.
-fn check_cycle(compat: Compat, nodes: Vec<LetNode>) -> R<Vec<Def>> {
-    let bad = (nodes.iter().enumerate()).find_map(|(i, node)| match &node.binding {
+fn check_cycle(compat: Compat, nodes: Vec<Node<LetBinding>>) -> R<Vec<Def>> {
+    let bad = (nodes.iter().enumerate()).find_map(|(i, node)| match &node.value {
         LetBinding::Define(def) if !def.has_params() => {
             let name = Spanned {
                 text: def.name().to_owned(),
@@ -182,28 +175,25 @@ fn check_cycle(compat: Compat, nodes: Vec<LetNode>) -> R<Vec<Def>> {
         LetBinding::Define(_) | LetBinding::Destruct(..) => None,
     });
     let Some((i, name)) = bad else {
-        let defs = nodes
-            .into_iter()
-            .rev()
-            .filter_map(|node| match node.binding {
-                LetBinding::Define(def) => Some(def),
-                LetBinding::Edge(_) | LetBinding::Destruct(..) => None,
-            });
+        let defs = nodes.into_iter().rev().filter_map(|node| match node.value {
+            LetBinding::Define(def) => Some(def),
+            LetBinding::Edge(_) | LetBinding::Destruct(..) => None,
+        });
         return Ok(defs.collect());
     };
     let others = match compat {
         // The names after it, then the functions before it.
         Compat::V0_19_1 | Compat::V0_19_2 => (nodes[i + 1..].iter())
-            .filter_map(|node| binding_name(&node.binding))
-            .chain(nodes[..i].iter().filter_map(|node| match &node.binding {
+            .filter_map(|node| binding_name(&node.value))
+            .chain(nodes[..i].iter().filter_map(|node| match &node.value {
                 LetBinding::Define(def) => Some(def.name().to_owned()),
                 LetBinding::Edge(_) | LetBinding::Destruct(..) => None,
             }))
             .collect(),
         Compat::V0_19_3 => {
-            let keyed = (nodes.iter()).map(|node| (node.key.as_str(), &node.uses[..]));
+            let keyed = (nodes.iter()).map(|node| (node.key.as_str(), &node.edges[..]));
             (minimal_cycle(keyed).into_iter())
-                .filter_map(|i| binding_name(&nodes[i].binding))
+                .filter_map(|i| binding_name(&nodes[i].value))
                 .collect()
         }
     };

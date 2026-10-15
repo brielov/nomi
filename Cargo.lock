@@ -990,7 +990,6 @@ dependencies = [
  "nomi-syntax",
  "nomi-testkit",
  "proptest",
- "rustc-hash 2.1.3",
 ]
 
 [[package]]

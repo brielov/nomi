@@ -151,6 +151,22 @@ pub enum Choice {
     Jump(usize),
 }
 
+impl Decider<Choice> {
+    /// Whether `test` holds for an expression some branch inlines.
+    pub(crate) fn any_inline(&self, test: &impl Fn(&Expr) -> bool) -> bool {
+        nomi_base::grow(|| match self {
+            Decider::Leaf(Choice::Inline(expr)) => test(expr),
+            Decider::Leaf(Choice::Jump(_)) => false,
+            Decider::Chain {
+                success, failure, ..
+            } => success.any_inline(test) || failure.any_inline(test),
+            Decider::FanOut {
+                tests, fallback, ..
+            } => tests.iter().any(|(_, d)| d.any_inline(test)) || fallback.any_inline(test),
+        })
+    }
+}
+
 /// `DecisionTree.Path`: where in the tested value a test looks. Paths
 /// share their prefixes, as the case compiler copies them at every node,
 /// and a shared prefix is equal without a look.

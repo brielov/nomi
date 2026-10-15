@@ -81,7 +81,7 @@ pub fn record(entries: Vec<(Doc, Doc)>, ext: Option<Doc>) -> Doc {
 }
 
 /// `vrecordSnippet`: one field, then the others, then `...`.
-pub fn vrecord_snippet(first: (Doc, Doc), entries: Vec<(Doc, Doc)>) -> Doc {
+pub(crate) fn vrecord_snippet(first: (Doc, Doc), entries: Vec<(Doc, Doc)>) -> Doc {
     let field = text("{").space(entry(first));
     let fields = (entries
         .into_iter()
@@ -96,7 +96,7 @@ pub fn vrecord_snippet(first: (Doc, Doc), entries: Vec<(Doc, Doc)>) -> Doc {
 }
 
 /// `vrecord`: a record a field a line.
-pub fn vrecord(entries: Vec<(Doc, Doc)>, ext: Option<Doc>) -> Doc {
+pub(crate) fn vrecord(entries: Vec<(Doc, Doc)>, ext: Option<Doc>) -> Doc {
     let fields: Vec<Doc> = entries.into_iter().map(entry).collect();
     match (fields.is_empty(), ext) {
         (true, None) => text("{}"),

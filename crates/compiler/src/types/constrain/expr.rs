@@ -118,7 +118,11 @@ fn constrain_(
                 vars,
                 rtv,
                 inner,
-                Expected::FromContext(region, Context::Negate, number.clone()),
+                Expected::FromContext {
+                    region,
+                    context: Context::Negate,
+                    ty: number.clone(),
+                },
             );
             let negate_con = equal(region, Category::Number, number, expected);
             exists(vec![number_var], and(vec![number_con, negate_con]))
@@ -219,7 +223,11 @@ fn access(
         vars,
         rtv,
         record,
-        Expected::FromContext(region, context, record_type),
+        Expected::FromContext {
+            region,
+            context,
+            ty: record_type,
+        },
     );
     let category = Category::Access(field.to_owned());
     exists(
@@ -257,7 +265,11 @@ fn list_con(
     let entry = var(entry_var);
     let entry_cons = (entries.iter().enumerate())
         .map(|(i, e)| {
-            let expected = Expected::FromContext(region, Context::ListEntry(i), entry.clone());
+            let expected = Expected::FromContext {
+                region,
+                context: Context::ListEntry(i),
+                ty: entry.clone(),
+            };
             constrain(vars, rtv, e, expected)
         })
         .collect();
@@ -288,13 +300,21 @@ fn binop(
         vars,
         rtv,
         left,
-        Expected::FromContext(region, Context::OpLeft(op.clone()), var(left_var)),
+        Expected::FromContext {
+            region,
+            context: Context::OpLeft(op.clone()),
+            ty: var(left_var),
+        },
     );
     let right_con = constrain(
         vars,
         rtv,
         right,
-        Expected::FromContext(region, Context::OpRight(op.clone()), var(right_var)),
+        Expected::FromContext {
+            region,
+            context: Context::OpRight(op.clone()),
+            ty: var(right_var),
+        },
     );
     let answer_con = equal(
         region,
@@ -471,7 +491,11 @@ fn call(
     for (i, arg) in arguments.iter().enumerate() {
         let v = vars.flex_var();
         let context = Context::CallArg(name.clone(), i);
-        let expected = Expected::FromContext(region, context, var(v));
+        let expected = Expected::FromContext {
+            region,
+            context,
+            ty: var(v),
+        };
         arg_cons.push(constrain(vars, rtv, arg, expected));
         arg_vars.push(v);
     }
@@ -488,11 +512,11 @@ fn call(
                 function.region,
                 category.clone(),
                 var(func_var),
-                Expected::FromContext(
+                Expected::FromContext {
                     region,
-                    Context::CallArity(name, arguments.len()),
-                    arity_type,
-                ),
+                    context: Context::CallArity(name, arguments.len()),
+                    ty: arity_type,
+                },
             ),
             and(arg_cons),
             equal(region, category, var(result_var), expected),
@@ -509,7 +533,11 @@ fn if_(
     otherwise: &Expr,
     expected: Expected<Type>,
 ) -> Constraint {
-    let bool_expect = Expected::FromContext(region, Context::IfCondition, types::bool());
+    let bool_expect = Expected::FromContext {
+        region,
+        context: Context::IfCondition,
+        ty: types::bool(),
+    };
     let cond_cons: Vec<Constraint> = branches
         .iter()
         .map(|(c, _)| constrain(vars, rtv, c, bool_expect.clone()))
@@ -533,8 +561,11 @@ fn if_(
             let branch_var = vars.flex_var();
             let branch_cons = (exprs.enumerate())
                 .map(|(i, e)| {
-                    let expected =
-                        Expected::FromContext(region, Context::IfBranch(i), var(branch_var));
+                    let expected = Expected::FromContext {
+                        region,
+                        context: Context::IfBranch(i),
+                        ty: var(branch_var),
+                    };
                     constrain(vars, rtv, e, expected)
                 })
                 .collect();
@@ -567,7 +598,11 @@ fn case(
         scrutinee,
         Expected::NoExpectation(ptrn_type.clone()),
     );
-    let p_expect = |i| PExpected::PFromContext(region, PContext::PCaseMatch(i), ptrn_type.clone());
+    let p_expect = |i| PExpected::PFromContext {
+        region,
+        context: PContext::PCaseMatch(i),
+        ty: ptrn_type.clone(),
+    };
     match expected {
         Expected::FromAnnotation { name, ty, .. } => {
             let mut cons = vec![expr_con];
@@ -585,8 +620,11 @@ fn case(
             let branch_var = vars.flex_var();
             let branch_cons = (branches.iter().enumerate())
                 .map(|(i, (pattern, body))| {
-                    let expected =
-                        Expected::FromContext(region, Context::CaseBranch(i), var(branch_var));
+                    let expected = Expected::FromContext {
+                        region,
+                        context: Context::CaseBranch(i),
+                        ty: var(branch_var),
+                    };
                     case_branch(vars, rtv, pattern, body, p_expect(i), expected)
                 })
                 .collect();
@@ -633,8 +671,11 @@ fn update(
     let mut field_cons = Vec::new();
     for (field, update) in in_name_order(vars.compat, fields) {
         let v = vars.flex_var();
-        let expected =
-            Expected::FromContext(region, Context::RecordUpdateValue(field.clone()), var(v));
+        let expected = Expected::FromContext {
+            region,
+            context: Context::RecordUpdateValue(field.clone()),
+            ty: var(v),
+        };
         field_cons.push(constrain(vars, rtv, &update.value, expected));
         field_vars.push(v);
         field_types.insert(Text::new(field), var(v));
@@ -658,7 +699,11 @@ fn update(
         vars,
         rtv,
         record,
-        Expected::FromContext(region, context, record_type),
+        Expected::FromContext {
+            region,
+            context,
+            ty: record_type,
+        },
     );
     let mut cons = vec![fields_con, con];
     cons.extend(field_cons);
@@ -690,15 +735,15 @@ fn shader_con(
         package: "elm-explorations/webgl".into(),
         module: "WebGL".into(),
     };
-    let shader_type = Type::App(
-        webgl,
-        Text::from("Shader"),
-        vec![
+    let shader_type = Type::App {
+        home: webgl,
+        name: Text::from("Shader"),
+        args: vec![
             record(&shader.attribute, var(attr_var)),
             record(&shader.uniform, var(unif_var)),
             record(&shader.varying, Type::EmptyRecord),
         ],
-    );
+    };
     exists(
         vec![attr_var, unif_var],
         equal(region, Category::Shader, shader_type, expected),
@@ -740,7 +785,11 @@ fn destruct(
         vars,
         rtv,
         value,
-        Expected::FromContext(region, Context::Destructure, pattern_type),
+        Expected::FromContext {
+            region,
+            context: Context::Destructure,
+            ty: pattern_type,
+        },
     );
     let mut flex_vars = vec![pattern_var];
     flex_vars.extend(state.take_vars());
@@ -806,11 +855,11 @@ fn typed_args(
     let mut arg_types = Vec::with_capacity(params.len());
     for (index, (pattern, src)) in params.iter().enumerate() {
         let arg = from_src_type(rtv, src);
-        let expected = PExpected::PFromContext(
-            pattern.region,
-            PContext::PTypedArg(name.to_owned(), index),
-            arg.clone(),
-        );
+        let expected = PExpected::PFromContext {
+            region: pattern.region,
+            context: PContext::PTypedArg(name.to_owned(), index),
+            ty: arg.clone(),
+        };
         pattern::add(vars, pattern, expected, &mut state);
         arg_types.push(arg);
     }

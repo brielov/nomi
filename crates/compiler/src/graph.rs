@@ -2,9 +2,10 @@
 //! lists them, which decides which cycle a module or a declaration
 //! reports first; and 0.19.3's minimal cycle within one.
 
-use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
+
+use nomi_base::Compat;
 
 /// `Data.Graph.SCC`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -16,36 +17,28 @@ pub(crate) enum Scc<T> {
 
 /// A vertex of a graph `stronglyConnComp` reads: a value, its key, and
 /// the keys it points to.
-pub(crate) struct Node<T, K> {
+pub(crate) struct Node<T> {
     pub(crate) value: T,
-    pub(crate) key: K,
-    pub(crate) edges: Vec<K>,
+    pub(crate) key: String,
+    pub(crate) edges: Vec<String>,
 }
 
-/// `stronglyConnComp`: `nodes`' values as components, the ones others
-/// point to first. Vertices are ordered by key under `order`, as
+/// `stronglyConnComp`: `nodes` as components, the ones others point to
+/// first. Vertices are ordered by key as `compat` orders names, as
 /// `graphFromEdges` sorts them, and keys no node has are dropped.
-pub(crate) fn strongly_connected<T, K>(
-    nodes: Vec<Node<T, K>>,
-    order: impl Fn(&K, &K) -> Ordering,
-) -> Vec<Scc<T>> {
-    let mut nodes: Vec<Node<Option<T>, K>> = (nodes.into_iter())
-        .map(|n| Node {
-            value: Some(n.value),
-            key: n.key,
-            edges: n.edges,
-        })
-        .collect();
-    nodes.sort_by(|a, b| order(&a.key, &b.key));
-    let vertex = |key: &K| nodes.binary_search_by(|n| order(&n.key, key)).ok();
+pub(crate) fn strongly_connected<T>(compat: Compat, mut nodes: Vec<Node<T>>) -> Vec<Scc<Node<T>>> {
+    nodes.sort_by(|a, b| compat.compare_names(&a.key, &b.key));
+    let vertex =
+        |key: &String| (nodes.binary_search_by(|n| compat.compare_names(&n.key, key))).ok();
     let edges: Vec<Vec<usize>> = (nodes.iter())
         .map(|n| n.edges.iter().filter_map(vertex).collect())
         .collect();
+    let mut nodes: Vec<Option<Node<T>>> = nodes.into_iter().map(Some).collect();
     components(&edges)
         .into_iter()
         .map(|component| {
             let first = component[0];
-            let mut take = |v: usize| nodes[v].value.take().expect("each vertex once");
+            let mut take = |v: usize| nodes[v].take().expect("each vertex once");
             if component.len() == 1 && !edges[first].contains(&first) {
                 Scc::Acyclic(take(first))
             } else {

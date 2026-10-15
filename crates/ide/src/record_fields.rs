@@ -108,7 +108,7 @@ fn typed_fields(
         .collect();
     let ty = typed
         .iter()
-        .find(|t| matches!(t, error::Type::Alias(..)))
+        .find(|t| matches!(t, error::Type::Alias { .. }))
         .or_else(|| typed.iter().find(|t| matches!(t, error::Type::Record(..))));
     let Some(ty) = ty else {
         return Vec::new();
@@ -116,7 +116,12 @@ fn typed_fields(
     // Its fields' types are written with every name bare.
     let names = crate::hover::Names::bare();
     let (alias, record) = match ty {
-        error::Type::Alias(home, name, _, body) => (Some((home, name.as_str())), &**body),
+        error::Type::Alias {
+            home,
+            name,
+            real: body,
+            ..
+        } => (Some((home, name.as_str())), &**body),
         ty => (None, *ty),
     };
     // An alias's fields as it declares them.

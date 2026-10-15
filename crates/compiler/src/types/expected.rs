@@ -11,7 +11,11 @@ use nomi_base::TextRange;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Expected<T> {
     NoExpectation(T),
-    FromContext(TextRange, Context, T),
+    FromContext {
+        region: TextRange,
+        context: Context,
+        ty: T,
+    },
     /// The annotated name, and where in its body.
     FromAnnotation {
         name: String,
@@ -24,7 +28,7 @@ impl<T> Expected<T> {
     pub(crate) fn ty(&self) -> &T {
         match self {
             Expected::NoExpectation(t)
-            | Expected::FromContext(_, _, t)
+            | Expected::FromContext { ty: t, .. }
             | Expected::FromAnnotation { ty: t, .. } => t,
         }
     }
@@ -33,9 +37,13 @@ impl<T> Expected<T> {
     pub(crate) fn replace<U>(&self, ty: U) -> Expected<U> {
         match self {
             Expected::NoExpectation(_) => Expected::NoExpectation(ty),
-            Expected::FromContext(region, context, _) => {
-                Expected::FromContext(*region, context.clone(), ty)
-            }
+            Expected::FromContext {
+                region, context, ..
+            } => Expected::FromContext {
+                region: *region,
+                context: context.clone(),
+                ty,
+            },
             Expected::FromAnnotation { name, sub, .. } => Expected::FromAnnotation {
                 name: name.clone(),
                 sub: *sub,
@@ -115,13 +123,17 @@ pub enum Category {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PExpected<T> {
     PNoExpectation(T),
-    PFromContext(TextRange, PContext, T),
+    PFromContext {
+        region: TextRange,
+        context: PContext,
+        ty: T,
+    },
 }
 
 impl<T> PExpected<T> {
     pub(crate) fn ty(&self) -> &T {
         match self {
-            PExpected::PNoExpectation(t) | PExpected::PFromContext(_, _, t) => t,
+            PExpected::PNoExpectation(t) | PExpected::PFromContext { ty: t, .. } => t,
         }
     }
 
@@ -129,9 +141,13 @@ impl<T> PExpected<T> {
     pub(crate) fn replace<U>(&self, ty: U) -> PExpected<U> {
         match self {
             PExpected::PNoExpectation(_) => PExpected::PNoExpectation(ty),
-            PExpected::PFromContext(region, context, _) => {
-                PExpected::PFromContext(*region, context.clone(), ty)
-            }
+            PExpected::PFromContext {
+                region, context, ..
+            } => PExpected::PFromContext {
+                region: *region,
+                context: context.clone(),
+                ty,
+            },
         }
     }
 }

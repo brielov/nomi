@@ -27,6 +27,13 @@ pub enum ArityContext {
     Pattern,
 }
 
+/// Which declaration a type variable is a parameter of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Declaration {
+    Union,
+    Alias,
+}
+
 /// What a name written twice names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Duplicated {
@@ -105,11 +112,6 @@ pub enum Error {
         name: String,
         homes: Vec<Home>,
     },
-    AmbiguousBinop {
-        range: TextRange,
-        op: String,
-        homes: Vec<Home>,
-    },
     BadArity {
         range: TextRange,
         context: ArityContext,
@@ -130,14 +132,11 @@ pub enum Error {
         first: TextRange,
         second: TextRange,
     },
-    DuplicateAliasArg {
-        alias: String,
-        name: String,
-        first: TextRange,
-        second: TextRange,
-    },
-    DuplicateUnionArg {
-        union: String,
+    /// `DuplicateUnionArg` and `DuplicateAliasArg`: a type variable that
+    /// `owner` takes twice.
+    DuplicateArg {
+        declaration: Declaration,
+        owner: String,
         name: String,
         first: TextRange,
         second: TextRange,

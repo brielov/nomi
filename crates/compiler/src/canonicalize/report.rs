@@ -4,56 +4,25 @@
 //! the tree.
 
 use nomi_base::diagnostic::Problem;
-use nomi_base::diagnostic::code::{self, Source};
 use nomi_base::diagnostic::doc::{
     self, Conjunction, Doc, OneLine, TwoSnippets, comma_sep, cyan, dull_yellow, fill_sep, green,
-    link, pair, reflow, reflow_link, simple_note, snippet, stack, text, vcat, words,
+    link, pair, reflow, reflow_link, simple_note, stack, text, vcat, words,
 };
 use nomi_base::suggest::nearest;
 use nomi_base::{Compat, TextRange};
 
 use super::error::{
-    ArityContext, DuplicatePatternContext, Duplicated, Error, InvalidPayload, NameKind,
-    PortProblem, PossibleNames,
+    ArityContext, Declaration, DuplicatePatternContext, Duplicated, Error, InvalidPayload,
+    NameKind, PortProblem, PossibleNames,
 };
 use crate::canonical::Home;
 use crate::hir::{self, Spanned, TypeId};
-use crate::report::Report;
+use crate::report::{Report, ReportContext};
 use crate::types::render::{self, Context as Parens};
 
-/// What a report needs around its error.
-pub struct Context<'a> {
-    pub source: &'a Source<'a>,
-    pub module: &'a hir::Module,
-    pub compat: Compat,
-    pub trim: &'a dyn Fn(TextRange) -> TextRange,
-}
-
-impl std::fmt::Debug for Context<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Context")
-            .field("compat", &self.compat)
-            .finish_non_exhaustive()
-    }
-}
-
 /// `toReport`.
-pub fn to_problem(error: &Error, cx: &Context<'_>) -> Problem {
-    let report = report(error, cx);
-    let region = cx.source.region((cx.trim)(report.range), cx.compat);
-    let message = code::expand(&report.message, cx.source, cx.compat);
-    Problem::new(report.title, region, message)
-}
-
-/// A snippet of `range`, trimmed, between `before` and `after`.
-fn snip(
-    cx: &Context<'_>,
-    range: TextRange,
-    highlight: Option<TextRange>,
-    before: Doc,
-    after: Doc,
-) -> Doc {
-    snippet(before, (cx.trim)(range), highlight.map(cx.trim), after)
+pub fn to_problem(error: &Error, cx: &ReportContext<'_>, module: &hir::Module) -> Problem {
+    cx.problem(&report(error, cx, module))
 }
 
 /// The suggestions of names close to a missing one: one as a question,
@@ -106,7 +75,7 @@ fn thing(kind: NameKind) -> &'static str {
     clippy::too_many_lines,
     reason = "upstream's `toReport`, one message per error"
 )]
-fn report(error: &Error, cx: &Context<'_>) -> Report {
+fn report(error: &Error, cx: &ReportContext<'_>, module: &hir::Module) -> Report {
     match error {
         Error::AnnotationTooShort {
             range,
@@ -114,9 +83,7 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
             index,
             leftover,
         } => {
-            let message = snip(
-                cx,
-                *range,
+            let message = cx.snippet(*range,
                 None,
                 reflow(&format!(
                     "The type annotation for `{name}` says it can accept {}, but the definition says it has {}:",
@@ -138,10 +105,6 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
             homes,
         } => {
             let message = ambiguous(cx, *range, prefix.as_deref(), name, homes, *kind);
-            Report::new("AMBIGUOUS NAME", *range, message)
-        }
-        Error::AmbiguousBinop { range, op, homes } => {
-            let message = ambiguous(cx, *range, None, op, homes, NameKind::Operator);
             Report::new("AMBIGUOUS NAME", *range, message)
         }
         Error::BadArity {
@@ -170,11 +133,10 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
                 });
                 ("TOO MANY ARGS", after)
             };
-            Report::new(title, *range, snip(cx, *range, None, before, after))
+            Report::new(title, *range, cx.snippet(*range, None, before, after))
         }
         Error::Binop { range, left, right } => {
-            let message = snip(
-                cx,
+            let message = cx.snippet(
                 *range,
                 None,
                 reflow(&format!(
@@ -200,28 +162,23 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
             };
             name_clash(cx, *first, *second, &message)
         }
-        Error::DuplicateAliasArg {
-            alias,
+        Error::DuplicateArg {
+            declaration,
+            owner,
             name,
             first,
             second,
-        } => name_clash(
-            cx,
-            *first,
-            *second,
-            &format!("The `{alias}` type alias has multiple `{name}` type variables."),
-        ),
-        Error::DuplicateUnionArg {
-            union,
-            name,
-            first,
-            second,
-        } => name_clash(
-            cx,
-            *first,
-            *second,
-            &format!("The `{union}` type has multiple `{name}` type variables."),
-        ),
+        } => {
+            let message = match declaration {
+                Declaration::Union => {
+                    format!("The `{owner}` type has multiple `{name}` type variables.")
+                }
+                Declaration::Alias => {
+                    format!("The `{owner}` type alias has multiple `{name}` type variables.")
+                }
+            };
+            name_clash(cx, *first, *second, &message)
+        }
         Error::DuplicatePattern {
             context,
             name,
@@ -248,8 +205,7 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
             name_clash(cx, *first, *second, &message)
         }
         Error::EffectNotFound { range, name } => {
-            let message = snip(
-                cx,
+            let message = cx.snippet(
                 *range,
                 None,
                 reflow(&format!(
@@ -262,8 +218,7 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
             Report::new("EFFECT PROBLEM", *range, message)
         }
         Error::EffectFunctionNotFound { range, name } => {
-            let message = snip(
-                cx,
+            let message = cx.snippet(
                 *range,
                 None,
                 reflow(&format!(
@@ -318,14 +273,12 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
             // 0.19.3 shows where.
             let doc = match cx.compat {
                 Compat::V0_19_1 | Compat::V0_19_2 => stack([fill_sep(overview), found]),
-                Compat::V0_19_3 => snip(cx, *range, None, fill_sep(overview), found),
+                Compat::V0_19_3 => cx.snippet(*range, None, fill_sep(overview), found),
             };
             Report::new("UNKNOWN EXPORT", *range, doc)
         }
         Error::ExportOpenAlias { range, name } => {
-            let message = snip(
-                cx,
-                *range,
+            let message = cx.snippet(*range,
                 None,
                 reflow(&format!(
                     "The (..) syntax is for exposing variants of a custom type. It cannot be used with a type alias like `{name}` though."
@@ -341,8 +294,7 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
                 .chain([text(union.clone())])
                 .chain(words("type and all its variants so it gives you access to"))
                 .chain([text(format!("{ctor}."))]);
-            let message = snip(
-                cx,
+            let message = cx.snippet(
                 *range,
                 None,
                 reflow(&format!(
@@ -353,8 +305,7 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
             Report::new("BAD IMPORT", *range, message)
         }
         Error::ImportOpenAlias { range, name } => {
-            let message = snip(
-                cx,
+            let message = cx.snippet(
                 *range,
                 None,
                 reflow(&format!(
@@ -379,7 +330,11 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
                 "The `{}` module does not expose `{name}`:",
                 home.module
             ));
-            Report::new("BAD IMPORT", *range, snip(cx, *range, None, before, after))
+            Report::new(
+                "BAD IMPORT",
+                *range,
+                cx.snippet(*range, None, before, after),
+            )
         }
         Error::NotFound {
             kind,
@@ -400,9 +355,7 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
             Report::new("UNKNOWN OPERATOR", *range, message)
         }
         Error::PatternHasRecordCtor { range, name } => {
-            let message = snip(
-                cx,
-                *range,
+            let message = cx.snippet(*range,
                 None,
                 reflow(&format!(
                     "You can construct records by using `{name}` as a function, but it is not available in pattern matching like this:"
@@ -417,9 +370,7 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
             problem,
         } => {
             let (thing, elaboration) = payload_details(problem);
-            let message = snip(
-                cx,
-                *range,
+            let message = cx.snippet(*range,
                 None,
                 reflow(&format!("The `{name}` port is trying to transmit {thing}:")),
                 stack([
@@ -440,9 +391,7 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
             problem,
         } => {
             let (before, after) = port_details(name, problem);
-            let message = snip(
-                cx,
-                *range,
+            let message = cx.snippet(*range,
                 None,
                 reflow(&before),
                 stack([
@@ -464,7 +413,7 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
             body,
             others,
         } => {
-            let message = alias_recursion(cx, *range, name, args, *body, others);
+            let message = alias_recursion(cx, module, *range, name, args, *body, others);
             Report::new("ALIAS PROBLEM", *range, message)
         }
         Error::RecursiveDecl {
@@ -515,9 +464,7 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
             Report::new("SHADOWING", *second, doc)
         }
         Error::TupleLargerThanThree { range } => {
-            let message = snip(
-                cx,
-                *range,
+            let message = cx.snippet(*range,
                 None,
                 text("I only accept tuples with two or three items. This has too many:"),
                 stack([
@@ -562,7 +509,12 @@ fn report(error: &Error, cx: &Context<'_>) -> Report {
 }
 
 /// `nameClash`.
-fn name_clash(cx: &Context<'_>, first: TextRange, second: TextRange, message: &str) -> Report {
+fn name_clash(
+    cx: &ReportContext<'_>,
+    first: TextRange,
+    second: TextRange,
+    message: &str,
+) -> Report {
     let fix = "How can I know which one you want? Rename one of them!";
     let doc = pair(
         (cx.trim)(first),
@@ -582,7 +534,7 @@ fn name_clash(cx: &Context<'_>, first: TextRange, second: TextRange, message: &s
 
 /// `ambiguousName`.
 fn ambiguous(
-    cx: &Context<'_>,
+    cx: &ReportContext<'_>,
     range: TextRange,
     prefix: Option<&str>,
     name: &str,
@@ -594,9 +546,7 @@ fn ambiguous(
         Compat::V0_19_2 | Compat::V0_19_3 => sorted_homes(homes, cx.compat),
     };
     match prefix {
-        None => snip(
-            cx,
-            range,
+        None => cx.snippet(range,
             None,
             reflow(&format!("This usage of `{name}` is ambiguous:")),
             stack([
@@ -631,9 +581,7 @@ fn ambiguous(
                 }
             };
             let either = if homes.len() == 2 { "either" } else { "any" };
-            snip(
-                cx,
-                range,
+            cx.snippet(range,
                 None,
                 reflow(&format!("This usage of `{prefix}.{name}` is ambiguous.")),
                 stack([
@@ -655,7 +603,7 @@ fn ambiguous(
 
 /// `notFound`.
 fn not_found(
-    cx: &Context<'_>,
+    cx: &ReportContext<'_>,
     range: TextRange,
     prefix: Option<&str>,
     name: &str,
@@ -711,8 +659,7 @@ fn not_found(
             ),
         ),
     };
-    snip(
-        cx,
+    cx.snippet(
         range,
         None,
         reflow(&format!("I cannot find a `{given}` {thing}:")),
@@ -720,18 +667,19 @@ fn not_found(
     )
 }
 
-fn unknown_operator(cx: &Context<'_>, range: TextRange, op: &str, possible: &[String]) -> Doc {
+fn unknown_operator(
+    cx: &ReportContext<'_>,
+    range: TextRange,
+    op: &str,
+    possible: &[String],
+) -> Doc {
     match op {
-        "===" => snip(
-            cx,
-            range,
+        "===" => cx.snippet(range,
             None,
             text("Elm does not have a (===) operator like JavaScript."),
             text("Switch to (==) instead."),
         ),
-        "!=" | "!==" => snip(
-            cx,
-            range,
+        "!=" | "!==" => cx.snippet(range,
             None,
             reflow("Elm uses a different name for the “not equal” operator:"),
             stack([
@@ -741,16 +689,12 @@ fn unknown_operator(cx: &Context<'_>, range: TextRange, op: &str, possible: &[St
                 )),
             ]),
         ),
-        "**" => snip(
-            cx,
-            range,
+        "**" => cx.snippet(range,
             None,
             reflow("I do not recognize the (**) operator:"),
             reflow("Switch to (^) for exponentiation. Or switch to (*) for multiplication."),
         ),
-        "%" => snip(
-            cx,
-            range,
+        "%" => cx.snippet(range,
             None,
             reflow("Elm does not use (%) as the remainder operator:"),
             stack([
@@ -774,9 +718,7 @@ fn unknown_operator(cx: &Context<'_>, range: TextRange, op: &str, possible: &[St
                 after.extend(comma_sep(Conjunction::Or, alts.collect()));
                 after.push(text("instead?"));
             }
-            snip(
-                cx,
-                range,
+            cx.snippet(range,
                 None,
                 reflow(&format!("I do not recognize the ({op}) operator.")),
                 fill_sep(after),
@@ -899,11 +841,15 @@ fn cycle(name: &str, others: &[String]) -> Doc {
 
 /// A value defined in terms of itself, directly, or through `others`
 /// after `intro`.
-fn cyclic(cx: &Context<'_>, range: TextRange, name: &str, others: &[String], intro: &str) -> Doc {
+fn cyclic(
+    cx: &ReportContext<'_>,
+    range: TextRange,
+    name: &str,
+    others: &[String],
+    intro: &str,
+) -> Doc {
     if others.is_empty() {
-        return snip(
-            cx,
-            range,
+        return cx.snippet(range,
             None,
             reflow(&format!(
                 "The `{name}` value is defined directly in terms of itself, causing an infinite loop."
@@ -923,14 +869,7 @@ fn cyclic(cx: &Context<'_>, range: TextRange, name: &str, others: &[String], int
             "for more detailed advice, especially if you actually do want mutually recursive values.",
         ),
     ]);
-    snip(cx, range, None, reflow(intro), chain)
-}
-
-/// Which declaration a type variable problem is in.
-#[derive(Clone, Copy)]
-enum Declaration {
-    Union,
-    Alias,
+    cx.snippet(range, None, reflow(intro), chain)
 }
 
 impl Declaration {
@@ -946,7 +885,7 @@ impl Declaration {
 
 /// `unboundTypeVars`.
 fn unbound_type_vars(
-    cx: &Context<'_>,
+    cx: &ReportContext<'_>,
     range: TextRange,
     declaration: Declaration,
     name: &str,
@@ -984,9 +923,7 @@ fn unbound_type_vars(
             .map(|n| green(text(n.text.clone()))),
     );
     declared.extend([text("="), text("...")]);
-    let doc = snip(
-        cx,
-        range,
+    let doc = cx.snippet(range,
         highlight,
         fill_sep(overview),
         stack([
@@ -1002,7 +939,7 @@ fn unbound_type_vars(
 
 /// `TypeVarsMessedUpInAlias` with unused variables alone.
 fn unused_type_vars(
-    cx: &Context<'_>,
+    cx: &ReportContext<'_>,
     range: TextRange,
     name: &str,
     vars: &[String],
@@ -1047,9 +984,7 @@ fn unused_type_vars(
             .map(|v| text(v.clone())),
     );
     declaration.extend([text("="), text("...")]);
-    let doc = snip(
-        cx,
-        range,
+    let doc = cx.snippet(range,
         highlight,
         fill_sep(overview),
         stack([
@@ -1065,7 +1000,7 @@ fn unused_type_vars(
 
 /// `TypeVarsMessedUpInAlias` with both unused and unbound variables.
 fn type_var_problems(
-    cx: &Context<'_>,
+    cx: &ReportContext<'_>,
     range: TextRange,
     name: &str,
     vars: &[String],
@@ -1112,8 +1047,7 @@ fn type_var_problems(
     );
     declaration.extend(unbound.iter().map(|n| green(text(*n))));
     declaration.extend([text("="), text("...")]);
-    let doc = snip(
-        cx,
+    let doc = cx.snippet(
         range,
         None,
         reflow(&format!(
@@ -1130,7 +1064,8 @@ fn type_var_problems(
 
 /// `aliasRecursionReport`.
 fn alias_recursion(
-    cx: &Context<'_>,
+    cx: &ReportContext<'_>,
+    module: &hir::Module,
     range: TextRange,
     name: &str,
     args: &[String],
@@ -1144,11 +1079,9 @@ fn alias_recursion(
         let union = vcat([
             dull_yellow(header.space(text("="))),
             green(text(name).indent(4)),
-            dull_yellow(source_type(cx.module, body, Parens::App).indent(8)),
+            dull_yellow(source_type(module, body, Parens::App).indent(8)),
         ]);
-        snip(
-            cx,
-            range,
+        cx.snippet(range,
             None,
             text("This type alias is recursive, forming an infinite type!"),
             stack([
@@ -1165,9 +1098,7 @@ fn alias_recursion(
             ]),
         )
     } else {
-        snip(
-            cx,
-            range,
+        cx.snippet(range,
             None,
             text("This type alias is part of a mutually recursive set of type aliases."),
             stack([

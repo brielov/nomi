@@ -518,17 +518,11 @@ impl Walk<'_> {
             canonicalize(compat, &self.package, &interfaces, &hir)
         });
         let canonical = canonical.map_err(|errors| {
-            let source = Source::new(&module.text);
-            let trim = |range| trim(&root, range);
-            let cx = report::Context {
-                source: &source,
-                module: &hir,
-                compat,
-                trim: &trim,
-            };
-            (errors.iter())
-                .map(|e| report::to_problem(e, &cx))
-                .collect::<Vec<_>>()
+            self.report(module, &root, |cx| {
+                (errors.iter())
+                    .map(|e| report::to_problem(e, cx, &hir))
+                    .collect()
+            })
         })?;
         // In the solver's order, the latest first, as upstream reports
         // them.
@@ -649,7 +643,7 @@ impl Walk<'_> {
     /// How reports name the types `hir` sees.
     fn localizer(&self, hir: &hir::Module) -> Localizer {
         let imports = with_defaults(&self.package, &hir.imports);
-        Localizer::from_module(self.env.compat(), hir.name(), &imports)
+        Localizer::from_module(self.env.compat(), hir.name(), imports)
     }
 
     /// The artifact key of `module`: everything checking it reads.

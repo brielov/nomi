@@ -22,8 +22,8 @@ use nomi_base::grow_large;
 use nomi_syntax::literal_body;
 
 use super::{
-    Def, DefId, Exposed, Exposing, Expr, ExprId, Import, Module, ModuleKind, PatId, Pattern,
-    Spanned, Type, TypeId, int_value,
+    Def, DefId, Escape, Exposed, Exposing, Expr, ExprId, Import, Module, ModuleKind, PatId,
+    Pattern, Spanned, Type, TypeId, escape, int_value, plain_code,
 };
 
 /// `module`'s shape, a node a line, each before its children.
@@ -536,32 +536,13 @@ fn decode(body: &str) -> Vec<u32> {
     let mut points = Vec::with_capacity(body.len());
     let mut chars = body.chars();
     while let Some(c) = chars.next() {
-        if c != '\\' {
-            points.push(u32::from(c));
-            continue;
-        }
-        match chars.next() {
-            Some('n') => points.push(0x0A),
-            Some('r') => points.push(0x0D),
-            Some('t') => points.push(0x09),
-            Some('u') => {
-                let rest = chars.as_str();
-                let hex = rest
-                    .strip_prefix('{')
-                    .and_then(|r| r.split_once('}'))
-                    .and_then(|(hex, _)| u32::from_str_radix(hex, 16).ok().map(|n| (hex, n)));
-                match hex {
-                    Some((hex, n)) => {
-                        points.push(n);
-                        chars = rest[hex.len() + 2..].chars();
-                    }
-                    // elm rejects it; kept as written, to compare.
-                    None => points.extend([u32::from('\\'), u32::from('u')]),
-                }
-            }
-            Some(other) => points.push(u32::from(other)),
-            None => points.push(u32::from('\\')),
-        }
+        points.push(match c {
+            '\\' => match escape(&mut chars) {
+                Escape::Unicode(code) => code,
+                Escape::Plain(c) => plain_code(c),
+            },
+            c => u32::from(c),
+        });
     }
     points
 }

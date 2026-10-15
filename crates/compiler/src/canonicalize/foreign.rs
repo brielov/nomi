@@ -7,6 +7,7 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::rc::Rc;
+use std::sync::LazyLock;
 
 use nomi_base::{Compat, TextRange};
 
@@ -20,7 +21,7 @@ use crate::hir::{Exposed as Item, Exposing, Import, Spanned};
 use crate::interface::{self, Interface, Interfaces};
 
 /// The packages whose modules may import kernel code (`Pkg.isKernel`).
-pub fn is_kernel_package(package: &str) -> bool {
+pub(super) fn is_kernel_package(package: &str) -> bool {
     package.starts_with("elm/") || package.starts_with("elm-explorations/")
 }
 
@@ -70,16 +71,20 @@ fn defaults() -> Vec<Import> {
     defaults
 }
 
+static DEFAULTS: LazyLock<Vec<Import>> = LazyLock::new(defaults);
+
 /// The imports upstream's parser gives `imports`: the defaults first,
 /// except in elm/core.
-pub fn with_defaults(package: &str, imports: &[Import]) -> Vec<Import> {
-    let mut all = if package == "elm/core" {
-        Vec::new()
+pub fn with_defaults<'i>(
+    package: &str,
+    imports: &'i [Import],
+) -> impl Iterator<Item = &'i Import> + Clone {
+    let defaults: &'static [Import] = if package == "elm/core" {
+        &[]
     } else {
-        defaults()
+        &DEFAULTS
     };
-    all.extend(imports.iter().cloned());
-    all
+    defaults.iter().chain(imports)
 }
 
 #[derive(Default)]
@@ -97,11 +102,11 @@ struct State<'a> {
 /// imports, defaults included, are `imports`, reading each imported
 /// module's interface from `interfaces`. An import with no interface was
 /// reported by the build already, and adds nothing.
-pub(super) fn initial_env<'a>(
+pub(super) fn initial_env<'a, 'i>(
     compat: Compat,
     home: &Home,
     interfaces: &'a dyn Interfaces,
-    imports: &[Import],
+    imports: impl IntoIterator<Item = &'i Import>,
     references: &Recorder,
 ) -> R<Env<'a>> {
     let mut state = State::default();
@@ -125,7 +130,7 @@ pub(super) fn initial_env<'a>(
         let Some(interface) = interfaces.get(&import.name.text) else {
             continue;
         };
-        add_import(&mut state, interface, import, references)?;
+        add_import(compat, &mut state, interface, import, references)?;
     }
     Ok(Env {
         compat,
@@ -160,6 +165,7 @@ struct Offer<'a> {
 }
 
 fn add_import<'a>(
+    compat: Compat,
     state: &mut State<'a>,
     interface: &'a Interface,
     import: &Import,
@@ -176,7 +182,10 @@ fn add_import<'a>(
     let mut types: BTreeMap<String, TypeEntry<'a>> = BTreeMap::new();
     for (type_name, alias) in &interface.aliases {
         if let Some(alias) = alias.public() {
-            types.insert(type_name.clone(), alias_to_type(&home, type_name, alias));
+            types.insert(
+                type_name.clone(),
+                alias_to_type(compat, &home, type_name, alias),
+            );
         }
     }
     for (type_name, union) in &interface.unions {
@@ -370,7 +379,12 @@ fn union_to_type<'a>(
 }
 
 /// `aliasToType`: the alias, and the constructor a record alias brings.
-fn alias_to_type<'a>(home: &Home, name: &str, alias: &canonical::Alias) -> TypeEntry<'a> {
+fn alias_to_type<'a>(
+    compat: Compat,
+    home: &Home,
+    name: &str,
+    alias: &canonical::Alias,
+) -> TypeEntry<'a> {
     let info = TypeInfo::Alias {
         home: home.clone(),
         vars: alias.vars.clone(),
@@ -378,7 +392,7 @@ fn alias_to_type<'a>(home: &Home, name: &str, alias: &canonical::Alias) -> TypeE
     };
     let mut ctors = BTreeMap::new();
     if let Type::Record(fields, None) = &*alias.ty {
-        let ctor = CtorInfo::record(home, name, &alias.vars, fields, alias.ty.clone());
+        let ctor = CtorInfo::record(compat, home, name, &alias.vars, fields, alias.ty.clone());
         ctors.insert(name.to_owned(), single(home, ctor));
     }
     TypeEntry { info, ctors }

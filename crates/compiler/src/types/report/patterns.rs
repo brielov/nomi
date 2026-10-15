@@ -41,7 +41,11 @@ pub(super) fn pattern_report(
             let problem = reflow("This pattern is being used in an unexpected way:");
             cx.snippet(pattern_region, None, problem, comparison)
         }
-        PExpected::PFromContext(region, context, expected) => {
+        PExpected::PFromContext {
+            region,
+            context,
+            ty: expected,
+        } => {
             let (problem, details) = match context {
                 PContext::PTypedArg(name, index) => {
                     let ith = ordinal(index + 1);

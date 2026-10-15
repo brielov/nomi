@@ -131,8 +131,8 @@ fn resolve(
         .map(|(_, ty)| ty)
         .collect();
     let aliased = |ty: &&&error::Type| match ty {
-        error::Type::Alias(..) => true,
-        error::Type::Lambda(arg, _, _) => matches!(**arg, error::Type::Alias(..)),
+        error::Type::Alias { .. } => true,
+        error::Type::Lambda(arg, _, _) => matches!(**arg, error::Type::Alias { .. }),
         _ => false,
     };
     let ty = typed
@@ -230,7 +230,10 @@ fn declared(
     ty: &error::Type,
     field: &str,
 ) -> Option<(Location, SyntaxNode)> {
-    let error::Type::Alias(home, name, args, _) = ty else {
+    let error::Type::Alias {
+        home, name, args, ..
+    } = ty
+    else {
         return None;
     };
     let (path, root) = module_tree(snapshot, index, &home.module)?;

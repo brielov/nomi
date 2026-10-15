@@ -10,6 +10,8 @@ use std::fmt::Write as _;
 use nomi_base::Compat;
 use nomi_syntax::literal_body;
 
+use crate::hir::{Escape, escape, plain_code};
+
 /// The text a string literal's token stands for.
 pub(super) fn string(compat: Compat, token: &str) -> String {
     let body = literal_body(token).unwrap_or(token);
@@ -63,43 +65,6 @@ pub(super) fn char(compat: Compat, token: &str) -> String {
                 .unwrap_or_default(),
         },
         c => c.to_string(),
-    }
-}
-
-/// What follows a backslash.
-enum Escape {
-    /// One of `n`, `r`, `t`, `"`, `'` and `\`.
-    Plain(char),
-    /// `u{…}`, by its code point.
-    Unicode(u32),
-}
-
-/// The escape after a backslash, which the parser has checked.
-fn escape(chars: &mut std::str::Chars<'_>) -> Escape {
-    match chars.next() {
-        Some('u') => {
-            chars.next(); // `{`
-            let mut code = 0;
-            for c in chars.by_ref() {
-                match c.to_digit(16) {
-                    Some(digit) => code = code * 16 + digit,
-                    None => break, // `}`
-                }
-            }
-            Escape::Unicode(code)
-        }
-        Some(c) => Escape::Plain(c),
-        None => Escape::Plain('\\'),
-    }
-}
-
-/// The code point of a plain escape's character.
-fn plain_code(c: char) -> u32 {
-    match c {
-        'n' => 0x0A,
-        'r' => 0x0D,
-        't' => 0x09,
-        c => u32::from(c),
     }
 }
 

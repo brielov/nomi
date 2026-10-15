@@ -130,7 +130,7 @@ fn to_text(place: Place, pattern: &Pattern) -> String {
             Literal::Str(s) => format!("\"{}\"", literal_body(s).unwrap_or(s)),
             Literal::Int(n) => n.to_string(),
         },
-        Structure::NonList(Pattern::Ctor(_, name, args)) => match (*name, &args[..]) {
+        Structure::NonList(Pattern::Ctor { name, args, .. }) => match (*name, &args[..]) {
             (UNIT, []) => "()".to_owned(),
             (PAIR, [a, b]) => format!(
                 "( {}, {} )",
@@ -192,13 +192,17 @@ fn delist<'p, 'u>(pattern: &'p Pattern<'u>) -> Structure<'p, 'u> {
     let mut at = pattern;
     loop {
         match at {
-            Pattern::Ctor(_, NIL, args) if args.is_empty() => {
+            Pattern::Ctor {
+                name: NIL, args, ..
+            } if args.is_empty() => {
                 // `FiniteList revEntries`: upstream's list of them, latest
                 // first.
                 rev_entries.reverse();
                 return Structure::FiniteList(rev_entries);
             }
-            Pattern::Ctor(_, CONS, args) if args.len() == 2 => {
+            Pattern::Ctor {
+                name: CONS, args, ..
+            } if args.len() == 2 => {
                 rev_entries.push(&args[0]);
                 at = &args[1];
             }

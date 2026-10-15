@@ -20,7 +20,7 @@ use super::localizer::Localizer;
 use super::solve::TypeError;
 use crate::report::{Report, ReportContext};
 use hints::problems_to_hint;
-use operators::{Explanation, RightDocs, count_args, op_left, op_right};
+use operators::{Explanation, RightDocs, op_left, op_right};
 
 /// `toReport`.
 pub fn to_problem(error: &TypeError, cx: &ReportContext<'_>, localizer: &Localizer) -> Problem {
@@ -176,7 +176,6 @@ fn expr_report(
             name,
             sub,
             ty: expected,
-            ..
         } => {
             let (thing, it_is) = match sub {
                 SubContext::TypedIfBranch(i) => (
@@ -198,7 +197,11 @@ fn expr_report(
             let doc = cx.snippet(expr_region, None, problem, comparison);
             Report::mismatch(expr_region, doc)
         }
-        Expected::FromContext(region, context, expected) => {
+        Expected::FromContext {
+            region,
+            context,
+            ty: expected,
+        } => {
             let mismatch = Mismatch {
                 expr_region,
                 region: *region,
@@ -332,7 +335,7 @@ fn from_context(
         }
         Context::CallArity(name, given) => {
             let missing = reflow("Are there any missing commas? Or missing parentheses?");
-            let problem = match count_args(m.actual) {
+            let problem = match m.actual.arity() {
                 0 => {
                     let this_value = match name {
                         MaybeName::NoName => "This value".to_owned(),

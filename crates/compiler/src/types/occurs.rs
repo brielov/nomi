@@ -7,10 +7,10 @@ use super::{AliasReal, Variable, Variables, children};
 
 /// `occurs`.
 pub(super) fn occurs(vars: &mut Variables, var: Variable) -> bool {
-    help(vars, &mut Vec::new(), var)
+    occurs_help(vars, &mut Vec::new(), var)
 }
 
-fn help(vars: &mut Variables, seen: &mut Vec<Variable>, var: Variable) -> bool {
+fn occurs_help(vars: &mut Variables, seen: &mut Vec<Variable>, var: Variable) -> bool {
     if seen.contains(&var) {
         return true;
     }
@@ -19,7 +19,7 @@ fn help(vars: &mut Variables, seen: &mut Vec<Variable>, var: Variable) -> bool {
     // Every child is visited, as upstream's fold visits them.
     let mut found = false;
     for child in children {
-        found |= nomi_base::grow(|| help(vars, seen, child));
+        found |= nomi_base::grow(|| occurs_help(vars, seen, child));
     }
     seen.pop();
     found

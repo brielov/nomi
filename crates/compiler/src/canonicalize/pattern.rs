@@ -105,9 +105,9 @@ fn canonicalize_(
                     home,
                     union_name,
                     union,
-                    ctor,
+                    ctor: index,
                 } => {
-                    let ctor = &union.ctors[*ctor];
+                    let ctor = &union.ctors[*index];
                     let types = &ctor.args;
                     if args.len() != types.len() {
                         return throw(Error::BadArity {
@@ -118,15 +118,12 @@ fn canonicalize_(
                             actual: args.len(),
                         });
                     }
-                    let cargs = all((args.iter().zip(types.iter()).enumerate()).map(
-                        |(index, (&arg, ty))| {
-                            canonicalize(env, module, arg, bindings).map(|arg| PatternCtorArg {
-                                index,
-                                ty: ty.clone(),
-                                arg,
-                            })
-                        },
-                    ))?;
+                    let cargs = all(args.iter().zip(types).map(|(&arg, ty)| {
+                        canonicalize(env, module, arg, bindings).map(|arg| PatternCtorArg {
+                            ty: ty.clone(),
+                            arg,
+                        })
+                    }))?;
                     let union = Arc::clone(union);
                     if union_name == "Bool" && home.is("elm/core", "Basics") {
                         PatternKind::Bool(union, name.text == "True")
@@ -136,7 +133,7 @@ fn canonicalize_(
                             type_name: union_name.clone(),
                             union,
                             name: name.text.clone(),
-                            index: ctor.index,
+                            index: *index,
                             args: cargs,
                         }
                     }

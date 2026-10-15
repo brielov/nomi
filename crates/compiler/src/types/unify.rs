@@ -148,9 +148,12 @@ impl State<'_> {
             Content::FlexSuper(s, _) => self.flex_super(context, s, first, second),
             Content::RigidVar(_) => self.rigid(context, None, first, &second),
             Content::RigidSuper(s, _) => self.rigid(context, Some(s), first, &second),
-            Content::Alias(home, name, args, real) => {
-                self.alias(context, home, name, args, real, second)
-            }
+            Content::Alias {
+                home,
+                name,
+                args,
+                real,
+            } => self.alias(context, home, name, args, real, second),
             Content::Structure(flat) => self.structure(context, flat, second),
             // Pretend it is fine, so one error doesn't cascade.
             Content::Error => self.merge(context, Content::Error),
@@ -182,7 +185,7 @@ impl State<'_> {
             },
             Content::RigidVar(_)
             | Content::RigidSuper(..)
-            | Content::Alias(..)
+            | Content::Alias { .. }
             | Content::Structure(_) => Err(Mismatch),
             Content::Error => self.merge(context, Content::Error),
         }
@@ -223,7 +226,7 @@ impl State<'_> {
                     Err(Mismatch)
                 }
             },
-            Content::Alias(_, _, _, real) => self.guarded(context.first, real),
+            Content::Alias { real, .. } => self.guarded(context.first, real),
             Content::Error => self.merge(context, Content::Error),
         }
     }
@@ -231,22 +234,24 @@ impl State<'_> {
     /// `unifyFlexSuperStructure`.
     fn flex_super_structure(&mut self, context: Context, s: SuperType, flat: FlatType) -> Unify {
         match &flat {
-            FlatType::App1(home, name, args) if args.is_empty() => {
+            FlatType::App1 { home, name, args } if args.is_empty() => {
                 if atom_matches_super(s, home, name) {
                     self.merge(context, Content::Structure(flat))
                 } else {
                     Err(Mismatch)
                 }
             }
-            FlatType::App1(home, name, args) if args.len() == 1 && is_list(home, name) => match s {
-                SuperType::Number => Err(Mismatch),
-                SuperType::Appendable => self.merge(context, Content::Structure(flat)),
-                SuperType::Comparable | SuperType::CompAppend => {
-                    self.comparable_occurs_check(context)?;
-                    self.comparable_recursive(args[0])?;
-                    self.merge(context, Content::Structure(flat))
+            FlatType::App1 { home, name, args } if args.len() == 1 && is_list(home, name) => {
+                match s {
+                    SuperType::Number => Err(Mismatch),
+                    SuperType::Appendable => self.merge(context, Content::Structure(flat)),
+                    SuperType::Comparable | SuperType::CompAppend => {
+                        self.comparable_occurs_check(context)?;
+                        self.comparable_recursive(args[0])?;
+                        self.merge(context, Content::Structure(flat))
+                    }
                 }
-            },
+            }
             FlatType::Tuple1(a, b, c) => match s {
                 SuperType::Number | SuperType::Appendable | SuperType::CompAppend => Err(Mismatch),
                 SuperType::Comparable => {
@@ -259,7 +264,7 @@ impl State<'_> {
                     self.merge(context, Content::Structure(flat))
                 }
             },
-            FlatType::App1(..)
+            FlatType::App1 { .. }
             | FlatType::Fun1(..)
             | FlatType::EmptyRecord1
             | FlatType::Record1(..)
@@ -294,12 +299,25 @@ impl State<'_> {
         other: Content,
     ) -> Unify {
         match other {
-            Content::FlexVar(_) => self.merge(context, Content::Alias(home, name, args, real)),
+            Content::FlexVar(_) => self.merge(
+                context,
+                Content::Alias {
+                    home,
+                    name,
+                    args,
+                    real,
+                },
+            ),
             Content::FlexSuper(..)
             | Content::RigidVar(_)
             | Content::RigidSuper(..)
             | Content::Structure(_) => self.guarded(real, context.second),
-            Content::Alias(ref other_home, ref other_name, ref other_args, other_real) => {
+            Content::Alias {
+                home: ref other_home,
+                name: ref other_name,
+                args: ref other_args,
+                real: other_real,
+            } => {
                 if name == *other_name && home == *other_home {
                     let others = other_args.iter().map(|(_, a)| *a);
                     self.all_args(args.iter().map(|(_, a)| *a), others)?;
@@ -337,12 +355,16 @@ impl State<'_> {
             Content::FlexVar(_) => self.merge(context, Content::Structure(flat)),
             Content::FlexSuper(s, _) => self.flex_super_structure(context.reorient(), s, flat),
             Content::RigidVar(_) | Content::RigidSuper(..) => Err(Mismatch),
-            Content::Alias(_, _, _, real) => self.guarded(context.first, real),
+            Content::Alias { real, .. } => self.guarded(context.first, real),
             Content::Error => self.merge(context, Content::Error),
             Content::Structure(ref other_flat) => match (flat, other_flat) {
                 (
-                    FlatType::App1(home, name, args),
-                    FlatType::App1(other_home, other_name, other_args),
+                    FlatType::App1 { home, name, args },
+                    FlatType::App1 {
+                        home: other_home,
+                        name: other_name,
+                        args: other_args,
+                    },
                 ) if home == *other_home && name == *other_name => {
                     let others = other_args.iter().copied();
                     self.all_args(args.into_iter(), others)?;
@@ -398,7 +420,7 @@ impl State<'_> {
                     }
                     var = *sub_ext;
                 }
-                Content::Alias(_, _, _, real) => var = *real,
+                Content::Alias { real, .. } => var = *real,
                 Content::FlexVar(_)
                 | Content::FlexSuper(..)
                 | Content::RigidVar(_)

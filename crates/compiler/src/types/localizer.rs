@@ -44,7 +44,11 @@ impl Localizer {
     /// `fromModule`: the module itself, exposing everything, then its
     /// imports, the default ones first as the parser adds them, a later
     /// import of a module replacing an earlier.
-    pub fn from_module(compat: Compat, name: &str, imports: &[Import]) -> Localizer {
+    pub fn from_module<'i>(
+        compat: Compat,
+        name: &str,
+        imports: impl IntoIterator<Item = &'i Import>,
+    ) -> Localizer {
         let mut map = BTreeMap::new();
         map.insert(name.to_owned(), EVERYTHING);
         for import in imports {
@@ -70,7 +74,10 @@ impl Localizer {
     }
 
     /// `fromNames`: each module of `names` exposing everything.
-    pub fn from_names<'n>(compat: Compat, names: impl IntoIterator<Item = &'n str>) -> Localizer {
+    pub(crate) fn from_names<'n>(
+        compat: Compat,
+        names: impl IntoIterator<Item = &'n str>,
+    ) -> Localizer {
         Localizer {
             compat,
             imports: names
@@ -81,7 +88,7 @@ impl Localizer {
     }
 
     /// `toChars`.
-    pub fn to_chars(&self, home: &Home, name: &str) -> String {
+    pub(crate) fn to_chars(&self, home: &Home, name: &str) -> String {
         match self.imports.get(&*home.module) {
             None => format!("{}.{name}", home.module),
             Some(Imported {
@@ -104,7 +111,7 @@ impl Localizer {
     }
 
     /// `toDoc`.
-    pub fn to_doc(&self, home: &Home, name: &str) -> Doc {
+    pub(crate) fn to_doc(&self, home: &Home, name: &str) -> Doc {
         text(self.to_chars(home, name))
     }
 }

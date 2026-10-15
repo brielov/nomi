@@ -34,20 +34,30 @@ fn spanned(token: &SyntaxToken) -> Spanned {
     }
 }
 
-/// The node's text without trivia, and the range from its first token
-/// to its last: a qualified name, or an operator.
+/// The node's text without trivia, and its [`significant_range`]: a
+/// qualified name, or an operator.
 fn unspaced(node: &SyntaxNode) -> Spanned {
     let mut text = String::new();
-    let mut range: Option<TextRange> = None;
-    for token in significant_tokens(node) {
+    let ranges = significant_tokens(node).map(|token| {
         text.push_str(token.text());
-        let at = token.text_range();
-        range = Some(range.map_or(at, |range| range.cover(at)));
-    }
-    Spanned {
-        text,
-        range: range.unwrap_or_else(|| TextRange::empty(node.text_range().start())),
-    }
+        token.text_range()
+    });
+    let range = covering(node, ranges);
+    Spanned { text, range }
+}
+
+/// The range from the node's first significant token to its last.
+fn significant_range(node: &SyntaxNode) -> TextRange {
+    covering(
+        node,
+        significant_tokens(node).map(|token| token.text_range()),
+    )
+}
+
+/// The range covering `ranges`, the node's tokens; empty at its start
+/// where there are none.
+fn covering(node: &SyntaxNode, ranges: impl Iterator<Item = TextRange>) -> TextRange {
+    (ranges.reduce(TextRange::cover)).unwrap_or_else(|| TextRange::empty(node.text_range().start()))
 }
 
 fn type_params(params: impl Iterator<Item = ast::TypeParam>) -> Vec<Spanned> {
@@ -104,7 +114,7 @@ impl Lower {
             if let Some(list) = header.exposing_list() {
                 self.module.exports = exposing(&list);
                 // From its `(`, as `addLocation` around `exposing` has it.
-                let range = unspaced(list.syntax()).range;
+                let range = significant_range(list.syntax());
                 let open = list
                     .l_paren_token()
                     .map_or(range, |t| t.text_range())
@@ -138,19 +148,15 @@ impl Lower {
         match decl {
             ast::Decl::ValueDecl(value) => {
                 let docs = value.doc_comment_token().map(|t| spanned(&t));
-                if let Some(def) = self.value(
-                    value.signature(),
-                    value.definition().as_ref(),
-                    docs,
-                    decl.syntax(),
-                ) {
+                if let Some(def) = self.value(value.signature(), value.definition().as_ref(), docs)
+                {
                     self.module.values.push(def);
                 }
             }
             ast::Decl::DestructureDecl(d) => {
                 let pattern = self.pattern(d.pattern());
                 let body = self.expr(d.expr());
-                let def = self.def(Def::Destruct { pattern, body }, Some(decl.syntax()));
+                let def = self.module.defs.alloc(Def::Destruct { pattern, body });
                 self.module.values.push(def);
             }
             ast::Decl::TypeAliasDecl(alias) => {
@@ -196,7 +202,6 @@ impl Lower {
                     name: spanned(&name),
                     ty,
                     docs: port.doc_comment_token().map(|t| spanned(&t)),
-                    range: from_keyword(port.port_token(), decl.syntax()),
                 });
             }
             ast::Decl::InfixDecl(infix) => {
@@ -234,7 +239,6 @@ impl Lower {
         signature: Option<ast::Signature>,
         definition: Option<&ast::Definition>,
         docs: Option<Spanned>,
-        node: &SyntaxNode,
     ) -> Option<DefId> {
         let name = definition
             .and_then(|d| value_name(d.lower_ident_token(), d.operator_name()))
@@ -256,12 +260,7 @@ impl Lower {
             annotation,
             docs,
         };
-        Some(self.def(def, Some(node)))
-    }
-
-    fn def(&mut self, def: Def, node: Option<&SyntaxNode>) -> DefId {
-        self.module.source_map.defs.push(node.map(NodePtr::new));
-        self.module.defs.alloc(def)
+        Some(self.module.defs.alloc(def))
     }
 
     fn alloc_expr(&mut self, expr: Expr, node: Option<&SyntaxNode>) -> ExprId {
@@ -419,16 +418,13 @@ impl Lower {
         let defs = let_
             .let_decls()
             .filter_map(|decl| match decl {
-                ast::LetDecl::LetValue(value) => self.value(
-                    value.signature(),
-                    value.definition().as_ref(),
-                    None,
-                    value.syntax(),
-                ),
+                ast::LetDecl::LetValue(value) => {
+                    self.value(value.signature(), value.definition().as_ref(), None)
+                }
                 ast::LetDecl::LetDestructure(d) => {
                     let pattern = self.pattern(d.pattern());
                     let body = self.expr(d.expr());
-                    Some(self.def(Def::Destruct { pattern, body }, Some(d.syntax())))
+                    Some(self.module.defs.alloc(Def::Destruct { pattern, body }))
                 }
             })
             .collect();
@@ -617,7 +613,7 @@ fn exposing(list: &ast::ExposingList) -> Exposing {
                 // An operator is located with its parentheses.
                 ast::Exposed::ExposedOperator(o) => Some(Exposed::Operator(Spanned {
                     text: unspaced(o.op()?.syntax()).text,
-                    range: unspaced(o.syntax()).range,
+                    range: significant_range(o.syntax()),
                 })),
             })
             .collect(),

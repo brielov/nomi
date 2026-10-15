@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use nomi_base::{Compat, TextRange};
 
 use super::env::{Env, TypeInfo, Var};
-use super::error::{Duplicated, Error, NameKind};
+use super::error::{Declaration, Duplicated, Error, NameKind};
 use super::foreign::{initial_env, with_defaults};
 use crate::canonical::{CtorOpts, Home, Type};
 use crate::hir::{self, lowered};
@@ -24,7 +24,7 @@ fn env<'a>(interfaces: &'a HashMap<String, Interface>, text: &str) -> Result<Env
         Compat::V0_19_1,
         &main,
         interfaces,
-        &with_defaults(&main.package, &lowered(text).imports),
+        with_defaults(&main.package, &lowered(text).imports),
         &Default::default(),
     )
 }
@@ -232,12 +232,12 @@ fn a_later_place_comes_first_unless_a_fold_adds_from_the_right() {
 fn local(text: &str) -> Result<super::local::Unions, Vec<Error>> {
     let interfaces = interfaces();
     let env = env(&interfaces, text).unwrap();
-    super::local::add(&lowered(text), env).map(|(env, unions, _)| {
+    super::local::add(&lowered(text), env).map(|local| {
         // The module's own values replace imported ones.
-        if let Some(var) = env.vars.get("identity") {
+        if let Some(var) = local.env.vars.get("identity") {
             assert!(matches!(var, Var::TopLevel(_)));
         }
-        unions
+        local.unions
     })
 }
 
@@ -285,7 +285,10 @@ fn local_errors_are_upstreams() {
     );
     one_error!(
         errors("type alias A a a =\n    a\n"),
-        Error::DuplicateAliasArg { .. }
+        Error::DuplicateArg {
+            declaration: Declaration::Alias,
+            ..
+        }
     );
     one_error!(
         errors("type alias A =\n    { a : A }\n"),

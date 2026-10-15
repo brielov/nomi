@@ -202,7 +202,7 @@ fn scope(context: &Context<'_>, offset: TextSize, range: TextRange) -> Vec<Compl
         );
         // A record parameter's fields, written through it.
         let record = match ty {
-            Some(error::Type::Alias(_, _, _, body)) => Some(&**body),
+            Some(error::Type::Alias { real: body, .. }) => Some(&**body),
             ty => ty,
         };
         if bound == Bound::Parameter

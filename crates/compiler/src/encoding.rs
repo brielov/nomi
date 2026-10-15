@@ -14,7 +14,7 @@ use crate::canonical::{
     Alias, AliasType, Annotation, Ctor, CtorOpts, FieldType, Home, Type, Union,
 };
 use crate::hir::{Associativity, Fixity};
-use crate::interface::{self, Binop, DependencyInterface, Interface};
+use crate::interface::{self, Binop, Interface};
 
 /// Bumped whenever the encoding changes, so old bytes never decode as new.
 const VERSION: u8 = 2;
@@ -135,10 +135,6 @@ impl Encoder {
 
     pub(crate) fn interface(&mut self, i: &Interface) {
         self.u8(VERSION);
-        self.interface_body(i);
-    }
-
-    fn interface_body(&mut self, i: &Interface) {
         self.str(&i.home);
         self.map(&i.values, Encoder::annotation);
         self.map(&i.unions, |e, u| {
@@ -166,26 +162,6 @@ impl Encoder {
         });
     }
 
-    pub(crate) fn dependency(&mut self, d: &DependencyInterface) {
-        self.u8(VERSION);
-        match d {
-            DependencyInterface::Public(i) => {
-                self.u8(0);
-                self.interface_body(i);
-            }
-            DependencyInterface::Private {
-                home,
-                unions,
-                aliases,
-            } => {
-                self.u8(1);
-                self.str(home);
-                self.map(unions, |e, u| e.union(u));
-                self.map(aliases, Encoder::alias);
-            }
-        }
-    }
-
     fn annotation(&mut self, a: &Annotation) {
         self.strs(&a.free);
         self.ty(&a.ty);
@@ -199,15 +175,15 @@ impl Encoder {
     fn union(&mut self, u: &Union) {
         self.strs(&u.vars);
         self.len(u.ctors.len());
-        for ctor in &u.ctors {
+        for (index, ctor) in u.ctors.iter().enumerate() {
             self.str(&ctor.name);
-            self.len(ctor.index);
+            self.len(index);
             self.len(ctor.args.len());
             for arg in &ctor.args {
                 self.ty(arg);
             }
         }
-        self.len(u.count);
+        self.len(u.ctors.len());
         self.tag(&CTOR_OPTS, u.opts);
     }
 
@@ -408,10 +384,6 @@ impl<'a> Decoder<'a> {
 
     pub(crate) fn interface(&mut self) -> Option<Interface> {
         (self.u8()? == VERSION).then_some(())?;
-        self.interface_body()
-    }
-
-    fn interface_body(&mut self) -> Option<Interface> {
         let home = self.str()?;
         let values = self.map(Decoder::annotation)?;
         let unions = self.map(|d| Some(d.tag(&UNIONS)?(d.union()?)))?;
@@ -435,19 +407,6 @@ impl<'a> Decoder<'a> {
         })
     }
 
-    pub(crate) fn dependency(&mut self) -> Option<DependencyInterface> {
-        (self.u8()? == VERSION).then_some(())?;
-        match self.u8()? {
-            0 => Some(DependencyInterface::Public(self.interface_body()?)),
-            1 => Some(DependencyInterface::Private {
-                home: self.str()?,
-                unions: self.map(Decoder::union)?,
-                aliases: self.map(Decoder::alias)?,
-            }),
-            _ => None,
-        }
-    }
-
     fn annotation(&mut self) -> Option<Annotation> {
         Some(Annotation {
             free: self.strs()?,
@@ -465,21 +424,21 @@ impl<'a> Decoder<'a> {
     fn union(&mut self) -> Option<Arc<Union>> {
         let vars = self.strs()?;
         let n = self.len()?;
-        let ctors = (0..n)
-            .map(|_| {
+        let ctors: Vec<Ctor> = (0..n)
+            .map(|index| {
                 let name = self.str()?;
                 // A place among the constructors, not a length of bytes.
-                let index = self.leb128()?;
+                (self.leb128()? == index).then_some(())?;
                 let count = self.len()?;
                 let args = (0..count).map(|_| self.ty()).collect::<Option<_>>()?;
-                Some(Ctor { name, index, args })
+                Some(Ctor { name, args })
             })
             .collect::<Option<_>>()?;
+        // How many constructors, not a length of bytes.
+        (self.leb128()? == ctors.len()).then_some(())?;
         let union = Union {
             vars,
             ctors,
-            // How many constructors, not a length of bytes.
-            count: self.leb128()?,
             opts: self.tag(&CTOR_OPTS)?,
         };
         Some(Arc::new(union))

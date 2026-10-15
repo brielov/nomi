@@ -115,64 +115,58 @@ impl NameState {
 
 /// `getVarNames`: every name the variables under `var` have, each on one
 /// variable, a name on two different ones renamed apart. A child comes
-/// before the one written before it, as upstream's `foldrM` visits them.
+/// before the one written before it, as upstream's `foldrM` visits them:
+/// depth first, each variable's children pushed so the last pops first.
 fn var_names(vars: &mut Variables, var: Variable, taken: &mut BTreeMap<String, Variable>) {
-    let descriptor = vars.get_mut(var);
-    if descriptor.mark == GET_VAR_NAMES_MARK {
-        return;
+    let compat = vars.compat;
+    let mut stack = vec![var];
+    while let Some(var) = stack.pop() {
+        let descriptor = vars.get_mut(var);
+        if descriptor.mark == GET_VAR_NAMES_MARK {
+            continue;
+        }
+        descriptor.mark = GET_VAR_NAMES_MARK;
+        match &descriptor.content {
+            Content::Error | Content::FlexVar(None) | Content::FlexSuper(_, None) => {}
+            Content::FlexVar(Some(name)) => {
+                let name = name.clone();
+                add_name(vars, 0, &name, var, |n| Content::FlexVar(Some(n)), taken);
+            }
+            &Content::FlexSuper(s, Some(ref name)) => {
+                let name = name.clone();
+                add_name(
+                    vars,
+                    0,
+                    &name,
+                    var,
+                    |n| Content::FlexSuper(s, Some(n)),
+                    taken,
+                );
+            }
+            Content::RigidVar(name) => {
+                let name = name.clone();
+                add_name(vars, 0, &name, var, Content::RigidVar, taken);
+            }
+            &Content::RigidSuper(s, ref name) => {
+                let name = name.clone();
+                add_name(vars, 0, &name, var, |n| Content::RigidSuper(s, n), taken);
+            }
+            Content::Alias { args, .. } => stack.extend(args.iter().map(|(_, arg)| *arg)),
+            Content::Structure(flat) => match flat {
+                FlatType::App1 { args, .. } => stack.extend(args),
+                FlatType::Fun1(arg, body) => stack.extend([*arg, *body]),
+                FlatType::EmptyRecord1 | FlatType::Unit1 => {}
+                FlatType::Record1(fields, extension) => {
+                    stack.push(*extension);
+                    stack.extend(in_name_order(compat, fields).into_iter().map(|(_, &f)| f));
+                }
+                FlatType::Tuple1(a, b, c) => {
+                    stack.extend([*a, *b]);
+                    stack.extend(*c);
+                }
+            },
+        }
     }
-    descriptor.mark = GET_VAR_NAMES_MARK;
-    let content = descriptor.content.clone();
-    nomi_base::grow(|| match content {
-        Content::Error | Content::FlexVar(None) | Content::FlexSuper(_, None) => {}
-        Content::FlexVar(Some(name)) => {
-            add_name(vars, 0, &name, var, |n| Content::FlexVar(Some(n)), taken);
-        }
-        Content::FlexSuper(s, Some(name)) => {
-            add_name(
-                vars,
-                0,
-                &name,
-                var,
-                |n| Content::FlexSuper(s, Some(n)),
-                taken,
-            );
-        }
-        Content::RigidVar(name) => add_name(vars, 0, &name, var, Content::RigidVar, taken),
-        Content::RigidSuper(s, name) => {
-            add_name(vars, 0, &name, var, |n| Content::RigidSuper(s, n), taken);
-        }
-        Content::Alias(_, _, args, _) => {
-            for (_, arg) in args.iter().rev() {
-                var_names(vars, *arg, taken);
-            }
-        }
-        Content::Structure(flat) => match flat {
-            FlatType::App1(_, _, args) => {
-                for arg in args.iter().rev() {
-                    var_names(vars, *arg, taken);
-                }
-            }
-            FlatType::Fun1(arg, body) => {
-                var_names(vars, body, taken);
-                var_names(vars, arg, taken);
-            }
-            FlatType::EmptyRecord1 | FlatType::Unit1 => {}
-            FlatType::Record1(fields, extension) => {
-                for (_, &field) in in_name_order(vars.compat, &fields).into_iter().rev() {
-                    var_names(vars, field, taken);
-                }
-                var_names(vars, extension, taken);
-            }
-            FlatType::Tuple1(a, b, c) => {
-                if let Some(c) = c {
-                    var_names(vars, c, taken);
-                }
-                var_names(vars, b, taken);
-                var_names(vars, a, taken);
-            }
-        },
-    });
 }
 
 /// `addName`: `given`, numbered `index`, for `var`, renamed further while
@@ -223,7 +217,12 @@ fn to_can_type(vars: &mut Variables, var: Variable, state: &mut NameState) -> ca
         | Content::RigidSuper(_, name) => T::Var(name),
         Content::FlexVar(None) => T::Var(state.name(vars, var, None)),
         Content::FlexSuper(s, None) => T::Var(state.name(vars, var, Some(s))),
-        Content::Alias(home, name, args, real) => {
+        Content::Alias {
+            home,
+            name,
+            args,
+            real,
+        } => {
             let args = (args.into_iter())
                 .map(|(n, a)| (n, to_can_type(vars, a, state)))
                 .collect();
@@ -247,7 +246,7 @@ fn flat_to_can_type(
 ) -> canonical::Type {
     use canonical::Type as T;
     match flat {
-        FlatType::App1(home, name, args) => T::Type {
+        FlatType::App1 { home, name, args } => T::Type {
             home,
             name: String::from(name),
             args: (args.into_iter())
@@ -330,12 +329,22 @@ fn content_to_err(
         Content::FlexSuper(s, None) => E::FlexSuper(s, state.name(vars, var, Some(s))),
         Content::RigidVar(name) => E::RigidVar(name),
         Content::RigidSuper(s, name) => E::RigidSuper(s, name),
-        Content::Alias(home, name, args, real) => {
+        Content::Alias {
+            home,
+            name,
+            args,
+            real,
+        } => {
             let args = (args.into_iter())
                 .map(|(n, a)| (n, to_err(vars, a, state)))
                 .collect();
             let real = to_err(vars, real, state);
-            E::Alias(home, String::from(name), args, Box::new(real))
+            E::Alias {
+                home,
+                name: String::from(name),
+                args,
+                real: Box::new(real),
+            }
         }
         Content::Error => E::Error,
     }
@@ -345,11 +354,11 @@ fn content_to_err(
 fn flat_to_err(vars: &mut Variables, flat: FlatType, state: &mut NameState) -> error::Type {
     use error::Type as E;
     match flat {
-        FlatType::App1(home, name, args) => E::Type(
+        FlatType::App1 { home, name, args } => E::Type {
             home,
-            String::from(name),
-            args.into_iter().map(|a| to_err(vars, a, state)).collect(),
-        ),
+            name: String::from(name),
+            args: args.into_iter().map(|a| to_err(vars, a, state)).collect(),
+        },
         // `a -> b -> c` is one arrow of three parts: each function along
         // the result's spine is marked while its argument converts, as
         // `to_err` would mark it.
@@ -387,7 +396,7 @@ fn flat_to_err(vars: &mut Variables, flat: FlatType, state: &mut NameState) -> e
             .collect();
             // `iteratedDealias`, keeping what it stands for.
             let mut ext = to_err(vars, extension, state);
-            while let E::Alias(_, _, _, real) = ext {
+            while let E::Alias { real, .. } = ext {
                 ext = *real;
             }
             match ext {

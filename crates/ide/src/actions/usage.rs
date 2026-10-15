@@ -77,14 +77,6 @@ pub(super) fn render_usage(fixing: &Fixing<'_>, ty: &error::Type) -> String {
     render_error(fixing.context.names(), ty)
 }
 
-/// How many parameters a function of type `ty` takes.
-fn arity(ty: &error::Type) -> usize {
-    match ty {
-        error::Type::Lambda(_, _, rest) => 1 + rest.len(),
-        _ => 0,
-    }
-}
-
 /// `createTopLevelFunction`'s text: `name`, typed, taking `arity`
 /// arguments, as `Debug.todo`.
 fn stub_function(name: &str, ty: &str, arity: usize) -> String {
@@ -121,7 +113,7 @@ fn local_function_edit(fixing: &Fixing<'_>, range: TextRange) -> Option<Edit> {
     };
     let ty = usage_type(fixing, range);
     let rendered = ty.map_or_else(|| "a".to_owned(), |ty| render_usage(fixing, ty));
-    let function = stub_function(token.text(), &rendered, ty.map_or(0, arity));
+    let function = stub_function(token.text(), &rendered, ty.map_or(0, error::Type::arity));
     Some(Edit::insert(at, function))
 }
 
@@ -167,7 +159,7 @@ fn external_functions(fixing: &Fixing<'_>, range: TextRange) -> Vec<ExternalFunc
     }
     let ty = usage_type(fixing, range);
     let rendered = ty.map_or_else(|| "a".to_owned(), |ty| render_usage(fixing, ty));
-    let arity = ty.map_or(0, arity);
+    let arity = ty.map_or(0, error::Type::arity);
     let mut found = Vec::new();
     for import in written_imports(&module.root()) {
         if import.module != qualifier && import.alias.as_deref() != Some(qualifier) {
@@ -301,7 +293,7 @@ fn union_edits(fixing: &Fixing<'_>, range: TextRange) -> Option<FileEdits> {
         error::Type::Lambda(a, b, rest) => {
             let mut all: Vec<&error::Type> = [&**a, &**b].into_iter().chain(rest).collect();
             let result = all.pop().expect("a function's result");
-            if matches!(result, error::Type::Type(..)) {
+            if matches!(result, error::Type::Type { .. }) {
                 (all, result)
             } else {
                 (Vec::new(), ty)
@@ -309,7 +301,7 @@ fn union_edits(fixing: &Fixing<'_>, range: TextRange) -> Option<FileEdits> {
         }
         ty => (Vec::new(), ty),
     };
-    let error::Type::Type(home, name, _) = ty else {
+    let error::Type::Type { home, name, .. } = ty else {
         return None;
     };
     // Its declaration, in this module or an imported one of the project.

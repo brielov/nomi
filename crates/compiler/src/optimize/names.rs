@@ -16,8 +16,8 @@ use crate::optimized::{Expr, Global};
 pub(super) struct Tracker {
     compat: Compat,
     uid: usize,
-    pub deps: BTreeSet<Global>,
-    pub fields: BTreeMap<String, i64>,
+    pub(super) deps: BTreeSet<Global>,
+    pub(super) fields: BTreeMap<String, i64>,
 }
 
 impl Tracker {
@@ -33,7 +33,7 @@ impl Tracker {
 
     /// `generate`: `_v0`, `_v1` and so on.
     pub(super) fn generate(&mut self) -> String {
-        let name = format!("_v{}", self.uid);
+        let name = var_index(self.uid);
         self.uid += 1;
         name
     }
@@ -90,4 +90,9 @@ impl Tracker {
     pub(super) fn field(&mut self, name: &str) {
         *self.fields.entry(name.to_owned()).or_default() += 1;
     }
+}
+
+/// `Name.fromVarIndex`: `_v` and the index.
+pub(super) fn var_index(index: usize) -> String {
+    format!("_v{index}")
 }

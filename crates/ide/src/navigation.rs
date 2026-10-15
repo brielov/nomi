@@ -193,7 +193,8 @@ pub(crate) fn type_defined(
         .filter(|(range, _)| range.contains_inclusive(offset))
         .min_by_key(|(range, _)| range.len())?;
     // A variable's context may have taken its alias; its binding keeps it.
-    let named = |ty: &error::Type| matches!(ty, error::Type::Alias(..) | error::Type::Type(..));
+    let named =
+        |ty: &error::Type| matches!(ty, error::Type::Alias { .. } | error::Type::Type { .. });
     let bound = (!named(ty))
         .then(|| {
             let binder = (module.references.iter())
@@ -206,8 +207,8 @@ pub(crate) fn type_defined(
         })
         .flatten();
     let (home, name, kind) = match bound.unwrap_or(ty) {
-        error::Type::Alias(home, name, _, _) => (home, name, SyntaxKind::TypeAliasDecl),
-        error::Type::Type(home, name, _) => (home, name, SyntaxKind::CustomTypeDecl),
+        error::Type::Alias { home, name, .. } => (home, name, SyntaxKind::TypeAliasDecl),
+        error::Type::Type { home, name, .. } => (home, name, SyntaxKind::CustomTypeDecl),
         _ => return None,
     };
     let (path, root) = module_tree(snapshot, index, &home.module)?;

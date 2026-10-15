@@ -195,8 +195,8 @@ impl<'a> Finder<'a> {
 fn is_named(ty: &error::Type, module: &str, name: &str) -> bool {
     use error::Type as E;
     match ty {
-        E::Type(home, n, _) => &*home.module == module && n == name,
-        E::Alias(_, _, _, real) => is_named(real, module, name),
+        E::Type { home, name: n, .. } => &*home.module == module && n == name,
+        E::Alias { real, .. } => is_named(real, module, name),
         E::Lambda(..)
         | E::Infinite
         | E::Error

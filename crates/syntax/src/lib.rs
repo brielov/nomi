@@ -21,6 +21,6 @@ pub use lexer::{LexError, LexErrorKind, Lexed, Token, lex};
 pub use parser::{DEPTH_LIMIT, Parse, SyntaxError, SyntaxErrorKind};
 pub use rowan::GreenNode;
 pub use tree::{
-    child_token, child_tokens, literal_body, significant_tokens, tokens, trimmed_range,
+    child_token, child_tokens, int_digits, literal_body, significant_tokens, tokens, trimmed_range,
 };
 pub use validation::{Source, Tool, UnknownSource, validate};

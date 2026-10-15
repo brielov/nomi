@@ -7,7 +7,7 @@
 
 use nomi_base::ghc::is_alpha;
 use nomi_base::utf8;
-use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, significant_tokens};
+use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, int_digits, significant_tokens};
 
 use super::VALID;
 use crate::tree::{FloatRepr, IntRepr, LiteralValue, StringRepr};
@@ -80,15 +80,9 @@ pub(crate) fn unsigned(token: &SyntaxToken) -> LiteralValue {
 /// An integer's value, wrapping as upstream's 64-bit chompers do.
 fn int(text: &str) -> (i64, IntRepr) {
     match text.strip_prefix("0x") {
-        Some(hex) => (digits(hex, 16), IntRepr::Hexadecimal),
-        None => (digits(text, 10), IntRepr::Decimal),
+        Some(hex) => (int_digits(hex, 16), IntRepr::Hexadecimal),
+        None => (int_digits(text, 10), IntRepr::Decimal),
     }
-}
-
-fn digits(text: &str, radix: u32) -> i64 {
-    text.chars()
-        .map(|c| i64::from(c.to_digit(radix).expect(VALID)))
-        .fold(0, |n, d| n.wrapping_mul(i64::from(radix)).wrapping_add(d))
 }
 
 /// The characters of a literal's body; upstream's `fromChunks` and
@@ -152,7 +146,7 @@ fn hex(text: &str) -> (i64, &str) {
             (-2, rest)
         }
         _ if end == 0 => (-1, rest),
-        _ => (digits(&text[..end], 16), rest),
+        _ => (int_digits(&text[..end], 16), rest),
     }
 }
 

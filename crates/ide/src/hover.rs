@@ -433,8 +433,8 @@ pub(crate) fn render_error(names: &Names, ty: &error::Type) -> String {
     use error::Type as E;
     let complex = |ty: &E| match ty {
         E::Lambda(..) => true,
-        E::Type(_, _, args) => !args.is_empty(),
-        E::Alias(_, _, args, _) => !args.is_empty(),
+        E::Type { args, .. } => !args.is_empty(),
+        E::Alias { args, .. } => !args.is_empty(),
         E::Infinite
         | E::Error
         | E::FlexVar(_)
@@ -456,10 +456,10 @@ pub(crate) fn render_error(names: &Names, ty: &error::Type) -> String {
         E::FlexVar(name) | E::RigidVar(name) | E::FlexSuper(_, name) | E::RigidSuper(_, name) => {
             name.clone()
         }
-        E::Type(home, name, args) => named(names, home, name, args.iter().map(argument_of)),
-        E::Alias(home, name, args, _) => {
-            named(names, home, name, args.iter().map(|(_, a)| argument_of(a)))
-        }
+        E::Type { home, name, args } => named(names, home, name, args.iter().map(argument_of)),
+        E::Alias {
+            home, name, args, ..
+        } => named(names, home, name, args.iter().map(|(_, a)| argument_of(a))),
         E::Record(fields, extension) => {
             let base = match extension {
                 error::Extension::Closed => None,
@@ -528,7 +528,7 @@ impl Names {
         use nomi_compiler::interface::Union;
         let imports = with_defaults(&index.package, &indexed.hir.imports);
         let mut exposed = HashSet::new();
-        for import in &imports {
+        for import in imports.clone() {
             let interface = index.interfaces.get(&import.name.text);
             let constructors = |union: &str| -> Vec<String> {
                 (interface.and_then(|i| i.unions.get(union)))
@@ -566,7 +566,7 @@ impl Names {
                 }
             }
         }
-        let imports: Vec<(String, Option<String>)> = (imports.iter())
+        let imports: Vec<(String, Option<String>)> = imports
             .map(|i| {
                 (
                     i.name.text.clone(),
@@ -616,7 +616,7 @@ impl Names {
 /// The localizer of `module`, as its type errors would name types.
 pub(crate) fn localizer(index: &Index, indexed: &Indexed) -> Localizer {
     let imports = with_defaults(&index.package, &indexed.hir.imports);
-    Localizer::from_module(index.compat, indexed.hir.name(), &imports)
+    Localizer::from_module(index.compat, indexed.hir.name(), imports)
 }
 
 /// The type inferred for the expression or pattern at `range` in

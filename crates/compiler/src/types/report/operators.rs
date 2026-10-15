@@ -12,26 +12,8 @@ use crate::types::expected::Category;
 use crate::types::localizer::Localizer;
 use crate::types::{self, SuperType};
 
-/// `countArgs`.
-pub(super) fn count_args(ty: &Type) -> usize {
-    match ty {
-        Type::Lambda(_, _, rest) => 1 + rest.len(),
-        Type::Infinite
-        | Type::Error
-        | Type::FlexVar(_)
-        | Type::FlexSuper(..)
-        | Type::RigidVar(_)
-        | Type::RigidSuper(..)
-        | Type::Type(..)
-        | Type::Record(..)
-        | Type::Unit
-        | Type::Tuple(..)
-        | Type::Alias(..) => 0,
-    }
-}
-
 fn atom(ty: &Type, test: fn(&Home, &str) -> bool) -> bool {
-    matches!(ty, Type::Type(home, name, args) if args.is_empty() && test(home, name))
+    matches!(ty, Type::Type { home, name, args } if args.is_empty() && test(home, name))
 }
 
 fn is_int(ty: &Type) -> bool {
@@ -49,7 +31,7 @@ fn is_string(ty: &Type) -> bool {
 /// The element type of a list type.
 fn list_element(ty: &Type) -> Option<&Type> {
     match ty {
-        Type::Type(home, name, args) if types::is_list(home, name) => match args.as_slice() {
+        Type::Type { home, name, args } if types::is_list(home, name) => match args.as_slice() {
             [element] => Some(element),
             _ => None,
         },
@@ -356,14 +338,16 @@ enum AppendType {
 fn append_type(ty: &Type) -> AppendType {
     let number = |thing, convert| AppendType::Number { thing, convert };
     match ty {
-        Type::Type(home, name, _) if types::is_int(home, name) => number("Int", "String.fromInt"),
-        Type::Type(home, name, _) if types::is_float(home, name) => {
+        Type::Type { home, name, .. } if types::is_int(home, name) => {
+            number("Int", "String.fromInt")
+        }
+        Type::Type { home, name, .. } if types::is_float(home, name) => {
             number("Float", "String.fromFloat")
         }
-        Type::Type(home, name, _) if types::is_string(home, name) => AppendType::String,
-        Type::Type(home, name, _) if types::is_list(home, name) => AppendType::List,
+        Type::Type { home, name, .. } if types::is_string(home, name) => AppendType::String,
+        Type::Type { home, name, .. } if types::is_list(home, name) => AppendType::List,
         Type::FlexSuper(SuperType::Number, _) => number("number", "String.fromInt"),
-        Type::Type(..)
+        Type::Type { .. }
         | Type::Lambda(..)
         | Type::Infinite
         | Type::Error
@@ -374,7 +358,7 @@ fn append_type(ty: &Type) -> AppendType {
         | Type::Record(..)
         | Type::Unit
         | Type::Tuple(..)
-        | Type::Alias(..) => AppendType::Other,
+        | Type::Alias { .. } => AppendType::Other,
     }
 }
 

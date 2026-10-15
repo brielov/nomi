@@ -16,7 +16,7 @@ use std::marker::PhantomData;
 use std::ops::Index;
 
 use nomi_base::TextRange;
-use nomi_syntax::{SyntaxKind, SyntaxNode};
+use nomi_syntax::{SyntaxKind, SyntaxNode, int_digits};
 
 pub use lower::lower;
 pub use shape::difference;
@@ -120,9 +120,9 @@ impl<T> Index<Id<T>> for Arena<T> {
 /// A CST node, by its kind and range, as rowan's `SyntaxNodePtr` names
 /// one: it finds the node again in the tree it came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct NodePtr {
-    pub kind: SyntaxKind,
-    pub range: TextRange,
+pub(crate) struct NodePtr {
+    pub(crate) kind: SyntaxKind,
+    pub(crate) range: TextRange,
 }
 
 impl NodePtr {
@@ -140,7 +140,6 @@ pub struct SourceMap {
     pub(crate) exprs: Vec<Option<NodePtr>>,
     pub(crate) patterns: Vec<Option<NodePtr>>,
     pub(crate) types: Vec<Option<NodePtr>>,
-    pub(crate) defs: Vec<Option<NodePtr>>,
 }
 
 impl SourceMap {
@@ -308,7 +307,7 @@ pub enum Exposed {
 
 impl Exposed {
     /// The name it exposes.
-    pub fn name(&self) -> &Spanned {
+    pub(crate) fn name(&self) -> &Spanned {
         match self {
             Exposed::Lower(name) | Exposed::Upper(name, _) | Exposed::Operator(name) => name,
         }
@@ -362,9 +361,6 @@ pub struct Port {
     pub name: Spanned,
     pub ty: TypeId,
     pub docs: Option<Spanned>,
-    /// From its keyword to its end, without its doc comment, as upstream
-    /// locates a declaration.
-    pub range: TextRange,
 }
 
 /// `Src.Def`, and a top-level `Src.Value`.
@@ -530,17 +526,6 @@ pub fn verify(module: &Module, root: &SyntaxNode) -> Vec<String> {
     for (i, ptr) in map.types.iter().enumerate() {
         check("type", i, *ptr, ast::Type::can_cast);
     }
-    for (i, ptr) in map.defs.iter().enumerate() {
-        check("definition", i, *ptr, |kind| {
-            matches!(
-                kind,
-                SyntaxKind::ValueDecl
-                    | SyntaxKind::DestructureDecl
-                    | SyntaxKind::LetValue
-                    | SyntaxKind::LetDestructure
-            )
-        });
-    }
     let missing = module
         .exprs
         .iter()
@@ -563,7 +548,6 @@ pub fn verify(module: &Module, root: &SyntaxNode) -> Vec<String> {
         (module.exprs.len(), map.exprs.len()),
         (module.patterns.len(), map.patterns.len()),
         (module.types.len(), map.types.len()),
-        (module.defs.len(), map.defs.len()),
     ];
     if lengths.iter().any(|(a, b)| a != b) {
         problems.push(format!(
@@ -580,19 +564,51 @@ pub(crate) fn int_value(text: &str) -> i64 {
         Some(rest) => (true, rest),
         None => (false, text),
     };
-    let (digits, radix) = match text.strip_prefix("0x") {
-        Some(hex) => (hex, 16),
-        None => (text, 10),
+    let value = match text.strip_prefix("0x") {
+        Some(hex) => int_digits(hex, 16),
+        None => int_digits(text, 10),
     };
-    let value = (digits.chars())
-        .filter_map(|c| c.to_digit(radix))
-        .fold(0i64, |n, d| {
-            n.wrapping_mul(i64::from(radix)).wrapping_add(i64::from(d))
-        });
     if negative {
         value.wrapping_neg()
     } else {
         value
+    }
+}
+
+/// What follows a backslash.
+pub(crate) enum Escape {
+    /// One of `n`, `r`, `t`, `"`, `'` and `\`.
+    Plain(char),
+    /// `u{…}`, by its code point.
+    Unicode(u32),
+}
+
+/// The escape after a backslash, which the parser has checked.
+pub(crate) fn escape(chars: &mut std::str::Chars<'_>) -> Escape {
+    match chars.next() {
+        Some('u') => {
+            chars.next(); // `{`
+            let mut code = 0;
+            for c in chars.by_ref() {
+                match c.to_digit(16) {
+                    Some(digit) => code = code * 16 + digit,
+                    None => break, // `}`
+                }
+            }
+            Escape::Unicode(code)
+        }
+        Some(c) => Escape::Plain(c),
+        None => Escape::Plain('\\'),
+    }
+}
+
+/// The code point of a plain escape's character.
+pub(crate) fn plain_code(c: char) -> u32 {
+    match c {
+        'n' => 0x0A,
+        'r' => 0x0D,
+        't' => 0x09,
+        c => u32::from(c),
     }
 }
 

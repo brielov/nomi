@@ -65,27 +65,13 @@ fn opt_has_debug(expr: &optimized::Expr) -> bool {
         }
         E::Let(def, body) => opt_def_has_debug(def) || opt_has_debug(body),
         E::Case { decider, jumps, .. } => {
-            decider_has_debug(decider) || jumps.iter().any(|(_, e)| opt_has_debug(e))
+            decider.any_inline(&opt_has_debug) || jumps.iter().any(|(_, e)| opt_has_debug(e))
         }
         E::Update(record, fields) => opt_has_debug(record) || fields.values().any(opt_has_debug),
         E::Record(fields) => fields.values().any(opt_has_debug),
         E::Tuple(a, b, c) => {
             opt_has_debug(a) || opt_has_debug(b) || c.as_deref().is_some_and(opt_has_debug)
         }
-    })
-}
-
-fn decider_has_debug(decider: &optimized::Decider<optimized::Choice>) -> bool {
-    use optimized::{Choice, Decider};
-    nomi_base::grow(|| match decider {
-        Decider::Leaf(Choice::Inline(e)) => opt_has_debug(e),
-        Decider::Leaf(Choice::Jump(_)) => false,
-        Decider::Chain {
-            success, failure, ..
-        } => decider_has_debug(success) || decider_has_debug(failure),
-        Decider::FanOut {
-            tests, fallback, ..
-        } => tests.iter().any(|(_, d)| decider_has_debug(d)) || decider_has_debug(fallback),
     })
 }
 

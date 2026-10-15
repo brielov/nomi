@@ -58,6 +58,7 @@ pub(super) fn run(
         saved: BTreeMap::new(),
         mark: NO_MARK.next(),
         errors: Vec::new(),
+        adjusting: Vec::new(),
     };
     solver.solve(OUTERMOST_RANK, constraint);
     let Solver {
@@ -89,6 +90,9 @@ struct Solver<'v> {
     mark: Mark,
     /// Earliest first.
     errors: Vec<TypeError>,
+    /// The variables `adjust_rank` has yet to visit, each call's above
+    /// its caller's.
+    adjusting: Vec<Variable>,
 }
 
 /// A name a `let` header binds, where, and its variable.
@@ -410,7 +414,11 @@ impl Solver<'_> {
                     .collect();
                 self.register(
                     rank,
-                    Content::Structure(FlatType::App1(home.clone(), Text::from(name), args)),
+                    Content::Structure(FlatType::App1 {
+                        home: home.clone(),
+                        name: Text::from(name),
+                        args,
+                    }),
                 )
             }
             C::Record(fields, ext) => {
@@ -449,7 +457,12 @@ impl Solver<'_> {
                 };
                 self.register(
                     rank,
-                    Content::Alias(home.clone(), Text::from(name), args, real),
+                    Content::Alias {
+                        home: home.clone(),
+                        name: Text::from(name),
+                        args,
+                        real,
+                    },
                 )
             }
         })
@@ -487,13 +500,23 @@ impl Solver<'_> {
                 leaf @ (Content::FlexVar(_) | Content::FlexSuper(..) | Content::Error) => leaf,
                 Content::RigidVar(name) => Content::FlexVar(Some(name)),
                 Content::RigidSuper(s, name) => Content::FlexSuper(s, Some(name)),
-                Content::Alias(home, name, args, real) => {
+                Content::Alias {
+                    home,
+                    name,
+                    args,
+                    real,
+                } => {
                     let args = args
                         .into_iter()
                         .map(|(n, a)| (n, self.copy_help(max_rank, a)))
                         .collect();
                     let real = self.copy_help(max_rank, real);
-                    Content::Alias(home, name, args, real)
+                    Content::Alias {
+                        home,
+                        name,
+                        args,
+                        real,
+                    }
                 }
             };
             self.vars
@@ -506,9 +529,11 @@ impl Solver<'_> {
     fn copy_flat(&mut self, max_rank: u32, flat: FlatType) -> FlatType {
         let mut go = |v| self.copy_help(max_rank, v);
         match flat {
-            FlatType::App1(home, name, args) => {
-                FlatType::App1(home, name, args.into_iter().map(&mut go).collect())
-            }
+            FlatType::App1 { home, name, args } => FlatType::App1 {
+                home,
+                name,
+                args: args.into_iter().map(&mut go).collect(),
+            },
             FlatType::Fun1(a, b) => {
                 let a = go(a);
                 FlatType::Fun1(a, go(b))
@@ -592,8 +617,23 @@ impl Solver<'_> {
             if mark == young {
                 // Marked first, since it may be cyclic.
                 descriptor.mark = visit;
-                let content = descriptor.content.clone();
-                let max_rank = self.adjust_content(young, visit, group_rank, &content);
+                // `adjustRankContent`: the children are read onto the
+                // stack's top rather than the content copied.
+                let from = self.adjusting.len();
+                let max_rank = match rank_children(&descriptor.content, &mut self.adjusting) {
+                    None => group_rank,
+                    Some(start) => {
+                        let to = self.adjusting.len();
+                        let mut max_rank = start;
+                        for i in from..to {
+                            let child = self.adjusting[i];
+                            max_rank =
+                                max_rank.max(self.adjust_rank(young, visit, group_rank, child));
+                        }
+                        self.adjusting.truncate(from);
+                        max_rank
+                    }
+                };
                 self.vars.get_mut(var).rank = max_rank;
                 max_rank
             } else if mark == visit {
@@ -606,48 +646,42 @@ impl Solver<'_> {
             }
         })
     }
+}
 
-    /// `adjustRankContent`.
-    fn adjust_content(
-        &mut self,
-        young: Mark,
-        visit: Mark,
-        group_rank: u32,
-        content: &Content,
-    ) -> u32 {
-        let mut go = |v| self.adjust_rank(young, visit, group_rank, v);
-        match content {
-            Content::FlexVar(_)
-            | Content::FlexSuper(..)
-            | Content::RigidVar(_)
-            | Content::RigidSuper(..)
-            | Content::Error => group_rank,
-            Content::Structure(flat) => match flat {
-                FlatType::App1(_, _, args) => {
-                    args.iter().fold(OUTERMOST_RANK, |r, a| r.max(go(*a)))
-                }
-                FlatType::Fun1(a, b) => {
-                    let a = go(*a);
-                    a.max(go(*b))
-                }
-                FlatType::EmptyRecord1 | FlatType::Unit1 => OUTERMOST_RANK,
-                FlatType::Record1(fields, ext) => {
-                    let ext = go(*ext);
-                    fields.values().fold(ext, |r, f| r.max(go(*f)))
-                }
-                FlatType::Tuple1(a, b, c) => {
-                    let ma = go(*a);
-                    let mb = go(*b);
-                    let m = ma.max(mb);
-                    match c {
-                        Some(c) => m.max(go(*c)),
-                        None => m,
-                    }
-                }
-            },
-            Content::Alias(_, _, args, _) => {
-                args.iter().fold(OUTERMOST_RANK, |r, (_, a)| r.max(go(*a)))
+/// The variables `adjustRankContent` visits in `content`, pushed onto
+/// `into` in its order, and the rank their maximum starts from; `None`
+/// for a variable or an error, which takes the group's rank.
+fn rank_children(content: &Content, into: &mut Vec<Variable>) -> Option<u32> {
+    match content {
+        Content::FlexVar(_)
+        | Content::FlexSuper(..)
+        | Content::RigidVar(_)
+        | Content::RigidSuper(..)
+        | Content::Error => None,
+        Content::Structure(flat) => match flat {
+            FlatType::App1 { args, .. } => {
+                into.extend(args);
+                Some(OUTERMOST_RANK)
             }
+            FlatType::Fun1(a, b) => {
+                into.extend([*a, *b]);
+                Some(NO_RANK)
+            }
+            FlatType::EmptyRecord1 | FlatType::Unit1 => Some(OUTERMOST_RANK),
+            FlatType::Record1(fields, ext) => {
+                into.push(*ext);
+                into.extend(fields.values());
+                Some(NO_RANK)
+            }
+            FlatType::Tuple1(a, b, c) => {
+                into.extend([*a, *b]);
+                into.extend(*c);
+                Some(NO_RANK)
+            }
+        },
+        Content::Alias { args, .. } => {
+            into.extend(args.iter().map(|(_, a)| *a));
+            Some(OUTERMOST_RANK)
         }
     }
 }

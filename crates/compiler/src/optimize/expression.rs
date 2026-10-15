@@ -11,16 +11,16 @@ use nomi_base::{Compat, TextRange};
 use super::names::Tracker;
 use super::{case, literal};
 use crate::canonical::{self, CtorOpts, Def as CDef, ExprKind, Home, Operator, PatternKind};
-use crate::optimized::{Choice, Decider, Def, Destructor, Expr, Path};
+use crate::optimized::{Def, Destructor, Expr, Path};
 use crate::types::in_name_order;
 
 /// What optimizing a module's expressions needs to know.
 pub(super) struct Context<'a> {
-    pub compat: Compat,
-    /// The module's home, for `Debug` values.
-    pub home: &'a Home,
+    pub(super) compat: Compat,
+    /// The module's home, which its top-level nodes are named under.
+    pub(super) home: &'a Home,
     /// A canonical expression's region as rows and columns.
-    pub region: &'a dyn Fn(TextRange) -> Region,
+    pub(super) region: &'a dyn Fn(TextRange) -> Region,
 }
 
 /// Names of the definitions of a cycle that take no arguments, which are
@@ -364,8 +364,8 @@ fn destruct_help(
                 destruct_help(cx, t, path, &arg.arg, rev);
             } else {
                 let root = rooted(t, path, rev);
-                for arg in args {
-                    destruct_help(cx, t, at(arg.index, &root), &arg.arg, rev);
+                for (index, arg) in args.iter().enumerate() {
+                    destruct_help(cx, t, at(index, &root), &arg.arg, rev);
                 }
             }
         }
@@ -581,7 +581,7 @@ fn has_tail_call(expr: &Expr) -> bool {
         }
         Expr::Let(_, body) | Expr::Destruct(_, body) => has_tail_call(body),
         Expr::Case { decider, jumps, .. } => {
-            decider_has_tail_call(decider) || jumps.iter().any(|(_, e)| has_tail_call(e))
+            decider.any_inline(&has_tail_call) || jumps.iter().any(|(_, e)| has_tail_call(e))
         }
         Expr::Bool(_)
         | Expr::Chr(_)
@@ -605,19 +605,5 @@ fn has_tail_call(expr: &Expr) -> bool {
         | Expr::Unit
         | Expr::Tuple(..)
         | Expr::Shader { .. } => false,
-    })
-}
-
-/// `hasTailCall` of a decision's inlined branches.
-fn decider_has_tail_call(decider: &Decider<Choice>) -> bool {
-    nomi_base::grow(|| match decider {
-        Decider::Leaf(Choice::Inline(expr)) => has_tail_call(expr),
-        Decider::Leaf(Choice::Jump(_)) => false,
-        Decider::Chain {
-            success, failure, ..
-        } => decider_has_tail_call(success) || decider_has_tail_call(failure),
-        Decider::FanOut {
-            tests, fallback, ..
-        } => decider_has_tail_call(fallback) || tests.iter().any(|(_, d)| decider_has_tail_call(d)),
     })
 }

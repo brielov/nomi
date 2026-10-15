@@ -19,6 +19,7 @@ use super::types;
 use crate::canonical::{
     Annotation, CtorOpts, Def, Expr, ExprKind, FieldUpdate, Home, Operator, Pattern, Type,
 };
+use crate::graph::Node;
 use crate::hir::{self, DefId, ExprId, PatId, Spanned, VarType, int_value};
 
 /// How a local is used, which the cycle checks read (`Uses`): somewhere
@@ -71,13 +72,6 @@ pub(super) enum LetBinding {
     Destruct(Pattern, Expr),
 }
 
-/// A node of a `let`'s graph: the binding, its key, and the names it uses.
-pub(super) struct LetNode {
-    pub(super) binding: LetBinding,
-    pub(super) key: String,
-    pub(super) uses: Vec<String>,
-}
-
 fn expr(region: TextRange, kind: ExprKind) -> Expr {
     Expr { region, kind }
 }
@@ -96,6 +90,10 @@ fn each(
     all(ids.iter().map(|&id| canonicalize(env, module, id, free)))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "upstream's `canonicalize`, one arm per expression"
+)]
 fn canonicalize_(
     env: &Env<'_>,
     module: &hir::Module,
@@ -134,9 +132,11 @@ fn canonicalize_(
             return binop_chain(env, module, region, operands, ops, free);
         }
         hir::Expr::Lambda { params, body } => {
-            let ((params, body), inner) = lambda(env, module, params, *body)?;
-            combine(free, delay(inner));
-            ExprKind::Lambda(params, Box::new(body))
+            let context = DuplicatePatternContext::LambdaArgs;
+            let each = |b: &mut Bindings| pattern::each(env, module, params, b);
+            let lambda = scoped(env, module, &context, each, *body)?;
+            combine(free, delay(lambda.free));
+            ExprKind::Lambda(lambda.patterns, Box::new(lambda.body))
         }
         hir::Expr::Call { function, args } => {
             let function = canonicalize(env, module, *function, free);
@@ -168,9 +168,12 @@ fn canonicalize_(
         } => {
             let scrutinee = canonicalize(env, module, *scrutinee, free);
             let branches = all(branches.iter().map(|&(pattern, body)| {
-                let (branch, inner) = case_branch(env, module, pattern, body)?;
-                combine(free, inner);
-                Ok(branch)
+                // `canonicalizeCaseBranch`.
+                let context = DuplicatePatternContext::CaseBranch;
+                let one = |b: &mut Bindings| pattern::canonicalize(env, module, pattern, b);
+                let branch = scoped(env, module, &context, one, body)?;
+                combine(free, branch.free);
+                Ok((branch.patterns, branch.body))
             }));
             let (scrutinee, branches) = both(scrutinee, branches)?;
             ExprKind::Case(Box::new(scrutinee), branches)
@@ -294,9 +297,9 @@ fn to_var_ctor(name: &str, ctor: &CtorInfo<'_>) -> ExprKind {
             home,
             union_name,
             union,
-            ctor,
+            ctor: index,
         } => {
-            let ctor = &union.ctors[*ctor];
+            let ctor = &union.ctors[*index];
             let result = Type::Type {
                 home: home.clone(),
                 name: union_name.clone(),
@@ -306,7 +309,7 @@ fn to_var_ctor(name: &str, ctor: &CtorInfo<'_>) -> ExprKind {
                 free: sorted_vars(&union.vars),
                 ty: Type::function(ctor.args.iter().cloned(), result).into(),
             };
-            (union.opts, home, ctor.index, annotation)
+            (union.opts, home, *index, annotation)
         }
         CtorInfo::Record { home, vars, ty } => {
             let annotation = Annotation {
@@ -333,38 +336,32 @@ fn sorted_vars(vars: &[String]) -> Vec<String> {
     vars
 }
 
-/// A lambda: its parameters, bound once each, then its body.
-fn lambda(
-    env: &Env<'_>,
-    module: &hir::Module,
-    params: &[PatId],
-    body: ExprId,
-) -> R<((Vec<Pattern>, Expr), FreeLocals)> {
-    let context = DuplicatePatternContext::LambdaArgs;
-    let (params, bindings) = pattern::verify(env.compat, &context, |b| {
-        pattern::each(env, module, params, b)
-    })?;
-    let (body, free) = verify_bindings(env, &bindings, |scope, free| {
-        canonicalize(scope, module, body, free)
-    })?;
-    Ok(((params, body), free))
+/// Patterns, and a body canonicalized in their scope.
+struct Scoped<P> {
+    patterns: P,
+    body: Expr,
+    /// The locals the body uses from outside the scope.
+    free: FreeLocals,
 }
 
-/// `canonicalizeCaseBranch`.
-fn case_branch(
+/// What `patterns` makes, each name it binds bound once under `context`,
+/// then `body` in their scope.
+fn scoped<P>(
     env: &Env<'_>,
     module: &hir::Module,
-    pattern: PatId,
+    context: &DuplicatePatternContext,
+    patterns: impl FnOnce(&mut Bindings) -> R<P>,
     body: ExprId,
-) -> R<((Pattern, Expr), FreeLocals)> {
-    let context = DuplicatePatternContext::CaseBranch;
-    let (pattern, bindings) = pattern::verify(env.compat, &context, |b| {
-        pattern::canonicalize(env, module, pattern, b)
-    })?;
+) -> R<Scoped<P>> {
+    let (patterns, bindings) = pattern::verify(env.compat, context, patterns)?;
     let (body, free) = verify_bindings(env, &bindings, |scope, free| {
         canonicalize(scope, module, body, free)
     })?;
-    Ok(((pattern, body), free))
+    Ok(Scoped {
+        patterns,
+        body,
+        free,
+    })
 }
 
 /// `findVar`: a local or top-level use counts toward the scope's free
@@ -539,7 +536,7 @@ fn def_node(
     env: &Env<'_>,
     module: &hir::Module,
     def: DefId,
-    nodes: &mut Vec<LetNode>,
+    nodes: &mut Vec<Node<LetBinding>>,
     let_free: &mut FreeLocals,
 ) -> R<()> {
     match &module.defs[def] {
@@ -551,10 +548,10 @@ fn def_node(
             ..
         } => {
             let defined = definition(env, module, name, params, *body, *annotation)?;
-            nodes.push(LetNode {
-                binding: LetBinding::Define(defined.def),
+            nodes.push(Node {
+                value: LetBinding::Define(defined.def),
                 key: name.text.clone(),
-                uses: defined.free.keys().cloned().collect(),
+                edges: env.compat.sorted_names(defined.free.keys().cloned()),
             });
             let free = if params.is_empty() {
                 defined.free
@@ -577,18 +574,18 @@ fn def_node(
             let key = names
                 .first()
                 .map_or(String::new(), |n| format!("_M${}", n.text));
-            let uses = inner.keys().cloned().collect();
+            let edges = env.compat.sorted_names(inner.keys().cloned());
             combine(let_free, inner);
-            nodes.push(LetNode {
-                binding: LetBinding::Destruct(cpattern, cbody),
+            nodes.push(Node {
+                value: LetBinding::Destruct(cpattern, cbody),
                 key: key.clone(),
-                uses,
+                edges,
             });
             for name in names {
-                nodes.push(LetNode {
+                nodes.push(Node {
                     key: name.text.clone(),
-                    binding: LetBinding::Edge(name),
-                    uses: vec![key.clone()],
+                    value: LetBinding::Edge(name),
+                    edges: vec![key.clone()],
                 });
             }
             Ok(())
@@ -618,47 +615,74 @@ pub(super) fn definition(
     let context = DuplicatePatternContext::FuncArgs(name.text.clone());
     match annotation {
         None => {
-            let (params, bindings) = pattern::verify(env.compat, &context, |b| {
-                pattern::each(env, module, params, b)
-            })?;
-            let (body, free) = verify_bindings(env, &bindings, |scope, free| {
-                canonicalize(scope, module, body, free)
-            })?;
+            let each = |b: &mut Bindings| pattern::each(env, module, params, b);
+            let scoped = scoped(env, module, &context, each, body)?;
             let def = Def::Def {
                 name: name.text.clone(),
                 region: name.range,
-                params,
-                body,
+                params: scoped.patterns,
+                body: scoped.body,
             };
             Ok(Defined {
                 def,
                 annotation: None,
-                free,
+                free: scoped.free,
             })
         }
         Some(ty) => {
             let annotation = types::to_annotation(env, module, ty)?;
-            let ((params, result), bindings) = pattern::verify(env.compat, &context, |b| {
-                super::module::typed_args(env, module, &name.text, params, &annotation.ty, b)
-            })?;
-            let (body, free) = verify_bindings(env, &bindings, |scope, free| {
-                canonicalize(scope, module, body, free)
-            })?;
+            let typed =
+                |b: &mut Bindings| typed_args(env, module, &name.text, params, &annotation.ty, b);
+            let scoped = scoped(env, module, &context, typed, body)?;
+            let (params, result) = scoped.patterns;
             let def = Def::TypedDef {
                 name: name.text.clone(),
                 region: name.range,
                 free: annotation.free.clone(),
                 params,
-                body,
+                body: scoped.body,
                 result,
             };
             Ok(Defined {
                 def,
                 annotation: Some(annotation),
-                free,
+                free: scoped.free,
             })
         }
     }
+}
+
+/// `gatherTypedArgs`: each parameter against the argument its annotation
+/// gives it, stopping at the first that fails, or where the annotation
+/// runs out of arguments.
+fn typed_args(
+    env: &Env<'_>,
+    module: &hir::Module,
+    name: &str,
+    params: &[PatId],
+    ty: &Type,
+    bindings: &mut Bindings,
+) -> R<(Vec<(Pattern, Type)>, Type)> {
+    let mut ty = ty.clone();
+    let mut typed = Vec::with_capacity(params.len());
+    for (index, &param) in params.iter().enumerate() {
+        if let Type::Lambda(arg, result) = ty.iterated_dealias() {
+            let pattern = pattern::canonicalize(env, module, param, bindings)?;
+            typed.push((pattern, *arg));
+            ty = *result;
+        } else {
+            let range = |id| module.source_map.pattern_range(id);
+            let first = range(param);
+            let last = range(*params.last().expect("a parameter"));
+            return throw(Error::AnnotationTooShort {
+                range: TextRange::new(first.start(), last.end()),
+                name: name.to_owned(),
+                index,
+                leftover: params.len() - index,
+            });
+        }
+    }
+    Ok((typed, ty))
 }
 
 /// `getPatternNames`, in the order it lists them. 0.19.1's parser keeps

@@ -70,17 +70,11 @@ impl Union {
             Union::Open(union) | Union::Closed(union) | Union::Private(union) => union,
         }
     }
-
-    fn into_whole(self) -> Arc<canonical::Union> {
-        match self {
-            Union::Open(union) | Union::Closed(union) | Union::Private(union) => union,
-        }
-    }
 }
 
 impl Alias {
     /// `toPublicAlias`.
-    pub fn public(&self) -> Option<&canonical::Alias> {
+    pub(crate) fn public(&self) -> Option<&canonical::Alias> {
         match self {
             Alias::Public(alias) => Some(alias),
             Alias::Private(_) => None,
@@ -92,56 +86,6 @@ impl Alias {
         match self {
             Alias::Public(alias) | Alias::Private(alias) => alias,
         }
-    }
-
-    fn into_whole(self) -> canonical::Alias {
-        match self {
-            Alias::Public(alias) | Alias::Private(alias) => alias,
-        }
-    }
-}
-
-/// A dependency's module as a project sees it (`DependencyInterface`):
-/// whole when the package exposes it, and otherwise only the types other
-/// interfaces may mention.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum DependencyInterface {
-    Public(Interface),
-    Private {
-        home: String,
-        unions: BTreeMap<String, Arc<canonical::Union>>,
-        aliases: BTreeMap<String, canonical::Alias>,
-    },
-}
-
-impl DependencyInterface {
-    /// `privatize`: a module of a package the project doesn't depend on
-    /// directly.
-    pub fn privatize(self) -> DependencyInterface {
-        match self {
-            DependencyInterface::Public(interface) => DependencyInterface::Private {
-                home: interface.home,
-                unions: (interface.unions.into_iter())
-                    .map(|(name, u)| (name, u.into_whole()))
-                    .collect(),
-                aliases: (interface.aliases.into_iter())
-                    .map(|(name, a)| (name, a.into_whole()))
-                    .collect(),
-            },
-            private @ DependencyInterface::Private { .. } => private,
-        }
-    }
-
-    /// Its bytes, as [`Interface::encode`]'s.
-    pub fn encode(&self) -> Vec<u8> {
-        let mut e = Encoder::default();
-        e.dependency(self);
-        e.finish()
-    }
-
-    /// The dependency interface `bytes` encode, if they are one.
-    pub fn decode(bytes: &[u8]) -> Option<DependencyInterface> {
-        decode_all(bytes, Decoder::dependency)
     }
 }
 

@@ -49,7 +49,7 @@ nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it wait
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **Q.15b**.
+4. Resume at the first unchecked box. Right now that is **Q.15c**.
 
 ### Test tiers
 
@@ -1170,7 +1170,10 @@ A second, independent audit of the same code (2026-10-13, kept in `~/.cache/nomi
 
   Done: `bounded` and `commented_value` give way to `surrounded` and `c2`, and the four ports and extensions that took a name with its comments call one `name_before`; `child_tokens` is syntax's, beside `child_token`, which it defines; the syntax and format benchmarks print their scaling table through one `nomi_testkit::bench::scaling`; the unit tests share `code_points`, `names` and `upper_ref`; numbers' scaling state is a `Scaled` from the start rather than a tuple repacked into one; escapes and markdown's runs are written in place rather than formatted into strings first. 34 lines fewer. Formatting the corpus apps takes 0.28 s, as before. CI and the `syntax` and `format` corpus suites are unchanged.
 
-- [ ] **Q.15b** `quality: exit findings, compiler` (27).
+- [x] **Q.15b** `quality: exit findings, compiler` (27).
+
+  Done: canonicalization's report context and `snip` give way to the engine's `ReportContext`; dependency interfaces, the source map's definitions, ports' ranges, `rustc-hash` and other things nothing read are gone; constructors' and arguments' indices are their places, written to interfaces as before and checked when read; let nodes sort whole, without clones; lambdas and case branches share one `scoped`; the canonicalizer's errors and the type errors' variants have named fields where they were tuples; the defaults are built once; integer digits and string escapes are read by one function each, syntax's and HIR's; `adjust_rank` reads a node's children onto a reusable stack rather than cloning its content, and `var_names` walks with its own stack; `fields_to_list` serves the optimizer, canonicalization and codegen's debug output. 177 lines more, rustfmt laying named fields out one per line, where the findings removed about 200. Builds take the same time as Q.15a. CI and the `check`, `graphs`, `objects`, `javascript`, `docs` and `lsp` corpus suites are unchanged. Surprises: an interface whose stored constructor index or count disagrees with its place is now refused rather than read; and type rendering sorts a record's fields by their place alone, where upstream breaks ties in 0.19.3's name order, left for a decision.
+
 - [ ] **Q.15c** `quality: exit findings, codegen-js, test and testkit` (14).
 - [ ] **Q.15d** `quality: exit findings, engine` (15).
 - [ ] **Q.15e** `quality: exit findings, ide` (17).

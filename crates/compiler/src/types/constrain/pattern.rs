@@ -71,6 +71,10 @@ pub(crate) fn add(
     nomi_base::grow(|| add_(vars, pattern, expectation, state));
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "upstream's `add`, one arm per pattern"
+)]
 fn add_(vars: &mut Variables, pattern: &Pattern, expectation: PExpected<Type>, state: &mut State) {
     let region = pattern.region;
     // Patterns' types too, for the editor to read records' fields by.
@@ -126,8 +130,11 @@ fn add_(vars: &mut Variables, pattern: &Pattern, expectation: PExpected<Type>, s
             let entry_var = vars.flex_var();
             let entry = Type::Var(entry_var);
             for (index, p) in patterns.iter().enumerate() {
-                let expected =
-                    PExpected::PFromContext(region, PContext::PListEntry(index), entry.clone());
+                let expected = PExpected::PFromContext {
+                    region,
+                    context: PContext::PListEntry(index),
+                    ty: entry.clone(),
+                };
                 add(vars, p, expected, state);
             }
             state.matches(region, PCategory::PList, list(entry), expectation);
@@ -136,8 +143,11 @@ fn add_(vars: &mut Variables, pattern: &Pattern, expectation: PExpected<Type>, s
         PatternKind::Cons(head, tail) => {
             let entry_var = vars.flex_var();
             let entry = Type::Var(entry_var);
-            let tail_expected =
-                PExpected::PFromContext(region, PContext::PTail, list(entry.clone()));
+            let tail_expected = PExpected::PFromContext {
+                region,
+                context: PContext::PTail,
+                ty: list(entry.clone()),
+            };
             add(vars, tail, tail_expected, state);
             add(vars, head, PExpected::PNoExpectation(entry.clone()), state);
             state.matches(region, PCategory::PList, list(entry), expectation);
@@ -196,18 +206,26 @@ fn add_ctor(
     let free: BTreeMap<String, Type> = (ctor.type_vars.iter().cloned())
         .zip(flex.iter().map(|v| Type::Var(*v)))
         .collect();
-    for arg in ctor.args {
+    for (index, arg) in ctor.args.iter().enumerate() {
         let ty = from_src_type(&free, &arg.ty);
-        let context = PContext::PCtorArg(ctor.name.to_owned(), arg.index);
+        let context = PContext::PCtorArg(ctor.name.to_owned(), index);
         add(
             vars,
             &arg.arg,
-            PExpected::PFromContext(region, context, ty),
+            PExpected::PFromContext {
+                region,
+                context,
+                ty,
+            },
             state,
         );
     }
     let args = flex.iter().map(|v| Type::Var(*v)).collect();
-    let ty = Type::App(ctor.home.clone(), Text::from(ctor.type_name), args);
+    let ty = Type::App {
+        home: ctor.home.clone(),
+        name: Text::from(ctor.type_name),
+        args,
+    };
     let category = PCategory::PCtor(ctor.name.to_owned());
     state.matches(region, category, ty, expectation);
     state.add_vars(flex);

@@ -61,6 +61,18 @@ pub fn literal_body(literal: &str) -> Option<&str> {
     }
 }
 
+/// The value of an integer literal's `digits` in `radix`, wrapping at
+/// 64 bits as elm's parser does; a character that isn't a digit adds
+/// nothing.
+#[inline]
+pub fn int_digits(digits: &str, radix: u32) -> i64 {
+    (digits.chars())
+        .filter_map(|c| c.to_digit(radix))
+        .fold(0i64, |n, d| {
+            n.wrapping_mul(i64::from(radix)).wrapping_add(i64::from(d))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,5 +109,12 @@ mod tests {
         assert_eq!(literal_body("\"open"), None);
         assert_eq!(literal_body("[glsl| x"), None);
         assert_eq!(literal_body("x"), None);
+    }
+
+    #[test]
+    fn integer_literals_wrap_at_64_bits() {
+        assert_eq!(int_digits("FF", 16), 255);
+        assert_eq!(int_digits("42", 10), 42);
+        assert_eq!(int_digits("9223372036854775808", 10), i64::MIN);
     }
 }

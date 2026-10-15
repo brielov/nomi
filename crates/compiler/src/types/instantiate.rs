@@ -17,11 +17,11 @@ pub(super) fn from_src_type(free: &BTreeMap<String, Type>, ty: &canonical::Type)
     nomi_base::grow(|| match ty {
         C::Lambda(arg, result) => super::fun(go(arg), go(result)),
         C::Var(name) => free[name].clone(),
-        C::Type { home, name, args } => Type::App(
-            home.clone(),
-            Text::from(name),
-            args.iter().map(go).collect(),
-        ),
+        C::Type { home, name, args } => Type::App {
+            home: home.clone(),
+            name: Text::from(name),
+            args: args.iter().map(go).collect(),
+        },
         C::Alias {
             home,
             name,
@@ -36,7 +36,12 @@ pub(super) fn from_src_type(free: &BTreeMap<String, Type>, ty: &canonical::Type)
                     from_src_type(&free, real)
                 }
             };
-            Type::Alias(home.clone(), Text::from(name), targs, Box::new(real))
+            Type::Alias {
+                home: home.clone(),
+                name: Text::from(name),
+                args: targs,
+                real: Box::new(real),
+            }
         }
         C::Tuple(a, b, c) => Type::Tuple(
             Box::new(go(a)),

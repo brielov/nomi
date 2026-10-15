@@ -12,7 +12,7 @@ use nomi_base::{Compat, TextRange};
 
 use super::error::{Error, NameKind, PossibleNames, R, collected, throw};
 use super::references::{Kind, Recorder};
-use crate::canonical::{AliasType, Annotation, FieldType, Home, Type, Union};
+use crate::canonical::{AliasType, Annotation, FieldType, Home, Type, Union, fields_to_list};
 use crate::hir::Fixity;
 
 /// Names exposed unqualified: each name's homes (`Env.Exposed`).
@@ -85,6 +85,7 @@ impl CtorInfo<'_> {
     /// from the record's fields, in their written order, to the alias,
     /// which stands for `body`.
     pub(super) fn record(
+        compat: Compat,
         home: &Home,
         name: &str,
         vars: &[String],
@@ -98,12 +99,11 @@ impl CtorInfo<'_> {
             args: args.collect(),
             aliased: AliasType::Filled(body),
         };
-        let mut by_order: Vec<&FieldType> = fields.values().collect();
-        by_order.sort_by_key(|f| f.order);
+        let fields = fields_to_list(compat, fields).into_iter();
         CtorInfo::Record {
             home: home.clone(),
             vars: vars.to_vec(),
-            ty: Type::function(by_order.into_iter().map(|f| f.ty.clone()), result),
+            ty: Type::function(fields.map(|(_, f)| f.ty.clone()), result),
         }
     }
 }
@@ -280,9 +280,11 @@ impl<'a> Env<'a> {
                 .map(|(_, binop)| binop)
                 .inspect(|b| self.references.global(range, &b.home, op, Kind::Binop))
                 .or_else(|homes| {
-                    throw(Error::AmbiguousBinop {
+                    throw(Error::Ambiguous {
+                        kind: NameKind::Operator,
                         range,
-                        op: op.to_owned(),
+                        prefix: None,
+                        name: op.to_owned(),
                         homes,
                     })
                 }),

@@ -4,6 +4,7 @@
 //! (`Elm/Interface.hs`, `fromModule`).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use nomi_base::{Compat, TextRange};
 
@@ -15,9 +16,8 @@ use super::error::{Error, NameKind, R, all, throw};
 use super::expr;
 use super::foreign::{initial_env, with_defaults};
 use super::local::{self, Aliases, Unions};
-use super::pattern;
 use super::references::{Kind, Recorder, Reference};
-use crate::canonical::{Annotation, Decl, Effects, Home, Pattern, Type};
+use crate::canonical::{Annotation, Decl, Effects, Home, Type};
 use crate::hir::{self, Exposed, Exposing, Fixity, Spanned};
 use crate::interface::{self, Interface, Interfaces};
 
@@ -122,8 +122,12 @@ fn canonicalize_into(
             references.global(name.range, &home, &name.text, kind);
         }
     }
-    let env = initial_env(compat, &home, interfaces, &imports, references)?;
-    let (env, unions, aliases) = local::add(module, env)?;
+    let env = initial_env(compat, &home, interfaces, imports, references)?;
+    let local::Local {
+        env,
+        unions,
+        aliases,
+    } = local::add(module, env)?;
     // `canonicalizeValues`, in upstream's reverse order.
     let nodes = all(module
         .values
@@ -158,7 +162,7 @@ fn canonicalize_into(
             values.push(name.clone());
             let annotation = Annotation {
                 free: port.free.clone(),
-                ty: port.func.clone().into(),
+                ty: Arc::clone(&port.func),
             };
             annotations.insert(name.clone(), annotation);
         }
@@ -200,39 +204,6 @@ fn value(
         free: defined.free,
     };
     Ok(Some((node, defined.annotation)))
-}
-
-/// `gatherTypedArgs`: each parameter against the argument its annotation
-/// gives it, stopping at the first that fails, or where the annotation
-/// runs out of arguments.
-pub(super) fn typed_args(
-    env: &Env<'_>,
-    module: &hir::Module,
-    name: &str,
-    params: &[hir::PatId],
-    ty: &Type,
-    bindings: &mut pattern::Bindings,
-) -> R<(Vec<(Pattern, Type)>, Type)> {
-    let mut ty = ty.clone();
-    let mut typed = Vec::with_capacity(params.len());
-    for (index, &param) in params.iter().enumerate() {
-        if let Type::Lambda(arg, result) = ty.iterated_dealias() {
-            let pattern = pattern::canonicalize(env, module, param, bindings)?;
-            typed.push((pattern, *arg));
-            ty = *result;
-        } else {
-            let range = |id| module.source_map.pattern_range(id);
-            let first = range(param);
-            let last = range(*params.last().expect("a parameter"));
-            return throw(Error::AnnotationTooShort {
-                range: TextRange::new(first.start(), last.end()),
-                name: name.to_owned(),
-                index,
-                leftover: params.len() - index,
-            });
-        }
-    }
-    Ok((typed, ty))
 }
 
 /// What a module declares, which its exposing list names.

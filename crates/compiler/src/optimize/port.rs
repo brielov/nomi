@@ -5,7 +5,7 @@
 
 use nomi_base::Compat;
 
-use super::names::Tracker;
+use super::names::{Tracker, var_index};
 use crate::canonical::{Home, Type};
 use crate::optimized::{Destructor, Expr, Path};
 use crate::types::in_name_order;
@@ -145,7 +145,7 @@ pub(super) fn to_decoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
         }
         Type::Tuple(a, b, c) => {
             let succeed = decode(t, "succeed");
-            let var = |i: usize| local(&format!("_v{i}"));
+            let var = |i: usize| Expr::VarLocal(var_index(i));
             let tuple = Expr::Tuple(
                 Box::new(var(0)),
                 Box::new(var(1)),
@@ -225,7 +225,7 @@ fn index_and_then(compat: Compat, t: &mut Tracker, i: usize, ty: &Type, decoder:
     call(
         and_then,
         vec![
-            Expr::Function(vec![format!("_v{i}")], Box::new(decoder)),
+            Expr::Function(vec![var_index(i)], Box::new(decoder)),
             call(index, vec![Expr::Int(i as i64), sub]),
         ],
     )

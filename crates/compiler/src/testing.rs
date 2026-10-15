@@ -32,14 +32,12 @@ pub(crate) fn value(ty: Type) -> Annotation {
 fn union(vars: &[&str], ctors: &[&str]) -> Arc<canonical::Union> {
     Arc::new(canonical::Union {
         vars: vars.iter().map(|v| (*v).to_owned()).collect(),
-        ctors: (ctors.iter().enumerate())
-            .map(|(index, name)| Ctor {
+        ctors: (ctors.iter())
+            .map(|name| Ctor {
                 name: (*name).to_owned(),
-                index,
                 args: vec![],
             })
             .collect(),
-        count: ctors.len(),
         opts: CtorOpts::Enum,
     })
 }

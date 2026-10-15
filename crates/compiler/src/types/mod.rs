@@ -84,7 +84,11 @@ fn exists(flex_vars: Vec<Variable>, constraint: Constraint) -> Constraint {
 /// `FlatType`: one layer of a type, its parts variables.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum FlatType {
-    App1(Home, Text, Vec<Variable>),
+    App1 {
+        home: Home,
+        name: Text,
+        args: Vec<Variable>,
+    },
     Fun1(Variable, Variable),
     EmptyRecord1,
     Record1(BTreeMap<Text, Variable>, Variable),
@@ -95,9 +99,18 @@ enum FlatType {
 /// `Type`: a type as constraints write it, parts of it variables.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Type {
-    Alias(Home, Text, Vec<(String, Type)>, Box<Type>),
+    Alias {
+        home: Home,
+        name: Text,
+        args: Vec<(String, Type)>,
+        real: Box<Type>,
+    },
     Var(Variable),
-    App(Home, Text, Vec<Type>),
+    App {
+        home: Home,
+        name: Text,
+        args: Vec<Type>,
+    },
     Fun(Box<Type>, Box<Type>),
     EmptyRecord,
     Record(BTreeMap<Text, Type>, Box<Type>),
@@ -145,7 +158,12 @@ enum Content {
     RigidVar(String),
     RigidSuper(SuperType, String),
     Structure(FlatType),
-    Alias(Home, Text, Vec<(String, Variable)>, Variable),
+    Alias {
+        home: Home,
+        name: Text,
+        args: Vec<(String, Variable)>,
+        real: Variable,
+    },
     Error,
 }
 
@@ -211,13 +229,17 @@ fn children(content: &Content, real: AliasReal) -> Vec<Variable> {
         | Content::RigidSuper(..)
         | Content::Error => Vec::new(),
         Content::Structure(flat) => match flat {
-            FlatType::App1(_, _, args) => args.clone(),
+            FlatType::App1 { args, .. } => args.clone(),
             FlatType::Fun1(a, b) => vec![*a, *b],
             FlatType::EmptyRecord1 | FlatType::Unit1 => Vec::new(),
             FlatType::Record1(fields, ext) => fields.values().copied().chain([*ext]).collect(),
             FlatType::Tuple1(a, b, c) => [Some(*a), Some(*b), *c].into_iter().flatten().collect(),
         },
-        Content::Alias(_, _, args, alias_real) => {
+        Content::Alias {
+            args,
+            real: alias_real,
+            ..
+        } => {
             let real = (real == AliasReal::Include).then_some(*alias_real);
             args.iter().map(|(_, a)| *a).chain(real).collect()
         }
@@ -282,7 +304,11 @@ fn is_maybe(home: &Home, name: &str) -> bool {
 
 /// elm/core's type `name`, from its module `module`, with no arguments.
 fn core_type(module: &str, name: &str) -> Type {
-    Type::App(Home::core(module), Text::from(name), Vec::new())
+    Type::App {
+        home: Home::core(module),
+        name: Text::from(name),
+        args: Vec::new(),
+    }
 }
 
 fn int() -> Type {
@@ -311,7 +337,11 @@ fn string() -> Type {
 
 /// `List entry`.
 fn list(entry: Type) -> Type {
-    Type::App(Home::core("List"), Text::from("List"), vec![entry])
+    Type::App {
+        home: Home::core("List"),
+        name: Text::from("List"),
+        args: vec![entry],
+    }
 }
 
 fn package_type(package: &str, module: &str, name: &str) -> Type {
@@ -319,7 +349,11 @@ fn package_type(package: &str, module: &str, name: &str) -> Type {
         package: package.into(),
         module: module.into(),
     };
-    Type::App(home, Text::from(name), Vec::new())
+    Type::App {
+        home,
+        name: Text::from(name),
+        args: Vec::new(),
+    }
 }
 
 /// WebGL's types, which shaders' attributes, uniforms and varyings have.
@@ -453,9 +487,13 @@ impl Variables {
     ) -> Variable {
         nomi_base::grow(|| match ty {
             Type::Var(v) => *v,
-            Type::App(home, name, args) => {
+            Type::App { home, name, args } => {
                 let args = args.iter().map(|a| self.type_to_var(a, make)).collect();
-                let flat = FlatType::App1(home.clone(), name.clone(), args);
+                let flat = FlatType::App1 {
+                    home: home.clone(),
+                    name: name.clone(),
+                    args,
+                };
                 make(self, Content::Structure(flat))
             }
             Type::Fun(a, b) => {
@@ -463,12 +501,25 @@ impl Variables {
                 let b = self.type_to_var(b, make);
                 make(self, Content::Structure(FlatType::Fun1(a, b)))
             }
-            Type::Alias(home, name, args, real) => {
+            Type::Alias {
+                home,
+                name,
+                args,
+                real,
+            } => {
                 let args = (args.iter())
                     .map(|(n, a)| (n.clone(), self.type_to_var(a, make)))
                     .collect();
                 let real = self.type_to_var(real, make);
-                make(self, Content::Alias(home.clone(), name.clone(), args, real))
+                make(
+                    self,
+                    Content::Alias {
+                        home: home.clone(),
+                        name: name.clone(),
+                        args,
+                        real,
+                    },
+                )
             }
             Type::Record(fields, ext) => {
                 let fields = (fields.iter())

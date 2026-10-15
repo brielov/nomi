@@ -9,7 +9,6 @@ publish.workspace = true
 [dependencies]
 nomi-base.workspace = true
 nomi-syntax.workspace = true
-rustc-hash.workspace = true
 
 [dev-dependencies]
 nomi-testkit.workspace = true

@@ -93,11 +93,16 @@ impl Effect {
         }
     }
 
-    /// The platform's type of them, and its module.
-    fn platform_type(self) -> (&'static str, &'static str) {
-        match self {
+    /// The platform's type of them, carrying `msg`.
+    fn platform_type(self, msg: Type) -> Type {
+        let (module, name) = match self {
             Effect::Cmd => ("Platform.Cmd", "Cmd"),
             Effect::Sub => ("Platform.Sub", "Sub"),
+        };
+        Type::App {
+            home: Home::core(module),
+            name: Text::from(name),
+            args: vec![msg],
         }
     }
 
@@ -134,10 +139,13 @@ fn let_map(
 ) -> Constraint {
     let msg_var = vars.flex_var();
     let msg = Type::Var(msg_var);
-    let (module, name) = effect.platform_type();
     let ty = fun(
-        Type::App(home.clone(), Text::from(tipe), vec![msg.clone()]),
-        Type::App(Home::core(module), Text::from(name), vec![msg]),
+        Type::App {
+            home: home.clone(),
+            name: Text::from(tipe),
+            args: vec![msg.clone()],
+        },
+        effect.platform_type(msg),
     );
     Constraint::Let {
         rigid_vars: vec![msg_var],
@@ -149,19 +157,19 @@ fn let_map(
 }
 
 fn task(answer: Type) -> Type {
-    Type::App(
-        Home::core("Platform"),
-        Text::from("Task"),
-        vec![types::never(), answer],
-    )
+    Type::App {
+        home: Home::core("Platform"),
+        name: Text::from("Task"),
+        args: vec![types::never(), answer],
+    }
 }
 
 fn router(msg: Type, self_msg: Type) -> Type {
-    Type::App(
-        Home::core("Platform"),
-        Text::from("Router"),
-        vec![msg, self_msg],
-    )
+    Type::App {
+        home: Home::core("Platform"),
+        name: Text::from("Router"),
+        args: vec![msg, self_msg],
+    }
 }
 
 /// `constrainEffects`: the manager's functions, defined at `init`,
@@ -180,7 +188,11 @@ fn constrain_effects(
     let v = Type::Var;
     let self_msg_type = fun(router(v(m2), v(sm2)), fun(v(sm2), fun(v(s2), task(v(s2)))));
     let effects = effects_of(manager).map(|(_, tipe)| {
-        let effect = Type::App(home.clone(), Text::from(tipe), vec![v(m1)]);
+        let effect = Type::App {
+            home: home.clone(),
+            name: Text::from(tipe),
+            args: vec![v(m1)],
+        };
         types::list(effect)
     });
     let effects_type = (effects.rev()).fold(fun(v(s1), task(v(s1))), |result, effects| {
@@ -230,7 +242,11 @@ fn check_map(
 ) -> Constraint {
     let a = vars.flex_var();
     let b = vars.flex_var();
-    let applied = |x| Type::App(home.clone(), Text::from(tipe), vec![Type::Var(x)]);
+    let applied = |x| Type::App {
+        home: home.clone(),
+        name: Text::from(tipe),
+        args: vec![Type::Var(x)],
+    };
     let map_type = fun(fun(Type::Var(a), Type::Var(b)), fun(applied(a), applied(b)));
     Constraint::Let {
         rigid_vars: vec![a, b],

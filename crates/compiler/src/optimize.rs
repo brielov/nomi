@@ -16,6 +16,7 @@ use nomi_base::{Compat, TextRange};
 
 use crate::canonical::{
     Annotation, CtorOpts, Decl, Def as CDef, Effects, Home, MainKind, Manager, PortDirection, Type,
+    fields_to_list,
 };
 use crate::canonicalize::module::Canonical;
 use crate::optimized::{EffectsType, Expr, Global, LocalGraph, Main, Node};
@@ -41,11 +42,11 @@ pub fn module(
         add_alias(compat, home, name, &alias.ty, &mut graph);
     }
     for union in module.unions.values() {
-        for ctor in &union.ctors {
+        for (index, ctor) in union.ctors.iter().enumerate() {
             let node = match union.opts {
-                CtorOpts::Normal => Node::Ctor(ctor.index, ctor.args.len() as i64),
+                CtorOpts::Normal => Node::Ctor(index, ctor.args.len() as i64),
                 CtorOpts::Unbox => Node::Box,
-                CtorOpts::Enum => Node::Enum(ctor.index),
+                CtorOpts::Enum => Node::Enum(index),
             };
             graph.nodes.insert(global(home, &ctor.name), node);
         }
@@ -76,10 +77,10 @@ fn add_alias(compat: Compat, home: &Home, name: &str, ty: &Type, graph: &mut Loc
     let Type::Record(fields, None) = ty else {
         return;
     };
-    let mut ordered = compat.sorted_names(fields.keys());
-    ordered.sort_by_key(|name| fields[*name].order);
     let function = Expr::Function(
-        ordered.into_iter().cloned().collect(),
+        (fields_to_list(compat, fields).into_iter())
+            .map(|(name, _)| name.clone())
+            .collect(),
         Box::new(Expr::Record(
             fields
                 .keys()

@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use nomi_base::{Text, TextRange};
+use nomi_base::{Compat, Text, TextRange};
 
 /// A module and the package it is in (`ModuleName.Canonical`). Types
 /// carry their home everywhere, so its names are shared, not copied.
@@ -129,7 +129,7 @@ impl Type {
     }
 
     /// `iteratedDealias`: what the type is under its aliases.
-    pub fn iterated_dealias(mut self) -> Type {
+    pub(crate) fn iterated_dealias(mut self) -> Type {
         while let Type::Alias { args, aliased, .. } = self {
             self = aliased.dealias(&args);
         }
@@ -138,7 +138,7 @@ impl Type {
 
     /// `deepDealias`: the type with every alias, at any depth, replaced by
     /// what it stands for.
-    pub fn deep_dealias(&self) -> Type {
+    pub(crate) fn deep_dealias(&self) -> Type {
         nomi_base::grow(|| match self {
             Type::Alias { args, aliased, .. } => {
                 let args: Vec<(String, Type)> = (args.iter())
@@ -170,7 +170,7 @@ impl Type {
 /// What `main` is, by its type with every alias expanded
 /// (`addDefHelp`'s cases).
 #[derive(Clone, Debug, PartialEq)]
-pub enum MainKind {
+pub(crate) enum MainKind {
     /// A `VirtualDom.Node`, as `Html` and `Svg` are.
     Static,
     /// A `Program`, with the types of its flags and messages.
@@ -184,7 +184,7 @@ pub enum MainKind {
 impl Type {
     /// What a `main` of this type is: only the outer type decides, so only
     /// the flags and messages have their aliases expanded.
-    pub fn main_kind(&self) -> MainKind {
+    pub(crate) fn main_kind(&self) -> MainKind {
         let dealiased;
         let outer = match self {
             Type::Alias { args, aliased, .. } => {
@@ -215,6 +215,18 @@ impl Type {
             _ => MainKind::Other,
         }
     }
+}
+
+/// `Can.fieldsToList`: the fields by their place as written, ties in
+/// the order `compat` lists names.
+pub fn fields_to_list(
+    compat: Compat,
+    fields: &BTreeMap<String, FieldType>,
+) -> Vec<(&String, &FieldType)> {
+    let mut listed: Vec<(&String, &FieldType)> = fields.iter().collect();
+    listed.sort_by(|a, b| compat.compare_names(a.0, b.0));
+    listed.sort_by_key(|(_, field)| field.order);
+    listed
 }
 
 /// `fields` with `f` applied to each one's type.
@@ -262,9 +274,6 @@ pub struct Alias {
 pub struct Union {
     pub vars: Vec<String>,
     pub ctors: Vec<Ctor>,
-    /// How many constructors the type has, kept when a closed export
-    /// hides them, for exhaustiveness checking.
-    pub count: usize,
     pub opts: CtorOpts,
 }
 
@@ -276,12 +285,11 @@ pub enum CtorOpts {
     Unbox,
 }
 
-/// `Can.Ctor`: a constructor, its index among the union's, and its
-/// arguments.
+/// `Can.Ctor`: a constructor and its arguments; its index is its place
+/// among the union's.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ctor {
     pub name: String,
-    pub index: usize,
     pub args: Vec<Type>,
 }
 
@@ -419,21 +427,21 @@ pub enum Def {
 
 impl Def {
     /// The name it defines.
-    pub fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &str {
         match self {
             Def::Def { name, .. } | Def::TypedDef { name, .. } => name,
         }
     }
 
     /// Where its name is.
-    pub fn region(&self) -> TextRange {
+    pub(crate) fn region(&self) -> TextRange {
         match self {
             Def::Def { region, .. } | Def::TypedDef { region, .. } => *region,
         }
     }
 
     /// Whether it is a function, which a cycle may pass through.
-    pub fn has_params(&self) -> bool {
+    pub(crate) fn has_params(&self) -> bool {
         match self {
             Def::Def { params, .. } => !params.is_empty(),
             Def::TypedDef { params, .. } => !params.is_empty(),
@@ -492,11 +500,10 @@ impl Drop for Pattern {
     }
 }
 
-/// `Can.PatternCtorArg`: an argument of a constructor pattern, its index
-/// and the type the constructor gives it.
+/// `Can.PatternCtorArg`: an argument of a constructor pattern and the type
+/// the constructor gives it; its index is its place among the arguments.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PatternCtorArg {
-    pub index: usize,
     pub ty: Type,
     pub arg: Pattern,
 }
@@ -544,7 +551,7 @@ pub struct Port {
     pub direction: PortDirection,
     pub free: Vec<String>,
     pub payload: Type,
-    pub func: Type,
+    pub func: Arc<Type>,
 }
 
 /// Which way a port carries values: from JavaScript (a subscription) or

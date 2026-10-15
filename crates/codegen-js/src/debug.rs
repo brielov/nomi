@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use nomi_base::Compat;
 use nomi_base::diagnostic::json::strict_string;
-use nomi_compiler::canonical::{Alias, Home, Type, Union};
+use nomi_compiler::canonical::{Alias, Home, Type, Union, fields_to_list};
 use nomi_compiler::interface::{self, Interface};
 use nomi_compiler::optimized::Global;
 use nomi_compiler::optimized::binary::{globals, homes};
@@ -202,11 +202,7 @@ fn extract(compat: Compat, deps: &mut Deps, ty: &Type) -> Public {
             Public::Type(public_name(home, name), args)
         }
         Type::Record(fields, ext) => {
-            // `fieldsToList`: by the order written, ties as the map lists.
-            let mut listed: Vec<(&String, _)> = fields.iter().collect();
-            listed.sort_by(|a, b| compat.compare_names(a.0, b.0));
-            listed.sort_by_key(|(_, field)| field.order);
-            let fields = (listed.into_iter())
+            let fields = (fields_to_list(compat, fields).into_iter())
                 .map(|(name, field)| (name.clone(), extract(compat, deps, &field.ty)))
                 .collect();
             Public::Record(fields, ext.clone())
@@ -360,11 +356,9 @@ mod tests {
     fn union(ctors: Vec<(&str, Vec<Type>)>) -> Union {
         Union {
             vars: Vec::new(),
-            count: ctors.len(),
-            ctors: (ctors.into_iter().enumerate())
-                .map(|(index, (name, args))| Ctor {
+            ctors: (ctors.into_iter())
+                .map(|(name, args)| Ctor {
                     name: name.to_owned(),
-                    index,
                     args,
                 })
                 .collect(),

@@ -109,7 +109,7 @@ fn lower(compat: Compat, pattern: &Pattern) -> Rc<DtPattern> {
             home: home.clone(),
             name: name.clone(),
             index: *index,
-            count: union.count,
+            count: union.ctors.len(),
             opts: union.opts,
             args: args.iter().map(|a| go(&a.arg)).collect(),
         },
