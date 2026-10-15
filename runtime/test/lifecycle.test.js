@@ -67,6 +67,13 @@ test("a shutdown that outlasts the deadline is cut short", posixSignals, async (
   assert.match(stderr, /shutdown took longer than 200 ms/);
 });
 
+test("a program can lengthen its shutdown deadline", posixSignals, async () => {
+  const { code, stdout, stderr } = await run("allowed", { signals: ["SIGTERM"], deadline: 200 });
+  assert.equal(code, 143);
+  assert.deepEqual(stdout.slice(-1), ["slow released"]);
+  assert.equal(stderr, "");
+});
+
 test("a second signal exits at once", posixSignals, async () => {
   const { code, stderr, ms } = await run("hang", { signals: ["SIGINT", "SIGINT"], deadline: 5_000 });
   assert.equal(code, 130);

@@ -7,13 +7,25 @@
 // finish within a deadline; past it, or on a second signal, the process
 // exits at once. That deadline is real time and bounds the whole shutdown,
 // a server's drain included (a `draining` scope's, on the runtime's
-// clock), so a drain longer than it is cut off. A `Platform.worker` has no
+// clock), so a server lengthens it with `allowShutdown` to cover its
+// drain. A `Platform.worker` has no
 // root fiber: a signal shuts its runtime down directly, and until one comes
 // it lives as long as Node's event loop does.
 
 import { ExitKind, Runtime } from "./fiber.js";
 
 const SIGNALS = { SIGINT: 130, SIGTERM: 143 };
+
+// Each running lifecycle, by the runtime it runs.
+const lifecycles = new WeakMap();
+
+/**
+ * Makes the shutdown deadline of the program running on `runtime` at least
+ * `ms`; a runtime no lifecycle runs has none to change.
+ */
+export function allowShutdown(runtime, ms) {
+  lifecycles.get(runtime)?.allow(ms);
+}
 
 /**
  * Runs `task` as the process's program and resolves with the exit code it
@@ -69,8 +81,11 @@ function lifecycle(runtime, proc, deadline, stop) {
     return [signal, handler];
   });
 
-  return {
+  const life = {
     signalled: () => signalled,
+    allow(ms) {
+      deadline = Math.max(deadline, ms);
+    },
     async exit(code) {
       armDeadline(code);
       await runtime.shutdown();
@@ -83,6 +98,8 @@ function lifecycle(runtime, proc, deadline, stop) {
       return code;
     },
   };
+  lifecycles.set(runtime, life);
+  return life;
 }
 
 /**

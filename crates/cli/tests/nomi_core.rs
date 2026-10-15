@@ -2,14 +2,16 @@
 //! bundle, it is a Node entry unless the browser is asked for, and runs
 //! its task as the process, which exits with how the task ended; its
 //! concurrent tasks and fibers end and interrupt as documented, and its
-//! fibers share refs and queues.
+//! fibers share refs and queues. nomi/server, bundled beside it, serves
+//! HTTP to a loopback client.
 #![cfg(unix)]
 
 #[path = "support/website.rs"]
 pub mod website;
 
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
@@ -263,13 +265,58 @@ say line =
     Task.succeed () |> Task.map (\_ -> Debug.log line ())
 "#;
 
-/// An application of `program` on nomi/core, in a new directory.
+/// A server on the port its argument names, answering `/json` with the
+/// field `n` of its JSON body plus one, or the `BodyError`, and any other
+/// path with what it reads of the request, in the body and the header
+/// `X-Echo`.
+const SERVER: &str = r#"module Main exposing (main)
+
+import Json.Decode as Decode
+import Json.Encode as Encode
+import Nomi
+import Nomi.Server as Server exposing (Request, Response)
+import Task exposing (Task)
+
+
+main : Nomi.Program
+main =
+    Nomi.program <|
+        \env ->
+            let
+                defaults =
+                    Server.defaults
+
+                port_ =
+                    List.head env.args |> Maybe.andThen String.toInt |> Maybe.withDefault 0
+            in
+            Server.listen { defaults | port_ = port_ } handle env.net
+                |> Task.mapError Server.errorToString
+
+
+handle : Request -> Task Never Response
+handle req =
+    case Server.path req of
+        [ "json" ] ->
+            Server.jsonBody (Decode.field "n" Decode.int) req
+                |> Task.map (\n -> Server.json 200 (Encode.object [ ( "n", Encode.int (n + 1) ) ]))
+                |> Task.onError (\error -> Task.succeed (Server.text 400 (Debug.toString error)))
+
+        _ ->
+            let
+                echo =
+                    Debug.toString ( Server.method req, Server.path req, ( Server.query "q" req, Server.header "X-Test" req ) )
+            in
+            Task.succeed (Server.text 200 echo |> Server.withHeader "X-Echo" echo)
+"#;
+
+/// An application of `program` on nomi/core and nomi/server, in a new
+/// directory.
 fn project(program: &str) -> (tempfile::TempDir, PathBuf) {
     let work = tempfile::tempdir().unwrap();
     let root = fs::canonicalize(work.path()).unwrap();
     fs::write(
         root.join("elm.json"),
-        r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "1.0.0"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
+        r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "1.0.0", "nomi/server": "1.0.0"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
     )
     .unwrap();
     fs::create_dir(root.join("src")).unwrap();
@@ -518,5 +565,196 @@ fn fibers_share_refs_and_queues_in_order_and_interruption_loses_no_item() {
             "interrupted take: Ok (Just 7)",
             "interrupted offer: Ok (1,Nothing)",
         ]
+    );
+}
+
+/// A port on the loopback interface that nothing listens on.
+fn free_port() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.local_addr().unwrap().port()
+}
+
+/// [`SERVER`] serving on a port of its own, stopped when dropped.
+struct Serving {
+    port: u16,
+    server: std::process::Child,
+    _work: tempfile::TempDir,
+}
+
+impl Serving {
+    fn start() -> Serving {
+        let (work, root) = built(SERVER);
+        let port = free_port();
+        let server = node()
+            .args(["dist/main.mjs", &port.to_string()])
+            .current_dir(&root)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        Serving {
+            port,
+            server,
+            _work: work,
+        }
+    }
+
+    /// `request` sent on a new connection once the server takes one; the
+    /// response's status, headers with lower-case names, and body.
+    fn send(&self, request: &[u8]) -> (u16, Vec<(String, String)>, String) {
+        let started = Instant::now();
+        let mut stream = loop {
+            match TcpStream::connect(("127.0.0.1", self.port)) {
+                Ok(stream) => break stream,
+                Err(e) if started.elapsed() > Duration::from_secs(10) => panic!("{e}"),
+                Err(_) => std::thread::sleep(Duration::from_millis(20)),
+            }
+        };
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        stream.write_all(request).unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        let (head, body) = response.split_once("\r\n\r\n").unwrap();
+        let mut lines = head.lines();
+        let status = lines.next().unwrap().split(' ').nth(1).unwrap();
+        let headers = lines
+            .map(|line| line.split_once(": ").unwrap())
+            .map(|(name, value)| (name.to_ascii_lowercase(), value.to_owned()))
+            .collect();
+        (status.parse().unwrap(), headers, body.to_owned())
+    }
+}
+
+impl Drop for Serving {
+    fn drop(&mut self) {
+        let _ = self.server.kill();
+        let _ = self.server.wait();
+    }
+}
+
+/// A request closing its connection, with `headers`, each ending in a
+/// line break, and `body`.
+fn request(method: &str, target: &str, headers: &str, body: &[u8]) -> Vec<u8> {
+    let mut request = format!(
+        "{method} {target} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{headers}Content-Length: {}\r\n\r\n",
+        body.len()
+    )
+    .into_bytes();
+    request.extend_from_slice(body);
+    request
+}
+
+/// The value of the header `name` among `headers`.
+fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    (headers.iter())
+        .find(|(n, _)| n == name)
+        .map(|(_, value)| value.as_str())
+}
+
+#[test]
+fn a_server_reads_each_method_path_query_and_header_and_stops_on_sigterm() {
+    nomi_testkit::require_node();
+    let mut serving = Serving::start();
+    let methods = [
+        ("GET", "Get"),
+        ("HEAD", "Head"),
+        ("POST", "Post"),
+        ("PUT", "Put"),
+        ("PATCH", "Patch"),
+        ("DELETE", "Delete"),
+        ("OPTIONS", "Options"),
+        ("PURGE", "OtherMethod \"PURGE\""),
+    ];
+    for (method, read) in methods {
+        let sent = request(
+            method,
+            "/echo/a%20b//c/?q=x%26y&q=2&r",
+            "x-TeSt: Hi\r\n",
+            b"",
+        );
+        let (status, headers, body) = serving.send(&sent);
+        let echo = format!("({read},[\"echo\",\"a b\",\"c\"],(Just \"x&y\",Just \"Hi\"))");
+        assert_eq!(status, 200, "{method}");
+        assert_eq!(header(&headers, "x-echo"), Some(echo.as_str()), "{method}");
+        let expected = if method == "HEAD" { "" } else { &echo };
+        assert_eq!(body, expected, "{method}");
+        assert_eq!(
+            header(&headers, "content-type"),
+            Some("text/plain; charset=utf-8")
+        );
+    }
+    let (_, _, body) = serving.send(&request("GET", "/", "", b""));
+    assert_eq!(body, "(Get,[],(Nothing,Nothing))");
+    let sent = Command::new("kill")
+        .args(["-TERM".to_owned(), serving.server.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(sent.success());
+    let signalled = Instant::now();
+    while serving.server.try_wait().unwrap().is_none() && signalled.elapsed().as_secs() < 15 {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        serving.server.try_wait().unwrap().unwrap().code(),
+        Some(143)
+    );
+}
+
+#[test]
+fn a_server_decodes_json_bodies_and_refuses_large_and_bad_ones() {
+    nomi_testkit::require_node();
+    let serving = Serving::start();
+    let (status, headers, body) = serving.send(&request("POST", "/json", "", br#"{"n": 41}"#));
+    assert_eq!((status, body.as_str()), (200, r#"{"n":42}"#));
+    assert_eq!(header(&headers, "content-type"), Some("application/json"));
+    let (status, _, body) = serving.send(&request("POST", "/json", "", br#"{"n":"#));
+    assert_eq!(status, 400);
+    assert!(
+        body.starts_with("BadJson \"Problem with the given value"),
+        "{body}"
+    );
+    let (_, _, body) = serving.send(&request("POST", "/json", "", br#"{"n": "x"}"#));
+    assert!(
+        body.starts_with("BadJson \"Problem with the value at json.n"),
+        "{body}"
+    );
+    // A body past 1 MiB, whether its length is declared or not.
+    let large = vec![b' '; 1024 * 1024 + 1];
+    let (status, _, body) = serving.send(&request("POST", "/json", "", &large));
+    assert_eq!((status, body.as_str()), (400, "TooLarge"));
+    let mut chunked = b"POST /json HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec();
+    for _ in 0..2 {
+        chunked.extend_from_slice(format!("{:x}\r\n", large.len()).as_bytes());
+        chunked.extend_from_slice(&large);
+        chunked.extend_from_slice(b"\r\n");
+    }
+    chunked.extend_from_slice(b"0\r\n\r\n");
+    let (status, _, body) = serving.send(&chunked);
+    assert_eq!((status, body.as_str()), (400, "TooLarge"));
+    // At the limit, it is read.
+    let mut whole = vec![b' '; 1024 * 1024 - 9];
+    whole.extend_from_slice(br#"{"n": 1}"#);
+    whole.push(b' ');
+    let (status, _, body) = serving.send(&request("POST", "/json", "", &whole));
+    assert_eq!((status, body.as_str()), (200, r#"{"n":2}"#));
+}
+
+#[test]
+fn a_server_on_a_taken_port_fails_with_address_in_use() {
+    nomi_testkit::require_node();
+    let (_work, root) = built(SERVER);
+    let taken = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = taken.local_addr().unwrap().port();
+    let ran = node()
+        .args(["dist/main.mjs", &port.to_string()])
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert_eq!(ran.status.code(), Some(1), "{ran:?}");
+    assert_eq!(
+        errors(&ran),
+        ["nomi: the program failed: the address is already in use"]
     );
 }

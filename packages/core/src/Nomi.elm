@@ -1,8 +1,8 @@
-module Nomi exposing (Program, program, Env)
+module Nomi exposing (Program, program, Env, Net)
 
 {-| Programs that run on Node.
 
-@docs Program, program, Env
+@docs Program, program, Env, Net
 
 -}
 
@@ -29,13 +29,21 @@ running its finalizers, and the process exits 130 or 143.
 program : (Env -> Task String ()) -> Program
 program run =
     Elm.Kernel.Nomi.program
-        (\args vars -> run { args = args, vars = Dict.fromList vars })
+        (\args vars -> run { args = args, vars = Dict.fromList vars, net = Net })
 
 
-{-| What a program is given: the arguments after its file's name, and the
-environment's variables.
+{-| What a program is given: the arguments after its file's name, the
+environment's variables, and the network to serve on.
 -}
 type alias Env =
     { args : List String
     , vars : Dict String String
+    , net : Net
     }
+
+
+{-| The capability to listen on the network, which `Nomi.Server.listen`
+takes.
+-}
+type Net
+    = Net

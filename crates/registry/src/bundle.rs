@@ -31,7 +31,7 @@ macro_rules! files {
 }
 
 /// The bundled packages' files, by path under `packages/`.
-const FILES: [(&str, &[u8]); 7] = files![
+const FILES: [(&str, &[u8]); 10] = files![
     "core/elm.json",
     "core/src/Elm/Kernel/Nomi.js",
     "core/src/Nomi.elm",
@@ -39,6 +39,9 @@ const FILES: [(&str, &[u8]); 7] = files![
     "core/src/Nomi/Queue.elm",
     "core/src/Nomi/Ref.elm",
     "core/src/Nomi/Task.elm",
+    "server/elm.json",
+    "server/src/Elm/Kernel/NomiServer.js",
+    "server/src/Nomi/Server.elm",
 ];
 
 /// The extracted bundle's directory name, by a hash of its files.

@@ -1,7 +1,7 @@
 // A program for the lifecycle tests, picked by argv[2]. It prints "ready"
 // once it is waiting, so the test knows when to signal it.
 
-import { main } from "../src/main.js";
+import { allowShutdown, main } from "../src/main.js";
 import {
   acquireRelease,
   andThen,
@@ -9,12 +9,15 @@ import {
   die,
   fail,
   forkDaemon,
+  Runtime,
   scoped,
+  sleep,
   succeed,
   sync,
   yieldNow,
 } from "../src/fiber.js";
 
+const runtime = new Runtime();
 const say = (line) => sync(() => console.log(line));
 const forever = async(() => {
   const handle = setInterval(() => {}, 1 << 30);
@@ -29,6 +32,11 @@ const scenarios = {
   wait: () => scoped(andThen(resource("a"), () => andThen(resource("b"), () => ready(forever)))),
   // A finalizer that never ends: the deadline cuts it short.
   hang: () => scoped(andThen(resource("stuck", andThen(say("releasing"), () => forever)), () => ready(forever))),
+  // A finalizer slower than the deadline, which the program lengthened.
+  allowed: () =>
+    andThen(sync(() => allowShutdown(runtime, 2_000)), () =>
+      scoped(andThen(resource("slow", andThen(sleep(400), () => say("slow released"))), () => ready(forever))),
+    ),
   // Ends on its own; the daemon it left is interrupted and released.
   daemon: () =>
     andThen(forkDaemon(scoped(andThen(resource("daemon"), () => forever))), () =>
@@ -40,4 +48,4 @@ const scenarios = {
   defect: () => die(new Error("broken")),
 };
 
-main(scenarios[process.argv[2]](), { deadline: Number(process.argv[3] ?? 10_000) });
+main(scenarios[process.argv[2]](), { runtime, deadline: Number(process.argv[3] ?? 10_000) });
