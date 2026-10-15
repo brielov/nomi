@@ -63,16 +63,16 @@ pub fn generate(
     main_exports(&mut state.builders, &state.generator, &mains);
     let mut out = state.kernels;
     out.extend_from_slice(state.builders.as_bytes());
-    let end: &[u8] = match target.format {
-        Format::Iife => b"}(this));",
-        Format::EsModule => b"}(scope));\nexport const Elm = scope.Elm;\n",
-    };
-    out.extend_from_slice(end);
     if let (Platform::Node, Format::EsModule, [(home, _)]) =
         (target.platform, target.format, mains.as_slice())
     {
         out.extend_from_slice(shim(&home.module).as_bytes());
     }
+    let end: &[u8] = match target.format {
+        Format::Iife => b"}(this));",
+        Format::EsModule => b"}(scope));\nexport const Elm = scope.Elm;\n",
+    };
+    out.extend_from_slice(end);
     out
 }
 
@@ -489,9 +489,10 @@ mod tests {
         let with_runtime =
             |module: String| module.replacen(&note, &format!("{note}{}", runtime::prologue()), 1);
         let module = with_runtime(built(browser, &["Page.Home"]));
+        let (body, end) = module.split_at(module.rfind("}(scope));").unwrap());
         assert_eq!(
             built(node, &["Page.Home"]),
-            format!("{module}Elm.Page.Home.init();\n")
+            format!("{body}{}{end}", shim("Page.Home"))
         );
         assert_eq!(
             built(node, &["Main", "Other"]),

@@ -24,5 +24,5 @@ A Node program runs on the real clock; started with `NOMI_CLOCK=virtual`, it run
 | Fairness | `test/fiber.test.js`: "a busy fiber cannot starve another", "a busy runtime gives the event loop its turn"; `test/mailbox.test.js`: "a synchronous runtime leaves what is past its budget to the host" |
 | Mailboxes | `test/mailbox.test.js`: the property (each receiver takes its messages in the order sent, once each, under any schedule) and the unit tests |
 | Bookkeeping | `test/fiber.test.js`: the property (finished fibers leave every table), "a runtime at rest keeps no finished fiber's result alive"; `test/lifecycle.test.js`: "the runtime's metrics are complete when main resolves…" |
-| Lifecycle | `test/lifecycle.test.js`, which runs `fixtures/program.js` in child processes |
+| Lifecycle | `test/lifecycle.test.js`, which runs `fixtures/program.js` and `fixtures/worker.js` in child processes |
 | Test clock | `test/clock.test.js` |

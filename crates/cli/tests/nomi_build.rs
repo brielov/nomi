@@ -179,8 +179,9 @@ attempt(50);
     assert!(node_js.contains("var _Runtime = "));
 }
 
-/// A worker built for Node into an `.mjs` file starts when run; built
-/// for the browser, the module runs nothing.
+/// A worker built for Node into an `.mjs` file starts when run, and with
+/// nothing live exits 0 on its own; built for the browser, the module
+/// runs nothing.
 #[test]
 fn a_node_entry_starts_its_main_and_a_plain_module_runs_nothing() {
     nomi_testkit::require_node();
@@ -460,6 +461,89 @@ fn a_node_program_sleeps_and_ticks_on_its_clock() {
         if clock == "virtual" {
             assert!(took.as_millis() < 1000, "the virtual clock took {took:?}");
         }
+    }
+}
+
+/// A worker logging each tick of a `Time.every 20`.
+const TICKING_WORKER: &str = "module Main exposing (main)
+
+import Time
+
+
+main : Program () Int Time.Posix
+main =
+    Platform.worker
+        { init = \\_ -> ( 0, Cmd.none )
+        , update = \\_ ticks -> ( Debug.log \"tick\" (ticks + 1), Cmd.none )
+        , subscriptions = \\_ -> Time.every 20 identity
+        }
+";
+
+/// A `Platform.worker` entry lives while its `Time.every` is live, and
+/// SIGINT or SIGTERM shuts its runtime down and exits 130 or 143 within
+/// the lifecycle's deadline of ten seconds. One with nothing live exits
+/// 0 on its own (`a_node_entry_starts_its_main_and_a_plain_module_runs_nothing`).
+#[test]
+fn a_ticking_node_worker_runs_until_a_signal_and_exits_with_its_code() {
+    use std::io::{BufRead, BufReader};
+    use std::time::{Duration, Instant};
+
+    nomi_testkit::require_node();
+    let cache = website::fixture_cache();
+    let (_work, root) = project(TICKING_WORKER);
+    fs::write(
+        root.join("elm.json"),
+        r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "elm/time": "1.0.0"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
+    )
+    .unwrap();
+    build(
+        cache.path(),
+        &root,
+        &["--platform=node", "--output=dist/main.mjs"],
+    );
+    // Node itself: a version manager's `node` may exit 128 plus the
+    // signal for a child the signal killed.
+    let node = Command::new("node")
+        .args(["-p", "process.execPath"])
+        .output()
+        .unwrap();
+    let node = String::from_utf8(node.stdout).unwrap();
+    for (signal, code) in [("TERM", 143), ("INT", 130)] {
+        let mut node = Command::new(node.trim())
+            .arg("dist/main.mjs")
+            .current_dir(&root)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let (lines, ticks) = std::sync::mpsc::channel();
+        let stdout = BufReader::new(node.stdout.take().unwrap());
+        std::thread::spawn(move || {
+            for line in stdout.lines() {
+                let _ = lines.send(line.unwrap());
+            }
+        });
+        // Five ticks, a hundred milliseconds of nothing but a timer, and
+        // it hasn't exited.
+        for tick in 1..=5 {
+            let line = ticks.recv_timeout(Duration::from_secs(10));
+            assert_eq!(line.as_deref(), Ok(&*format!("tick: {tick}")), "{signal}");
+        }
+        assert!(node.try_wait().unwrap().is_none(), "{signal}");
+        let sent = Command::new("kill")
+            .args([format!("-{signal}"), node.id().to_string()])
+            .status()
+            .unwrap();
+        assert!(sent.success());
+        let signalled = Instant::now();
+        while node.try_wait().unwrap().is_none() && signalled.elapsed().as_secs() < 15 {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let _ = node.kill();
+        let ran = node.wait_with_output().unwrap();
+        let took = signalled.elapsed();
+        assert_eq!(ran.status.code(), Some(code), "SIG{signal}: {ran:?}");
+        assert!(took < Duration::from_secs(10), "SIG{signal} took {took:?}");
     }
 }
 

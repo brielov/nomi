@@ -7,14 +7,15 @@ import { fileURLToPath } from "node:url";
 import { andThen, async, forkDaemon, Runtime, succeed } from "../src/fiber.js";
 import { main } from "../src/main.js";
 
-const fixture = fileURLToPath(new URL("../fixtures/program.js", import.meta.url));
+const program = fileURLToPath(new URL("../fixtures/program.js", import.meta.url));
+const worker = fileURLToPath(new URL("../fixtures/worker.js", import.meta.url));
 
 /**
- * Runs the fixture scenario. The first of `signals` is sent once it prints
+ * Runs the scenario of `fixture`, `program` by default. The first of `signals` is sent once it prints
  * "ready", and each later one once it prints another line, in reaction to
  * the one before: two identical signals sent together can arrive as one.
  */
-function run(scenario, { signals = [], deadline } = {}) {
+function run(scenario, { fixture = program, signals = [], deadline } = {}) {
   const args = [fixture, scenario, ...(deadline === undefined ? [] : [String(deadline)])];
   const child = spawn(process.execPath, args, { stdio: ["ignore", "pipe", "pipe"] });
   let stdout = "";
@@ -89,6 +90,23 @@ test("the exit code follows the program's exit", async () => {
   const died = await run("defect");
   assert.equal(died.code, 1);
   assert.match(died.stderr, /defect: Error: broken/);
+});
+
+test("a worker's timer keeps it alive until a signal shuts its runtime down", posixSignals, async () => {
+  for (const [signal, code] of [
+    ["SIGTERM", 143],
+    ["SIGINT", 130],
+  ]) {
+    const { code: exited, stdout } = await run("ticking", { fixture: worker, signals: [signal] });
+    assert.equal(exited, code, signal);
+    assert.deepEqual(stdout, ["ticker acquired", "ready", "ticker released"], signal);
+  }
+});
+
+test("a worker with nothing live exits 0 on its own", async () => {
+  const { code, stdout } = await run("idle", { fixture: worker });
+  assert.equal(code, 0);
+  assert.deepEqual(stdout, ["ready"]);
 });
 
 test("an exit main does not know is a runtime bug, not a clean exit", async () => {

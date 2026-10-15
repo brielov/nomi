@@ -61,11 +61,13 @@ pub struct Target {
     pub dom: Dom,
 }
 
-/// The lines that end a Node entry's module and start its `main`, in
-/// `module`: checks of what the program needs from Node go first, then
-/// `init`, which passes a worker no flags.
+/// The lines that end a Node entry's function, where the program's
+/// runtime is, and start its `main`, in `module`: checks of what the
+/// program needs from Node go first, then the worker's lifecycle on the
+/// runtime, which handles signals, then `init`, which passes a worker no
+/// flags.
 pub fn shim(module: &str) -> String {
-    format!("Elm.{module}.init();\n")
+    format!("_Runtime.worker(_Scheduler_runtime);\nscope.Elm.{module}.init();\n")
 }
 
 #[cfg(test)]
@@ -74,7 +76,11 @@ mod tests {
 
     #[test]
     fn a_shim_starts_the_main_under_its_module_path() {
-        assert_eq!(shim("Main"), "Elm.Main.init();\n");
-        assert_eq!(shim("Server.Main"), "Elm.Server.Main.init();\n");
+        let lifecycle = "_Runtime.worker(_Scheduler_runtime);\n";
+        assert_eq!(shim("Main"), format!("{lifecycle}scope.Elm.Main.init();\n"));
+        assert_eq!(
+            shim("Server.Main"),
+            format!("{lifecycle}scope.Elm.Server.Main.init();\n")
+        );
     }
 }
