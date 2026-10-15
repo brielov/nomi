@@ -151,11 +151,24 @@ pub(super) fn merge<T: Clone>(into: &mut Exposed<T>, from: &Exposed<T>, bias: Bi
     }
 }
 
-/// The one home and its info, or an ambiguity among the homes.
-pub(super) fn one<T>(homes: &BTreeMap<Home, T>) -> Result<(&Home, &T), Vec<Home>> {
+/// The one home of the `kind` named `name` and its info, or the error
+/// that it is ambiguous among the homes.
+pub(super) fn one<'h, T>(
+    homes: &'h BTreeMap<Home, T>,
+    kind: NameKind,
+    range: TextRange,
+    prefix: Option<&str>,
+    name: &str,
+) -> R<(&'h Home, &'h T)> {
     match homes.len() {
         1 => Ok(homes.iter().next().expect("one home")),
-        _ => Err(homes.keys().cloned().collect()),
+        _ => throw(Error::Ambiguous {
+            kind,
+            range,
+            prefix: prefix.map(str::to_owned),
+            name: name.to_owned(),
+            homes: homes.keys().cloned().collect(),
+        }),
     }
 }
 
@@ -188,15 +201,7 @@ fn find<'e, T>(
         Some(prefix) => qualified.get(prefix),
     };
     match table.and_then(|t| t.get(name)) {
-        Some(homes) => one(homes).map(|(_, info)| info).or_else(|homes| {
-            throw(Error::Ambiguous {
-                kind,
-                range,
-                prefix: prefix.map(str::to_owned),
-                name: name.to_owned(),
-                homes,
-            })
-        }),
+        Some(homes) => one(homes, kind, range, prefix, name).map(|(_, info)| info),
         None => throw(Error::NotFound {
             kind,
             range,
@@ -276,18 +281,11 @@ impl<'a> Env<'a> {
     /// `findBinop`: the operator `op`.
     pub(super) fn find_binop(&self, range: TextRange, op: &str) -> R<&BinopInfo<'a>> {
         match self.binops.get(op) {
-            Some(homes) => one(homes)
-                .map(|(_, binop)| binop)
-                .inspect(|b| self.references.global(range, &b.home, op, Kind::Binop))
-                .or_else(|homes| {
-                    throw(Error::Ambiguous {
-                        kind: NameKind::Operator,
-                        range,
-                        prefix: None,
-                        name: op.to_owned(),
-                        homes,
-                    })
-                }),
+            Some(homes) => {
+                let (_, binop) = one(homes, NameKind::Operator, range, None, op)?;
+                self.references.global(range, &binop.home, op, Kind::Binop);
+                Ok(binop)
+            }
             None => throw(Error::NotFoundBinop {
                 range,
                 op: op.to_owned(),

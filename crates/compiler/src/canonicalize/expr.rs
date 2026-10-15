@@ -9,9 +9,9 @@ use std::collections::BTreeMap;
 use nomi_base::{Compat, TextRange, grow, grow_large};
 
 use super::binops;
-use super::dups::{Dict, check_fields};
+use super::dups::{Dict, in_name_order};
 use super::env::{self, BinopInfo, CtorInfo, Env, Var};
-use super::error::{DuplicatePatternContext, Error, NameKind, R, all, both, throw};
+use super::error::{DuplicatePatternContext, Error, NameKind, R, all, both, throw, tuple};
 use super::foreign::{is_kernel_module, is_kernel_package};
 use super::pattern::{self, Bindings};
 use super::references::{Kind, Target};
@@ -90,10 +90,6 @@ fn each(
     all(ids.iter().map(|&id| canonicalize(env, module, id, free)))
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "upstream's `canonicalize`, one arm per expression"
-)]
 fn canonicalize_(
     env: &Env<'_>,
     module: &hir::Module,
@@ -185,26 +181,13 @@ fn canonicalize_(
         },
         hir::Expr::Update { record, fields } => update(env, module, record, fields, free)?,
         hir::Expr::Record(fields) => {
-            let fields = check_fields(
-                env.compat,
-                fields.iter().map(|(name, value)| (name, *value)),
-            )?;
-            let names = env.compat.sorted_names(fields.keys());
-            let values = all(names
-                .iter()
-                .map(|n| canonicalize(env, module, fields[*n], free).map(|v| ((*n).clone(), v))))?;
-            ExprKind::Record(values.into_iter().collect())
+            let fields = fields.iter().map(|(name, value)| (name, *value));
+            let each = |value| canonicalize(env, module, value, free);
+            ExprKind::Record(in_name_order(env.compat, fields, each)?)
         }
         hir::Expr::Tuple(items) => {
-            let a = canonicalize(env, module, items[0], free);
-            let b = canonicalize(env, module, items[1], free);
-            let rest = match &items[2..] {
-                [] => Ok(None),
-                [c] => canonicalize(env, module, *c, free).map(Some),
-                _ => throw(Error::TupleLargerThanThree { range: region }),
-            };
-            let ((a, b), c) = both(both(a, b), rest)?;
-            ExprKind::Tuple(Box::new(a), Box::new(b), c.map(Box::new))
+            let (a, b, c) = tuple(items, region, |item| canonicalize(env, module, item, free))?;
+            ExprKind::Tuple(a, b, c)
         }
     };
     Ok(expr(region, kind))
@@ -273,14 +256,8 @@ fn update(
     let found =
         find_var(env, record.range, &record.text, free).map(|kind| expr(record.range, kind));
     let fields = (fields.iter()).map(|(name, value)| (name, (name.range, *value)));
-    let fields = check_fields(env.compat, fields).and_then(|fields| {
-        let names = env.compat.sorted_names(fields.keys());
-        let values = all(names.iter().map(|n| {
-            let (region, value) = fields[*n];
-            canonicalize(env, module, value, free)
-                .map(|value| ((*n).clone(), FieldUpdate { region, value }))
-        }));
-        values.map(|v| v.into_iter().collect::<BTreeMap<_, _>>())
+    let fields = in_name_order(env.compat, fields, |(region, value)| {
+        canonicalize(env, module, value, free).map(|value| FieldUpdate { region, value })
     });
     let (found, fields) = both(found, fields)?;
     Ok(ExprKind::Update {
@@ -413,15 +390,7 @@ fn foreign_var(
     name: &str,
     homes: &BTreeMap<Home, &Annotation>,
 ) -> R<ExprKind> {
-    let (home, annotation) = env::one(homes).or_else(|homes| {
-        throw(Error::Ambiguous {
-            kind: NameKind::Value,
-            range: region,
-            prefix: prefix.map(str::to_owned),
-            name: name.to_owned(),
-            homes,
-        })
-    })?;
+    let (home, annotation) = env::one(homes, NameKind::Value, region, prefix, name)?;
     env.references.global(region, home, name, Kind::Value);
     let annotation = (*annotation).clone();
     Ok(if home.is("elm/core", "Debug") {

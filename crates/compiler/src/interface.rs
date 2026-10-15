@@ -49,9 +49,9 @@ pub enum Union {
 /// An alias as the module exports it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Alias {
-    Public(canonical::Alias),
+    Public(Arc<canonical::Alias>),
     /// Not exported, but needed to read the types of what is.
-    Private(canonical::Alias),
+    Private(Arc<canonical::Alias>),
 }
 
 /// `Binop`: an operator, the function it stands for, that function's
@@ -82,7 +82,7 @@ impl Alias {
     }
 
     /// `extractAlias`.
-    pub fn whole(&self) -> &canonical::Alias {
+    pub fn whole(&self) -> &Arc<canonical::Alias> {
         match self {
             Alias::Public(alias) | Alias::Private(alias) => alias,
         }
@@ -100,18 +100,10 @@ impl Interface {
 
     /// The interface `bytes` encode, if they are one.
     pub fn decode(bytes: &[u8]) -> Option<Interface> {
-        decode_all(bytes, Decoder::interface)
+        let mut d = Decoder::new(bytes);
+        let interface = d.interface()?;
+        d.end().then_some(interface)
     }
-}
-
-/// What `read` makes of `bytes`, if it reads every one.
-fn decode_all<'b, T>(
-    bytes: &'b [u8],
-    read: impl FnOnce(&mut Decoder<'b>) -> Option<T>,
-) -> Option<T> {
-    let mut d = Decoder::new(bytes);
-    let value = read(&mut d)?;
-    d.end().then_some(value)
 }
 
 #[cfg(test)]

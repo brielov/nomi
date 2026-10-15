@@ -5,20 +5,12 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use nomi_base::Compat;
 use nomi_codegen_js::kernel;
 use nomi_compiler::optimized::{Chunk, GlobalGraph, Node, binary};
 use nomi_testkit::packages;
-
-/// The fixture release of the package `name`.
-fn package_dir(name: &str) -> PathBuf {
-    (packages::manifest().into_iter())
-        .find(|package| package.name == name)
-        .unwrap_or_else(|| panic!("no fixture release of {name}"))
-        .dir()
-}
 
 /// The modules elm/core exposes, under its headings, which elm/json's
 /// kernel imports from.
@@ -34,8 +26,8 @@ fn exposed(core: &Path) -> BTreeMap<String, String> {
 
 #[test]
 fn kernels_parse_as_elm_parsed_them() {
-    let core = package_dir("elm/core");
-    let json = package_dir("elm/json");
+    let core = packages::release("elm/core").dir();
+    let json = packages::release("elm/json").dir();
     let core_exposed = exposed(&core);
     let none = BTreeMap::new();
     let mut checked = 0;

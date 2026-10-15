@@ -49,7 +49,7 @@ nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it wait
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **Q.16b**.
+4. Resume at the first unchecked box. Right now that is **Q.16c**.
 
 ### Test tiers
 
@@ -1209,7 +1209,10 @@ The second exit review (12 fresh reviews, kept in `~/.cache/nomi-dev/quality/exi
 
   Done: project's JSON parser reads through the outline scanner's `Scan` rather than a cursor of its own; elm's and elm-format's number scanners are one `chomp_number`, elm-format's copy gone; the parser's reports write the closing-bracket sentence and the type-name report once each, and the keywords one arm each; `\x` escapes fold through `int_digits`, and the AST generator writes its accessors straight into its output; the formatter's invariants take the output already made, so the fixtures and the corpus suite format each module once; literal bodies come from `literal_body`, links and docs names are written in place, and one `Block::lines` serves the three places that took a block's lines. 11 lines more, the keyword list and the shared scanner's two small enums, where elm-format's scanner lost about 70. Formatting the corpus apps takes 0.29 s, as before. CI and the `syntax`, `format` and `outline` corpus suites are unchanged.
 
-- [ ] **Q.16b** `quality: second exit findings, compiler, codegen-js, test and testkit` (compiler 10; codegen-js, test and testkit 7).
+- [x] **Q.16b** `quality: second exit findings, compiler, codegen-js, test and testkit` (compiler 10; codegen-js, test and testkit 7).
+
+  Done: nomi's interfaces no longer store constructor indices and counts, which their places give (format version 3); one `env::one` builds the ambiguous-name error, one `dups::in_name_order` checks record fields, one `error::tuple` sizes tuples, and `Home::author_and_project` serves reports, interfaces and codegen; aliases are shared `Arc`s like unions, so module types copy neither; the error printer reads an alias's parts through a borrowed `AliasParts`, without its `unreachable!`; `children` pushes onto the solver's stack rather than building a list per node; the test runner parses each result once under `--report junit`; testkit's last wildcard over `Method`, its temporary strings and its too-wide items are gone. 41 lines more, the alias parts and the variant list. Builds and checks take the same time as Q.16a. CI and the `check`, `graphs`, `objects`, `javascript`, `docs`, `tests` and `lsp` corpus suites are unchanged.
+
 - [ ] **Q.16c** `quality: second exit findings, engine, ide, lsp and cli` (engine 5; ide 8; lsp and cli 5).
 - [ ] **Q.16d** `quality: second exit findings, xtask` (10).
 

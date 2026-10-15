@@ -17,7 +17,7 @@ use crate::hir::{Associativity, Fixity};
 use crate::interface::{self, Binop, Interface};
 
 /// Bumped whenever the encoding changes, so old bytes never decode as new.
-const VERSION: u8 = 2;
+const VERSION: u8 = 3;
 
 /// Each fieldless enum's values, by the tag that encodes them.
 const ASSOCIATIVITIES: [Associativity; 3] = [
@@ -34,7 +34,7 @@ const UNIONS: [fn(Arc<Union>) -> interface::Union; 3] = [
     interface::Union::Closed,
     interface::Union::Private,
 ];
-const ALIASES: [fn(Alias) -> interface::Alias; 2] =
+const ALIASES: [fn(Arc<Alias>) -> interface::Alias; 2] =
     [interface::Alias::Public, interface::Alias::Private];
 const ALIAS_TYPES: [fn(Arc<Type>) -> AliasType; 2] = [AliasType::Holey, AliasType::Filled];
 
@@ -175,15 +175,13 @@ impl Encoder {
     fn union(&mut self, u: &Union) {
         self.strs(&u.vars);
         self.len(u.ctors.len());
-        for (index, ctor) in u.ctors.iter().enumerate() {
+        for ctor in &u.ctors {
             self.str(&ctor.name);
-            self.len(index);
             self.len(ctor.args.len());
             for arg in &ctor.args {
                 self.ty(arg);
             }
         }
-        self.len(u.ctors.len());
         self.tag(&CTOR_OPTS, u.opts);
     }
 
@@ -387,7 +385,7 @@ impl<'a> Decoder<'a> {
         let home = self.str()?;
         let values = self.map(Decoder::annotation)?;
         let unions = self.map(|d| Some(d.tag(&UNIONS)?(d.union()?)))?;
-        let aliases = self.map(|d| Some(d.tag(&ALIASES)?(d.alias()?)))?;
+        let aliases = self.map(|d| Some(d.tag(&ALIASES)?(Arc::new(d.alias()?))))?;
         let binops = self.map(|d| {
             Some(Binop {
                 function: d.str()?,
@@ -425,17 +423,13 @@ impl<'a> Decoder<'a> {
         let vars = self.strs()?;
         let n = self.len()?;
         let ctors: Vec<Ctor> = (0..n)
-            .map(|index| {
+            .map(|_| {
                 let name = self.str()?;
-                // A place among the constructors, not a length of bytes.
-                (self.leb128()? == index).then_some(())?;
                 let count = self.len()?;
                 let args = (0..count).map(|_| self.ty()).collect::<Option<_>>()?;
                 Some(Ctor { name, args })
             })
             .collect::<Option<_>>()?;
-        // How many constructors, not a length of bytes.
-        (self.leb128()? == ctors.len()).then_some(())?;
         let union = Union {
             vars,
             ctors,

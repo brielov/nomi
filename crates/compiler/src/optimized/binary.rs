@@ -71,17 +71,13 @@ pub fn decode_global_graph(bytes: &[u8], compat: Compat) -> Option<GlobalGraph> 
 /// `Ord ModuleName.Canonical`: by module name as the release orders
 /// names, then package, by author, then project, each by bytes.
 pub fn homes(compat: Compat, a: &Home, b: &Home) -> Ordering {
-    (compat.compare_names(&a.module, &b.module)).then_with(|| split(a).cmp(&split(b)))
+    (compat.compare_names(&a.module, &b.module))
+        .then_with(|| a.author_and_project().cmp(&b.author_and_project()))
 }
 
 /// `Ord Opt.Global`: by name, then home.
 pub fn globals(compat: Compat, a: &Global, b: &Global) -> Ordering {
     (compat.compare_names(&a.name, &b.name)).then_with(|| homes(compat, &a.home, &b.home))
-}
-
-/// A home's package, as author and project.
-fn split(home: &Home) -> (&str, &str) {
-    home.package.split_once('/').unwrap_or(("", &home.package))
 }
 
 /// 0.19.3's constraint on a type variable, from its name (`TypeVar.hs`,
@@ -238,7 +234,7 @@ impl Out {
     }
 
     fn home(&mut self, home: &Home) {
-        let (author, project) = split(home);
+        let (author, project) = home.author_and_project();
         self.name(author);
         self.name(project);
         self.name(&home.module);

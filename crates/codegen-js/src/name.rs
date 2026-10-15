@@ -52,7 +52,7 @@ impl Name {
     /// `homeToBuilder`, `$author$project$Module` with `-` as `_` in the
     /// package and `.` as `$` in the module, then `infix` and `name`.
     fn in_home(home: &Home, infix: &str, name: &str) -> Name {
-        let (author, project) = home.package.split_once('/').unwrap_or(("", &home.package));
+        let (author, project) = home.author_and_project();
         let mut out = String::with_capacity(
             home.package.len() + home.module.len() + infix.len() + name.len() + 2,
         );

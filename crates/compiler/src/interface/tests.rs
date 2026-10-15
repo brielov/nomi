@@ -72,10 +72,10 @@ fn sample() -> Interface {
         unions: BTreeMap::from([("Maybe".to_owned(), Union::Open(union.into()))]),
         aliases: BTreeMap::from([(
             "Point".to_owned(),
-            Alias::Private(canonical::Alias {
+            Alias::Private(Arc::new(canonical::Alias {
                 vars: vec!["r".to_owned()],
                 ty: point.into(),
-            }),
+            })),
         )]),
         binops: BTreeMap::from([(
             "|>".to_owned(),
@@ -229,10 +229,10 @@ fn interface() -> impl Strategy<Value = Interface> {
         });
     let alias = (prop::collection::vec(name(), 0..2), ty(), any::<bool>()).prop_map(
         |(vars, ty, public)| {
-            let alias = canonical::Alias {
+            let alias = Arc::new(canonical::Alias {
                 vars,
                 ty: ty.into(),
-            };
+            });
             if public {
                 Alias::Public(alias)
             } else {

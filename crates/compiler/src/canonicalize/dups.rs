@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 use nomi_base::{Compat, TextRange};
 
-use super::error::{Duplicated, Error, R, collected};
+use super::error::{Duplicated, Error, R, all, collected};
 use crate::hir::Spanned;
 
 /// `Dups.Dict`.
@@ -100,4 +100,19 @@ pub(super) fn check_fields<'a, V>(
         dict.insert_first(&name.text, name.range, value);
     }
     dict.detect(compat, Duplicated::Field.error())
+}
+
+/// A record's fields, checked by [`check_fields`] and then each turned by
+/// `each` in `compat`'s name order.
+pub(super) fn in_name_order<'a, V, T>(
+    compat: Compat,
+    fields: impl DoubleEndedIterator<Item = (&'a Spanned, V)>,
+    mut each: impl FnMut(V) -> R<T>,
+) -> R<BTreeMap<String, T>> {
+    let mut fields: Vec<(String, V)> = check_fields(compat, fields)?.into_iter().collect();
+    fields.sort_by(|a, b| compat.compare_names(&a.0, &b.0));
+    let fields = all(fields
+        .into_iter()
+        .map(|(name, v)| each(v).map(|t| (name, t))))?;
+    Ok(fields.into_iter().collect())
 }

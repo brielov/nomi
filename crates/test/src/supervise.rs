@@ -48,8 +48,9 @@ enum Event {
     Err(String),
 }
 
-/// A result as a worker sent it: its text, which the JSON report prints
-/// as it is, and its value, with the fields the reports read.
+/// A result as a worker sent it, for the streamed reports: its text,
+/// which the JSON report prints as it is, and its value, with the fields
+/// the reports read.
 struct Sent {
     text: String,
     value: Value,
@@ -265,7 +266,7 @@ enum Kept {
     },
     /// `JUnit` lists every result as the run ends, in the order they came.
     All {
-        results: HashMap<usize, Sent>,
+        results: HashMap<usize, Json>,
         order: Vec<usize>,
     },
 }
@@ -417,17 +418,18 @@ impl State {
             }
             Kind::Summary => {
                 self.flush(console);
-                let sent = message.message.map(Sent::new);
                 if message.exit_code == Some(1) {
+                    let sent = message.message.map(Sent::new);
                     let text = sent
                         .as_ref()
                         .map_or(Cow::Borrowed("undefined"), |s| js_string(&s.value));
                     console.err(&format!("{text}\n"));
-                } else {
-                    print(console, report, sent.as_ref());
-                    if let (Kept::All { results, order }, Some(sent)) = (&self.kept, &sent) {
-                        console.out(&format!("{}\n", junit(results, order, sent)));
+                } else if let Kept::All { results, order } = &mut self.kept {
+                    if let Some(summary) = message.message {
+                        console.out(&format!("{}\n", junit(results, order, summary)));
                     }
+                } else {
+                    print(console, report, message.message.map(Sent::new).as_ref());
                 }
                 Some(message.exit_code.unwrap_or(1))
             }
@@ -469,10 +471,10 @@ impl State {
         results.sort_by_key(|(index, _)| *index);
         let report = self.supervise.report;
         for (index, raw) in results {
-            let result = Sent::new(raw);
             match &mut self.kept {
                 Kept::All { results, order } => {
-                    if result.value.get("failure").is_some() {
+                    let result = parse(raw);
+                    if result.get("failure").is_some() {
                         self.failures += 1;
                     }
                     if results.insert(index, result).is_none() {
@@ -484,6 +486,7 @@ impl State {
                     waiting,
                     todos,
                 } => {
+                    let result = Sent::new(raw);
                     match result.status {
                         Some(Status::Fail) => self.failures += 1,
                         Some(Status::Todo) if report == Report::Json => todos.push(json!({
@@ -523,15 +526,18 @@ impl State {
     }
 }
 
-/// The `JUnit` report: the summary's XML with every result, in the
+/// The `JUnit` report: the summary's XML with every result, taken in the
 /// order they came.
-fn junit(results: &HashMap<usize, Sent>, order: &[usize], summary: &Sent) -> String {
-    let parse = |text: &str| serde_json::from_str::<Json>(text).unwrap_or(Json::Null);
+fn junit(results: &mut HashMap<usize, Json>, order: &[usize], summary: &RawValue) -> String {
     let results = (order.iter())
-        .filter_map(|index| results.get(index))
-        .map(|result| parse(&result.text))
+        .filter_map(|index| results.remove(index))
         .collect();
-    junit::report(parse(&summary.text), results)
+    junit::report(parse(summary), results)
+}
+
+/// `raw` with its objects' fields in order, or null if it is no JSON.
+fn parse(raw: &RawValue) -> Json {
+    serde_json::from_str(raw.get()).unwrap_or(Json::Null)
 }
 
 /// `printResult`.
@@ -653,6 +659,9 @@ mod tests {
             panic!("JUnit keeps every result")
         };
         assert_eq!(*order, [1, 0, 2]);
-        assert_eq!(results[&0].status, Some(Status::Todo));
+        assert_eq!(
+            results[&0].get("status"),
+            Some(&Json::String("todo".into()))
+        );
     }
 }

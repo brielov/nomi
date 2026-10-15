@@ -1,13 +1,13 @@
 //! Canonicalizing types (`Canonicalize/Type.hs`): each name resolved to
 //! the type or alias it means, with its arity checked.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use nomi_base::{grow, grow_large};
 
-use super::dups::check_fields;
+use super::dups::in_name_order;
 use super::env::{Env, TypeInfo};
-use super::error::{ArityContext, Error, R, all, both, throw};
+use super::error::{ArityContext, Error, R, all, both, throw, tuple};
 use crate::canonical::{AliasType, Annotation, FieldType, Type};
 use crate::hir::{self, TypeId};
 
@@ -81,18 +81,11 @@ fn canonicalize_(env: &Env<'_>, module: &hir::Module, id: TypeId) -> R<Type> {
             Ok(Type::Lambda(Box::new(a), Box::new(b)))
         }
         hir::Type::Record { fields, extends } => {
-            // The fields are checked for duplicates before any is
-            // canonicalized, and then canonicalized in name order.
             let fields = (fields.iter().enumerate()).map(|(i, (name, ty))| (name, (i, *ty)));
-            let fields = check_fields(env.compat, fields)?;
-            let names = env.compat.sorted_names(fields.keys());
-            let types = all(names.iter().map(|name| {
-                let (i, ty) = fields[*name];
+            let fields = in_name_order(env.compat, fields, |(i, ty)| {
                 let order = u16::try_from(i).unwrap_or(u16::MAX);
                 canonicalize(env, module, ty).map(|ty| FieldType { order, ty })
-            }))?;
-            let fields: BTreeMap<String, FieldType> =
-                names.into_iter().cloned().zip(types).collect();
+            })?;
             Ok(Type::Record(
                 fields,
                 extends.as_ref().map(|e| e.text.clone()),
@@ -100,17 +93,8 @@ fn canonicalize_(env: &Env<'_>, module: &hir::Module, id: TypeId) -> R<Type> {
         }
         hir::Type::Unit => Ok(Type::Unit),
         hir::Type::Tuple(items) => {
-            let (a, b) = (items[0], items[1]);
-            let rest = match &items[2..] {
-                [] => Ok(None),
-                [c] => canonicalize(env, module, *c).map(Some),
-                _ => throw(Error::TupleLargerThanThree { range }),
-            };
-            let ((a, b), c) = both(
-                both(canonicalize(env, module, a), canonicalize(env, module, b)),
-                rest,
-            )?;
-            Ok(Type::Tuple(Box::new(a), Box::new(b), c.map(Box::new)))
+            let (a, b, c) = tuple(items, range, |item| canonicalize(env, module, item))?;
+            Ok(Type::Tuple(a, b, c))
         }
     }
 }

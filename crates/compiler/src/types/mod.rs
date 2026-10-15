@@ -219,29 +219,37 @@ enum AliasReal {
     Skip,
 }
 
-/// The variables `content` holds, in order: an alias's arguments, then
-/// its real type where `real` takes it.
-fn children(content: &Content, real: AliasReal) -> Vec<Variable> {
+/// The variables `content` holds, pushed onto `into` in order: an alias's
+/// arguments, then its real type where `real` takes it.
+fn children(content: &Content, real: AliasReal, into: &mut Vec<Variable>) {
     match content {
         Content::FlexVar(_)
         | Content::FlexSuper(..)
         | Content::RigidVar(_)
         | Content::RigidSuper(..)
-        | Content::Error => Vec::new(),
+        | Content::Error => {}
         Content::Structure(flat) => match flat {
-            FlatType::App1 { args, .. } => args.clone(),
-            FlatType::Fun1(a, b) => vec![*a, *b],
-            FlatType::EmptyRecord1 | FlatType::Unit1 => Vec::new(),
-            FlatType::Record1(fields, ext) => fields.values().copied().chain([*ext]).collect(),
-            FlatType::Tuple1(a, b, c) => [Some(*a), Some(*b), *c].into_iter().flatten().collect(),
+            FlatType::App1 { args, .. } => into.extend(args),
+            FlatType::Fun1(a, b) => into.extend([*a, *b]),
+            FlatType::EmptyRecord1 | FlatType::Unit1 => {}
+            FlatType::Record1(fields, ext) => {
+                into.extend(fields.values());
+                into.push(*ext);
+            }
+            FlatType::Tuple1(a, b, c) => {
+                into.extend([*a, *b]);
+                into.extend(*c);
+            }
         },
         Content::Alias {
             args,
             real: alias_real,
             ..
         } => {
-            let real = (real == AliasReal::Include).then_some(*alias_real);
-            args.iter().map(|(_, a)| *a).chain(real).collect()
+            into.extend(args.iter().map(|(_, a)| *a));
+            if real == AliasReal::Include {
+                into.push(*alias_real);
+            }
         }
     }
 }

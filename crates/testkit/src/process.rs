@@ -63,7 +63,7 @@ pub fn run_within(
 /// How `child` ended, looking every `poll`: `Ok` on its own, or `Err` as
 /// it ended once killed for running past `limit`. A failure to look kills
 /// it too, so its readers see the pipes close.
-pub fn wait_within(
+pub(crate) fn wait_within(
     child: &mut Child,
     limit: Duration,
     poll: Duration,
@@ -83,7 +83,7 @@ pub fn wait_within(
 }
 
 /// Everything `pipe` gives, read on a thread of its own.
-pub fn read_all(mut pipe: impl Read + Send + 'static) -> JoinHandle<Vec<u8>> {
+fn read_all(mut pipe: impl Read + Send + 'static) -> JoinHandle<Vec<u8>> {
     thread::spawn(move || {
         let mut bytes = Vec::new();
         let _ = pipe.read_to_end(&mut bytes);

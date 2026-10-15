@@ -23,8 +23,8 @@ pub type Types = HashMap<Home, ModuleTypes>;
 pub struct ModuleTypes {
     /// The module's unions, by name, shared with its interface.
     pub unions: BTreeMap<String, Arc<Union>>,
-    /// The module's aliases, by name.
-    pub aliases: BTreeMap<String, Alias>,
+    /// The module's aliases, by name, shared with its interface.
+    pub aliases: BTreeMap<String, Arc<Alias>>,
 }
 
 impl ModuleTypes {
@@ -36,7 +36,7 @@ impl ModuleTypes {
                 .map(|(name, union)| (name.clone(), Arc::clone(union.whole())))
                 .collect(),
             aliases: (interface.aliases.iter())
-                .map(|(name, alias)| (name.clone(), alias.whole().clone()))
+                .map(|(name, alias)| (name.clone(), Arc::clone(alias.whole())))
                 .collect(),
         }
     }
@@ -51,7 +51,7 @@ impl ModuleTypes {
                 .map(|(name, union)| (name.clone(), interface::Union::Private(Arc::clone(union))))
                 .collect(),
             aliases: (self.aliases.iter())
-                .map(|(name, alias)| (name.clone(), interface::Alias::Private(alias.clone())))
+                .map(|(name, alias)| (name.clone(), interface::Alias::Private(Arc::clone(alias))))
                 .collect(),
             binops: BTreeMap::new(),
         }

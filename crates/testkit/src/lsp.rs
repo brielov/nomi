@@ -396,6 +396,7 @@ impl std::fmt::Debug for Client {
 }
 
 impl Client {
+    /// A client over `connection`, no request sent yet.
     pub fn new(connection: Connection) -> Client {
         Client {
             connection,
@@ -437,6 +438,7 @@ impl Client {
         }
     }
 
+    /// Sends the notification `method` with `params`.
     pub fn notify(&self, method: &str, params: Value) {
         self.send(Message::Notification(Notification::new(
             method.to_owned(),
@@ -774,8 +776,24 @@ impl Driver {
                 match step.method {
                     Method::CodeAction => params.insert("range".into(), range),
                     Method::SelectionRange => params.insert("positions".into(), json!([start])),
-                    _ if end.is_some() => params.insert("range".into(), range),
-                    _ => params.insert("position".into(), json!(start)),
+                    Method::DidOpen
+                    | Method::DidChange
+                    | Method::DidSave
+                    | Method::DidClose
+                    | Method::CodeLens
+                    | Method::Completion
+                    | Method::References
+                    | Method::Rename
+                    | Method::WillRenameFiles
+                    | Method::FindTests
+                    | Method::CodeLensResolve
+                    | Method::CompletionResolve
+                    | Method::CodeActionResolve
+                    | Method::Notification(_)
+                    | Method::Request(_) => match end {
+                        Some(_) => params.insert("range".into(), range),
+                        None => params.insert("position".into(), json!(start)),
+                    },
                 };
             }
             if step.method == Method::CodeAction {
@@ -1067,7 +1085,7 @@ pub fn to_text(value: &Value) -> String {
     fn write(value: &Value, depth: usize, out: &mut String) {
         let indent = |out: &mut String, depth: usize| {
             out.push('\n');
-            out.push_str(&"  ".repeat(depth));
+            out.extend(std::iter::repeat_n(' ', 2 * depth));
         };
         match value {
             Value::Array(items) if depth < TEXT_DEPTH && !items.is_empty() => {
@@ -1089,14 +1107,14 @@ pub fn to_text(value: &Value) -> String {
                         out.push(',');
                     }
                     indent(out, depth + 1);
-                    out.push_str(&serde_json::to_string(key).unwrap());
+                    out.push_str(&serde_json::to_string(key).expect("JSON values serialize"));
                     out.push_str(": ");
                     write(item, depth + 1, out);
                 }
                 indent(out, depth);
                 out.push('}');
             }
-            value => out.push_str(&serde_json::to_string(value).unwrap()),
+            value => out.push_str(&serde_json::to_string(value).expect("JSON values serialize")),
         }
     }
     let mut out = String::new();
@@ -1148,8 +1166,8 @@ pub fn outcomes(case: &str, expected: &Value, actual: &Value) -> Vec<(String, Re
         } else {
             Err(format!(
                 "expected {}\n   found {}",
-                serde_json::to_string(e).unwrap(),
-                serde_json::to_string(a).unwrap()
+                serde_json::to_string(e).expect("JSON values serialize"),
+                serde_json::to_string(a).expect("JSON values serialize")
             ))
         }
     };

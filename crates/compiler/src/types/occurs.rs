@@ -7,20 +7,29 @@ use super::{AliasReal, Variable, Variables, children};
 
 /// `occurs`.
 pub(super) fn occurs(vars: &mut Variables, var: Variable) -> bool {
-    occurs_help(vars, &mut Vec::new(), var)
+    occurs_help(vars, &mut Vec::new(), &mut Vec::new(), var)
 }
 
-fn occurs_help(vars: &mut Variables, seen: &mut Vec<Variable>, var: Variable) -> bool {
+/// `stack` holds each call's children above its caller's.
+fn occurs_help(
+    vars: &mut Variables,
+    seen: &mut Vec<Variable>,
+    stack: &mut Vec<Variable>,
+    var: Variable,
+) -> bool {
     if seen.contains(&var) {
         return true;
     }
-    let children = children(&vars.get(var).content, AliasReal::Skip);
+    let from = stack.len();
+    children(&vars.get(var).content, AliasReal::Skip, stack);
     seen.push(var);
     // Every child is visited, as upstream's fold visits them.
     let mut found = false;
-    for child in children {
-        found |= nomi_base::grow(|| occurs_help(vars, seen, child));
+    for i in from..stack.len() {
+        let child = stack[i];
+        found |= nomi_base::grow(|| occurs_help(vars, seen, stack, child));
     }
+    stack.truncate(from);
     seen.pop();
     found
 }

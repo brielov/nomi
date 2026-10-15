@@ -45,13 +45,8 @@ fn suggestions(found: &[String], none: Doc) -> Doc {
 fn sorted_homes(homes: &[Home], compat: Compat) -> Vec<Home> {
     let mut homes = homes.to_vec();
     homes.sort_by(|a, b| {
-        let split = |h: &Home| {
-            h.package
-                .as_str()
-                .split_once('/')
-                .unwrap_or((h.package.as_str(), ""))
-        };
-        let ((a_author, a_project), (b_author, b_project)) = (split(a), split(b));
+        let ((a_author, a_project), (b_author, b_project)) =
+            (a.author_and_project(), b.author_and_project());
         compat
             .compare_names(a_author, b_author)
             .then_with(|| compat.compare_names(a_project, b_project))

@@ -58,7 +58,7 @@ pub(super) fn run(
         saved: BTreeMap::new(),
         mark: NO_MARK.next(),
         errors: Vec::new(),
-        adjusting: Vec::new(),
+        stack: Vec::new(),
     };
     solver.solve(OUTERMOST_RANK, constraint);
     let Solver {
@@ -90,9 +90,9 @@ struct Solver<'v> {
     mark: Mark,
     /// Earliest first.
     errors: Vec<TypeError>,
-    /// The variables `adjust_rank` has yet to visit, each call's above
-    /// its caller's.
-    adjusting: Vec<Variable>,
+    /// The variables `adjust_rank` and `restore` have yet to visit, each
+    /// call's above its caller's.
+    stack: Vec<Variable>,
 }
 
 /// A name a `let` header binds, where, and its variable.
@@ -562,9 +562,13 @@ impl Solver<'_> {
             descriptor.rank = NO_RANK;
             descriptor.mark = NO_MARK;
             descriptor.copy = None;
-            for child in children(&descriptor.content, AliasReal::Include) {
+            let from = self.stack.len();
+            children(&descriptor.content, AliasReal::Include, &mut self.stack);
+            for i in from..self.stack.len() {
+                let child = self.stack[i];
                 self.restore(child);
             }
+            self.stack.truncate(from);
         });
     }
 
@@ -619,18 +623,18 @@ impl Solver<'_> {
                 descriptor.mark = visit;
                 // `adjustRankContent`: the children are read onto the
                 // stack's top rather than the content copied.
-                let from = self.adjusting.len();
-                let max_rank = match rank_children(&descriptor.content, &mut self.adjusting) {
+                let from = self.stack.len();
+                let max_rank = match rank_children(&descriptor.content, &mut self.stack) {
                     None => group_rank,
                     Some(start) => {
-                        let to = self.adjusting.len();
+                        let to = self.stack.len();
                         let mut max_rank = start;
                         for i in from..to {
-                            let child = self.adjusting[i];
+                            let child = self.stack[i];
                             max_rank =
                                 max_rank.max(self.adjust_rank(young, visit, group_rank, child));
                         }
-                        self.adjusting.truncate(from);
+                        self.stack.truncate(from);
                         max_rank
                     }
                 };

@@ -38,6 +38,13 @@ impl Home {
     pub fn is(&self, package: &str, module: &str) -> bool {
         self.package == package && self.module == module
     }
+
+    /// The package's author and project; a package without a `/`, which
+    /// no valid name is, is all project.
+    #[inline]
+    pub fn author_and_project(&self) -> (&str, &str) {
+        self.package.split_once('/').unwrap_or(("", &self.package))
+    }
 }
 
 /// `Can.Type`.

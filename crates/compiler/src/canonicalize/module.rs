@@ -356,9 +356,9 @@ pub fn interface(canonical: &Canonical, inferred: &BTreeMap<String, Annotation>)
     let aliases = (canonical.aliases.iter())
         .map(|(name, alias)| {
             let alias = if exposed(name) {
-                interface::Alias::Public(alias.clone())
+                interface::Alias::Public(Arc::new(alias.clone()))
             } else {
-                interface::Alias::Private(alias.clone())
+                interface::Alias::Private(Arc::new(alias.clone()))
             };
             (name.clone(), alias)
         })

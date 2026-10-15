@@ -10,7 +10,7 @@ use nomi_base::{Compat, TextRange, grow_large};
 
 use super::dups::Dict;
 use super::env::{CtorInfo, Env};
-use super::error::{ArityContext, DuplicatePatternContext, Error, R, all, both, throw};
+use super::error::{ArityContext, DuplicatePatternContext, Error, R, all, both, throw, tuple};
 use crate::canonical::{Pattern, PatternCtorArg, PatternKind};
 use crate::hir::{self, PatId, int_value};
 
@@ -84,15 +84,9 @@ fn canonicalize_(
             PatternKind::Record(fields.iter().map(|f| f.text.clone()).collect())
         }
         hir::Pattern::Tuple(items) => {
-            let a = canonicalize(env, module, items[0], bindings);
-            let b = canonicalize(env, module, items[1], bindings);
-            let rest = match &items[2..] {
-                [] => Ok(None),
-                [c] => canonicalize(env, module, *c, bindings).map(Some),
-                _ => throw(Error::TupleLargerThanThree { range: region }),
-            };
-            let ((a, b), c) = both(both(a, b), rest)?;
-            PatternKind::Tuple(Box::new(a), Box::new(b), c.map(Box::new))
+            let each = |item| canonicalize(env, module, item, bindings);
+            let (a, b, c) = tuple(items, region, each)?;
+            PatternKind::Tuple(a, b, c)
         }
         hir::Pattern::Ctor {
             qualifier,

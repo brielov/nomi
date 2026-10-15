@@ -492,7 +492,7 @@ pub fn normalize_elm_test(output: &[u8], dir: &str, home: &str) -> Vec<u8> {
 }
 
 /// `text` with the number after each `marker`, digits and points, as `with`.
-pub fn digits_after(text: &str, marker: &str, with: &str) -> String {
+fn digits_after(text: &str, marker: &str, with: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(at) = rest.find(marker) {

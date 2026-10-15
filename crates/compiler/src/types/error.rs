@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 
+use nomi_base::Compat;
 use nomi_base::diagnostic::doc::{Color, Doc, dull_yellow as yellow, text};
 
 use super::localizer::Localizer;
@@ -143,10 +144,7 @@ fn fields_to_docs(localizer: &Localizer, fields: &BTreeMap<String, Type>) -> Vec
 }
 
 /// The names of `map`, in the release's order.
-pub(super) fn names_in_order<T>(
-    compat: nomi_base::Compat,
-    map: &BTreeMap<String, T>,
-) -> Vec<String> {
+fn names_in_order<T>(compat: Compat, map: &BTreeMap<String, T>) -> Vec<String> {
     in_name_order(compat, map)
         .into_iter()
         .map(|(n, _)| n.clone())
@@ -503,8 +501,40 @@ fn to_diff_(localizer: &Localizer, ctx: Context, t1: &Type, t2: &Type) -> Diff<D
                 Vec::new(),
             )
         }
-        (T::Alias { .. }, _) => diff_alias(localizer, ctx, t1, t2, Direction::Have),
-        (_, T::Alias { .. }) => diff_alias(localizer, ctx, t2, t1, Direction::Need),
+        (
+            T::Alias {
+                home,
+                name,
+                args,
+                real,
+            },
+            other,
+        ) => {
+            let alias = AliasParts {
+                home,
+                name,
+                args,
+                real,
+            };
+            diff_alias(localizer, ctx, alias, other, Direction::Have)
+        }
+        (
+            other,
+            T::Alias {
+                home,
+                name,
+                args,
+                real,
+            },
+        ) => {
+            let alias = AliasParts {
+                home,
+                name,
+                args,
+                real,
+            };
+            diff_alias(localizer, ctx, alias, other, Direction::Need)
+        }
         (t1, t2) => different(
             yellow(to_doc(localizer, ctx, t1)),
             yellow(to_doc(localizer, ctx, t2)),
@@ -581,26 +611,32 @@ fn diff_args<'t>(
     }
 }
 
+/// An alias type's parts.
+#[derive(Clone, Copy)]
+struct AliasParts<'t> {
+    home: &'t Home,
+    name: &'t str,
+    args: &'t [(String, Type)],
+    real: &'t Type,
+}
+
 /// `toDiff`'s alias on one side, `side`, and `other` on the other: the
 /// records they stand for compared, or a clash of names, or just
 /// different.
 fn diff_alias(
     localizer: &Localizer,
     ctx: Context,
-    alias: &Type,
+    alias: AliasParts<'_>,
     other: &Type,
     side: Direction,
 ) -> Diff<Doc> {
-    let Type::Alias {
+    let AliasParts {
         home,
         name,
         args,
         real,
-    } = alias
-    else {
-        unreachable!("an alias");
-    };
-    let (t1, t2) = side.order(&**real, other);
+    } = alias;
+    let (t1, t2) = side.order(real, other);
     if let Some(diff) = diff_aliased_record(localizer, t1, t2) {
         let alias = yellow(alias_to_doc(localizer, ctx, home, name, args));
         let (a, b) = match side {
@@ -626,7 +662,7 @@ fn diff_alias(
             )
         }
         _ => side.order(
-            yellow(to_doc(localizer, ctx, alias)),
+            yellow(alias_to_doc(localizer, ctx, home, name, args)),
             yellow(to_doc(localizer, ctx, other)),
         ),
     };

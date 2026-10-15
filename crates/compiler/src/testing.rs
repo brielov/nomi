@@ -85,10 +85,10 @@ pub(crate) fn interfaces() -> HashMap<String, Interface> {
         ]),
         aliases: BTreeMap::from([(
             "Point".to_owned(),
-            Alias::Public(canonical::Alias {
+            Alias::Public(Arc::new(canonical::Alias {
                 vars: vec![],
                 ty: Type::Record(BTreeMap::new(), None).into(),
-            }),
+            })),
         )]),
         binops: BTreeMap::new(),
     };
