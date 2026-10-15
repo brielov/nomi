@@ -29,6 +29,7 @@ mod project;
 pub mod publish;
 pub mod remove;
 pub mod report;
+pub mod run;
 pub mod schedule;
 pub mod test_deps;
 mod timings;

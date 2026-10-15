@@ -39,11 +39,15 @@ pubgrub = "0.3"
 rayon = "1.12"
 rowan = "0.16"
 rustc-hash = "2.1"
+rustix = { version = "1.1", features = ["process"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 sha1 = "0.11"
 similar = "2.7"
 sha2 = "0.11"
+# Where a signal came from, so a terminal's, which reaches the whole
+# process group, isn't forwarded again.
+signal-hook = { version = "0.3", default-features = false, features = ["extended-siginfo"] }
 stacker = "0.1"
 tempfile = "3.27"
 text-size = "1.1"

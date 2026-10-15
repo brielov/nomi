@@ -13,7 +13,8 @@ use nomi_engine::console::{Console, Personality, StdConsole};
 use nomi_engine::format::{self, Mode};
 use nomi_engine::paths::Cache;
 use nomi_engine::{
-    Context, Vfs, Web, bump, diff, init, install, javascript, make, publish, remove, tree, update,
+    Context, Vfs, Web, bump, diff, init, install, javascript, make, publish, remove, run, tree,
+    update,
 };
 
 /// One toolchain for Elm: compiler, formatter, language server, test runner
@@ -79,37 +80,18 @@ enum Command {
     },
     /// Build modules into JavaScript or HTML as `elm make` does.
     #[command(visible_alias = "make")]
-    Build {
-        /// The modules with the `main`s to build; a package's exposed
-        /// modules, checked, if none.
-        paths: Vec<PathBuf>,
-        /// Where to write the code: a `.js` or `.html` file, an `.mjs` ES
-        /// module, or `/dev/null` for none. `index.html` for one `main` and `elm.js`
-        /// for more by default.
-        #[arg(long, value_name = "FILE")]
-        output: Option<String>,
-        /// Build with the time-travelling debugger.
-        #[arg(long, conflicts_with = "optimize")]
-        debug: bool,
-        /// Shorten record fields and unbox types, refusing `Debug`.
-        #[arg(long, visible_alias = "release")]
-        optimize: bool,
-        /// Write a package's documentation to this file.
-        #[arg(long, value_name = "FILE")]
-        docs: Option<PathBuf>,
-        /// Report problems as JSON on standard error, as `elm make
-        /// --report=json` does.
-        #[arg(long, value_name = "FORMAT")]
-        report: Option<ReportFormat>,
-        /// Where the code runs: by default Node for a nomi/core
-        /// `Program`, else the browser. Under Node, an `.mjs` output of
-        /// one `main` starts it when run.
-        #[arg(long, value_enum)]
-        platform: Option<PlatformName>,
-        /// The ES module whose exported async functions `Nomi.Ffi.task`
-        /// calls, imported by an `.mjs` output built for Node.
-        #[arg(long, value_name = "FILE")]
-        ffi: Option<PathBuf>,
+    Build(Build),
+    /// Build an entry of nomi.toml for Node and run it, as the process.
+    Run {
+        /// The entry to run, by its `main`, where nomi.toml has several.
+        #[arg(conflicts_with = "elm")]
+        entry: Option<PathBuf>,
+        /// Run this module's `main` instead, without nomi.toml.
+        #[arg(short, long, value_name = "FILE")]
+        elm: Option<PathBuf>,
+        /// The program's arguments, after `--`.
+        #[arg(last = true)]
+        args: Vec<OsString>,
     },
     /// Show how a package's API changed: the code against its latest
     /// release or a given one, two of its releases, or two of any
@@ -143,6 +125,41 @@ enum Command {
         #[arg(long, value_name = "FORMAT")]
         report: Option<ReportFormat>,
     },
+}
+
+/// `nomi build`'s arguments.
+#[derive(Debug, clap::Args)]
+struct Build {
+    /// The modules with the `main`s to build; a package's exposed
+    /// modules, checked, if none.
+    paths: Vec<PathBuf>,
+    /// Where to write the code: a `.js` or `.html` file, an `.mjs` ES
+    /// module, or `/dev/null` for none. `index.html` for one `main` and `elm.js`
+    /// for more by default.
+    #[arg(long, value_name = "FILE")]
+    output: Option<String>,
+    /// Build with the time-travelling debugger.
+    #[arg(long, conflicts_with = "optimize")]
+    debug: bool,
+    /// Shorten record fields and unbox types, refusing `Debug`.
+    #[arg(long, visible_alias = "release")]
+    optimize: bool,
+    /// Write a package's documentation to this file.
+    #[arg(long, value_name = "FILE")]
+    docs: Option<PathBuf>,
+    /// Report problems as JSON on standard error, as `elm make
+    /// --report=json` does.
+    #[arg(long, value_name = "FORMAT")]
+    report: Option<ReportFormat>,
+    /// Where the code runs: by default Node for a nomi/core
+    /// `Program`, else the browser. Under Node, an `.mjs` output of
+    /// one `main` starts it when run.
+    #[arg(long, value_enum)]
+    platform: Option<PlatformName>,
+    /// The ES module whose exported async functions `Nomi.Ffi.task`
+    /// calls, imported by an `.mjs` output built for Node.
+    #[arg(long, value_name = "FILE")]
+    ffi: Option<PathBuf>,
 }
 
 /// The machine-readable report formats.
@@ -210,52 +227,13 @@ fn main() -> ExitCode {
                 false
             }
         },
-        Some(Command::Build {
-            paths,
-            output,
-            debug,
-            optimize,
-            docs,
-            report,
-            platform,
-            ffi,
-        }) => {
-            let module = output.as_deref().is_some_and(|o| make::has_ext(".mjs", o));
-            let output = match output.as_deref().map(make::Output::parse) {
-                Some(None) if module => output.map(|o| make::Output::Js(o.into())),
-                Some(None) => {
-                    eprintln!(
-                        "error: --output takes a file ending in .js, .mjs or .html, or /dev/null"
-                    );
-                    return exit(false);
-                }
-                output => output.flatten(),
+        Some(Command::Build(args)) => build(args),
+        Some(Command::Run { entry, elm, args }) => {
+            let program = match elm {
+                Some(module) => run::Program::Module(module),
+                None => run::Program::Entry(entry),
             };
-            let target = javascript::Target {
-                platform: match platform {
-                    None | Some(PlatformName::Browser) => Platform::Browser,
-                    Some(PlatformName::Node) => Platform::Node,
-                },
-                format: if module {
-                    javascript::Format::EsModule
-                } else {
-                    javascript::Format::Iife
-                },
-                dom: javascript::Dom::Native,
-                ffi: None,
-            };
-            let make = make::Make {
-                paths,
-                personality: Personality::Nomi,
-                style: style(report),
-                kind: make::kind(debug, optimize),
-                target,
-                platform_by_main: platform.is_none(),
-                ffi,
-                output,
-                docs,
-            };
-            in_project(|cx, console| make::run(cx, console, &make))
+            return nomi_run(&program, &args);
         }
         Some(Command::Diff { args }) => diff(
             &args.iter().map(String::as_str).collect::<Vec<_>>(),
@@ -276,6 +254,65 @@ fn style(report: Option<ReportFormat>) -> Style {
         Some(ReportFormat::Json) => Style::Json,
         None => Style::Terminal,
     }
+}
+
+/// `nomi build` with `args`, for the project around the current
+/// directory.
+fn build(args: Build) -> bool {
+    let Build {
+        paths,
+        output,
+        debug,
+        optimize,
+        docs,
+        report,
+        platform,
+        ffi,
+    } = args;
+    let module = output.as_deref().is_some_and(|o| make::has_ext(".mjs", o));
+    let output = match output.as_deref().map(make::Output::parse) {
+        Some(None) if module => output.map(|o| make::Output::Js(o.into())),
+        Some(None) => {
+            eprintln!("error: --output takes a file ending in .js, .mjs or .html, or /dev/null");
+            return false;
+        }
+        output => output.flatten(),
+    };
+    let target = javascript::Target {
+        platform: match platform {
+            None | Some(PlatformName::Browser) => Platform::Browser,
+            Some(PlatformName::Node) => Platform::Node,
+        },
+        format: if module {
+            javascript::Format::EsModule
+        } else {
+            javascript::Format::Iife
+        },
+        dom: javascript::Dom::Native,
+        ffi: None,
+    };
+    let make = make::Make {
+        paths,
+        personality: Personality::Nomi,
+        style: style(report),
+        kind: make::kind(debug, optimize),
+        target,
+        platform_by_main: platform.is_none(),
+        ffi,
+        output,
+        docs,
+    };
+    in_project(|cx, console| make::run(cx, console, &make))
+}
+
+/// `nomi run`, in the current directory.
+fn nomi_run(program: &run::Program, args: &[OsString]) -> ExitCode {
+    let (Some(cache), Some(dir)) = (cache(), current_dir()) else {
+        return ExitCode::FAILURE;
+    };
+    ExitCode::from(run_in(&dir, &cache, |cx, console| {
+        run::run(cx, console, program, args)
+    }))
 }
 
 /// elm-test's command line, as `elm-test` or `nomi test`.

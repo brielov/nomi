@@ -6,4 +6,4 @@
 |
 === stderr
 === file dist/main.mjs
-|101437 bytes, SHA-256 c5f92e87f8b11ea799379d0ee02d81e5e7e0c295d79f7edf92fdc22bfff0de5d
+|101712 bytes, SHA-256 4613120a01e964e8611abb869117cf20b570ab7aa1c5540bef3e52eff54227fa

@@ -20,6 +20,10 @@ sha2.workspace = true
 tempfile.workspace = true
 walkdir.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+rustix.workspace = true
+signal-hook.workspace = true
+
 [dev-dependencies]
 nomi-testkit.workspace = true
 zip.workspace = true

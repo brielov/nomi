@@ -17,6 +17,9 @@ use crate::Vfs;
 /// The manifest of an Elm 0.19 project.
 pub const ELM_JSON: &str = "elm.json";
 
+/// nomi's own manifest, next to `elm.json`.
+pub const NOMI_TOML: &str = "nomi.toml";
+
 /// The manifest of an Elm 0.18 project, which nomi only recognizes.
 pub(crate) const ELM_PACKAGE_JSON: &str = "elm-package.json";
 

@@ -4,8 +4,8 @@ import { EventEmitter } from "node:events";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { andThen, async, forkDaemon, Runtime, succeed } from "../src/fiber.js";
-import { main } from "../src/main.js";
+import { andThen, async, forkDaemon, Runtime, succeed, sync } from "../src/fiber.js";
+import { main, requestExit } from "../src/main.js";
 
 const program = fileURLToPath(new URL("../fixtures/program.js", import.meta.url));
 const worker = fileURLToPath(new URL("../fixtures/worker.js", import.meta.url));
@@ -121,6 +121,15 @@ test("a worker with nothing live exits 0 on its own", async () => {
   const { code, stdout } = await run("idle", { fixture: worker });
   assert.equal(code, 0);
   assert.deepEqual(stdout, ["ready"]);
+});
+
+test("a program that asks to exit as a synchronous runtime starts it exits with its code", async () => {
+  const proc = Object.assign(new EventEmitter(), { exitCode: undefined, exit: () => {} });
+  const runtime = new Runtime({ synchronous: true });
+  const forever = async(() => () => {});
+  const code = await main(andThen(sync(() => requestExit(runtime, 3)), () => forever), { runtime, proc });
+  assert.equal(code, 3);
+  assert.equal(proc.exitCode, 3);
 });
 
 test("an exit main does not know is a runtime bug, not a clean exit", async () => {

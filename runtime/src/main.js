@@ -44,9 +44,16 @@ export function requestExit(runtime, code) {
  * exits with. `proc` defaults to `process`.
  */
 export function main(task, { runtime = new Runtime(), proc = process, deadline = 10_000 } = {}) {
+  // The lifecycle comes first: a synchronous runtime runs the task as it is
+  // forked, and the task may ask to exit before `fork` returns its fiber.
   let root;
+  let stopped = false;
+  const life = lifecycle(runtime, proc, deadline, () => {
+    if (root === undefined) stopped = true;
+    else runtime.interrupt(root);
+  });
   const ended = new Promise((resolve) => (root = runtime.fork(task, resolve)));
-  const life = lifecycle(runtime, proc, deadline, () => runtime.interrupt(root));
+  if (stopped) runtime.interrupt(root);
   return ended.then((exit) => {
     const { code, message } = outcome(exit, life.stopping());
     if (message !== null) console.error(...message);
