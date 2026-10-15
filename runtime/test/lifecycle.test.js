@@ -111,7 +111,7 @@ test("a worker with nothing live exits 0 on its own", async () => {
 
 test("an exit main does not know is a runtime bug, not a clean exit", async () => {
   const proc = Object.assign(new EventEmitter(), { exitCode: undefined, exit: () => {} });
-  const runtime = Object.assign(new Runtime(), { await: async () => ({ $: "lost" }) });
+  const runtime = Object.assign(new Runtime(), { fork: (task, observe) => observe({ $: "lost" }) });
   await assert.rejects(main(succeed(), { runtime, proc }), /not an exit: lost/);
   assert.equal(proc.exitCode, undefined);
 });

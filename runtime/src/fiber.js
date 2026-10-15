@@ -25,6 +25,8 @@
 // interrupts those fibers, waits for them, then runs the finalizers in LIFO
 // order, all uninterruptibly. `forkDaemon` attaches to the runtime's root
 // scope instead, which is upstream's `Process.spawn`: it outlives its parent.
+// `all` and `race` fork their tasks into a scope of their own, so those
+// still running once the outcome is known are interrupted before it returns.
 //
 // Interruption is a request, delivered only at safe points: when the fiber
 // passes through the run queue (every yield, including the forced ones),
@@ -62,9 +64,10 @@ const RECEIVE = "receive";
 // Internal: only this module builds these.
 const WITH_FIBER = "withFiber";
 const REAP = "reap";
+const GATHER = "gather";
 
 const TAGS = new Set([EXIT, SYNC, ASYNC, AND_THEN, ON_ERROR, FORK, AWAIT, YIELD, MASK, SCOPED, INTERRUPT, SLEEP, NOW, RECEIVE]);
-const INTERNAL = new Set([WITH_FIBER, REAP]);
+const INTERNAL = new Set([WITH_FIBER, REAP, GATHER]);
 
 // Frames that only the unwinding loop sees.
 const ON_EXIT = "onExit";
@@ -189,6 +192,10 @@ const withFiber = (f) => ({ $: WITH_FIBER, f });
 // Suspends until every fiber in `fibers` is done, without counting as
 // waiting for them, so their defects are still reported.
 const reap = (fibers) => ({ $: REAP, fibers });
+// Forks `tasks` in the current scope and hands each one's exit, as it
+// ends, to `step(exit, index)`, until `step` returns the task to continue
+// with rather than `undefined`. Waiting through it counts as waiting.
+const gather = (tasks, step) => ({ $: GATHER, tasks, step });
 // Succeeds with the exit of `task`, whatever it is.
 const attempt = (task) => withFiber((fiber) => (fiber.stack.push({ $: ON_EXIT, f: succeed }), task));
 
@@ -215,6 +222,33 @@ export const ensuring = (task, finalizer) =>
   // Opening the scope and registering the finalizer are one step, so no
   // interruption can land between them.
   withFiber((fiber) => (openScope(fiber).finalizers.push(() => finalizer), task));
+
+/**
+ * Runs `tasks` concurrently, each on a child fiber, and succeeds with their
+ * values in order. The first to end otherwise ends it the same way, and the
+ * rest are interrupted.
+ */
+export const all = (tasks) =>
+  tasks.length === 0
+    ? succeed([])
+    : scoped(
+        withFiber(() => {
+          const values = new Array(tasks.length);
+          let left = tasks.length;
+          return gather(tasks, (exit, i) => {
+            if (exit.$ !== SUCCESS) return done(exit);
+            values[i] = exit.value;
+            return --left === 0 ? succeed(values) : undefined;
+          });
+        }),
+      );
+
+/**
+ * Runs `tasks` concurrently, each on a child fiber, and ends as the first
+ * of them to end, however it ends; the rest are interrupted. With no tasks
+ * it never ends.
+ */
+export const race = (tasks) => scoped(gather(tasks, done));
 
 function isTask(value) {
   return typeof value === "object" && value !== null && (TAGS.has(value.$) || INTERNAL.has(value.$));
@@ -347,9 +381,13 @@ export class Runtime {
     this.#reportDefect = reportDefect;
   }
 
-  /** Starts `task` on a new fiber in the root scope. */
-  fork(task) {
-    return this.#spawn(task, this.root);
+  /**
+   * Starts `task` on a new fiber in the root scope. `observe`, if given,
+   * receives its exit and counts as waiting for it from before it starts,
+   * which matters when a synchronous runtime runs it to its end at once.
+   */
+  fork(task, observe) {
+    return this.#spawn(task, this.root, observe);
   }
 
   /** Asks `fiber` to stop and resolves with its exit. */
@@ -377,7 +415,7 @@ export class Runtime {
 
   /** Runs `task` on a new fiber and resolves with its exit. */
   run(task) {
-    return this.await(this.fork(task));
+    return new Promise((resolve) => this.fork(task, resolve));
   }
 
   /**
@@ -401,8 +439,9 @@ export class Runtime {
     });
   }
 
-  #spawn(task, scope) {
+  #spawn(task, scope, observe) {
     const fiber = new Fiber(asTask(task), scope);
+    if (observe !== undefined) fiber.observers.add(observe);
     scope.fibers.add(fiber);
     this.stats.started++;
     this.#enqueue(fiber);
@@ -527,6 +566,10 @@ export class Runtime {
           task = this.#reap(fiber, task.fibers);
           if (task === null) return n;
           break;
+        case GATHER:
+          task = this.#gather(fiber, task);
+          if (task === null) return n;
+          break;
         case ASYNC:
           task = this.#async(fiber, task.register);
           if (task === null) return n;
@@ -615,6 +658,32 @@ export class Runtime {
     const reaper = () => --left === 0 && this.#resume(fiber, epoch, succeed(undefined));
     for (const f of live) f.reapers.add(reaper);
     fiber.cancel = () => live.forEach((f) => f.reapers.delete(reaper));
+    return null;
+  }
+
+  /** Forks `task.tasks` in `fiber`'s scope and suspends it until `task.step` returns a task for an exit. */
+  #gather(fiber, { tasks, step }) {
+    if (this.#takeInterrupt(fiber)) return done(Exit.interrupt());
+    const scope = fiber.scope ?? this.root;
+    const fibers = tasks.map((t) => this.#spawn(t, scope));
+    const epoch = this.#suspend(fiber);
+    const observers = fibers.map((f, i) => {
+      const observe = (exit) => {
+        let next;
+        try {
+          next = step(exit, i);
+        } catch (error) {
+          next = die(error);
+        }
+        if (next === undefined) return;
+        stop();
+        this.#resume(fiber, epoch, asTask(next));
+      };
+      f.observers.add(observe);
+      return observe;
+    });
+    const stop = () => fibers.forEach((f, i) => f.observers.delete(observers[i]));
+    fiber.cancel = stop;
     return null;
   }
 

@@ -18,7 +18,7 @@ A Node program runs on the real clock; started with `NOMI_CLOCK=virtual`, it run
 
 | Rule (architecture §8) | Tests |
 |---|---|
-| Structured concurrency | `test/fiber.test.js`: the random-program property (a scope's fibers end before it does), "closing a scope interrupts its fibers…", "finalizers run last to first…", "a fiber's children end with it; a daemon outlives it" |
+| Structured concurrency | `test/fiber.test.js`: the random-program property (a scope's fibers end before it does), "closing a scope interrupts its fibers…", "finalizers run last to first…", "a fiber's children end with it; a daemon outlives it"; `test/concurrent.test.js`: `all` and `race` interrupt what they no longer need |
 | Interruption | `test/fiber.test.js`: "acquire is uninterruptible…", the "Interruption" section, and the property (a release runs exactly when its acquire did; an uninterruptible region runs to its end) |
 | Exits | `test/fiber.test.js`: the property (exits match the model; defects are reported exactly when nobody receives them) and the unit tests on defects |
 | Fairness | `test/fiber.test.js`: "a busy fiber cannot starve another", "a busy runtime gives the event loop its turn"; `test/mailbox.test.js`: "a synchronous runtime leaves what is past its budget to the host" |

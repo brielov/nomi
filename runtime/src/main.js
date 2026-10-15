@@ -18,9 +18,10 @@ const SIGNALS = { SIGINT: 130, SIGTERM: 143 };
  * exits with. `proc` defaults to `process`.
  */
 export function main(task, { runtime = new Runtime(), proc = process, deadline = 10_000 } = {}) {
-  const root = runtime.fork(task);
+  let root;
+  const ended = new Promise((resolve) => (root = runtime.fork(task, resolve)));
   const life = lifecycle(runtime, proc, deadline, () => runtime.interrupt(root));
-  return runtime.await(root).then((exit) => {
+  return ended.then((exit) => {
     const { code, message } = outcome(exit, life.signalled());
     if (message !== null) console.error(...message);
     return life.exit(code);

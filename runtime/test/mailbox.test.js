@@ -6,6 +6,7 @@ import { check, rng as rngFor } from "../src/check.js";
 import {
   andThen,
   async,
+  die,
   Exit,
   interrupt,
   interruptFork,
@@ -164,6 +165,16 @@ test("a synchronous runtime runs what the host starts or sends before the call r
   runtime.fork(sync(() => runtime.send(fiber, "pong")));
   assert.deepEqual(fiber.exit, Exit.success("pong"));
   assert.equal(slices.length, 0);
+});
+
+test("a synchronous runtime's observer of a fiber it runs at once still receives its defect", async () => {
+  const { runtime, reports } = manual({ synchronous: true });
+  let observed = null;
+  const fiber = runtime.fork(die("broken"), (exit) => (observed = exit));
+  assert.deepEqual(fiber.exit, Exit.defect("broken"));
+  assert.deepEqual(observed, Exit.defect("broken"));
+  assert.deepEqual(await runtime.run(die("again")), Exit.defect("again"));
+  assert.deepEqual(reports, []);
 });
 
 test("a synchronous runtime leaves what is past its budget to the host", () => {
