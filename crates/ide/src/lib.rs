@@ -194,13 +194,12 @@ impl Context {
     /// The context of the file at `path`, from the nearest `elm.json`
     /// above it (R7).
     fn of(snapshot: &Snapshot, path: &Path) -> Context {
-        let manifest = manifest(snapshot, path).and_then(|m| snapshot.read_bytes(&m).ok());
-        match manifest.map(|bytes| Outline::detect(&bytes)) {
-            Some(Ok((Outline::App(_), compat))) => Context {
+        match project_outline(snapshot, path) {
+            Some((_, Outline::App(_), compat)) => Context {
                 compat,
                 source: nomi_syntax::Source::Application,
             },
-            Some(Ok((Outline::Pkg(pkg), compat))) => Context {
+            Some((_, Outline::Pkg(pkg), compat)) => Context {
                 compat,
                 source: if pkg.name.is_kernel() {
                     nomi_syntax::Source::Kernel
@@ -208,12 +207,20 @@ impl Context {
                     nomi_syntax::Source::Package
                 },
             },
-            Some(Err(_)) | None => Context {
+            None => Context {
                 compat: Compat::LATEST,
                 source: nomi_syntax::Source::Application,
             },
         }
     }
+}
+
+/// The project that owns the file at `path`, by the nearest `elm.json`
+/// above it: its directory, its outline and the release it reads as.
+fn project_outline(snapshot: &Snapshot, path: &Path) -> Option<(PathBuf, Outline, Compat)> {
+    let manifest = manifest(snapshot, path)?;
+    let (outline, compat) = Outline::detect(&snapshot.read_bytes(&manifest).ok()?).ok()?;
+    Some((manifest.parent()?.to_owned(), outline, compat))
 }
 
 /// The syntax error elm reports for the file at `path`, if any, at the

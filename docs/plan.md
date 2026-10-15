@@ -49,7 +49,7 @@ nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it wait
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **Q.15e**.
+4. Resume at the first unchecked box. Right now that is **Q.15f**.
 
 ### Test tiers
 
@@ -1182,7 +1182,10 @@ A second, independent audit of the same code (2026-10-13, kept in `~/.cache/nomi
 
   Done: packages' exposed maps are shared `Arc`s, so the visible set is the only copy; module keys hash names as bytes, without strings built to be hashed; publishing decodes its docs only for a version already published; one `message_bar` in base draws reports' and module lists' title bars; the index names files by the build's `is_good_name`; `remove`, `tree`, `update` and `outdated` open the registry through one `with_registry`; `Outline::direct` and `test_direct` are project's; `paths` names the README, the license, a package's sources and its tests, and a kernel's file is `module_path` in both places; `make`'s output kind is decided once, a clash of flags kept as its error; a bad module's parts are one `BadSource`, and what `make` was asked for one `Asked`; the projects command returns a `Reported`; the engine's tests share testkit's transcript cases, `as_release`, `packages::release` and `write_file`. 3 lines fewer. Builds and checks take the same time as Q.15c. CI and every corpus suite are unchanged. Surprises: a file whose name has a non-ASCII capital is no longer indexed as an orphan where the build accepts it; a kernel whose short name has a dot is looked for where upstream's `toFilePath` puts it; module cache keys change once, as with every new binary.
 
-- [ ] **Q.15e** `quality: exit findings, ide` (17).
+- [x] **Q.15e** `quality: exit findings, ide` (17).
+
+  Done: completion takes a module's tree from the index or the package cache rather than parsing it again per request; a linted file is read once; record field types and scopes' bindings are found by one `types_over` and one `bound_by`; one `project_outline` reads a file's project where four places did; `arguments`, `result_type` and `written` are `tree.rs`'s; whether to offer variants and which top levels to list are enums; snippets are a struct, generated so; matches deciding per variant list them; labels are unescaped by `serde_json`; the tests' store is testkit's; which files to analyse and what to do with a saved file's results are pure decisions, `Plan::of` and `Review::after`, each tested. 113 lines more, those decisions and their tests most of it. CI, the transcripts and the `lsp` corpus suite are unchanged. Surprises: a completion label with a raw control character beside an escape falls back to its text, where upstream's `JSON.parse` throws; every place reads `elm.json` as bytes, so one that isn't UTF-8 but that the outline reader accepts gives source directories and exposed modules too.
+
 - [ ] **Q.15f** `quality: exit findings, lsp and cli` (11).
 - [ ] **Q.15g** `quality: exit findings, xtask` (20).
 - [x] **QF.10** `fix: the runtime's tasks are checked`. A nested `null` or `undefined` task (`andThen(undefined, f)`, `uninterruptible(null)`, `scoped(undefined)`) makes the interpreter throw out of its drain, leaving the runtime awake and running no fiber again; and the `INTERRUPT` task tag and the `INTERRUPTED` exit kind are one string, so an interrupt exit passes for a task. With the runtime's five other exit findings. **Check:** a test for each, failing on the old runtime.

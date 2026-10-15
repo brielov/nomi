@@ -410,7 +410,7 @@ struct SymbolMatch {
     /// How much longer the name is.
     length_difference: isize,
     /// Whether the casing differs.
-    casing: u8,
+    casing: bool,
 }
 
 impl Query<'_> {
@@ -446,7 +446,7 @@ impl Query<'_> {
             let (a, b) = (position.max(0) as usize, self.length);
             (a.min(b).min(chars.len()), a.max(b).min(chars.len()))
         };
-        let casing = u8::from(!chars[from..to].iter().copied().eq(self.typed.chars()));
+        let casing = !chars[from..to].iter().copied().eq(self.typed.chars());
         Some(SymbolMatch {
             position,
             length_difference,
@@ -477,8 +477,8 @@ mod tests {
             let m = Query::new(typed).match_in(symbol)?;
             Some((m.position, m.length_difference, m.casing))
         };
-        assert_eq!(found("tw", "twice"), Some((0, 3, 0)));
-        assert_eq!(found("ce", "twice"), Some((3, 3, 1)));
+        assert_eq!(found("tw", "twice"), Some((0, 3, false)));
+        assert_eq!(found("ce", "twice"), Some((3, 3, true)));
         assert_eq!(found("zz", "twice"), None);
     }
 

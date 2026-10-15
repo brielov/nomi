@@ -94,6 +94,12 @@ pub(crate) fn code_text(node: &SyntaxNode) -> Option<String> {
     Some(node.text().slice(start..start + range.len()).to_string())
 }
 
+/// `node` as `text`, its tree's text, writes it, over its [`code_range`]:
+/// [`code_text`] without the copy, empty where it has no code.
+pub(crate) fn written<'t>(text: &'t str, node: &SyntaxNode) -> &'t str {
+    code_range(node).map_or("", |r| &text[r])
+}
+
 /// A top-level declaration's range as tree-sitter-elm's node has it:
 /// [`code_range`], and for a custom type, the line comments after it
 /// where a block comment comes next, through blank lines.
@@ -142,6 +148,37 @@ fn comments_until(token: &SyntaxToken, stops: &[SyntaxKind]) -> TextSize {
         next = after.next_token();
     }
     token.text_range().end()
+}
+
+/// A function type's arguments, in order.
+pub(crate) fn arguments(ty: &SyntaxNode) -> Vec<SyntaxNode> {
+    let mut found = Vec::new();
+    let mut ty = ty.clone();
+    while ty.kind() == SyntaxKind::FunctionType {
+        let mut parts = ty.children().filter(|c| ast::Type::can_cast(c.kind()));
+        let (Some(argument), Some(result)) = (parts.next(), parts.next()) else {
+            break;
+        };
+        found.push(argument);
+        ty = result;
+    }
+    found
+}
+
+/// A function type's result.
+pub(crate) fn result_type(ty: &SyntaxNode) -> SyntaxNode {
+    let mut ty = ty.clone();
+    while ty.kind() == SyntaxKind::FunctionType {
+        let Some(result) = ty
+            .children()
+            .filter(|c| ast::Type::can_cast(c.kind()))
+            .nth(1)
+        else {
+            break;
+        };
+        ty = result;
+    }
+    ty
 }
 
 /// An import as written: its node, its module's name, and its alias.

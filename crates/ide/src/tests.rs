@@ -142,7 +142,7 @@ fn symbols_are_listed_as_elm_language_server_lists_them() {
 }
 
 /// The project of the file at `path`, as `vfs` has it, indexed with a
-/// package store holding the fixture copy of elm/core 1.0.5.
+/// package store holding the fixture packages.
 struct Project {
     snapshot: Snapshot,
     index: Index,
@@ -152,13 +152,7 @@ struct Project {
 
 fn indexed(vfs: &Vfs, path: &Path) -> Project {
     let store_dir = tempfile::tempdir().unwrap();
-    let hash = "0".repeat(40);
-    let core = nomi_testkit::packages::dir().join("elm/core/1.0.5");
-    let sources = store_dir.path().join("sources").join(&hash);
-    nomi_testkit::copy_tree(&core, &sources, |_| true).unwrap();
-    let release = store_dir.path().join("releases/elm/core");
-    fs::create_dir_all(&release).unwrap();
-    fs::write(release.join("1.0.5"), format!("{hash}\n")).unwrap();
+    nomi_testkit::packages::store(store_dir.path()).unwrap();
     let store = nomi_engine::Store::new(store_dir.path().to_owned());
     let snapshot = vfs.snapshot();
     let index =

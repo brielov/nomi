@@ -209,7 +209,16 @@ pub(crate) fn type_defined(
     let (home, name, kind) = match bound.unwrap_or(ty) {
         error::Type::Alias { home, name, .. } => (home, name, SyntaxKind::TypeAliasDecl),
         error::Type::Type { home, name, .. } => (home, name, SyntaxKind::CustomTypeDecl),
-        _ => return None,
+        error::Type::Lambda(..)
+        | error::Type::Infinite
+        | error::Type::Error
+        | error::Type::FlexVar(_)
+        | error::Type::FlexSuper(..)
+        | error::Type::RigidVar(_)
+        | error::Type::RigidSuper(..)
+        | error::Type::Record(..)
+        | error::Type::Unit
+        | error::Type::Tuple(..) => return None,
     };
     let (path, root) = module_tree(snapshot, index, &home.module)?;
     let range = code_range(&declared_type(&root, kind, name)?)?;

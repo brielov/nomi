@@ -5,8 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use nomi_engine::Snapshot;
-use nomi_engine::index::{self, Index};
-use nomi_project::Outline;
+use nomi_engine::index::Index;
 use nomi_syntax::ast::{self, AstNode};
 
 use crate::tree::code_range;
@@ -14,17 +13,11 @@ use crate::{Edit, FileEdits};
 
 /// The source directories of the project that owns `path`.
 fn source_dirs(snapshot: &Snapshot, path: &Path) -> Vec<PathBuf> {
-    let Some(manifest) = index::manifest(snapshot, path) else {
-        return Vec::new();
-    };
-    let (Some(root), Ok(text)) = (manifest.parent(), snapshot.read(&manifest)) else {
-        return Vec::new();
-    };
-    match Outline::detect(text.as_bytes()) {
-        Ok((outline, _)) => (outline.source_dirs().iter())
+    match crate::project_outline(snapshot, path) {
+        Some((root, outline, _)) => (outline.source_dirs().iter())
             .map(|d| root.join(d))
             .collect(),
-        Err(_) => Vec::new(),
+        None => Vec::new(),
     }
 }
 

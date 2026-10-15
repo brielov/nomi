@@ -23,10 +23,11 @@ use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, child_token};
 use crate::Edit;
 use crate::completion::{
     Completion, CompletionKind, Completions, Context, DEFAULT_IMPORTS, DefaultExposing, Exposed,
-    ExposedName, Importable, operator,
+    ExposedName, Importable, TopLevels, Variants, operator,
 };
 use crate::completion_data::{LIST_MARKDOWN, RANKING, SNIPPETS_INLINE, SNIPPETS_START_OF_LINE};
 use crate::hover::{Names, composed, render_error, type_of};
+use crate::scopes::{Binding, Bound, bound_by};
 use crate::tree::{child, code_range, code_text, words, written_imports};
 
 /// The general list at `offset`, replacing `range`, `word` typed of the
@@ -46,7 +47,7 @@ pub(crate) fn general(
         Completion::new("List", CompletionKind::Enum, "d0000", range)
             .documented(Some(LIST_MARKDOWN.to_owned())),
     );
-    items.extend(snippets(SNIPPETS_INLINE));
+    items.extend(SNIPPETS_INLINE.iter().map(Snippet::completion));
     items.extend(keywords(&[
         "if", "then", "else", "let", "in", "case", "alias", "exposing",
     ]));
@@ -85,21 +86,27 @@ pub(crate) fn start_of_line(context: &Context<'_>, range: TextRange) -> Vec<Comp
             let text = format!(
                 "{name} : ${{1:ArgumentType}} -> ${{2:ReturnType}}\n{name} ${{3:arguments}} =\n    ${{4}}"
             );
-            snippet(&format!("func {name}"), &text, Some("Function with type annotation"), false)
+            let snippet = Snippet {
+                label: &format!("func {name}"),
+                text: &text,
+                documentation: Some("Function with type annotation"),
+                kind: CompletionKind::Snippet,
+            };
+            snippet.completion()
         })
         .collect();
     found.extend(
         (missing.iter()).map(|name| Completion::new(name, CompletionKind::Text, "a", range)),
     );
     found.extend(keywords(&["type", "import", "module", "port"]));
-    found.extend(snippets(SNIPPETS_START_OF_LINE));
+    found.extend(SNIPPETS_START_OF_LINE.iter().map(Snippet::completion));
     found
 }
 
 /// `getSameFileTopLevelCompletions`, with a value's written annotation
 /// where inference has no type for it.
 fn top_levels(context: &Context<'_>, range: TextRange) -> Vec<Completion> {
-    let mut found = context.top_levels(range, false);
+    let mut found = context.top_levels(range, TopLevels::General);
     for completion in &mut found {
         if completion.kind == CompletionKind::Function && completion.label_detail.is_none() {
             completion.label_detail = written_annotation(&context.module.root(), &completion.label);
@@ -129,24 +136,6 @@ fn written_annotation(root: &SyntaxNode, name: &str) -> Option<String> {
     Some(format!(" : {}", code_text(&ty)?))
 }
 
-/// What a scope binds, as the binder calls it.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Bound {
-    Let,
-    /// A declaration's or a lambda's parameter.
-    Parameter,
-    Case,
-}
-
-/// A name a scope around the cursor binds.
-struct Binding {
-    name: String,
-    at: TextRange,
-    bound: Bound,
-    /// A `let` value's definition.
-    definition: Option<SyntaxNode>,
-}
-
 /// `findDefinitionsForScope`: the names each scope around `offset`
 /// binds, innermost first, each sorted by its place among them all.
 fn scope(context: &Context<'_>, offset: TextSize, range: TextRange) -> Vec<Completion> {
@@ -154,7 +143,10 @@ fn scope(context: &Context<'_>, offset: TextSize, range: TextRange) -> Vec<Compl
     let Some(token) = root.token_at_offset(offset).left_biased() else {
         return Vec::new();
     };
-    let bindings = bindings_around(&token);
+    // The names each scope around `token` binds, innermost first.
+    let bindings: Vec<Binding> = (token.parent_ancestors())
+        .flat_map(|scope| bound_by(&scope))
+        .collect();
     if bindings.is_empty() {
         return Vec::new();
     }
@@ -220,59 +212,6 @@ fn scope(context: &Context<'_>, offset: TextSize, range: TextRange) -> Vec<Compl
         }
     }
     found
-}
-
-/// The names each scope around `token` binds, innermost first: a
-/// `let`'s, a declaration's or a lambda's parameters, a case branch's.
-fn bindings_around(token: &SyntaxToken) -> Vec<Binding> {
-    let mut found = Vec::new();
-    for scope in token.parent_ancestors() {
-        match scope.kind() {
-            SyntaxKind::LetExpr => {
-                for decl in scope.children() {
-                    match decl.kind() {
-                        SyntaxKind::LetValue => {
-                            let definition = child(&decl, SyntaxKind::Definition);
-                            let name = (definition.as_ref())
-                                .and_then(|d| child_token(d, SyntaxKind::LowerIdent));
-                            if let (Some(name), Some(definition)) = (name, definition) {
-                                found.push(Binding {
-                                    name: name.text().to_owned(),
-                                    at: name.text_range(),
-                                    bound: Bound::Let,
-                                    definition: Some(definition),
-                                });
-                            }
-                        }
-                        SyntaxKind::LetDestructure => {
-                            found.extend(pattern_bindings(&decl, Bound::Let));
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            SyntaxKind::Definition | SyntaxKind::LambdaExpr => {
-                found.extend(pattern_bindings(&scope, Bound::Parameter));
-            }
-            SyntaxKind::CaseBranch => found.extend(pattern_bindings(&scope, Bound::Case)),
-            _ => {}
-        }
-    }
-    found
-}
-
-/// The names the patterns among `node`'s children bind, as `bound`.
-fn pattern_bindings(node: &SyntaxNode, bound: Bound) -> impl Iterator<Item = Binding> + use<> {
-    (node.children())
-        .filter(|c| ast::Pattern::can_cast(c.kind()))
-        .flat_map(move |pattern| {
-            (crate::scopes::bindings(&pattern).into_iter()).map(move |(name, at)| Binding {
-                name,
-                at,
-                bound,
-                definition: None,
-            })
-        })
 }
 
 /// The module with `Debug.todo ""` in place of the word at the cursor,
@@ -511,14 +450,14 @@ impl Imports {
             match &exposed.kind {
                 Exposed::Type { variants } => {
                     (self.types).replace(label, entry(label, ImportedKind::Type, &exposed.name));
-                    for variant in variants.iter().filter(|_| *open) {
+                    for variant in variants.iter().filter(|_| *open == Variants::With) {
                         let constructor = entry(variant.text(), ImportedKind::Constructor, variant);
                         self.constructors.set(variant.text(), constructor);
                     }
                 }
                 Exposed::Alias => {
                     (self.types).replace(label, entry(label, ImportedKind::Alias, &exposed.name));
-                    if !*open && record_alias(&exposed.name) {
+                    if *open == Variants::Without && record_alias(&exposed.name) {
                         let kind = ImportedKind::AliasConstructor;
                         (self.constructors).set(label, entry(label, kind, &exposed.name));
                     }
@@ -591,12 +530,12 @@ enum Exposing {
     Explicit(Listed),
 }
 
-/// The names an explicit exposing list has: its types each with whether
-/// it has its variants.
+/// The names an explicit exposing list has: its types each with its
+/// variants or not.
 struct Listed {
     operators: Vec<String>,
     values: Vec<String>,
-    types: Vec<(String, bool)>,
+    types: Vec<(String, Variants)>,
 }
 
 impl Exposing {
@@ -628,7 +567,7 @@ fn exposing_of(list: &SyntaxNode) -> Exposing {
             SyntaxKind::ExposedType => {
                 let name = child_token(&item, SyntaxKind::UpperIdent);
                 let name = name.map(|t| t.text().to_owned()).unwrap_or_default();
-                types.push((name, child(&item, SyntaxKind::ExposedVariants).is_some()));
+                types.push((name, Variants::of(&item)));
             }
             _ => {}
         }
@@ -668,9 +607,9 @@ pub(crate) fn compare_ranking(a: &str, b: &str) -> std::cmp::Ordering {
 
 /// An auto-import's candidate, as `IPossibleImport` has it.
 pub(crate) struct Possible {
-    pub module: String,
-    pub value: String,
-    pub value_to_import: Option<String>,
+    pub(crate) module: String,
+    pub(crate) value: String,
+    pub(crate) value_to_import: Option<String>,
     kind: ImportedKind,
     /// The name its declaration has in its module.
     name: SyntaxToken,
@@ -794,25 +733,24 @@ fn auto_imports(
     (found, incomplete)
 }
 
-/// Snippets from a table.
-fn snippets(table: &[(&str, &str, Option<&str>, bool)]) -> Vec<Completion> {
-    (table.iter())
-        .map(|(label, text, documentation, keyword)| snippet(label, text, *documentation, *keyword))
-        .collect()
+/// A `createSnippet` call's arguments.
+pub(crate) struct Snippet<'s> {
+    pub(crate) label: &'s str,
+    pub(crate) text: &'s str,
+    pub(crate) documentation: Option<&'s str>,
+    /// A keyword's, or a snippet's.
+    pub(crate) kind: CompletionKind,
 }
 
-/// `createSnippet`.
-fn snippet(label: &str, text: &str, documentation: Option<&str>, keyword: bool) -> Completion {
-    let kind = if keyword {
-        CompletionKind::Keyword
-    } else {
-        CompletionKind::Snippet
-    };
-    Completion {
-        sort_text: Some(format!("s_{label}")),
-        documentation: documentation.map(str::to_owned),
-        snippet: Some(text.to_owned()),
-        ..Completion::of(label, kind)
+impl Snippet<'_> {
+    /// `createSnippet`.
+    fn completion(&self) -> Completion {
+        Completion {
+            sort_text: Some(format!("s_{}", self.label)),
+            documentation: self.documentation.map(str::to_owned),
+            snippet: Some(self.text.to_owned()),
+            ..Completion::of(self.label, self.kind)
+        }
     }
 }
 

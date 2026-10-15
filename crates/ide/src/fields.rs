@@ -14,7 +14,7 @@ use nomi_engine::index::{Index, Indexed};
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{SyntaxKind, SyntaxNode, child_token, tokens};
 
-use crate::hover::trimmed;
+use crate::hover::types_over;
 use crate::navigation::{Declaration, Location, module_tree};
 use crate::tree::{code_range, declared_type};
 
@@ -124,12 +124,7 @@ fn resolve(
             .or_else(|| crate::scopes::local(&root, range.start()).map(|(b, _)| b));
         ranges.extend(bound);
     }
-    // A type's region holds its node's range, and more trivia before it.
-    let typed: Vec<&error::Type> = (types.iter())
-        .filter(|(r, _)| ranges.iter().any(|range| r.contains_range(*range)))
-        .filter(|(r, _)| trimmed(&root, *r).is_some_and(|r| ranges.contains(&r)))
-        .map(|(_, ty)| ty)
-        .collect();
+    let typed = types_over(&root, types, &ranges);
     let aliased = |ty: &&&error::Type| match ty {
         error::Type::Alias { .. } => true,
         error::Type::Lambda(arg, _, _) => matches!(**arg, error::Type::Alias { .. }),

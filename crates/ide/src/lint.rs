@@ -21,7 +21,7 @@ use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, child_token, parse_module
 use crate::navigation::Declaration;
 use crate::problems::{Code, Problem};
 use crate::scopes::bindings;
-use crate::tree::{child, code_range, code_text, words};
+use crate::tree::{child, code_range, result_type, words, written};
 
 macro_rules! rules {
     ($($(#[$doc:meta])* $rule:ident,)*) => {
@@ -96,23 +96,22 @@ pub(crate) fn lint(
     snapshot: &Snapshot,
     index: Option<&Index>,
     path: &Path,
+    text: &str,
     checks: &Checks,
 ) -> Vec<Problem> {
-    let Ok(text) = snapshot.read(path) else {
-        return Vec::new();
-    };
-    let parse = parse_module(&text);
+    let parse = parse_module(text);
     let root = parse.syntax();
-    let facts = Facts::of(&root);
+    let facts = Facts::of(&root, text);
     let errors: Vec<TextSize> = parse.errors().iter().map(|e| e.range.start()).collect();
     let imports: Vec<ast::Import> = imports(&root, &errors).collect();
     let mut found = Lint {
         path,
+        text,
         problems: Vec::new(),
     };
     let unused_exposures =
         if checks.on(Rule::UnusedImport) || checks.on(Rule::UnusedImportedVariable) {
-            unused_imported_values(&imports, &facts)
+            unused_imported_values(&imports, &facts, text)
         } else {
             HashSet::new()
         };
@@ -192,7 +191,7 @@ struct Facts {
 }
 
 impl Facts {
-    fn of(root: &SyntaxNode) -> Facts {
+    fn of(root: &SyntaxNode, text: &str) -> Facts {
         let mut facts = Facts::default();
         let named = |token: SyntaxToken| (token.text().to_owned(), token.text_range());
         for node in root.descendants() {
@@ -233,7 +232,9 @@ impl Facts {
                         facts.exposed_values.push((words(&node), range));
                     }
                 }
-                SyntaxKind::ExposedType => facts.exposed_types.push(text(&node)),
+                SyntaxKind::ExposedType => {
+                    facts.exposed_types.push(written(text, &node).to_owned());
+                }
                 SyntaxKind::ModuleHeader => {
                     facts.exposes_all = (ast::ModuleHeader::cast(node))
                         .and_then(|header| header.exposing_list())
@@ -260,6 +261,8 @@ impl Facts {
 
 struct Lint<'p> {
     path: &'p Path,
+    /// The file's text.
+    text: &'p str,
     problems: Vec<Problem>,
 }
 
@@ -313,7 +316,7 @@ impl Lint<'_> {
             } else {
                 "value"
             };
-            let message = format!("Unused imported {what} `{}`", text(&exposed));
+            let message = format!("Unused imported {what} `{}`", written(self.text, &exposed));
             self.warn(range, message, Code::UnusedImportedValue);
         }
     }
@@ -427,6 +430,7 @@ impl Lint<'_> {
     /// `getCaseBranchMapNothingToNothingDiagnostics`: a branch
     /// `Nothing -> Nothing`.
     fn map_nothing_to_nothing(&mut self, root: &SyntaxNode) {
+        let text = self.text;
         for branch in root
             .descendants()
             .filter(|n| n.kind() == SyntaxKind::CaseBranch)
@@ -435,8 +439,9 @@ impl Lint<'_> {
             let body = (branch.children())
                 .filter(|c| ast::Expr::can_cast(c.kind()))
                 .last();
-            let nothing =
-                |node: &Option<SyntaxNode>| node.as_ref().is_some_and(|n| text(n) == "Nothing");
+            let nothing = |node: &Option<SyntaxNode>| {
+                node.as_ref().is_some_and(|n| written(text, n) == "Nothing")
+            };
             let body_is_name = body
                 .as_ref()
                 .is_some_and(|b| b.kind() == SyntaxKind::NameExpr);
@@ -458,14 +463,14 @@ impl Lint<'_> {
             .descendants()
             .filter(|n| n.kind() == SyntaxKind::CaseExpr)
         {
-            let patterns: Vec<String> = (case.children())
+            let patterns: Vec<&str> = (case.children())
                 .filter(|c| c.kind() == SyntaxKind::CaseBranch)
                 .filter_map(|b| b.children().find(|c| ast::Pattern::can_cast(c.kind())))
-                .map(|p| text(&p))
+                .map(|p| written(self.text, &p))
                 .collect();
-            let boolean = |p: &String| p == "True" || p == "False";
+            let boolean = |p: &str| p == "True" || p == "False";
             let found = (patterns.iter().enumerate()).any(|(i, first)| {
-                boolean(first) && patterns[i + 1..].iter().any(|p| boolean(p) || p == "_")
+                boolean(first) && patterns[i + 1..].iter().any(|p| boolean(p) || *p == "_")
             });
             if found && let Some(range) = code_range(&case) {
                 let message = "Use an if expression instead of a case expression.".to_owned();
@@ -511,7 +516,7 @@ impl Lint<'_> {
                 let [left, operator, right] = window else {
                     continue;
                 };
-                if operator.kind() != SyntaxKind::Op || text(operator) != op {
+                if operator.kind() != SyntaxKind::Op || written(self.text, operator) != op {
                     continue;
                 }
                 let fits = match pair {
@@ -573,7 +578,9 @@ impl Lint<'_> {
             let Some(function) = parts.next() else {
                 continue;
             };
-            if function.kind() != SyntaxKind::NameExpr || text(&function) != "List.concat" {
+            if function.kind() != SyntaxKind::NameExpr
+                || written(self.text, &function) != "List.concat"
+            {
                 continue;
             }
             let of_lists = parts.any(|arg| {
@@ -604,8 +611,12 @@ impl Lint<'_> {
             // and no others.
             let known = parts.first().is_some_and(|f| {
                 f.kind() == SyntaxKind::OperatorFunction
-                    && OPERATORS
-                        .contains(&text(f).trim_start_matches('(').trim_end_matches(')').trim())
+                    && OPERATORS.contains(
+                        &written(self.text, f)
+                            .trim_start_matches('(')
+                            .trim_end_matches(')')
+                            .trim(),
+                    )
             });
             if parts.len() >= 3
                 && known
@@ -716,15 +727,19 @@ impl Lint<'_> {
 /// `getUnusedImportValueAndTypeDiagnostics`: the exposed values and
 /// types of the imports that nothing writes, each but `T(..)`. Gives
 /// back where they are, for `getUnusedImportDiagnostics`.
-fn unused_imported_values(imports: &[ast::Import], facts: &Facts) -> HashSet<TextRange> {
+fn unused_imported_values(
+    imports: &[ast::Import],
+    facts: &Facts,
+    text: &str,
+) -> HashSet<TextRange> {
     let mut unused = HashSet::new();
     for (exposed, range) in import_exposures(imports) {
-        let text = text(&exposed);
-        if text.ends_with("(..)") {
+        let name = written(text, &exposed);
+        if name.ends_with("(..)") {
             continue;
         }
-        let used = (facts.values.iter().chain(&facts.record_bases)).any(|(t, _)| *t == text)
-            || facts.types.contains(&text);
+        let used = (facts.values.iter().chain(&facts.record_bases)).any(|(t, _)| t == name)
+            || facts.types.iter().any(|t| t == name);
         if !used {
             unused.insert(range);
         }
@@ -752,21 +767,10 @@ fn import_exposures(imports: &[ast::Import]) -> impl Iterator<Item = (SyntaxNode
 
 /// Whether a port's type ends in a `Sub`: an incoming port.
 fn incoming(ty: &SyntaxNode) -> bool {
-    let mut ty = ty.clone();
-    let mut function = false;
-    while ty.kind() == SyntaxKind::FunctionType {
-        function = true;
-        let result = (ty.children())
-            .filter(|c| ast::Type::can_cast(c.kind()))
-            .nth(1);
-        let Some(result) = result else {
-            return false;
-        };
-        ty = result;
-    }
-    function
-        && ty.kind() == SyntaxKind::NamedType
-        && child_token(&ty, SyntaxKind::UpperIdent).is_some_and(|name| name.text() == "Sub")
+    let result = result_type(ty);
+    ty.kind() == SyntaxKind::FunctionType
+        && result.kind() == SyntaxKind::NamedType
+        && child_token(&result, SyntaxKind::UpperIdent).is_some_and(|name| name.text() == "Sub")
 }
 
 /// Whether `location` is in an expression, rather than a declaration or
@@ -801,12 +805,6 @@ fn qualified_name(node: &SyntaxNode) -> String {
         .unwrap_or_default();
     name.extend(child_token(node, SyntaxKind::UpperIdent).map(|t| t.text().to_owned()));
     name
-}
-
-/// A node's text as tree-sitter's `text` reads it, empty where the node
-/// is.
-fn text(node: &SyntaxNode) -> String {
-    code_text(node).unwrap_or_default()
 }
 
 /// The imports that parsed whole: a half-written one, such as `import`

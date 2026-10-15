@@ -10,11 +10,13 @@ use nomi_project::Outline;
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 
-use super::refactor::{Commas, remove_exposed, with_commas, written};
+use super::refactor::{Commas, remove_exposed, with_commas};
 use super::{Diagnosed, DiagnosticCode, Fixing, Offer, here, name_of, token_at};
 use crate::completion::Context;
 use crate::problems::Code;
-use crate::tree::{child, code_range, declaration_range, last_child_token, variant_range, words};
+use crate::tree::{
+    child, code_range, declaration_range, last_child_token, variant_range, words, written,
+};
 use crate::{Edit, FileEdits, next_line};
 
 /// For each diagnostic the editor sent, the action that removes what it
@@ -111,7 +113,25 @@ fn unused_edits(
             removal(title, alias.and_then(|a| code_range(&a)))
         }
         Code::UnusedImportedValue => imported_value_edits(fixing, &token, removed),
-        _ => (None, Vec::new()),
+        // `getEditsForDiagnostic` has no case for the others, an unused
+        // incoming port among them.
+        Code::UnusedIncomingPort
+        | Code::MissingValue
+        | Code::ImportResolve
+        | Code::ElmMake
+        | Code::MissingTypeAnnotation
+        | Code::RecordField
+        | Code::IncompleteCasePattern
+        | Code::ElmReview
+        | Code::MapNothingToNothing
+        | Code::BooleanCaseExpr
+        | Code::DropConcatOfLists
+        | Code::DropConsOfItemAndList
+        | Code::UseConsOverConcat
+        | Code::SingleFieldRecord
+        | Code::UnnecessaryListConcat
+        | Code::UnnecessaryPortModule
+        | Code::NoUncurriedPrefix => (None, Vec::new()),
     }
 }
 
@@ -530,13 +550,9 @@ fn flat_type(signature: &SyntaxNode) -> Option<Vec<SyntaxElement>> {
 
 /// Whether the module is a package's exposed one and exposes `name`.
 fn exposed_by_package(context: &Context<'_>, root: &SyntaxNode, name: &str) -> bool {
-    let Some(manifest) = nomi_engine::index::manifest(context.snapshot, context.path) else {
-        return false;
-    };
-    let Ok(bytes) = context.snapshot.read(&manifest) else {
-        return false;
-    };
-    let Ok((Outline::Pkg(outline), _)) = Outline::detect(bytes.as_bytes()) else {
+    let Some((_, Outline::Pkg(outline), _)) =
+        crate::project_outline(context.snapshot, context.path)
+    else {
         return false;
     };
     outline

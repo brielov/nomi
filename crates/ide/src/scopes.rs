@@ -46,27 +46,74 @@ pub(crate) fn uses(root: &SyntaxNode, binder: TextRange, scope: &SyntaxNode) -> 
     found
 }
 
-/// Where `scope` binds `name`: its patterns, a `let`'s declarations, or
-/// a declaration's parameters.
+/// What a scope binds, as the binder calls it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Bound {
+    Let,
+    /// A declaration's or a lambda's parameter.
+    Parameter,
+    Case,
+}
+
+/// A name a scope binds.
+pub(crate) struct Binding {
+    pub(crate) name: String,
+    pub(crate) at: TextRange,
+    pub(crate) bound: Bound,
+    /// A `let` value's definition.
+    pub(crate) definition: Option<SyntaxNode>,
+}
+
+/// Where `scope` binds `name`.
 fn bound_in(scope: &SyntaxNode, name: &str) -> Option<(TextRange, SyntaxNode)> {
-    let find = |node: &SyntaxNode| {
-        (node.children().filter(|c| ast::Pattern::can_cast(c.kind())))
-            .flat_map(|p| bindings(&p))
-            .find(|(n, _)| n == name)
-            .map(|(_, range)| (range, scope.clone()))
-    };
+    let binding = bound_by(scope).into_iter().find(|b| b.name == name)?;
+    Some((binding.at, scope.clone()))
+}
+
+/// The names `scope` binds, in order: a case branch's or a lambda's
+/// patterns, a declaration's parameters, or a `let`'s declarations.
+pub(crate) fn bound_by(scope: &SyntaxNode) -> Vec<Binding> {
     match scope.kind() {
-        SyntaxKind::CaseBranch | SyntaxKind::LambdaExpr | SyntaxKind::Definition => find(scope),
-        SyntaxKind::LetExpr => scope.children().find_map(|decl| match decl.kind() {
-            SyntaxKind::LetValue => (child(&decl, SyntaxKind::Definition))
-                .and_then(|d| child_token(&d, SyntaxKind::LowerIdent))
-                .filter(|token| token.text() == name)
-                .map(|token| (token.text_range(), scope.clone())),
-            SyntaxKind::LetDestructure => find(&decl),
-            _ => None,
-        }),
-        _ => None,
+        SyntaxKind::Definition | SyntaxKind::LambdaExpr => {
+            pattern_bindings(scope, Bound::Parameter).collect()
+        }
+        SyntaxKind::CaseBranch => pattern_bindings(scope, Bound::Case).collect(),
+        SyntaxKind::LetExpr => {
+            let mut found = Vec::new();
+            for decl in scope.children() {
+                match decl.kind() {
+                    SyntaxKind::LetValue => {
+                        found.extend(child(&decl, SyntaxKind::Definition).and_then(|definition| {
+                            let name = child_token(&definition, SyntaxKind::LowerIdent)?;
+                            Some(Binding {
+                                name: name.text().to_owned(),
+                                at: name.text_range(),
+                                bound: Bound::Let,
+                                definition: Some(definition),
+                            })
+                        }));
+                    }
+                    SyntaxKind::LetDestructure => found.extend(pattern_bindings(&decl, Bound::Let)),
+                    _ => {}
+                }
+            }
+            found
+        }
+        _ => Vec::new(),
     }
+}
+
+/// The names the patterns among `node`'s children bind, as `bound`.
+fn pattern_bindings(node: &SyntaxNode, bound: Bound) -> impl Iterator<Item = Binding> + use<> {
+    (node.children())
+        .filter(|c| ast::Pattern::can_cast(c.kind()))
+        .flat_map(|pattern| bindings(&pattern))
+        .map(move |(name, at)| Binding {
+            name,
+            at,
+            bound,
+            definition: None,
+        })
 }
 
 /// The variables `pattern` binds, as tree-sitter's `lower_pattern`s:

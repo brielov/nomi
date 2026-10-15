@@ -218,35 +218,5 @@ fn label_of(literal: &str) -> String {
     {
         return body.to_owned();
     }
-    json_unescape(literal).unwrap_or_else(|| literal.trim_matches('"').to_owned())
-}
-
-/// `JSON.parse` of a string literal: its escapes, as JSON has them.
-fn json_unescape(literal: &str) -> Option<String> {
-    let inner = literal.strip_prefix('"')?.strip_suffix('"')?;
-    let mut out = String::new();
-    let mut chars = inner.chars();
-    while let Some(c) = chars.next() {
-        if c != '\\' {
-            out.push(c);
-            continue;
-        }
-        match chars.next()? {
-            '"' => out.push('"'),
-            '\\' => out.push('\\'),
-            '/' => out.push('/'),
-            'b' => out.push('\u{8}'),
-            'f' => out.push('\u{c}'),
-            'n' => out.push('\n'),
-            'r' => out.push('\r'),
-            't' => out.push('\t'),
-            'u' => {
-                let hex: String = (0..4).filter_map(|_| chars.next()).collect();
-                out.push(char::from_u32(u32::from_str_radix(&hex, 16).ok()?)?);
-            }
-            // JSON rejects any other escape, as Elm's `\u{…}`.
-            _ => return None,
-        }
-    }
-    Some(out)
+    (serde_json::from_str(literal).ok()).unwrap_or_else(|| literal.trim_matches('"').to_owned())
 }

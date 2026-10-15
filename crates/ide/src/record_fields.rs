@@ -18,7 +18,7 @@ use nomi_syntax::{SyntaxKind, SyntaxNode, child_token};
 
 use crate::Edit;
 use crate::completion::{Completion, CompletionKind};
-use crate::tree::{child, code_range, code_text, declared_type};
+use crate::tree::{arguments, child, code_range, code_text, declared_type, result_type};
 
 /// The fields of the record before the dot at `dot`.
 pub(crate) fn after(
@@ -101,11 +101,7 @@ fn typed_fields(
     if record.kind() == SyntaxKind::NameExpr {
         ranges.extend(crate::scopes::local(root, at.start()).map(|(b, _)| b));
     }
-    let typed: Vec<&error::Type> = (types.iter())
-        .filter(|(r, _)| ranges.iter().any(|range| r.contains_range(*range)))
-        .filter(|(r, _)| crate::hover::trimmed(root, *r).is_some_and(|r| ranges.contains(&r)))
-        .map(|(_, ty)| ty)
-        .collect();
+    let typed = crate::hover::types_over(root, types, &ranges);
     let ty = typed
         .iter()
         .find(|t| matches!(t, error::Type::Alias { .. }))
@@ -341,11 +337,8 @@ pub(crate) fn alias_of_name<'i>(
                 .and_then(|def| child_token(&def, SyntaxKind::LowerIdent))
                 .is_some_and(|t| t.text() == name)
         })?;
-    let signature = child(&decl, SyntaxKind::Signature)?;
-    let ty = signature
-        .children()
-        .find(|c| ast::Type::can_cast(c.kind()))?;
-    named_alias(index, module, &result_type(&ty))
+    let ty = ast::Signature::cast(child(&decl, SyntaxKind::Signature)?)?.ty()?;
+    named_alias(index, module, &result_type(ty.syntax()))
 }
 
 /// The alias a parameter's pattern is annotated as.
@@ -360,13 +353,10 @@ fn param_alias<'i>(
     let position = (definition.children())
         .filter(|c| ast::Pattern::can_cast(c.kind()))
         .position(|c| c == *pattern)?;
-    let signature = definition
-        .prev_sibling()
-        .filter(|s| s.kind() == SyntaxKind::Signature)?;
-    let ty = signature
-        .children()
-        .find(|c| ast::Type::can_cast(c.kind()))?;
-    let argument = arguments(&ty).into_iter().nth(position)?;
+    let signature = definition.prev_sibling().and_then(ast::Signature::cast)?;
+    let argument = arguments(signature.ty()?.syntax())
+        .into_iter()
+        .nth(position)?;
     named_alias(index, module, &argument)
 }
 
@@ -461,11 +451,8 @@ fn returned_alias<'i>(index: &'i Index, module: &'i Indexed, at: TextSize) -> Op
     let decl = token
         .parent_ancestors()
         .find(|a| matches!(a.kind(), SyntaxKind::ValueDecl | SyntaxKind::LetValue))?;
-    let signature = child(&decl, SyntaxKind::Signature)?;
-    let ty = signature
-        .children()
-        .find(|c| ast::Type::can_cast(c.kind()))?;
-    named_alias(index, module, &result_type(&ty))
+    let ty = ast::Signature::cast(child(&decl, SyntaxKind::Signature)?)?.ty()?;
+    named_alias(index, module, &result_type(ty.syntax()))
 }
 
 /// `module`'s declaration of the alias `name`.
@@ -514,37 +501,6 @@ fn named_alias<'i>(index: &'i Index, module: &'i Indexed, ty: &SyntaxNode) -> Op
         None => (declared_alias(module, name.text()))
             .or_else(|| (index.modules.iter()).find_map(|m| declared_alias(m, name.text()))),
     }
-}
-
-/// A function type's arguments, in order.
-fn arguments(ty: &SyntaxNode) -> Vec<SyntaxNode> {
-    let mut found = Vec::new();
-    let mut ty = ty.clone();
-    while ty.kind() == SyntaxKind::FunctionType {
-        let mut parts = ty.children().filter(|c| ast::Type::can_cast(c.kind()));
-        let (Some(argument), Some(result)) = (parts.next(), parts.next()) else {
-            break;
-        };
-        found.push(argument);
-        ty = result;
-    }
-    found
-}
-
-/// A function type's result.
-fn result_type(ty: &SyntaxNode) -> SyntaxNode {
-    let mut ty = ty.clone();
-    while ty.kind() == SyntaxKind::FunctionType {
-        let Some(result) = ty
-            .children()
-            .filter(|c| ast::Type::can_cast(c.kind()))
-            .nth(1)
-        else {
-            break;
-        };
-        ty = result;
-    }
-    ty
 }
 
 /// The record an update written as `between` its `{` and the cursor

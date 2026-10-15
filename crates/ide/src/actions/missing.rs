@@ -5,7 +5,9 @@ use std::fmt::Write as _;
 
 use nomi_base::TextRange;
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, child_token, tokens};
+use nomi_syntax::{
+    SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, child_token, child_tokens, tokens,
+};
 
 use super::usage::{render_usage, todo_at, todo_type, with_todos};
 use super::{Diagnosed, Fixing, Offer, here};
@@ -150,11 +152,7 @@ pub(super) fn missing_field(
                 .next()?;
             let field = (owner.children())
                 .filter(|c| c.kind() == SyntaxKind::Field)
-                .find(|f| {
-                    (f.children_with_tokens())
-                        .filter_map(|e| e.into_token())
-                        .any(|t| t.kind() == SyntaxKind::LowerIdent && t.text() == wanted)
-                })?;
+                .find(|f| child_tokens(f, SyntaxKind::LowerIdent).any(|t| t.text() == wanted))?;
             let name = child_token(&field, SyntaxKind::LowerIdent)?;
             Some((owner, name))
         }
@@ -174,14 +172,11 @@ fn record_field_edits(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> Option<Fil
     })?;
     let at = target.text_range().start();
     let alias = crate::record_fields::alias_of_name(context.index, module, at, target.text())?;
-    // In this file only: its tree is this module's.
-    let alias = alias.decl;
-    if !(alias.ancestors().last()).is_some_and(|root| root.text() == *module.text) {
+    // In this file only.
+    if alias.module.path != module.path {
         return None;
     }
-    let record = alias
-        .children()
-        .find(|c| c.kind() == SyntaxKind::RecordType)?;
+    let record = (alias.decl.children()).find(|c| c.kind() == SyntaxKind::RecordType)?;
     let last = record
         .children()
         .filter(|c| c.kind() == SyntaxKind::FieldType)

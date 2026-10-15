@@ -15,7 +15,7 @@ use super::{
 use crate::completion::Context;
 use crate::lens::{Exposable, exposes};
 use crate::problems::Code;
-use crate::tree::{child, code_range};
+use crate::tree::{child, code_range, written};
 use crate::{Edit, column};
 
 /// `addTypeAnnotationCodeAction`'s edit: the inferred annotation above the
@@ -24,7 +24,7 @@ fn annotation_edit(context: &Context<'_>, range: TextRange) -> Option<Edit> {
     let module = context.module;
     let token = token_at(&module.root(), range.start())?;
     let definition = definition_name(&token)?;
-    let ty = crate::hover::definition_type(context.index, module, &definition)?;
+    let ty = crate::hover::definition_type(context.index, module, context.names(), &definition)?;
     let start = token.text_range().start();
     let indent = " ".repeat(column(&module.text, start));
     Some(Edit::insert(
@@ -227,11 +227,6 @@ fn exposed_nodes(root: &SyntaxNode) -> Vec<SyntaxNode> {
                 .collect()
         })
         .unwrap_or_default()
-}
-
-/// `node` as `text` writes it, without the trivia around it.
-pub(super) fn written<'t>(text: &'t str, node: &SyntaxNode) -> &'t str {
-    code_range(node).map_or("", |r| &text[r])
 }
 
 /// Whether a name goes into a module's exposing list or out of it.

@@ -23,6 +23,8 @@ use std::rc::Rc;
 use nomi_base::{TextRange, TextSize};
 use nomi_compiler::canonical::{self, Home};
 use nomi_compiler::canonicalize::foreign::with_defaults;
+use nomi_compiler::hir::{Exposed, Exposing, Import};
+use nomi_compiler::interface::{Interface, Union};
 use nomi_compiler::types::localizer::Localizer;
 use nomi_compiler::types::{ExprTypes, error};
 use nomi_engine::Snapshot;
@@ -270,18 +272,18 @@ pub(crate) fn composed(
 pub(crate) fn definition_type(
     index: &Index,
     module: &Indexed,
+    names: &Names,
     definition: &SyntaxNode,
 ) -> Option<String> {
-    let names = Names::of(index, module);
     let root = module.root();
     if (definition.parent()).is_some_and(|d| d.kind() == SyntaxKind::ValueDecl) {
         let name = child_token(definition, SyntaxKind::LowerIdent)?;
         let ty = value_type(index, Some(module), &root, name.text())?;
-        return Some(render(&names, ty));
+        return Some(render(names, ty));
     }
     let (_, types) = module.types(index.compat)?;
     composed(definition, |range| {
-        type_of(&root, types, range).map(|ty| render_error(&names, ty))
+        type_of(&root, types, range).map(|ty| render_error(names, ty))
     })
 }
 
@@ -524,48 +526,10 @@ pub(crate) struct Names {
 
 impl Names {
     pub(crate) fn of(index: &Index, indexed: &Indexed) -> Names {
-        use nomi_compiler::hir::{Exposed, Exposing};
-        use nomi_compiler::interface::Union;
         let imports = with_defaults(&index.package, &indexed.hir.imports);
-        let mut exposed = HashSet::new();
-        for import in imports.clone() {
-            let interface = index.interfaces.get(&import.name.text);
-            let constructors = |union: &str| -> Vec<String> {
-                (interface.and_then(|i| i.unions.get(union)))
-                    .map(|u| u.whole().ctors.iter().map(|c| c.name.clone()).collect())
-                    .unwrap_or_default()
-            };
-            match &import.exposing {
-                None => {}
-                Some(Exposing::Open) => {
-                    if let Some(interface) = interface {
-                        exposed.extend(interface.values.keys().cloned());
-                        exposed.extend(interface.aliases.keys().cloned());
-                        for (name, union) in &interface.unions {
-                            exposed.insert(name.clone());
-                            if let Union::Open(_) = union {
-                                exposed.extend(constructors(name));
-                            }
-                        }
-                    }
-                }
-                Some(Exposing::Explicit(list)) => {
-                    for item in list {
-                        match item {
-                            Exposed::Lower(name) | Exposed::Operator(name) => {
-                                exposed.insert(name.text.clone());
-                            }
-                            Exposed::Upper(name, open) => {
-                                exposed.insert(name.text.clone());
-                                if open.is_some() {
-                                    exposed.extend(constructors(&name.text));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let exposed = (imports.clone())
+            .flat_map(|import| exposed_by(import, index.interfaces.get(&import.name.text)))
+            .collect();
         let imports: Vec<(String, Option<String>)> = imports
             .map(|i| {
                 (
@@ -613,6 +577,41 @@ impl Names {
     }
 }
 
+/// The names `import` exposes, as `interface`, its module's, declares
+/// them.
+fn exposed_by(import: &Import, interface: Option<&Interface>) -> Vec<String> {
+    let constructors = |union: &str| -> Vec<String> {
+        (interface.and_then(|i| i.unions.get(union)))
+            .map(|u| u.whole().ctors.iter().map(|c| c.name.clone()).collect())
+            .unwrap_or_default()
+    };
+    let mut exposed = Vec::new();
+    match (&import.exposing, interface) {
+        (None, _) | (Some(Exposing::Open), None) => {}
+        (Some(Exposing::Open), Some(interface)) => {
+            exposed.extend(interface.values.keys().cloned());
+            exposed.extend(interface.aliases.keys().cloned());
+            for (name, union) in &interface.unions {
+                exposed.push(name.clone());
+                if let Union::Open(_) = union {
+                    exposed.extend(constructors(name));
+                }
+            }
+        }
+        (Some(Exposing::Explicit(list)), _) => {
+            for item in list {
+                let (Exposed::Lower(name) | Exposed::Operator(name) | Exposed::Upper(name, _)) =
+                    item;
+                exposed.push(name.text.clone());
+                if let Exposed::Upper(_, Some(_)) = item {
+                    exposed.extend(constructors(&name.text));
+                }
+            }
+        }
+    }
+    exposed
+}
+
 /// The localizer of `module`, as its type errors would name types.
 pub(crate) fn localizer(index: &Index, indexed: &Indexed) -> Localizer {
     let imports = with_defaults(&index.package, &indexed.hir.imports);
@@ -647,6 +646,21 @@ pub(crate) fn types_at<'t>(
     (types.iter())
         .filter(move |(r, _)| r.contains_range(range) && trimmed(root, *r) == Some(range))
         .map(|(_, ty)| ty)
+}
+
+/// The types `types` records for the expressions or patterns at any of
+/// `ranges` in `root`, in order. A type's region holds its node's range,
+/// and more trivia before it.
+pub(crate) fn types_over<'t>(
+    root: &SyntaxNode,
+    types: &'t ExprTypes,
+    ranges: &[TextRange],
+) -> Vec<&'t error::Type> {
+    (types.iter())
+        .filter(|(r, _)| ranges.iter().any(|range| r.contains_range(*range)))
+        .filter(|(r, _)| trimmed(root, *r).is_some_and(|r| ranges.contains(&r)))
+        .map(|(_, ty)| ty)
+        .collect()
 }
 
 /// Whether `range` of `root` holds nothing but closing parentheses and

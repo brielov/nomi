@@ -40,7 +40,9 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     let mut out = String::from(
         "//! elm-language-server 2.10.0's completion data, written by `cargo xtask oracle\n\
          //! lsp-tables` from its `ranking.ts`, `completionProvider.ts` and `elmUtils.ts`\n\
-         //! (MIT, THIRD-PARTY-NOTICES.md). Regenerate it; don't edit it.\n\n",
+         //! (MIT, THIRD-PARTY-NOTICES.md). Regenerate it; don't edit it.\n\n\
+         use crate::completion::CompletionKind;\n\
+         use crate::completion_general::Snippet;\n\n",
     );
     out.push_str("/// Each ranked package and its rank, by name.\n");
     out.push_str("pub(crate) const RANKING: &[(&str, &str)] = &[\n");
@@ -60,14 +62,8 @@ pub(crate) fn run(root: &Path) -> Result<()> {
             &start,
         ),
     ] {
-        writeln!(
-            out,
-            "/// {doc}: label, text, documentation, and whether it's a keyword."
-        )?;
-        writeln!(
-            out,
-            "pub(crate) const {name}: &[(&str, &str, Option<&str>, bool)] = &["
-        )?;
+        writeln!(out, "/// {doc}.")?;
+        writeln!(out, "pub(crate) const {name}: &[Snippet<'static>] = &[")?;
         for snippet in table {
             let Snippet {
                 label,
@@ -75,9 +71,10 @@ pub(crate) fn run(root: &Path) -> Result<()> {
                 documentation,
                 keyword,
             } = snippet;
+            let kind = if *keyword { "Keyword" } else { "Snippet" };
             writeln!(
                 out,
-                "    ({label:?}, {text:?}, {documentation:?}, {keyword}),"
+                "    Snippet {{ label: {label:?}, text: {text:?}, documentation: {documentation:?}, kind: CompletionKind::{kind} }},"
             )?;
         }
         out.push_str("];\n\n");

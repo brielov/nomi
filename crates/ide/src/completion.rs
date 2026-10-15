@@ -216,7 +216,7 @@ fn place_completions(
         let replace = cursor.range(cursor.word_start);
         return Some(Completions::Items(match list {
             Exposing::Module(written) => context
-                .top_levels(replace, true)
+                .top_levels(replace, TopLevels::Exposing)
                 .into_iter()
                 .filter(|c| !written.contains(&c.label))
                 .collect(),
@@ -455,10 +455,10 @@ pub(crate) struct Importable {
 
 /// What completions and code actions read, each read once a request.
 pub(crate) struct Context<'c> {
-    pub snapshot: &'c Snapshot,
-    pub index: &'c Index,
-    pub module: &'c Indexed,
-    pub path: &'c Path,
+    pub(crate) snapshot: &'c Snapshot,
+    pub(crate) index: &'c Index,
+    pub(crate) module: &'c Indexed,
+    pub(crate) path: &'c Path,
     importable: OnceCell<Vec<Importable>>,
     possible: OnceCell<Vec<Possible>>,
     import_at: OnceCell<TextSize>,
@@ -512,7 +512,7 @@ impl Context<'_> {
     /// `getSameFileTopLevelCompletions`: the module's own values, types
     /// with their variants, aliases and ports, as `b`; with a type's
     /// `(..)` too in its own exposing list.
-    pub(crate) fn top_levels(&self, range: TextRange, exposing: bool) -> Vec<Completion> {
+    pub(crate) fn top_levels(&self, range: TextRange, list: TopLevels) -> Vec<Completion> {
         let root = &self.module.root();
         let item = |name: &SyntaxToken, kind| {
             Completion::new(name.text(), kind, "b", range)
@@ -544,7 +544,7 @@ impl Context<'_> {
                         continue;
                     };
                     let union = item(&name, CompletionKind::Enum);
-                    let open = exposing.then(|| {
+                    let open = (list == TopLevels::Exposing).then(|| {
                         let label = format!("{}(..)", name.text());
                         Completion::new(&label, CompletionKind::Enum, "b", range)
                             .documented(union.documentation.clone())
@@ -652,11 +652,15 @@ impl Context<'_> {
                 },
                 None => &module.name,
             };
-            let documentation = (self.snapshot.read(&module.path).ok()).and_then(|text| {
-                let root = parse_module(&text).syntax();
+            let documentation = self.tree_at(&module.path).and_then(|root| {
                 let header = child(&root, SyntaxKind::ModuleHeader)?;
                 let name = significant_tokens(&child(&header, SyntaxKind::ModuleName)?).next()?;
-                declaration_hint(&root, &name, None)
+                let make = || declaration_hint(&root, &name, None);
+                if !self.index.is_package_file(&module.path) {
+                    return make();
+                }
+                let at = name.text_range().start();
+                self.index.package_files.hint(&module.path, at, make)
             });
             found.push(
                 Completion::new(label, CompletionKind::Module, "b", range)
@@ -877,12 +881,21 @@ impl Context<'_> {
             (None, Some(own)) => return Some((own.root(), own.path.clone())),
             (None, None) => crate::navigation::module_file(self.snapshot, self.index, name)?,
         };
-        // A package's sources never change: each is parsed once.
-        if self.index.is_package_file(&path) {
-            return Some((self.index.package_files.tree(&path)?, path));
+        Some((self.tree_at(&path)?, path))
+    }
+
+    /// The tree of the module at `path`: the index's where it's the
+    /// project's, parsed once where it's a package's, whose sources never
+    /// change, or else read and parsed.
+    fn tree_at(&self, path: &Path) -> Option<SyntaxNode> {
+        let own = (self.index.modules.iter()).find(|m| m.path.as_os_str() == path.as_os_str());
+        if let Some(own) = own {
+            return Some(own.root());
         }
-        let text = self.snapshot.read(&path).ok()?;
-        Some((parse_module(&text).syntax(), path))
+        if self.index.is_package_file(path) {
+            return self.index.package_files.tree(path);
+        }
+        Some(parse_module(&self.snapshot.read(path).ok()?).syntax())
     }
 }
 
@@ -947,6 +960,31 @@ pub(crate) enum Exposed {
     },
 }
 
+/// Whether an exposing list's type comes with its variants, as `T(..)`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Variants {
+    With,
+    Without,
+}
+
+impl Variants {
+    /// What the exposed type `item` says.
+    pub(crate) fn of(item: &SyntaxNode) -> Variants {
+        match child(item, SyntaxKind::ExposedVariants) {
+            Some(_) => Variants::With,
+            None => Variants::Without,
+        }
+    }
+}
+
+/// The list the module's own top-level names are offered in.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TopLevels {
+    /// Its exposing list, which offers a type's `(..)` too.
+    Exposing,
+    General,
+}
+
 /// A name a module exposes.
 pub(crate) struct ExposedName {
     /// What it's called: an operator's symbol.
@@ -959,13 +997,13 @@ pub(crate) struct ExposedName {
 
 impl ExposedName {
     /// The declaration `decl`, whose name is `name`, exposed: a custom
-    /// type with its variants where `with_variants` says.
-    fn of(decl: &SyntaxNode, name: &SyntaxToken, with_variants: bool) -> ExposedName {
+    /// type with its variants where `variants` says.
+    fn of(decl: &SyntaxNode, name: &SyntaxToken, variants: Variants) -> ExposedName {
         let kind = match decl.kind() {
             SyntaxKind::TypeAliasDecl => Exposed::Alias,
             SyntaxKind::CustomTypeDecl => Exposed::Type {
                 variants: (decl.children())
-                    .filter(|_| with_variants)
+                    .filter(|_| variants == Variants::With)
                     .filter(|c| c.kind() == SyntaxKind::Variant)
                     .filter_map(|v| child_token(&v, SyntaxKind::UpperIdent))
                     .collect(),
@@ -1016,7 +1054,7 @@ pub(crate) fn exposed(root: &SyntaxNode) -> Vec<ExposedName> {
             .unwrap_or(DEFAULT_IMPORTS.len())
     });
     (order.into_iter())
-        .map(|(decl, name)| ExposedName::of(decl, name, true))
+        .map(|(decl, name)| ExposedName::of(decl, name, Variants::With))
         .collect()
 }
 
@@ -1056,14 +1094,13 @@ fn listed(
     }
     for item in (items.iter()).filter(|i| i.kind() == SyntaxKind::ExposedValue) {
         if let Some((decl, name)) = declared(&words(item)) {
-            found.push(ExposedName::of(decl, name, false));
+            found.push(ExposedName::of(decl, name, Variants::Without));
         }
     }
     for item in (items.iter()).filter(|i| i.kind() == SyntaxKind::ExposedType) {
-        let with_variants = child(item, SyntaxKind::ExposedVariants).is_some();
         let name = child_token(item, SyntaxKind::UpperIdent);
         if let Some((decl, token)) = name.and_then(|name| declared(name.text())) {
-            found.push(ExposedName::of(decl, token, with_variants));
+            found.push(ExposedName::of(decl, token, Variants::of(item)));
         }
     }
     found
@@ -1089,7 +1126,7 @@ pub(crate) struct DefaultImport {
 pub(crate) enum DefaultExposing {
     All,
     Explicit {
-        types: &'static [(&'static str, bool)],
+        types: &'static [(&'static str, Variants)],
         operators: &'static [&'static str],
     },
 }
@@ -1103,7 +1140,10 @@ pub(crate) const DEFAULT_IMPORTS: [DefaultImport; 11] = {
             exposing,
         }
     }
-    const fn types(module: &'static str, types: &'static [(&'static str, bool)]) -> DefaultImport {
+    const fn types(
+        module: &'static str,
+        types: &'static [(&'static str, Variants)],
+    ) -> DefaultImport {
         let operators = &[];
         import(module, Some(DefaultExposing::Explicit { types, operators }))
     }
@@ -1112,24 +1152,24 @@ pub(crate) const DEFAULT_IMPORTS: [DefaultImport; 11] = {
         import(
             "List",
             Some(DefaultExposing::Explicit {
-                types: &[("List", false)],
+                types: &[("List", Variants::Without)],
                 operators: &["::"],
             }),
         ),
-        types("Maybe", &[("Maybe", true)]),
-        types("Result", &[("Result", true)]),
-        types("String", &[("String", false)]),
-        types("Char", &[("Char", false)]),
+        types("Maybe", &[("Maybe", Variants::With)]),
+        types("Result", &[("Result", Variants::With)]),
+        types("String", &[("String", Variants::Without)]),
+        types("Char", &[("Char", Variants::Without)]),
         import("Tuple", None),
         import("Debug", None),
-        types("Platform", &[("Program", false)]),
+        types("Platform", &[("Program", Variants::Without)]),
         DefaultImport {
             alias: Some("Cmd"),
-            ..types("Platform.Cmd", &[("Cmd", false)])
+            ..types("Platform.Cmd", &[("Cmd", Variants::Without)])
         },
         DefaultImport {
             alias: Some("Sub"),
-            ..types("Platform.Sub", &[("Sub", false)])
+            ..types("Platform.Sub", &[("Sub", Variants::Without)])
         },
     ]
 };
@@ -1147,13 +1187,10 @@ fn importable_modules(snapshot: &Snapshot, index: &Index, path: &Path) -> Vec<Im
     // As elm-language-server finds the files: a directory's files, then
     // its subdirectories', each by name.
     found.sort_by_cached_key(|m| glob_order(&m.path));
-    let manifest = nomi_engine::index::manifest(snapshot, path);
-    let outline = (manifest.and_then(|m| snapshot.read_bytes(&m).ok()))
-        .and_then(|bytes| Outline::detect(&bytes).ok());
-    let direct: Vec<String> = match outline {
+    let direct: Vec<String> = match crate::project_outline(snapshot, path) {
         None => return found,
-        Some((Outline::App(app), _)) => app.direct.keys().map(ToString::to_string).collect(),
-        Some((Outline::Pkg(pkg), _)) => {
+        Some((_, Outline::App(app), _)) => app.direct.keys().map(ToString::to_string).collect(),
+        Some((_, Outline::Pkg(pkg), _)) => {
             // A package's own modules are of its package, which ranks them
             // among the dependencies.
             for module in &mut found {

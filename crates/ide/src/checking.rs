@@ -90,6 +90,68 @@ impl Analyse {
     }
 }
 
+/// What the editor checks in a project, as `settings` and its
+/// `elm-analyse.json` have it.
+struct Plan<'o> {
+    /// The open files `elm-analyse.json` doesn't exclude, each with its
+    /// text where the lint rules run and it reads.
+    linted: Vec<(&'o Path, Option<String>)>,
+    /// Whether the annotations left out are suggested.
+    annotations: bool,
+    /// The file to index the project from, where the problems need an
+    /// index.
+    index_from: Option<&'o Path>,
+}
+
+impl<'o> Plan<'o> {
+    /// The plan for a project of the `open` files, `read` reading a file's
+    /// text.
+    fn of(
+        settings: &CheckSettings,
+        analyse: &Analyse,
+        open: &'o [PathBuf],
+        read: impl Fn(&Path) -> Option<String>,
+    ) -> Plan<'o> {
+        let linted: Vec<(&Path, Option<String>)> = (open.iter())
+            .filter(|p| !analyse.excludes(p))
+            .map(|p| (p.as_path(), settings.lint().then(|| read(p)).flatten()))
+            .collect();
+        let annotations = !settings.on_save_only && analyse.checks.on(Rule::MissingTypeAnnotation);
+        // Indexing takes a while; only annotations and ports need it.
+        let ports =
+            (linted.iter()).any(|(_, text)| text.as_ref().is_some_and(|t| t.contains("port ")));
+        let index_from = (annotations || ports)
+            .then(|| linted.first().map(|(p, _)| *p))
+            .flatten();
+        Plan {
+            linted,
+            annotations,
+            index_from,
+        }
+    }
+}
+
+/// What becomes of a project's elm-review problems once elm checked it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Review {
+    Keep,
+    Forget,
+    /// Forget them and run elm-review again.
+    Rerun,
+}
+
+impl Review {
+    /// elm-review runs on open and save, once elm finds nothing; its
+    /// problems go when elm finds some.
+    fn after(saved: bool, clean: bool) -> Review {
+        match (saved, clean) {
+            (true, true) => Review::Rerun,
+            (false, true) => Review::Keep,
+            (_, false) => Review::Forget,
+        }
+    }
+}
+
 /// The problems of every project with an `open` file, as `settings` has
 /// them, on open or save if `saved`, with elm-review's kept in
 /// `reviewed` and its columns read in `unit`. `check` checks a project,
@@ -120,14 +182,8 @@ pub fn project_problems(
     for (manifest, open) in projects {
         let root = manifest.parent().unwrap_or_else(|| Path::new(""));
         let analyse = Analyse::read(snapshot, root);
-        let linted: Vec<&PathBuf> = open.iter().filter(|p| !analyse.excludes(p)).collect();
-        let annotations = !settings.on_save_only && analyse.checks.on(Rule::MissingTypeAnnotation);
-        // Indexing takes a while; only annotations and ports need it.
-        let ports = (linted.iter()).any(|p| snapshot.read(p).is_ok_and(|t| t.contains("port ")));
-        let index_from = (annotations || (settings.lint() && ports))
-            .then(|| linted.first().map(|p| p.as_path()))
-            .flatten();
-        let (live, index) = check(&manifest, &open, index_from)?;
+        let plan = Plan::of(settings, &analyse, &open, |p| snapshot.read(p).ok());
+        let (live, index) = check(&manifest, &open, plan.index_from)?;
         let before = found.len();
         match live {
             Some(live) => found.extend(compiler_problems(snapshot, &live, &open)),
@@ -137,14 +193,11 @@ pub fn project_problems(
                 }
             }
         }
-        // elm-review, on open and save, once elm finds nothing; its
-        // problems go when elm finds some.
-        let clean = found.len() == before;
-        if saved || !clean {
+        let review = Review::after(saved, found.len() == before);
+        if review != Review::Keep {
             reviewed.0.retain(|path, _| !path.starts_with(root));
         }
-        if saved
-            && clean
+        if review == Review::Rerun
             && let Some(review) = &settings.review
         {
             for problem in review::problems(snapshot, root, review, unit) {
@@ -157,13 +210,21 @@ pub fn project_problems(
             .collect();
         review_found.sort_by(|a, b| (&a.path, a.range.start()).cmp(&(&b.path, b.range.start())));
         found.extend(review_found.into_iter().cloned());
-        if settings.lint() {
-            for path in &linted {
-                found.extend(lint(snapshot, index.as_deref(), path, &analyse.checks));
-            }
+        // The texts are read where the rules run.
+        for (path, text) in &plan.linted {
+            let Some(text) = text else { continue };
+            found.extend(lint(
+                snapshot,
+                index.as_deref(),
+                path,
+                text,
+                &analyse.checks,
+            ));
         }
-        if annotations && let Some(index) = &index {
-            for path in &linted {
+        if plan.annotations
+            && let Some(index) = &index
+        {
+            for (path, _) in &plan.linted {
                 found.extend(missing_annotations(index, path));
             }
         }
@@ -209,5 +270,56 @@ mod tests {
         assert!(analyse.checks.on(Rule::SingleFieldRecord));
         assert!(analyse.excludes(&dir.path().join("src/Generated/Api.elm")));
         assert!(!analyse.excludes(&dir.path().join("src/Main.elm")));
+    }
+
+    #[test]
+    fn a_plan_indexes_for_annotations_or_ports_from_the_first_linted_file() {
+        let analyse = Analyse {
+            checks: Checks::default(),
+            excluded: vec![PathBuf::from("src/Generated")],
+        };
+        let open = [
+            PathBuf::from("src/Generated/Api.elm"),
+            PathBuf::from("src/Main.elm"),
+            PathBuf::from("src/Ports.elm"),
+        ];
+        let read = |p: &Path| p.ends_with("Ports.elm").then(|| "port module".to_owned());
+        let settings = CheckSettings::default();
+        let plan = Plan::of(&settings, &analyse, &open, read);
+        let linted: Vec<&Path> = plan.linted.iter().map(|(p, _)| *p).collect();
+        assert_eq!(
+            linted,
+            [Path::new("src/Main.elm"), Path::new("src/Ports.elm")]
+        );
+        assert!(plan.annotations);
+        assert_eq!(plan.index_from, Some(Path::new("src/Main.elm")));
+        // On save only: no annotations, but ports still index.
+        let settings = CheckSettings {
+            on_save_only: true,
+            ..CheckSettings::default()
+        };
+        let plan = Plan::of(&settings, &analyse, &open, read);
+        assert!(!plan.annotations);
+        assert_eq!(plan.index_from, Some(Path::new("src/Main.elm")));
+        // No lint rules and no ports: no index, and nothing read.
+        let settings = CheckSettings {
+            no_lint: true,
+            ..CheckSettings::default()
+        };
+        let analyse = Analyse {
+            checks: Checks::new([(Rule::MissingTypeAnnotation, false)]),
+            ..analyse
+        };
+        let plan = Plan::of(&settings, &analyse, &open, read);
+        assert!(plan.linted.iter().all(|(_, text)| text.is_none()));
+        assert_eq!(plan.index_from, None);
+    }
+
+    #[test]
+    fn review_reruns_on_a_clean_save_and_forgets_on_problems() {
+        assert_eq!(Review::after(true, true), Review::Rerun);
+        assert_eq!(Review::after(true, false), Review::Forget);
+        assert_eq!(Review::after(false, false), Review::Forget);
+        assert_eq!(Review::after(false, true), Review::Keep);
     }
 }
