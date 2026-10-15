@@ -7,6 +7,7 @@
 use nomi_base::{Compat, utf8};
 
 use super::cursor::{Cursor, Position, Region};
+use crate::scan::Scan;
 
 /// A parsed value and the region upstream records for it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -116,70 +117,48 @@ pub enum StringProblem {
 /// Parses a whole file as `compat`'s elm does.
 pub fn parse(src: &[u8], compat: Compat) -> Result<Value<'_>, ParseError> {
     let mut p = Parser {
-        src,
-        pos: 0,
-        cur: Cursor::start(compat),
-        compat,
+        scan: Scan::new(src, Cursor::start(compat), compat),
     };
     p.spaces();
     let value = p.value()?;
     p.spaces();
-    if p.pos == src.len() {
-        Ok(value)
-    } else {
-        Err(p.error(ParseErrorKind::BadEnd))
-    }
+    p.scan
+        .finish()
+        .map_err(|at| ParseError::at(at, ParseErrorKind::BadEnd))?;
+    Ok(value)
 }
 
 struct Parser<'a> {
-    src: &'a [u8],
-    pos: usize,
-    cur: Cursor,
-    compat: Compat,
+    scan: Scan<'a>,
 }
 
 type Parsed<T> = Result<T, ParseError>;
 
 impl<'a> Parser<'a> {
-    fn peek(&self) -> Option<u8> {
-        self.src.get(self.pos).copied()
-    }
-
     fn error(&self, kind: ParseErrorKind) -> ParseError {
-        ParseError::at(self.cur, kind)
-    }
-
-    fn advance(&mut self, bytes: usize) {
-        self.pos += bytes;
-        self.cur = self.cur.slide(bytes);
+        ParseError::at(self.scan.cursor(), kind)
     }
 
     /// `word1`: one expected byte, or `kind` here.
     fn byte(&mut self, byte: u8, kind: ParseErrorKind) -> Parsed<()> {
-        if self.peek() == Some(byte) {
-            self.advance(1);
-            Ok(())
-        } else {
-            Err(self.error(kind))
-        }
+        self.scan.byte(byte).map_err(|at| ParseError::at(at, kind))
     }
 
     fn spaces(&mut self) {
-        while let Some(byte) = self.peek() {
+        while let Some(byte) = self.scan.peek() {
             match byte {
-                b' ' | b'\t' => self.cur = self.cur.slide(1),
-                b'\n' => self.cur = self.cur.newline(),
-                b'\r' => {}
+                b' ' | b'\t' => self.scan.advance(1),
+                b'\n' => self.scan.newline(),
+                b'\r' => self.scan.skip(1, 0),
                 _ => return,
             }
-            self.pos += 1;
         }
     }
 
     fn value(&mut self) -> Parsed<Value<'a>> {
         nomi_base::grow(|| {
-            let start = self.cur;
-            let kind = match self.peek() {
+            let start = self.scan.cursor();
+            let kind = match self.scan.peek() {
                 Some(b'"') => Kind::String(self.string(ParseErrorKind::Start)?),
                 Some(b'{') => self.object()?,
                 Some(b'[') => self.array()?,
@@ -199,7 +178,7 @@ impl<'a> Parser<'a> {
             Ok(Value {
                 region: Region {
                     start: start.position(),
-                    end: self.cur.position(),
+                    end: self.scan.cursor().position(),
                 },
                 kind,
             })
@@ -209,10 +188,10 @@ impl<'a> Parser<'a> {
     fn object(&mut self) -> Parsed<Kind<'a>> {
         self.byte(b'{', ParseErrorKind::Start)?;
         self.spaces();
-        let first = match self.peek() {
+        let first = match self.scan.peek() {
             Some(b'"') => self.field()?,
             Some(b'}') => {
-                self.advance(1);
+                self.scan.advance(1);
                 return Ok(Kind::Object(Vec::new()));
             }
             _ => return Err(self.error(ParseErrorKind::ObjectField)),
@@ -232,8 +211,8 @@ impl<'a> Parser<'a> {
     fn array(&mut self) -> Parsed<Kind<'a>> {
         self.byte(b'[', ParseErrorKind::Start)?;
         self.spaces();
-        if self.peek() == Some(b']') {
-            self.advance(1);
+        if self.scan.peek() == Some(b']') {
+            self.scan.advance(1);
             return Ok(Kind::Array(Vec::new()));
         }
         let first = self.value()?;
@@ -253,14 +232,14 @@ impl<'a> Parser<'a> {
         let mut entries = vec![first];
         loop {
             self.spaces();
-            match self.peek() {
+            match self.scan.peek() {
                 Some(b',') => {
-                    self.advance(1);
+                    self.scan.advance(1);
                     self.spaces();
                     entries.push(entry(self)?);
                 }
                 Some(byte) if byte == close => {
-                    self.advance(1);
+                    self.scan.advance(1);
                     return Ok(entries);
                 }
                 _ => return Err(self.error(end)),
@@ -271,50 +250,45 @@ impl<'a> Parser<'a> {
     /// `pString`: `start` if no string starts here, else the string or
     /// the problem in it, where the problem is.
     fn string(&mut self, start: ParseErrorKind) -> Parsed<Snippet<'a>> {
-        if self.peek() != Some(b'"') {
-            return Err(self.error(start));
-        }
-        let first = self.pos + 1;
-        let first_cur = self.cur.slide(1);
-        let mut pos = first;
-        let mut cur = first_cur;
+        self.byte(b'"', start)?;
+        let bytes = self.scan.rest();
+        let (first, first_cur) = (self.scan.pos(), self.scan.cursor());
         loop {
-            let Some(&byte) = self.src.get(pos) else {
+            let cur = self.scan.cursor();
+            let Some(byte) = self.scan.peek() else {
                 return Err(string_problem(cur, StringProblem::BadStringEnd));
             };
             match byte {
                 b'"' => {
                     let snippet = Snippet {
-                        bytes: &self.src[first..pos],
+                        bytes: &bytes[..self.scan.pos() - first],
                         start: first_cur,
                     };
-                    self.pos = pos + 1;
-                    self.cur = cur.slide(1);
+                    self.scan.advance(1);
                     return Ok(snippet);
                 }
                 b'\n' => return Err(string_problem(cur, StringProblem::BadStringEnd)),
                 b'\\' => {
-                    let width = self.escape(pos, cur)?;
-                    pos += width;
-                    cur = cur.slide(width);
+                    let width = self.escape()?;
+                    self.scan.advance(width);
                 }
                 0..0x20 => return Err(string_problem(cur, StringProblem::BadStringControlChar)),
                 _ => {
                     // 0.19.1 trusts the lead byte and may step past the end,
                     // which then ends the string.
-                    pos += self.character(pos, cur)?;
-                    cur = cur.slide(1);
+                    let width = self.character()?;
+                    self.scan.skip(width, 1);
                 }
             }
         }
     }
 
-    /// The width of the escape at `pos`, where `cur` is, each byte a
-    /// column.
-    fn escape(&self, pos: usize, cur: Cursor) -> Parsed<usize> {
-        match self.src.get(pos + 1) {
+    /// The width of the escape here, each byte a column.
+    fn escape(&self) -> Parsed<usize> {
+        let (rest, cur) = (self.scan.rest(), self.scan.cursor());
+        match rest.get(1) {
             None => {
-                let at = match self.compat {
+                let at = match self.scan.compat() {
                     Compat::V0_19_1 => cur.down(),
                     Compat::V0_19_2 | Compat::V0_19_3 => cur.slide(1),
                 };
@@ -322,7 +296,7 @@ impl<'a> Parser<'a> {
             }
             Some(b'"' | b'\\' | b'/' | b'b' | b'f' | b'n' | b'r' | b't') => Ok(2),
             Some(b'u') => {
-                let hex = self.src.get(pos + 2..pos + 6);
+                let hex = rest.get(2..6);
                 if hex.is_some_and(|hex| hex.iter().all(u8::is_ascii_hexdigit)) {
                     Ok(6)
                 } else {
@@ -333,59 +307,56 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// The width in bytes of the character at `pos`, where `cur` is, as
-    /// `compat`'s elm steps over it.
-    fn character(&self, pos: usize, cur: Cursor) -> Parsed<usize> {
-        match self.compat {
+    /// The width in bytes of the character here, as `compat`'s elm steps
+    /// over it.
+    fn character(&self) -> Parsed<usize> {
+        let (rest, cur) = (self.scan.rest(), self.scan.cursor());
+        match self.scan.compat() {
             Compat::V0_19_1 => {
-                char_width(self.src[pos]).ok_or_else(|| ParseError::at(cur, ParseErrorKind::Crash))
+                char_width(rest[0]).ok_or_else(|| ParseError::at(cur, ParseErrorKind::Crash))
             }
-            Compat::V0_19_2 | Compat::V0_19_3 => utf8_width(&self.src[pos..])
-                .ok_or_else(|| string_problem(cur, StringProblem::BadStringNotUtf8)),
+            Compat::V0_19_2 | Compat::V0_19_3 => {
+                utf8_width(rest).ok_or_else(|| string_problem(cur, StringProblem::BadStringNotUtf8))
+            }
         }
     }
 
     /// `pInt`, called on a digit.
     fn int(&mut self) -> Parsed<Kind<'a>> {
-        if self.src[self.pos] == b'0' {
-            return match self.src.get(self.pos + 1) {
-                Some(b'0'..=b'9') => Err(ParseError::at(
-                    self.cur.slide(1),
-                    ParseErrorKind::NoLeadingZeros,
-                )),
-                Some(b'.') => Err(ParseError::at(self.cur.slide(1), ParseErrorKind::NoFloats)),
+        let (rest, cur) = (self.scan.rest(), self.scan.cursor());
+        if rest[0] == b'0' {
+            return match rest.get(1) {
+                Some(b'0'..=b'9') => {
+                    Err(ParseError::at(cur.slide(1), ParseErrorKind::NoLeadingZeros))
+                }
+                Some(b'.') => Err(ParseError::at(cur.slide(1), ParseErrorKind::NoFloats)),
                 _ => {
-                    self.advance(1);
+                    self.scan.advance(1);
                     Ok(Kind::Int(0))
                 }
             };
         }
         let mut n = 0i64;
         let mut digits = 0;
-        for d in self.src[self.pos..]
-            .iter()
-            .take_while(|b| b.is_ascii_digit())
-        {
+        for d in rest.iter().take_while(|b| b.is_ascii_digit()) {
             n = n.wrapping_mul(10).wrapping_add(i64::from(d - b'0'));
             digits += 1;
         }
-        if let Some(b'.' | b'e' | b'E') = self.src.get(self.pos + digits) {
-            return Err(ParseError::at(
-                self.cur.slide(digits),
-                ParseErrorKind::NoFloats,
-            ));
+        if let Some(b'.' | b'e' | b'E') = rest.get(digits) {
+            return Err(ParseError::at(cur.slide(digits), ParseErrorKind::NoFloats));
         }
-        self.advance(digits);
+        self.scan.advance(digits);
         Ok(Kind::Int(n))
     }
 
     /// The keyword `word`, not followed by what could continue a name.
     fn keyword(&mut self, word: &[u8]) -> bool {
-        let rest = &self.src[self.pos..];
-        if !rest.starts_with(word) || utf8::inner_width(&rest[word.len()..], self.compat) > 0 {
+        let rest = self.scan.rest();
+        if !rest.starts_with(word) || utf8::inner_width(&rest[word.len()..], self.scan.compat()) > 0
+        {
             return false;
         }
-        self.advance(word.len());
+        self.scan.advance(word.len());
         true
     }
 }

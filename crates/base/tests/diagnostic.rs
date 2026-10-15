@@ -1,7 +1,7 @@
 use nomi_base::Doc;
 use nomi_base::diagnostic::doc::{
-    Color, Conjunction, comma_sep, cyan, dull_yellow, fill_sep, from_chars, hint, labelled, link,
-    red, reflow, reflow_link, sep, simple_note, stack, text, vcat, words,
+    Color, Conjunction, comma_sep, cyan, dull_yellow, fill_sep, from_chars, hint, link, red,
+    reflow, reflow_link, sep, simple_note, stack, text, vcat, words,
 };
 
 #[test]
@@ -75,15 +75,12 @@ fn links_and_hints_stay_symbolic() {
     assert_eq!(doc.plain(), "Hint: Read <imports> for more.");
     assert_eq!(
         doc,
-        labelled(
-            "Hint",
-            [
-                text("Read"),
-                Doc::link("imports"),
-                text("for"),
-                text("more.")
-            ]
-        )
+        hint([
+            text("Read"),
+            Doc::link("imports"),
+            text("for"),
+            text("more.")
+        ])
     );
     assert_eq!(
         hint([text("Try"), text("this.")]),

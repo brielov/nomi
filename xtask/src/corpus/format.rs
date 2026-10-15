@@ -104,9 +104,9 @@ fn parse_table(text: &str) -> Result<Table<'_>> {
     })
 }
 
-/// Why nomi's result for `text` differs from `expected`, if it does.
-fn mismatch(text: &[u8], expected: &Outcome) -> Option<String> {
-    let formatted = std::str::from_utf8(text).ok().and_then(nomi_format::format);
+/// Why nomi's result for `text`, `formatted`, differs from `expected`, if
+/// it does.
+fn mismatch(text: &[u8], formatted: Option<&str>, expected: &Outcome) -> Option<String> {
     match (expected, formatted) {
         (Outcome::Rejected(_), None) | (Outcome::Crashed, Some(_)) => None,
         (Outcome::Rejected(at), Some(_)) => {
@@ -177,7 +177,12 @@ pub(crate) fn check(root: &Path, record: bool) -> Result<()> {
             .or_else(|| table.changed.get(&key))
             .unwrap_or(&Outcome::Same);
         let listed = broken.get(&key).map_or(&[][..], Vec::as_slice);
-        let why = mismatch(&text, expected).or_else(|| invariant_mismatch(&text, listed));
+        let formatted = std::str::from_utf8(&text)
+            .ok()
+            .and_then(nomi_format::format);
+        let formatted = formatted.as_deref();
+        let why = mismatch(&text, formatted, expected)
+            .or_else(|| invariant_mismatch(&text, formatted, listed));
         Ok(why.map(|why| format!("{}: {why}", m.path)))
     });
     corpus_syntax::finish(
@@ -245,6 +250,10 @@ mod tests {
 
     #[test]
     fn mismatches_follow_the_outcome() {
+        let mismatch = |text: &[u8], expected: &Outcome| {
+            let formatted = std::str::from_utf8(text).ok().and_then(nomi_format::format);
+            mismatch(text, formatted.as_deref(), expected)
+        };
         let formatted = b"module Main exposing (x)\n\n\nx =\n    1\n";
         assert_eq!(mismatch(formatted, &Outcome::Same), None);
         assert!(mismatch(formatted, &Outcome::Rejected("1:1".into())).is_some());

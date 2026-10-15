@@ -278,11 +278,10 @@ fn uri(scheme: &str, s: &mut Scanner) -> Option<Vec<Inline>> {
     });
     let last = rest.chars().last()?;
     if ".;?!:,".contains(last) {
-        let mut inlines = auto_link(&format!("{scheme}:{}", &rest[..rest.len() - 1]));
-        inlines.push(str(last));
-        Some(inlines)
+        let url = format!("{scheme}:{}", &rest[..rest.len() - 1]);
+        Some(vec![auto_link(url), str(last)])
     } else {
-        Some(auto_link(&format!("{scheme}:{rest}")))
+        Some(vec![auto_link(format!("{scheme}:{rest}"))])
     }
 }
 
@@ -661,7 +660,7 @@ fn autolink(s: &mut Scanner) -> Option<Vec<Inline>> {
             title: String::new(),
         }])
     } else if is_scheme(scheme) {
-        Some(auto_link(&whole))
+        Some(vec![auto_link(whole)])
     } else {
         None
     }
@@ -669,8 +668,8 @@ fn autolink(s: &mut Scanner) -> Option<Vec<Inline>> {
 
 /// A link to `url` showing it, its entities kept apart; upstream's
 /// `autoLink`.
-fn auto_link(url: &str) -> Vec<Inline> {
-    let mut s = Scanner::new(url);
+fn auto_link(url: String) -> Inline {
+    let mut s = Scanner::new(&url);
     let text = s
         .many(|s| {
             s.attempt(|s| s.take_while1(|c| c != '&').map(|t| vec![str(t)]))
@@ -680,9 +679,9 @@ fn auto_link(url: &str) -> Vec<Inline> {
         .into_iter()
         .flatten()
         .collect();
-    vec![Inline::Link {
+    Inline::Link {
         text,
-        target: LinkTarget::Url(url.to_owned()),
+        target: LinkTarget::Url(url),
         title: String::new(),
-    }]
+    }
 }

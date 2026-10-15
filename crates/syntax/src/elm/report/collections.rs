@@ -7,8 +7,8 @@ use nomi_base::diagnostic::{Doc, Problem};
 
 use super::expr::{Context, Node};
 use super::{
-    Reporter, closing_curly_next, closing_paren_note, convention, curly_before_this,
-    earlier_trouble_note, missing_bracket_note, reserved_field, try_adding,
+    Reporter, closing_before_this, closing_curly_next, closing_paren_note, convention,
+    earlier_trouble_note, reserved_field, try_adding,
 };
 use crate::elm::error::{BadOperator, Expr, List, Position, Record, Tuple};
 
@@ -47,7 +47,7 @@ impl Reporter<'_, '_> {
                 start,
                 *cur,
                 partway(),
-                curly_before_this(),
+                closing_before_this(Bracket::Curly),
             ),
             Record::RecordField(cur) => self.record_field(start, *cur),
             Record::RecordEquals(cur) => self.stuck(
@@ -290,16 +290,6 @@ impl Reporter<'_, '_> {
 
     /// `toListReport`.
     pub(super) fn list(&self, context: &Context<'_>, list: &List, start: Position) -> Problem {
-        let closing = || {
-            stack([
-                fill![
-                    "I was expecting to see a closing square bracket before this, so try adding a",
-                    dull_yellow("]"),
-                    "and see if that helps?"
-                ],
-                missing_bracket_note(),
-            ])
-        };
         let trailing_comma = || {
             stack([
                 reflow(
@@ -327,7 +317,7 @@ impl Reporter<'_, '_> {
                 start,
                 *cur,
                 reflow("I am partway through parsing a list, but I got stuck here:"),
-                closing(),
+                closing_before_this(Bracket::Square),
             ),
             List::ListExpr(Expr::Start(c), _) => self.stuck(
                 "UNFINISHED LIST",

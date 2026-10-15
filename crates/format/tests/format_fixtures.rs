@@ -88,8 +88,9 @@ fn format_fixtures() {
             .ok()
             .and_then(nomi_format::format);
         let listed = broken.get(case.as_str()).map_or(&[][..], Vec::as_slice);
-        let result = outcome(&wanted, formatted.as_deref())
-            .and_then(|()| invariant_mismatch(&text, listed).map_or(Ok(()), Err));
+        let result = outcome(&wanted, formatted.as_deref()).and_then(|()| {
+            invariant_mismatch(&text, formatted.as_deref(), listed).map_or(Ok(()), Err)
+        });
         outcomes.push((case, result));
     }
     suite.finish(outcomes);

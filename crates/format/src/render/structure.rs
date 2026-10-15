@@ -32,15 +32,6 @@ pub(super) fn interleave<T>(
         .flat_map(move |(i, item)| (i > 0).then(&mut separator).into_iter().chain([item]))
 }
 
-fn all_lines(blocks: &[Block]) -> bool {
-    blocks.iter().all(Block::is_line)
-}
-
-/// The lines of `blocks`, which [`all_lines`] found single.
-fn lines(blocks: impl IntoIterator<Item = Block>) -> impl Iterator<Item = Line> {
-    (blocks.into_iter()).map(|block| block.into_line().expect("checked to be single lines"))
-}
-
 /// Joins `first` and `rest` with spaces when nothing forces a break and
 /// all are single lines, or stacks them. The first item is the parts, in
 /// order.
@@ -51,8 +42,10 @@ fn joined_or(
     join: impl Fn(Vec<Line>) -> Line,
     stack: impl FnOnce(Block, Vec<Block>) -> Block,
 ) -> Block {
-    if !force.0 && first.is_line() && all_lines(&rest) {
-        return Block::line(join(lines(std::iter::once(first).chain(rest)).collect()));
+    if !force.0 && first.is_line() && Block::all_lines(&rest) {
+        return Block::line(join(
+            Block::lines(std::iter::once(first).chain(rest)).collect(),
+        ));
     }
     stack(first, rest)
 }
@@ -265,8 +258,8 @@ pub(super) fn application(
             ApplicationMultiline::JoinFirst(Multiline::JoinAll),
             Block::SingleLine(first),
             Block::SingleLine(arg0),
-        ) if all_lines(&rest) => Block::line(intersperse(
-            [first, arg0].into_iter().chain(lines(rest)),
+        ) if Block::all_lines(&rest) => Block::line(intersperse(
+            [first, arg0].into_iter().chain(Block::lines(rest)),
             Line::space,
         )),
         (ApplicationMultiline::JoinFirst(_), Block::SingleLine(first), Block::SingleLine(arg0)) => {
@@ -355,11 +348,11 @@ pub(super) fn group_with_footer(
         right,
         padded,
     } = delimiters;
-    let singles = all_lines(&children) && all_lines(&footer);
+    let singles = Block::all_lines(&children) && Block::all_lines(&footer);
     if singles && children.is_empty() {
         return Block::line(Line::row(
             std::iter::once(Line::text(left))
-                .chain(lines(footer))
+                .chain(Block::lines(footer))
                 .chain([Line::text(right)]),
         ));
     }
@@ -368,10 +361,10 @@ pub(super) fn group_with_footer(
         if padded {
             row.push(Line::space());
         }
-        row.push(intersperse(lines(children), || {
+        row.push(intersperse(Block::lines(children), || {
             Line::row([Line::text(","), Line::space()])
         }));
-        for line in lines(footer) {
+        for line in Block::lines(footer) {
             row.push(Line::space());
             row.push(line);
         }

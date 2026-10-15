@@ -257,15 +257,21 @@ impl Block {
         matches!(self, Block::SingleLine(_))
     }
 
+    pub(super) fn all_lines(blocks: &[Block]) -> bool {
+        blocks.iter().all(Block::is_line)
+    }
+
+    /// The lines of `blocks`, which [`Block::all_lines`] found single.
+    pub(super) fn lines(blocks: impl IntoIterator<Item = Block>) -> impl Iterator<Item = Line> {
+        (blocks.into_iter()).map(|block| block.into_line().expect("checked to be single lines"))
+    }
+
     /// Every block's line, if they are all joinable single lines.
     pub(super) fn all_singles(blocks: Vec<Block>) -> Result<Vec<Line>, Vec<Block>> {
-        if !blocks.iter().all(Block::is_line) {
+        if !Block::all_lines(&blocks) {
             return Err(blocks);
         }
-        Ok(blocks
-            .into_iter()
-            .map(|b| b.into_line().expect("checked above"))
-            .collect())
+        Ok(Block::lines(blocks).collect())
     }
 
     /// Each line from column 0, without trailing whitespace, and ending in

@@ -82,7 +82,7 @@ fn module_line(module: &Module, header: &Header) -> Block {
                 documented
                     .iter()
                     .flatten()
-                    .any(|n| n == value_name(&v.value))
+                    .any(|n| *n == value_name(&v.value))
             })
             .collect(),
     };
@@ -96,7 +96,7 @@ fn module_line(module: &Module, header: &Header) -> Block {
 /// The names of each `@docs` line of the module's docs, at their top
 /// level and before `formatDocComment` cleans them; upstream's
 /// `documentedVars`.
-fn documented(module: &Module) -> Vec<Vec<String>> {
+fn documented(module: &Module) -> Vec<Vec<&str>> {
     let Some(docs) = &module.docs else {
         return Vec::new();
     };
@@ -113,7 +113,7 @@ fn documented(module: &Module) -> Vec<Vec<String>> {
             | markdown::Block::HRule
             | markdown::Block::References(_) => &[],
         })
-        .map(|group| group.iter().map(|n| ref_name(n).to_owned()).collect())
+        .map(|group| group.iter().map(|n| ref_name(n)).collect())
         .collect()
 }
 
@@ -225,7 +225,7 @@ struct SortedExports {
 fn sort_values(
     force: ForceMultiline,
     exposing: Vec<C2<Value>>,
-    documented: &[Vec<String>],
+    documented: &[Vec<&str>],
 ) -> SortedExports {
     let kind = |v: &Value| match v {
         Value::Op(_) => 1,
@@ -441,10 +441,7 @@ fn import(module: &[Upper], method: &C1<ImportMethod>) -> Block {
             if alias.as_ref().is_none_or(Block::is_line)
                 && exposing.as_ref().is_none_or(Block::is_line) =>
         {
-            let clauses = alias.into_iter().chain(exposing).map(|b| {
-                b.into_line()
-                    .unwrap_or_else(|_| unreachable!("checked to be lines"))
-            });
+            let clauses = Block::lines(alias.into_iter().chain(exposing));
             row(std::iter::once(name).chain(clauses).collect())
         }
         (Block::SingleLine(name), Some(Block::SingleLine(alias)), Some(exposing)) => {

@@ -497,7 +497,19 @@ impl Reporter<'_, '_> {
                     )),
                 )
             }
-            Some(_) | None => self.at(
+            Some(
+                Keyword::As
+                | Keyword::If
+                | Keyword::In
+                | Keyword::Of
+                | Keyword::Let
+                | Keyword::Case
+                | Keyword::Else
+                | Keyword::Then
+                | Keyword::Where
+                | Keyword::Exposing,
+            )
+            | None => self.at(
                 "SYNTAX PROBLEM",
                 region,
                 reflow("I got stuck here:"),
@@ -1038,12 +1050,17 @@ fn closing_curly_next() -> Doc {
     ]
 }
 
-/// The end of a record or record type that something else stops.
-fn curly_before_this() -> Doc {
+/// The end of a list, record or record type that something else stops
+/// before its `close`.
+fn closing_before_this(close: Bracket) -> Doc {
+    let expecting = format!(
+        "I was expecting to see a closing {} before this, so try adding a",
+        close.name()
+    );
     stack([
         fill![
-            "I was expecting to see a closing curly brace before this, so try adding a",
-            dull_yellow("}"),
+            expecting.as_str(),
+            dull_yellow(String::from(close.char())),
             "and see if that helps?"
         ],
         missing_bracket_note(),

@@ -8,7 +8,7 @@ use nomi_base::diagnostic::doc::{self, dull_yellow, green, reflow, stack, vcat};
 use nomi_base::diagnostic::{Doc, Problem};
 
 use super::{
-    Reporter, closing_curly_next, closing_paren_note, convention, curly_before_this,
+    Reporter, closing_before_this, closing_curly_next, closing_paren_note, convention,
     earlier_trouble_note, reserved_field, try_adding,
 };
 use crate::elm::error::{Position, TRecord, TTuple, Type};
@@ -124,9 +124,13 @@ impl Reporter<'_, '_> {
                     ],
                 ),
             },
-            TRecord::TRecordEnd(cur) => {
-                self.stuck(unfinished, start, *cur, partway(), curly_before_this())
-            }
+            TRecord::TRecordEnd(cur) => self.stuck(
+                unfinished,
+                start,
+                *cur,
+                partway(),
+                closing_before_this(Bracket::Curly),
+            ),
             TRecord::TRecordField(cur) => self.record_type_field(start, *cur),
             TRecord::TRecordColon(cur) => self.stuck(
                 unfinished,

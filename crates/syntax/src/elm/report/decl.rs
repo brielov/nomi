@@ -205,16 +205,32 @@ impl Reporter<'_, '_> {
     fn decl_type(&self, decl_type: &DeclType, start: Position) -> Problem {
         match decl_type {
             DeclType::DtSpace(space, cur) => self.space(*space, *cur),
-            DeclType::DtName(cur) | DeclType::DtIndentName(cur) => self.stuck(
-                "EXPECTING TYPE NAME",
-                start,
-                *cur,
-                reflow("I think I am parsing a type declaration, but I got stuck here:"),
-                stack([expecting_type_name(), custom_type_note()]),
-            ),
+            DeclType::DtName(cur) | DeclType::DtIndentName(cur) => {
+                self.expecting_type_name(start, *cur)
+            }
             DeclType::DtAlias(alias, cur) => self.type_alias(alias, *cur),
             DeclType::DtUnion(custom, cur) => self.custom_type(custom, *cur),
         }
+    }
+
+    /// A type declaration with no name where one should be.
+    fn expecting_type_name(&self, start: Position, cur: Position) -> Problem {
+        self.stuck(
+            "EXPECTING TYPE NAME",
+            start,
+            cur,
+            reflow("I think I am parsing a type declaration, but I got stuck here:"),
+            stack([
+                fill![
+                    "I was expecting a name like",
+                    dull_yellow("Status"),
+                    "or",
+                    dull_yellow("Style"),
+                    "next. Just make sure it is a name that starts with a capital letter!"
+                ],
+                custom_type_note(),
+            ]),
+        )
     }
 
     /// `toTypeAliasReport`.
@@ -289,13 +305,7 @@ impl Reporter<'_, '_> {
         let bar = || reflow("I was expecting to see a vertical bar like | next.");
         match custom {
             CustomType::CtSpace(space, cur) => self.space(*space, *cur),
-            CustomType::CtName(cur) => self.stuck(
-                "EXPECTING TYPE NAME",
-                start,
-                *cur,
-                reflow("I think I am parsing a type declaration, but I got stuck here:"),
-                stack([expecting_type_name(), custom_type_note()]),
-            ),
+            CustomType::CtName(cur) => self.expecting_type_name(start, *cur),
             CustomType::CtEquals(cur) => match self.next_keyword(*cur) {
                 Some(keyword) => self.reserved(
                     start,
@@ -647,16 +657,6 @@ fn port_note() -> Doc {
              changed for some external reason.",
         ),
     ])
-}
-
-fn expecting_type_name() -> Doc {
-    fill![
-        "I was expecting a name like",
-        dull_yellow("Status"),
-        "or",
-        dull_yellow("Style"),
-        "next. Just make sure it is a name that starts with a capital letter!"
-    ]
 }
 
 fn reserved_type_variable(keyword: Keyword) -> Doc {

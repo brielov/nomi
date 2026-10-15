@@ -13,7 +13,7 @@ use crate::ast::{self, AstNode};
 use crate::glsl;
 use crate::{
     LexErrorKind, Parse, SyntaxError, SyntaxErrorKind as E, SyntaxKind as K, SyntaxNode,
-    SyntaxToken, child_token, literal_body, tokens, trimmed_range,
+    SyntaxToken, child_token, int_digits, literal_body, tokens, trimmed_range,
 };
 
 /// The tool whose rules a tree must follow.
@@ -523,9 +523,7 @@ fn elm_format_tokens(root: &SyntaxNode, errors: &mut Vec<SyntaxError>) {
 /// any digits.
 fn hex_characters(token: &SyntaxToken, errors: &mut Vec<SyntaxError>) {
     for (range, digits) in hex_escapes_in(token) {
-        let value = (digits.chars())
-            .filter_map(|c| c.to_digit(16))
-            .fold(0_i64, |v, d| v.wrapping_mul(16).wrapping_add(i64::from(d)));
+        let value = int_digits(digits, 16);
         if value < 0 || value & 0x3FF_FFFF >= 0x40_0000 {
             let end = range.end() + TextSize::of(digits);
             push(

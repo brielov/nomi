@@ -206,28 +206,27 @@ fn struct_view(
          Self::can_cast(syntax.kind()).then_some({name} {{ syntax }})\n}}\n\n\
          fn syntax(&self) -> &SyntaxNode {{\n&self.syntax\n}}\n}}\n"
     );
-    let mut methods = String::new();
-    for accessor in node_accessors(name, tokens, &nodes)? {
-        let _ = writeln!(methods, "{accessor}");
+    if nodes.is_empty() && token_fields.is_empty() {
+        return Ok(());
     }
+    let _ = write!(out, "\nimpl {name} {{\n");
+    node_accessors(out, name, tokens, &nodes)?;
     let mut seen = BTreeSet::new();
     for token in &token_fields {
         if !seen.insert(token) {
             continue;
         }
         let kind = &tokens[token];
-        let method = format!("{}_token", snake(kind.strip_suffix("Kw").unwrap_or(kind)));
         let _ = write!(
-            methods,
+            out,
             "/// The first `{token}` token.\n\
-             pub fn {method}(&self) -> Option<SyntaxToken> {{\n\
-             support::token(&self.syntax, SyntaxKind::{kind})\n}}\n\n"
+             pub fn {}_token(&self) -> Option<SyntaxToken> {{\n\
+             support::token(&self.syntax, SyntaxKind::{kind})\n}}\n\n",
+            snake(kind.strip_suffix("Kw").unwrap_or(kind))
         );
     }
-    if !methods.is_empty() {
-        let _ = write!(out, "\nimpl {name} {{\n{}}}\n", methods.trim_end());
-        out.push('\n');
-    }
+    out.truncate(out.trim_end().len());
+    out.push_str("}\n\n");
     Ok(())
 }
 
@@ -311,15 +310,15 @@ fn occurrence(grammar: &Grammar, node: Node, label: Option<String>, count: Count
 
 /// One accessor per field, in the order of the rule.
 fn node_accessors(
+    out: &mut String,
     name: &str,
     tokens: &BTreeMap<String, String>,
     nodes: &[Occurrence],
-) -> Result<Vec<String>> {
+) -> Result<()> {
     let mut by_type: BTreeMap<&str, Vec<&Occurrence>> = BTreeMap::new();
     for o in nodes {
         by_type.entry(&o.ty).or_default().push(o);
     }
-    let mut accessors = Vec::new();
     let mut done = BTreeSet::new();
     for o in nodes {
         if !done.insert(o.ty.as_str()) {
@@ -327,51 +326,55 @@ fn node_accessors(
         }
         let all = &by_type[o.ty.as_str()];
         if all.iter().all(|other| other.label == all[0].label) {
-            accessors.push(shared_accessor(all));
+            shared_accessor(out, all);
         } else {
             // Distinct labels: tell them apart by neighbouring tokens or by
             // position.
             for (index, field) in all.iter().enumerate() {
-                accessors.push(labeled_accessor(name, tokens, all, index, field)?);
+                labeled_accessor(out, name, tokens, all, index, field)?;
             }
         }
     }
-    Ok(accessors)
+    Ok(())
 }
 
 /// The accessor of every occurrence of a type, which share their label or
 /// have none.
-fn shared_accessor(all: &[&Occurrence]) -> String {
+fn shared_accessor(out: &mut String, all: &[&Occurrence]) {
     let first = all[0];
     let ty = &first.ty;
     let base = first.label.clone().unwrap_or_else(|| snake(ty));
     if all.len() == 1 && first.count == Count::One {
-        return format!(
+        let _ = writeln!(
+            out,
             "/// The `{ty}` child.\n\
              pub fn {}(&self) -> Option<{ty}> {{\nsupport::child(&self.syntax)\n}}\n",
             escape(&base)
         );
+        return;
     }
     let method = if first.label.is_some() {
         base
     } else {
         plural(&base)
     };
-    format!(
+    let _ = writeln!(
+        out,
         "/// Every `{ty}` child.\n\
          pub fn {method}(&self) -> AstChildren<{ty}> {{\nsupport::children(&self.syntax)\n}}\n"
-    )
+    );
 }
 
 /// The accessor of the occurrence `field`, the `index`th of `all`, those of
 /// its type, by its label.
 fn labeled_accessor(
+    out: &mut String,
     name: &str,
     tokens: &BTreeMap<String, String>,
     all: &[&Occurrence],
     index: usize,
     field: &Occurrence,
-) -> Result<String> {
+) -> Result<()> {
     let label = field
         .label
         .as_ref()
@@ -386,45 +389,50 @@ fn labeled_accessor(
             1 => "but the first".to_owned(),
             _ => format!("after the first {index}"),
         };
-        return Ok(format!(
+        let _ = writeln!(
+            out,
             "/// Every `{ty}` child {which}.\n\
              pub fn {label}(&self) -> impl Iterator<Item = {ty}> + use<> {{\n\
              support::children(&self.syntax).skip({index})\n}}\n"
-        ));
-    }
-    if let Some(token) = &field.before {
-        return Ok(format!(
+        );
+    } else if let Some(token) = &field.before {
+        let _ = writeln!(
+            out,
             "/// The `{ty}` right after `{token}`.\n\
              pub fn {label}(&self) -> Option<{ty}> {{\n\
              support::child_after(&self.syntax, SyntaxKind::{})\n}}\n",
             tokens[token]
-        ));
-    }
-    if let Some(token) = &field.after {
-        return Ok(format!(
+        );
+    } else if let Some(token) = &field.after {
+        let _ = writeln!(
+            out,
             "/// The `{ty}` right before `{token}`.\n\
              pub fn {label}(&self) -> Option<{ty}> {{\n\
              support::child_before(&self.syntax, SyntaxKind::{})\n}}\n",
             tokens[token]
-        ));
-    }
-    ensure!(
-        all[..index].iter().all(|o| o.count == Count::One),
-        "{name}: {label} has no fixed position"
-    );
-    Ok(if index == 0 {
-        format!(
-            "/// The first `{ty}` child.\n\
-             pub fn {label}(&self) -> Option<{ty}> {{\n\
-             support::child(&self.syntax)\n}}\n"
-        )
+        );
     } else {
-        format!(
-            "/// The `{ty}` child after the first {index}.\n\
-             pub fn {label}(&self) -> Option<{ty}> {{\n\
-             support::children::<{ty}>(&self.syntax).nth({index})\n}}\n"
-        )
-    })
+        ensure!(
+            all[..index].iter().all(|o| o.count == Count::One),
+            "{name}: {label} has no fixed position"
+        );
+        if index == 0 {
+            let _ = writeln!(
+                out,
+                "/// The first `{ty}` child.\n\
+                 pub fn {label}(&self) -> Option<{ty}> {{\n\
+                 support::child(&self.syntax)\n}}\n"
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "/// The `{ty}` child after the first {index}.\n\
+                 pub fn {label}(&self) -> Option<{ty}> {{\n\
+                 support::children::<{ty}>(&self.syntax).nth({index})\n}}\n"
+            );
+        }
+    }
+    Ok(())
 }
 
 fn snake(camel: &str) -> String {

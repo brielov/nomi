@@ -81,11 +81,13 @@ impl FromStr for Invariant {
 /// Each invariant formatting `text` breaks, in the order of
 /// [`Invariant::ALL`], and how; none where it doesn't format.
 pub fn broken_invariants(text: &str) -> Vec<(Invariant, String)> {
+    format(text).map_or_else(Vec::new, |output| broken_by(text, &output))
+}
+
+/// Each invariant formatting `text` into `output` breaks, and how.
+fn broken_by(text: &str, output: &str) -> Vec<(Invariant, String)> {
     let mut broken = Vec::new();
-    let Some(output) = format(text) else {
-        return broken;
-    };
-    let parse = parse_module(&output);
+    let parse = parse_module(output);
     let errors = [parse.errors(), &validate(&parse, Tool::ElmFormat)].concat();
     if !errors.is_empty() {
         broken.push((Invariant::Parses, format!("{errors:?}")));
@@ -123,7 +125,7 @@ pub fn broken_invariants(text: &str) -> Vec<(Invariant, String)> {
             format!("{before:?} became {after:?}"),
         ));
     }
-    match format(&output) {
+    match format(output) {
         Some(again) if again == output => {}
         again => {
             let line = again
@@ -139,11 +141,18 @@ pub fn broken_invariants(text: &str) -> Vec<(Invariant, String)> {
     broken
 }
 
-/// Why formatting `text` breaks invariants other than `listed`, those
-/// elm-format breaks there; `None` where it breaks just those, or `text`
-/// isn't UTF-8.
-pub fn invariant_mismatch(text: &[u8], listed: &[Invariant]) -> Option<String> {
-    let found = std::str::from_utf8(text).map_or_else(|_| Vec::new(), broken_invariants);
+/// Why formatting `text` into `formatted` breaks invariants other than
+/// `listed`, those elm-format breaks there; `None` where it breaks just
+/// those, or `text` doesn't format.
+pub fn invariant_mismatch(
+    text: &[u8],
+    formatted: Option<&str>,
+    listed: &[Invariant],
+) -> Option<String> {
+    let found = match (std::str::from_utf8(text), formatted) {
+        (Ok(text), Some(output)) => broken_by(text, output),
+        _ => Vec::new(),
+    };
     let broken: Vec<Invariant> = found.iter().map(|(i, _)| *i).collect();
     let names = |invariants: &[Invariant]| {
         let names: Vec<_> = invariants.iter().map(|i| i.name()).collect();
@@ -496,6 +505,10 @@ mod tests {
 
     #[test]
     fn invariant_mismatches_follow_the_table() {
+        let invariant_mismatch = |text: &[u8], listed: &[Invariant]| {
+            let formatted = std::str::from_utf8(text).ok().and_then(format);
+            invariant_mismatch(text, formatted.as_deref(), listed)
+        };
         let formatted = b"module Main exposing (x)\n\n\nx =\n    1\n";
         assert_eq!(invariant_mismatch(formatted, &[]), None);
         assert!(invariant_mismatch(formatted, &[Invariant::Idempotent]).is_some());

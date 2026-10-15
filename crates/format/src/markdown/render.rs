@@ -102,23 +102,22 @@ impl<C> Context<'_, C> {
     fn block(&self, context: BlockContext, block: &Block<C>) -> String {
         match block {
             Block::ElmDocs(groups) => {
-                let groups: Vec<String> = groups
-                    .iter()
-                    .map(|terms| {
-                        let terms: Vec<String> = terms
-                            .iter()
-                            .map(|t| {
-                                if self.top_level {
-                                    t.replace("(..)", "")
-                                } else {
-                                    t.clone()
-                                }
-                            })
-                            .collect();
-                        format!("@docs {}", terms.join(", "))
-                    })
-                    .collect();
-                format!("{}\n", groups.join("\n"))
+                let mut out = String::new();
+                for (i, terms) in groups.iter().enumerate() {
+                    out.push_str(if i == 0 { "@docs " } else { "\n@docs " });
+                    for (j, term) in terms.iter().enumerate() {
+                        if j > 0 {
+                            out.push_str(", ");
+                        }
+                        if self.top_level {
+                            out.extend(term.split("(..)"));
+                        } else {
+                            out.push_str(term);
+                        }
+                    }
+                }
+                out.push('\n');
+                out
             }
             Block::Para(inlines) => format!("{}\n", self::inlines(Escape::Markup, inlines)),
             Block::Header(level, inlines) => {
@@ -132,9 +131,13 @@ impl<C> Context<'_, C> {
                 prefix("> ", "> ", &self.nested().blocks(Container::Other, blocks))
             }
             Block::List { tight, kind, items } => {
-                let items = items.iter().enumerate().map(|(i, item)| {
+                let mut out = String::new();
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 && !*tight {
+                        out.push('\n');
+                    }
                     let text = self.nested().blocks(Container::ListItem, item);
-                    match kind {
+                    out.push_str(&match kind {
                         ListType::Bullet(_) => prefix("  - ", "    ", &text),
                         ListType::Numbered(..) => {
                             let n = i + 1;
@@ -145,11 +148,9 @@ impl<C> Context<'_, C> {
                             };
                             prefix(&first, "    ", &text)
                         }
-                    }
-                });
-                items
-                    .collect::<Vec<_>>()
-                    .join(if *tight { "" } else { "\n" })
+                    });
+                }
+                out
             }
             Block::Code { attr, text, code } => {
                 let formatted = attr

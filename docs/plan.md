@@ -49,7 +49,7 @@ nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it wait
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **Q.16a**.
+4. Resume at the first unchecked box. Right now that is **Q.16b**.
 
 ### Test tiers
 
@@ -1205,7 +1205,10 @@ A second, independent audit of the same code (2026-10-13, kept in `~/.cache/nomi
 
 The second exit review (12 fresh reviews, kept in `~/.cache/nomi-dev/quality/exit2/`) found every first-review fix holding and the runtime clean, and 59 smaller places elsewhere: the halves of earlier fixes left undone (aliases still copied, `diff_alias`'s `unreachable!`, the formatter's invariants formatting each module again), helpers re-spelled beside their shared versions, allocations made only to be read, a few tuples and wildcard arms. The steps below fix them.
 
-- [ ] **Q.16a** `quality: second exit findings, syntax and format` (base, project and registry 2; syntax 6; format 6).
+- [x] **Q.16a** `quality: second exit findings, syntax and format` (base, project and registry 2; syntax 6; format 6).
+
+  Done: project's JSON parser reads through the outline scanner's `Scan` rather than a cursor of its own; elm's and elm-format's number scanners are one `chomp_number`, elm-format's copy gone; the parser's reports write the closing-bracket sentence and the type-name report once each, and the keywords one arm each; `\x` escapes fold through `int_digits`, and the AST generator writes its accessors straight into its output; the formatter's invariants take the output already made, so the fixtures and the corpus suite format each module once; literal bodies come from `literal_body`, links and docs names are written in place, and one `Block::lines` serves the three places that took a block's lines. 11 lines more, the keyword list and the shared scanner's two small enums, where elm-format's scanner lost about 70. Formatting the corpus apps takes 0.29 s, as before. CI and the `syntax`, `format` and `outline` corpus suites are unchanged.
+
 - [ ] **Q.16b** `quality: second exit findings, compiler, codegen-js, test and testkit` (compiler 10; codegen-js, test and testkit 7).
 - [ ] **Q.16c** `quality: second exit findings, engine, ide, lsp and cli` (engine 5; ide 8; lsp and cli 5).
 - [ ] **Q.16d** `quality: second exit findings, xtask` (10).

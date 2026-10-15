@@ -2,10 +2,10 @@
 //! parsers that read bytes rather than characters, so count a column a
 //! character whatever it is, a tab included.
 
-use nomi_base::{Compat, ghc, utf8};
+use nomi_base::{Compat, utf8};
 
 use super::engine::{P, Pos, R};
-use crate::elm::{Hex, chomp_hex};
+use crate::elm::{Dots, Hex, chomp_hex, chomp_number};
 
 /// `literal`: a number, string or character, failing where it started
 /// if it is none.
@@ -25,26 +25,29 @@ fn num(p: &mut P<'_>) -> R<()> {
 
 // NUMBERS
 
-/// Where a number ends, or where the error ending it is.
-type Scanned = Result<usize, usize>;
-
 /// `Parse.Number.number`.
 fn number(p: &mut P<'_>) -> R<()> {
+    if !p.peek(0).is_some_and(|b| b.is_ascii_digit()) {
+        return p.fail();
+    }
     let start = p.pos;
-    let scanned = match p.peek(0) {
-        Some(b'0') => chomp_zero(p.src(), start + 1),
-        Some(b'1'..=b'9') => chomp_int(p.src(), start + 1),
-        _ => return p.fail(),
-    };
+    let src = p.src();
+    let scanned = chomp_number(
+        src.as_bytes(),
+        start,
+        Compat::V0_19_1,
+        |at| is_dirty_end(src, at),
+        Dots::Range,
+    );
     // `fromIntegral` to a `Word16`, which wraps.
     let at = |end: usize| p.at.right(cols(end - start));
     match scanned {
-        Ok(end) => {
+        Ok((end, _)) => {
             let to = at(end);
             p.advance(end - start, to);
             Ok(())
         }
-        Err(end) => {
+        Err((end, _)) => {
             let to = at(end);
             p.cerr(to)
         }
@@ -53,71 +56,11 @@ fn number(p: &mut P<'_>) -> R<()> {
 
 /// `isDirtyEnd`: a character that would continue a name.
 fn is_dirty_end(src: &str, pos: usize) -> bool {
-    match src[pos..].chars().next() {
-        Some(c) if c.is_ascii() => c.is_ascii_alphanumeric() || c == '_',
-        Some(c) => ghc::is_alpha(c),
-        None => false,
-    }
+    utf8::inner_width(&src.as_bytes()[pos..], Compat::V0_19_1) > 0
 }
 
 fn byte(src: &str, pos: usize) -> Option<u8> {
     src.as_bytes().get(pos).copied()
-}
-
-fn is_digit(src: &str, pos: usize) -> bool {
-    byte(src, pos).is_some_and(|b| b.is_ascii_digit())
-}
-
-fn chomp_int(src: &str, mut pos: usize) -> Scanned {
-    loop {
-        match byte(src, pos) {
-            Some(b'0'..=b'9') => pos += 1,
-            Some(b'.') if byte(src, pos + 1) != Some(b'.') => return chomp_fraction(src, pos),
-            Some(b'e' | b'E') => return chomp_exponent(src, pos + 1),
-            Some(_) if is_dirty_end(src, pos) => return Err(pos),
-            _ => return Ok(pos),
-        }
-    }
-}
-
-fn chomp_fraction(src: &str, pos: usize) -> Scanned {
-    if !is_digit(src, pos + 1) {
-        return Err(pos);
-    }
-    let mut pos = pos + 2;
-    loop {
-        match byte(src, pos) {
-            Some(b'0'..=b'9') => pos += 1,
-            Some(b'e' | b'E') => return chomp_exponent(src, pos + 1),
-            Some(_) if is_dirty_end(src, pos) => return Err(pos),
-            _ => return Ok(pos),
-        }
-    }
-}
-
-fn chomp_exponent(src: &str, pos: usize) -> Scanned {
-    let mut pos = match byte(src, pos) {
-        Some(b'0'..=b'9') => pos + 1,
-        Some(b'+' | b'-') if is_digit(src, pos + 1) => pos + 2,
-        _ => return Err(pos),
-    };
-    while is_digit(src, pos) {
-        pos += 1;
-    }
-    Ok(pos)
-}
-
-fn chomp_zero(src: &str, pos: usize) -> Scanned {
-    match byte(src, pos) {
-        Some(b'x') => match hex(src, pos + 1) {
-            (end, Hex::Code(_)) => Ok(end),
-            (end, Hex::None | Hex::Bad) => Err(end),
-        },
-        Some(b'.') => chomp_fraction(src, pos),
-        Some(b'0'..=b'9') => Err(pos),
-        Some(_) if is_dirty_end(src, pos) => Err(pos),
-        _ => Ok(pos),
-    }
 }
 
 /// `chompHex`, which elm-format takes from elm 0.19.1, in its wrapping

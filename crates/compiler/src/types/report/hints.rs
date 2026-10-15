@@ -1,7 +1,7 @@
 //! The hints a comparison's first problem gives (`problemToHint`).
 
 use nomi_base::diagnostic::doc::{
-    Conjunction, Doc, comma_sep, dull_yellow as yellow, green, hint, labelled, link, reflow_link,
+    Conjunction, Doc, comma_sep, dull_yellow as yellow, green, hint, link, note, reflow_link,
     simple_hint, text, words,
 };
 use nomi_base::suggest::nearest;
@@ -35,7 +35,7 @@ fn problem_to_hint(problem: &Problem) -> Vec<Doc> {
                 ))
                 .chain([green("toFloat"), text("and"), green("round")])
                 .chain(words("to do explicit conversions."));
-            vec![labelled("Note", docs)]
+            vec![note(docs)]
         }
         Problem::StringFromInt => fancy(
             "Want to convert an Int into a String? Use the",

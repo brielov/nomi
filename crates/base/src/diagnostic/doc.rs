@@ -449,7 +449,7 @@ pub fn hint(docs: impl IntoIterator<Item = Doc>) -> Doc {
 
 /// `label` underlined with a colon, then `docs`, wrapped, as notes,
 /// hints and links start.
-pub fn labelled(label: &str, docs: impl IntoIterator<Item = Doc>) -> Doc {
+fn labelled(label: &str, docs: impl IntoIterator<Item = Doc>) -> Doc {
     fill_sep(std::iter::once(text(label).underline().append(text(":"))).chain(docs))
 }
 

@@ -7,7 +7,9 @@
 
 use nomi_base::ghc::is_alpha;
 use nomi_base::utf8;
-use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, int_digits, significant_tokens};
+use nomi_syntax::{
+    SyntaxKind, SyntaxNode, SyntaxToken, int_digits, literal_body, significant_tokens,
+};
 
 use super::VALID;
 use crate::tree::{FloatRepr, IntRepr, LiteralValue, StringRepr};
@@ -49,6 +51,7 @@ pub(crate) fn negative(value: LiteralValue) -> LiteralValue {
 /// The value of a literal token, without a sign.
 pub(crate) fn unsigned(token: &SyntaxToken) -> LiteralValue {
     let text = token.text();
+    let body = || decode(literal_body(text).expect(VALID));
     match token.kind() {
         SyntaxKind::Int => {
             let (value, repr) = int(text);
@@ -63,16 +66,12 @@ pub(crate) fn unsigned(token: &SyntaxToken) -> LiteralValue {
             };
             LiteralValue::Float(value, repr)
         }
-        SyntaxKind::Char => match decode(&text[1..text.len() - 1])[..] {
+        SyntaxKind::Char => match body()[..] {
             [c] => LiteralValue::Char(c),
             _ => panic!("{VALID}: one character in {text}"),
         },
-        SyntaxKind::String => {
-            LiteralValue::String(decode(&text[1..text.len() - 1]), StringRepr::SingleQuoted)
-        }
-        SyntaxKind::MultilineString => {
-            LiteralValue::String(decode(&text[3..text.len() - 3]), StringRepr::TripleQuoted)
-        }
+        SyntaxKind::String => LiteralValue::String(body(), StringRepr::SingleQuoted),
+        SyntaxKind::MultilineString => LiteralValue::String(body(), StringRepr::TripleQuoted),
         kind => panic!("{VALID}: a literal, not {kind:?}"),
     }
 }

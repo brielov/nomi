@@ -1,6 +1,6 @@
-//! What upstream's `customString` parsers share: a position in a string's
-//! bytes and the cursor there, and `fromSnippet`'s rule that a parse must
-//! take every byte. Failures are the cursor where upstream reports them.
+//! What upstream's JSON and `customString` parsers share: a position in a
+//! string's bytes and the cursor there, and `fromSnippet`'s rule that a parse
+//! must take every byte. Failures are the cursor where upstream reports them.
 
 use nomi_base::Compat;
 
@@ -52,6 +52,12 @@ impl<'a> Scan<'a> {
     pub(crate) fn skip(&mut self, bytes: usize, columns: usize) {
         self.pos += bytes;
         self.cursor = self.cursor.slide(columns);
+    }
+
+    /// Past a newline byte, to the start of the next line.
+    pub(crate) fn newline(&mut self) {
+        self.pos += 1;
+        self.cursor = self.cursor.newline();
     }
 
     /// `word1`: this byte, or a failure where it isn't.

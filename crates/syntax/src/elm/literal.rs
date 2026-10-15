@@ -229,13 +229,31 @@ pub(super) fn operator<X>(
 
 /// What `Number.number` read.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Number {
+pub(crate) enum Number {
     Int,
     Float,
 }
 
+/// How a number goes wrong: `Number.Problem` without what it holds.
+pub(crate) enum NumberProblem {
+    End,
+    /// A dot no digit follows.
+    Dot,
+    HexDigit,
+    NoLeadingZero,
+}
+
+/// What a dot right after an integer's digits starts.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Dots {
+    /// Always a fraction, as elm reads it.
+    Fraction,
+    /// A fraction unless another dot follows, as elm-format reads `[1..2]`.
+    Range,
+}
+
 /// Where a number ends and what it is, or where it goes wrong and how.
-type Scanned = Result<(usize, Number), (usize, E::Number)>;
+type Scanned = Result<(usize, Number), (usize, NumberProblem)>;
 
 /// `Number.number`.
 pub(super) fn number<X>(
@@ -243,21 +261,28 @@ pub(super) fn number<X>(
     to_expectation: impl FnOnce(Position) -> X,
     to_error: impl FnOnce(E::Number, Position) -> X,
 ) -> Result<Number, X> {
-    let Some(w) = p.peek(0).filter(u8::is_ascii_digit) else {
+    if !p.peek(0).is_some_and(|b| b.is_ascii_digit()) {
         return Err(to_expectation(p.cur));
-    };
+    }
     let start = p.pos;
-    let scanned = if w == b'0' {
-        chomp_zero(p, start + 1)
-    } else {
-        chomp_int(p, start, start + 1)
-    };
-    match scanned {
+    match chomp_number(
+        p.src(),
+        start,
+        p.compat,
+        |at| bad_end(p, at),
+        Dots::Fraction,
+    ) {
         Ok((end, number)) => {
             p.advance(end - start, (end - start) as u32);
             Ok(number)
         }
         Err((at, problem)) => {
+            let problem = match problem {
+                NumberProblem::End => E::Number::NumberEnd,
+                NumberProblem::Dot => E::Number::NumberDot(int_text(p, p.bytes(start, at))),
+                NumberProblem::HexDigit => E::Number::NumberHexDigit,
+                NumberProblem::NoLeadingZero => E::Number::NumberNoLeadingZero,
+            };
             let x = to_error(problem, p.slide(p.cur, (at - start) as u32));
             p.cerr(x)
         }
@@ -266,21 +291,6 @@ pub(super) fn number<X>(
 
 fn bad_end(p: &P<'_>, pos: usize) -> bool {
     inner_width(p, pos) > 0
-}
-
-fn chomp_int(p: &P<'_>, start: usize, mut pos: usize) -> Scanned {
-    loop {
-        match p.byte(pos) {
-            Some(b'0'..=b'9') => pos += 1,
-            Some(b'.') => {
-                let digits = p.bytes(start, pos);
-                return chomp_fraction(p, pos, || int_text(p, digits));
-            }
-            Some(b'e' | b'E') => return chomp_exponent(p, pos + 1),
-            Some(_) if bad_end(p, pos) => return Err((pos, E::Number::NumberEnd)),
-            _ => return Ok((pos, Number::Int)),
-        }
-    }
 }
 
 /// The integer before a dot as upstream holds it: 0.19.1 in a wrapping
@@ -296,43 +306,92 @@ fn int_text(p: &P<'_>, digits: &[u8]) -> Name {
     }
 }
 
-fn chomp_fraction(p: &P<'_>, pos: usize, n: impl FnOnce() -> Name) -> Scanned {
-    if !p.byte(pos + 1).is_some_and(|b| b.is_ascii_digit()) {
-        return Err((pos, E::Number::NumberDot(n())));
+/// `Number.number`'s scan of the number whose first digit is at `start`
+/// in `src`, as `compat` reads it. `dirty` says whether what is at a
+/// position would go on with a name, and `dots` what a dot after the
+/// integer's digits starts.
+pub(crate) fn chomp_number(
+    src: &[u8],
+    start: usize,
+    compat: Compat,
+    dirty: impl Fn(usize) -> bool,
+    dots: Dots,
+) -> Scanned {
+    let scan = NumberScan { src, compat, dirty };
+    if src[start] == b'0' {
+        scan.zero(start + 1)
+    } else {
+        scan.int(start + 1, dots)
     }
-    let mut pos = pos + 2;
-    loop {
-        match p.byte(pos) {
-            Some(b'0'..=b'9') => pos += 1,
-            Some(b'e' | b'E') => return chomp_exponent(p, pos + 1),
-            Some(_) if bad_end(p, pos) => return Err((pos, E::Number::NumberEnd)),
-            _ => return Ok((pos, Number::Float)),
+}
+
+struct NumberScan<'s, D> {
+    src: &'s [u8],
+    compat: Compat,
+    dirty: D,
+}
+
+impl<D: Fn(usize) -> bool> NumberScan<'_, D> {
+    fn byte(&self, pos: usize) -> Option<u8> {
+        self.src.get(pos).copied()
+    }
+
+    fn is_digit(&self, pos: usize) -> bool {
+        self.byte(pos).is_some_and(|b| b.is_ascii_digit())
+    }
+
+    fn int(&self, mut pos: usize, dots: Dots) -> Scanned {
+        loop {
+            match self.byte(pos) {
+                Some(b'0'..=b'9') => pos += 1,
+                Some(b'.') if dots == Dots::Fraction || self.byte(pos + 1) != Some(b'.') => {
+                    return self.fraction(pos);
+                }
+                Some(b'e' | b'E') => return self.exponent(pos + 1),
+                Some(_) if (self.dirty)(pos) => return Err((pos, NumberProblem::End)),
+                _ => return Ok((pos, Number::Int)),
+            }
         }
     }
-}
 
-fn chomp_exponent(p: &P<'_>, pos: usize) -> Scanned {
-    let digits = match p.byte(pos) {
-        Some(b'0'..=b'9') => pos + 1,
-        Some(b'+' | b'-') if p.byte(pos + 1).is_some_and(|b| b.is_ascii_digit()) => pos + 2,
-        _ => return Err((pos, E::Number::NumberEnd)),
-    };
-    let end = (p.bytes(digits, p.len()).iter())
-        .position(|b| !b.is_ascii_digit())
-        .map_or(p.len(), |i| digits + i);
-    Ok((end, Number::Float))
-}
+    fn fraction(&self, pos: usize) -> Scanned {
+        if !self.is_digit(pos + 1) {
+            return Err((pos, NumberProblem::Dot));
+        }
+        let mut pos = pos + 2;
+        loop {
+            match self.byte(pos) {
+                Some(b'0'..=b'9') => pos += 1,
+                Some(b'e' | b'E') => return self.exponent(pos + 1),
+                Some(_) if (self.dirty)(pos) => return Err((pos, NumberProblem::End)),
+                _ => return Ok((pos, Number::Float)),
+            }
+        }
+    }
 
-fn chomp_zero(p: &P<'_>, pos: usize) -> Scanned {
-    match p.byte(pos) {
-        Some(b'x') => match chomp_hex(p.src(), pos + 1, p.compat, |at| bad_end(p, at)) {
-            (end, Hex::Code(_)) => Ok((end, Number::Int)),
-            (end, Hex::Bad | Hex::None) => Err((end, E::Number::NumberHexDigit)),
-        },
-        Some(b'.') => chomp_fraction(p, pos, || "0".into()),
-        Some(b'0'..=b'9') => Err((pos, E::Number::NumberNoLeadingZero)),
-        Some(_) if bad_end(p, pos) => Err((pos, E::Number::NumberEnd)),
-        _ => Ok((pos, Number::Int)),
+    fn exponent(&self, pos: usize) -> Scanned {
+        let mut pos = match self.byte(pos) {
+            Some(b'0'..=b'9') => pos + 1,
+            Some(b'+' | b'-') if self.is_digit(pos + 1) => pos + 2,
+            _ => return Err((pos, NumberProblem::End)),
+        };
+        while self.is_digit(pos) {
+            pos += 1;
+        }
+        Ok((pos, Number::Float))
+    }
+
+    fn zero(&self, pos: usize) -> Scanned {
+        match self.byte(pos) {
+            Some(b'x') => match chomp_hex(self.src, pos + 1, self.compat, &self.dirty) {
+                (end, Hex::Code(_)) => Ok((end, Number::Int)),
+                (end, Hex::Bad | Hex::None) => Err((end, NumberProblem::HexDigit)),
+            },
+            Some(b'.') => self.fraction(pos),
+            Some(b'0'..=b'9') => Err((pos, NumberProblem::NoLeadingZero)),
+            Some(_) if (self.dirty)(pos) => Err((pos, NumberProblem::End)),
+            _ => Ok((pos, Number::Int)),
+        }
     }
 }
 
