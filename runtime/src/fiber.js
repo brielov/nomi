@@ -16,7 +16,8 @@
 //   now       succeed with the clock's time
 //   mask      run a task uninterruptibly
 //   scoped    run a task in a new scope, closed when it ends
-//   interrupt ask a fiber to stop and wait for its exit
+//   interrupt ask a fiber to stop and wait for its exit, or not
+//   receive   continue with `f(message)` once the fiber's mailbox has one
 //
 // Structured concurrency: every fiber belongs to a scope. A fiber has its
 // own scope for its whole life, and `scoped` opens narrower ones. A scope
@@ -37,6 +38,9 @@
 // (a JS exception or a broken contract), or interruption. A defect nobody is
 // waiting for is reported through `reportDefect`; it never escapes into the
 // host and never crashes the process.
+//
+// Every fiber has a mailbox, elm/core's: `Runtime.send` puts a message in
+// it and `receive` takes the oldest, suspending while there is none.
 
 import { RealClock } from "./clock.js";
 
@@ -54,11 +58,12 @@ const SCOPED = "scoped";
 const INTERRUPT = "interruptFiber";
 const SLEEP = "sleep";
 const NOW = "now";
+const RECEIVE = "receive";
 // Internal: only this module builds these.
 const WITH_FIBER = "withFiber";
 const REAP = "reap";
 
-const TAGS = new Set([EXIT, SYNC, ASYNC, AND_THEN, ON_ERROR, FORK, AWAIT, YIELD, MASK, SCOPED, INTERRUPT, SLEEP, NOW]);
+const TAGS = new Set([EXIT, SYNC, ASYNC, AND_THEN, ON_ERROR, FORK, AWAIT, YIELD, MASK, SCOPED, INTERRUPT, SLEEP, NOW, RECEIVE]);
 const INTERNAL = new Set([WITH_FIBER, REAP]);
 
 // Frames that only the unwinding loop sees.
@@ -171,7 +176,13 @@ export const uninterruptible = (task) => ({ $: MASK, task });
 export const scoped = (task) => ({ $: SCOPED, task });
 
 /** Asks `fiber` to stop, waits for it, and succeeds with its exit. */
-export const interrupt = (fiber) => ({ $: INTERRUPT, fiber });
+export const interrupt = (fiber) => ({ $: INTERRUPT, fiber, wait: true });
+
+/** Asks `fiber` to stop and succeeds at once, without waiting for it. */
+export const interruptFork = (fiber) => ({ $: INTERRUPT, fiber, wait: false });
+
+/** Continues with `f(message)`, the oldest message in the fiber's mailbox, waiting for one if there is none. */
+export const receive = (f) => ({ $: RECEIVE, f });
 
 // Internal: runs `f(fiber)` and continues with the task it returns.
 const withFiber = (f) => ({ $: WITH_FIBER, f });
@@ -266,6 +277,10 @@ class Fiber {
   // for it to reach zero.
   mask = 0;
   interruptPending = false;
+  // Messages sent and not yet received, once there is one, and the
+  // `receive` the fiber is suspended on, if it is.
+  mailbox = null;
+  receiving = null;
 
   constructor(task, parent) {
     this.parent = parent;
@@ -292,6 +307,9 @@ function defaultReport(defect, fiber) {
  * - `budget` is how many instructions run before control goes back to the
  *   host, so a busy runtime cannot starve the event loop.
  * - `clock` serves `sleep` and `now`; see clock.js.
+ * - `synchronous` makes work that arrives outside a drain run at once, in
+ *   the caller's stack, as elm/core's scheduler does, so a port answers in
+ *   the same tick; past the budget, the rest still goes through `schedule`.
  */
 export class Runtime {
   /** Where top-level fibers and daemons live; it is never closed. */
@@ -301,8 +319,10 @@ export class Runtime {
 
   #queue = [];
   #head = 0;
-  // Whether a drain is scheduled or running.
-  #awake = false;
+  // Whether a drain is scheduled, and whether one is running.
+  #scheduled = false;
+  #draining = false;
+  #synchronous;
   #schedule;
   #yieldEvery;
   #budget;
@@ -317,8 +337,10 @@ export class Runtime {
     budget = 65536,
     reportDefect = defaultReport,
     clock = new RealClock(),
+    synchronous = false,
   } = {}) {
     this.#schedule = schedule;
+    this.#synchronous = synchronous;
     this.#clock = clock;
     this.#yieldEvery = yieldEvery;
     this.#budget = budget;
@@ -334,6 +356,17 @@ export class Runtime {
   interrupt(fiber) {
     this.#interrupt(fiber);
     return this.await(fiber);
+  }
+
+  /** Puts `message` in `fiber`'s mailbox; a fiber that is done drops it. */
+  send(fiber, message) {
+    if (fiber.exit !== null) return;
+    (fiber.mailbox ??= []).push(message);
+    const receiving = fiber.receiving;
+    if (receiving !== null) {
+      fiber.receiving = null;
+      this.#resume(fiber, fiber.epoch, receiving);
+    }
   }
 
   /** Resolves with `fiber`'s exit; the caller counts as waiting for it. */
@@ -383,12 +416,23 @@ export class Runtime {
   }
 
   #wake() {
-    if (this.#awake) return;
-    this.#awake = true;
-    this.#schedule(() => this.#drain());
+    if (this.#draining) return;
+    if (this.#synchronous) this.#drain();
+    else this.#later();
+  }
+
+  /** Schedules a drain, unless one already is. */
+  #later() {
+    if (this.#scheduled) return;
+    this.#scheduled = true;
+    this.#schedule(() => {
+      this.#scheduled = false;
+      this.#drain();
+    });
   }
 
   #drain() {
+    this.#draining = true;
     let steps = 0;
     while (this.#head < this.#queue.length && steps < this.#budget) {
       const fiber = this.#queue[this.#head++];
@@ -403,9 +447,15 @@ export class Runtime {
       this.#queue = this.#queue.slice(this.#head);
       this.#head = 0;
     }
-    this.#awake = false;
-    if (this.#head < this.#queue.length) this.#wake();
-    else if (this.#io === 0) this.#clock.idle();
+    if (this.#head < this.#queue.length) {
+      this.#later();
+    } else if (this.#io === 0) {
+      // What the clock wakes runs in a drain of its own, so a test clock
+      // firing timer after timer doesn't nest drains.
+      this.#clock.idle();
+      if (this.#head < this.#queue.length) this.#later();
+    }
+    this.#draining = false;
   }
 
   /** Runs `fiber` until it suspends, finishes or uses its slice; returns the instructions run. */
@@ -493,6 +543,10 @@ export class Runtime {
         case NOW:
           task = callValue(() => this.#clock.now());
           break;
+        case RECEIVE:
+          task = this.#receive(fiber, task);
+          if (task === null) return n;
+          break;
         case YIELD:
           fiber.task = succeed(undefined);
           this.#enqueue(fiber);
@@ -526,9 +580,11 @@ export class Runtime {
       if (target === fiber) {
         // Interrupting yourself takes effect as soon as it may.
         fiber.interruptPending = true;
-        return this.#takeInterrupt(fiber) ? done(Exit.interrupt()) : succeed(Exit.interrupt());
+        if (this.#takeInterrupt(fiber)) return done(Exit.interrupt());
+        return succeed(task.wait ? Exit.interrupt() : undefined);
       }
       this.#interrupt(target);
+      if (!task.wait) return succeed(undefined);
     }
     if (target.exit !== null) return succeed(target.exit);
     if (this.#takeInterrupt(fiber)) return done(Exit.interrupt());
@@ -536,6 +592,17 @@ export class Runtime {
     const observe = (exit) => this.#resume(fiber, epoch, succeed(exit));
     target.observers.add(observe);
     fiber.cancel = () => target.observers.delete(observe);
+    return null;
+  }
+
+  /** Takes the oldest message for `task.f`, or suspends `fiber` until `send` brings one. */
+  #receive(fiber, task) {
+    const mailbox = fiber.mailbox;
+    if (mailbox !== null && mailbox.length > 0) return call(task.f, mailbox.shift());
+    if (this.#takeInterrupt(fiber)) return done(Exit.interrupt());
+    this.#suspend(fiber);
+    fiber.receiving = task;
+    fiber.cancel = () => (fiber.receiving = null);
     return null;
   }
 
@@ -663,6 +730,7 @@ export class Runtime {
     fiber.task = null;
     fiber.stack.length = 0;
     fiber.scope = null;
+    fiber.mailbox = null;
     fiber.parent.fibers.delete(fiber);
     this.stats.finished++;
     const observers = [...fiber.observers];

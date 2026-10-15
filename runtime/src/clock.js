@@ -10,7 +10,12 @@ export class RealClock {
     return Date.now();
   }
 
+  /** A delay that isn't positive fires once the event loop has had its turn, without a timer's millisecond. */
   setTimer(ms, fire) {
+    if (!(ms > 0)) {
+      const handle = setImmediate(fire);
+      return () => clearImmediate(handle);
+    }
     const handle = setTimeout(fire, ms);
     return () => clearTimeout(handle);
   }

@@ -19,12 +19,14 @@ use crate::mode::Mode;
 use crate::name::Name;
 use crate::platform::{Format, Platform, Target, shim};
 use crate::reach::{deps_of, identity, manager_functions};
+use crate::runtime;
 
 const FUNCTIONS: &str = include_str!("functions.js");
 
 /// `generate`: the program of `mains`, each a module and its `main`,
 /// from `graph`, which holds every definition they may reach, for
-/// `target`. A Node module of one `main` is an entry, which starts it.
+/// `target`. A Node program carries the runtime its kernels run on, and
+/// a Node module of one `main` is an entry, which starts it.
 pub fn generate(
     compat: Compat,
     mode: &Mode,
@@ -41,6 +43,9 @@ pub fn generate(
     kernels.extend_from_slice(b"(function(scope){\n'use strict';");
     kernels.extend_from_slice(FUNCTIONS.as_bytes());
     kernels.extend_from_slice(perf_note(compat, mode).as_bytes());
+    if target.platform == Platform::Node {
+        kernels.extend_from_slice(runtime::prologue().as_bytes());
+    }
     let mut state = State {
         generator: Generator { compat, mode },
         graph,
@@ -479,14 +484,18 @@ mod tests {
             let (graph, mains) = static_mains(modules);
             String::from_utf8(generate(Compat::V0_19_1, &DEV, target, &graph, &mains)).unwrap()
         };
-        let module = built(browser, &["Page.Home"]);
+        // Node's is the browser's with the runtime after the warning.
+        let note = perf_note(Compat::V0_19_1, &DEV);
+        let with_runtime =
+            |module: String| module.replacen(&note, &format!("{note}{}", runtime::prologue()), 1);
+        let module = with_runtime(built(browser, &["Page.Home"]));
         assert_eq!(
             built(node, &["Page.Home"]),
             format!("{module}Elm.Page.Home.init();\n")
         );
         assert_eq!(
             built(node, &["Main", "Other"]),
-            built(browser, &["Main", "Other"])
+            with_runtime(built(browser, &["Main", "Other"]))
         );
     }
 

@@ -20,6 +20,7 @@ import {
   fromPromise,
   Interrupted,
   interrupt,
+  interruptFork,
   join,
   map,
   onError,
@@ -97,8 +98,9 @@ function program(r, depth) {
       return { kind, children, order, mode: r.pick(["join", "await"]) };
     }
     case "spawn":
-    case "kill":
       return { kind, child: sub(), a: sub() };
+    case "kill":
+      return { kind, child: sub(), a: sub(), wait: r.bool(0.5) };
     case "ensure":
       return { kind, a: sub(), fin: sub() };
     case "yield":
@@ -155,7 +157,7 @@ function build(p, ctx) {
     case "kill":
       return andThen(fork(checked(p.child, ctx)), (f) => {
         ctx.forks.push(f);
-        return andThen(interrupt(f), () => build(p.a, ctx));
+        return andThen(p.wait ? interrupt(f) : interruptFork(f), () => build(p.a, ctx));
       });
     case "yield":
       return andThen(yieldNow, () => build(p.a, ctx));
@@ -282,7 +284,8 @@ function model(p, entries) {
       const below = [];
       const entry = fiberEntry(model(p.child, below));
       if (p.kind === "kill") {
-        entry.observed = true;
+        // Only an interrupt that waits receives the exit.
+        entry.observed = p.wait;
         uncertain(entry, below);
       }
       entries.push(entry, ...below);
@@ -328,14 +331,19 @@ function normalize(exit) {
   return Exit.defect(d instanceof Boom ? `boom ${d.message}` : d.name);
 }
 
-/** Runs `p` to completion, interleaving runtime slices and async completions at random. */
+/**
+ * Runs `p` to completion, interleaving runtime slices and async completions
+ * at random, on a runtime that drains synchronously or not. A synchronous
+ * one may finish the root before anyone waits for it: `early` says so.
+ */
 function runRandomly(p, r) {
-  const { runtime, reports, pending, settle } = shuffled(r);
+  const { runtime, reports, pending, settle } = shuffled(r, { synchronous: r.bool(0.5) });
   const log = { ensures: [], masks: [], outlived: [] };
   const root = runtime.fork(checked(p, { pending, log }));
+  const early = root.exit !== null;
   runtime.await(root);
   settle();
-  return { runtime, root, reports, log };
+  return { runtime, root, early, reports, log };
 }
 
 const count = (xs, p) => xs.filter(p).length;
@@ -346,7 +354,7 @@ test("random programs end as the model says, under any schedule", async () => {
     ({ program: p, schedule }) => {
       const entries = [];
       const expected = model(p, entries);
-      const { runtime, root, reports, log } = runRandomly(p, rngFor(schedule));
+      const { runtime, root, early, reports, log } = runRandomly(p, rngFor(schedule));
       assert.deepEqual(normalize(root.exit), normalize(expected));
 
       // Finished fibers leave every table.
@@ -359,8 +367,9 @@ test("random programs end as the model says, under any schedule", async () => {
       // A defect is reported exactly when nobody receives it: never lost,
       // never twice.
       const unobserved = (e) => e.exit.$ === "defect" && !e.observed;
-      const atLeast = count(entries, (e) => e.certain && unobserved(e));
-      const atMost = count(entries, (e) => e.exit.$ === "defect");
+      const rootReported = early && root.exit.$ === "defect" ? 1 : 0;
+      const atLeast = count(entries, (e) => e.certain && unobserved(e)) + rootReported;
+      const atMost = count(entries, (e) => e.exit.$ === "defect") + rootReported;
       assert.ok(reports.length >= atLeast, `${reports.length} reports, at least ${atLeast} expected`);
       assert.ok(reports.length <= atMost, `${reports.length} reports, at most ${atMost} expected`);
 

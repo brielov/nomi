@@ -234,6 +234,7 @@ fn main() -> ExitCode {
                 } else {
                     javascript::Format::Iife
                 },
+                dom: javascript::Dom::Native,
             };
             let make = make::Make {
                 paths,

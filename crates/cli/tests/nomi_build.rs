@@ -122,7 +122,8 @@ fn node(root: &Path, script: &str) -> String {
 
 /// A worker built into an `.mjs` file is an ES module exporting `Elm`:
 /// Node imports it, and a message sent to its incoming port comes back
-/// on its outgoing one.
+/// on its outgoing one before `send` returns, as it does built for Node
+/// on the fiber runtime.
 #[test]
 fn a_module_output_is_imported_by_node_and_answers_on_its_ports() {
     nomi_testkit::require_node();
@@ -147,13 +148,35 @@ main =
 ",
     );
     build(cache.path(), &root, &["--output=dist/main.mjs"]);
-    let driver = "import { Elm } from './dist/main.mjs';
-const app = Elm.Main.init();
-app.ports.responses.subscribe((response) => console.log(response));
-app.ports.requests.send('ping');
+    // An IIFE, as a Node module of one `main` would start it.
+    build(
+        cache.path(),
+        &root,
+        &["--platform=node", "--output=dist/node.js"],
+    );
+    // The outgoing port's manager sleeps a moment after each message, as
+    // upstream's does, so the driver tries until it finds it ready.
+    let run = "const responses = [];
+app.ports.responses.subscribe((response) => responses.push(response));
+const attempt = (left) => {
+  responses.length = 0;
+  app.ports.requests.send('ping');
+  if (responses.length > 0) console.log(responses.join());
+  else if (left > 0) setTimeout(() => attempt(left - 1), 20);
+};
+attempt(50);
 ";
-    fs::write(root.join("driver.mjs"), driver).unwrap();
-    assert_eq!(node(&root, "driver.mjs"), "PING\n");
+    let drivers = [
+        ("browser.mjs", "import { Elm } from './dist/main.mjs';"),
+        ("node.cjs", "const { Elm } = require('./dist/node.js');"),
+    ];
+    for (driver, import) in drivers {
+        let script = format!("{import}\nconst app = Elm.Main.init();\n{run}");
+        fs::write(root.join(driver), script).unwrap();
+        assert_eq!(node(&root, driver), "PING\n", "{driver}");
+    }
+    let node_js = fs::read_to_string(root.join("dist/node.js")).unwrap();
+    assert!(node_js.contains("var _Runtime = "));
 }
 
 /// A worker built for Node into an `.mjs` file starts when run; built
@@ -251,4 +274,55 @@ main =
         browser == artifacts(),
         "a build for Node changed the artifacts"
     );
+}
+
+/// A kernel Node replaces, in a release whose file nomi doesn't know, is
+/// not available on Node: the build fails naming the release, where the
+/// browser's still builds.
+#[test]
+fn an_unknown_release_of_a_replaced_kernel_fails_for_node() {
+    let cache = website::fixture_cache();
+    let (_work, root) = project(
+        "module Main exposing (main)
+
+
+main : Program () () ()
+main =
+    Platform.worker
+        { init = \\_ -> ( (), Cmd.none )
+        , update = \\_ model -> ( model, Cmd.none )
+        , subscriptions = \\_ -> Sub.none
+        }
+",
+    );
+    let scheduler = (files(cache.path()).into_keys())
+        .find(|path| path.ends_with("src/Elm/Kernel/Scheduler.js"))
+        .map(|path| cache.path().join(path))
+        .unwrap();
+    let mut text = fs::read_to_string(&scheduler).unwrap();
+    text.push_str("\n// A release nomi doesn't know.\n");
+    fs::write(&scheduler, text).unwrap();
+    build(cache.path(), &root, &["--output=dist/browser.js"]);
+    let program = Path::new(env!("CARGO_BIN_EXE_nomi"));
+    let built = offline(program, cache.path())
+        .current_dir(&root)
+        .args([
+            "build",
+            "src/Main.elm",
+            "--platform=node",
+            "--output=dist/node.js",
+        ])
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&built.stdout) + String::from_utf8_lossy(&built.stderr);
+    assert!(!built.status.success(), "{said}");
+    assert!(said.contains("NOT AVAILABLE ON NODE"), "{said}");
+    let said = said.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        said.contains("uses Elm.Kernel.Scheduler of elm/core 1.0.5, a file"),
+        "{said}"
+    );
+    let chain = "main → Platform.worker → Elm.Kernel.Platform → Elm.Kernel.Scheduler";
+    assert!(said.contains(chain), "{said}");
+    assert!(!root.join("dist/node.js").exists());
 }

@@ -10,7 +10,6 @@ use nomi_compiler::optimized::binary::globals;
 use nomi_compiler::optimized::{EffectsType, Global, GlobalGraph, Main, Node};
 
 use crate::mode::Mode;
-use crate::platform::Platform;
 
 /// What a node needs written before it.
 pub(crate) enum Deps<'a> {
@@ -152,26 +151,20 @@ pub fn reach<'a>(
     Reached { order, parents }
 }
 
-/// What `mains` reach in `graph` that `platform` lacks: the path to the
-/// kernel found first, from its `main`. The browser lacks nothing yet,
-/// so it is not walked.
+/// What `mains` reach in `graph` of the kernel modules `lacking`, by
+/// short name, as written in `mode`: the path to the kernel found first,
+/// from its `main`. Lacking nothing, the program is not walked.
 pub fn unavailable(
     compat: Compat,
     mode: &Mode,
-    platform: Platform,
+    lacking: &[&str],
     graph: &GlobalGraph,
     mains: &[(Home, Main)],
 ) -> Option<Vec<Global>> {
-    unavailable_of(
-        compat,
-        mode.is_debug(),
-        platform.unavailable(),
-        graph,
-        mains,
-    )
+    unavailable_of(compat, mode.is_debug(), lacking, graph, mains)
 }
 
-/// What `mains` reach of the kernel modules `lacking`, by short name.
+/// [`unavailable`], written as `debug` says.
 fn unavailable_of(
     compat: Compat,
     debug: bool,
@@ -192,6 +185,7 @@ fn unavailable_of(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::platform::{Dom, Platform};
     use nomi_compiler::optimized::{Chunk, Expr};
 
     fn global(module: &str, name: &str) -> Global {
@@ -287,7 +281,7 @@ mod tests {
         let lacking =
             |table: &[&str]| unavailable_of(Compat::V0_19_1, false, table, &graph, &mains);
         assert_eq!(
-            lacking(Platform::Node.unavailable()),
+            lacking(Platform::Node.unavailable(Dom::Native)),
             Some(vec![
                 global("Main", "main"),
                 global("Page", "view"),
@@ -298,6 +292,7 @@ mod tests {
         // A program for the browser that defines, but never calls, what
         // needs a kernel only Node has.
         assert_eq!(lacking(&["Nomi"]), None);
-        assert_eq!(lacking(Platform::Browser.unavailable()), None);
+        assert_eq!(lacking(Platform::Browser.unavailable(Dom::Native)), None);
+        assert_eq!(lacking(Platform::Node.unavailable(Dom::Polyfilled)), None);
     }
 }

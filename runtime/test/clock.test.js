@@ -163,6 +163,15 @@ test("the real clock sleeps on host timers", async () => {
   assert.ok(exit.value - before >= 19, `${exit.value - before} ms`);
 });
 
+test("the real clock yields a zero delay to the event loop without a timer's millisecond", async () => {
+  const runtime = new Runtime({ clock: new RealClock() });
+  const zeros = (n) => (n === 0 ? succeed("slept") : andThen(sleep(0), () => zeros(n - 1)));
+  // On 1 ms timers, 200 zero sleeps would take 200 ms.
+  const timer = new Promise((resolve) => setTimeout(() => resolve("timer"), 100));
+  const slept = runtime.run(zeros(200)).then((exit) => exit.value);
+  assert.equal(await Promise.race([slept, timer]), "slept");
+});
+
 test("a test clock's timer with no finite delay is due at once", () => {
   const clock = new TestClock(10);
   const fired = [];

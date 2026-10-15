@@ -7,8 +7,6 @@
 // finish within a deadline; past it, or on a second signal, the process
 // exits at once.
 
-import { format } from "node:util";
-
 import { ExitKind, Runtime } from "./fiber.js";
 
 const SIGNALS = { SIGINT: 130, SIGTERM: 143 };
@@ -43,7 +41,7 @@ export function main(task, { runtime = new Runtime(), proc = process, deadline =
 
   return runtime.await(root).then(async (exit) => {
     const { code, message } = outcome(exit, signalled);
-    if (message !== null) console.error(message);
+    if (message !== null) console.error(...message);
     armDeadline(code);
     await runtime.shutdown();
     clearTimeout(deadlineTimer);
@@ -58,7 +56,8 @@ export function main(task, { runtime = new Runtime(), proc = process, deadline =
 
 /**
  * The code the process exits with once the program ended with `exit`, and
- * what the user should see, if anything. A signal decides the code alone.
+ * what the user should see, if anything, as `console.error`'s arguments. A
+ * signal decides the code alone.
  */
 function outcome(exit, signalled) {
   if (signalled !== null) return { code: signalled, message: null };
@@ -66,11 +65,11 @@ function outcome(exit, signalled) {
     case ExitKind.SUCCESS:
       return { code: 0, message: null };
     case ExitKind.FAIL:
-      return { code: 1, message: format("nomi: the program failed:", exit.error) };
+      return { code: 1, message: ["nomi: the program failed:", exit.error] };
     case ExitKind.DEFECT:
-      return { code: 1, message: format("nomi: the program died with a defect:", exit.defect) };
+      return { code: 1, message: ["nomi: the program died with a defect:", exit.defect] };
     case ExitKind.INTERRUPTED:
-      return { code: 1, message: "nomi: the program was interrupted" };
+      return { code: 1, message: ["nomi: the program was interrupted"] };
     default:
       // A fiber ends in one of the four; anything else is a runtime bug.
       throw new TypeError(`not an exit: ${exit.$}`);

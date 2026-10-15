@@ -10,7 +10,7 @@ use nomi_base::{Compat, Report};
 use nomi_engine::artifacts::Hash;
 use nomi_engine::check::Style;
 use nomi_engine::console::{Console, Personality};
-use nomi_engine::javascript::{Kind, Target};
+use nomi_engine::javascript::{Dom, Format, Kind, Platform, Target};
 use nomi_engine::make::{self, Make, Output};
 use nomi_engine::paths::Cache;
 use nomi_engine::test_deps::{self, Dependencies, Solve};
@@ -181,7 +181,14 @@ pub fn build<H: Http + Sync>(
     write_if_changed(env.cx.vfs, &main, text.as_bytes()).map_err(|e| io(&dir, &e))?;
     let js = dir.join("elmTestOutput.js");
     let mut quiet = Quiet::new(terminal);
-    let make = elm_make(vec![main], Style::Terminal, Output::Js(js.clone()));
+    let mut make = elm_make(vec![main], Style::Terminal, Output::Js(js.clone()));
+    // Node's kernels, in the file elm-test's templates wrap, whose
+    // stand-ins for the browser's globals let tests reach the DOM's.
+    make.target = Target {
+        platform: Platform::Node,
+        format: Format::Iife,
+        dom: Dom::Polyfilled,
+    };
     if !make::run(&env.at(&dir), &mut quiet, &make) {
         return Err(quiet.shown(console));
     }

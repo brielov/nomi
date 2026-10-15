@@ -1,6 +1,6 @@
 //! Discovery and the runner over node-test-runner's fixture suites:
 //! the files and modules elm-test's JSON transcripts ran, its errors,
-//! and the runner it would build.
+//! and the runner it would build, on Node's kernels.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -174,6 +174,12 @@ fn discovery_finds_what_elm_test_ran() {
         assert_eq!(
             (console.out.as_str(), console.err.as_str()),
             ("", ""),
+            "{name}"
+        );
+        // On Node's kernels: elm/core's scheduler on the fiber runtime.
+        let js = fs::read_to_string(&runner.js).unwrap();
+        assert!(
+            js.contains("var _Scheduler_runtime = new _Runtime.Runtime("),
             "{name}"
         );
         let expected = transcript(&name);

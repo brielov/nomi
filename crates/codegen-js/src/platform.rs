@@ -1,6 +1,8 @@
 //! What a program is generated for: where it runs, and the shape of its
 //! file. Upstream's is the browser's, an IIFE.
 
+use crate::runtime::{self, Override};
+
 /// Where a program runs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Platform {
@@ -11,12 +13,22 @@ pub enum Platform {
 
 impl Platform {
     /// The kernel modules, by short name, a program for the platform may
-    /// not reach. Node has no DOM. The browser lacks nomi/* kernels, which
-    /// the graph names by short name alone, as it names every kernel.
-    pub fn unavailable(self) -> &'static [&'static str] {
+    /// not reach, with `dom`. Node has no DOM of its own. The browser
+    /// lacks nomi/* kernels, which the graph names by short name alone, as
+    /// it names every kernel.
+    pub fn unavailable(self, dom: Dom) -> &'static [&'static str] {
+        match (self, dom) {
+            (Platform::Browser, Dom::Native | Dom::Polyfilled)
+            | (Platform::Node, Dom::Polyfilled) => &[],
+            (Platform::Node, Dom::Native) => &["Browser", "VirtualDom", "File"],
+        }
+    }
+
+    /// The kernel modules the platform replaces with its own.
+    pub fn overrides(self) -> &'static [Override] {
         match self {
             Platform::Browser => &[],
-            Platform::Node => &["Browser", "VirtualDom", "File"],
+            Platform::Node => &runtime::NODE,
         }
     }
 }
@@ -31,11 +43,22 @@ pub enum Format {
     EsModule,
 }
 
+/// Where a program finds the browser's globals its DOM kernels use.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Dom {
+    /// In its platform, which Node lacks.
+    #[default]
+    Native,
+    /// In stand-ins its host defines, as elm-test's runner does on Node.
+    Polyfilled,
+}
+
 /// What a program is generated for.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Target {
     pub platform: Platform,
     pub format: Format,
+    pub dom: Dom,
 }
 
 /// The lines that end a Node entry's module and start its `main`, in

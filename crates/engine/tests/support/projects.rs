@@ -127,6 +127,7 @@ pub fn javascript(
         kind,
         Target::default(),
         "author/project",
+        &sources,
         dependencies,
         optimized,
     )

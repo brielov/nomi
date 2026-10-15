@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, reflow, simple_note, text, vcat, words};
 use nomi_base::{Compat, Report};
-use nomi_project::{ModuleName, Outline};
+use nomi_project::{ModuleName, Name, Outline};
 use nomi_registry::Http;
 
 use crate::artifacts::Artifacts;
@@ -201,6 +201,8 @@ struct Clean {
     env: Env,
     /// How code is generated.
     kind: javascript::Kind,
+    /// Every package, and the directory of its source.
+    packages: Vec<(Name, PathBuf)>,
     dependencies: Dependencies,
     built: Built,
 }
@@ -255,6 +257,7 @@ fn build(
     let artifacts = Artifacts::new(cx.cache);
     // The dependencies build as the modules are found and checked, each
     // module once the packages it imports are built.
+    let packages = sources.packages.clone();
     let building = Building::new(compat, sources.packages, Some(&artifacts), sources.direct);
     let built = timings::time(Phase::Modules, || {
         let build = Build {
@@ -291,6 +294,7 @@ fn build(
         compat,
         env,
         kind,
+        packages,
         dependencies,
         built,
     })
@@ -370,6 +374,7 @@ fn write(vfs: &Vfs, console: &mut dyn Console, dir: &Path, make: &Make, clean: C
         compat,
         env,
         kind,
+        packages,
         dependencies,
         built,
     } = clean;
@@ -411,8 +416,15 @@ fn write(vfs: &Vfs, console: &mut dyn Console, dir: &Path, make: &Make, clean: C
             let package = env.owner().package_name();
             let bytes = timings::time(Phase::Generate, || {
                 let types = dependencies.into_graph_and_types();
-                let js =
-                    javascript::program(compat, kind, make.target, &package, types, optimized)?;
+                let js = javascript::program(
+                    compat,
+                    kind,
+                    make.target,
+                    &package,
+                    &packages,
+                    types,
+                    optimized,
+                )?;
                 Ok(match &target.html {
                     Some(module) => nomi_codegen_js::html::sandwich(&module.to_string(), &js),
                     None => js,

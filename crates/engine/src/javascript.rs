@@ -1,23 +1,33 @@
 //! A program's JavaScript (`Generate.hs`): the dependencies' graph and
-//! every module's merged, the roots' `main`s gathered, and the code
-//! generated in the mode asked for.
+//! every module's merged, the platform's kernels in place of upstream's,
+//! the roots' `main`s gathered, and the code generated in the mode asked
+//! for.
+
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::PathBuf;
 
 use nomi_base::diagnostic::Report;
 use nomi_base::diagnostic::doc::{Color, reflow, text};
 use nomi_base::{Compat, kernel};
 use nomi_codegen_js::debug::{ModuleTypes, Types};
 use nomi_codegen_js::generate::generate;
+use nomi_codegen_js::kernel::{add_kernel, parse};
 use nomi_codegen_js::mode::{Mode, shorten_field_names};
 use nomi_codegen_js::reach::unavailable;
 use nomi_compiler::canonical::Home;
 use nomi_compiler::nitpick::debug::graph_has_debug_uses;
 use nomi_compiler::optimized::{Global, GlobalGraph, Main};
-use nomi_project::ModuleName;
+use nomi_project::{ModuleName, Name};
 
 use crate::Pool;
+use crate::artifacts::Hash;
 use crate::check::Optimized;
+use crate::graph::module_path;
+use crate::paths::package_src;
+use crate::project::package_outline;
 
-pub use nomi_codegen_js::platform::{Format, Platform, Target};
+pub use nomi_codegen_js::platform::{Dom, Format, Platform, Target};
 
 /// How code is generated: `elm make`'s default, `--debug` or
 /// `--optimize`.
@@ -34,11 +44,14 @@ pub enum Kind {
 /// The JavaScript of what `elm make` optimized of the project `package`,
 /// with `dependencies`' graph and their modules' types, for `target`; or
 /// the report on a kernel the program reaches that its platform lacks.
+/// `packages` are the dependencies, each with the directory of its
+/// source, where the platform's kernels find the files they replace.
 pub fn program(
     compat: Compat,
     kind: Kind,
     target: Target,
     package: &str,
+    packages: &[(Name, PathBuf)],
     dependencies: (GlobalGraph, Types),
     optimized: Optimized,
 ) -> Result<Vec<u8>, Report> {
@@ -71,6 +84,7 @@ pub fn program(
     for (_, local) in locals {
         graph.add_local(local);
     }
+    let unknown = replace_kernels(compat, target.platform, packages, &mut graph);
     let mode = match kind {
         Kind::Dev => Mode::Dev { debug: None },
         Kind::Debug => {
@@ -82,8 +96,10 @@ pub fn program(
         }
         Kind::Optimize => Mode::Prod(shorten_field_names(compat, &graph)),
     };
-    let js = match unavailable(compat, &mode, target.platform, &graph, &mains) {
-        Some(path) => Err(not_available(target.platform, &path)),
+    let mut lacking = target.platform.unavailable(target.dom).to_vec();
+    lacking.extend(unknown.iter().map(|release| release.module));
+    let js = match unavailable(compat, &mode, &lacking, &graph, &mains) {
+        Some(path) => Err(not_available(target.platform, &path, &unknown)),
         None => Ok(generate(compat, &mode, target, &graph, &mains)),
     };
     // Every package's code is in the graph, so freeing it takes a while,
@@ -92,18 +108,103 @@ pub fn program(
     js
 }
 
-/// That `path`, from a `main` to a kernel, reaches what `platform` lacks.
-fn not_available(platform: Platform, path: &[Global]) -> Report {
+/// A kernel module the platform replaces, in a release of its package
+/// whose file nomi doesn't know.
+struct Unknown {
+    module: &'static str,
+    /// The package and its version, as `elm/core 1.0.5`.
+    release: String,
+}
+
+/// Puts in `graph`, in place of each kernel module of `packages` that
+/// `platform` replaces, the platform's own, keyed by the upstream file it
+/// replaces; returns the modules whose file is none it knows, which stay
+/// as they are.
+fn replace_kernels(
+    compat: Compat,
+    platform: Platform,
+    packages: &[(Name, PathBuf)],
+    graph: &mut GlobalGraph,
+) -> Vec<Unknown> {
+    let mut unknown = Vec::new();
+    for replacement in platform.overrides() {
+        let Some((name, dir)) =
+            (packages.iter()).find(|(name, _)| name.to_string() == replacement.package)
+        else {
+            continue;
+        };
+        if !(graph.nodes).contains_key(&Global::kernel(compat, replacement.module)) {
+            continue;
+        }
+        let file = module_path(
+            &format!("{}{}", kernel::MODULE_PREFIX, replacement.module),
+            "js",
+        );
+        let digest =
+            fs::read(package_src(dir).join(file)).map(|bytes| nomi_base::hex(&Hash::of(&bytes).0));
+        let outline = package_outline(dir, compat).ok().flatten();
+        if !digest.is_ok_and(|digest| replacement.upstream.contains(&digest.as_str())) {
+            let release = match &outline {
+                Some(outline) => format!("{name} {}", outline.version),
+                None => name.to_string(),
+            };
+            unknown.push(Unknown {
+                module: replacement.module,
+                release,
+            });
+            continue;
+        }
+        // The modules its dependencies expose, as the package's own kernels
+        // read them.
+        let mut foreigns = BTreeMap::new();
+        for dep in outline.iter().flat_map(|outline| outline.deps.keys()) {
+            let exposed = (packages.iter())
+                .find(|(name, _)| name == dep)
+                .and_then(|(_, dir)| package_outline(dir, compat).ok().flatten());
+            for module in exposed.iter().flat_map(|outline| outline.exposed.modules()) {
+                foreigns.insert(module.to_string(), dep.to_string());
+            }
+        }
+        let content = parse(replacement.package, &foreigns, replacement.code.as_bytes())
+            .expect("a platform's kernels parse");
+        add_kernel(compat, graph, replacement.module, content.chunks);
+    }
+    unknown
+}
+
+/// That `path`, from a `main` to a kernel, reaches what `platform` lacks,
+/// or a kernel it replaces in a release in `unknown`.
+fn not_available(platform: Platform, path: &[Global], unknown: &[Unknown]) -> Report {
     let name = |global: &Global| match global.home.package.as_str() {
         "elm/kernel" => format!("{}{}", kernel::MODULE_PREFIX, global.home.module),
         _ => format!("{}.{}", global.home.module, global.name),
     };
     let (main, rest) = path.split_first().expect("a path starts at a main");
-    let kernel = name(path.last().unwrap_or(main));
+    let last = path.last().unwrap_or(main);
+    let kernel = name(last);
     let chain = std::iter::once(main.name.clone())
         .chain(rest.iter().map(name))
         .collect::<Vec<_>>()
         .join(" → ");
+    if let Some(Unknown { release, .. }) = (unknown.iter()).find(|u| *u.module == *last.home.module)
+    {
+        return Report::doc(
+            "NOT AVAILABLE ON NODE",
+            None,
+            reflow(&format!(
+                "The `main` in {} uses {kernel} of {release}, a file nomi has no Node version of:",
+                main.home.module
+            )),
+            [
+                text(&chain).color(Color::Red).indent(4),
+                reflow(&format!(
+                    "On Node, nomi puts its own version in place of this kernel, made for the \
+                     releases of the package it knows, and {release} is not one of them. Depend \
+                     on another release, or use a nomi that knows this one."
+                )),
+            ],
+        );
+    }
     let (title, host, advice) = match platform {
         Platform::Node => (
             "NOT AVAILABLE ON NODE",

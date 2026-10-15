@@ -290,6 +290,7 @@ fn scripts(
             kind,
             javascript::Target::default(),
             "author/project",
+            sources,
             dependencies.clone(),
             optimized.clone(),
         )
