@@ -7,11 +7,10 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+use nomi_engine::paths::relative;
+use nomi_engine::watch::IGNORED;
 use nomi_project::Outline;
 use walkdir::{DirEntry, WalkDir};
-
-/// Directories elm-test never looks in (`FindTests.ignoredDirsGlobs`).
-pub(crate) const IGNORED: [&str; 2] = ["elm-stuff", "node_modules"];
 
 /// What elm-test reads of a project (`Project.init`).
 #[derive(Clone, Debug)]
@@ -420,15 +419,6 @@ fn absolute(path: &Path, cwd: &Path) -> PathBuf {
     out
 }
 
-/// `path` relative to `root`, as Node's `path.relative`: through `..`
-/// where it isn't below it.
-pub(crate) fn relative(path: &Path, root: &Path) -> PathBuf {
-    let (path, root): (Vec<_>, Vec<_>) = (path.components().collect(), root.components().collect());
-    let shared = path.iter().zip(&root).take_while(|(a, b)| a == b).count();
-    let up = root[shared..].iter().map(|_| Component::ParentDir);
-    up.chain(path[shared..].iter().copied()).collect()
-}
-
 /// `path`'s components, as text.
 pub(crate) fn parts(path: &Path) -> Vec<String> {
     (path.components())
@@ -469,14 +459,6 @@ mod tests {
         assert_eq!(
             absolute(Path::new("../x/./y"), Path::new("/a/b")),
             PathBuf::from("/a/x/y")
-        );
-        assert_eq!(
-            relative(Path::new("/a/b/c"), Path::new("/a")),
-            Path::new("b/c")
-        );
-        assert_eq!(
-            relative(Path::new("/x/c"), Path::new("/a/b")),
-            Path::new("../../x/c")
         );
     }
 }

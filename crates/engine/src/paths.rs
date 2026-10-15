@@ -8,7 +8,7 @@
 
 use std::ffi::OsString;
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use nomi_project::{Name, Version};
 
@@ -37,6 +37,15 @@ pub(crate) fn package_src(dir: &Path) -> PathBuf {
 /// The directory of a project's tests, in the project at `dir`.
 pub fn tests_dir(dir: &Path) -> PathBuf {
     dir.join("tests")
+}
+
+/// `path` relative to `root`, as Node's `path.relative`: through `..`
+/// where it isn't below it.
+pub fn relative(path: &Path, root: &Path) -> PathBuf {
+    let (path, root): (Vec<_>, Vec<_>) = (path.components().collect(), root.components().collect());
+    let shared = path.iter().zip(&root).take_while(|(a, b)| a == b).count();
+    let up = root[shared..].iter().map(|_| Component::ParentDir);
+    up.chain(path[shared..].iter().copied()).collect()
 }
 
 /// The variable naming the cache, like Go's `GOCACHE`.
@@ -239,5 +248,17 @@ mod tests {
         );
         assert_eq!(cache("linux", &[]), Err(CacheError::Unknown));
         assert_eq!(cache("linux", &[("HOME", "h")]), Err(CacheError::Unknown));
+    }
+
+    #[test]
+    fn paths_are_made_relative_as_node_makes_them() {
+        assert_eq!(
+            relative(Path::new("/a/b/c"), Path::new("/a")),
+            Path::new("b/c")
+        );
+        assert_eq!(
+            relative(Path::new("/x/c"), Path::new("/a/b")),
+            Path::new("../../x/c")
+        );
     }
 }

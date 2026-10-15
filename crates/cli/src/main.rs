@@ -89,6 +89,9 @@ enum Command {
         /// Run this module's `main` instead, without nomi.toml.
         #[arg(short, long, value_name = "FILE")]
         elm: Option<PathBuf>,
+        /// Build and run it again each time the project changes.
+        #[arg(long)]
+        watch: bool,
         /// The program's arguments, after `--`.
         #[arg(last = true)]
         args: Vec<OsString>,
@@ -228,12 +231,17 @@ fn main() -> ExitCode {
             }
         },
         Some(Command::Build(args)) => build(args),
-        Some(Command::Run { entry, elm, args }) => {
+        Some(Command::Run {
+            entry,
+            elm,
+            watch,
+            args,
+        }) => {
             let program = match elm {
                 Some(module) => run::Program::Module(module),
                 None => run::Program::Entry(entry),
             };
-            return nomi_run(&program, &args);
+            return nomi_run(&program, watch, &args);
         }
         Some(Command::Diff { args }) => diff(
             &args.iter().map(String::as_str).collect::<Vec<_>>(),
@@ -306,12 +314,16 @@ fn build(args: Build) -> bool {
 }
 
 /// `nomi run`, in the current directory.
-fn nomi_run(program: &run::Program, args: &[OsString]) -> ExitCode {
+fn nomi_run(program: &run::Program, watch: bool, args: &[OsString]) -> ExitCode {
     let (Some(cache), Some(dir)) = (cache(), current_dir()) else {
         return ExitCode::FAILURE;
     };
     ExitCode::from(run_in(&dir, &cache, |cx, console| {
-        run::run(cx, console, program, args)
+        if watch {
+            run::watch(cx, console, program, args)
+        } else {
+            run::run(cx, console, program, args)
+        }
     }))
 }
 

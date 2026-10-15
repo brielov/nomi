@@ -37,6 +37,7 @@ mod trash;
 pub mod tree;
 pub mod update;
 mod vfs;
+pub mod watch;
 
 use std::path::Path;
 

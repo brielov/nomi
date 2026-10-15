@@ -1,7 +1,8 @@
 //! `nomi run`: an entry of nomi.toml, or a module given with `-e`, built
 //! for Node and run under the `node` on the PATH with the arguments after
 //! `--`; nomi exits as the program does, passes SIGTERM on to it, and
-//! runs nothing when the build or nomi.toml is wrong.
+//! runs nothing when the build or nomi.toml is wrong. With `--watch` it
+//! builds and runs the program again as the project changes.
 #![cfg(unix)]
 
 #[path = "support/website.rs"]
@@ -11,7 +12,8 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use website::offline;
@@ -113,7 +115,7 @@ fn an_entry_runs_with_its_arguments_and_exits_with_its_code() {
     assert_eq!(ran.status.code(), Some(3), "{ran:?}");
     // The build speaks on standard error; standard output is the program's.
     assert_eq!(stdout(&ran), "3: ()\n");
-    assert!(root.join("elm-stuff/nomi/run/Main.mjs").is_file());
+    assert!(root.join("elm-stuff/nomi/run/src/Main.mjs").is_file());
 }
 
 #[test]
@@ -241,7 +243,7 @@ fn a_build_that_fails_runs_nothing() {
     assert_eq!(ran.status.code(), Some(1), "{ran:?}");
     assert_eq!(stdout(&ran), "");
     assert!(stderr(&ran).contains("-- TYPE MISMATCH"), "{ran:?}");
-    assert!(!root.join("elm-stuff/nomi/run/Main.mjs").exists());
+    assert!(!root.join("elm-stuff/nomi/run/src/Main.mjs").exists());
 }
 
 #[test]
@@ -254,4 +256,147 @@ fn without_node_on_the_path_nomi_says_so() {
         .unwrap();
     assert_eq!(ran.status.code(), Some(1), "{ran:?}");
     assert!(stderr(&ran).contains("-- NO NODE"), "{ran:?}");
+}
+
+/// A program that says which version of `Version` it was built with,
+/// then waits with a finalizer saying it again.
+const VERSIONED: &str = r#"module Main exposing (main)
+
+import Nomi
+import Nomi.Task
+import Process
+import Task exposing (Task)
+import Version
+
+
+main : Nomi.Program
+main =
+    Nomi.program <|
+        \_ ->
+            say ("version " ++ Version.version)
+                |> Task.andThen (\_ -> Process.sleep 60000)
+                |> Nomi.Task.ensure (say ("finalized " ++ Version.version))
+
+
+say : String -> Task x ()
+say line =
+    Task.succeed () |> Task.map (\_ -> Debug.log line ())
+"#;
+
+fn version(root: &Path, version: &str) {
+    fs::write(
+        root.join("src/Version.elm"),
+        format!("module Version exposing (version)\n\n\nversion =\n    {version}\n"),
+    )
+    .unwrap();
+}
+
+/// Each line `read` gives, as it comes.
+fn lines(read: impl std::io::Read + Send + 'static) -> Receiver<String> {
+    let (send, lines) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(read).lines() {
+            let Ok(line) = line else { break };
+            if send.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    lines
+}
+
+/// Waits for a line of `lines` holding `wanted`, failing after a minute;
+/// the lines before it.
+fn expect(lines: &Receiver<String>, wanted: &str, child: &mut Child) -> Vec<String> {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut before = Vec::new();
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match lines.recv_timeout(left) {
+            Ok(line) if line.contains(wanted) => return before,
+            Ok(line) => before.push(line),
+            Err(e) => {
+                let _ = child.kill();
+                panic!("no line with {wanted:?} ({e}); before it: {before:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn with_watch_an_edit_restarts_the_program_with_its_new_output() {
+    nomi_testkit::require_node();
+    let cache = website::fixture_cache();
+    let (_work, root) = project(VERSIONED, Some(ENTRY));
+    version(&root, "\"1\"");
+    let mut run = nomi_run(cache.path(), &root, &["--watch"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stdout = lines(run.stdout.take().unwrap());
+    let stderr = lines(run.stderr.take().unwrap());
+    assert_eq!(
+        expect(&stdout, "version 1: ()", &mut run),
+        [] as [String; 0]
+    );
+    // The old program is stopped as SIGTERM stops it, its finalizer
+    // running, before the new one starts.
+    version(&root, "\"22\"");
+    expect(&stderr, "src/Version.elm changed", &mut run);
+    assert_eq!(
+        expect(&stdout, "version 22: ()", &mut run),
+        ["finalized 1: ()"]
+    );
+    // A build that fails stops the program and waits for the next change.
+    version(&root, "333");
+    expect(&stderr, "-- TYPE MISMATCH", &mut run);
+    expect(&stderr, "Watching for changes...", &mut run);
+    assert_eq!(
+        expect(&stdout, "finalized 22: ()", &mut run),
+        [] as [String; 0]
+    );
+    version(&root, "\"4444\"");
+    expect(&stdout, "version 4444: ()", &mut run);
+    // SIGTERM stops the program and the watch.
+    let sent = Command::new("kill")
+        .args(["-TERM".to_owned(), run.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(sent.success());
+    expect(&stdout, "finalized 4444: ()", &mut run);
+    let signalled = Instant::now();
+    while run.try_wait().unwrap().is_none() && signalled.elapsed().as_secs() < 30 {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let _ = run.kill();
+    assert_eq!(run.wait().unwrap().code(), Some(143));
+}
+
+#[test]
+fn with_watch_a_program_that_ends_is_started_again_on_a_change() {
+    nomi_testkit::require_node();
+    let cache = website::fixture_cache();
+    let (_work, root) = project(PROGRAM, Some(ENTRY));
+    let mut run = nomi_run(cache.path(), &root, &["--watch", "--", "3"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stdout = lines(run.stdout.take().unwrap());
+    let stderr = lines(run.stderr.take().unwrap());
+    expect(&stdout, "3: ()", &mut run);
+    expect(
+        &stderr,
+        "The program exited with code 3. Watching for changes...",
+        &mut run,
+    );
+    fs::write(
+        root.join("src/Main.elm"),
+        PROGRAM.replace("say code", "say (code ++ \"!\")"),
+    )
+    .unwrap();
+    expect(&stdout, "3!: ()", &mut run);
+    let _ = run.kill();
+    let _ = run.wait();
 }

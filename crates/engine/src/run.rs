@@ -2,12 +2,14 @@
 //! on the command line, built for Node as a self-starting ES module and
 //! run under `node`, which the run stands in for: the arguments are the
 //! program's, the signals nomi is sent reach it, and nomi exits as it
-//! does.
+//! does. With `--watch` it is built and run again as the project changes.
 
 use std::ffi::OsString;
 use std::io;
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, ExitStatus};
+use std::process::{Child, Command, ExitStatus};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use nomi_base::{Compat, Platform, Report};
 use nomi_project::{Entry, Manifest, report};
@@ -16,9 +18,10 @@ use nomi_registry::Http;
 use crate::check::Style;
 use crate::console::{self, Console, Personality};
 use crate::make::{self, Make, Output};
-use crate::paths::{NOMI_TOML, Root};
-use crate::project::no_outline;
+use crate::paths::{NOMI_TOML, Root, relative};
+use crate::project::{Project, no_outline};
 use crate::report::one_line;
+use crate::watch::{Change, POLL, Snapshot, message};
 use crate::{Context, javascript};
 
 /// What `nomi run` was asked to run.
@@ -53,12 +56,10 @@ pub fn run(
     program: &Program,
     args: &[OsString],
 ) -> u8 {
-    let Some(output) = build(cx, &mut Stderr(console), program) else {
+    let Some(built) = build(cx, &mut Stderr(console), program) else {
         return 1;
     };
-    let mut node = Command::new("node");
-    node.arg(output).args(args);
-    match supervise(&mut node) {
+    match supervise(&mut node(&built.output, args)) {
         Ok(status) => exit_code(status),
         Err(e) => {
             console::report(console, &no_node(&e), Compat::LATEST);
@@ -67,18 +68,114 @@ pub fn run(
     }
 }
 
-/// Builds `program`, showing how it went; the ES module written, if one
-/// was.
+/// Builds and runs `program` as [`run`] does, then again each time the
+/// project's source directories, `elm.json`, `nomi.toml` or the entry's
+/// FFI module change, stopping the program first. A failed build leaves
+/// it stopped until the next change, and one that ends by itself is
+/// started again on the next change. It runs until nomi is sent SIGINT or
+/// SIGTERM, which stops the program as [`run`] passes signals on; the
+/// code to exit with is then the shell's for that signal, 130 or 143,
+/// whatever the program's, or 1 if the watch couldn't start.
+pub fn watch(
+    cx: &Context<'_, impl Http + Sync>,
+    console: &mut dyn Console,
+    program: &Program,
+    args: &[OsString],
+) -> u8 {
+    let console = &mut Stderr(console);
+    let Some(root) = Root::find(cx.vfs, cx.dir) else {
+        console::report(console, &no_outline("to run"), Compat::LATEST);
+        return 1;
+    };
+    let mut caught = match Caught::new() {
+        Ok(caught) => caught,
+        Err(e) => {
+            console.err(&format!("I could not watch for signals: {e}\n"));
+            return 1;
+        }
+    };
+    let manifests = vec![root.elm_json(), root.dir().join(NOMI_TOML)];
+    let mut snapshot = Snapshot::new(root.dir(), manifests);
+    let mut queue: Vec<Change> = Vec::new();
+    let mut child: Option<Child> = None;
+    loop {
+        if !queue.is_empty() {
+            // Changes made together join the build they start.
+            thread::sleep(POLL);
+            queue.extend(snapshot.changes());
+            console.err(&format!("{}\n", message(&queue)));
+            queue.clear();
+            cx.vfs.disk_changed();
+        }
+        let built = build(cx, console, program);
+        snapshot.watch(watched(cx, &root, program));
+        if let Some(mut old) = child.take() {
+            let _ = stop(console, &mut old, Some(Stop::Terminate));
+        }
+        if let Some(built) = built {
+            child = (node(&built.output, args).spawn())
+                .inspect_err(|e| console::report(console, &no_node(e), Compat::LATEST))
+                .ok();
+        }
+        if child.is_none() {
+            console.err("Watching for changes...\n");
+        }
+        while queue.is_empty() {
+            if let Some((signal, sent)) = caught.take() {
+                if let Some(mut child) = child {
+                    let _ = stop(console, &mut child, sent.then_some(signal));
+                }
+                return signal.code();
+            }
+            if let Some(status) = child.as_mut().and_then(|c| c.try_wait().ok().flatten()) {
+                let code = exit_code(status);
+                console.err(&format!(
+                    "The program exited with code {code}. Watching for changes...\n"
+                ));
+                child = None;
+            }
+            queue.extend(snapshot.changes());
+            if queue.is_empty() {
+                thread::sleep(POLL);
+            }
+        }
+    }
+}
+
+/// `node` running `output` with `args`.
+fn node(output: &Path, args: &[OsString]) -> Command {
+    let mut node = Command::new("node");
+    node.arg(output).args(args);
+    node
+}
+
+/// What changes [`watch`] watches for besides the manifests: the
+/// project's source directories, the module run and its FFI module, as
+/// the project now names them.
+fn watched(cx: &Context<'_, impl Http + Sync>, root: &Root, program: &Program) -> Vec<PathBuf> {
+    let mut paths: Vec<PathBuf> = Project::read(cx.vfs, root, Personality::Nomi)
+        .map(|project| (project.outline.source_dirs().into_iter()).map(|d| root.dir().join(d)))
+        .into_iter()
+        .flatten()
+        .collect();
+    if let Ok(built) = chosen(cx, program) {
+        paths.push(built.dir.join(&built.main));
+        paths.extend(built.ffi.map(|ffi| built.dir.join(ffi)));
+    }
+    paths
+}
+
+/// Builds `program`, showing how it went; what was built, if it was.
 fn build(
     cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
     program: &Program,
-) -> Option<PathBuf> {
+) -> Option<Built> {
     let built = chosen(cx, program)
         .inspect_err(|report| console::report(console, report, Compat::LATEST))
         .ok()?;
     let make = Make {
-        paths: vec![built.main],
+        paths: vec![built.main.clone()],
         personality: Personality::Nomi,
         style: Style::Terminal,
         kind: Ok(javascript::Kind::Dev),
@@ -89,7 +186,7 @@ fn build(
             ffi: None,
         },
         platform_by_main: false,
-        ffi: built.ffi,
+        ffi: built.ffi.clone(),
         output: Some(Output::Js(built.output.clone())),
         docs: None,
     };
@@ -97,20 +194,24 @@ fn build(
         dir: &built.dir,
         ..*cx
     };
-    make::run(&cx, console, &make).then_some(built.output)
+    make::run(&cx, console, &make).then_some(built)
 }
 
 /// What `program` builds, from `nomi.toml`'s entry where it names one.
 fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built, Report> {
     let root = Root::find(cx.vfs, cx.dir).ok_or_else(|| no_outline("to run"))?;
+    // Kept by the module's path in the project, so that no two share one.
     let default_output = |main: &Path| {
-        let name = main.file_stem().unwrap_or(main.as_os_str());
+        let mut name = relative(main, root.dir());
+        if !(name.components()).all(|c| matches!(c, Component::Normal(_))) {
+            name = main.file_name().unwrap_or(main.as_os_str()).into();
+        }
         (root.dir().join("elm-stuff/nomi/run").join(name)).with_extension("mjs")
     };
     let chosen = match program {
         Program::Module(main) => Built {
             main: main.clone(),
-            output: default_output(main),
+            output: default_output(&cx.dir.join(main)),
             ffi: None,
             dir: cx.dir.to_owned(),
         },
@@ -124,7 +225,7 @@ fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built
                     return Err(not_a_module(&entry.main, output));
                 }
                 Some(output) => root.dir().join(output),
-                None => default_output(Path::new(&entry.main)),
+                None => default_output(&root.dir().join(&entry.main)),
             };
             Built {
                 main: entry.main.into(),
@@ -227,7 +328,7 @@ fn supervise(command: &mut Command) -> io::Result<ExitStatus> {
     let handle = signals.handle();
     let mut child = command.spawn()?;
     let pid = Pid::from_child(&child);
-    let forwarding = std::thread::spawn(move || {
+    let forwarding = thread::spawn(move || {
         for origin in signals.forever() {
             if let Cause::Sent(_) = origin.cause {
                 let signal = if origin.signal == SIGINT {
@@ -250,6 +351,112 @@ fn supervise(command: &mut Command) -> io::Result<ExitStatus> {
 #[cfg(not(unix))]
 fn supervise(command: &mut Command) -> io::Result<ExitStatus> {
     command.status()
+}
+
+/// A signal that stops a program, as nomi passes it on.
+#[derive(Clone, Copy, Debug)]
+enum Stop {
+    Interrupt,
+    Terminate,
+}
+
+impl Stop {
+    /// The code a shell gives a process this signal stopped.
+    fn code(self) -> u8 {
+        match self {
+            Stop::Interrupt => 130,
+            Stop::Terminate => 143,
+        }
+    }
+}
+
+/// How long a program has to stop before it is killed: longer than the
+/// runtime's own shutdown deadline, which a server lengthens to its drain
+/// and 5 seconds more.
+const GRACE: Duration = Duration::from_secs(15);
+
+/// Stops `child`, sending it `signal` if one is given (a terminal's
+/// reaches it already), and kills it if it hasn't ended within [`GRACE`].
+fn stop(
+    console: &mut dyn Console,
+    child: &mut Child,
+    signal: Option<Stop>,
+) -> io::Result<ExitStatus> {
+    if let Some(signal) = signal {
+        send(child, signal)?;
+    }
+    let start = Instant::now();
+    while start.elapsed() < GRACE {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    console.err(&format!(
+        "The program did not stop within {} seconds, so I killed it.\n",
+        GRACE.as_secs()
+    ));
+    child.kill()?;
+    child.wait()
+}
+
+#[cfg(unix)]
+fn send(child: &Child, signal: Stop) -> io::Result<()> {
+    use rustix::process::{Pid, Signal, kill_process};
+    let signal = match signal {
+        Stop::Interrupt => Signal::INT,
+        Stop::Terminate => Signal::TERM,
+    };
+    Ok(kill_process(Pid::from_child(child), signal)?)
+}
+
+/// Windows has no signal a program can finish on, so it ends at once.
+#[cfg(not(unix))]
+fn send(child: &mut Child, _: Stop) -> io::Result<()> {
+    child.kill()
+}
+
+/// The SIGINT and SIGTERM nomi is sent while it watches, caught.
+#[cfg(unix)]
+struct Caught(signal_hook::iterator::SignalsInfo<signal_hook::iterator::exfiltrator::WithOrigin>);
+
+#[cfg(unix)]
+impl Caught {
+    fn new() -> io::Result<Caught> {
+        use signal_hook::consts::{SIGINT, SIGTERM};
+        Ok(Caught(signal_hook::iterator::SignalsInfo::new([
+            SIGINT, SIGTERM,
+        ])?))
+    }
+
+    /// The last signal since the last call, and whether a process sent
+    /// it rather than the terminal.
+    fn take(&mut self) -> Option<(Stop, bool)> {
+        use signal_hook::low_level::siginfo::Cause;
+        let origin = self.0.pending().last()?;
+        let signal = if origin.signal == signal_hook::consts::SIGINT {
+            Stop::Interrupt
+        } else {
+            Stop::Terminate
+        };
+        Some((signal, matches!(origin.cause, Cause::Sent(_))))
+    }
+}
+
+/// A console's Ctrl-C ends nomi and the program together, so nothing is
+/// caught.
+#[cfg(not(unix))]
+struct Caught;
+
+#[cfg(not(unix))]
+impl Caught {
+    fn new() -> io::Result<Caught> {
+        Ok(Caught)
+    }
+
+    fn take(&mut self) -> Option<(Stop, bool)> {
+        None
+    }
 }
 
 /// The code a shell gives a process that ended as `status` did.
