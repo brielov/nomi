@@ -49,7 +49,7 @@ nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it wait
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is MQ's **Exit**.
+4. Resume at the first unchecked box. Right now that is M11's opening review of package names and APIs, done together before 11.1.
 
 ### Test tiers
 
@@ -1229,6 +1229,8 @@ The second exit review (12 fresh reviews, kept in `~/.cache/nomi-dev/quality/exi
 The survey behind these steps (11 reviews, every file read: 118 major, 514 minor and 405 small findings, about 7,600 removable lines of 124,000) is kept in the development cache, `~/.cache/nomi-dev/quality/`, one report per crate group; a step without it re-reviews its crate first. Findings that would change behavior are not in this milestone: they are listed in its last step's commit for a decision.
 
 **Exit:** a fresh review of each crate and the runtime against §13 finds nothing beyond taste; every ratchet, transcript and corpus suite is unchanged, but for what the QF fixes change on purpose; and the scoreboard loses no cell.
+
+Done: the second review's 59 places are fixed (Q.16a–d) and its runtime review was clean. Every corpus suite gives its numbers from before the milestone: syntax and format 1,949 of 1,949, check and graphs 5,739 projects, objects 5,733, javascript 81 apps, docs 5,652 packages, names 5,722 of 5,751, tests 14 of 14, hir 32,435 modules, and the language server's ratchet 7,439 of 8,182. The scoreboard's 385 rows, gingko's among them since QF.12, have nomi ahead on wall time, CPU time and memory in every cell. The behavior changes accepted along the way are listed in the exit commit for a decision.
 
 ## M11: Node platform and server runtime, release 0.5
 
