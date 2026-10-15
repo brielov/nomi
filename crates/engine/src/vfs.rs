@@ -365,13 +365,30 @@ pub fn discover(root: &Path) -> io::Result<Vec<PathBuf>> {
         .filter_entry(|entry| !(entry.file_type().is_dir() && skipped(entry.path())));
     let mut files = Vec::new();
     for entry in walk {
-        let entry = entry?;
-        let path = entry.path();
-        if entry.file_type().is_file() && path.extension().is_some_and(|e| e == ELM) {
-            files.push(entry.into_path());
+        match entry {
+            Ok(entry) if entry.file_type().is_file() && is_elm(entry.path()) => {
+                files.push(entry.into_path());
+            }
+            Ok(_) => {}
+            // A link to nothing is a file to elm-format: one named `.elm`
+            // fails when it is read, and any other is passed over.
+            Err(e) if e.path().is_some_and(is_dangling) => {
+                if let Some(path) = e.path().filter(|p| is_elm(p)) {
+                    files.push(path.to_owned());
+                }
+            }
+            Err(e) => return Err(e.into()),
         }
     }
     Ok(files)
+}
+
+fn is_elm(path: &Path) -> bool {
+    path.extension().is_some_and(|e| e == ELM)
+}
+
+fn is_dangling(path: &Path) -> bool {
+    path.is_symlink() && !path.exists()
 }
 
 fn skipped(dir: &Path) -> bool {
@@ -394,5 +411,20 @@ mod tests {
         // Without a drive it means something else, so it stays.
         assert_eq!(plain(r"\\?\Volume{1}\x"), r"\\?\Volume{1}\x");
         assert_eq!(plain("/home/elm/Main.elm"), "/home/elm/Main.elm");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn links_to_nothing_are_files_kept_by_their_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        fs::create_dir(&src).unwrap();
+        fs::write(src.join("A.elm"), "module A exposing (..)\n").unwrap();
+        std::os::unix::fs::symlink("../gone.md", src.join("README.md")).unwrap();
+        std::os::unix::fs::symlink("gone.elm", src.join("B.elm")).unwrap();
+        assert_eq!(
+            discover(dir.path()).unwrap(),
+            [src.join("A.elm"), src.join("B.elm")]
+        );
     }
 }

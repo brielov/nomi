@@ -1203,6 +1203,10 @@ A second, independent audit of the same code (2026-10-13, kept in `~/.cache/nomi
 
   Done: the type printer lists a record's fields through `fields_to_list`, as the optimizer and canonicalization do, so ties follow the release's name order in BAD MAIN TYPE and in docs; the test clock makes every delay that isn't a positive finite number due at once, as it did zero and negative ones. A unit test prints an inferred record under 0.19.1 and 0.19.3, and a clock test sets the four delays; both fail on the old code. CI is green.
 
+- [x] **QF.12** `fix: links to nothing under a formatted directory`. elm-format lists a directory's entries as files unless they are directories, so a symbolic link to nothing is a file it passes over unless it is named `.elm`, which then fails when read; nomi's walk stopped at the link and reported the whole directory missing, so `--validate` on gingko, whose `client/app/README.md` links to nothing, exited 1 where elm-format exits 0. The scoreboard met it first at MQ's exit, gingko having joined the corpus after its last run. **Check:** a test, failing on the old code.
+
+  Done: `vfs::discover` keeps a link to nothing as a file by its extension, as elm-format does, and goes on; one named `.elm` is read and reported as unreadable. A unit test walks a directory with both kinds, and gingko validates as elm-format does.
+
 The second exit review (12 fresh reviews, kept in `~/.cache/nomi-dev/quality/exit2/`) found every first-review fix holding and the runtime clean, and 59 smaller places elsewhere: the halves of earlier fixes left undone (aliases still copied, `diff_alias`'s `unreachable!`, the formatter's invariants formatting each module again), helpers re-spelled beside their shared versions, allocations made only to be read, a few tuples and wildcard arms. The steps below fix them.
 
 - [x] **Q.16a** `quality: second exit findings, syntax and format` (base, project and registry 2; syntax 6; format 6).
