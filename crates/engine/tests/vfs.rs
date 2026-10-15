@@ -94,6 +94,18 @@ fn discovery_follows_symbolic_links() {
     assert_eq!(relative(root, &files), ["a/F.elm", "z/F.elm"]);
 }
 
+#[cfg(unix)]
+#[test]
+fn links_to_nothing_are_files_kept_by_their_extension() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    touch(root, "src/A.elm");
+    std::os::unix::fs::symlink("../gone.md", root.join("src/README.md")).unwrap();
+    std::os::unix::fs::symlink("gone.elm", root.join("src/B.elm")).unwrap();
+    let files = discover(root).unwrap();
+    assert_eq!(relative(root, &files), ["src/A.elm", "src/B.elm"]);
+}
+
 #[test]
 fn reading_takes_utf8_only() {
     let dir = tempfile::tempdir().unwrap();

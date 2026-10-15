@@ -9,9 +9,7 @@ use nomi_base::diagnostic::doc::{Color, Doc, dull_yellow as yellow, text};
 
 use super::localizer::Localizer;
 use super::render::{self, Context};
-use super::{
-    SuperType, in_name_order, is_bool, is_char, is_float, is_int, is_list, is_maybe, is_string,
-};
+use super::{SuperType, is_bool, is_char, is_float, is_int, is_list, is_maybe, is_string};
 use crate::canonical::Home;
 
 /// `T.Type`.
@@ -138,14 +136,15 @@ fn alias_to_doc(
 
 /// `fieldsToDocs`: by name, in the release's order.
 fn fields_to_docs(localizer: &Localizer, fields: &BTreeMap<String, Type>) -> Vec<(Doc, Doc)> {
-    (in_name_order(localizer.compat, fields).into_iter())
+    (localizer.compat.in_name_order(fields).into_iter())
         .map(|(n, t)| (text(n.clone()), to_doc(localizer, Context::None, t)))
         .collect()
 }
 
 /// The names of `map`, in the release's order.
 fn names_in_order<T>(compat: Compat, map: &BTreeMap<String, T>) -> Vec<String> {
-    in_name_order(compat, map)
+    compat
+        .in_name_order(map)
         .into_iter()
         .map(|(n, _)| n.clone())
         .collect()

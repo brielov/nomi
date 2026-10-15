@@ -225,12 +225,12 @@ impl Out {
     }
 
     fn name_map<T>(&mut self, map: &BTreeMap<String, T>, mut put: impl FnMut(&mut Out, &T)) {
-        let compat = self.compat;
-        let order = |a: &(&String, &T), b: &(&String, &T)| compat.compare_names(a.0, b.0);
-        self.sorted(map.iter().collect(), order, |out, (name, value)| {
-            out.name(name);
-            put(out, value);
-        });
+        let entries = self.compat.in_name_order(map);
+        self.count(entries.len());
+        for (name, value) in entries {
+            self.name(name);
+            put(self, value);
+        }
     }
 
     fn home(&mut self, home: &Home) {

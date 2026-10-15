@@ -11,8 +11,8 @@ use nomi_base::Text;
 
 use super::names::to_error_type;
 use super::{
-    Content, Descriptor, FlatType, SuperType, Variable, Variables, error, in_name_order, is_char,
-    is_float, is_int, is_list, is_string, occurs::occurs,
+    Content, Descriptor, FlatType, SuperType, Variable, Variables, error, is_char, is_float,
+    is_int, is_list, is_string, occurs::occurs,
 };
 use crate::canonical::Home;
 
@@ -488,7 +488,7 @@ impl State<'_> {
     ) -> Unify {
         let mut matching = BTreeMap::new();
         // `Map.traverseMaybeWithKey`: in the release's name order.
-        for (name, &(actual, expected)) in in_name_order(self.vars.compat, shared) {
+        for (name, &(actual, expected)) in self.vars.compat.in_name_order(shared) {
             if self.guarded(actual, expected).is_ok() {
                 matching.insert(name.clone(), actual);
             }

@@ -83,13 +83,12 @@ fn format_fixtures() {
                     .unwrap_or_else(|| panic!("{case}: no expected output; {RERUN}")),
             ),
         };
-        let text = std::fs::read(dir.join("inputs").join(&case)).unwrap();
-        let formatted = std::str::from_utf8(&text)
-            .ok()
-            .and_then(nomi_format::format);
+        let bytes = std::fs::read(dir.join("inputs").join(&case)).unwrap();
+        let text = std::str::from_utf8(&bytes).ok();
+        let formatted = text.and_then(nomi_format::format);
         let listed = broken.get(case.as_str()).map_or(&[][..], Vec::as_slice);
         let result = outcome(&wanted, formatted.as_deref()).and_then(|()| {
-            invariant_mismatch(&text, formatted.as_deref(), listed).map_or(Ok(()), Err)
+            invariant_mismatch(text.zip(formatted.as_deref()), listed).map_or(Ok(()), Err)
         });
         outcomes.push((case, result));
     }

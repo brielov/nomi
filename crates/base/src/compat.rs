@@ -94,6 +94,21 @@ impl Compat {
         names
     }
 
+    /// A `BTreeMap`'s entries, owned or borrowed, in the release's name
+    /// order, as upstream's maps keep them. The map's own byte order is
+    /// already the order before 0.19.3, which compares names length first.
+    #[inline]
+    pub fn in_name_order<K: AsRef<str>, T>(
+        self,
+        map: impl IntoIterator<Item = (K, T)>,
+    ) -> Vec<(K, T)> {
+        let mut entries: Vec<(K, T)> = map.into_iter().collect();
+        if self == Compat::V0_19_3 {
+            entries.sort_by(|a, b| self.compare_names(a.0.as_ref(), b.0.as_ref()));
+        }
+        entries
+    }
+
     /// The release's version, as `elm.json` writes it.
     pub const fn as_str(self) -> &'static str {
         match self {

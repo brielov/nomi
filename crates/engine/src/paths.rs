@@ -32,7 +32,7 @@ pub(crate) fn package_src(dir: &Path) -> PathBuf {
 }
 
 /// The directory of a project's tests, in the project at `dir`.
-pub(crate) fn tests_dir(dir: &Path) -> PathBuf {
+pub fn tests_dir(dir: &Path) -> PathBuf {
     dir.join("tests")
 }
 

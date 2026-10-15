@@ -15,7 +15,8 @@ fn syntax_titles() {
             .into_iter()
             .map(|case| {
                 let outcome = case.rejections.into_iter().try_for_each(|r| {
-                    let problem = r.problem.map_err(|e| format!("{}: {e}", r.column))?;
+                    let problem =
+                        (r.problem).ok_or_else(|| format!("{}: the port accepts", r.column))?;
                     let shift = r.compat.editor_shift();
                     let at = |p: nomi_base::diagnostic::code::Position| {
                         format!("{}:{}", p.row + shift, p.col + shift)

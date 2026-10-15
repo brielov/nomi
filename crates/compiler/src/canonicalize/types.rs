@@ -92,10 +92,12 @@ fn canonicalize_(env: &Env<'_>, module: &hir::Module, id: TypeId) -> R<Type> {
             ))
         }
         hir::Type::Unit => Ok(Type::Unit),
-        hir::Type::Tuple(items) => {
-            let (a, b, c) = tuple(items, range, |item| canonicalize(env, module, item))?;
-            Ok(Type::Tuple(a, b, c))
-        }
+        hir::Type::Tuple(items) => tuple(
+            items,
+            range,
+            |item| canonicalize(env, module, item),
+            Type::Tuple,
+        ),
     }
 }
 

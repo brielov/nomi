@@ -85,8 +85,7 @@ fn canonicalize_(
         }
         hir::Pattern::Tuple(items) => {
             let each = |item| canonicalize(env, module, item, bindings);
-            let (a, b, c) = tuple(items, region, each)?;
-            PatternKind::Tuple(a, b, c)
+            tuple(items, region, each, PatternKind::Tuple)?
         }
         hir::Pattern::Ctor {
             qualifier,

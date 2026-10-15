@@ -8,7 +8,6 @@ use nomi_base::Compat;
 use super::names::{Tracker, var_index};
 use crate::canonical::{Home, Type};
 use crate::optimized::{Destructor, Expr, Path};
-use crate::types::in_name_order;
 
 fn json(module: &str) -> Home {
     Home {
@@ -102,7 +101,7 @@ pub(super) fn to_encoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
         },
         Type::Record(record, None) => {
             let object = encode(t, "object");
-            let pairs = (in_name_order(compat, record).into_iter())
+            let pairs = (compat.in_name_order(record).into_iter())
                 .map(|(name, field)| {
                     let encoder = to_encoder(compat, t, &field.ty);
                     let access = Expr::Access(Box::new(local("$")), name.clone());
@@ -196,7 +195,7 @@ pub(super) fn to_decoder(compat: Compat, t: &mut Tracker, ty: &Type) -> Expr {
                 t.field(name);
             }
             let mut decoder = call(succeed, vec![value]);
-            for (key, field) in in_name_order(compat, record) {
+            for (key, field) in compat.in_name_order(record) {
                 let and_then = decode(t, "andThen");
                 let at = decode(t, "field");
                 let sub = to_decoder(compat, t, &field.ty);

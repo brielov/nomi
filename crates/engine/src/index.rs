@@ -21,6 +21,7 @@ use nomi_registry::Store;
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{GreenNode, Parse, SyntaxNode};
 
+use crate::Snapshot;
 use crate::check::env_of;
 use crate::graph::{
     BadSource, Env, Foreigns, Graph, Module, Root, Status, is_good_name, written_imports,
@@ -28,8 +29,7 @@ use crate::graph::{
 use crate::names::{self, PackageInterfaces};
 use crate::paths::{ELM_JSON, tests_dir};
 use crate::project::package_outline;
-use crate::vfs::{canonical, canonical_or_given};
-use crate::{Snapshot, discover};
+use crate::vfs::{self, canonical, canonical_or_given};
 
 pub use crate::objects::Memo;
 
@@ -315,12 +315,7 @@ fn resolve(
 pub(crate) fn elm_files(env: &Env) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     for dir in env.src_dirs() {
-        let found = discover(dir).unwrap_or_default();
-        paths.extend(
-            found
-                .into_iter()
-                .filter(|p| p.extension().is_some_and(|e| e == "elm")),
-        );
+        paths.extend(vfs::elm_files(dir).unwrap_or_default());
     }
     paths
 }

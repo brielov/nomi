@@ -36,7 +36,8 @@ pub fn copy_tree(from: &Path, to: &Path, keep: impl Fn(&Path) -> bool) -> io::Re
 /// Panics where it can't, as a test's setup does.
 pub fn write_file(root: &Path, path: &str, text: &str) {
     let path = root.join(path);
-    fs::create_dir_all(path.parent().expect("a file in a directory")).unwrap();
+    let parent = path.parent().expect("a file in a directory");
+    fs::create_dir_all(parent).unwrap_or_else(|e| panic!("{}: {e}", parent.display()));
     fs::write(&path, text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
 }
 

@@ -364,8 +364,7 @@ fn exports(out: &mut String, generator: &Generator, trie: &Trie) {
         out.push_str("'init':");
         builder::expr(out, &generator.main(home, main));
     }
-    let mut subs: Vec<(&&str, &Trie)> = trie.subs.iter().collect();
-    subs.sort_by(|a, b| generator.compat.compare_names(a.0, b.0));
+    let mut subs = generator.compat.in_name_order(&trie.subs);
     if subs.len() > 1 {
         subs[1..].reverse();
     }

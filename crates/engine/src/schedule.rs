@@ -39,11 +39,8 @@ pub struct Cancelled;
 /// Runs `job` on each module of the DAG whose module `i` imports
 /// `imports[i]`, giving it what each of those made, in that order, until
 /// `snapshot`, if there is one, goes stale. The outcomes come back in the
-/// modules' order.
-///
-/// # Panics
-///
-/// If the imports form a cycle, which `graph` reports first.
+/// modules' order. Modules on an import cycle never run, and come back
+/// blocked; `graph` reports cycles first.
 pub fn run<T, E, F>(
     snapshot: Option<&Snapshot>,
     imports: &[Vec<usize>],
@@ -115,8 +112,8 @@ where
     if run.cancelled.load(Ordering::Relaxed) || run.stale() {
         return Err(Cancelled);
     }
-    // The imports form no cycle, so a module that didn't run waited on a
-    // gate that never opened.
+    // A module that didn't run waited on a gate that never opened, or on a
+    // cycle.
     let outcomes =
         (run.outcomes.into_iter()).map(|outcome| outcome.into_inner().unwrap_or(Outcome::Blocked));
     Ok(outcomes.collect())

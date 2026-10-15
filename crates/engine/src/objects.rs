@@ -23,8 +23,8 @@ use nomi_compiler::hir;
 use nomi_compiler::interface::{Interface, Interfaces};
 use nomi_compiler::optimized::binary;
 use nomi_compiler::optimized::{Chunk, GlobalGraph, LocalGraph};
+use nomi_project::Name;
 use nomi_project::outline::PkgOutline;
-use nomi_project::{Name, module_name};
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::parse_module;
 
@@ -458,7 +458,7 @@ impl Package<'_> {
 
     /// What the crawl finds under `name`.
     fn find(&self, name: &str) -> Result<Found, String> {
-        if module_name::is_kernel(name) {
+        if nomi_base::kernel::is_module(name) {
             if !self.kernels {
                 return Ok(Found::Foreign);
             }
@@ -517,14 +517,12 @@ impl Package<'_> {
     /// right, so the first module by name wins a shared key; a kernel's
     /// field counts replace those of the modules after it.
     fn gather(&self, built: BTreeMap<String, Built>) -> GlobalGraph {
-        let mut ordered: Vec<(String, Built)> = built.into_iter().collect();
-        ordered.sort_by(|(a, _), (b, _)| self.compat.compare_names(a, b));
         let mut graph = GlobalGraph::default();
-        for (name, built) in ordered.into_iter().rev() {
+        for (name, built) in self.compat.in_name_order(built).into_iter().rev() {
             match built {
                 Built::Local(local) => graph.add_local(local),
                 Built::Kernel(chunks) => {
-                    let short = module_name::kernel_short(&name).unwrap_or(&name);
+                    let short = nomi_base::kernel::short(&name).unwrap_or(&name);
                     kernel::add_kernel(self.compat, &mut graph, short, chunks);
                 }
             }

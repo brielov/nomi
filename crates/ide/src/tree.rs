@@ -10,7 +10,6 @@ use nomi_syntax::{
     SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, child_token, child_tokens, tokens,
 };
 
-/// `node`'s first child node of `kind`.
 /// The smallest node covering `range`, which `root` holds.
 pub(crate) fn covering_node(root: &SyntaxNode, range: TextRange) -> Option<SyntaxNode> {
     match root.covering_element(range) {
@@ -19,6 +18,7 @@ pub(crate) fn covering_node(root: &SyntaxNode, range: TextRange) -> Option<Synta
     }
 }
 
+/// `node`'s first child node of `kind`.
 pub(crate) fn child(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxNode> {
     node.children().find(|c| c.kind() == kind)
 }

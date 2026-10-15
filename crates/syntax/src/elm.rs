@@ -24,7 +24,7 @@ mod report;
 mod types;
 
 pub use error::Error;
-pub(crate) use literal::{Dots, Hex, chomp_hex, chomp_number};
+pub(crate) use literal::{Dots, chomp_hex, chomp_number, eat_unicode};
 pub use report::{docs_problem, to_problem};
 
 /// What elm `compat` reports first of the module `src`, from a project

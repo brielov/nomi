@@ -59,7 +59,7 @@ pub(crate) fn table(root: &Path, refs: &References, setup: &Setup) -> Result<Tab
     let tools = crate::corpus::lsp::server(refs, &scratch)?;
     let mut rows = Vec::new();
     for app in APPS {
-        let project = crate::corpus::lsp::project(root, &format!("app/{app}"))?;
+        let project = crate::corpus::lsp::app(root, app)?;
         let entry = entry(root, app)?;
         let mut costs = Vec::new();
         for server in [Server::Upstream, Server::Nomi] {

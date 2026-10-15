@@ -5,7 +5,7 @@
 use nomi_base::{Compat, utf8};
 
 use super::engine::{P, Pos, R};
-use crate::elm::{Dots, Hex, chomp_hex, chomp_number};
+use crate::elm::{Dots, chomp_hex, chomp_number, eat_unicode};
 
 /// `literal`: a number, string or character, failing where it started
 /// if it is none.
@@ -31,14 +31,7 @@ fn number(p: &mut P<'_>) -> R<()> {
         return p.fail();
     }
     let start = p.pos;
-    let src = p.src();
-    let scanned = chomp_number(
-        src.as_bytes(),
-        start,
-        Compat::V0_19_1,
-        |at| is_dirty_end(src, at),
-        Dots::Range,
-    );
+    let scanned = chomp_number(p.src().as_bytes(), start, Compat::V0_19_1, Dots::Range);
     // `fromIntegral` to a `Word16`, which wraps.
     let at = |end: usize| p.at.right(cols(end - start));
     match scanned {
@@ -54,21 +47,8 @@ fn number(p: &mut P<'_>) -> R<()> {
     }
 }
 
-/// `isDirtyEnd`: a character that would continue a name.
-fn is_dirty_end(src: &str, pos: usize) -> bool {
-    utf8::inner_width(&src.as_bytes()[pos..], Compat::V0_19_1) > 0
-}
-
 fn byte(src: &str, pos: usize) -> Option<u8> {
     src.as_bytes().get(pos).copied()
-}
-
-/// `chompHex`, which elm-format takes from elm 0.19.1, in its wrapping
-/// `Int`.
-fn hex(src: &str, pos: usize) -> (usize, Hex) {
-    chomp_hex(src.as_bytes(), pos, Compat::V0_19_1, |at| {
-        is_dirty_end(src, at)
-    })
 }
 
 // STRINGS
@@ -92,30 +72,15 @@ fn eat_escape(src: &str, pos: usize) -> Escape {
             if digits >= src.len() {
                 return Escape::Problem;
             }
-            let (end, _) = hex(src, digits);
+            let (end, _) = chomp_hex(src.as_bytes(), digits, Compat::V0_19_1);
             if end >= src.len() {
                 Escape::Problem
             } else {
                 Escape::Ok(2 + end - digits)
             }
         }
-        Some(b'u') => {
-            // `eatUnicode`.
-            if byte(src, pos + 1) != Some(b'{') {
-                return Escape::Problem;
-            }
-            let digits = pos + 2;
-            let (end, code) = hex(src, digits);
-            let n = end - digits;
-            if byte(src, end) != Some(b'}')
-                || !matches!(code, Hex::Code(code) if code <= 0x10_FFFF)
-                || !(4..=6).contains(&n)
-            {
-                Escape::Problem
-            } else {
-                Escape::Ok(n + 4)
-            }
-        }
+        Some(b'u') => eat_unicode(src.as_bytes(), pos + 1, Compat::V0_19_1)
+            .map_or(Escape::Problem, Escape::Ok),
         Some(_) => Escape::Problem,
     }
 }

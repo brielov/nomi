@@ -84,7 +84,7 @@ fn var_table(
 ) -> Option<BTreeMap<String, Chunk>> {
     let mut table = BTreeMap::new();
     for import in imports {
-        if let Some(kernel) = import.module.strip_prefix("Elm.Kernel.") {
+        if let Some(kernel) = nomi_base::kernel::short(&import.module) {
             if import.alias.is_some() {
                 return None;
             }

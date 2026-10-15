@@ -100,7 +100,7 @@ pub(crate) fn load(root: &Path) -> Result<Classification> {
 
 /// `elm.json`'s text with the value of its first `elm-version` set to
 /// `compat`, every other byte kept; none if it has no such value.
-pub(crate) fn with_elm_version(text: &str, compat: Compat) -> Option<String> {
+fn with_elm_version(text: &str, compat: Compat) -> Option<String> {
     let key = "\"elm-version\"";
     let after = text.find(key)? + key.len();
     let open = after + text[after..].find('"')?;

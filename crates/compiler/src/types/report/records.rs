@@ -11,7 +11,7 @@ use nomi_base::suggest::sort_texts;
 use super::{HintOrder, Mismatch, add_category, lone_type, t, type_comparison};
 use crate::report::{Report, ReportContext};
 use crate::types::localizer::Localizer;
-use crate::types::{in_name_order, render};
+use crate::types::render;
 
 /// `toExprReport`'s `RecordAccess`: a field the record lacks.
 pub(super) fn record_access(
@@ -71,7 +71,7 @@ pub(super) fn record_update_keys(
     };
     // `Map.lookupMin (Map.difference expected actual)`, in the release's
     // name order.
-    let missing = (in_name_order(localizer.compat, expected_fields).into_iter())
+    let missing = (localizer.compat.in_name_order(expected_fields).into_iter())
         .find(|(name, _)| !actual_fields.contains_key(*name));
     let doc = match missing {
         None => {
@@ -114,7 +114,9 @@ fn typo_details(
 ) -> Doc {
     // `Suggest.sort` over the record's fields in the release's order, as
     // `toNearbyRecord` shows them.
-    let mut sorted: Vec<&String> = in_name_order(localizer.compat, fields)
+    let mut sorted: Vec<&String> = localizer
+        .compat
+        .in_name_order(fields)
         .into_iter()
         .map(|(n, _)| n)
         .collect();

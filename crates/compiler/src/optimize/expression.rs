@@ -12,7 +12,6 @@ use super::names::Tracker;
 use super::{case, literal};
 use crate::canonical::{self, CtorOpts, Def as CDef, ExprKind, Home, Operator, PatternKind};
 use crate::optimized::{Def, Destructor, Expr, Path};
-use crate::types::in_name_order;
 
 /// What optimizing a module's expressions needs to know.
 pub(super) struct Context<'a> {
@@ -160,7 +159,7 @@ fn optimize_(cx: &Context, t: &mut Tracker, cycle: &Cycle, expr: &canonical::Exp
                 t.field(field);
             }
             let record = optimize(cx, t, cycle, record);
-            let updates = (in_name_order(cx.compat, updates).into_iter())
+            let updates = (cx.compat.in_name_order(updates).into_iter())
                 .map(|(field, update)| (field.clone(), optimize(cx, t, cycle, &update.value)))
                 .collect();
             Expr::Update(Box::new(record), updates)
@@ -169,7 +168,7 @@ fn optimize_(cx: &Context, t: &mut Tracker, cycle: &Cycle, expr: &canonical::Exp
             for field in fields.keys() {
                 t.field(field);
             }
-            let fields = (in_name_order(cx.compat, fields).into_iter())
+            let fields = (cx.compat.in_name_order(fields).into_iter())
                 .map(|(field, value)| (field.clone(), optimize(cx, t, cycle, value)))
                 .collect();
             Expr::Record(fields)

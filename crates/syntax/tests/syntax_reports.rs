@@ -25,8 +25,9 @@ fn syntax_reports() {
             .map(|case| {
                 let row = hashes.get(&case.mutation.name);
                 let outcome = case.rejections.into_iter().try_for_each(|r| {
-                    let problem = r.problem.map_err(|e| format!("{}: {e}", r.column))?;
-                    let expected = (row.and_then(|row| row.get(&r.column)))
+                    let problem =
+                        (r.problem).ok_or_else(|| format!("{}: the port accepts", r.column))?;
+                    let expected = (row.and_then(|row| row.get(r.column)))
                         .ok_or_else(|| format!("{}: no hash; {}", r.column, common::RERUN))?;
                     let report = json::compile_errors(vec![json::module(
                         "A.elm",

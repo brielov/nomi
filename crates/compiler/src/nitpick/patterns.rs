@@ -16,7 +16,6 @@ use nomi_base::{Compat, TextRange};
 use crate::canonical::{
     self, Ctor, CtorOpts, Decl, Def, Expr, ExprKind, Home, PatternKind, Type, Union,
 };
-use crate::types::in_name_order;
 
 /// `Pattern`: a pattern as the checks see it, borrowing its union, name
 /// and literal from the canonical pattern it simplifies.
@@ -271,13 +270,13 @@ impl<'u> Checker<'u> {
             }
             ExprKind::Access { record, .. } => self.expr(record),
             ExprKind::Update { record, fields, .. } => {
-                for (_, field) in in_name_order(self.compat, fields).into_iter().rev() {
+                for (_, field) in self.compat.in_name_order(fields).into_iter().rev() {
                     self.expr(&field.value);
                 }
                 self.expr(record);
             }
             ExprKind::Record(fields) => {
-                for (_, e) in in_name_order(self.compat, fields).into_iter().rev() {
+                for (_, e) in self.compat.in_name_order(fields).into_iter().rev() {
                     self.expr(e);
                 }
             }

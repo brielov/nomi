@@ -45,7 +45,7 @@ fn elm_make() {
         };
         let (json, terminal_style) = (read("expected"), read("expected_terminal"));
         for &release in case.releases() {
-            let case = case.as_release(release);
+            let case = case.clone().as_release(release);
             let styles = [
                 ("", &json, case.clone()),
                 (" terminal", &terminal_style, terminal(case)),
@@ -61,18 +61,30 @@ fn elm_make() {
                     crashes += 1;
                     break;
                 }
-                runs.push((id, case, steady(expected)));
+                runs.push(Run {
+                    id,
+                    case,
+                    expected: steady(expected),
+                });
             }
         }
     }
     // Each run is a process; a few at once.
     let workers = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
-    let outcomes = parallel_on(workers, &runs, |(id, case, expected)| {
+    let outcomes = parallel_on(workers, &runs, |Run { id, case, expected }| {
         let actual = website::transcript(case, offline(&elm, cache.path()));
         shown(id.clone(), transcript::matching(expected, &steady(&actual)))
     });
     eprintln!("elm_make: {crashes} runs skipped where elm crashed");
     Suite::open(dir).finish(outcomes);
+}
+
+/// One replay of a case: its id, the case as run, and the transcript
+/// elm gave.
+struct Run {
+    id: String,
+    case: Case,
+    expected: String,
 }
 
 /// `case` in the terminal style: without `--report=json`.

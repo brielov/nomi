@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::LazyLock;
 
-use nomi_base::{Compat, TextRange};
+use nomi_base::{Compat, TextRange, kernel};
 
 use super::env::{
     Bias, BinopInfo, CtorInfo, Env, Exposed, Qualified, TypeInfo, Var, merge, merge_homes,
@@ -22,12 +22,9 @@ use crate::interface::{self, Interface, Interfaces};
 
 /// The packages whose modules may import kernel code (`Pkg.isKernel`).
 pub(super) fn is_kernel_package(package: &str) -> bool {
-    package.starts_with("elm/") || package.starts_with("elm-explorations/")
-}
-
-/// `Name.isKernel`.
-pub(super) fn is_kernel_module(module: &str) -> bool {
-    module.starts_with("Elm.Kernel.")
+    package
+        .split_once('/')
+        .is_some_and(|(author, _)| kernel::is_author(author))
 }
 
 fn spanned(text: &str) -> Spanned {
@@ -72,6 +69,14 @@ fn defaults() -> Vec<Import> {
 }
 
 static DEFAULTS: LazyLock<Vec<Import>> = LazyLock::new(defaults);
+
+/// The modules `Imports.defaults` imports, in upstream's order.
+pub fn default_import_names() -> impl Iterator<Item = &'static str> {
+    DEFAULTS
+        .iter()
+        .rev()
+        .map(|import| import.name.text.as_str())
+}
 
 /// The imports upstream's parser gives `imports`: the defaults first,
 /// except in elm/core.
@@ -124,7 +129,7 @@ pub(super) fn initial_env<'a, 'i>(
     let kernel_package = is_kernel_package(&home.package);
     for import in imports {
         // `toSafeImports`: a kernel package's kernel imports aren't modules.
-        if kernel_package && is_kernel_module(&import.name.text) {
+        if kernel_package && kernel::is_module(&import.name.text) {
             continue;
         }
         let Some(interface) = interfaces.get(&import.name.text) else {

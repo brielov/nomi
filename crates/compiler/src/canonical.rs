@@ -230,8 +230,7 @@ pub fn fields_to_list(
     compat: Compat,
     fields: &BTreeMap<String, FieldType>,
 ) -> Vec<(&String, &FieldType)> {
-    let mut listed: Vec<(&String, &FieldType)> = fields.iter().collect();
-    listed.sort_by(|a, b| compat.compare_names(a.0, b.0));
+    let mut listed = compat.in_name_order(fields);
     listed.sort_by_key(|(_, field)| field.order);
     listed
 }

@@ -10,7 +10,7 @@
 use std::cmp::Ordering;
 use std::fmt;
 
-use nomi_base::{Compat, utf8};
+use nomi_base::{Compat, kernel, utf8};
 
 use crate::json::{Cursor, Position};
 use crate::scan;
@@ -40,7 +40,7 @@ impl ModuleName {
     /// `isKernel`: one of the kernel's JavaScript modules, which only
     /// `elm/` and `elm-explorations/` packages may import.
     pub fn is_kernel(&self) -> bool {
-        self.0.starts_with(b"Elm.Kernel.")
+        self.0.starts_with(kernel::MODULE_PREFIX.as_bytes())
     }
 
     /// The order upstream keeps module names in, which decides the order
@@ -87,16 +87,6 @@ impl ModuleName {
         })?;
         Ok(ModuleName(bytes.into()))
     }
-}
-
-/// `isKernel` of a name another reader already checked.
-pub fn is_kernel(name: &str) -> bool {
-    name.starts_with("Elm.Kernel.")
-}
-
-/// A kernel module's name without its `Elm.Kernel.` prefix.
-pub fn kernel_short(name: &str) -> Option<&str> {
-    name.strip_prefix("Elm.Kernel.")
 }
 
 impl fmt::Display for ModuleName {

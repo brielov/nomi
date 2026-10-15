@@ -27,8 +27,7 @@ pub struct TestSuite {
 /// The suites of the test modules of the project at `root`: one per
 /// module that has any, named after it.
 pub fn find_tests(index: &Index, root: &Path) -> Vec<TestSuite> {
-    let tests_dir = root.join("tests");
-    let tests_dir = nomi_engine::canonical(&tests_dir).unwrap_or(tests_dir);
+    let tests_dir = nomi_engine::canonical_or_given(&nomi_engine::paths::tests_dir(root));
     let mut found = Vec::new();
     for module in &index.modules {
         if !module.path.starts_with(&tests_dir) {

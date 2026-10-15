@@ -55,7 +55,7 @@ const NO_NEWLINE: &str = "\\ no newline at end\n";
 /// in is: elm wraps some messages by the length of the paths they name,
 /// so a replay makes its directory as long, with
 /// [`padded_dir`](crate::padded_dir).
-pub const ROOT_LENGTH: usize = 96;
+const ROOT_LENGTH: usize = 96;
 
 impl Case {
     /// The case a case file holds.
@@ -102,7 +102,7 @@ impl Case {
     /// case's order from 2001, so what sorts by modification time, as
     /// elm's terminal reports do, sorts as the case lists them and not as
     /// the file system's clock ticked.
-    pub fn date_files(&self, dir: &Path) -> io::Result<()> {
+    fn date_files(&self, dir: &Path) -> io::Result<()> {
         let start = UNIX_EPOCH + Duration::from_secs(978_307_200);
         for (i, (path, _)) in self.files.iter().enumerate() {
             let file = fs::File::options().write(true).open(dir.join(path))?;
@@ -148,17 +148,16 @@ impl Case {
 
     /// The case with its application's pinned `elm-version` set to
     /// `release`, as the oracle ran it.
-    pub fn as_release(&self, release: Compat) -> Case {
-        let mut case = self.clone();
+    pub fn as_release(mut self, release: Compat) -> Case {
         let to = elm_version(release);
-        for (path, text) in &mut case.files {
+        for (path, text) in &mut self.files {
             if path == "elm.json" && text.contains(APPLICATION) {
                 for pinned in Compat::ALL {
                     *text = text.replace(&elm_version(pinned), &to);
                 }
             }
         }
-        case
+        self
     }
 
     /// The case's arguments, with `$ROOT` standing for `dir`.

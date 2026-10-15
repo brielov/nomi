@@ -225,9 +225,9 @@ fn recordings<'a>(transcripts: impl IntoIterator<Item = (Compat, &'a str)>) -> S
     out
 }
 
-/// Makes `work` afresh holding `case`'s files, dated in its order, in a
-/// directory whose canonical path is [`ROOT_LENGTH`] bytes long, as the
-/// recordings were made and the tests replay them; gives that directory.
+/// Makes `work` afresh holding `case`'s files, laid out by
+/// [`Case::lay_out_padded`] as the recordings were made and the tests
+/// replay them; gives that directory.
 fn padded_case(work: &Path, case: &Case) -> Result<PathBuf> {
     fresh_dir(work)?;
     Ok(case.lay_out_padded(work)?)

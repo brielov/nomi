@@ -21,7 +21,7 @@ pub fn char_width(lead: u8) -> usize {
 /// zero. The code may be no character at all: negative, a surrogate or
 /// past U+10FFFF.
 #[inline]
-pub fn unchecked_code(bytes: &[u8], width: usize) -> i64 {
+fn unchecked_code(bytes: &[u8], width: usize) -> i64 {
     let byte = |i: usize| i64::from(bytes.get(i).copied().unwrap_or(0));
     let tail = |i: usize, shift: u32| (byte(i) - 0x80) << shift;
     match width {

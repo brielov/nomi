@@ -49,7 +49,7 @@ pub fn transcripts(cases: &str) {
             command
                 .env("NOMI_REGISTRY", &server.url)
                 .env_remove("ALL_PROXY");
-            let actual = website::transcript(&case.as_release(release), command);
+            let actual = website::transcript(&case.clone().as_release(release), command);
             outcomes.push(shown(id, transcript::matching(expected, &actual)));
         }
     }

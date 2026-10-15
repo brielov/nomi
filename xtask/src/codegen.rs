@@ -111,17 +111,17 @@ fn generate(grammar: &Grammar, tokens: &BTreeMap<String, String>) -> Result<Stri
 }
 
 /// The variants of a rule that only chooses between nodes.
-fn enum_variants(grammar: &Grammar, rule: &Rule) -> Option<Vec<String>> {
+fn enum_variants<'g>(grammar: &'g Grammar, rule: &Rule) -> Option<Vec<&'g str>> {
     let Rule::Alt(alts) = rule else { return None };
     alts.iter()
         .map(|alt| match alt {
-            Rule::Node(node) => Some(grammar[*node].name.clone()),
+            Rule::Node(node) => Some(grammar[*node].name.as_str()),
             _ => None,
         })
         .collect()
 }
 
-fn enum_view(out: &mut String, name: &str, variants: &[String]) {
+fn enum_view(out: &mut String, name: &str, variants: &[&str]) {
     let _ = write!(
         out,
         "\n/// A `{name}`: a node of any of its variants' kinds.\n\
@@ -176,13 +176,13 @@ enum Count {
 }
 
 /// One node child of a rule, as written in it.
-struct Occurrence {
-    ty: String,
-    label: Option<String>,
+struct Occurrence<'g> {
+    ty: &'g str,
+    label: Option<&'g str>,
     count: Count,
     /// The plain tokens directly before and after it in its sequence.
-    before: Option<String>,
-    after: Option<String>,
+    before: Option<&'g str>,
+    after: Option<&'g str>,
 }
 
 fn struct_view(
@@ -216,7 +216,7 @@ fn struct_view(
         if !seen.insert(token) {
             continue;
         }
-        let kind = &tokens[token];
+        let kind = &tokens[*token];
         let _ = write!(
             out,
             "/// The first `{token}` token.\n\
@@ -231,12 +231,12 @@ fn struct_view(
 }
 
 /// Gathers a rule's node children and its tokens that may come once.
-fn collect(
-    grammar: &Grammar,
-    rule: &Rule,
+fn collect<'g>(
+    grammar: &'g Grammar,
+    rule: &'g Rule,
     count: Count,
-    nodes: &mut Vec<Occurrence>,
-    tokens: &mut Vec<String>,
+    nodes: &mut Vec<Occurrence<'g>>,
+    tokens: &mut Vec<&'g str>,
 ) -> Result<()> {
     match rule {
         Rule::Node(node) => nodes.push(occurrence(grammar, *node, None, count)),
@@ -249,11 +249,11 @@ fn collect(
                 },
                 _ => bail!("label {label} must name a node"),
             };
-            nodes.push(occurrence(grammar, node, Some(label.clone()), count));
+            nodes.push(occurrence(grammar, node, Some(label), count));
         }
         Rule::Token(token) => {
             if count == Count::One {
-                tokens.push(grammar[*token].name.clone());
+                tokens.push(&grammar[*token].name);
             }
         }
         Rule::Opt(rule) => collect(grammar, rule, count, nodes, tokens)?,
@@ -271,7 +271,7 @@ fn collect(
             // Record the plain tokens around each node written directly in
             // this sequence.
             let plain = |rule: Option<&Rule>| match rule {
-                Some(Rule::Token(token)) => Some(grammar[*token].name.clone()),
+                Some(Rule::Token(token)) => Some(grammar[*token].name.as_str()),
                 _ => None,
             };
             let mut index = start;
@@ -298,9 +298,14 @@ fn count_nodes(rule: &Rule) -> usize {
     }
 }
 
-fn occurrence(grammar: &Grammar, node: Node, label: Option<String>, count: Count) -> Occurrence {
+fn occurrence<'g>(
+    grammar: &'g Grammar,
+    node: Node,
+    label: Option<&'g str>,
+    count: Count,
+) -> Occurrence<'g> {
     Occurrence {
-        ty: grammar[node].name.clone(),
+        ty: &grammar[node].name,
         label,
         count,
         before: None,
@@ -317,14 +322,14 @@ fn node_accessors(
 ) -> Result<()> {
     let mut by_type: BTreeMap<&str, Vec<&Occurrence>> = BTreeMap::new();
     for o in nodes {
-        by_type.entry(&o.ty).or_default().push(o);
+        by_type.entry(o.ty).or_default().push(o);
     }
     let mut done = BTreeSet::new();
     for o in nodes {
-        if !done.insert(o.ty.as_str()) {
+        if !done.insert(o.ty) {
             continue;
         }
-        let all = &by_type[o.ty.as_str()];
+        let all = &by_type[o.ty];
         if all.iter().all(|other| other.label == all[0].label) {
             shared_accessor(out, all);
         } else {
@@ -342,8 +347,8 @@ fn node_accessors(
 /// have none.
 fn shared_accessor(out: &mut String, all: &[&Occurrence]) {
     let first = all[0];
-    let ty = &first.ty;
-    let base = first.label.clone().unwrap_or_else(|| snake(ty));
+    let ty = first.ty;
+    let base = first.label.map_or_else(|| snake(ty), str::to_owned);
     if all.len() == 1 && first.count == Count::One {
         let _ = writeln!(
             out,
@@ -377,9 +382,8 @@ fn labeled_accessor(
 ) -> Result<()> {
     let label = field
         .label
-        .as_ref()
         .with_context(|| format!("{name}: label every {} or none", field.ty))?;
-    let ty = &field.ty;
+    let ty = field.ty;
     if field.count == Count::Many {
         ensure!(
             index + 1 == all.len(),
@@ -395,7 +399,7 @@ fn labeled_accessor(
              pub fn {label}(&self) -> impl Iterator<Item = {ty}> + use<> {{\n\
              support::children(&self.syntax).skip({index})\n}}\n"
         );
-    } else if let Some(token) = &field.before {
+    } else if let Some(token) = field.before {
         let _ = writeln!(
             out,
             "/// The `{ty}` right after `{token}`.\n\
@@ -403,7 +407,7 @@ fn labeled_accessor(
              support::child_after(&self.syntax, SyntaxKind::{})\n}}\n",
             tokens[token]
         );
-    } else if let Some(token) = &field.after {
+    } else if let Some(token) = field.after {
         let _ = writeln!(
             out,
             "/// The `{ty}` right before `{token}`.\n\
@@ -459,10 +463,10 @@ fn plural(name: &str) -> String {
 }
 
 /// A method name that is not a Rust keyword.
-fn escape(name: &str) -> String {
+fn escape(name: &str) -> &str {
     match name {
-        "type" => "ty".to_string(),
-        _ => name.to_string(),
+        "type" => "ty",
+        _ => name,
     }
 }
 

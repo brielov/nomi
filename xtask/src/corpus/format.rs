@@ -177,12 +177,11 @@ pub(crate) fn check(root: &Path, record: bool) -> Result<()> {
             .or_else(|| table.changed.get(&key))
             .unwrap_or(&Outcome::Same);
         let listed = broken.get(&key).map_or(&[][..], Vec::as_slice);
-        let formatted = std::str::from_utf8(&text)
-            .ok()
-            .and_then(nomi_format::format);
+        let decoded = std::str::from_utf8(&text).ok();
+        let formatted = decoded.and_then(nomi_format::format);
         let formatted = formatted.as_deref();
         let why = mismatch(&text, formatted, expected)
-            .or_else(|| invariant_mismatch(&text, formatted, listed));
+            .or_else(|| invariant_mismatch(decoded.zip(formatted), listed));
         Ok(why.map(|why| format!("{}: {why}", m.path)))
     });
     corpus_syntax::finish(

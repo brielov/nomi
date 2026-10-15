@@ -138,9 +138,7 @@ fn keyed<T>(compat: Compat, entries: Vec<(String, T)>) -> Vec<(String, T)> {
     for (name, entry) in entries {
         map.insert(name, entry);
     }
-    let mut entries: Vec<(String, T)> = map.into_iter().collect();
-    entries.sort_by(|a, b| compat.compare_names(&a.0, &b.0));
-    entries
+    compat.in_name_order(map)
 }
 
 /// `Type.decoder`: a type from its text, qualifiers dropped.

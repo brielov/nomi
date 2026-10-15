@@ -18,7 +18,7 @@ use super::occurs::occurs;
 use super::unify::{Mismatched, unify};
 use super::{
     AliasReal, Constraint, Content, Descriptor, FlatType, Mark, NO_MARK, NO_RANK, OUTERMOST_RANK,
-    Type, Variable, Variables, children, error, in_name_order,
+    Type, Variable, Variables, children, error,
 };
 use crate::canonical::{self, AliasType};
 
@@ -285,7 +285,7 @@ impl Solver<'_> {
 
     /// The header's types as variables, by name with their regions.
     fn locals(&mut self, rank: u32, header: &BTreeMap<String, (TextRange, Type)>) -> Vec<Local> {
-        (in_name_order(self.vars.compat, header).into_iter())
+        (self.vars.compat.in_name_order(header).into_iter())
             .map(|(name, (region, ty))| Local {
                 name: name.clone(),
                 region: *region,

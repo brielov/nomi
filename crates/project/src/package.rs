@@ -6,7 +6,7 @@
 use std::fmt;
 use std::str::FromStr;
 
-use nomi_base::{Compat, suggest};
+use nomi_base::{Compat, kernel, suggest};
 
 use crate::Version;
 use crate::json::{Cursor, Position};
@@ -72,7 +72,7 @@ impl Name {
     /// `isKernel`: published by `elm` or `elm-explorations`, so allowed
     /// kernel code.
     pub fn is_kernel(&self) -> bool {
-        is_official(&self.author)
+        kernel::is_author(&self.author)
     }
 
     /// `parser`, as both `decoder` and `keyDecoder` use it: a name and
@@ -110,7 +110,7 @@ impl Name {
     /// of `elm` or `elm-explorations` counting as no distance at all.
     pub fn nearby<'n>(&self, names: impl IntoIterator<Item = &'n Name>) -> Vec<&'n Name> {
         let distance = |name: &Name| {
-            let author = if is_official(&name.author) {
+            let author = if kernel::is_author(&name.author) {
                 0
             } else {
                 suggest::distance(self.author.as_bytes(), name.author.as_bytes())
@@ -139,10 +139,6 @@ impl fmt::Display for Name {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}/{}", self.author, self.project)
     }
-}
-
-fn is_official(author: &str) -> bool {
-    author == "elm" || author == "elm-explorations"
 }
 
 /// `parseName`: a good first byte, then good bytes with single dashes

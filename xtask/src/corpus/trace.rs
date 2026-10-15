@@ -138,7 +138,7 @@ pub(crate) fn record(root: &Path, refs: &References, app: &str) -> Result<()> {
         .iter()
         .find(|s| s.app == app)
         .with_context(|| format!("no script for `{app}`; there are {}", names()))?;
-    let project = super::lsp::project(root, &format!("app/{app}"))?;
+    let project = super::lsp::app(root, app)?;
     let scratch = super::lsp::sandbox()?.join("traces");
     let work = scratch.join(app);
     super::lsp::copy(&project, &work)?;

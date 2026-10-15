@@ -109,8 +109,7 @@ pub(super) fn in_name_order<'a, V, T>(
     fields: impl DoubleEndedIterator<Item = (&'a Spanned, V)>,
     mut each: impl FnMut(V) -> R<T>,
 ) -> R<BTreeMap<String, T>> {
-    let mut fields: Vec<(String, V)> = check_fields(compat, fields)?.into_iter().collect();
-    fields.sort_by(|a, b| compat.compare_names(&a.0, &b.0));
+    let fields = compat.in_name_order(check_fields(compat, fields)?);
     let fields = all(fields
         .into_iter()
         .map(|(name, v)| each(v).map(|t| (name, t))))?;

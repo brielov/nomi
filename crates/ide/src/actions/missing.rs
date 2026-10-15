@@ -220,12 +220,7 @@ pub(super) fn record_field_actions(fixing: &Fixing<'_>, range: TextRange) -> Vec
     let Some(edits) = given.and_then(|given| record_field_edits(fixing, given)) else {
         return Vec::new();
     };
-    let title = if edits.iter().all(|(_, e)| e.len() == 1) {
-        "Create missing record field"
-    } else {
-        "Create missing record fields"
-    };
-    vec![Offer::new(title, edits)]
+    vec![Offer::new("Create missing record field", edits)]
 }
 
 pub(super) fn record_field_all(fixing: &Fixing<'_>, diagnostic: &Diagnosed, files: &mut FileEdits) {

@@ -6,13 +6,13 @@
 
 use std::collections::BTreeMap;
 
-use nomi_base::{Compat, TextRange, grow, grow_large};
+use nomi_base::{Compat, TextRange, grow, grow_large, kernel};
 
 use super::binops;
 use super::dups::{Dict, in_name_order};
 use super::env::{self, BinopInfo, CtorInfo, Env, Var};
 use super::error::{DuplicatePatternContext, Error, NameKind, R, all, both, throw, tuple};
-use super::foreign::{is_kernel_module, is_kernel_package};
+use super::foreign::is_kernel_package;
 use super::pattern::{self, Bindings};
 use super::references::{Kind, Target};
 use super::types;
@@ -186,8 +186,8 @@ fn canonicalize_(
             ExprKind::Record(in_name_order(env.compat, fields, each)?)
         }
         hir::Expr::Tuple(items) => {
-            let (a, b, c) = tuple(items, region, |item| canonicalize(env, module, item, free))?;
-            ExprKind::Tuple(a, b, c)
+            let each = |item| canonicalize(env, module, item, free);
+            tuple(items, region, each, ExprKind::Tuple)?
         }
     };
     Ok(expr(region, kind))
@@ -368,16 +368,13 @@ fn find_var_qual(env: &Env<'_>, region: TextRange, prefix: &str, name: &str) -> 
             Some(homes) => foreign_var(env, region, Some(prefix), name, homes),
             None => throw(not_found(env, region, Some(prefix), name)),
         },
-        None if is_kernel_module(prefix) && is_kernel_package(&env.home.package) => {
-            Ok(ExprKind::VarKernel {
-                module: prefix
-                    .strip_prefix("Elm.Kernel.")
-                    .unwrap_or(prefix)
-                    .to_owned(),
+        None => match kernel::short(prefix).filter(|_| is_kernel_package(&env.home.package)) {
+            Some(module) => Ok(ExprKind::VarKernel {
+                module: module.to_owned(),
                 name: name.to_owned(),
-            })
-        }
-        None => throw(not_found(env, region, Some(prefix), name)),
+            }),
+            None => throw(not_found(env, region, Some(prefix), name)),
+        },
     }
 }
 

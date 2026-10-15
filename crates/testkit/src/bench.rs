@@ -7,7 +7,7 @@ use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 
 /// How much slower twice the input may be.
-pub const SCALING: f64 = 3.0;
+const SCALING: f64 = 3.0;
 
 /// A kind of input, timed at sizes from `size` up.
 #[derive(Debug)]

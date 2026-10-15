@@ -404,19 +404,6 @@ impl Default for Variables {
     }
 }
 
-/// `map`'s entries in `compat`'s name order, as upstream's maps keep
-/// them: 0.19.3 compares names length first.
-pub(crate) fn in_name_order<K: AsRef<str>, T>(
-    compat: Compat,
-    map: &BTreeMap<K, T>,
-) -> Vec<(&K, &T)> {
-    let mut entries: Vec<(&K, &T)> = map.iter().collect();
-    if compat == Compat::V0_19_3 {
-        entries.sort_by(|a, b| compat.compare_names(a.0.as_ref(), b.0.as_ref()));
-    }
-    entries
-}
-
 impl Variables {
     /// The variables of an inference as `compat`.
     fn new(compat: Compat) -> Variables {

@@ -141,18 +141,11 @@ fn broken_by(text: &str, output: &str) -> Vec<(Invariant, String)> {
     broken
 }
 
-/// Why formatting `text` into `formatted` breaks invariants other than
-/// `listed`, those elm-format breaks there; `None` where it breaks just
-/// those, or `text` doesn't format.
-pub fn invariant_mismatch(
-    text: &[u8],
-    formatted: Option<&str>,
-    listed: &[Invariant],
-) -> Option<String> {
-    let found = match (std::str::from_utf8(text), formatted) {
-        (Ok(text), Some(output)) => broken_by(text, output),
-        _ => Vec::new(),
-    };
+/// Why `formatted`, the text and its output where it formats, breaks
+/// invariants other than `listed`, those elm-format breaks there; `None`
+/// where it breaks just those, or the text doesn't format.
+pub fn invariant_mismatch(formatted: Option<(&str, &str)>, listed: &[Invariant]) -> Option<String> {
+    let found = formatted.map_or_else(Vec::new, |(text, output)| broken_by(text, output));
     let broken: Vec<Invariant> = found.iter().map(|(i, _)| *i).collect();
     let names = |invariants: &[Invariant]| {
         let names: Vec<_> = invariants.iter().map(|i| i.name()).collect();
@@ -506,8 +499,9 @@ mod tests {
     #[test]
     fn invariant_mismatches_follow_the_table() {
         let invariant_mismatch = |text: &[u8], listed: &[Invariant]| {
-            let formatted = std::str::from_utf8(text).ok().and_then(format);
-            invariant_mismatch(text, formatted.as_deref(), listed)
+            let text = std::str::from_utf8(text).ok();
+            let formatted = text.and_then(format);
+            invariant_mismatch(text.zip(formatted.as_deref()), listed)
         };
         let formatted = b"module Main exposing (x)\n\n\nx =\n    1\n";
         assert_eq!(invariant_mismatch(formatted, &[]), None);

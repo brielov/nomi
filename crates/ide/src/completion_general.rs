@@ -269,15 +269,35 @@ impl ImportedKind {
         self,
         documentation: impl FnOnce() -> Option<String>,
         detail: impl FnOnce() -> Option<String>,
-    ) -> Option<(CompletionKind, Option<String>, Option<String>)> {
-        Some(match self {
+    ) -> Option<Shown> {
+        let (kind, documentation, detail) = match self {
             ImportedKind::Function => (CompletionKind::Function, documentation(), detail()),
             ImportedKind::Constructor => (CompletionKind::EnumMember, None, detail()),
             ImportedKind::Operator => (CompletionKind::Operator, documentation(), None),
             ImportedKind::Type => (CompletionKind::Enum, documentation(), None),
             ImportedKind::Alias => (CompletionKind::Struct, documentation(), None),
             ImportedKind::AliasConstructor => return None,
+        };
+        Some(Shown {
+            kind,
+            documentation,
+            detail,
         })
+    }
+}
+
+/// What a completion shows of an imported name.
+struct Shown {
+    kind: CompletionKind,
+    documentation: Option<String>,
+    detail: Option<String>,
+}
+
+impl Shown {
+    fn completion(self, label: &str, sort: &str, range: TextRange) -> Completion {
+        Completion::new(label, self.kind, sort, range)
+            .documented(self.documentation)
+            .typed(self.detail)
     }
 }
 
@@ -517,13 +537,11 @@ impl Imports {
                 || context.hint(&element.module, &element.root, &element.name),
                 || context.foreign_detail(&element.module, value),
             );
-            let Some((kind, documentation, detail)) = shown else {
+            let Some(shown) = shown else {
                 continue;
             };
-            let mut completion = Completion::new(label, kind, &sort, range)
-                .documented(documentation)
-                .typed(detail);
-            if kind != CompletionKind::Operator {
+            let mut completion = shown.completion(label, &sort, range);
+            if completion.kind != CompletionKind::Operator {
                 completion.filter_text = Some(filter.to_owned());
             }
             completion.label_description = Some(element.module.clone());
@@ -715,11 +733,11 @@ fn auto_imports(
             ImportedKind::Operator => None,
             kind => kind.shown(documentation, detail),
         };
-        let Some((kind, documentation, detail)) = shown else {
+        let Some(shown) = shown else {
             continue;
         };
         // A constructor's index isn't padded.
-        let sort = if i < 10 && kind != CompletionKind::EnumMember {
+        let sort = if i < 10 && shown.kind != CompletionKind::EnumMember {
             format!("f0{i}")
         } else {
             format!("f{i}")
@@ -729,9 +747,7 @@ fn auto_imports(
             detail: Some(format!("Auto import from module '{}'", p.module)),
             additional_edits: vec![context.add_import(&p.module, None, Some(value))],
             label_description: Some(p.module.clone()),
-            ..Completion::new(&p.value, kind, &sort, range)
-                .documented(documentation)
-                .typed(detail)
+            ..shown.completion(&p.value, &sort, range)
         });
     }
     (found, incomplete)

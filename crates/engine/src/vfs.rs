@@ -135,7 +135,7 @@ pub fn canonical(path: &Path) -> io::Result<PathBuf> {
 }
 
 /// [`canonical`], or `path` as given where that fails.
-pub(crate) fn canonical_or_given(path: &Path) -> PathBuf {
+pub fn canonical_or_given(path: &Path) -> PathBuf {
     canonical(path).unwrap_or_else(|_| path.to_owned())
 }
 
@@ -355,6 +355,26 @@ impl Vfs {
 /// first, each directory's entries in the order of their names, where
 /// elm-format takes the order the disk lists them in.
 pub fn discover(root: &Path) -> io::Result<Vec<PathBuf>> {
+    walk(root, Dangling::Kept)
+}
+
+/// The `.elm` files `root` names, as [`discover`] finds them but for its
+/// links to nothing: elm reads no module that nothing imports, so these
+/// are the modules a build or the editor lists.
+pub(crate) fn elm_files(root: &Path) -> io::Result<Vec<PathBuf>> {
+    let mut files = walk(root, Dangling::Skipped)?;
+    files.retain(|path| is_elm(path));
+    Ok(files)
+}
+
+/// What a walk makes of a link to nothing named `.elm`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Dangling {
+    Kept,
+    Skipped,
+}
+
+fn walk(root: &Path, dangling: Dangling) -> io::Result<Vec<PathBuf>> {
     if !fs::metadata(root)?.is_dir() {
         return Ok(vec![root.to_owned()]);
     }
@@ -373,7 +393,7 @@ pub fn discover(root: &Path) -> io::Result<Vec<PathBuf>> {
             // A link to nothing is a file to elm-format: one named `.elm`
             // fails when it is read, and any other is passed over.
             Err(e) if e.path().is_some_and(is_dangling) => {
-                if let Some(path) = e.path().filter(|p| is_elm(p)) {
+                if let Some(path) = e.path().filter(|p| dangling == Dangling::Kept && is_elm(p)) {
                     files.push(path.to_owned());
                 }
             }
@@ -411,20 +431,5 @@ mod tests {
         // Without a drive it means something else, so it stays.
         assert_eq!(plain(r"\\?\Volume{1}\x"), r"\\?\Volume{1}\x");
         assert_eq!(plain("/home/elm/Main.elm"), "/home/elm/Main.elm");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn links_to_nothing_are_files_kept_by_their_extension() {
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("src");
-        fs::create_dir(&src).unwrap();
-        fs::write(src.join("A.elm"), "module A exposing (..)\n").unwrap();
-        std::os::unix::fs::symlink("../gone.md", src.join("README.md")).unwrap();
-        std::os::unix::fs::symlink("gone.elm", src.join("B.elm")).unwrap();
-        assert_eq!(
-            discover(dir.path()).unwrap(),
-            [src.join("A.elm"), src.join("B.elm")]
-        );
     }
 }

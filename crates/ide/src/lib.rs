@@ -122,10 +122,6 @@ impl<E> FileEdits<E> {
             self.file(&path).extend(edits);
         }
     }
-
-    fn iter(&self) -> std::slice::Iter<'_, (PathBuf, Vec<E>)> {
-        self.0.iter()
-    }
 }
 
 impl<E> Default for FileEdits<E> {

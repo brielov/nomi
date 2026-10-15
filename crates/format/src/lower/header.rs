@@ -335,7 +335,7 @@ fn merge_detailed_listing(left: DetailedListing, right: DetailedListing) -> Deta
 /// group of `name`'s imports, which upstream's map keyed by name lacks.
 pub(super) fn insert_import(
     map: &mut BTreeMap<ImportKey, C1<ImportMethod>>,
-    name: &Namespace,
+    name: Namespace,
     new: C1<ImportMethod>,
     used: &BTreeSet<String>,
 ) {
@@ -344,12 +344,11 @@ pub(super) fn insert_import(
         .map(|part| part.0.as_str())
         .collect::<Vec<_>>()
         .join(".");
-    let mut group = 0;
+    let mut key = ImportKey {
+        module: name,
+        group: 0,
+    };
     loop {
-        let key = ImportKey {
-            module: name.clone(),
-            group,
-        };
         let Some(old) = map.get(&key) else {
             map.insert(key, new);
             return;
@@ -363,7 +362,7 @@ pub(super) fn insert_import(
             insert_with(map, key, new, merge_import);
             return;
         }
-        group += 1;
+        key.group += 1;
     }
 }
 

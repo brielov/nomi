@@ -243,16 +243,21 @@ pub fn cases(dir: &Path) -> Vec<Case> {
     let mut cases = Vec::new();
     let entries = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
     for entry in entries {
-        let dir = entry.unwrap().path();
+        let dir = entry
+            .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+            .path();
         let session = dir.join("session.json");
         if !session.is_file() {
             continue;
         }
-        let text = std::fs::read_to_string(&session).unwrap();
+        let text = std::fs::read_to_string(&session)
+            .unwrap_or_else(|e| panic!("{}: {e}", session.display()));
         let session =
             serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", session.display()));
         cases.push(Case {
-            name: dir.file_name().unwrap().to_string_lossy().into_owned(),
+            name: (dir.file_name().expect("a directory entry has a name"))
+                .to_string_lossy()
+                .into_owned(),
             dir,
             session,
         });
@@ -584,8 +589,10 @@ impl Driver {
         for step in &session.requests {
             for (file, text) in &step.create {
                 let path = self.root.join(file);
-                std::fs::create_dir_all(path.parent().expect("a file in the project")).unwrap();
-                std::fs::write(&path, text).unwrap();
+                let parent = path.parent().expect("a file in the project");
+                std::fs::create_dir_all(parent)
+                    .unwrap_or_else(|e| panic!("{}: {e}", parent.display()));
+                std::fs::write(&path, text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
             }
             // The editor's own: what it publishes then, once it's quiet.
             if let Some(entry) = self.document_event(step) {
@@ -702,7 +709,8 @@ impl Driver {
             Method::DidSave => {
                 // An editor writes the file, then says so.
                 if let Some(open) = self.open.get(file) {
-                    std::fs::write(self.root.join(file), &open.text).unwrap();
+                    std::fs::write(self.root.join(file), &open.text)
+                        .unwrap_or_else(|e| panic!("{file}: {e}"));
                 }
                 if self.timing.publishes {
                     let open: Vec<String> = self.open.keys().map(|f| self.uri(f)).collect();
@@ -759,7 +767,8 @@ impl Driver {
         if let Some(file) = &step.file {
             params.insert("textDocument".into(), json!({ "uri": self.uri(file) }));
             if let Some(at) = step.at {
-                let text = std::fs::read_to_string(self.root.join(file)).unwrap();
+                let text = std::fs::read_to_string(self.root.join(file))
+                    .unwrap_or_else(|e| panic!("{file}: {e}"));
                 let markers = markers(&text);
                 let marker = |i: usize| {
                     *markers

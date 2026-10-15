@@ -4,8 +4,9 @@
 
 use std::sync::Arc;
 
+use nomi_engine::check::Checked;
 use nomi_engine::index::{self, Index, Memo};
-use nomi_engine::{Store, Vfs};
+use nomi_engine::{Store, Vfs, live};
 use nomi_testkit::write_file;
 
 const ELM_JSON: &str = r#"{
@@ -68,4 +69,41 @@ fn an_index_reuses_modules_whose_text_and_imports_stayed() {
     .unwrap();
     let exposed = index(Some(&body));
     assert_eq!(reused(&body, &exposed), ["Main"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_link_to_nothing_is_no_module_to_index_or_check() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = nomi_engine::canonical(dir.path()).unwrap().join("project");
+    write_file(&root, "elm.json", ELM_JSON);
+    for (name, text) in [("Main", MAIN), ("A", A), ("B", B)] {
+        write_file(&root, &format!("src/{name}.elm"), text);
+    }
+    std::os::unix::fs::symlink("Gone.elm", root.join("src/C.elm")).unwrap();
+    let store = dir.path().join("store");
+    nomi_testkit::packages::store(&store).unwrap();
+    let store = Store::new(store);
+    let snapshot = Vfs::new().snapshot();
+    let main = root.join("src/Main.elm");
+    let index = index::index_from(&snapshot, &store, &main, &mut Memo::new(), None).unwrap();
+    let mut canonical: Vec<&str> = (index.modules.iter())
+        .filter(|m| m.canonical.is_some())
+        .map(|m| m.name.as_str())
+        .collect();
+    canonical.sort_unstable();
+    assert_eq!(canonical, ["A", "B", "Main"]);
+    let manifest = root.join("elm.json");
+    let live = live::check(&snapshot, &store, &manifest, &[], &mut Memo::new(), None);
+    // Main's `Int` is no program: the one problem, rather than the link's.
+    let checked = live.unwrap().unwrap().checked;
+    let titles: Option<Vec<(&str, &str)>> = match &checked {
+        Checked::Modules(modules) => Some(
+            (modules.iter())
+                .flat_map(|m| m.problems.iter().map(|p| (m.name.as_str(), &*p.title)))
+                .collect(),
+        ),
+        Checked::Fine | Checked::Project(_) => None,
+    };
+    assert_eq!(titles, Some(vec![("Main", "BAD MAIN TYPE")]), "{checked:?}");
 }

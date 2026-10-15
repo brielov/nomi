@@ -73,7 +73,7 @@ pub(crate) fn module(root: &SyntaxNode, text: &str) -> Module {
     let mut body = Vec::new();
     for (i, import) in imports.iter().enumerate() {
         let (name, method) = header::import(&mut cx, import);
-        header::insert_import(&mut merged, &name, method, &used);
+        header::insert_import(&mut merged, name, method, &used);
         match imports.get(i + 1) {
             Some(next) => comments.extend(cx.take(cx.range(next.syntax()).start())),
             None => comments_before(&mut cx, &mut body, body_start),

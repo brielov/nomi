@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use nomi_base::{Compat, FileId, TextRange, ghc, lock};
+use nomi_compiler::canonicalize::foreign::default_import_names;
 use nomi_compiler::graph;
 use nomi_project::{ModuleName, Name};
 use nomi_syntax::ast::{self, AstNode};
@@ -22,21 +23,6 @@ use crate::paths::package_src;
 use crate::timings::{Phase, time};
 use crate::vfs::canonical;
 use crate::{Pool, Snapshot};
-
-/// `Imports.defaults`: what every module but elm/core's imports first.
-const DEFAULT_IMPORTS: [&str; 11] = [
-    "Basics",
-    "Debug",
-    "List",
-    "Maybe",
-    "Result",
-    "String",
-    "Char",
-    "Tuple",
-    "Platform",
-    "Platform.Cmd",
-    "Platform.Sub",
-];
 
 /// Whose modules these are (`Parse.ProjectType`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -706,18 +692,14 @@ fn read_text(
         (_, Some((name, _))) => name,
         (None, None) => ModuleName::new("Main"),
     };
-    let defaults = if env.owner.is_core() {
-        &[][..]
-    } else {
-        &DEFAULT_IMPORTS[..]
-    };
-    let mut imports: Vec<Import> = defaults
-        .iter()
-        .map(|name| Import {
+    // `Imports.defaults`: what every module but elm/core's imports first.
+    let mut imports = Vec::new();
+    if !env.owner.is_core() {
+        imports.extend(default_import_names().map(|name| Import {
             name: ModuleName::new(name),
             range: None,
-        })
-        .collect();
+        }));
+    }
     imports.extend(written_imports(&syntax));
     let has_main = syntax.decls().any(|decl| {
         let ast::Decl::ValueDecl(value) = decl else {

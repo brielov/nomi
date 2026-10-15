@@ -1,7 +1,7 @@
 //! Shared vocabulary for every nomi crate: file identities, interned
 //! names, text ranges, line indexes, upstream's reports, the releases
 //! nomi emulates, and the small pieces several crates would otherwise
-//! copy: GHC's character classes, upstream's suggestions, UTF-8 widths,
+//! copy: GHC's character classes, upstream's kernel rules, its suggestions, UTF-8 widths,
 //! stack growth for deep recursion, hex digests and poison-tolerant
 //! locks. Depends on no other nomi crate.
 
@@ -12,6 +12,7 @@ pub mod diagnostic;
 mod file_id;
 pub mod ghc;
 mod interned;
+pub mod kernel;
 mod line_index;
 mod stack;
 pub mod suggest;

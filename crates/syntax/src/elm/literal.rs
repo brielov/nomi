@@ -265,13 +265,7 @@ pub(super) fn number<X>(
         return Err(to_expectation(p.cur));
     }
     let start = p.pos;
-    match chomp_number(
-        p.src(),
-        start,
-        p.compat,
-        |at| bad_end(p, at),
-        Dots::Fraction,
-    ) {
+    match chomp_number(p.src(), start, p.compat, Dots::Fraction) {
         Ok((end, number)) => {
             p.advance(end - start, (end - start) as u32);
             Ok(number)
@@ -289,10 +283,6 @@ pub(super) fn number<X>(
     }
 }
 
-fn bad_end(p: &P<'_>, pos: usize) -> bool {
-    inner_width(p, pos) > 0
-}
-
 /// The integer before a dot as upstream holds it: 0.19.1 in a wrapping
 /// 64-bit `Int`, later releases in an `Integer`.
 fn int_text(p: &P<'_>, digits: &[u8]) -> Name {
@@ -307,17 +297,10 @@ fn int_text(p: &P<'_>, digits: &[u8]) -> Name {
 }
 
 /// `Number.number`'s scan of the number whose first digit is at `start`
-/// in `src`, as `compat` reads it. `dirty` says whether what is at a
-/// position would go on with a name, and `dots` what a dot after the
+/// in `src`, as `compat` reads it, `dots` saying what a dot after the
 /// integer's digits starts.
-pub(crate) fn chomp_number(
-    src: &[u8],
-    start: usize,
-    compat: Compat,
-    dirty: impl Fn(usize) -> bool,
-    dots: Dots,
-) -> Scanned {
-    let scan = NumberScan { src, compat, dirty };
+pub(crate) fn chomp_number(src: &[u8], start: usize, compat: Compat, dots: Dots) -> Scanned {
+    let scan = NumberScan { src, compat };
     if src[start] == b'0' {
         scan.zero(start + 1)
     } else {
@@ -325,15 +308,24 @@ pub(crate) fn chomp_number(
     }
 }
 
-struct NumberScan<'s, D> {
-    src: &'s [u8],
-    compat: Compat,
-    dirty: D,
+/// `isDirtyEnd`: whether what is at `pos` in `src` would go on with a
+/// name.
+fn dirty(src: &[u8], pos: usize, compat: Compat) -> bool {
+    utf8::inner_width(src.get(pos..).unwrap_or_default(), compat) != 0
 }
 
-impl<D: Fn(usize) -> bool> NumberScan<'_, D> {
+struct NumberScan<'s> {
+    src: &'s [u8],
+    compat: Compat,
+}
+
+impl NumberScan<'_> {
     fn byte(&self, pos: usize) -> Option<u8> {
         self.src.get(pos).copied()
+    }
+
+    fn dirty(&self, pos: usize) -> bool {
+        dirty(self.src, pos, self.compat)
     }
 
     fn is_digit(&self, pos: usize) -> bool {
@@ -348,7 +340,7 @@ impl<D: Fn(usize) -> bool> NumberScan<'_, D> {
                     return self.fraction(pos);
                 }
                 Some(b'e' | b'E') => return self.exponent(pos + 1),
-                Some(_) if (self.dirty)(pos) => return Err((pos, NumberProblem::End)),
+                Some(_) if self.dirty(pos) => return Err((pos, NumberProblem::End)),
                 _ => return Ok((pos, Number::Int)),
             }
         }
@@ -363,7 +355,7 @@ impl<D: Fn(usize) -> bool> NumberScan<'_, D> {
             match self.byte(pos) {
                 Some(b'0'..=b'9') => pos += 1,
                 Some(b'e' | b'E') => return self.exponent(pos + 1),
-                Some(_) if (self.dirty)(pos) => return Err((pos, NumberProblem::End)),
+                Some(_) if self.dirty(pos) => return Err((pos, NumberProblem::End)),
                 _ => return Ok((pos, Number::Float)),
             }
         }
@@ -383,13 +375,13 @@ impl<D: Fn(usize) -> bool> NumberScan<'_, D> {
 
     fn zero(&self, pos: usize) -> Scanned {
         match self.byte(pos) {
-            Some(b'x') => match chomp_hex(self.src, pos + 1, self.compat, &self.dirty) {
+            Some(b'x') => match chomp_hex(self.src, pos + 1, self.compat) {
                 (end, Hex::Code(_)) => Ok((end, Number::Int)),
                 (end, Hex::Bad | Hex::None) => Err((end, NumberProblem::HexDigit)),
             },
             Some(b'.') => self.fraction(pos),
             Some(b'0'..=b'9') => Err((pos, NumberProblem::NoLeadingZero)),
-            Some(_) if (self.dirty)(pos) => Err((pos, NumberProblem::End)),
+            Some(_) if self.dirty(pos) => Err((pos, NumberProblem::End)),
             _ => Ok((pos, Number::Int)),
         }
     }
@@ -407,15 +399,9 @@ pub(crate) enum Hex {
 }
 
 /// `Number.chompHex` over `src` from `pos`, as `compat` reads it: where
-/// the digits end, and what they are. `dirty` says whether what is at a
-/// position would go on with a name. elm-format reads hexadecimal as
+/// the digits end, and what they are. elm-format reads hexadecimal as
 /// 0.19.1 does.
-pub(crate) fn chomp_hex(
-    src: &[u8],
-    mut pos: usize,
-    compat: Compat,
-    dirty: impl Fn(usize) -> bool,
-) -> (usize, Hex) {
+pub(crate) fn chomp_hex(src: &[u8], mut pos: usize, compat: Compat) -> (usize, Hex) {
     let mut answer = Hex::None;
     // 0.19.1's wrapping `Int`, or later releases' `Integer` saturated.
     let mut acc: i64 = 0;
@@ -425,7 +411,7 @@ pub(crate) fn chomp_hex(
             b'0'..=b'9' => w - b'0',
             b'a'..=b'f' => w - b'a' + 10,
             b'A'..=b'F' => w - b'A' + 10,
-            _ if dirty(pos) => return (pos, Hex::Bad),
+            _ if dirty(src, pos, compat) => return (pos, Hex::Bad),
             _ => return (pos, answer),
         };
         if compat == Compat::V0_19_1 {
@@ -459,37 +445,44 @@ fn eat_escape(p: &P<'_>, pos: usize) -> EscapeScan {
     match p.byte(pos) {
         None => EscapeScan::EndOfFile,
         Some(b'n' | b'r' | b't' | b'"' | b'\'' | b'\\') => EscapeScan::Ok(2),
-        Some(b'u') => eat_unicode(p, pos + 1),
+        Some(b'u') => match eat_unicode(p.src(), pos + 1, p.compat) {
+            Ok(width) => EscapeScan::Ok(width),
+            Err(problem) => EscapeScan::Problem(problem),
+        },
         Some(_) => EscapeScan::Problem(E::Escape::EscapeUnknown),
     }
 }
 
-fn eat_unicode(p: &P<'_>, pos: usize) -> EscapeScan {
-    if p.byte(pos) != Some(b'{') {
-        return EscapeScan::Problem(E::Escape::BadUnicodeFormat(2));
+/// `eatUnicode`, `pos` past the `\u` in `src`: the escape's width, or
+/// its problem as `compat` measures it. elm-format reads it as 0.19.1
+/// does.
+pub(crate) fn eat_unicode(src: &[u8], pos: usize, compat: Compat) -> Result<usize, E::Escape> {
+    let byte = |at: usize| src.get(at).copied();
+    if byte(pos) != Some(b'{') {
+        return Err(E::Escape::BadUnicodeFormat(2));
     }
     let digit_pos = pos + 1;
-    let (new_pos, code) = chomp_hex(p.src(), digit_pos, p.compat, |at| bad_end(p, at));
+    let (new_pos, code) = chomp_hex(src, digit_pos, compat);
     let digits = (new_pos - digit_pos) as u32;
     let width = (new_pos - pos) as u32;
-    let width = |extra: u32| p.wrap(extra + width);
-    if p.byte(new_pos) != Some(b'}') {
-        return EscapeScan::Problem(E::Escape::BadUnicodeFormat(width(2)));
+    let width = |extra: u32| compat.wrap(extra + width);
+    if byte(new_pos) != Some(b'}') {
+        return Err(E::Escape::BadUnicodeFormat(width(2)));
     }
     let code = match code {
         Hex::Code(code) if code <= 0x10FFFF => code as u32,
         Hex::Code(_) | Hex::None | Hex::Bad => {
-            return EscapeScan::Problem(E::Escape::BadUnicodeCode(width(3)));
+            return Err(E::Escape::BadUnicodeCode(width(3)));
         }
     };
     if !(4..=6).contains(&digits) {
-        return EscapeScan::Problem(E::Escape::BadUnicodeLength {
+        return Err(E::Escape::BadUnicodeLength {
             width: width(3),
             digits,
             code,
         });
     }
-    EscapeScan::Ok(digits as usize + 4)
+    Ok(digits as usize + 4)
 }
 
 /// What [`utf8_char`] found at a byte past ASCII.

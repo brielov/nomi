@@ -55,11 +55,13 @@ const COMPLETIONS: usize = 2;
 /// The release elm-language-server is built around.
 const COMPAT: Compat = Compat::V0_19_1;
 
-/// A project of the suite: its case, its directory, its `elm.json` as
-/// 0.19.1 reads it, and the source directories that names.
+/// A project of the suite: its case, the app's name if it is an app, its
+/// directory, its `elm.json` as 0.19.1 reads it, and the source
+/// directories that names.
 #[derive(Clone)]
 pub(crate) struct Project {
     case: String,
+    app: Option<String>,
     root: PathBuf,
     manifest: String,
     sources: Vec<String>,
@@ -85,32 +87,10 @@ fn pick(parts: &[&str]) -> u64 {
 /// accepts and a sample of the packages.
 fn catalog(root: &Path) -> Result<Vec<Project>> {
     let classification = compat::load(root)?;
-    let corpus = corpus_dir()?;
-    let check = (runs::load(root, corpus_runs::Suite::Check)?.remove(&COMPAT))
-        .context("corpus/check/oracle.tsv has no elm 0.19.1")?;
+    let check = checked(root)?;
     let accepted = |case: &str| check.get(case) == Some(&Cell::Ok);
-    let mut found = Vec::new();
-    for app in apps::load(root)?.app {
-        let case = app.case();
-        if !accepted(&case) {
-            continue;
-        }
-        let manifest = compat::sandbox_manifest(&classification, &app, COMPAT)?;
-        // A source directory outside the app's root would have to come
-        // along outside the session's copy too, which the recorder's copy
-        // leaves behind; inside, it's inside `.` as well.
-        let sources = source_dirs(&manifest).with_context(|| case.clone())?;
-        if sources.iter().any(|d| d.starts_with("..")) {
-            continue;
-        }
-        let root = apps::app_dir(&corpus, &app).join(&app.root);
-        found.push(Project {
-            case,
-            root,
-            manifest,
-            sources,
-        });
-    }
+    let mut found = app_projects(root, &classification, &check)?;
+    let corpus = corpus_dir()?;
     let mut candidates = Vec::new();
     for package in packages::load(root)?.packages {
         let case = package.case();
@@ -126,6 +106,47 @@ fn catalog(root: &Path) -> Result<Vec<Project>> {
         let sources = source_dirs(&manifest).with_context(|| case.clone())?;
         found.push(Project {
             case,
+            app: None,
+            root,
+            manifest,
+            sources,
+        });
+    }
+    Ok(found)
+}
+
+/// The check oracle's verdicts as 0.19.1, by case.
+fn checked(root: &Path) -> Result<BTreeMap<String, Cell>> {
+    (runs::load(root, corpus_runs::Suite::Check)?.remove(&COMPAT))
+        .context("corpus/check/oracle.tsv has no elm 0.19.1")
+}
+
+/// The suite's apps: those `check` has elm accept, whose source
+/// directories lie inside them.
+fn app_projects(
+    root: &Path,
+    classification: &compat::Classification,
+    check: &BTreeMap<String, Cell>,
+) -> Result<Vec<Project>> {
+    let corpus = corpus_dir()?;
+    let mut found = Vec::new();
+    for app in apps::load(root)?.app {
+        let case = app.case();
+        if check.get(&case) != Some(&Cell::Ok) {
+            continue;
+        }
+        let manifest = compat::sandbox_manifest(classification, &app, COMPAT)?;
+        // A source directory outside the app's root would have to come
+        // along outside the session's copy too, which the recorder's copy
+        // leaves behind; inside, it's inside `.` as well.
+        let sources = source_dirs(&manifest).with_context(|| case.clone())?;
+        if sources.iter().any(|d| d.starts_with("..")) {
+            continue;
+        }
+        let root = apps::app_dir(&corpus, &app).join(&app.root);
+        found.push(Project {
+            case,
+            app: Some(app.name),
             root,
             manifest,
             sources,
@@ -138,31 +159,32 @@ fn catalog(root: &Path) -> Result<Vec<Project>> {
 /// session. An editor's trace of an app is one more project, the app's
 /// again, as `trace/<app>`.
 fn sessions(root: &Path, only: Option<&str>) -> Result<Vec<(Project, Session)>> {
-    let trace = |app: &str| root.join(super::trace::DIR).join(format!("{app}.json"));
-    let projects = catalog(root)?;
-    let traces: Vec<Project> = (projects.iter())
-        .filter_map(|project| {
-            let app = project.case.strip_prefix("app/")?;
-            trace(app).is_file().then(|| Project {
-                case: format!("trace/{app}"),
-                ..project.clone()
-            })
-        })
-        .collect();
-    (projects.into_iter().chain(traces))
-        .filter(|project| only.is_none_or(|o| project.case.contains(o)))
-        .map(|project| {
-            let session = match project.case.strip_prefix("trace/") {
-                Some(app) => {
-                    let path = trace(app);
-                    let text = fs::read_to_string(&path)?;
-                    serde_json::from_str(&text).with_context(|| path.display().to_string())?
-                }
-                None => session(&project)?,
-            };
-            Ok((project, session))
-        })
-        .collect()
+    let mut found = Vec::new();
+    let mut traces = Vec::new();
+    for project in catalog(root)? {
+        if let Some(app) = &project.app {
+            let path = root.join(super::trace::DIR).join(format!("{app}.json"));
+            let case = format!("trace/{app}");
+            if path.is_file() && only.is_none_or(|o| case.contains(o)) {
+                let text = fs::read_to_string(&path)?;
+                let session =
+                    serde_json::from_str(&text).with_context(|| path.display().to_string())?;
+                traces.push((
+                    Project {
+                        case,
+                        ..project.clone()
+                    },
+                    session,
+                ));
+            }
+        }
+        if only.is_none_or(|o| project.case.contains(o)) {
+            let session = session(&project)?;
+            found.push((project, session));
+        }
+    }
+    found.extend(traces);
+    Ok(found)
 }
 
 /// The modules of `project`'s source directories, by path from its root.
@@ -323,12 +345,9 @@ fn step(method: &str, file: &str, at: Option<(u32, u32)>) -> Step {
         params.insert("context".to_owned(), json!({ "includeDeclaration": true }));
     }
     Step {
-        method,
-        file: Some(file.to_owned()),
         at: at.map(|(line, character)| At::Exact(Position { line, character })),
         params,
-        resolve: false,
-        create: BTreeMap::new(),
+        ..Step::on(method, file.to_owned())
     }
 }
 
@@ -420,11 +439,11 @@ pub(crate) fn server(refs: &References, scratch: &Path) -> Result<Tools> {
     crate::oracle::lsp::tools(refs, server, scratch, home, packages)
 }
 
-/// The project of `case`, without its session.
-pub(crate) fn project(root: &Path, case: &str) -> Result<Project> {
-    (catalog(root)?.into_iter())
-        .find(|p| p.case == case)
-        .with_context(|| format!("{case} isn't one of the suite's projects"))
+/// The project of the app `name`, without its session.
+pub(crate) fn app(root: &Path, name: &str) -> Result<Project> {
+    (app_projects(root, &compat::load(root)?, &checked(root)?)?.into_iter())
+        .find(|p| p.app.as_deref() == Some(name))
+        .with_context(|| format!("app/{name} isn't one of the suite's projects"))
 }
 
 /// The `ELM_HOME` the corpus suites share, as 0.19.1's, holding

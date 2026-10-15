@@ -284,16 +284,14 @@ pub(super) fn both<A, B>(a: R<A>, b: R<B>) -> R<(A, B)> {
     }
 }
 
-/// A tuple's two items and maybe a third.
-pub(super) type Tuple<T> = (Box<T>, Box<T>, Option<Box<T>>);
-
-/// A tuple's two or three items, each turned by `each` in order, or that
-/// it has more than three, at `range`.
-pub(super) fn tuple<I: Copy, T>(
+/// A tuple's two or three items, each turned by `each` in order and put
+/// together by `make`, or that it has more than three, at `range`.
+pub(super) fn tuple<I: Copy, T, K>(
     items: &[I],
     range: TextRange,
     mut each: impl FnMut(I) -> R<T>,
-) -> R<Tuple<T>> {
+    make: impl FnOnce(Box<T>, Box<T>, Option<Box<T>>) -> K,
+) -> R<K> {
     let a = each(items[0]);
     let b = each(items[1]);
     let c = match &items[2..] {
@@ -302,7 +300,7 @@ pub(super) fn tuple<I: Copy, T>(
         _ => throw(Error::TupleLargerThanThree { range }),
     };
     let ((a, b), c) = both(both(a, b), c)?;
-    Ok((Box::new(a), Box::new(b), c.map(Box::new)))
+    Ok(make(Box::new(a), Box::new(b), c.map(Box::new)))
 }
 
 /// `traverse`: every result, or every error, in order.

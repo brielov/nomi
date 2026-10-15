@@ -85,7 +85,7 @@ pub(crate) fn run(root: &Path, refs: &References) -> Result<()> {
 /// that trips over a lock [`RETRIES`] times, or is cut short
 /// [`CUT_SHORT_RETRIES`] times, is recorded as it went.
 fn record(elm: &Recorder, work: &Path, case: &Case) -> Result<String> {
-    let case = case.as_release(elm.compat);
+    let case = case.clone().as_release(elm.compat);
     let (transcript, dir) = retrying(CUT_SHORT_RETRIES, |attempt, _| {
         let dir = padded_case(work, &case)?;
         let mut command = Command::new(&elm.elm);

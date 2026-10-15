@@ -6,10 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::error::{self, Extension};
-use super::{
-    Content, FlatType, GET_VAR_NAMES_MARK, OCCURS_MARK, SuperType, Variable, Variables,
-    in_name_order,
-};
+use super::{Content, FlatType, GET_VAR_NAMES_MARK, OCCURS_MARK, SuperType, Variable, Variables};
 use crate::canonical::{self, AliasType, FieldType};
 
 /// `Name.fromTypeVariable`: `name` numbered `index`, after an `_` where
@@ -158,7 +155,7 @@ fn var_names(vars: &mut Variables, var: Variable, taken: &mut BTreeMap<String, V
                 FlatType::EmptyRecord1 | FlatType::Unit1 => {}
                 FlatType::Record1(fields, extension) => {
                     stack.push(*extension);
-                    stack.extend(in_name_order(compat, fields).into_iter().map(|(_, &f)| f));
+                    stack.extend(compat.in_name_order(fields).into_iter().map(|(_, &f)| f));
                 }
                 FlatType::Tuple1(a, b, c) => {
                     stack.extend([*a, *b]);
@@ -260,18 +257,18 @@ fn flat_to_can_type(
         }
         FlatType::EmptyRecord1 => T::Record(BTreeMap::new(), None),
         FlatType::Record1(fields, extension) => {
-            let mut fields: BTreeMap<String, FieldType> = (in_name_order(vars.compat, &fields)
-                .into_iter())
-            .map(|(n, &v)| {
-                (
-                    n.to_string(),
-                    FieldType {
-                        order: 0,
-                        ty: to_can_type(vars, v, state),
-                    },
-                )
-            })
-            .collect();
+            let mut fields: BTreeMap<String, FieldType> =
+                (vars.compat.in_name_order(&fields).into_iter())
+                    .map(|(n, &v)| {
+                        (
+                            n.to_string(),
+                            FieldType {
+                                order: 0,
+                                ty: to_can_type(vars, v, state),
+                            },
+                        )
+                    })
+                    .collect();
             match to_can_type(vars, extension, state).iterated_dealias() {
                 // `Map.union subFields canFields`: the extension's fields
                 // win.
@@ -390,10 +387,10 @@ fn flat_to_err(vars: &mut Variables, flat: FlatType, state: &mut NameState) -> e
         }
         FlatType::EmptyRecord1 => E::Record(BTreeMap::new(), Extension::Closed),
         FlatType::Record1(fields, extension) => {
-            let mut fields: BTreeMap<String, error::Type> = (in_name_order(vars.compat, &fields)
-                .into_iter())
-            .map(|(n, &v)| (n.to_string(), to_err(vars, v, state)))
-            .collect();
+            let mut fields: BTreeMap<String, error::Type> =
+                (vars.compat.in_name_order(&fields).into_iter())
+                    .map(|(n, &v)| (n.to_string(), to_err(vars, v, state)))
+                    .collect();
             // `iteratedDealias`, keeping what it stands for.
             let mut ext = to_err(vars, extension, state);
             while let E::Alias { real, .. } = ext {
