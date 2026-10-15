@@ -23,7 +23,6 @@ use crate::files::{Project, parts};
 pub struct TestModule {
     /// The module's name, as its path makes it.
     pub name: String,
-    pub path: PathBuf,
     /// The lowercase names it exposes, as elm-test finds them: its list's,
     /// or with `exposing (..)` each `name =` at the top, in order; none
     /// where it doesn't parse, which elm reports when it's built.
@@ -41,7 +40,6 @@ pub fn modules(project: &Project, files: &[PathBuf]) -> Result<Vec<TestModule>, 
             let text = fs::read_to_string(path).unwrap_or_default();
             Ok(TestModule {
                 name,
-                path: path.clone(),
                 candidates: candidates(&text),
             })
         })

@@ -2,7 +2,8 @@
 //! `serde_json::Value` sorts: the `JUnit` reporter's description of its XML,
 //! and `elm.json` as elm-test reads and writes it.
 
-use std::fmt;
+use std::fmt::{self, Write};
+use std::iter;
 
 use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 
@@ -138,12 +139,12 @@ impl Json {
     }
 
     fn write(&self, out: &mut String, depth: usize) {
-        let indent = |out: &mut String, depth: usize| out.push_str(&" ".repeat(4 * depth));
+        let indent = |out: &mut String, depth: usize| out.extend(iter::repeat_n(' ', 4 * depth));
         match self {
             Json::Null => out.push_str("null"),
-            Json::Bool(b) => out.push_str(&b.to_string()),
-            Json::Number(n) => out.push_str(&n.to_string()),
-            Json::String(s) => out.push_str(&serde_json::to_string(s).unwrap_or_default()),
+            Json::Bool(b) => _ = write!(out, "{b}"),
+            Json::Number(n) => _ = write!(out, "{n}"),
+            Json::String(s) => out.push_str(&quoted(s)),
             Json::Array(items) if items.is_empty() => out.push_str("[]"),
             Json::Object(fields) if fields.is_empty() => out.push_str("{}"),
             Json::Array(items) => {
@@ -162,7 +163,7 @@ impl Json {
                 for (i, (key, value)) in fields.iter().enumerate() {
                     out.push_str(if i == 0 { "\n" } else { ",\n" });
                     indent(out, depth + 1);
-                    out.push_str(&serde_json::to_string(key).unwrap_or_default());
+                    out.push_str(&quoted(key));
                     out.push_str(": ");
                     value.write(out, depth + 1);
                 }
@@ -172,6 +173,11 @@ impl Json {
             }
         }
     }
+}
+
+/// `s` as a JSON string.
+fn quoted(s: &str) -> String {
+    serde_json::to_string(s).expect("a string serializes")
 }
 
 #[cfg(test)]

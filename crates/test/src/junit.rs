@@ -3,6 +3,8 @@
 //! test cases, written as elm-test writes it. Fields come in the order
 //! the reporter encoded them, which [`Json`] keeps.
 
+use std::fmt::Write;
+
 use crate::json::Json;
 
 /// The `JUnit` reporter's `summary` with `results` added to its test
@@ -48,8 +50,7 @@ fn element(out: &mut String, name: &str, value: &Json) {
             for (key, value) in fields {
                 match key.strip_prefix('@') {
                     Some(attribute) => {
-                        attributes
-                            .push_str(&format!(" {attribute}=\"{}\"", attribute_value(value)));
+                        _ = write!(attributes, " {attribute}=\"{}\"", attribute_value(value));
                     }
                     None => element(&mut children, key, value),
                 }
@@ -59,9 +60,9 @@ fn element(out: &mut String, name: &str, value: &Json) {
         other => children = scalar(other),
     }
     if children.is_empty() {
-        out.push_str(&format!("<{name}{attributes}/>"));
+        _ = write!(out, "<{name}{attributes}/>");
     } else {
-        out.push_str(&format!("<{name}{attributes}>{children}</{name}>"));
+        _ = write!(out, "<{name}{attributes}>{children}</{name}>");
     }
 }
 
@@ -91,7 +92,7 @@ fn replace_invalid(text: &str) -> String {
     for c in text.chars() {
         let invalid = matches!(c, '\0'..='\x08' | '\x0B' | '\x0C' | '\x0E'..='\x1F' | '\u{FFFE}' | '\u{FFFF}');
         if invalid {
-            out.push_str(&format!("\\u{{{:04x}}}", c as u32));
+            _ = write!(out, "\\u{{{:04x}}}", c as u32);
         } else {
             out.push(c);
         }

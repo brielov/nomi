@@ -44,8 +44,24 @@ enum Section {
     Indirect,
 }
 
+/// An `elm.json`'s list of dependencies: the project's, or its tests'.
+#[derive(Clone, Copy)]
+enum Deps {
+    Normal,
+    Test,
+}
+
+impl Deps {
+    fn key(self) -> &'static str {
+        match self {
+            Deps::Normal => "dependencies",
+            Deps::Test => "test-dependencies",
+        }
+    }
+}
+
 impl Section {
-    /// Its key within the list `field` of an application.
+    /// Its key within a list of an application's dependencies.
     fn key(self) -> Option<&'static str> {
         match self {
             Section::Package => None,
@@ -54,14 +70,14 @@ impl Section {
         }
     }
 
-    /// This list of `json`'s `field`, `dependencies` or `test-dependencies`.
-    fn of<'j>(self, json: &'j Json, field: &str) -> Option<&'j Json> {
-        let list = json.get(field)?;
+    /// This section of `json`'s list `deps`.
+    fn of(self, json: &Json, deps: Deps) -> Option<&Json> {
+        let list = json.get(deps.key())?;
         self.key().map_or(Some(list), |key| list.get(key))
     }
 
-    fn of_mut<'j>(self, json: &'j mut Json, field: &str) -> Option<&'j mut Json> {
-        let list = json.get_mut(field)?;
+    fn of_mut(self, json: &mut Json, deps: Deps) -> Option<&mut Json> {
+        let list = json.get_mut(deps.key())?;
         match self.key() {
             Some(key) => list.get_mut(key),
             None => Some(list),
@@ -85,7 +101,7 @@ pub(crate) fn install<H: Http + Sync>(
         Section::Package
     };
     if direct
-        .of(&old, "test-dependencies")
+        .of(&old, Deps::Test)
         .and_then(|tests| tests.get(package))
         .is_some()
     {
@@ -133,8 +149,8 @@ pub(crate) fn install<H: Http + Sync>(
 /// same section of the test dependencies. An indirect one already a
 /// direct test dependency stays one.
 fn move_to_tests(old: &Json, new: &mut Json, section: Section) {
-    let had = section.of(old, "dependencies");
-    let Some(now) = section.of(new, "dependencies") else {
+    let had = section.of(old, Deps::Normal);
+    let Some(now) = section.of(new, Deps::Normal) else {
         return;
     };
     let added: Vec<String> = (now.keys())
@@ -142,15 +158,15 @@ fn move_to_tests(old: &Json, new: &mut Json, section: Section) {
         .map(str::to_owned)
         .collect();
     for key in added {
-        let Some(value) = (section.of_mut(new, "dependencies")).and_then(|deps| deps.remove(&key))
+        let Some(value) = (section.of_mut(new, Deps::Normal)).and_then(|deps| deps.remove(&key))
         else {
             continue;
         };
         let already = section == Section::Indirect
-            && (Section::Direct.of(new, "test-dependencies"))
+            && (Section::Direct.of(new, Deps::Test))
                 .and_then(|tests| tests.get(&key))
                 .is_some();
-        if !already && let Some(tests) = section.of_mut(new, "test-dependencies") {
+        if !already && let Some(tests) = section.of_mut(new, Deps::Test) {
             tests.set(&key, value);
         }
     }

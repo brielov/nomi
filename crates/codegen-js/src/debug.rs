@@ -6,6 +6,7 @@
 //! 0.19.3, and by module, then name, in it.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::Arc;
 
 use nomi_base::Compat;
 use nomi_base::diagnostic::json::strict_string;
@@ -20,8 +21,8 @@ pub type Types = HashMap<Home, ModuleTypes>;
 /// `Types_`.
 #[derive(Clone, Debug, Default)]
 pub struct ModuleTypes {
-    /// The module's unions, by name.
-    pub unions: BTreeMap<String, Union>,
+    /// The module's unions, by name, shared with its interface.
+    pub unions: BTreeMap<String, Arc<Union>>,
     /// The module's aliases, by name.
     pub aliases: BTreeMap<String, Alias>,
 }
@@ -32,7 +33,7 @@ impl ModuleTypes {
     pub fn from_interface(interface: &Interface) -> ModuleTypes {
         ModuleTypes {
             unions: (interface.unions.iter())
-                .map(|(name, union)| (name.clone(), union.whole().clone()))
+                .map(|(name, union)| (name.clone(), Arc::clone(union.whole())))
                 .collect(),
             aliases: (interface.aliases.iter())
                 .map(|(name, alias)| (name.clone(), alias.whole().clone()))
@@ -47,10 +48,7 @@ impl ModuleTypes {
             home: package.to_owned(),
             values: BTreeMap::new(),
             unions: (self.unions.iter())
-                .map(|(name, union)| {
-                    let union = interface::Union::Private(union.clone().into());
-                    (name.clone(), union)
-                })
+                .map(|(name, union)| (name.clone(), interface::Union::Private(Arc::clone(union))))
                 .collect(),
             aliases: (self.aliases.iter())
                 .map(|(name, alias)| (name.clone(), interface::Alias::Private(alias.clone())))
@@ -67,7 +65,7 @@ enum Public {
     Type(String, Vec<Public>),
     Record(Vec<(String, Public)>, Option<String>),
     Unit,
-    Tuple(Box<Public>, Box<Public>, Vec<Public>),
+    Tuple(Box<Public>, Box<Public>, Option<Box<Public>>),
 }
 
 /// The aliases and unions types name, by kind.
@@ -211,7 +209,7 @@ fn extract(compat: Compat, deps: &mut Deps, ty: &Type) -> Public {
         Type::Tuple(a, b, c) => Public::Tuple(
             Box::new(extract(compat, deps, a)),
             Box::new(extract(compat, deps, b)),
-            c.iter().map(|c| extract(compat, deps, c)).collect(),
+            c.as_ref().map(|c| Box::new(extract(compat, deps, c))),
         ),
         Type::Alias {
             home,
@@ -304,9 +302,9 @@ fn doc(ty: &Public, context: Context) -> String {
         }
         Public::Var(x) => x.clone(),
         Public::Unit => "()".to_owned(),
-        Public::Tuple(a, b, cs) => {
+        Public::Tuple(a, b, c) => {
             let mut entries = vec![doc(a, Context::None), doc(b, Context::None)];
-            entries.extend(cs.iter().map(|c| doc(c, Context::None)));
+            entries.extend(c.iter().map(|c| doc(c, Context::None)));
             format!("( {} )", entries.join(", "))
         }
         Public::Type(name, args) if args.is_empty() => name.clone(),
@@ -385,7 +383,7 @@ mod tests {
         let mut types = Types::new();
         let mut add = |module: &str, name: &str, union: Union| {
             let entry = types.entry(Home::author_project(module)).or_default();
-            entry.unions.insert(name.to_owned(), union);
+            entry.unions.insert(name.to_owned(), Arc::new(union));
         };
         add("Main", "Msg", msg);
         add("Bb", "X", union(vec![("X", Vec::new())]));
@@ -424,7 +422,7 @@ mod tests {
         assert_eq!(line(&maybe(maybe(a()))), "Maybe.Maybe (Maybe.Maybe a)");
         assert_eq!(line(&lambda(lambda(a(), a()), a())), "(a -> a) -> a");
         assert_eq!(line(&lambda(maybe(a()), a())), "Maybe.Maybe a -> a");
-        let tuple = Public::Tuple(Box::new(a()), Box::new(Public::Unit), Vec::new());
+        let tuple = Public::Tuple(Box::new(a()), Box::new(Public::Unit), None);
         assert_eq!(line(&tuple), "( a, () )");
         let fields = vec![("x".to_owned(), a())];
         let record = Public::Record(fields, Some("r".to_owned()));

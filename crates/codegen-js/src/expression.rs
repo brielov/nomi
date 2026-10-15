@@ -292,7 +292,9 @@ impl Generator<'_> {
             Mode::Dev { .. } => Name::from_local(name),
             Mode::Prod(fields) => fields
                 .get(name)
-                .unwrap_or_else(|| panic!("no short name for the field {name}"))
+                .unwrap_or_else(|| {
+                    panic!("no short name for {name}, though every field used has one")
+                })
                 .clone(),
         }
     }

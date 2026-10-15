@@ -49,7 +49,7 @@ nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it wait
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **Q.15c**.
+4. Resume at the first unchecked box. Right now that is **Q.15d**.
 
 ### Test tiers
 
@@ -1174,7 +1174,10 @@ A second, independent audit of the same code (2026-10-13, kept in `~/.cache/nomi
 
   Done: canonicalization's report context and `snip` give way to the engine's `ReportContext`; dependency interfaces, the source map's definitions, ports' ranges, `rustc-hash` and other things nothing read are gone; constructors' and arguments' indices are their places, written to interfaces as before and checked when read; let nodes sort whole, without clones; lambdas and case branches share one `scoped`; the canonicalizer's errors and the type errors' variants have named fields where they were tuples; the defaults are built once; integer digits and string escapes are read by one function each, syntax's and HIR's; `adjust_rank` reads a node's children onto a reusable stack rather than cloning its content, and `var_names` walks with its own stack; `fields_to_list` serves the optimizer, canonicalization and codegen's debug output. 177 lines more, rustfmt laying named fields out one per line, where the findings removed about 200. Builds take the same time as Q.15a. CI and the `check`, `graphs`, `objects`, `javascript`, `docs` and `lsp` corpus suites are unchanged. Surprises: an interface whose stored constructor index or count disagrees with its place is now refused rather than read; and type rendering sorts a record's fields by their place alone, where upstream breaks ties in 0.19.3's name order, left for a decision.
 
-- [ ] **Q.15c** `quality: exit findings, codegen-js, test and testkit` (14).
+- [x] **Q.15c** `quality: exit findings, codegen-js, test and testkit` (14).
+
+  Done: the test runner's dependency sections are an `enum Deps`, and what its reporter keeps, streamed or all, an `enum Kept` chosen once; its version check compares majors rather than printed text; junit and JSON are written in place; the watcher walks with `walkdir`; testkit's language-server cases know every method as a `Method`, matched exhaustively; one `wait_within` and `read_all` in testkit serve its cases, the language-server harness and xtask's oracles; module types share their unions' `Arc`s rather than cloning them; a tuple's third part is an `Option<Box<_>>`. About 50 lines more, the exhaustive matches and the enums' variants. Generated JS is byte-identical, and builds take the same time as Q.15b. CI and the `tests`, `javascript`, `check`, `objects` and `lsp` corpus suites are unchanged. Surprises: a symbolic link loop under a watched directory is skipped where it recursed until the system refused; a child whose state can't be read is killed, as xtask's oracles always did.
+
 - [ ] **Q.15d** `quality: exit findings, engine` (15).
 - [ ] **Q.15e** `quality: exit findings, ide` (17).
 - [ ] **Q.15f** `quality: exit findings, lsp and cli` (11).

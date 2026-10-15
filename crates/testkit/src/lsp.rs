@@ -24,6 +24,8 @@ use lsp_server::{Connection, Message, Notification, Request, RequestId, Response
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Map, Value, json};
 
+use crate::process::wait_within;
+
 /// A case: a project and the session run in it.
 #[derive(Debug, Clone)]
 pub struct Case {
@@ -77,7 +79,7 @@ pub struct Step {
 }
 
 /// An LSP method a step names: the ones the driver makes its own
-/// parameters for or answers itself, or any other.
+/// parameters for, answers itself or tidies, or any other.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(from = "String")]
 pub enum Method {
@@ -89,6 +91,13 @@ pub enum Method {
     CodeLens,
     Completion,
     SelectionRange,
+    References,
+    Rename,
+    WillRenameFiles,
+    FindTests,
+    CodeLensResolve,
+    CompletionResolve,
+    CodeActionResolve,
     /// Any other notification: a method with `/did` in its name.
     Notification(String),
     /// Any other request.
@@ -106,6 +115,13 @@ impl From<String> for Method {
             "textDocument/codeLens" => Method::CodeLens,
             "textDocument/completion" => Method::Completion,
             "textDocument/selectionRange" => Method::SelectionRange,
+            "textDocument/references" => Method::References,
+            "textDocument/rename" => Method::Rename,
+            "workspace/willRenameFiles" => Method::WillRenameFiles,
+            "elm/findTests" => Method::FindTests,
+            "codeLens/resolve" => Method::CodeLensResolve,
+            "completionItem/resolve" => Method::CompletionResolve,
+            "codeAction/resolve" => Method::CodeActionResolve,
             _ if method.contains("/did") => Method::Notification(method),
             _ => Method::Request(method),
         }
@@ -124,6 +140,13 @@ impl Method {
             Method::CodeLens => "textDocument/codeLens",
             Method::Completion => "textDocument/completion",
             Method::SelectionRange => "textDocument/selectionRange",
+            Method::References => "textDocument/references",
+            Method::Rename => "textDocument/rename",
+            Method::WillRenameFiles => "workspace/willRenameFiles",
+            Method::FindTests => "elm/findTests",
+            Method::CodeLensResolve => "codeLens/resolve",
+            Method::CompletionResolve => "completionItem/resolve",
+            Method::CodeActionResolve => "codeAction/resolve",
             Method::Notification(method) | Method::Request(method) => method,
         }
     }
@@ -140,21 +163,35 @@ impl Method {
             | Method::CodeLens
             | Method::Completion
             | Method::SelectionRange
+            | Method::References
+            | Method::Rename
+            | Method::WillRenameFiles
+            | Method::FindTests
+            | Method::CodeLensResolve
+            | Method::CompletionResolve
+            | Method::CodeActionResolve
             | Method::Request(_) => false,
         }
     }
 
     /// The request that resolves an item of the method's answer, if any.
-    fn resolve(&self) -> Option<&'static str> {
+    fn resolve(&self) -> Option<Method> {
         match self {
-            Method::CodeLens => Some("codeLens/resolve"),
-            Method::Completion => Some("completionItem/resolve"),
-            Method::CodeAction => Some("codeAction/resolve"),
+            Method::CodeLens => Some(Method::CodeLensResolve),
+            Method::Completion => Some(Method::CompletionResolve),
+            Method::CodeAction => Some(Method::CodeActionResolve),
             Method::DidOpen
             | Method::DidChange
             | Method::DidSave
             | Method::DidClose
             | Method::SelectionRange
+            | Method::References
+            | Method::Rename
+            | Method::WillRenameFiles
+            | Method::FindTests
+            | Method::CodeLensResolve
+            | Method::CompletionResolve
+            | Method::CodeActionResolve
             | Method::Notification(_)
             | Method::Request(_) => None,
         }
@@ -331,15 +368,11 @@ pub fn child_connection(stdin: ChildStdin, stdout: ChildStdout) -> Connection {
 /// Waits for a child server to exit after `exit`, killing it after a
 /// while.
 pub fn reap(mut child: Child) {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < deadline {
-        if let Ok(Some(_)) = child.try_wait() {
-            return;
-        }
-        thread::sleep(Duration::from_millis(20));
-    }
-    let _ = child.kill();
-    let _ = child.wait();
+    let _ = wait_within(
+        &mut child,
+        Duration::from_secs(5),
+        Duration::from_millis(20),
+    );
 }
 
 /// How long to wait.
@@ -442,12 +475,12 @@ impl Driver {
                 std::fs::create_dir_all(path.parent().expect("a file in the project")).unwrap();
                 std::fs::write(&path, text).unwrap();
             }
-            let params = self.params(step);
             // The editor's own: what it publishes then, once it's quiet.
             if let Some(entry) = self.document_event(step) {
                 requests.push(entry);
                 continue;
             }
+            let params = self.params(step);
             // A notification: what the server applies in answer, once it's
             // quiet again.
             if step.method.is_notification() {
@@ -493,7 +526,7 @@ impl Driver {
         let results: Vec<Value> = items
             .into_iter()
             .map(|item| {
-                self.request(resolve, item)
+                self.request(resolve.as_str(), item)
                     .unwrap_or_else(|error| json!({ "error": error }))
             })
             .collect();
@@ -514,7 +547,7 @@ impl Driver {
             },
         );
         self.notify(
-            "textDocument/didOpen",
+            Method::DidOpen.as_str(),
             json!({ "textDocument": {
                 "uri": self.uri(file), "languageId": "elm", "version": 1, "text": text,
             } }),
@@ -526,19 +559,17 @@ impl Driver {
     /// for the open files on an open or save, and for the file on a close.
     /// A change's edits are the step's `contentChanges`.
     fn document_event(&mut self, step: &Step) -> Option<Value> {
-        let file = step.file.clone()?;
-        let uri = self.uri(&file);
-        let mut entry = json!({ "method": step.method, "file": file });
+        let file = step.file.as_ref()?;
         let method = step.method.as_str();
         let reported: Vec<String> = match step.method {
             Method::DidOpen => {
-                self.open_file(&file);
+                self.open_file(file);
                 self.settle();
                 self.open.keys().cloned().collect()
             }
             Method::DidChange => {
-                let open =
-                    (self.open.get_mut(&file)).unwrap_or_else(|| panic!("{file} isn't open"));
+                let uri = self.uri(file);
+                let open = (self.open.get_mut(file)).unwrap_or_else(|| panic!("{file} isn't open"));
                 open.version += 1;
                 let changes = step
                     .params
@@ -558,20 +589,20 @@ impl Driver {
             }
             Method::DidSave => {
                 // An editor writes the file, then says so.
-                if let Some(open) = self.open.get(&file) {
-                    std::fs::write(self.root.join(&file), &open.text).unwrap();
+                if let Some(open) = self.open.get(file) {
+                    std::fs::write(self.root.join(file), &open.text).unwrap();
                 }
                 if self.timing.publishes {
                     let open: Vec<String> = self.open.keys().map(|f| self.uri(f)).collect();
                     self.awaiting.extend(open);
                 }
-                self.notify(method, json!({ "textDocument": { "uri": uri } }));
+                self.notify(method, json!({ "textDocument": { "uri": self.uri(file) } }));
                 self.settle();
                 self.open.keys().cloned().collect()
             }
             Method::DidClose => {
-                self.open.remove(&file);
-                self.notify(method, json!({ "textDocument": { "uri": uri } }));
+                self.open.remove(file);
+                self.notify(method, json!({ "textDocument": { "uri": self.uri(file) } }));
                 self.settle();
                 vec![file.clone()]
             }
@@ -579,9 +610,17 @@ impl Driver {
             | Method::CodeLens
             | Method::Completion
             | Method::SelectionRange
+            | Method::References
+            | Method::Rename
+            | Method::WillRenameFiles
+            | Method::FindTests
+            | Method::CodeLensResolve
+            | Method::CompletionResolve
+            | Method::CodeActionResolve
             | Method::Notification(_)
             | Method::Request(_) => return None,
         };
+        let mut entry = json!({ "method": step.method, "file": file });
         if !reported.is_empty() {
             entry["diagnostics"] = Value::Object(self.diagnostics(reported));
         }
@@ -643,11 +682,13 @@ impl Driver {
             }
         }
         // `<project>` in the step's own stands for the project's URI.
-        let own = serde_json::to_string(&step.params)
-            .unwrap()
-            .replace("<project>", &self.root_uri);
-        let own: Map<String, Value> = serde_json::from_str(&own).unwrap();
-        params.extend(own);
+        let project = [("<project>".to_owned(), self.root_uri.clone())];
+        params.extend((step.params.iter()).map(|(key, value)| {
+            (
+                replace_all(key.clone(), &project),
+                normalize(value.clone(), &project),
+            )
+        }));
         Value::Object(params)
     }
 
@@ -828,17 +869,17 @@ pub fn tidy(transcript: Value, replacements: &[(String, String)]) -> Value {
         let Some(method) = request["method"].as_str().map(str::to_owned) else {
             continue;
         };
-        match method.as_str() {
+        match Method::from(method) {
             // Servers find references in no particular order across files.
-            "textDocument/references" => sort_by_json(request["result"].as_array_mut()),
+            Method::References => sort_by_json(request["result"].as_array_mut()),
             // The test modules come in the order the disk lists them.
-            "elm/findTests" => {
+            Method::FindTests => {
                 let suites = request.pointer_mut("/result/suites");
                 if let Some(suites) = suites.and_then(Value::as_array_mut) {
                     suites.sort_by_key(|s| s["file"].as_str().unwrap_or_default().to_owned());
                 }
             }
-            "codeLens/resolve" => {
+            Method::CodeLensResolve => {
                 for lens in request["result"].as_array_mut().into_iter().flatten() {
                     sort_by_json(
                         lens.pointer_mut("/command/arguments/0/references")
@@ -846,11 +887,19 @@ pub fn tidy(transcript: Value, replacements: &[(String, String)]) -> Value {
                     );
                 }
             }
-            "textDocument/rename" | "workspace/willRenameFiles" => {
-                tidy_rename(&mut request["result"]);
-            }
-            "textDocument/completion" => tidy_completion(&mut request["result"]),
-            _ => {}
+            Method::Rename | Method::WillRenameFiles => tidy_rename(&mut request["result"]),
+            Method::Completion => tidy_completion(&mut request["result"]),
+            Method::DidOpen
+            | Method::DidChange
+            | Method::DidSave
+            | Method::DidClose
+            | Method::CodeAction
+            | Method::CodeLens
+            | Method::SelectionRange
+            | Method::CompletionResolve
+            | Method::CodeActionResolve
+            | Method::Notification(_)
+            | Method::Request(_) => {}
         }
     }
     transcript

@@ -305,7 +305,7 @@ fn step(method: &str, file: &str, at: Option<(u32, u32)>) -> Step {
     let method = Method::from(method.to_owned());
     let mut params = Map::new();
     // As VS Code asks.
-    if method.as_str() == "textDocument/references" {
+    if method == Method::References {
         params.insert("context".to_owned(), json!({ "includeDeclaration": true }));
     }
     Step {

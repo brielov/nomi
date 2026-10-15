@@ -17,7 +17,7 @@ use nomi_test::{
     parse, resolve,
 };
 use nomi_testkit::packages;
-use nomi_testkit::transcript::{Case, Transcript, digits_after};
+use nomi_testkit::transcript::{Case, Transcript, normalize_elm_test};
 
 /// node-test-runner's suites, each a case for every report.
 const SUITES: [&str; 6] = [
@@ -297,24 +297,19 @@ fn errors_are_elm_tests() {
     assert!(error.contains("lower.A"), "{error}");
 }
 
-/// `text` with the durations elm-test's transcripts normalize, and `dir`
-/// as `{dir}`.
-fn normalize(text: &str, dir: &Path) -> String {
-    let text = text.replace(&dir.display().to_string(), "{dir}");
-    let markers = [
-        "\"duration\":\"",
-        " time=\"",
-        "Duration: ",
-        "Duration: \u{1b}[22m",
-    ];
-    (markers.iter()).fold(text, |text, marker| digits_after(&text, marker, "0"))
+/// `text` as elm-test's transcripts normalize it, `dir` as `{dir}` and
+/// `home` as `{home}`.
+fn normalize(text: &str, dir: &Path, home: &Path) -> String {
+    let (dir, home) = (dir.display().to_string(), home.display().to_string());
+    String::from_utf8(normalize_elm_test(text.as_bytes(), &dir, &home)).unwrap()
 }
 
 #[test]
 fn runs_print_what_elm_test_printed() {
     nomi_testkit::require_node();
     let temp = tempfile::tempdir().unwrap();
-    let cache = cache(&temp.path().join("cache"));
+    let home = temp.path().join("cache");
+    let cache = cache(&home);
     let mut names: Vec<String> = (SUITES.iter())
         .flat_map(|s| ["json", "console", "color", "junit"].map(|r| format!("{s}_{r}")))
         .collect();
@@ -345,7 +340,7 @@ fn runs_print_what_elm_test_printed() {
         );
         let stderr_lines = |s: &str| s.lines().map(str::to_owned).collect::<Vec<_>>();
         assert_eq!(
-            stderr_lines(&normalize(&console.err, &case.dir)),
+            stderr_lines(&normalize(&console.err, &case.dir, &home)),
             stderr_lines(stderr),
             "{name}'s standard error"
         );
@@ -360,7 +355,7 @@ fn runs_print_what_elm_test_printed() {
             _ => stdout,
         };
         assert_eq!(
-            normalize(&console.out, &case.dir).trim_end_matches('\n'),
+            normalize(&console.out, &case.dir, &home).trim_end_matches('\n'),
             expected.trim_end_matches('\n'),
             "{name}'s standard output"
         );

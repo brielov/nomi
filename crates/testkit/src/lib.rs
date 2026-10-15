@@ -1,14 +1,16 @@
 //! Test support shared by every crate's tests and by xtask: parity
 //! ratchets, their expected results, source mutations, command-line
-//! transcripts and cases made by editing them, the fixture packages, the
-//! solver scenarios, benchmark timing, and directory trees. Only ever a
-//! dev-dependency of nomi crates; `xtask ci` enforces that.
+//! transcripts and cases made by editing them, waiting for a child within
+//! a limit, the fixture packages, the solver scenarios, benchmark timing,
+//! and directory trees. Only ever a dev-dependency of nomi crates; `xtask
+//! ci` enforces that.
 
 pub mod bench;
 pub mod edit;
 pub mod lsp;
 pub mod mutation;
 pub mod packages;
+pub mod process;
 pub mod ratchet;
 pub mod solver;
 pub mod transcript;

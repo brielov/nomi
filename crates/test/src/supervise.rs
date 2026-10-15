@@ -254,32 +254,50 @@ struct Due {
     tests: usize,
 }
 
+/// The results a run keeps, as its report prints them.
+enum Kept {
+    /// The console and JSON reports print each result as it falls due:
+    /// those not printed yet, by index, and the todos for the summary.
+    Streamed {
+        due: Option<Due>,
+        waiting: HashMap<usize, Sent>,
+        todos: Vec<Value>,
+    },
+    /// `JUnit` lists every result as the run ends, in the order they came.
+    All {
+        results: HashMap<usize, Sent>,
+        order: Vec<usize>,
+    },
+}
+
 /// What the supervisor knows of the run.
 struct State {
     supervise: Supervise,
-    due: Option<Due>,
+    kept: Kept,
     finished: usize,
-    /// The results not printed yet, by index; with `JUnit`, which lists
-    /// them all as the run ends, every result.
-    results: HashMap<usize, Sent>,
-    /// With `JUnit`, the indices in the order their results came.
-    order: Vec<usize>,
     failures: usize,
-    todos: Vec<Value>,
     started: Instant,
     connections: HashMap<usize, TcpStream>,
 }
 
 impl State {
     fn new(supervise: Supervise) -> State {
+        let kept = match supervise.report {
+            Report::JUnit => Kept::All {
+                results: HashMap::new(),
+                order: Vec::new(),
+            },
+            Report::Console { .. } | Report::Json => Kept::Streamed {
+                due: None,
+                waiting: HashMap::new(),
+                todos: Vec::new(),
+            },
+        };
         State {
             supervise,
-            due: None,
+            kept,
             finished: 0,
-            results: HashMap::new(),
-            order: Vec::new(),
             failures: 0,
-            todos: Vec::new(),
             started: Instant::now(),
             connections: HashMap::new(),
         }
@@ -380,11 +398,15 @@ impl State {
                 self.results(console, message.results);
                 self.finished += 1;
                 if self.finished == self.supervise.processes || self.supervise.processes == 1 {
+                    let todos = match &self.kept {
+                        Kept::Streamed { todos, .. } => todos.as_slice(),
+                        Kept::All { .. } => &[],
+                    };
                     let summary = json!({
                         "type": "SUMMARY",
                         "duration": self.started.elapsed().as_millis() as u64,
                         "failures": self.failures,
-                        "todos": self.todos,
+                        "todos": todos,
                     });
                     if let Some(stream) = self.connections.get_mut(&id) {
                         // A line, as the worker reads its socket by lines.
@@ -403,10 +425,8 @@ impl State {
                     console.err(&format!("{text}\n"));
                 } else {
                     print(console, report, sent.as_ref());
-                    if report == Report::JUnit
-                        && let Some(sent) = &sent
-                    {
-                        console.out(&format!("{}\n", self.junit(sent)));
+                    if let (Kept::All { results, order }, Some(sent)) = (&self.kept, &sent) {
+                        console.out(&format!("{}\n", junit(results, order, sent)));
                     }
                 }
                 Some(message.exit_code.unwrap_or(1))
@@ -418,7 +438,9 @@ impl State {
                     console.out(&format!("\n{headline}\n{bar}\n\n"));
                 }
                 print(console, report, message.message.map(Sent::new).as_ref());
-                self.due = message.test_count.map(|tests| Due { next: 0, tests });
+                if let Kept::Streamed { due, .. } = &mut self.kept {
+                    *due = message.test_count.map(|tests| Due { next: 0, tests });
+                }
                 self.flush(console);
                 None
             }
@@ -445,35 +467,37 @@ impl State {
             .filter_map(|(index, raw)| Some((index.parse().ok()?, raw)))
             .collect();
         results.sort_by_key(|(index, _)| *index);
+        let report = self.supervise.report;
         for (index, raw) in results {
             let result = Sent::new(raw);
-            match self.supervise.report {
-                Report::Console { .. } => match result.status {
-                    Some(Status::Todo) => self.todos.push(result.value.clone()),
-                    Some(Status::Fail) => self.failures += 1,
-                    Some(Status::Pass) | None => {}
-                },
-                Report::JUnit => {
+            match &mut self.kept {
+                Kept::All { results, order } => {
                     if result.value.get("failure").is_some() {
                         self.failures += 1;
                     }
+                    if results.insert(index, result).is_none() {
+                        order.push(index);
+                    }
                 }
-                Report::Json => match result.status {
-                    Some(Status::Fail) => self.failures += 1,
-                    Some(Status::Todo) => self.todos.push(json!({
-                        "labels": result.value["labels"],
-                        "todo": result.value["failures"][0],
-                    })),
-                    Some(Status::Pass) | None => {}
-                },
-            }
-            if self.supervise.report == Report::JUnit {
-                if self.results.insert(index, result).is_none() {
-                    self.order.push(index);
+                Kept::Streamed {
+                    due,
+                    waiting,
+                    todos,
+                } => {
+                    match result.status {
+                        Some(Status::Fail) => self.failures += 1,
+                        Some(Status::Todo) if report == Report::Json => todos.push(json!({
+                            "labels": result.value["labels"],
+                            "todo": result.value["failures"][0],
+                        })),
+                        Some(Status::Todo) => todos.push(result.value.clone()),
+                        Some(Status::Pass) | None => {}
+                    }
+                    // One printed already is never printed again.
+                    if due.is_none_or(|due| index >= due.next) {
+                        waiting.insert(index, result);
+                    }
                 }
-            } else if self.due.is_none_or(|due| index >= due.next) {
-                // One printed already is never printed again.
-                self.results.insert(index, result);
             }
         }
         self.flush(console);
@@ -482,28 +506,32 @@ impl State {
     /// `flushResults`: the results due, in order, while there are. `JUnit`
     /// prints none until the run ends.
     fn flush(&mut self, console: &mut dyn Console) {
-        let Some(due) = &mut self.due else { return };
-        if self.supervise.report == Report::JUnit {
+        let Kept::Streamed {
+            due: Some(due),
+            waiting,
+            ..
+        } = &mut self.kept
+        else {
             return;
-        }
+        };
         while due.next < due.tests
-            && let Some(result) = self.results.remove(&due.next)
+            && let Some(result) = waiting.remove(&due.next)
         {
             print(console, self.supervise.report, Some(&result));
             due.next += 1;
         }
     }
+}
 
-    /// The `JUnit` report: the summary's XML with every result, in the
-    /// order they came.
-    fn junit(&self, summary: &Sent) -> String {
-        let parse = |text: &str| serde_json::from_str::<Json>(text).unwrap_or(Json::Null);
-        let results = (self.order.iter())
-            .filter_map(|index| self.results.get(index))
-            .map(|result| parse(&result.text))
-            .collect();
-        junit::report(parse(&summary.text), results)
-    }
+/// The `JUnit` report: the summary's XML with every result, in the
+/// order they came.
+fn junit(results: &HashMap<usize, Sent>, order: &[usize], summary: &Sent) -> String {
+    let parse = |text: &str| serde_json::from_str::<Json>(text).unwrap_or(Json::Null);
+    let results = (order.iter())
+        .filter_map(|index| results.get(index))
+        .map(|result| parse(&result.text))
+        .collect();
+    junit::report(parse(&summary.text), results)
 }
 
 /// `printResult`.
@@ -521,7 +549,7 @@ fn print(console: &mut dyn Console, report: Report, result: Option<&Sent>) {
                 (Some(Stage::Complete), Some(Status::Pass)) => "distributionReport",
                 (Some(Stage::Complete), Some(Status::Fail)) => "failure",
                 (Some(Stage::Summary), _) => "summary",
-                _ => return,
+                (Some(Stage::Complete), Some(Status::Todo) | None) | (None, _) => return,
             };
             let Some(text) = result.value.get(field) else {
                 return;
@@ -614,11 +642,17 @@ mod tests {
             console.out,
             "undefined\n{\"status\":\"pass\"}\n{\"status\":\"pass\"}\n{\"status\":\"fail\"}\n"
         );
-        assert!(state.results.is_empty());
-        assert_eq!((state.failures, state.todos.len()), (1, 1));
+        let Kept::Streamed { waiting, todos, .. } = &state.kept else {
+            panic!("JSON results are streamed")
+        };
+        assert!(waiting.is_empty());
+        assert_eq!((state.failures, todos.len()), (1, 1));
         let (state, console) = run(Report::JUnit);
         assert_eq!(console.out, "");
-        assert_eq!(state.order, [1, 0, 2]);
-        assert_eq!(state.results[&0].status, Some(Status::Todo));
+        let Kept::All { results, order } = &state.kept else {
+            panic!("JUnit keeps every result")
+        };
+        assert_eq!(*order, [1, 0, 2]);
+        assert_eq!(results[&0].status, Some(Status::Todo));
     }
 }

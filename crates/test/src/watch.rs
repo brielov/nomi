@@ -5,12 +5,12 @@
 //! dependency.
 
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, SystemTime};
 
 use nomi_engine::console::Console;
+use walkdir::{DirEntry, WalkDir};
 
 use crate::command::Progress;
 use crate::files::{IGNORED, relative};
@@ -174,29 +174,19 @@ fn sees(root: &Path, path: &Path) -> bool {
 }
 
 /// `path` and, for a directory, everything below it but the ignored
-/// directories.
+/// names, following links.
 fn walk(path: &Path, seen: &mut BTreeMap<PathBuf, Seen>) {
-    let Ok(meta) = fs::metadata(path) else { return };
-    let dir = meta.is_dir();
-    seen.insert(
-        path.to_owned(),
-        Seen {
-            dir,
+    let ignored =
+        |entry: &DirEntry| entry.depth() > 0 && IGNORED.iter().any(|i| entry.file_name() == *i);
+    let walk = WalkDir::new(path).follow_links(true).into_iter();
+    for entry in walk.filter_entry(|entry| !ignored(entry)).flatten() {
+        let Ok(meta) = entry.metadata() else { continue };
+        let seen_now = Seen {
+            dir: meta.is_dir(),
             size: meta.len(),
             modified: meta.modified().ok(),
-        },
-    );
-    if !dir {
-        return;
-    }
-    let Ok(entries) = fs::read_dir(path) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let ignored = IGNORED.iter().any(|i| entry.file_name() == *i);
-        if !ignored {
-            walk(&entry.path(), seen);
-        }
+        };
+        seen.insert(entry.into_path(), seen_now);
     }
 }
 
@@ -276,6 +266,8 @@ pub(crate) fn watch(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     fn change(event: Event, path: &str) -> Change {

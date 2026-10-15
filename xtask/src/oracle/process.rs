@@ -2,13 +2,14 @@
 //! its output read as it runs, so neither side of a pipe blocks the other.
 
 use std::fs;
-use std::io::{self, Read, Write as _};
+use std::io::{self, Write as _};
 use std::path::Path;
-use std::process::{Child, Command, ExitStatus, Output, Stdio};
-use std::thread::{self, Scope, ScopedJoinHandle};
-use std::time::{Duration, Instant};
+use std::process::{Command, Output, Stdio};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
+use nomi_testkit::process::{read_all, wait_within};
 
 /// How often [`run_within`] looks whether a child with a limit has
 /// ended: elm parses a module in milliseconds, and the syntax oracle runs
@@ -39,10 +40,13 @@ pub(crate) fn run_within(
             // fails, and dropping the pipe closes it either way.
             scope.spawn(move || stdin.write_all(input));
         }
-        let stdout = read_all(scope, child.stdout.take());
-        let stderr = read_all(scope, child.stderr.take());
-        let status = wait(&mut child, limit);
-        let joined = |reader: Option<ScopedJoinHandle<'_, Vec<u8>>>| {
+        let stdout = child.stdout.take().map(read_all);
+        let stderr = child.stderr.take().map(read_all);
+        let status = match limit {
+            None => child.wait().map(Some),
+            Some(limit) => wait_within(&mut child, limit, POLL).map(Result::ok),
+        };
+        let joined = |reader: Option<JoinHandle<Vec<u8>>>| {
             reader.map_or_else(Vec::new, |r| r.join().expect("a reader panicked"))
         };
         let (stdout, stderr) = (joined(stdout), joined(stderr));
@@ -77,43 +81,10 @@ pub(crate) fn run_to_files(
     }))
 }
 
-/// Everything `pipe` gives, if there is one, read on a thread of `scope`.
-fn read_all<'scope>(
-    scope: &'scope Scope<'scope, '_>,
-    pipe: Option<impl Read + Send + 'scope>,
-) -> Option<ScopedJoinHandle<'scope, Vec<u8>>> {
-    pipe.map(|mut pipe| {
-        scope.spawn(move || {
-            let mut bytes = Vec::new();
-            let _ = pipe.read_to_end(&mut bytes);
-            bytes
-        })
-    })
-}
-
-/// How `child` ended, or `None` once it has run past `limit` and been
-/// killed.
-fn wait(child: &mut Child, limit: Option<Duration>) -> io::Result<Option<ExitStatus>> {
-    let Some(limit) = limit else {
-        return child.wait().map(Some);
-    };
-    let started = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return Ok(Some(status)),
-            Ok(None) if started.elapsed() <= limit => thread::sleep(POLL),
-            // Killed either way, so the readers see the pipes close.
-            ended => {
-                child.kill()?;
-                child.wait()?;
-                return ended.map(|_| None);
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use super::*;
 
     fn sh(script: &str) -> Command {

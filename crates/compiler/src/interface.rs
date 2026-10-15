@@ -65,7 +65,7 @@ pub struct Binop {
 
 impl Union {
     /// `extractUnion`.
-    pub fn whole(&self) -> &canonical::Union {
+    pub fn whole(&self) -> &Arc<canonical::Union> {
         match self {
             Union::Open(union) | Union::Closed(union) | Union::Private(union) => union,
         }

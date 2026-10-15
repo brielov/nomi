@@ -24,13 +24,15 @@
 
 use std::fmt::Write as _;
 use std::fs;
-use std::io::{self, Read, Write as _};
+use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant, UNIX_EPOCH};
+use std::thread;
+use std::time::{Duration, UNIX_EPOCH};
 
 use nomi_base::Compat;
+
+use crate::process::{read_all, wait_within};
 
 /// A parsed case file.
 #[derive(Clone, Debug, Default)]
@@ -136,7 +138,7 @@ impl Case {
     }
 
     /// The case's arguments, with `$ROOT` standing for `dir`.
-    pub fn args_in(&self, dir: &Path) -> Vec<String> {
+    fn args_in(&self, dir: &Path) -> Vec<String> {
         let root = dir.to_string_lossy();
         (self.args.iter())
             .map(|a| a.replace("$ROOT", &root))
@@ -161,17 +163,7 @@ impl Case {
         let mut child = self.spawn(command, dir)?;
         let stdout = read_all(child.stdout.take().expect("piped above"));
         let stderr = read_all(child.stderr.take().expect("piped above"));
-        let started = Instant::now();
-        let status = loop {
-            if let Some(status) = child.try_wait()? {
-                break status;
-            }
-            if started.elapsed() > limit {
-                child.kill()?;
-                break child.wait()?;
-            }
-            thread::sleep(Duration::from_millis(20));
-        };
+        let (Ok(status) | Err(status)) = wait_within(&mut child, limit, Duration::from_millis(20))?;
         let stdout = stdout.join().unwrap_or_default();
         let stderr = stderr.join().unwrap_or_default();
         Transcript::after(status, stdout, stderr, dir)
@@ -276,15 +268,6 @@ pub fn recorded(recordings: &str, release: Compat) -> Option<&str> {
 pub fn crashed(transcript: &str) -> bool {
     transcript.starts_with("=== killed")
         || transcript.contains("bypassed the normal error reporting process")
-}
-
-/// Everything `pipe` gives, read on a thread of its own.
-fn read_all(mut pipe: impl Read + Send + 'static) -> JoinHandle<Vec<u8>> {
-    thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = pipe.read_to_end(&mut bytes);
-        bytes
-    })
 }
 
 /// The `=== ` sections of `text`, each a header and the lines after it.
@@ -535,6 +518,8 @@ pub fn digits_after(text: &str, marker: &str, with: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use super::*;
 
     #[cfg(unix)]

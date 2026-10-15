@@ -602,13 +602,14 @@ fn read_project<H>(
 /// `ElmJson.requireElmTestPackage`.
 fn require_test_package(project: &Project) -> Result<(), String> {
     let test: Name = TEST_PACKAGE.parse().expect("a package name");
+    // The version, and whether it is 2.x.
     let version = match &project.outline {
         Outline::App(app) => (app.test_direct.get(&test))
             .or_else(|| app.direct.get(&test))
-            .map(ToString::to_string),
+            .map(|v| (v.to_string(), v.major == 2)),
         Outline::Pkg(pkg) => (pkg.test_deps.get(&test))
             .or_else(|| pkg.deps.get(&test))
-            .map(ToString::to_string),
+            .map(|c| (c.to_string(), c.lower.major == 2)),
     };
     let path = project.root.join("elm.json");
     match version {
@@ -616,11 +617,11 @@ fn require_test_package(project: &Project) -> Result<(), String> {
             "{}\nYou must have \"{TEST_PACKAGE}\" in your \"test-dependencies\" or \"dependencies\" to run elm-test.",
             path.display()
         )),
-        Some(version) if !version.trim_start().starts_with("2.") => Err(format!(
+        Some((version, false)) => Err(format!(
             "{}\nThis version of elm-test only supports {TEST_PACKAGE} 2.x, but you have \"{version}\".",
             path.display()
         )),
-        Some(_) => Ok(()),
+        Some((_, true)) => Ok(()),
     }
 }
 
@@ -649,7 +650,7 @@ impl Progress {
         }
     }
 
-    pub(crate) fn new_line(&mut self, console: &mut dyn Console) {
+    fn new_line(&mut self, console: &mut dyn Console) {
         self.items.clear();
         if self.shown {
             console.out("\n");
