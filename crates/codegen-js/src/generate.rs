@@ -26,19 +26,25 @@ const FUNCTIONS: &str = include_str!("functions.js");
 /// `generate`: the program of `mains`, each a module and its `main`,
 /// from `graph`, which holds every definition they may reach, for
 /// `target`. A Node program carries the runtime its kernels run on, and
-/// a Node module of one `main` is an entry, which starts it.
+/// a Node module of one `main` is an entry, which starts it. A module's
+/// FFI module is imported first and is its scope's `ffi`, where its
+/// kernel finds it.
 pub fn generate(
     compat: Compat,
     mode: &Mode,
-    target: Target,
+    target: &Target,
     graph: &GlobalGraph,
     mains: &[(Home, Main)],
 ) -> Vec<u8> {
     let mut mains: Vec<&(Home, Main)> = mains.iter().collect();
     mains.sort_by(|a, b| homes(compat, &a.0, &b.0));
-    let mut kernels = match target.format {
-        Format::Iife => Vec::new(),
-        Format::EsModule => b"const scope = {};\n".to_vec(),
+    let mut kernels = match (target.format, &target.ffi) {
+        (Format::Iife, _) => Vec::new(),
+        (Format::EsModule, None) => b"const scope = {};\n".to_vec(),
+        (Format::EsModule, Some(ffi)) => {
+            format!("import * as __nomi_ffi from '{ffi}';\nconst scope = {{ ffi: __nomi_ffi }};\n")
+                .into_bytes()
+        }
     };
     kernels.extend_from_slice(b"(function(scope){\n'use strict';");
     kernels.extend_from_slice(FUNCTIONS.as_bytes());
@@ -403,7 +409,7 @@ mod tests {
     /// The program's code past the helpers and the note.
     fn program(compat: Compat, mode: &Mode, graph: &GlobalGraph, mains: &[(Home, Main)]) -> String {
         let js =
-            String::from_utf8(generate(compat, mode, Target::default(), graph, mains)).unwrap();
+            String::from_utf8(generate(compat, mode, &Target::default(), graph, mains)).unwrap();
         let start = js
             .find("assets.');")
             .map_or(0, |at| at + "assets.');".len());
@@ -456,12 +462,12 @@ mod tests {
     #[test]
     fn a_module_wraps_the_same_function_and_exports_elm() {
         let (graph, mains) = static_mains(&["Main"]);
-        let iife = generate(Compat::V0_19_1, &DEV, Target::default(), &graph, &mains);
+        let iife = generate(Compat::V0_19_1, &DEV, &Target::default(), &graph, &mains);
         let module = Target {
             format: Format::EsModule,
             ..Target::default()
         };
-        let module = generate(Compat::V0_19_1, &DEV, module, &graph, &mains);
+        let module = generate(Compat::V0_19_1, &DEV, &module, &graph, &mains);
         let iife = String::from_utf8(iife).unwrap();
         let body = iife.strip_suffix("}(this));").unwrap();
         assert_eq!(
@@ -478,9 +484,9 @@ mod tests {
         };
         let node = Target {
             platform: Platform::Node,
-            ..browser
+            ..browser.clone()
         };
-        let built = |target, modules: &[&str]| {
+        let built = |target: &Target, modules: &[&str]| {
             let (graph, mains) = static_mains(modules);
             String::from_utf8(generate(Compat::V0_19_1, &DEV, target, &graph, &mains)).unwrap()
         };
@@ -488,15 +494,30 @@ mod tests {
         let note = perf_note(Compat::V0_19_1, &DEV);
         let with_runtime =
             |module: String| module.replacen(&note, &format!("{note}{}", runtime::prologue()), 1);
-        let module = with_runtime(built(browser, &["Page.Home"]));
+        let module = with_runtime(built(&browser, &["Page.Home"]));
         let (body, end) = module.split_at(module.rfind("}(scope));").unwrap());
         assert_eq!(
-            built(node, &["Page.Home"]),
+            built(&node, &["Page.Home"]),
             format!("{body}{}{end}", shim("Page.Home"))
         );
         assert_eq!(
-            built(node, &["Main", "Other"]),
-            with_runtime(built(browser, &["Main", "Other"]))
+            built(&node, &["Main", "Other"]),
+            with_runtime(built(&browser, &["Main", "Other"]))
+        );
+        // A module with an FFI module imports it, and its scope holds it.
+        let ffi = Target {
+            ffi: Some("../src/ffi.mjs".to_owned()),
+            ..node
+        };
+        let plain = built(&node, &["Main"]);
+        assert_eq!(
+            built(&ffi, &["Main"]),
+            plain.replacen(
+                "const scope = {};\n",
+                "import * as __nomi_ffi from '../src/ffi.mjs';\n\
+                 const scope = { ffi: __nomi_ffi };\n",
+                1
+            )
         );
     }
 

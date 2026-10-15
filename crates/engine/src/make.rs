@@ -43,6 +43,8 @@ pub struct Make {
     /// Whether the roots' `main`s choose the platform in place of
     /// `target`'s: Node for nomi/core's `Program`.
     pub platform_by_main: bool,
+    /// The ES module whose functions `Nomi.Ffi` calls, from the directory.
+    pub ffi: Option<PathBuf>,
     /// `--output`, if given.
     pub output: Option<Output>,
     /// Where to write a package's `docs.json`.
@@ -115,6 +117,7 @@ impl Make {
             kind: Ok(javascript::Kind::Dev),
             target: javascript::Target::default(),
             platform_by_main: false,
+            ffi: None,
             output: Some(Output::DevNull),
             docs: None,
         }
@@ -417,15 +420,27 @@ fn write(vfs: &Vfs, console: &mut dyn Console, dir: &Path, make: &Make, clean: C
                     return fail(console, report::debug_remnants(&uses));
                 }
             }
-            let mut made_for = make.target;
+            let mut made_for = make.target.clone();
             if make.platform_by_main && javascript::runs_on_node(&optimized) {
                 made_for.platform = Platform::Node;
+            }
+            if let Some(ffi) = &make.ffi {
+                if made_for.platform != Platform::Node {
+                    return fail(console, ffi_off_node());
+                }
+                if made_for.format != javascript::Format::EsModule || target.html.is_some() {
+                    return fail(console, ffi_outside_module());
+                }
+                made_for.ffi = Some(nomi_codegen_js::platform::ffi_specifier(
+                    &dir.join(&target.path),
+                    &dir.join(ffi),
+                ));
             }
             let package = env.owner().package_name();
             let bytes = timings::time(Phase::Generate, || {
                 let types = dependencies.into_graph_and_types();
                 let js = javascript::program(
-                    compat, kind, made_for, &package, &packages, types, optimized,
+                    compat, kind, &made_for, &package, &packages, types, optimized,
                 )?;
                 Ok(match &target.html {
                     Some(module) => nomi_codegen_js::html::sandwich(&module.to_string(), &js),
@@ -624,6 +639,31 @@ fn target(output: Option<&Output>, roots: &[RootMain]) -> Result<Option<Target>,
             _ => Err(multiple_files_into_html()),
         },
     }
+}
+
+/// That an FFI module was given for a program built for the browser.
+fn ffi_off_node() -> Report {
+    Report::doc(
+        "FFI NEEDS NODE",
+        None,
+        reflow("An FFI module was given, but this program is built for the browser."),
+        [reflow(
+            "Nomi.Ffi calls JavaScript on Node. Build with --platform=node, or give `main` \
+             the type `Nomi.Program`, which builds for Node by itself.",
+        )],
+    )
+}
+
+/// That an FFI module was given for output that isn't an ES module.
+fn ffi_outside_module() -> Report {
+    Report::doc(
+        "FFI NEEDS AN ES MODULE",
+        None,
+        reflow("An FFI module was given, but the output is not an ES module, which can import it."),
+        [reflow(
+            "Write the program to a file ending in .mjs, as with --output=dist/main.mjs.",
+        )],
+    )
 }
 
 /// `MakeMultipleFilesIntoHtml`.

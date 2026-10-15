@@ -106,6 +106,10 @@ enum Command {
         /// one `main` starts it when run.
         #[arg(long, value_enum)]
         platform: Option<PlatformName>,
+        /// The ES module whose exported async functions `Nomi.Ffi.task`
+        /// calls, imported by an `.mjs` output built for Node.
+        #[arg(long, value_name = "FILE")]
+        ffi: Option<PathBuf>,
     },
     /// Show how a package's API changed: the code against its latest
     /// release or a given one, two of its releases, or two of any
@@ -214,6 +218,7 @@ fn main() -> ExitCode {
             docs,
             report,
             platform,
+            ffi,
         }) => {
             let module = output.as_deref().is_some_and(|o| make::has_ext(".mjs", o));
             let output = match output.as_deref().map(make::Output::parse) {
@@ -237,6 +242,7 @@ fn main() -> ExitCode {
                     javascript::Format::Iife
                 },
                 dom: javascript::Dom::Native,
+                ffi: None,
             };
             let make = make::Make {
                 paths,
@@ -245,6 +251,7 @@ fn main() -> ExitCode {
                 kind: make::kind(debug, optimize),
                 target,
                 platform_by_main: platform.is_none(),
+                ffi,
                 output,
                 docs,
             };

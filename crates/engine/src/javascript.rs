@@ -50,7 +50,7 @@ pub enum Kind {
 pub fn program(
     compat: Compat,
     kind: Kind,
-    target: Target,
+    target: &Target,
     package: &str,
     packages: &[(Name, PathBuf)],
     dependencies: (GlobalGraph, Types),
@@ -99,6 +99,9 @@ pub fn program(
     };
     let mut lacking = platform::unavailable(target.platform, target.dom).to_vec();
     lacking.extend(unknown.iter().map(|release| release.module));
+    if target.platform == Platform::Node && target.ffi.is_none() {
+        lacking.push(platform::FFI_KERNEL);
+    }
     let js = match unavailable(compat, &mode, &lacking, &graph, &mains) {
         Some(path) => Err(not_available(target.platform, &path, &unknown)),
         None => Ok(generate(compat, &mode, target, &graph, &mains)),
@@ -174,7 +177,8 @@ fn replace_kernels(
 }
 
 /// That `path`, from a `main` to a kernel, reaches what `platform` lacks,
-/// or a kernel it replaces in a release in `unknown`.
+/// a kernel it replaces in a release in `unknown`, or, on Node, the FFI's
+/// kernel without an FFI module.
 fn not_available(platform: Platform, path: &[Global], unknown: &[Unknown]) -> Report {
     let name = |global: &Global| match global.home.package.as_str() {
         "elm/kernel" => format!("{}{}", kernel::MODULE_PREFIX, global.home.module),
@@ -203,6 +207,24 @@ fn not_available(platform: Platform, path: &[Global], unknown: &[Unknown]) -> Re
                      releases of the package it knows, and {release} is not one of them. Depend \
                      on another release, or use a nomi that knows this one."
                 )),
+            ],
+        );
+    }
+    if platform == Platform::Node && *last.home.module == *platform::FFI_KERNEL {
+        return Report::doc(
+            "NO FFI MODULE",
+            None,
+            reflow(&format!(
+                "The `main` in {} calls JavaScript through Nomi.Ffi, but this build has no FFI \
+                 module to call:",
+                main.home.module
+            )),
+            [
+                text(&chain).color(Color::Red).indent(4),
+                reflow(
+                    "Give the ES module that exports the functions with --ffi, and build to a \
+                     file ending in .mjs, which imports it.",
+                ),
             ],
         );
     }

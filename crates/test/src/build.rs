@@ -136,6 +136,7 @@ fn elm_make(paths: Vec<PathBuf>, style: Style, output: Output) -> Make {
         kind: Ok(Kind::Dev),
         target: Target::default(),
         platform_by_main: false,
+        ffi: None,
         output: Some(output),
         docs: None,
     }
@@ -189,6 +190,7 @@ pub fn build<H: Http + Sync>(
         platform: Platform::Node,
         format: Format::Iife,
         dom: Dom::Polyfilled,
+        ffi: None,
     };
     if !make::run(&env.at(&dir), &mut quiet, &make) {
         return Err(quiet.shown(console));
