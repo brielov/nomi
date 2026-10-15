@@ -278,12 +278,10 @@ main =
 
 /// A kernel Node replaces, in a release whose file nomi doesn't know, is
 /// not available on Node: the build fails naming the release, where the
-/// browser's still builds.
+/// browser's still builds. elm/http 1.0.0's `Http.js` is such a file.
 #[test]
 fn an_unknown_release_of_a_replaced_kernel_fails_for_node() {
-    let cache = website::fixture_cache();
-    let (_work, root) = project(
-        "module Main exposing (main)
+    let worker = "module Main exposing (main)
 
 
 main : Program () () ()
@@ -293,15 +291,46 @@ main =
         , update = \\_ model -> ( model, Cmd.none )
         , subscriptions = \\_ -> Sub.none
         }
-",
+";
+    unknown_release_fails(
+        worker,
+        None,
+        "Scheduler",
+        "elm/core 1.0.5",
+        "main → Platform.worker → Elm.Kernel.Platform → Elm.Kernel.Scheduler",
     );
-    let scheduler = (files(cache.path()).into_keys())
-        .find(|path| path.ends_with("src/Elm/Kernel/Scheduler.js"))
+    unknown_release_fails(
+        HTTP_WORKER,
+        Some(HTTP_APP),
+        "Http",
+        "elm/http 2.0.0",
+        "main → Main.requests → Http.expectStringResponse → Elm.Kernel.Http",
+    );
+}
+
+/// Builds `main`, with `elm_json` if given, for the browser and then for
+/// Node with the kernel `module` changed, which must fail naming
+/// `release` and the `chain` to it.
+fn unknown_release_fails(
+    main: &str,
+    elm_json: Option<&str>,
+    module: &str,
+    release: &str,
+    chain: &str,
+) {
+    let cache = website::fixture_cache();
+    let (_work, root) = project(main);
+    if let Some(elm_json) = elm_json {
+        fs::write(root.join("elm.json"), elm_json).unwrap();
+    }
+    let file = format!("src/Elm/Kernel/{module}.js");
+    let kernel = (files(cache.path()).into_keys())
+        .find(|path| path.ends_with(&file))
         .map(|path| cache.path().join(path))
         .unwrap();
-    let mut text = fs::read_to_string(&scheduler).unwrap();
+    let mut text = fs::read_to_string(&kernel).unwrap();
     text.push_str("\n// A release nomi doesn't know.\n");
-    fs::write(&scheduler, text).unwrap();
+    fs::write(&kernel, text).unwrap();
     build(cache.path(), &root, &["--output=dist/browser.js"]);
     let program = Path::new(env!("CARGO_BIN_EXE_nomi"));
     let built = offline(program, cache.path())
@@ -318,11 +347,8 @@ main =
     assert!(!built.status.success(), "{said}");
     assert!(said.contains("NOT AVAILABLE ON NODE"), "{said}");
     let said = said.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(
-        said.contains("uses Elm.Kernel.Scheduler of elm/core 1.0.5, a file"),
-        "{said}"
-    );
-    let chain = "main → Platform.worker → Elm.Kernel.Platform → Elm.Kernel.Scheduler";
+    let uses = format!("uses Elm.Kernel.{module} of {release}, a file");
+    assert!(said.contains(&uses), "{said}");
     assert!(said.contains(chain), "{said}");
     assert!(!root.join("dist/node.js").exists());
 }
@@ -435,4 +461,192 @@ fn a_node_program_sleeps_and_ticks_on_its_clock() {
             assert!(took.as_millis() < 1000, "the virtual clock took {took:?}");
         }
     }
+}
+
+/// The `elm.json` of an application on elm/http 2.0.0.
+const HTTP_APP: &str = r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/bytes": "1.0.8", "elm/core": "1.0.5", "elm/http": "2.0.0", "elm/json": "1.1.4"}, "indirect": {"elm/file": "1.0.5", "elm/time": "1.0.0"}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#;
+
+/// A worker that makes each request in turn against the server at its
+/// flags, writing each `Result` to `log`, then cancels a request that is
+/// receiving its body and asks the server whether its connection closed.
+const HTTP_WORKER: &str = r#"port module Main exposing (main)
+
+import Bytes.Decode
+import Dict
+import Http
+import Json.Decode as D
+import Json.Encode as E
+
+
+port log : String -> Cmd msg
+
+
+port done : () -> Cmd msg
+
+
+type Msg
+    = Got String
+    | Progress Http.Progress
+
+
+type alias Model =
+    { base : String, left : List (Cmd Msg), tracking : Bool }
+
+
+main : Program String Model Msg
+main =
+    Platform.worker
+        { init = \base -> update (Got "start") (Model base (requests base) True)
+        , update = update
+        , subscriptions = \model -> if model.tracking then Http.track "hang" Progress else Sub.none
+        }
+
+
+got : String -> Result x a -> Msg
+got label result =
+    Got (label ++ ": " ++ Debug.toString result)
+
+
+get : String -> String -> Maybe Float -> Maybe String -> Http.Expect Msg -> Cmd Msg
+get base path timeout tracker expect =
+    Http.request
+        { method = "GET"
+        , headers = [ Http.header "X-Ask" "elm" ]
+        , url = base ++ path
+        , body = Http.emptyBody
+        , expect = expect
+        , timeout = timeout
+        , tracker = tracker
+        }
+
+
+metadata : Http.Response String -> Result String { status : Int, text : String, url : Bool, headers : List ( String, String ), body : String }
+metadata response =
+    case response of
+        Http.GoodStatus_ m body ->
+            Ok
+                { status = m.statusCode
+                , text = m.statusText
+                , url = String.endsWith "/text" m.url
+                , headers = Dict.toList (Dict.filter (\k _ -> String.startsWith "x-" k || k == "set-cookie") m.headers)
+                , body = body
+                }
+
+        _ ->
+            Err "not good"
+
+
+requests : String -> List (Cmd Msg)
+requests base =
+    [ Http.get { url = base ++ "/text", expect = Http.expectString (got "get") }
+    , get base "/text" Nothing Nothing (Http.expectStringResponse (got "metadata") metadata)
+    , Http.post
+        { url = base ++ "/echo"
+        , body = Http.jsonBody (E.object [ ( "n", E.int 1 ) ])
+        , expect = Http.expectJson (got "post") (D.map3 (\m t b -> ( m, t, b )) (D.field "method" D.string) (D.field "type" D.string) (D.field "body" D.string))
+        }
+    , Http.get { url = base ++ "/text", expect = Http.expectBytes (got "bytes") (Bytes.Decode.string 5) }
+    , Http.get { url = base ++ "/text", expect = Http.expectWhatever (got "whatever") }
+    , Http.get { url = base ++ "/missing", expect = Http.expectString (got "bad status") }
+    , get base "/slow" (Just 50) Nothing (Http.expectString (got "timeout"))
+    , Http.get { url = base ++ "/reset", expect = Http.expectString (got "network error") }
+    , Http.get { url = "not a url", expect = Http.expectString (got "bad url") }
+    , get base "/hang" Nothing (Just "hang") (Http.expectString (got "cancelled"))
+    ]
+
+
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg model =
+    case msg of
+        Got line ->
+            case model.left of
+                next :: rest ->
+                    ( { model | left = rest }, Cmd.batch [ log line, next ] )
+
+                [] ->
+                    ( model, Cmd.batch [ log line, done () ] )
+
+        Progress progress ->
+            ( { model | tracking = False }
+            , Cmd.batch
+                [ log ("progress: " ++ Debug.toString progress)
+                , Http.cancel "hang"
+                , get model.base "/closed" (Just 5000) Nothing (Http.expectString (got "closed"))
+                ]
+            )
+"#;
+
+/// The server `HTTP_WORKER` talks to, on a loopback port it passes as the
+/// worker's flags; the program's standard output is what the worker logs.
+const HTTP_DRIVER: &str = r#"const http = require('node:http');
+const { Elm } = require('./dist/main.js');
+let hung;
+const server = http.createServer((req, res) => {
+  switch (req.url) {
+    case '/text':
+      res.setHeader('X-Asked', req.headers['x-ask'] ?? '');
+      res.setHeader('X-Two', ['a', 'b']);
+      res.setHeader('Set-Cookie', 'k=v');
+      return res.end('hello');
+    case '/echo': {
+      let body = '';
+      req.on('data', (chunk) => body += chunk);
+      return req.on('end', () => res.end(JSON.stringify({ method: req.method, type: req.headers['content-type'], body })));
+    }
+    case '/missing':
+      res.statusCode = 404;
+      return res.end('no');
+    case '/slow':
+      return;
+    case '/reset':
+      return req.socket.destroy();
+    case '/hang':
+      res.writeHead(200, { 'Content-Length': 10 });
+      res.write('hello');
+      hung = new Promise((resolve) => res.on('close', resolve));
+      return;
+    case '/closed':
+      return hung.then(() => res.end('closed'));
+  }
+});
+server.listen(0, '127.0.0.1', () => {
+  const app = Elm.Main.init({ flags: `http://127.0.0.1:${server.address().port}` });
+  app.ports.log.subscribe((line) => console.log(line));
+  app.ports.done.subscribe(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+});
+"#;
+
+/// elm/http on Node gives the `Result` the browser's kernel gives: for a
+/// GET and a POST, each `expect`, the response's metadata, a bad status,
+/// a timeout, a dropped connection and a bad URL. A cancelled request
+/// closes its connection and answers nothing.
+#[test]
+fn a_node_program_makes_http_requests() {
+    nomi_testkit::require_node();
+    let cache = website::fixture_cache();
+    let (_work, root) = project(HTTP_WORKER);
+    fs::write(root.join("elm.json"), HTTP_APP).unwrap();
+    build(
+        cache.path(),
+        &root,
+        &["--platform=node", "--output=dist/main.js"],
+    );
+    fs::write(root.join("driver.cjs"), HTTP_DRIVER).unwrap();
+    let expected = r#"start
+get: Ok "hello"
+metadata: Ok { body = "hello", headers = [("x-asked","elm"),("x-two","a, b")], status = 200, text = "OK", url = True }
+post: Ok ("POST","application/json","{\"n\":1}")
+bytes: Ok "hello"
+whatever: Ok ()
+bad status: Err (BadStatus 404)
+timeout: Err Timeout
+network error: Err NetworkError
+bad url: Err (BadUrl "not a url")
+progress: Receiving { received = 5, size = Just 10 }
+closed: Ok "closed"
+"#;
+    assert_eq!(node(&root, "driver.cjs"), expected);
 }

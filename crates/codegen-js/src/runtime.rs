@@ -80,7 +80,7 @@ pub struct Override {
 }
 
 /// The kernels a Node program replaces.
-pub(crate) const NODE: [Override; 3] = [
+pub(crate) const NODE: [Override; 4] = [
     Override {
         package: "elm/core",
         module: "Scheduler",
@@ -101,6 +101,13 @@ pub(crate) const NODE: [Override; 3] = [
         // elm/time 1.0.0, its only release.
         upstream: &["cc59eff642bd2dc98ffde4a99ed0c682821e09a4601c083338d442b15ccd5cb1"],
         code: include_str!("../../../runtime/node/kernel/elm/time/Time.js"),
+    },
+    Override {
+        package: "elm/http",
+        module: "Http",
+        // elm/http 2.0.0; 1.0.0's differs and isn't replaced.
+        upstream: &["0cc54240d870127251fe6f2d76bf7ec0db1701d9dacbd893d79109af3580fce6"],
+        code: include_str!("../../../runtime/node/kernel/elm/http/Http.js"),
     },
 ];
 
