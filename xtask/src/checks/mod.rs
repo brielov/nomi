@@ -1,12 +1,12 @@
 //! Architecture checks run by `cargo xtask ci`. Each check is a pure function
 //! over inputs gathered here, so its tests can feed it failing fixtures.
 
-pub(crate) mod comments;
-pub(crate) mod ignore;
-pub(crate) mod layering;
-pub(crate) mod pool;
-pub(crate) mod purity;
-pub(crate) mod size;
+mod comments;
+mod ignore;
+mod layering;
+mod pool;
+mod purity;
+mod size;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;

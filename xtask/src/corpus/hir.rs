@@ -10,12 +10,13 @@ use nomi_base::Compat;
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{Tool, parse_module, validate};
 
-use super::parallel;
 use super::syntax::modules;
+use crate::oracle::cores;
+use nomi_testkit::parallel_on;
 
 pub(crate) fn check(root: &Path) -> Result<()> {
     let modules = modules(root)?;
-    let results = parallel(&modules, |m| -> Result<Option<Vec<String>>> {
+    let results = parallel_on(cores(), &modules, |m| -> Result<Option<Vec<String>>> {
         let bytes = std::fs::read(&m.file)?;
         let Ok(text) = std::str::from_utf8(&bytes) else {
             return Ok(None);

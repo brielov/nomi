@@ -25,8 +25,8 @@ use nomi_testkit::lsp::{self, Driver, Timing};
 use serde_json::{Map, Value, json};
 
 use super::sandbox::{elm_home, fixture_releases, offline};
+use super::{ElmOnPath, elm_on_path, remove_tree};
 use super::{cache_dir, cores, installed, node_version, oracles_dir, pinned_binary};
-use super::{pinned_elm, remove_tree, which};
 use crate::references::References;
 use nomi_testkit::parallel_on;
 
@@ -92,23 +92,8 @@ pub(crate) fn tools(
     home: PathBuf,
     packages: PathBuf,
 ) -> Result<Tools> {
-    let node = which("node").context("node isn't on PATH")?;
-    let bin = scratch.join("bin");
-    fs::create_dir_all(&bin)?;
-    let elm = pinned_elm(refs, COMPAT)?;
-    let link = bin.join(elm.file_name().context("elm's name")?);
-    if !link.exists() {
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&elm, &link)?;
-        #[cfg(not(unix))]
-        fs::copy(&elm, &link)?;
-    }
-    let path = std::env::join_paths([
-        bin,
-        node.parent().context("node's directory")?.to_owned(),
-        PathBuf::from("/usr/bin"),
-        PathBuf::from("/bin"),
-    ])?;
+    let system = [Path::new("/usr/bin"), Path::new("/bin")];
+    let ElmOnPath { node, elm, path } = elm_on_path(refs, COMPAT, &scratch.join("bin"), &system)?;
     Ok(Tools {
         node,
         path,

@@ -132,6 +132,12 @@ struct Measured {
     completion: Cost,
 }
 
+/// A part's best wall time and its CPU time, before its memory is known.
+struct Timed {
+    wall: Duration,
+    cpu: Duration,
+}
+
 /// The app's first entry module, by path in its root.
 fn entry(root: &Path, app: &str) -> Result<String> {
     let apps = crate::corpus::apps::load(root)?.app;
@@ -221,20 +227,17 @@ fn session(
     };
     let result = (|| -> Result<Measured> {
         client.initialize(work)?;
-        let peak = || peak.load(Ordering::Relaxed);
-        let first = Cost {
+        let cost = |timed: Timed| Cost {
+            wall: timed.wall,
+            cpu: timed.cpu,
+            memory: peak.load(Ordering::Relaxed),
+        };
+        let first = cost(Timed {
             wall: client.open(module)?,
-            memory: peak(),
-            ..usage(pid)
-        };
-        let save = Cost {
-            memory: peak(),
-            ..client.saves(module, pid)?
-        };
-        let completion = Cost {
-            memory: peak(),
-            ..client.completions(module, pid)?
-        };
+            cpu: cpu(pid),
+        });
+        let save = cost(client.saves(module, pid)?);
+        let completion = cost(client.completions(module, pid)?);
         let _ = client.request("shutdown", Value::Null);
         client.notify("exit", Value::Null);
         Ok(Measured {
@@ -274,20 +277,14 @@ fn completion_positions(text: &str) -> Vec<(usize, usize)> {
     found
 }
 
-/// The server's CPU time and peak resident memory so far: its process's
-/// and its descendants', as a version manager's `node` runs the real one
-/// as its child. CPU time counts children that have exited too.
-fn usage(pid: u32) -> Cost {
-    let (mut ticks, mut memory) = (0, 0);
-    for pid in tree(pid) {
-        ticks += stat(pid).map_or(0, |(_, ticks)| ticks);
-        memory += status_kib(pid, "VmHWM");
-    }
-    Cost {
-        wall: Duration::ZERO,
-        cpu: Duration::from_millis(ticks * 1000 / TICKS),
-        memory,
-    }
+/// The server's CPU time so far: its process's and its descendants', as
+/// a version manager's `node` runs the real one as its child. It counts
+/// children that have exited too.
+fn cpu(pid: u32) -> Duration {
+    let ticks: u64 = (tree(pid).into_iter())
+        .map(|pid| stat(pid).map_or(0, |(_, ticks)| ticks))
+        .sum();
+    Duration::from_millis(ticks * 1000 / TICKS)
 }
 
 /// The resident memory of `pid` and its descendants now, in KiB.
@@ -394,10 +391,10 @@ impl Client {
     /// Saves `module` fixed and broken in turn, [`SAVES`] times, then
     /// fixed again unmeasured, for the completions: the best time from a
     /// save to its diagnostics, and the CPU time a save takes.
-    fn saves(&mut self, module: &Module, pid: u32) -> Result<Cost> {
+    fn saves(&mut self, module: &Module, pid: u32) -> Result<Timed> {
         let mut text = Text::Broken;
         let mut best = Duration::MAX;
-        let before = usage(pid);
+        let before = cpu(pid);
         for _ in 0..SAVES {
             text = match text {
                 Text::Fixed => Text::Broken,
@@ -407,14 +404,13 @@ impl Client {
             self.save(module, text)?;
             best = best.min(start.elapsed());
         }
-        let after = usage(pid);
+        let after = cpu(pid);
         if text == Text::Broken {
             self.save(module, Text::Fixed)?;
         }
-        Ok(Cost {
+        Ok(Timed {
             wall: best,
-            cpu: (after.cpu - before.cpu) / SAVES as u32,
-            memory: 0,
+            cpu: (after - before) / SAVES as u32,
         })
     }
 
@@ -439,7 +435,7 @@ impl Client {
 
     /// Asks for completions in `module`, fixed, [`COMPLETIONS`] times:
     /// the best time to an answer, and the CPU time one takes.
-    fn completions(&mut self, module: &Module, pid: u32) -> Result<Cost> {
+    fn completions(&mut self, module: &Module, pid: u32) -> Result<Timed> {
         let positions = completion_positions(&module.clean);
         ensure!(
             !positions.is_empty(),
@@ -447,7 +443,7 @@ impl Client {
             module.path.display()
         );
         let mut best = Duration::MAX;
-        let before = usage(pid);
+        let before = cpu(pid);
         for (line, character) in positions.iter().cycle().take(COMPLETIONS) {
             let start = Instant::now();
             self.request(
@@ -459,11 +455,10 @@ impl Client {
             )?;
             best = best.min(start.elapsed());
         }
-        let after = usage(pid);
-        Ok(Cost {
+        let after = cpu(pid);
+        Ok(Timed {
             wall: best,
-            cpu: (after.cpu - before.cpu) / COMPLETIONS as u32,
-            memory: 0,
+            cpu: (after - before) / COMPLETIONS as u32,
         })
     }
 
@@ -479,7 +474,7 @@ impl Client {
 
     /// Sends a request and waits for its answer, which must not be an
     /// error.
-    fn request(&mut self, method: &str, params: Value) -> Result<Value> {
+    fn request(&mut self, method: &str, params: Value) -> Result<()> {
         self.next += 1;
         let id = RequestId::from(self.next);
         self.connection.sender.send(Message::Request(Request::new(
@@ -495,7 +490,7 @@ impl Client {
                 if let Some(error) = response.error {
                     bail!("{method} failed: {} ({})", error.message, error.code);
                 }
-                return Ok(response.result.unwrap_or(Value::Null));
+                return Ok(());
             }
         }
     }

@@ -17,6 +17,7 @@ use std::process::{Command as Process, ExitCode};
 use anyhow::{Context, Result, bail};
 use cargo_metadata::MetadataCommand;
 use clap::{Parser, Subcommand};
+use nomi_base::Compat;
 use oracle::corpus_runs::Suite;
 use oracle::errors::Suite as Errors;
 
@@ -139,7 +140,7 @@ enum CorpusCommand {
     /// Where two `.elmo` files' graphs first differ, nomi's and elm's.
     GraphDiff {
         /// The release that wrote them, as `0.19.1`.
-        release: String,
+        release: Compat,
         nomi: PathBuf,
         elm: PathBuf,
     },
@@ -357,20 +358,7 @@ fn main() -> ExitCode {
             runs,
             jobs.map_or_else(oracle::cores, NonZeroUsize::get),
         ),
-        Command::Bench { target } => match target.and_then(bench::Target::crate_bench) {
-            Some(name) => cargo(
-                root,
-                &[
-                    "bench",
-                    "--locked",
-                    "--package",
-                    &format!("nomi-{name}"),
-                    "--bench",
-                    name,
-                ],
-            ),
-            None => references::load(root).and_then(|r| bench::run(root, &r, target)),
-        },
+        Command::Bench { target } => bench::bench(root, target),
         Command::Corpus { command } => run_corpus(root, command),
     };
     match result {
@@ -464,7 +452,7 @@ fn run_corpus(root: &Path, command: CorpusCommand) -> Result<()> {
             corpus::runs::check(root, Suite::Objects, only.as_deref())
         }
         CorpusCommand::GraphDiff { release, nomi, elm } => {
-            corpus::runs::graph_diff(&release, &nomi, &elm)
+            corpus::runs::graph_diff(release, &nomi, &elm)
         }
         CorpusCommand::Lsp { .. } if cfg!(debug_assertions) => optimized(root),
         CorpusCommand::Lsp { record, only } => corpus::lsp::check(root, record, only.as_deref()),

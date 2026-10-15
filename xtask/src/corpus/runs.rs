@@ -24,11 +24,13 @@ use nomi_engine::check::{self, Built, Checked, Goal, Optimized, Style};
 use nomi_engine::console::Captured;
 use nomi_engine::graph::Env;
 use nomi_engine::{javascript, names, objects};
-use nomi_project::Name;
+use nomi_project::{ModuleName, Name};
+use nomi_syntax::ast::{self, AstNode};
+use nomi_syntax::{parse_module, significant_tokens};
 use nomi_testkit::{release_column, sha256_hex as sha256};
 
-use super::names::{Expected, Live, Project, build, solve};
-use super::{compat, parallel};
+use super::compat;
+use super::names::{Expected, Live, Project, build, in_chunks, solve};
 use crate::oracle::corpus_runs::{Cell, Projects, Suite, graphs_cell, sandbox_id};
 use crate::oracle::javascript::Mode;
 
@@ -51,39 +53,32 @@ pub(crate) fn check(root: &Path, suite: Suite, only: Option<&str>) -> Result<()>
             }
         }
         skipped.extend(solving.unavailable);
-        let mut memo = HashMap::new();
+        let mut ready = Vec::new();
+        for (project, sources) in &solving.solved {
+            let Some(expected) = cells.get(oracle_case(&project.case)) else {
+                failures.push((project.case.clone(), "not in the oracle".to_owned()));
+                continue;
+            };
+            if let Cell::Excluded | Cell::Error(_) | Cell::Crash = expected {
+                skipped.push(format!("{}: elm said {expected}", project.case));
+                continue;
+            }
+            ready.push((project, sources, expected));
+        }
+        let made = |project: &Project, sources: &[_], interfaces: &_, expected: &&Cell| {
+            run(suite, c, project, sources, interfaces, expected)
+        };
         // Small chunks: each project holds its dependencies' interfaces
         // until its chunk is checked.
-        for chunk in solving.solved.chunks(16) {
-            let mut ready = Vec::new();
-            for (project, sources) in chunk {
-                let Some(expected) = cells.get(oracle_case(&project.case)) else {
-                    failures.push((project.case.clone(), "not in the oracle".to_owned()));
-                    continue;
-                };
-                if let Cell::Excluded | Cell::Error(_) | Cell::Crash = expected {
-                    skipped.push(format!("{}: elm said {expected}", project.case));
-                    continue;
-                }
-                match names::package_interfaces_with(c, sources, &mut memo) {
-                    Ok(interfaces) => ready.push((project, sources, interfaces, expected)),
-                    Err(why) => {
-                        let why: String = why.chars().take(300).collect();
-                        failures.push((project.case.clone(), why));
-                    }
-                }
-            }
-            let results = parallel(&ready, |(project, sources, interfaces, expected)| {
-                run(suite, c, project, sources, interfaces, expected)
-            });
-            for ((project, ..), result) in ready.iter().zip(results) {
-                match result {
+        in_chunks(c, &ready, 16, made, |outcomes| {
+            for (project, outcome) in outcomes {
+                match outcome {
                     Ok(()) => matching += 1,
                     Err(why) => failures.push((project.case.clone(), why)),
                 }
             }
             eprintln!("  {c}: {matching} matching, {} failing", failures.len());
-        }
+        });
     }
     for why in &skipped {
         eprintln!("skipped: {why}");
@@ -306,30 +301,36 @@ fn graphs(
 ) -> Vec<(String, Vec<u8>)> {
     // elm writes no `.elmo` for a root outside the source directories,
     // which it compiles but doesn't keep.
-    let outside: Vec<String> = (project.paths.iter())
+    let outside: Vec<ModuleName> = (project.paths.iter())
         .map(|p| project.root.join(p))
         .filter(|p| !env.src_dirs().iter().any(|d| p.starts_with(d)))
         .filter_map(|p| fs::read_to_string(p).ok())
-        .map(|text: String| {
-            // A module without a header is `Main`.
-            let header =
-                (text.lines()).find(|l| l.starts_with("module ") || l.starts_with("port module "));
-            (header.and_then(|h| h.split("module ").nth(1)))
-                .and_then(|after| after.split_whitespace().next())
-                .unwrap_or("Main")
-                .to_owned()
-        })
+        .map(|text| root_name(&text))
         .collect();
     (optimized.graphs.into_iter())
-        .filter(|(name, _)| !outside.contains(&name.to_string()))
+        .filter(|(name, _)| !outside.contains(name))
         .map(|(name, graph)| (name.to_string(), binary::encode_local_graph(&graph, compat)))
         .collect()
 }
 
+/// The name a root module gives itself, or `Main` without a header, as
+/// the engine names it.
+fn root_name(text: &str) -> ModuleName {
+    let module =
+        ast::Module::cast(parse_module(text).syntax()).expect("a module parses to a module");
+    match module.module_header().and_then(|h| h.module_name()) {
+        Some(name) => ModuleName::new(
+            &significant_tokens(name.syntax())
+                .map(|t| t.text().to_owned())
+                .collect::<String>(),
+        ),
+        None => ModuleName::new("Main"),
+    }
+}
+
 /// `cargo xtask corpus graph-diff`: where the graph in `nomi` first
-/// differs from the one in `elm`, both `.elmo` files of release `v`.
-pub(crate) fn graph_diff(v: &str, nomi: &Path, elm: &Path) -> Result<()> {
-    let compat: Compat = v.parse()?;
+/// differs from the one in `elm`, both `.elmo` files of `compat`.
+pub(crate) fn graph_diff(compat: Compat, nomi: &Path, elm: &Path) -> Result<()> {
     // An `o.dat` is a whole graph, read here as a module's without main.
     let read = |path: &Path| -> Result<nomi_compiler::optimized::LocalGraph> {
         let bytes = fs::read(path)?;

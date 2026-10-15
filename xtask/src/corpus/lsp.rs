@@ -17,12 +17,14 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
+use std::iter::Peekable;
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
+use std::str::Chars;
 use std::thread;
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, bail};
 use lsp_server::Connection;
 use nomi_base::Compat;
 use nomi_engine::Store;
@@ -33,8 +35,9 @@ use nomi_testkit::sha256_hex as sha256;
 use serde_json::{Map, Value, json};
 
 use super::{apps, compat, copy_project, corpus_dir, packages, runs};
-use crate::oracle::corpus_runs::{self, Cell};
+use crate::oracle::corpus_runs::{self, Cell, cache_releases, corpus_home};
 use crate::oracle::lsp::Tools;
+use crate::oracle::sandbox::Release;
 use crate::oracle::{cache_dir, generated};
 use crate::references::References;
 use nomi_testkit::parallel_on;
@@ -191,112 +194,128 @@ fn modules(root: &Path, manifest: &str) -> Vec<String> {
 /// LSP positions in UTF-16 columns.
 fn names(text: &str) -> Vec<(u32, u32)> {
     let mut found = Vec::new();
-    let mut line = 0u32;
-    let mut column = 0u32;
-    let mut chars = text.chars().peekable();
+    let mut scanner = Scanner {
+        chars: text.chars().peekable(),
+        line: 0,
+        column: 0,
+    };
     let mut previous = ' ';
-    while let Some(c) = chars.next() {
-        let start = (line, column);
-        let width = c.len_utf16() as u32;
-        let advance = |c: char, line: &mut u32, column: &mut u32| {
-            if c == '\n' {
-                *line += 1;
-                *column = 0;
-            } else {
-                *column += c.len_utf16() as u32;
-            }
+    loop {
+        let start = (scanner.line, scanner.column);
+        let Some(c) = scanner.next() else {
+            return found;
         };
         match c {
-            '-' if chars.peek() == Some(&'-') => {
-                // A line comment, to the line's end.
-                advance(c, &mut line, &mut column);
-                while let Some(&n) = chars.peek() {
-                    if n == '\n' {
-                        break;
-                    }
-                    advance(n, &mut line, &mut column);
-                    chars.next();
-                }
-            }
-            '{' if chars.peek() == Some(&'-') => {
-                advance(c, &mut line, &mut column);
-                // Its `-` opens it, and nests nothing.
-                advance('-', &mut line, &mut column);
-                chars.next();
-                let mut depth = 1;
-                let mut last = ' ';
-                for n in chars.by_ref() {
-                    advance(n, &mut line, &mut column);
-                    match (last, n) {
-                        ('{', '-') => depth += 1,
-                        ('-', '}') => {
-                            depth -= 1;
-                            if depth == 0 {
-                                break;
-                            }
-                        }
-                        _ => {}
-                    }
-                    last = n;
-                }
-            }
-            '"' if text_starts(&chars, "\"\"") => {
-                // A multiline string, to its `\"\"\"`.
-                advance(c, &mut line, &mut column);
-                for _ in 0..2 {
-                    advance('"', &mut line, &mut column);
-                    chars.next();
-                }
-                let mut quotes = 0;
-                for n in chars.by_ref() {
-                    advance(n, &mut line, &mut column);
-                    quotes = if n == '"' { quotes + 1 } else { 0 };
-                    if quotes == 3 {
-                        break;
-                    }
-                }
-            }
-            '"' | '\'' => {
-                advance(c, &mut line, &mut column);
-                let mut escaped = false;
-                for n in chars.by_ref() {
-                    advance(n, &mut line, &mut column);
-                    if escaped {
-                        escaped = false;
-                    } else if n == '\\' {
-                        escaped = true;
-                    } else if n == c {
-                        break;
-                    }
-                }
-            }
+            '-' if scanner.chars.peek() == Some(&'-') => scanner.skip_line_comment(),
+            '{' if scanner.chars.peek() == Some(&'-') => scanner.skip_block_comment(),
+            '"' if scanner.starts_with("\"\"") => scanner.skip_multiline_string(),
+            '"' | '\'' => scanner.skip_string(c),
             c if c.is_alphabetic() && !previous.is_alphanumeric() && previous != '_' => {
                 found.push(start);
-                column += width;
-                while let Some(&n) = chars.peek() {
-                    if n.is_alphanumeric() || n == '_' {
-                        advance(n, &mut line, &mut column);
-                        chars.next();
-                    } else {
-                        break;
-                    }
-                }
+                scanner.skip_name();
                 previous = 'a';
                 continue;
             }
-            c => advance(c, &mut line, &mut column),
+            _ => {}
         }
         previous = c;
     }
-    found
 }
 
-/// Whether what `chars` has next starts with `prefix`.
-fn text_starts(chars: &std::iter::Peekable<std::str::Chars<'_>>, prefix: &str) -> bool {
-    chars
-        .clone()
-        .take(prefix.chars().count())
-        .eq(prefix.chars())
+/// A walk over a module's text, knowing the LSP position of what's next.
+struct Scanner<'a> {
+    chars: Peekable<Chars<'a>>,
+    line: u32,
+    /// The UTF-16 column.
+    column: u32,
+}
+
+impl Scanner<'_> {
+    /// The next character, the position moved past it.
+    fn next(&mut self) -> Option<char> {
+        let c = self.chars.next()?;
+        if c == '\n' {
+            self.line += 1;
+            self.column = 0;
+        } else {
+            self.column += c.len_utf16() as u32;
+        }
+        Some(c)
+    }
+
+    /// Whether what's next starts with `prefix`.
+    fn starts_with(&self, prefix: &str) -> bool {
+        (self.chars.clone())
+            .take(prefix.chars().count())
+            .eq(prefix.chars())
+    }
+
+    /// The rest of a line comment, to the line's end.
+    fn skip_line_comment(&mut self) {
+        while self.chars.peek().is_some_and(|&c| c != '\n') {
+            self.next();
+        }
+    }
+
+    /// The rest of a block comment whose `{` is behind, with the comments
+    /// it nests. Its `-` opens it, and nests nothing.
+    fn skip_block_comment(&mut self) {
+        self.next();
+        let mut depth = 1;
+        let mut last = ' ';
+        while let Some(c) = self.next() {
+            match (last, c) {
+                ('{', '-') => depth += 1,
+                ('-', '}') => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return;
+                    }
+                }
+                _ => {}
+            }
+            last = c;
+        }
+    }
+
+    /// The rest of a multiline string whose first `"` is behind, to its
+    /// closing `\"\"\"`.
+    fn skip_multiline_string(&mut self) {
+        self.next();
+        self.next();
+        let mut quotes = 0;
+        while let Some(c) = self.next() {
+            quotes = if c == '"' { quotes + 1 } else { 0 };
+            if quotes == 3 {
+                return;
+            }
+        }
+    }
+
+    /// The rest of a string or character literal opened by `quote`.
+    fn skip_string(&mut self, quote: char) {
+        let mut escaped = false;
+        while let Some(c) = self.next() {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == quote {
+                return;
+            }
+        }
+    }
+
+    /// The rest of a name whose first letter is behind.
+    fn skip_name(&mut self) {
+        while self
+            .chars
+            .peek()
+            .is_some_and(|&c| c.is_alphanumeric() || c == '_')
+        {
+            self.next();
+        }
+    }
 }
 
 /// A request of the generated sessions: `method` on `file`, at `at`.
@@ -404,7 +423,7 @@ pub(crate) fn sandbox() -> Result<PathBuf> {
 /// elm-language-server as the suite runs it: with the `ELM_HOME` the
 /// corpus suites share, and a `PATH` of its own under `scratch`.
 pub(crate) fn server(refs: &References, scratch: &Path) -> Result<Tools> {
-    let (home, packages) = home()?;
+    let (home, packages) = home(&cache_releases()?)?;
     let server = crate::oracle::lsp::server_path()?;
     crate::oracle::lsp::tools(refs, server, scratch, home, packages)
 }
@@ -416,19 +435,11 @@ pub(crate) fn project(root: &Path, case: &str) -> Result<Project> {
         .with_context(|| format!("{case} isn't one of the suite's projects"))
 }
 
-/// The `ELM_HOME` the corpus suites share, as 0.19.1's, holding every
-/// release the development cache has: the home, and its package cache.
-fn home() -> Result<(PathBuf, PathBuf)> {
-    let home = cache_dir()?
-        .join("sandboxes/corpus/home")
-        .join(COMPAT.as_str());
-    let releases = corpus_runs::releases(&cache_dir()?.join("nomi/packages"))?;
-    ensure!(
-        !releases.is_empty(),
-        "the development cache has no releases; run `cargo xtask corpus names`"
-    );
-    let packages = fs::canonicalize(crate::oracle::sandbox::elm_home(&home, COMPAT, &releases)?)?;
-    Ok((home, packages))
+/// The `ELM_HOME` the corpus suites share, as 0.19.1's, holding
+/// `releases`: the home, and its package cache.
+fn home(releases: &[Release]) -> Result<(PathBuf, PathBuf)> {
+    let (home, packages) = corpus_home(COMPAT, releases)?;
+    Ok((home, fs::canonicalize(packages)?))
 }
 
 /// The recorded digests of each project's answers.
@@ -523,23 +534,109 @@ pub(crate) fn record(
 /// give them: wherever the development cache's store keeps them, as a
 /// path or a URI, then wherever elm-language-server's package cache
 /// `packages` does.
-fn replacements(packages: &Path) -> Result<Vec<(String, String)>> {
-    let releases = corpus_runs::releases(&cache_dir()?.join("nomi/packages"))?;
-    let to = |release: &crate::oracle::sandbox::Release| {
-        format!("<packages>/{}/{}", release.name, release.version)
-    };
+fn replacements(packages: &Path, releases: &[Release]) -> Vec<(String, String)> {
+    let to = |release: &Release| format!("<packages>/{}/{}", release.name, release.version);
     let mut replacements = Vec::new();
-    for release in &releases {
+    for release in releases {
         let real = fs::canonicalize(&release.dir).unwrap_or_else(|_| release.dir.clone());
         replacements.extend(lsp::dir_replacements(&[&real, &release.dir], &to(release)));
     }
-    for release in &releases {
+    for release in releases {
         let cached = packages
             .join(&release.name)
             .join(release.version.to_string());
         replacements.push((cached.display().to_string(), to(release)));
     }
-    Ok(replacements)
+    replacements
+}
+
+/// Writes each session's requests in `dir`, for reading a transcript's
+/// answers against.
+fn write_sessions(dir: &Path, projects: &[(Project, Session)]) -> Result<()> {
+    fs::create_dir_all(dir)?;
+    for (project, session) in projects {
+        let steps: Vec<Value> = (session.requests.iter())
+            .map(|s| json!({ "method": s.method, "file": s.file, "at": format!("{:?}", s.at) }))
+            .collect();
+        let name = sandbox_name(&project.case);
+        fs::write(
+            dir.join(format!("{name}.json")),
+            serde_json::to_string_pretty(&steps)?,
+        )?;
+    }
+    Ok(())
+}
+
+/// nomi's answers to `session` on a copy of `project` in `scratch`, by
+/// their digests, with the transcript written to `scratch`'s `nomi/`;
+/// none when the driver panicked.
+fn replay(
+    project: &Project,
+    session: &Session,
+    store: &Store,
+    memo: &Memo,
+    replacements: &[(String, String)],
+    scratch: &Path,
+) -> Result<Vec<(String, String)>> {
+    let name = sandbox_name(&project.case);
+    let dir = scratch.join("replay").join(&name);
+    copy(project, &dir)?;
+    let work = nomi_engine::canonical(&dir)?;
+    let (server, client) = Connection::memory();
+    let (s, m) = (store.clone(), memo.clone());
+    let handle = thread::spawn(move || nomi_lsp::serve(&server, s, m));
+    let timing = Timing {
+        quiet: Duration::from_millis(300),
+        answer: Duration::from_secs(120),
+        publishes: true,
+    };
+    let transcript = std::panic::catch_unwind(AssertUnwindSafe(|| {
+        let driver = Driver::start(client, &work, session, timing);
+        driver.run(session)
+    }));
+    let _ = handle.join();
+    let Ok(transcript) = transcript else {
+        return Ok(Vec::new());
+    };
+    let mut subs = replacements.to_vec();
+    subs.extend(lsp::dir_replacements(&[&work], "<project>"));
+    let transcript = lsp::tidy(transcript, &subs);
+    let _ = fs::write(
+        scratch.join("nomi").join(format!("{name}.json")),
+        lsp::to_text(&transcript),
+    );
+    Ok(digests(&transcript))
+}
+
+/// Each answer `case`'s recording has, passing when nomi's `found` digest
+/// is the recorded one, and failing with `differs` otherwise. An answer
+/// the recording lacks fails the run: the session asked something
+/// elm-language-server never answered, so the recording is stale.
+fn compare(
+    case: &str,
+    recorded: &[(String, String)],
+    found: &[(String, String)],
+    differs: &str,
+) -> Result<Vec<(String, Result<(), String>)>> {
+    let unrecorded: Vec<&String> = (found.iter().map(|(a, _)| a))
+        .filter(|a| !recorded.iter().any(|(r, _)| r == *a))
+        .collect();
+    if !unrecorded.is_empty() {
+        bail!(
+            "{case}: nomi answered {unrecorded:?}, which elm-language-server's recording doesn't have"
+        );
+    }
+    Ok((recorded.iter())
+        .map(|(answer, digest)| {
+            let got = found.iter().find(|(a, _)| a == answer).map(|(_, d)| d);
+            let result = if got == Some(digest) {
+                Ok(())
+            } else {
+                Err(differs.to_owned())
+            };
+            (format!("{case}/{answer}"), result)
+        })
+        .collect())
 }
 
 /// `cargo xtask corpus lsp`.
@@ -553,77 +650,24 @@ pub(crate) fn check(root: &Path, record: bool, only: Option<&str>) -> Result<()>
         eprintln!("not recorded, so not checked: {}", project.case);
     }
     projects.retain(|(p, _)| expected.contains_key(&p.case));
-    let (_, packages) = home()?;
-    let replacements = replacements(&packages)?;
+    let releases = cache_releases()?;
+    let (_, packages) = home(&releases)?;
+    let replacements = replacements(&packages, &releases);
     let store = Store::new(cache_dir()?.join("nomi/packages"));
     let scratch = sandbox()?;
-    let out = scratch.join("nomi");
-    fs::create_dir_all(&out)?;
-    // The sessions, for reading a transcript's answers against.
-    let sessions = scratch.join("sessions");
-    fs::create_dir_all(&sessions)?;
-    for (project, session) in &projects {
-        let steps: Vec<Value> = (session.requests.iter())
-            .map(|s| json!({ "method": s.method, "file": s.file, "at": format!("{:?}", s.at) }))
-            .collect();
-        let name = sandbox_name(&project.case);
-        fs::write(
-            sessions.join(format!("{name}.json")),
-            serde_json::to_string_pretty(&steps)?,
-        )?;
-    }
+    fs::create_dir_all(scratch.join("nomi"))?;
+    write_sessions(&scratch.join("sessions"), &projects)?;
     let memo = Memo::new();
     let mut outcomes = Vec::new();
     for (project, session) in &projects {
-        let name = sandbox_name(&project.case);
-        let dir = scratch.join("replay").join(&name);
-        copy(project, &dir)?;
-        let work = nomi_engine::canonical(&dir)?;
-        let (server, client) = Connection::memory();
-        let (s, m) = (store.clone(), memo.clone());
-        let handle = thread::spawn(move || nomi_lsp::serve(&server, s, m));
-        let timing = Timing {
-            quiet: Duration::from_millis(300),
-            answer: Duration::from_secs(120),
-            publishes: true,
-        };
-        let transcript = std::panic::catch_unwind(AssertUnwindSafe(|| {
-            let driver = Driver::start(client, &work, session, timing);
-            driver.run(session)
-        }));
-        let _ = handle.join();
-        let mut subs = replacements.clone();
-        subs.extend(lsp::dir_replacements(&[&work], "<project>"));
-        let found = match transcript {
-            Ok(t) => {
-                let t = lsp::tidy(t, &subs);
-                let _ = fs::write(out.join(format!("{name}.json")), lsp::to_text(&t));
-                digests(&t)
-            }
-            Err(_) => Vec::new(),
-        };
+        let found = replay(project, session, &store, &memo, &replacements, &scratch)?;
+        let differs = format!(
+            "differs; compare {}.json in {} and nomi/",
+            sandbox_name(&project.case),
+            scratch.join("elm-language-server").display()
+        );
         let recorded = &expected[&project.case];
-        let unrecorded: Vec<&String> = (found.iter().map(|(a, _)| a))
-            .filter(|a| !recorded.iter().any(|(r, _)| r == *a))
-            .collect();
-        if !unrecorded.is_empty() {
-            bail!(
-                "{}: nomi answered {unrecorded:?}, which elm-language-server's recording doesn't have",
-                project.case
-            );
-        }
-        for (answer, digest) in recorded {
-            let got = found.iter().find(|(a, _)| a == answer).map(|(_, d)| d);
-            let result = if got == Some(digest) {
-                Ok(())
-            } else {
-                Err(format!(
-                    "differs; compare {name}.json in {} and nomi/",
-                    scratch.join("elm-language-server").display()
-                ))
-            };
-            outcomes.push((format!("{}/{answer}", project.case), result));
-        }
+        outcomes.extend(compare(&project.case, recorded, &found, &differs)?);
         eprintln!("  {}", project.case);
     }
     outcomes.sort_by(|a, b| a.0.cmp(&b.0));
@@ -641,6 +685,25 @@ pub(crate) fn check(root: &Path, record: bool, only: Option<&str>) -> Result<()>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_answer_the_recording_lacks_fails_the_run() {
+        let pair = |a: &str, d: &str| (a.to_owned(), d.to_owned());
+        let recorded = [pair("00 hover", "x"), pair("01 definition", "y")];
+        let found = [pair("00 hover", "x"), pair("01 definition", "z")];
+        let outcomes = compare("app/a", &recorded, &found, "differs").unwrap();
+        assert_eq!(
+            outcomes,
+            [
+                ("app/a/00 hover".to_owned(), Ok(())),
+                ("app/a/01 definition".to_owned(), Err("differs".to_owned())),
+            ]
+        );
+        let missing = compare("app/a", &recorded, &found[..1], "differs").unwrap();
+        assert_eq!(missing[1].1, Err("differs".to_owned()));
+        let extra = [pair("00 hover", "x"), pair("02 references", "w")];
+        assert!(compare("app/a", &recorded, &extra, "differs").is_err());
+    }
 
     #[test]
     fn names_skip_comments_and_strings() {

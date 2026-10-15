@@ -16,8 +16,9 @@ use anyhow::{Context, Result, anyhow, bail, ensure};
 use nomi_format::{Invariant, invariant_mismatch};
 use nomi_testkit::sha256_hex as sha256;
 
-use super::parallel;
 use super::syntax::{self as corpus_syntax, CRASH, Sources};
+use crate::oracle::cores;
+use nomi_testkit::parallel_on;
 
 /// The suite's directory: the oracle's table and `passing.txt`.
 pub(crate) const DIR: &str = "corpus/format";
@@ -169,7 +170,7 @@ pub(crate) fn check(root: &Path, record: bool) -> Result<()> {
             "{table} lists {case} {path}, which the corpus lacks"
         );
     }
-    let found = parallel(&modules, |m| -> Result<Option<String>> {
+    let found = parallel_on(cores(), &modules, |m| -> Result<Option<String>> {
         let text = fs::read(&m.file)?;
         let key = (m.case.as_str(), m.path.as_str());
         let expected = (deviations.get(&key))

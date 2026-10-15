@@ -19,6 +19,7 @@ pub(crate) mod solver;
 pub(crate) mod syntax;
 pub(crate) mod transcripts;
 
+use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::fs;
 use std::io;
@@ -30,7 +31,7 @@ use nomi_base::Compat;
 use nomi_testkit::transcript::{Case, ROOT_LENGTH};
 
 use crate::download;
-use crate::references::{Binary, ElmPackage, Format, References, platform};
+use crate::references::{Binary, ElmPackage, Format, Platform, References, platform_name};
 
 /// The packages the CLI's tests serve and the compiler's tests vendor,
 /// but for the test runner's: what the oracles' projects may depend on.
@@ -71,19 +72,27 @@ pub(crate) fn binary_path(binary: &Binary) -> Result<PathBuf> {
         .join(exe))
 }
 
+/// The pin of the binary `name`, at `version` where several are.
+pub(crate) fn pin<'a>(
+    refs: &'a References,
+    name: &str,
+    version: Option<&str>,
+) -> Result<&'a Binary> {
+    (refs.binary.iter())
+        .find(|b| b.name == name && version.is_none_or(|v| b.version == v))
+        .with_context(|| match version {
+            Some(version) => format!("{name} {version} is not pinned"),
+            None => format!("{name} is not pinned"),
+        })
+}
+
 /// The installed binary pinned as `name`, at `version` where several are.
 pub(crate) fn pinned_binary(
     refs: &References,
     name: &str,
     version: Option<&str>,
 ) -> Result<PathBuf> {
-    let pin = (refs.binary.iter())
-        .find(|b| b.name == name && version.is_none_or(|v| b.version == v))
-        .with_context(|| match version {
-            Some(version) => format!("{name} {version} is not pinned"),
-            None => format!("{name} is not pinned"),
-        })?;
-    installed(binary_path(pin)?)
+    installed(binary_path(pin(refs, name, version)?)?)
 }
 
 /// The installed elm of `compat`.
@@ -99,6 +108,48 @@ pub(crate) fn installed(path: PathBuf) -> Result<PathBuf> {
         path.display()
     );
     Ok(path)
+}
+
+/// Node, and a pinned elm as `elm`, on a `PATH` of their own.
+pub(crate) struct ElmOnPath {
+    pub node: PathBuf,
+    /// The pinned elm.
+    pub elm: PathBuf,
+    pub path: OsString,
+}
+
+/// Node, and `compat`'s pinned elm linked as `elm` in `bin`, on a `PATH`
+/// of `bin`, Node's directory, then `extra`.
+pub(crate) fn elm_on_path(
+    refs: &References,
+    compat: Compat,
+    bin: &Path,
+    extra: &[&Path],
+) -> Result<ElmOnPath> {
+    let elm = pinned_elm(refs, compat)?;
+    let node = which("node").context("node isn't on PATH")?;
+    fs::create_dir_all(bin)?;
+    let linked = bin.join(elm.file_name().context("elm's name")?);
+    if !linked.exists() {
+        link(&elm, &linked)?;
+    }
+    let dirs = [bin, node.parent().context("node's directory")?];
+    let path = std::env::join_paths(dirs.into_iter().chain(extra.iter().copied()))?;
+    Ok(ElmOnPath { node, elm, path })
+}
+
+/// `from` at `to`, as a link where links are made without privileges,
+/// and a copy elsewhere.
+pub(crate) fn link(from: &Path, to: &Path) -> Result<()> {
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(from, to)?;
+    #[cfg(not(unix))]
+    if from.is_dir() {
+        nomi_testkit::copy_tree(from, to, |_| true)?;
+    } else {
+        fs::copy(from, to)?;
+    }
+    Ok(())
 }
 
 /// The first `name` on `PATH`.
@@ -192,9 +243,9 @@ fn utf8(dir: &Path) -> Result<&str> {
 
 /// Downloads, verifies and installs every pinned oracle.
 pub(crate) fn fetch(root: &Path, refs: &References) -> Result<()> {
-    let platform = platform();
+    let platform = Platform::current();
     for binary in &refs.binary {
-        fetch_binary(binary, &platform)
+        fetch_binary(binary, platform)
             .with_context(|| format!("fetching {} {}", binary.name, binary.version))?;
     }
     node_version(refs.node_minimum)?;
@@ -206,9 +257,9 @@ pub(crate) fn fetch(root: &Path, refs: &References) -> Result<()> {
     Ok(())
 }
 
-fn fetch_binary(binary: &Binary, platform: &str) -> Result<()> {
-    let Some(asset) = binary.assets.get(platform) else {
-        bail!("no asset is pinned for {platform}");
+fn fetch_binary(binary: &Binary, platform: Option<Platform>) -> Result<()> {
+    let Some(asset) = platform.and_then(|p| binary.assets.get(&p)) else {
+        bail!("no asset is pinned for {}", platform_name());
     };
     let path = binary_path(binary)?;
     let stamp = path.with_extension("sha256");
@@ -364,7 +415,7 @@ pub(crate) fn node_version(minimum: u32) -> Result<String> {
 
 /// Prints every pin and whether it is installed.
 pub(crate) fn versions(refs: &References) {
-    println!("platform  {}", platform());
+    println!("platform  {}", platform_name());
     match node_version(refs.node_minimum) {
         Ok(v) => println!("node      {v} (minimum v{})", refs.node_minimum),
         Err(e) => println!("node      {e:#}"),

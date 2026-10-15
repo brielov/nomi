@@ -24,16 +24,13 @@ use anyhow::{Context, Result};
 use nomi_testkit::transcript::{Case, cases};
 
 use super::modules::Recorder;
-use super::sandbox::{corpus_releases, locked, offline};
+use super::sandbox::{RETRIES, Retry, corpus_releases, locked, offline, retrying};
 use super::{FIXTURE_PACKAGES, cores, fresh_dir, padded_case, recordings};
 use crate::corpus::compat;
 use crate::references::References;
 use nomi_testkit::parallel_on;
 
 const CASES: &str = "crates/cli/tests/elm_make";
-
-/// Runs of one case before a lock failure is an error.
-const RETRIES: u32 = 5;
 
 /// Runs of one terminal case before a cut-short success is kept.
 const CUT_SHORT_RETRIES: u32 = 20;
@@ -84,11 +81,12 @@ pub(crate) fn run(root: &Path, refs: &References) -> Result<()> {
     Ok(())
 }
 
-/// `elm`'s transcript of `case` as its release, run in `work`.
+/// `elm`'s transcript of `case` as its release, run in `work`. A run
+/// that trips over a lock [`RETRIES`] times, or is cut short
+/// [`CUT_SHORT_RETRIES`] times, is recorded as it went.
 fn record(elm: &Recorder, work: &Path, case: &Case) -> Result<String> {
     let case = case.as_release(elm.compat);
-    let mut attempt = 1;
-    loop {
+    let (transcript, dir) = retrying(CUT_SHORT_RETRIES, |attempt, _| {
         let dir = padded_case(work, &case)?;
         let mut command = Command::new(&elm.elm);
         command.env("ELM_HOME", &elm.home).env("GHCRTS", "-N1");
@@ -101,14 +99,12 @@ fn record(elm: &Recorder, work: &Path, case: &Case) -> Result<String> {
             && transcript.exit == Some(0)
             && !transcript.stdout.is_empty()
             && !transcript.stdout.ends_with(b"\n");
-        let retries = if cut_short {
-            CUT_SHORT_RETRIES
+        let again = cut_short || locked(&transcript.stderr) && attempt < RETRIES;
+        Ok(if again {
+            Retry::Again((transcript, dir))
         } else {
-            RETRIES
-        };
-        if !(locked(&transcript.stderr) || cut_short) || attempt >= retries {
-            return Ok(transcript.compared(&case, &dir));
-        }
-        attempt += 1;
-    }
+            Retry::Done((transcript, dir))
+        })
+    })?;
+    Ok(transcript.compared(&case, &dir))
 }

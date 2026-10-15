@@ -13,7 +13,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
-use nomi_testkit::lsp::percent_decoded;
+use nomi_testkit::lsp::{Method, Session, Step, percent_decoded};
 use serde_json::{Map, Value, json};
 
 use crate::oracle::lsp::Tools;
@@ -154,12 +154,11 @@ pub(crate) fn record(root: &Path, refs: &References, app: &str) -> Result<()> {
     let out = root.join(DIR);
     fs::create_dir_all(&out)?;
     let path = out.join(format!("{app}.json"));
+    let steps = session.requests.len();
+    // Through a `Value`, whose keys are sorted, as the traces are written.
+    let session = serde_json::to_value(session)?;
     fs::write(&path, nomi_testkit::lsp::to_text(&session))?;
-    eprintln!(
-        "{}: {} steps",
-        path.display(),
-        session["requests"].as_array().map_or(0, Vec::len)
-    );
+    eprintln!("{}: {steps} steps", path.display());
     Ok(())
 }
 
@@ -318,7 +317,7 @@ fn shell(text: &str) -> String {
 /// The session Helix's messages to the server make, as Helix's log has
 /// them: its documents' opens, changes, saves and closes, and its
 /// requests about them, by path in the project.
-fn session(log: &str, work: &Path, script: &Script) -> Result<Value> {
+fn session(log: &str, work: &Path, script: &Script) -> Result<Session> {
     let root = lsp_types::Url::from_directory_path(work)
         .map_err(|()| anyhow::anyhow!("a path"))?
         .as_str()
@@ -347,52 +346,51 @@ fn session(log: &str, work: &Path, script: &Script) -> Result<Value> {
         let Some(file) = file else {
             continue;
         };
+        let method = Method::from(method.to_owned());
         match method {
             // The first file, opened before anything is asked.
-            "textDocument/didOpen" if requests.is_empty() && open.is_empty() => {
+            Method::DidOpen if requests.is_empty() && open.is_empty() => {
                 open.push(file);
             }
-            "textDocument/didOpen" | "textDocument/didSave" | "textDocument/didClose" => {
-                requests.push(json!({ "method": method, "file": file }));
+            Method::DidOpen | Method::DidSave | Method::DidClose => {
+                requests.push(Step::on(method, file));
             }
-            "textDocument/didChange" => {
+            Method::DidChange => {
                 let changes = params.remove("contentChanges").unwrap_or(json!([]));
-                requests.push(json!({
-                    "method": method,
-                    "file": file,
-                    "params": { "contentChanges": changes },
-                }));
+                requests.push(Step {
+                    params: Map::from_iter([("contentChanges".to_owned(), changes)]),
+                    ..Step::on(method, file)
+                });
             }
             _ if message.get("id").is_some() => {
-                let mut step = Map::new();
-                step.insert("method".into(), json!(method));
-                step.insert("file".into(), json!(file));
-                if let Some(position) = params.remove("position") {
-                    step.insert("at".into(), position);
-                } else if let Some(range) = params.remove("range") {
-                    step.insert("at".into(), range);
-                }
+                let at = (params.remove("position"))
+                    .or_else(|| params.remove("range"))
+                    .map(serde_json::from_value)
+                    .transpose()
+                    .context("a position or range Helix sent")?;
                 // The driver gives a code action the diagnostics it has.
-                if method == "textDocument/codeAction" {
+                if method == Method::CodeAction {
                     params.remove("context");
                 }
                 // Progress tokens are Helix's own.
                 params.remove("workDoneToken");
                 params.remove("partialResultToken");
-                if !params.is_empty() {
-                    step.insert("params".into(), Value::Object(params));
-                }
-                requests.push(Value::Object(step));
+                requests.push(Step {
+                    at,
+                    params,
+                    ..Step::on(method, file)
+                });
             }
             _ => {}
         }
     }
     ensure!(!open.is_empty(), "Helix opened nothing");
-    Ok(json!({
-        "title": format!("Helix editing {} in {}", script.file, script.app),
-        "open": open,
-        "requests": requests,
-    }))
+    Ok(Session {
+        title: Some(format!("Helix editing {} in {}", script.file, script.app)),
+        open,
+        requests,
+        ..Session::default()
+    })
 }
 
 /// The path in the project of `uri`, under `root`.

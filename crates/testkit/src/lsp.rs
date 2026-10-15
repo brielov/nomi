@@ -38,45 +38,59 @@ pub struct Case {
 }
 
 /// What a session does, from `session.json`.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Session {
     /// What the case is, for a case taken from elsewhere.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     /// Settings over [`default_settings`], as `initializationOptions`
     /// and the `elmLS` section of `workspace/configuration`.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub settings: Map<String, Value>,
     /// Files opened, in order, before any request.
     pub open: Vec<String>,
     /// The steps after the files are open, in order.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requests: Vec<Step>,
 }
 
 /// One request: its method, the file it's about, and where.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Step {
     pub method: Method,
     /// The file, by path in the project.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
     /// Where in the file.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub at: Option<At>,
     /// More parameters, merged over the ones the driver makes.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub params: Map<String, Value>,
     /// Whether to resolve each item of the answer, in order, recording
     /// the resolved items as an answer of their own.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub resolve: bool,
     /// Files written before the step, by path in the project, with their
     /// text: a file the editor just made.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub create: BTreeMap<String, String>,
+}
+
+impl Step {
+    /// `method` on `file`, with nothing more.
+    pub fn on(method: Method, file: String) -> Step {
+        Step {
+            method,
+            file: Some(file),
+            at: None,
+            params: Map::new(),
+            resolve: false,
+            create: BTreeMap::new(),
+        }
+    }
 }
 
 /// An LSP method a step names: the ones the driver makes its own
@@ -206,7 +220,7 @@ impl Serialize for Method {
 }
 
 /// A position or range in the step's file: by marker index, or exactly.
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum At {
     Position(usize),

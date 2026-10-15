@@ -4,10 +4,10 @@
 //! both. `bench elm`, `bench elm-format` and `bench lsp` print their
 //! part; the whole run also writes it into `docs/benchmarks.md`.
 
-pub(crate) mod elm;
-pub(crate) mod elm_format;
-pub(crate) mod lsp;
-pub(crate) mod measure;
+mod elm;
+mod elm_format;
+mod lsp;
+mod measure;
 
 use std::fmt::Write as _;
 use std::fs;
@@ -66,20 +66,45 @@ pub(crate) enum Target {
     Lsp,
 }
 
-impl Target {
-    /// The crate whose benchmarks the target is, by its short name.
-    pub(crate) fn crate_bench(self) -> Option<&'static str> {
-        match self {
-            Target::Syntax => Some("syntax"),
-            Target::Format => Some("format"),
-            Target::Elm | Target::ElmFormat | Target::Lsp => None,
-        }
-    }
+/// A part of the scoreboard.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Part {
+    Elm,
+    ElmFormat,
+    Lsp,
+}
+
+/// `cargo xtask bench`: `target`, or with none the whole scoreboard.
+pub(crate) fn bench(root: &Path, target: Option<Target>) -> Result<()> {
+    let part = match target {
+        Some(Target::Syntax) => return crate_bench(root, "syntax"),
+        Some(Target::Format) => return crate_bench(root, "format"),
+        Some(Target::Elm) => Some(Part::Elm),
+        Some(Target::ElmFormat) => Some(Part::ElmFormat),
+        Some(Target::Lsp) => Some(Part::Lsp),
+        None => None,
+    };
+    run(root, &crate::references::load(root)?, part)
+}
+
+/// Runs the benchmarks of `nomi-<name>`.
+fn crate_bench(root: &Path, name: &str) -> Result<()> {
+    crate::cargo(
+        root,
+        &[
+            "bench",
+            "--locked",
+            "--package",
+            &format!("nomi-{name}"),
+            "--bench",
+            name,
+        ],
+    )
 }
 
 /// Runs `part` of the scoreboard, or with none every workload, writing
 /// the scoreboard.
-pub(crate) fn run(root: &Path, refs: &References, part: Option<Target>) -> Result<()> {
+fn run(root: &Path, refs: &References, part: Option<Part>) -> Result<()> {
     crate::cargo(
         root,
         &["build", "--locked", "--release", "--package", "nomi-cli"],
@@ -92,13 +117,13 @@ pub(crate) fn run(root: &Path, refs: &References, part: Option<Target>) -> Resul
     }
     let setup = Setup { scratch, bin };
     let mut tables = Vec::new();
-    if part.is_none_or(|p| p == Target::Elm) {
+    if part.is_none_or(|p| p == Part::Elm) {
         tables.extend(elm::tables(root, refs, &setup)?);
     }
-    if part.is_none_or(|p| p == Target::ElmFormat) {
+    if part.is_none_or(|p| p == Part::ElmFormat) {
         tables.push(elm_format::table(root, refs, &setup)?);
     }
-    if part.is_none_or(|p| p == Target::Lsp) {
+    if part.is_none_or(|p| p == Part::Lsp) {
         tables.push(lsp::table(root, refs, &setup)?);
     }
     let board = render(&tables);

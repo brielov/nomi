@@ -8,7 +8,6 @@
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, ensure};
 use nomi_testkit::files_below;
@@ -16,8 +15,8 @@ use nomi_testkit::files_below;
 use super::measure::{Run, best_of, measure};
 use super::{Row, Setup, Table};
 use crate::corpus::{apps, corpus_dir, is_module};
-use crate::oracle::process::run_within;
-use crate::oracle::{binary_path, installed};
+use crate::oracle::format::elm_format;
+use crate::oracle::{binary_path, installed, pin};
 use crate::references::References;
 
 const RUNS: usize = 5;
@@ -31,9 +30,7 @@ struct Workload {
 }
 
 pub(crate) fn table(root: &Path, refs: &References, setup: &Setup) -> Result<Table> {
-    let pin = (refs.binary.iter())
-        .find(|b| b.name == "elm-format")
-        .context("elm-format is not pinned")?;
+    let pin = pin(refs, "elm-format", None)?;
     let upstream = installed(binary_path(pin)?)?;
     let nomi = setup.nomi("elm-format");
     let home = setup.scratch.join("elm-format-home");
@@ -53,7 +50,7 @@ pub(crate) fn table(root: &Path, refs: &References, setup: &Setup) -> Result<Tab
             let Workload { name, args, stdin } = workload;
             if let Some(input) = &stdin {
                 ensure!(
-                    formatted(&upstream, input)? == formatted(&nomi, input)?,
+                    elm_format(&upstream, input)? == elm_format(&nomi, input)?,
                     "elm-format and nomi format {name} differently"
                 );
             }
@@ -131,17 +128,4 @@ fn workloads(name: &str, dir: &Path) -> Result<[Workload; 2]> {
             stdin: Some(text),
         },
     ])
-}
-
-/// What `binary` writes for `input` on `--stdin`.
-fn formatted(binary: &Path, input: &[u8]) -> Result<Vec<u8>> {
-    let mut command = Command::new(binary);
-    command
-        .arg("--stdin")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    let output = run_within(&mut command, input, None)
-        .with_context(|| binary.display().to_string())?
-        .expect("a run without a limit ends");
-    Ok(output.stdout)
 }

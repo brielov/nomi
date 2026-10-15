@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 
-use crate::oracle::process::run_within;
 use crate::oracle::sandbox::offline;
+use nomi_testkit::process::run_within;
 
 /// How long one run may take before it counts as hung.
 const TIMEOUT: Duration = Duration::from_secs(600);
@@ -77,7 +77,7 @@ pub(crate) fn measure(run: &Run<'_>) -> Result<(Cost, Option<i32>)> {
     let start = Instant::now();
     let ended = run_within(&mut command, run.stdin.unwrap_or_default(), Some(TIMEOUT))
         .context("running /usr/bin/time")?;
-    let Some(output) = ended else {
+    let Ok(output) = ended else {
         bail!(
             "{} {:?} ran past {TIMEOUT:?}",
             run.binary.display(),

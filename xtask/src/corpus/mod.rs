@@ -41,9 +41,10 @@ pub(crate) fn corpus_dir() -> Result<PathBuf> {
     Ok(cache_dir()?.join("corpus"))
 }
 
-/// Runs `f` over `items` on a few threads and returns the results in order.
-/// Downloads are I/O-bound; eight keeps the registry and GitHub comfortable.
-pub(crate) fn parallel<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+/// Runs `f`, a download, over `items` on a few threads and returns the
+/// results in order. Downloads are I/O-bound; eight keeps the registry
+/// and GitHub comfortable.
+pub(crate) fn downloading<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
     parallel_on(8, items, f)
 }
 

@@ -30,8 +30,9 @@ const DEPENDENCIES: [&str; 2] = ["elm/core", "elm/json"];
 /// The module under test, beside each project's `elm.json`.
 const MODULE: &str = "A.elm";
 
-/// Runs of one check before a lock failure or a hang is an error.
-const RETRIES: u32 = 5;
+/// Runs of one elm before a run that failed as runs sharing an
+/// `ELM_HOME` sometimes fail, or that hung, is kept as it went.
+pub(crate) const RETRIES: u32 = 5;
 
 /// How long one elm run may take before it counts as hung. Parsing takes
 /// milliseconds; building elm/core while warming up takes about a second.
@@ -96,12 +97,12 @@ impl Sandbox {
     }
 
     /// Whether elm parses `text` as a module of a `source` project. Errors
-    /// after parsing, such as unknown imports, count as accepted.
+    /// after parsing, such as unknown imports, count as accepted. A run
+    /// that hung, or tripped over a lock, [`RETRIES`] times is an error.
     pub(crate) fn check(&self, source: Source, text: &[u8]) -> Result<Verdict> {
         let project = self.project(source);
         fs::write(project.join(MODULE), text)?;
-        let mut attempt = 1;
-        loop {
+        let output = retrying(RETRIES, |_, _| {
             let mut command = Command::new(&self.elm);
             command
                 // One RTS thread: the oracle already runs a process per core.
@@ -116,43 +117,41 @@ impl Sandbox {
                 ])
                 .current_dir(&project)
                 .env("ELM_HOME", &self.home);
-            // elm very rarely hangs.
-            let Some(output) = run_to_files(offline(&mut command), &self.dir, TIMEOUT)? else {
-                ensure!(
-                    attempt < RETRIES,
-                    "{} hung {RETRIES} times",
-                    self.elm.display()
-                );
-                attempt += 1;
-                continue;
-            };
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            match json_report(&output) {
-                None if output.status.success() => return Ok(Verdict::Accepted),
-                // elm now and then trips over its own lock on `d.dat`.
-                None if locked(&output.stderr) && attempt < RETRIES => attempt += 1,
-                // GHC's report of an uncaught exception.
-                None if stderr.starts_with("elm: ") && !locked(&output.stderr) => {
-                    return Ok(Verdict::Crashed);
-                }
-                // Death by a signal, as 0.19.3's on some recursive aliases,
-                // which then dies of a stack overflow or of SIGSEGV.
-                None if output.status.code().is_none() => return Ok(Verdict::Crashed),
-                None => bail!(
-                    "{} exited with {} and no report:\n{stderr}",
-                    self.elm.display(),
-                    output.status,
-                ),
-                Some(json) => {
-                    return Ok(match syntax_error(json)? {
-                        Some(summary) => Verdict::Rejected {
-                            summary,
-                            report: json.trim_ascii_end().to_vec(),
-                        },
-                        None => Verdict::Accepted,
-                    });
-                }
-            }
+            // elm very rarely hangs, and now and then fails without a
+            // report, tripping over its own lock on `d.dat`.
+            let ran = run_to_files(offline(&mut command), &self.dir, TIMEOUT)?;
+            let again = ran.as_ref().is_none_or(|output| {
+                !output.status.success() && json_report(output).is_none() && locked(&output.stderr)
+            });
+            Ok(if again {
+                Retry::Again(ran)
+            } else {
+                Retry::Done(ran)
+            })
+        })?;
+        let Some(output) = output else {
+            bail!("{} hung {RETRIES} times", self.elm.display());
+        };
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        match json_report(&output) {
+            None if output.status.success() => Ok(Verdict::Accepted),
+            // GHC's report of an uncaught exception.
+            None if stderr.starts_with("elm: ") && !locked(&output.stderr) => Ok(Verdict::Crashed),
+            // Death by a signal, as 0.19.3's on some recursive aliases,
+            // which then dies of a stack overflow or of SIGSEGV.
+            None if output.status.code().is_none() => Ok(Verdict::Crashed),
+            None => bail!(
+                "{} exited with {} and no report:\n{stderr}",
+                self.elm.display(),
+                output.status,
+            ),
+            Some(json) => Ok(match syntax_error(json)? {
+                Some(summary) => Verdict::Rejected {
+                    summary,
+                    report: json.trim_ascii_end().to_vec(),
+                },
+                None => Verdict::Accepted,
+            }),
         }
     }
 }
@@ -193,6 +192,31 @@ pub(crate) fn elmo_files(stuff: &Path) -> Result<Vec<(String, String)>> {
         }
     }
     Ok(files)
+}
+
+/// What one run of a retried command came to.
+pub(crate) enum Retry<T> {
+    /// Kept.
+    Done(T),
+    /// Run again, unless it was the last run allowed; then kept.
+    Again(T),
+}
+
+/// The first of `run`'s results that is [`Retry::Done`], or the last of
+/// `limit` runs. `run` is given each run's number, from 1, and the
+/// result of the one before it if there was one.
+pub(crate) fn retrying<T>(
+    limit: u32,
+    mut run: impl FnMut(u32, Option<T>) -> Result<Retry<T>>,
+) -> Result<T> {
+    let (mut attempt, mut previous) = (1, None);
+    loop {
+        match run(attempt, previous.take())? {
+            Retry::Again(ran) if attempt < limit => previous = Some(ran),
+            Retry::Done(ran) | Retry::Again(ran) => return Ok(ran),
+        }
+        attempt += 1;
+    }
 }
 
 /// Whether elm tripped over its own lock on a file, as it now and then

@@ -12,7 +12,7 @@ use serde::Deserialize;
 use super::corpus_dir;
 use crate::download;
 use crate::oracle::remove_tree;
-use crate::references::platform;
+use crate::references::{Platform, platform_name};
 use crate::refs;
 
 const FILE: &str = "corpus/apps.toml";
@@ -50,7 +50,7 @@ struct Prepare {
     files: usize,
     output_sha256: String,
     sbt_launcher: Pinned,
-    jdk: BTreeMap<String, Pinned>,
+    jdk: BTreeMap<Platform, Pinned>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -177,9 +177,8 @@ fn cached(corpus: &Path, pinned: &Pinned, name: &str) -> Result<PathBuf> {
 
 /// The pinned JDK's `java`, unpacked once into the tool cache.
 fn jdk(corpus: &Path, prepare: &Prepare) -> Result<PathBuf> {
-    let platform = platform();
-    let Some(pinned) = prepare.jdk.get(&platform) else {
-        bail!("no JDK is pinned for {platform}");
+    let Some(pinned) = Platform::current().and_then(|p| prepare.jdk.get(&p)) else {
+        bail!("no JDK is pinned for {}", platform_name());
     };
     let dir = corpus
         .join("tools")
@@ -226,7 +225,7 @@ mod tests {
         let unique: std::collections::BTreeSet<&str> = names.iter().copied().collect();
         assert_eq!(unique.len(), names.len());
         let prepare = apps.app[2].prepare.as_ref().unwrap();
-        assert!(prepare.jdk.contains_key("macos-aarch64"));
+        assert!(prepare.jdk.contains_key(&Platform::MacosAarch64));
     }
 
     #[test]

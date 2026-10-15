@@ -20,7 +20,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use nomi_testkit::lsp::Position;
+use nomi_testkit::lsp::{At, Method, Position, Session, Step};
 use serde_json::{Map, Value, json};
 
 use super::lsp::SUITE;
@@ -107,7 +107,7 @@ struct Test {
 /// A converted case: its files, by path, and its session.
 struct Case {
     files: BTreeMap<String, String>,
-    session: Map<String, Value>,
+    session: Session,
 }
 
 fn write(dir: &Path, title: &str, case: Case) -> Result<()> {
@@ -116,10 +116,12 @@ fn write(dir: &Path, title: &str, case: Case) -> Result<()> {
         fs::create_dir_all(path.parent().expect("a file in a directory"))?;
         fs::write(path, text)?;
     }
-    let mut session = Map::new();
-    session.insert("title".into(), json!(title));
-    session.extend(case.session);
-    let text = serde_json::to_string_pretty(&Value::Object(session))? + "\n";
+    let session = Session {
+        title: Some(title.to_owned()),
+        ..case.session
+    };
+    // Through a `Value`, whose keys are sorted, as the cases are written.
+    let text = serde_json::to_string_pretty(&serde_json::to_value(session)?)? + "\n";
     fs::write(dir.join("session.json"), text)?;
     Ok(())
 }
@@ -402,7 +404,7 @@ fn convert(kind: Kind, test: &Test) -> Option<Case> {
         Kind::Folding => {
             let files = source_files(source);
             let file = files.first()?.0.clone();
-            let step = request("textDocument/foldingRange", &file, Value::Null, none());
+            let step = request("textDocument/foldingRange", &file, None, none());
             Converted::new(files, vec![file], vec![step], none())
         }
         Kind::CodeAction => {
@@ -410,8 +412,8 @@ fn convert(kind: Kind, test: &Test) -> Option<Case> {
             let (start, end) = target(&files)?;
             let test_file = files.iter_mut().find(|(n, _)| n == "Test.elm")?;
             test_file.1 = strip_comment_lines(&test_file.1);
-            let at = json!({ "start": start, "end": end });
-            let step = request("textDocument/codeAction", "Test.elm", at, none());
+            let at = At::Span { start, end };
+            let step = request("textDocument/codeAction", "Test.elm", Some(at), none());
             let settings = json!({ "disableElmLSDiagnostics": false });
             Converted::new(files, vec!["Test.elm".to_owned()], vec![step], settings)
         }
@@ -437,7 +439,7 @@ fn convert(kind: Kind, test: &Test) -> Option<Case> {
 struct Converted {
     files: Vec<(String, String)>,
     open: Vec<String>,
-    requests: Vec<Value>,
+    requests: Vec<Step>,
     settings: Value,
 }
 
@@ -445,7 +447,7 @@ impl Converted {
     fn new(
         files: Vec<(String, String)>,
         open: Vec<String>,
-        requests: Vec<Value>,
+        requests: Vec<Step>,
         settings: Value,
     ) -> Converted {
         Converted {
@@ -459,15 +461,12 @@ impl Converted {
     /// The case: `tests/` files as they are, `../` ones at the project's
     /// top, the rest under `src/`.
     fn case(self) -> Case {
-        let mut session = Map::new();
-        if self.settings.as_object().is_some_and(|s| !s.is_empty()) {
-            session.insert("settings".into(), self.settings);
-        }
-        let open: Vec<String> = self.open.iter().map(|f| path_of(f)).collect();
-        session.insert("open".into(), json!(open));
-        if !self.requests.is_empty() {
-            session.insert("requests".into(), json!(self.requests));
-        }
+        let session = Session {
+            title: None,
+            settings: object(self.settings),
+            open: self.open.iter().map(|f| path_of(f)).collect(),
+            requests: self.requests,
+        };
         let files = (self.files.into_iter())
             .map(|(name, text)| match name.strip_prefix("../") {
                 Some(top) => (top.to_owned(), text),
@@ -479,15 +478,20 @@ impl Converted {
 }
 
 /// A session step: `method` on `file` at `at`, with more `params`.
-fn request(method: &str, file: &str, at: Value, params: Value) -> Value {
-    let mut step = json!({ "method": method, "file": path_of(file) });
-    if !at.is_null() {
-        step["at"] = at;
+fn request(method: &str, file: &str, at: Option<At>, params: Value) -> Step {
+    Step {
+        at,
+        params: object(params),
+        ..Step::on(Method::from(method.to_owned()), path_of(file))
     }
-    if params.as_object().is_some_and(|p| !p.is_empty()) {
-        step["params"] = params;
+}
+
+/// The fields of `value`, an object built with `json!`.
+fn object(value: Value) -> Map<String, Value> {
+    match value {
+        Value::Object(fields) => fields,
+        _ => Map::new(),
     }
-    step
 }
 
 /// `method` with `params` at the invoke position, as the definition,
@@ -495,7 +499,7 @@ fn request(method: &str, file: &str, at: Value, params: Value) -> Value {
 fn invoked(source: &str, method: &str, params: Value) -> Option<Converted> {
     let files = source_files(source);
     let (file, position) = invoke(&files)?;
-    let step = request(method, &file, json!(position), params);
+    let step = request(method, &file, Some(At::Exact(position)), params);
     Some(Converted::new(files, vec![file], vec![step], json!({})))
 }
 
@@ -511,7 +515,7 @@ fn at_caret(source: &str, ask: impl FnOnce(&[u16]) -> (&str, Value)) -> Option<C
         .take(position.character as usize)
         .collect();
     let (method, params) = ask(&before);
-    let step = request(method, &file, json!(position), params);
+    let step = request(method, &file, Some(At::Exact(position)), params);
     Some(Converted::new(files, vec![file], vec![step], json!({})))
 }
 
@@ -532,7 +536,7 @@ fn rename(test: &Test, source: &str) -> Option<Converted> {
         let step = request(
             "textDocument/prepareRename",
             "Test.elm",
-            json!(start),
+            Some(At::Exact(start)),
             json!({}),
         );
         steps.push(step);
@@ -542,7 +546,7 @@ fn rename(test: &Test, source: &str) -> Option<Converted> {
         steps.push(request(
             "textDocument/rename",
             "Test.elm",
-            json!(start),
+            Some(At::Exact(start)),
             params,
         ));
     }

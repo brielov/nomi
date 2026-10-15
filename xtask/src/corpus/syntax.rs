@@ -12,12 +12,15 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result, bail, ensure};
 use nomi_base::Compat;
+use nomi_project::Name;
 use nomi_syntax::{Source, Tool};
 use nomi_testkit::ratchet::Suite;
 use nomi_testkit::{files_below, release_column, sha256_hex as sha256};
 use sha2::{Digest as _, Sha256};
 
-use super::{apps, corpus_dir, is_module, packages, parallel};
+use super::{apps, corpus_dir, is_module, packages};
+use crate::oracle::cores;
+use nomi_testkit::parallel_on;
 
 /// The suite's directory: the oracle's table and `passing.txt`.
 pub(crate) const DIR: &str = "corpus/syntax";
@@ -130,9 +133,7 @@ pub(crate) fn modules(root: &Path) -> Result<Vec<Module>> {
     let mut modules = Vec::new();
     for package in packages::load(root)?.packages {
         let dir = packages::fetched_dir(&corpus, &package)?;
-        // Upstream's `Pkg.isKernel`.
-        let kernel =
-            package.name.starts_with("elm/") || package.name.starts_with("elm-explorations/");
+        let kernel = (package.name.parse::<Name>()).is_ok_and(|name| name.is_kernel());
         let source = if kernel {
             Source::Kernel
         } else {
@@ -255,7 +256,7 @@ pub(crate) fn check(root: &Path, record: bool) -> Result<()> {
     let table = parse_table(&text)?;
     let modules = modules(root)?;
     table.sources.ensure_current(&modules, "syntax")?;
-    let mismatches = parallel(&modules, |m| -> Result<Vec<String>> {
+    let mismatches = parallel_on(cores(), &modules, |m| -> Result<Vec<String>> {
         let bytes = fs::read(&m.file)?;
         let rejected = table.rejected.get(&(m.case.as_str(), m.path.as_str()));
         let mut mismatches = Vec::new();

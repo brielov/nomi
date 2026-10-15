@@ -40,7 +40,37 @@ pub(crate) struct Binary {
     pub repo: String,
     pub commit: String,
     pub format: Format,
-    pub assets: BTreeMap<String, Asset>,
+    pub assets: BTreeMap<Platform, Asset>,
+}
+
+/// A platform a pin has an asset for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+pub(crate) enum Platform {
+    #[serde(rename = "linux-x86_64")]
+    LinuxX86_64,
+    #[serde(rename = "linux-aarch64")]
+    LinuxAarch64,
+    #[serde(rename = "macos-x86_64")]
+    MacosX86_64,
+    #[serde(rename = "macos-aarch64")]
+    MacosAarch64,
+    #[serde(rename = "windows-x86_64")]
+    WindowsX86_64,
+}
+
+impl Platform {
+    /// The platform xtask runs on, if it is one of them.
+    pub(crate) fn current() -> Option<Platform> {
+        use std::env::consts::{ARCH, OS};
+        match (OS, ARCH) {
+            ("linux", "x86_64") => Some(Platform::LinuxX86_64),
+            ("linux", "aarch64") => Some(Platform::LinuxAarch64),
+            ("macos", "x86_64") => Some(Platform::MacosX86_64),
+            ("macos", "aarch64") => Some(Platform::MacosAarch64),
+            ("windows", "x86_64") => Some(Platform::WindowsX86_64),
+            _ => None,
+        }
+    }
 }
 
 /// How a binary's release asset holds it.
@@ -92,8 +122,8 @@ impl Binary {
     }
 }
 
-/// The current platform as `references.toml` spells it.
-pub(crate) fn platform() -> String {
+/// The current platform as `references.toml` spells one.
+pub(crate) fn platform_name() -> String {
     format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
 }
 
@@ -111,14 +141,6 @@ pub(crate) fn parse(text: &str) -> Result<References> {
     validate(&refs)?;
     Ok(refs)
 }
-
-const PLATFORMS: &[&str] = &[
-    "linux-x86_64",
-    "linux-aarch64",
-    "macos-x86_64",
-    "macos-aarch64",
-    "windows-x86_64",
-];
 
 fn validate(refs: &References) -> Result<()> {
     let hex = |s: &str, len: usize| s.len() == len && s.bytes().all(|b| b.is_ascii_hexdigit());
@@ -141,13 +163,7 @@ fn validate(refs: &References) -> Result<()> {
         commit(format!("elm package {}", p.name), &p.commit);
     }
     for b in &refs.binary {
-        for (platform, asset) in &b.assets {
-            if !PLATFORMS.contains(&platform.as_str()) {
-                problems.push(format!(
-                    "binary {} {}: unknown platform {platform}",
-                    b.name, b.version
-                ));
-            }
+        for asset in b.assets.values() {
             if !hex(&asset.sha256, 64) {
                 problems.push(format!(
                     "binary {} {}: sha256 must be 64 hex digits",
@@ -202,11 +218,14 @@ mod tests {
 
     #[test]
     fn bad_asset_fails() {
-        let text = format!(
-            "node-minimum = 22\n[[binary]]\nname = \"elm\"\nversion = \"1\"\nrepo = \"a/b\"\ncommit = \"{COMMIT}\"\nformat = \"gz\"\nassets.plan9-mips = {{ file = \"f\", sha256 = \"abc\" }}\n"
-        );
-        let error = parse(&text).unwrap_err().to_string();
-        assert!(error.contains("unknown platform plan9-mips"), "{error}");
+        let asset = |platform: &str| {
+            format!(
+                "node-minimum = 22\n[[binary]]\nname = \"elm\"\nversion = \"1\"\nrepo = \"a/b\"\ncommit = \"{COMMIT}\"\nformat = \"gz\"\nassets.{platform} = {{ file = \"f\", sha256 = \"abc\" }}\n"
+            )
+        };
+        let error = format!("{:#}", parse(&asset("plan9-mips")).unwrap_err());
+        assert!(error.contains("unknown variant `plan9-mips`"), "{error}");
+        let error = parse(&asset("linux-x86_64")).unwrap_err().to_string();
         assert!(error.contains("sha256 must be 64 hex digits"), "{error}");
     }
 

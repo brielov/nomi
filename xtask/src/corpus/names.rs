@@ -18,9 +18,10 @@ use nomi_engine::{Vfs, names};
 use nomi_project::{ModuleName, Name, Outline};
 use nomi_registry::{Details, Index, Registry, Store, Web, details};
 
-use super::{apps, compat, corpus_dir, packages, parallel};
+use super::{apps, compat, corpus_dir, downloading, packages};
 use crate::oracle::cache_dir;
 use crate::oracle::corpus_runs::Projects;
+use nomi_testkit::parallel_on;
 
 /// Projects that fail as elm fails, each with why, by case.
 const EXPECTED: &str = "corpus/names/expected.tsv";
@@ -46,41 +47,34 @@ pub(crate) fn check(root: &Path, only: Option<&str>) -> Result<()> {
         checked += solving.failures.len();
         failures.extend(solving.failures);
         unavailable.extend(solving.unavailable);
-        let solved = solving.solved;
-        // A chunk at a time: interfaces made, projects checked, then
-        // dropped, so only the packages' own interfaces stay in memory.
-        let mut memo = HashMap::new();
-        for chunk in solved.chunks(64) {
-            let mut ready = Vec::new();
-            for (project, sources) in chunk {
-                // A package builds as elm builds a dependency: from its
-                // exposed modules, its kernel imports unchecked.
+        // A package builds as elm builds a dependency: from its exposed
+        // modules, its kernel imports unchecked.
+        let projects: Vec<_> = (solving.solved.iter())
+            .map(|(project, sources)| {
                 let mut sources = sources.clone();
                 if let Outline::Pkg(pkg) = &project.outline {
                     sources.push((pkg.name.clone(), project.root.clone()));
                 }
-                match names::package_interfaces_with(c, &sources, &mut memo) {
-                    Ok(_) if matches!(project.outline, Outline::Pkg(_)) => checked += 1,
-                    Ok(interfaces) => ready.push((project, sources, interfaces)),
-                    Err(why) => {
-                        checked += 1;
-                        let why: String = why.chars().take(300).collect();
-                        failures.push((project.case.clone(), why));
-                    }
-                }
+                (project, sources, ())
+            })
+            .collect();
+        let check = |project: &Project, sources: &[_], interfaces: &_, (): &()| {
+            // A package's check is the building of its interfaces.
+            if matches!(project.outline, Outline::Pkg(_)) {
+                return Ok(());
             }
-            let results = parallel(&ready, |(project, sources, interfaces)| {
-                let (built, _) = build(c, project, sources, interfaces, Goal::Check)?;
-                problems(built.checked)
-            });
-            for ((project, _, _), result) in ready.iter().zip(results) {
+            let (built, _) = build(c, project, sources, interfaces, Goal::Check)?;
+            problems(built.checked)
+        };
+        in_chunks(c, &projects, 64, check, |outcomes| {
+            for (project, outcome) in outcomes {
                 checked += 1;
-                if let Err(why) = result {
+                if let Err(why) = outcome {
                     failures.push((project.case.clone(), why));
                 }
             }
             eprintln!("  {c}: {checked} checked, {} failing", failures.len());
-        }
+        });
     }
     for why in &unavailable {
         eprintln!("unavailable: {why}");
@@ -97,6 +91,46 @@ pub(crate) fn check(root: &Path, only: Option<&str>) -> Result<()> {
         bail!("{} unexpected failures", failures.len() - known);
     }
     Ok(())
+}
+
+/// How much of why a project's dependencies' interfaces failed is kept,
+/// in characters.
+const WHY: usize = 300;
+
+/// Runs `run` on each of `projects`, with its dependencies' sources and
+/// what else the suite gives it, a chunk of `size` at a time: the
+/// dependencies' interfaces made, sharing what they can, then the runs in
+/// parallel; so only the packages' own interfaces outlive a chunk, and
+/// eight threads keep a chunk's interfaces to eight projects'. `done`
+/// hears each chunk's outcomes: the projects whose interfaces failed
+/// first, then the others, each in order.
+pub(super) fn in_chunks<'a, S, T>(
+    c: Compat,
+    projects: &'a [(&'a Project, S, T)],
+    size: usize,
+    run: impl Fn(&Project, &[(Name, PathBuf)], &names::PackageInterfaces, &T) -> Result<(), String>
+    + Sync,
+    mut done: impl FnMut(Vec<(&'a Project, Result<(), String>)>),
+) where
+    S: AsRef<[(Name, PathBuf)]> + Sync,
+    T: Sync,
+{
+    let mut memo = HashMap::new();
+    for chunk in projects.chunks(size) {
+        let mut outcomes = Vec::new();
+        let mut ready = Vec::new();
+        for (project, sources, given) in chunk {
+            match names::package_interfaces_with(c, sources.as_ref(), &mut memo) {
+                Ok(interfaces) => ready.push((*project, sources.as_ref(), interfaces, given)),
+                Err(why) => outcomes.push((*project, Err(why.chars().take(WHY).collect()))),
+            }
+        }
+        let results = parallel_on(8, &ready, |(project, sources, interfaces, given)| {
+            run(project, sources, interfaces, given)
+        });
+        outcomes.extend(ready.iter().map(|(project, ..)| *project).zip(results));
+        done(outcomes);
+    }
 }
 
 /// What `nomi check` finds wrong, if anything, as one line.
@@ -264,7 +298,7 @@ impl Live {
         let releases: Vec<_> = (solution.iter())
             .map(|(name, details)| (name, details.version))
             .collect();
-        parallel(&releases, |(name, version)| {
+        downloading(&releases, |(name, version)| {
             (self.store.fetch(&self.http, name, *version, c))
                 .map(|dir| ((*name).clone(), dir))
                 .map_err(|e| format!("{name} {version}: {e:?}"))

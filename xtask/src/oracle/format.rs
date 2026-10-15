@@ -13,12 +13,12 @@ use anyhow::{Context, Result};
 use nomi_testkit::files_below;
 use nomi_testkit::sha256_hex as sha256;
 
-use super::process::run_within;
 use super::{generated, pinned_binary, remove_tree};
 use crate::corpus::format::{self as corpus_format, Outcome};
 use crate::corpus::syntax::{self as corpus_syntax, Sources};
 use crate::references::References;
 use nomi_testkit::parallel_on;
+use nomi_testkit::process::run_within;
 
 /// The fixture suite: inputs, elm-format's outputs and `passing.txt`.
 const FIXTURES: &str = "crates/format/tests/format_fixtures";
@@ -32,7 +32,7 @@ pub(crate) enum Inputs {
 }
 
 /// What elm-format made of one input.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Formatted {
     Output(Vec<u8>),
     /// Where it stopped parsing, as `line:column`.
@@ -121,7 +121,7 @@ pub(crate) fn elm_format(binary: &Path, text: &[u8]) -> Result<Formatted> {
         .stderr(Stdio::piped());
     let output = run_within(&mut command, text, None)
         .with_context(|| format!("running {}", binary.display()))?
-        .expect("a run without a limit ends");
+        .expect("a run without a limit ends on its own");
     if output.status.success() {
         return Ok(Formatted::Output(output.stdout));
     }

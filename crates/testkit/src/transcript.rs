@@ -24,15 +24,14 @@
 
 use std::fmt::Write as _;
 use std::fs;
-use std::io::{self, Write as _};
+use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
-use std::thread;
+use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, UNIX_EPOCH};
 
 use nomi_base::Compat;
 
-use crate::process::{read_all, wait_within};
+use crate::process::run_within;
 
 /// A parsed case file.
 #[derive(Clone, Debug, Default)]
@@ -154,8 +153,7 @@ impl Case {
     /// Runs `command` on the case in `dir`, which holds its files, and
     /// records what happened.
     pub fn run(&self, command: Command, dir: &Path) -> io::Result<Transcript> {
-        let output = self.spawn(command, dir)?.wait_with_output()?;
-        Transcript::after(output.status, output.stdout, output.stderr, dir)
+        self.run_ending(command, dir, None)
     }
 
     /// [`Case::run`], killing the command once it has run for `limit`, as
@@ -166,34 +164,24 @@ impl Case {
         dir: &Path,
         limit: Duration,
     ) -> io::Result<Transcript> {
-        let mut child = self.spawn(command, dir)?;
-        let stdout = read_all(child.stdout.take().expect("piped above"));
-        let stderr = read_all(child.stderr.take().expect("piped above"));
-        let (Ok(status) | Err(status)) = wait_within(&mut child, limit, Duration::from_millis(20))?;
-        let stdout = stdout.join().unwrap_or_default();
-        let stderr = stderr.join().unwrap_or_default();
-        Transcript::after(status, stdout, stderr, dir)
+        self.run_ending(command, dir, Some(limit))
     }
 
-    /// `command` started on the case in `dir`, with its output piped and
-    /// the case's input fed on a thread of its own, so a command that
-    /// doesn't read it blocks neither its output nor a time limit.
-    fn spawn(&self, mut command: Command, dir: &Path) -> io::Result<Child> {
-        let mut child = command
+    /// `command` run on the case in `dir`, with its output piped and the
+    /// case's input fed as it reads, killed past `limit` if one is given.
+    fn run_ending(
+        &self,
+        mut command: Command,
+        dir: &Path,
+        limit: Option<Duration>,
+    ) -> io::Result<Transcript> {
+        command
             .args(self.args_in(dir))
             .current_dir(dir)
-            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-        let mut stdin = child.stdin.take().expect("piped above");
-        if !self.stdin.is_empty() {
-            let input = self.stdin.clone();
-            // A command may exit without reading its input; the write then
-            // fails, and dropping the pipe closes it either way.
-            thread::spawn(move || stdin.write_all(input.as_bytes()));
-        }
-        Ok(child)
+            .stderr(Stdio::piped());
+        let (Ok(output) | Err(output)) = run_within(&mut command, self.stdin.as_bytes(), limit)?;
+        Transcript::after(output.status, output.stdout, output.stderr, dir)
     }
 }
 

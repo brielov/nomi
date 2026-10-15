@@ -1,10 +1,10 @@
 //! No test is skipped with `#[ignore]`: a test that cannot pass yet belongs
 //! in a ratchet, not in the suite.
 
-use super::purity::strip_comments_and_strings;
+use super::purity::{Comments, blanked};
 
 pub(crate) fn check(label: &str, source: &str) -> Vec<String> {
-    strip_comments_and_strings(source)
+    blanked(source, Comments::Blank)
         .lines()
         .enumerate()
         .filter(|(_, line)| line.replace(' ', "").contains("#[ignore"))

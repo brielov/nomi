@@ -27,7 +27,9 @@ use nomi_testkit::transcript::{Case, Transcript, cases, normalize_elm_test};
 
 use super::modules::store_packages;
 use super::sandbox::{elm_home, fetched, fixture_releases, offline};
-use super::{cache_dir, fresh_dir, installed, oracles_dir, pinned_binary, pinned_elm, which};
+use super::{
+    ElmOnPath, cache_dir, elm_on_path, fresh_dir, installed, oracles_dir, pinned_binary, pinned_elm,
+};
 use crate::corpus::compat;
 use crate::references::References;
 
@@ -142,16 +144,8 @@ pub(crate) struct ElmTest {
 impl ElmTest {
     /// elm-test, with its `elm` linked in `bin`.
     pub(crate) fn new(refs: &References, bin: &Path) -> Result<ElmTest> {
-        let elm = pinned_elm(refs, Compat::V0_19_3)?;
         let runner = installed(oracles_dir()?.join("npm/node_modules/elm-test/bin/elm-test"))?;
-        let node = which("node").context("node isn't on PATH")?;
-        fs::create_dir_all(bin)?;
-        let link = bin.join("elm");
-        if !link.exists() {
-            #[cfg(unix)]
-            std::os::unix::fs::symlink(&elm, &link)?;
-        }
-        let path = std::env::join_paths([bin, node.parent().context("node's directory")?])?;
+        let ElmOnPath { node, path, .. } = elm_on_path(refs, Compat::V0_19_3, bin, &[])?;
         Ok(ElmTest { node, runner, path })
     }
 

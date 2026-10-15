@@ -19,6 +19,7 @@ use anyhow::{Context, Result};
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{
     SyntaxKind, SyntaxNode, SyntaxToken, child_token, parse_module, significant_tokens,
+    trimmed_range,
 };
 use nomi_testkit::edit::{self, Edit};
 use nomi_testkit::transcript::{Case, cases};
@@ -133,7 +134,7 @@ fn names(seed: &str, case: &Case) -> Vec<Edit> {
                 SyntaxKind::ExposingList => exposing(&node, &mut edits),
                 // An import left out.
                 SyntaxKind::Import => {
-                    let Range { start, end } = trimmed(&node);
+                    let Range { start, end }: Range<usize> = trimmed_range(&node).into();
                     let note = format!("{} left out", node.text().to_string().trim());
                     let end = (end + 1).min(text.len());
                     edits.push("unimport", start..end, String::new(), note);
@@ -144,7 +145,7 @@ fn names(seed: &str, case: &Case) -> Vec<Edit> {
                         .parent()
                         .is_some_and(|p| p.kind() == SyntaxKind::Module) =>
                 {
-                    let declaration = trimmed(&node);
+                    let declaration: Range<usize> = trimmed_range(&node).into();
                     let end = declaration.end;
                     let copy = format!("\n\n\n{}", &text[declaration]);
                     let note = "a declaration written twice".to_owned();
@@ -177,10 +178,10 @@ fn exposing(node: &SyntaxNode, edits: &mut Edits<'_>) {
                 continue;
             }
             // With the comma after it, or the last one's before it.
-            let Range { start, end } = trimmed(item);
+            let Range { start, end } = trimmed_range(item).into();
             let range = match items.get(i + 1) {
-                Some(next) => start..trimmed(next).start,
-                None => trimmed(&items[i - 1]).end..end,
+                Some(next) => start..trimmed_range(next).start().into(),
+                None => trimmed_range(&items[i - 1]).end().into()..end,
             };
             let note = format!("{} not imported", item.text());
             edits.push("unexpose", range, String::new(), note);
@@ -200,10 +201,11 @@ fn arity(node: &SyntaxNode, edits: &mut Edits<'_>) {
     if let Some(last) = args.last() {
         let start = match args.len() {
             1 => node.first_token().map_or(0, |t| range(&t).end),
-            n => trimmed(&args[n - 2]).end,
+            n => trimmed_range(&args[n - 2]).end().into(),
         };
         let note = "a type argument left out".to_owned();
-        edits.push("arity", start..trimmed(last).end, String::new(), note);
+        let end = trimmed_range(last).end().into();
+        edits.push("arity", start..end, String::new(), note);
     }
 }
 
@@ -248,7 +250,8 @@ fn definition(node: &SyntaxNode, edits: &mut Edits<'_>) {
         && body.kind() != SyntaxKind::LambdaExpr
     {
         let note = format!("{} defined as itself", name.text());
-        edits.push("cycle", trimmed(&body), name.text().to_owned(), note);
+        let body = trimmed_range(&body).into();
+        edits.push("cycle", body, name.text().to_owned(), note);
     }
 }
 
@@ -277,7 +280,8 @@ fn types(seed: &str, case: &Case) -> Vec<Edit> {
                 SyntaxKind::CallExpr => {
                     let parts: Vec<SyntaxNode> = node.children().collect();
                     if let [_, first, second, ..] = &parts[..] {
-                        let (a, b) = (trimmed(first), trimmed(second));
+                        let a: Range<usize> = trimmed_range(first).into();
+                        let b: Range<usize> = trimmed_range(second).into();
                         let swapped = format!(
                             "{}{}{}",
                             &text[b.clone()],
@@ -324,21 +328,6 @@ fn last_ident(node: &SyntaxNode) -> Option<SyntaxToken> {
 
 fn range(token: &SyntaxToken) -> Range<usize> {
     token.text_range().into()
-}
-
-/// From `node`'s first token that isn't trivia to its last; to the node's
-/// end where it has only one.
-fn trimmed(node: &SyntaxNode) -> Range<usize> {
-    let mut tokens = (node.descendants_with_tokens())
-        .filter_map(|e| e.into_token())
-        .filter(|t| !t.kind().is_trivia());
-    let first = tokens
-        .next()
-        .map_or_else(|| node.text_range().start(), |t| t.text_range().start());
-    let last = tokens
-        .last()
-        .map_or_else(|| node.text_range().end(), |t| t.text_range().end());
-    first.into()..last.into()
 }
 
 /// `name` with its last two letters swapped, or doubled when it has one.

@@ -38,16 +38,16 @@ use sha2::{Digest as _, Sha256};
 
 use super::javascript::Mode;
 use super::process::run_to_files;
-use super::sandbox::{Release, elm_home, elmo_files, first_title, json_report, locked, offline};
+use super::sandbox::{
+    RETRIES, Release, Retry, elm_home, elmo_files, first_title, json_report, locked, offline,
+    retrying,
+};
 use super::{cache_dir, cores, elm_header, generated, pinned_elm, remove_tree, utf8};
 use crate::corpus::compat;
 use crate::corpus::syntax::CRASH;
 use crate::corpus::{apps, corpus_dir, packages};
 use crate::references::References;
 use nomi_testkit::parallel_on;
-
-/// Runs of one project before a lock failure is an error.
-const RETRIES: u32 = 5;
 
 /// How long one project may take before elm counts as hung.
 const TIMEOUT: Duration = Duration::from_secs(600);
@@ -267,20 +267,13 @@ pub(crate) fn run(
     only: Option<&str>,
 ) -> Result<()> {
     let classification = compat::load(root)?;
-    let releases = releases(&cache_dir()?.join("nomi").join("packages"))?;
-    ensure!(
-        !releases.is_empty(),
-        "the development cache has no releases; run `cargo xtask corpus names`"
-    );
+    let releases = cache_releases()?;
     let mut projects = projects(root, suite.projects())?;
     projects.retain(|p| only.is_none_or(|o| p.case.contains(o)));
     let compats = compat::compats(refs)?;
     let mut columns = Vec::new();
     for &compat in &compats {
-        let home = cache_dir()?
-            .join("sandboxes/corpus/home")
-            .join(compat.as_str());
-        elm_home(&home, compat, &releases)?;
+        let (home, _) = corpus_home(compat, &releases)?;
         let scratch = suite.sandbox(compat)?;
         remove_tree(&scratch)?;
         let elm = pinned_elm(refs, compat)?;
@@ -351,14 +344,28 @@ fn projects(root: &Path, projects: Projects) -> Result<Vec<Project>> {
     Ok(found)
 }
 
-/// Every release in nomi's store under `store`, with its sources.
-pub(crate) fn releases(store: &Path) -> Result<Vec<Release>> {
+/// The `ELM_HOME` the corpus suites share for `compat`, holding
+/// `releases`: the home, and its package cache.
+pub(crate) fn corpus_home(compat: Compat, releases: &[Release]) -> Result<(PathBuf, PathBuf)> {
+    let home = cache_dir()?
+        .join("sandboxes/corpus/home")
+        .join(compat.as_str());
+    let packages = elm_home(&home, compat, releases)?;
+    Ok((home, packages))
+}
+
+/// Every release in the development cache's store, with its sources;
+/// failing when it has none.
+pub(crate) fn cache_releases() -> Result<Vec<Release>> {
+    let store = cache_dir()?.join("nomi/packages");
     let mut releases = Vec::new();
     let dir = store.join("releases");
-    if !dir.is_dir() {
-        return Ok(releases);
-    }
-    for file in files_below(&dir)? {
+    let files = if dir.is_dir() {
+        files_below(&dir)?
+    } else {
+        Vec::new()
+    };
+    for file in files {
         let parts: Vec<&str> = file.split('/').collect();
         let [author, project, version] = parts[..] else {
             continue;
@@ -377,6 +384,10 @@ pub(crate) fn releases(store: &Path) -> Result<Vec<Release>> {
             dir: sources,
         });
     }
+    ensure!(
+        !releases.is_empty(),
+        "the development cache has no releases; run `cargo xtask corpus names`"
+    );
     releases.sort_by(|a, b| (&a.name, a.version).cmp(&(&b.name, b.version)));
     Ok(releases)
 }
@@ -490,13 +501,17 @@ fn record(
 }
 
 /// `elm make` with `args` in `dir`, again while it fails as runs that
-/// share an `ELM_HOME` sometimes make it fail.
+/// share an `ELM_HOME` sometimes make it fail; the last run's output if
+/// it still does, and an error if it hung [`RETRIES`] times.
 fn make(elm: &Path, home: &Path, work: &Path, dir: &Path, args: &[&str]) -> Result<Output> {
     // Runs sharing an `ELM_HOME` may build the same dependency at once,
     // and one may read the other's `artifacts.dat` half written; elm then
     // dies without a report, and a later run finds the file whole.
-    let mut attempt = 1;
-    loop {
+    let output = retrying(RETRIES, |attempt, previous| {
+        if let Some(Some(_)) = previous {
+            let _ = fs::remove_dir_all(dir.join("elm-stuff"));
+            std::thread::sleep(Duration::from_secs(u64::from(attempt)));
+        }
         let mut command = Command::new(elm);
         command
             .arg("make")
@@ -504,24 +519,21 @@ fn make(elm: &Path, home: &Path, work: &Path, dir: &Path, args: &[&str]) -> Resu
             .args(["+RTS", "-N1", "-RTS"])
             .current_dir(dir)
             .env("ELM_HOME", home);
+        // Hung, as concurrent runs very rarely leave elm; again.
         let Some(output) = run_to_files(offline(&mut command), work, TIMEOUT)? else {
-            // Hung, as concurrent runs very rarely leave elm; again.
-            attempt += 1;
-            ensure!(attempt <= RETRIES, "elm hung {RETRIES} times");
-            continue;
+            return Ok(Retry::Again(None));
         };
         let unreported = !output.status.success() && json_report(&output).is_none();
         // A success that says something has, so far, been one of those
         // too: alone, it is silent.
         let noisy = output.status.success() && !output.stderr.is_empty();
-        let retry = locked(&output.stderr) || unreported || noisy;
-        if !retry || attempt == RETRIES {
-            return Ok(output);
-        }
-        attempt += 1;
-        let _ = fs::remove_dir_all(dir.join("elm-stuff"));
-        std::thread::sleep(Duration::from_secs(u64::from(attempt)));
-    }
+        Ok(if locked(&output.stderr) || unreported || noisy {
+            Retry::Again(Some(output))
+        } else {
+            Retry::Done(Some(output))
+        })
+    })?;
+    output.with_context(|| format!("elm hung {RETRIES} times"))
 }
 
 /// Copies `top`'s `elm.json` files and modules, which are all elm reads,

@@ -19,9 +19,9 @@ use nomi_testkit::files_below;
 use super::measure::{Cost, Run, measure};
 use super::{Row, Setup, Table};
 use crate::corpus::{apps, compat, corpus_dir};
-use crate::oracle::corpus_runs::{copy_modules, releases};
+use crate::oracle::corpus_runs::{cache_releases, copy_modules};
 use crate::oracle::sandbox::{Release, elm_home};
-use crate::oracle::{cache_dir, fresh_dir, pinned_elm, remove_tree};
+use crate::oracle::{cache_dir, fresh_dir, link, pinned_elm, remove_tree};
 use crate::references::References;
 
 const RUNS: usize = 3;
@@ -65,11 +65,6 @@ struct Project<'a> {
 /// registry, with nothing built.
 pub(crate) fn nomi_cache(setup: &Setup) -> Result<PathBuf> {
     let store = cache_dir()?.join("nomi");
-    let releases = releases(&store.join("packages"))?;
-    ensure!(
-        !releases.is_empty(),
-        "the development cache has no releases; run `cargo xtask corpus names`"
-    );
     let cache = setup.scratch.join("cache");
     fresh_dir(&cache)?;
     link(&store.join("packages"), &cache.join("packages"))?;
@@ -78,7 +73,7 @@ pub(crate) fn nomi_cache(setup: &Setup) -> Result<PathBuf> {
 }
 
 pub(crate) fn tables(root: &Path, refs: &References, setup: &Setup) -> Result<Vec<Table>> {
-    let releases = releases(&cache_dir()?.join("nomi").join("packages"))?;
+    let releases = cache_releases()?;
     let cache = nomi_cache(setup)?;
     let artifacts = cache.join("artifacts");
     let nomi = Tool {
@@ -272,16 +267,5 @@ fn compare(
             nomi,
         });
     }
-    Ok(())
-}
-
-/// `from` at `to`, as a link where links are made without privileges.
-fn link(from: &Path, to: &Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(from, to)?;
-    }
-    #[cfg(not(unix))]
-    nomi_testkit::copy_tree(from, to, |_| true)?;
     Ok(())
 }

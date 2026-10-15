@@ -124,7 +124,7 @@ pub(crate) fn check_dependencies(closures: &[(String, Vec<String>)]) -> Vec<Stri
 
 /// Scans one source file of a pure crate. `label` names it in messages.
 pub(crate) fn scan_source(label: &str, source: &str) -> Vec<String> {
-    let code = strip_comments_and_strings(source);
+    let code = blanked(source, Comments::Blank);
     let mut violations = Vec::new();
     let mut report = |offset: usize, what: &str| {
         let line = code[..offset].matches('\n').count() + 1;
@@ -207,12 +207,6 @@ pub(crate) enum Comments {
     Keep,
 }
 
-/// Replaces comments and the contents of string and char literals with
-/// spaces, keeping newlines so offsets still map to the right lines.
-pub(crate) fn strip_comments_and_strings(source: &str) -> String {
-    blanked(source, Comments::Blank)
-}
-
 /// Replaces the contents of string and char literals with spaces, and
 /// comments too where `comments` says so, keeping newlines so offsets
 /// still map to the right lines.
@@ -233,49 +227,12 @@ pub(crate) fn blanked(source: &str, comments: Comments) -> String {
                 i += 1;
             }
         } else if c == '/' && next == Some('*') {
-            let mut depth = 0;
-            while i < chars.len() {
-                let pair = (chars[i], chars.get(i + 1).copied());
-                if matches!(pair, ('/', Some('*')) | ('*', Some('/'))) {
-                    depth += if pair.0 == '/' { 1 } else { -1 };
-                    out.push(comment(pair.0));
-                    out.push(comment(chars[i + 1]));
-                    i += 2;
-                    if depth == 0 {
-                        break;
-                    }
-                } else {
-                    out.push(comment(chars[i]));
-                    i += 1;
-                }
-            }
+            i = blank_block_comment(&chars, i, &mut out, comment);
         } else if c == 'r'
             && matches!(next, Some('"' | '#'))
             && !out.chars().next_back().is_some_and(is_ident)
         {
-            // Raw string: r"..." or r#"..."#.
-            let mut j = i + 1;
-            let mut hashes = 0;
-            while chars.get(j) == Some(&'#') {
-                hashes += 1;
-                j += 1;
-            }
-            if chars.get(j) != Some(&'"') {
-                out.push(c);
-                i += 1;
-                continue;
-            }
-            out.push('"');
-            j += 1;
-            let closing: Vec<char> = std::iter::once('"')
-                .chain(std::iter::repeat_n('#', hashes))
-                .collect();
-            while j < chars.len() && !chars[j..].starts_with(&closing) {
-                out.push(blank(chars[j]));
-                j += 1;
-            }
-            out.push('"');
-            i = (j + closing.len()).min(chars.len());
+            i = blank_raw_string(&chars, i, &mut out);
         } else if c == '"' || c == '\'' && (next == Some('\\') || chars.get(i + 2) == Some(&'\'')) {
             // A string or a char literal; a lone quote is a lifetime and
             // stays as is.
@@ -286,6 +243,60 @@ pub(crate) fn blanked(source: &str, comments: Comments) -> String {
         }
     }
     out
+}
+
+/// Writes the block comment at `i` in `chars`, with the comments it
+/// nests, each character through `comment`; gives where it ends.
+fn blank_block_comment(
+    chars: &[char],
+    mut i: usize,
+    out: &mut String,
+    comment: impl Fn(char) -> char,
+) -> usize {
+    let mut depth = 0;
+    while i < chars.len() {
+        let pair = (chars[i], chars.get(i + 1).copied());
+        if matches!(pair, ('/', Some('*')) | ('*', Some('/'))) {
+            depth += if pair.0 == '/' { 1 } else { -1 };
+            out.push(comment(pair.0));
+            out.push(comment(chars[i + 1]));
+            i += 2;
+            if depth == 0 {
+                break;
+            }
+        } else {
+            out.push(comment(chars[i]));
+            i += 1;
+        }
+    }
+    i
+}
+
+/// Writes the raw string at `i` in `chars`, `r"..."` or `r#"..."#`, as a
+/// quoted blank; or its `r` alone where no string follows. Gives where
+/// it ends.
+fn blank_raw_string(chars: &[char], i: usize, out: &mut String) -> usize {
+    let mut j = i + 1;
+    let mut hashes = 0;
+    while chars.get(j) == Some(&'#') {
+        hashes += 1;
+        j += 1;
+    }
+    if chars.get(j) != Some(&'"') {
+        out.push(chars[i]);
+        return i + 1;
+    }
+    out.push('"');
+    j += 1;
+    let closing: Vec<char> = std::iter::once('"')
+        .chain(std::iter::repeat_n('#', hashes))
+        .collect();
+    while j < chars.len() && !chars[j..].starts_with(&closing) {
+        out.push(blank(chars[j]));
+        j += 1;
+    }
+    out.push('"');
+    (j + closing.len()).min(chars.len())
 }
 
 /// A space for `c`, or the newline it is.

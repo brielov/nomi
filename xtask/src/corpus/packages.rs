@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
 
-use super::{corpus_dir, parallel};
+use super::{corpus_dir, downloading};
 use crate::download;
 use crate::oracle::remove_tree;
 
@@ -80,7 +80,7 @@ pub(crate) fn pin(root: &Path) -> Result<()> {
             .context("parsing search.json")?;
     eprintln!("  {} packages listed; reading endpoints", listed.len());
     let corpus = corpus_dir()?;
-    let results = parallel(&listed, |l| -> Result<Package> {
+    let results = downloading(&listed, |l| -> Result<Package> {
         let url = format!("{REGISTRY}/packages/{}/{}/endpoint.json", l.name, l.version);
         let endpoint: Endpoint = serde_json::from_slice(&download::get_quiet(&url)?)
             .with_context(|| format!("parsing {url}"))?;
@@ -146,7 +146,7 @@ fn render(packages: &[Package], unavailable: &BTreeMap<String, String>) -> Strin
 pub(crate) fn fetch(root: &Path) -> Result<()> {
     let pins = load(root)?;
     let corpus = corpus_dir()?;
-    let results = parallel(&pins.packages, |p| {
+    let results = downloading(&pins.packages, |p| {
         fetch_one(&corpus, p).with_context(|| format!("{} {}", p.name, p.version))
     });
     let failures: Vec<String> = results

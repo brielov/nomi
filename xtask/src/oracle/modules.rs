@@ -25,7 +25,9 @@ use anyhow::{Context, Result, ensure};
 use nomi_base::Compat;
 use nomi_testkit::transcript::{Case, cases};
 
-use super::sandbox::{Release, corpus_releases, elm_home, json_report, locked, offline};
+use super::sandbox::{
+    RETRIES, Release, Retry, corpus_releases, elm_home, json_report, locked, offline, retrying,
+};
 use super::{
     by_output, cache_dir, fresh_dir, generated, padded_case, pinned_elm, remove_tree, utf8,
 };
@@ -37,9 +39,6 @@ const CASES: &str = "crates/engine/tests/modules";
 
 /// The packages every case's project may depend on.
 const DEPENDENCIES: [&str; 2] = ["elm/core", "elm/json"];
-
-/// Runs of one case before a lock failure is an error.
-const RETRIES: u32 = 5;
 
 /// What a `docs.tsv` cell holds where elm wrote no `docs.json`.
 const NO_DOCS: &str = "none";
@@ -229,12 +228,12 @@ impl Recorder {
     /// JSON, its `--report=json` on one line, or `accepted`; in the
     /// terminal's, what it prints on standard error; [`CRASH`] either way
     /// where elm died by a signal. The project is made afresh, padded and
-    /// dated, with `default` for an `elm.json` it lacks.
+    /// dated, with `default` for an `elm.json` it lacks. A run that trips
+    /// over a lock [`RETRIES`] times is recorded as it went.
     fn report(&self, case: &Case, default: &str, style: Style) -> Result<(String, Option<String>)> {
         let work = padded_case(&self.scratch.join("work"), case)?;
         pin_manifest(&work, default, self.compat)?;
-        let mut attempt = 1;
-        let output = loop {
+        let output = retrying(RETRIES, |_, _| {
             let mut command = self.command(&case.args, &work);
             command
                 .arg("--output=/dev/null")
@@ -242,11 +241,12 @@ impl Recorder {
                 .args(["+RTS", "-N1", "-RTS"]);
             let output = command.output().context("running elm")?;
             // elm now and then trips over its own lock on `d.dat`.
-            if !locked(&output.stderr) || attempt == RETRIES {
-                break output;
-            }
-            attempt += 1;
-        };
+            Ok(if locked(&output.stderr) {
+                Retry::Again(output)
+            } else {
+                Retry::Done(output)
+            })
+        })?;
         // 0.19.3 dies on some recursive aliases; the tests skip what crashed.
         if output.status.code().is_none() {
             return Ok((CRASH.to_owned(), None));

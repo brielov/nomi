@@ -21,9 +21,9 @@ use serde_json::Value;
 
 use super::{apps, copy_project, corpus_dir};
 use crate::oracle::cache_dir;
-use crate::oracle::process::run_within;
 use crate::oracle::transcripts::ElmTest;
 use crate::references::References;
+use nomi_testkit::process::run_within;
 
 const ORACLE: &str = "corpus/tests/oracle.tsv";
 
@@ -92,8 +92,8 @@ fn run(mut command: Command, kept: &Path, name: &str, dir: &Path, home: &str) ->
     let ended = run_within(&mut command, &[], Some(LIMIT))
         .with_context(|| format!("{name}: running {program}"))?;
     let (exit, stdout, stderr) = match ended {
-        Some(output) => (output.status.code(), output.stdout, output.stderr),
-        None => (None, Vec::new(), Vec::new()),
+        Ok(output) => (output.status.code(), output.stdout, output.stderr),
+        Err(_) => (None, Vec::new(), Vec::new()),
     };
     let dir_text = work.display().to_string();
     let stdout = normalize_elm_test(&stdout, &dir_text, home);
@@ -143,8 +143,9 @@ pub(crate) fn record(root: &Path, refs: &References, only: Option<&str>) -> Resu
     for (name, dir) in suites(root, only)? {
         let command = elm_test.command(&home);
         let outcome = run(command, &kept, &name, &dir, &home.display().to_string())?;
-        println!("{}", outcome.row(&name));
-        rows.insert(name.clone(), outcome.row(&name));
+        let row = outcome.row(&name);
+        println!("{row}");
+        rows.insert(name, row);
     }
     let mut text = String::from(
         "# app\texit\tpassed\tfailed\toutput\terrors: elm-test 0.19.3-0 with --report json --seed 12345 --fuzz 100\n",
