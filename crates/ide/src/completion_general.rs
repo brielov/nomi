@@ -228,7 +228,6 @@ fn typed_module<'c>(
 }
 
 /// What an import brings, as elm-language-server's `Imports` holds it.
-#[derive(Clone)]
 struct Imported {
     label: String,
     kind: ImportedKind,
@@ -253,12 +252,32 @@ enum ImportedKind {
 }
 
 impl ImportedKind {
-    /// The kind of an exposed value or operator.
-    fn of_value(exposed: &ExposedName) -> ImportedKind {
+    /// The kind of an exposed name, as itself rather than a constructor.
+    fn of(exposed: &ExposedName) -> ImportedKind {
         match exposed.kind {
+            Exposed::Value => ImportedKind::Function,
             Exposed::Operator => ImportedKind::Operator,
-            Exposed::Value | Exposed::Alias | Exposed::Type { .. } => ImportedKind::Function,
+            Exposed::Alias => ImportedKind::Alias,
+            Exposed::Type { .. } => ImportedKind::Type,
         }
+    }
+
+    /// What a completion shows of it: its kind, its documentation but
+    /// for a constructor's, and a function's or constructor's type;
+    /// nothing for a record alias's constructor.
+    fn shown(
+        self,
+        documentation: impl FnOnce() -> Option<String>,
+        detail: impl FnOnce() -> Option<String>,
+    ) -> Option<(CompletionKind, Option<String>, Option<String>)> {
+        Some(match self {
+            ImportedKind::Function => (CompletionKind::Function, documentation(), detail()),
+            ImportedKind::Constructor => (CompletionKind::EnumMember, None, detail()),
+            ImportedKind::Operator => (CompletionKind::Operator, documentation(), None),
+            ImportedKind::Type => (CompletionKind::Enum, documentation(), None),
+            ImportedKind::Alias => (CompletionKind::Struct, documentation(), None),
+            ImportedKind::AliasConstructor => return None,
+        })
     }
 }
 
@@ -406,7 +425,7 @@ impl Imports {
         match &exposed.kind {
             Exposed::Operator if prefix.is_some() => {}
             Exposed::Value | Exposed::Operator => {
-                let kind = ImportedKind::of_value(exposed);
+                let kind = ImportedKind::of(exposed);
                 self.vars.set(&label, entry(&label, kind, &exposed.name));
             }
             Exposed::Alias => {
@@ -439,7 +458,7 @@ impl Imports {
         let find = |name: &str| all.iter().find(|e| e.label == name);
         for op in listed.operators.iter().chain(&listed.values) {
             if let Some(exposed) = find(op) {
-                let kind = ImportedKind::of_value(exposed);
+                let kind = ImportedKind::of(exposed);
                 self.vars.set(op, entry(op, kind, &exposed.name));
             }
         }
@@ -494,22 +513,12 @@ impl Imports {
                 None if dot.is_some() && self.vars.has(value, &element.module) => "e".to_owned(),
                 None => "d".to_owned(),
             };
-            let documentation = || context.hint(&element.module, &element.root, &element.name);
-            let (kind, documentation, detail) = match element.kind {
-                ImportedKind::Function => (
-                    CompletionKind::Function,
-                    documentation(),
-                    context.foreign_detail(&element.module, value),
-                ),
-                ImportedKind::Constructor => (
-                    CompletionKind::EnumMember,
-                    None,
-                    context.foreign_detail(&element.module, value),
-                ),
-                ImportedKind::Operator => (CompletionKind::Operator, documentation(), None),
-                ImportedKind::Type => (CompletionKind::Enum, documentation(), None),
-                ImportedKind::Alias => (CompletionKind::Struct, documentation(), None),
-                ImportedKind::AliasConstructor => continue,
+            let shown = element.kind.shown(
+                || context.hint(&element.module, &element.root, &element.name),
+                || context.foreign_detail(&element.module, value),
+            );
+            let Some((kind, documentation, detail)) = shown else {
+                continue;
             };
             let mut completion = Completion::new(label, kind, &sort, range)
                 .documented(documentation)
@@ -651,12 +660,7 @@ pub(crate) fn possible_imports(context: &Context<'_>) -> Vec<Possible> {
             name: name.clone(),
         };
         for exposed in exposed.iter() {
-            let kind = match &exposed.kind {
-                Exposed::Value => ImportedKind::Function,
-                Exposed::Operator => ImportedKind::Operator,
-                Exposed::Alias => ImportedKind::Alias,
-                Exposed::Type { .. } => ImportedKind::Type,
-            };
+            let kind = ImportedKind::of(exposed);
             possible.push(candidate(&exposed.label, kind, &exposed.name));
             if let Exposed::Type { variants } = &exposed.kind {
                 for variant in variants {
@@ -707,12 +711,12 @@ fn auto_imports(
             context.hint(&p.module, &root, &p.name)
         };
         let detail = || context.foreign_detail(&p.module, &p.value);
-        let (kind, documentation, detail) = match p.kind {
-            ImportedKind::Function => (CompletionKind::Function, documentation(), detail()),
-            ImportedKind::Alias => (CompletionKind::Struct, documentation(), None),
-            ImportedKind::Type => (CompletionKind::Enum, documentation(), None),
-            ImportedKind::Constructor => (CompletionKind::EnumMember, None, detail()),
-            ImportedKind::Operator | ImportedKind::AliasConstructor => continue,
+        let shown = match p.kind {
+            ImportedKind::Operator => None,
+            kind => kind.shown(documentation, detail),
+        };
+        let Some((kind, documentation, detail)) = shown else {
+            continue;
         };
         // A constructor's index isn't padded.
         let sort = if i < 10 && kind != CompletionKind::EnumMember {

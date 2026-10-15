@@ -89,6 +89,16 @@ impl ModuleName {
     }
 }
 
+/// `isKernel` of a name another reader already checked.
+pub fn is_kernel(name: &str) -> bool {
+    name.starts_with("Elm.Kernel.")
+}
+
+/// A kernel module's name without its `Elm.Kernel.` prefix.
+pub fn kernel_short(name: &str) -> Option<&str> {
+    name.strip_prefix("Elm.Kernel.")
+}
+
 impl fmt::Display for ModuleName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&String::from_utf8_lossy(&self.0))

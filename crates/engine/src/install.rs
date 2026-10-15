@@ -36,69 +36,60 @@ pub fn run(
     package: Option<&str>,
 ) -> bool {
     let mut compat = Compat::LATEST;
-    let result = install(cx, console, personality, package, &mut compat);
+    let mut add = |console: &mut dyn Console| -> Result<bool, Report> {
+        // Upstream's argument parser rejects a bad name before anything
+        // looks for the project.
+        let package = package.map(parse_name).transpose()?;
+        let Some(root) = Root::find(cx.vfs, cx.dir) else {
+            return Err(no_outline(personality));
+        };
+        let Some(package) = &package else {
+            return Err(no_args(personality, cx.cache));
+        };
+        let src = project::elm_json(cx.vfs, &root)?;
+        // Upstream loads the registry before it reads the outline, so its
+        // problems come first; reading it as the release it names comes
+        // first here.
+        let project = Project::decode(&root, &src, personality);
+        if let Ok(project) = &project {
+            compat = project.compat;
+        }
+        let store = Store::new(cx.cache.packages());
+        let mut registry = env::registry(
+            cx.cache,
+            &store,
+            cx.http,
+            compat,
+            "I need the list of published packages to figure out how to install things",
+        )?;
+        let project = project?;
+        let old = &project.outline;
+        project::check_source_dirs(root.dir(), old)?;
+        let plan = install::plan(&mut registry, compat, package, old)
+            .map_err(|problem| install_problem(&registry, package, old, problem))?;
+        let (question, new) = match plan {
+            Plan::AlreadyInstalled => {
+                console.out("It is already installed!\n");
+                return Ok(true);
+            }
+            Plan::PromoteIndirect(new) => (promote_indirect(), new),
+            Plan::PromoteTest(new) => (promote_test(), new),
+            Plan::App { changes, outline } => (plan_question(&changes), Outline::App(outline)),
+            Plan::Pkg {
+                changes, outline, ..
+            } => (plan_question(&changes), Outline::Pkg(outline)),
+        };
+        console::confirm(console, &question, compat, personality, || {
+            project.write(cx.vfs, new.write())?;
+            let verified = verify(&mut registry, &store, cx.http, compat, personality, &new);
+            if verified.is_err() {
+                project.write(cx.vfs, &src)?;
+            }
+            verified
+        })
+    };
+    let result = add(console);
     console::reported(console, result, compat)
-}
-
-/// [`run`], with `compat` the release the project is built as once its
-/// outline is read.
-fn install(
-    cx: &Context<'_, impl Http + Sync>,
-    console: &mut dyn Console,
-    personality: Personality,
-    package: Option<&str>,
-    compat: &mut Compat,
-) -> Result<bool, Report> {
-    // Upstream's argument parser rejects a bad name before anything
-    // looks for the project.
-    let package = package.map(parse_name).transpose()?;
-    let Some(root) = Root::find(cx.vfs, cx.dir) else {
-        return Err(no_outline(personality));
-    };
-    let Some(package) = &package else {
-        return Err(no_args(personality, cx.cache));
-    };
-    let src = project::elm_json(cx.vfs, &root)?;
-    // Upstream loads the registry before it reads the outline, so its
-    // problems come first; reading it as the release it names comes
-    // first here.
-    let project = Project::decode(&root, &src, personality);
-    if let Ok(project) = &project {
-        *compat = project.compat;
-    }
-    let store = Store::new(cx.cache.packages());
-    let mut registry = env::registry(
-        cx.cache,
-        &store,
-        cx.http,
-        *compat,
-        "I need the list of published packages to figure out how to install things",
-    )?;
-    let project = project?;
-    let old = &project.outline;
-    project::check_source_dirs(root.dir(), old)?;
-    let plan = install::plan(&mut registry, *compat, package, old)
-        .map_err(|problem| install_problem(&registry, package, old, problem))?;
-    let (question, new) = match plan {
-        Plan::AlreadyInstalled => {
-            console.out("It is already installed!\n");
-            return Ok(true);
-        }
-        Plan::PromoteIndirect(new) => (promote_indirect(), new),
-        Plan::PromoteTest(new) => (promote_test(), new),
-        Plan::App { changes, outline } => (plan_question(&changes), Outline::App(outline)),
-        Plan::Pkg {
-            changes, outline, ..
-        } => (plan_question(&changes), Outline::Pkg(outline)),
-    };
-    console::confirm(console, &question, *compat, personality, || {
-        project.write(cx.vfs, new.write())?;
-        let verified = verify(&mut registry, &store, cx.http, *compat, personality, &new);
-        if verified.is_err() {
-            project.write(cx.vfs, &src)?;
-        }
-        verified
-    })
 }
 
 /// `InstallNoOutline`.

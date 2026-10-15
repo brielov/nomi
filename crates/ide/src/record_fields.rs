@@ -323,11 +323,7 @@ pub(crate) fn alias_of_name<'i>(
             let outer = pattern_alias(index, module, &pattern)?;
             return field_alias(index, &outer, name);
         }
-        let pattern = parent
-            .ancestors()
-            .take_while(|a| ast::Pattern::can_cast(a.kind()))
-            .last()?;
-        return param_alias(index, module, &pattern);
+        return pattern_alias(index, module, &parent);
     }
     // A top-level value: what it is.
     let decl = (root.children())

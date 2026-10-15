@@ -23,8 +23,8 @@ use nomi_syntax::{
 use crate::completion::DEFAULT_IMPORTS;
 use crate::hover::{trimmed, types_at};
 use crate::tree::{
-    child, code_range, declaration_range, declared_type, last_child_token, variant_range, words,
-    written_imports,
+    child, code_range, covering_node, declaration_range, declared_type, last_child_token,
+    variant_range, words, written_imports,
 };
 
 /// A range in a file.
@@ -568,8 +568,22 @@ pub(crate) fn module_tree(
         return Some((module.path.clone(), module.root()));
     }
     let path = module_file(snapshot, index, name)?;
-    let root = parse_module(&snapshot.read(&path).ok()?).syntax();
+    let root = tree_at(snapshot, index, &path)?;
     Some((path, root))
+}
+
+/// The tree of the module at `path`: the index's where it's the
+/// project's, parsed once where it's a package's, whose sources never
+/// change, or else read and parsed.
+pub(crate) fn tree_at(snapshot: &Snapshot, index: &Index, path: &Path) -> Option<SyntaxNode> {
+    let own = (index.modules.iter()).find(|m| m.path.as_os_str() == path.as_os_str());
+    if let Some(own) = own {
+        return Some(own.root());
+    }
+    if index.is_package_file(path) {
+        return index.package_files.tree(path);
+    }
+    Some(parse_module(&snapshot.read(path).ok()?).syntax())
 }
 
 /// Every place the project names the module `name`, as
@@ -773,7 +787,7 @@ fn definition_of(
     let path = (index.packages.get(&*home.package)?)
         .join("src")
         .join(module_path(&home.module, "elm"));
-    let root = parse_module(&snapshot.read(&path).ok()?).syntax();
+    let root = tree_at(snapshot, index, &path)?;
     let hir = hir::lower(&ast::Module::cast(root.clone())?);
     // `List`, which elm/core never declares, is its module.
     let range = declared(&hir, name, kind).unwrap_or_default();
@@ -839,10 +853,7 @@ fn span(target: &Target) -> NameSpan {
 /// or parentheses around it, as much of it as `span` says.
 fn name_range(root: &SyntaxNode, range: TextRange, span: NameSpan) -> Option<TextRange> {
     let range = range.intersect(root.text_range())?;
-    let node = match root.covering_element(range) {
-        SyntaxElement::Node(node) => node,
-        SyntaxElement::Token(token) => token.parent()?,
-    };
+    let node = covering_node(root, range)?;
     let mut names = significant_tokens(&node)
         .filter(|t| range.contains_range(t.text_range()))
         .filter(|t| {

@@ -25,12 +25,11 @@ use nomi_engine::graph::module_path;
 use nomi_engine::index::{Index, Indexed};
 use nomi_project::Outline;
 use nomi_syntax::ast::{self, AstNode};
-use nomi_syntax::{
-    SyntaxKind, SyntaxNode, SyntaxToken, child_token, parse_module, significant_tokens,
-};
+use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, child_token, significant_tokens};
 
 use crate::completion_general::{Possible, possible_imports};
 use crate::hover::{Names, declaration_hint, render};
+use crate::navigation::tree_at;
 use crate::structure::glob_order;
 use crate::tree::{child, code_range, last_child_token, words, written_imports};
 use crate::{Edit, next_line};
@@ -652,15 +651,10 @@ impl Context<'_> {
                 },
                 None => &module.name,
             };
-            let documentation = self.tree_at(&module.path).and_then(|root| {
+            let documentation = tree_at(self.snapshot, self.index, &module.path).and_then(|root| {
                 let header = child(&root, SyntaxKind::ModuleHeader)?;
                 let name = significant_tokens(&child(&header, SyntaxKind::ModuleName)?).next()?;
-                let make = || declaration_hint(&root, &name, None);
-                if !self.index.is_package_file(&module.path) {
-                    return make();
-                }
-                let at = name.text_range().start();
-                self.index.package_files.hint(&module.path, at, make)
+                self.hint_at(&module.path, &root, &name)
             });
             found.push(
                 Completion::new(label, CompletionKind::Module, "b", range)
@@ -820,17 +814,22 @@ impl Context<'_> {
         root: &SyntaxNode,
         name: &SyntaxToken,
     ) -> Option<String> {
-        let make = || declaration_hint(root, name, None);
-        let package = (self.module_source(module))
-            .map(|(_, path)| path)
-            .filter(|path| self.index.is_package_file(path));
-        match package {
-            Some(path) => {
-                let at = name.text_range().start();
-                self.index.package_files.hint(&path, at, make)
-            }
-            None => make(),
+        match self.module_source(module) {
+            Some((_, path)) => self.hint_at(&path, root, name),
+            None => declaration_hint(root, name, None),
         }
+    }
+
+    /// [`declaration_hint`] of `name` in the module at `path`, whose tree
+    /// is `root`, made once where it's a package's.
+    fn hint_at(&self, path: &Path, root: &SyntaxNode, name: &SyntaxToken) -> Option<String> {
+        let make = || declaration_hint(root, name, None);
+        if !self.index.is_package_file(path) {
+            return make();
+        }
+        self.index
+            .package_files
+            .hint(path, name.text_range().start(), make)
     }
 
     /// The annotation of `name` in the module `home` as written, each
@@ -881,21 +880,7 @@ impl Context<'_> {
             (None, Some(own)) => return Some((own.root(), own.path.clone())),
             (None, None) => crate::navigation::module_file(self.snapshot, self.index, name)?,
         };
-        Some((self.tree_at(&path)?, path))
-    }
-
-    /// The tree of the module at `path`: the index's where it's the
-    /// project's, parsed once where it's a package's, whose sources never
-    /// change, or else read and parsed.
-    fn tree_at(&self, path: &Path) -> Option<SyntaxNode> {
-        let own = (self.index.modules.iter()).find(|m| m.path.as_os_str() == path.as_os_str());
-        if let Some(own) = own {
-            return Some(own.root());
-        }
-        if self.index.is_package_file(path) {
-            return self.index.package_files.tree(path);
-        }
-        Some(parse_module(&self.snapshot.read(path).ok()?).syntax())
+        Some((tree_at(self.snapshot, self.index, &path)?, path))
     }
 }
 
@@ -1187,10 +1172,12 @@ fn importable_modules(snapshot: &Snapshot, index: &Index, path: &Path) -> Vec<Im
     // As elm-language-server finds the files: a directory's files, then
     // its subdirectories', each by name.
     found.sort_by_cached_key(|m| glob_order(&m.path));
-    let direct: Vec<String> = match crate::project_outline(snapshot, path) {
-        None => return found,
-        Some((_, Outline::App(app), _)) => app.direct.keys().map(ToString::to_string).collect(),
-        Some((_, Outline::Pkg(pkg), _)) => {
+    let Some(project) = crate::project_outline(snapshot, path) else {
+        return found;
+    };
+    let direct: Vec<String> = match project.outline {
+        Outline::App(app) => app.direct.keys().map(ToString::to_string).collect(),
+        Outline::Pkg(pkg) => {
             // A package's own modules are of its package, which ranks them
             // among the dependencies.
             for module in &mut found {

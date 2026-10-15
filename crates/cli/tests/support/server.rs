@@ -8,7 +8,14 @@ use std::sync::Arc;
 
 /// What answers a request: the method and path, and the body sent; `None`
 /// for a 404.
-pub type Handler = dyn Fn(&str, &str, &[u8]) -> Option<Vec<u8>> + Send + Sync;
+pub type Handler = dyn Fn(Method, &str, &[u8]) -> Option<Vec<u8>> + Send + Sync;
+
+/// The methods the server answers; any other gets a 404.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Method {
+    Get,
+    Post,
+}
 
 /// A running server, until the test process ends.
 #[derive(Debug)]
@@ -40,7 +47,11 @@ fn serve(stream: std::net::TcpStream, handler: &Handler) -> std::io::Result<()> 
     let mut request = String::new();
     reader.read_line(&mut request)?;
     let mut parts = request.split_whitespace();
-    let method = parts.next().unwrap_or("").to_owned();
+    let method = match parts.next() {
+        Some("GET") => Some(Method::Get),
+        Some("POST") => Some(Method::Post),
+        _ => None,
+    };
     let path = parts.next().unwrap_or("").to_owned();
     let mut length = 0;
     loop {
@@ -59,7 +70,7 @@ fn serve(stream: std::net::TcpStream, handler: &Handler) -> std::io::Result<()> 
     let mut body = vec![0; length];
     reader.read_exact(&mut body)?;
     let mut stream = stream;
-    match handler(&method, &path, &body) {
+    match method.and_then(|method| handler(method, &path, &body)) {
         Some(answer) => {
             write!(
                 stream,

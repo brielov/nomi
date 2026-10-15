@@ -5,7 +5,7 @@
 mod constraint;
 pub mod json;
 mod license;
-mod module_name;
+pub mod module_name;
 pub mod outline;
 mod package;
 pub mod report;

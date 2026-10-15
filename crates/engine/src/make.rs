@@ -15,7 +15,8 @@ use nomi_registry::Http;
 
 use crate::artifacts::Artifacts;
 use crate::check::{
-    self, Build, Built, Checked, Goal, Sources, Style, env_of, problems_summary, show, show_reports,
+    self, Build, Built, Checked, Goal, Made, Sources, Style, env_of, problems_summary, show,
+    show_reports,
 };
 use crate::console::{Console, Personality};
 use crate::graph::{Env, RootMain};
@@ -176,7 +177,10 @@ pub fn interfaces(
     let built = build(cx, console, make, goal);
     trim(cx.cache);
     let clean = built?;
-    let interfaces = clean.built.optimized.interfaces.clone();
+    let interfaces = match &clean.built.made {
+        Some(Made::Optimized(optimized)) => optimized.interfaces.clone(),
+        _ => Vec::new(),
+    };
     write(cx.vfs, console, cx.dir, make, clean).then_some(interfaces)
 }
 
@@ -376,7 +380,7 @@ fn write(vfs: &Vfs, console: &mut dyn Console, dir: &Path, make: &Make, clean: C
         );
         false
     };
-    if let (Some(path), Some(docs)) = (&make.docs, &built.docs) {
+    if let (Some(path), Some(Made::Docs(docs))) = (&make.docs, &built.made) {
         let path = dir.join(path);
         if let Err(e) = vfs.create(&path, docs.as_bytes()) {
             let report = one_line(
@@ -387,14 +391,16 @@ fn write(vfs: &Vfs, console: &mut dyn Console, dir: &Path, make: &Make, clean: C
         }
     }
     let mut diagram = None;
-    if make.generating() {
-        let target = match target(make.output.as_ref(), &built.optimized.roots) {
+    if make.generating()
+        && let Some(Made::Optimized(optimized)) = built.made
+    {
+        let target = match target(make.output.as_ref(), &optimized.roots) {
             Ok(target) => target,
             Err(report) => return fail(console, report),
         };
         if let Some(target) = target {
             if kind == javascript::Kind::Optimize {
-                let uses = javascript::debug_uses(compat, &built.optimized);
+                let uses = javascript::debug_uses(compat, &optimized);
                 if !uses.is_empty() {
                     return fail(console, report::debug_remnants(&uses));
                 }
@@ -402,7 +408,7 @@ fn write(vfs: &Vfs, console: &mut dyn Console, dir: &Path, make: &Make, clean: C
             let package = env.owner().package_name();
             let bytes = timings::time(Phase::Generate, || {
                 let types = dependencies.into_graph_and_types();
-                let js = javascript::program(compat, kind, &package, types, built.optimized);
+                let js = javascript::program(compat, kind, &package, types, optimized);
                 match &target.html {
                     Some(module) => nomi_codegen_js::html::sandwich(&module.to_string(), &js),
                     None => js,

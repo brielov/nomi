@@ -28,7 +28,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail, ensure};
 use nomi_base::Compat;
-use nomi_testkit::transcript::{Case, ROOT_LENGTH};
+use nomi_testkit::transcript::Case;
 
 use crate::download;
 use crate::references::{Binary, ElmPackage, Format, Platform, References, platform_name};
@@ -230,10 +230,7 @@ fn recordings<'a>(transcripts: impl IntoIterator<Item = (Compat, &'a str)>) -> S
 /// recordings were made and the tests replay them; gives that directory.
 fn padded_case(work: &Path, case: &Case) -> Result<PathBuf> {
     fresh_dir(work)?;
-    let dir = nomi_testkit::padded_dir(&fs::canonicalize(work)?, ROOT_LENGTH)?;
-    case.create_files(&dir)?;
-    case.date_files(&dir)?;
-    Ok(dir)
+    Ok(case.lay_out_padded(work)?)
 }
 
 /// `dir` as text, for writing it `$ROOT` in what elm says.

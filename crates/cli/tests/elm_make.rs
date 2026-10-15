@@ -69,7 +69,7 @@ fn elm_make() {
     let workers = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
     let outcomes = parallel_on(workers, &runs, |(id, case, expected)| {
         let actual = website::transcript(case, offline(&elm, cache.path()));
-        shown(id.clone(), website::matching(expected, &steady(&actual)))
+        shown(id.clone(), transcript::matching(expected, &steady(&actual)))
     });
     eprintln!("elm_make: {crashes} runs skipped where elm crashed");
     Suite::open(dir).finish(outcomes);

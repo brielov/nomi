@@ -23,8 +23,8 @@ use nomi_compiler::hir;
 use nomi_compiler::interface::{Interface, Interfaces};
 use nomi_compiler::optimized::binary;
 use nomi_compiler::optimized::{Chunk, GlobalGraph, LocalGraph};
-use nomi_project::Name;
 use nomi_project::outline::PkgOutline;
+use nomi_project::{Name, module_name};
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::parse_module;
 
@@ -205,12 +205,12 @@ fn build_package(
     dir: &Path,
     built: &BTreeMap<Name, Arc<PackageBuild>>,
 ) -> Result<PackageBuild, String> {
-    let mut visible: HashMap<String, Interface> = HashMap::new();
+    let mut visible: HashMap<&str, &Interface> = HashMap::new();
     let mut foreigns: BTreeMap<String, String> = BTreeMap::new();
     for dep in pkg.deps.keys() {
         if let Some(build) = built.get(dep) {
             for (module, iface) in build.exposed.iter() {
-                visible.insert(module.clone(), iface.clone());
+                visible.insert(module, iface);
                 foreigns.insert(module.clone(), dep.to_string());
             }
         }
@@ -226,7 +226,7 @@ fn build_package(
     let PackageModules {
         interfaces,
         built: modules,
-    } = package.build(&exposed, visible)?;
+    } = package.build(&exposed, &visible)?;
     let types: Types = (interfaces.iter())
         .filter(|(m, _)| matches!(modules.get(*m), Some(Built::Local(_))))
         .map(|(m, interface)| {
@@ -361,8 +361,8 @@ struct Compiled {
     graph: LocalGraph,
 }
 
-/// What a package's modules made: every module's interface, its
-/// dependencies' exposed ones too, and what each module became.
+/// What a package's modules made: every module's interface, and what
+/// each module became.
 struct PackageModules {
     interfaces: HashMap<String, Interface>,
     built: BTreeMap<String, Built>,
@@ -373,15 +373,15 @@ struct PackageModules {
 /// only when read.
 struct Layered<'a> {
     local: HashMap<&'a str, &'a Interface>,
-    visible: &'a HashMap<String, Interface>,
+    visible: &'a HashMap<&'a str, &'a Interface>,
 }
 
 impl Interfaces for Layered<'_> {
     fn get(&self, module: &str) -> Option<&Interface> {
-        match self.local.get(module) {
-            Some(interface) => Some(interface),
-            None => self.visible.get(module),
-        }
+        self.local
+            .get(module)
+            .or_else(|| self.visible.get(module))
+            .copied()
     }
 }
 
@@ -392,13 +392,12 @@ impl Package<'_> {
     fn build(
         &self,
         exposed: &[String],
-        mut interfaces: HashMap<String, Interface>,
+        visible: &HashMap<&str, &Interface>,
     ) -> Result<PackageModules, String> {
         let Crawled { modules, mut built } = self.crawl(exposed)?;
         let names: Vec<&str> = modules.keys().map(String::as_str).collect();
         let imports = schedule::dag(&names, |name| modules[name].imports())
             .ok_or_else(|| format!("{}: its modules import each other in a cycle", self.name))?;
-        let visible = &interfaces;
         let job = |i: usize, deps: &[&Compiled]| -> Result<Compiled, String> {
             let name = names[i];
             let local = (imports[i].iter().zip(deps))
@@ -410,6 +409,7 @@ impl Package<'_> {
             })
         };
         let compiled = schedule::run_all(&imports, job)?;
+        let mut interfaces = HashMap::new();
         for (name, compiled) in names.iter().zip(compiled) {
             if let Some(Compiled { interface, graph }) = compiled {
                 interfaces.insert((*name).to_owned(), interface);
@@ -458,7 +458,7 @@ impl Package<'_> {
 
     /// What the crawl finds under `name`.
     fn find(&self, name: &str) -> Result<Found, String> {
-        if name.starts_with("Elm.Kernel.") {
+        if module_name::is_kernel(name) {
             if !self.kernels {
                 return Ok(Found::Foreign);
             }
@@ -524,7 +524,7 @@ impl Package<'_> {
             match built {
                 Built::Local(local) => graph.add_local(local),
                 Built::Kernel(chunks) => {
-                    let short = name.strip_prefix("Elm.Kernel.").unwrap_or(&name);
+                    let short = module_name::kernel_short(&name).unwrap_or(&name);
                     kernel::add_kernel(self.compat, &mut graph, short, chunks);
                 }
             }

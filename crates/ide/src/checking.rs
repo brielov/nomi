@@ -140,14 +140,21 @@ enum Review {
     Rerun,
 }
 
+/// What elm found in a project.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Elm {
+    Clean,
+    Problems,
+}
+
 impl Review {
     /// elm-review runs on open and save, once elm finds nothing; its
     /// problems go when elm finds some.
-    fn after(saved: bool, clean: bool) -> Review {
-        match (saved, clean) {
-            (true, true) => Review::Rerun,
-            (false, true) => Review::Keep,
-            (_, false) => Review::Forget,
+    fn after(saved: bool, elm: Elm) -> Review {
+        match (saved, elm) {
+            (true, Elm::Clean) => Review::Rerun,
+            (false, Elm::Clean) => Review::Keep,
+            (_, Elm::Problems) => Review::Forget,
         }
     }
 }
@@ -193,7 +200,12 @@ pub fn project_problems(
                 }
             }
         }
-        let review = Review::after(saved, found.len() == before);
+        let elm = if found.len() == before {
+            Elm::Clean
+        } else {
+            Elm::Problems
+        };
+        let review = Review::after(saved, elm);
         if review != Review::Keep {
             reviewed.0.retain(|path, _| !path.starts_with(root));
         }
@@ -317,9 +329,9 @@ mod tests {
 
     #[test]
     fn review_reruns_on_a_clean_save_and_forgets_on_problems() {
-        assert_eq!(Review::after(true, true), Review::Rerun);
-        assert_eq!(Review::after(true, false), Review::Forget);
-        assert_eq!(Review::after(false, false), Review::Forget);
-        assert_eq!(Review::after(false, true), Review::Keep);
+        assert_eq!(Review::after(true, Elm::Clean), Review::Rerun);
+        assert_eq!(Review::after(true, Elm::Problems), Review::Forget);
+        assert_eq!(Review::after(false, Elm::Problems), Review::Forget);
+        assert_eq!(Review::after(false, Elm::Clean), Review::Keep);
     }
 }

@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail, ensure};
 use nomi_base::Compat;
 use nomi_compiler::optimized::binary;
-use nomi_engine::check::{self, Built, Checked, Goal, Optimized, Style};
+use nomi_engine::check::{self, Built, Checked, Goal, Made, Optimized, Style};
 use nomi_engine::console::Captured;
 use nomi_engine::graph::Env;
 use nomi_engine::{javascript, names, objects};
@@ -209,17 +209,16 @@ fn run(
     let (built, env) = build(compat, project, sources, interfaces, goal)?;
     let Built {
         checked,
-        docs,
-        optimized,
+        made: output,
         ..
     } = built;
     let case = oracle_case(&project.case);
     let mut differ = None;
-    let made = match suite {
-        Suite::Docs => docs.map(|docs| Cell::Docs(sha256(docs.as_bytes()))),
+    let made = match (suite, output) {
+        (Suite::Docs, Some(Made::Docs(docs))) => Some(Cell::Docs(sha256(docs.as_bytes()))),
         _ if !matches!(checked, Checked::Fine) => None,
-        Suite::Check => Some(Cell::Ok),
-        Suite::Objects => {
+        (Suite::Check, _) => Some(Cell::Ok),
+        (Suite::Objects, _) => {
             let graph = dependencies(compat, sources)?.graph();
             let bytes = binary::encode_global_graph(&graph, compat);
             kept(
@@ -230,11 +229,16 @@ fn run(
             );
             Some(Cell::Objects(sha256(&bytes)))
         }
-        Suite::JavaScript => Some(scripts(compat, case, sources, &optimized)?),
-        Suite::Graphs => {
+        (Suite::JavaScript, Some(Made::Optimized(optimized))) => {
+            Some(scripts(compat, case, sources, &optimized)?)
+        }
+        (Suite::Graphs, Some(Made::Optimized(optimized))) => {
             let modules = graphs(compat, project, &env, optimized);
             differ = differing(compat, case, &modules).filter(|why| !why.is_empty());
             Some(graphs_cell(&modules))
+        }
+        (Suite::Docs | Suite::JavaScript | Suite::Graphs, _) => {
+            unreachable!("a clean build makes what its goal asks")
         }
     };
     let cell = match made {

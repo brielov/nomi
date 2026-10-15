@@ -20,6 +20,7 @@ use nomi_engine::index::Index;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::edits::ExposeArgs;
 use crate::position::{Files, Text};
 use crate::{Failure, Server, command_root, file_path};
 
@@ -367,7 +368,10 @@ impl Server {
                 match commands.then(|| command_root(&snapshot, &path)).flatten() {
                     Some(root) => {
                         let verb = if exposed { "unexpose" } else { "expose" };
-                        let arguments = vec![json!({ "uri": uri, "name": name_node })];
+                        let arguments = vec![json!(ExposeArgs {
+                            uri: uri.to_string(),
+                            name: name_node,
+                        })];
                         Command::new(
                             title.to_owned(),
                             format!("elm.{verb}-{root}"),

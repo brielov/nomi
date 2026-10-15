@@ -28,6 +28,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use anyhow::{Context, Result, ensure};
+use nomi_base::Compat;
 use nomi_testkit::files_below;
 use nomi_testkit::transcript::{Case, cases};
 
@@ -85,14 +86,17 @@ fn record_all(root: &Path, refs: &References, cases_dir: &str, sandbox: &str) ->
             column.push(transcript);
         }
         eprintln!("  elm {compat}: {} cases", column.len());
-        // The docs it read or wrote.
+        // The docs it read or wrote; the newest elm's are what the
+        // registry serves every elm.
         let packages = home.join(compat.as_str()).join("packages");
         if packages.is_dir() {
             for file in files_below(&packages)? {
                 if file.ends_with("/docs.json") {
-                    let to = dir.join("docs").join(compat.as_str()).join(&file);
-                    fs::create_dir_all(to.parent().expect("a file in a directory"))?;
-                    fs::copy(packages.join(&file), &to)?;
+                    if compat == Compat::LATEST {
+                        let to = dir.join("docs").join(compat.as_str()).join(&file);
+                        fs::create_dir_all(to.parent().expect("a file in a directory"))?;
+                        fs::copy(packages.join(&file), &to)?;
+                    }
                     docs.insert(file);
                 }
             }

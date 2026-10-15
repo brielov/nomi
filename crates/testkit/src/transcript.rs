@@ -111,6 +111,16 @@ impl Case {
         Ok(())
     }
 
+    /// Lays the case's files out, dated, in a directory under `work`
+    /// whose canonical path is [`ROOT_LENGTH`] bytes long, as the
+    /// recordings were made; gives that directory.
+    pub fn lay_out_padded(&self, work: &Path) -> io::Result<PathBuf> {
+        let root = crate::padded_dir(&fs::canonicalize(work)?, ROOT_LENGTH)?;
+        self.create_files(&root)?;
+        self.date_files(&root)?;
+        Ok(root)
+    }
+
     /// The releases a replay runs the case as: each nomi emulates for an
     /// application whose `elm-version` names one, else the newest, as
     /// nomi builds a package.
@@ -231,10 +241,8 @@ pub fn check_transcripts(
         let path = expected.join(format!("{name}.txt"));
         let expected =
             fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-        if actual != expected {
-            failures.push(format!(
-                "{name}:\n--- expected\n{expected}--- actual\n{actual}"
-            ));
+        if let Err(both) = matching(&expected, &actual) {
+            failures.push(format!("{name}:\n{both}"));
         }
     }
     assert!(
@@ -244,6 +252,15 @@ pub fn check_transcripts(
         failures.join("\n")
     );
     ran
+}
+
+/// Whether `actual` is the transcript `expected`, and if not, both.
+pub fn matching(expected: &str, actual: &str) -> Result<(), String> {
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(format!("--- expected\n{expected}--- actual\n{actual}"))
+    }
 }
 
 /// The transcript an oracle recorded for `release`, among the

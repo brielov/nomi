@@ -277,6 +277,14 @@ fn module_names_parse() {
 }
 
 #[test]
+fn kernel_names() {
+    use crate::module_name::{is_kernel, kernel_short};
+    assert!(is_kernel("Elm.Kernel.List") && !is_kernel("Elm.Kernelish"));
+    assert_eq!(kernel_short("Elm.Kernel.List"), Some("List"));
+    assert_eq!(kernel_short("List"), None);
+}
+
+#[test]
 fn module_names_outside_ascii() {
     let src = "Éclair.Ünder".as_bytes();
     for compat in Compat::ALL {

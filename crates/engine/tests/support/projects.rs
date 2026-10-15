@@ -14,13 +14,13 @@ use nomi_base::Compat;
 use nomi_compiler::interface::Interface;
 use nomi_compiler::optimized::binary;
 use nomi_engine::Vfs;
-use nomi_engine::check::{self, Build, Built, Checked, Goal, Optimized, Style};
+use nomi_engine::check::{self, Build, Built, Checked, Goal, Made, Optimized, Style};
 use nomi_engine::console::{Captured, Personality};
 use nomi_engine::graph::{Env, Foreigns};
 use nomi_engine::{javascript, names, objects};
 use nomi_project::{ModuleName, Name, Outline};
 use nomi_testkit::packages;
-use nomi_testkit::transcript::{Case, ROOT_LENGTH};
+use nomi_testkit::transcript::Case;
 use serde_json::Value;
 
 /// What a cell holds where elm crashed; nothing to compare.
@@ -79,7 +79,10 @@ pub fn run(case: &Case, compat: Compat, default_elm_json: &str, goal: Goal) -> R
     Reported {
         json,
         terminal,
-        docs: built.docs,
+        docs: match built.made {
+            Some(Made::Docs(docs)) => Some(docs),
+            _ => None,
+        },
     }
 }
 
@@ -146,7 +149,10 @@ fn optimize(
         );
         return Err(console.err);
     }
-    Ok((project, built.optimized))
+    match built.made {
+        Some(Made::Optimized(optimized)) => Ok((project, optimized)),
+        _ => unreachable!("a clean build optimizes"),
+    }
 }
 
 /// A case's project, made as the oracle made it, and what checking it
@@ -162,15 +168,12 @@ struct Project {
 impl Project {
     fn new(case: &Case, compat: Compat, default_elm_json: &str) -> Project {
         let temp = tempfile::tempdir().unwrap();
-        let root =
-            nomi_testkit::padded_dir(&fs::canonicalize(temp.path()).unwrap(), ROOT_LENGTH).unwrap();
         let mut case = case.clone();
         if !case.files.iter().any(|(path, _)| path == "elm.json") {
             (case.files).push(("elm.json".to_owned(), default_elm_json.to_owned()));
         }
         let case = case.as_release(compat);
-        case.create_files(&root).unwrap();
-        case.date_files(&root).unwrap();
+        let root = case.lay_out_padded(temp.path()).unwrap();
         let (_, text) = case
             .files
             .iter()

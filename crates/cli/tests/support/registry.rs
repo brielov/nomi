@@ -3,8 +3,8 @@
 //! registry, so the cases run against one served on the loopback
 //! interface (`NOMI_REGISTRY`): every package name elm's registry had,
 //! the releases of the packages the cases read, their documentation as
-//! the elm emulated read it, and the packages vendored for the
-//! compiler's tests to build with. As in the recordings, git finds no
+//! the newest elm read it, and the packages vendored for the compiler's
+//! tests to build with. As in the recordings, git finds no
 //! repository.
 //!
 //! An application whose `elm-version` names a pinned elm runs as each; any
@@ -23,7 +23,7 @@ use nomi_testkit::packages;
 use nomi_testkit::ratchet::{Suite, shown};
 use nomi_testkit::transcript::{self, crashed, recorded};
 
-use super::server::{self, Server};
+use super::server::{self, Method, Server};
 use super::website::{self, Website, offline};
 
 /// Runs the cases under `cases`, against their transcripts, and settles
@@ -31,7 +31,7 @@ use super::website::{self, Website, offline};
 pub fn transcripts(cases: &str) {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(cases);
     let (_bin, elm) = website::personality("elm");
-    let server = Server::start(registry(&dir, Compat::LATEST));
+    let server = Server::start(registry(&dir));
     let mut outcomes = Vec::new();
     for (name, case) in transcript::cases(&dir.join("cases")) {
         let expected =
@@ -50,14 +50,14 @@ pub fn transcripts(cases: &str) {
                 .env("NOMI_REGISTRY", &server.url)
                 .env_remove("ALL_PROXY");
             let actual = website::transcript(&case.as_release(release), command);
-            outcomes.push(shown(id, website::matching(expected, &actual)));
+            outcomes.push(shown(id, transcript::matching(expected, &actual)));
         }
     }
     Suite::open(&dir).finish(outcomes);
 }
 
-/// The registry the recordings had, as `release` read it.
-pub fn registry(dir: &Path, release: Compat) -> Arc<server::Handler> {
+/// The registry the recordings had, as the newest elm read it.
+pub fn registry(dir: &Path) -> Arc<server::Handler> {
     let website = Website::with_sources(&packages::dir());
     let mut versions: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for name in fs::read_to_string(dir.join("packages.txt"))
@@ -83,19 +83,19 @@ pub fn registry(dir: &Path, release: Compat) -> Arc<server::Handler> {
         }
     }
     let all = serde_json::to_vec(&versions).unwrap();
-    let docs = dir.join("docs").join(release.as_str());
+    let docs = dir.join("docs").join(Compat::LATEST.as_str());
     Arc::new(
-        move |method: &str, path: &str, _: &[u8]| match (method, path) {
-            ("POST", "/all-packages") => Some(all.clone()),
-            ("POST", p) if p.starts_with("/all-packages/since/") => Some(b"[]".to_vec()),
-            ("GET", p) if p.ends_with("/docs.json") => {
+        move |method: Method, path: &str, _: &[u8]| match (method, path) {
+            (Method::Post, "/all-packages") => Some(all.clone()),
+            (Method::Post, p) if p.starts_with("/all-packages/since/") => Some(b"[]".to_vec()),
+            (Method::Get, p) if p.ends_with("/docs.json") => {
                 let file = p.strip_prefix("/packages/")?;
                 fs::read(docs.join(file)).ok()
             }
-            ("GET", p) if p.ends_with("/elm.json") => {
+            (Method::Get, p) if p.ends_with("/elm.json") => {
                 fs::read(packages::dir().join(p.strip_prefix("/packages/")?)).ok()
             }
-            ("GET", p) => website
+            (Method::Get, p) => website
                 .get(&format!("https://package.elm-lang.org{p}"))
                 .ok(),
             _ => None,

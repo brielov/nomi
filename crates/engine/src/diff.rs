@@ -19,7 +19,7 @@ use nomi_registry::{Http, HttpError, Index};
 use nomi_syntax::ast::{self, AstNode};
 use serde_json::Value as Json;
 
-use crate::check::{self, Build, Checked, Goal, env_of, foreigns};
+use crate::check::{self, Build, Checked, Goal, Made, env_of, foreigns};
 use crate::console::{self, Console, Personality};
 use crate::paths::Root;
 use crate::project::{Project, check_source_dirs};
@@ -898,7 +898,10 @@ pub(crate) fn local_docs_json(
         artifacts: None,
     };
     let built = (build.run(Goal::Docs)).expect("nothing revises the files while diff builds");
-    built.docs.ok_or(Stop::Build(built.checked))
+    match built.made {
+        Some(Made::Docs(docs)) => Ok(docs),
+        _ => Err(Stop::Build(built.checked)),
+    }
 }
 
 /// The `docs.json` a build of nomi's wrote, decoded.

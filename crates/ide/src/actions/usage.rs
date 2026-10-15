@@ -1,18 +1,19 @@
 //! Code a missing name's usage asks for: a local or external function, a
 //! new parameter, or a constructor of the type its context expects.
 
+use std::borrow::Cow;
 use std::path::PathBuf;
 
 use nomi_base::{TextRange, TextSize};
 use nomi_compiler::types::{ExprTypes, error};
-use nomi_syntax::{SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
+use nomi_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
 use super::import::MissingName;
 use super::refactor::expose_edit;
 use super::{Diagnosed, Fixing, Offer, Usage, here, name_of, token_at};
 use crate::hover::{Names, render_error};
 use crate::problems::Code;
-use crate::tree::{child, code_range, declared_type, written_imports};
+use crate::tree::{child, code_range, covering_node, declared_type, written_imports};
 use crate::{Edit, FileEdits, column, last_line, next_line};
 
 /// What a missing value is made to type its usage.
@@ -145,12 +146,8 @@ struct ExternalFunction {
 fn external_functions(fixing: &Fixing<'_>, range: TextRange) -> Vec<ExternalFunction> {
     let MissingName { qualifier, name } = MissingName::at(fixing, range);
     let module = fixing.context.module;
-    let in_expression = match module.root().covering_element(range) {
-        SyntaxElement::Node(node) => node.kind() == SyntaxKind::NameExpr,
-        SyntaxElement::Token(token) => token
-            .parent()
-            .is_some_and(|p| p.kind() == SyntaxKind::NameExpr),
-    };
+    let in_expression =
+        covering_node(&module.root(), range).is_some_and(|n| n.kind() == SyntaxKind::NameExpr);
     let Some(qualifier) = qualifier else {
         return Vec::new();
     };
@@ -328,7 +325,12 @@ fn union_edits(fixing: &Fixing<'_>, range: TextRange) -> Option<FileEdits> {
         }
         _ => column(text, last_range.start()),
     };
-    let names = Names::of(context.index, target);
+    // The module's own names are the context's.
+    let names = if target.path == module.path {
+        Cow::Borrowed(context.names())
+    } else {
+        Cow::Owned(Names::of(context.index, target))
+    };
     let arguments: String = (params.iter())
         .map(|p| {
             let p = render_error(&names, p);

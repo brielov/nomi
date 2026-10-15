@@ -9,7 +9,7 @@ use lsp_types::{
     ApplyWorkspaceEditParams, ApplyWorkspaceEditResponse, CodeActionKind, CodeActionParams,
     Command, CreateFilesParams, Diagnostic, DiagnosticSeverity, DiagnosticTag,
     ExecuteCommandParams, MessageActionItem, MessageType, Position, Range, RenameFilesParams,
-    ShowMessageRequestParams, TextEdit, Url, WorkspaceEdit,
+    ShowMessageRequestParams, TextDocumentIdentifier, TextEdit, Url, WorkspaceEdit,
 };
 use nomi_base::{TextSize, lock};
 use nomi_engine::console::{Captured, Personality};
@@ -72,6 +72,42 @@ struct RefactorData {
     uri: Url,
     #[serde(skip_serializing_if = "Option::is_none")]
     rename_position: Option<Position>,
+}
+
+/// What an expose lens's command carries, and `elm/expose` and
+/// `elm/unexpose` get back. The file stays text, whose parse failure is
+/// the request's.
+#[derive(Serialize, Deserialize)]
+pub(crate) struct ExposeArgs {
+    pub(crate) uri: String,
+    pub(crate) name: String,
+}
+
+/// Where a function is moved from: what a move command carries, and the
+/// part of its code action's parameters a move request gets back.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MoveAt {
+    text_document: TextDocumentIdentifier,
+    range: Range,
+}
+
+/// A module a function may move to.
+#[derive(Serialize, Deserialize)]
+struct Destination {
+    name: String,
+    path: String,
+    uri: Url,
+}
+
+/// What `elm/getMoveDestinations` and `elm/move` get.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MoveParams {
+    source_uri: Url,
+    params: MoveAt,
+    /// Where `elm/move` moves it.
+    destination: Option<Destination>,
 }
 
 /// `workspace/applyEdit` marked as a refactoring, as elm-language-server
@@ -202,7 +238,7 @@ impl Server {
 
     /// `codeAction/resolve`: a refactor's edits, computed now.
     pub(crate) fn resolve_action(&self, mut action: Value) -> Result<Value, Failure> {
-        let Ok(data) = RefactorData::deserialize(&action["data"]) else {
+        let Ok(mut data) = RefactorData::deserialize(&action["data"]) else {
             return Ok(action);
         };
         let document = self.document(&data.uri)?;
@@ -219,10 +255,11 @@ impl Server {
             nomi_ide::refactor_edits(&index, &snapshot, &document.path, refactor, range)
         {
             let edits = edits.into_iter().map(|e| text.edit(e)).collect();
-            let edit = WorkspaceEdit::new(HashMap::from([(data.uri, edits)]));
+            let edit = WorkspaceEdit::new(HashMap::from([(data.uri.clone(), edits)]));
             action["edit"] = serde_json::to_value(edit).expect("an edit serializes");
             if let Some(rename) = rename {
-                action["data"]["renamePosition"] = json!(rename_position(&text, rename));
+                data.rename_position = Some(rename_position(&text, rename));
+                action["data"] = serde_json::to_value(data).expect("a refactor's data serializes");
             }
         }
         Ok(action)
@@ -235,12 +272,12 @@ impl Server {
         params: &Value,
         exposure: nomi_ide::Exposure,
     ) -> Result<Value, Failure> {
-        let (Some(uri), Some(name)) = (params["uri"].as_str(), params["name"].as_str()) else {
+        let Ok(ExposeArgs { uri, name }) = ExposeArgs::deserialize(params) else {
             return Err(Failure::invalid("a file and a name"));
         };
-        let uri = Url::parse(uri).map_err(Failure::invalid)?;
+        let uri = Url::parse(&uri).map_err(Failure::invalid)?;
         let document = self.document(&uri)?;
-        let edit = nomi_ide::exposing_edit(&self.vfs.snapshot(), &document.path, name, exposure);
+        let edit = nomi_ide::exposing_edit(&self.vfs.snapshot(), &document.path, &name, exposure);
         if let Some(edit) = edit {
             let edit = Text::new(&document.text, self.shared.unit).edit(edit);
             self.ask::<ApplyWorkspaceEdit>(ApplyWorkspaceEditParams {
@@ -295,9 +332,9 @@ impl Server {
     }
 
     /// The file a move request is about, and where in it.
-    fn move_source(&self, snapshot: &Snapshot, params: &Value) -> Option<(PathBuf, TextSize)> {
-        let path = file_path(params["sourceUri"].as_str()?)?;
-        let position = Position::deserialize(&params["params"]["range"]["start"]).ok()?;
+    fn move_source(&self, snapshot: &Snapshot, params: &MoveParams) -> Option<(PathBuf, TextSize)> {
+        let path = params.source_uri.to_file_path().ok()?;
+        let position = params.params.range.start;
         let offset = Text::new(snapshot.read(&path).ok()?, self.shared.unit).offset(position);
         Some((path, offset))
     }
@@ -305,7 +342,9 @@ impl Server {
     /// `elm/getMoveDestinations`: the project's other modules.
     pub(crate) fn move_destinations(&self, params: &Value) -> Value {
         let snapshot = self.vfs.snapshot();
-        let destinations: Vec<Value> = (self.move_source(&snapshot, params))
+        let params = MoveParams::deserialize(params).ok();
+        let destinations: Vec<Destination> = (params.as_ref())
+            .and_then(|params| self.move_source(&snapshot, params))
             .and_then(|(path, _)| {
                 let root = project_root(&snapshot, &path)?;
                 let index = self.index(&snapshot, &path)?;
@@ -315,7 +354,11 @@ impl Server {
             .flatten()
             .filter_map(|d| {
                 let uri = Url::from_file_path(&d.path).ok()?;
-                Some(json!({ "name": d.name, "path": d.folder, "uri": uri }))
+                Some(Destination {
+                    name: d.name,
+                    path: d.folder,
+                    uri,
+                })
             })
             .collect();
         json!({ "destinations": destinations })
@@ -325,9 +368,12 @@ impl Server {
     /// refactoring.
     pub(crate) fn move_to(&mut self, params: &Value) -> Value {
         let snapshot = self.vfs.snapshot();
-        let destination = params["destination"]["uri"].as_str().and_then(file_path);
+        let Ok(params) = MoveParams::deserialize(params) else {
+            return Value::Null;
+        };
+        let destination = (params.destination.as_ref()).and_then(|d| d.uri.to_file_path().ok());
         let (Some((path, offset)), Some(destination)) =
-            (self.move_source(&snapshot, params), destination)
+            (self.move_source(&snapshot, &params), destination)
         else {
             return Value::Null;
         };
@@ -492,7 +538,10 @@ fn action_json(action: Action, asked: Asked<'_>, files: &mut Files) -> Value {
         Some(ActionCommand::MoveFunction { name }) => refactored.map(|range| {
             let arguments = vec![
                 json!("moveFunction"),
-                json!({ "textDocument": { "uri": uri }, "range": range }),
+                json!(MoveAt {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    range,
+                }),
                 json!(name),
             ];
             let root = command_root(asked.snapshot, asked.path).unwrap_or_default();

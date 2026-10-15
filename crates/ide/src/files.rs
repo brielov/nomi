@@ -14,8 +14,8 @@ use crate::{Edit, FileEdits};
 /// The source directories of the project that owns `path`.
 fn source_dirs(snapshot: &Snapshot, path: &Path) -> Vec<PathBuf> {
     match crate::project_outline(snapshot, path) {
-        Some((root, outline, _)) => (outline.source_dirs().iter())
-            .map(|d| root.join(d))
+        Some(project) => (project.outline.source_dirs().iter())
+            .map(|d| project.root.join(d))
             .collect(),
         None => Vec::new(),
     }

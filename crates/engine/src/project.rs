@@ -13,6 +13,7 @@ use crate::Vfs;
 use crate::console::Personality;
 use crate::paths::{ELM_JSON, Root};
 use crate::report::one_line;
+use crate::vfs::canonical_or_given;
 
 /// A project's `elm.json`, read.
 pub(crate) struct Project {
@@ -118,8 +119,7 @@ pub(crate) fn check_source_dirs(root: &Path, outline: &Outline) -> Result<(), Re
     // directory with two names, named as the last two entries name it.
     let mut by_canonical: BTreeMap<String, Vec<&str>> = BTreeMap::new();
     for dir in &dirs {
-        let canonical = std::fs::canonicalize(root.join(dir))
-            .unwrap_or_else(|_| root.join(dir))
+        let canonical = canonical_or_given(&root.join(dir))
             .to_string_lossy()
             .into_owned();
         by_canonical.entry(canonical).or_default().push(dir);

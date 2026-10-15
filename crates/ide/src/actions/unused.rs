@@ -550,8 +550,8 @@ fn flat_type(signature: &SyntaxNode) -> Option<Vec<SyntaxElement>> {
 
 /// Whether the module is a package's exposed one and exposes `name`.
 fn exposed_by_package(context: &Context<'_>, root: &SyntaxNode, name: &str) -> bool {
-    let Some((_, Outline::Pkg(outline), _)) =
-        crate::project_outline(context.snapshot, context.path)
+    let Some(Outline::Pkg(outline)) =
+        crate::project_outline(context.snapshot, context.path).map(|p| p.outline)
     else {
         return false;
     };

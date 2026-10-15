@@ -12,7 +12,7 @@ use nomi_syntax::{
 use super::usage::{render_usage, todo_at, todo_type, with_todos};
 use super::{Diagnosed, Fixing, Offer, here};
 use crate::problems::Code;
-use crate::tree::{code_range, last_child_token};
+use crate::tree::{code_range, covering_node, last_child_token};
 use crate::{Edit, FileEdits, column};
 
 /// Whether `diagnostic` is elm's report of a `case` that misses patterns.
@@ -46,11 +46,7 @@ pub(super) fn missing_patterns(message: &str) -> Vec<String> {
 fn case_branch_edit(fixing: &Fixing<'_>, diagnostic: &Diagnosed) -> Option<Edit> {
     let module = fixing.context.module;
     let text = &*module.text;
-    let case = match module.root().covering_element(diagnostic.range) {
-        SyntaxElement::Node(node) => node,
-        SyntaxElement::Token(token) => token.parent()?,
-    };
-    let case = case
+    let case = covering_node(&module.root(), diagnostic.range)?
         .ancestors()
         .find(|n| n.kind() == SyntaxKind::CaseExpr)?;
     let branches: Vec<SyntaxNode> = case
@@ -122,10 +118,7 @@ pub(super) fn missing_field(
     root: &SyntaxNode,
     diagnostic: &Diagnosed,
 ) -> Option<(SyntaxNode, SyntaxToken)> {
-    let at = match root.covering_element(diagnostic.range) {
-        SyntaxElement::Node(node) => node,
-        SyntaxElement::Token(token) => token.parent()?,
-    };
+    let at = covering_node(root, diagnostic.range)?;
     let owner = at.ancestors().find(|n| {
         matches!(
             n.kind(),

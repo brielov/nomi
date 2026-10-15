@@ -194,33 +194,41 @@ impl Context {
     /// The context of the file at `path`, from the nearest `elm.json`
     /// above it (R7).
     fn of(snapshot: &Snapshot, path: &Path) -> Context {
-        match project_outline(snapshot, path) {
-            Some((_, Outline::App(_), compat)) => Context {
-                compat,
-                source: nomi_syntax::Source::Application,
-            },
-            Some((_, Outline::Pkg(pkg), compat)) => Context {
-                compat,
-                source: if pkg.name.is_kernel() {
-                    nomi_syntax::Source::Kernel
-                } else {
-                    nomi_syntax::Source::Package
-                },
-            },
-            None => Context {
+        let Some(project) = project_outline(snapshot, path) else {
+            return Context {
                 compat: Compat::LATEST,
                 source: nomi_syntax::Source::Application,
+            };
+        };
+        Context {
+            compat: project.compat,
+            source: match project.outline {
+                Outline::App(_) => nomi_syntax::Source::Application,
+                Outline::Pkg(pkg) if pkg.name.is_kernel() => nomi_syntax::Source::Kernel,
+                Outline::Pkg(_) => nomi_syntax::Source::Package,
             },
         }
     }
 }
 
-/// The project that owns the file at `path`, by the nearest `elm.json`
-/// above it: its directory, its outline and the release it reads as.
-fn project_outline(snapshot: &Snapshot, path: &Path) -> Option<(PathBuf, Outline, Compat)> {
+/// The project that owns a file, by the nearest `elm.json` above it.
+struct ProjectOutline {
+    /// The directory of its `elm.json`.
+    root: PathBuf,
+    outline: Outline,
+    /// The release it reads as.
+    compat: Compat,
+}
+
+/// The project that owns the file at `path`.
+fn project_outline(snapshot: &Snapshot, path: &Path) -> Option<ProjectOutline> {
     let manifest = manifest(snapshot, path)?;
     let (outline, compat) = Outline::detect(&snapshot.read_bytes(&manifest).ok()?).ok()?;
-    Some((manifest.parent()?.to_owned(), outline, compat))
+    Some(ProjectOutline {
+        root: manifest.parent()?.to_owned(),
+        outline,
+        compat,
+    })
 }
 
 /// The syntax error elm reports for the file at `path`, if any, at the

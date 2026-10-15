@@ -18,7 +18,7 @@ use nomi_compiler::interface::Interface;
 use nomi_compiler::optimized::binary;
 use nomi_engine::Vfs;
 use nomi_engine::artifacts::Artifacts;
-use nomi_engine::check::{self, Build, Checked, Goal};
+use nomi_engine::check::{self, Build, Checked, Goal, Made};
 use nomi_engine::console::Personality;
 use nomi_engine::graph::{Env, Foreigns};
 use nomi_engine::names;
@@ -101,7 +101,11 @@ impl Project {
             "{:?}",
             built.checked
         );
-        let mut graphs: Vec<(String, Vec<u8>)> = (built.optimized.graphs.iter())
+        let optimized = match &built.made {
+            Some(Made::Optimized(optimized)) => optimized.graphs.as_slice(),
+            _ => &[],
+        };
+        let mut graphs: Vec<(String, Vec<u8>)> = (optimized.iter())
             .map(|(name, graph)| (name.to_string(), binary::encode_local_graph(graph, compat)))
             .collect();
         graphs.sort();
@@ -210,7 +214,10 @@ fn documenting_reuses_the_modules_it_does_not_document() {
             "{:?}",
             built.checked
         );
-        built.docs.unwrap()
+        let Some(Made::Docs(docs)) = built.made else {
+            panic!("no docs");
+        };
+        docs
     };
     let fresh = docs(None);
     // Cold, then warm with Middle and Base read back.

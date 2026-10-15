@@ -17,8 +17,7 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 
-use nomi_base::Compat;
-use server::Server;
+use server::{Method, Server};
 
 const ELM_JSON: &str = r#"{
     "type": "package",
@@ -69,17 +68,17 @@ fn a_tagged_package_publishes() {
     let zip_hash = nomi_registry::store::sha1(&zipball);
 
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm_publish");
-    let website = registry::registry(&fixtures, Compat::LATEST);
+    let website = registry::registry(&fixtures);
     let registered: Arc<Mutex<Option<Registration>>> = Arc::default();
     let kept = registered.clone();
     let sha = commit.clone();
     let server = Server::start(Arc::new(
-        move |method: &str, path: &str, body: &[u8]| match (method, path) {
-            ("GET", "/github-api/repos/nomi-test/greet/git/refs/tags/1.0.0") => {
+        move |method: Method, path: &str, body: &[u8]| match (method, path) {
+            (Method::Get, "/github-api/repos/nomi-test/greet/git/refs/tags/1.0.0") => {
                 Some(format!(r#"{{"object":{{"sha":"{sha}","type":"commit"}}}}"#).into_bytes())
             }
-            ("GET", "/github/nomi-test/greet/zipball/1.0.0/") => Some(zipball.clone()),
-            ("POST", p) if p.starts_with("/register?") => {
+            (Method::Get, "/github/nomi-test/greet/zipball/1.0.0/") => Some(zipball.clone()),
+            (Method::Post, p) if p.starts_with("/register?") => {
                 *kept.lock().unwrap() = Some(Registration {
                     path: p.to_owned(),
                     body: body.to_vec(),

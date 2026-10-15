@@ -97,14 +97,20 @@ pub struct Built {
     pub ran: Vec<PathBuf>,
     /// How many modules came out clean, checked or reused.
     pub compiled: usize,
-    /// `docs.json`, documenting, if nothing was wrong.
-    pub docs: Option<String>,
-    /// What optimizing made.
-    pub optimized: Optimized,
+    /// What the goal asked for, if nothing was wrong and it asked.
+    pub made: Option<Made>,
+}
+
+/// What a clean build makes for its goal.
+#[derive(Debug)]
+pub enum Made {
+    /// `docs.json`, documenting.
+    Docs(String),
+    Optimized(Optimized),
 }
 
 /// What optimizing a project makes.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Optimized {
     /// The roots, and whether each defines `main`.
     pub roots: Vec<RootMain>,
@@ -122,8 +128,7 @@ impl Build<'_> {
             checked: Checked::Project(report),
             ran: Vec::new(),
             compiled: 0,
-            docs: None,
-            optimized: Optimized::default(),
+            made: None,
         };
         let (env, paths) = (self.env, self.paths);
         let exposed: Vec<ModuleName> = match self.outline {
@@ -165,22 +170,24 @@ impl Build<'_> {
         } else {
             Checked::Modules(modules)
         };
-        let docs = (goal == Goal::Docs && matches!(checked, Checked::Fine))
-            .then(|| nomi_compiler::docs::encode(env.compat(), &walked.docs));
-        let roots = match goal {
-            Goal::Optimize => graph.root_mains(),
-            Goal::Check | Goal::Docs => Vec::new(),
+        let made = match goal {
+            _ if !matches!(checked, Checked::Fine) => None,
+            Goal::Check => None,
+            Goal::Docs => Some(Made::Docs(nomi_compiler::docs::encode(
+                env.compat(),
+                &walked.docs,
+            ))),
+            Goal::Optimize => Some(Made::Optimized(Optimized {
+                roots: graph.root_mains(),
+                graphs: walked.optimized,
+                interfaces: walked.interfaces,
+            })),
         };
         Ok(Built {
             checked,
             ran: walked.ran,
             compiled: walked.compiled,
-            docs,
-            optimized: Optimized {
-                roots,
-                graphs: walked.optimized,
-                interfaces: walked.interfaces,
-            },
+            made,
         })
     }
 }
