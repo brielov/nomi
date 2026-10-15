@@ -292,7 +292,8 @@ fn scripts(
             "author/project",
             dependencies.clone(),
             optimized.clone(),
-        );
+        )
+        .expect("the browser lacks no kernel of elm's");
         let file = format!("{}.{}.js", sandbox_id(case), mode.name());
         kept(Suite::JavaScript, compat, &file, &js);
         Some(sha256(&js))

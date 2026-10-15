@@ -1,0 +1,9 @@
+=== exit 0
+=== stdout
+|No problems in syntax, module names, imports, names or types.
+|
+|    Main ───> dist/main.mjs
+|
+=== stderr
+=== file dist/main.mjs
+|61593 bytes, SHA-256 f842519677f13738055b931d5c74fe18ffe3dc880c2ab66ebdd95070038a5f03

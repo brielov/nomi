@@ -411,12 +411,17 @@ fn write(vfs: &Vfs, console: &mut dyn Console, dir: &Path, make: &Make, clean: C
             let package = env.owner().package_name();
             let bytes = timings::time(Phase::Generate, || {
                 let types = dependencies.into_graph_and_types();
-                let js = javascript::program(compat, kind, make.target, &package, types, optimized);
-                match &target.html {
+                let js =
+                    javascript::program(compat, kind, make.target, &package, types, optimized)?;
+                Ok(match &target.html {
                     Some(module) => nomi_codegen_js::html::sandwich(&module.to_string(), &js),
                     None => js,
-                }
+                })
             });
+            let bytes = match bytes {
+                Ok(bytes) => bytes,
+                Err(report) => return fail(console, report),
+            };
             let path = dir.join(&target.path);
             let written = timings::time(Phase::Write, || {
                 (path.parent().map_or(Ok(()), std::fs::create_dir_all))

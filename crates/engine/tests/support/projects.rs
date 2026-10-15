@@ -129,7 +129,8 @@ pub fn javascript(
         "author/project",
         dependencies,
         optimized,
-    );
+    )
+    .map_err(|report| report.title.into_owned())?;
     let html = (case.args.iter()).any(|a| a.starts_with("--output=") && a.ends_with(".html"));
     match root {
         Some(module) if html => Ok(nomi_codegen_js::html::sandwich(&module, &js)),

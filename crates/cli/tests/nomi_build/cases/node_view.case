@@ -1,0 +1,37 @@
+=== note
+for Node, a main that uses a view
+=== args
+build
+src/Main.elm
+--platform=node
+--output=dist/main.mjs
+=== file elm.json
+{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/html": "1.0.1", "elm/json": "1.1.4"}, "indirect": {"elm/virtual-dom": "1.0.5"}}, "test-dependencies": {"direct": {}, "indirect": {}}}
+=== file src/Page.elm
+module Page exposing (title, view)
+
+import Html exposing (Html)
+
+
+title : String
+title =
+    "Home"
+
+
+view : Html msg
+view =
+    Html.div [] [ Html.text title ]
+=== file src/Main.elm
+module Main exposing (main)
+
+import Html exposing (Html)
+import Page
+
+
+main : Program () (Html ()) ()
+main =
+    Platform.worker
+        { init = \_ -> ( Page.view, Cmd.none )
+        , update = \_ model -> ( model, Cmd.none )
+        , subscriptions = \_ -> Sub.none
+        }

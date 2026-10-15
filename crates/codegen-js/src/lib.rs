@@ -12,5 +12,6 @@ pub mod kernel;
 pub mod mode;
 mod name;
 pub mod platform;
+pub mod reach;
 
 pub use name::Name;

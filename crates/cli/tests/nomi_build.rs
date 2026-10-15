@@ -184,3 +184,71 @@ main =
     build(cache.path(), &root, &["--output=dist/plain.mjs"]);
     assert_eq!(node(&root, "dist/plain.mjs"), "");
 }
+
+/// Every file under `dir`, by its path from `dir`, with its contents.
+fn files(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+    let mut files = std::collections::BTreeMap::new();
+    let mut dirs = vec![dir.to_owned()];
+    while let Some(at) = dirs.pop() {
+        for entry in fs::read_dir(&at).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else {
+                let relative = path.strip_prefix(dir).unwrap().to_owned();
+                files.insert(relative, fs::read(&path).unwrap());
+            }
+        }
+    }
+    files
+}
+
+/// A project built for the browser, then for Node, finds everything it
+/// built already: nothing in its artifacts or nomi's cache names a
+/// platform.
+#[test]
+fn building_for_another_platform_writes_no_new_artifact() {
+    let cache = website::fixture_cache();
+    let (_work, root) = project(
+        "module Main exposing (main)
+
+import Page
+
+
+main : Program () String ()
+main =
+    Platform.worker
+        { init = \\_ -> ( Page.title, Cmd.none )
+        , update = \\_ model -> ( model, Cmd.none )
+        , subscriptions = \\_ -> Sub.none
+        }
+",
+    );
+    fs::write(
+        root.join("elm.json"),
+        r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/html": "1.0.1", "elm/json": "1.1.4"}, "indirect": {"elm/virtual-dom": "1.0.5"}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/Page.elm"),
+        "module Page exposing (title, view)\n\nimport Html exposing (Html)\n\n\ntitle : String\ntitle =\n    \"Home\"\n\n\nview : Html msg\nview =\n    Html.div [] [ Html.text title ]\n",
+    )
+    .unwrap();
+    let artifacts = || {
+        let mut project = files(&root);
+        project.retain(|path, _| !path.starts_with("dist"));
+        (files(cache.path()), project)
+    };
+    build(cache.path(), &root, &["--output=dist/browser.mjs"]);
+    let browser = artifacts();
+    build(
+        cache.path(),
+        &root,
+        &["--platform=node", "--output=dist/node.mjs"],
+    );
+    assert!(browser.0.keys().any(|path| path.starts_with("artifacts")));
+    assert!(
+        browser == artifacts(),
+        "a build for Node changed the artifacts"
+    );
+}

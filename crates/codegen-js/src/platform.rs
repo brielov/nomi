@@ -9,6 +9,18 @@ pub enum Platform {
     Node,
 }
 
+impl Platform {
+    /// The kernel modules, by short name, a program for the platform may
+    /// not reach. Node has no DOM. The browser lacks nomi/* kernels, which
+    /// the graph names by short name alone, as it names every kernel.
+    pub fn unavailable(self) -> &'static [&'static str] {
+        match self {
+            Platform::Browser => &[],
+            Platform::Node => &["Browser", "VirtualDom", "File"],
+        }
+    }
+}
+
 /// The shape of a program's file.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Format {

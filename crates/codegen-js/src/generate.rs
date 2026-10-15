@@ -4,13 +4,13 @@
 //! code comes first, then the rest, then `_Platform_export` with each
 //! `main` under its module's path.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::io::Write;
 
 use nomi_base::Compat;
 use nomi_base::diagnostic::render::naked_link;
 use nomi_compiler::canonical::Home;
-use nomi_compiler::optimized::binary::{globals, homes};
+use nomi_compiler::optimized::binary::homes;
 use nomi_compiler::optimized::{Chunk, Def, EffectsType, Expr, Global, GlobalGraph, Main, Node};
 
 use crate::builder::{self, Expr as Js, LValue, Stmt};
@@ -18,6 +18,7 @@ use crate::expression::{Generator, code_to_expr, code_to_stmt_list};
 use crate::mode::Mode;
 use crate::name::Name;
 use crate::platform::{Format, Platform, Target, shim};
+use crate::reach::{deps_of, identity, manager_functions};
 
 const FUNCTIONS: &str = include_str!("functions.js");
 
@@ -112,29 +113,23 @@ impl State<'_> {
         self.add_global_help(global, node);
     }
 
-    /// `Set.foldl' addGlobal`: in the release's order of globals.
-    fn add_deps(&mut self, deps: &BTreeSet<Global>) {
-        let mut deps: Vec<&Global> = deps.iter().collect();
-        deps.sort_by(|a, b| globals(self.generator.compat, a, b));
-        for dep in deps {
-            self.add_global(dep);
-        }
-    }
-
     fn add_stmt(&mut self, stmt: &Stmt) {
         builder::stmt(&mut self.builders, stmt);
     }
 
-    /// `addGlobalHelp`.
+    /// `addGlobalHelp`: what the node needs, then the node.
     fn add_global_help(&mut self, global: &Global, node: &Node) {
+        let Some(deps) = deps_of(self.generator.mode.is_debug(), global, node) else {
+            return;
+        };
+        let compat = self.generator.compat;
+        deps.each(compat, &global.home, |dep| self.add_global(dep));
         match node {
-            Node::Define(expr, deps) => {
-                self.add_deps(deps);
+            Node::Define(expr, _) => {
                 let stmt = var(global, self.generator.js(expr));
                 self.add_stmt(&stmt);
             }
-            Node::DefineTailFunc { params, body, deps } => {
-                self.add_deps(deps);
+            Node::DefineTailFunc { params, body, .. } => {
                 let code = self.generator.tail_def(&global.name, params, body);
                 self.add_stmt(&var(global, code_to_expr(code)));
             }
@@ -142,25 +137,18 @@ impl State<'_> {
                 let code = self.generator.ctor(global, *index, *arity as usize);
                 self.add_stmt(&var(global, code_to_expr(code)));
             }
-            Node::Link(linked) => self.add_global(linked),
+            Node::Link(_) => {}
             Node::Cycle {
                 names,
                 values,
                 functions,
-                deps,
+                ..
             } => {
-                self.add_deps(deps);
                 let stmt = self.cycle(&global.home, names, values, functions);
                 self.add_stmt(&stmt);
             }
             Node::Manager(effects) => self.manager(&global.home, *effects),
-            Node::Kernel(chunks, deps) => {
-                if global.home.module == "Debugger" && !self.generator.mode.is_debug() {
-                    return;
-                }
-                self.add_deps(deps);
-                self.kernel(chunks);
-            }
+            Node::Kernel(chunks, _) => self.kernel(chunks),
             Node::Enum(index) => {
                 let expr = match self.generator.mode {
                     Mode::Dev { .. } => code_to_expr(self.generator.ctor(global, *index, 0)),
@@ -169,19 +157,15 @@ impl State<'_> {
                 self.add_stmt(&var(global, expr));
             }
             Node::Box => {
-                let identity = Global {
-                    home: Home::core("Basics"),
-                    name: "identity".to_owned(),
-                };
-                self.add_global(&identity);
+                let identity = identity();
                 let expr = match self.generator.mode {
                     Mode::Dev { .. } => code_to_expr(self.generator.ctor(global, 0, 1)),
                     Mode::Prod(_) => Js::Ref(Name::from_global(&identity.home, &identity.name)),
                 };
                 self.add_stmt(&var(global, expr));
             }
-            Node::PortIncoming(decoder, deps) => self.port(global, "incomingPort", decoder, deps),
-            Node::PortOutgoing(encoder, deps) => self.port(global, "outgoingPort", encoder, deps),
+            Node::PortIncoming(decoder, _) => self.port(global, "incomingPort", decoder),
+            Node::PortOutgoing(encoder, _) => self.port(global, "outgoingPort", encoder),
         }
     }
 
@@ -278,8 +262,7 @@ impl State<'_> {
     }
 
     /// `generatePort`: `make` is the kernel's function for its direction.
-    fn port(&mut self, global: &Global, make: &str, converter: &Expr, deps: &BTreeSet<Global>) {
-        self.add_deps(deps);
+    fn port(&mut self, global: &Global, make: &str, converter: &Expr) {
         let call = Js::Call(
             Box::new(Js::Ref(Name::from_kernel("Platform", make))),
             vec![
@@ -292,23 +275,12 @@ impl State<'_> {
 
     /// `generateManager`.
     fn manager(&mut self, home: &Home, effects: EffectsType) {
-        let (names, leaves): (&[&str], &[&str]) = match effects {
-            EffectsType::Cmd => (&["init", "onEffects", "onSelfMsg", "cmdMap"], &["command"]),
-            EffectsType::Sub => (
-                &["init", "onEffects", "onSelfMsg", "subMap"],
-                &["subscription"],
-            ),
-            EffectsType::Fx => (
-                &["init", "onEffects", "onSelfMsg", "cmdMap", "subMap"],
-                &["command", "subscription"],
-            ),
+        let names = manager_functions(effects);
+        let leaves: &[&str] = match effects {
+            EffectsType::Cmd => &["command"],
+            EffectsType::Sub => &["subscription"],
+            EffectsType::Fx => &["command", "subscription"],
         };
-        for name in names {
-            self.add_global(&Global {
-                home: home.clone(),
-                name: (*name).to_owned(),
-            });
-        }
         let mut args: Vec<Js> = (names.iter())
             .map(|name| Js::Ref(Name::from_global(home, name)))
             .collect();
@@ -398,6 +370,8 @@ fn exports(out: &mut String, generator: &Generator, trie: &Trie) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
 
     const DEV: Mode = Mode::Dev { debug: None };

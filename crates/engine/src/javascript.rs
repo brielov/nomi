@@ -2,13 +2,16 @@
 //! every module's merged, the roots' `main`s gathered, and the code
 //! generated in the mode asked for.
 
-use nomi_base::Compat;
+use nomi_base::diagnostic::Report;
+use nomi_base::diagnostic::doc::{Color, reflow, text};
+use nomi_base::{Compat, kernel};
 use nomi_codegen_js::debug::{ModuleTypes, Types};
 use nomi_codegen_js::generate::generate;
 use nomi_codegen_js::mode::{Mode, shorten_field_names};
+use nomi_codegen_js::reach::unavailable;
 use nomi_compiler::canonical::Home;
 use nomi_compiler::nitpick::debug::graph_has_debug_uses;
-use nomi_compiler::optimized::{GlobalGraph, Main};
+use nomi_compiler::optimized::{Global, GlobalGraph, Main};
 use nomi_project::ModuleName;
 
 use crate::Pool;
@@ -29,7 +32,8 @@ pub enum Kind {
 }
 
 /// The JavaScript of what `elm make` optimized of the project `package`,
-/// with `dependencies`' graph and their modules' types, for `target`.
+/// with `dependencies`' graph and their modules' types, for `target`; or
+/// the report on a kernel the program reaches that its platform lacks.
 pub fn program(
     compat: Compat,
     kind: Kind,
@@ -37,7 +41,7 @@ pub fn program(
     package: &str,
     dependencies: (GlobalGraph, Types),
     optimized: Optimized,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, Report> {
     let Optimized {
         roots,
         graphs: mut locals,
@@ -78,11 +82,50 @@ pub fn program(
         }
         Kind::Optimize => Mode::Prod(shorten_field_names(compat, &graph)),
     };
-    let js = generate(compat, &mode, target, &graph, &mains);
+    let js = match unavailable(compat, &mode, target.platform, &graph, &mains) {
+        Some(path) => Err(not_available(target.platform, &path)),
+        None => Ok(generate(compat, &mode, target, &graph, &mains)),
+    };
     // Every package's code is in the graph, so freeing it takes a while,
     // which a build need not wait for.
     Pool::global().drop_later((graph, mode));
     js
+}
+
+/// That `path`, from a `main` to a kernel, reaches what `platform` lacks.
+fn not_available(platform: Platform, path: &[Global]) -> Report {
+    let name = |global: &Global| match global.home.package.as_str() {
+        "elm/kernel" => format!("{}{}", kernel::MODULE_PREFIX, global.home.module),
+        _ => format!("{}.{}", global.home.module, global.name),
+    };
+    let (main, rest) = path.split_first().expect("a path starts at a main");
+    let kernel = name(path.last().unwrap_or(main));
+    let chain = std::iter::once(main.name.clone())
+        .chain(rest.iter().map(name))
+        .collect::<Vec<_>>()
+        .join(" → ");
+    let (title, host, advice) = match platform {
+        Platform::Node => (
+            "NOT AVAILABLE ON NODE",
+            "Node",
+            "Node has no DOM, so pages, browser programs and files a user picks only work in a \
+             browser. A module may still define them, as long as `main` never uses them.",
+        ),
+        Platform::Browser => (
+            "NOT AVAILABLE IN THE BROWSER",
+            "the browser",
+            "nomi's own packages need Node. Build with --platform=node to run this program there.",
+        ),
+    };
+    Report::doc(
+        title,
+        None,
+        reflow(&format!(
+            "The `main` in {} uses {kernel}, which {host} does not have:",
+            main.home.module
+        )),
+        [text(&chain).color(Color::Red).indent(4), reflow(advice)],
+    )
 }
 
 /// `checkForDebugUses`: the modules using `Debug`, in the release's order
