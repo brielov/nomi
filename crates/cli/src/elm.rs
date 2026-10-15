@@ -10,6 +10,7 @@ use nomi_base::Compat;
 use nomi_base::diagnostic::doc::Doc;
 use nomi_engine::check::Style;
 use nomi_engine::console::{self, Console, Personality, StdConsole};
+use nomi_engine::javascript::Target;
 use nomi_engine::make::{self, Make, Output};
 use nomi_engine::{bump, publish};
 
@@ -105,6 +106,7 @@ fn parse_make(args: &[&str]) -> Result<Make, terminal::Error> {
         personality: Personality::Elm,
         style: report.unwrap_or(Style::Terminal),
         kind: make::kind(debug, optimize),
+        target: Target::default(),
         output,
         docs,
     })

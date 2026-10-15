@@ -288,6 +288,7 @@ fn scripts(
         let js = javascript::program(
             compat,
             kind,
+            javascript::Target::default(),
             "author/project",
             dependencies.clone(),
             optimized.clone(),

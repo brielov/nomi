@@ -38,6 +38,8 @@ pub struct Make {
     pub style: Style,
     /// What `--debug` and `--optimize` ask for.
     pub kind: Result<javascript::Kind, ClashingFlags>,
+    /// What the code is generated for; upstream's is the default.
+    pub target: javascript::Target,
     /// `--output`, if given.
     pub output: Option<Output>,
     /// Where to write a package's `docs.json`.
@@ -108,6 +110,7 @@ impl Make {
             personality: Personality::Nomi,
             style,
             kind: Ok(javascript::Kind::Dev),
+            target: javascript::Target::default(),
             output: Some(Output::DevNull),
             docs: None,
         }
@@ -408,7 +411,7 @@ fn write(vfs: &Vfs, console: &mut dyn Console, dir: &Path, make: &Make, clean: C
             let package = env.owner().package_name();
             let bytes = timings::time(Phase::Generate, || {
                 let types = dependencies.into_graph_and_types();
-                let js = javascript::program(compat, kind, &package, types, optimized);
+                let js = javascript::program(compat, kind, make.target, &package, types, optimized);
                 match &target.html {
                     Some(module) => nomi_codegen_js::html::sandwich(&module.to_string(), &js),
                     None => js,

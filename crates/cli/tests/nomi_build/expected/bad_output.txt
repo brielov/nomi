@@ -1,4 +1,4 @@
 === exit 1
 === stdout
 === stderr
-|error: --output takes a file ending in .js or .html, or /dev/null
+|error: --output takes a file ending in .js, .mjs or .html, or /dev/null

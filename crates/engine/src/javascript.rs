@@ -14,6 +14,8 @@ use nomi_project::ModuleName;
 use crate::Pool;
 use crate::check::Optimized;
 
+pub use nomi_codegen_js::platform::{Format, Platform, Target};
+
 /// How code is generated: `elm make`'s default, `--debug` or
 /// `--optimize`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,10 +29,11 @@ pub enum Kind {
 }
 
 /// The JavaScript of what `elm make` optimized of the project `package`,
-/// with `dependencies`' graph and their modules' types.
+/// with `dependencies`' graph and their modules' types, for `target`.
 pub fn program(
     compat: Compat,
     kind: Kind,
+    target: Target,
     package: &str,
     dependencies: (GlobalGraph, Types),
     optimized: Optimized,
@@ -75,7 +78,7 @@ pub fn program(
         }
         Kind::Optimize => Mode::Prod(shorten_field_names(compat, &graph)),
     };
-    let js = generate(compat, &mode, &graph, &mains);
+    let js = generate(compat, &mode, target, &graph, &mains);
     // Every package's code is in the graph, so freeing it takes a while,
     // which a build need not wait for.
     Pool::global().drop_later((graph, mode));

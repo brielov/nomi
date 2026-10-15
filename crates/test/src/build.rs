@@ -10,7 +10,7 @@ use nomi_base::{Compat, Report};
 use nomi_engine::artifacts::Hash;
 use nomi_engine::check::Style;
 use nomi_engine::console::{Console, Personality};
-use nomi_engine::javascript::Kind;
+use nomi_engine::javascript::{Kind, Target};
 use nomi_engine::make::{self, Make, Output};
 use nomi_engine::paths::Cache;
 use nomi_engine::test_deps::{self, Dependencies, Solve};
@@ -134,6 +134,7 @@ fn elm_make(paths: Vec<PathBuf>, style: Style, output: Output) -> Make {
         personality: Personality::Elm,
         style,
         kind: Ok(Kind::Dev),
+        target: Target::default(),
         output: Some(output),
         docs: None,
     }

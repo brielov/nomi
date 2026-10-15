@@ -17,20 +17,27 @@ use crate::builder::{self, Expr as Js, LValue, Stmt};
 use crate::expression::{Generator, code_to_expr, code_to_stmt_list};
 use crate::mode::Mode;
 use crate::name::Name;
+use crate::platform::{Format, Target};
 
 const FUNCTIONS: &str = include_str!("functions.js");
 
 /// `generate`: the program of `mains`, each a module and its `main`,
-/// from `graph`, which holds every definition they may reach.
+/// from `graph`, which holds every definition they may reach, for
+/// `target`.
 pub fn generate(
     compat: Compat,
     mode: &Mode,
+    target: Target,
     graph: &GlobalGraph,
     mains: &[(Home, Main)],
 ) -> Vec<u8> {
     let mut mains: Vec<&(Home, Main)> = mains.iter().collect();
     mains.sort_by(|a, b| homes(compat, &a.0, &b.0));
-    let mut kernels = b"(function(scope){\n'use strict';".to_vec();
+    let mut kernels = match target.format {
+        Format::Iife => Vec::new(),
+        Format::EsModule => b"const scope = {};\n".to_vec(),
+    };
+    kernels.extend_from_slice(b"(function(scope){\n'use strict';");
     kernels.extend_from_slice(FUNCTIONS.as_bytes());
     kernels.extend_from_slice(perf_note(compat, mode).as_bytes());
     let mut state = State {
@@ -50,7 +57,11 @@ pub fn generate(
     main_exports(&mut state.builders, &state.generator, &mains);
     let mut out = state.kernels;
     out.extend_from_slice(state.builders.as_bytes());
-    out.extend_from_slice(b"}(this));");
+    let end: &[u8] = match target.format {
+        Format::Iife => b"}(this));",
+        Format::EsModule => b"}(scope));\nexport const Elm = scope.Elm;\n",
+    };
+    out.extend_from_slice(end);
     out
 }
 
@@ -407,7 +418,8 @@ mod tests {
 
     /// The program's code past the helpers and the note.
     fn program(compat: Compat, mode: &Mode, graph: &GlobalGraph, mains: &[(Home, Main)]) -> String {
-        let js = String::from_utf8(generate(compat, mode, graph, mains)).unwrap();
+        let js =
+            String::from_utf8(generate(compat, mode, Target::default(), graph, mains)).unwrap();
         let start = js
             .find("assets.');")
             .map_or(0, |at| at + "assets.');".len());
@@ -455,6 +467,23 @@ mod tests {
             .collect();
         // elm's own output for elmstatic's four layouts.
         assert_eq!(order, ["'Page'", "'Tag'", "'Posts'", "'Post'"]);
+    }
+
+    #[test]
+    fn a_module_wraps_the_same_function_and_exports_elm() {
+        let (graph, mains) = static_mains(&["Main"]);
+        let iife = generate(Compat::V0_19_1, &DEV, Target::default(), &graph, &mains);
+        let module = Target {
+            format: Format::EsModule,
+            ..Target::default()
+        };
+        let module = generate(Compat::V0_19_1, &DEV, module, &graph, &mains);
+        let iife = String::from_utf8(iife).unwrap();
+        let body = iife.strip_suffix("}(this));").unwrap();
+        assert_eq!(
+            String::from_utf8(module).unwrap(),
+            format!("const scope = {{}};\n{body}}}(scope));\nexport const Elm = scope.Elm;\n")
+        );
     }
 
     #[test]

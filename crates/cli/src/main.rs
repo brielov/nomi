@@ -12,7 +12,7 @@ use nomi_engine::console::{Console, Personality, StdConsole};
 use nomi_engine::format::{self, Mode};
 use nomi_engine::paths::Cache;
 use nomi_engine::{
-    Context, Vfs, Web, bump, diff, init, install, make, publish, remove, tree, update,
+    Context, Vfs, Web, bump, diff, init, install, javascript, make, publish, remove, tree, update,
 };
 
 /// One toolchain for Elm: compiler, formatter, language server, test runner
@@ -82,8 +82,8 @@ enum Command {
         /// The modules with the `main`s to build; a package's exposed
         /// modules, checked, if none.
         paths: Vec<PathBuf>,
-        /// Where to write the code: a `.js` or `.html` file, or
-        /// `/dev/null` for none. `index.html` for one `main` and `elm.js`
+        /// Where to write the code: a `.js` or `.html` file, an `.mjs` ES
+        /// module, or `/dev/null` for none. `index.html` for one `main` and `elm.js`
         /// for more by default.
         #[arg(long, value_name = "FILE")]
         output: Option<String>,
@@ -201,18 +201,31 @@ fn main() -> ExitCode {
             docs,
             report,
         }) => {
+            let module = output.as_deref().is_some_and(|o| make::has_ext(".mjs", o));
             let output = match output.as_deref().map(make::Output::parse) {
+                Some(None) if module => output.map(|o| make::Output::Js(o.into())),
                 Some(None) => {
-                    eprintln!("error: --output takes a file ending in .js or .html, or /dev/null");
+                    eprintln!(
+                        "error: --output takes a file ending in .js, .mjs or .html, or /dev/null"
+                    );
                     return exit(false);
                 }
                 output => output.flatten(),
+            };
+            let target = javascript::Target {
+                platform: javascript::Platform::Browser,
+                format: if module {
+                    javascript::Format::EsModule
+                } else {
+                    javascript::Format::Iife
+                },
             };
             let make = make::Make {
                 paths,
                 personality: Personality::Nomi,
                 style: style(report),
                 kind: make::kind(debug, optimize),
+                target,
                 output,
                 docs,
             };

@@ -79,3 +79,66 @@ fn a_built_project_keeps_its_dependencies_solved() {
     let said = String::from_utf8_lossy(&third.stdout) + String::from_utf8_lossy(&third.stderr);
     assert!(said.contains("PACKAGE LIST"), "{said}");
 }
+
+/// A worker built into an `.mjs` file is an ES module exporting `Elm`:
+/// Node imports it, and a message sent to its incoming port comes back
+/// on its outgoing one.
+#[test]
+fn a_module_output_is_imported_by_node_and_answers_on_its_ports() {
+    nomi_testkit::require_node();
+    let cache = website::fixture_cache();
+    let work = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(work.path()).unwrap();
+    fs::write(
+        root.join("elm.json"),
+        r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
+    )
+    .unwrap();
+    fs::create_dir(root.join("src")).unwrap();
+    fs::write(
+        root.join("src/Main.elm"),
+        "port module Main exposing (main)
+
+
+port requests : (String -> msg) -> Sub msg
+
+
+port responses : String -> Cmd msg
+
+
+main : Program () () String
+main =
+    Platform.worker
+        { init = \\_ -> ( (), Cmd.none )
+        , update = \\request model -> ( model, responses (String.toUpper request) )
+        , subscriptions = \\_ -> requests identity
+        }
+",
+    )
+    .unwrap();
+    let program = Path::new(env!("CARGO_BIN_EXE_nomi"));
+    let mut build = offline(program, cache.path());
+    build
+        .current_dir(&root)
+        .args(["build", "src/Main.elm", "--output=dist/main.mjs"]);
+    let built = build.output().unwrap();
+    assert!(built.status.success(), "{built:?}");
+    let driver = "import { Elm } from './dist/main.mjs';
+const app = Elm.Main.init();
+app.ports.responses.subscribe((response) => console.log(response));
+app.ports.requests.send('ping');
+";
+    fs::write(root.join("driver.mjs"), driver).unwrap();
+    let ran = std::process::Command::new("node")
+        .arg("driver.mjs")
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&ran.stdout),
+        "PING\n",
+        "{}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    assert!(ran.status.success());
+}

@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use nomi_base::Compat;
+use nomi_codegen_js::platform::Target;
 use nomi_compiler::interface::Interface;
 use nomi_compiler::optimized::binary;
 use nomi_engine::Vfs;
@@ -121,7 +122,14 @@ pub fn javascript(
         [root] => Some(root.name.to_string()),
         _ => None,
     };
-    let js = javascript::program(compat, kind, "author/project", dependencies, optimized);
+    let js = javascript::program(
+        compat,
+        kind,
+        Target::default(),
+        "author/project",
+        dependencies,
+        optimized,
+    );
     let html = (case.args.iter()).any(|a| a.starts_with("--output=") && a.ends_with(".html"));
     match root {
         Some(module) if html => Ok(nomi_codegen_js::html::sandwich(&module, &js)),
