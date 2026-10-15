@@ -100,6 +100,10 @@ enum Command {
         /// --report=json` does.
         #[arg(long, value_name = "FORMAT")]
         report: Option<ReportFormat>,
+        /// Where the code runs. Under Node, an `.mjs` output of one
+        /// `main` starts it when run.
+        #[arg(long, value_enum, default_value = "browser")]
+        platform: PlatformName,
     },
     /// Show how a package's API changed: the code against its latest
     /// release or a given one, two of its releases, or two of any
@@ -139,6 +143,13 @@ enum Command {
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
 enum ReportFormat {
     Json,
+}
+
+/// The platforms code is built for.
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum PlatformName {
+    Browser,
+    Node,
 }
 
 mod elm;
@@ -200,6 +211,7 @@ fn main() -> ExitCode {
             optimize,
             docs,
             report,
+            platform,
         }) => {
             let module = output.as_deref().is_some_and(|o| make::has_ext(".mjs", o));
             let output = match output.as_deref().map(make::Output::parse) {
@@ -213,7 +225,10 @@ fn main() -> ExitCode {
                 output => output.flatten(),
             };
             let target = javascript::Target {
-                platform: javascript::Platform::Browser,
+                platform: match platform {
+                    PlatformName::Browser => javascript::Platform::Browser,
+                    PlatformName::Node => javascript::Platform::Node,
+                },
                 format: if module {
                     javascript::Format::EsModule
                 } else {

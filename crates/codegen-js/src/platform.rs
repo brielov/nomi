@@ -25,3 +25,21 @@ pub struct Target {
     pub platform: Platform,
     pub format: Format,
 }
+
+/// The lines that end a Node entry's module and start its `main`, in
+/// `module`: checks of what the program needs from Node go first, then
+/// `init`, which passes a worker no flags.
+pub fn shim(module: &str) -> String {
+    format!("Elm.{module}.init();\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_shim_starts_the_main_under_its_module_path() {
+        assert_eq!(shim("Main"), "Elm.Main.init();\n");
+        assert_eq!(shim("Server.Main"), "Elm.Server.Main.init();\n");
+    }
+}
