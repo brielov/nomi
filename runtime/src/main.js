@@ -5,9 +5,11 @@
 // number: 130 or 143. Once the root fiber ends, the fibers it left in the
 // root scope (`Process.spawn`) are interrupted too. Shutting down must
 // finish within a deadline; past it, or on a second signal, the process
-// exits at once. A `Platform.worker` has no root fiber: a signal shuts its
-// runtime down directly, and until one comes it lives as long as Node's
-// event loop does.
+// exits at once. That deadline is real time and bounds the whole shutdown,
+// a server's drain included (a `draining` scope's, on the runtime's
+// clock), so a drain longer than it is cut off. A `Platform.worker` has no
+// root fiber: a signal shuts its runtime down directly, and until one comes
+// it lives as long as Node's event loop does.
 
 import { ExitKind, Runtime } from "./fiber.js";
 
