@@ -326,3 +326,113 @@ main =
     assert!(said.contains(chain), "{said}");
     assert!(!root.join("dist/node.js").exists());
 }
+
+/// A worker that sleeps `sleep` ms, takes three ticks of `Time.every
+/// every`, then reads `Time.now`, logging each step and whether the
+/// program's clock had passed it. Host timers keep whole milliseconds,
+/// and may fire up to one early by `Date.now`, so each of the four waits
+/// is allowed one.
+fn clocked_worker(sleep: u32, every: u32) -> String {
+    format!(
+        "module Main exposing (main)
+
+import Process
+import Task
+import Time
+
+
+type Msg
+    = Start Time.Posix
+    | Slept
+    | Tick Time.Posix
+    | Now Time.Posix
+
+
+type alias Model =
+    {{ start : Int, ticks : Int, ticking : Bool }}
+
+
+main : Program () Model Msg
+main =
+    Platform.worker
+        {{ init = \\_ -> ( Model 0 0 False, Task.perform Start Time.now )
+        , update = update
+        , subscriptions = \\model -> if model.ticking then Time.every {every} Tick else Sub.none
+        }}
+
+
+passed : Model -> Int -> Time.Posix -> Bool
+passed model ms time =
+    Time.posixToMillis time - model.start >= ms - 4
+
+
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg model =
+    case msg of
+        Start time ->
+            ( {{ model | start = Time.posixToMillis time }}, Task.perform (\\_ -> Slept) (Process.sleep {sleep}) )
+
+        Slept ->
+            ( {{ model | ticking = Debug.log \"slept\" True }}, Cmd.none )
+
+        Tick time ->
+            let
+                ticks =
+                    model.ticks + 1
+
+                _ =
+                    Debug.log (\"tick \" ++ String.fromInt ticks) (passed model ({sleep} + ticks * {every}) time)
+            in
+            if ticks == 3 then
+                ( {{ model | ticks = ticks, ticking = False }}, Task.perform Now Time.now )
+
+            else
+                ( {{ model | ticks = ticks }}, Cmd.none )
+
+        Now time ->
+            ( Debug.log \"now\" (passed model ({sleep} + 3 * {every}) time) |> always model, Cmd.none )
+"
+    )
+}
+
+/// Sleeping an hour and taking three `Time.every 1000` ticks takes no
+/// real time on the virtual clock, and logs what the same program, with
+/// waits of a few milliseconds, logs on the real clock.
+#[test]
+fn a_node_program_sleeps_and_ticks_on_its_clock() {
+    nomi_testkit::require_node();
+    let cache = website::fixture_cache();
+    let expected = "slept: True\ntick 1: True\ntick 2: True\ntick 3: True\nnow: True\n";
+    for (sleep, every, clock) in [(3_600_000, 1000, "virtual"), (50, 5, "real")] {
+        let (_work, root) = project(&clocked_worker(sleep, every));
+        fs::write(
+            root.join("elm.json"),
+            r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "elm/time": "1.0.0"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
+        )
+        .unwrap();
+        build(
+            cache.path(),
+            &root,
+            &["--platform=node", "--output=dist/main.mjs"],
+        );
+        let started = std::time::Instant::now();
+        let mut node = Command::new("node")
+            .arg("dist/main.mjs")
+            .env("NOMI_CLOCK", clock)
+            .current_dir(&root)
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        while node.try_wait().unwrap().is_none() && started.elapsed().as_secs() < 30 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let _ = node.kill();
+        let ran = node.wait_with_output().unwrap();
+        let took = started.elapsed();
+        assert!(ran.status.success(), "{clock}: {ran:?} after {took:?}");
+        assert_eq!(String::from_utf8_lossy(&ran.stdout), expected, "{clock}");
+        if clock == "virtual" {
+            assert!(took.as_millis() < 1000, "the virtual clock took {took:?}");
+        }
+    }
+}

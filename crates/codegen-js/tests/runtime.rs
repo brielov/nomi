@@ -100,13 +100,19 @@ fn each_node_kernel_replaces_the_vendored_file_and_keeps_its_names() {
         );
         // What every other package's kernels and modules use of it, by
         // import or, as elm/time's `_Scheduler_rawSpawn`, by its name.
+        // Upstream's `*.server.js` variants are never linked.
         let mut used = BTreeSet::new();
+        let import = format!("import Elm.Kernel.{module} exposing (");
         for file in files(&packages::dir(), "js") {
-            if file == upstream {
+            if file == upstream || file.to_string_lossy().ends_with(".server.js") {
                 continue;
             }
             let text = fs::read_to_string(&file).unwrap();
-            used.extend(names_after(&text, &format!("__{module}_")).map(str::to_owned));
+            for (at, _) in text.match_indices(&import) {
+                let names = &text[at + import.len()..];
+                let names = &names[..names.find(')').unwrap()];
+                used.extend(names.split(',').map(|name| name.trim().to_owned()));
+            }
             used.extend(names_after(&text, &format!(" _{module}_")).map(str::to_owned));
         }
         for file in files(&packages::dir(), "elm") {

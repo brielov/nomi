@@ -10,6 +10,8 @@ The fiber runtime behind nomi's Node platform (architecture §8, "Runtime"). Pla
 
 A Node program holds `src/clock.js`, `src/fiber.js` and `src/main.js` as one `_Runtime` namespace ahead of its kernels: their `import` lines are dropped and their `export`s returned, so they may use only `import { … } from "./module.js"` of the modules before them and `export` on a `const`, `let`, `class` or `function`.
 
+A Node program runs on the real clock; started with `NOMI_CLOCK=virtual`, it runs on the test clock from time 0, so its sleeps, intervals and `Time.now` take no real time. Tests use it.
+
 `NOMI_SEEDS=10000 node --test` runs every property with 10,000 seeds. A failure prints the line that replays it.
 
 ## Where each rule is tested
