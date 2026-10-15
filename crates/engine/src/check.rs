@@ -14,7 +14,7 @@ use nomi_compiler::interface::Interface;
 use nomi_compiler::optimized::LocalGraph;
 use nomi_project::report::ElmCommand;
 use nomi_project::{ModuleName, Name, Outline, Version};
-use nomi_registry::{Http, Store, details, report as registry_report};
+use nomi_registry::{Http, details, report as registry_report};
 
 use crate::artifacts::{Artifacts, Key};
 use crate::console::{self, Console, Personality};
@@ -298,7 +298,7 @@ pub(crate) fn sources(
     personality: Personality,
 ) -> Result<Sources, Report> {
     let compat = project.compat;
-    let store = Store::new(cache.packages());
+    let store = packages::store_for(cache, personality)?;
     // elm keeps a project's dependencies as solved until its elm.json
     // changes (`Details.load`), asking the website nothing; nomi keeps
     // them by what elm.json says.

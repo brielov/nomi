@@ -6,7 +6,8 @@
 //!
 //! nomi never writes upstream's `registry.dat`. Its own index file keeps
 //! the website's responses as they came, so each Compat decodes them as
-//! its elm would, and the index works offline once fetched.
+//! its elm would, and the index works offline once fetched. It drops
+//! every release of `nomi/*`, which come with nomi alone.
 
 use std::collections::BTreeMap;
 use std::io::{self, Write as _};
@@ -16,6 +17,7 @@ use nomi_base::Compat;
 use nomi_project::json::{self, decode};
 use nomi_project::{Name, Version};
 
+use crate::bundle::is_bundled;
 use crate::files::{read_if_exists, write_atomically};
 use crate::http::{DOMAIN, Http, HttpError};
 
@@ -181,9 +183,12 @@ impl Index {
         self.count
     }
 
-    fn new(packages: BTreeMap<Name, Known>, body: Vec<u8>) -> Index {
+    /// The index of `packages`, without nomi's own, which only nomi
+    /// bundles.
+    fn new(mut packages: BTreeMap<Name, Known>, body: Vec<u8>) -> Index {
         // `addEntry`.
         let count = packages.values().map(|k| 1 + k.previous.len()).sum();
+        packages.retain(|name, _| !is_bundled(name));
         Index {
             count,
             packages,
@@ -192,10 +197,13 @@ impl Index {
     }
 
     /// `addNew` over `news`, newest first: `foldr` adds the last first,
-    /// so the first becomes the newest.
+    /// so the first becomes the newest. nomi's own are counted, not kept.
     fn add(&mut self, news: Vec<(Name, Version)>) {
         self.count += news.len();
         for (name, version) in news.into_iter().rev() {
+            if is_bundled(&name) {
+                continue;
+            }
             if let Some(known) = self.packages.get_mut(&name) {
                 let previous = std::mem::replace(&mut known.newest, version);
                 known.previous.insert(0, previous);

@@ -139,6 +139,12 @@ impl Cache {
         self.0.join("packages")
     }
 
+    /// The packages bundled with nomi, extracted
+    /// (`nomi_registry::Bundle`).
+    pub fn bundled(&self) -> PathBuf {
+        self.0.join("bundled")
+    }
+
     /// The documentation of `name` at `version`, which `elm diff` and
     /// `elm bump` compare.
     pub(crate) fn docs(&self, name: &Name, version: Version) -> PathBuf {

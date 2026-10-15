@@ -11,6 +11,10 @@ pub enum Platform {
     Node,
 }
 
+/// The kernel modules of the packages bundled with nomi, by short name,
+/// in order: each `packages/*/src/Elm/Kernel/*.js`.
+const BUNDLED_KERNELS: &[&str] = &[];
+
 impl Platform {
     /// The kernel modules, by short name, a program for the platform may
     /// not reach, with `dom`. Node has no DOM of its own. The browser
@@ -18,8 +22,8 @@ impl Platform {
     /// it names every kernel.
     pub fn unavailable(self, dom: Dom) -> &'static [&'static str] {
         match (self, dom) {
-            (Platform::Browser, Dom::Native | Dom::Polyfilled)
-            | (Platform::Node, Dom::Polyfilled) => &[],
+            (Platform::Browser, Dom::Native | Dom::Polyfilled) => BUNDLED_KERNELS,
+            (Platform::Node, Dom::Polyfilled) => &[],
             (Platform::Node, Dom::Native) => &["Browser", "VirtualDom", "File"],
         }
     }

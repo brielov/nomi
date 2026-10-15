@@ -69,8 +69,8 @@ impl Name {
         &self.project
     }
 
-    /// `isKernel`: published by `elm` or `elm-explorations`, so allowed
-    /// kernel code.
+    /// `isKernel`: published by `elm` or `elm-explorations`, or bundled
+    /// with nomi, so allowed kernel code.
     pub fn is_kernel(&self) -> bool {
         kernel::is_author(&self.author)
     }

@@ -3,6 +3,7 @@
 //! `nomi_engine::paths` computes those paths, and the engine's pool
 //! downloads in parallel.
 
+pub mod bundle;
 pub mod details;
 mod env;
 mod files;
@@ -18,6 +19,7 @@ pub mod update;
 #[cfg(test)]
 mod fixture;
 
+pub use bundle::Bundle;
 pub use details::DetailsProblem;
 pub use env::{Registry, SolverProblem};
 pub use http::{Http, HttpError, Part, Web};

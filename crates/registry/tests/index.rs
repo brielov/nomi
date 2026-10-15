@@ -166,3 +166,25 @@ fn missing_packages_come_with_nearby_names() {
     let nearby = index.versions_or_nearby(&name("elm/jsn")).unwrap_err();
     assert_eq!(nearby.first(), Some(&&name("elm/json")));
 }
+
+#[test]
+fn nomis_own_packages_are_counted_but_never_listed() {
+    let all = r#"{"elm/core":["1.0.5"],"nomi/core":["1.0.0","9.0.0"]}"#;
+    let http = Fixture::default()
+        .answering(ALL_PACKAGES, all)
+        .answering(&since(3), r#"["nomi/server@1.0.0","elm/json@1.1.3"]"#);
+    let mut index = Index::fetch(&http, LATEST).unwrap();
+    assert_eq!(index.count(), 3);
+    assert_eq!(index.update(&http, LATEST), Ok(2));
+    assert_eq!(index.count(), 5);
+    assert_eq!(index.versions(&name("nomi/core")), None);
+    assert_eq!(index.versions(&name("nomi/server")), None);
+    assert_eq!(versions(&index, "elm/json"), [v(1, 1, 3)]);
+    assert!(
+        (index
+            .versions_or_nearby(&name("nomi/cor"))
+            .unwrap_err()
+            .iter())
+        .all(|name| name.author() != "nomi")
+    );
+}

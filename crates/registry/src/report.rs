@@ -167,6 +167,15 @@ pub fn package_problem(name: &Name, version: Version, problem: &PackageProblem) 
                 ),
             ],
         ),
+        PackageProblem::NotBundled => Report::new(
+            "PACKAGE NOT BUNDLED",
+            None,
+            &format!(
+                "{name} comes with nomi, never from the package registry, and this nomi \
+                 does not bundle {package}."
+            ),
+            [],
+        ),
         // nomi's own: upstream dies on a file it can't read or write.
         PackageProblem::Io(e) => Report::new(
             TITLE,

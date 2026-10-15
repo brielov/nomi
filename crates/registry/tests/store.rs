@@ -9,7 +9,8 @@ use std::path::Path;
 use nomi_base::Compat;
 use nomi_project::{Name, Version};
 use nomi_registry::store::sha1;
-use nomi_registry::{HttpError, PackageProblem, Store};
+use nomi_registry::{Bundle, HttpError, PackageProblem, Store};
+use nomi_testkit::packages;
 use support::Fixture;
 
 const LATEST: Compat = Compat::LATEST;
@@ -234,4 +235,33 @@ fn an_archive_with_one_entry_has_no_sources() {
     let http = website(zip(&["root/elm.json"]));
     let dir = store.fetch(&http, &core, version, LATEST).unwrap();
     assert!(files(&dir).is_empty());
+}
+
+#[test]
+fn nomis_own_packages_come_from_the_bundle_alone() {
+    let fixture: Name = "nomi/fixture".parse().unwrap();
+    let (one, two) = (Version::new(1, 0, 0), Version::new(2, 0, 0));
+    let http = Fixture::default();
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = Bundle::read(&packages::bundle()).unwrap();
+    let store = Store::bundled(dir.path().join("packages"), bundle);
+    let bundled = packages::bundle().join("fixture");
+    assert_eq!(store.get(&fixture, one).unwrap(), Some(bundled.clone()));
+    assert_eq!(store.fetch(&http, &fixture, one, LATEST).unwrap(), bundled);
+    assert_eq!(store.versions(&fixture).unwrap(), [one]);
+    assert_eq!(store.get(&fixture, two).unwrap(), None);
+    assert!(matches!(
+        store.fetch(&http, &fixture, two, LATEST),
+        Err(PackageProblem::NotBundled)
+    ));
+    assert_eq!(store.downloaded().unwrap()[&fixture].newest, one);
+    assert_eq!(store.newest().unwrap(), [(fixture.clone(), bundled)]);
+    // Without the bundle, nothing serves them, not even the website.
+    let store = Store::new(dir.path().join("packages"));
+    assert_eq!(store.get(&fixture, one).unwrap(), None);
+    assert!(matches!(
+        store.fetch(&http, &fixture, one, LATEST),
+        Err(PackageProblem::NotBundled)
+    ));
+    assert!(http.asked().is_empty());
 }

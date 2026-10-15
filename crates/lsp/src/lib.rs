@@ -95,11 +95,17 @@ pub fn stdio() -> Result<(), Error> {
 
 /// Serves the client at the other end of `connection` until it exits:
 /// the handshake, then one message at a time. Packages come from the
-/// store in nomi's cache.
+/// store in nomi's cache, and from those bundled with nomi.
 pub fn run(connection: &Connection) -> Result<(), Error> {
-    // Without a cache directory, packages are nowhere to be found.
+    // Without a cache directory, packages are nowhere to be found; with
+    // one that can't hold the bundle, nomi's own aren't.
     let cache = Cache::locate().ok();
-    let store = Store::new(cache.as_ref().map_or_else(PathBuf::new, Cache::packages));
+    let store = match &cache {
+        Some(cache) => {
+            nomi_engine::packages::store(cache).unwrap_or_else(|_| Store::new(cache.packages()))
+        }
+        None => Store::new(PathBuf::new()),
+    };
     let artifacts = cache.as_ref().map(Artifacts::new);
     // An editor may be all that builds: it trims the cache as a build
     // does, once it starts, without holding up the handshake.

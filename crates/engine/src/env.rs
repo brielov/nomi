@@ -5,10 +5,10 @@
 use nomi_base::{Compat, Report};
 use nomi_registry::{Http, Index, LatestError, Registry, Store, report};
 
-use crate::Context;
-use crate::console::{self, Console};
+use crate::console::{self, Console, Personality};
 use crate::paths::Cache;
 use crate::project::Project;
+use crate::{Context, packages};
 
 /// Runs `body` on the project around the directory, loaded for `purpose`,
 /// and the registry, which `context` needed, reporting a problem in the
@@ -24,7 +24,7 @@ pub(crate) fn with_registry<H: Http>(
     let run = |console: &mut dyn Console| {
         let project = Project::load(cx.vfs, cx.dir, purpose)?;
         compat = project.compat;
-        let store = Store::new(cx.cache.packages());
+        let store = packages::store_for(cx.cache, Personality::Nomi)?;
         let mut registry = registry(cx.cache, &store, cx.http, compat, context)?;
         body(console, &project, &mut registry)
     };

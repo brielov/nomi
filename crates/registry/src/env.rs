@@ -2,7 +2,8 @@
 //! website (`Solver.Env` and `getConstraints` in `Deps/Solver.hs`, the
 //! same in every supported release).
 //!
-//! A release's `elm.json` comes from the store when it is downloaded.
+//! A release's `elm.json` comes from the store when it is downloaded, and
+//! nomi's own packages' from the store's bundle alone.
 //! Online, one that isn't comes from the website and is kept beside the
 //! index, as upstream keeps it in `~/.elm`; offline, the search passes
 //! over releases that aren't downloaded, since they couldn't be built:
@@ -18,6 +19,7 @@ use std::path::PathBuf;
 use nomi_base::Compat;
 use nomi_project::{Name, Version};
 
+use crate::bundle::is_bundled;
 use crate::files::{read_if_exists, write_atomically};
 use crate::http::{DOMAIN, Http, HttpError};
 use crate::index::{Connection, Index, Known};
@@ -100,7 +102,7 @@ impl<H: Http> Packages for Registry<'_, H> {
     type Error = SolverProblem;
 
     fn versions(&self, name: &Name) -> Option<&Known> {
-        self.index.versions(name)
+        (self.index.versions(name)).or_else(|| self.store.bundle().versions(name))
     }
 
     fn offline(&self) -> bool {
@@ -114,6 +116,9 @@ impl<H: Http> Packages for Registry<'_, H> {
             return Release::decode(&bytes, self.compat)
                 .map(Some)
                 .ok_or_else(bad_cache);
+        }
+        if is_bundled(name) {
+            return Ok(None);
         }
         let kept = self.kept(name, version);
         if let Some(bytes) = read_if_exists(&kept)? {

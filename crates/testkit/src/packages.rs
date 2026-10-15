@@ -14,6 +14,12 @@ pub fn dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../compiler/tests/packages")
 }
 
+/// A bundle of nomi's own packages for tests, laid out as `packages/` is:
+/// nomi/fixture 1.0.0, whose `Nomi.Fixture.shout` is its kernel's.
+pub fn bundle() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("bundle")
+}
+
 /// The `elm.json` of an application of `src` that depends on elm/core
 /// and elm/json alone.
 pub const CORE_AND_JSON_APP: &str = r#"{

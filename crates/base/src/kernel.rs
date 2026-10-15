@@ -16,11 +16,15 @@ pub fn is_module(module: &str) -> bool {
     short(module).is_some()
 }
 
-/// `Pkg.isKernel` of a package's author: `elm` or `elm-explorations`.
+/// `Pkg.isKernel` of a package's author: `elm` or `elm-explorations`, and
+/// `nomi`, whose packages come only with nomi, never from the registry.
 #[inline]
 pub fn is_author(author: &str) -> bool {
-    author == "elm" || author == "elm-explorations"
+    author == "elm" || author == "elm-explorations" || author == BUNDLED_AUTHOR
 }
+
+/// The author of the packages nomi bundles.
+pub const BUNDLED_AUTHOR: &str = "nomi";
 
 #[cfg(test)]
 mod tests {
@@ -31,6 +35,7 @@ mod tests {
         assert!(is_module("Elm.Kernel.List") && !is_module("Elm.Kernelish"));
         assert_eq!(short("Elm.Kernel.List"), Some("List"));
         assert_eq!(short("List"), None);
-        assert!(is_author("elm") && is_author("elm-explorations") && !is_author("elm-community"));
+        assert!(is_author("elm") && is_author("elm-explorations") && is_author("nomi"));
+        assert!(!is_author("elm-community") && !is_author("nomi-community"));
     }
 }

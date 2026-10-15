@@ -14,7 +14,8 @@
 //! ```
 //!
 //! Both are written in one step, so a store interrupted or shared by two
-//! processes holds whole releases only.
+//! processes holds whole releases only. nomi's own packages come from its
+//! [`Bundle`] alone, never from the store's directory or the website.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -26,6 +27,7 @@ use nomi_project::json::{self, decode};
 use nomi_project::{Name, Version};
 use sha1::{Digest, Sha1};
 
+use crate::bundle::{Bundle, is_bundled};
 use crate::files::{read_if_exists, write_atomically};
 use crate::http::{DOMAIN, Http, HttpError};
 use crate::index::Known;
@@ -41,6 +43,7 @@ const ENTRY_LIMIT: usize = 1 << 16;
 #[derive(Clone, Debug)]
 pub struct Store {
     dir: PathBuf,
+    bundle: Bundle,
 }
 
 /// `Exit.PackageProblem`: why a release couldn't be downloaded.
@@ -63,6 +66,8 @@ pub enum PackageProblem {
         expected: String,
         actual: String,
     },
+    /// It is one of nomi's own, and not the release bundled.
+    NotBundled,
     /// The store couldn't be read or written.
     Io(io::Error),
 }
@@ -74,9 +79,19 @@ impl From<io::Error> for PackageProblem {
 }
 
 impl Store {
-    /// The store in `dir`.
+    /// The store in `dir`, without nomi's own packages.
     pub fn new(dir: PathBuf) -> Store {
-        Store { dir }
+        Store::bundled(dir, Bundle::default())
+    }
+
+    /// The store in `dir`, with nomi's own packages from `bundle`.
+    pub fn bundled(dir: PathBuf, bundle: Bundle) -> Store {
+        Store { dir, bundle }
+    }
+
+    /// nomi's own packages.
+    pub fn bundle(&self) -> &Bundle {
+        &self.bundle
     }
 
     /// Where the store is.
@@ -86,11 +101,22 @@ impl Store {
 
     /// The sources of a release already downloaded.
     pub fn get(&self, name: &Name, version: Version) -> io::Result<Option<PathBuf>> {
+        if is_bundled(name) {
+            return Ok(self.bundle.get(name, version).map(Path::to_owned));
+        }
         self.sources_of(&self.release(name, version))
     }
 
     /// The releases of `name` already downloaded, oldest first.
     pub fn versions(&self, name: &Name) -> io::Result<Vec<Version>> {
+        if is_bundled(name) {
+            return Ok(self
+                .bundle
+                .versions(name)
+                .map(|k| k.newest)
+                .into_iter()
+                .collect());
+        }
         versions_in(
             &self
                 .dir
@@ -114,6 +140,9 @@ impl Store {
                 found.insert(name, known);
             }
         }
+        for (name, known, _) in self.bundle.packages() {
+            found.insert(name.clone(), known.clone());
+        }
         Ok(found)
     }
 
@@ -129,6 +158,12 @@ impl Store {
                 found.push((name, sources));
             }
         }
+        if self.bundle.packages().next().is_some() {
+            found.extend(
+                (self.bundle.packages()).map(|(name, _, dir)| (name.clone(), dir.to_owned())),
+            );
+            found.sort_by_cached_key(|(name, _)| name.to_string());
+        }
         Ok(found)
     }
 
@@ -141,8 +176,10 @@ impl Store {
             for project in names_in(&releases.join(&author))? {
                 let text = format!("{author}/{project}");
                 // Only a directory the store didn't make has no package's
-                // name, so it holds no release.
-                if let Ok(name) = text.parse::<Name>() {
+                // name, or one of nomi's own, so it holds no release.
+                if let Ok(name) = text.parse::<Name>()
+                    && !is_bundled(&name)
+                {
                     found.push((text, name, releases.join(&author).join(&project)));
                 }
             }
@@ -177,6 +214,9 @@ impl Store {
     ) -> Result<PathBuf, PackageProblem> {
         if let Some(dir) = self.get(name, version)? {
             return Ok(dir);
+        }
+        if is_bundled(name) {
+            return Err(PackageProblem::NotBundled);
         }
         let Endpoint { url, hash } = endpoint(http, name, version, compat)?;
         let archive = match http.get(&url) {

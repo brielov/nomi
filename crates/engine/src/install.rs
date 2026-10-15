@@ -54,7 +54,7 @@ pub fn run(
         if let Ok(project) = &project {
             compat = project.compat;
         }
-        let store = Store::new(cx.cache.packages());
+        let store = packages::store_for(cx.cache, personality)?;
         let mut registry = env::registry(
             cx.cache,
             &store,
