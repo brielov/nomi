@@ -40,6 +40,9 @@ pub struct Make {
     pub kind: Result<javascript::Kind, ClashingFlags>,
     /// What the code is generated for; upstream's is the default.
     pub target: javascript::Target,
+    /// Whether the roots' `main`s choose the platform in place of
+    /// `target`'s: Node for nomi/core's `Program`.
+    pub platform_by_main: bool,
     /// `--output`, if given.
     pub output: Option<Output>,
     /// Where to write a package's `docs.json`.
@@ -111,6 +114,7 @@ impl Make {
             style,
             kind: Ok(javascript::Kind::Dev),
             target: javascript::Target::default(),
+            platform_by_main: false,
             output: Some(Output::DevNull),
             docs: None,
         }
@@ -413,17 +417,15 @@ fn write(vfs: &Vfs, console: &mut dyn Console, dir: &Path, make: &Make, clean: C
                     return fail(console, report::debug_remnants(&uses));
                 }
             }
+            let mut made_for = make.target;
+            if make.platform_by_main && javascript::runs_on_node(&optimized) {
+                made_for.platform = javascript::Platform::Node;
+            }
             let package = env.owner().package_name();
             let bytes = timings::time(Phase::Generate, || {
                 let types = dependencies.into_graph_and_types();
                 let js = javascript::program(
-                    compat,
-                    kind,
-                    make.target,
-                    &package,
-                    &packages,
-                    types,
-                    optimized,
+                    compat, kind, made_for, &package, &packages, types, optimized,
                 )?;
                 Ok(match &target.html {
                     Some(module) => nomi_codegen_js::html::sandwich(&module.to_string(), &js),

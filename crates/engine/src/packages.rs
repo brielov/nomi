@@ -70,5 +70,8 @@ mod tests {
         }
         kernels.sort();
         assert_eq!(Platform::Browser.unavailable(Dom::Native), kernels);
+        // Kernels share one namespace, keyed by short name; elm/*'s never
+        // start with nomi's prefix.
+        assert!(kernels.iter().all(|kernel| kernel.starts_with("Nomi")));
     }
 }

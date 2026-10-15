@@ -100,10 +100,11 @@ enum Command {
         /// --report=json` does.
         #[arg(long, value_name = "FORMAT")]
         report: Option<ReportFormat>,
-        /// Where the code runs. Under Node, an `.mjs` output of one
-        /// `main` starts it when run.
-        #[arg(long, value_enum, default_value = "browser")]
-        platform: PlatformName,
+        /// Where the code runs: by default Node for a nomi/core
+        /// `Program`, else the browser. Under Node, an `.mjs` output of
+        /// one `main` starts it when run.
+        #[arg(long, value_enum)]
+        platform: Option<PlatformName>,
     },
     /// Show how a package's API changed: the code against its latest
     /// release or a given one, two of its releases, or two of any
@@ -226,8 +227,8 @@ fn main() -> ExitCode {
             };
             let target = javascript::Target {
                 platform: match platform {
-                    PlatformName::Browser => javascript::Platform::Browser,
-                    PlatformName::Node => javascript::Platform::Node,
+                    None | Some(PlatformName::Browser) => javascript::Platform::Browser,
+                    Some(PlatformName::Node) => javascript::Platform::Node,
                 },
                 format: if module {
                     javascript::Format::EsModule
@@ -242,6 +243,7 @@ fn main() -> ExitCode {
                 style: style(report),
                 kind: make::kind(debug, optimize),
                 target,
+                platform_by_main: platform.is_none(),
                 output,
                 docs,
             };

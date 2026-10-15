@@ -107,6 +107,7 @@ fn parse_make(args: &[&str]) -> Result<Make, terminal::Error> {
         style: report.unwrap_or(Style::Terminal),
         kind: make::kind(debug, optimize),
         target: Target::default(),
+        platform_by_main: false,
         output,
         docs,
     })

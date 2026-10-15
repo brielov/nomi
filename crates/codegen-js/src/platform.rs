@@ -13,7 +13,7 @@ pub enum Platform {
 
 /// The kernel modules of the packages bundled with nomi, by short name,
 /// in order: each `packages/*/src/Elm/Kernel/*.js`.
-const BUNDLED_KERNELS: &[&str] = &[];
+const BUNDLED_KERNELS: &[&str] = &["Nomi"];
 
 impl Platform {
     /// The kernel modules, by short name, a program for the platform may
@@ -67,11 +67,16 @@ pub struct Target {
 
 /// The lines that end a Node entry's function, where the program's
 /// runtime is, and start its `main`, in `module`: checks of what the
-/// program needs from Node go first, then the worker's lifecycle on the
-/// runtime, which handles signals, then `init`, which passes a worker no
-/// flags.
+/// program needs from Node go first, then one lifecycle on the runtime,
+/// which handles signals, then `init`, which passes a worker no flags. A
+/// nomi/core program's `init` starts the runtime's `main` itself and
+/// marks itself so; any other `main` is a worker, whose lifecycle starts
+/// here.
 pub fn shim(module: &str) -> String {
-    format!("_Runtime.worker(_Scheduler_runtime);\nscope.Elm.{module}.init();\n")
+    format!(
+        "if (!scope.Elm.{module}.init.program) _Runtime.worker(_Scheduler_runtime);\n\
+         scope.Elm.{module}.init();\n"
+    )
 }
 
 #[cfg(test)]
@@ -80,11 +85,15 @@ mod tests {
 
     #[test]
     fn a_shim_starts_the_main_under_its_module_path() {
-        let lifecycle = "_Runtime.worker(_Scheduler_runtime);\n";
-        assert_eq!(shim("Main"), format!("{lifecycle}scope.Elm.Main.init();\n"));
+        assert_eq!(
+            shim("Main"),
+            "if (!scope.Elm.Main.init.program) _Runtime.worker(_Scheduler_runtime);\n\
+             scope.Elm.Main.init();\n"
+        );
         assert_eq!(
             shim("Server.Main"),
-            format!("{lifecycle}scope.Elm.Server.Main.init();\n")
+            "if (!scope.Elm.Server.Main.init.program) _Runtime.worker(_Scheduler_runtime);\n\
+             scope.Elm.Server.Main.init();\n"
         );
     }
 }

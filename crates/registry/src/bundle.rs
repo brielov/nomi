@@ -31,7 +31,12 @@ macro_rules! files {
 }
 
 /// The bundled packages' files, by path under `packages/`.
-const FILES: [(&str, &[u8]); 0] = files![];
+const FILES: [(&str, &[u8]); 4] = files![
+    "core/elm.json",
+    "core/src/Elm/Kernel/Nomi.js",
+    "core/src/Nomi.elm",
+    "core/src/Nomi/Task.elm",
+];
 
 /// The extracted bundle's directory name, by a hash of its files.
 static NAME: LazyLock<String> = LazyLock::new(|| {
@@ -159,5 +164,26 @@ mod tests {
         let bundle = Bundle::read(&dir).unwrap();
         let read: Vec<&str> = bundle.packages().map(|(name, ..)| name.project()).collect();
         assert_eq!(read, Vec::from_iter(projects));
+    }
+
+    #[test]
+    fn the_bundle_holds_every_file_under_packages() {
+        fn walk(dir: &Path, base: &Path, files: &mut Vec<String>) {
+            for entry in fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(&path, base, files);
+                } else {
+                    let relative = path.strip_prefix(base).unwrap();
+                    files.push(relative.to_string_lossy().into_owned());
+                }
+            }
+        }
+        let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages");
+        let mut files = Vec::new();
+        walk(&packages, &packages, &mut files);
+        files.sort();
+        let bundled: Vec<&str> = FILES.iter().map(|(path, _)| *path).collect();
+        assert_eq!(bundled, files);
     }
 }

@@ -15,7 +15,7 @@ use nomi_codegen_js::generate::generate;
 use nomi_codegen_js::kernel::{add_kernel, parse};
 use nomi_codegen_js::mode::{Mode, shorten_field_names};
 use nomi_codegen_js::reach::unavailable;
-use nomi_compiler::canonical::Home;
+use nomi_compiler::canonical::{Home, Type};
 use nomi_compiler::nitpick::debug::graph_has_debug_uses;
 use nomi_compiler::optimized::{Global, GlobalGraph, Main};
 use nomi_project::{ModuleName, Name};
@@ -227,6 +227,26 @@ fn not_available(platform: Platform, path: &[Global], unknown: &[Unknown]) -> Re
         )),
         [text(&chain).color(Color::Red).indent(4), reflow(advice)],
     )
+}
+
+/// Whether every root's `main` is annotated nomi/core's `Program`, read
+/// from the root's interface, so it runs on Node.
+pub fn runs_on_node(optimized: &Optimized) -> bool {
+    let is_program = |name: &ModuleName| {
+        (optimized.interfaces.iter())
+            .find(|module| module.name == *name)
+            .and_then(|module| module.interface.get().values.get("main"))
+            .is_some_and(|main| match &*main.ty {
+                Type::Alias { home, name, .. } => {
+                    home.package.as_str() == "nomi/core"
+                        && home.module.as_str() == "Nomi"
+                        && name == "Program"
+                }
+                _ => false,
+            })
+    };
+    let mut mains = (optimized.roots.iter()).filter(|root| root.has_main);
+    mains.clone().next().is_some() && mains.all(|root| is_program(&root.name))
 }
 
 /// `checkForDebugUses`: the modules using `Debug`, in the release's order

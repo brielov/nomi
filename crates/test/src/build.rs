@@ -135,6 +135,7 @@ fn elm_make(paths: Vec<PathBuf>, style: Style, output: Output) -> Make {
         style,
         kind: Ok(Kind::Dev),
         target: Target::default(),
+        platform_by_main: false,
         output: Some(output),
         docs: None,
     }
