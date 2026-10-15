@@ -137,6 +137,15 @@ impl Case {
         }
     }
 
+    /// The case with `default` as its `elm.json` if it has none.
+    pub fn with_manifest(&self, default: &str) -> Case {
+        let mut case = self.clone();
+        if !case.files.iter().any(|(path, _)| path == "elm.json") {
+            (case.files).push(("elm.json".to_owned(), default.to_owned()));
+        }
+        case
+    }
+
     /// The case with its application's pinned `elm-version` set to
     /// `release`, as the oracle ran it.
     pub fn as_release(&self, release: Compat) -> Case {
@@ -593,6 +602,14 @@ mod tests {
             as_latest.files[0].1,
             "{\"type\": \"application\", \"elm-version\": \"0.19.3\"}\n"
         );
+    }
+
+    #[test]
+    fn a_default_manifest_fills_in_only_where_one_is_missing() {
+        let with = |text: &str| Case::parse(text).unwrap().with_manifest("default").files;
+        let own = [("elm.json".to_owned(), "own\n".to_owned())];
+        assert_eq!(with("=== file elm.json\nown\n"), own);
+        assert_eq!(with(""), [("elm.json".to_owned(), "default".to_owned())]);
     }
 
     #[test]

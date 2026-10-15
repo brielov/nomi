@@ -105,7 +105,7 @@ fn manifests(root: &Path) -> Result<Vec<Manifest>> {
             format!("reading {}; run `cargo xtask corpus fetch`", path.display())
         })?;
         manifests.push(Manifest {
-            case: format!("{}@{}", package.name, package.version),
+            case: package.case(),
             text,
             compats,
             detected,
@@ -114,7 +114,7 @@ fn manifests(root: &Path) -> Result<Vec<Manifest>> {
     for app in apps::load(root)?.app {
         for &c in &classification.compats {
             manifests.push(Manifest {
-                case: format!("app/{}", app.name),
+                case: app.case(),
                 text: compat::sandbox_manifest(&classification, &app, c)?.into_bytes(),
                 compats: vec![c],
                 detected: c,

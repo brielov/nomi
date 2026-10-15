@@ -55,7 +55,11 @@ pub(crate) fn check(root: &Path, only: Option<&str>) -> Result<()> {
                 if let Outline::Pkg(pkg) = &project.outline {
                     sources.push((pkg.name.clone(), project.root.clone()));
                 }
-                (project, sources, ())
+                Ready {
+                    project,
+                    sources,
+                    given: (),
+                }
             })
             .collect();
         let check = |project: &Project, sources: &[_], interfaces: &_, (): &()| {
@@ -97,8 +101,15 @@ pub(crate) fn check(root: &Path, only: Option<&str>) -> Result<()> {
 /// in characters.
 const WHY: usize = 300;
 
-/// Runs `run` on each of `projects`, with its dependencies' sources and
-/// what else the suite gives it, a chunk of `size` at a time: the
+/// A project [`in_chunks`] runs: with its dependencies' sources and what
+/// else the suite gives it.
+pub(super) struct Ready<'a, S, T> {
+    pub project: &'a Project,
+    pub sources: S,
+    pub given: T,
+}
+
+/// Runs `run` on each of `projects` a chunk of `size` at a time: the
 /// dependencies' interfaces made, sharing what they can, then the runs in
 /// parallel; so only the packages' own interfaces outlive a chunk, and
 /// eight threads keep a chunk's interfaces to eight projects'. `done`
@@ -106,7 +117,7 @@ const WHY: usize = 300;
 /// first, then the others, each in order.
 pub(super) fn in_chunks<'a, S, T>(
     c: Compat,
-    projects: &'a [(&'a Project, S, T)],
+    projects: &'a [Ready<'a, S, T>],
     size: usize,
     run: impl Fn(&Project, &[(Name, PathBuf)], &names::PackageInterfaces, &T) -> Result<(), String>
     + Sync,
@@ -119,16 +130,16 @@ pub(super) fn in_chunks<'a, S, T>(
     for chunk in projects.chunks(size) {
         let mut outcomes = Vec::new();
         let mut ready = Vec::new();
-        for (project, sources, given) in chunk {
-            match names::package_interfaces_with(c, sources.as_ref(), &mut memo) {
-                Ok(interfaces) => ready.push((*project, sources.as_ref(), interfaces, given)),
-                Err(why) => outcomes.push((*project, Err(why.chars().take(WHY).collect()))),
+        for r in chunk {
+            match names::package_interfaces_with(c, r.sources.as_ref(), &mut memo) {
+                Ok(interfaces) => ready.push((r, interfaces)),
+                Err(why) => outcomes.push((r.project, Err(why.chars().take(WHY).collect()))),
             }
         }
-        let results = parallel_on(8, &ready, |(project, sources, interfaces, given)| {
-            run(project, sources, interfaces, given)
+        let results = parallel_on(8, &ready, |(r, interfaces)| {
+            run(r.project, r.sources.as_ref(), interfaces, &r.given)
         });
-        outcomes.extend(ready.iter().map(|(project, ..)| *project).zip(results));
+        outcomes.extend(ready.iter().map(|(r, _)| r.project).zip(results));
         done(outcomes);
     }
 }
@@ -339,7 +350,7 @@ pub(super) fn solve(
         let outline =
             Outline::read(text.as_bytes(), c).map_err(|e| anyhow!("{}: {e:?}", app.name))?;
         found.push(Project {
-            case: format!("app/{} on {c}", app.name),
+            case: format!("{} on {c}", app.case()),
             root: fs::canonicalize(apps::app_dir(&corpus, &app).join(&app.root))?,
             outline,
             paths: app.entries.iter().map(PathBuf::from).collect(),
@@ -362,7 +373,7 @@ pub(super) fn solve(
             continue;
         };
         found.push(Project {
-            case: format!("{}@{} on {c}", package.name, package.version),
+            case: format!("{} on {c}", package.case()),
             root: fs::canonicalize(dir)?,
             outline,
             paths: Vec::new(),

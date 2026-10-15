@@ -38,6 +38,13 @@ pub(crate) struct Package {
     pub sha1: String,
 }
 
+impl Package {
+    /// The package's case in the corpus's tables, `author/project@version`.
+    pub(crate) fn case(&self) -> String {
+        format!("{}@{}", self.name, self.version)
+    }
+}
+
 pub(crate) fn load(root: &Path) -> Result<Packages> {
     let path = root.join(FILE);
     let text = fs::read_to_string(&path).with_context(|| format!("reading {FILE}"))?;

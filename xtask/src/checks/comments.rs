@@ -32,7 +32,7 @@ pub(crate) fn check(label: &str, source: &str) -> Vec<String> {
     violations
 }
 
-/// `9`, `9.4`, `10.6c`, `B.3`, `CR.2` or a milestone.
+/// `9`, `9.4`, `10.6c`, `B.3` or `CR.2`.
 fn is_step(word: &str) -> bool {
     let letters = word
         .find(|c: char| !c.is_ascii_uppercase())
@@ -40,12 +40,11 @@ fn is_step(word: &str) -> bool {
     let rest = &word[letters..];
     let rest = rest.strip_prefix('.').unwrap_or(rest);
     let rest = rest.trim_end_matches(|c: char| c.is_ascii_lowercase());
-    let numbered = letters <= 2
+    letters <= 2
         && !rest.is_empty()
         && rest
             .split('.')
-            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()));
-    numbered || is_milestone(word)
+            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// `M5`, `M8b`, `MQ` or a lettered step with its dot: `B.3`, `CR.2`.

@@ -19,7 +19,7 @@ use anyhow::{Context, Result, bail, ensure};
 use nomi_base::Compat;
 use serde::Deserialize;
 
-use super::process::run_to_files;
+use super::process::{Ran, run_to_files};
 use super::sandbox::{json_report, offline, sanitized};
 use super::{by_output, cache_dir, cores, elm_header, fresh_dir, generated, pinned_elm};
 use crate::corpus::compat;
@@ -163,7 +163,7 @@ fn record(elm: &Path, project: &Path, text: &[u8]) -> Result<Outcome> {
         .args(["make", "--report=json", "+RTS", "-N1", "-M512m", "-RTS"])
         .current_dir(project)
         .env("ELM_HOME", project.join("home"));
-    let Some(output) = run_to_files(offline(&mut command), project, TIMEOUT)? else {
+    let Ran::Ended(output) = run_to_files(offline(&mut command), project, TIMEOUT)? else {
         return Ok(Outcome::Loop);
     };
     let errors = String::from_utf8_lossy(&output.stderr);

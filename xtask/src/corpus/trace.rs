@@ -13,7 +13,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
-use nomi_testkit::lsp::{Method, Session, Step, percent_decoded};
+use nomi_testkit::lsp::{Method, Session, Step, dir_uri, percent_decoded};
 use serde_json::{Map, Value, json};
 
 use crate::oracle::lsp::Tools;
@@ -150,7 +150,8 @@ pub(crate) fn record(root: &Path, refs: &References, app: &str) -> Result<()> {
     let _ = fs::remove_file(&log);
     drive(&work, &config, &log, script)?;
     let text = fs::read_to_string(&log).context("Helix's log")?;
-    let session = session(&text, &work, script)?;
+    let title = format!("Helix editing {} in {}", script.file, script.app);
+    let session = session(&text, &dir_uri(&work), title)?;
     let out = root.join(DIR);
     fs::create_dir_all(&out)?;
     let path = out.join(format!("{app}.json"));
@@ -316,13 +317,8 @@ fn shell(text: &str) -> String {
 
 /// The session Helix's messages to the server make, as Helix's log has
 /// them: its documents' opens, changes, saves and closes, and its
-/// requests about them, by path in the project.
-fn session(log: &str, work: &Path, script: &Script) -> Result<Session> {
-    let root = lsp_types::Url::from_directory_path(work)
-        .map_err(|()| anyhow::anyhow!("a path"))?
-        .as_str()
-        .trim_end_matches('/')
-        .to_owned();
+/// requests about them, by path in the project at `root`, a URI.
+fn session(log: &str, root: &str, title: String) -> Result<Session> {
     let mut open = Vec::new();
     let mut requests = Vec::new();
     for line in log.lines() {
@@ -342,7 +338,7 @@ fn session(log: &str, work: &Path, script: &Script) -> Result<Session> {
         let mut params = message["params"].as_object().cloned().unwrap_or_default();
         let file = (params.remove("textDocument"))
             .and_then(|d| d["uri"].as_str().map(str::to_owned))
-            .and_then(|uri| file_of(&uri, &root));
+            .and_then(|uri| file_of(&uri, root));
         let Some(file) = file else {
             continue;
         };
@@ -386,7 +382,7 @@ fn session(log: &str, work: &Path, script: &Script) -> Result<Session> {
     }
     ensure!(!open.is_empty(), "Helix opened nothing");
     Ok(Session {
-        title: Some(format!("Helix editing {} in {}", script.file, script.app)),
+        title: Some(title),
         open,
         requests,
         ..Session::default()
@@ -425,5 +421,49 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn helix_messages_make_a_session() {
+        let sent = |message: Value| format!("2026 helix_lsp::transport [INFO] elmls -> {message}");
+        let doc = |file: &str| json!({ "uri": format!("file:///p/{file}") });
+        let elsewhere = json!({ "uri": "file:///q/B.elm" });
+        let at = json!({ "line": 1, "character": 2 });
+        let range = json!({ "start": at, "end": { "line": 1, "character": 5 } });
+        let log = [
+            sent(
+                json!({ "method": "textDocument/didOpen", "params": { "textDocument": doc("src/A.elm") } }),
+            ),
+            sent(
+                json!({ "method": "textDocument/didOpen", "params": { "textDocument": elsewhere } }),
+            ),
+            sent(json!({ "method": "textDocument/didChange", "params": {
+                "textDocument": doc("src/A.elm"), "contentChanges": [{ "text": "x" }], "other": 1,
+            } })),
+            sent(json!({ "id": 1, "method": "textDocument/hover", "params": {
+                "textDocument": doc("src/A.elm"), "position": at, "workDoneToken": "t",
+            } })),
+            sent(
+                json!({ "id": 2, "method": "textDocument/codeAction", "params": {
+                "textDocument": doc("src/A.elm"), "range": range, "context": {}, "partialResultToken": "t",
+            } }),
+            ),
+            sent(json!({ "id": 3, "result": null })),
+            "2026 helix_term [INFO] -> not a message".to_owned(),
+        ];
+        let session = session(&log.join("\n"), "file:///p", "a title".to_owned()).unwrap();
+        assert_eq!(
+            serde_json::to_value(session).unwrap(),
+            json!({
+                "title": "a title",
+                "open": ["src/A.elm"],
+                "requests": [
+                    { "method": "textDocument/didChange", "file": "src/A.elm",
+                      "params": { "contentChanges": [{ "text": "x" }] } },
+                    { "method": "textDocument/hover", "file": "src/A.elm", "at": at },
+                    { "method": "textDocument/codeAction", "file": "src/A.elm", "at": range },
+                ],
+            })
+        );
     }
 }

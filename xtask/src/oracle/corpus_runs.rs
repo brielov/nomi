@@ -37,7 +37,7 @@ use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 
 use super::javascript::Mode;
-use super::process::run_to_files;
+use super::process::{Ran, run_to_files};
 use super::sandbox::{
     RETRIES, Release, Retry, elm_home, elmo_files, first_title, json_report, locked, offline,
     retrying,
@@ -323,7 +323,7 @@ fn projects(root: &Path, projects: Projects) -> Result<Vec<Project>> {
     if projects.apps() {
         for app in apps::load(root)?.app {
             found.push(Project {
-                case: format!("app/{}", app.name),
+                case: app.case(),
                 top: apps::app_dir(&corpus, &app),
                 kind: Kind::App(Box::new(app)),
             });
@@ -334,7 +334,7 @@ fn projects(root: &Path, projects: Projects) -> Result<Vec<Project>> {
             let top = packages::package_dir(&corpus, &package);
             if top.join("elm.json").exists() {
                 found.push(Project {
-                    case: format!("{}@{}", package.name, package.version),
+                    case: package.case(),
                     top,
                     kind: Kind::Package(package),
                 });
@@ -508,7 +508,7 @@ fn make(elm: &Path, home: &Path, work: &Path, dir: &Path, args: &[&str]) -> Resu
     // and one may read the other's `artifacts.dat` half written; elm then
     // dies without a report, and a later run finds the file whole.
     let output = retrying(RETRIES, |attempt, previous| {
-        if let Some(Some(_)) = previous {
+        if let Some(Ran::Ended(_)) = previous {
             let _ = fs::remove_dir_all(dir.join("elm-stuff"));
             std::thread::sleep(Duration::from_secs(u64::from(attempt)));
         }
@@ -520,20 +520,23 @@ fn make(elm: &Path, home: &Path, work: &Path, dir: &Path, args: &[&str]) -> Resu
             .current_dir(dir)
             .env("ELM_HOME", home);
         // Hung, as concurrent runs very rarely leave elm; again.
-        let Some(output) = run_to_files(offline(&mut command), work, TIMEOUT)? else {
-            return Ok(Retry::Again(None));
+        let Ran::Ended(output) = run_to_files(offline(&mut command), work, TIMEOUT)? else {
+            return Ok(Retry::Again(Ran::Hung));
         };
         let unreported = !output.status.success() && json_report(&output).is_none();
         // A success that says something has, so far, been one of those
         // too: alone, it is silent.
         let noisy = output.status.success() && !output.stderr.is_empty();
         Ok(if locked(&output.stderr) || unreported || noisy {
-            Retry::Again(Some(output))
+            Retry::Again(Ran::Ended(output))
         } else {
-            Retry::Done(Some(output))
+            Retry::Done(Ran::Ended(output))
         })
     })?;
-    output.with_context(|| format!("elm hung {RETRIES} times"))
+    match output {
+        Ran::Ended(output) => Ok(output),
+        Ran::Hung => bail!("elm hung {RETRIES} times"),
+    }
 }
 
 /// Copies `top`'s `elm.json` files and modules, which are all elm reads,

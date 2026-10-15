@@ -168,11 +168,7 @@ struct Project {
 impl Project {
     fn new(case: &Case, compat: Compat, default_elm_json: &str) -> Project {
         let temp = tempfile::tempdir().unwrap();
-        let mut case = case.clone();
-        if !case.files.iter().any(|(path, _)| path == "elm.json") {
-            (case.files).push(("elm.json".to_owned(), default_elm_json.to_owned()));
-        }
-        let case = case.as_release(compat);
+        let case = case.with_manifest(default_elm_json).as_release(compat);
         let root = case.lay_out_padded(temp.path()).unwrap();
         let (_, text) = case
             .files

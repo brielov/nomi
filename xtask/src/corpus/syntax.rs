@@ -139,7 +139,7 @@ pub(crate) fn modules(root: &Path) -> Result<Vec<Module>> {
         } else {
             Source::Package
         };
-        let case = format!("{}@{}", package.name, package.version);
+        let case = package.case();
         push_modules(&mut modules, &case, &dir, source)?;
     }
     for app in apps::load(root)?.app {
@@ -149,12 +149,7 @@ pub(crate) fn modules(root: &Path) -> Result<Vec<Module>> {
             "app {} is not fetched; run `cargo xtask corpus fetch`",
             app.name
         );
-        push_modules(
-            &mut modules,
-            &format!("app/{}", app.name),
-            &dir,
-            Source::Application,
-        )?;
+        push_modules(&mut modules, &app.case(), &dir, Source::Application)?;
     }
     Ok(modules)
 }

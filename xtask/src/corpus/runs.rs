@@ -30,7 +30,7 @@ use nomi_syntax::{parse_module, significant_tokens};
 use nomi_testkit::{release_column, sha256_hex as sha256};
 
 use super::compat;
-use super::names::{Expected, Live, Project, build, in_chunks, solve};
+use super::names::{Expected, Live, Project, Ready, build, in_chunks, solve};
 use crate::oracle::corpus_runs::{Cell, Projects, Suite, graphs_cell, sandbox_id};
 use crate::oracle::javascript::Mode;
 
@@ -63,7 +63,11 @@ pub(crate) fn check(root: &Path, suite: Suite, only: Option<&str>) -> Result<()>
                 skipped.push(format!("{}: elm said {expected}", project.case));
                 continue;
             }
-            ready.push((project, sources, expected));
+            ready.push(Ready {
+                project,
+                sources,
+                given: expected,
+            });
         }
         let made = |project: &Project, sources: &[_], interfaces: &_, expected: &&Cell| {
             run(suite, c, project, sources, interfaces, expected)

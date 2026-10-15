@@ -39,6 +39,13 @@ pub(crate) struct App {
     prepare: Option<Prepare>,
 }
 
+impl App {
+    /// The app's case in the corpus's tables, `app/name`.
+    pub(crate) fn case(&self) -> String {
+        format!("app/{}", self.name)
+    }
+}
+
 /// Code generation with sbt that must run before the app compiles.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]

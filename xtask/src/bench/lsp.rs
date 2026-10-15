@@ -289,10 +289,7 @@ fn cpu(pid: u32) -> Duration {
 
 /// The resident memory of `pid` and its descendants now, in KiB.
 fn resident(pid: u32) -> u64 {
-    tree(pid)
-        .into_iter()
-        .map(|pid| status_kib(pid, "VmRSS"))
-        .sum()
+    tree(pid).into_iter().map(resident_kib).sum()
 }
 
 /// `pid` and its descendants.
@@ -316,11 +313,12 @@ fn tree(pid: u32) -> Vec<u32> {
     tree
 }
 
-/// A process's `field` of `/proc/<pid>/status`, in KiB; 0 without one.
-fn status_kib(pid: u32, field: &str) -> u64 {
+/// A process's own resident memory, `VmRSS` in `/proc/<pid>/status`, in
+/// KiB; 0 without one.
+fn resident_kib(pid: u32) -> u64 {
     let status = fs::read_to_string(format!("/proc/{pid}/status")).unwrap_or_default();
     (status.lines())
-        .find_map(|l| l.strip_prefix(field)?.strip_prefix(':'))
+        .find_map(|l| l.strip_prefix("VmRSS:"))
         .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
         .unwrap_or(0)
 }

@@ -21,7 +21,7 @@ use nomi_project::Version;
 use nomi_syntax::Source;
 use serde::Deserialize;
 
-use super::process::run_to_files;
+use super::process::{Ran, run_to_files};
 use crate::corpus::{corpus_dir, packages};
 
 /// The packages every sandbox project depends on.
@@ -120,16 +120,21 @@ impl Sandbox {
             // elm very rarely hangs, and now and then fails without a
             // report, tripping over its own lock on `d.dat`.
             let ran = run_to_files(offline(&mut command), &self.dir, TIMEOUT)?;
-            let again = ran.as_ref().is_none_or(|output| {
-                !output.status.success() && json_report(output).is_none() && locked(&output.stderr)
-            });
+            let again = match &ran {
+                Ran::Ended(output) => {
+                    !output.status.success()
+                        && json_report(output).is_none()
+                        && locked(&output.stderr)
+                }
+                Ran::Hung => true,
+            };
             Ok(if again {
                 Retry::Again(ran)
             } else {
                 Retry::Done(ran)
             })
         })?;
-        let Some(output) = output else {
+        let Ran::Ended(output) = output else {
             bail!("{} hung {RETRIES} times", self.elm.display());
         };
         let stderr = String::from_utf8_lossy(&output.stderr);

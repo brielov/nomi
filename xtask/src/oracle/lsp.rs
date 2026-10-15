@@ -190,7 +190,6 @@ pub(crate) fn record(tools: &Tools, scratch: &Path, case: &lsp::Case) -> Result<
         // It publishes only what changed, so silence alone tells.
         publishes: false,
     };
-    let root_uri = lsp::dir_uri(&work);
     // The driver panics on a broken session; the server is reaped either
     // way.
     let transcript = panic::catch_unwind(AssertUnwindSafe(|| {
@@ -198,18 +197,10 @@ pub(crate) fn record(tools: &Tools, scratch: &Path, case: &lsp::Case) -> Result<
     }));
     lsp::reap(child);
     let transcript = transcript.map_err(|_| anyhow!("the session broke"))?;
-    let packages = &tools.packages;
-    let replacements = [
-        (
-            format!("file://{}", packages.display()),
-            "<packages>".to_owned(),
-        ),
-        (packages.display().to_string(), "<packages>".to_owned()),
-        // It writes URIs percent-encoded, so `@` as `%40` in a package's
-        // copy.
-        (root_uri.replace('@', "%40"), "<project>".to_owned()),
-        (root_uri, "<project>".to_owned()),
-        (work.display().to_string(), "<project>".to_owned()),
-    ];
+    let mut replacements = lsp::dir_replacements(&[&tools.packages], "<packages>");
+    // It writes URIs percent-encoded, so `@` as `%40` in a package's copy.
+    let encoded = lsp::dir_uri(&work).replace('@', "%40");
+    replacements.push((encoded, "<project>".to_owned()));
+    replacements.extend(lsp::dir_replacements(&[&work], "<project>"));
     Ok(lsp::tidy(transcript, &replacements))
 }

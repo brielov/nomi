@@ -31,7 +31,7 @@ use super::sandbox::{
 use super::{
     by_output, cache_dir, fresh_dir, generated, padded_case, pinned_elm, remove_tree, utf8,
 };
-use crate::corpus::compat::{self, with_elm_version};
+use crate::corpus::compat;
 use crate::corpus::syntax::CRASH;
 use crate::references::References;
 
@@ -157,18 +157,6 @@ pub(super) fn record_projects(
     Ok(())
 }
 
-/// Sets `elm.json` in `dir`, or `default` where the case has none, to
-/// name `compat` if it's an application's; a package's stays as it is.
-fn pin_manifest(dir: &Path, default: &str, compat: Compat) -> Result<()> {
-    let manifest = dir.join("elm.json");
-    let text = fs::read_to_string(&manifest).unwrap_or_else(|_| default.to_owned());
-    let pinned = (text.contains("\"type\": \"application\""))
-        .then(|| with_elm_version(&text, compat))
-        .flatten();
-    fs::write(&manifest, pinned.unwrap_or(text))?;
-    Ok(())
-}
-
 /// One elm recording a suite's cases: the elm, a fresh scratch
 /// directory for the suite's projects, and an `ELM_HOME` in it.
 pub(super) struct Recorder {
@@ -203,13 +191,13 @@ impl Recorder {
     }
 
     /// elm, offline, ready to run on `case` with its arguments in a fresh
-    /// project, whose `elm.json` is pinned as [`pin_manifest`] pins it;
-    /// and the project.
+    /// project, with `default` for an `elm.json` it lacks and an
+    /// application's `elm-version` this elm's; and the project.
     pub(super) fn make(&self, case: &Case, default: &str) -> Result<(Command, PathBuf)> {
         let work = self.scratch.join("work");
         fresh_dir(&work)?;
+        let case = case.with_manifest(default).as_release(self.compat);
         case.create_files(&work)?;
-        pin_manifest(&work, default, self.compat)?;
         Ok((self.command(&case.args, &work), work))
     }
 
@@ -231,8 +219,8 @@ impl Recorder {
     /// dated, with `default` for an `elm.json` it lacks. A run that trips
     /// over a lock [`RETRIES`] times is recorded as it went.
     fn report(&self, case: &Case, default: &str, style: Style) -> Result<(String, Option<String>)> {
-        let work = padded_case(&self.scratch.join("work"), case)?;
-        pin_manifest(&work, default, self.compat)?;
+        let pinned = case.with_manifest(default).as_release(self.compat);
+        let work = padded_case(&self.scratch.join("work"), &pinned)?;
         let output = retrying(RETRIES, |_, _| {
             let mut command = self.command(&case.args, &work);
             command

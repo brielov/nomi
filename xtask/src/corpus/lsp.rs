@@ -24,11 +24,12 @@ use std::str::Chars;
 use std::thread;
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use lsp_server::Connection;
 use nomi_base::Compat;
 use nomi_engine::Store;
 use nomi_engine::index::Memo;
+use nomi_project::Outline;
 use nomi_testkit::lsp::{self, At, Driver, Method, Position, Session, Step, Timing};
 use nomi_testkit::ratchet::Suite;
 use nomi_testkit::sha256_hex as sha256;
@@ -40,7 +41,7 @@ use crate::oracle::lsp::Tools;
 use crate::oracle::sandbox::Release;
 use crate::oracle::{cache_dir, generated};
 use crate::references::References;
-use nomi_testkit::parallel_on;
+use nomi_testkit::{files_below, parallel_on};
 
 const DIR: &str = "corpus/lsp";
 const ORACLE: &str = "corpus/lsp/oracle.tsv";
@@ -54,13 +55,20 @@ const COMPLETIONS: usize = 2;
 /// The release elm-language-server is built around.
 const COMPAT: Compat = Compat::V0_19_1;
 
-/// A project of the suite: its case, its directory, and its `elm.json`
-/// as 0.19.1 reads it.
+/// A project of the suite: its case, its directory, its `elm.json` as
+/// 0.19.1 reads it, and the source directories that names.
 #[derive(Clone)]
 pub(crate) struct Project {
     case: String,
     root: PathBuf,
     manifest: String,
+    sources: Vec<String>,
+}
+
+/// The source directories `manifest` names, as 0.19.1 reads it.
+fn source_dirs(manifest: &str) -> Result<Vec<String>> {
+    let outline = Outline::read(manifest.as_bytes(), COMPAT).map_err(|e| anyhow!("{e:?}"))?;
+    Ok(outline.source_dirs())
 }
 
 /// A number from the seed and `parts`, for choosing.
@@ -83,7 +91,7 @@ fn catalog(root: &Path) -> Result<Vec<Project>> {
     let accepted = |case: &str| check.get(case) == Some(&Cell::Ok);
     let mut found = Vec::new();
     for app in apps::load(root)?.app {
-        let case = format!("app/{}", app.name);
+        let case = app.case();
         if !accepted(&case) {
             continue;
         }
@@ -91,10 +99,8 @@ fn catalog(root: &Path) -> Result<Vec<Project>> {
         // A source directory outside the app's root would have to come
         // along outside the session's copy too, which the recorder's copy
         // leaves behind; inside, it's inside `.` as well.
-        let elm: Value = serde_json::from_str(&manifest)?;
-        let outside = (elm["source-directories"].as_array().into_iter().flatten())
-            .any(|d| d.as_str().is_some_and(|d| d.starts_with("..")));
-        if outside {
+        let sources = source_dirs(&manifest).with_context(|| case.clone())?;
+        if sources.iter().any(|d| d.starts_with("..")) {
             continue;
         }
         let root = apps::app_dir(&corpus, &app).join(&app.root);
@@ -102,11 +108,12 @@ fn catalog(root: &Path) -> Result<Vec<Project>> {
             case,
             root,
             manifest,
+            sources,
         });
     }
     let mut candidates = Vec::new();
     for package in packages::load(root)?.packages {
-        let case = format!("{}@{}", package.name, package.version);
+        let case = package.case();
         let admitted = classification.admits(&package.name, &package.version, COMPAT);
         if admitted && accepted(&case) {
             candidates.push((pick(&[&case]), case, package));
@@ -116,10 +123,12 @@ fn catalog(root: &Path) -> Result<Vec<Project>> {
     for (_, case, package) in candidates.into_iter().take(PACKAGES) {
         let root = packages::package_dir(&corpus, &package);
         let manifest = fs::read_to_string(root.join("elm.json"))?;
+        let sources = source_dirs(&manifest).with_context(|| case.clone())?;
         found.push(Project {
             case,
             root,
             manifest,
+            sources,
         });
     }
     Ok(found)
@@ -156,32 +165,19 @@ fn sessions(root: &Path, only: Option<&str>) -> Result<Vec<(Project, Session)>> 
         .collect()
 }
 
-/// The modules of a project's source directories, by path from its root.
-fn modules(root: &Path, manifest: &str) -> Vec<String> {
-    let elm: Value = serde_json::from_str(manifest).unwrap_or_default();
-    let dirs: Vec<String> = match elm["type"].as_str() {
-        Some("application") => (elm["source-directories"].as_array().into_iter().flatten())
-            .filter_map(|d| d.as_str().map(str::to_owned))
-            .collect(),
-        _ => vec!["src".to_owned()],
-    };
+/// The modules of `project`'s source directories, by path from its root.
+fn modules(project: &Project) -> Vec<String> {
+    let root = &project.root;
     let mut found = Vec::new();
-    for dir in dirs {
-        let mut pending = vec![root.join(&dir)];
-        while let Some(at) = pending.pop() {
-            let Ok(entries) = fs::read_dir(&at) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    pending.push(path);
-                } else if path.extension().is_some_and(|e| e == "elm")
-                    && let Ok(relative) = path.strip_prefix(root)
-                    && !relative.starts_with("..")
-                {
-                    found.push(relative.to_string_lossy().replace('\\', "/"));
-                }
+    for dir in &project.sources {
+        let dir = root.join(dir);
+        for file in files_below(&dir).unwrap_or_default() {
+            let path = dir.join(file);
+            if path.extension().is_some_and(|e| e == "elm")
+                && let Ok(relative) = path.strip_prefix(root)
+                && !relative.starts_with("..")
+            {
+                found.push(relative.to_string_lossy().replace('\\', "/"));
             }
         }
     }
@@ -338,12 +334,8 @@ fn step(method: &str, file: &str, at: Option<(u32, u32)>) -> Step {
 
 /// The session generated for a project.
 fn session(project: &Project) -> Result<Session> {
-    let Project {
-        case,
-        root,
-        manifest,
-    } = project;
-    let mut modules: Vec<(u64, String)> = (modules(root, manifest).into_iter())
+    let Project { case, root, .. } = project;
+    let mut modules: Vec<(u64, String)> = (modules(project).into_iter())
         .map(|m| (pick(&[case, &m]), m))
         .collect();
     modules.sort();
@@ -555,14 +547,9 @@ fn replacements(packages: &Path, releases: &[Release]) -> Vec<(String, String)> 
 fn write_sessions(dir: &Path, projects: &[(Project, Session)]) -> Result<()> {
     fs::create_dir_all(dir)?;
     for (project, session) in projects {
-        let steps: Vec<Value> = (session.requests.iter())
-            .map(|s| json!({ "method": s.method, "file": s.file, "at": format!("{:?}", s.at) }))
-            .collect();
         let name = sandbox_name(&project.case);
-        fs::write(
-            dir.join(format!("{name}.json")),
-            serde_json::to_string_pretty(&steps)?,
-        )?;
+        let steps = serde_json::to_string_pretty(&session.requests)?;
+        fs::write(dir.join(format!("{name}.json")), steps)?;
     }
     Ok(())
 }

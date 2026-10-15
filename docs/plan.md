@@ -49,7 +49,7 @@ nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it wait
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **Q.16d**.
+4. Resume at the first unchecked box. Right now that is MQ's **Exit**.
 
 ### Test tiers
 
@@ -1217,7 +1217,10 @@ The second exit review (12 fresh reviews, kept in `~/.cache/nomi-dev/quality/exi
 
   Done: a package's build borrows its dependencies' interfaces rather than copying them, and returns its own alone; what a clean build made is one `Made`, docs or optimized code; kernel module names are project's `is_kernel` and `kernel_short`; the ide's outline, review input and hints are named, `ProjectOutline`, `Elm` and `hint_at`, one `tree_at` and one `covering_node` serve navigation and completion, and an imported value's kind decides its completion in one table; the refactorings' arguments are serde structs; the diff and publish tests serve the newest docs alone, as the registry only ever answers them, so the 18 older copies are gone; testkit's `transcript::matching` and `Case::lay_out_padded` serve the CLI, engine and xtask; the fake registry's methods are an enum. About 130 lines more, the named types. Builds take the same time as Q.16b. CI and every corpus suite are unchanged. Surprises: a package exposing a module only a dependency has no longer exports that dependency's interface, as upstream's `gatherInterfaces`; navigation into a package reads its files from the package cache, as completion did; the move refactorings read their whole parameters, a malformed one answering null as before.
 
-- [ ] **Q.16d** `quality: second exit findings, xtask` (10).
+- [x] **Q.16d** `quality: second exit findings, xtask` (10).
+
+  Done: a run that hung is `Ran::Hung` rather than `None`; the names suite's chunks take a `Ready` struct; corpus case names are `App::case` and `Package::case`, where ten places spelled them; recorders and the engine's replay pin a case's `elm.json` through one testkit `Case::with_manifest`; the language-server corpus reads source directories through project's `Outline` and lists files with `files_below`, writes its sessions' steps as testkit's serialized `Step`s, and builds URIs and replacements through testkit's `dir_uri` and `dir_replacements`; the benchmark reads resident memory without a parameter that never varied; Helix logs' conversion to sessions is tested. 52 lines more, two tests most of it. The modules, javascript and optimized recorders write the same bytes, the language-server recorder the same but for the workspace-symbol order elm-language-server varies between runs, and `corpus lsp` generates the same 126 sessions. CI is green.
+
 
 The survey behind these steps (11 reviews, every file read: 118 major, 514 minor and 405 small findings, about 7,600 removable lines of 124,000) is kept in the development cache, `~/.cache/nomi-dev/quality/`, one report per crate group; a step without it re-reviews its crate first. Findings that would change behavior are not in this milestone: they are listed in its last step's commit for a decision.
 
