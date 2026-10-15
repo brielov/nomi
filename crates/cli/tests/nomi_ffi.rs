@@ -2,7 +2,8 @@
 //! `--ffi` imports the module from where its output is, and each call
 //! ends as the function does, its interruption aborting the function's
 //! signal; without an FFI module, or for output that can't import one,
-//! the build fails.
+//! the build fails. A literal name the module doesn't export fails the
+//! build; what the build can't check, the program checks when it starts.
 #![cfg(unix)]
 
 #[path = "support/website.rs"]
@@ -36,7 +37,7 @@ main =
                 , show "decoder failure" (Ffi.task "add" pair Decode.string)
                 , show "throw" (Ffi.task "throws" Encode.null Decode.int)
                 , show "rejection" (Ffi.task "rejects" Encode.null Decode.int)
-                , show "missing" (Ffi.task "missing" Encode.null Decode.int)
+                , show "missing" (Ffi.task ("miss" ++ "ing") Encode.null Decode.int)
                 , show "interrupted" (Nomi.Task.timeout 10 (Ffi.task "hangs" Encode.null Decode.int))
                 , show "aborted" (Ffi.task "aborted" Encode.null Decode.string)
                 ]
@@ -85,6 +86,12 @@ export async function aborted() {
 /// An application of [`PROGRAM`] on nomi/core, with [`FFI`] at
 /// `src/ffi.mjs`, in a new directory.
 fn project() -> (tempfile::TempDir, PathBuf) {
+    project_of(PROGRAM, FFI)
+}
+
+/// An application of `program` on nomi/core, with `ffi` at `src/ffi.mjs`,
+/// in a new directory.
+fn project_of(program: &str, ffi: &str) -> (tempfile::TempDir, PathBuf) {
     let work = tempfile::tempdir().unwrap();
     let root = fs::canonicalize(work.path()).unwrap();
     fs::write(
@@ -93,8 +100,8 @@ fn project() -> (tempfile::TempDir, PathBuf) {
     )
     .unwrap();
     fs::create_dir(root.join("src")).unwrap();
-    fs::write(root.join("src/Main.elm"), PROGRAM).unwrap();
-    fs::write(root.join("src/ffi.mjs"), FFI).unwrap();
+    fs::write(root.join("src/Main.elm"), program).unwrap();
+    fs::write(root.join("src/ffi.mjs"), ffi).unwrap();
     (work, root)
 }
 
@@ -185,4 +192,141 @@ fn an_ffi_module_needs_node_and_an_es_module() {
     assert!(!browser.status.success(), "{browser:?}");
     assert!(said(&browser).contains("FFI NEEDS NODE"), "{browser:?}");
     assert!(!root.join("dist").exists());
+}
+
+/// A program whose `main` prints how `Page.load` ends.
+const MAIN: &str = r#"module Main exposing (main)
+
+import Nomi
+import Page
+import Task
+
+
+main : Nomi.Program
+main =
+    Nomi.program <|
+        \_ ->
+            Page.load
+                |> Task.map Ok
+                |> Task.onError (Task.succeed << Err)
+                |> Task.map (\result -> Debug.log "result" result |> always ())
+"#;
+
+/// An application of [`MAIN`], whose `Page.load` is `call` given a pair
+/// and decoding an `Int`, with `ffi` at `src/ffi.mjs` and `files` beside
+/// it.
+fn paged(call: &str, ffi: &str, files: &[(&str, &str)]) -> (tempfile::TempDir, PathBuf) {
+    let (work, root) = project_of(MAIN, ffi);
+    let page = format!(
+        "module Page exposing (load)\n\n\
+         import Json.Decode as Decode\n\
+         import Json.Encode as Encode\n\
+         import Nomi.Ffi as Ffi\n\
+         import Task exposing (Task)\n\n\n\
+         load : Task Ffi.Error Int\n\
+         load =\n    {call} (Encode.list Encode.int [ 1, 2 ]) Decode.int\n"
+    );
+    fs::write(root.join("src/Page.elm"), page).unwrap();
+    for (path, text) in files {
+        fs::write(root.join(path), text).unwrap();
+    }
+    (work, root)
+}
+
+/// The built `dist/main.mjs` in `root`, run by `node`.
+fn run(root: &Path) -> Output {
+    Command::new("node")
+        .arg(root.join("dist/main.mjs"))
+        .output()
+        .unwrap()
+}
+
+/// The build of an application of [`paged`] with its FFI module, which
+/// has to succeed, and how it runs.
+fn built_and_run(call: &str, ffi: &str, files: &[(&str, &str)]) -> Output {
+    let (_work, root) = paged(call, ffi, files);
+    let built = build(&root, &["--output=dist/main.mjs", "--ffi=src/ffi.mjs"]);
+    assert!(built.status.success(), "{built:?}");
+    run(&root)
+}
+
+#[test]
+fn a_misspelt_literal_name_fails_the_build_naming_its_caller_and_the_exports() {
+    let (_work, root) = paged(r#"Ffi.task "ad""#, FFI, &[]);
+    let built = build(&root, &["--output=dist/main.mjs", "--ffi=src/ffi.mjs"]);
+    assert!(!built.status.success(), "{built:?}");
+    let said = said(&built);
+    assert!(said.contains("UNKNOWN FFI FUNCTION"), "{said}");
+    assert!(
+        said.contains(
+            "This call names a function the FFI module does not export:\n\n    \
+             Page.load calls Nomi.Ffi.task \"ad\"\n\n\
+             It exports:\n\n    aborted, add, hangs, rejects, throws\n"
+        ),
+        "{said}"
+    );
+    assert!(!root.join("dist").exists());
+}
+
+#[test]
+fn a_missing_ffi_module_fails_the_build() {
+    let (_work, root) = project();
+    let built = build(&root, &["--output=dist/main.mjs", "--ffi=src/missing.mjs"]);
+    assert!(!built.status.success(), "{built:?}");
+    let said = said(&built);
+    assert!(said.contains("FFI MODULE NOT FOUND"), "{said}");
+    assert!(
+        said.contains("The FFI module given with --ffi, src/missing.mjs, does not exist."),
+        "{said}"
+    );
+    assert!(!root.join("dist").exists());
+}
+
+#[test]
+fn with_a_name_made_at_run_time_every_export_is_a_function_when_the_program_starts() {
+    nomi_testkit::require_node();
+    let call = r#"Ffi.task ("a" ++ "dd")"#;
+    let ran = built_and_run(call, FFI, &[]);
+    assert_eq!(ran.status.code(), Some(0), "{ran:?}");
+    assert_eq!(String::from_utf8_lossy(&ran.stdout), "result: Ok 3\n");
+    let ran = built_and_run(call, &format!("{FFI}export const version = 1;\n"), &[]);
+    assert_eq!(ran.status.code(), Some(1), "{ran:?}");
+    assert_eq!(String::from_utf8_lossy(&ran.stdout), "");
+    let stderr = String::from_utf8_lossy(&ran.stderr);
+    assert!(
+        stderr.contains(
+            "Error: the FFI module exports `version`, which is not a function, and \
+             Nomi.Ffi.task calls exports by names made at run time"
+        ),
+        "{stderr}"
+    );
+    // Literal names leave other exports alone.
+    let ran = built_and_run(
+        r#"Ffi.task "add""#,
+        &format!("{FFI}export const version = 1;\n"),
+        &[],
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&ran.stdout),
+        "result: Ok 3\n",
+        "{ran:?}"
+    );
+}
+
+#[test]
+fn a_module_exporting_all_of_another_builds_and_its_names_are_checked_when_it_starts() {
+    nomi_testkit::require_node();
+    let ffi = "export * from './impl.mjs';\n";
+    let files = [("src/impl.mjs", FFI)];
+    let ran = built_and_run(r#"Ffi.task "add""#, ffi, &files);
+    assert_eq!(ran.status.code(), Some(0), "{ran:?}");
+    assert_eq!(String::from_utf8_lossy(&ran.stdout), "result: Ok 3\n");
+    let ran = built_and_run(r#"Ffi.task "ad""#, ffi, &files);
+    assert_eq!(ran.status.code(), Some(1), "{ran:?}");
+    assert_eq!(String::from_utf8_lossy(&ran.stdout), "");
+    let stderr = String::from_utf8_lossy(&ran.stderr);
+    assert!(
+        stderr.contains("Error: the FFI module exports no function `ad`, which Page.load calls"),
+        "{stderr}"
+    );
 }

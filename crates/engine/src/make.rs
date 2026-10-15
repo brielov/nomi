@@ -10,6 +10,8 @@ use std::time::Instant;
 
 use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, reflow, simple_note, text, vcat, words};
 use nomi_base::{Compat, Platform, Report};
+use nomi_codegen_js::ffi::{self, Ffi};
+use nomi_codegen_js::platform::ffi_specifier;
 use nomi_project::{ModuleName, Name, Outline};
 use nomi_registry::Http;
 
@@ -425,16 +427,10 @@ fn write(vfs: &Vfs, console: &mut dyn Console, dir: &Path, make: &Make, clean: C
                 made_for.platform = Platform::Node;
             }
             if let Some(ffi) = &make.ffi {
-                if made_for.platform != Platform::Node {
-                    return fail(console, ffi_off_node());
+                match ffi_module(vfs, dir, ffi, &made_for, &target) {
+                    Ok(ffi) => made_for.ffi = Some(ffi),
+                    Err(report) => return fail(console, report),
                 }
-                if made_for.format != javascript::Format::EsModule || target.html.is_some() {
-                    return fail(console, ffi_outside_module());
-                }
-                made_for.ffi = Some(nomi_codegen_js::platform::ffi_specifier(
-                    &dir.join(&target.path),
-                    &dir.join(ffi),
-                ));
             }
             let package = env.owner().package_name();
             let bytes = timings::time(Phase::Generate, || {
@@ -641,6 +637,29 @@ fn target(output: Option<&Output>, roots: &[RootMain]) -> Result<Option<Target>,
     }
 }
 
+/// The FFI module at `path`, from `dir`, as the program made for
+/// `made_for` and written to `target` imports it; or why it can't.
+fn ffi_module(
+    vfs: &Vfs,
+    dir: &Path,
+    path: &Path,
+    made_for: &javascript::Target,
+    target: &Target,
+) -> Result<Ffi, Report> {
+    if made_for.platform != Platform::Node {
+        return Err(ffi_off_node());
+    }
+    if made_for.format != javascript::Format::EsModule || target.html.is_some() {
+        return Err(ffi_outside_module());
+    }
+    let module = dir.join(path);
+    let source = vfs.read(&module).map_err(|e| ffi_unreadable(path, &e))?;
+    Ok(Ffi {
+        specifier: ffi_specifier(&dir.join(&target.path), &module),
+        exports: ffi::exports(&source),
+    })
+}
+
 /// That an FFI module was given for a program built for the browser.
 fn ffi_off_node() -> Report {
     Report::doc(
@@ -650,6 +669,28 @@ fn ffi_off_node() -> Report {
         [reflow(
             "Nomi.Ffi calls JavaScript on Node. Build with --platform=node, or give `main` \
              the type `Nomi.Program`, which builds for Node by itself.",
+        )],
+    )
+}
+
+/// That the FFI module at `path` could not be read.
+fn ffi_unreadable(path: &Path, error: &std::io::Error) -> Report {
+    if error.kind() != std::io::ErrorKind::NotFound {
+        return one_line(
+            "PROBLEM READING FFI MODULE",
+            &format!("I could not read {}: {error}", path.display()),
+        );
+    }
+    Report::doc(
+        "FFI MODULE NOT FOUND",
+        None,
+        reflow(&format!(
+            "The FFI module given with --ffi, {}, does not exist.",
+            path.display()
+        )),
+        [reflow(
+            "Give the path of the ES module that exports the functions Nomi.Ffi.task calls, \
+             from the directory nomi runs in.",
         )],
     )
 }

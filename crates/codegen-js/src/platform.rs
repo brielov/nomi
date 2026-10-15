@@ -7,6 +7,7 @@ use std::path::{Component, Path};
 
 use nomi_base::Platform;
 
+use crate::ffi::Ffi;
 use crate::runtime::{self, Override};
 
 /// The kernel modules of the packages bundled with nomi, by short name,
@@ -62,8 +63,8 @@ pub struct Target {
     pub platform: Platform,
     pub format: Format,
     pub dom: Dom,
-    /// The specifier an ES module imports its FFI module by, if it has one.
-    pub ffi: Option<String>,
+    /// The FFI module an ES module imports, if it has one.
+    pub ffi: Option<Ffi>,
 }
 
 /// The specifier a module at `output` imports the file `module` by: the

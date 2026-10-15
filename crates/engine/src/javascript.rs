@@ -11,6 +11,7 @@ use nomi_base::diagnostic::Report;
 use nomi_base::diagnostic::doc::{Color, reflow, text};
 use nomi_base::{Compat, Platform, kernel};
 use nomi_codegen_js::debug::{ModuleTypes, Types};
+use nomi_codegen_js::ffi::{self, Exports, Misspelt, Startup};
 use nomi_codegen_js::generate::generate;
 use nomi_codegen_js::kernel::{add_kernel, parse};
 use nomi_codegen_js::mode::{Mode, shorten_field_names};
@@ -104,7 +105,12 @@ pub fn program(
     }
     let js = match unavailable(compat, &mode, &lacking, &graph, &mains) {
         Some(path) => Err(not_available(target.platform, &path, &unknown)),
-        None => Ok(generate(compat, &mode, target, &graph, &mains)),
+        None => match &target.ffi {
+            Some(ffi) => ffi::check(compat, &mode, &ffi.exports, &graph, &mains)
+                .map_err(|misspelt| ffi_misspelt(&misspelt, &ffi.exports)),
+            None => Ok(Startup::default()),
+        }
+        .map(|startup| generate(compat, &mode, target, &startup, &graph, &mains)),
     };
     // Every package's code is in the graph, so freeing it takes a while,
     // which a build need not wait for.
@@ -249,6 +255,42 @@ fn not_available(platform: Platform, path: &[Global], unknown: &[Unknown]) -> Re
             main.home.module
         )),
         [text(&chain).color(Color::Red).indent(4), reflow(advice)],
+    )
+}
+
+/// That calls in `misspelt` name functions the FFI module, which
+/// exports `exports`, does not export.
+fn ffi_misspelt(misspelt: &[Misspelt], exports: &Exports) -> Report {
+    let calls = (misspelt.iter())
+        .map(|Misspelt { caller, name }| {
+            format!(
+                "{}.{} calls Nomi.Ffi.task \"{name}\"",
+                caller.home.module, caller.name
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut docs = vec![text(&calls).color(Color::Red).indent(4)];
+    if exports.names.is_empty() {
+        docs.push(reflow("It exports nothing."));
+    } else {
+        let names = exports.names.iter().map(String::as_str).collect::<Vec<_>>();
+        docs.push(reflow("It exports:"));
+        docs.push(text(names.join(", ")).color(Color::Green).indent(4));
+    }
+    docs.push(reflow(
+        "Check the name against the module given with --ffi; a call names an export \
+         exactly, case included.",
+    ));
+    Report::doc(
+        "UNKNOWN FFI FUNCTION",
+        None,
+        reflow(if misspelt.len() == 1 {
+            "This call names a function the FFI module does not export:"
+        } else {
+            "These calls name functions the FFI module does not export:"
+        }),
+        docs,
     )
 }
 

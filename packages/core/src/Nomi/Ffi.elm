@@ -14,7 +14,8 @@ import Task exposing (Task)
 
 {-| Calls the FFI module's export of the name as `f(arg, signal)` and
 decodes what its promise fulfils with. Interrupting the task aborts
-`signal`.
+`signal`. A name written as a literal must be one the module exports,
+or the build fails.
 
     Nomi.Ffi.task "hash" (Encode.string password) Decode.string
 

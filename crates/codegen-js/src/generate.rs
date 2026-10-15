@@ -15,6 +15,7 @@ use nomi_compiler::optimized::{Chunk, Def, EffectsType, Expr, Global, GlobalGrap
 
 use crate::builder::{self, Expr as Js, LValue, Stmt};
 use crate::expression::{Generator, code_to_expr, code_to_stmt_list};
+use crate::ffi::Startup;
 use crate::mode::Mode;
 use crate::name::Name;
 use crate::platform::{Format, Target, shim};
@@ -28,11 +29,12 @@ const FUNCTIONS: &str = include_str!("functions.js");
 /// `target`. A Node program carries the runtime its kernels run on, and
 /// a Node module of one `main` is an entry, which starts it. A module's
 /// FFI module is imported first and is its scope's `ffi`, where its
-/// kernel finds it.
+/// kernel finds it, once the module has checked what `startup` asks.
 pub fn generate(
     compat: Compat,
     mode: &Mode,
     target: &Target,
+    startup: &Startup,
     graph: &GlobalGraph,
     mains: &[(Home, Main)],
 ) -> Vec<u8> {
@@ -41,10 +43,12 @@ pub fn generate(
     let mut kernels = match (target.format, &target.ffi) {
         (Format::Iife, _) => Vec::new(),
         (Format::EsModule, None) => b"const scope = {};\n".to_vec(),
-        (Format::EsModule, Some(ffi)) => {
-            format!("import * as __nomi_ffi from '{ffi}';\nconst scope = {{ ffi: __nomi_ffi }};\n")
-                .into_bytes()
-        }
+        (Format::EsModule, Some(ffi)) => format!(
+            "import * as __nomi_ffi from '{}';\n{}const scope = {{ ffi: __nomi_ffi }};\n",
+            ffi.specifier,
+            startup.js("__nomi_ffi")
+        )
+        .into_bytes(),
     };
     kernels.extend_from_slice(b"(function(scope){\n'use strict';");
     kernels.extend_from_slice(FUNCTIONS.as_bytes());
@@ -384,8 +388,15 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::*;
+    use crate::ffi::{Exports, Ffi};
 
     const DEV: Mode = Mode::Dev { debug: None };
+
+    /// Nothing to check of an FFI module.
+    const NONE: Startup = Startup {
+        names: BTreeMap::new(),
+        only_functions: false,
+    };
 
     fn global(module: &str, name: &str) -> Global {
         Global {
@@ -408,8 +419,15 @@ mod tests {
 
     /// The program's code past the helpers and the note.
     fn program(compat: Compat, mode: &Mode, graph: &GlobalGraph, mains: &[(Home, Main)]) -> String {
-        let js =
-            String::from_utf8(generate(compat, mode, &Target::default(), graph, mains)).unwrap();
+        let js = String::from_utf8(generate(
+            compat,
+            mode,
+            &Target::default(),
+            &NONE,
+            graph,
+            mains,
+        ))
+        .unwrap();
         let start = js
             .find("assets.');")
             .map_or(0, |at| at + "assets.');".len());
@@ -462,12 +480,19 @@ mod tests {
     #[test]
     fn a_module_wraps_the_same_function_and_exports_elm() {
         let (graph, mains) = static_mains(&["Main"]);
-        let iife = generate(Compat::V0_19_1, &DEV, &Target::default(), &graph, &mains);
+        let iife = generate(
+            Compat::V0_19_1,
+            &DEV,
+            &Target::default(),
+            &NONE,
+            &graph,
+            &mains,
+        );
         let module = Target {
             format: Format::EsModule,
             ..Target::default()
         };
-        let module = generate(Compat::V0_19_1, &DEV, &module, &graph, &mains);
+        let module = generate(Compat::V0_19_1, &DEV, &module, &NONE, &graph, &mains);
         let iife = String::from_utf8(iife).unwrap();
         let body = iife.strip_suffix("}(this));").unwrap();
         assert_eq!(
@@ -488,7 +513,8 @@ mod tests {
         };
         let built = |target: &Target, modules: &[&str]| {
             let (graph, mains) = static_mains(modules);
-            String::from_utf8(generate(Compat::V0_19_1, &DEV, target, &graph, &mains)).unwrap()
+            let js = generate(Compat::V0_19_1, &DEV, target, &NONE, &graph, &mains);
+            String::from_utf8(js).unwrap()
         };
         // Node's is the browser's with the runtime after the warning.
         let note = perf_note(Compat::V0_19_1, &DEV);
@@ -506,7 +532,10 @@ mod tests {
         );
         // A module with an FFI module imports it, and its scope holds it.
         let ffi = Target {
-            ffi: Some("../src/ffi.mjs".to_owned()),
+            ffi: Some(Ffi {
+                specifier: "../src/ffi.mjs".to_owned(),
+                exports: Exports::default(),
+            }),
             ..node
         };
         let plain = built(&node, &["Main"]);
