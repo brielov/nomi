@@ -274,6 +274,24 @@ impl Outline {
         }
     }
 
+    /// The direct dependencies: an application's, or a package's.
+    pub fn direct(&self) -> impl Iterator<Item = &Name> {
+        let (app, pkg) = match self {
+            Outline::App(app) => (Some(app.direct.keys()), None),
+            Outline::Pkg(pkg) => (None, Some(pkg.deps.keys())),
+        };
+        app.into_iter().flatten().chain(pkg.into_iter().flatten())
+    }
+
+    /// The direct test dependencies: an application's, or a package's.
+    pub fn test_direct(&self) -> impl Iterator<Item = &Name> {
+        let (app, pkg) = match self {
+            Outline::App(app) => (Some(app.test_direct.keys()), None),
+            Outline::Pkg(pkg) => (None, Some(pkg.test_deps.keys())),
+        };
+        app.into_iter().flatten().chain(pkg.into_iter().flatten())
+    }
+
     /// `read`, short of the source directories: the outline in `src`, or
     /// the error `compat`'s elm reports for it.
     pub fn read(src: &[u8], compat: Compat) -> Result<Outline, OutlineError> {

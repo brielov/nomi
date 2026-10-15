@@ -15,7 +15,7 @@ use std::path::Path;
 use nomi_base::Compat;
 use nomi_engine::javascript::Kind;
 use nomi_testkit::ratchet::Suite;
-use nomi_testkit::transcript::Case;
+use nomi_testkit::transcript;
 
 /// Each mode, as the cases' ids name it.
 const MODES: [(&str, Kind); 3] = [
@@ -29,15 +29,8 @@ fn javascript() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/javascript");
     let default = fs::read_to_string(dir.join("default.elm.json")).unwrap();
     let suite = Suite::open(&dir);
-    let mut paths: Vec<_> = fs::read_dir(dir.join("cases"))
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .collect();
-    paths.sort();
     let mut outcomes = Vec::new();
-    for path in &paths {
-        let name = path.file_stem().unwrap().to_string_lossy().into_owned();
-        let case = Case::parse(&fs::read_to_string(path).unwrap()).unwrap();
+    for (name, case) in transcript::cases(&dir.join("cases")) {
         for compat in Compat::ALL {
             for (mode, kind) in MODES {
                 let id = format!("{name} {mode} as {compat}");

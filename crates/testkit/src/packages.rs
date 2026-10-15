@@ -66,6 +66,14 @@ pub fn manifest() -> Vec<Package> {
     manifest.package
 }
 
+/// The release of the package `name`, `<author>/<project>`, among the
+/// fixtures, which hold one of each.
+pub fn release(name: &str) -> Package {
+    (manifest().into_iter())
+        .find(|package| package.name == name)
+        .unwrap_or_else(|| panic!("{name} isn't a fixture package"))
+}
+
 /// Lays the fixture packages out in `store` as nomi's package store keeps
 /// downloads: `releases/<name>/<version>` holding the archive's hash, and
 /// the release's files at [`Package::sources`]. Gives back the packages.

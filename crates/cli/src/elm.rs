@@ -104,8 +104,7 @@ fn parse_make(args: &[&str]) -> Result<Make, terminal::Error> {
         paths,
         personality: Personality::Elm,
         style: report.unwrap_or(Style::Terminal),
-        debug,
-        optimize,
+        kind: make::kind(debug, optimize),
         output,
         docs,
     })
@@ -114,13 +113,15 @@ fn parse_make(args: &[&str]) -> Result<Make, terminal::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nomi_engine::javascript::Kind;
+
     use crate::terminal::Error;
 
     #[test]
     fn flags_are_taken_wherever_they_are() {
         let make = parse_make(&["src/A.elm", "--output", "a.js", "--debug", "--report=json"]);
         let make = make.unwrap();
-        assert!(make.debug && !make.optimize);
+        assert_eq!(make.kind, Ok(Kind::Debug));
         assert_eq!(make.output, Some(Output::Js(PathBuf::from("a.js"))));
         assert_eq!(make.style, Style::Json);
         assert_eq!(make.paths, [PathBuf::from("src/A.elm")]);

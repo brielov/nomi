@@ -870,14 +870,14 @@ pub(crate) fn local_docs(
     cx: &Context<'_, impl Http + Sync>,
     project: &Project,
 ) -> Result<Documentation, Stop> {
-    Ok(local_docs_json(cx, project)?.0)
+    Ok(decode_built(project.compat, &local_docs_json(cx, project)?))
 }
 
-/// [`local_docs`], and the `docs.json` they read from.
+/// The `docs.json` [`local_docs`] read from.
 pub(crate) fn local_docs_json(
     cx: &Context<'_, impl Http + Sync>,
     project: &Project,
-) -> Result<(Documentation, String), Stop> {
+) -> Result<String, Stop> {
     let compat = project.compat;
     let dir = project.root.dir();
     check_source_dirs(dir, &project.outline)?;
@@ -898,13 +898,12 @@ pub(crate) fn local_docs_json(
         artifacts: None,
     };
     let built = (build.run(Goal::Docs)).expect("nothing revises the files while diff builds");
-    match built.docs {
-        Some(json) => Ok((
-            decode(compat, json.as_bytes()).expect("docs nomi wrote"),
-            json,
-        )),
-        None => Err(Stop::Build(built.checked)),
-    }
+    built.docs.ok_or(Stop::Build(built.checked))
+}
+
+/// The `docs.json` a build of nomi's wrote, decoded.
+pub(crate) fn decode_built(compat: Compat, json: &str) -> Documentation {
+    decode(compat, json.as_bytes()).expect("docs nomi wrote")
 }
 
 /// `DocsProblem`.

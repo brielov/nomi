@@ -212,8 +212,7 @@ fn main() -> ExitCode {
                 paths,
                 personality: Personality::Nomi,
                 style: style(report),
-                debug,
-                optimize,
+                kind: make::kind(debug, optimize),
                 output,
                 docs,
             };

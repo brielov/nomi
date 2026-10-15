@@ -32,6 +32,14 @@ pub fn copy_tree(from: &Path, to: &Path, keep: impl Fn(&Path) -> bool) -> io::Re
     Ok(())
 }
 
+/// Writes `text` to the file `path` below `root`, making its directories.
+/// Panics where it can't, as a test's setup does.
+pub fn write_file(root: &Path, path: &str, text: &str) {
+    let path = root.join(path);
+    fs::create_dir_all(path.parent().expect("a file in a directory")).unwrap();
+    fs::write(&path, text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+}
+
 /// Everything below `root` but its directories, as sorted `/`-separated
 /// paths relative to it.
 pub fn files_below(root: &Path) -> io::Result<Vec<String>> {

@@ -49,7 +49,7 @@ nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it wait
 1. Clone the `rewrite` branch of `brielov/nomi` (`master` there is the old repository).
 2. `cargo xtask refs` syncs the gitignored `reference/` sources from `references.toml`; the oracle sandboxes and corpus are fetched by the xtask commands that need them, pinned by hash.
 3. `cargo xtask ci` must pass before the first edit.
-4. Resume at the first unchecked box. Right now that is **Q.15d**.
+4. Resume at the first unchecked box. Right now that is **Q.15e**.
 
 ### Test tiers
 
@@ -1178,7 +1178,10 @@ A second, independent audit of the same code (2026-10-13, kept in `~/.cache/nomi
 
   Done: the test runner's dependency sections are an `enum Deps`, and what its reporter keeps, streamed or all, an `enum Kept` chosen once; its version check compares majors rather than printed text; junit and JSON are written in place; the watcher walks with `walkdir`; testkit's language-server cases know every method as a `Method`, matched exhaustively; one `wait_within` and `read_all` in testkit serve its cases, the language-server harness and xtask's oracles; module types share their unions' `Arc`s rather than cloning them; a tuple's third part is an `Option<Box<_>>`. About 50 lines more, the exhaustive matches and the enums' variants. Generated JS is byte-identical, and builds take the same time as Q.15b. CI and the `tests`, `javascript`, `check`, `objects` and `lsp` corpus suites are unchanged. Surprises: a symbolic link loop under a watched directory is skipped where it recursed until the system refused; a child whose state can't be read is killed, as xtask's oracles always did.
 
-- [ ] **Q.15d** `quality: exit findings, engine` (15).
+- [x] **Q.15d** `quality: exit findings, engine` (15).
+
+  Done: packages' exposed maps are shared `Arc`s, so the visible set is the only copy; module keys hash names as bytes, without strings built to be hashed; publishing decodes its docs only for a version already published; one `message_bar` in base draws reports' and module lists' title bars; the index names files by the build's `is_good_name`; `remove`, `tree`, `update` and `outdated` open the registry through one `with_registry`; `Outline::direct` and `test_direct` are project's; `paths` names the README, the license, a package's sources and its tests, and a kernel's file is `module_path` in both places; `make`'s output kind is decided once, a clash of flags kept as its error; a bad module's parts are one `BadSource`, and what `make` was asked for one `Asked`; the projects command returns a `Reported`; the engine's tests share testkit's transcript cases, `as_release`, `packages::release` and `write_file`. 3 lines fewer. Builds and checks take the same time as Q.15c. CI and every corpus suite are unchanged. Surprises: a file whose name has a non-ASCII capital is no longer indexed as an orphan where the build accepts it; a kernel whose short name has a dot is looked for where upstream's `toFilePath` puts it; module cache keys change once, as with every new binary.
+
 - [ ] **Q.15e** `quality: exit findings, ide` (17).
 - [ ] **Q.15f** `quality: exit findings, lsp and cli` (11).
 - [ ] **Q.15g** `quality: exit findings, xtask` (20).

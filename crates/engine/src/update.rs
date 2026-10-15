@@ -8,7 +8,7 @@ use std::fmt::Display;
 use nomi_base::{Compat, Report};
 use nomi_project::{Name, Outline, Version};
 use nomi_registry::update::DepKind;
-use nomi_registry::{Http, Outdated, SolverProblem, Store, UpdateProblem, report, update};
+use nomi_registry::{Http, Outdated, Registry, SolverProblem, UpdateProblem, report, update};
 
 use crate::console::{self, Console, Personality};
 use crate::install::{parse_name, plan_question};
@@ -20,30 +20,28 @@ use crate::{Context, env};
 /// only `package` and those that need it, once the user agrees. Whether
 /// it succeeded; a decline is a success.
 pub fn run(cx: &Context<'_, impl Http>, console: &mut dyn Console, package: Option<&str>) -> bool {
-    let mut compat = Compat::LATEST;
-    let result = update(cx, console, package, &mut compat);
-    console::reported(console, result, compat)
+    let package = match package.map(parse_name).transpose() {
+        Ok(package) => package,
+        Err(problem) => return console::reported(console, Err(problem), Compat::LATEST),
+    };
+    env::with_registry(
+        cx,
+        console,
+        "to update",
+        "I need the list of published packages to find newer releases",
+        |console, project, registry| update(cx, console, package.as_ref(), project, registry),
+    )
 }
 
-fn update(
-    cx: &Context<'_, impl Http>,
+fn update<H: Http>(
+    cx: &Context<'_, H>,
     console: &mut dyn Console,
-    package: Option<&str>,
-    compat: &mut Compat,
+    package: Option<&Name>,
+    project: &Project,
+    registry: &mut Registry<'_, H>,
 ) -> Result<bool, Report> {
-    let package = package.map(parse_name).transpose()?;
-    let project = Project::load(cx.vfs, cx.dir, "to update")?;
-    *compat = project.compat;
-    let store = Store::new(cx.cache.packages());
-    let mut registry = env::registry(
-        cx.cache,
-        &store,
-        cx.http,
-        *compat,
-        "I need the list of published packages to find newer releases",
-    )?;
-    let plan = update::plan(&mut registry, *compat, package.as_ref(), &project.outline)
-        .map_err(|problem| update_problem(package.as_ref(), problem))?;
+    let plan = update::plan(registry, project.compat, package, &project.outline)
+        .map_err(|problem| update_problem(package, problem))?;
     let (changes, outline) = match plan {
         update::Plan::Pkg => {
             console.out(
@@ -61,7 +59,7 @@ fn update(
     console::confirm(
         console,
         &plan_question(&changes),
-        *compat,
+        project.compat,
         Personality::Nomi,
         || project.write(cx.vfs, outline.write()),
     )
@@ -100,31 +98,19 @@ pub(crate) fn unavailable(name: &Name, version: Version) -> Report {
 /// Lists the dependencies of the project around the directory that have
 /// newer releases. Whether it succeeded.
 pub fn outdated(cx: &Context<'_, impl Http>, console: &mut dyn Console) -> bool {
-    let mut compat = Compat::LATEST;
-    let result = outdated_table(cx, console, &mut compat);
-    console::reported(console, result, compat)
-}
-
-fn outdated_table(
-    cx: &Context<'_, impl Http>,
-    console: &mut dyn Console,
-    compat: &mut Compat,
-) -> Result<bool, Report> {
-    let project = Project::load(cx.vfs, cx.dir, "to check")?;
-    *compat = project.compat;
-    let store = Store::new(cx.cache.packages());
-    let registry = env::registry(
-        cx.cache,
-        &store,
-        cx.http,
-        *compat,
+    env::with_registry(
+        cx,
+        console,
+        "to check",
         "I need the list of published packages to find newer releases",
-    )?;
-    console.out(&match &project.outline {
-        Outline::App(app) => table(&update::outdated_app(&registry, app)),
-        Outline::Pkg(pkg) => table(&update::outdated_pkg(&registry, pkg)),
-    });
-    Ok(true)
+        |console, project, registry| {
+            console.out(&match &project.outline {
+                Outline::App(app) => table(&update::outdated_app(registry, app)),
+                Outline::Pkg(pkg) => table(&update::outdated_pkg(registry, pkg)),
+            });
+            Ok(true)
+        },
+    )
 }
 
 /// The outdated dependencies in columns, or that there are none.

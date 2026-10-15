@@ -22,7 +22,7 @@ use crate::Context;
 use crate::bump::{NEW_PACKAGE_OVERVIEW, Possibility, possibilities};
 use crate::console::{self, Console, Personality};
 use crate::diff::{self, Magnitude, Stop};
-use crate::paths::Root;
+use crate::paths::{ELM_JSON, LICENSE, README, Root};
 use crate::project::Project;
 use crate::report::one_line;
 
@@ -79,7 +79,7 @@ fn publish(
     let dir = project.root.dir();
     verify_readme(console, compat, dir)?;
     verify_license(console, compat, dir)?;
-    let (docs, docs_json) = check(
+    let docs_json = check(
         console,
         compat,
         Check {
@@ -89,7 +89,7 @@ fn publish(
         },
         || diff::local_docs_json(cx, &project),
     )?;
-    verify_version(cx, console, compat, name, version, &docs, known)?;
+    verify_version(cx, console, compat, name, version, &docs_json, known)?;
     if !git(dir, &["--version"]) {
         return Err(no_git().into());
     }
@@ -111,7 +111,7 @@ fn verify_readme(console: &mut dyn Console, compat: Compat, dir: &Path) -> Resul
         failure: "Problem with your README.md",
     };
     check(console, compat, messages, || {
-        match std::fs::metadata(dir.join("README.md")) {
+        match std::fs::metadata(dir.join(README)) {
             Err(_) => Err(bad_readme(
                 "NO README",
                 "Every published package must have a helpful README.md file, but I do not see \
@@ -137,7 +137,7 @@ fn verify_license(console: &mut dyn Console, compat: Compat, dir: &Path) -> Resu
         failure: "Problem with your LICENSE",
     };
     check(console, compat, messages, || {
-        if dir.join("LICENSE").exists() {
+        if dir.join(LICENSE).exists() {
             Ok(())
         } else {
             Err(no_license().into())
@@ -167,9 +167,9 @@ fn register(
         )),
     };
     let parts = [
-        read("elm.json")?,
+        read(ELM_JSON)?,
         file("docs.json", docs_json.into_bytes()),
-        read("README.md")?,
+        read(README)?,
         Part {
             name: "github-hash".to_owned(),
             file_name: None,
@@ -266,7 +266,7 @@ fn verify_version(
     compat: Compat,
     name: &Name,
     version: Version,
-    docs: &diff::Documentation,
+    docs_json: &str,
     known: Option<&Known>,
 ) -> Result<(), Stop> {
     enum Good {
@@ -304,7 +304,8 @@ fn verify_version(
         };
         let purpose = format!("verify that {new} really does come next");
         let old_docs = diff::fetch_docs(cx, compat, name, old, &purpose)?;
-        let real_magnitude = diff::magnitude(&diff::diff(&old_docs, docs));
+        let docs = diff::decode_built(compat, docs_json);
+        let real_magnitude = diff::magnitude(&diff::diff(&old_docs, &docs));
         let real = real_magnitude.bump(old, compat);
         if real == new {
             Ok(Good::Bump(old, magnitude))
@@ -429,7 +430,7 @@ fn verify_zip(
             let root = Root::new(prepublish.path().to_owned());
             let built = Project::read(cx.vfs, &root, Personality::Elm)
                 .ok()
-                .and_then(|project| diff::local_docs(cx, &project).ok());
+                .and_then(|project| diff::local_docs_json(cx, &project).ok());
             built.map(|_| ()).ok_or_else(|| bad_zip().into())
         },
     )?;
@@ -578,7 +579,7 @@ fn no_exposed() -> Report {
 fn bad_readme(title: &'static str, summary: &str) -> Report {
     Report::new(
         title,
-        Some("README.md".to_owned()),
+        Some(README.to_owned()),
         summary,
         [
             reflow("When people look at your README, they are wondering:"),
@@ -600,7 +601,7 @@ fn bad_readme(title: &'static str, summary: &str) -> Report {
 fn no_license() -> Report {
     Report::new(
         "NO LICENSE FILE",
-        Some("LICENSE".to_owned()),
+        Some(LICENSE.to_owned()),
         "By publishing a package you are inviting the Elm community to build upon your work. But without knowing your license, we have no idea if that is legal!",
         [reflow(
             "Once you pick an OSI approved license from <https://spdx.org/licenses/>, you must share that choice in two places. First, the license identifier must appear in your elm.json file. Second, the full license text must appear in the root of your project in a file named LICENSE. Add that file and you will be all set!",

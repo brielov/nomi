@@ -4,6 +4,7 @@
 //! a package's exposed ones, built; then the documentation is written, or
 //! the code generated.
 
+use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -34,14 +35,26 @@ pub struct Make {
     /// Whose words the reports are in.
     pub personality: Personality,
     pub style: Style,
-    /// `--debug`.
-    pub debug: bool,
-    /// `--optimize`.
-    pub optimize: bool,
+    /// What `--debug` and `--optimize` ask for.
+    pub kind: Result<javascript::Kind, ClashingFlags>,
     /// `--output`, if given.
     pub output: Option<Output>,
     /// Where to write a package's `docs.json`.
     pub docs: Option<PathBuf>,
+}
+
+/// That `--debug` and `--optimize` were both given.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClashingFlags;
+
+/// The code `--debug` and `--optimize` ask for.
+pub fn kind(debug: bool, optimize: bool) -> Result<javascript::Kind, ClashingFlags> {
+    match (debug, optimize) {
+        (true, true) => Err(ClashingFlags),
+        (true, false) => Ok(javascript::Kind::Debug),
+        (false, true) => Ok(javascript::Kind::Optimize),
+        (false, false) => Ok(javascript::Kind::Dev),
+    }
 }
 
 /// `Make.Output`.
@@ -93,8 +106,7 @@ impl Make {
             paths,
             personality: Personality::Nomi,
             style,
-            debug: false,
-            optimize: false,
+            kind: Ok(javascript::Kind::Dev),
             output: Some(Output::DevNull),
             docs: None,
         }
@@ -219,11 +231,8 @@ fn build(
     let Some(root) = Root::find(cx.vfs, dir) else {
         return fail(console, dir, make.no_outline(), Compat::LATEST);
     };
-    let kind = match (make.debug, make.optimize) {
-        (true, true) => return fail(console, dir, cannot_optimize_and_debug(), Compat::LATEST),
-        (true, false) => javascript::Kind::Debug,
-        (false, true) => javascript::Kind::Optimize,
-        (false, false) => javascript::Kind::Dev,
+    let Ok(kind) = make.kind else {
+        return fail(console, dir, cannot_optimize_and_debug(), Compat::LATEST);
     };
     let Loaded {
         compat,
@@ -453,7 +462,7 @@ fn details_progress(console: &mut dyn Console, total: usize) {
 fn build_progress(console: &mut dyn Console, compiled: usize, checked: &Checked) {
     let mut out = String::from("Compiling ...");
     for done in 1..=compiled {
-        out.push_str(&format!("\rCompiling ({done})"));
+        let _ = write!(out, "\rCompiling ({done})");
     }
     let message = match checked {
         Checked::Fine => match compiled {
@@ -466,9 +475,9 @@ fn build_progress(console: &mut dyn Console, compiled: usize, checked: &Checked)
     };
     let width = 12 + compiled.to_string().len();
     if message.chars().count() < width {
-        out.push_str(&format!("\r{}\r{message}\n", " ".repeat(width)));
+        let _ = write!(out, "\r{}\r{message}\n", " ".repeat(width));
     } else {
-        out.push_str(&format!("\r{message}\n"));
+        let _ = write!(out, "\r{message}\n");
     }
     console.out(&out);
 }

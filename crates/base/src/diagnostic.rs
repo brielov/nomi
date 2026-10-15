@@ -51,16 +51,21 @@ impl Report {
     /// `reportToDoc`: the title in a bar 80 columns wide that ends with
     /// the path, the message, and a blank line.
     pub fn to_doc(&self) -> Doc {
-        let title_width = self.title.chars().count();
-        let dashes = |used: usize| "-".repeat(80usize.saturating_sub(used).max(1));
-        let end = match &self.path {
-            None => dashes(4 + title_width),
-            Some(path) => format!("{} {path}", dashes(5 + title_width + path.chars().count())),
-        };
-        let bar =
-            doc::hsep([text("--"), text(self.title.clone()), text(end)]).color(Color::DullCyan);
+        let bar = message_bar(&self.title, self.path.as_deref());
         doc::stack([bar, self.message.clone(), Doc::empty()])
     }
+}
+
+/// `toMessageBar`: `title` in a bar of dashes 80 columns wide that ends
+/// with `path`.
+pub fn message_bar(title: &str, path: Option<&str>) -> Doc {
+    let title_width = title.chars().count();
+    let dashes = |used: usize| "-".repeat(80usize.saturating_sub(used).max(1));
+    let end = match path {
+        None => dashes(4 + title_width),
+        Some(path) => format!("{} {path}", dashes(5 + title_width + path.chars().count())),
+    };
+    text(format!("-- {title} {end}")).color(Color::DullCyan)
 }
 
 /// A problem in a module as an Elm release reports it: `Report.Report`,

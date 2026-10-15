@@ -2,12 +2,11 @@
 //! reuses the modules of the one before whose text is the same and whose
 //! project imports' interfaces are as they were.
 
-use std::fs;
-use std::path::Path;
 use std::sync::Arc;
 
 use nomi_engine::index::{self, Index, Memo};
 use nomi_engine::{Store, Vfs};
+use nomi_testkit::write_file;
 
 const ELM_JSON: &str = r#"{
     "type": "application",
@@ -35,19 +34,13 @@ fn reused(before: &Index, after: &Index) -> Vec<String> {
     names
 }
 
-fn write(root: &Path, path: &str, text: &str) {
-    let path = root.join(path);
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, text).unwrap();
-}
-
 #[test]
 fn an_index_reuses_modules_whose_text_and_imports_stayed() {
     let dir = tempfile::tempdir().unwrap();
     let root = nomi_engine::canonical(dir.path()).unwrap().join("project");
-    write(&root, "elm.json", ELM_JSON);
+    write_file(&root, "elm.json", ELM_JSON);
     for (name, text) in [("Main", MAIN), ("A", A), ("B", B)] {
-        write(&root, &format!("src/{name}.elm"), text);
+        write_file(&root, &format!("src/{name}.elm"), text);
     }
     let store = dir.path().join("store");
     nomi_testkit::packages::store(&store).unwrap();

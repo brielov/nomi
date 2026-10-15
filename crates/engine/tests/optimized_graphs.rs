@@ -12,22 +12,15 @@ use std::path::Path;
 
 use nomi_base::Compat;
 use nomi_testkit::ratchet::Suite;
-use nomi_testkit::transcript::Case;
+use nomi_testkit::transcript;
 
 #[test]
 fn optimized_graphs() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let cases = manifest.join("../compiler/tests/optimized");
     let default = fs::read_to_string(cases.join("default.elm.json")).unwrap();
-    let mut names: Vec<_> = fs::read_dir(cases.join("cases"))
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .collect();
-    names.sort();
     let mut outcomes = Vec::new();
-    for path in &names {
-        let case_name = path.file_stem().unwrap().to_string_lossy().into_owned();
-        let case = Case::parse(&fs::read_to_string(path).unwrap()).unwrap();
+    for (case_name, case) in transcript::cases(&cases.join("cases")) {
         for compat in Compat::ALL {
             let elm = cases
                 .join("artifacts")

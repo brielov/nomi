@@ -16,7 +16,7 @@ pub mod solver;
 pub mod transcript;
 mod tree;
 
-pub use tree::{copy_tree, files_below, padded_dir, tree_digest};
+pub use tree::{copy_tree, files_below, padded_dir, tree_digest, write_file};
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

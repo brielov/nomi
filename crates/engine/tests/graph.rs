@@ -2,6 +2,7 @@
 //! reports, and the problems with roots, are as elm 0.19.1, 0.19.2 and
 //! 0.19.3 report them for the same projects.
 
+use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -11,6 +12,7 @@ use nomi_engine::graph::{
     Env, Foreigns, Graph, ImportProblem, ModuleProblem, Owner, ProjectProblem, Root, Status,
 };
 use nomi_project::{ModuleName, Name};
+use nomi_testkit::write_file;
 
 fn name(text: &str) -> Name {
     text.parse().unwrap()
@@ -20,20 +22,14 @@ fn m(text: &str) -> ModuleName {
     ModuleName::new(text)
 }
 
-fn write(root: &Path, path: &str, text: &str) {
-    let path = root.join(path);
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, text).unwrap();
-}
-
 /// `src/<name>.elm`, importing `imports`.
 fn module(root: &Path, module: &str, imports: &[&str]) {
     let mut text = format!("module {module} exposing (..)\n\n");
     for import in imports {
-        text += &format!("import {import}\n");
+        let _ = writeln!(text, "import {import}");
     }
     text += "\nx = 1\n";
-    write(
+    write_file(
         root,
         &format!("src/{}.elm", module.replace('.', "/")),
         &text,
@@ -90,7 +86,7 @@ fn a_build_crawls_what_its_roots_import() {
     module(root, "Main", &["A", "Dict"]);
     module(root, "A", &["B.C"]);
     module(root, "B.C", &[]);
-    write(
+    write_file(
         root,
         "src/Unused.elm",
         "module Unused exposing (..)\n\nx = 1\n",
@@ -159,17 +155,17 @@ fn imports_name_one_module_or_say_why_not() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     module(root, "Main", &["Twice", "Dict", "Missing", "Shared"]);
-    write(
+    write_file(
         root,
         "lib/Twice.elm",
         "module Twice exposing (..)\n\nx = 1\n",
     );
-    write(
+    write_file(
         root,
         "src/Twice.elm",
         "module Twice exposing (..)\n\nx = 1\n",
     );
-    write(root, "src/Dict.elm", "module Dict exposing (..)\n\nx = 1\n");
+    write_file(root, "src/Dict.elm", "module Dict exposing (..)\n\nx = 1\n");
     let core = name("elm/core");
     let a = name("author/a");
     let b = name("author/b");
@@ -214,9 +210,9 @@ fn modules_must_have_the_name_their_path_gives() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     module(root, "Main", &["A", "B", "C"]);
-    write(root, "src/A.elm", "module Other exposing (..)\n\nx = 1\n");
-    write(root, "src/B.elm", "x = 1\n");
-    write(root, "src/C.elm", "module C exposing (..)\n\nx = = 1\n");
+    write_file(root, "src/A.elm", "module Other exposing (..)\n\nx = 1\n");
+    write_file(root, "src/B.elm", "x = 1\n");
+    write_file(root, "src/C.elm", "module C exposing (..)\n\nx = = 1\n");
     let graph = from_paths(root, &app(root, Compat::LATEST), &["src/Main.elm"]).unwrap();
     let problem = |module: &str| match &graph.modules[&m(module)] {
         Status::BadModule(bad) => bad.problem.clone(),
@@ -234,7 +230,7 @@ fn a_broken_module_keeps_what_it_says_for_the_editor() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     module(root, "Main", &["Broken"]);
-    write(
+    write_file(
         root,
         "src/Broken.elm",
         "module Broken exposing (..)\n\nimport Gone\n\nx = = 1\n",
@@ -244,8 +240,9 @@ fn a_broken_module_keeps_what_it_says_for_the_editor() {
         panic!("Broken parsed");
     };
     assert!(matches!(&bad.problem, ModuleProblem::Syntax(errors) if !errors.is_empty()));
-    let parse = bad.parse.as_ref().expect("the recovered tree");
-    let text = &bad.source.as_ref().unwrap().1;
+    let source = bad.source.as_ref().unwrap();
+    let parse = source.parse.as_ref().expect("the recovered tree");
+    let text = &source.text;
     assert_eq!(parse.syntax().to_string(), **text);
     let imports: Vec<String> = bad.imports().iter().map(|i| i.name.to_string()).collect();
     assert_eq!(imports, ["Gone"]);
@@ -258,7 +255,7 @@ fn kernel_code_is_for_official_packages() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     module(root, "Mine", &["Elm.Kernel.List", "Elm.Kernel.Gone"]);
-    write(root, "src/Elm/Kernel/List.js", "");
+    write_file(root, "src/Elm/Kernel/List.js", "");
     for (owner, kernel) in [(name("elm/core"), true), (name("author/core"), false)] {
         let env = Env::new(
             Compat::LATEST,
@@ -289,8 +286,8 @@ fn roots_are_checked_in_the_order_given() {
     let root = dir.path();
     let env = app(root, Compat::LATEST);
     module(root, "Main", &[]);
-    write(root, "src/Main.js", "");
-    write(
+    write_file(root, "src/Main.js", "");
+    write_file(
         root,
         "src/bad/Name.elm",
         "module Name exposing (..)\n\nx = 1\n",
@@ -323,8 +320,8 @@ fn a_root_names_one_module() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let env = app_in(root, Compat::LATEST, &["src", "lib"]);
-    write(root, "src/A.elm", "module A exposing (..)\n\nx = 1\n");
-    write(root, "lib/A.elm", "module A exposing (..)\n\nx = 1\n");
+    write_file(root, "src/A.elm", "module A exposing (..)\n\nx = 1\n");
+    write_file(root, "lib/A.elm", "module A exposing (..)\n\nx = 1\n");
     let ProjectProblem::RootNameDuplicate { name, .. } =
         from_paths(root, &env, &["src/A.elm"]).unwrap_err()
     else {
@@ -332,12 +329,12 @@ fn a_root_names_one_module() {
     };
     assert_eq!(name, m("A"));
 
-    write(
+    write_file(
         root,
         "other/One.elm",
         "module Main exposing (..)\n\nmain = 1\n",
     );
-    write(root, "other/Two.elm", "x = 1\n");
+    write_file(root, "other/Two.elm", "x = 1\n");
     assert_eq!(
         from_paths(root, &env, &["other/One.elm", "other/Two.elm"]).unwrap_err(),
         ProjectProblem::RootNameDuplicate {
@@ -346,17 +343,17 @@ fn a_root_names_one_module() {
             second: root.join("other/One.elm"),
         }
     );
-    write(
+    write_file(
         root,
         "other/Uses.elm",
         "module C exposing (..)\n\nimport B\n\nx = 1\n",
     );
-    write(
+    write_file(
         root,
         "src/B.elm",
         "module B exposing (..)\n\nimport C\n\nx = 1\n",
     );
-    write(root, "src/C.elm", "module C exposing (..)\n\nx = 1\n");
+    write_file(root, "src/C.elm", "module C exposing (..)\n\nx = 1\n");
     let ProjectProblem::RootNameDuplicate { name, first, .. } =
         from_paths(root, &env, &["other/Uses.elm"]).unwrap_err()
     else {
@@ -379,7 +376,7 @@ fn a_graph_of_deep_modules_drops_on_a_small_stack() {
     // As deep as nomi parses: the expression's own level and one per pair.
     let depth = nomi_syntax::DEPTH_LIMIT as usize - 2;
     let x = format!("{}1{}", "(".repeat(depth), ")".repeat(depth));
-    write(
+    write_file(
         root,
         "src/Main.elm",
         &format!("module Main exposing (x)\n\n\nx =\n    {x}\n"),

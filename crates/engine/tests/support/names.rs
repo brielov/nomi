@@ -10,7 +10,7 @@ use nomi_base::Compat;
 use nomi_engine::check::Goal;
 use nomi_testkit::edit;
 use nomi_testkit::ratchet::Suite;
-use nomi_testkit::transcript::Case;
+use nomi_testkit::transcript::{self, Case};
 use serde_json::Value;
 
 use crate::projects::{self, CRASH, compat_name, same_json, shown, table};
@@ -89,26 +89,7 @@ fn suite_dir(name: &str) -> PathBuf {
 
 /// Each project by its id: `case/…`, `seed/…` and `mutation/…`.
 fn projects(dir: &Path) -> Vec<(String, Case)> {
-    let read = |path: &Path| {
-        Case::parse(&fs::read_to_string(path).unwrap())
-            .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
-    };
-    let cases_in = |sub: &str| {
-        let mut files: Vec<PathBuf> = fs::read_dir(dir.join(sub))
-            .unwrap()
-            .map(|e| e.unwrap().path())
-            .collect();
-        files.sort();
-        files
-            .into_iter()
-            .map(|path| {
-                (
-                    path.file_stem().unwrap().to_string_lossy().into_owned(),
-                    read(&path),
-                )
-            })
-            .collect::<Vec<_>>()
-    };
+    let cases_in = |sub: &str| transcript::cases(&dir.join(sub));
     let mut projects: Vec<(String, Case)> = cases_in("cases")
         .into_iter()
         .map(|(stem, case)| (format!("case/{stem}"), case))
@@ -161,15 +142,15 @@ fn runs(dir: &Path, goal: Goal) -> impl Iterator<Item = Run> {
         if elm_json == CRASH {
             return None;
         }
-        let (json, nomi_terminal, docs) = projects::run(&case, compat, &default, goal);
+        let reported = projects::run(&case, compat, &default, goal);
         Some(Run {
             id: format!("{}/{compat}", key.0),
             elm_docs: (written.get(&key)).filter(|cell| *cell != "none").cloned(),
             elm_json,
             elm_terminal: serde_json::from_str(&terminal[&key]).unwrap(),
-            json,
-            terminal: nomi_terminal,
-            docs,
+            json: reported.json,
+            terminal: reported.terminal,
+            docs: reported.docs,
         })
     })
 }

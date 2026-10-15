@@ -129,7 +129,7 @@ pub(crate) fn report(wall: Duration) -> String {
     };
     section("stages (wall)", &STAGES);
     section("work (all threads)", &WORK);
-    let mut modules = lock(&MODULES).clone();
+    let mut modules = lock(&MODULES);
     if !modules.is_empty() {
         modules.sort_by_key(|m| std::cmp::Reverse(m.1));
         let _ = writeln!(out, "slowest modules");

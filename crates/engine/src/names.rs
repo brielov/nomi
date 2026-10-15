@@ -35,7 +35,7 @@ use crate::timings::{self, Phase, time};
 use crate::{Snapshot, objects};
 
 /// Each package's exposed modules' interfaces, by package.
-pub type PackageInterfaces = BTreeMap<Name, HashMap<String, Interface>>;
+pub type PackageInterfaces = BTreeMap<Name, Arc<HashMap<String, Interface>>>;
 
 /// The interfaces of every exposed module of `packages`, each a package
 /// name and the directory of its source, as `objects::build` builds
@@ -124,7 +124,7 @@ pub struct Building<'a> {
 impl<'a> Building<'a> {
     /// `sources`, each a package and the directory of its source, to
     /// build; `direct`, each direct dependency and the modules it exposes.
-    pub fn new(
+    pub(crate) fn new(
         compat: Compat,
         sources: Vec<(Name, PathBuf)>,
         artifacts: Option<&'a Artifacts>,
@@ -149,7 +149,7 @@ impl<'a> Building<'a> {
 
     /// Builds the packages, once, opening each direct dependency's gate,
     /// its place among them, as soon as it is built.
-    pub fn build(&self, open: &(dyn Fn(usize) + Sync)) {
+    pub(crate) fn build(&self, open: &(dyn Fn(usize) + Sync)) {
         let mut built = lock(&self.built);
         if built.is_some() {
             return;
@@ -177,7 +177,7 @@ impl<'a> Building<'a> {
     }
 
     /// What building the packages came to.
-    pub fn finish(self) -> Result<objects::Dependencies, String> {
+    pub(crate) fn finish(self) -> Result<objects::Dependencies, String> {
         self.build(&|_| {});
         let built = self
             .built
@@ -259,7 +259,8 @@ pub(crate) fn check_graph(
                         return Vec::new();
                     };
                     let mut gates: Vec<usize> = (module.imports.iter())
-                        .flat_map(|import| building.gates(&import.name.to_string()))
+                        .filter_map(|import| import.name.to_str())
+                        .flat_map(|name| building.gates(name))
                         .copied()
                         .collect();
                     gates.sort_unstable();
@@ -282,13 +283,16 @@ pub(crate) fn check_graph(
                 if made.fresh {
                     walked.ran.push(module.path.clone());
                 }
-                walked.docs.extend(made.docs);
-                if let Some(graph) = made.graph {
-                    walked.optimized.push((module.name.clone(), graph));
-                    walked.interfaces.push(ModuleInterface {
-                        name: module.name.clone(),
-                        interface: made.interface,
-                    });
+                match made.asked {
+                    Some(Asked::Docs(docs)) => walked.docs.push(docs),
+                    Some(Asked::Graph(graph)) => {
+                        walked.optimized.push((module.name.clone(), graph));
+                        walked.interfaces.push(ModuleInterface {
+                            name: module.name.clone(),
+                            interface: made.interface,
+                        });
+                    }
+                    None => {}
                 }
             }
             Outcome::Failed(problems) => {
@@ -366,8 +370,13 @@ struct Made {
     hash: Hash,
     /// Whether it was checked rather than taken from the artifact cache.
     fresh: bool,
-    docs: Option<docs::Module>,
-    graph: Option<LocalGraph>,
+    asked: Option<Asked>,
+}
+
+/// What the goal asks of a module beside its interface.
+enum Asked {
+    Docs(docs::Module),
+    Graph(LocalGraph),
 }
 
 /// A module's interface, decoded from the artifact cache only when
@@ -474,11 +483,11 @@ impl Walk<'_> {
     /// optimizing, its graph.
     fn cached(&self, artifacts: &Artifacts, key: Hash) -> Option<Made> {
         let (bytes, hash) = time(Phase::CacheRead, || artifacts.get_hashed(key))?;
-        let graph = match self.goal {
-            Goal::Optimize => Some(time(Phase::CacheRead, || {
+        let asked = match self.goal {
+            Goal::Optimize => Some(Asked::Graph(time(Phase::CacheRead, || {
                 let bytes = artifacts.get(graph_key(key))?;
                 binary::decode_local_graph(&bytes, self.env.compat())
-            })?),
+            })?)),
             Goal::Check | Goal::Document(_) => None,
         };
         // The encoding is canonical, so its bytes hash as the interface's
@@ -487,8 +496,7 @@ impl Walk<'_> {
             interface: Arc::new(LazyInterface::encoded(bytes)),
             hash,
             fresh: false,
-            docs: None,
-            graph,
+            asked,
         })
     }
 
@@ -535,21 +543,22 @@ impl Walk<'_> {
             })
         })?;
         self.checks(module, &root, &hir, &canonical, &annotations)?;
-        let docs = if document {
-            Some(self.document(module, &hir, &canonical)?)
-        } else {
-            None
-        };
-        let graph = matches!(self.goal, Goal::Optimize).then(|| {
-            let graph = optimize(compat, &annotations, &canonical, &module.text, &root);
-            if let Some((artifacts, key)) = cache {
-                time(Phase::CacheWrite, || {
-                    let bytes = binary::encode_local_graph(&graph, compat);
-                    let _ = artifacts.put(graph_key(key), &bytes);
-                });
+        let asked = match self.goal {
+            Goal::Document(_) if document => {
+                Some(Asked::Docs(self.document(module, &hir, &canonical)?))
             }
-            graph
-        });
+            Goal::Optimize => {
+                let graph = optimize(compat, &annotations, &canonical, &module.text, &root);
+                if let Some((artifacts, key)) = cache {
+                    time(Phase::CacheWrite, || {
+                        let bytes = binary::encode_local_graph(&graph, compat);
+                        let _ = artifacts.put(graph_key(key), &bytes);
+                    });
+                }
+                Some(Asked::Graph(graph))
+            }
+            Goal::Check | Goal::Document(_) => None,
+        };
         let (interface, bytes) = time(Phase::Interface, || {
             let interface = interface(&canonical, &annotations);
             let bytes = interface.encode();
@@ -563,8 +572,7 @@ impl Walk<'_> {
             interface: Arc::new(LazyInterface::ready(interface)),
             hash: Hash::of(&bytes),
             fresh: true,
-            docs,
-            graph,
+            asked,
         })
     }
 
@@ -649,17 +657,15 @@ impl Walk<'_> {
     /// The artifact key of `module`: everything checking it reads.
     fn key(&self, module: &Module, local: &HashMap<&str, &Made>) -> Hash {
         let mut key = Key::new("module")
-            .part("toolchain", env!("CARGO_PKG_VERSION").as_bytes())
-            .part("compat", self.env.compat().to_string().as_bytes())
+            .part("compat", self.env.compat().as_str().as_bytes())
             .part("package", self.package.as_bytes())
             .part("source", module.text.as_bytes());
         for import in &module.imports {
-            let name = import.name.to_string();
-            let hash = match local.get(name.as_str()) {
+            let hash = import.name.to_str().and_then(|name| match local.get(name) {
                 Some(made) => Some(made.hash),
-                None => self.package_hash(&name),
-            };
-            key = key.part("import", name.as_bytes());
+                None => self.package_hash(name),
+            });
+            key = key.part("import", import.name.as_bytes());
             key = match hash {
                 Some(hash) => key.hash("interface", hash),
                 None => key.part("interface", b"none"),

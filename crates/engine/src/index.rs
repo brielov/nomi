@@ -22,9 +22,11 @@ use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{GreenNode, Parse, SyntaxNode};
 
 use crate::check::env_of;
-use crate::graph::{Env, Foreigns, Graph, Module, Root, Status, written_imports};
+use crate::graph::{
+    BadSource, Env, Foreigns, Graph, Module, Root, Status, is_good_name, written_imports,
+};
 use crate::names::{self, PackageInterfaces};
-use crate::paths::ELM_JSON;
+use crate::paths::{ELM_JSON, tests_dir};
 use crate::project::package_outline;
 use crate::vfs::{canonical, canonical_or_given};
 use crate::{Snapshot, discover};
@@ -236,7 +238,7 @@ impl Setup {
     /// The project as elm-test and elm-language-server see it: with its
     /// test dependencies.
     fn with_tests(mut self, store: &Store) -> Setup {
-        let direct: Vec<Name> = match &self.outline {
+        match &self.outline {
             Outline::App(app) => {
                 for (name, &version) in app.test_direct.iter().chain(&app.test_indirect) {
                     if !self.sources.iter().any(|(n, _)| n == name)
@@ -245,17 +247,15 @@ impl Setup {
                         self.sources.push((name.clone(), dir));
                     }
                 }
-                app.test_direct.keys().cloned().collect()
             }
             Outline::Pkg(pkg) => {
                 let pending = pkg.test_deps.iter().map(|(n, c)| (n.clone(), *c));
                 resolve(store, self.compat, pending.collect(), &mut self.sources);
-                pkg.test_deps.keys().cloned().collect()
             }
-        };
-        for name in direct {
-            if !self.direct.contains(&name) {
-                self.direct.push(name);
+        }
+        for name in self.outline.test_direct() {
+            if !self.direct.contains(name) {
+                self.direct.push(name.clone());
             }
         }
         self
@@ -347,7 +347,7 @@ pub fn index_from(
     let setup = Setup::read(snapshot, store, &manifest)?.with_tests(store);
     let exposing = setup.exposing();
     let mut env = setup.env(&exposing)?;
-    let tests = setup.root.join("tests");
+    let tests = tests_dir(&setup.root);
     // Directories are the disk's; the Vfs keeps files.
     let listed = canonical(&tests).is_ok_and(|t| env.src_dirs().contains(&t));
     if tests.is_dir() && !listed {
@@ -428,22 +428,20 @@ pub fn index_from(
 }
 
 /// The paths of `paths` that some module name fits: under a source
-/// directory, each part a capitalized name.
+/// directory, each part a good name, the file's without `.elm`.
 fn named(env: &Env, paths: &[PathBuf]) -> Vec<PathBuf> {
     let fits = |path: &Path| {
         env.src_dirs().iter().any(|dir| {
             path.strip_prefix(dir).is_ok_and(|relative| {
-                let parts: Vec<_> = relative.iter().map(|p| p.to_string_lossy()).collect();
-                let last = parts.len().saturating_sub(1);
-                parts.iter().enumerate().all(|(i, part)| {
-                    let part = if i == last {
-                        part.trim_end_matches(".elm")
-                    } else {
-                        part
-                    };
-                    part.chars().next().is_some_and(|c| c.is_ascii_uppercase())
-                        && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-                })
+                let (Some(file), Some(dir)) = (relative.file_name(), relative.parent()) else {
+                    return false;
+                };
+                (file.to_str())
+                    .and_then(|f| f.strip_suffix(".elm"))
+                    .is_some_and(is_good_name)
+                    && dir
+                        .iter()
+                        .all(|part| part.to_str().is_some_and(is_good_name))
             })
         })
     };
@@ -453,15 +451,10 @@ fn named(env: &Env, paths: &[PathBuf]) -> Vec<PathBuf> {
 /// The releases the project builds with that the store holds, and its
 /// direct dependencies.
 fn releases(store: &Store, outline: &Outline, compat: Compat) -> (Vec<(Name, PathBuf)>, Vec<Name>) {
-    match outline {
-        Outline::App(app) => {
-            let sources = (app.direct.iter().chain(&app.indirect))
-                .filter_map(|(name, &version)| {
-                    Some((name.clone(), store.get(name, version).ok()??))
-                })
-                .collect();
-            (sources, app.direct.keys().cloned().collect())
-        }
+    let sources = match outline {
+        Outline::App(app) => (app.direct.iter().chain(&app.indirect))
+            .filter_map(|(name, &version)| Some((name.clone(), store.get(name, version).ok()??)))
+            .collect(),
         Outline::Pkg(pkg) => {
             let mut sources: Vec<(Name, PathBuf)> = Vec::new();
             resolve(
@@ -470,9 +463,10 @@ fn releases(store: &Store, outline: &Outline, compat: Compat) -> (Vec<(Name, Pat
                 pkg.deps.iter().map(|(n, c)| (n.clone(), *c)).collect(),
                 &mut sources,
             );
-            (sources, pkg.deps.keys().cloned().collect())
+            sources
         }
-    }
+    };
+    (sources, outline.direct().cloned().collect())
 }
 
 struct Visit<'v> {
@@ -525,7 +519,12 @@ impl Visit<'_> {
             // A module elm won't build, misnamed, unnamed or broken, is
             // still the editor's to navigate, as far as its tree goes.
             Some(Status::BadModule(bad)) => {
-                if let (Some(parse), Some((_, text))) = (&bad.parse, &bad.source) {
+                if let Some(BadSource {
+                    text,
+                    parse: Some(parse),
+                    ..
+                }) = &bad.source
+                {
                     let imports: Vec<ModuleName> =
                         bad.imports().into_iter().map(|i| i.name).collect();
                     self.visit(&bad.path, None, text, parse, &imports);

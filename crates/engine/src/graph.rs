@@ -18,6 +18,7 @@ use nomi_syntax::{
     Parse, Source, SyntaxError, Tool, parse_module, significant_tokens, trimmed_range, validate,
 };
 
+use crate::paths::package_src;
 use crate::timings::{Phase, time};
 use crate::vfs::canonical;
 use crate::{Pool, Snapshot};
@@ -107,7 +108,7 @@ impl Foreigns {
     }
 
     /// The package exposing `module`, and any others that do.
-    pub fn get(&self, module: &ModuleName) -> Option<&Foreign> {
+    pub(crate) fn get(&self, module: &ModuleName) -> Option<&Foreign> {
         self.0.get(module)
     }
 
@@ -172,27 +173,27 @@ impl Env {
     }
 
     /// What paths given to [`Graph::from_paths`] are relative to.
-    pub fn cwd(&self) -> &Path {
+    pub(crate) fn cwd(&self) -> &Path {
         &self.cwd
     }
 
     /// Whose modules these are.
-    pub fn owner(&self) -> &Owner {
+    pub(crate) fn owner(&self) -> &Owner {
         &self.owner
     }
 
     /// The release the project is built as.
-    pub fn compat(&self) -> Compat {
+    pub(crate) fn compat(&self) -> Compat {
         self.compat
     }
 
     /// What kind of source the project's modules are.
-    pub fn source(&self) -> Source {
+    pub(crate) fn source(&self) -> Source {
         self.owner.source()
     }
 
     /// The modules the direct dependencies expose.
-    pub fn foreigns(&self) -> &Foreigns {
+    pub(crate) fn foreigns(&self) -> &Foreigns {
         &self.foreigns
     }
 
@@ -304,19 +305,27 @@ pub enum ImportProblem {
 pub struct BadModule {
     pub path: PathBuf,
     /// The file and its text, unless it couldn't be read.
-    pub source: Option<(FileId, Arc<str>)>,
-    /// The tree read from the text, recovered past any syntax errors,
-    /// for the editor (R4); the build reads no further than the problem.
-    pub parse: Option<Box<Parse>>,
+    pub source: Option<BadSource>,
     /// Why it can't be read.
     pub problem: ModuleProblem,
+}
+
+/// The file of a module that can't be read as the one its path names.
+#[derive(Clone, Debug)]
+pub struct BadSource {
+    pub file: FileId,
+    pub text: Arc<str>,
+    /// The tree read from the text, recovered past any syntax errors,
+    /// for the editor (R4), unless the text isn't UTF-8; the build reads
+    /// no further than the problem.
+    pub parse: Option<Box<Parse>>,
 }
 
 impl BadModule {
     /// The imports the recovered tree names, in order.
     pub fn imports(&self) -> Vec<Import> {
-        self.parse
-            .as_ref()
+        (self.source.as_ref())
+            .and_then(|source| source.parse.as_ref())
             .and_then(|parse| ast::Module::cast(parse.syntax()))
             .map(|syntax| written_imports(&syntax).collect())
             .unwrap_or_default()
@@ -500,7 +509,7 @@ fn crawl_module(snapshot: &Snapshot, env: &Env, name: &ModuleName) -> Status {
             rivals: foreign.rivals.clone(),
         }),
         ([], None) => {
-            let js = module_file(name, "js").map(|file| env.root.join("src").join(file));
+            let js = module_file(name, "js").map(|file| package_src(&env.root).join(file));
             if name.is_kernel()
                 && env.owner.is_kernel()
                 && js.is_some_and(|js| snapshot.is_file(&js))
@@ -610,7 +619,6 @@ fn read_file(
     let unreadable = |path: &Path, e: io::Error| BadModule {
         path: path.to_owned(),
         source: None,
-        parse: None,
         problem: ModuleProblem::Unreadable(e.kind()),
     };
     let file = snapshot.file_id(&path).map_err(|e| unreadable(&path, e))?;
@@ -622,8 +630,11 @@ fn read_file(
                 .map_err(|e| unreadable(&path, e))?;
             return Err(BadModule {
                 path,
-                source: Some((file, Arc::from(ghc::lenient_utf8(&bytes)))),
-                parse: None,
+                source: Some(BadSource {
+                    file,
+                    text: Arc::from(ghc::lenient_utf8(&bytes)),
+                    parse: None,
+                }),
                 problem: ModuleProblem::Encoding(bytes),
             });
         }
@@ -639,7 +650,7 @@ fn read_file(
         return match read {
             Ok(module) => Ok(Module { file, ..module }),
             Err(bad) => Err(BadModule {
-                source: bad.source.map(|(_, text)| (file, text)),
+                source: bad.source.map(|source| BadSource { file, ..source }),
                 ..bad
             }),
         };
@@ -669,8 +680,11 @@ fn read_text(
     let validated = validate(&parse, tool);
     let bad = |problem| BadModule {
         path: path.clone(),
-        source: Some((file, text.clone())),
-        parse: Some(Box::new(parse.clone())),
+        source: Some(BadSource {
+            file,
+            text: text.clone(),
+            parse: Some(Box::new(parse.clone())),
+        }),
         problem,
     };
     let mut errors = parse.errors().to_vec();
@@ -878,7 +892,7 @@ fn root_info(
 
 /// `isGoodName`: a capital, then letters, numbers and underscores, as
 /// GHC's `Data.Char` classifies them.
-fn is_good_name(name: &str) -> bool {
+pub(crate) fn is_good_name(name: &str) -> bool {
     let mut chars = name.chars();
     chars.next().is_some_and(ghc::is_upper) && chars.all(|c| ghc::is_alpha_num(c) || c == '_')
 }

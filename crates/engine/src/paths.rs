@@ -18,7 +18,23 @@ use crate::Vfs;
 pub const ELM_JSON: &str = "elm.json";
 
 /// The manifest of an Elm 0.18 project, which nomi only recognizes.
-pub const ELM_PACKAGE_JSON: &str = "elm-package.json";
+pub(crate) const ELM_PACKAGE_JSON: &str = "elm-package.json";
+
+/// A package's README, which publishing requires.
+pub(crate) const README: &str = "README.md";
+
+/// A package's license, which publishing requires.
+pub(crate) const LICENSE: &str = "LICENSE";
+
+/// The directory of a package's modules, in the package at `dir`.
+pub(crate) fn package_src(dir: &Path) -> PathBuf {
+    dir.join("src")
+}
+
+/// The directory of a project's tests, in the project at `dir`.
+pub(crate) fn tests_dir(dir: &Path) -> PathBuf {
+    dir.join("tests")
+}
 
 /// The variable naming the cache, like Go's `GOCACHE`.
 pub const NOMI_CACHE: &str = "NOMI_CACHE";

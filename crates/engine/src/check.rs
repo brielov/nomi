@@ -297,7 +297,7 @@ pub(crate) fn sources(
     // them by what elm.json says.
     let artifacts = Artifacts::new(cache);
     let key = Key::new("details")
-        .part("compat", compat.to_string().as_bytes())
+        .part("compat", compat.as_str().as_bytes())
         .part("outline", &project.outline.write())
         .finish();
     let kept = artifacts
@@ -324,10 +324,7 @@ pub(crate) fn sources(
         releases
     };
     let fetched = packages::fetch(Pool::global(), &store, http, compat, &releases);
-    let direct: Vec<&Name> = match &project.outline {
-        Outline::App(app) => app.direct.keys().collect(),
-        Outline::Pkg(pkg) => pkg.deps.keys().collect(),
-    };
+    let direct: Vec<&Name> = project.outline.direct().collect();
     let mut exposing = HashMap::new();
     let mut packages = Vec::new();
     for ((name, version), dir) in releases.iter().zip(fetched) {

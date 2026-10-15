@@ -16,9 +16,9 @@ use std::path::{Path, PathBuf};
 
 use nomi_base::Compat;
 use nomi_engine::check::Goal;
-use nomi_testkit::transcript::Case;
+use nomi_testkit::transcript;
 
-use projects::{compat_name, same_json, table};
+use projects::{Reported, compat_name, same_json, table};
 
 fn dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/modules")
@@ -29,20 +29,17 @@ fn module_reports() {
     let reports = table(&dir().join("reports.tsv"));
     let terminal = table(&dir().join("terminal.tsv"));
     let default = fs::read_to_string(dir().join("default.elm.json")).unwrap();
-    let mut cases: Vec<String> = fs::read_dir(dir().join("cases"))
-        .unwrap()
-        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-        .collect();
-    cases.sort();
+    let cases = transcript::cases(&dir().join("cases"));
     assert!(!cases.is_empty());
     let mut failures = Vec::new();
-    for file in &cases {
-        let stem = file.strip_suffix(".case").unwrap();
-        let case = Case::parse(&fs::read_to_string(dir().join("cases").join(file)).unwrap())
-            .unwrap_or_else(|e| panic!("{file}: {e}"));
+    for (stem, case) in &cases {
         for compat in Compat::ALL {
-            let key = (stem.to_owned(), compat_name(compat));
-            let (json, stderr, _) = projects::run(&case, compat, &default, Goal::Check);
+            let key = (stem.clone(), compat_name(compat));
+            let Reported {
+                json,
+                terminal: stderr,
+                ..
+            } = projects::run(case, compat, &default, Goal::Check);
             let elm = &reports[&key];
             if !same_json(elm, &json) {
                 failures.push(format!(

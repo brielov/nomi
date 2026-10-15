@@ -5,13 +5,12 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use nomi_engine::{Vfs, discover};
+use nomi_testkit::write_file;
 
 const MODULE: &str = "module A exposing (x)\n\n\nx =\n    1\n";
 
 fn touch(root: &Path, path: &str) {
-    let path = root.join(path);
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, MODULE).unwrap();
+    write_file(root, path, MODULE);
 }
 
 /// `paths` relative to `root`, as `/`-separated strings.

@@ -6,16 +6,11 @@ use std::path::Path;
 use nomi_base::ElmPosition;
 use nomi_engine::Vfs;
 use nomi_engine::format::{Mode, Outcome, RootError, format_paths, format_text};
+use nomi_testkit::write_file;
 
 const FORMATTED: &str = "module A exposing (x)\n\n\nx =\n    1\n";
 const UNFORMATTED: &str = "module A exposing (x)\nx  =  1\n";
 const INVALID: &str = "module A exposing (x)\nx = (\n";
-
-fn write(root: &Path, path: &str, text: &str) {
-    let path = root.join(path);
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, text).unwrap();
-}
 
 fn read(root: &Path, path: &str) -> String {
     fs::read_to_string(root.join(path)).unwrap()
@@ -52,9 +47,9 @@ fn text_is_formatted_or_placed() {
 fn write_mode_rewrites_what_changed() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    write(root, "A.elm", FORMATTED);
-    write(root, "B.elm", UNFORMATTED);
-    write(root, "C.elm", INVALID);
+    write_file(root, "A.elm", FORMATTED);
+    write_file(root, "B.elm", UNFORMATTED);
+    write_file(root, "C.elm", INVALID);
     let report = format_paths(&Vfs::new(), &[root.to_owned()], Mode::Write);
     assert!(report.roots.is_empty());
     assert_eq!(
@@ -74,7 +69,7 @@ fn write_mode_rewrites_what_changed() {
 fn check_mode_changes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    write(root, "A.elm", UNFORMATTED);
+    write_file(root, "A.elm", UNFORMATTED);
     let report = format_paths(&Vfs::new(), &[root.to_owned()], Mode::Check);
     assert_eq!(
         outcomes(root, &report.files),
@@ -89,7 +84,7 @@ fn check_mode_changes_nothing() {
 fn a_module_named_twice_is_formatted_once() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    write(root, "src/A.elm", UNFORMATTED);
+    write_file(root, "src/A.elm", UNFORMATTED);
     let roots = [root.to_owned(), root.join("src"), root.join("src/./A.elm")];
     let report = format_paths(&Vfs::new(), &roots, Mode::Write);
     assert_eq!(
@@ -102,8 +97,8 @@ fn a_module_named_twice_is_formatted_once() {
 fn roots_without_modules_are_errors() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    write(root, "empty/notes.txt", "");
-    write(root, "A.elm", FORMATTED);
+    write_file(root, "empty/notes.txt", "");
+    write_file(root, "A.elm", FORMATTED);
     let roots = [root.join("empty"), root.join("missing"), root.join("A.elm")];
     let report = format_paths(&Vfs::new(), &roots, Mode::Check);
     let errors: Vec<_> = report
@@ -126,7 +121,7 @@ fn many_modules_keep_their_order() {
     let root = dir.path();
     let names: Vec<_> = (0..200).map(|i| format!("M{i:03}.elm")).collect();
     for name in &names {
-        write(root, name, UNFORMATTED);
+        write_file(root, name, UNFORMATTED);
     }
     let report = format_paths(&Vfs::new(), &[root.to_owned()], Mode::Write);
     let found: Vec<_> = outcomes(root, &report.files)

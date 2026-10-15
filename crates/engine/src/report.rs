@@ -16,7 +16,7 @@ use nomi_base::diagnostic::doc::{
     words,
 };
 use nomi_base::diagnostic::json::{self, Json};
-use nomi_base::diagnostic::{Problem, Report};
+use nomi_base::diagnostic::{Problem, Report, message_bar};
 use nomi_base::{Compat, TextRange, TextSize};
 use nomi_project::ModuleName;
 use nomi_project::report::elm_json_path;
@@ -52,7 +52,7 @@ impl ModuleErrors {
     }
 
     /// `Error.toJson`'s module entry.
-    pub fn to_json(&self, compat: Compat) -> Json {
+    pub(crate) fn to_json(&self, compat: Compat) -> Json {
         json::module(
             &self.path.to_string_lossy(),
             &self.name,
@@ -126,7 +126,7 @@ pub(crate) fn modules_doc(root: &Path, modules: &[ModuleErrors]) -> Doc {
         let path = path.to_string_lossy();
         for problem in &module.problems {
             docs.extend([
-                message_bar(&problem.title, &path),
+                message_bar(&problem.title, Some(&path)),
                 Doc::empty(),
                 problem.message.clone(),
                 Doc::empty(),
@@ -138,13 +138,6 @@ pub(crate) fn modules_doc(root: &Path, modules: &[ModuleErrors]) -> Doc {
         }
     }
     vcat(docs)
-}
-
-/// `toMessageBar`: the title, dashes, and the path, 80 columns wide.
-fn message_bar(title: &str, path: &str) -> Doc {
-    let used = 4 + title.chars().count() + 1 + path.chars().count();
-    let dashes = "-".repeat(80usize.saturating_sub(used).max(1));
-    text(format!("-- {title} {dashes} {path}")).color(Color::DullCyan)
 }
 
 /// `toSeparator`: where one module's reports end and the next's begin.
@@ -178,7 +171,7 @@ fn bad_module(env: &Env, bad: &BadModule, name: &str) -> Option<ModuleErrors> {
 /// upstream doesn't report.
 fn module_problem(env: &Env, bad: &BadModule, expected: &ModuleName) -> Option<Problem> {
     let compat = env.compat();
-    let (_, contents) = bad.source.as_ref()?;
+    let contents = &bad.source.as_ref()?.text;
     match &bad.problem {
         ModuleProblem::Unreadable(_) => None,
         ModuleProblem::Syntax(errors) => {

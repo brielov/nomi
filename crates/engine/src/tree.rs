@@ -4,49 +4,30 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
-use nomi_base::{Compat, Report};
-use nomi_project::{Name, Outline};
-use nomi_registry::{Details, Http, Store, details};
+use nomi_project::Name;
+use nomi_registry::{Details, Http, details};
 
-use crate::console::{self, Console, Personality};
+use crate::console::{Console, Personality};
 use crate::install::details_problem;
-use crate::project::Project;
 use crate::{Context, env};
 
 /// Prints the dependency tree of the project around the directory.
 /// Whether it succeeded.
 pub fn run(cx: &Context<'_, impl Http>, console: &mut dyn Console) -> bool {
-    let mut compat = Compat::LATEST;
-    let result = tree(cx, console, &mut compat);
-    console::reported(console, result, compat)
-}
-
-fn tree(
-    cx: &Context<'_, impl Http>,
-    console: &mut dyn Console,
-    compat: &mut Compat,
-) -> Result<bool, Report> {
-    let project = Project::load(cx.vfs, cx.dir, "to show")?;
-    *compat = project.compat;
-    let store = Store::new(cx.cache.packages());
-    let mut registry = env::registry(
-        cx.cache,
-        &store,
-        cx.http,
-        *compat,
+    env::with_registry(
+        cx,
+        console,
+        "to show",
         "I need the list of published packages to know what your dependencies need",
-    )?;
-    let solution = details::verify(&mut registry, *compat, &project.outline)
-        .map_err(|problem| details_problem(&problem, *compat, Personality::Nomi))?;
-    let (direct, test): (Vec<&Name>, Vec<&Name>) = match &project.outline {
-        Outline::App(app) => (
-            app.direct.keys().collect(),
-            app.test_direct.keys().collect(),
-        ),
-        Outline::Pkg(pkg) => (pkg.deps.keys().collect(), pkg.test_deps.keys().collect()),
-    };
-    console.out(&render(&direct, &test, &solution));
-    Ok(true)
+        |console, project, registry| {
+            let solution = details::verify(registry, project.compat, &project.outline)
+                .map_err(|problem| details_problem(&problem, project.compat, Personality::Nomi))?;
+            let direct: Vec<&Name> = project.outline.direct().collect();
+            let test: Vec<&Name> = project.outline.test_direct().collect();
+            console.out(&render(&direct, &test, &solution));
+            Ok(true)
+        },
+    )
 }
 
 /// The trees under `direct` and then `test`, each release's dependencies
@@ -109,6 +90,7 @@ impl<'a> Tree<'a> {
 
 #[cfg(test)]
 mod tests {
+    use nomi_base::Compat;
     use nomi_project::{Constraint, Version};
 
     use super::*;

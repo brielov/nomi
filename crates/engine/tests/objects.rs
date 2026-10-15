@@ -15,16 +15,10 @@ use nomi_project::Name;
 
 /// elm/core and elm/json as vendored, copied under `to` when given.
 fn core_and_json(to: Option<&Path>) -> Vec<(Name, std::path::PathBuf)> {
-    let vendored = nomi_testkit::packages::dir().join("elm");
     ["core", "json"]
         .into_iter()
         .map(|project| {
-            let mut dir = fs::read_dir(vendored.join(project))
-                .unwrap()
-                .next()
-                .unwrap()
-                .unwrap()
-                .path();
+            let mut dir = nomi_testkit::packages::release(&format!("elm/{project}")).dir();
             if let Some(to) = to {
                 let copy = to.join(project);
                 nomi_testkit::copy_tree(&dir, &copy, |_| true).unwrap();

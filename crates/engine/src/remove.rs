@@ -6,7 +6,7 @@ use nomi_base::diagnostic::doc::{Color, reflow, text, vcat};
 use nomi_base::{Compat, Report};
 use nomi_project::report::elm_json_path;
 use nomi_project::{Name, Outline};
-use nomi_registry::{Http, RemoveProblem, SolverProblem, Store, remove, report};
+use nomi_registry::{Http, Registry, RemoveProblem, SolverProblem, remove, report};
 
 use crate::console::{self, Console, Personality};
 use crate::install::{parse_name, plan_question};
@@ -18,40 +18,42 @@ use crate::{Context, env};
 /// Removes `package` from the project around the directory, once the user
 /// agrees. Whether it succeeded; a decline is a success.
 pub fn run(cx: &Context<'_, impl Http>, console: &mut dyn Console, package: &str) -> bool {
-    let mut compat = Compat::LATEST;
-    let result = remove(cx, console, package, &mut compat);
-    console::reported(console, result, compat)
+    let package = match parse_name(package) {
+        Ok(package) => package,
+        Err(problem) => return console::reported(console, Err(problem), Compat::LATEST),
+    };
+    env::with_registry(
+        cx,
+        console,
+        "to remove a package from",
+        "I need the list of published packages to figure out what to remove",
+        |console, project, registry| remove(cx, console, &package, project, registry),
+    )
 }
 
-fn remove(
-    cx: &Context<'_, impl Http>,
+fn remove<H: Http>(
+    cx: &Context<'_, H>,
     console: &mut dyn Console,
-    package: &str,
-    compat: &mut Compat,
+    package: &Name,
+    project: &Project,
+    registry: &mut Registry<'_, H>,
 ) -> Result<bool, Report> {
-    let package = parse_name(package)?;
-    let project = Project::load(cx.vfs, cx.dir, "to remove a package from")?;
-    *compat = project.compat;
-    let store = Store::new(cx.cache.packages());
-    let mut registry = env::registry(
-        cx.cache,
-        &store,
-        cx.http,
-        *compat,
-        "I need the list of published packages to figure out what to remove",
-    )?;
-    let (question, new) = match remove::plan(&mut registry, &package, &project.outline) {
+    let (question, new) = match remove::plan(registry, package, &project.outline) {
         Ok(remove::Plan::App { changes, outline }) => {
             (plan_question(&changes), Outline::App(outline))
         }
         Ok(remove::Plan::Pkg { changes, outline }) => {
             (plan_question(&changes), Outline::Pkg(outline))
         }
-        Err(problem) => return Err(remove_problem(&package, problem)),
+        Err(problem) => return Err(remove_problem(package, problem)),
     };
-    console::confirm(console, &question, *compat, Personality::Nomi, || {
-        project.write(cx.vfs, new.write())
-    })
+    console::confirm(
+        console,
+        &question,
+        project.compat,
+        Personality::Nomi,
+        || project.write(cx.vfs, new.write()),
+    )
 }
 
 fn remove_problem(package: &Name, problem: RemoveProblem<SolverProblem>) -> Report {

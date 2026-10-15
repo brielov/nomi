@@ -50,16 +50,20 @@ pub fn table(path: &Path) -> BTreeMap<(String, String), String> {
     out
 }
 
-/// What `nomi check` writes on standard error for `case` built as `goal`
-/// asks, with `--report=json` and without, with `default_elm_json` where
-/// the case has no `elm.json`; and the `docs.json` it writes, if it
-/// writes one.
-pub fn run(
-    case: &Case,
-    compat: Compat,
-    default_elm_json: &str,
-    goal: Goal,
-) -> (String, String, Option<String>) {
+/// What `nomi check` writes for a case.
+#[derive(Debug)]
+pub struct Reported {
+    /// Standard error with `--report=json`.
+    pub json: String,
+    /// Standard error without.
+    pub terminal: String,
+    /// The `docs.json` it writes, if it writes one.
+    pub docs: Option<String>,
+}
+
+/// What `nomi check` writes for `case` built as `goal` asks, with
+/// `default_elm_json` where the case has no `elm.json`.
+pub fn run(case: &Case, compat: Compat, default_elm_json: &str, goal: Goal) -> Reported {
     let project = Project::new(case, compat, default_elm_json);
     let paths = match goal {
         Goal::Docs => Vec::new(),
@@ -67,12 +71,16 @@ pub fn run(
     };
     let built = project.build(&paths, goal);
     let root_text = project.root.to_str().unwrap().to_owned();
-    let [json, stderr] = [Style::Json, Style::Terminal].map(|style| {
+    let [json, terminal] = [Style::Json, Style::Terminal].map(|style| {
         let mut console = Captured::default();
         check::show(&mut console, &project.root, &built.checked, compat, style);
         console.err.replace(&root_text, "$ROOT")
     });
-    (json, stderr, built.docs)
+    Reported {
+        json,
+        terminal,
+        docs: built.docs,
+    }
 }
 
 /// What `elm make` optimizes of `case`, built as [`run`] builds it: each
@@ -103,12 +111,7 @@ pub fn javascript(
     };
     let sources: Vec<(Name, PathBuf)> = (app.direct.iter())
         .chain(&app.indirect)
-        .map(|(name, version)| {
-            let dir = packages::dir()
-                .join(name.to_string())
-                .join(version.to_string());
-            (name.clone(), dir)
-        })
+        .map(|(name, _)| (name.clone(), packages::release(&name.to_string()).dir()))
         .collect();
     let dependencies = dependencies(compat, &sources)?;
     let root = match optimized.roots.as_slice() {
@@ -170,17 +173,20 @@ impl Project {
         let temp = tempfile::tempdir().unwrap();
         let root =
             nomi_testkit::padded_dir(&fs::canonicalize(temp.path()).unwrap(), ROOT_LENGTH).unwrap();
+        let mut case = case.clone();
+        if !case.files.iter().any(|(path, _)| path == "elm.json") {
+            (case.files).push(("elm.json".to_owned(), default_elm_json.to_owned()));
+        }
+        let case = case.as_release(compat);
         case.create_files(&root).unwrap();
         case.date_files(&root).unwrap();
-        let manifest = root.join("elm.json");
-        let text = fs::read_to_string(&manifest).unwrap_or_else(|_| default_elm_json.to_owned());
-        let text = with_elm_version(&text, compat);
-        fs::write(&manifest, &text).unwrap();
+        let (_, text) = case
+            .files
+            .iter()
+            .find(|(path, _)| path == "elm.json")
+            .unwrap();
         let outline = Outline::decode(text.as_bytes(), compat).expect("a good elm.json");
-        let deps: Vec<Name> = match &outline {
-            Outline::App(app) => app.direct.keys().cloned().collect(),
-            Outline::Pkg(pkg) => pkg.deps.keys().cloned().collect(),
-        };
+        let deps: Vec<Name> = outline.direct().cloned().collect();
         let foreigns = Foreigns::new(deps.iter().map(|dep| (dep.clone(), exposing(dep, compat))));
         let interfaces = names::visible(&interfaces(compat), &deps);
         let env = check::env_of(&root, &outline, compat, foreigns)
@@ -248,18 +254,6 @@ pub fn same_json(elm: &str, nomi: &str) -> bool {
     }
 }
 
-/// An application's `elm.json` `text` with its `elm-version` set to
-/// `compat`'s.
-fn with_elm_version(text: &str, compat: Compat) -> String {
-    const KEY: &str = "\"elm-version\": \"";
-    if !text.contains("\"type\": \"application\"") {
-        return text.to_owned();
-    }
-    let start = text.find(KEY).unwrap() + KEY.len();
-    let end = start + text[start..].find('"').unwrap();
-    format!("{}{compat}{}", &text[..start], &text[end..])
-}
-
 /// The interfaces of every fixture package, as `compat` reads them, made
 /// once per run.
 pub fn interfaces(compat: Compat) -> Arc<names::PackageInterfaces> {
@@ -278,17 +272,9 @@ pub fn interfaces(compat: Compat) -> Arc<names::PackageInterfaces> {
 
 /// The modules the fixture `dep`'s `elm.json` exposes.
 pub fn exposing(dep: &Name, compat: Compat) -> Vec<ModuleName> {
-    let dir = packages::dir().join(dep.to_string());
-    assert!(dir.is_dir(), "{dep} isn't stored");
-    let text = fs::read(only_version(&dir).join("elm.json")).unwrap();
+    let text = fs::read(packages::release(&dep.to_string()).dir().join("elm.json")).unwrap();
     match Outline::decode(&text, compat).unwrap() {
         Outline::Pkg(pkg) => pkg.exposed.modules().cloned().collect(),
         Outline::App(_) => panic!("{dep} is an application"),
     }
-}
-
-/// The directory of the one release a fixture package's directory `dir`
-/// holds.
-fn only_version(dir: &Path) -> PathBuf {
-    fs::read_dir(dir).unwrap().next().unwrap().unwrap().path()
 }

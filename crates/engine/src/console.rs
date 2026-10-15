@@ -83,7 +83,7 @@ pub enum Personality {
 impl Personality {
     /// The command line that runs elm's `command`: `elm install`, or
     /// `nomi add`.
-    pub fn command(self, command: ElmCommand) -> String {
+    pub(crate) fn command(self, command: ElmCommand) -> String {
         match self {
             Personality::Elm => format!("elm {}", command.elm_name()),
             Personality::Nomi => {

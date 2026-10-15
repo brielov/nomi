@@ -31,6 +31,7 @@ use nomi_syntax::parse_module;
 use crate::artifacts::{Artifacts, Hash, Key};
 use crate::graph::module_path;
 use crate::names::{infer, optimize};
+use crate::paths::package_src;
 use crate::project::package_outline;
 use crate::schedule;
 use crate::timings::{self, Phase, time};
@@ -45,7 +46,7 @@ enum Built {
 /// modules' interfaces, every module's unions and aliases, and its graph.
 #[derive(Clone, Debug, Default)]
 pub struct PackageBuild {
-    pub exposed: HashMap<String, Interface>,
+    pub exposed: Arc<HashMap<String, Interface>>,
     pub types: Types,
     pub graph: GlobalGraph,
 }
@@ -63,7 +64,7 @@ pub struct Dependencies {
 
 impl Dependencies {
     /// Each package's exposed interfaces.
-    pub fn exposed(&self) -> BTreeMap<Name, HashMap<String, Interface>> {
+    pub fn exposed(&self) -> BTreeMap<Name, Arc<HashMap<String, Interface>>> {
         (self.packages.iter())
             .map(|(name, build)| (name.clone(), build.exposed.clone()))
             .collect()
@@ -78,7 +79,7 @@ impl Dependencies {
 
     /// [`Dependencies::graph`] and [`Dependencies::types`], taking each
     /// build rather than copying it where nothing else holds it.
-    pub fn into_graph_and_types(self) -> (GlobalGraph, Types) {
+    pub(crate) fn into_graph_and_types(self) -> (GlobalGraph, Types) {
         let mut merged = GlobalGraph::default();
         let mut types = Types::new();
         for build in self.packages.into_values().rev() {
@@ -125,7 +126,7 @@ pub fn build(
 }
 
 /// [`build`], telling `done` of each package as soon as it is built.
-pub fn build_each(
+pub(crate) fn build_each(
     compat: Compat,
     packages: &[(Name, PathBuf)],
     memo: &mut Memo,
@@ -151,7 +152,7 @@ pub fn build_each(
         let name = names[i];
         let (pkg, dir) = &outlines[name];
         let mut key = Key::new("package")
-            .part("compat", compat.to_string().as_bytes())
+            .part("compat", compat.as_str().as_bytes())
             .part("name", name.to_string().as_bytes())
             .part("version", pkg.version.to_string().as_bytes());
         let mut dependencies: BTreeMap<Name, Arc<PackageBuild>> = BTreeMap::new();
@@ -208,7 +209,7 @@ fn build_package(
     let mut foreigns: BTreeMap<String, String> = BTreeMap::new();
     for dep in pkg.deps.keys() {
         if let Some(build) = built.get(dep) {
-            for (module, iface) in &build.exposed {
+            for (module, iface) in build.exposed.iter() {
                 visible.insert(module.clone(), iface.clone());
                 foreigns.insert(module.clone(), dep.to_string());
             }
@@ -218,7 +219,7 @@ fn build_package(
     let package = Package {
         compat,
         name: name.to_string(),
-        src: dir.join("src"),
+        src: package_src(dir),
         kernels: name.is_kernel(),
         foreigns: &foreigns,
     };
@@ -241,7 +242,7 @@ fn build_package(
         .collect();
     let graph = package.gather(modules);
     Ok(PackageBuild {
-        exposed,
+        exposed: Arc::new(exposed),
         types,
         graph,
     })
@@ -306,7 +307,7 @@ fn decode_build(bytes: &[u8], compat: Compat) -> Option<PackageBuild> {
     }
     let graph = binary::decode_global_graph(take()?, compat)?;
     (at == bytes.len()).then_some(PackageBuild {
-        exposed,
+        exposed: Arc::new(exposed),
         types,
         graph,
     })
@@ -457,11 +458,11 @@ impl Package<'_> {
 
     /// What the crawl finds under `name`.
     fn find(&self, name: &str) -> Result<Found, String> {
-        if let Some(short) = name.strip_prefix("Elm.Kernel.") {
+        if name.starts_with("Elm.Kernel.") {
             if !self.kernels {
                 return Ok(Found::Foreign);
             }
-            let file = self.src.join("Elm/Kernel").join(format!("{short}.js"));
+            let file = self.src.join(module_path(name, "js"));
             // A kernel the package doesn't have is a foreign one.
             let Ok(bytes) = fs::read(&file) else {
                 return Ok(Found::Foreign);
