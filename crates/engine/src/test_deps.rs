@@ -17,6 +17,7 @@ use nomi_registry::{Http, Known, Packages, Release, Store};
 
 use crate::artifacts::Hash;
 use crate::env;
+use crate::packages;
 use crate::paths::{Cache, ELM_JSON};
 use crate::report::one_line;
 
@@ -31,11 +32,14 @@ pub struct Dependencies {
 }
 
 /// How elm-test solves: `--dependencies`, whose `oldest` only a
-/// package's ranges leave room for, and `--offline`.
+/// package's ranges leave room for, and `--offline`; and whether the
+/// packages bundled with nomi are among those it solves from, as they are
+/// for `nomi test`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Solve {
     pub order: Order,
     pub offline: bool,
+    pub bundled: bool,
 }
 
 /// The generated dependencies of the project whose `elm.json` is
@@ -58,6 +62,9 @@ pub fn dependencies(
     let mut key = elm_json.to_vec();
     if order == Order::OldestFirst {
         key.extend_from_slice(b"\0oldest");
+    }
+    if how.bundled {
+        key.extend_from_slice(b"\0bundled");
     }
     let kept = dir.join(format!("dependencies.{}", Hash::of(&key)));
     if let Some(dependencies) =
@@ -107,7 +114,7 @@ fn solve(
     how: Solve,
 ) -> Result<Dependencies, Report> {
     let constraints = constraints(outline)?;
-    let store = Store::new(cache.packages());
+    let store = packages::store_for(cache, how.bundled)?;
     let split = |solution: BTreeMap<Name, Details>| {
         let (direct, indirect) = (solution.into_iter())
             .map(|(name, details)| (name, details.version))

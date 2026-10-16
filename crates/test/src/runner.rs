@@ -36,6 +36,17 @@ const SOURCES: [(&str, &str); 14] = sources![
     "Test/Runner/Node/Vendor/Diff.elm",
 ];
 
+/// nomi's: the module `Test.Runner.Node` takes each test's outcome from,
+/// written into the generated project, as each project has nomi/test or
+/// not.
+pub(crate) const EFFECT: &str = "Test/Runner/Effect.elm";
+
+/// [`EFFECT`] for pure tests alone, elm-test's.
+pub(crate) const PURE: &str = include_str!("../runner/effect/Pure.elm");
+
+/// [`EFFECT`] running nomi/test's effectful tests.
+pub(crate) const EFFECTFUL: &str = include_str!("../runner/effect/Nomi.elm");
+
 const BEFORE: &str = include_str!("../runner/before.js");
 const AFTER: &str = include_str!("../runner/after.js");
 

@@ -195,7 +195,7 @@ fn main() -> ExitCode {
     match Path::new(&name).file_stem().and_then(|stem| stem.to_str()) {
         Some("elm-format") => return elm_format::main(args),
         Some("elm") => return elm::main(args),
-        Some("elm-test") => return elm_test(args),
+        Some("elm-test") => return elm_test(args, false),
         _ => {}
     }
     let cli = Cli::parse();
@@ -249,7 +249,7 @@ fn main() -> ExitCode {
         ),
         Some(Command::Publish) => in_project(publish::run),
         Some(Command::Bump) => in_project(bump::run),
-        Some(Command::Test { args }) => return elm_test(args.into_iter()),
+        Some(Command::Test { args }) => return elm_test(args.into_iter(), true),
         Some(Command::Check { paths, report }) => {
             in_project(|cx, console| check::run(cx, console, paths, style(report)))
         }
@@ -306,6 +306,7 @@ fn build(args: Build) -> bool {
         kind: make::kind(debug, optimize),
         target,
         platform_by_main: platform.is_none(),
+        bundled: true,
         ffi,
         output,
         docs,
@@ -327,15 +328,16 @@ fn nomi_run(program: &run::Program, watch: bool, args: &[OsString]) -> ExitCode 
     }))
 }
 
-/// elm-test's command line, as `elm-test` or `nomi test`.
-fn elm_test(args: impl Iterator<Item = OsString>) -> ExitCode {
+/// elm-test's command line, as `elm-test` or, with the packages bundled
+/// with nomi, `nomi test`.
+fn elm_test(args: impl Iterator<Item = OsString>, bundled: bool) -> ExitCode {
     let args: Vec<String> = args.map(|a| a.to_string_lossy().into_owned()).collect();
     let (Some(cache), Some(cwd)) = (cache(), current_dir()) else {
         return ExitCode::FAILURE;
     };
     let var = |name: &str| std::env::var(name).ok();
     let code = run_in(&cwd, &cache, |cx, console| {
-        nomi_test::main(cx, console, &args, &var)
+        nomi_test::main(cx, console, &args, &var, bundled)
     });
     ExitCode::from(u8::try_from(code).unwrap_or(1))
 }

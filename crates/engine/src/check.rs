@@ -290,15 +290,17 @@ pub(crate) struct Sources {
     pub packages: Vec<(Name, PathBuf)>,
 }
 
-/// What the project builds with, every release downloaded first.
+/// What the project builds with, every release downloaded first, from a
+/// store with the packages bundled with nomi if `bundled`.
 pub(crate) fn sources(
     cache: &Cache,
     http: &(impl Http + Sync),
     project: &Project,
     personality: Personality,
+    bundled: bool,
 ) -> Result<Sources, Report> {
     let compat = project.compat;
-    let store = packages::store_for(cache, personality)?;
+    let store = packages::store_for(cache, bundled)?;
     // elm keeps a project's dependencies as solved until its elm.json
     // changes (`Details.load`), asking the website nothing; nomi keeps
     // them by what elm.json says.
@@ -386,7 +388,13 @@ pub(crate) fn foreigns(
     project: &Project,
     personality: Personality,
 ) -> Result<(Foreigns, HashMap<String, Interface>), Report> {
-    let sources = sources(cache, http, project, personality)?;
+    let sources = sources(
+        cache,
+        http,
+        project,
+        personality,
+        personality == Personality::Nomi,
+    )?;
     let artifacts = Artifacts::new(cache);
     let built = objects::build(
         project.compat,

@@ -511,16 +511,22 @@ fn suggest_similar<'a>(word: &str, candidates: impl Iterator<Item = &'a str>) ->
 }
 
 /// elm-test run in `cx` with `args`, `var` reading the environment's
-/// variables; its exit code.
+/// variables; its exit code. Tests and their runner build with the
+/// packages bundled with nomi if `bundled`, as `nomi test`'s do.
 pub fn main<H: Http + Sync>(
     cx: &Context<'_, H>,
     console: &mut dyn Console,
     args: &[String],
     var: &dyn Fn(&str) -> Option<String>,
+    bundled: bool,
 ) -> i32 {
     let cores = supervise::default_workers();
     let color = supports_color(args, var, console.out_is_terminal());
-    match parse(args, cores) {
+    let mut parsed = parse(args, cores);
+    if let Parsed::Run(flags, _) | Parsed::Make(flags, _) = &mut parsed {
+        flags.solve.bundled = bundled;
+    }
+    match parsed {
         Parsed::Out(text) => {
             console.out(&text);
             0

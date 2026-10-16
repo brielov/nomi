@@ -186,6 +186,7 @@ fn build(
             ffi: None,
         },
         platform_by_main: false,
+        bundled: true,
         ffi: built.ffi.clone(),
         output: Some(Output::Js(built.output.clone())),
         docs: None,

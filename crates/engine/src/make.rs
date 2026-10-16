@@ -45,6 +45,9 @@ pub struct Make {
     /// Whether the roots' `main`s choose the platform in place of
     /// `target`'s: Node for nomi/core's `Program`.
     pub platform_by_main: bool,
+    /// Whether the packages bundled with nomi resolve: they do for nomi's
+    /// commands, `nomi test` among them, and not for upstream's.
+    pub bundled: bool,
     /// The ES module whose functions `Nomi.Ffi` calls, from the directory.
     pub ffi: Option<PathBuf>,
     /// `--output`, if given.
@@ -119,6 +122,7 @@ impl Make {
             kind: Ok(javascript::Kind::Dev),
             target: javascript::Target::default(),
             platform_by_main: false,
+            bundled: true,
             ffi: None,
             output: Some(Output::DevNull),
             docs: None,
@@ -257,7 +261,7 @@ fn build(
         outline,
         env,
         sources,
-    } = match load(cx, &root, personality) {
+    } = match load(cx, &root, personality, make.bundled) {
         Ok(loaded) => loaded,
         Err((report, compat)) => return unready(console, report, compat),
     };
@@ -353,13 +357,15 @@ fn load(
     cx: &Context<'_, impl Http + Sync>,
     root: &Root,
     personality: Personality,
+    bundled: bool,
 ) -> Result<Loaded, (Report, Compat)> {
     let project = timings::time(Phase::Load, || Project::read(cx.vfs, root, personality))
         .map_err(|report| (report, Compat::LATEST))?;
     let compat = project.compat;
     let fail = |report| (report, compat);
     check_source_dirs(root.dir(), &project.outline).map_err(fail)?;
-    let sources = check::sources(cx.cache, cx.http, &project, personality).map_err(fail)?;
+    let sources =
+        check::sources(cx.cache, cx.http, &project, personality, bundled).map_err(fail)?;
     let env = env_of(
         root.dir(),
         &project.outline,

@@ -59,6 +59,11 @@ impl Name {
         Name::known("elm", "time")
     }
 
+    /// `nomi/test`, bundled with nomi.
+    pub fn nomi_test() -> Name {
+        Name::known(kernel::BUNDLED_AUTHOR, "test")
+    }
+
     /// The part before the slash.
     pub fn author(&self) -> &str {
         &self.author

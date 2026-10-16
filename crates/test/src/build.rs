@@ -16,7 +16,7 @@ use nomi_engine::paths::Cache;
 use nomi_engine::test_deps::{self, Dependencies, Solve};
 use nomi_engine::{Context, Http, Vfs};
 use nomi_project::outline::{AppOutline, SrcDir};
-use nomi_project::{ModuleName, Outline, Version};
+use nomi_project::{ModuleName, Name, Outline, Version};
 
 use crate::discover::{modules, tests};
 use crate::files::Project;
@@ -82,7 +82,9 @@ fn prepare<H: Http + Sync>(
 ) -> Result<PathBuf, Failure> {
     let dir = generated_dir(env.cx.cache, project);
     let src = dir.join("src");
-    fs::create_dir_all(src.join("Test/Generated")).map_err(|e| io(&dir, &e))?;
+    for generated in ["Test/Generated", "Test/Runner"] {
+        fs::create_dir_all(src.join(generated)).map_err(|e| io(&dir, &e))?;
+    }
     let runner = runner::sources(&env.cx.cache.dir().join("tests")).map_err(|e| io(&dir, &e))?;
     let Dependencies { direct, indirect } = test_deps::dependencies(
         &project.elm_json,
@@ -94,7 +96,14 @@ fn prepare<H: Http + Sync>(
         &mut || progress(console, Step::Solving),
     )
     .map_err(Failure::Project)?;
-    let mut source_dirs = vec![src, runner];
+    // nomi/test's tests run on Node only through a runner that has it.
+    let nomi_test = Name::nomi_test();
+    let effect = if direct.contains_key(&nomi_test) || indirect.contains_key(&nomi_test) {
+        runner::EFFECTFUL
+    } else {
+        runner::PURE
+    };
+    let mut source_dirs = vec![src.clone(), runner];
     for source_dir in &project.source_dirs {
         if !source_dirs.contains(source_dir) {
             source_dirs.push(source_dir.clone());
@@ -112,6 +121,8 @@ fn prepare<H: Http + Sync>(
     });
     let elm_json = dir.join("elm.json");
     write_if_changed(env.cx.vfs, &elm_json, &outline.write()).map_err(|e| io(&dir, &e))?;
+    write_if_changed(env.cx.vfs, &src.join(runner::EFFECT), effect.as_bytes())
+        .map_err(|e| io(&dir, &e))?;
     Ok(dir)
 }
 
@@ -127,8 +138,9 @@ fn io(dir: &Path, e: &io::Error) -> Failure {
     ))
 }
 
-/// `elm make` as elm-test runs it in the generated project.
-fn elm_make(paths: Vec<PathBuf>, style: Style, output: Output) -> Make {
+/// `elm make` as elm-test runs it in the generated project, with the
+/// packages bundled with nomi if `bundled`.
+fn elm_make(paths: Vec<PathBuf>, style: Style, output: Output, bundled: bool) -> Make {
     Make {
         paths,
         personality: Personality::Elm,
@@ -136,6 +148,7 @@ fn elm_make(paths: Vec<PathBuf>, style: Style, output: Output) -> Make {
         kind: Ok(Kind::Dev),
         target: Target::default(),
         platform_by_main: false,
+        bundled,
         ffi: None,
         output: Some(output),
         docs: None,
@@ -162,7 +175,12 @@ pub fn build<H: Http + Sync>(
     let interfaces = make::interfaces(
         &env.at(&dir),
         &mut quiet,
-        &elm_make(files.to_vec(), Style::Terminal, Output::DevNull),
+        &elm_make(
+            files.to_vec(),
+            Style::Terminal,
+            Output::DevNull,
+            env.solve.bundled,
+        ),
     );
     let Some(interfaces) = interfaces else {
         return Err(quiet.shown(console));
@@ -183,7 +201,12 @@ pub fn build<H: Http + Sync>(
     write_if_changed(env.cx.vfs, &main, text.as_bytes()).map_err(|e| io(&dir, &e))?;
     let js = dir.join("elmTestOutput.js");
     let mut quiet = Quiet::new(terminal);
-    let mut make = elm_make(vec![main], Style::Terminal, Output::Js(js.clone()));
+    let mut make = elm_make(
+        vec![main],
+        Style::Terminal,
+        Output::Js(js.clone()),
+        env.solve.bundled,
+    );
     // Node's kernels, in the file elm-test's templates wrap, whose
     // stand-ins for the browser's globals let tests reach the DOM's.
     make.target = Target {
@@ -223,7 +246,7 @@ pub(crate) fn make<H: Http + Sync>(
     style: Style,
 ) -> Result<(), Failure> {
     let dir = prepare(env, console, project, &mut |_, _| {})?;
-    let make = elm_make(files.to_vec(), style, Output::DevNull);
+    let make = elm_make(files.to_vec(), style, Output::DevNull, env.solve.bundled);
     if make::run(&env.at(&dir), console, &make) {
         Ok(())
     } else {

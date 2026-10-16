@@ -20,8 +20,9 @@ import Random
 import Task
 import Test exposing (Test)
 import Test.Reporter.Reporter exposing (Report, RunInfo, TestReporter, createReporter)
-import Test.Reporter.TestResults exposing (Outcome, TestResult, isFailure, outcomeFromExpectations)
+import Test.Reporter.TestResults exposing (Outcome, TestResult, isFailure)
 import Test.Runner exposing (Runner, SeededRunners(..))
+import Test.Runner.Effect as Effect
 import Test.Runner.JsMessage as JsMessage exposing (JsMessage(..))
 import Time exposing (Posix)
 
@@ -95,12 +96,9 @@ dispatch model startTime =
             sendResults True model.testReporter model.results
 
         Just config ->
-            let
-                outcome =
-                    outcomeFromExpectations (config.run ())
-            in
-            Time.now
-                |> Task.perform (Complete config.labels outcome startTime)
+            Effect.outcome (config.run ())
+                |> Task.andThen (\outcome -> Task.map (Complete config.labels outcome startTime) Time.now)
+                |> Task.perform identity
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )

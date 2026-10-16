@@ -10,7 +10,6 @@ use nomi_project::{Name, Version};
 use nomi_registry::{Bundle, Http, PackageProblem, Store};
 
 use crate::Pool;
-use crate::console::Personality;
 use crate::paths::Cache;
 use crate::report::one_line;
 
@@ -20,18 +19,18 @@ pub fn store(cache: &Cache) -> io::Result<Store> {
     Ok(Store::bundled(cache.packages(), bundle))
 }
 
-/// The package store `personality`'s commands read: upstream's know
-/// nothing of the packages bundled with nomi.
-pub(crate) fn store_for(cache: &Cache, personality: Personality) -> Result<Store, Report> {
-    match personality {
-        Personality::Elm => Ok(Store::new(cache.packages())),
-        Personality::Nomi => store(cache).map_err(|e| {
-            one_line(
-                "PROBLEM WITH BUNDLED PACKAGES",
-                &format!("I could not extract the packages that come with nomi: {e}"),
-            )
-        }),
+/// The package store, with the packages bundled with nomi if `bundled`:
+/// nomi's commands have them, and upstream's know nothing of them.
+pub(crate) fn store_for(cache: &Cache, bundled: bool) -> Result<Store, Report> {
+    if !bundled {
+        return Ok(Store::new(cache.packages()));
     }
+    store(cache).map_err(|e| {
+        one_line(
+            "PROBLEM WITH BUNDLED PACKAGES",
+            &format!("I could not extract the packages that come with nomi: {e}"),
+        )
+    })
 }
 
 /// The sources of every release, in their order, each downloaded unless

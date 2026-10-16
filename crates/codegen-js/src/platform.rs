@@ -12,7 +12,14 @@ use crate::runtime::{self, Override};
 
 /// The kernel modules of the packages bundled with nomi, by short name,
 /// in order: each `packages/*/src/Elm/Kernel/*.js`.
-const BUNDLED_KERNELS: &[&str] = &["Nomi", "NomiFfi", "NomiFs", "NomiServer", "NomiStdio"];
+const BUNDLED_KERNELS: &[&str] = &[
+    "Nomi",
+    "NomiFfi",
+    "NomiFs",
+    "NomiServer",
+    "NomiStdio",
+    "NomiTest",
+];
 
 /// The kernel module that calls the FFI module's functions.
 pub const FFI_KERNEL: &str = "NomiFfi";
