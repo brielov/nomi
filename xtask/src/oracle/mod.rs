@@ -10,6 +10,7 @@ pub(crate) mod lsp;
 pub(crate) mod lsp_import;
 pub(crate) mod lsp_tables;
 pub(crate) mod make;
+pub(crate) mod members;
 pub(crate) mod modules;
 pub(crate) mod optimized;
 pub(crate) mod outline;

@@ -17,7 +17,7 @@
 //! [`Transcript::compared`]: nomi_testkit::transcript::Transcript::compared
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result};
@@ -57,7 +57,8 @@ pub(crate) fn run(root: &Path, refs: &References) -> Result<()> {
         let run = |(i, (id, case)): &(usize, &(String, Case))| {
             // By number: a case's name could take the padding's room.
             let work = elm.scratch.join("work").join(i.to_string());
-            record(&elm, &work, case).with_context(|| format!("elm {compat} on {id}"))
+            record(&elm, case, |case| padded_case(&work, case))
+                .with_context(|| format!("elm {compat} on {id}"))
         };
         let mut column = parallel_on(1, first, run);
         column.extend(parallel_on(cores(), rest, run));
@@ -81,13 +82,18 @@ pub(crate) fn run(root: &Path, refs: &References) -> Result<()> {
     Ok(())
 }
 
-/// `elm`'s transcript of `case` as its release, run in `work`. A run
-/// that trips over a lock [`RETRIES`] times, or is cut short
-/// [`CUT_SHORT_RETRIES`] times, is recorded as it went.
-fn record(elm: &Recorder, work: &Path, case: &Case) -> Result<String> {
+/// `elm`'s transcript of `case` as its release, run in the directory
+/// `lay_out` makes afresh for each attempt. A run that trips over a lock
+/// [`RETRIES`] times, or is cut short [`CUT_SHORT_RETRIES`] times, is
+/// recorded as it went.
+pub(super) fn record(
+    elm: &Recorder,
+    case: &Case,
+    lay_out: impl Fn(&Case) -> Result<PathBuf>,
+) -> Result<String> {
     let case = case.clone().as_release(elm.compat);
     let (transcript, dir) = retrying(CUT_SHORT_RETRIES, |attempt, _| {
-        let dir = padded_case(work, &case)?;
+        let dir = lay_out(&case)?;
         let mut command = Command::new(&elm.elm);
         command.env("ELM_HOME", &elm.home).env("GHCRTS", "-N1");
         offline(&mut command);

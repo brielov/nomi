@@ -121,6 +121,20 @@ impl Case {
         Ok(root)
     }
 
+    /// Copies the tree `tree`, without its `elm-stuff`, under `work` so
+    /// that its directory `member` has a canonical path [`ROOT_LENGTH`]
+    /// bytes long, and lays the case's files out there, dated, over the
+    /// member's own; gives the member's directory.
+    pub fn lay_out_in(&self, tree: &Path, member: &str, work: &Path) -> io::Result<PathBuf> {
+        let length = ROOT_LENGTH - member.len() - 1;
+        let root = crate::padded_dir(&fs::canonicalize(work)?, length)?;
+        crate::copy_tree(tree, &root, |path| !path.ends_with("elm-stuff"))?;
+        let dir = root.join(member);
+        self.create_files(&dir)?;
+        self.date_files(&dir)?;
+        Ok(dir)
+    }
+
     /// The releases a replay runs the case as: each nomi emulates for an
     /// application whose `elm-version` names one, else the newest, as
     /// nomi builds a package.
@@ -269,6 +283,37 @@ pub fn matching(expected: &str, actual: &str) -> Result<(), String> {
     } else {
         Err(format!("--- expected\n{expected}--- actual\n{actual}"))
     }
+}
+
+/// `transcript` with each run of `\rVerifying dependencies (k/n)` steps
+/// read as the one step `\rVerifying dependencies (…/n)`: how many elm
+/// prints depends on how its threads interleave (`DECISIONS.md`,
+/// 2026-10-11).
+pub fn steady(transcript: &str) -> String {
+    const STEP: &str = "\rVerifying dependencies (";
+    let mut out = String::new();
+    let mut rest = transcript;
+    while let Some(at) = rest.find(STEP) {
+        out.push_str(&rest[..at]);
+        rest = &rest[at..];
+        let mut total = None;
+        while let Some(step) = rest.strip_prefix(STEP)
+            && let Some(close) = step.find(')')
+            && let Some((_, n)) = step[..close].split_once('/')
+        {
+            total = Some(n);
+            rest = &step[close + 1..];
+        }
+        if let Some(n) = total {
+            let _ = write!(out, "{STEP}…/{n})");
+        } else {
+            // Not a step after all: keep it as it is.
+            out.push_str(STEP);
+            rest = &rest[STEP.len()..];
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The transcript an oracle recorded for `release`, among the

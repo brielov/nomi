@@ -20,13 +20,12 @@
 #[path = "support/website.rs"]
 pub mod website;
 
-use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 
 use nomi_testkit::parallel_on;
 use nomi_testkit::ratchet::{Suite, shown};
-use nomi_testkit::transcript::{self, Case, crashed, recorded};
+use nomi_testkit::transcript::{self, Case, crashed, recorded, steady};
 use website::offline;
 
 #[test]
@@ -91,33 +90,4 @@ struct Run {
 fn terminal(mut case: Case) -> Case {
     case.args.retain(|a| a != "--report=json");
     case
-}
-
-/// `transcript` with each run of `\rVerifying dependencies (k/n)` steps
-/// read as the one step `\rVerifying dependencies (…/n)`.
-fn steady(transcript: &str) -> String {
-    const STEP: &str = "\rVerifying dependencies (";
-    let mut out = String::new();
-    let mut rest = transcript;
-    while let Some(at) = rest.find(STEP) {
-        out.push_str(&rest[..at]);
-        rest = &rest[at..];
-        let mut total = None;
-        while let Some(step) = rest.strip_prefix(STEP)
-            && let Some(close) = step.find(')')
-            && let Some((_, n)) = step[..close].split_once('/')
-        {
-            total = Some(n);
-            rest = &step[close + 1..];
-        }
-        if let Some(n) = total {
-            write!(out, "{STEP}…/{n})").unwrap();
-        } else {
-            // Not a step after all: keep it as it is.
-            out.push_str(STEP);
-            rest = &rest[STEP.len()..];
-        }
-    }
-    out.push_str(rest);
-    out
 }

@@ -249,6 +249,9 @@ enum OracleCommand {
     /// Store each elm's transcript of every case of the CLI report
     /// matrix.
     Make,
+    /// Store each elm's transcript of `elm make` in each member of the
+    /// full-stack example.
+    Members,
     /// Store each elm's transcript of every `elm diff` and `elm bump`
     /// case, recorded online with read-only requests.
     Diff,
@@ -397,6 +400,7 @@ fn run_oracle(root: &Path, r: &references::References, command: OracleCommand) -
         OracleCommand::Patterns => oracle::errors::run(root, r, Errors::Patterns),
         OracleCommand::Docs => oracle::errors::run(root, r, Errors::Docs),
         OracleCommand::Make => oracle::make::run(root, r),
+        OracleCommand::Members => oracle::members::run(root, r),
         OracleCommand::Diff => oracle::diff::run(root, r),
         OracleCommand::Publish => oracle::diff::publish(root, r),
         OracleCommand::Optimized => oracle::optimized::run(root, r),

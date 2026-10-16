@@ -1,0 +1,35 @@
+### elm 0.19.1
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- TROUBLE VERIFYING DEPENDENCIES ------------------------------------- elm.json
+|
+|I could not connect to https://package.elm-lang.org to get the latest list of
+|packages, and I was unable to verify your dependencies with the information I
+|have cached locally.
+|
+|Are you able to connect to the internet? These dependencies may work once you
+|get access to the registry!
+|
+|Note: If you changed your dependencies by hand, try to change them back! It is
+|much more reliable to add dependencies with elm install or the dependency
+|management tool in elm reactor.
+|
+### elm 0.19.2, elm 0.19.3
+=== exit 1
+=== stdout
+|                            Dependencies ready!
+=== stderr
+|-- TROUBLE VERIFYING DEPENDENCIES ------------------------------------- elm.json
+|
+|I could not connect to https://package.elm-lang.org to get the latest list of
+|packages, and I was unable to verify your dependencies with the information I
+|have cached locally.
+|
+|Are you able to connect to the internet? These dependencies may work once you
+|get access to the registry!
+|
+|Note: If you changed your dependencies by hand, try to change them back! It is
+|much more reliable to add dependencies with elm install.
+|
