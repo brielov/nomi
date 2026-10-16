@@ -2,8 +2,8 @@
 //! ratchets, their expected results, source mutations, command-line
 //! transcripts and cases made by editing them, waiting for a child within
 //! a limit, the fixture packages, the solver scenarios, benchmark timing,
-//! and directory trees. Only ever a dev-dependency of nomi crates; `xtask
-//! ci` enforces that.
+//! directory trees, and workspace members' `elm.json` files. Only ever a
+//! dev-dependency of nomi crates; `xtask ci` enforces that.
 
 pub mod bench;
 pub mod edit;
@@ -15,6 +15,7 @@ pub mod ratchet;
 pub mod solver;
 pub mod transcript;
 mod tree;
+pub mod workspace;
 
 pub use tree::{copy_tree, files_below, padded_dir, tree_digest, write_file};
 

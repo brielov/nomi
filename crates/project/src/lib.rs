@@ -16,7 +16,7 @@ pub mod workspace;
 
 pub use constraint::{Constraint, ConstraintError, Op};
 pub use license::License;
-pub use manifest::{Entry, Manifest, ManifestError, ManifestProblem, Member, Workspace};
+pub use manifest::{Entry, Manifest, ManifestError, ManifestProblem};
 pub use module_name::ModuleName;
 pub use outline::{DetectError, Outline, OutlineError};
 pub use package::Name;

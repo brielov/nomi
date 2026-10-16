@@ -5,6 +5,7 @@
 //! one [`FileId`], from its path with symbolic links resolved (R7).
 
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
@@ -365,6 +366,20 @@ pub(crate) fn elm_files(root: &Path) -> io::Result<Vec<PathBuf>> {
     let mut files = walk(root, Dangling::Skipped)?;
     files.retain(|path| is_elm(path));
     Ok(files)
+}
+
+/// The names of the directories in `dir`, through any symbolic links, in
+/// order. The editor never holds a directory, so they are the disk's.
+pub(crate) fn subdirs(dir: &Path) -> io::Result<Vec<OsString>> {
+    let mut names = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        if entry.path().is_dir() {
+            names.push(entry.file_name());
+        }
+    }
+    names.sort();
+    Ok(names)
 }
 
 /// What a walk makes of a link to nothing named `.elm`.

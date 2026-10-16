@@ -38,6 +38,7 @@ pub mod tree;
 pub mod update;
 mod vfs;
 pub mod watch;
+pub mod workspace;
 
 use std::path::Path;
 
