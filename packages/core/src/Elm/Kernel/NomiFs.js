@@ -29,18 +29,30 @@ function _NomiFs_cwd()
 // texts, with the directories they need.
 function _NomiFs_memory(files)
 {
+	return A2(_NomiFs_copy, files, _NomiFs_make(_NomiFs_inMemory(), [], true, null));
+}
+
+// A new file system in memory holding what the one in memory `fs` holds
+// and `files` too, written from the directory `fs` starts from.
+var _NomiFs_copy = F2(function(files, fs)
+{
 	var store = _NomiFs_inMemory();
+	fs.store.entries.forEach(function(entry, key) {
+		store.entries.set(key, entry === _NomiFs_directory ? entry : entry.slice());
+	});
+	var root = [].concat.apply([], fs.root);
 	__List_toArray(files).forEach(function(file) {
 		var names = _NomiFs_names(file.a);
-		if (names === null || names.length === 0) return;
+		if (fs.outside !== null || names === null || names.length === 0) return;
+		names = root.concat(names);
 		for (var i = 1; i < names.length; i++)
 		{
 			store.entries.has(_NomiFs_key(names.slice(0, i))) || store.entries.set(_NomiFs_key(names.slice(0, i)), _NomiFs_directory);
 		}
 		store.entries.set(_NomiFs_key(names), _NomiFs_encoder.encode(file.b));
 	});
-	return _NomiFs_make(store, [], true, null);
-}
+	return _NomiFs_make(store, fs.root, fs.writable, fs.outside);
+});
 
 // Windows takes `\` for a separator too, so it separates names there.
 var _NomiFs_separator = process.platform === 'win32' ? /[\\/]/ : '/';

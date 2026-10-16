@@ -6,10 +6,8 @@ module Nomi.Test.Runner exposing (run)
 
 -}
 
-import Dict
 import Elm.Kernel.NomiTest
 import Expect exposing (Expectation)
-import Nomi exposing (Env)
 import Task exposing (Task)
 
 
@@ -25,7 +23,7 @@ expectation : Expectation -> Task Never Expectation
 expectation placeholder =
     case effect placeholder of
         Just test ->
-            attempt (Task.andThen test env)
+            attempt test
                 |> Task.map
                     (\result ->
                         case result of
@@ -40,33 +38,16 @@ expectation placeholder =
             Task.succeed placeholder
 
 
-{-| The test an expectation stands for, if it stands for one.
+{-| The task an expectation stands for, if it stands for one.
 -}
-effect : Expectation -> Maybe (Env -> Task String Expectation)
+effect : Expectation -> Maybe (Task String Expectation)
 effect =
     Elm.Kernel.NomiTest.effect
 
 
-{-| How the task ended: its expectation, or the message of its failure,
-of its defect, or of its interruption.
+{-| How the task ended, on a virtual clock of its own: its expectation, or
+the message of its failure, of its defect, or of its interruption.
 -}
 attempt : Task String Expectation -> Task Never (Result String Expectation)
 attempt =
     Elm.Kernel.NomiTest.attempt
-
-
-{-| A new `Env` for a test.
--}
-env : Task x Env
-env =
-    Elm.Kernel.NomiTest.env
-        (\fs stdin stdout stderr net ->
-            { args = []
-            , vars = Dict.empty
-            , fs = fs
-            , net = net
-            , stdin = stdin
-            , stdout = stdout
-            , stderr = stderr
-            }
-        )

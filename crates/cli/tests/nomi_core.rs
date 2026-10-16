@@ -1,8 +1,9 @@
 //! nomi/core's `Nomi.program`, bundled with nomi: built offline from the
 //! bundle, it is a Node entry unless the browser is asked for, and runs
-//! its task as the process, which exits with how the task ended; its
-//! concurrent tasks and fibers end and interrupt as documented, and its
-//! fibers share refs and queues. nomi/server, bundled beside it, serves
+//! its task as the process, which exits with how the task ended; joining
+//! a fiber that dies is the joiner's defect, and its fibers share refs
+//! and queues (`nomi_test.rs` runs its concurrent tasks, which take hours,
+//! on nomi/test's virtual clock). nomi/server, bundled beside it, serves
 //! HTTP to a loopback client, a request per fiber, and drains on SIGTERM.
 #![cfg(unix)]
 
@@ -53,121 +54,26 @@ say line =
     Task.succeed () |> Task.map (\_ -> Debug.log line ())
 "#;
 
-/// A program that runs nomi/core's concurrent tasks and fibers, printing
-/// how each ends; with the argument `defect`, it joins a fiber that dies.
-/// What it waits for to lose takes an hour, so it ends at once only on the
-/// virtual clock.
-const CONCURRENT: &str = r#"module Main exposing (main)
+/// A program that joins a fiber that dies.
+const DEFECT: &str = r#"module Main exposing (main)
 
 import Nomi
-import Nomi.Fiber as Fiber exposing (Exit(..))
-import Nomi.Task
-import Process
-import Task exposing (Task)
+import Nomi.Fiber as Fiber
+import Task
 
 
 main : Nomi.Program
 main =
     Nomi.program <|
-        \env ->
-            case env.args of
-                [ "defect" ] ->
-                    Fiber.fork (Task.succeed () |> Task.andThen (\_ -> Debug.todo "boom"))
-                        |> Task.andThen Fiber.join
-                        |> Task.andThen (\_ -> say "unreachable")
-
-                _ ->
-                    Task.sequence checks |> Task.map (\_ -> ())
-
-
-checks : List (Task String ())
-checks =
-    [ show "both" (Nomi.Task.both (after 10 (Task.fail "first")) (hour "both's other"))
-    , show "both" (Nomi.Task.both (after 20 (Task.succeed 1)) (after 10 (Task.succeed 2)))
-    , show "all" (Nomi.Task.all [ after 30 (Task.succeed 1), after 10 (Task.succeed 2), after 20 (Task.succeed 3) ])
-    , show "race" (Nomi.Task.race (after 10 (Task.succeed "fast")) (hour "race's loser"))
-    , show "timeout" (Nomi.Task.timeout 50 (hour "timed out"))
-    , show "timeout" (Nomi.Task.timeout 50 (after 10 (Task.succeed "quick")))
-    , Fiber.fork
-        (say "region starts"
-            |> Task.andThen (\_ -> Process.sleep 100)
-            |> Task.andThen (\_ -> say "region ends")
-            |> Nomi.Task.uninterruptible
-        )
-        |> Task.andThen (interruptAfter 50)
-        |> show "uninterruptible"
-    , Fiber.fork (Task.succeed 1) |> Task.andThen Fiber.await |> show "await"
-    , Fiber.fork (Task.fail "no") |> Task.andThen Fiber.await |> show "await"
-    , Fiber.fork (Task.succeed () |> Task.andThen (\_ -> Debug.todo "boom"))
-        |> Task.andThen Fiber.await
-        |> Task.map defect
-        |> show "await"
-    , Fiber.fork (hour "awaited") |> Task.andThen (interruptAfter 10) |> show "await"
-    , Fiber.fork (Fiber.forkDaemon (after 10 (Task.succeed "daemon")))
-        |> Task.andThen Fiber.join
-        |> Task.andThen Fiber.await
-        |> show "forkDaemon"
-    , Fiber.fork (Fiber.fork (after 10 (Task.succeed "child")))
-        |> Task.andThen Fiber.join
-        |> Task.andThen Fiber.await
-        |> show "fork"
-    , show "acquireRelease" (resource "a" (Task.succeed 1))
-    , show "acquireRelease" (resource "b" (Task.fail "no"))
-    , Fiber.fork (resource "c" (hour "using c")) |> Task.andThen (interruptAfter 10) |> show "acquireRelease"
-    ]
-
-
-after : Float -> Task x a -> Task x a
-after ms task =
-    Process.sleep ms |> Task.andThen (\_ -> task)
-
-
-hour : String -> Task String a
-hour name =
-    after 3600000 (Task.fail "too late") |> Nomi.Task.ensure (say (name ++ " finalized"))
-
-
-interruptAfter : Float -> Fiber.Fiber x a -> Task y (Exit x a)
-interruptAfter ms fiber =
-    Process.sleep ms
-        |> Task.andThen (\_ -> say "interrupting")
-        |> Task.andThen (\_ -> Fiber.interrupt fiber)
-
-
-resource : String -> Task String a -> Task String a
-resource name use =
-    Nomi.Task.acquireRelease
-        (say ("acquired " ++ name) |> Task.map (\_ -> name))
-        (\r -> say ("released " ++ r))
-        (\_ -> use)
-
-
-defect : Exit x a -> String
-defect exit =
-    case exit of
-        Defect message ->
-            "Defect, " ++ String.left 36 message
-
-        _ ->
-            "not a defect"
-
-
-show : String -> Task x a -> Task y ()
-show label task =
-    task
-        |> Task.map Ok
-        |> Task.onError (Task.succeed << Err)
-        |> Task.map (\result -> Debug.log label result |> always ())
-
-
-say : String -> Task x ()
-say line =
-    Task.succeed () |> Task.map (\_ -> Debug.log line ())
+        \_ ->
+            Fiber.fork (Task.succeed () |> Task.andThen (\_ -> Debug.todo "boom"))
+                |> Task.andThen Fiber.join
+                |> Task.map (\_ -> Debug.log "unreachable" ())
 "#;
 
 /// A program that shares a `Ref` and `Queue`s between fibers, printing
-/// what each step gives. Its waits are short, but it runs on the virtual
-/// clock as its test does.
+/// what each step gives. Its waits are short, and what it prints doesn't
+/// depend on how long they take.
 const SHARED: &str = r#"module Main exposing (main)
 
 import Nomi
@@ -501,67 +407,11 @@ fn a_program_built_for_the_browser_names_the_path_to_the_nomi_kernel() {
 }
 
 #[test]
-fn concurrent_tasks_and_fibers_end_and_interrupt_as_documented_on_the_virtual_clock() {
-    nomi_testkit::require_node();
-    let (_work, root) = built(CONCURRENT);
-    let started = Instant::now();
-    let ran = node()
-        .arg("dist/main.mjs")
-        .env("NOMI_CLOCK", "virtual")
-        .current_dir(&root)
-        .output()
-        .unwrap();
-    assert!(started.elapsed() < Duration::from_secs(10));
-    assert_eq!(ran.status.code(), Some(0), "{ran:?}");
-    assert_eq!(errors(&ran), Vec::<String>::new());
-    assert_eq!(
-        String::from_utf8_lossy(&ran.stdout)
-            .lines()
-            .collect::<Vec<_>>(),
-        [
-            "both's other finalized: ()",
-            "both: Err \"first\"",
-            "both: Ok (1,2)",
-            "all: Ok [1,2,3]",
-            "race's loser finalized: ()",
-            "race: Ok \"fast\"",
-            "timed out finalized: ()",
-            "timeout: Ok Nothing",
-            "timeout: Ok (Just \"quick\")",
-            "region starts: ()",
-            "interrupting: ()",
-            "region ends: ()",
-            "uninterruptible: Ok Interrupted",
-            "await: Ok (Success 1)",
-            "await: Ok (Failure \"no\")",
-            "await: Ok \"Defect, Error: TODO in module `Main` on line\"",
-            "interrupting: ()",
-            "awaited finalized: ()",
-            "await: Ok Interrupted",
-            "forkDaemon: Ok (Success \"daemon\")",
-            "fork: Ok Interrupted",
-            "acquired a: ()",
-            "released a: ()",
-            "acquireRelease: Ok 1",
-            "acquired b: ()",
-            "released b: ()",
-            "acquireRelease: Err \"no\"",
-            "acquired c: ()",
-            "interrupting: ()",
-            "using c finalized: ()",
-            "released c: ()",
-            "acquireRelease: Ok Interrupted",
-        ]
-    );
-}
-
-#[test]
 fn joining_a_fiber_that_dies_is_the_joiners_defect() {
     nomi_testkit::require_node();
-    let (_work, root) = built(CONCURRENT);
+    let (_work, root) = built(DEFECT);
     let ran = node()
-        .args(["dist/main.mjs", "defect"])
-        .env("NOMI_CLOCK", "virtual")
+        .arg("dist/main.mjs")
         .current_dir(&root)
         .output()
         .unwrap();
@@ -588,7 +438,6 @@ fn fibers_share_refs_and_queues_in_order_and_interruption_loses_no_item() {
     let (_work, root) = built(SHARED);
     let ran = node()
         .arg("dist/main.mjs")
-        .env("NOMI_CLOCK", "virtual")
         .current_dir(&root)
         .output()
         .unwrap();

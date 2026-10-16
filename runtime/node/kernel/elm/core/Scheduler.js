@@ -10,14 +10,11 @@ import Elm.Kernel.Utils exposing (Tuple0)
 // task the runtime's own, and every name other kernels call keeps
 // upstream's meaning. One runtime runs the program, draining at once when
 // work arrives outside a drain, as upstream's `_Scheduler_enqueue` does,
-// so a port answers before its `send` returns. Its clock is chosen as the
-// program starts: the virtual one when `NOMI_CLOCK` is `virtual`, which
-// tests use, and otherwise the real one.
+// so a port answers before its `send` returns. It runs on the real clock;
+// nomi/test runs each effectful test on a runtime of its own, on a
+// virtual clock.
 
-var _Scheduler_runtime = new _Runtime.Runtime({
-	synchronous: true,
-	clock: process.env.NOMI_CLOCK === 'virtual' ? new _Runtime.TestClock() : new _Runtime.RealClock()
-});
+var _Scheduler_runtime = new _Runtime.Runtime({ synchronous: true });
 
 
 // TASKS

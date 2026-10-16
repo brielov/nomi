@@ -422,46 +422,45 @@ update msg model =
     )
 }
 
-/// Sleeping an hour and taking three `Time.every 1000` ticks takes no
-/// real time on the virtual clock, and logs what the same program, with
-/// waits of a few milliseconds, logs on the real clock.
+/// Sleeping and taking three `Time.every` ticks logs each step once the
+/// real clock has passed it. nomi/test's virtual clock runs the same
+/// steps, an hour long, in no real time.
 #[test]
-fn a_node_program_sleeps_and_ticks_on_its_clock() {
+fn a_node_program_sleeps_and_ticks_on_the_real_clock() {
     nomi_testkit::require_node();
     let cache = website::fixture_cache();
-    let expected = "slept: True\ntick 1: True\ntick 2: True\ntick 3: True\nnow: True\n";
-    for (sleep, every, clock) in [(3_600_000, 1000, "virtual"), (50, 5, "real")] {
-        let (_work, root) = project(&clocked_worker(sleep, every));
-        fs::write(
-            root.join("elm.json"),
-            r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "elm/time": "1.0.0"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
-        )
+    let (_work, root) = project(&clocked_worker(50, 5));
+    fs::write(
+        root.join("elm.json"),
+        r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "elm/time": "1.0.0"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
+    )
+    .unwrap();
+    build(
+        cache.path(),
+        &root,
+        &["--platform=node", "--output=dist/main.mjs"],
+    );
+    let started = std::time::Instant::now();
+    let mut node = Command::new("node")
+        .arg("dist/main.mjs")
+        .current_dir(&root)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
         .unwrap();
-        build(
-            cache.path(),
-            &root,
-            &["--platform=node", "--output=dist/main.mjs"],
-        );
-        let started = std::time::Instant::now();
-        let mut node = Command::new("node")
-            .arg("dist/main.mjs")
-            .env("NOMI_CLOCK", clock)
-            .current_dir(&root)
-            .stdout(std::process::Stdio::piped())
-            .spawn()
-            .unwrap();
-        while node.try_wait().unwrap().is_none() && started.elapsed().as_secs() < 30 {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        let _ = node.kill();
-        let ran = node.wait_with_output().unwrap();
-        let took = started.elapsed();
-        assert!(ran.status.success(), "{clock}: {ran:?} after {took:?}");
-        assert_eq!(String::from_utf8_lossy(&ran.stdout), expected, "{clock}");
-        if clock == "virtual" {
-            assert!(took.as_millis() < 1000, "the virtual clock took {took:?}");
-        }
+    while node.try_wait().unwrap().is_none() && started.elapsed().as_secs() < 30 {
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
+    let _ = node.kill();
+    let ran = node.wait_with_output().unwrap();
+    assert!(
+        ran.status.success(),
+        "{ran:?} after {:?}",
+        started.elapsed()
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&ran.stdout),
+        "slept: True\ntick 1: True\ntick 2: True\ntick 3: True\nnow: True\n"
+    );
 }
 
 /// A worker logging each tick of a `Time.every 20`.
