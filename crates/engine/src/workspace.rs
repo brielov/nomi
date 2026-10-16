@@ -400,12 +400,13 @@ impl MemberBuild<'_> {
     pub(crate) fn run(
         &self,
         members: &Members,
-        known: &Mutex<BTreeMap<Name, Arc<PackageBuild>>>,
+        known: &Mutex<BTreeMap<(Name, Compat), Arc<PackageBuild>>>,
     ) -> Result<Result<MembersBuilt, Checked>, Cancelled> {
         let mut built = MembersBuilt::default();
         for member in &members.packages {
             let name = &member.outline.name;
-            let known_build = lock(known).get(name).cloned();
+            let key = (name.clone(), self.compat);
+            let known_build = lock(known).get(&key).cloned();
             let build = if let Some(build) = known_build {
                 build
             } else {
@@ -413,7 +414,7 @@ impl MemberBuild<'_> {
                     Ok(build) => Arc::new(build),
                     Err(checked) => return Ok(Err(checked)),
                 };
-                lock(known).insert(name.clone(), build.clone());
+                lock(known).insert(key, build.clone());
                 build
             };
             built.builds.insert(name.clone(), build);

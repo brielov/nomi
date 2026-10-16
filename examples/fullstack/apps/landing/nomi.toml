@@ -1,0 +1,4 @@
+[[entry]]
+main = "src/Main.elm"
+platform = "browser"
+port = 8001

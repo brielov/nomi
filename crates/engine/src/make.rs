@@ -317,10 +317,12 @@ pub fn interfaces(
 pub(crate) struct Shared<'a> {
     pub artifacts: Artifacts,
     pub memo: Mutex<Memo>,
-    /// Each member package built, by name, once in a command: its
-    /// workspace resolves once, and a command builds them for one goal,
-    /// or a workspace's optimized for all.
-    pub members: Mutex<BTreeMap<Name, Arc<PackageBuild>>>,
+    /// Each member package built, by name and the elm release built for,
+    /// once in a command: its workspace resolves once, and a command builds
+    /// them for one goal, or a workspace's optimized for all. A package
+    /// alone builds for the latest release its range allows, an app for
+    /// its own, and code names kernels as its release does.
+    pub members: Mutex<BTreeMap<(Name, Compat), Arc<PackageBuild>>>,
     /// The workspace's root, which a workspace's build names every
     /// module's path from, in place of each project's own directory.
     pub root: Option<&'a Path>,

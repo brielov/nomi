@@ -399,3 +399,25 @@ fn an_entry_written_where_no_code_goes_is_refused() {
         said(&console)
     );
 }
+
+#[test]
+fn a_package_reaching_a_kernel_builds_for_the_applications_release() {
+    let fixture = Fixture::new();
+    // The package alone builds for the latest release, the applications
+    // for 0.19.1, which names kernels otherwise: here, a list's.
+    fixture.write(
+        "packages/shared/src/Shared/Other.elm",
+        &value("Shared.Other", &[], "other", "List.length [ 1, 2 ]"),
+    );
+    let (console, outcomes) = fixture.build();
+    assert!(
+        (outcomes.iter()).all(|(_, outcome)| matches!(outcome, Outcome::Built(_))),
+        "{}",
+        said(&console)
+    );
+    let web = fixture.read("apps/web/web.js");
+    assert!(
+        web.contains("$Shared$Other$other = $elm$core$List$length(\n\t_List_fromArray("),
+        "{web}"
+    );
+}
