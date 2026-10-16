@@ -1,7 +1,7 @@
 //! nomi/core's `Nomi.program`, bundled with nomi: built offline from the
 //! bundle, it is a Node entry unless the browser is asked for, and runs
-//! its task as the process, which exits with how the task ended; joining
-//! a fiber that dies is the joiner's defect, and its fibers share refs
+//! its task as the process, which exits with how the task ended, or at
+//! once, naming it, when Node lacks something it needs; joining a fiber that dies is the joiner's defect, and its fibers share refs
 //! and queues (`nomi_test.rs` runs its concurrent tasks, which take hours,
 //! on nomi/test's virtual clock). nomi/server, bundled beside it, serves
 //! HTTP to a loopback client, a request per fiber, and drains on SIGTERM.
@@ -398,6 +398,36 @@ fn a_program_built_for_the_browser_names_the_path_to_the_nomi_kernel() {
         "{said}"
     );
     assert!(!root.join("dist").exists());
+}
+
+#[test]
+fn an_entry_on_a_node_lacking_a_feature_it_needs_exits_naming_it() {
+    nomi_testkit::require_node();
+    let (_work, root) = built(PROGRAM);
+    let version = node().args(["-p", "process.version"]).output().unwrap();
+    let version = String::from_utf8_lossy(&version.stdout).trim().to_owned();
+    let missing = [
+        ("process.getBuiltinModule", "process", "22.3"),
+        ("AbortController", "globalThis", "15.0"),
+    ];
+    for (feature, owner, since) in missing {
+        let name = feature.rsplit('.').next().unwrap();
+        fs::write(root.join("delete.mjs"), format!("delete {owner}.{name};\n")).unwrap();
+        let ran = node()
+            .args(["--import", "./delete.mjs", "dist/main.mjs", "a"])
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        assert_eq!(ran.status.code(), Some(1), "{ran:?}");
+        assert_eq!(String::from_utf8_lossy(&ran.stdout), "");
+        assert_eq!(
+            errors(&ran),
+            [format!(
+                "nomi: this program needs {feature}, which Node {since} and later have \
+                 (this is Node {version})."
+            )]
+        );
+    }
 }
 
 #[test]

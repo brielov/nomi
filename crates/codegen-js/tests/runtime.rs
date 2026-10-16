@@ -26,7 +26,7 @@ fn the_runtime_namespace_holds_what_its_modules_export() {
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 const [src] = process.argv.slice(1);
-const modules = ["clock.js", "fiber.js", "main.js"];
+const modules = ["clock.js", "fiber.js", "main.js", "probe.js"];
 const exported = {};
 for (const file of modules) Object.assign(exported, await import(pathToFileURL(`${src}/${file}`)));
 const runtime = new Function(`'use strict';\n${readFileSync(0, "utf8")}return _Runtime;`)();

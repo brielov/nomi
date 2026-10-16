@@ -6,10 +6,11 @@
 use std::sync::LazyLock;
 
 /// The runtime's modules a program holds, each after those it imports.
-const MODULES: [(&str, &str); 3] = [
+const MODULES: [(&str, &str); 4] = [
     ("clock.js", include_str!("../../../runtime/src/clock.js")),
     ("fiber.js", include_str!("../../../runtime/src/fiber.js")),
     ("main.js", include_str!("../../../runtime/src/main.js")),
+    ("probe.js", include_str!("../../../runtime/src/probe.js")),
 ];
 
 /// What a Node program declares before its kernels: `_Runtime`, the

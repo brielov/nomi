@@ -1,6 +1,7 @@
 //! What a program is generated for: where it runs, and the shape of its
 //! file. Upstream's is the browser's, an IIFE.
 
+use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::fmt::Write;
 use std::path::{Component, Path};
@@ -120,10 +121,40 @@ fn lexical(path: &Path) -> Vec<&OsStr> {
     parts
 }
 
+/// What the runtime needs from Node beyond the language, as
+/// `runtime/src/probe.js`'s `SINCE` names it.
+const RUNTIME_NEEDS: &[&str] = &["AbortController", "setImmediate"];
+
+/// What the kernel module `kernel`, by short name, needs from Node beyond
+/// the language and the runtime, as `runtime/src/probe.js`'s `SINCE`
+/// names it.
+fn kernel_needs(kernel: &str) -> &'static [&'static str] {
+    match kernel {
+        "Http" => &["fetch", "TextDecoder"],
+        "NomiFs" => &["process.getBuiltinModule", "TextEncoder", "TextDecoder"],
+        "NomiServer" => &["process.getBuiltinModule", "URLSearchParams"],
+        _ => &[],
+    }
+}
+
+/// The line that starts a Node entry, after the runtime and before the
+/// kernels, which may use what they need as they load: the runtime's
+/// probe of what it and `kernels`, by short name, need from Node, which
+/// exits naming the first Node lacks.
+pub fn probe<'a>(kernels: impl IntoIterator<Item = &'a str>) -> String {
+    let mut needs: BTreeSet<&str> = RUNTIME_NEEDS.iter().copied().collect();
+    needs.extend(kernels.into_iter().flat_map(kernel_needs));
+    let list = needs
+        .iter()
+        .map(|need| format!("'{need}'"))
+        .collect::<Vec<_>>();
+    format!("_Runtime.probe([{}]);\n", list.join(", "))
+}
+
 /// The lines that end a Node entry's function, where the program's
-/// runtime is, and start its `main`, in `module`: checks of what the
-/// program needs from Node go first, then one lifecycle on the runtime,
-/// which handles signals, then `init`, which passes a worker no flags. A
+/// runtime is, and start its `main`, in `module`: one lifecycle on the
+/// runtime, which handles signals, then `init`, which passes a worker no
+/// flags. A
 /// nomi/core program's `init` starts the runtime's `main` itself and
 /// marks itself so; any other `main` is a worker, whose lifecycle starts
 /// here.
@@ -160,6 +191,36 @@ mod tests {
             "./my%20lib/it%27s%20%231%3F%25.mjs"
         );
         assert_eq!(specifier("main.mjs", "é.mjs"), "./%C3%A9.mjs");
+    }
+
+    #[test]
+    fn a_probe_checks_what_the_runtime_and_the_reached_kernels_need_once_each() {
+        assert_eq!(
+            probe([]),
+            "_Runtime.probe(['AbortController', 'setImmediate']);\n"
+        );
+        assert_eq!(
+            probe(["Basics", "NomiServer", "NomiFs"]),
+            "_Runtime.probe(['AbortController', 'TextDecoder', 'TextEncoder', \
+             'URLSearchParams', 'process.getBuiltinModule', 'setImmediate']);\n"
+        );
+    }
+
+    #[test]
+    fn the_runtimes_probe_knows_every_need() {
+        let since = include_str!("../../../runtime/src/probe.js");
+        let kernels = ["Http", "NomiFs", "NomiServer"];
+        let needs = RUNTIME_NEEDS
+            .iter()
+            .chain(kernels.iter().flat_map(|k| kernel_needs(k)));
+        for need in needs {
+            let key = if need.contains('.') {
+                format!("  \"{need}\": \"")
+            } else {
+                format!("  {need}: \"")
+            };
+            assert!(since.contains(&key), "probe.js's SINCE lacks {need}");
+        }
     }
 
     #[test]

@@ -18,7 +18,7 @@ use crate::expression::{Generator, code_to_expr, code_to_stmt_list};
 use crate::ffi::Startup;
 use crate::mode::Mode;
 use crate::name::Name;
-use crate::platform::{Format, Target, shim};
+use crate::platform::{Format, Target, probe, shim};
 use crate::reach::{deps_of, identity, manager_functions};
 use crate::runtime;
 
@@ -27,7 +27,8 @@ const FUNCTIONS: &str = include_str!("functions.js");
 /// `generate`: the program of `mains`, each a module and its `main`,
 /// from `graph`, which holds every definition they may reach, for
 /// `target`. A Node program carries the runtime its kernels run on, and
-/// a Node module of one `main` is an entry, which starts it. A module's
+/// a Node module of one `main` is an entry, which probes Node for what
+/// the program needs before its kernels load, and starts it. A module's
 /// FFI module is imported first and is its scope's `ffi`, where its
 /// kernel finds it, once the module has checked what `startup` asks.
 pub fn generate(
@@ -56,6 +57,11 @@ pub fn generate(
     if target.platform == Platform::Node {
         kernels.extend_from_slice(runtime::prologue().as_bytes());
     }
+    let entry = matches!(
+        (target.platform, target.format, mains.as_slice()),
+        (Platform::Node, Format::EsModule, [_])
+    );
+    let runtime_end = kernels.len();
     let mut state = State {
         generator: Generator { compat, mode },
         graph,
@@ -72,10 +78,15 @@ pub fn generate(
     }
     main_exports(&mut state.builders, &state.generator, &mains);
     let mut out = state.kernels;
+    if entry {
+        let kernels = (state.seen.iter())
+            .filter(|global| global.home.package == "elm/kernel")
+            .map(|global| global.home.module.as_str());
+        let probe = probe(kernels);
+        out.splice(runtime_end..runtime_end, probe.bytes());
+    }
     out.extend_from_slice(state.builders.as_bytes());
-    if let (Platform::Node, Format::EsModule, [(home, _)]) =
-        (target.platform, target.format, mains.as_slice())
-    {
+    if let (true, [(home, _)]) = (entry, mains.as_slice()) {
         out.extend_from_slice(shim(&home.module).as_bytes());
     }
     let end: &[u8] = match target.format {
@@ -516,11 +527,14 @@ mod tests {
             let js = generate(Compat::V0_19_1, &DEV, target, &NONE, &graph, &mains);
             String::from_utf8(js).unwrap()
         };
-        // Node's is the browser's with the runtime after the warning.
+        // Node's is the browser's with the runtime after the warning, and
+        // an entry's probe after the runtime.
         let note = perf_note(Compat::V0_19_1, &DEV);
-        let with_runtime =
-            |module: String| module.replacen(&note, &format!("{note}{}", runtime::prologue()), 1);
-        let module = with_runtime(built(&browser, &["Page.Home"]));
+        let with = |module: String, after: &str| {
+            module.replacen(&note, &format!("{note}{}{after}", runtime::prologue()), 1)
+        };
+        let with_runtime = |module: String| with(module, "");
+        let module = with(built(&browser, &["Page.Home"]), &probe([]));
         let (body, end) = module.split_at(module.rfind("}(scope));").unwrap());
         assert_eq!(
             built(&node, &["Page.Home"]),
