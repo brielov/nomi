@@ -21,7 +21,7 @@ use crate::check::{self, Build, Checked, Goal, Made, Style, env_of, packages_pro
 use crate::console::{self, Console, Personality};
 use crate::graph::Foreigns;
 use crate::install::details_problem;
-use crate::make::{self, FfiModule, Make, NamedIn, Shared};
+use crate::make::{self, FfiModule, Make, NamedIn, Output, Shared};
 use crate::names::{Building, Packages};
 use crate::objects::{self, Memo, PackageBuild};
 use crate::packages::Resolve;
@@ -573,6 +573,37 @@ pub fn build<'w>(
     dirs: &[PathBuf],
     making: Making,
 ) -> Vec<(&'w Member, Outcome)> {
+    builds(cx, console, workspace, dirs, making).outcomes
+}
+
+/// What [`builds`] made of a workspace's members.
+#[derive(Debug)]
+pub(crate) struct Builds<'w> {
+    /// How each member's build went, in the members' order.
+    pub outcomes: Vec<(&'w Member, Outcome)>,
+    /// Each entry whose code was written, in the members' order.
+    pub entries: Vec<EntryBuilt<'w>>,
+}
+
+/// An entry of a member's `nomi.toml` whose code a build wrote.
+#[derive(Debug)]
+pub(crate) struct EntryBuilt<'w> {
+    pub member: &'w Member,
+    pub entry: &'w Entry,
+    /// Where the code went, absolute.
+    pub output: PathBuf,
+    /// Where the code runs, as the entry or its `main` decided.
+    pub platform: Platform,
+}
+
+/// [`build`], with each entry it wrote.
+pub(crate) fn builds<'w>(
+    cx: &Context<'_, impl Http + Sync>,
+    console: &mut dyn Console,
+    workspace: &'w Workspace,
+    dirs: &[PathBuf],
+    making: Making,
+) -> Builds<'w> {
     let started = Instant::now();
     let shared = Shared::new(cx.cache, Some(workspace.root()));
     let members = workspace.members();
@@ -585,6 +616,7 @@ pub fn build<'w>(
         }
     }
     let mut outcomes: Vec<(&Member, Outcome)> = Vec::with_capacity(wanted.len());
+    let mut entries = Vec::new();
     for member in members.iter().filter(|m| wanted.contains(m.dir.as_path())) {
         let blocked = workspace.deps(member).any(|dep| {
             let (_, outcome) = (outcomes.iter().find(|(m, _)| m.dir == dep.dir))
@@ -594,7 +626,15 @@ pub fn build<'w>(
         let outcome = if blocked {
             Outcome::Blocked
         } else {
-            built(cx, console, &shared, workspace, member, making)
+            built(
+                cx,
+                console,
+                &shared,
+                workspace,
+                member,
+                making,
+                &mut entries,
+            )
         };
         outcomes.push((member, outcome));
     }
@@ -602,18 +642,20 @@ pub fn build<'w>(
     if timings::on() {
         console.err(&timings::report(started.elapsed()));
     }
-    outcomes
+    Builds { outcomes, entries }
 }
 
 /// Builds `member` of `workspace`: a package's exposed modules as its
-/// dependents see them, then each of its entries.
-fn built(
+/// dependents see them, then each of its entries, adding those whose
+/// code it wrote to `entries`.
+fn built<'w>(
     cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
     shared: &Shared,
     workspace: &Workspace,
-    member: &Member,
+    member: &'w Member,
     making: Making,
+    entries: &mut Vec<EntryBuilt<'w>>,
 ) -> Outcome {
     let dir = workspace.root().join(&member.dir);
     let cx = Context { dir: &dir, ..*cx };
@@ -633,16 +675,26 @@ fn built(
         Outline::App(_) => Vec::new(),
     };
     for entry in member.manifest.iter().flat_map(|m| &m.entries) {
-        let made = match entry_make(&dir, entry, making) {
-            Ok(make) => make::made(&cx, console, &make, shared),
+        let make = match entry_make(&dir, entry, making) {
+            Ok(make) => make,
             Err(report) => {
                 console::report(console, &report, Compat::LATEST);
-                None
+                return Outcome::Failed;
             }
         };
-        match made {
-            Some(mut more) => ran.append(&mut more),
-            None => return Outcome::Failed,
+        let Some(mut wrote) = make::made(&cx, console, &make, shared) else {
+            return Outcome::Failed;
+        };
+        ran.append(&mut wrote.ran);
+        if let (Some(platform), Some(Output::Js(output) | Output::Html(output))) =
+            (wrote.platform, &make.output)
+        {
+            entries.push(EntryBuilt {
+                member,
+                entry,
+                output: dir.join(output),
+                platform,
+            });
         }
     }
     Outcome::Built(ran)

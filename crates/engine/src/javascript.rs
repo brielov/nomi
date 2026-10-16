@@ -26,6 +26,7 @@ use crate::Pool;
 use crate::artifacts::Hash;
 use crate::check::Optimized;
 use crate::graph::module_path;
+use crate::make::{FfiModule, NamedIn};
 use crate::paths::package_src;
 use crate::project::package_outline;
 
@@ -47,11 +48,17 @@ pub enum Kind {
 /// with `dependencies`' graph and their modules' types, for `target`; or
 /// the report on a kernel the program reaches that its platform lacks.
 /// `packages` are the dependencies, each with the directory of its
-/// source, where the platform's kernels find the files they replace.
+/// source, where the platform's kernels find the files they replace;
+/// `ffi`, where `target` has an FFI module, is where it was named.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each is a separate input of generation"
+)]
 pub fn program(
     compat: Compat,
     kind: Kind,
     target: &Target,
+    ffi: Option<&FfiModule>,
     package: &str,
     packages: &[(Name, PathBuf)],
     dependencies: (GlobalGraph, Types),
@@ -106,8 +113,8 @@ pub fn program(
     let js = match unavailable(compat, &mode, &lacking, &graph, &mains) {
         Some(path) => Err(not_available(target.platform, &path, &unknown)),
         None => match &target.ffi {
-            Some(ffi) => ffi::check(compat, &mode, &ffi.exports, &graph, &mains)
-                .map_err(|misspelt| ffi_misspelt(&misspelt, &ffi.exports)),
+            Some(module) => ffi::check(compat, &mode, &module.exports, &graph, &mains)
+                .map_err(|misspelt| ffi_misspelt(&misspelt, &module.exports, ffi)),
             None => Ok(Startup::default()),
         }
         .map(|startup| generate(compat, &mode, target, &startup, &graph, &mains)),
@@ -259,8 +266,8 @@ fn not_available(platform: Platform, path: &[Global], unknown: &[Unknown]) -> Re
 }
 
 /// That calls in `misspelt` name functions the FFI module, which
-/// exports `exports`, does not export.
-fn ffi_misspelt(misspelt: &[Misspelt], exports: &Exports) -> Report {
+/// exports `exports` and was named as `named` says, does not export.
+fn ffi_misspelt(misspelt: &[Misspelt], exports: &Exports, named: Option<&FfiModule>) -> Report {
     let calls = (misspelt.iter())
         .map(|Misspelt { caller, name }| {
             format!(
@@ -278,10 +285,23 @@ fn ffi_misspelt(misspelt: &[Misspelt], exports: &Exports) -> Report {
         docs.push(reflow("It exports:"));
         docs.push(text(names.join(", ")).color(Color::Green).indent(4));
     }
-    docs.push(reflow(
-        "Check the name against the module given with --ffi; a call names an export \
-         exactly, case included.",
-    ));
+    let module = match named {
+        Some(FfiModule {
+            path,
+            named_in: NamedIn::Entry(main),
+        }) => format!(
+            "{}, the FFI module nomi.toml gives the entry {main}",
+            path.display()
+        ),
+        Some(FfiModule {
+            named_in: NamedIn::Flag,
+            ..
+        })
+        | None => "the module given with --ffi".to_owned(),
+    };
+    docs.push(reflow(&format!(
+        "Check the name against {module}; a call names an export exactly, case included."
+    )));
     Report::doc(
         "UNKNOWN FFI FUNCTION",
         None,

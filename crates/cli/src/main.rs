@@ -90,12 +90,13 @@ enum Command {
     /// Build modules into JavaScript or HTML as `elm make` does.
     #[command(visible_alias = "make")]
     Build(Build),
-    /// Build an entry of nomi.toml for Node and run it, as the process.
+    /// Build an entry of nomi.toml for Node and run it, as the process;
+    /// without one named, every entry, together.
     Run {
-        /// The entry to run, by its `main`, where nomi.toml has several.
+        /// The entry to run, by its `main`.
         #[arg(conflicts_with = "elm")]
         entry: Option<PathBuf>,
-        /// Run the one entry of this member of the workspace, by its
+        /// Run the entries of this member of the workspace, by its
         /// directory or package name.
         #[arg(short = 'p', long = "package", value_name = "MEMBER", conflicts_with_all = ["entry", "elm"])]
         member: Option<String>,
@@ -361,13 +362,13 @@ fn nomi_run(
         return ExitCode::FAILURE;
     };
     ExitCode::from(run_in(&dir, &cache, |cx, console| {
-        scope::in_one(cx, console, member, "run", 1, |cx, console| {
-            if watch {
+        if watch {
+            scope::in_one(cx, console, member, "run", 1, |cx, console| {
                 run::watch(cx, console, program, args)
-            } else {
-                run::run(cx, console, program, args)
-            }
-        })
+            })
+        } else {
+            run::run(cx, console, program, member, args)
+        }
     }))
 }
 

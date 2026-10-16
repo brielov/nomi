@@ -3,6 +3,10 @@
 //! run under `node`, which the run stands in for: the arguments are the
 //! program's, the signals nomi is sent reach it, and nomi exits as it
 //! does. With `--watch` it is built and run again as the project changes.
+//! Without an entry named, every entry of the project, the member or the
+//! workspace runs, each under its member's name.
+
+mod many;
 
 use std::ffi::OsString;
 use std::io;
@@ -12,18 +16,18 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use nomi_base::{Compat, Platform, Report};
+use nomi_project::workspace::Workspace;
 use nomi_project::{Entry, Manifest, report};
 use nomi_registry::Http;
 
-use crate::check::Style;
 use crate::console::{self, Console, Personality};
-use crate::make::{self, FfiModule, Make, NamedIn, Output};
-use crate::packages::Resolve;
+use crate::make::{self, FfiModule, Make, NamedIn};
 use crate::paths::{NOMI_TOML, Root, relative};
 use crate::project::{Project, no_outline};
 use crate::report::one_line;
+use crate::scope::{self, Scope};
 use crate::watch::{Change, POLL, Snapshot, message};
-use crate::{Context, javascript};
+use crate::{Context, workspace};
 
 /// What `nomi run` was asked to run.
 #[derive(Clone, Debug)]
@@ -45,13 +49,114 @@ struct Built {
     ffi: Option<FfiModule>,
     /// What `main` and `ffi` are relative to.
     dir: PathBuf,
+    /// Where it runs: by `main`'s type where nothing says.
+    platform: Option<Platform>,
+    /// The arguments the entry gives the program.
+    args: Vec<String>,
+}
+
+impl Built {
+    /// `node` running the program with `args`, or the entry's own without
+    /// them.
+    fn node(&self, args: &[OsString]) -> Command {
+        if args.is_empty() {
+            let args: Vec<OsString> = self.args.iter().map(OsString::from).collect();
+            node(&self.output, &args)
+        } else {
+            node(&self.output, args)
+        }
+    }
+}
+
+/// Builds `program` and runs it under `node` with `args`, in the member
+/// `member` names or the project around the directory, as [`one`] does;
+/// or, where no entry is named and there are several, builds them all
+/// and runs every Node program among them together, each with its
+/// entry's arguments, as `many` does. The code to exit with.
+pub fn run(
+    cx: &Context<'_, impl Http + Sync>,
+    console: &mut dyn Console,
+    program: &Program,
+    member: Option<&str>,
+    args: &[OsString],
+) -> u8 {
+    let failed = |console: &mut dyn Console, report: &Report| {
+        console::report(console, report, Compat::LATEST);
+        1
+    };
+    if let Program::Entry(None) = program {
+        match entries(cx, member) {
+            Ok(Entries::Several(..)) if !args.is_empty() => {
+                return failed(console, &arguments_for_several());
+            }
+            Ok(Entries::Several(workspace, dirs)) => {
+                return many::run(cx, console, &workspace, &dirs);
+            }
+            Ok(Entries::One(dir)) => {
+                return one(&Context { dir: &dir, ..*cx }, console, program, args);
+            }
+            Err(report) => return failed(console, &report),
+        }
+    }
+    scope::in_one(cx, console, member, "run", 1, |cx, console| {
+        one(cx, console, program, args)
+    })
+}
+
+/// The entries `nomi run` without one named runs.
+enum Entries {
+    /// The one entry, or none, which [`one`] says, of the project in this
+    /// directory.
+    One(PathBuf),
+    /// The entries of these members of the workspace, more than one.
+    Several(Workspace, Vec<PathBuf>),
+}
+
+/// The entries of the member `member` names, or of the project around
+/// the directory, or, outside every member, of the whole workspace.
+fn entries(cx: &Context<'_, impl Http>, member: Option<&str>) -> Result<Entries, Report> {
+    let specs: Vec<String> = member.iter().map(|m| (*m).to_owned()).collect();
+    let (workspace, dirs) = match scope::find(cx, &specs)? {
+        Scope::Project => {
+            let alone = Root::find(cx.vfs, cx.dir)
+                .and_then(|root| workspace::alone(&cx.vfs.snapshot(), root.dir()));
+            match alone {
+                Some(Ok(workspace)) => (workspace, vec![PathBuf::new()]),
+                // What is missing or wrong, `one` says.
+                None | Some(Err(_)) => return Ok(Entries::One(cx.dir.to_owned())),
+            }
+        }
+        Scope::Named(workspace, dirs) => (workspace, dirs),
+        Scope::Every(workspace) => {
+            let dirs = (workspace.members().iter()).map(|m| m.dir.clone());
+            let dirs = dirs.collect();
+            (workspace, dirs)
+        }
+    };
+    let counts: Vec<(&PathBuf, usize)> = (workspace.members().iter())
+        .filter(|member| dirs.contains(&member.dir))
+        .map(|member| {
+            let entries = member.manifest.as_ref().map_or(0, |m| m.entries.len());
+            (&member.dir, entries)
+        })
+        .filter(|&(_, entries)| entries > 0)
+        .collect();
+    match (counts.as_slice(), &dirs[..]) {
+        ([(dir, 1)], _) => Ok(Entries::One(workspace.root().join(dir))),
+        ([], [dir]) => Ok(Entries::One(workspace.root().join(dir))),
+        ([], _) => Err(no_member_entries()),
+        _ => {
+            let dirs = counts.into_iter().map(|(dir, _)| dir.clone()).collect();
+            Ok(Entries::Several(workspace, dirs))
+        }
+    }
 }
 
 /// Builds `program` in the project around the directory and runs it
 /// under `node` with `args`, showing on standard error how the build went
 /// and why it didn't run. The code to exit with: the program's, 128 plus
 /// the signal that killed it, or 1 if it didn't run.
-pub fn run(
+fn one(
     cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
     program: &Program,
@@ -60,7 +165,7 @@ pub fn run(
     let Some(built) = build(cx, &mut Stderr(console), program) else {
         return 1;
     };
-    match supervise(&mut node(&built.output, args)) {
+    match supervise(&mut built.node(args)) {
         Ok(status) => exit_code(status),
         Err(e) => {
             console::report(console, &no_node(&e), Compat::LATEST);
@@ -114,7 +219,7 @@ pub fn watch(
             let _ = stop(console, &mut old, Some(Stop::Terminate));
         }
         if let Some(built) = built {
-            child = (node(&built.output, args).spawn())
+            child = (built.node(args).spawn())
                 .inspect_err(|e| console::report(console, &no_node(e), Compat::LATEST))
                 .ok();
         }
@@ -175,29 +280,24 @@ fn build(
     let built = chosen(cx, program)
         .inspect_err(|report| console::report(console, report, Compat::LATEST))
         .ok()?;
+    let output = built.output.to_string_lossy();
+    let make = Make::build(vec![built.main.clone()], Some(&output), built.platform)
+        .expect("a program run is written to an ES module");
     let make = Make {
-        paths: vec![built.main.clone()],
-        personality: Personality::Nomi,
-        style: Style::Terminal,
-        kind: Ok(javascript::Kind::Dev),
-        target: javascript::Target {
-            platform: Platform::Node,
-            format: javascript::Format::EsModule,
-            dom: javascript::Dom::Native,
-            ffi: None,
-        },
-        platform_by_main: false,
-        resolve: Resolve::Nomi,
         ffi: built.ffi.clone(),
-        members_of: None,
-        output: Some(Output::Js(built.output.clone())),
-        docs: None,
+        ..make
     };
     let cx = Context {
         dir: &built.dir,
         ..*cx
     };
-    make::run(&cx, console, &make).then_some(built)
+    let wrote = make::wrote(&cx, console, &make)?;
+    if wrote.platform == Some(Platform::Browser) {
+        let main = built.main.display().to_string();
+        console::report(console, &browser_entry(&main), Compat::LATEST);
+        return None;
+    }
+    Some(built)
 }
 
 /// What `program` builds, from `nomi.toml`'s entry where it names one.
@@ -210,6 +310,8 @@ fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built
             output: output_of(&cx.dir.join(main)),
             ffi: None,
             dir: cx.dir.to_owned(),
+            platform: Some(Platform::Node),
+            args: Vec::new(),
         },
         Program::Entry(chosen) => {
             let entry = entry(cx, &root, chosen.as_deref())?;
@@ -231,6 +333,8 @@ fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built
                 main: entry.main.into(),
                 output,
                 dir: root.dir().to_owned(),
+                platform: entry.platform,
+                args: entry.args,
             }
         }
     };
@@ -529,6 +633,23 @@ fn unknown_entry(chosen: &str, mains: &str) -> Report {
             "No entry of nomi.toml has {chosen} as its main. The entries are: {mains}. To run \
              a module that isn't an entry, give it with -e."
         ),
+    )
+}
+
+fn no_member_entries() -> Report {
+    one_line(
+        "NO ENTRY",
+        "No member of the workspace has an entry in its nomi.toml to run. Add one, as \
+         [[entry]] with main = \"src/Main.elm\".",
+    )
+}
+
+fn arguments_for_several() -> Report {
+    one_line(
+        "ARGUMENTS FOR WHICH ENTRY?",
+        "The arguments after -- go to one program, but there are several entries to run. \
+         Choose one by its main, as in nomi run src/Main.elm, or its member, with -p, or \
+         give each its arguments with args in nomi.toml.",
     )
 }
 

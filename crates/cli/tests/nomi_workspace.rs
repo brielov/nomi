@@ -47,7 +47,7 @@ fn nomi_workspace_transcripts() {
         }
         Some(actual)
     });
-    assert_eq!(ran, 12);
+    assert_eq!(ran, 13);
 }
 
 /// An application's `elm.json`, depending on elm/core and elm/json and

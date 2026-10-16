@@ -236,30 +236,47 @@ impl Make {
 /// shows how it went. Whether nothing was wrong. With `NOMI_TIMINGS`,
 /// where the time went follows on standard error.
 pub fn run(cx: &Context<'_, impl Http + Sync>, console: &mut dyn Console, make: &Make) -> bool {
+    wrote(cx, console, make).is_some()
+}
+
+/// Makes what `make` asks for as [`run`] does; what it wrote, if nothing
+/// was wrong.
+pub(crate) fn wrote(
+    cx: &Context<'_, impl Http + Sync>,
+    console: &mut dyn Console,
+    make: &Make,
+) -> Option<Wrote> {
     let started = Instant::now();
     // The packages' builds are freed before the code is generated, which
     // then takes their graphs rather than copying them.
     let built = build(cx, console, make, make.goal(), &Shared::new(cx.cache, None));
-    let ok = built.is_some_and(|clean| write(cx.vfs, console, cx.dir, make, clean, None));
+    let wrote = built.and_then(|clean| write(cx.vfs, console, cx.dir, make, clean, None));
     trim(cx.cache);
     if timings::on() {
         console.err(&timings::report(started.elapsed()));
     }
-    ok
+    wrote
 }
 
 /// Makes what `make` asks for as [`run`] does, with what the command's
-/// other builds share; the modules checked rather than taken from the
-/// artifact cache, if nothing was wrong.
+/// other builds share; what it wrote, if nothing was wrong.
 pub(crate) fn made(
     cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
     make: &Make,
     shared: &Shared,
-) -> Option<Vec<PathBuf>> {
-    let mut clean = build(cx, console, make, make.goal(), shared)?;
-    let ran = std::mem::take(&mut clean.built.ran);
-    write(cx.vfs, console, cx.dir, make, clean, shared.root).then_some(ran)
+) -> Option<Wrote> {
+    let clean = build(cx, console, make, make.goal(), shared)?;
+    write(cx.vfs, console, cx.dir, make, clean, shared.root)
+}
+
+/// What a build in which nothing was wrong did.
+#[derive(Debug)]
+pub(crate) struct Wrote {
+    /// The modules checked rather than taken from the artifact cache.
+    pub ran: Vec<PathBuf>,
+    /// The platform of the code written, if any was.
+    pub platform: Option<Platform>,
 }
 
 /// The interfaces of the modules of a project around the directory,
@@ -282,7 +299,7 @@ pub fn interfaces(
         Some(Made::Optimized(optimized)) => optimized.interfaces.clone(),
         _ => Vec::new(),
     };
-    write(cx.vfs, console, cx.dir, make, clean, None).then_some(interfaces)
+    write(cx.vfs, console, cx.dir, make, clean, None).map(|_| interfaces)
 }
 
 /// What the builds of one command share: the artifact cache, each
@@ -516,7 +533,8 @@ pub(crate) fn load(
 
 /// Writes what the clean build made, as `make` asks: the documentation,
 /// or the code and, in the terminal style, a diagram of where it went,
-/// naming the output from `from` where given. Whether nothing was wrong.
+/// naming the output from `from` where given. What it wrote, if nothing
+/// was wrong.
 fn write(
     vfs: &Vfs,
     console: &mut dyn Console,
@@ -524,7 +542,7 @@ fn write(
     make: &Make,
     clean: Clean,
     from: Option<&Path>,
-) -> bool {
+) -> Option<Wrote> {
     let Clean {
         root,
         compat,
@@ -532,8 +550,9 @@ fn write(
         kind,
         packages,
         dependencies,
-        built,
+        mut built,
     } = clean;
+    let ran = std::mem::take(&mut built.ran);
     let fail = |console: &mut dyn Console, report| {
         show(
             console,
@@ -542,7 +561,7 @@ fn write(
             compat,
             make.style,
         );
-        false
+        None
     };
     if let (Some(path), Some(Made::Docs(docs))) = (&make.docs, &built.made) {
         let path = dir.join(path);
@@ -555,6 +574,7 @@ fn write(
         }
     }
     let mut diagram = None;
+    let mut platform = None;
     if make.generating()
         && let Some(Made::Optimized(optimized)) = built.made
     {
@@ -573,6 +593,7 @@ fn write(
             if make.platform_by_main && javascript::runs_on_node(&optimized) {
                 made_for.platform = Platform::Node;
             }
+            platform = Some(made_for.platform);
             if let Some(ffi) = &make.ffi {
                 match ffi_module(vfs, dir, ffi, &made_for, &target) {
                     Ok(ffi) => made_for.ffi = Some(ffi),
@@ -583,7 +604,14 @@ fn write(
             let bytes = timings::time(Phase::Generate, || {
                 let types = dependencies.into_graph_and_types();
                 let js = javascript::program(
-                    compat, kind, &made_for, &package, &packages, types, optimized,
+                    compat,
+                    kind,
+                    &made_for,
+                    make.ffi.as_ref(),
+                    &package,
+                    &packages,
+                    types,
+                    optimized,
                 )?;
                 Ok(match &target.html {
                     Some(module) => nomi_codegen_js::html::sandwich(&module.to_string(), &js),
@@ -595,15 +623,7 @@ fn write(
                 Err(report) => return fail(console, report),
             };
             let path = dir.join(&target.path);
-            let written = timings::time(Phase::Write, || {
-                (path.parent().map_or(Ok(()), std::fs::create_dir_all))
-                    .and_then(|()| vfs.create(&path, &bytes))
-            });
-            if let Err(e) = written {
-                let report = one_line(
-                    "PROBLEM WRITING OUTPUT",
-                    &format!("I could not write {}: {e}", path.display()),
-                );
+            if let Err(report) = create(vfs, &path, &bytes) {
                 return fail(console, report);
             }
             let shown = from.map_or_else(|| target.path.clone(), |from| relative(&path, from));
@@ -622,7 +642,21 @@ fn write(
     {
         console.out(&format!("\n{diagram}\n"));
     }
-    true
+    Some(Wrote { ran, platform })
+}
+
+/// Writes `bytes` to the file at `path`, and the directories it is in.
+fn create(vfs: &Vfs, path: &Path, bytes: &[u8]) -> Result<(), Report> {
+    let written = timings::time(Phase::Write, || {
+        (path.parent().map_or(Ok(()), std::fs::create_dir_all))
+            .and_then(|()| vfs.create(path, bytes))
+    });
+    written.map_err(|e| {
+        one_line(
+            "PROBLEM WRITING OUTPUT",
+            &format!("I could not write {}: {e}", path.display()),
+        )
+    })
 }
 
 /// What elm's terminal style shows of the dependencies' verification

@@ -289,6 +289,7 @@ fn scripts(
             compat,
             kind,
             &javascript::Target::default(),
+            None,
             "author/project",
             sources,
             dependencies.clone(),

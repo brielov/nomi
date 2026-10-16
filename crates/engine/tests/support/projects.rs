@@ -126,6 +126,7 @@ pub fn javascript(
         compat,
         kind,
         &Target::default(),
+        None,
         "author/project",
         &sources,
         dependencies,

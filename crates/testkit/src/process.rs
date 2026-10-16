@@ -1,8 +1,10 @@
 //! Running a child within a time limit, with its input fed and its pipes
-//! read as it runs, so neither side of a pipe blocks the other.
+//! read as it runs, so neither side of a pipe blocks the other; and
+//! reading a running child's lines as they come.
 
-use std::io::{self, Read, Write as _};
+use std::io::{self, BufRead, BufReader, Read, Write as _};
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
+use std::sync::mpsc::{self, Receiver};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -89,6 +91,38 @@ fn read_all(mut pipe: impl Read + Send + 'static) -> JoinHandle<Vec<u8>> {
         let _ = pipe.read_to_end(&mut bytes);
         bytes
     })
+}
+
+/// Each line `read` gives, as it comes, read on a thread of its own.
+pub fn lines(read: impl Read + Send + 'static) -> Receiver<String> {
+    let (send, lines) = mpsc::channel();
+    thread::spawn(move || {
+        for line in BufReader::new(read).lines() {
+            let Ok(line) = line else { break };
+            if send.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    lines
+}
+
+/// Waits for a line of `lines` holding `wanted`, killing `child` and
+/// failing after a minute; the lines before it.
+pub fn expect(lines: &Receiver<String>, wanted: &str, child: &mut Child) -> Vec<String> {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut before = Vec::new();
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match lines.recv_timeout(left) {
+            Ok(line) if line.contains(wanted) => return before,
+            Ok(line) => before.push(line),
+            Err(e) => {
+                let _ = child.kill();
+                panic!("no line with {wanted:?} ({e}); before it: {before:?}");
+            }
+        }
+    }
 }
 
 #[cfg(test)]

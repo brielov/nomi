@@ -13,9 +13,10 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
+use nomi_testkit::process::{expect, lines};
 use website::offline;
 
 /// A program that exits with the code it is given, after printing it;
@@ -61,17 +62,23 @@ say line =
 fn project(program: &str, nomi_toml: Option<&str>) -> (tempfile::TempDir, PathBuf) {
     let work = tempfile::tempdir().unwrap();
     let root = fs::canonicalize(work.path()).unwrap();
+    app(&root, program, nomi_toml);
+    (work, root)
+}
+
+/// An application of `program` on nomi/core in `dir`, with `nomi_toml`
+/// if any.
+fn app(dir: &Path, program: &str, nomi_toml: Option<&str>) {
+    fs::create_dir_all(dir.join("src")).unwrap();
     fs::write(
-        root.join("elm.json"),
+        dir.join("elm.json"),
         r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "1.0.0"}, "indirect": {"elm/bytes": "1.0.8"}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
     )
     .unwrap();
-    fs::create_dir(root.join("src")).unwrap();
-    fs::write(root.join("src/Main.elm"), program).unwrap();
+    fs::write(dir.join("src/Main.elm"), program).unwrap();
     if let Some(nomi_toml) = nomi_toml {
-        fs::write(root.join("nomi.toml"), nomi_toml).unwrap();
+        fs::write(dir.join("nomi.toml"), nomi_toml).unwrap();
     }
-    (work, root)
 }
 
 /// `nomi run` with `args` in `root`, offline with `cache`, with the tests'
@@ -131,10 +138,12 @@ fn a_chosen_entry_writes_its_output_and_imports_its_ffi_module() {
         "export async function twice(n) { return n * 2; }\n",
     )
     .unwrap();
-    let unchosen = nomi_run(cache.path(), &root, &[]).output().unwrap();
+    let unchosen = nomi_run(cache.path(), &root, &["--", "3"])
+        .output()
+        .unwrap();
     assert_eq!(unchosen.status.code(), Some(1), "{unchosen:?}");
     assert!(
-        stderr(&unchosen).contains("-- WHICH ENTRY?"),
+        stderr(&unchosen).contains("-- ARGUMENTS FOR WHICH ENTRY?"),
         "{unchosen:?}"
     );
     // From another directory, by its path from there.
@@ -286,38 +295,6 @@ fn version(root: &Path, version: &str) {
     .unwrap();
 }
 
-/// Each line `read` gives, as it comes.
-fn lines(read: impl std::io::Read + Send + 'static) -> Receiver<String> {
-    let (send, lines) = mpsc::channel();
-    std::thread::spawn(move || {
-        for line in BufReader::new(read).lines() {
-            let Ok(line) = line else { break };
-            if send.send(line).is_err() {
-                break;
-            }
-        }
-    });
-    lines
-}
-
-/// Waits for a line of `lines` holding `wanted`, failing after a minute;
-/// the lines before it.
-fn expect(lines: &Receiver<String>, wanted: &str, child: &mut Child) -> Vec<String> {
-    let deadline = Instant::now() + Duration::from_secs(60);
-    let mut before = Vec::new();
-    loop {
-        let left = deadline.saturating_duration_since(Instant::now());
-        match lines.recv_timeout(left) {
-            Ok(line) if line.contains(wanted) => return before,
-            Ok(line) => before.push(line),
-            Err(e) => {
-                let _ = child.kill();
-                panic!("no line with {wanted:?} ({e}); before it: {before:?}");
-            }
-        }
-    }
-}
-
 #[test]
 fn with_watch_an_edit_restarts_the_program_with_its_new_output() {
     nomi_testkit::require_node();
@@ -394,4 +371,165 @@ fn with_watch_a_program_that_ends_is_started_again_on_a_change() {
     expect(&stdout, "3!: ()", &mut run);
     let _ = run.kill();
     let _ = run.wait();
+}
+
+#[test]
+fn an_entry_without_a_platform_runs_where_its_main_says() {
+    let cache = website::fixture_cache();
+    let worker = "module Main exposing (main)\n\n\nmain : Program () () ()\nmain =\n    \
+                  Platform.worker\n        { init = \\_ -> ( (), Cmd.none )\n        \
+                  , update = \\_ model -> ( model, Cmd.none )\n        \
+                  , subscriptions = \\_ -> Sub.none\n        }\n";
+    let (_work, root) = project(worker, Some(ENTRY));
+    let ran = nomi_run(cache.path(), &root, &[]).output().unwrap();
+    assert_eq!(ran.status.code(), Some(1), "{ran:?}");
+    assert!(stderr(&ran).contains("-- BROWSER ENTRY"), "{ran:?}");
+}
+
+/// A program that says it is waiting, then waits with a finalizer; or,
+/// given `exit` and a code, waits until a file `go` appears in the
+/// directory it runs in, then exits with that code.
+const GATED: &str = r#"module Main exposing (main)
+
+import Json.Decode
+import Json.Encode
+import Nomi
+import Nomi.Ffi
+import Nomi.Process
+import Nomi.Task
+import Process
+import Task exposing (Task)
+
+
+main : Nomi.Program
+main =
+    Nomi.program <|
+        \env ->
+            case env.args of
+                [ "exit", code ] ->
+                    say "waiting"
+                        |> Task.andThen (\_ -> Nomi.Ffi.task "gate" Json.Encode.null (Json.Decode.succeed ()))
+                        |> Task.mapError (\_ -> "no gate")
+                        |> Task.andThen (\_ -> Nomi.Process.exit (Maybe.withDefault 1 (String.toInt code)))
+
+                _ ->
+                    say "waiting"
+                        |> Task.andThen (\_ -> Process.sleep 60000)
+                        |> Nomi.Task.ensure (say "finalized")
+
+
+say : String -> Task x ()
+say line =
+    Task.succeed () |> Task.map (\_ -> Debug.log line ())
+"#;
+
+const GATE: &str = "import { existsSync } from \"node:fs\";\n\n\
+                    export async function gate() {\n  \
+                    while (!existsSync(\"go\")) await new Promise((r) => setTimeout(r, 10));\n}\n";
+
+/// A workspace of two applications of [`GATED`], `apps/api` and
+/// `apps/worker`, whose entries take `api` and `worker` as their `args`.
+fn gated(api: &str, worker: &str) -> (tempfile::TempDir, PathBuf) {
+    let work = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(work.path()).unwrap();
+    fs::write(
+        root.join("nomi.toml"),
+        "[workspace]\nmembers = [\"apps/*\"]\n",
+    )
+    .unwrap();
+    for (dir, args) in [("apps/api", api), ("apps/worker", worker)] {
+        let entry =
+            format!("[[entry]]\nmain = \"src/Main.elm\"\nffi = \"src/ffi.mjs\"\nargs = {args}\n");
+        app(&root.join(dir), GATED, Some(&entry));
+        fs::write(root.join(dir).join("src/ffi.mjs"), GATE).unwrap();
+    }
+    (work, root)
+}
+
+/// `nomi run` at the root of `root`, its streams piped.
+fn spawn_at_root(cache: &Path, root: &Path) -> Child {
+    nomi_run(cache, root, &[])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
+}
+
+/// How `run` ended, killing it if it hasn't within 30 seconds.
+fn ended(run: &mut Child) -> Option<i32> {
+    let start = Instant::now();
+    while run.try_wait().unwrap().is_none() && start.elapsed().as_secs() < 30 {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let _ = run.kill();
+    run.wait().unwrap().code()
+}
+
+#[test]
+fn every_entry_runs_under_its_member_and_sigterm_finalizes_them_all() {
+    nomi_testkit::require_node();
+    let cache = website::fixture_cache();
+    let (_work, root) = gated("[\"wait\"]", "[\"wait\"]");
+    let mut run = spawn_at_root(cache.path(), &root);
+    let stdout = lines(run.stdout.take().unwrap());
+    assert_eq!(
+        two_lines(&stdout, &mut run),
+        ["[apps/api]    waiting: ()", "[apps/worker] waiting: ()"]
+    );
+    let sent = Command::new("kill")
+        .args(["-TERM".to_owned(), run.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(sent.success());
+    assert_eq!(
+        two_lines(&stdout, &mut run),
+        ["[apps/api]    finalized: ()", "[apps/worker] finalized: ()"]
+    );
+    assert_eq!(ended(&mut run), Some(143));
+}
+
+/// The next two lines of `lines`, which come in either order, sorted;
+/// killing `child` and failing after a minute.
+fn two_lines(lines: &Receiver<String>, child: &mut Child) -> Vec<String> {
+    let mut two: Vec<String> = (0..2)
+        .map(|_| {
+            (lines.recv_timeout(Duration::from_secs(60))).unwrap_or_else(|e| {
+                let _ = child.kill();
+                panic!("no line: {e}")
+            })
+        })
+        .collect();
+    two.sort();
+    two
+}
+
+#[test]
+fn an_entry_that_fails_stops_the_others_and_gives_nomi_its_code() {
+    nomi_testkit::require_node();
+    let cache = website::fixture_cache();
+    let (_work, root) = gated("[\"exit\", \"3\"]", "[\"wait\"]");
+    let mut run = spawn_at_root(cache.path(), &root);
+    let stdout = lines(run.stdout.take().unwrap());
+    assert_eq!(
+        two_lines(&stdout, &mut run),
+        ["[apps/api]    waiting: ()", "[apps/worker] waiting: ()"]
+    );
+    fs::write(root.join("go"), "").unwrap();
+    expect(&stdout, "[apps/worker] finalized: ()", &mut run);
+    assert_eq!(ended(&mut run), Some(3));
+}
+
+#[test]
+fn arguments_go_to_one_entry() {
+    let cache = website::fixture_cache();
+    let (_work, root) = gated("[\"wait\"]", "[\"wait\"]");
+    let ran = nomi_run(cache.path(), &root, &["--", "3"])
+        .output()
+        .unwrap();
+    assert_eq!(ran.status.code(), Some(1), "{ran:?}");
+    assert!(
+        stderr(&ran).contains("-- ARGUMENTS FOR WHICH ENTRY?"),
+        "{ran:?}"
+    );
+    assert!(!root.join("apps/api/elm-stuff").exists());
 }

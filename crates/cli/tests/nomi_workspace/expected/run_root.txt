@@ -1,0 +1,20 @@
+=== exit 0
+=== stdout
+|[apps/api] hello: ()
+=== stderr
+|Building packages/shared
+|No problems in syntax, module names, imports, names or types.
+|Building apps/api
+|No problems in syntax, module names, imports, names or types.
+|
+|    Main ───> apps/api/elm-stuff/nomi/run/src/Main.mjs
+|
+|Building apps/web
+|No problems in syntax, module names, imports, names or types.
+|
+|    Main ───> apps/web/dist/web.js
+|
+|[apps/web] src/Main.elm runs in the browser, built to apps/web/dist/web.js. Serving it needs a dev server, which nomi run doesn't have yet.
+|[apps/api] Compiled in DEV mode. Follow the advice at https://elm-lang.org/0.19.1/optimize for better performance and smaller assets.
+=== file apps/web/dist/web.js
+|61603 bytes, SHA-256 93361fb6a48685be49dcb56da8132ffee32363c38233badae752ec35fbe9207a
