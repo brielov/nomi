@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use nomi_base::Compat;
 use nomi_engine::check::Style;
 use nomi_engine::console::Console;
+use nomi_engine::packages::Resolve;
 use nomi_engine::test_deps::{Order, Solve};
 use nomi_engine::{Context, Http};
 use nomi_project::{Name, Outline};
@@ -511,20 +512,20 @@ fn suggest_similar<'a>(word: &str, candidates: impl Iterator<Item = &'a str>) ->
 }
 
 /// elm-test run in `cx` with `args`, `var` reading the environment's
-/// variables; its exit code. Tests and their runner build with the
-/// packages bundled with nomi if `bundled`, as `nomi test`'s do.
+/// variables; its exit code. Tests and their runner resolve their
+/// dependencies as `resolve` says: as nomi does, for `nomi test`.
 pub fn main<H: Http + Sync>(
     cx: &Context<'_, H>,
     console: &mut dyn Console,
     args: &[String],
     var: &dyn Fn(&str) -> Option<String>,
-    bundled: bool,
+    resolve: Resolve,
 ) -> i32 {
     let cores = supervise::default_workers();
     let color = supports_color(args, var, console.out_is_terminal());
     let mut parsed = parse(args, cores);
     if let Parsed::Run(flags, _) | Parsed::Make(flags, _) = &mut parsed {
-        flags.solve.bundled = bundled;
+        flags.solve.resolve = resolve;
     }
     match parsed {
         Parsed::Out(text) => {

@@ -9,7 +9,7 @@ use crate::index::Known;
 use crate::solver::{Packages, Release};
 
 /// The index's releases of each package, and what every release of each
-/// needs, which only those listed can be had.
+/// needs, which only those listed can be had, each for elm 0.19.
 #[derive(Default)]
 pub(crate) struct Fixture {
     pub(crate) index: BTreeMap<Name, Known>,
@@ -26,7 +26,7 @@ impl Packages for Fixture {
     fn release(&mut self, name: &Name, _: Version) -> Result<Option<Release>, ()> {
         let anything = Constraint::anything(Compat::LATEST);
         Ok(self.needs.get(name).map(|deps| Release {
-            elm: anything,
+            elm: Constraint::until_next_minor(Version::new(0, 19, 0), Compat::LATEST),
             deps: deps.iter().map(|dep| (dep.clone(), anything)).collect(),
         }))
     }

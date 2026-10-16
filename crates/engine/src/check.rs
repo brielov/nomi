@@ -13,8 +13,9 @@ use nomi_base::{Compat, Report};
 use nomi_compiler::interface::Interface;
 use nomi_compiler::optimized::LocalGraph;
 use nomi_project::report::ElmCommand;
+use nomi_project::workspace::Workspace;
 use nomi_project::{ModuleName, Name, Outline, Version};
-use nomi_registry::{Http, details, report as registry_report};
+use nomi_registry::{Http, details, report as registry_report, workspace as registry_workspace};
 
 use crate::artifacts::{Artifacts, Key};
 use crate::console::{self, Console, Personality};
@@ -22,11 +23,11 @@ use crate::graph::{Env, Foreigns, Graph, Owner, RootMain};
 use crate::install::details_problem;
 use crate::make::{self, Make};
 use crate::names::{ModuleInterface, Packages};
-use crate::paths::Cache;
+use crate::packages::Resolve;
 use crate::project::{self, Project};
 use crate::report::{self, ModuleErrors, one_line};
 use crate::schedule::Cancelled;
-use crate::{Context, Pool, Snapshot, env, names, objects, packages};
+use crate::{Context, Pool, Snapshot, env, names, objects, packages, workspace};
 
 /// What checking found.
 #[derive(Debug)]
@@ -286,29 +287,41 @@ pub(crate) struct Sources {
     /// Each direct dependency, in order of names, and the modules it
     /// exposes.
     pub direct: Vec<(Name, Vec<ModuleName>)>,
-    /// Every package, and the directory of its source.
+    /// Every package from the registry or nomi's bundle, and the
+    /// directory of its source.
     pub packages: Vec<(Name, PathBuf)>,
+    /// Every member package of the workspace, and its directory.
+    pub members: Vec<(Name, PathBuf)>,
 }
 
-/// What the project builds with, every release downloaded first, from a
-/// store with the packages bundled with nomi if `bundled`.
+/// What the project builds with, every release downloaded first, its
+/// dependencies resolved as `resolve` says.
 pub(crate) fn sources(
-    cache: &Cache,
-    http: &(impl Http + Sync),
+    cx: &Context<'_, impl Http + Sync>,
     project: &Project,
     personality: Personality,
-    bundled: bool,
+    resolve: Resolve,
 ) -> Result<Sources, Report> {
     let compat = project.compat;
-    let store = packages::store_for(cache, bundled)?;
+    let store = packages::store_for(cx.cache, resolve)?;
+    let workspace = match resolve {
+        Resolve::Upstream => None,
+        Resolve::Nomi => workspace::discover(cx.vfs, project.root.dir()).transpose()?,
+    };
     // elm keeps a project's dependencies as solved until its elm.json
     // changes (`Details.load`), asking the website nothing; nomi keeps
-    // them by what elm.json says.
-    let artifacts = Artifacts::new(cache);
-    let key = Key::new("details")
+    // them by what elm.json says, and by what else it resolves them to,
+    // so that neither reuses a solution the other can't build.
+    let artifacts = Artifacts::new(cx.cache);
+    let mut key = Key::new("details")
         .part("compat", compat.as_str().as_bytes())
         .part("outline", &project.outline.write())
-        .finish();
+        .part("resolve", resolve.as_str().as_bytes());
+    for member in workspace.iter().flat_map(Workspace::members) {
+        key = (key.part("member", member.dir.as_os_str().as_encoded_bytes()))
+            .part("outline", &member.outline.write());
+    }
+    let key = key.finish();
     let kept = artifacts
         .get(key)
         .and_then(|bytes| decode_releases(&bytes, compat));
@@ -316,14 +329,20 @@ pub(crate) fn sources(
         releases
     } else {
         let mut registry = env::registry(
-            cache,
+            cx.cache,
             &store,
-            http,
+            cx.http,
             compat,
             "I need the list of published packages to check your dependencies",
         )?;
-        let solution = details::verify(&mut registry, compat, &project.outline)
-            .map_err(|problem| details_problem(&problem, compat, personality))?;
+        let solution = match &workspace {
+            None => details::verify(&mut registry, compat, &project.outline)
+                .map_err(|problem| details_problem(&problem, compat, personality)),
+            Some(workspace) => {
+                registry_workspace::verify(&mut registry, compat, workspace, &project.outline)
+                    .map_err(|problem| workspace::resolution_problem(&problem, compat, personality))
+            }
+        }?;
         let releases: Vec<(Name, Version)> = solution
             .iter()
             .map(|(name, details)| (name.clone(), details.version))
@@ -332,7 +351,17 @@ pub(crate) fn sources(
         let _ = artifacts.put(key, encode_releases(&releases).as_bytes());
         releases
     };
-    let fetched = packages::fetch(Pool::global(), &store, http, compat, &releases);
+    let mut members = Vec::new();
+    let mut published = Vec::with_capacity(releases.len());
+    for (name, version) in releases {
+        let member = (workspace.as_ref()).and_then(|w| Some(w.root().join(&w.package(&name)?.dir)));
+        match member {
+            Some(dir) => members.push((name, dir)),
+            None => published.push((name, version)),
+        }
+    }
+    let releases = published;
+    let fetched = packages::fetch(Pool::global(), &store, cx.http, compat, &releases);
     let direct: Vec<&Name> = project.outline.direct().collect();
     let mut exposing = HashMap::new();
     let mut packages = Vec::new();
@@ -360,6 +389,7 @@ pub(crate) fn sources(
         foreigns: Foreigns::new(direct.iter().cloned()),
         direct,
         packages,
+        members,
     })
 }
 
@@ -383,19 +413,12 @@ fn decode_releases(bytes: &[u8], compat: Compat) -> Option<Vec<(Name, Version)>>
 /// every release the project builds with downloaded first, as
 /// `Details.load` builds them.
 pub(crate) fn foreigns(
-    cache: &Cache,
-    http: &(impl Http + Sync),
+    cx: &Context<'_, impl Http + Sync>,
     project: &Project,
     personality: Personality,
 ) -> Result<(Foreigns, HashMap<String, Interface>), Report> {
-    let sources = sources(
-        cache,
-        http,
-        project,
-        personality,
-        personality == Personality::Nomi,
-    )?;
-    let artifacts = Artifacts::new(cache);
+    let sources = sources(cx, project, personality, Resolve::of(personality))?;
+    let artifacts = Artifacts::new(cx.cache);
     let built = objects::build(
         project.compat,
         &sources.packages,

@@ -879,7 +879,7 @@ pub(crate) fn local_docs_json(
     let compat = project.compat;
     let dir = project.root.dir();
     check_source_dirs(dir, &project.outline)?;
-    let (foreigns, interfaces) = foreigns(cx.cache, cx.http, project, Personality::Elm)?;
+    let (foreigns, interfaces) = foreigns(cx, project, Personality::Elm)?;
     if let Outline::Pkg(pkg) = &project.outline
         && pkg.exposed.modules().next().is_none()
     {

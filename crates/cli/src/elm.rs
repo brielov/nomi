@@ -12,6 +12,7 @@ use nomi_engine::check::Style;
 use nomi_engine::console::{self, Console, Personality, StdConsole};
 use nomi_engine::javascript::Target;
 use nomi_engine::make::{self, Make, Output};
+use nomi_engine::packages::Resolve;
 use nomi_engine::{bump, publish};
 
 use crate::terminal::{self, Chunks, Parser};
@@ -108,7 +109,7 @@ fn parse_make(args: &[&str]) -> Result<Make, terminal::Error> {
         kind: make::kind(debug, optimize),
         target: Target::default(),
         platform_by_main: false,
-        bundled: false,
+        resolve: Resolve::Upstream,
         ffi: None,
         output,
         docs,

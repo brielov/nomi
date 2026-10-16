@@ -18,6 +18,7 @@ use nomi_registry::Http;
 use crate::check::Style;
 use crate::console::{self, Console, Personality};
 use crate::make::{self, Make, Output};
+use crate::packages::Resolve;
 use crate::paths::{NOMI_TOML, Root, relative};
 use crate::project::{Project, no_outline};
 use crate::report::one_line;
@@ -186,7 +187,7 @@ fn build(
             ffi: None,
         },
         platform_by_main: false,
-        bundled: true,
+        resolve: Resolve::Nomi,
         ffi: built.ffi.clone(),
         output: Some(Output::Js(built.output.clone())),
         docs: None,

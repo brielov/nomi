@@ -33,16 +33,6 @@ pub fn verify<P: Packages>(
     compat: Compat,
     outline: &Outline,
 ) -> Result<BTreeMap<Name, Details>, DetailsProblem<P::Error>> {
-    let solve = |packages: &mut P, constraints| {
-        let none = if packages.offline() {
-            DetailsProblem::NoOfflineSolution
-        } else {
-            DetailsProblem::NoSolution
-        };
-        solver::verify(packages, compat, &constraints)
-            .map_err(DetailsProblem::Solver)?
-            .ok_or(none)
-    };
     match outline {
         Outline::Pkg(pkg) => {
             if !pkg.elm.satisfies(Version::compiler(compat)) {
@@ -50,7 +40,7 @@ pub fn verify<P: Packages>(
             }
             let constraints = union_agreeing(&pkg.deps, &pkg.test_deps, |_, _| false)
                 .ok_or(DetailsProblem::HandEdited)?;
-            solve(packages, constraints)
+            solve(packages, compat, &constraints)
         }
         Outline::App(app) => {
             if app.elm != Version::compiler(compat) {
@@ -67,12 +57,33 @@ pub fn verify<P: Packages>(
                 .iter()
                 .map(|(name, &version)| (name.clone(), Constraint::exactly(version)))
                 .collect();
-            let solution = solve(packages, constraints)?;
+            let solution = solve(packages, compat, &constraints)?;
             if solution.len() != stated.len() {
                 return Err(DetailsProblem::HandEdited);
             }
             Ok(solution)
         }
+    }
+}
+
+/// The releases that satisfy `constraints`, or, where there are none,
+/// why: offline or not.
+pub(crate) fn solve<P: Packages>(
+    packages: &mut P,
+    compat: Compat,
+    constraints: &BTreeMap<Name, Constraint>,
+) -> Result<BTreeMap<Name, Details>, DetailsProblem<P::Error>> {
+    solver::verify(packages, compat, constraints)
+        .map_err(DetailsProblem::Solver)?
+        .ok_or_else(|| no_solution(packages))
+}
+
+/// That nothing satisfies the constraints, offline or not.
+pub(crate) fn no_solution<P: Packages>(packages: &P) -> DetailsProblem<P::Error> {
+    if packages.offline() {
+        DetailsProblem::NoOfflineSolution
+    } else {
+        DetailsProblem::NoSolution
     }
 }
 

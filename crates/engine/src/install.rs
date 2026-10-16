@@ -21,10 +21,11 @@ use nomi_registry::{
 };
 
 use crate::console::{self, Console, Personality};
+use crate::packages::{self, Resolve};
 use crate::paths::{Cache, Root};
 use crate::project::{self, Project};
 use crate::report::one_line;
-use crate::{Context, Pool, env, packages};
+use crate::{Context, Pool, env};
 
 /// Adds `package` to the project around the directory, once the user
 /// agrees; with no package, says what `install` is for. Whether it
@@ -54,7 +55,7 @@ pub fn run(
         if let Ok(project) = &project {
             compat = project.compat;
         }
-        let store = packages::store_for(cx.cache, personality == Personality::Nomi)?;
+        let store = packages::store_for(cx.cache, Resolve::of(personality))?;
         let mut registry = env::registry(
             cx.cache,
             &store,

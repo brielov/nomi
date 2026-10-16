@@ -10,6 +10,7 @@ use nomi_project::{Name, Version};
 use nomi_registry::{Bundle, Http, PackageProblem, Store};
 
 use crate::Pool;
+use crate::console::Personality;
 use crate::paths::Cache;
 use crate::report::one_line;
 
@@ -19,10 +20,40 @@ pub fn store(cache: &Cache) -> io::Result<Store> {
     Ok(Store::bundled(cache.packages(), bundle))
 }
 
-/// The package store, with the packages bundled with nomi if `bundled`:
-/// nomi's commands have them, and upstream's know nothing of them.
-pub(crate) fn store_for(cache: &Cache, bundled: bool) -> Result<Store, Report> {
-    if !bundled {
+/// Which packages a project's dependencies resolve to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Resolve {
+    /// The registry's alone, as upstream's commands know them.
+    #[default]
+    Upstream,
+    /// The registry's, the packages bundled with nomi, and the member
+    /// packages of the workspace around the project, as nomi's commands
+    /// know them.
+    Nomi,
+}
+
+impl Resolve {
+    /// Its name, in the keys of what it resolved.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Resolve::Upstream => "upstream",
+            Resolve::Nomi => "nomi",
+        }
+    }
+
+    /// What `personality`'s commands resolve to.
+    pub(crate) fn of(personality: Personality) -> Resolve {
+        match personality {
+            Personality::Elm => Resolve::Upstream,
+            Personality::Nomi => Resolve::Nomi,
+        }
+    }
+}
+
+/// The package store, with the packages bundled with nomi where
+/// `resolve` has them.
+pub(crate) fn store_for(cache: &Cache, resolve: Resolve) -> Result<Store, Report> {
+    if resolve == Resolve::Upstream {
         return Ok(Store::new(cache.packages()));
     }
     store(cache).map_err(|e| {

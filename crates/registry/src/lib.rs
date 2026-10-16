@@ -15,6 +15,7 @@ pub mod report;
 pub mod solver;
 pub mod store;
 pub mod update;
+pub mod workspace;
 
 #[cfg(test)]
 mod fixture;
@@ -29,3 +30,4 @@ pub use remove::RemoveProblem;
 pub use solver::{Details, Packages, Release};
 pub use store::{PackageProblem, Store};
 pub use update::{Outdated, UpdateProblem};
+pub use workspace::WorkspaceProblem;

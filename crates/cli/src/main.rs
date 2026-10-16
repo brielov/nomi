@@ -11,6 +11,7 @@ use nomi_base::Platform;
 use nomi_engine::check::{self, Style};
 use nomi_engine::console::{Console, Personality, StdConsole};
 use nomi_engine::format::{self, Mode};
+use nomi_engine::packages::Resolve;
 use nomi_engine::paths::Cache;
 use nomi_engine::{
     Context, Vfs, Web, bump, diff, init, install, javascript, make, publish, remove, run, tree,
@@ -195,7 +196,7 @@ fn main() -> ExitCode {
     match Path::new(&name).file_stem().and_then(|stem| stem.to_str()) {
         Some("elm-format") => return elm_format::main(args),
         Some("elm") => return elm::main(args),
-        Some("elm-test") => return elm_test(args, false),
+        Some("elm-test") => return elm_test(args, Resolve::Upstream),
         _ => {}
     }
     let cli = Cli::parse();
@@ -249,7 +250,7 @@ fn main() -> ExitCode {
         ),
         Some(Command::Publish) => in_project(publish::run),
         Some(Command::Bump) => in_project(bump::run),
-        Some(Command::Test { args }) => return elm_test(args.into_iter(), true),
+        Some(Command::Test { args }) => return elm_test(args.into_iter(), Resolve::Nomi),
         Some(Command::Check { paths, report }) => {
             in_project(|cx, console| check::run(cx, console, paths, style(report)))
         }
@@ -306,7 +307,7 @@ fn build(args: Build) -> bool {
         kind: make::kind(debug, optimize),
         target,
         platform_by_main: platform.is_none(),
-        bundled: true,
+        resolve: Resolve::Nomi,
         ffi,
         output,
         docs,
@@ -328,16 +329,16 @@ fn nomi_run(program: &run::Program, watch: bool, args: &[OsString]) -> ExitCode 
     }))
 }
 
-/// elm-test's command line, as `elm-test` or, with the packages bundled
-/// with nomi, `nomi test`.
-fn elm_test(args: impl Iterator<Item = OsString>, bundled: bool) -> ExitCode {
+/// elm-test's command line, as `elm-test` or, resolving dependencies as
+/// nomi does, `nomi test`.
+fn elm_test(args: impl Iterator<Item = OsString>, resolve: Resolve) -> ExitCode {
     let args: Vec<String> = args.map(|a| a.to_string_lossy().into_owned()).collect();
     let (Some(cache), Some(cwd)) = (cache(), current_dir()) else {
         return ExitCode::FAILURE;
     };
     let var = |name: &str| std::env::var(name).ok();
     let code = run_in(&cwd, &cache, |cx, console| {
-        nomi_test::main(cx, console, &args, &var, bundled)
+        nomi_test::main(cx, console, &args, &var, resolve)
     });
     ExitCode::from(u8::try_from(code).unwrap_or(1))
 }

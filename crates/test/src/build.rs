@@ -12,6 +12,7 @@ use nomi_engine::check::Style;
 use nomi_engine::console::{Console, Personality};
 use nomi_engine::javascript::{Dom, Format, Kind, Target};
 use nomi_engine::make::{self, Make, Output};
+use nomi_engine::packages::Resolve;
 use nomi_engine::paths::Cache;
 use nomi_engine::test_deps::{self, Dependencies, Solve};
 use nomi_engine::{Context, Http, Vfs};
@@ -138,9 +139,9 @@ fn io(dir: &Path, e: &io::Error) -> Failure {
     ))
 }
 
-/// `elm make` as elm-test runs it in the generated project, with the
-/// packages bundled with nomi if `bundled`.
-fn elm_make(paths: Vec<PathBuf>, style: Style, output: Output, bundled: bool) -> Make {
+/// `elm make` as elm-test runs it in the generated project, resolving
+/// dependencies as `resolve` says.
+fn elm_make(paths: Vec<PathBuf>, style: Style, output: Output, resolve: Resolve) -> Make {
     Make {
         paths,
         personality: Personality::Elm,
@@ -148,7 +149,7 @@ fn elm_make(paths: Vec<PathBuf>, style: Style, output: Output, bundled: bool) ->
         kind: Ok(Kind::Dev),
         target: Target::default(),
         platform_by_main: false,
-        bundled,
+        resolve,
         ffi: None,
         output: Some(output),
         docs: None,
@@ -179,7 +180,7 @@ pub fn build<H: Http + Sync>(
             files.to_vec(),
             Style::Terminal,
             Output::DevNull,
-            env.solve.bundled,
+            env.solve.resolve,
         ),
     );
     let Some(interfaces) = interfaces else {
@@ -205,7 +206,7 @@ pub fn build<H: Http + Sync>(
         vec![main],
         Style::Terminal,
         Output::Js(js.clone()),
-        env.solve.bundled,
+        env.solve.resolve,
     );
     // Node's kernels, in the file elm-test's templates wrap, whose
     // stand-ins for the browser's globals let tests reach the DOM's.
@@ -246,7 +247,7 @@ pub(crate) fn make<H: Http + Sync>(
     style: Style,
 ) -> Result<(), Failure> {
     let dir = prepare(env, console, project, &mut |_, _| {})?;
-    let make = elm_make(files.to_vec(), style, Output::DevNull, env.solve.bundled);
+    let make = elm_make(files.to_vec(), style, Output::DevNull, env.solve.resolve);
     if make::run(&env.at(&dir), console, &make) {
         Ok(())
     } else {

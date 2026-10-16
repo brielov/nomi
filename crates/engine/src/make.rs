@@ -24,11 +24,12 @@ use crate::console::{Console, Personality};
 use crate::graph::{Env, RootMain};
 use crate::names::{Building, ModuleInterface, Packages};
 use crate::objects::Dependencies;
+use crate::packages::Resolve;
 use crate::paths::{Cache, Root};
 use crate::project::{self, Project, check_source_dirs};
 use crate::report::{self, one_line};
 use crate::timings::{self, Phase};
-use crate::{Context, Pool, Vfs, javascript};
+use crate::{Context, Pool, Vfs, javascript, workspace};
 
 /// What `elm make` was asked for (`Make.Flags`, with the paths).
 #[derive(Clone, Debug)]
@@ -45,9 +46,9 @@ pub struct Make {
     /// Whether the roots' `main`s choose the platform in place of
     /// `target`'s: Node for nomi/core's `Program`.
     pub platform_by_main: bool,
-    /// Whether the packages bundled with nomi resolve: they do for nomi's
-    /// commands, `nomi test` among them, and not for upstream's.
-    pub bundled: bool,
+    /// Which packages the dependencies resolve to: nomi's commands, `nomi
+    /// test` among them, know more than upstream's.
+    pub resolve: Resolve,
     /// The ES module whose functions `Nomi.Ffi` calls, from the directory.
     pub ffi: Option<PathBuf>,
     /// `--output`, if given.
@@ -122,7 +123,7 @@ impl Make {
             kind: Ok(javascript::Kind::Dev),
             target: javascript::Target::default(),
             platform_by_main: false,
-            bundled: true,
+            resolve: Resolve::Nomi,
             ffi: None,
             output: Some(Output::DevNull),
             docs: None,
@@ -261,7 +262,7 @@ fn build(
         outline,
         env,
         sources,
-    } = match load(cx, &root, personality, make.bundled) {
+    } = match load(cx, &root, personality, make.resolve) {
         Ok(loaded) => loaded,
         Err((report, compat)) => return unready(console, report, compat),
     };
@@ -357,15 +358,17 @@ fn load(
     cx: &Context<'_, impl Http + Sync>,
     root: &Root,
     personality: Personality,
-    bundled: bool,
+    resolve: Resolve,
 ) -> Result<Loaded, (Report, Compat)> {
     let project = timings::time(Phase::Load, || Project::read(cx.vfs, root, personality))
         .map_err(|report| (report, Compat::LATEST))?;
     let compat = project.compat;
     let fail = |report| (report, compat);
     check_source_dirs(root.dir(), &project.outline).map_err(fail)?;
-    let sources =
-        check::sources(cx.cache, cx.http, &project, personality, bundled).map_err(fail)?;
+    let sources = check::sources(cx, &project, personality, resolve).map_err(fail)?;
+    if let Some((name, dir)) = sources.members.first() {
+        return Err(fail(workspace::member_dependency(name, dir)));
+    }
     let env = env_of(
         root.dir(),
         &project.outline,

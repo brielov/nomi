@@ -9,10 +9,12 @@ use std::path::{Path, PathBuf};
 
 use nomi_base::{Compat, Report};
 use nomi_project::workspace::{Member, Workspace, WorkspaceError};
-use nomi_project::{Manifest, Outline, report};
+use nomi_project::{Manifest, Name, Outline, report};
+use nomi_registry::{SolverProblem, WorkspaceProblem};
 
 use crate::Vfs;
 use crate::console::Personality;
+use crate::install::details_problem;
 use crate::paths::{ELM_JSON, NOMI_TOML, Root};
 use crate::project::{Project, elm_json};
 use crate::report::one_line;
@@ -195,6 +197,83 @@ fn problem(error: &WorkspaceError) -> Report {
             )
         }
     }
+}
+
+/// Why the members don't resolve together, as `personality` tells it.
+pub(crate) fn resolution_problem(
+    problem: &WorkspaceProblem<SolverProblem>,
+    compat: Compat,
+    personality: Personality,
+) -> Report {
+    let elm_json = |dir: &Path| shown(&dir.join(ELM_JSON));
+    match problem {
+        WorkspaceProblem::MixedElm { first, second } => one_line(
+            "MIXED ELM VERSIONS",
+            &format!(
+                "{} is for elm {}, but {} is for elm {}. A workspace builds with one \
+                 compiler, so give every application the same \"elm-version\".",
+                elm_json(&first.dir),
+                first.version,
+                elm_json(&second.dir),
+                second.version,
+            ),
+        ),
+        WorkspaceProblem::Disagree {
+            name,
+            first,
+            second,
+        } => one_line(
+            "MEMBERS DISAGREE",
+            &format!(
+                "{} pins {name} {}, but {} pins {name} {}. The members of a workspace build \
+                 with one release of each package, so pin the same one in both.",
+                elm_json(&first.dir),
+                first.version,
+                elm_json(&second.dir),
+                second.version,
+            ),
+        ),
+        WorkspaceProblem::MemberVersion { name, member, by } => one_line(
+            "MEMBER VERSION",
+            &format!(
+                "{} pins {name} {}, but {name} is the workspace member {} at {}. Pin the \
+                 member's version.",
+                elm_json(&by.dir),
+                by.version,
+                shown(&member.dir),
+                member.version,
+            ),
+        ),
+        WorkspaceProblem::MemberRange {
+            name,
+            member,
+            by,
+            range,
+        } => one_line(
+            "MEMBER VERSION",
+            &format!(
+                "{} depends on {name} {range}, but {name} is the workspace member {} at {}. \
+                 Give it a range that includes the member's version.",
+                elm_json(by),
+                shown(&member.dir),
+                member.version,
+            ),
+        ),
+        WorkspaceProblem::Details(problem) => details_problem(problem, compat, personality),
+    }
+}
+
+/// That the project depends on `name`, the member package in `dir`,
+/// which nomi doesn't build from its source.
+pub(crate) fn member_dependency(name: &Name, dir: &Path) -> Report {
+    one_line(
+        "MEMBER PACKAGE",
+        &format!(
+            "This project depends on {name}, the workspace member in {}, and nomi does not \
+             build member packages from their source.",
+            dir.display(),
+        ),
+    )
 }
 
 fn missing_member(dir: &Path) -> Report {
