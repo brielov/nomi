@@ -406,7 +406,6 @@ mod tests {
     /// Nothing to check of an FFI module.
     const NONE: Startup = Startup {
         names: BTreeMap::new(),
-        only_functions: false,
     };
 
     fn global(module: &str, name: &str) -> Global {

@@ -1,7 +1,8 @@
 //! The names `Nomi.Ffi.task` calls an FFI module's functions by: what the
 //! module exports, read by a lexical scan of its source; the calls a
 //! program reaches whose name is a literal, checked against that; and
-//! the checks the generated module makes of the rest when it starts.
+//! the check the generated module makes of those the scan left open when
+//! it starts. A name made at run time is checked only when called.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -36,9 +37,6 @@ pub struct Startup {
     /// The literal names called that the scan found no export of, while
     /// not finding all, each with a definition calling it.
     pub names: BTreeMap<String, Global>,
-    /// Whether a call's name isn't a literal, so every export has to be a
-    /// function for whatever name it makes.
-    pub only_functions: bool,
 }
 
 /// A call whose literal name the FFI module doesn't export: the
@@ -79,14 +77,15 @@ pub fn check(
                     calls.def(global, def);
                 }
             }
-            Node::Link(linked) => calls.dynamic |= is_task(linked),
-            Node::Ctor(..) | Node::Enum(_) | Node::Box | Node::Manager(_) | Node::Kernel(..) => {}
+            Node::Link(_)
+            | Node::Ctor(..)
+            | Node::Enum(_)
+            | Node::Box
+            | Node::Manager(_)
+            | Node::Kernel(..) => {}
         }
     }
-    let mut startup = Startup {
-        names: BTreeMap::new(),
-        only_functions: calls.dynamic,
-    };
+    let mut startup = Startup::default();
     let mut misspelt = BTreeSet::new();
     for (caller, name) in calls.literal {
         if exports.names.contains(name) {
@@ -115,12 +114,11 @@ fn is_task(global: &Global) -> bool {
     global.name == "task" && global.home.package == "nomi/core" && global.home.module == "Nomi.Ffi"
 }
 
-/// The calls found: those with a literal name, each with the definition
-/// making it, and whether `task` is used any other way.
+/// The calls found with a literal name, each with the definition making
+/// it.
 #[derive(Default)]
 struct Calls<'a> {
     literal: Vec<(&'a Global, &'a str)>,
-    dynamic: bool,
 }
 
 impl<'a> Calls<'a> {
@@ -145,8 +143,8 @@ impl<'a> Calls<'a> {
                     self.expr(caller, arg);
                 }
             }
-            Expr::VarGlobal(global) => self.dynamic |= is_task(global),
-            Expr::Bool(_)
+            Expr::VarGlobal(_)
+            | Expr::Bool(_)
             | Expr::Chr(_)
             | Expr::Str(_)
             | Expr::Int(_)
@@ -234,32 +232,24 @@ impl<'a> Calls<'a> {
 }
 
 impl Startup {
-    /// The statements that check, in the scope `ffi` is imported into,
-    /// what `self` asks, throwing at the first export missing or not a
-    /// function.
+    /// The statement that checks, in the scope `ffi` is imported into,
+    /// what `self` asks, throwing at the first name that isn't an exported
+    /// function; none when it asks nothing.
     pub(crate) fn js(&self, ffi: &str) -> String {
-        let mut js = String::new();
-        if !self.names.is_empty() {
-            let names = (self.names.iter())
-                .map(|(name, caller)| {
-                    format!("[\"{name}\", \"{}.{}\"]", caller.home.module, caller.name)
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            js.push_str(&format!(
-                "for (const [name, caller] of [{names}]) if (typeof {ffi}[name] !== 'function') \
-                 throw new Error('the FFI module exports no function `' + name + '`, which ' + \
-                 caller + ' calls');\n"
-            ));
+        if self.names.is_empty() {
+            return String::new();
         }
-        if self.only_functions {
-            js.push_str(&format!(
-                "for (const name of Object.keys({ffi})) if (typeof {ffi}[name] !== 'function') \
-                 throw new Error('the FFI module exports `' + name + '`, which is not a \
-                 function, and Nomi.Ffi.task calls exports by names made at run time');\n"
-            ));
-        }
-        js
+        let names = (self.names.iter())
+            .map(|(name, caller)| {
+                format!("[\"{name}\", \"{}.{}\"]", caller.home.module, caller.name)
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "for (const [name, caller] of [{names}]) if (typeof {ffi}[name] !== 'function') \
+             throw new Error('the FFI module exports no function `' + name + '`, which ' + \
+             caller + ' calls');\n"
+        )
     }
 }
 
@@ -616,19 +606,15 @@ mod tests {
     }
 
     /// `Main.main` calls `add` and, partially applied, `ad`, and reaches
-    /// `Page.load` when `dynamic`, which calls by an escaped literal and
-    /// by a parameter; `Page.unused`, which nothing reaches, calls `nope`.
-    fn graph(dynamic: bool) -> GlobalGraph {
+    /// `Page.load`, which calls by an escaped literal and by a parameter;
+    /// `Page.unused`, which nothing reaches, calls `nope`.
+    fn graph() -> GlobalGraph {
         let str = |name: &str| Expr::Str(name.to_owned());
-        let mut main = vec![
+        let main = vec![
             call(str("add")),
             Expr::Call(Box::new(Expr::VarGlobal(task())), vec![str("ad")]),
+            Expr::VarGlobal(global("Page", "load")),
         ];
-        let mut deps = vec![task()];
-        if dynamic {
-            main.push(Expr::VarGlobal(global("Page", "load")));
-            deps.push(global("Page", "load"));
-        }
         let load = Expr::Tuple(
             Box::new(call(str("a\\u{0064}d"))),
             Box::new(Expr::Function(
@@ -639,7 +625,10 @@ mod tests {
         );
         let mut graph = GlobalGraph::default();
         graph.nodes.extend([
-            (global("Main", "main"), define(Expr::List(main), &deps)),
+            (
+                global("Main", "main"),
+                define(Expr::List(main), &[task(), global("Page", "load")]),
+            ),
             (global("Page", "load"), define(load, &[task()])),
             (
                 global("Page", "unused"),
@@ -650,35 +639,30 @@ mod tests {
         graph
     }
 
+    /// Names made at run time, an escaped literal's included, are left to
+    /// the call, which throws when the export isn't a function.
     #[test]
-    fn literal_names_are_checked_and_the_rest_left_to_startup() {
+    fn literal_names_are_checked_and_the_rest_left_to_the_call() {
         let mains = [(Home::author_project("Main"), Main::Static)];
         let dev = Mode::Dev { debug: None };
-        let check = |dynamic, complete| {
+        let check = |complete| {
             let exports = Exports {
                 names: ["add".to_owned()].into(),
                 complete,
             };
-            check(Compat::V0_19_1, &dev, &exports, &graph(dynamic), &mains)
+            check(Compat::V0_19_1, &dev, &exports, &graph(), &mains)
         };
-        let misspelt = Err(vec![Misspelt {
-            caller: global("Main", "main"),
-            name: "ad".to_owned(),
-        }]);
-        assert_eq!(check(true, true), misspelt);
-        assert_eq!(check(false, true), misspelt);
         assert_eq!(
-            check(true, false),
-            Ok(Startup {
-                names: [("ad".to_owned(), global("Main", "main"))].into(),
-                only_functions: true,
-            })
+            check(true),
+            Err(vec![Misspelt {
+                caller: global("Main", "main"),
+                name: "ad".to_owned(),
+            }])
         );
         assert_eq!(
-            check(false, false),
+            check(false),
             Ok(Startup {
                 names: [("ad".to_owned(), global("Main", "main"))].into(),
-                only_functions: false,
             })
         );
     }

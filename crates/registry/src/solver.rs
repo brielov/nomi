@@ -2,8 +2,7 @@
 //! in every supported release). nomi must pick what upstream picks, not
 //! just some solution, so this is upstream's search: packages in name
 //! order, each one's versions newest first, depth first, keeping the first
-//! solution found. `PubGrub`, which would pick differently, only explains
-//! why there is none ([`explain`]).
+//! solution found.
 
 use std::borrow::Borrow;
 use std::collections::btree_map::Entry;
@@ -15,10 +14,6 @@ use nomi_project::outline::AppOutline;
 use nomi_project::{Constraint, Name, Outline, Version};
 
 use crate::index::Known;
-
-mod explain;
-
-pub use explain::explain;
 
 /// `Constraints`: what a release needs.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -247,7 +247,7 @@ Next to the crates:
 - **Extraction.** Harden it: no absolute paths, no `..`, and size limits.
 
 **Solver**
-- **Algorithm.** A port of upstream's search selects, so `install` picks what upstream picks; when it finds nothing, PubGrub runs over the same releases to explain why (DECISIONS, 2026-10-08).
+- **Algorithm.** A port of upstream's search selects, so `install` picks what upstream picks. When it finds nothing, the command reports that as upstream does, without naming a conflict: `install`'s CANNOT FIND COMPATIBLE VERSION, a build's INCOMPATIBLE DEPENDENCIES, `init`'s NO SOLUTION, and reports in their style for nomi's own `update` and the tests' dependencies (DECISIONS, 2026-10-08 and 2026-10-16).
 - **Parity.** `install` must pick the same versions as upstream; the Haskell solver oracle tests this.
 
 **Workspaces**

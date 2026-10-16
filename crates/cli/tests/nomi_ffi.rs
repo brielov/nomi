@@ -3,7 +3,8 @@
 //! ends as the function does, its interruption aborting the function's
 //! signal; without an FFI module, or for output that can't import one,
 //! the build fails. A literal name the module doesn't export fails the
-//! build; what the build can't check, the program checks when it starts.
+//! build, and one the build can't confirm fails the program when it
+//! starts; a name made at run time fails its call.
 #![cfg(unix)]
 
 #[path = "support/website.rs"]
@@ -283,33 +284,17 @@ fn a_missing_ffi_module_fails_the_build() {
 }
 
 #[test]
-fn with_a_name_made_at_run_time_every_export_is_a_function_when_the_program_starts() {
+fn a_name_made_at_run_time_is_checked_when_called() {
     nomi_testkit::require_node();
-    let call = r#"Ffi.task ("a" ++ "dd")"#;
-    let ran = built_and_run(call, FFI, &[]);
+    let ffi = format!("{FFI}export const version = 1;\n");
+    let ran = built_and_run(r#"Ffi.task ("a" ++ "dd")"#, &ffi, &[]);
     assert_eq!(ran.status.code(), Some(0), "{ran:?}");
     assert_eq!(String::from_utf8_lossy(&ran.stdout), "result: Ok 3\n");
-    let ran = built_and_run(call, &format!("{FFI}export const version = 1;\n"), &[]);
-    assert_eq!(ran.status.code(), Some(1), "{ran:?}");
-    assert_eq!(String::from_utf8_lossy(&ran.stdout), "");
-    let stderr = String::from_utf8_lossy(&ran.stderr);
-    assert!(
-        stderr.contains(
-            "Error: the FFI module exports `version`, which is not a function, and \
-             Nomi.Ffi.task calls exports by names made at run time"
-        ),
-        "{stderr}"
-    );
-    // Literal names leave other exports alone.
-    let ran = built_and_run(
-        r#"Ffi.task "add""#,
-        &format!("{FFI}export const version = 1;\n"),
-        &[],
-    );
+    let ran = built_and_run(r#"Ffi.task ("ver" ++ "sion")"#, &ffi, &[]);
+    assert_eq!(ran.status.code(), Some(0), "{ran:?}");
     assert_eq!(
         String::from_utf8_lossy(&ran.stdout),
-        "result: Ok 3\n",
-        "{ran:?}"
+        "result: Err (Threw \"the FFI module exports no function `version`\")\n"
     );
 }
 

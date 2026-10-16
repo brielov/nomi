@@ -17,7 +17,7 @@ use nomi_project::{Name, Outline, OutlineError, Version};
 use nomi_registry::install::{self, Change, InstallProblem, Plan};
 use nomi_registry::remove::{self, RemoveProblem};
 use nomi_registry::update::{self, UpdateProblem};
-use nomi_registry::{DetailsProblem, Known, Packages, Release, details, solver};
+use nomi_registry::{DetailsProblem, Known, Packages, Release, details};
 use nomi_testkit::ratchet::Suite;
 use nomi_testkit::solver::{Scenario, Universe};
 use serde_json::json;
@@ -56,39 +56,6 @@ fn solver() {
         answers.keys().collect::<Vec<_>>()
     );
     suite.finish(outcomes);
-}
-
-/// Whenever a package's dependencies have no solution, `PubGrub` says why,
-/// and it finds none exactly when the search finds none.
-#[test]
-fn explanations() {
-    let compat = Compat::LATEST;
-    let mut explanations = String::new();
-    for Case {
-        name,
-        universe,
-        scenario,
-        outline,
-    } in &cases()
-    {
-        let (None, Ok(Outline::Pkg(pkg))) = (&scenario.add, outline) else {
-            continue;
-        };
-        let mut constraints = pkg.test_deps.clone();
-        constraints.extend(pkg.deps.clone());
-        let Ok(solution) =
-            solver::verify(&mut Fixture::new(universe, compat), compat, &constraints)
-        else {
-            continue;
-        };
-        let explanation =
-            solver::explain(&mut Fixture::new(universe, compat), compat, &constraints);
-        assert_eq!(solution.is_none(), explanation.is_some(), "{name}");
-        if let Some(explanation) = explanation {
-            explanations.push_str(&format!("== {name}\n{explanation}\n\n"));
-        }
-    }
-    insta::assert_snapshot!(explanations);
 }
 
 /// Removing the package each scenario adds to an application leaves its
