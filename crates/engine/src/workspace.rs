@@ -606,20 +606,25 @@ pub(crate) fn builds<'w>(
     dirs: &[PathBuf],
     making: Making,
 ) -> Builds<'w> {
-    let started = Instant::now();
     let shared = Shared::new(cx.cache, Some(workspace.root()));
-    let members = workspace.members();
-    let mut wanted: BTreeSet<&Path> = dirs.iter().map(PathBuf::as_path).collect();
-    // Each member after those it depends on: backwards, a dependent
-    // comes first.
-    for member in members.iter().rev() {
-        if wanted.contains(member.dir.as_path()) {
-            wanted.extend(workspace.deps(member).map(|dep| dep.dir.as_path()));
-        }
-    }
+    builds_in(cx, console, &shared, workspace, dirs, making)
+}
+
+/// [`builds`] with what earlier builds in `shared` left, which a watch
+/// keeps from one build to the next.
+pub(crate) fn builds_in<'w>(
+    cx: &Context<'_, impl Http + Sync>,
+    console: &mut dyn Console,
+    shared: &Shared,
+    workspace: &'w Workspace,
+    dirs: &[PathBuf],
+    making: Making,
+) -> Builds<'w> {
+    let started = Instant::now();
+    let wanted = with_deps(workspace, dirs);
     let mut outcomes: Vec<(&Member, Outcome)> = Vec::with_capacity(wanted.len());
     let mut entries = Vec::new();
-    for member in members.iter().filter(|m| wanted.contains(m.dir.as_path())) {
+    for member in (workspace.members().iter()).filter(|m| wanted.contains(m.dir.as_path())) {
         let blocked = workspace.deps(member).any(|dep| {
             let (_, outcome) = (outcomes.iter().find(|(m, _)| m.dir == dep.dir))
                 .expect("a member's dependency builds before it");
@@ -628,15 +633,7 @@ pub(crate) fn builds<'w>(
         let outcome = if blocked {
             Outcome::Blocked
         } else {
-            built(
-                cx,
-                console,
-                &shared,
-                workspace,
-                member,
-                making,
-                &mut entries,
-            )
+            built(cx, console, shared, workspace, member, making, &mut entries)
         };
         outcomes.push((member, outcome));
     }
@@ -645,6 +642,20 @@ pub(crate) fn builds<'w>(
         console.err(&timings::report(started.elapsed()));
     }
     Builds { outcomes, entries }
+}
+
+/// The members of `workspace` in `dirs`, and the member packages they
+/// depend on, by their directories.
+pub(crate) fn with_deps<'w>(workspace: &'w Workspace, dirs: &'w [PathBuf]) -> BTreeSet<&'w Path> {
+    let mut wanted: BTreeSet<&Path> = dirs.iter().map(PathBuf::as_path).collect();
+    // Each member after those it depends on: backwards, a dependent
+    // comes first.
+    for member in workspace.members().iter().rev() {
+        if wanted.contains(member.dir.as_path()) {
+            wanted.extend(workspace.deps(member).map(|dep| dep.dir.as_path()));
+        }
+    }
+    wanted
 }
 
 /// Builds `member` of `workspace`: a package's exposed modules as its

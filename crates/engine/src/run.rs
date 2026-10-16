@@ -10,6 +10,7 @@
 mod many;
 
 use std::ffi::OsString;
+use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, ExitStatus};
@@ -21,6 +22,7 @@ use nomi_project::workspace::Workspace;
 use nomi_project::{Entry, Manifest, ModuleName, report};
 use nomi_registry::Http;
 
+use crate::artifacts::Hash;
 use crate::console::{self, Console, Personality};
 use crate::make::{self, Code, FfiModule, Make, NamedIn};
 use crate::paths::{NOMI_TOML, Root, relative};
@@ -86,6 +88,31 @@ pub fn run(
     member: Option<&str>,
     args: &[OsString],
 ) -> u8 {
+    by_scope(
+        cx,
+        console,
+        program,
+        member,
+        args,
+        |console, workspace, dirs| many::run(cx, console, &workspace, &dirs),
+        |cx, console| one(cx, console, program, args),
+    )
+}
+
+/// Runs `one` in the project that runs `program`, in the member `member`
+/// names or the project around the directory; or, where no entry is
+/// named and the members in scope have several, `several` with the
+/// workspace and those members' directories, unless `args` are given;
+/// what it gives, or 1 once what was wrong is shown.
+fn by_scope<H: Http>(
+    cx: &Context<'_, H>,
+    console: &mut dyn Console,
+    program: &Program,
+    member: Option<&str>,
+    args: &[OsString],
+    several: impl FnOnce(&mut dyn Console, Workspace, Vec<PathBuf>) -> u8,
+    one: impl FnOnce(&Context<'_, H>, &mut dyn Console) -> u8,
+) -> u8 {
     let failed = |console: &mut dyn Console, report: &Report| {
         console::report(console, report, Compat::LATEST);
         1
@@ -95,18 +122,12 @@ pub fn run(
             Ok(Entries::Several(..)) if !args.is_empty() => {
                 return failed(console, &arguments_for_several());
             }
-            Ok(Entries::Several(workspace, dirs)) => {
-                return many::run(cx, console, &workspace, &dirs);
-            }
-            Ok(Entries::One(dir)) => {
-                return one(&Context { dir: &dir, ..*cx }, console, program, args);
-            }
+            Ok(Entries::Several(workspace, dirs)) => return several(console, workspace, dirs),
+            Ok(Entries::One(dir)) => return one(&Context { dir: &dir, ..*cx }, console),
             Err(report) => return failed(console, &report),
         }
     }
-    scope::in_one(cx, console, member, "run", 1, |cx, console| {
-        one(cx, console, program, args)
-    })
+    scope::in_one(cx, console, member, "run", 1, one)
 }
 
 /// The entries `nomi run` without one named runs.
@@ -121,32 +142,10 @@ enum Entries {
 /// The entries of the member `member` names, or of the project around
 /// the directory, or, outside every member, of the whole workspace.
 fn entries(cx: &Context<'_, impl Http>, member: Option<&str>) -> Result<Entries, Report> {
-    let specs: Vec<String> = member.iter().map(|m| (*m).to_owned()).collect();
-    let (workspace, dirs) = match scope::find(cx, &specs)? {
-        Scope::Project => {
-            let alone = Root::find(cx.vfs, cx.dir)
-                .and_then(|root| workspace::alone(&cx.vfs.snapshot(), root.dir()));
-            match alone {
-                Some(Ok(workspace)) => (workspace, vec![PathBuf::new()]),
-                // What is missing or wrong, `one` says.
-                None | Some(Err(_)) => return Ok(Entries::One(cx.dir.to_owned())),
-            }
-        }
-        Scope::Named(workspace, dirs) => (workspace, dirs),
-        Scope::Every(workspace) => {
-            let dirs = (workspace.members().iter()).map(|m| m.dir.clone());
-            let dirs = dirs.collect();
-            (workspace, dirs)
-        }
+    let Some((workspace, dirs)) = scoped(cx, member)? else {
+        return Ok(Entries::One(cx.dir.to_owned()));
     };
-    let counts: Vec<(&PathBuf, usize)> = (workspace.members().iter())
-        .filter(|member| dirs.contains(&member.dir))
-        .map(|member| {
-            let entries = member.manifest.as_ref().map_or(0, |m| m.entries.len());
-            (&member.dir, entries)
-        })
-        .filter(|&(_, entries)| entries > 0)
-        .collect();
+    let counts = counted(&workspace, &dirs);
     match (counts.as_slice(), &dirs[..]) {
         ([(dir, 1)], _) => Ok(Entries::One(workspace.root().join(dir))),
         ([], [dir]) => Ok(Entries::One(workspace.root().join(dir))),
@@ -156,6 +155,47 @@ fn entries(cx: &Context<'_, impl Http>, member: Option<&str>) -> Result<Entries,
             Ok(Entries::Several(workspace, dirs))
         }
     }
+}
+
+/// The workspace around the directory and the directories of its members
+/// `member` names, or the member the directory is in, or, outside every
+/// member, all of them; or the project around the directory alone, as
+/// a workspace of its one member where its `nomi.toml` has entries.
+/// `None` where it has none, or is missing or wrong, which [`one`] says.
+fn scoped(
+    cx: &Context<'_, impl Http>,
+    member: Option<&str>,
+) -> Result<Option<(Workspace, Vec<PathBuf>)>, Report> {
+    let specs: Vec<String> = member.iter().map(|m| (*m).to_owned()).collect();
+    Ok(Some(match scope::find(cx, &specs)? {
+        Scope::Project => {
+            let alone = Root::find(cx.vfs, cx.dir)
+                .and_then(|root| workspace::alone(&cx.vfs.snapshot(), root.dir()));
+            match alone {
+                Some(Ok(workspace)) => (workspace, vec![PathBuf::new()]),
+                None | Some(Err(_)) => return Ok(None),
+            }
+        }
+        Scope::Named(workspace, dirs) => (workspace, dirs),
+        Scope::Every(workspace) => {
+            let dirs = (workspace.members().iter()).map(|m| m.dir.clone());
+            let dirs = dirs.collect();
+            (workspace, dirs)
+        }
+    }))
+}
+
+/// Those of the members of `workspace` in `dirs` with entries, and how
+/// many each has.
+fn counted<'w>(workspace: &'w Workspace, dirs: &[PathBuf]) -> Vec<(&'w PathBuf, usize)> {
+    (workspace.members().iter())
+        .filter(|member| dirs.contains(&member.dir))
+        .map(|member| {
+            let entries = member.manifest.as_ref().map_or(0, |m| m.entries.len());
+            (&member.dir, entries)
+        })
+        .filter(|&(_, entries)| entries > 0)
+        .collect()
 }
 
 /// Builds `program` in the project around the directory and runs it
@@ -195,24 +235,31 @@ fn serve_one(console: &mut dyn Console, built: &Built, code: &Code) -> u8 {
             return 1;
         }
     };
-    let main = built.main.to_string_lossy();
-    let served = serve(Served {
-        main: &main,
-        output: &built.output,
-        module: code.mains.first().expect("an entry has one main"),
-        static_dir: built.static_dir.as_ref().map(|dir| built.dir.join(dir)),
-        port: built.port.unwrap_or(FIRST_PORT),
-        from: &built.dir,
-    });
-    let server = match served {
+    // Served until dropped, once nomi is stopped.
+    let _server = match serve_built(console, built, code) {
         Ok(server) => server,
         Err(report) => {
             console::report(console, &report, Compat::LATEST);
             return 1;
         }
     };
-    console.err(&serving("", &main, &server));
     caught.wait().code()
+}
+
+/// Starts the dev server of the browser program `built` wrote as `code`,
+/// saying where.
+fn serve_built(console: &mut dyn Console, built: &Built, code: &Code) -> Result<Server, Report> {
+    let main = built.main.to_string_lossy();
+    let server = serve(Served {
+        main: &main,
+        output: &built.output,
+        module: code.mains.first().expect("an entry has one main"),
+        static_dir: built.static_dir.as_ref().map(|dir| built.dir.join(dir)),
+        port: built.port.unwrap_or(FIRST_PORT),
+        from: &built.dir,
+    })?;
+    console.err(&serving("", &main, &server));
+    Ok(server)
 }
 
 /// The port the first browser entry without one is served on, and the
@@ -269,15 +316,40 @@ fn serving(prefix: &str, main: &str, server: &Server) -> String {
     )
 }
 
-/// Builds and runs `program` as [`run`] does, then again each time the
+/// Builds and runs `program` as [`run`] does, then again as the project
+/// changes, as [`watch_one`] does; or, where no entry is named and there
+/// are several, runs them all and again as the workspace changes, as
+/// `many` does. It runs until nomi is sent SIGINT or SIGTERM; the code to
+/// exit with is then the shell's for that signal, 130 or 143, or 1 if the
+/// watch couldn't start.
+pub fn watch(
+    cx: &Context<'_, impl Http + Sync>,
+    console: &mut dyn Console,
+    program: &Program,
+    member: Option<&str>,
+    args: &[OsString],
+) -> u8 {
+    by_scope(
+        cx,
+        console,
+        program,
+        member,
+        args,
+        |console, workspace, dirs| many::watch(cx, console, member, workspace, dirs),
+        |cx, console| watch_one(cx, console, program, args),
+    )
+}
+
+/// Builds and runs `program` as [`one`] does, then again each time the
 /// project's source directories, `elm.json`, `nomi.toml` or the entry's
 /// FFI module change, stopping the program first. A failed build leaves
 /// it stopped until the next change, and one that ends by itself is
-/// started again on the next change. It runs until nomi is sent SIGINT or
-/// SIGTERM, which stops the program as [`run`] passes signals on; the
-/// code to exit with is then the shell's for that signal, 130 or 143,
-/// whatever the program's, or 1 if the watch couldn't start.
-pub fn watch(
+/// started again on the next change. A browser program is served, its
+/// page reloaded when its code changes or its static files do, which
+/// needs no build; a failed build leaves it on its old code. It runs
+/// until nomi is sent SIGINT or SIGTERM, which stops the program as
+/// [`run`] passes signals on.
+fn watch_one(
     cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
     program: &Program,
@@ -298,56 +370,149 @@ pub fn watch(
     let manifests = vec![root.elm_json(), root.dir().join(NOMI_TOML)];
     let mut snapshot = Snapshot::new(root.dir(), manifests);
     let mut queue: Vec<Change> = Vec::new();
-    let mut child: Option<Child> = None;
+    let mut live = Live::default();
+    let mut rebuild = true;
     loop {
-        if !queue.is_empty() {
-            // Changes made together join the build they start.
-            thread::sleep(POLL);
-            queue.extend(snapshot.changes());
-            console.err(&format!("{}\n", message(&queue)));
-            queue.clear();
-            cx.vfs.disk_changed();
-        }
-        let built = build(cx, console, program).and_then(|(built, code)| {
-            if code.platform == Platform::Browser {
-                let main = built.main.display().to_string();
-                console::report(console, &browser_entry(&main), Compat::LATEST);
-                return None;
+        if rebuild {
+            let built = build(cx, console, program);
+            if let Err(report) = live.replace(console, built, args) {
+                console::report(console, &report, Compat::LATEST);
+                return 1;
             }
-            Some(built)
-        });
-        snapshot.watch(watched(cx, &root, program));
-        if let Some(mut old) = child.take() {
-            let _ = stop(console, &mut old, Some(Stop::Terminate));
-        }
-        if let Some(built) = built {
-            child = (built.node(args).spawn())
-                .inspect_err(|e| console::report(console, &no_node(e), Compat::LATEST))
-                .ok();
-        }
-        if child.is_none() {
-            console.err("Watching for changes...\n");
+            let statics = (live.page.as_ref()).and_then(|page| page.static_dir.clone());
+            snapshot.watch(watched(cx, &root, program), statics.into_iter().collect());
+            if live.child.is_none() {
+                console.err("Watching for changes...\n");
+            }
         }
         while queue.is_empty() {
             if let Some((signal, sent)) = caught.take() {
-                if let Some(mut child) = child {
+                if let Some(mut child) = live.child {
                     let _ = stop(console, &mut child, sent.then_some(signal));
                 }
                 return signal.code();
             }
-            if let Some(status) = child.as_mut().and_then(|c| c.try_wait().ok().flatten()) {
-                let code = exit_code(status);
-                console.err(&format!(
-                    "The program exited with code {code}. Watching for changes...\n"
-                ));
-                child = None;
-            }
+            live.reap(console);
             queue.extend(snapshot.changes());
             if queue.is_empty() {
                 thread::sleep(POLL);
             }
         }
+        // Changes made together join the build they start.
+        thread::sleep(POLL);
+        queue.extend(snapshot.changes());
+        rebuild = live.changed(console, &queue);
+        queue.clear();
+        cx.vfs.disk_changed();
     }
+}
+
+/// What runs while [`watch_one`] watches: a Node program, or a page.
+#[derive(Default)]
+struct Live {
+    child: Option<Child>,
+    page: Option<Page>,
+}
+
+/// A browser program served while [`watch_one`] watches.
+struct Page {
+    server: Server,
+    /// Its code, absolute.
+    output: PathBuf,
+    /// The hash of its code when last built.
+    code: Hash,
+    /// The directory of its static files, absolute.
+    static_dir: Option<PathBuf>,
+}
+
+impl Page {
+    /// Whether a change to `path` reloads the page without a build.
+    fn serves(&self, path: &Path) -> bool {
+        (self.static_dir.as_ref()).is_some_and(|dir| path.starts_with(dir))
+    }
+}
+
+impl Live {
+    /// Stops what runs and starts what `built` built, if anything: a Node
+    /// program, with `args`, or a page, served or, if served already,
+    /// reloaded where its code changed; a failed build leaves a page as
+    /// it is. Why a page couldn't be served, if it couldn't.
+    fn replace(
+        &mut self,
+        console: &mut dyn Console,
+        built: Option<(Built, Code)>,
+        args: &[OsString],
+    ) -> Result<(), Report> {
+        if let Some(mut old) = self.child.take() {
+            let _ = stop(console, &mut old, Some(Stop::Terminate));
+        }
+        let Some((built, code)) = built else {
+            return Ok(());
+        };
+        if code.platform == Platform::Node {
+            self.page = None;
+            self.child = (built.node(args).spawn())
+                .inspect_err(|e| console::report(console, &no_node(e), Compat::LATEST))
+                .ok();
+            return Ok(());
+        }
+        let hash = code_hash(&built.output);
+        match &mut self.page {
+            Some(page) => {
+                if page.code != hash {
+                    page.code = hash;
+                    page.server.reload();
+                }
+            }
+            None => {
+                self.page = Some(Page {
+                    server: serve_built(console, &built, &code)?,
+                    static_dir: (built.static_dir.as_ref()).map(|dir| built.dir.join(dir)),
+                    output: built.output,
+                    code: hash,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Says so once the program has ended by itself.
+    fn reap(&mut self, console: &mut dyn Console) {
+        if let Some(status) = (self.child.as_mut()).and_then(|c| c.try_wait().ok().flatten()) {
+            let code = exit_code(status);
+            console.err(&format!(
+                "The program exited with code {code}. Watching for changes...\n"
+            ));
+            self.child = None;
+        }
+    }
+
+    /// Says what `queue` changed, reloading the page where its static
+    /// files did; and whether it needs a build: not where it changed only
+    /// those, or only the page's code, which a build wrote.
+    fn changed(&self, console: &mut dyn Console, queue: &[Change]) -> bool {
+        let Some(page) = &self.page else {
+            console.err(&format!("{}\n", message(queue)));
+            return true;
+        };
+        let queue: Vec<Change> = (queue.iter())
+            .filter(|change| change.path() != page.output)
+            .cloned()
+            .collect();
+        if queue.is_empty() {
+            return false;
+        }
+        console.err(&format!("{}\n", message(&queue)));
+        if queue.iter().any(|change| page.serves(change.path())) {
+            page.server.reload();
+        }
+        queue.iter().any(|change| !page.serves(change.path()))
+    }
+}
+
+/// The hash of the code at `output`, as a build left it.
+fn code_hash(output: &Path) -> Hash {
+    Hash::of(&fs::read(output).unwrap_or_default())
 }
 
 /// `node` running `output` with `args`.
@@ -783,16 +948,6 @@ fn arguments_for_several() -> Report {
         "The arguments after -- go to one program, but there are several entries to run. \
          Choose one by its main, as in nomi run src/Main.elm, or its member, with -p, or \
          give each its arguments with args in nomi.toml.",
-    )
-}
-
-fn browser_entry(main: &str) -> Report {
-    one_line(
-        "BROWSER ENTRY",
-        &format!(
-            "The entry for {main} runs in the browser, and nomi run --watch runs only Node \
-             programs. Run it without --watch to serve it."
-        ),
     )
 }
 

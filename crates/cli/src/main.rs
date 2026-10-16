@@ -364,9 +364,7 @@ fn nomi_run(
     };
     ExitCode::from(run_in(&dir, &cache, |cx, console| {
         if watch {
-            scope::in_one(cx, console, member, "run", 1, |cx, console| {
-                run::watch(cx, console, program, args)
-            })
+            run::watch(cx, console, program, member, args)
         } else {
             run::run(cx, console, program, member, args)
         }

@@ -43,7 +43,7 @@ pub(crate) fn watch(
         queue.clear();
         let dirs = once(console, progress);
         queue.extend(snapshot.changes());
-        snapshot.watch(dirs);
+        snapshot.watch(dirs, Vec::new());
         if !queue.is_empty() {
             progress.clear_console(console);
             progress.log(console, &message(&queue));

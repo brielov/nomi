@@ -41,7 +41,16 @@ impl Event {
 pub struct Change {
     event: Event,
     /// `path.relative(projectRootDir, path)`.
-    path: String,
+    shown: String,
+    /// The path, absolute.
+    path: PathBuf,
+}
+
+impl Change {
+    /// The path that changed, absolute.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
 }
 
 /// What a path was when last looked at.
@@ -62,6 +71,9 @@ pub struct Snapshot {
     /// The paths the project names: directories, whose `.elm` files are
     /// watched, and files.
     paths: Vec<PathBuf>,
+    /// Directories every file of which is watched, as a dev server's
+    /// static files are.
+    every: Vec<PathBuf>,
     /// What is walked: the watched paths, each once and none another's
     /// walk sees.
     roots: Vec<PathBuf>,
@@ -77,18 +89,21 @@ impl Snapshot {
             roots: roots(&files),
             files,
             paths: Vec::new(),
+            every: Vec::new(),
             seen: BTreeMap::new(),
         };
         snapshot.seen = snapshot.look();
         snapshot
     }
 
-    /// Watches `paths` from now on, as `watcher.add` does: what they hold
-    /// already isn't a change.
-    pub fn watch(&mut self, paths: Vec<PathBuf>) {
-        if paths != self.paths {
-            self.roots = roots(self.files.iter().chain(&paths));
+    /// Watches `paths` from now on, and every file in the directories
+    /// `every`, as `watcher.add` does: what they hold already isn't a
+    /// change.
+    pub fn watch(&mut self, paths: Vec<PathBuf>, every: Vec<PathBuf>) {
+        if paths != self.paths || every != self.every {
+            self.roots = roots(self.files.iter().chain(&paths).chain(&every));
             self.paths = paths;
+            self.every = every;
             let now = self.look();
             for (path, seen) in now {
                 self.seen.entry(path).or_insert(seen);
@@ -143,12 +158,14 @@ impl Snapshot {
     fn counts(&self, path: &Path) -> bool {
         path.extension().is_some_and(|e| e == "elm")
             || self.files.iter().chain(&self.paths).any(|p| p == path)
+            || self.every.iter().any(|dir| path.starts_with(dir))
     }
 
     fn change(&self, event: Event, path: &Path) -> Change {
         Change {
             event,
-            path: relative(path, &self.root).display().to_string(),
+            shown: relative(path, &self.root).display().to_string(),
+            path: path.to_owned(),
         }
     }
 }
@@ -194,12 +211,12 @@ fn walk(path: &Path, seen: &mut BTreeMap<PathBuf, Seen>) {
 pub fn message(queue: &[Change]) -> String {
     let mut paths: Vec<&str> = Vec::new();
     for change in queue {
-        if !paths.contains(&change.path.as_str()) {
-            paths.push(&change.path);
+        if !paths.contains(&change.shown.as_str()) {
+            paths.push(&change.shown);
         }
     }
     if let [_] = paths.as_slice() {
-        return format!("{} {}", queue[0].path, queue[0].event.as_str());
+        return format!("{} {}", queue[0].shown, queue[0].event.as_str());
     }
     let mut events: Vec<Event> = queue.iter().map(|c| c.event).collect();
     events.sort_unstable();
@@ -214,25 +231,26 @@ mod tests {
 
     use super::*;
 
-    fn change(event: Event, path: &str) -> Change {
+    /// A change to `path`, by `/`-separated components, below `root`.
+    fn change(event: Event, root: &Path, path: &str) -> Change {
+        let path: PathBuf = path.split('/').collect();
         Change {
             event,
-            path: path.to_owned(),
+            shown: path.display().to_string(),
+            path: root.join(path),
         }
     }
 
     #[test]
     fn changes_are_named_as_elm_test_names_them() {
+        let root = Path::new("/p");
+        let a = change(Event::Changed, root, "tests/A.elm");
         assert_eq!(
-            message(&[change(Event::Changed, "tests/A.elm")]),
-            "tests/A.elm changed"
+            message(std::slice::from_ref(&a)),
+            format!("{} changed", Path::new("tests").join("A.elm").display())
         );
         assert_eq!(
-            message(&[
-                change(Event::Changed, "tests/A.elm"),
-                change(Event::Added, "tests/B.elm"),
-                change(Event::Changed, "tests/A.elm"),
-            ]),
+            message(&[a.clone(), change(Event::Added, root, "tests/B.elm"), a,]),
             "2 files added/changed"
         );
     }
@@ -265,19 +283,20 @@ mod tests {
         fs::write(root.join("tests/elm-stuff/X.elm"), "").unwrap();
         fs::write(root.join("tests/A.elm"), "a").unwrap();
         fs::write(root.join("tests/notes.txt"), "a").unwrap();
-        let tests = Path::new("tests").display().to_string();
-        let a = Path::new("tests").join("A.elm").display().to_string();
         assert_eq!(
             snapshot.changes(),
-            [change(Event::Added, &tests), change(Event::Added, &a)]
+            [
+                change(Event::Added, root, "tests"),
+                change(Event::Added, root, "tests/A.elm")
+            ]
         );
         fs::write(root.join("tests/A.elm"), "ab").unwrap();
         fs::remove_file(root.join("elm.json")).unwrap();
         assert_eq!(
             snapshot.changes(),
             [
-                change(Event::Changed, &a),
-                change(Event::Removed, "elm.json")
+                change(Event::Changed, root, "tests/A.elm"),
+                change(Event::Removed, root, "elm.json")
             ]
         );
         // A path watched from now on holds no changes yet.
@@ -285,12 +304,24 @@ mod tests {
         fs::write(root.join("src/B.elm"), "b").unwrap();
         fs::write(root.join("src/ffi.mjs"), "1").unwrap();
         fs::write(root.join("src/other.mjs"), "1").unwrap();
-        snapshot.watch(vec![root.join("src"), root.join("src/ffi.mjs")]);
+        fs::create_dir_all(root.join("public/css")).unwrap();
+        fs::write(root.join("public/css/app.css"), "1").unwrap();
+        snapshot.watch(
+            vec![root.join("src"), root.join("src/ffi.mjs")],
+            vec![root.join("public")],
+        );
         assert!(snapshot.changes().is_empty());
-        // A file watched itself counts whatever its extension.
+        // A file watched itself counts whatever its extension, as does
+        // every file in a directory watched whole.
         fs::write(root.join("src/ffi.mjs"), "22").unwrap();
         fs::write(root.join("src/other.mjs"), "22").unwrap();
-        let ffi = Path::new("src").join("ffi.mjs").display().to_string();
-        assert_eq!(snapshot.changes(), [change(Event::Changed, &ffi)]);
+        fs::write(root.join("public/css/app.css"), "22").unwrap();
+        assert_eq!(
+            snapshot.changes(),
+            [
+                change(Event::Changed, root, "public/css/app.css"),
+                change(Event::Changed, root, "src/ffi.mjs")
+            ]
+        );
     }
 }

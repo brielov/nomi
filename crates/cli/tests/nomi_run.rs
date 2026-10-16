@@ -17,7 +17,7 @@ use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-use nomi_testkit::http::request;
+use nomi_testkit::http::{events, request};
 use nomi_testkit::process::{expect, lines};
 use website::offline;
 
@@ -612,4 +612,209 @@ fn arguments_go_to_one_entry() {
         "{ran:?}"
     );
     assert!(!root.join("apps/api/elm-stuff").exists());
+}
+
+/// Waits for `events`, a page's event stream, to say reload, killing
+/// `child` and failing after a minute.
+fn reloaded(events: &Receiver<String>, child: &mut Child) {
+    expect(events, "event: reload", child);
+}
+
+#[test]
+fn with_watch_a_browser_entry_is_served_and_reloaded_as_it_changes() {
+    let cache = website::fixture_cache();
+    let port = free_port();
+    let nomi_toml = format!("{ENTRY}static = \"public\"\nport = {port}\n");
+    let (_work, root) = project(WORKER, Some(&nomi_toml));
+    fs::create_dir_all(root.join("public")).unwrap();
+    let mut run = nomi_run(cache.path(), &root, &["--watch"])
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stderr = lines(run.stderr.take().unwrap());
+    expect(&stderr, "Watching for changes...", &mut run);
+    let (status, events) = events(port, "/__nomi/events").unwrap();
+    assert_eq!(status, 200);
+    let edited = WORKER.replace(
+        "\\_ -> ( (), Cmd.none )",
+        "\\_ -> ( always () \"edited\", Cmd.none )",
+    );
+    fs::write(root.join("src/Main.elm"), edited).unwrap();
+    reloaded(&events, &mut run);
+    let code = request(port, "GET", "/Main.mjs").unwrap();
+    assert!(code.text().contains("edited"), "{code:?}");
+    // A static file reloads the page without a build.
+    let output = root.join("elm-stuff/nomi/run/src/Main.mjs");
+    let built = fs::metadata(&output).unwrap().modified().unwrap();
+    fs::write(root.join("public/app.css"), "p {}\n").unwrap();
+    reloaded(&events, &mut run);
+    assert_eq!(fs::metadata(&output).unwrap().modified().unwrap(), built);
+    signal(&run, "-TERM");
+    assert_eq!(ended(&mut run), Some(143));
+}
+
+/// A workspace of `packages/shared`, the package acme/shared exposing
+/// `Version`; `apps/api`, a Node program of [`VERSIONED`]; and `apps/web`,
+/// a browser program whose code holds the version, served on `port`
+/// with static files.
+fn full_stack(port: u16) -> (tempfile::TempDir, PathBuf) {
+    let work = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(work.path()).unwrap();
+    let files = [
+        ("nomi.toml", "[workspace]\nmembers = [\"apps/*\", \"packages/*\"]\n".to_owned()),
+        (
+            "packages/shared/elm.json",
+            r#"{"type": "package", "name": "acme/shared", "summary": "shared", "license": "BSD-3-Clause", "version": "1.0.0", "exposed-modules": ["Version"], "elm-version": "0.19.0 <= v < 0.20.0", "dependencies": {"elm/core": "1.0.0 <= v < 2.0.0"}, "test-dependencies": {}}"#.to_owned(),
+        ),
+        (
+            "apps/api/elm.json",
+            r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"acme/shared": "1.0.0", "elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "1.0.0"}, "indirect": {"elm/bytes": "1.0.8"}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#.to_owned(),
+        ),
+        ("apps/api/nomi.toml", ENTRY.to_owned()),
+        ("apps/api/src/Main.elm", VERSIONED.to_owned()),
+        (
+            "apps/web/elm.json",
+            r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"acme/shared": "1.0.0", "elm/core": "1.0.5", "elm/json": "1.1.4"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#.to_owned(),
+        ),
+        (
+            "apps/web/nomi.toml",
+            format!("{ENTRY}static = \"public\"\nport = {port}\n"),
+        ),
+        ("apps/web/src/Main.elm", web("")),
+        ("apps/web/public/index.html", "<p>web</p>\n".to_owned()),
+        ("packages/shared/src/Version.elm", String::new()),
+    ];
+    for (path, text) in files {
+        let path = root.join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    }
+    shared(&root, "\"1\"");
+    (work, root)
+}
+
+/// The web application, starting from the length of the version and
+/// `more`.
+fn web(more: &str) -> String {
+    WORKER
+        .replace(
+            "module Main exposing (main)\n",
+            "module Main exposing (main)\n\nimport Version\n",
+        )
+        .replace("Program () () ()", "Program () Int ()")
+        .replace(
+            "\\_ -> ( (), Cmd.none )",
+            &format!("\\_ -> ( String.length (Version.version ++ \"{more}\"), Cmd.none )"),
+        )
+}
+
+/// The package's `Version` module, its version `version`.
+fn shared(root: &Path, version: &str) {
+    fs::write(
+        root.join("packages/shared/src/Version.elm"),
+        format!(
+            "module Version exposing (version)\n\n\nversion : String\nversion =\n    {version}\n"
+        ),
+    )
+    .unwrap();
+}
+
+/// What nomi says on standard error for the next change, up to its
+/// watching again.
+fn batch(stderr: &Receiver<String>, run: &mut Child) -> String {
+    expect(stderr, "[nomi] Watching for changes...", run).join("\n")
+}
+
+#[test]
+fn with_watch_a_workspace_restarts_and_reloads_only_what_a_change_changes() {
+    nomi_testkit::require_node();
+    let cache = website::fixture_cache();
+    let port = free_port();
+    let (_work, root) = full_stack(port);
+    let mut run = nomi_run(cache.path(), &root, &["--watch"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stdout = lines(run.stdout.take().unwrap());
+    let stderr = lines(run.stderr.take().unwrap());
+    let started = batch(&stderr, &mut run);
+    assert!(
+        started.contains(&format!(
+            "[apps/web] Serving src/Main.elm at http://localhost:{port}"
+        )),
+        "{started}"
+    );
+    expect(&stdout, "[apps/api] version 1: ()", &mut run);
+    let (_, events) = events(port, "/__nomi/events").unwrap();
+
+    // A module of web's alone reloads web, and api runs on.
+    fs::write(root.join("apps/web/src/Main.elm"), web("!")).unwrap();
+    let web_edit = batch(&stderr, &mut run);
+    assert!(web_edit.contains("[nomi] Reloading apps/web"), "{web_edit}");
+    assert!(!web_edit.contains("[nomi] Restarting"), "{web_edit}");
+    reloaded(&events, &mut run);
+
+    // A static file reloads web without a build.
+    fs::write(root.join("apps/web/public/app.css"), "p {}\n").unwrap();
+    let static_edit = batch(&stderr, &mut run);
+    assert!(
+        static_edit.contains("[nomi] Reloading apps/web"),
+        "{static_edit}"
+    );
+    assert!(!static_edit.contains("Building"), "{static_edit}");
+    reloaded(&events, &mut run);
+
+    // The package's body restarts api and reloads web.
+    shared(&root, "\"22\"");
+    let body_edit = batch(&stderr, &mut run);
+    assert!(
+        body_edit.contains("[nomi] Restarting apps/api"),
+        "{body_edit}"
+    );
+    assert!(
+        body_edit.contains("[nomi] Reloading apps/web"),
+        "{body_edit}"
+    );
+    assert_eq!(
+        expect(&stdout, "[apps/api] version 22: ()", &mut run),
+        ["[apps/api] finalized 1: ()"]
+    );
+    reloaded(&events, &mut run);
+
+    // A comment changes no code, so nothing restarts or reloads.
+    shared(&root, "\"22\" -- the version");
+    let comment = batch(&stderr, &mut run);
+    assert!(
+        comment.contains("[nomi] packages/shared/src/Version.elm changed"),
+        "{comment}"
+    );
+    for said in ["Restarting", "Starting", "Stopping", "Reloading"] {
+        assert!(!comment.contains(said), "{comment}");
+    }
+
+    // A type error in the package stops api and leaves web's page as it is.
+    shared(&root, "333");
+    let broken = batch(&stderr, &mut run);
+    assert!(broken.contains("-- TYPE MISMATCH"), "{broken}");
+    assert!(
+        broken.contains("[nomi] Stopping apps/api, as its build failed"),
+        "{broken}"
+    );
+    assert!(!broken.contains("Reloading"), "{broken}");
+    expect(&stdout, "[apps/api] finalized 22: ()", &mut run);
+    let page = request(port, "GET", "/").unwrap();
+    assert_eq!(page.status, 200);
+
+    // Its fix starts api again and reloads web.
+    shared(&root, "\"4444\"");
+    let fixed = batch(&stderr, &mut run);
+    assert!(fixed.contains("[nomi] Starting apps/api"), "{fixed}");
+    assert!(fixed.contains("[nomi] Reloading apps/web"), "{fixed}");
+    expect(&stdout, "[apps/api] version 4444: ()", &mut run);
+    reloaded(&events, &mut run);
+
+    signal(&run, "-TERM");
+    expect(&stdout, "[apps/api] finalized 4444: ()", &mut run);
+    assert_eq!(ended(&mut run), Some(143));
 }
