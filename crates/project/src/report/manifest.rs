@@ -3,7 +3,7 @@
 
 use nomi_base::diagnostic::code::Source;
 use nomi_base::diagnostic::doc::reflow;
-use nomi_base::{Compat, Report};
+use nomi_base::{Compat, Platform, Report};
 
 use crate::manifest::{ManifestError, ManifestProblem};
 
@@ -47,6 +47,35 @@ pub fn manifest(error: &ManifestError, src: &[u8], compat: Compat) -> Report {
             "Every entry names the Elm module it starts from, as in main = \"src/Main.elm\"."
                 .to_owned(),
         ),
+        ManifestProblem::BadMember(member) => (
+            "BAD MEMBER",
+            format!("I cannot use \"{member}\" as a workspace member:"),
+            "A member is a directory under this one, as in \"apps/web\", or a `*` standing \
+             for any one directory, as in \"packages/*\". It is not empty or absolute, has no \
+             `..`, and a `*` is a whole part of the path, between slashes."
+                .to_owned(),
+        ),
+        ManifestProblem::PortRange => (
+            "BAD PORT",
+            "This port is out of range:".to_owned(),
+            "A port is a number from 1 to 65535, as in port = 8000.".to_owned(),
+        ),
+        ManifestProblem::WrongPlatformKey { key, platform } => match platform {
+            Platform::Node => (
+                "WRONG PLATFORM",
+                format!("The `{key}` key is for browser entries, but this entry runs on Node:"),
+                "The `static` directory and the `port` are for the server `nomi run` starts \
+                 for a browser program. A Node program serves itself."
+                    .to_owned(),
+            ),
+            Platform::Browser => (
+                "WRONG PLATFORM",
+                format!("The `{key}` key is for Node entries, but this entry runs in the browser:"),
+                "The `args` are the command-line arguments `nomi run` gives a Node program, \
+                 which a browser program doesn't have."
+                    .to_owned(),
+            ),
+        },
     };
     let text = nomi_base::ghc::lenient_utf8(src);
     let source = Source::new(&text);
@@ -90,6 +119,11 @@ fn how_to_write(key: &str) -> &'static str {
         "output" => "For example: output = \"dist/main.mjs\"",
         "platform" => "For example: platform = \"node\"",
         "ffi" => "For example: ffi = \"src/ffi.mjs\"",
+        "args" => "For example: args = [\"--port\", \"3000\"]",
+        "static" => "For example: static = \"public\"",
+        "port" => "For example: port = 8000",
+        "members" => "For example: members = [\"apps/web\", \"packages/*\"]",
+        "workspace" => "The workspace is one table, under a [workspace] header.",
         _ => "Each entry is a table of its own, under an [[entry]] header.",
     }
 }

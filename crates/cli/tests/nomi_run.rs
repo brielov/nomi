@@ -222,7 +222,7 @@ here:
 
 3| platfrom = \"node\"
    ^^^^^^^^
-I know `main`, `output`, `platform` and `ffi` here.
+I know `main`, `output`, `platform`, `ffi`, `args`, `static` and `port` here.
 
 "
     );
