@@ -71,6 +71,28 @@ Invoked under the name `elm-test`, nomi is elm-test. Editors and scripts that ru
 ln -s "$(command -v nomi)" ~/.local/bin/elm-test
 ```
 
+## Node
+
+nomi also builds Elm programs that run on Node 22.3 or later: command-line tools, workers and servers. Their packages, `nomi/core`, `nomi/server` and `nomi/test`, come with nomi; `nomi add nomi/core` adds one as any other.
+
+```elm
+import Nomi
+import Nomi.Stdio as Stdio
+
+main : Nomi.Program
+main =
+    Nomi.program <|
+        \env -> Stdio.printLine ("hello, " ++ String.join " " env.args) env.stdout
+```
+
+```sh
+nomi run -e src/Main.elm -- world        # build it for Node and run it
+nomi build src/Main.elm --output=main.mjs
+node main.mjs world
+```
+
+A program is a task, run on fibers that are cancelled together and cleaned up in order: `Nomi.Fiber`, `Nomi.Ref` and `Nomi.Queue` for concurrency, `Nomi.Fs`, `Nomi.Stdio` and `Nomi.Process` for the system, `Nomi.Ffi` for JavaScript of your own, and `Nomi.Server` for HTTP, which on SIGTERM or Ctrl-C finishes the requests in flight before it exits. `nomi.toml`'s `[[entry]]` tables name a project's programs, which `nomi run` and `nomi run --watch` build and run. `nomi/test` runs a program's tasks in tests, on a file system in memory and a virtual clock. Plain Elm programs build for Node too (`--platform=node`), and a build that reaches a browser-only package says which path from `main` got there. [examples/todo-server](examples/todo-server) is a small API server.
+
 ## Language server
 
 `nomi lsp` speaks the Language Server Protocol on standard input and output, as elm-language-server does: diagnostics from elm itself and from its lint rules, hover, completion, definitions, references, renames, symbols, code actions and formatting. It reads elm-language-server's settings, and needs neither elm nor elm-format installed; only elm-review, where a project configures it and the settings turn it on, runs as a program of its own.

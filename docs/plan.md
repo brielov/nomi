@@ -1330,7 +1330,9 @@ Platform.js is not overridden, though R1 lists it: it differs across elm/core 1.
 - [x] **11.12d** `nomi/server: testing handlers`. A handler can be tested in nomi/test: a `Request` built in a test, or a server run inside one, whichever the drafts' API takes more simply; a server's interruptions go through the runtime it runs on, so a request inside an effectful test is cancelled correctly. **Check:** the example's handlers tested with nomi/test, a disconnect included.
 
   Done: `Nomi.Server.request` builds a `Request` and `respond` answers it through `listen`'s own code, on its own fiber, to a plain record of status, headers and body; interrupting `respond` is the client leaving. A server can also listen inside an effectful test, its accept loop host I/O, so the virtual clock waits. The kernel reaches its runtime through `withRuntime` for shutdown and disconnects, and a defect's 500 line goes through `Nomi.log`'s writer. The example exposes its handler and gains six handler tests. Tests: the example's 11 tests, among them a disconnect whose finalizer `/health` shows ran; a test-made request's method, path, query, repeated headers, body and 1 MiB limit; a dying handler's 500 and its line in `Nomi.Test.stderr`; a real server in a test whose elm/http client is interrupted, its finalizer's log in the test's stderr, which fails on the old interrupt. The lifecycle tests pass on Node 22.23.3. CI is green.
-- [ ] **11.13** `release: 0.5`.
+- [x] **11.13** `release: 0.5`.
+
+  Done: the README's section on Node, whose example runs as written under `nomi run` and as a built `.mjs`; the tests and javascript corpus suites unchanged (14 of 14, 81 apps); the workspace version 0.5.0, tagged `v0.5.0`.
 
 Source maps, which 11.1 named, would be per definition: the optimized graph keeps no positions but a `Debug` call's, and adding them to every expression would part it from the upstream-shaped graphs the oracles compare. A table from each global to its definition's region, outside the binary encoding, and lines counted while generating give "the frame is in `update`, at line N"; nothing in this exit needs it, so it waits for 11.11 or MP.
 
