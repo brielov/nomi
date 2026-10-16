@@ -29,8 +29,10 @@ use website::offline;
 /// Node's active resources. The server itself carries nothing for it.
 const PROBE: &str = r#"import { getHeapSnapshot } from "node:v8";
 
-process.on("SIGUSR2", async () => {
-  const handles = process.getActiveResourcesInfo().sort().join(",");
+// The snapshot is parsed in a function of its own, so nothing of it is
+// reachable once the count is back: kept in the handler's suspended frame,
+// which the collector may or may not see is dead, it would be megabytes.
+async function countFibers() {
   const chunks = [];
   for await (const chunk of getHeapSnapshot()) chunks.push(Buffer.from(chunk));
   const { snapshot: { meta }, nodes, strings } = JSON.parse(Buffer.concat(chunks).toString());
@@ -42,6 +44,12 @@ process.on("SIGUSR2", async () => {
   for (let i = 0; i < nodes.length; i += width) {
     if (nodes[i + type] === object && strings[nodes[i + name]] === "Fiber") fibers++;
   }
+  return fibers;
+}
+
+process.on("SIGUSR2", async () => {
+  const handles = process.getActiveResourcesInfo().sort().join(",");
+  const fibers = await countFibers();
   globalThis.gc();
   console.error(`probe ${fibers} ${process.memoryUsage().heapUsed} ${handles}`);
 });

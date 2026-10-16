@@ -184,10 +184,8 @@ impl Supervise {
         drop(send);
         let mut state = State::new(self);
         let code = state.supervise(console, &events, &mut workers);
-        for worker in &mut workers {
-            let _ = worker.child.kill();
-            let _ = worker.child.wait();
-        }
+        settle(console, &events, &mut workers);
+        state.summarize(console);
         // The listener waits for a connection: this one, which it drops as
         // nothing receives it any more.
         drop(events);
@@ -201,6 +199,41 @@ struct Worker {
     child: Child,
     readers: Vec<JoinHandle<()>>,
     exited: bool,
+}
+
+/// Ends the workers and forwards what they printed and the supervisor has
+/// not yet read, which a worker prints before it sends what ends the run.
+fn settle(console: &mut dyn Console, events: &Receiver<Event>, workers: &mut [Worker]) {
+    for worker in workers.iter_mut() {
+        let _ = worker.child.kill();
+        let _ = worker.child.wait();
+    }
+    // A reader ends once nothing holds its pipe open, which a process a
+    // worker started still may: it gets a moment only.
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let reading = |workers: &[Worker]| {
+        workers
+            .iter()
+            .flat_map(|w| &w.readers)
+            .any(|r| !r.is_finished())
+    };
+    while reading(workers) && Instant::now() < deadline {
+        if let Ok(event) = events.recv_timeout(Duration::from_millis(10)) {
+            print_output(console, event);
+        }
+    }
+    while let Ok(event) = events.try_recv() {
+        print_output(console, event);
+    }
+}
+
+/// Prints `event` if it is what a worker printed.
+fn print_output(console: &mut dyn Console, event: Event) {
+    match event {
+        Event::Out(text) => console.out(&text),
+        Event::Err(text) => console.err(&text),
+        Event::Connected(..) | Event::Line(..) => {}
+    }
 }
 
 /// Accepts the workers' connections, sending each and its lines.
@@ -279,6 +312,15 @@ struct State {
     failures: usize,
     started: Instant,
     connections: HashMap<usize, TcpStream>,
+    /// The summary the run ended with, printed once the workers have
+    /// ended and what they printed is out.
+    summary: Option<Summary>,
+}
+
+/// A `SUMMARY` message, kept as sent.
+struct Summary {
+    exit_code: Option<i32>,
+    message: Option<Box<RawValue>>,
 }
 
 impl State {
@@ -301,6 +343,7 @@ impl State {
             failures: 0,
             started: Instant::now(),
             connections: HashMap::new(),
+            summary: None,
         }
     }
 
@@ -417,20 +460,10 @@ impl State {
                 None
             }
             Kind::Summary => {
-                self.flush(console);
-                if message.exit_code == Some(1) {
-                    let sent = message.message.map(Sent::new);
-                    let text = sent
-                        .as_ref()
-                        .map_or(Cow::Borrowed("undefined"), |s| js_string(&s.value));
-                    console.err(&format!("{text}\n"));
-                } else if let Kept::All { results, order } = &mut self.kept {
-                    if let Some(summary) = message.message {
-                        console.out(&format!("{}\n", junit(results, order, summary)));
-                    }
-                } else {
-                    print(console, report, message.message.map(Sent::new).as_ref());
-                }
+                self.summary = Some(Summary {
+                    exit_code: message.exit_code,
+                    message: message.message.map(RawValue::to_owned),
+                });
                 Some(message.exit_code.unwrap_or(1))
             }
             Kind::Begin => {
@@ -458,6 +491,33 @@ impl State {
                 console.err(&format!("Error: {text}\n"));
                 Some(1)
             }
+        }
+    }
+
+    /// Prints the summary the run ended with, if it ended with one, after
+    /// the results still due.
+    fn summarize(&mut self, console: &mut dyn Console) {
+        let Some(summary) = self.summary.take() else {
+            return;
+        };
+        self.flush(console);
+        let message = summary.message.as_deref();
+        if summary.exit_code == Some(1) {
+            let sent = message.map(Sent::new);
+            let text = sent
+                .as_ref()
+                .map_or(Cow::Borrowed("undefined"), |s| js_string(&s.value));
+            console.err(&format!("{text}\n"));
+        } else if let Kept::All { results, order } = &mut self.kept {
+            if let Some(summary) = message {
+                console.out(&format!("{}\n", junit(results, order, summary)));
+            }
+        } else {
+            print(
+                console,
+                self.supervise.report,
+                message.map(Sent::new).as_ref(),
+            );
         }
     }
 
@@ -663,5 +723,48 @@ mod tests {
             results[&0].get("status"),
             Some(&Json::String("todo".into()))
         );
+    }
+
+    /// What a worker's pipe holds, read only after a moment.
+    struct Late(Option<&'static [u8]>);
+
+    impl Read for Late {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let Some(text) = self.0.take() else {
+                return Ok(0);
+            };
+            thread::sleep(Duration::from_millis(100));
+            buf[..text.len()].copy_from_slice(text);
+            Ok(text.len())
+        }
+    }
+
+    /// What a worker printed before the run ended prints, before the
+    /// summary, however late the supervisor reads it.
+    #[test]
+    fn what_a_worker_printed_prints_before_the_summary_however_late_it_is_read() {
+        nomi_testkit::require_node();
+        let (send, events) = mpsc::channel();
+        let child = Command::new("node")
+            .args(["-e", "setInterval(() => {}, 1000)"])
+            .spawn()
+            .unwrap();
+        let readers = forward(Some(Late(Some(b"leftover tick\n"))), send, Event::Out);
+        let mut workers = [Worker {
+            child,
+            readers: readers.into_iter().collect(),
+            exited: false,
+        }];
+        let mut state = State::new(Supervise {
+            report: Report::Json,
+            processes: 1,
+            color: false,
+        });
+        let mut console = Captured::default();
+        let summary = r#"{"type":"SUMMARY","exitCode":0,"message":"done"}"#;
+        assert_eq!(state.response(&mut console, 0, summary), Some(0));
+        settle(&mut console, &events, &mut workers);
+        state.summarize(&mut console);
+        assert_eq!(console.out, "leftover tick\n\"done\"\n");
     }
 }
