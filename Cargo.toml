@@ -34,6 +34,7 @@ lsp-server = "0.7.8"
 lsp-types = "=0.95.1"
 mimalloc = { version = "0.1", default-features = false, features = ["no_thp"] }
 num-bigint = "0.5"
+percent-encoding = "2.3"
 proptest = "1"
 rayon = "1.12"
 rowan = "0.16"
@@ -50,6 +51,8 @@ signal-hook = { version = "0.3", default-features = false, features = ["extended
 stacker = "0.1"
 tempfile = "3.27"
 text-size = "1.1"
+# The dev server: small and synchronous, one thread per connection.
+tiny_http = "0.12"
 toml = "1.1.6"
 ungrammar = "1.16"
 ureq = { version = "3.4", features = ["gzip", "platform-verifier"] }

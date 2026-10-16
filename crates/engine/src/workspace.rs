@@ -594,6 +594,8 @@ pub(crate) struct EntryBuilt<'w> {
     pub output: PathBuf,
     /// Where the code runs, as the entry or its `main` decided.
     pub platform: Platform,
+    /// The module whose `main` the code starts.
+    pub module: ModuleName,
 }
 
 /// [`build`], with each entry it wrote.
@@ -686,14 +688,15 @@ fn built<'w>(
             return Outcome::Failed;
         };
         ran.append(&mut wrote.ran);
-        if let (Some(platform), Some(Output::Js(output) | Output::Html(output))) =
-            (wrote.platform, &make.output)
+        if let (Some(code), Some(Output::Js(output) | Output::Html(output))) =
+            (wrote.code, &make.output)
         {
             entries.push(EntryBuilt {
                 member,
                 entry,
                 output: dir.join(output),
-                platform,
+                platform: code.platform,
+                module: (code.mains.into_iter().next()).expect("an entry has one main"),
             });
         }
     }
@@ -767,11 +770,7 @@ fn entry_make(dir: &Path, entry: &Entry, making: Making) -> Result<Make, Report>
         Making::Code(kind) => kind,
     };
     let output = entry.output.clone().unwrap_or_else(|| {
-        let extension = match entry.platform {
-            Some(Platform::Browser) => "js",
-            Some(Platform::Node) | None => "mjs",
-        };
-        let path = run::default_output(dir, &dir.join(&entry.main), extension);
+        let path = run::default_output(dir, &dir.join(&entry.main), run::extension(entry));
         path.to_string_lossy().into_owned()
     });
     let make = Make::build(

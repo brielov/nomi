@@ -1,4 +1,9 @@
 === note
-every entry at the root: web's built for the browser, as its main says, and api's run under its member's name
+every entry at the root, built, and nothing run when web's static directory is missing
 === args
 run
+=== file apps/web/nomi.toml
+[[entry]]
+main = "src/Main.elm"
+output = "dist/web.js"
+static = "public"

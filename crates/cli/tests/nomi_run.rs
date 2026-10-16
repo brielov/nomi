@@ -11,11 +11,13 @@ pub mod website;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{BufRead, BufReader};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
+use nomi_testkit::http::request;
 use nomi_testkit::process::{expect, lines};
 use website::offline;
 
@@ -153,11 +155,6 @@ fn a_chosen_entry_writes_its_output_and_imports_its_ffi_module() {
     assert_eq!(ran.status.code(), Some(0), "{ran:?}");
     assert_eq!(stdout(&ran), "42: ()\n");
     assert!(root.join("dist/main.mjs").is_file());
-    let browser = nomi_run(cache.path(), &root, &["src/Other.elm"])
-        .output()
-        .unwrap();
-    assert_eq!(browser.status.code(), Some(1), "{browser:?}");
-    assert!(stderr(&browser).contains("-- BROWSER ENTRY"), "{browser:?}");
 }
 
 #[test]
@@ -373,17 +370,70 @@ fn with_watch_a_program_that_ends_is_started_again_on_a_change() {
     let _ = run.wait();
 }
 
+/// A program for the browser, by its `main`'s type.
+const WORKER: &str = "module Main exposing (main)\n\n\nmain : Program () () ()\nmain =\n    \
+                      Platform.worker\n        { init = \\_ -> ( (), Cmd.none )\n        \
+                      , update = \\_ model -> ( model, Cmd.none )\n        \
+                      , subscriptions = \\_ -> Sub.none\n        }\n";
+
+/// A port nothing listens on just now.
+fn free_port() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.local_addr().unwrap().port()
+}
+
+/// Sends `signal` to `child`.
+fn signal(child: &Child, signal: &str) {
+    let sent = Command::new("kill")
+        .args([signal.to_owned(), child.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(sent.success());
+}
+
 #[test]
-fn an_entry_without_a_platform_runs_where_its_main_says() {
+fn a_browser_entry_is_served_until_nomi_is_stopped() {
     let cache = website::fixture_cache();
-    let worker = "module Main exposing (main)\n\n\nmain : Program () () ()\nmain =\n    \
-                  Platform.worker\n        { init = \\_ -> ( (), Cmd.none )\n        \
-                  , update = \\_ model -> ( model, Cmd.none )\n        \
-                  , subscriptions = \\_ -> Sub.none\n        }\n";
-    let (_work, root) = project(worker, Some(ENTRY));
+    let port = free_port();
+    let nomi_toml = format!("{ENTRY}port = {port}\n");
+    let (_work, root) = project(WORKER, Some(&nomi_toml));
+    let mut run = nomi_run(cache.path(), &root, &[])
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stderr = lines(run.stderr.take().unwrap());
+    let serving = format!("Serving src/Main.elm at http://localhost:{port}");
+    expect(&stderr, &serving, &mut run);
+    // Built where its main's type says, as an ES module, for want of a
+    // platform before the build.
+    let page = request(port, "GET", "/").unwrap();
+    assert_eq!(page.status, 200);
+    assert!(
+        page.text().contains("import { Elm } from \"/Main.mjs\";"),
+        "{page:?}"
+    );
+    let code = request(port, "GET", "/Main.mjs").unwrap();
+    assert!(code.text().contains("export const Elm"), "{code:?}");
+    signal(&run, "-TERM");
+    assert_eq!(ended(&mut run), Some(143));
+}
+
+#[test]
+fn a_taken_port_serves_nothing() {
+    let cache = website::fixture_cache();
+    let taken = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = taken.local_addr().unwrap().port();
+    let nomi_toml = format!("{ENTRY}platform = \"browser\"\nport = {port}\n");
+    let (_work, root) = project(WORKER, Some(&nomi_toml));
     let ran = nomi_run(cache.path(), &root, &[]).output().unwrap();
     assert_eq!(ran.status.code(), Some(1), "{ran:?}");
-    assert!(stderr(&ran).contains("-- BROWSER ENTRY"), "{ran:?}");
+    let shown = stderr(&ran);
+    assert!(shown.contains("-- PORT TAKEN"), "{ran:?}");
+    assert!(
+        shown.contains(&format!("src/Main.elm is served on port {port}")),
+        "{ran:?}"
+    );
+    assert!(root.join("elm-stuff/nomi/run/src/Main.js").is_file());
 }
 
 /// A program that says it is waiting, then waits with a finalizer; or,
@@ -481,6 +531,36 @@ fn every_entry_runs_under_its_member_and_sigterm_finalizes_them_all() {
         .status()
         .unwrap();
     assert!(sent.success());
+    assert_eq!(
+        two_lines(&stdout, &mut run),
+        ["[apps/api]    finalized: ()", "[apps/worker] finalized: ()"]
+    );
+    assert_eq!(ended(&mut run), Some(143));
+}
+
+#[test]
+fn at_the_root_browser_entries_are_served_beside_the_programs() {
+    nomi_testkit::require_node();
+    let cache = website::fixture_cache();
+    let (_work, root) = gated("[\"wait\"]", "[\"wait\"]");
+    let port = free_port();
+    let web = root.join("apps/web");
+    let nomi_toml = format!("{ENTRY}static = \"public\"\nport = {port}\n");
+    app(&web, WORKER, Some(&nomi_toml));
+    fs::create_dir_all(web.join("public")).unwrap();
+    fs::write(web.join("public/index.html"), "<p>web</p>\n").unwrap();
+    let mut run = spawn_at_root(cache.path(), &root);
+    let stdout = lines(run.stdout.take().unwrap());
+    let stderr = lines(run.stderr.take().unwrap());
+    let serving = format!("[apps/web]    Serving src/Main.elm at http://localhost:{port}");
+    expect(&stderr, &serving, &mut run);
+    assert_eq!(
+        two_lines(&stdout, &mut run),
+        ["[apps/api]    waiting: ()", "[apps/worker] waiting: ()"]
+    );
+    let page = request(port, "GET", "/a/route").unwrap();
+    assert!(page.text().starts_with("<p>web</p>\n<script>"), "{page:?}");
+    signal(&run, "-TERM");
     assert_eq!(
         two_lines(&stdout, &mut run),
         ["[apps/api]    finalized: ()", "[apps/worker] finalized: ()"]

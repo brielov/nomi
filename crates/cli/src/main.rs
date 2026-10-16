@@ -90,8 +90,9 @@ enum Command {
     /// Build modules into JavaScript or HTML as `elm make` does.
     #[command(visible_alias = "make")]
     Build(Build),
-    /// Build an entry of nomi.toml for Node and run it, as the process;
-    /// without one named, every entry, together.
+    /// Build an entry of nomi.toml and run it under Node, as the process,
+    /// or serve it if it runs in the browser; without one named, every
+    /// entry, together.
     Run {
         /// The entry to run, by its `main`.
         #[arg(conflicts_with = "elm")]

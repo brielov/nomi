@@ -275,8 +275,17 @@ pub(crate) fn made(
 pub(crate) struct Wrote {
     /// The modules checked rather than taken from the artifact cache.
     pub ran: Vec<PathBuf>,
-    /// The platform of the code written, if any was.
-    pub platform: Option<Platform>,
+    /// The code written, if any was.
+    pub code: Option<Code>,
+}
+
+/// The code a build wrote.
+#[derive(Debug)]
+pub(crate) struct Code {
+    /// Where it runs.
+    pub platform: Platform,
+    /// The modules whose `main`s it starts.
+    pub mains: Vec<ModuleName>,
 }
 
 /// The interfaces of the modules of a project around the directory,
@@ -574,7 +583,7 @@ fn write(
         }
     }
     let mut diagram = None;
-    let mut platform = None;
+    let mut code = None;
     if make.generating()
         && let Some(Made::Optimized(optimized)) = built.made
     {
@@ -593,7 +602,6 @@ fn write(
             if make.platform_by_main && javascript::runs_on_node(&optimized) {
                 made_for.platform = Platform::Node;
             }
-            platform = Some(made_for.platform);
             if let Some(ffi) = &make.ffi {
                 match ffi_module(vfs, dir, ffi, &made_for, &target) {
                     Ok(ffi) => made_for.ffi = Some(ffi),
@@ -628,6 +636,10 @@ fn write(
             }
             let shown = from.map_or_else(|| target.path.clone(), |from| relative(&path, from));
             diagram = Some(gen_diagram(&target.names, &shown.to_string_lossy()));
+            code = Some(Code {
+                platform: made_for.platform,
+                mains: target.names,
+            });
         }
     }
     // What the build checked is freed while it reports, or not at all
@@ -642,7 +654,7 @@ fn write(
     {
         console.out(&format!("\n{diagram}\n"));
     }
-    Some(Wrote { ran, platform })
+    Some(Wrote { ran, code })
 }
 
 /// Writes `bytes` to the file at `path`, and the directories it is in.

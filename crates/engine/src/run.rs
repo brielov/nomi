@@ -3,8 +3,9 @@
 //! run under `node`, which the run stands in for: the arguments are the
 //! program's, the signals nomi is sent reach it, and nomi exits as it
 //! does. With `--watch` it is built and run again as the project changes.
-//! Without an entry named, every entry of the project, the member or the
-//! workspace runs, each under its member's name.
+//! A browser entry is built and served until nomi is stopped. Without an
+//! entry named, every entry of the project, the member or the workspace
+//! runs, each under its member's name.
 
 mod many;
 
@@ -17,15 +18,16 @@ use std::time::{Duration, Instant};
 
 use nomi_base::{Compat, Platform, Report};
 use nomi_project::workspace::Workspace;
-use nomi_project::{Entry, Manifest, report};
+use nomi_project::{Entry, Manifest, ModuleName, report};
 use nomi_registry::Http;
 
 use crate::console::{self, Console, Personality};
-use crate::make::{self, FfiModule, Make, NamedIn};
+use crate::make::{self, Code, FfiModule, Make, NamedIn};
 use crate::paths::{NOMI_TOML, Root, relative};
 use crate::project::{Project, no_outline};
 use crate::report::one_line;
 use crate::scope::{self, Scope};
+use crate::serve::{Server, Site};
 use crate::watch::{Change, POLL, Snapshot, message};
 use crate::{Context, workspace};
 
@@ -53,6 +55,10 @@ struct Built {
     platform: Option<Platform>,
     /// The arguments the entry gives the program.
     args: Vec<String>,
+    /// The directory of a browser program's static files, from `dir`.
+    static_dir: Option<String>,
+    /// The port a browser program is served on.
+    port: Option<u16>,
 }
 
 impl Built {
@@ -153,25 +159,114 @@ fn entries(cx: &Context<'_, impl Http>, member: Option<&str>) -> Result<Entries,
 }
 
 /// Builds `program` in the project around the directory and runs it
-/// under `node` with `args`, showing on standard error how the build went
-/// and why it didn't run. The code to exit with: the program's, 128 plus
-/// the signal that killed it, or 1 if it didn't run.
+/// under `node` with `args`, or serves it if it runs in the browser,
+/// showing on standard error how the build went and why it didn't run.
+/// The code to exit with: the program's, 128 plus the signal that killed
+/// it or stopped the server, or 1 if it didn't run.
 fn one(
     cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
     program: &Program,
     args: &[OsString],
 ) -> u8 {
-    let Some(built) = build(cx, &mut Stderr(console), program) else {
+    let Some((built, code)) = build(cx, &mut Stderr(console), program) else {
         return 1;
     };
-    match supervise(&mut built.node(args)) {
-        Ok(status) => exit_code(status),
-        Err(e) => {
-            console::report(console, &no_node(&e), Compat::LATEST);
-            1
-        }
+    match code.platform {
+        Platform::Node => match supervise(&mut built.node(args)) {
+            Ok(status) => exit_code(status),
+            Err(e) => {
+                console::report(console, &no_node(&e), Compat::LATEST);
+                1
+            }
+        },
+        Platform::Browser => serve_one(console, &built, &code),
     }
+}
+
+/// Serves the browser program `built` wrote as `code` until nomi is sent
+/// SIGINT or SIGTERM; the code to exit with, 130 or 143, or 1 if it
+/// couldn't be served.
+fn serve_one(console: &mut dyn Console, built: &Built, code: &Code) -> u8 {
+    let mut caught = match Caught::new() {
+        Ok(caught) => caught,
+        Err(e) => {
+            console.err(&format!("I could not watch for signals: {e}\n"));
+            return 1;
+        }
+    };
+    let main = built.main.to_string_lossy();
+    let served = serve(Served {
+        main: &main,
+        output: &built.output,
+        module: code.mains.first().expect("an entry has one main"),
+        static_dir: built.static_dir.as_ref().map(|dir| built.dir.join(dir)),
+        port: built.port.unwrap_or(FIRST_PORT),
+        from: &built.dir,
+    });
+    let server = match served {
+        Ok(server) => server,
+        Err(report) => {
+            console::report(console, &report, Compat::LATEST);
+            return 1;
+        }
+    };
+    console.err(&serving("", &main, &server));
+    caught.wait().code()
+}
+
+/// The port the first browser entry without one is served on, and the
+/// next the next.
+const FIRST_PORT: u16 = 8000;
+
+/// A browser program to serve.
+struct Served<'a> {
+    /// Its entry's `main`, as `nomi.toml` gives it.
+    main: &'a str,
+    /// Its code, absolute.
+    output: &'a Path,
+    /// The module whose `main` it starts.
+    module: &'a ModuleName,
+    /// The directory of its static files, absolute.
+    static_dir: Option<PathBuf>,
+    port: u16,
+    /// Where the directory is named from when it is missing.
+    from: &'a Path,
+}
+
+/// Starts the dev server of `served`.
+fn serve(served: Served<'_>) -> Result<Server, Report> {
+    let static_dir = match served.static_dir {
+        Some(dir) => Some(
+            dir.canonicalize()
+                .map_err(|_| no_static_dir(served.main, &relative(&dir, served.from)))?,
+        ),
+        None => None,
+    };
+    let site = Site {
+        code: served.output.to_owned(),
+        module: served.module.to_string(),
+        static_dir,
+    };
+    Server::start(site, served.port).map_err(|e| match e.kind() {
+        io::ErrorKind::AddrInUse => port_taken(served.main, served.port),
+        _ => one_line(
+            "PROBLEM SERVING",
+            &format!(
+                "I could not serve {} on port {}: {e}",
+                served.main, served.port
+            ),
+        ),
+    })
+}
+
+/// What nomi says once `server` serves the entry whose `main` is `main`,
+/// after `prefix`.
+fn serving(prefix: &str, main: &str, server: &Server) -> String {
+    format!(
+        "{prefix}Serving {main} at http://localhost:{}\n",
+        server.port()
+    )
 }
 
 /// Builds and runs `program` as [`run`] does, then again each time the
@@ -213,7 +308,14 @@ pub fn watch(
             queue.clear();
             cx.vfs.disk_changed();
         }
-        let built = build(cx, console, program);
+        let built = build(cx, console, program).and_then(|(built, code)| {
+            if code.platform == Platform::Browser {
+                let main = built.main.display().to_string();
+                console::report(console, &browser_entry(&main), Compat::LATEST);
+                return None;
+            }
+            Some(built)
+        });
         snapshot.watch(watched(cx, &root, program));
         if let Some(mut old) = child.take() {
             let _ = stop(console, &mut old, Some(Stop::Terminate));
@@ -271,12 +373,13 @@ fn watched(cx: &Context<'_, impl Http + Sync>, root: &Root, program: &Program) -
     paths
 }
 
-/// Builds `program`, showing how it went; what was built, if it was.
+/// Builds `program`, showing how it went; what was built and the code
+/// written, if it was.
 fn build(
     cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
     program: &Program,
-) -> Option<Built> {
+) -> Option<(Built, Code)> {
     let built = chosen(cx, program)
         .inspect_err(|report| console::report(console, report, Compat::LATEST))
         .ok()?;
@@ -291,39 +394,38 @@ fn build(
         dir: &built.dir,
         ..*cx
     };
-    let wrote = make::wrote(&cx, console, &make)?;
-    if wrote.platform == Some(Platform::Browser) {
+    let code = make::wrote(&cx, console, &make)?.code?;
+    if code.platform == Platform::Node && !make::has_ext(".mjs", &output) {
         let main = built.main.display().to_string();
-        console::report(console, &browser_entry(&main), Compat::LATEST);
+        let output = relative(&built.output, &built.dir);
+        let report = not_a_module(&main, &output.display().to_string());
+        console::report(console, &report, Compat::LATEST);
         return None;
     }
-    Some(built)
+    Some((built, code))
 }
 
 /// What `program` builds, from `nomi.toml`'s entry where it names one.
 fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built, Report> {
     let root = Root::find(cx.vfs, cx.dir).ok_or_else(|| no_outline("to run"))?;
-    let output_of = |main: &Path| root.dir().join(default_output(root.dir(), main, "mjs"));
+    let output_of =
+        |main: &Path, extension| root.dir().join(default_output(root.dir(), main, extension));
     let chosen = match program {
         Program::Module(main) => Built {
             main: main.clone(),
-            output: output_of(&cx.dir.join(main)),
+            output: output_of(&cx.dir.join(main), "mjs"),
             ffi: None,
             dir: cx.dir.to_owned(),
             platform: Some(Platform::Node),
             args: Vec::new(),
+            static_dir: None,
+            port: None,
         },
         Program::Entry(chosen) => {
             let entry = entry(cx, &root, chosen.as_deref())?;
-            if entry.platform == Some(Platform::Browser) {
-                return Err(browser_entry(&entry.main));
-            }
             let output = match &entry.output {
-                Some(output) if !make::has_ext(".mjs", output) => {
-                    return Err(not_a_module(&entry.main, output));
-                }
                 Some(output) => root.dir().join(output),
-                None => output_of(&root.dir().join(&entry.main)),
+                None => output_of(&root.dir().join(&entry.main), extension(&entry)),
             };
             Built {
                 ffi: entry.ffi.map(|path| FfiModule {
@@ -335,10 +437,21 @@ fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built
                 dir: root.dir().to_owned(),
                 platform: entry.platform,
                 args: entry.args,
+                static_dir: entry.static_dir,
+                port: entry.port,
             }
         }
     };
     Ok(chosen)
+}
+
+/// The extension of the code of `entry` when nothing names its output:
+/// a script for the browser, an ES module otherwise.
+pub(crate) fn extension(entry: &Entry) -> &'static str {
+    match entry.platform {
+        Some(Platform::Browser) => "js",
+        Some(Platform::Node) | None => "mjs",
+    }
 }
 
 /// Where the program whose `main` is the module at `main`, in the
@@ -551,12 +664,26 @@ impl Caught {
     fn take(&mut self) -> Option<(Stop, bool)> {
         use signal_hook::low_level::siginfo::Cause;
         let origin = self.0.pending().last()?;
-        let signal = if origin.signal == signal_hook::consts::SIGINT {
-            Stop::Interrupt
-        } else {
-            Stop::Terminate
-        };
-        Some((signal, matches!(origin.cause, Cause::Sent(_))))
+        Some((
+            stop_by(origin.signal),
+            matches!(origin.cause, Cause::Sent(_)),
+        ))
+    }
+
+    /// The next signal, once it comes.
+    fn wait(&mut self) -> Stop {
+        let origin = (self.0.forever().next()).expect("the signals are never closed");
+        stop_by(origin.signal)
+    }
+}
+
+/// How the signal numbered `signal`, SIGINT or SIGTERM, stops a program.
+#[cfg(unix)]
+fn stop_by(signal: std::ffi::c_int) -> Stop {
+    if signal == signal_hook::consts::SIGINT {
+        Stop::Interrupt
+    } else {
+        Stop::Terminate
     }
 }
 
@@ -573,6 +700,12 @@ impl Caught {
 
     fn take(&mut self) -> Option<(Stop, bool)> {
         None
+    }
+
+    fn wait(&mut self) -> Stop {
+        loop {
+            thread::park();
+        }
     }
 }
 
@@ -657,8 +790,29 @@ fn browser_entry(main: &str) -> Report {
     one_line(
         "BROWSER ENTRY",
         &format!(
-            "The entry for {main} runs in the browser, so there is nothing for nomi run to run \
-             under Node. Build it with nomi build instead."
+            "The entry for {main} runs in the browser, and nomi run --watch runs only Node \
+             programs. Run it without --watch to serve it."
+        ),
+    )
+}
+
+fn port_taken(main: &str, port: u16) -> Report {
+    one_line(
+        "PORT TAKEN",
+        &format!(
+            "The entry for {main} is served on port {port}, but something else is listening \
+             there. Stop it, or give the entry another port in nomi.toml, as port = 8080."
+        ),
+    )
+}
+
+fn no_static_dir(main: &str, dir: &Path) -> Report {
+    one_line(
+        "NO STATIC DIRECTORY",
+        &format!(
+            "The entry for {main} serves its static files from {}, but there is no such \
+             directory.",
+            dir.display()
         ),
     )
 }

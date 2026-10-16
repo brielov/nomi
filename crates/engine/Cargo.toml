@@ -14,10 +14,12 @@ nomi-format.workspace = true
 nomi-project.workspace = true
 nomi-registry.workspace = true
 nomi-syntax.workspace = true
+percent-encoding.workspace = true
 rayon.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
+tiny_http.workspace = true
 walkdir.workspace = true
 
 [target.'cfg(unix)'.dependencies]

@@ -7,6 +7,7 @@
 
 pub mod bench;
 pub mod edit;
+pub mod http;
 pub mod lsp;
 pub mod mutation;
 pub mod packages;

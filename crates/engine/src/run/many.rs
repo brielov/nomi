@@ -1,8 +1,9 @@
 //! `nomi run` of several entries at once: every one built first, then
-//! each Node program started with its `args`, its lines shown under the
-//! name of its member, until they have all ended. One that fails stops
-//! the others and gives nomi its code, and SIGINT or SIGTERM stops them
-//! all within one grace.
+//! each browser program served and each Node program started with its
+//! `args`, its lines shown under the name of its member, until they have
+//! all ended, or, while a program is served, until nomi is stopped. One
+//! that fails stops the others and gives nomi its code, and SIGINT or
+//! SIGTERM stops them all within one grace.
 
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Read};
@@ -16,18 +17,24 @@ use nomi_base::{Compat, Platform};
 use nomi_project::workspace::Workspace;
 use nomi_registry::Http;
 
-use super::{Caught, GRACE, Stderr, Stop, exit_code, no_node, node, not_a_module, send};
+use super::{
+    Caught, FIRST_PORT, GRACE, Served, Stderr, Stop, exit_code, no_node, node, not_a_module, send,
+    serve, serving,
+};
 use crate::Context;
 use crate::console::{self, Console};
 use crate::javascript::Kind;
 use crate::make::has_ext;
 use crate::paths::relative;
+use crate::serve::Server;
 use crate::workspace::{self, EntryBuilt, Making, Outcome};
 
-/// Builds the entries of the members of `workspace` in `dirs`, then runs
-/// each Node program among them until every one has ended, showing on
-/// standard error how the builds went. The code to exit with: the first
-/// failed program's, 130 or 143 when nomi was stopped by SIGINT or
+/// Builds the entries of the members of `workspace` in `dirs`, then
+/// serves each browser program among them, each on its entry's `port` or
+/// the next from [`FIRST_PORT`], and runs each Node program until every
+/// one has ended, or while one is served until nomi is stopped, showing
+/// on standard error how the builds went. The code to exit with: the
+/// first failed program's, 130 or 143 when nomi was stopped by SIGINT or
 /// SIGTERM, 0 when they all succeeded, or 1 if they could not all be
 /// built and started.
 pub(super) fn run(
@@ -63,31 +70,68 @@ pub(super) fn run(
             return 1;
         }
     };
+    let Some(servers) = servers(console, root, &builds.entries, &prefixes) else {
+        return 1;
+    };
     let (send_line, lines) = mpsc::channel();
     let mut running = Running {
         programs: Vec::new(),
         readers: Vec::new(),
+        servers,
         lines,
     };
-    for (built, prefix) in builds.entries.iter().zip(prefixes) {
-        match built.platform {
-            Platform::Node => {
-                if let Err(e) = running.start(built, prefix, &send_line) {
-                    console::report(console, &no_node(&e), Compat::LATEST);
-                    drop(send_line);
-                    return running.drain(console, &mut caught, Some(Stop::Terminate), 1);
-                }
-            }
-            Platform::Browser => console.err(&format!(
-                "{prefix}{} runs in the browser, built to {}. Serving it needs a dev server, \
-                 which nomi run doesn't have yet.\n",
-                built.entry.main,
-                relative(&built.output, root).display(),
-            )),
+    let programs =
+        (builds.entries.iter().zip(prefixes)).filter(|(b, _)| b.platform == Platform::Node);
+    for (built, prefix) in programs {
+        if let Err(e) = running.start(built, prefix, &send_line) {
+            console::report(console, &no_node(&e), Compat::LATEST);
+            drop(send_line);
+            return running.drain(console, &mut caught, Some(Stop::Terminate), 1);
         }
     }
     drop(send_line);
     running.supervise(console, &mut caught)
+}
+
+/// Serves each browser program of `entries`, the `nth` on its entry's
+/// `port` or [`FIRST_PORT`] plus `nth`, saying where after its prefix of
+/// `prefixes`; the servers, or `None` once what went wrong is shown.
+fn servers(
+    console: &mut dyn Console,
+    root: &Path,
+    entries: &[EntryBuilt<'_>],
+    prefixes: &[String],
+) -> Option<Vec<Server>> {
+    let browser = (entries.iter().zip(prefixes)).filter(|(b, _)| b.platform == Platform::Browser);
+    let mut servers = Vec::new();
+    for (nth, (built, prefix)) in browser.enumerate() {
+        let dir = root.join(&built.member.dir);
+        let nth = u16::try_from(nth).unwrap_or(u16::MAX);
+        let served = serve(Served {
+            main: &built
+                .member
+                .dir
+                .join(&built.entry.main)
+                .display()
+                .to_string(),
+            output: &built.output,
+            module: &built.module,
+            static_dir: built.entry.static_dir.as_ref().map(|d| dir.join(d)),
+            port: (built.entry.port).unwrap_or_else(|| FIRST_PORT.saturating_add(nth)),
+            from: root,
+        });
+        match served {
+            Ok(server) => {
+                console.err(&serving(prefix, &built.entry.main, &server));
+                servers.push(server);
+            }
+            Err(report) => {
+                console::report(console, &report, Compat::LATEST);
+                return None;
+            }
+        }
+    }
+    Some(servers)
 }
 
 /// Each entry's prefix, `[member] `, padded to the longest: the member by
@@ -157,10 +201,12 @@ struct Program {
     ended: Option<ExitStatus>,
 }
 
-/// The programs started, and the threads reading their lines.
+/// The programs started, the threads reading their lines, and the
+/// servers serving the browser programs.
 struct Running {
     programs: Vec<Program>,
     readers: Vec<JoinHandle<()>>,
+    servers: Vec<Server>,
     lines: Receiver<Line>,
 }
 
@@ -197,9 +243,9 @@ impl Running {
         Ok(())
     }
 
-    /// Shows the programs' lines until they have all ended, stopping the
-    /// others when one fails or nomi is sent SIGINT or SIGTERM; the code
-    /// to exit with.
+    /// Shows the programs' lines until they have all ended and nothing is
+    /// served, stopping the others when one fails or nomi is sent SIGINT
+    /// or SIGTERM; the code to exit with.
     fn supervise(mut self, console: &mut dyn Console, caught: &mut Caught) -> u8 {
         loop {
             self.show(console);
@@ -213,7 +259,7 @@ impl Running {
             if let Some(code) = failed {
                 return self.drain(console, caught, Some(Stop::Terminate), code);
             }
-            if self.ended() {
+            if self.ended() && self.servers.is_empty() {
                 return self.drain(console, caught, None, 0);
             }
         }
@@ -221,9 +267,9 @@ impl Running {
 
     /// Stops every program still running, sending each `signal` at once
     /// where given (a terminal's reaches them already), waits for them
-    /// together within [`GRACE`] and kills those left, then shows every
-    /// last line; `code`, or 130 if SIGINT comes again meanwhile, which
-    /// kills them all at once.
+    /// together within [`GRACE`] and kills those left, then stops the
+    /// servers and shows every last line; `code`, or 130 if SIGINT comes
+    /// again meanwhile, which kills them all at once.
     fn drain(
         mut self,
         console: &mut dyn Console,
@@ -251,6 +297,7 @@ impl Running {
             self.show(console);
             self.reap();
         }
+        self.servers.clear();
         // The readers end as the programs' pipes close.
         while let Ok(line) = self.lines.recv() {
             self.print(console, &line);
